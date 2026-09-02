@@ -2,7 +2,7 @@ import { Button } from "./buttons/Button";
 import { Icon } from "./icons/registry";
 
 export interface EmptyStateProps {
-  onAddMusic: () => void;
+  onAddMedia: () => void;
   onAddRemote: () => void;
   onGoToRadio: () => void;
 }
@@ -20,13 +20,13 @@ export function EmptyState(props: EmptyStateProps) {
         </h1>
 
         <p class="text-[var(--color-text-secondary)] mb-2">
-          get started by adding music, connecting to a remote server, or tuning into a radio
+          get started by adding media, connecting to a remote server, or tuning into a radio
           station.
         </p>
 
         <div class="flex gap-3 justify-center">
-          <Button variant="secondary" onClick={props.onAddMusic}>
-            add music
+          <Button variant="secondary" onClick={props.onAddMedia}>
+            add media
           </Button>
 
           <Button variant="primary" onClick={props.onAddRemote}>

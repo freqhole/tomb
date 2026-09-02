@@ -10,6 +10,7 @@ pub mod peer_input;
 pub mod player_row;
 pub mod remote_list;
 pub mod repl;
+pub mod video;
 
 use ratatui::{
     layout::{Alignment, Constraint::*, Layout},
@@ -81,6 +82,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     match body_focus {
         Focus::Landing => landing::draw(frame, body, app),
         Focus::MusicView => music::draw(frame, body, app),
+        Focus::VideoView => video::draw(frame, body, app),
         _ => admin::palette::draw(frame, body, app),
     }
 
@@ -337,6 +339,7 @@ fn view_label(app: &App) -> Span<'static> {
     let label = match focus {
         Focus::Landing => "[home]",
         Focus::MusicView => "[music]",
+        Focus::VideoView => "[video]",
         Focus::PeerInput => "[remote]",
         Focus::RemoteList => "[remotes]",
         Focus::Repl => "[repl]",
@@ -362,6 +365,9 @@ fn footer_hints(app: &App) -> &'static str {
         Focus::ResultActionMenu => "\u{2191}/\u{2193}: pick   enter: open form   esc: cancel",
         Focus::MusicView => {
             "\u{2191}/\u{2193}: move   enter: play   space: pause   n/p: skip   \u{2190}/\u{2192}: seek   -/=: vol   f: favorite   /: repl   esc: home"
+        }
+        Focus::VideoView => {
+            "\u{2191}/\u{2193}: move   enter: detail   e: edit   d: delete   /: repl   esc: home"
         }
         Focus::Repl => {
             "type /command   tab: complete   \u{2191}/\u{2193}: history   enter: run   esc: cancel"

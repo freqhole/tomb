@@ -3,6 +3,7 @@ import type { Meta, StoryObj } from "storybook-solidjs-vite";
 import type { MenuAction } from "../src/components/overlays/ContextMenu";
 import { QueueSidebar } from "../src/components/player/QueueSidebar";
 import type { Song } from "../src/music/data/types";
+import { songToMediaItem, type MediaItem } from "../src/app/services/storage/mediaItem";
 import { generateBulkSongs } from "./mockData";
 
 const meta = {
@@ -54,13 +55,13 @@ export const Interactive: Story = {
       setLoadingSongIds(next);
     };
 
-    const handleSongClick = (index: number) => {
-      console.log("song clicked:", index);
+    const handleItemClick = (index: number) => {
+      console.log("item clicked:", index);
       setCurrentIndex(index);
     };
 
-    const handleSongDoubleClick = (index: number) => {
-      console.log("song double-clicked (play):", index);
+    const handleItemDoubleClick = (index: number) => {
+      console.log("item double-clicked (play):", index);
       setCurrentIndex(index);
       setCurrentTime(0);
     };
@@ -80,51 +81,55 @@ export const Interactive: Story = {
       setCurrentIndex(0);
     };
 
-    const getContextMenuActions = (index: number, song: Song): MenuAction[] => [
-      {
-        label: "play now",
-        icon: "play" as const,
-        onClick: () => {
-          setCurrentIndex(index);
-          setCurrentTime(0);
+    const getContextMenuActions = (index: number, item: MediaItem): MenuAction[] => {
+      if (item.kind !== "song") return [];
+      const song = item.song;
+      return [
+        {
+          label: "play now",
+          icon: "play" as const,
+          onClick: () => {
+            setCurrentIndex(index);
+            setCurrentTime(0);
+          },
         },
-      },
-      {
-        type: "separator",
-      },
-      {
-        label: "toggle loading state",
-        icon: "loader" as const,
-        onClick: () => toggleLoading(song.sha256),
-      },
-      {
-        type: "separator",
-      },
-      {
-        label: "add to playlist",
-        icon: "add" as const,
-        onClick: () => console.log("add to playlist:", song.title),
-      },
-      {
-        label: "view album",
-        icon: "album" as const,
-        onClick: () => console.log("view album for:", song.title),
-      },
-      {
-        label: "view artist",
-        icon: "artist" as const,
-        onClick: () => console.log("view artist:", song.artist_name),
-      },
-      {
-        type: "separator",
-      },
-      {
-        label: "remove from queue",
-        icon: "close" as const,
-        onClick: () => handleRemoveSong(index),
-        destructive: true,
-      },
-    ];
+        {
+          type: "separator",
+        },
+        {
+          label: "toggle loading state",
+          icon: "loader" as const,
+          onClick: () => toggleLoading(song.sha256),
+        },
+        {
+          type: "separator",
+        },
+        {
+          label: "add to playlist",
+          icon: "add" as const,
+          onClick: () => console.log("add to playlist:", song.title),
+        },
+        {
+          label: "view album",
+          icon: "album" as const,
+          onClick: () => console.log("view album for:", song.title),
+        },
+        {
+          label: "view artist",
+          icon: "artist" as const,
+          onClick: () => console.log("view artist:", song.artist_name),
+        },
+        {
+          type: "separator",
+        },
+        {
+          label: "remove from queue",
+          icon: "close" as const,
+          onClick: () => handleRemoveSong(index),
+          destructive: true,
+        },
+      ];
+    };
 
     // simulate playback progress
     const interval = setInterval(() => {
@@ -263,20 +268,20 @@ export const Interactive: Story = {
         {/* queue sidebar */}
         <QueueSidebar
           historyEntries={[]}
-          songs={songs()}
+          items={songs().map(songToMediaItem)}
           currentIndex={currentIndex()}
           upNextIndex={upNextIndex()}
           isOpen={isOpen()}
           variant="inline"
           onClose={() => setIsOpen(false)}
-          onSongClick={handleSongClick}
-          onSongDoubleClick={handleSongDoubleClick}
-          onRemoveSong={handleRemoveSong}
+          onItemClick={handleItemClick}
+          onItemDoubleClick={handleItemDoubleClick}
+          onRemoveItem={handleRemoveSong}
           onClearAll={handleClearAll}
           getContextMenuActions={getContextMenuActions}
           currentTime={currentTime()}
           duration={currentSong()?.duration_seconds}
-          loadingSongIds={loadingSongIds()}
+          loadingIds={loadingSongIds()}
         />
       </div>
     );

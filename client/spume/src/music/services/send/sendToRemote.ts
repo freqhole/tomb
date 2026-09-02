@@ -49,16 +49,10 @@ const {
   SyncPlaylistResponseSchema,
   SyncSongByBlake3ResponseSchema,
 } = schema;
-import {
-  getTransportForRemote,
-  isP2PTransportType,
-} from "../../../app/api/client";
+import { getTransportForRemote, isP2PTransportType } from "../../../app/api/client";
 import { extractNodeIdStrict } from "../../../app/services/remotes/peerAddr";
 import { getLocalNodeId } from "../../../app/services/charnel";
-import {
-  isP2PRemote,
-  type Remote,
-} from "../../../app/services/storage/schemas/remote";
+import { isP2PRemote, type Remote } from "../../../app/services/storage/schemas/remote";
 import { debug, info, warn, error as logError } from "../../../utils/logger";
 import type { RemoteSong } from "../../data/remote/adapters";
 import type { ImageMetadata } from "../storage/types";
@@ -144,7 +138,7 @@ export interface SendOptions {
 export class SendToRemoteError extends Error {
   constructor(
     message: string,
-    public readonly progress: SendProgress,
+    public readonly progress: SendProgress
   ) {
     super(message);
     this.name = "SendToRemoteError";
@@ -169,15 +163,23 @@ class EnvelopeError extends Error {
   readonly errorType?: string;
   readonly title?: string;
   readonly detail?: string;
+  /** every `ErrorDetail` the response carried, in order (see unwrapEnvelope). */
+  readonly errors?: Array<{ errorType?: string; title?: string; detail?: string }>;
   constructor(
     message: string,
-    opts?: { errorType?: string; title?: string; detail?: string },
+    opts?: {
+      errorType?: string;
+      title?: string;
+      detail?: string;
+      errors?: Array<{ errorType?: string; title?: string; detail?: string }>;
+    }
   ) {
     super(message);
     this.name = "EnvelopeError";
     this.errorType = opts?.errorType;
     this.title = opts?.title;
     this.detail = opts?.detail;
+    this.errors = opts?.errors;
   }
 }
 
@@ -185,7 +187,7 @@ function unwrapEnvelope<T>(
   label: string,
   body: string,
   status: number,
-  parse: (v: unknown) => { success: true; data: T } | { success: false; error: { message: string } },
+  parse: (v: unknown) => { success: true; data: T } | { success: false; error: { message: string } }
 ): T {
   if (status < 200 || status >= 300) {
     throw new EnvelopeError(`${label}: http ${status}: ${body}`);
@@ -202,12 +204,26 @@ function unwrapEnvelope<T>(
     throw new EnvelopeError(`${label}: invalid json response: ${String(e)}`);
   }
   if (raw?.success === false) {
-    const first = raw.errors?.[0];
+    const allErrors = raw.errors ?? [];
+    const first = allErrors[0];
     const detail = first?.detail ?? raw.message ?? "server reported failure";
-    throw new EnvelopeError(`${label}: ${detail}`, {
+    // combine every ErrorDetail's text into the message shown by default,
+    // while still exposing the first entry's error_type as the primary
+    // classification and the full array for callers that want to inspect
+    // every error (only the first one drove `detail` above previously).
+    const combinedDetail =
+      allErrors.length > 1
+        ? allErrors.map((e) => e.detail ?? e.title ?? "unknown error").join("; ")
+        : detail;
+    throw new EnvelopeError(`${label}: ${combinedDetail}`, {
       errorType: first?.error_type,
       title: first?.title,
       detail: first?.detail,
+      errors: allErrors.map((e) => ({
+        errorType: e.error_type,
+        title: e.title,
+        detail: e.detail,
+      })),
     });
   }
   const inner = raw?.data ?? raw;
@@ -227,7 +243,7 @@ export async function sendToRemote(
   payload: SendPayload,
   source: Remote,
   dest: Remote,
-  opts: SendOptions = {},
+  opts: SendOptions = {}
 ): Promise<SendProgress> {
   const sendId = newSendId();
   const lp = `[send:${sendId}]`;
@@ -237,11 +253,10 @@ export async function sendToRemote(
 
   info(
     TAG,
-    `${lp} start: kind=${payload.kind} source=${source.remote_id}(${source.name ?? "?"}) dest=${dest.remote_id}(${dest.name ?? "?"}) concurrency=${concurrency} skipExisting=${skipExisting} retry=${retrySet ? retrySet.size : 0}`,
+    `${lp} start: kind=${payload.kind} source=${source.remote_id}(${source.name ?? "?"}) dest=${dest.remote_id}(${dest.name ?? "?"}) concurrency=${concurrency} skipExisting=${skipExisting} retry=${retrySet ? retrySet.size : 0}`
   );
 
-  const songs =
-    payload.kind === "song" ? [payload.song] : payload.songs;
+  const songs = payload.kind === "song" ? [payload.song] : payload.songs;
   const progress: SendProgress = {
     phase: "preparing",
     totalSongs: songs.length,
@@ -260,11 +275,11 @@ export async function sendToRemote(
   if (!destOk) {
     logError(
       TAG,
-      `${lp} invalid dest transport: dest=${dest.remote_id} is_charnel=${dest.is_charnel_managed}`,
+      `${lp} invalid dest transport: dest=${dest.remote_id} is_charnel=${dest.is_charnel_managed}`
     );
     throw new SendToRemoteError(
       "destination must be a p2p remote or the local charnel app",
-      progress,
+      progress
     );
   }
   let sourceNodeId: string | null = null;
@@ -277,20 +292,14 @@ export async function sendToRemote(
   if (!sourceNodeId) {
     logError(
       TAG,
-      `${lp} no source node id: source=${source.remote_id} is_charnel=${source.is_charnel_managed} is_p2p=${isP2PRemote(source)}`,
+      `${lp} no source node id: source=${source.remote_id} is_charnel=${source.is_charnel_managed} is_p2p=${isP2PRemote(source)}`
     );
-    throw new SendToRemoteError(
-      "source remote has no usable iroh node id",
-      progress,
-    );
+    throw new SendToRemoteError("source remote has no usable iroh node id", progress);
   }
+  info(TAG, `${lp} source_node_id=${sourceNodeId} (full, 64-hex)`);
   info(
     TAG,
-    `${lp} source_node_id=${sourceNodeId} (full, 64-hex)`,
-  );
-  info(
-    TAG,
-    `${lp} source.peer_addr=${isP2PRemote(source) ? source.peer_addr : "(not p2p)"} source.is_charnel_managed=${source.is_charnel_managed} source.name=${source.name}`,
+    `${lp} source.peer_addr=${isP2PRemote(source) ? source.peer_addr : "(not p2p)"} source.is_charnel_managed=${source.is_charnel_managed} source.name=${source.name}`
   );
 
   const destTransport = await getTransportForRemote(dest);
@@ -307,13 +316,8 @@ export async function sendToRemote(
   const skippedNoHash = retrySet ? 0 : songs.length - eligibleSongs.length;
   if (skippedNoHash > 0) {
     progress.skippedSongs += skippedNoHash;
-    progress.errors.push(
-      `${skippedNoHash} song(s) skipped — no blake3/sha256 available`,
-    );
-    warn(
-      TAG,
-      `${lp} ${skippedNoHash} of ${songs.length} songs skipped (no blake3/sha256)`,
-    );
+    progress.errors.push(`${skippedNoHash} song(s) skipped — no blake3/sha256 available`);
+    warn(TAG, `${lp} ${skippedNoHash} of ${songs.length} songs skipped (no blake3/sha256)`);
     emit();
   }
   info(TAG, `${lp} eligible songs: ${eligibleSongs.length}`);
@@ -332,7 +336,7 @@ export async function sendToRemote(
       const resp = await destTransport.request(
         "POST",
         "/api/blobz/has",
-        JSON.stringify({ blake3s }),
+        JSON.stringify({ blake3s })
       );
       debug(TAG, `${lp} /api/blobz/has -> http ${resp.status}`);
       if (resp.status >= 200 && resp.status < 300) {
@@ -341,15 +345,9 @@ export async function sendToRemote(
         const parsed = HasBlobsResponseSchema.safeParse(inner);
         if (parsed.success) {
           alreadyPresent = new Set(parsed.data.blake3s_present);
-          info(
-            TAG,
-            `${lp} dest already has ${alreadyPresent.size}/${blake3s.length} blobs`,
-          );
+          info(TAG, `${lp} dest already has ${alreadyPresent.size}/${blake3s.length} blobs`);
         } else {
-          warn(
-            TAG,
-            `${lp} /api/blobz/has returned invalid shape: ${parsed.error.message}`,
-          );
+          warn(TAG, `${lp} /api/blobz/has returned invalid shape: ${parsed.error.message}`);
         }
       }
     } catch (e) {
@@ -381,25 +379,18 @@ export async function sendToRemote(
 
     info(
       TAG,
-      `${lp} POST /api/sync/album title="${payload.title}" artist="${payload.artistName}" expected_songs=${expected.length}`,
+      `${lp} POST /api/sync/album title="${payload.title}" artist="${payload.artistName}" expected_songs=${expected.length}`
     );
     try {
-      const resp = await destTransport.request(
-        "POST",
-        "/api/sync/album",
-        JSON.stringify(albumReq),
-      );
+      const resp = await destTransport.request("POST", "/api/sync/album", JSON.stringify(albumReq));
       debug(TAG, `${lp} /api/sync/album -> http ${resp.status}`);
-      const data = unwrapEnvelope<SyncAlbumResponse>(
-        "sync_album",
-        resp.body,
-        resp.status,
-        (v) => SyncAlbumResponseSchema.safeParse(v),
+      const data = unwrapEnvelope<SyncAlbumResponse>("sync_album", resp.body, resp.status, (v) =>
+        SyncAlbumResponseSchema.safeParse(v)
       );
       destAlbumId = data.album_id;
       info(
         TAG,
-        `${lp} sync_album ok: album_id=${data.album_id} artist_id=${data.artist_id} existing=${data.existing}`,
+        `${lp} sync_album ok: album_id=${data.album_id} artist_id=${data.artist_id} existing=${data.existing}`
       );
     } catch (e) {
       progress.phase = "failed";
@@ -443,17 +434,13 @@ export async function sendToRemote(
   progress.phase = "syncing-songs";
   emit();
 
-  info(
-    TAG,
-    `${lp} song phase: ${eligibleSongs.length} song(s), concurrency=${concurrency}`,
-  );
+  info(TAG, `${lp} song phase: ${eligibleSongs.length} song(s), concurrency=${concurrency}`);
 
   // when the payload is an album, propagate the album_type so the server's
   // per-song find_or_create_album_for_artist call doesn't auto-flip the
   // existing album_type back to "album" (clobbering a compilation set by
   // sync_album).
-  const songIsCompilation =
-    payload.kind === "album" && payload.albumType === "compilation";
+  const songIsCompilation = payload.kind === "album" && payload.albumType === "compilation";
 
   // for album / playlist payloads we ALWAYS call sync_song_by_blake3 even
   // when the dest already has the blob: the server's blake3 shortcut is
@@ -461,8 +448,7 @@ export async function sendToRemote(
   // junctions. skipping these calls would leave previously-imported songs
   // orphaned from the freshly-created dest album (the classic "missing
   // last song" symptom on partial-album sync).
-  const reconcileEvenIfPresent =
-    payload.kind === "album" || payload.kind === "playlist";
+  const reconcileEvenIfPresent = payload.kind === "album" || payload.kind === "playlist";
 
   await runWithConcurrency(eligibleSongs, concurrency, async (song) => {
     const blake3 = song.blake3 as string;
@@ -489,7 +475,7 @@ export async function sendToRemote(
       progress.errors.push(`skipped ${song.title} — no blake3/sha256`);
       warn(
         TAG,
-        `${lp} skipping "${song.title}" — no blake3/sha256 (shouldn't happen after filter)`,
+        `${lp} skipping "${song.title}" — no blake3/sha256 (shouldn't happen after filter)`
       );
       emit();
       return;
@@ -499,26 +485,26 @@ export async function sendToRemote(
     try {
       info(
         TAG,
-        `${lp} POST /api/sync/song-by-blake3 "${song.title}" blake3=${blake3} sha256=${(song.sha256 as string).slice(0, 16)} size=${song.file_size ?? "?"} source_node_id=${sourceNodeId} source_remote=${sourceRemoteId}${blobAlready ? " (blob already on dest, reconciling links)" : ""}`,
+        `${lp} POST /api/sync/song-by-blake3 "${song.title}" blake3=${blake3} sha256=${(song.sha256 as string).slice(0, 16)} size=${song.file_size ?? "?"} source_node_id=${sourceNodeId} source_remote=${sourceRemoteId}${blobAlready ? " (blob already on dest, reconciling links)" : ""}`
       );
       const resp = await destTransport.request(
         "POST",
         "/api/sync/song-by-blake3",
-        JSON.stringify(req),
+        JSON.stringify(req)
       );
       debug(TAG, `${lp} /api/sync/song-by-blake3 -> http ${resp.status}`);
       const data = unwrapEnvelope<SyncSongByBlake3Response>(
         "sync_song_by_blake3",
         resp.body,
         resp.status,
-        (v) => SyncSongByBlake3ResponseSchema.safeParse(v),
+        (v) => SyncSongByBlake3ResponseSchema.safeParse(v)
       );
       destSongId = data.song_id;
       progress.syncedSongs += 1;
       progress.syncedBlake3s.push(blake3);
       info(
         TAG,
-        `${lp} sync_song ok: "${song.title}" song_id=${data.song_id} blob_id=${data.media_blob_id} existing=${data.existing}`,
+        `${lp} sync_song ok: "${song.title}" song_id=${data.song_id} blob_id=${data.media_blob_id} existing=${data.existing}`
       );
     } catch (e) {
       progress.failedSongs += 1;
@@ -526,20 +512,15 @@ export async function sendToRemote(
       const et = e instanceof EnvelopeError ? e.errorType : undefined;
       if (et === "peer_unauthorized") {
         progress.errors.unshift(
-          `access required: ${source.name ?? "source"} has not authorized ${dest.name ?? "dest"} — an access request was sent automatically. accept it on ${source.name ?? "the source"}, then retry the send.`,
+          `access required: ${source.name ?? "source"} has not authorized ${dest.name ?? "dest"} — an access request was sent automatically. accept it on ${source.name ?? "the source"}, then retry the send.`
         );
         logError(
           TAG,
-          `${lp} song sync blocked by peer_unauthorized for "${song.title}" (${shortHash}); knock sent by dest.`,
+          `${lp} song sync blocked by peer_unauthorized for "${song.title}" (${shortHash}); knock sent by dest.`
         );
       } else {
-        progress.errors.unshift(
-          `sync_song_by_blake3 failed for ${song.title}: ${String(e)}`,
-        );
-        logError(
-          TAG,
-          `${lp} song sync failed for "${song.title}" (${shortHash}): ${String(e)}`,
-        );
+        progress.errors.unshift(`sync_song_by_blake3 failed for ${song.title}: ${String(e)}`);
+        logError(TAG, `${lp} song sync failed for "${song.title}" (${shortHash}): ${String(e)}`);
       }
     } finally {
       emit();
@@ -579,33 +560,31 @@ export async function sendToRemote(
       playlistId: payload.playlistId,
       title: payload.title,
       description: payload.description,
-      songBlake3s: songs
-        .map((s) => s.blake3)
-        .filter((b): b is string => !!b),
+      songBlake3s: songs.map((s) => s.blake3).filter((b): b is string => !!b),
     };
     const playlistReq: SyncPlaylistRequest = buildSyncPlaylistRequest(playlistOpts);
 
     info(
       TAG,
-      `${lp} POST /api/sync/playlist title="${payload.title}" songs=${playlistOpts.songBlake3s.length}`,
+      `${lp} POST /api/sync/playlist title="${payload.title}" songs=${playlistOpts.songBlake3s.length}`
     );
     try {
       const resp = await destTransport.request(
         "POST",
         "/api/sync/playlist",
-        JSON.stringify(playlistReq),
+        JSON.stringify(playlistReq)
       );
       debug(TAG, `${lp} /api/sync/playlist -> http ${resp.status}`);
       const data = unwrapEnvelope<SyncPlaylistResponse>(
         "sync_playlist",
         resp.body,
         resp.status,
-        (v) => SyncPlaylistResponseSchema.safeParse(v),
+        (v) => SyncPlaylistResponseSchema.safeParse(v)
       );
       destPlaylistId = data.playlist_id;
       info(
         TAG,
-        `${lp} sync_playlist ok: playlist_id=${data.playlist_id} songs_added=${data.songs_added} stubs=${data.song_stubs_created} missing=${data.missing_song_blake3s.length}`,
+        `${lp} sync_playlist ok: playlist_id=${data.playlist_id} songs_added=${data.songs_added} stubs=${data.song_stubs_created} missing=${data.missing_song_blake3s.length}`
       );
       if (data.missing_song_blake3s.length > 0) {
         const head = data.missing_song_blake3s
@@ -615,7 +594,7 @@ export async function sendToRemote(
         const tail = data.missing_song_blake3s.length > 3 ? "..." : "";
         warn(
           TAG,
-          `${lp} playlist missing ${data.missing_song_blake3s.length} song(s) on dest: ${head}${tail}`,
+          `${lp} playlist missing ${data.missing_song_blake3s.length} song(s) on dest: ${head}${tail}`
         );
       }
     } catch (e) {
@@ -623,10 +602,7 @@ export async function sendToRemote(
       progress.errors.unshift(`sync_playlist failed: ${String(e)}`);
       emit();
       logError(TAG, `${lp} sync_playlist failed: ${String(e)}`);
-      throw new SendToRemoteError(
-        `sync_playlist failed: ${String(e)}`,
-        progress,
-      );
+      throw new SendToRemoteError(`sync_playlist failed: ${String(e)}`, progress);
     }
 
     if (destPlaylistId && payload.images && payload.images.length > 0) {
@@ -666,7 +642,7 @@ export async function sendToRemote(
       const resp = await destTransport.request(
         "POST",
         "/api/blobz/has",
-        JSON.stringify({ blake3s: allBlake3s }),
+        JSON.stringify({ blake3s: allBlake3s })
       );
       if (resp.status >= 200 && resp.status < 300) {
         const rawJson = JSON.parse(resp.body) as { data?: unknown };
@@ -674,45 +650,39 @@ export async function sendToRemote(
         const parsed = HasBlobsResponseSchema.safeParse(inner);
         if (parsed.success) {
           const present = new Set(parsed.data.blake3s_present);
-          const missing = eligibleSongs.filter(
-            (s) => !present.has(s.blake3 as string),
-          );
+          const missing = eligibleSongs.filter((s) => !present.has(s.blake3 as string));
           if (missing.length === 0) {
             info(TAG, `${lp} verify: all ${allBlake3s.length} song(s) present on dest`);
           } else {
             warn(
               TAG,
-              `${lp} verify: ${missing.length}/${allBlake3s.length} song(s) missing on dest, attempting one resync pass`,
+              `${lp} verify: ${missing.length}/${allBlake3s.length} song(s) missing on dest, attempting one resync pass`
             );
             // sequential, no concurrency — these are stragglers, prefer
             // gentle pressure over speed.
             for (const song of missing) {
               const blake3 = song.blake3 as string;
               const shortHash = blake3.slice(0, 16);
-              const req: SyncSongByBlake3Request | null =
-                buildSyncSongByBlake3Request({
-                  remoteName,
-                  sourceRemoteId,
-                  sourceNodeId,
-                  song,
-                  isCompilation: songIsCompilation,
-                });
+              const req: SyncSongByBlake3Request | null = buildSyncSongByBlake3Request({
+                remoteName,
+                sourceRemoteId,
+                sourceNodeId,
+                song,
+                isCompilation: songIsCompilation,
+              });
               if (!req) continue;
               try {
-                info(
-                  TAG,
-                  `${lp} verify: resync "${song.title}" (${shortHash})`,
-                );
+                info(TAG, `${lp} verify: resync "${song.title}" (${shortHash})`);
                 const r = await destTransport.request(
                   "POST",
                   "/api/sync/song-by-blake3",
-                  JSON.stringify(req),
+                  JSON.stringify(req)
                 );
                 const data = unwrapEnvelope<SyncSongByBlake3Response>(
                   "sync_song_by_blake3 (verify)",
                   r.body,
                   r.status,
-                  (v) => SyncSongByBlake3ResponseSchema.safeParse(v),
+                  (v) => SyncSongByBlake3ResponseSchema.safeParse(v)
                 );
                 // recover: drop from failed counters / lists if previously
                 // recorded as failed; bump synced if not already counted.
@@ -727,30 +697,25 @@ export async function sendToRemote(
                 }
                 info(
                   TAG,
-                  `${lp} verify: recovered "${song.title}" song_id=${data.song_id} existing=${data.existing}`,
+                  `${lp} verify: recovered "${song.title}" song_id=${data.song_id} existing=${data.existing}`
                 );
                 emit();
               } catch (e) {
                 warn(
                   TAG,
-                  `${lp} verify: resync failed for "${song.title}" (${shortHash}): ${String(e)}`,
+                  `${lp} verify: resync failed for "${song.title}" (${shortHash}): ${String(e)}`
                 );
                 if (!progress.failedBlake3s.includes(blake3)) {
                   progress.failedBlake3s.push(blake3);
                   progress.failedSongs += 1;
                 }
-                progress.errors.unshift(
-                  `verify resync failed for ${song.title}: ${String(e)}`,
-                );
+                progress.errors.unshift(`verify resync failed for ${song.title}: ${String(e)}`);
                 emit();
               }
             }
           }
         } else {
-          warn(
-            TAG,
-            `${lp} verify: /api/blobz/has returned invalid shape: ${parsed.error.message}`,
-          );
+          warn(TAG, `${lp} verify: /api/blobz/has returned invalid shape: ${parsed.error.message}`);
         }
       } else {
         warn(TAG, `${lp} verify: /api/blobz/has -> http ${resp.status}`);
@@ -764,7 +729,7 @@ export async function sendToRemote(
   emit();
   info(
     TAG,
-    `${lp} done: synced=${progress.syncedSongs} failed=${progress.failedSongs} skipped=${progress.skippedSongs}`,
+    `${lp} done: synced=${progress.syncedSongs} failed=${progress.failedSongs} skipped=${progress.skippedSongs}`
   );
   return progress;
 }
@@ -773,7 +738,7 @@ export async function sendToRemote(
 async function runWithConcurrency<T>(
   items: T[],
   limit: number,
-  worker: (item: T) => Promise<void>,
+  worker: (item: T) => Promise<void>
 ): Promise<void> {
   let nextIndex = 0;
   const runners: Promise<void>[] = [];
@@ -786,7 +751,7 @@ async function runWithConcurrency<T>(
           if (idx >= total) return;
           await worker(items[idx]);
         }
-      })(),
+      })()
     );
   }
   await Promise.all(runners);

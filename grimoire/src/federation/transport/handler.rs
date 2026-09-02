@@ -115,13 +115,54 @@ async fn handle_stream(
         .map(|f| f.max_message_size_bytes())
         .unwrap_or(10 * 1024 * 1024);
     // read the full message as JSON
-    let msg_bytes = recv
-        .read_to_end(max_size)
-        .await
-        .map_err(|e| format!("failed to read message: {}", e))?;
+    let msg_bytes = match recv.read_to_end(max_size).await {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            // distinguish "message exceeds the configured size cap" (a
+            // specific, actionable condition - usually a client trying to
+            // embed a large file directly instead of using a blob-pull
+            // upload path) from a generic transport read failure.
+            let (error, error_type) = if matches!(e, iroh::endpoint::ReadToEndError::TooLong) {
+                (
+                    format!(
+                        "message exceeds this connection's {}mb size limit - large file \
+                         transfers must use a blob-pull upload path instead of embedding \
+                         data directly in the request",
+                        max_size / (1024 * 1024)
+                    ),
+                    "message_too_large",
+                )
+            } else {
+                (
+                    format!("failed to read message: {}", e),
+                    "stream_read_failed",
+                )
+            };
+            let resp = PeerMessage::ErrorResponse {
+                id: None,
+                error: error.clone(),
+                error_type: Some(error_type.to_string()),
+            };
+            // best-effort: the send side may itself be broken, in which case
+            // this is a no-op and the caller still sees the original error.
+            let _ = send_response(&mut send, &resp).await;
+            return Err(error);
+        }
+    };
 
-    let msg: PeerMessage = serde_json::from_slice(&msg_bytes)
-        .map_err(|e| format!("failed to parse message: {}", e))?;
+    let msg: PeerMessage = match serde_json::from_slice(&msg_bytes) {
+        Ok(m) => m,
+        Err(e) => {
+            let error = format!("failed to parse message: {}", e);
+            let resp = PeerMessage::ErrorResponse {
+                id: None,
+                error: error.clone(),
+                error_type: Some("message_parse_failed".to_string()),
+            };
+            let _ = send_response(&mut send, &resp).await;
+            return Err(error);
+        }
+    };
 
     match msg {
         PeerMessage::ApiRequest {
@@ -180,6 +221,7 @@ async fn handle_stream(
                 || path == "/api/auth/webauthn/login/start"
                 || path == "/api/auth/webauthn/login/finish"
                 || path == "/api/upload/music-by-blake3"
+                || path == "/api/upload/video-by-blake3"
             {
                 if let Some(obj) = json_body.as_object_mut() {
                     obj.insert(
@@ -261,6 +303,7 @@ async fn handle_stream(
                                     size: Some(bytes.len() as u64),
                                     content_type: blob.mime.clone(),
                                     error: None,
+                                    error_type: None,
                                 };
                                 send_length_prefixed(&mut send, &resp).await?;
                                 send.write_all(&bytes)
@@ -280,14 +323,17 @@ async fn handle_stream(
                     size: None,
                     content_type: None,
                     error: Some("server image not configured".to_string()),
+                    error_type: Some("hello_image_not_configured".to_string()),
                 };
                 send_length_prefixed(&mut send, &resp).await?;
             } else {
+                let error_type = response.errors.first().map(|e| e.error_type.clone());
                 let resp = PeerMessage::HelloImageResponse {
                     id,
                     size: None,
                     content_type: None,
                     error: Some(response.message),
+                    error_type,
                 };
                 send_length_prefixed(&mut send, &resp).await?;
             }
@@ -313,6 +359,7 @@ async fn handle_stream(
                         id,
                         available: false,
                         error: Some("unauthorized: peer not registered".to_string()),
+                        error_type: Some("unauthorized".to_string()),
                     };
                     send_response(&mut send, &resp).await?;
                     return Ok(());
@@ -320,36 +367,69 @@ async fn handle_stream(
             };
 
             // ensure blob is loaded into FsStore
-            match blobz::ensure_blob_by_blake3(&blake3_hash).await {
-                Ok(available) => {
+            use blobz::EnsureBlobOutcome;
+            let resp = match blobz::ensure_blob_by_blake3(&blake3_hash).await {
+                EnsureBlobOutcome::Available => {
                     tracing::info!(
-                        "ensure_blob_request: result for peer {} blake3 {} -> available={}",
+                        "ensure_blob_request: result for peer {} blake3 {} -> available",
                         node_id_short,
                         &blake3_hash[..16.min(blake3_hash.len())],
-                        available,
                     );
-                    let resp = PeerMessage::EnsureBlobResponse {
+                    PeerMessage::EnsureBlobResponse {
                         id,
-                        available,
+                        available: true,
                         error: None,
-                    };
-                    send_response(&mut send, &resp).await?;
+                        error_type: None,
+                    }
                 }
-                Err(e) => {
+                EnsureBlobOutcome::NoSuchBlob => {
+                    tracing::warn!(
+                        "ensure_blob_request: NO SUCH BLOB for peer {} blake3 {}",
+                        node_id_short,
+                        &blake3_hash[..16.min(blake3_hash.len())],
+                    );
+                    PeerMessage::EnsureBlobResponse {
+                        id,
+                        available: false,
+                        error: Some(
+                            "blob not found: this source has never seen this blake3 hash"
+                                .to_string(),
+                        ),
+                        error_type: Some("blob_not_found".to_string()),
+                    }
+                }
+                EnsureBlobOutcome::LocalFileMissing => {
+                    tracing::error!(
+                        "ensure_blob_request: LOCAL FILE MISSING for peer {} blake3 {}",
+                        node_id_short,
+                        &blake3_hash[..16.min(blake3_hash.len())],
+                    );
+                    PeerMessage::EnsureBlobResponse {
+                        id,
+                        available: false,
+                        error: Some(
+                            "local file missing: media_blob row exists but the local file/data is gone"
+                                .to_string(),
+                        ),
+                        error_type: Some("blob_local_file_missing".to_string()),
+                    }
+                }
+                EnsureBlobOutcome::Error(e) => {
                     tracing::error!(
                         "ensure_blob_request: FAIL for peer {} blake3 {}: {}",
                         node_id_short,
                         &blake3_hash[..16.min(blake3_hash.len())],
                         e,
                     );
-                    let resp = PeerMessage::EnsureBlobResponse {
+                    PeerMessage::EnsureBlobResponse {
                         id,
                         available: false,
                         error: Some(format!("failed to ensure blob: {}", e)),
-                    };
-                    send_response(&mut send, &resp).await?;
+                        error_type: Some(e.error_type()),
+                    }
                 }
-            }
+            };
+            send_response(&mut send, &resp).await?;
         }
 
         PeerMessage::ComputeBlake3Request { id, blob_id } => {
@@ -367,6 +447,7 @@ async fn handle_stream(
                         id,
                         blake3: None,
                         error: Some("unauthorized: peer not registered".to_string()),
+                        error_type: Some("unauthorized".to_string()),
                     };
                     send_response(&mut send, &resp).await?;
                     return Ok(());
@@ -385,6 +466,7 @@ async fn handle_stream(
                         id,
                         blake3: Some(blake3),
                         error: None,
+                        error_type: None,
                     };
                     send_response(&mut send, &resp).await?;
                 }
@@ -394,10 +476,12 @@ async fn handle_stream(
                         blob_id,
                         e
                     );
+                    let error_type = Some(e.error_type());
                     let resp = PeerMessage::ComputeBlake3Response {
                         id,
                         blake3: None,
                         error: Some(format!("failed to compute blake3: {}", e)),
+                        error_type,
                     };
                     send_response(&mut send, &resp).await?;
                 }
@@ -408,7 +492,8 @@ async fn handle_stream(
         PeerMessage::ApiResponse { .. }
         | PeerMessage::HelloImageResponse { .. }
         | PeerMessage::EnsureBlobResponse { .. }
-        | PeerMessage::ComputeBlake3Response { .. } => {
+        | PeerMessage::ComputeBlake3Response { .. }
+        | PeerMessage::ErrorResponse { .. } => {
             debug!("unexpected response message from {}", node_id_short);
         }
     }

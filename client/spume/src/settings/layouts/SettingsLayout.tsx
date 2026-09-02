@@ -1,8 +1,9 @@
 // settings layout - wrapper for all settings pages with navigation
-import { JSX, For, onMount } from "solid-js";
+import { JSX, For, createEffect } from "solid-js";
 import { A, useLocation } from "@solidjs/router";
 import { routes } from "../../music/utils/routing";
-import { isCharnelMode, setWindowTitle } from "../../app/services/charnel";
+import { isCharnelMode } from "../../app/services/charnel";
+import { setAppDocumentTitle } from "../../app/services/documentTitle";
 
 interface SettingsNavItem {
   path: string;
@@ -14,6 +15,7 @@ interface SettingsNavItem {
 const navItems: SettingsNavItem[] = [
   { path: "/settings/storage", label: "storage", icon: "" },
   { path: "/settings/remotes", label: "remotes", icon: "" },
+  { path: "/settings/players", label: "players", icon: "" },
   { path: "/settings/admin-knocks", label: "pending knocks", icon: "" },
   { path: "/settings/federation", label: "federation", icon: "" },
   { path: "/settings/logz", label: "logz", icon: "" },
@@ -23,8 +25,7 @@ const navItems: SettingsNavItem[] = [
 ];
 
 // items that are hidden in charnel/tauri mode because the charnel wizard
-// handles them. (kept here as a placeholder — empty for now since the
-// removed `/settings/radio` page is gone entirely.)
+// handles them already.
 const CHARNEL_HIDES_PATHS = new Set<string>([]);
 
 export function SettingsLayout(props: { children: JSX.Element }) {
@@ -34,21 +35,26 @@ export function SettingsLayout(props: { children: JSX.Element }) {
   const visibleNavItems = () =>
     navItems.filter((item) => !isCharnelMode() || !CHARNEL_HIDES_PATHS.has(item.path));
 
-  // set window/document title for settings
-  onMount(() => {
-    const title = "freqhole ▸ settings";
+  // set window/document title for settings, reactively per sub-route (e.g.
+  // "freqhole ▸ settings ▸ storage") - matches the longest nav item path
+  // prefix so nested routes like /settings/remotes/:id/admin still map to
+  // their section's label.
+  createEffect(() => {
+    const pathname = location.pathname;
+    const match = navItems
+      .filter((item) => pathname === item.path || pathname.startsWith(item.path + "/"))
+      .sort((a, b) => b.path.length - a.path.length)[0];
 
-    document.title = title;
-    if (isCharnelMode()) {
-      setWindowTitle(title);
-    }
+    setAppDocumentTitle(["settings", match?.label]);
   });
 
   return (
     <div
       data-allow-select
       class="min-h-screen bg-[var(--color-bg-primary)]"
-      style={{ "padding-top": "env(safe-area-inset-top, 0px)" }}
+      style={{
+        "padding-top": "calc(env(safe-area-inset-top, 0px) + var(--chrome-top-inset, 0px))",
+      }}
     >
       {/* mobile header */}
       <div class="lg:hidden border-b border-[var(--color-border-subtle)] bg-[var(--color-bg-secondary)]">

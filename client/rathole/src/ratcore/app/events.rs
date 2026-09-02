@@ -607,6 +607,51 @@ pub enum AppAction {
     /// player backend emitted an event (state change, progress tick,
     /// track-changed, error, etc.).
     MusicEvent(MusicEvent),
+    /// query videos (for video view results list).
+    QueryVideos {
+        query: Option<String>,
+        series_id: Option<String>,
+        season_id: Option<String>,
+    },
+    /// video query results arrived.
+    VideoQueryResults {
+        query: Option<String>,
+        result: Result<Vec<super::VideoRow>, String>,
+    },
+    /// update a video's metadata.
+    UpdateVideo {
+        id: String,
+        title: Option<String>,
+        description: Option<String>,
+        episode_number: Option<i64>,
+    },
+    /// video update result arrived.
+    VideoUpdateResult {
+        result: Result<super::VideoRow, String>,
+    },
+    /// delete a video.
+    DeleteVideo { id: String },
+    /// video delete result arrived.
+    VideoDeleteResult {
+        id: String,
+        result: Result<(), String>,
+    },
+    /// list transcoded renditions for the selected video's media blob.
+    ListVideoRenditions { media_blob_id: String },
+    /// rendition list results arrived. `media_blob_id` identifies which
+    /// video the results are for, so a stale reply doesn't clobber the
+    /// list after the user navigates to a different video.
+    VideoRenditionsResult {
+        media_blob_id: String,
+        result: Result<Vec<super::RenditionRow>, String>,
+    },
+    /// hard-delete a single transcoded rendition by blob id.
+    DeleteVideoRendition { blob_id: String },
+    /// rendition delete result arrived.
+    VideoRenditionDeleteResult {
+        blob_id: String,
+        result: Result<(), String>,
+    },
     /// grimoire emitted a `JobProgress` event for one of the in-flight
     /// job sessions. shells forward these into the ui loop so the
     /// top-bar `jobs_status` badge can update.

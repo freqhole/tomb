@@ -65,13 +65,52 @@ pub fn open_setup_wizard_at_route(app: AppHandle<Wry>, route: &str) -> Result<()
         .resizable(true)
         .center()
         .inner_size(800.0, 600.0)
+        .min_inner_size(100.0, 100.0)
         .title("freqhole wizard")
         .theme(Some(Theme::Dark))
         .background_color(Color(0, 0, 0, 255));
 
-    win_builder
+    #[cfg(target_os = "macos")]
+    let chromeless = FreqholeAppConfig::load(&app)
+        .map(|c| c.chromeless_title_bar)
+        .unwrap_or_else(crate::app_config::default_chromeless_title_bar);
+    #[cfg(target_os = "macos")]
+    let win_builder = if chromeless {
+        win_builder.decorations(false)
+    } else {
+        win_builder.title_bar_style(TitleBarStyle::Transparent)
+    };
+    // linux has no TitleBarStyle equivalent - leave native decorations
+    // alone when the toggle is off.
+    #[cfg(target_os = "linux")]
+    let chromeless = FreqholeAppConfig::load(&app)
+        .map(|c| c.chromeless_title_bar)
+        .unwrap_or_else(crate::app_config::default_chromeless_title_bar);
+    #[cfg(target_os = "linux")]
+    let win_builder = if chromeless {
+        win_builder.decorations(false)
+    } else {
+        win_builder
+    };
+
+    #[cfg_attr(not(target_os = "macos"), allow(unused_variables))]
+    let window = win_builder
         .build()
         .map_err(|e: tauri::Error| e.to_string())?;
+
+    // tao's Borderless style mask (used for decorations(false)) never
+    // includes Closable, which silently disables cmd+w / the app-menu close
+    // item (macOS beeps instead) - add it back. called unconditionally
+    // (not just when chromeless) since we can't be fully sure the
+    // TitleBarStyle::Transparent branch is immune to the same issue.
+    #[cfg(target_os = "macos")]
+    {
+        let result = window.set_closable(true);
+        tracing::info!(
+            ?result,
+            "open_setup_wizard_at_route: set_closable(true) called"
+        );
+    }
 
     Ok(())
 }
@@ -291,17 +330,47 @@ pub async fn close_setup_wizard(
         #[cfg(desktop)]
         let win_builder = win_builder
             .inner_size(800.0, 600.0)
+            .min_inner_size(100.0, 100.0)
             .title("")
             .theme(Some(Theme::Dark));
 
         #[cfg(target_os = "macos")]
-        let win_builder = win_builder.title_bar_style(TitleBarStyle::Transparent);
+        let app_config = FreqholeAppConfig::load(&app).unwrap_or_default();
+        #[cfg(target_os = "macos")]
+        let win_builder = if app_config.chromeless_title_bar {
+            win_builder.decorations(false)
+        } else {
+            win_builder.title_bar_style(TitleBarStyle::Transparent)
+        };
+        // linux has no TitleBarStyle equivalent - leave native decorations
+        // alone when the toggle is off.
+        #[cfg(target_os = "linux")]
+        let app_config = FreqholeAppConfig::load(&app).unwrap_or_default();
+        #[cfg(target_os = "linux")]
+        let win_builder = if app_config.chromeless_title_bar {
+            win_builder.decorations(false)
+        } else {
+            win_builder
+        };
 
         let window = win_builder
             .build()
             .map_err(|e: tauri::Error| e.to_string())?;
         // suppress unused variable warning on non-macOS
         let _ = &window;
+
+        // tao's Borderless style mask (used for decorations(false)) never
+        // includes Closable, which silently disables cmd+w / the app-menu
+        // close item (macOS beeps instead) - add it back. unconditional,
+        // see matching comment in open_setup_wizard_at_route above.
+        #[cfg(target_os = "macos")]
+        {
+            let result = window.set_closable(true);
+            tracing::info!(
+                ?result,
+                "close_setup_wizard: set_closable(true) called on main window"
+            );
+        }
 
         #[cfg(target_os = "macos")]
         #[allow(deprecated)]

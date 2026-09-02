@@ -1,4 +1,5 @@
 // local data source implementation - queries indexeddb directly
+import type { IDBPDatabase } from "idb";
 import { generateUUID } from "../../../utils/uuid";
 import {
   addAlbumTag,
@@ -36,20 +37,23 @@ import {
   updateSong,
 } from "../../services/storage/db";
 import { getLocalLibraryName } from "../../../app/services/storage/db";
-import { storeBlob } from "../../services/storage/blobs";
+import { deleteBlob, getBlobObjectURL, storeBlob } from "../../services/storage/blobs";
+import { deleteThumbnailFromOPFS } from "../../services/opfs/helpers";
 import { adaptAlbumFromIDB } from "./adapters";
+import { getVideoDataSource } from "../../../video/data";
 import {
   deletePlaylist as deletePlaylistFromDB,
+  reorderLocalPlaylistItems,
   updatePlaylistSongs,
 } from "../../services/storage/playlists";
 import {
   STORE_ALBUMS,
   STORE_ARTISTS,
-  STORE_PLAYLIST_SONGS,
+  STORE_PLAYLIST_ITEMS,
   STORE_PLAYLISTS,
   STORE_SONGS,
   type Playlist,
-  type PlaylistSong,
+  type PlaylistItem,
   type Song,
 } from "../../services/storage/types";
 import type {
@@ -68,6 +72,33 @@ import type {
   SuggestionsResponse,
 } from "../types";
 import { debug } from "../../../utils/logger";
+
+// count items in a local playlist by entity type (playlist_items is shared
+// across entity types - see STORE_PLAYLIST_ITEMS's doc comment)
+async function countPlaylistItems(
+  db: IDBPDatabase,
+  playlistId: string
+): Promise<{ songs: number; videos: number }> {
+  const items = (await db.getAllFromIndex(
+    STORE_PLAYLIST_ITEMS,
+    "by_playlist_id",
+    playlistId
+  )) as PlaylistItem[];
+  let songs = 0;
+  let videos = 0;
+  for (const item of items) {
+    if (item.entity_type === "song") songs++;
+    else if (item.entity_type === "video") videos++;
+  }
+  return { songs, videos };
+}
+
+async function countPlaylistSongs(
+  db: IDBPDatabase,
+  playlistId: string
+): Promise<number> {
+  return (await countPlaylistItems(db, playlistId)).songs;
+}
 
 
 // return the song's own images (never mix in album images)
@@ -386,11 +417,7 @@ export class LocalMusicDataSource implements MusicDataSource {
           return null;
         }
         
-        const playlistSongs = await db.getAllFromIndex(
-          STORE_PLAYLIST_SONGS,
-          "by_playlist_id",
-          playlist.playlist_id,
-        );
+        const counts = await countPlaylistItems(db, playlist.playlist_id);
 
         const summary: PlaylistSummary = {
           playlist_id: playlist.playlist_id,
@@ -398,7 +425,9 @@ export class LocalMusicDataSource implements MusicDataSource {
           description: playlist.description,
           is_public: playlist.is_public,
           images: adaptDatabaseImages(playlist.images),
-          song_count: playlistSongs.length,
+          urls: playlist.urls,
+          song_count: counts.songs,
+          video_count: counts.videos,
           created_at: playlist.created_at,
           updated_at: playlist.updated_at,
           is_favorite: playlist.is_favorite ?? false,
@@ -437,18 +466,20 @@ export class LocalMusicDataSource implements MusicDataSource {
 
     const db = await initMusicDB();
 
-    // get playlist songs ordered by position
-    const playlistSongs = await db.getAllFromIndex(
-      STORE_PLAYLIST_SONGS,
+    // get playlist songs ordered by position (playlist_items is shared
+    // across entity types - see STORE_PLAYLIST_ITEMS's doc comment)
+    const allItems = (await db.getAllFromIndex(
+      STORE_PLAYLIST_ITEMS,
       "by_playlist_id",
       playlistId,
-    );
+    )) as PlaylistItem[];
+    const playlistSongs = allItems.filter((item) => item.entity_type === "song");
 
     // sort by position
     playlistSongs.sort((a, b) => a.position - b.position);
 
     // get song_ids for querySongsWithDetails
-    const songIds = playlistSongs.map((ps) => ps.song_id);
+    const songIds = playlistSongs.map((ps) => ps.entity_id);
 
     // use querySongsWithDetails to get fully hydrated songs
     const results = await querySongsWithDetails({
@@ -457,10 +488,25 @@ export class LocalMusicDataSource implements MusicDataSource {
 
     const songsWithImages = enrichSongsWithImages(results);
 
-    // maintain playlist order
+    // maintain playlist order, attaching each song's shared playlist
+    // position/added_at (see Song's playlist_item_position doc comment)
     const songMap = new Map(songsWithImages.map((song) => [song.id, song]));
+    const playlistItemBySongId = new Map(
+      playlistSongs.map((ps) => [ps.entity_id, ps]),
+    );
     const songs = songIds
-      .map((id) => songMap.get(id))
+      .map((id) => {
+        const song = songMap.get(id);
+        if (!song) return undefined;
+        const item = playlistItemBySongId.get(id);
+        return item
+          ? {
+              ...song,
+              playlist_item_position: item.position,
+              playlist_item_added_at: item.added_at,
+            }
+          : song;
+      })
       .filter((s) => s !== undefined) as Song[];
 
     // apply pagination
@@ -514,6 +560,7 @@ export class LocalMusicDataSource implements MusicDataSource {
       description?: string | null;
       is_public?: boolean | null;
       images?: ImageMetadata[] | null;
+      entity_urls?: Array<{ id?: string | null; name?: string | null; url: string }> | null;
     },
   ): Promise<PlaylistSummary> {
     const db = await initMusicDB();
@@ -536,17 +583,20 @@ export class LocalMusicDataSource implements MusicDataSource {
     if (params.images !== undefined) {
       playlist.images = params.images || undefined;
     }
+    if (params.entity_urls !== undefined) {
+      playlist.urls = (params.entity_urls || []).map((u) => ({
+        id: u.id || generateUUID(),
+        name: u.name || undefined,
+        url: u.url,
+      }));
+    }
 
     playlist.updated_at = Date.now();
 
     await db.put(STORE_PLAYLISTS, playlist);
 
     // get song count
-    const playlistSongs = await db.getAllFromIndex(
-      STORE_PLAYLIST_SONGS,
-      "by_playlist_id",
-      playlistId,
-    );
+    const songCount = await countPlaylistSongs(db, playlistId);
 
     return {
       playlist_id: playlist.playlist_id,
@@ -554,7 +604,8 @@ export class LocalMusicDataSource implements MusicDataSource {
       description: playlist.description,
       is_public: playlist.is_public,
       images: playlist.images,
-      song_count: playlistSongs.length,
+      urls: playlist.urls,
+      song_count: songCount,
       created_at: playlist.created_at,
       updated_at: playlist.updated_at,
     };
@@ -580,74 +631,6 @@ export class LocalMusicDataSource implements MusicDataSource {
     await deleteArtistCascade(artistId);
   }
 
-  async addSongsToPlaylist(
-    playlistId: string,
-    songIds: string[],
-  ): Promise<void> {
-    const db = await initMusicDB();
-
-    // get current max position
-    const existingSongs = await db.getAllFromIndex(
-      STORE_PLAYLIST_SONGS,
-      "by_playlist_id",
-      playlistId,
-    );
-
-    let maxPosition = 0;
-    for (const ps of existingSongs) {
-      if (ps.position > maxPosition) {
-        maxPosition = ps.position;
-      }
-    }
-
-    // add new songs
-    const now = Date.now();
-    for (let i = 0; i < songIds.length; i++) {
-      const songId = songIds[i];
-
-      // check if song already exists in playlist
-      const existing = existingSongs.find((ps) => ps.song_id === songId);
-      if (existing) {
-        continue; // skip duplicates
-      }
-
-      const playlistSong: PlaylistSong = {
-        playlist_id: playlistId,
-        song_id: songId,
-        position: maxPosition + i + 1,
-        added_at: now,
-      };
-
-      await db.put(STORE_PLAYLIST_SONGS, playlistSong);
-    }
-
-    // update playlist updated_at
-    const playlist = await db.get(STORE_PLAYLISTS, playlistId);
-    if (playlist) {
-      playlist.updated_at = Date.now();
-      await db.put(STORE_PLAYLISTS, playlist);
-    }
-  }
-
-  async removeSongsFromPlaylist(
-    playlistId: string,
-    songIds: string[],
-  ): Promise<void> {
-    const db = await initMusicDB();
-
-    // delete each song from playlist
-    for (const songId of songIds) {
-      await db.delete(STORE_PLAYLIST_SONGS, [playlistId, songId]);
-    }
-
-    // update playlist updated_at
-    const playlist = await db.get(STORE_PLAYLISTS, playlistId);
-    if (playlist) {
-      playlist.updated_at = Date.now();
-      await db.put(STORE_PLAYLISTS, playlist);
-    }
-  }
-
   async reorderPlaylistSongs(
     playlistId: string,
     songIds: string[],
@@ -655,19 +638,21 @@ export class LocalMusicDataSource implements MusicDataSource {
   ): Promise<void> {
     const db = await initMusicDB();
 
-    // get all songs in playlist
-    const allSongs = await db.getAllFromIndex(
-      STORE_PLAYLIST_SONGS,
+    // get all song-typed items in playlist (playlist_items is shared
+    // across entity types - see STORE_PLAYLIST_ITEMS's doc comment)
+    const allItems = (await db.getAllFromIndex(
+      STORE_PLAYLIST_ITEMS,
       "by_playlist_id",
       playlistId,
-    );
+    )) as PlaylistItem[];
+    const allSongs = allItems.filter((item) => item.entity_type === "song");
 
     // sort by position
     allSongs.sort((a, b) => a.position - b.position);
 
     // find songs to move
-    const songsToMove = allSongs.filter((ps) => songIds.includes(ps.song_id));
-    const songsToKeep = allSongs.filter((ps) => !songIds.includes(ps.song_id));
+    const songsToMove = allSongs.filter((ps) => songIds.includes(ps.entity_id));
+    const songsToKeep = allSongs.filter((ps) => !songIds.includes(ps.entity_id));
 
     // insert moved songs at new position (1-based index -> 0-based)
     const targetIndex = newPosition - 1;
@@ -679,7 +664,7 @@ export class LocalMusicDataSource implements MusicDataSource {
 
     // update positions
     const updates = reordered.map((song, index) => ({
-      song_id: song.song_id,
+      song_id: song.entity_id,
       position: index + 1,
     }));
 
@@ -693,6 +678,14 @@ export class LocalMusicDataSource implements MusicDataSource {
     }
   }
 
+  async reorderPlaylistItems(
+    playlistId: string,
+    orderedItems: Array<{ entity_type: "song" | "video"; entity_id: string }>,
+  ): Promise<void> {
+    const db = await initMusicDB();
+    await reorderLocalPlaylistItems(db, playlistId, orderedItems);
+  }
+
   // mutations
   async setFavorite(params: {
     targetType: FavoriteTarget;
@@ -702,11 +695,7 @@ export class LocalMusicDataSource implements MusicDataSource {
     const db = await initMusicDB();
 
     // use db helper to update favorites table
-    await dbSetFavorite(
-      params.targetType as "song" | "album" | "artist" | "playlist",
-      params.targetId,
-      params.isFavorite,
-    );
+    await dbSetFavorite(params.targetType, params.targetId, params.isFavorite);
 
     // also update denormalized is_favorite field in the main record
     if (params.targetType === "song") {
@@ -748,7 +737,7 @@ export class LocalMusicDataSource implements MusicDataSource {
   }
 
   async setRating(params: {
-    targetType: "song" | "album" | "artist";
+    targetType: "song" | "album" | "artist" | "video";
     targetId: string;
     rating: number;
   }): Promise<void> {
@@ -1032,7 +1021,19 @@ export class LocalMusicDataSource implements MusicDataSource {
       blob_type: 'thumbnail',
     };
 
-    if (params.entityType === "album") {
+    if (params.entityType === "song") {
+      const song = await db.get(STORE_SONGS, params.entityId);
+      if (song) {
+        const images = song.images || [];
+        if (params.isPrimary) {
+          images.forEach((img: ImageMetadata) => img.is_primary = false);
+        }
+        images.push(imageMetadata);
+        song.images = images;
+        song.updated_at = Date.now();
+        await db.put(STORE_SONGS, song);
+      }
+    } else if (params.entityType === "album") {
       const album = await db.get(STORE_ALBUMS, params.entityId);
       if (album) {
         const images = album.images || [];
@@ -1075,22 +1076,134 @@ export class LocalMusicDataSource implements MusicDataSource {
     return { blob_id: blobId, job_id: '' };
   }
 
-  async getEntityImages(_params: {
+  async getEntityImages(params: {
     entityType: 'song' | 'artist' | 'album' | 'playlist';
     entityId: string;
   }): Promise<string[]> {
-    // TODO: implement reading from OPFS
-    // for now return empty array
-    return [];
+    const db = await initMusicDB();
+
+    let images: ImageMetadata[] = [];
+    if (params.entityType === "song") {
+      const song = await db.get(STORE_SONGS, params.entityId);
+      images = song?.images || [];
+    } else if (params.entityType === "album") {
+      const album = await db.get(STORE_ALBUMS, params.entityId);
+      images = album?.images || [];
+    } else if (params.entityType === "artist") {
+      const artist = await db.get(STORE_ARTISTS, params.entityId);
+      images = artist?.images || [];
+    } else if (params.entityType === "playlist") {
+      const playlist = await db.get(STORE_PLAYLISTS, params.entityId);
+      images = playlist?.images || [];
+    }
+
+    // resolve to display URLs, matching remoteSource's string[] contract
+    const urls = await Promise.all(
+      images.map((img) =>
+        img.local_blob_id ? getBlobObjectURL(img.local_blob_id) : Promise.resolve(img.remote_url ?? null)
+      )
+    );
+    return urls.filter((url): url is string => !!url);
   }
 
-  async removeImage(_params: {
+  async removeImage(params: {
     entityType: 'song' | 'artist' | 'album' | 'playlist';
     entityId: string;
     blobId: string;
   }): Promise<void> {
-    // TODO: implement OPFS deletion
-    throw new Error("local image removal not yet implemented");
+    const db = await initMusicDB();
+
+    const withoutRemoved = (images: ImageMetadata[]): ImageMetadata[] => {
+      const remaining = images.filter((img) => img.local_blob_id !== params.blobId);
+      if (remaining.length > 0 && !remaining.some((img) => img.is_primary)) {
+        remaining[0].is_primary = true;
+      }
+      return remaining;
+    };
+
+    if (params.entityType === "song") {
+      const song = await db.get(STORE_SONGS, params.entityId);
+      if (song) {
+        song.images = withoutRemoved(song.images || []);
+        song.updated_at = Date.now();
+        await db.put(STORE_SONGS, song);
+      }
+    } else if (params.entityType === "album") {
+      const album = await db.get(STORE_ALBUMS, params.entityId);
+      if (album) {
+        album.images = withoutRemoved(album.images || []);
+        album.updated_at = Date.now();
+        await db.put(STORE_ALBUMS, album);
+      }
+    } else if (params.entityType === "artist") {
+      const artist = await db.get(STORE_ARTISTS, params.entityId);
+      if (artist) {
+        artist.images = withoutRemoved(artist.images || []);
+        artist.updated_at = Date.now();
+        await db.put(STORE_ARTISTS, artist);
+      }
+    } else if (params.entityType === "playlist") {
+      const playlist = await db.get(STORE_PLAYLISTS, params.entityId);
+      if (playlist) {
+        playlist.images = withoutRemoved(playlist.images || []);
+        playlist.updated_at = Date.now();
+        await db.put(STORE_PLAYLISTS, playlist);
+      }
+    }
+
+    // best-effort blob cleanup - try the current blob store first, then
+    // fall back to the legacy OPFS thumbnail path (mirrors cascades.ts's
+    // deleteAlbumCascade/deleteArtistCascade fallback)
+    try {
+      await deleteBlob(params.blobId);
+    } catch {
+      try {
+        await deleteThumbnailFromOPFS(params.blobId);
+      } catch {
+        // ignore - blob may not exist in either location
+      }
+    }
+  }
+
+  async setPrimaryImage(params: {
+    entityType: 'song' | 'artist' | 'album' | 'playlist';
+    entityId: string;
+    blobId: string;
+  }): Promise<void> {
+    const db = await initMusicDB();
+
+    const withPrimarySet = (images: ImageMetadata[]): ImageMetadata[] =>
+      images.map((img) => ({ ...img, is_primary: img.local_blob_id === params.blobId }));
+
+    if (params.entityType === "song") {
+      const song = await db.get(STORE_SONGS, params.entityId);
+      if (song) {
+        song.images = withPrimarySet(song.images || []);
+        song.updated_at = Date.now();
+        await db.put(STORE_SONGS, song);
+      }
+    } else if (params.entityType === "album") {
+      const album = await db.get(STORE_ALBUMS, params.entityId);
+      if (album) {
+        album.images = withPrimarySet(album.images || []);
+        album.updated_at = Date.now();
+        await db.put(STORE_ALBUMS, album);
+      }
+    } else if (params.entityType === "artist") {
+      const artist = await db.get(STORE_ARTISTS, params.entityId);
+      if (artist) {
+        artist.images = withPrimarySet(artist.images || []);
+        artist.updated_at = Date.now();
+        await db.put(STORE_ARTISTS, artist);
+      }
+    } else if (params.entityType === "playlist") {
+      const playlist = await db.get(STORE_PLAYLISTS, params.entityId);
+      if (playlist) {
+        playlist.images = withPrimarySet(playlist.images || []);
+        playlist.updated_at = Date.now();
+        await db.put(STORE_PLAYLISTS, playlist);
+      }
+    }
   }
 
   // favorites
@@ -1207,8 +1320,7 @@ export class LocalMusicDataSource implements MusicDataSource {
         const playlist = await db.get(STORE_PLAYLISTS, favorite.target_id);
         if (playlist) {
           // count songs in playlist
-          const playlistSongs = await db
-            .getAllFromIndex(STORE_PLAYLIST_SONGS, "by_playlist_id", playlist.playlist_id);
+          const songCount = await countPlaylistSongs(db, playlist.playlist_id);
           items.push({
             type: "playlist",
             favorited_at: favorite.favorited_at,
@@ -1218,11 +1330,31 @@ export class LocalMusicDataSource implements MusicDataSource {
               description: playlist.description || null,
               is_public: playlist.is_public,
               images: playlist.images,
-              song_count: playlistSongs.length,
+              song_count: songCount,
               created_at: playlist.created_at,
               updated_at: playlist.updated_at,
               is_favorite: playlist.is_favorite ?? false,
             },
+          });
+        }
+      } else if (favorite.target_type === "video") {
+        const dataSource = getVideoDataSource();
+        const video = await dataSource.getVideoById(favorite.target_id);
+        if (video) {
+          items.push({
+            type: "video",
+            favorited_at: favorite.favorited_at,
+            data: video,
+          });
+        }
+      } else if (favorite.target_type === "video_series") {
+        const dataSource = getVideoDataSource();
+        const series = await dataSource.getVideoSeriesById(favorite.target_id);
+        if (series) {
+          items.push({
+            type: "video_series",
+            favorited_at: favorite.favorited_at,
+            data: series,
           });
         }
       }
@@ -1355,19 +1487,15 @@ export class LocalMusicDataSource implements MusicDataSource {
       ).slice(0, 10);
 
       for (const playlist of matchingPlaylists) {
-        const playlistSongs = await db.getAllFromIndex(
-          STORE_PLAYLIST_SONGS,
-          "by_playlist_id",
-          playlist.playlist_id,
-        );
+        const songCount = await countPlaylistSongs(db, playlist.playlist_id);
         suggestions.push({
           value: playlist.playlist_id,
           display: playlist.title || "untitled playlist",
           highlight: playlist.title || "untitled playlist",
-          count: playlistSongs.length,
+          count: songCount,
           suggestion_type: "playlist",
           confidence: 1.0,
-          metadata: { description: playlist.description, song_count: playlistSongs.length },
+          metadata: { description: playlist.description, song_count: songCount },
           entity_id: playlist.playlist_id,
           is_favorite: await checkFavorite("playlist", playlist.playlist_id),
         });

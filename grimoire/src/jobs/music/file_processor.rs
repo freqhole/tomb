@@ -7,7 +7,9 @@ use super::models::{ProcessFileParams, ProcessFileResult};
 use crate::blob_data;
 use crate::config;
 use crate::database;
+use crate::error::ErrorDetail;
 use crate::jobs::models::{Job, JobError};
+use crate::media_domain::{detect_media_domain_from_extension, MediaDomain};
 use crate::music::analytics::feed_events::upsert_album_feed_event;
 use crate::music::crud::create_or_update;
 use crate::music::scanner;
@@ -48,26 +50,35 @@ pub async fn process_file_job(job: &Job) -> Result<Option<Value>, JobError> {
 
     let file_path = Path::new(&params.file_path);
 
-    // verify file exists
-    if !file_path.exists() {
-        // don't leak the full local path into the broadcast error.
-        let basename = file_path
-            .file_name()
-            .and_then(|s| s.to_str())
-            .unwrap_or("<unknown>");
-        return Err(JobError::ProcessingFailed {
-            reason: format!("file does not exist: {}", basename),
-        });
-    }
+    // don't leak the full local path into the broadcast error.
+    let basename = file_path
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("<unknown>");
 
+    // a single metadata read distinguishes "does not exist" from "exists but
+    // unreadable" (permission denied, broken symlink) - `.exists()` alone
+    // can't tell these apart, so a permission error used to look identical
+    // to a missing file and burn a retryable `ProcessingFailed` on what is
+    // actually a deterministic permission problem.
     info!("processing file: {}", params.file_path);
 
-    // read file metadata
     let metadata = match fs::metadata(file_path) {
         Ok(m) => m,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return Err(JobError::ProcessingFailed {
+                reason: format!("file does not exist: {}", basename),
+            });
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
+            return Err(JobError::ProcessingFailedFinal {
+                reason: format!("permission denied reading file: {} ({})", basename, e),
+                error_type: "file_permission_denied".to_string(),
+            });
+        }
         Err(e) => {
             return Err(JobError::ProcessingFailed {
-                reason: format!("failed to read file metadata: {}", e),
+                reason: format!("failed to read file metadata for {}: {}", basename, e),
             })
         }
     };
@@ -106,6 +117,7 @@ pub async fn process_file_job(job: &Job) -> Result<Option<Value>, JobError> {
                     thumbnail_generated: false,
                     waveform_generated: false,
                     is_duplicate: false,
+                    partial_failures: Vec::new(),
                 };
                 info!(
                     "file rescan-update complete: blob={} sha256_changed={} song_updated={} (total={:?})",
@@ -138,6 +150,9 @@ pub async fn process_file_job(job: &Job) -> Result<Option<Value>, JobError> {
         file_size,
         file_modified_at,
         job.created_by.clone(),
+        // `source_url` is only set when this ProcessFile job was spawned by
+        // a FetchMedia (yt-dlp) job - see ProcessFileParams's doc comment.
+        params.source_url.is_some(),
     )
     .await
     {
@@ -162,6 +177,63 @@ pub async fn process_file_job(job: &Job) -> Result<Option<Value>, JobError> {
     };
     time_sha256 = step_start.elapsed();
     debug!("created media blob: {}", media_blob_id);
+
+    // branch by effective media domain: video files skip the entire
+    // music-specific pipeline below (song/artist/album creation, embedded
+    // art collection, waveform generation) and go through their own
+    // importer instead.
+    let effective_domain = params
+        .domain
+        .or_else(|| detect_media_domain_from_extension(&params.file_path, &config));
+
+    if effective_domain == Some(MediaDomain::Video) {
+        let import_result = crate::video::importer::import_video_file(
+            &media_blob_id,
+            file_path,
+            None,
+            job.created_by.clone(),
+            Some(job),
+            params.source_url.as_deref(),
+        )
+        .await?;
+
+        let result = ProcessFileResult {
+            media_blob_id: media_blob_id.clone(),
+            song_id: None,
+            artist_id: None,
+            album_id: None,
+            metadata_extracted: !import_result.is_duplicate,
+            thumbnail_generated: import_result.poster_blob_id.is_some(),
+            waveform_generated: false,
+            is_duplicate: import_result.is_duplicate,
+            partial_failures: Vec::new(),
+        };
+
+        info!(
+            "video file processing complete: blob={} video_id={} is_duplicate={} (total={:?})",
+            media_blob_id,
+            import_result.video_id,
+            result.is_duplicate,
+            job_start.elapsed(),
+        );
+
+        return Ok(Some(serde_json::to_value(result).map_err(|e| {
+            JobError::ProcessingFailed {
+                reason: format!("failed to serialize result: {}", e),
+            }
+        })?));
+    } else if effective_domain.is_none() {
+        let basename = file_path
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("<unknown>");
+        return Err(JobError::ProcessingFailed {
+            reason: format!(
+                "cannot determine media domain for file (unrecognized extension): {}",
+                basename
+            ),
+        });
+    }
 
     // step 2: import audio file (extracts metadata and creates song)
     let mut song_id = None;
@@ -270,6 +342,7 @@ pub async fn process_file_job(job: &Job) -> Result<Option<Value>, JobError> {
             thumbnail_generated: false,
             waveform_generated: false,
             is_duplicate: true,
+            partial_failures: Vec::new(),
         };
 
         let job_total = job_start.elapsed();
@@ -295,6 +368,7 @@ pub async fn process_file_job(job: &Job) -> Result<Option<Value>, JobError> {
     // step 3: collect all images (embedded art + directory images) if requested
     let mut thumbnail_blob_id_opt = None;
     let mut images_collected = false;
+    let mut partial_failures: Vec<ErrorDetail> = Vec::new();
 
     if params.generate_thumbnail {
         let step_start = std::time::Instant::now();
@@ -439,7 +513,21 @@ pub async fn process_file_job(job: &Job) -> Result<Option<Value>, JobError> {
                 } else {
                     response.message
                 };
-                warn!("image collection failed: {}", error_msg);
+                // job still reports success below (images_collected stays false) -
+                // logged here and also recorded in partial_failures so callers can
+                // tell "art collection broke" from "file genuinely has no art".
+                warn!(
+                    "image collection failed for blob {} ({}): {}",
+                    media_blob_id, params.file_path, error_msg
+                );
+                partial_failures.push(ErrorDetail::new(
+                    "image_collection_failed",
+                    "image collection failed",
+                    format!(
+                        "failed to collect images for blob {} ({}): {}",
+                        media_blob_id, params.file_path, error_msg
+                    ),
+                ));
             }
         }
     }
@@ -464,7 +552,18 @@ pub async fn process_file_job(job: &Job) -> Result<Option<Value>, JobError> {
                     true
                 }
                 None => {
-                    warn!("waveform generation failed: no data returned");
+                    warn!(
+                        "waveform generation failed for blob {} ({}): no data returned",
+                        media_blob_id, params.file_path
+                    );
+                    partial_failures.push(ErrorDetail::new(
+                        "waveform_generation_failed",
+                        "waveform generation failed",
+                        format!(
+                            "failed to generate waveform for blob {} ({}): no data returned",
+                            media_blob_id, params.file_path
+                        ),
+                    ));
                     false
                 }
             },
@@ -474,7 +573,21 @@ pub async fn process_file_job(job: &Job) -> Result<Option<Value>, JobError> {
                 } else {
                     response.message
                 };
-                warn!("waveform generation failed: {}", error_msg);
+                // same as image collection above: logged and recorded in
+                // partial_failures so the job result explains why
+                // waveform_generated=false instead of leaving it silent.
+                warn!(
+                    "waveform generation failed for blob {} ({}): {}",
+                    media_blob_id, params.file_path, error_msg
+                );
+                partial_failures.push(ErrorDetail::new(
+                    "waveform_generation_failed",
+                    "waveform generation failed",
+                    format!(
+                        "failed to generate waveform for blob {} ({}): {}",
+                        media_blob_id, params.file_path, error_msg
+                    ),
+                ));
                 false
             }
         }
@@ -556,6 +669,7 @@ pub async fn process_file_job(job: &Job) -> Result<Option<Value>, JobError> {
         thumbnail_generated: images_collected,
         waveform_generated,
         is_duplicate: false,
+        partial_failures,
     };
 
     // timing summary

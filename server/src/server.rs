@@ -91,6 +91,8 @@ pub async fn start_server(
                 ACCEPT,
                 HeaderName::from_static("origin"),
                 HeaderName::from_static("x-requested-with"),
+                HeaderName::from_static("range"),
+                HeaderName::from_static("if-range"),
             ])
             .expose_headers([
                 HeaderName::from_static("content-length"),

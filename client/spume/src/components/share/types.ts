@@ -4,7 +4,8 @@
 // only what the modal needs to render and to construct outbound payloads —
 // not the full domain object. callers compute it once and pass it in.
 
-export type ShareTargetKind = "album" | "playlist" | "song" | "artist" | "radio_station";
+export type ShareTargetKind =
+  "album" | "playlist" | "song" | "artist" | "radio_station" | "video" | "video_series";
 
 export interface ShareTarget {
   kind: ShareTargetKind;

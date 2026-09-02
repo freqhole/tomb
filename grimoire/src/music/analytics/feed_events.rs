@@ -36,11 +36,14 @@ pub enum FeedEventType {
     NewImageAlbum,
     NewImageArtist,
     NewImagePlaylist,
+    FavoriteVideo,
+    VideoWatch,
+    Video,
 }
 
 impl ZodSchemaTrait for FeedEventType {
     fn zod_schema() -> String {
-        r#"z.union([z.literal("album"), z.literal("artist"), z.literal("playlist"), z.literal("session"), z.literal("favorite_song"), z.literal("favorite_album"), z.literal("favorite_artist"), z.literal("favorite_playlist"), z.literal("rating_song"), z.literal("rating_album"), z.literal("rating_artist"), z.literal("new_image_song"), z.literal("new_image_album"), z.literal("new_image_artist"), z.literal("new_image_playlist")])"#.to_string()
+        r#"z.union([z.literal("album"), z.literal("artist"), z.literal("playlist"), z.literal("session"), z.literal("favorite_song"), z.literal("favorite_album"), z.literal("favorite_artist"), z.literal("favorite_playlist"), z.literal("rating_song"), z.literal("rating_album"), z.literal("rating_artist"), z.literal("new_image_song"), z.literal("new_image_album"), z.literal("new_image_artist"), z.literal("new_image_playlist"), z.literal("favorite_video"), z.literal("video_watch"), z.literal("video")])"#.to_string()
     }
 }
 
@@ -62,6 +65,9 @@ impl std::fmt::Display for FeedEventType {
             FeedEventType::NewImageAlbum => write!(f, "new_image_album"),
             FeedEventType::NewImageArtist => write!(f, "new_image_artist"),
             FeedEventType::NewImagePlaylist => write!(f, "new_image_playlist"),
+            FeedEventType::FavoriteVideo => write!(f, "favorite_video"),
+            FeedEventType::VideoWatch => write!(f, "video_watch"),
+            FeedEventType::Video => write!(f, "video"),
         }
     }
 }
@@ -86,6 +92,9 @@ impl TryFrom<&str> for FeedEventType {
             "new_image_album" => Ok(FeedEventType::NewImageAlbum),
             "new_image_artist" => Ok(FeedEventType::NewImageArtist),
             "new_image_playlist" => Ok(FeedEventType::NewImagePlaylist),
+            "favorite_video" => Ok(FeedEventType::FavoriteVideo),
+            "video_watch" => Ok(FeedEventType::VideoWatch),
+            "video" => Ok(FeedEventType::Video),
             _ => Err(format!("unknown feed event type: {}", s)),
         }
     }
@@ -121,6 +130,7 @@ pub struct FeedEvent {
     pub artist_id: Option<String>,
     pub playlist_id: Option<String>,
     pub session_id: Option<String>,
+    pub video_id: Option<String>,
     pub created_by_user_id: String,
     pub created_by_username: String,
     pub updated_by_user_id: Option<String>,
@@ -163,6 +173,7 @@ struct RawFeedEventRow {
     artist_id: Option<String>,
     playlist_id: Option<String>,
     session_id: Option<String>,
+    video_id: Option<String>,
     created_by_user_id: String,
     created_by_username: String,
     updated_by_user_id: Option<String>,
@@ -206,6 +217,7 @@ impl RawFeedEventRow {
             artist_id: self.artist_id,
             playlist_id: self.playlist_id,
             session_id: self.session_id,
+            video_id: self.video_id,
             created_by_user_id: self.created_by_user_id,
             created_by_username: self.created_by_username,
             updated_by_user_id: self.updated_by_user_id,
@@ -627,15 +639,15 @@ pub async fn upsert_playlist_feed_event(
             p.description,
             p.created_by_id as original_creator_id,
             (SELECT u.username FROM user_accountz u WHERE u.id = p.created_by_id) as "original_creator_username?: String",
-            (SELECT COUNT(*) FROM playlist_songz ps WHERE ps.playlist_id = p.id) as "song_count!: i64",
-            (SELECT COALESCE(SUM(s.duration), 0) FROM playlist_songz ps JOIN songz s ON s.id = ps.song_id WHERE ps.playlist_id = p.id) as "total_duration_ms!: i64",
+            (SELECT COUNT(*) FROM playlist_itemz ps WHERE ps.playlist_id = p.id AND ps.entity_type = 'song') as "song_count!: i64",
+            (SELECT COALESCE(SUM(s.duration), 0) FROM playlist_itemz ps JOIN songz s ON s.id = ps.entity_id WHERE ps.playlist_id = p.id AND ps.entity_type = 'song') as "total_duration_ms!: i64",
             COALESCE((SELECT json_group_array(json_object('blob_id', pi.media_blob_id, 'is_primary', pi.is_primary, 'blob_type', mb.blob_type))
              FROM playlist_imagez pi JOIN media_blobz mb ON pi.media_blob_id = mb.id
              WHERE pi.playlist_id = p.id AND mb.blob_type NOT IN ('waveform') AND pi.is_primary = 1), '[]') as "images!: String",
             COALESCE((SELECT json_group_array(json_object('blob_id', pi.media_blob_id, 'is_primary', pi.is_primary, 'blob_type', mb.blob_type))
              FROM playlist_imagez pi JOIN media_blobz mb ON pi.media_blob_id = mb.id
              WHERE pi.playlist_id = p.id AND mb.blob_type NOT IN ('waveform') AND pi.is_primary = 0), '[]') as "extra_images!: String",
-            COALESCE((SELECT json_group_array(s.id) FROM playlist_songz ps JOIN songz s ON s.id = ps.song_id WHERE ps.playlist_id = p.id ORDER BY ps.position), '[]') as "song_ids!: String",
+            COALESCE((SELECT json_group_array(s.id) FROM playlist_itemz ps JOIN songz s ON s.id = ps.entity_id WHERE ps.playlist_id = p.id AND ps.entity_type = 'song' ORDER BY ps.position), '[]') as "song_ids!: String",
             COALESCE((SELECT json_group_array(json_object('id', eu.id, 'name', eu.name, 'url', eu.url))
              FROM entity_urlz eu WHERE eu.entity_type = 'playlist' AND eu.entity_id = p.id), '[]') as "urls!: String"
         FROM playlistz p
@@ -737,12 +749,12 @@ pub async fn upsert_session_feed_event(session_id: &str) -> GrimoireResponse<Fee
             ls.entity_id,
             ls.label,
             ls.status,
-            ls.song_ids,
-            ls.total_songs,
-            ls.songs_completed,
+            ls.items,
+            ls.total_items,
+            ls.items_completed,
             ls.total_duration_ms,
             CASE
-                WHEN ls.total_songs > 0 THEN MIN(ls.songs_completed * 100.0 / ls.total_songs, 100.0)
+                WHEN ls.total_items > 0 THEN MIN(ls.items_completed * 100.0 / ls.total_items, 100.0)
                 ELSE 0.0
             END as "progress_percent!: f64",
             CASE
@@ -765,8 +777,9 @@ pub async fn upsert_session_feed_event(session_id: &str) -> GrimoireResponse<Fee
                     (SELECT json_group_array(json_object('blob_id', ai.media_blob_id, 'is_primary', 1, 'blob_type', mb.blob_type))
                      FROM (
                          SELECT DISTINCT als.album_id
-                         FROM json_each(ls.song_ids) je
-                         JOIN album_songz als ON als.song_id = je.value
+                         FROM json_each(ls.items) je
+                         JOIN album_songz als ON als.song_id = json_extract(je.value, '$.entity_id')
+                         WHERE json_extract(je.value, '$.entity_type') = 'song'
                          LIMIT 4
                      ) distinct_albums
                      JOIN album_imagez ai ON ai.album_id = distinct_albums.album_id AND ai.is_primary = 1
@@ -796,7 +809,7 @@ pub async fn upsert_session_feed_event(session_id: &str) -> GrimoireResponse<Fee
                 WHEN ls.session_type = 'playlist' THEN ls.entity_id
                 ELSE NULL
             END as "playlist_id?: String"
-        FROM listen_sessionz ls
+        FROM playback_sessionz ls
         WHERE ls.id = ?
         "#,
         session_id
@@ -830,10 +843,13 @@ pub async fn upsert_session_feed_event(session_id: &str) -> GrimoireResponse<Fee
     let session_type = Some(session.session_type);
     let session_status = Some(session.status);
     let progress_percent = Some(session.progress_percent);
-    let songs_completed = Some(session.songs_completed);
-    let total_songs = Some(session.total_songs);
+    // feed_eventz's own columns are still named songs_completed/total_songs/song_ids
+    // (that table is unrelated to this migration and keeps its song-oriented shape;
+    // for video/mixed sessions this now holds video/mixed item ids too).
+    let songs_completed = Some(session.items_completed);
+    let total_songs = Some(session.total_items);
     let total_duration_ms = Some(session.total_duration_ms);
-    let song_ids = session.song_ids;
+    let song_ids = session.items;
     let images = session.images;
     let collage_images = session.collage_images;
 
@@ -924,6 +940,7 @@ pub async fn create_favorite_feed_event(
         album_id: Option<String>,
         artist_id: Option<String>,
         playlist_id: Option<String>,
+        video_id: Option<String>,
         title: String,
         subtitle: Option<String>,
         artist_name: Option<String>,
@@ -957,6 +974,7 @@ pub async fn create_favorite_feed_event(
                     album_id: d.album_id,
                     artist_id: None,
                     playlist_id: None,
+                    video_id: None,
                     title: d.title,
                     subtitle: d.artist_name.clone(),
                     artist_name: d.artist_name,
@@ -989,6 +1007,7 @@ pub async fn create_favorite_feed_event(
                     album_id: Some(target_id.to_string()),
                     artist_id: None,
                     playlist_id: None,
+                    video_id: None,
                     title: d.title,
                     subtitle: d.artist_name.clone(),
                     artist_name: d.artist_name,
@@ -1020,6 +1039,7 @@ pub async fn create_favorite_feed_event(
                     album_id: None,
                     artist_id: Some(target_id.to_string()),
                     playlist_id: None,
+                    video_id: None,
                     title: d.name.clone(),
                     subtitle: None,
                     artist_name: Some(d.name),
@@ -1052,6 +1072,7 @@ pub async fn create_favorite_feed_event(
                     album_id: None,
                     artist_id: None,
                     playlist_id: Some(target_id.to_string()),
+                    video_id: None,
                     title: d.title,
                     subtitle: d.description,
                     artist_name: None,
@@ -1061,16 +1082,55 @@ pub async fn create_favorite_feed_event(
                 _ => return GrimoireResponse::failure("playlist not found", vec![]),
             }
         }
+        "video" => {
+            let row = sqlx::query!(
+                r#"
+                SELECT 
+                    v.title,
+                    v.description,
+                    COALESCE(
+                        (SELECT mb.id FROM media_blobz mb WHERE mb.id = v.poster_blob_id AND mb.blob_type = 'image'),
+                        ''
+                    ) as "poster_blob_id?: String",
+                    CASE 
+                        WHEN v.poster_blob_id IS NOT NULL THEN 
+                            json_array(json_object('blob_id', v.poster_blob_id, 'is_primary', 1, 'blob_type', 'image'))
+                        ELSE '[]'
+                    END as "images!: String"
+                FROM videoz v WHERE v.id = ? AND v.deleted_at IS NULL
+                "#,
+                target_id
+            )
+            .fetch_optional(&pool)
+            .await;
+
+            match row {
+                Ok(Some(d)) => FavoriteData {
+                    feed_type: FeedEventType::FavoriteVideo.to_string(),
+                    song_id: None,
+                    album_id: None,
+                    artist_id: None,
+                    playlist_id: None,
+                    video_id: Some(target_id.to_string()),
+                    title: d.title,
+                    subtitle: d.description,
+                    artist_name: None,
+                    album_title: None,
+                    images: d.images,
+                },
+                _ => return GrimoireResponse::failure("video not found", vec![]),
+            }
+        }
         _ => return GrimoireResponse::failure("invalid target type", vec![]),
     };
 
     let result = sqlx::query_scalar!(
         r#"
         INSERT INTO feed_eventz (
-            feed_type, song_id, album_id, artist_id, playlist_id,
+            feed_type, song_id, album_id, artist_id, playlist_id, video_id,
             created_by_user_id, created_by_username,
             title, subtitle, artist_name, album_title, images
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         RETURNING id
         "#,
         data.feed_type,
@@ -1078,6 +1138,7 @@ pub async fn create_favorite_feed_event(
         data.album_id,
         data.artist_id,
         data.playlist_id,
+        data.video_id,
         user_id,
         username,
         data.title,
@@ -1116,6 +1177,7 @@ pub async fn delete_favorite_feed_event(
         "album" => FeedEventType::FavoriteAlbum.to_string(),
         "artist" => FeedEventType::FavoriteArtist.to_string(),
         "playlist" => FeedEventType::FavoritePlaylist.to_string(),
+        "video" => FeedEventType::FavoriteVideo.to_string(),
         _ => return GrimoireResponse::failure("invalid target type", vec![]),
     };
 
@@ -1128,11 +1190,14 @@ pub async fn delete_favorite_feed_event(
             (? = 'song' AND song_id = ?) OR
             (? = 'album' AND album_id = ?) OR
             (? = 'artist' AND artist_id = ?) OR
-            (? = 'playlist' AND playlist_id = ?)
+            (? = 'playlist' AND playlist_id = ?) OR
+            (? = 'video' AND video_id = ?)
         )
         "#,
         feed_type,
         user_id,
+        target_type,
+        target_id,
         target_type,
         target_id,
         target_type,
@@ -1148,6 +1213,178 @@ pub async fn delete_favorite_feed_event(
     match result {
         Ok(_) => GrimoireResponse::success("favorite feed event deleted", ()),
         Err(e) => GrimoireResponse::failure("failed to delete favorite feed event", vec![e.into()]),
+    }
+}
+
+/// create or update a "new video added" feed event - mirrors
+/// `upsert_album_feed_event`, fired once per video import (see
+/// `video::importer::import_video_file`'s caller).
+pub async fn upsert_video_feed_event(
+    video_id: &str,
+    user_id: &str,
+    username: &str,
+) -> GrimoireResponse<FeedEventResult> {
+    if should_skip_feed_event(user_id).await {
+        return GrimoireResponse::success(
+            "skipped feed event for service account",
+            FeedEventResult::Skipped,
+        );
+    }
+
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure("failed to connect to database", vec![e.into()])
+        }
+    };
+
+    let row = sqlx::query!(
+        r#"
+        SELECT
+            v.title,
+            v.description,
+            CASE
+                WHEN v.poster_blob_id IS NOT NULL THEN
+                    json_array(json_object('blob_id', v.poster_blob_id, 'is_primary', 1, 'blob_type', 'image'))
+                ELSE '[]'
+            END as "images!: String",
+            COALESCE((SELECT json_group_array(json_object('id', eu.id, 'name', eu.name, 'url', eu.url))
+             FROM entity_urlz eu WHERE eu.entity_type = 'video' AND eu.entity_id = v.id), '[]') as "urls!: String"
+        FROM videoz v WHERE v.id = ? AND v.deleted_at IS NULL
+        "#,
+        video_id
+    )
+    .fetch_optional(&pool)
+    .await;
+
+    let data = match row {
+        Ok(Some(d)) => d,
+        Ok(None) => return GrimoireResponse::failure("video not found", vec![]),
+        Err(e) => return GrimoireResponse::failure("failed to fetch video data", vec![e.into()]),
+    };
+
+    let feed_type = FeedEventType::Video.to_string();
+
+    let result = sqlx::query_scalar!(
+        r#"
+        INSERT INTO feed_eventz (
+            feed_type, video_id, created_by_user_id, created_by_username,
+            title, description, images, urls
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT (video_id, created_by_user_id) WHERE feed_type = 'video' AND video_id IS NOT NULL
+        DO UPDATE SET
+            title = excluded.title,
+            description = excluded.description,
+            images = excluded.images,
+            urls = excluded.urls,
+            updated_at = unixepoch()
+        RETURNING id
+        "#,
+        feed_type,
+        video_id,
+        user_id,
+        username,
+        data.title,
+        data.description,
+        data.images,
+        data.urls
+    )
+    .fetch_one(&pool)
+    .await;
+
+    match result {
+        Ok(id) => GrimoireResponse::success(
+            "video feed event upserted",
+            FeedEventResult::Created(id.expect("insert should return id")),
+        ),
+        Err(e) => GrimoireResponse::failure("failed to upsert video feed event", vec![e.into()]),
+    }
+}
+
+/// create or update a video watch feed event
+///
+/// called once a video's playback progress crosses the "counts as watched"
+/// threshold. keyed on (video_id, created_by_user_id) via the
+/// `idx_feed_eventz_video_watch` unique index, so rewatching the same video
+/// just bumps `updated_at` (moves it back to the top of the feed) instead of
+/// creating duplicate rows.
+pub async fn create_video_watch_feed_event(
+    video_id: &str,
+    user_id: &str,
+    username: &str,
+) -> GrimoireResponse<FeedEventResult> {
+    if should_skip_feed_event(user_id).await {
+        return GrimoireResponse::success(
+            "skipped feed event for service account",
+            FeedEventResult::Skipped,
+        );
+    }
+
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure("failed to connect to database", vec![e.into()])
+        }
+    };
+
+    let row = sqlx::query!(
+        r#"
+        SELECT
+            v.title,
+            v.description,
+            CASE
+                WHEN v.poster_blob_id IS NOT NULL THEN
+                    json_array(json_object('blob_id', v.poster_blob_id, 'is_primary', 1, 'blob_type', 'image'))
+                ELSE '[]'
+            END as "images!: String"
+        FROM videoz v WHERE v.id = ? AND v.deleted_at IS NULL
+        "#,
+        video_id
+    )
+    .fetch_optional(&pool)
+    .await;
+
+    let data = match row {
+        Ok(Some(d)) => d,
+        Ok(None) => return GrimoireResponse::failure("video not found", vec![]),
+        Err(e) => return GrimoireResponse::failure("failed to fetch video data", vec![e.into()]),
+    };
+
+    let feed_type = FeedEventType::VideoWatch.to_string();
+
+    let result = sqlx::query_scalar!(
+        r#"
+        INSERT INTO feed_eventz (
+            feed_type, video_id, created_by_user_id, created_by_username,
+            title, subtitle, images
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT (video_id, created_by_user_id) WHERE feed_type = 'video_watch' AND video_id IS NOT NULL
+        DO UPDATE SET
+            title = excluded.title,
+            subtitle = excluded.subtitle,
+            images = excluded.images,
+            updated_at = unixepoch()
+        RETURNING id
+        "#,
+        feed_type,
+        video_id,
+        user_id,
+        username,
+        data.title,
+        data.description,
+        data.images
+    )
+    .fetch_one(&pool)
+    .await;
+
+    match result {
+        Ok(id) => GrimoireResponse::success(
+            "video watch feed event upserted",
+            FeedEventResult::Created(id.expect("insert should return id")),
+        ),
+        Err(e) => {
+            GrimoireResponse::failure("failed to upsert video watch feed event", vec![e.into()])
+        }
     }
 }
 
@@ -1483,8 +1720,8 @@ pub async fn create_image_feed_event(
                 SELECT 
                     title, 
                     description,
-                    (SELECT COUNT(*) FROM playlist_songz WHERE playlist_id = playlistz.id) as "song_count!: i64",
-                    (SELECT COALESCE(SUM(s.duration), 0) FROM playlist_songz ps JOIN songz s ON s.id = ps.song_id WHERE ps.playlist_id = playlistz.id) as "total_duration_ms!: i64"
+                    (SELECT COUNT(*) FROM playlist_itemz WHERE playlist_id = playlistz.id AND entity_type = 'song') as "song_count!: i64",
+                    (SELECT COALESCE(SUM(s.duration), 0) FROM playlist_itemz ps JOIN songz s ON s.id = ps.entity_id WHERE ps.playlist_id = playlistz.id AND ps.entity_type = 'song') as "total_duration_ms!: i64"
                 FROM playlistz WHERE id = ?
                 "#,
                 entity_id

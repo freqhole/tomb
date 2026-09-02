@@ -15,12 +15,7 @@ export type { PeerTarget };
 /** lifecycle stage of an in-progress remote addition, persisted so a
  *  closed tab/modal can resume where it left off. */
 export type PendingRemoteStage =
-  | "testing"
-  | "connected"
-  | "failed"
-  | "knock_pending"
-  | "knock_accepted"
-  | "knock_rejected";
+  "testing" | "connected" | "failed" | "knock_pending" | "knock_accepted" | "knock_rejected";
 
 /** a persisted in-progress remote addition. field names are snake_case:
  *  these records live in app storage (idb) and are adopted in place. */
@@ -52,6 +47,11 @@ export interface PeerServerInfo {
   requires_auth: boolean;
   knocking_enabled?: boolean | null;
   passkey_p2p_enabled?: boolean | null;
+  /** true when the peer is a freqhole-player device rather than a full
+   *  remote server (see freqhole/tomb's player.freqhole.net) - callers
+   *  should steer the user toward pairing it instead of adding it as a
+   *  remote. absent/false for every real grimoire-backed remote. */
+  player_device?: boolean | null;
 }
 
 /** a saved remote, as returned by the app's remote store. */
@@ -223,10 +223,14 @@ export interface AddPeerFlowDeps {
   checkKnockStatus(peerAddr: string): Promise<"accepted" | "rejected" | "pending" | null>;
   authenticateHttp(
     url: string,
-    data: { mode: "login" | "register"; username: string; inviteCode?: string }
+    data: { mode: "login" | "register"; username: string; inviteCode?: string },
   ): Promise<void>;
   redeemInvite(peerAddr: string, username: string, inviteCode: string): Promise<void>;
-  registerWithPasskey(peerAddr: string, username: string | undefined, inviteCode: string): Promise<void>;
+  registerWithPasskey(
+    peerAddr: string,
+    username: string | undefined,
+    inviteCode: string,
+  ): Promise<void>;
   loginWithPasskey(target: PeerTarget, username?: string): Promise<void>;
   // platform
   /** app-defined transport tag recorded on pending remotes ("wasm", "app", "http"). */

@@ -8,6 +8,8 @@ import { SongCard } from "../cards/SongCard";
 import { AlbumCard } from "../cards/AlbumCard";
 import { ArtistCard } from "../cards/ArtistCard";
 import { PlaylistCard } from "../cards/PlaylistCard";
+import { VideoCard } from "../../video/components/VideoCard";
+import { VideoSeriesCard } from "../../video/components/VideoSeriesCard";
 import { ContextMenu, type MenuAction } from "../overlays/ContextMenu";
 import { formatDuration } from "../../utils/formatDuration";
 import type {
@@ -17,10 +19,11 @@ import type {
   PlaylistSummary,
   GenreRef,
 } from "../../music/data/types";
+import type { VideoSummary, VideoSeries } from "../../video/data/types";
 import { useScrollRestore } from "../../utils/scrollRestore";
 
 // individual filter types (no "all" — toggles are additive)
-export type FavoriteFilterType = "songs" | "albums" | "artists" | "playlists";
+export type FavoriteFilterType = "songs" | "albums" | "artists" | "playlists" | "videos" | "series";
 
 // keep backward compat export
 export type FavoriteType = FavoriteFilterType;
@@ -29,7 +32,9 @@ export type FavoriteItem =
   | (Song & { type: "song" })
   | (AlbumSummary & { type: "album" })
   | (ArtistSummary & { type: "artist" })
-  | (PlaylistSummary & { type: "playlist" });
+  | (PlaylistSummary & { type: "playlist" })
+  | (VideoSummary & { type: "video" })
+  | (VideoSeries & { type: "video_series" });
 
 export interface FavoritesLayoutProps {
   /** all favorites to display */
@@ -38,8 +43,9 @@ export interface FavoritesLayoutProps {
   isLoading?: boolean;
   /** container height in pixels (full window minus player bar) */
   height: number;
-  /** compact mode - show icon-only toggle buttons between wide-xl */
-  compactMode?: boolean;
+  /** extra top padding inside the scroll container, so content still
+   *  clears a floating nav initially but can scroll up behind it */
+  scrollPaddingTop?: number;
   /** callback when filter changes */
   onFilterChange?: (activeFilters: Set<FavoriteFilterType>) => void;
   /** play all favorites matching the currently active filters (expanding
@@ -67,6 +73,16 @@ export interface FavoritesLayoutProps {
   onPlaylistPlay?: (playlist: PlaylistSummary) => void;
   getPlaylistContextMenuActions?: (playlist: PlaylistSummary) => MenuAction[];
   onPlaylistFavoriteToggle?: (playlistId: string, isFavorite: boolean) => void;
+  /** video card callbacks */
+  onVideoClick?: (video: VideoSummary) => void;
+  onVideoPlay?: (video: VideoSummary) => void;
+  getVideoContextMenuActions?: (video: VideoSummary) => MenuAction[];
+  onVideoFavoriteToggle?: (videoId: string, isFavorite: boolean) => void;
+  /** video series card callbacks */
+  onSeriesClick?: (series: VideoSeries) => void;
+  onSeriesPlay?: (series: VideoSeries) => void;
+  getSeriesContextMenuActions?: (series: VideoSeries) => MenuAction[];
+  onSeriesFavoriteToggle?: (seriesId: string, isFavorite: boolean) => void;
   /** navigation callbacks */
   onArtistNavigate?: (artistId: string) => void;
   onAlbumNavigate?: (albumId: string) => void;
@@ -74,7 +90,14 @@ export interface FavoritesLayoutProps {
 }
 
 // all filter types
-const ALL_FILTERS: FavoriteFilterType[] = ["songs", "albums", "artists", "playlists"];
+const ALL_FILTERS: FavoriteFilterType[] = [
+  "songs",
+  "albums",
+  "artists",
+  "playlists",
+  "videos",
+  "series",
+];
 
 export function FavoritesLayout(props: FavoritesLayoutProps) {
   // all toggles start on
@@ -90,16 +113,51 @@ export function FavoritesLayout(props: FavoritesLayoutProps) {
   // scroll restoration
   const { restoreScroll, saveScroll } = useScrollRestore("favorites");
 
+  // measure the real available width (not just the viewport) so the toggle
+  // row can react to the queue sidebar opening/closing - tailwind's
+  // wide:/xl: classes only see window.innerWidth, so on a merely-"wide"
+  // window with the (inline, width-taking) queue sidebar open, they'd keep
+  // rendering full-width buttons that overflow and get clipped under the
+  // floating top nav pill.
+  const [containerWidth, setContainerWidth] = createSignal(
+    typeof window !== "undefined" ? window.innerWidth : 1024
+  );
+  let resizeObserver: ResizeObserver | undefined;
+
   onMount(() => {
     if (scrollContainerRef) {
       restoreScroll(scrollContainerRef);
+      setContainerWidth(scrollContainerRef.clientWidth);
+      resizeObserver = new ResizeObserver((entries) => {
+        const entry = entries[0];
+        if (entry) setContainerWidth(entry.contentRect.width);
+      });
+      resizeObserver.observe(scrollContainerRef);
     }
+    // fallback for webviews (webkitgtk/linux) where ResizeObserver doesn't
+    // reliably fire on a pure window resize that isn't caused by the
+    // observed element's own layout inputs changing.
+    const onWindowResize = () => {
+      if (scrollContainerRef) setContainerWidth(scrollContainerRef.clientWidth);
+    };
+    window.addEventListener("resize", onWindowResize);
+    onCleanup(() => window.removeEventListener("resize", onWindowResize));
   });
 
   onCleanup(() => {
     if (scrollContainerRef) {
       saveScroll(scrollContainerRef);
     }
+    resizeObserver?.disconnect();
+  });
+
+  // three tiers based on measured width: full label+count, icon+count only,
+  // or icon-only (tightest - e.g. wide window with queue sidebar open)
+  const compactLevel = createMemo<"full" | "compact" | "icon-only">(() => {
+    const w = containerWidth();
+    if (w < 480) return "icon-only";
+    if (w < 900) return "compact";
+    return "full";
   });
 
   const toggleFilter = (type: FavoriteFilterType) => {
@@ -117,6 +175,13 @@ export function FavoritesLayout(props: FavoritesLayoutProps) {
     });
   };
 
+  // long-press a toggle to solo it (deactivate every other filter)
+  const isolateFilter = (type: FavoriteFilterType) => {
+    const next = new Set<FavoriteFilterType>([type]);
+    props.onFilterChange?.(next);
+    setActiveFilters(next);
+  };
+
   // is only songs toggled on?
   const isSongsOnly = createMemo(() => {
     const filters = activeFilters();
@@ -129,6 +194,8 @@ export function FavoritesLayout(props: FavoritesLayoutProps) {
     albums: "album",
     artists: "artist",
     playlists: "playlist",
+    videos: "video",
+    series: "video_series",
   };
 
   // filter favorites based on active toggles
@@ -150,7 +217,9 @@ export function FavoritesLayout(props: FavoritesLayoutProps) {
     const albums = props.favorites.filter((f) => f.type === "album").length;
     const artists = props.favorites.filter((f) => f.type === "artist").length;
     const playlists = props.favorites.filter((f) => f.type === "playlist").length;
-    return { songs, albums, artists, playlists };
+    const videos = props.favorites.filter((f) => f.type === "video").length;
+    const series = props.favorites.filter((f) => f.type === "video_series").length;
+    return { songs, albums, artists, playlists, videos, series };
   });
 
   // icon mapping for filter types
@@ -159,9 +228,13 @@ export function FavoritesLayout(props: FavoritesLayoutProps) {
     albums: "album",
     artists: "artist",
     playlists: "playlist",
+    videos: "video",
+    series: "videoSeries",
   };
 
   // render toggle button
+  const LONG_PRESS_MS = 500;
+
   const ToggleButton = (buttonProps: {
     type: FavoriteFilterType;
     label: string;
@@ -170,31 +243,67 @@ export function FavoritesLayout(props: FavoritesLayoutProps) {
     const isActive = () => activeFilters().has(buttonProps.type);
     const iconName = () => filterIcons[buttonProps.type] as any;
 
-    // in compact mode, show icon-only between wide-xl
-    const compactClasses = () =>
-      props.compactMode
-        ? "wide:p-2 wide:aspect-square xl:px-4 xl:py-2 xl:aspect-auto"
-        : "wide:px-4 wide:py-2";
+    // long-press (or long mousedown, for desktop) solos this filter -
+    // suppresses the click handler's normal toggle behavior once it fires.
+    let pressTimer: ReturnType<typeof setTimeout> | undefined;
+    let longPressFired = false;
+
+    const clearPressTimer = () => {
+      if (pressTimer !== undefined) {
+        clearTimeout(pressTimer);
+        pressTimer = undefined;
+      }
+    };
+    onCleanup(clearPressTimer);
+
+    const startPressTimer = () => {
+      longPressFired = false;
+      clearPressTimer();
+      pressTimer = setTimeout(() => {
+        longPressFired = true;
+        isolateFilter(buttonProps.type);
+      }, LONG_PRESS_MS);
+    };
+
+    // sized by the measured container width - see compactLevel above
+    const level = () => compactLevel();
+    const showIcon = () => level() !== "full";
+    const showLabel = () => level() === "full";
+    const showCount = () => level() !== "icon-only" && buttonProps.count > 0;
+
+    const paddingClasses = () => (level() === "icon-only" ? "p-2 aspect-square" : "px-2 py-1.5");
 
     return (
       <button
-        class={`flex-shrink-0 px-2 py-1.5 ${compactClasses()} text-sm wide:text-base rounded-lg transition-all flex items-center justify-center gap-1 ${
+        class={`flex-shrink-0 ${paddingClasses()} text-sm rounded-lg transition-all flex items-center justify-center gap-1 select-none ${
           isActive()
             ? "bg-[var(--color-accent-500)] text-[var(--color-text-on-accent)]"
             : "bg-[var(--color-bg-elevated)] text-[var(--color-text-disabled)] hover:bg-[var(--color-bg-elevated-hover)] hover:text-[var(--color-text-secondary)]"
         }`}
-        onClick={() => toggleFilter(buttonProps.type)}
-        title={buttonProps.label}
+        onPointerDown={startPressTimer}
+        onPointerUp={clearPressTimer}
+        onPointerLeave={clearPressTimer}
+        onPointerCancel={clearPressTimer}
+        onContextMenu={(e) => e.preventDefault()}
+        onClick={() => {
+          if (longPressFired) {
+            longPressFired = false;
+            return;
+          }
+          toggleFilter(buttonProps.type);
+        }}
+        aria-label={buttonProps.label}
+        title={`${buttonProps.label} (long-press to solo)`}
       >
-        {/* icon-only in compact mode between wide-xl */}
-        <Show when={props.compactMode}>
-          <Icon name={iconName()} size={18} className="wide:block xl:hidden" />
+        <Show when={showIcon()}>
+          <Icon name={iconName()} size={18} />
         </Show>
-        {/* text label - hidden between wide-xl in compact mode */}
-        <span class={props.compactMode ? "wide:hidden xl:inline" : ""}>{buttonProps.label}</span>
-        <Show when={buttonProps.count > 0}>
+        <Show when={showLabel()}>
+          <span>{buttonProps.label}</span>
+        </Show>
+        <Show when={showCount()}>
           <span
-            class={`ml-1 wide:ml-2 px-1.5 wide:px-2 py-0.5 rounded-full text-xs ${props.compactMode ? "wide:hidden xl:inline" : ""} ${
+            class={`ml-1 px-1.5 py-0.5 rounded-full text-xs ${
               isActive() ? "bg-[var(--color-text-on-accent)]/20" : "bg-[var(--color-bg-primary)]"
             }`}
           >
@@ -277,6 +386,40 @@ export function FavoritesLayout(props: FavoritesLayoutProps) {
           card
         );
       }
+      case "video": {
+        const video = item as VideoSummary & { type: "video" };
+        const card = (
+          <VideoCard
+            video={video}
+            isFavorite={true}
+            onClick={props.onVideoClick}
+            onPlay={props.onVideoPlay}
+            onFavoriteToggle={props.onVideoFavoriteToggle}
+          />
+        );
+        return props.getVideoContextMenuActions ? (
+          <ContextMenu actions={props.getVideoContextMenuActions(video)}>{card}</ContextMenu>
+        ) : (
+          card
+        );
+      }
+      case "video_series": {
+        const series = item as VideoSeries & { type: "video_series" };
+        const card = (
+          <VideoSeriesCard
+            series={series}
+            isFavorite={true}
+            onClick={props.onSeriesClick}
+            onPlay={props.onSeriesPlay}
+            onFavoriteToggle={props.onSeriesFavoriteToggle}
+          />
+        );
+        return props.getSeriesContextMenuActions ? (
+          <ContextMenu actions={props.getSeriesContextMenuActions(series)}>{card}</ContextMenu>
+        ) : (
+          card
+        );
+      }
     }
   };
 
@@ -304,7 +447,10 @@ export function FavoritesLayout(props: FavoritesLayoutProps) {
 
   return (
     <div
-      style={{ height: `${props.height}px` }}
+      style={{
+        height: `${props.height}px`,
+        "padding-top": props.scrollPaddingTop ? `${props.scrollPaddingTop}px` : undefined,
+      }}
       class="overflow-y-auto"
       ref={scrollContainerRef!}
       onScroll={(e) => saveScroll(e.currentTarget)}
@@ -318,7 +464,7 @@ export function FavoritesLayout(props: FavoritesLayoutProps) {
             the floating nav pill in the top-left corner, without needing a
             permanent vertical offset - wide screens rarely have enough
             items to overflow, so the clipping risk there is negligible. */}
-        <div class="flex gap-2 overflow-x-auto scrollbar-hide py-2 mb-4 sticky top-0 z-50 justify-start wide:justify-end">
+        <div class="flex gap-2 overflow-x-auto scrollbar-hide py-2 mb-4 sticky top-0 z-50 justify-start wide:justify-end bg-[var(--color-bg-primary)]/40 backdrop-blur-sm rounded-lg wide:pl-[var(--chrome-traffic-lights-inset,0px)]">
           <IconButton
             icon="play"
             size="default"
@@ -345,6 +491,8 @@ export function FavoritesLayout(props: FavoritesLayoutProps) {
           <ToggleButton type="albums" label="albums" count={counts().albums} />
           <ToggleButton type="artists" label="artists" count={counts().artists} />
           <ToggleButton type="playlists" label="playlists" count={counts().playlists} />
+          <ToggleButton type="videos" label="videos" count={counts().videos} />
+          <ToggleButton type="series" label="series" count={counts().series} />
         </div>
 
         {/* content */}

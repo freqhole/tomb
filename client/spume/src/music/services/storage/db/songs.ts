@@ -45,7 +45,25 @@ export async function getSongBySha256(sha256: string): Promise<Song | undefined>
   const db = await initMusicDB();
   const index = db.transaction(STORE_SONGS).store.index("by_sha256");
   const song = await index.get(sha256);
-  debug(`getSongBySha256(${sha256.slice(0, 8)}...):`, song ? `found song id ${song.id}` : 'not found');
+  debug(
+    `getSongBySha256(${sha256.slice(0, 8)}...):`,
+    song ? `found song id ${song.id}` : "not found"
+  );
+  return song;
+}
+
+/** phase 14b: look up a local song by its blake3 hash (preferred over
+ * sha256 for anything new - see by_blake3 index, added v18). used to
+ * decide whether a remote queue entry (`RemoteMediaRef.blake3_hash`)
+ * already exists in this device's own local library. */
+export async function getSongByBlake3(blake3: string): Promise<Song | undefined> {
+  const db = await initMusicDB();
+  const index = db.transaction(STORE_SONGS).store.index("by_blake3");
+  const song = await index.get(blake3);
+  debug(
+    `getSongByBlake3(${blake3.slice(0, 8)}...):`,
+    song ? `found song id ${song.id}` : "not found"
+  );
   return song;
 }
 
@@ -55,10 +73,7 @@ export async function getSongsByAlbumId(albumId: string): Promise<Song[]> {
   return index.getAll(albumId);
 }
 
-export async function updateSong(
-  songId: string,
-  updates: Partial<Song>,
-): Promise<void> {
+export async function updateSong(songId: string, updates: Partial<Song>): Promise<void> {
   const db = await initMusicDB();
   const existing = await db.get(STORE_SONGS, songId);
   if (!existing) {

@@ -4,9 +4,9 @@ import type { Favorite, Song } from "../types";
 import { STORE_FAVORITES, STORE_SONGS } from "../types";
 
 export async function setFavorite(
-  targetType: "song" | "album" | "artist" | "playlist",
+  targetType: "song" | "album" | "artist" | "playlist" | "video" | "video_series",
   targetId: string,
-  isFavorite: boolean,
+  isFavorite: boolean
 ): Promise<void> {
   const db = await initMusicDB();
 
@@ -23,12 +23,25 @@ export async function setFavorite(
 }
 
 export async function checkFavorite(
-  targetType: "song" | "album" | "artist" | "playlist",
-  targetId: string,
+  targetType: "song" | "album" | "artist" | "playlist" | "video" | "video_series",
+  targetId: string
 ): Promise<boolean> {
   const db = await initMusicDB();
   const favorite = await db.get(STORE_FAVORITES, [targetType, targetId]);
   return !!favorite;
+}
+
+// bulk-read every locally-favorited target id of a given type (e.g. all
+// locally-favorited video ids). used by domains (video) that have no local
+// denormalized `is_favorite` field on their own records and must resolve
+// favorite status from this shared favorites store instead.
+export async function getFavoritedTargetIds(
+  targetType: "song" | "album" | "artist" | "playlist" | "video" | "video_series"
+): Promise<Set<string>> {
+  const db = await initMusicDB();
+  const index = db.transaction(STORE_FAVORITES).store.index("by_target_type");
+  const favorites = (await index.getAll(targetType)) as Favorite[];
+  return new Set(favorites.map((f) => f.target_id));
 }
 
 // aggregate distinct album_id and artist_id sets from all song
@@ -47,7 +60,7 @@ export async function listFavoritedSongAlbumArtistIds(): Promise<{
   const artist_ids = new Set<string>();
   if (songFavs.length === 0) return { album_ids, artist_ids };
   const songs = await Promise.all(
-    songFavs.map((f) => db.get(STORE_SONGS, f.target_id) as Promise<Song | undefined>),
+    songFavs.map((f) => db.get(STORE_SONGS, f.target_id) as Promise<Song | undefined>)
   );
   for (const song of songs) {
     if (!song) continue;

@@ -1167,9 +1167,9 @@ pub async fn get_or_create_playlist_by_name(
             p.deleted_by,
             p.created_by,
             p.updated_by,
-            COALESCE(COUNT(ps.song_id), 0) as "song_count!: i64"
+            COALESCE(COUNT(ps.entity_id), 0) as "song_count!: i64"
            FROM playlistz p
-           LEFT JOIN playlist_songz ps ON p.id = ps.playlist_id
+           LEFT JOIN playlist_itemz ps ON p.id = ps.playlist_id AND ps.entity_type = 'song'
            WHERE LOWER(p.title) = LOWER(?)
            GROUP BY p.id
            LIMIT 1"#,

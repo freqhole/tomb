@@ -6,10 +6,14 @@ import { EmptyState } from "../components/EmptyState";
 import { ConfigChangedToast } from "../components/feedback/ConfigChangedToast";
 import { toast } from "../components/feedback/Toast";
 import { UpdateAvailableToast } from "../components/feedback/UpdateAvailableToast";
-import { AddMusicModal } from "../components/modals/AddMusicModal";
+import { TitleBarStrip } from "../components/layout/TitleBarStrip";
+import { AddMediaModal } from "../components/modals/AddMediaModal";
 import { AddRemoteModal } from "../components/modals/AddRemoteModal";
 import { AlbumEditorModal } from "../components/modals/AlbumEditorModal";
 import { ArtistEditorModal } from "../components/modals/ArtistEditorModal";
+import { BulkEditVideosModal } from "../components/modals/BulkEditVideosModal";
+import { EditVideoModal } from "../components/modals/EditVideoModal";
+import { EditVideoSeriesModal } from "../components/modals/EditVideoSeriesModal";
 import { ImageCarouselModal } from "../components/modals/ImageCarouselModal";
 import { ResolveShareModal } from "../components/modals/ResolveShareModal";
 import { RemotePickerModal } from "../components/modals/RemotePickerModal";
@@ -19,20 +23,18 @@ import { TagSelectorModal } from "../components/modals/TagSelectorModal";
 import { BulkEnrichmentReviewModal } from "../library/review/BulkEnrichmentReviewModal";
 import { hideBulkReview, useBulkReviewState } from "../library/review/bulkReviewModal";
 import { QueueFullModal } from "../music/components/QueueFullModal";
+import { ReplaceQueueConfirmModal } from "../music/components/ReplaceQueueConfirmModal";
 import { getCurrentRemote, getDataSource, useLocalSource, useRemoteSource } from "../music/data";
 import type { CurrentRemoteInfo } from "../music/data/currentState";
 import { isAdmin } from "../music/data/permissions";
 import {
-  closeAddMusic,
   hideAlbumEditor,
   hideArtistEditor,
   hideImageCarousel,
   hideSongEditor,
   hideTagSelector,
   hideShareModal,
-  openAddMusic,
   showSongEditor,
-  useAddMusicState,
   useAlbumEditorState,
   useArtistEditorState,
   useImageCarouselState,
@@ -40,6 +42,7 @@ import {
   useSongEditorState,
   useTagSelectorState,
 } from "../music/hooks/modals";
+import { openAddMedia, closeAddMedia, useAddMediaState } from "./hooks/mediaModal";
 import {
   clearCompletedJobs,
   clearLocalImportProgress,
@@ -51,8 +54,32 @@ import {
   uploadFilesToRemote,
   uploadPathsToRemote,
 } from "../music/import";
+import {
+  hideBulkEditVideos,
+  hideEditVideo,
+  hideEditVideoSeries,
+  useBulkEditVideosState,
+  useEditVideoState,
+  useEditVideoSeriesState,
+} from "../video/hooks/modals";
+import {
+  clearLocalVideoImportProgress,
+  getLocalVideoImportProgress,
+  importVideoFiles,
+} from "../video/import/localImport";
+import { initVideoSyncState } from "../video/services/syncState";
+import { getVideoDataSource } from "../video/data";
+import {
+  clearCompletedVideoJobs,
+  fetchVideoUrlsOnRemote,
+  getVideoUploadJobs,
+  uploadVideoFilesToRemote,
+  uploadVideoPathsToRemote,
+} from "../video/import/remoteImport";
 import { togglePlayback } from "../music/services/audio/player";
 import { initRodioPreference } from "../music/services/audio/select";
+import { initVideoWindowPreference } from "../music/services/audio/selectVideo";
+import { initRemotePlaybackBootstrap } from "./services/remotePlayback/bootstrap";
 import { swapPlayerBackend } from "../music/services/audio/player";
 import { initQueueSizeLimit } from "../music/services/queue/queueLimit";
 import {
@@ -67,7 +94,8 @@ import { recoverLegacyImages } from "../music/services/storage/legacyImageRecove
 import type { Song } from "../music/services/storage/types";
 import { debug } from "../utils/logger";
 import { extractShareTokenFromHash, SHARE_HASH_PARAM } from "../utils/permalink";
-import { AUDIO_EXTS } from "../utils/filePicker";
+import { addRemoteRequest } from "./services/remotes/addRemoteRequest";
+import { AUDIO_EXTS, VIDEO_EXTS } from "../utils/filePicker";
 import { onMiddenReady } from "./api/client";
 import { routes } from "./routes";
 import {
@@ -99,17 +127,22 @@ import {
   updateAvailable,
 } from "./services/serviceWorker";
 import { initAppDB, setSyncQueueToLocal } from "./services/storage/db";
+import { setDisableBackdropBlur } from "./services/backdropBlur";
 import { recordSharedItemFromToken } from "./services/storage/sharedItems";
 import { isP2PRemote } from "./services/storage/types";
 import { checkPendingKnocks, showKnockCreatedToast } from "./services/toastNotices";
 import { useFetchPrecheckEnabledQuery } from "../music/hooks/useFetchPrecheckEnabled";
+import { useFetchVideoEnabledQuery } from "../music/hooks/useFetchVideoEnabled";
 import { useImportReview } from "../music/hooks/useImportReview";
 import { ImportReviewModal } from "../components/modals/ImportReviewModal";
 import { ImportReviewEditor } from "../components/import/ImportReviewEditor";
+import { useVideoImportReview } from "../video/hooks/useVideoImportReview";
+import { ImportVideoReviewModal } from "../components/modals/ImportVideoReviewModal";
+import { ImportVideoReviewEditor } from "../components/import/ImportVideoReviewEditor";
 
 export function App() {
   const queryClient = useQueryClient();
-  const isAddMusicOpen = useAddMusicState();
+  const isAddMediaOpen = useAddMediaState();
   const [isAddRemoteOpen, setIsAddRemoteOpen] = createSignal(false);
   const [addRemoteInitialValue, setAddRemoteInitialValue] = createSignal<string | undefined>();
   // session id for the import review modal - set when user clicks "review now"
@@ -123,14 +156,32 @@ export function App() {
     setReviewRemote(getCurrentRemote() ?? null);
     setReviewSessionId(sid);
   }
-  // incremented when the review modal closes - triggers AddMusicModal to refetch pending sessions
+  // incremented when the review modal closes - triggers AddMediaModal to refetch pending sessions
   const [reviewRefetchKey, setReviewRefetchKey] = createSignal(0);
-  // last session id that completed review - triggers AddMusicModal to auto-dismiss its card
+  // last session id that completed review - triggers AddMediaModal to auto-dismiss its card
   const [completedReviewSessionId, setCompletedReviewSessionId] = createSignal<string | null>(null);
+
+  // session id for the video import review modal - set when user clicks "review now"
+  const [reviewVideoSessionId, setReviewVideoSessionId] = createSignal<string | null>(null);
+  // the remote that owns the video review session - captured at start time, same reasoning as reviewRemote
+  const [reviewVideoRemote, setReviewVideoRemote] = createSignal<CurrentRemoteInfo | null>(null);
+
+  // open a video review session, capturing the active remote at this moment
+  function openReviewVideoSession(sid: string) {
+    setReviewVideoRemote(getCurrentRemote() ?? null);
+    setReviewVideoSessionId(sid);
+  }
+  // last video session id that completed review - triggers AddMediaModal to auto-dismiss its card
+  const [completedVideoReviewSessionId, setCompletedVideoReviewSessionId] = createSignal<
+    string | null
+  >(null);
   // signals the AddRemoteModal to auto-complete setup for a peer (device-linked / knock-accepted)
   const [autoCompletePeerAddr, setAutoCompletePeerAddr] = createSignal<string | null>(null);
   const [shareToken, setShareToken] = createSignal<string | null>(null);
   const [hasSongs, setHasSongs] = createSignal(false);
+  // videos count as media too - the welcome gate predates the video domain and
+  // used to keep showing after importing only videos.
+  const [hasVideos, setHasVideos] = createSignal(false);
   const [hasRemotes, setHasRemotes] = createSignal(false);
   const [isInitializing, setIsInitializing] = createSignal(true);
   const [showLoading, setShowLoading] = createSignal(false);
@@ -147,6 +198,9 @@ export function App() {
     () => getCurrentRemote() ?? undefined
   );
 
+  // query whether the current remote has video url fetching (fetch_video) configured
+  const fetchVideoEnabledQuery = useFetchVideoEnabledQuery(() => getCurrentRemote() ?? undefined);
+
   // import review - keyed to the captured remote for the session, not getCurrentRemote()
   const importReview = useImportReview(
     () => reviewSessionId(),
@@ -155,9 +209,17 @@ export function App() {
   // map of albumId -> save fn registered by ImportReviewEditor instances
   const editorSaveFns = new Map<string, () => Promise<void>>();
 
+  // video import review - same pattern as importReview above
+  const videoImportReview = useVideoImportReview(
+    () => reviewVideoSessionId(),
+    () => reviewVideoRemote()
+  );
+  // map of groupKey -> save fn registered by ImportVideoReviewEditor instances
+  const videoEditorSaveFns = new Map<string, () => Promise<void>>();
+
   // when albums drain to zero while the modal is open (e.g. after a merge
   // marks everything reviewed server-side), treat it as a completion so the
-  // add-music modal re-opens for the next pending session.
+  // add-media modal re-opens for the next pending session.
   createEffect(() => {
     if (reviewSessionId() && !importReview.loading() && importReview.albums().length === 0) {
       const sid = reviewSessionId();
@@ -165,7 +227,23 @@ export function App() {
       setReviewSessionId(null);
       setReviewRemote(null);
       setReviewRefetchKey((k) => k + 1);
-      openAddMusic();
+      openAddMedia();
+    }
+  });
+
+  // same as above, for video review groups
+  createEffect(() => {
+    if (
+      reviewVideoSessionId() &&
+      !videoImportReview.loading() &&
+      videoImportReview.groups().length === 0
+    ) {
+      const sid = reviewVideoSessionId();
+      if (sid) setCompletedVideoReviewSessionId(sid);
+      setReviewVideoSessionId(null);
+      setReviewVideoRemote(null);
+      setReviewRefetchKey((k) => k + 1);
+      openAddMedia();
     }
   });
   // radio works with zero remotes (anyone with a node id can listen)
@@ -199,6 +277,18 @@ export function App() {
       window.location.hash = "/link";
     }
   });
+
+  // pasted/scanned add-remote links (e.g. a `?r=` url pasted into
+  // TopNavSearch) arrive via this request channel rather than a query
+  // param, since they're detected mid-session, not just on page load.
+  createEffect(
+    on(addRemoteRequest, (req) => {
+      if (!req) return;
+      debug("App", `add-remote request: ${req.value.slice(0, 16)}...`);
+      setAddRemoteInitialValue(req.value);
+      setIsAddRemoteOpen(true);
+    })
+  );
 
   // check for #?share=<token> in the url hash on every load + hash change.
   // see SEND_TO_REMOTE_PLAN step 15 — ResolveShareModal handles decode +
@@ -578,6 +668,8 @@ export function App() {
       await setSyncQueueToLocal(config.sync_queue_to_local ?? true);
     }
 
+    setDisableBackdropBlur(config.disable_backdrop_blur ?? false);
+
     try {
       // upsert creates or updates the tauri-managed remote
       const remote = await upsertTauriRemote({
@@ -597,6 +689,7 @@ export function App() {
         // want spume's `selectBackend()` to pick that up without a
         // page reload.
         await initRodioPreference();
+        await initVideoWindowPreference();
         // re-read the queue size limit too in case the user edited
         // `[client] queue_size_limit` in their toml.
         await initQueueSizeLimit();
@@ -701,11 +794,22 @@ export function App() {
       await initMusicDB();
       mark("initMusicDB done");
 
+      // freqhole/1 hello route + freqhole-player/1 accept loop + local
+      // library hooks, wired once midden becomes ready (registration is
+      // idempotent and cheap, so it's fine to call before midden even
+      // exists yet - see bootstrap.ts).
+      initRemotePlaybackBootstrap();
+      mark("initRemotePlaybackBootstrap done");
+
       // hydrate the rodio opt-in cache early so the very first
       // `selectBackend()` call observes the user's preference. safe
       // outside tauri (falls back to localStorage / defaults to false).
       await initRodioPreference();
       mark("initRodioPreference done");
+      // resolve whether video can play in charnel's separate window (linux).
+      // paired with the rodio opt-in, which also gates the video window.
+      await initVideoWindowPreference();
+      mark("initVideoWindowPreference done");
       // hydrate the configurable queue size limit from `[client]`
       // in `freqhole-config.toml`. safe outside tauri (no-op).
       await initQueueSizeLimit();
@@ -789,6 +893,10 @@ export function App() {
       await initDownloadState();
       mark("initDownloadState done");
 
+      // seed reactive synced-video-ids state from IDB (non-blocking, mirrors
+      // the song-sync store but only ever needed in browser mode)
+      void initVideoSyncState().then(() => mark("initVideoSyncState done (background)"));
+
       // register service worker (prod web mode only)
       void registerServiceWorker();
 
@@ -805,6 +913,14 @@ export function App() {
       const result = await source.getSongs({ limit: 1 });
       setHasSongs(result.total > 0);
       mark("getSongs({limit:1}) done - initializing complete");
+
+      // same for videos - a library with only videos still counts as set up
+      try {
+        const videoResult = await getVideoDataSource().getVideos({ limit: 1 });
+        setHasVideos(videoResult.total_count > 0);
+      } catch (e) {
+        console.debug("[App] video presence check failed:", e);
+      }
 
       // check for pending knock requests across every admin remote.
       // delayed slightly so the auth-status store + p2p transports have a
@@ -1006,10 +1122,145 @@ export function App() {
     }
   };
 
-  const handleCloseAddMusic = () => {
+  const handleCloseAddMedia = () => {
     clearCompletedJobs();
     clearLocalImportProgress();
-    closeAddMusic();
+    clearLocalVideoImportProgress();
+    clearCompletedVideoJobs();
+    closeAddMedia();
+  };
+
+  // callback for when any remote video job completes — invalidate video queries
+  const onRemoteVideoJobComplete = () => {
+    setHasVideos(true);
+    queryClient.invalidateQueries({
+      predicate: (query) => {
+        const key = query.queryKey[0];
+        return key === "videos" || key === "video";
+      },
+      // refetch even queries with no active observer right now (e.g. the
+      // videos view isn't mounted at the moment the upload finishes) - a
+      // plain "active"-only refetch would just mark them stale and rely on
+      // refetchOnMount, but useVideosQuery sets refetchOnMount: false, so
+      // the grid/table would keep showing the pre-upload list until a full
+      // reload.
+      refetchType: "all",
+    });
+  };
+
+  const handleVideoUrlsSubmitted = async (urls: string[]) => {
+    const remote = getCurrentRemote();
+
+    if (!remote) {
+      toast.warning("url downloads are only supported with a remote server", {
+        title: "not supported",
+      });
+      return;
+    }
+
+    // fire-and-forget, jobs are tracked reactively
+    await fetchVideoUrlsOnRemote(urls, onRemoteVideoJobComplete);
+  };
+
+  const handleVideoFilesSelected = async (files: FileList) => {
+    const remote = getCurrentRemote();
+
+    if (remote) {
+      // remote upload: fire-and-forget, jobs are tracked reactively
+      await uploadVideoFilesToRemote(Array.from(files), onRemoteVideoJobComplete);
+    } else {
+      // local import: process files into OPFS/IndexedDB
+      try {
+        const result = await importVideoFiles(Array.from(files));
+        if (result.errors.length > 0) {
+          console.error("failed to import some video files:", result.errors);
+        }
+        if (result.imported > 0) {
+          onRemoteVideoJobComplete();
+        } else if (result.errors.length > 0) {
+          toast.error("failed to import video files", { title: "import error" });
+        }
+      } catch (error) {
+        console.error("failed to process video files:", error);
+        toast.error("failed to import video files", { title: "import error" });
+      }
+    }
+  };
+
+  // handle video paths selected via tauri dialog (desktop only, Android uses file input)
+  // supports local import (no remote), charnel-managed local remotes, and P2P remotes
+  const handleVideoPathsSelected = async (paths: string[]) => {
+    const remote = getCurrentRemote();
+
+    if (!remote) {
+      // local import from file paths: read files via tauri-plugin-fs and import locally
+      try {
+        // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
+        const fsModule = (await import("@tauri-apps/plugin-fs" as any)) as {
+          readFile: (path: string) => Promise<Uint8Array>;
+        };
+
+        const videoFilePaths = await expandPathsToVideoFiles(paths);
+
+        const files: File[] = [];
+        for (const filePath of videoFilePaths) {
+          try {
+            const data = await fsModule.readFile(filePath);
+            const filename = filePath.split("/").pop() || filePath.split("\\").pop() || "video.mp4";
+            const ext = filename.split(".").pop()?.toLowerCase() || "";
+            const mimeMap: Record<string, string> = {
+              mp4: "video/mp4",
+              mkv: "video/x-matroska",
+              webm: "video/webm",
+              mov: "video/quicktime",
+              avi: "video/x-msvideo",
+            };
+            files.push(
+              new File([data as BlobPart], filename, { type: mimeMap[ext] || "video/mp4" })
+            );
+          } catch (err) {
+            console.error("failed to read file:", filePath, err);
+          }
+        }
+
+        if (files.length > 0) {
+          const result = await importVideoFiles(files);
+          if (result.errors.length > 0) {
+            console.error("failed to import some video files:", result.errors);
+          }
+          if (result.imported > 0) onRemoteVideoJobComplete();
+        }
+      } catch (error) {
+        console.error("failed to import local video paths:", error);
+        toast.error("failed to read files", { title: "import error" });
+      }
+      return;
+    }
+
+    // P2P remote: upload each file via iroh-blobs pull model
+    if (remote.peer_addr) {
+      const videoFilePaths = await expandPathsToVideoFiles(paths);
+      await uploadVideoPathsToRemote(videoFilePaths, onRemoteVideoJobComplete);
+      return;
+    }
+
+    // charnel-managed local remote: send paths directly (server reads from disk)
+    if (!remote.is_charnel_managed) {
+      toast.warning("path-based import is only available for local or P2P remotes", {
+        title: "not supported",
+      });
+      return;
+    }
+
+    // no batch-by-paths endpoint exists for video (unlike musicByPaths) - upload
+    // each expanded path individually, same as the P2P branch.
+    try {
+      const videoFilePaths = await expandPathsToVideoFiles(paths);
+      await uploadVideoPathsToRemote(videoFilePaths, onRemoteVideoJobComplete);
+    } catch (error) {
+      console.error("failed to import video paths:", error);
+      toast.error("failed to start import", { title: "import error" });
+    }
   };
 
   const handleSongDoubleClick = async (song: Song) => {
@@ -1019,6 +1270,7 @@ export function App() {
 
   return (
     <>
+      <TitleBarStrip />
       <Show
         when={!isInitializing()}
         fallback={
@@ -1031,12 +1283,17 @@ export function App() {
       >
         <Show
           when={
-            hasSongs() || hasRemotes() || isSettingsRoute() || isRadioRoute() || isSharedRoute()
+            hasSongs() ||
+            hasVideos() ||
+            hasRemotes() ||
+            isSettingsRoute() ||
+            isRadioRoute() ||
+            isSharedRoute()
           }
           fallback={
             <div class="h-screen flex items-center justify-center bg-[var(--color-bg-primary)]">
               <EmptyState
-                onAddMusic={() => openAddMusic()}
+                onAddMedia={() => openAddMedia()}
                 onAddRemote={() => setIsAddRemoteOpen(true)}
                 onGoToRadio={() => {
                   window.location.hash = `/radio`;
@@ -1047,36 +1304,89 @@ export function App() {
         >
           <HashRouter>
             {routes({
-              onAddMusic: () => openAddMusic(),
+              onAddMedia: () => openAddMedia(),
               onSongDoubleClick: handleSongDoubleClick,
               onImportReview: (sid) => {
                 openReviewSession(sid);
-                handleCloseAddMusic();
+                handleCloseAddMedia();
               },
             })}
           </HashRouter>
         </Show>
       </Show>
 
-      <AddMusicModal
-        isOpen={isAddMusicOpen()}
-        onClose={handleCloseAddMusic}
-        onFilesSelected={handleFilesSelected}
-        onPathsSelected={handlePathsSelected}
-        onUrlsSubmitted={handleUrlsSubmitted}
+      <AddMediaModal
+        isOpen={isAddMediaOpen()}
+        onClose={handleCloseAddMedia}
+        onMusicFilesSelected={handleFilesSelected}
+        onMusicPathsSelected={handlePathsSelected}
+        onMusicUrlsSubmitted={handleUrlsSubmitted}
+        onVideoFilesSelected={handleVideoFilesSelected}
+        onVideoPathsSelected={handleVideoPathsSelected}
+        onVideoUrlsSubmitted={handleVideoUrlsSubmitted}
         remoteName={getCurrentRemote()?.name}
         useCharnelDialog={isCharnelMode()}
-        uploadJobs={getUploadJobs()}
+        musicUploadJobs={getUploadJobs()}
+        videoUploadJobs={getVideoUploadJobs()}
         localImportProgress={getLocalImportProgress()}
+        videoLocalImportProgress={getLocalVideoImportProgress()}
         fetchPrecheckEnabled={fetchPrecheckEnabledQuery.data ?? false}
+        fetchVideoEnabled={fetchVideoEnabledQuery.data ?? false}
         onReviewSession={(sid) => {
           openReviewSession(sid);
-          handleCloseAddMusic();
+          handleCloseAddMedia();
         }}
         refetchReviewKey={reviewRefetchKey()}
         isAdmin={isAdmin()}
         dismissedReviewSessionId={completedReviewSessionId()}
+        onReviewVideoSession={(sid) => {
+          openReviewVideoSession(sid);
+          handleCloseAddMedia();
+        }}
+        dismissedVideoReviewSessionId={completedVideoReviewSessionId()}
       />
+
+      <Show when={useEditVideoState()()}>
+        {(state) => (
+          <EditVideoModal
+            videoId={state().videoId}
+            onClose={hideEditVideo}
+            onSave={() => {
+              state().onSave?.();
+              hideEditVideo();
+            }}
+            onDeleted={state().onDeleted}
+          />
+        )}
+      </Show>
+
+      <Show when={useEditVideoSeriesState()()}>
+        {(state) => (
+          <EditVideoSeriesModal
+            seriesId={state().seriesId}
+            onClose={hideEditVideoSeries}
+            onSave={() => {
+              state().onSave?.();
+              hideEditVideoSeries();
+            }}
+            onDeleted={state().onDeleted}
+          />
+        )}
+      </Show>
+
+      <Show when={useBulkEditVideosState()()}>
+        {(state) => (
+          <BulkEditVideosModal
+            isOpen={true}
+            videoIds={state().videoIds}
+            onClose={hideBulkEditVideos}
+            onSuccess={() => {
+              state().onSuccess?.();
+              hideBulkEditVideos();
+            }}
+          />
+        )}
+      </Show>
 
       <ImportReviewModal
         isOpen={reviewSessionId() !== null}
@@ -1085,9 +1395,9 @@ export function App() {
           setReviewSessionId(null);
           setReviewRemote(null);
           setReviewRefetchKey((k) => k + 1);
-          // re-open the add music modal so the user can pick the next
+          // re-open the add media modal so the user can pick the next
           // pending review without having to open it manually
-          openAddMusic();
+          openAddMedia();
         }}
         albums={importReview.albums()}
         onComplete={() => {
@@ -1097,13 +1407,16 @@ export function App() {
           setReviewRemote(null);
           setReviewRefetchKey((k) => k + 1);
           // re-open to let the user pick the next pending review
-          openAddMusic();
+          openAddMedia();
         }}
         onMergeAlbums={(sourceIds: string[], targetId: string) =>
           void importReview.mergeAlbums(sourceIds, targetId)
         }
         onMoveSong={(songId: string, toAlbumId: string) =>
           void importReview.moveSong(songId, toAlbumId)
+        }
+        onCreateAlbumForSong={(songId: string, title: string, artistName: string | null) =>
+          void importReview.moveSong(songId, null, title, artistName)
         }
         onMarkReviewed={async (albumId: string) => {
           // flush any pending edits from the editor before marking reviewed
@@ -1130,6 +1443,55 @@ export function App() {
               sessionId={reviewSessionId()!}
               onRegisterSave={(id, fn) => editorSaveFns.set(id, fn)}
               onUnregisterSave={(id) => editorSaveFns.delete(id)}
+            />
+          );
+        }}
+      />
+
+      <ImportVideoReviewModal
+        isOpen={reviewVideoSessionId() !== null}
+        loading={videoImportReview.loading()}
+        onClose={() => {
+          setReviewVideoSessionId(null);
+          setReviewVideoRemote(null);
+          setReviewRefetchKey((k) => k + 1);
+          // re-open the add media modal so the user can pick the next
+          // pending review without having to open it manually
+          openAddMedia();
+        }}
+        groups={videoImportReview.groups()}
+        onComplete={() => {
+          const sid = reviewVideoSessionId();
+          if (sid) setCompletedVideoReviewSessionId(sid);
+          setReviewVideoSessionId(null);
+          setReviewVideoRemote(null);
+          setReviewRefetchKey((k) => k + 1);
+          // re-open to let the user pick the next pending review
+          openAddMedia();
+        }}
+        onMoveVideo={(videoId: string, toSeriesId: string | null) =>
+          void videoImportReview.moveVideo(videoId, toSeriesId)
+        }
+        onMarkReviewed={async (groupKey: string) => {
+          // flush any pending edits from the editor before marking reviewed -
+          // let a failure propagate so the modal doesn't advance past a
+          // group that didn't actually save (its own inline error shows why).
+          const saveFn = videoEditorSaveFns.get(groupKey);
+          if (saveFn) {
+            await saveFn();
+          } else {
+            // no editor registered (e.g. grouping stage) - just mark reviewed
+            await videoImportReview.markReviewed(groupKey);
+          }
+        }}
+        renderGroupEditor={(editorProps) => {
+          if (!reviewVideoRemote() || !reviewVideoSessionId()) return <></>;
+          return (
+            <ImportVideoReviewEditor
+              {...editorProps}
+              reviewHandle={videoImportReview}
+              onRegisterSave={(id, fn) => videoEditorSaveFns.set(id, fn)}
+              onUnregisterSave={(id) => videoEditorSaveFns.delete(id)}
             />
           );
         }}
@@ -1233,8 +1595,10 @@ export function App() {
       <Show when={useTagSelectorState()()}>
         {(state) => (
           <TagSelectorModal
-            albumIds={state().albumIds}
-            albumTitle={state().albumTitle}
+            entityIds={state().entityIds}
+            entityTitle={state().entityTitle}
+            entityKindLabel={state().entityKindLabel}
+            adapter={state().adapter}
             remote={state().remote}
             onClose={hideTagSelector}
             onSave={() => {
@@ -1281,6 +1645,7 @@ export function App() {
 
       {/* queue full modal (global, managed by queue service) */}
       <QueueFullModal />
+      <ReplaceQueueConfirmModal />
     </>
   );
 }
@@ -1333,6 +1698,51 @@ async function expandPathsToAudioFiles(paths: string[]): Promise<string[]> {
     await collectAudioFiles(path);
   }
   return audioFilePaths;
+}
+
+/**
+ * expand a list of tauri-dialog-selected paths into video file paths.
+ * mirrors `expandPathsToAudioFiles` above (same recursion into directories),
+ * shared by every `handleVideoPathsSelected` branch.
+ */
+async function expandPathsToVideoFiles(paths: string[]): Promise<string[]> {
+  // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
+  const fsModule = (await import("@tauri-apps/plugin-fs" as any)) as {
+    readDir: (path: string) => Promise<{ name: string; isDirectory: boolean }[]>;
+  };
+  // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
+  const pathModule = (await import("@tauri-apps/api/path" as any)) as {
+    join: (...parts: string[]) => Promise<string>;
+  };
+
+  const videoFilePaths: string[] = [];
+  const collectVideoFiles = async (path: string): Promise<void> => {
+    let entries: { name: string; isDirectory: boolean }[] | null = null;
+    try {
+      entries = await fsModule.readDir(path);
+    } catch {
+      // not a directory - treat as a single file path
+    }
+    if (entries === null) {
+      videoFilePaths.push(path);
+      return;
+    }
+    for (const entry of entries) {
+      const entryPath = await pathModule.join(path, entry.name);
+      if (entry.isDirectory) {
+        await collectVideoFiles(entryPath);
+      } else {
+        const ext = entry.name.split(".").pop()?.toLowerCase() || "";
+        if (VIDEO_EXTS.includes(ext)) {
+          videoFilePaths.push(entryPath);
+        }
+      }
+    }
+  };
+  for (const path of paths) {
+    await collectVideoFiles(path);
+  }
+  return videoFilePaths;
 }
 
 /**

@@ -12,9 +12,29 @@ function nonWaveform(imgs?: ImageMetadata[]): ImageMetadata[] {
 }
 
 /**
+ * true when the remote's artwork differs from what was last stored locally,
+ * i.e. a re-sync is worth the bandwidth.
+ *
+ * compares source blob ids (`remote_blob_id`), not local ones - local ids are
+ * blake3 content hashes, so identical artwork from two different remotes
+ * collapses to one id and can't tell us whether the *source* changed.
+ */
+export function imagesAreStale(
+  existing: ImageMetadata[] | undefined,
+  remoteBlobIds: Array<string | null | undefined>
+): boolean {
+  const wanted = remoteBlobIds.filter((id): id is string => !!id);
+  const have = new Set(
+    (existing ?? []).map((i) => i.remote_blob_id).filter((id): id is string => !!id)
+  );
+  if (have.size !== wanted.length) return true;
+  return wanted.some((id) => !have.has(id));
+}
+
+/**
  * pick the best single image from an array of images.
  * handles both ImageMetadata (blob_type) and raw IDB data (type).
- * 
+ *
  * priority order:
  * 1. primary thumbnail
  * 2. any thumbnail
@@ -72,14 +92,17 @@ export function getSongDisplayImages(song: {
   title?: string;
   images?: ImageMetadata[];
   album_images?: ImageMetadata[];
+  artist_images?: ImageMetadata[];
 }): ImageMetadata[] | undefined {
   if (!song) return undefined;
   const songImgs = nonWaveform(song.images);
   const albumImgs = nonWaveform(song.album_images);
+  const artistImgs = nonWaveform(song.artist_images);
 
   // merge album-first so pickBestImage prefers album originals over song
-  // "original"-typed images (which are commonly mistyped waveforms).
-  const merged = [...albumImgs, ...songImgs];
+  // "original"-typed images (which are commonly mistyped waveforms). artist
+  // images are the last resort before showing nothing.
+  const merged = [...albumImgs, ...songImgs, ...artistImgs];
   if (merged.length > 0) return merged;
 
   // last-resort raw fallback (only waveforms present? show nothing)
@@ -94,7 +117,7 @@ export function getSongDisplayImages(song: {
  */
 export function pickBestEntryImage(
   songs: Array<{ images?: ImageMetadata[]; album_images?: ImageMetadata[] }>,
-  sourceImage?: ImageMetadata,
+  sourceImage?: ImageMetadata
 ): ImageMetadata | undefined {
   // 1. use the source-provided image if it's not a waveform
   if (sourceImage && sourceImage.blob_type !== "waveform") {

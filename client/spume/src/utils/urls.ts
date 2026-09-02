@@ -32,3 +32,16 @@ export function getRemoteImageUrl(baseUrl: string, mediaId: string): string {
 export function getRemoteAudioUrl(baseUrl: string, mediaId: string): string {
   return getRemoteMediaUrl(baseUrl, mediaId);
 }
+
+/**
+ * ensure a user-entered external link (e.g. a bare "freqhole.net" typed
+ * into an entity-url field) has a URL scheme, so `<a href>` doesn't
+ * resolve it as a path relative to the current origin instead of
+ * navigating out to the actual external site. leaves already-schemed
+ * URLs (http://, https://, mailto:, etc.) untouched.
+ */
+export function withUrlProtocol(url: string): string {
+  const trimmed = url.trim();
+  if (!trimmed || /^[a-z][a-z0-9+.-]*:/i.test(trimmed)) return trimmed;
+  return `https://${trimmed}`;
+}

@@ -9,8 +9,8 @@ use crate::database;
 use crate::jobs::models::{CreateJobRequest, Job, JobError, JobType};
 use crate::jobs::service::create_job;
 use crate::music::fetch::{
-    check_existing_content, download_media, extract_metadata, FetchMediaParams, FetchMediaResult,
-    FetchProgress,
+    check_existing_content, classify_fetch_error, download_media, extract_metadata,
+    FetchMediaParams, FetchMediaResult, FetchProgress,
 };
 use serde_json::Value;
 use std::collections::HashMap;
@@ -150,14 +150,22 @@ pub async fn process_fetch_media_job(job: &Job) -> Result<Option<Value>, JobErro
     let emitter = JobProgressEmitter::new(job.clone(), total_items, title_by_content_id);
 
     // step 7: download media
-    let downloaded_files = match download_media(&params.url, &job.id, &config, &emitter).await {
-        Ok(files) => files,
-        Err(e) => {
-            return Err(JobError::ProcessingFailed {
-                reason: format!("download failed: {}", e),
-            })
-        }
-    };
+    let downloaded_files =
+        match download_media(&params.url, &job.id, &config, &emitter, params.domain).await {
+            Ok(files) => files,
+            Err(e) => {
+                let (detail, retryable, category) = classify_fetch_error(&e);
+                let reason = format!("download failed: {}", detail);
+                return Err(if retryable {
+                    JobError::ProcessingFailed { reason }
+                } else {
+                    JobError::ProcessingFailedFinal {
+                        reason,
+                        error_type: category.unwrap_or("processing_failed").to_string(),
+                    }
+                });
+            }
+        };
 
     if downloaded_files.is_empty() {
         return Err(JobError::ProcessingFailed {
@@ -258,6 +266,7 @@ pub async fn process_fetch_media_job(job: &Job) -> Result<Option<Value>, JobErro
             source_url: Some(params.url.clone()),
             existing_blob_id: None,
             serialization_group: Some(job.id.clone()),
+            domain: Some(params.domain),
         };
 
         let job_request = CreateJobRequest {

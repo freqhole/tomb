@@ -13,11 +13,21 @@ finish-args:
   - --device=dri
   # audio playback
   - --socket=pulseaudio
+  # MPRIS media controls
+  - --own-name=org.mpris.MediaPlayer2.freqhole
   # network access (for connecting to remotes)
   - --share=network
   # file access for music directories
   - --filesystem=xdg-music:ro
   - --filesystem=home:ro
+  # removable storage sync targets (udisks/gvfs mount points) - needs rw to
+  # copy music onto the drive
+  - --filesystem=/run/media
+  - --filesystem=/media
+  # eject/unmount runs udisksctl or gio on the host via flatpak-spawn, since
+  # neither ships in the runtime. remove this and eject degrades to a
+  # "unmount from your file manager" message.
+  - --talk-name=org.freedesktop.Flatpak
   # dconf access (for GTK settings)
   - --filesystem=xdg-run/dconf
   - --filesystem=~/.config/dconf:ro

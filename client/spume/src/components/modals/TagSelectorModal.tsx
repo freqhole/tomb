@@ -1,25 +1,24 @@
-// tag selector modal for managing album tags
-// supports single or multiple albums with aggregated tag state
+// generic tag selector modal — supports any entity kind (album, video,
+// ...) via a pluggable TagAdapter, with aggregated tag state across one
+// or many selected entities.
 import { createMemo, createSignal, For, Show } from "solid-js";
-import { getDataSource } from "../../music/data";
-import { getClientForRemote } from "../../app/api/client";
 import type { Remote } from "../../app/services/storage/schemas/remote";
 import { Button } from "../buttons/Button";
 import { toast } from "../feedback/Toast";
 import { TextInput } from "../forms/TextInput";
 import { Icon, IconNames } from "../icons/registry";
-
-interface Tag {
-  tag_id: string;
-  name: string;
-  created_at: number;
-}
+import { Modal } from "./Modal";
+import type { Tag, TagAdapter } from "./tagAdapters/types";
 
 interface TagSelectorModalProps {
-  /** album id(s) to manage tags for */
-  albumIds: string[];
-  /** optional album title to display (if single album) */
-  albumTitle?: string;
+  /** entity id(s) to manage tags for (e.g. album ids, video ids) */
+  entityIds: string[];
+  /** optional entity title to display (if a single entity) */
+  entityTitle?: string;
+  /** plural noun used in the multi-select title, e.g. "albums"/"videos" */
+  entityKindLabel?: string;
+  /** backend that actually reads/writes tags for this entity kind */
+  adapter: TagAdapter;
   /** when set, all reads + writes are routed through this remote's
    *  api client rather than the active datasource. needed by views
    *  (e.g. library) that browse a remote which isn't the global
@@ -37,73 +36,25 @@ export function TagSelectorModal(props: TagSelectorModalProps) {
   const [searchQuery, setSearchQuery] = createSignal("");
   const [isLoading, setIsLoading] = createSignal(false);
   const [allTags, setAllTags] = createSignal<Tag[]>([]);
-  // track how many albums have each tag: tagId -> count
+  // track how many entities have each tag: tagId -> count
   const [tagCounts, setTagCounts] = createSignal<Map<string, number>>(new Map());
   const [pendingChanges, setPendingChanges] = createSignal<{
     add: Set<string>;
     remove: Set<string>;
   }>({ add: new Set(), remove: new Set() });
 
-  const albumCount = () => props.albumIds.length;
+  const entityCount = () => props.entityIds.length;
 
   // load tags on mount
   (async () => {
     setIsLoading(true);
     try {
-      let tags: Tag[] | undefined;
-      const counts = new Map<string, number>();
-
-      if (props.remote) {
-        // remote-scoped path: route through the picked remote's client
-        // so library bulk actions can target a remote that isn't the
-        // active datasource.
-        const client = await getClientForRemote(props.remote);
-        const tagsResp = await client.music.listTags();
-        if (tagsResp.success) {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          tags = tagsResp.data.map((t: any) => ({
-            tag_id: t.id,
-            name: t.name,
-            created_at: t.created_at,
-          }));
-          setAllTags(tags);
-        }
-        if (tags && props.albumIds.length > 0) {
-          const resp = await client.music.getAlbumsTags({ album_ids: props.albumIds });
-          if (resp.success) {
-            // each row is one (album_id, tag) pair; count tag_id
-            // occurrences across all rows.
-            for (const row of resp.data) {
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              const r: any = row;
-              const tagId = r.tag?.id ?? r.tag_id;
-              if (tagId) counts.set(tagId, (counts.get(tagId) || 0) + 1);
-            }
-          }
-        }
-        setTagCounts(counts);
-      } else {
-        const datasource = await getDataSource();
-        const dsTags = await datasource.getTags?.();
-        if (dsTags) {
-          tags = dsTags;
-          setAllTags(dsTags);
-        }
-        if (props.albumIds.length > 0 && datasource.getAlbumTags) {
-          for (const albumId of props.albumIds) {
-            const tagNames = await datasource.getAlbumTags(albumId);
-            if (tagNames) {
-              for (const name of tagNames) {
-                const tag = tags?.find((t) => t.name === name);
-                if (tag) {
-                  counts.set(tag.tag_id, (counts.get(tag.tag_id) || 0) + 1);
-                }
-              }
-            }
-          }
-          setTagCounts(counts);
-        }
-      }
+      const [tags, counts] = await Promise.all([
+        props.adapter.listAllTags(props.remote),
+        props.adapter.getEntityTagCounts(props.entityIds, props.remote),
+      ]);
+      setAllTags(tags);
+      setTagCounts(counts);
     } catch (err) {
       console.error("failed to load tags:", err);
       toast.error("failed to load tags");
@@ -119,7 +70,7 @@ export function TagSelectorModal(props: TagSelectorModalProps) {
     return allTags().filter((tag) => tag.name.toLowerCase().includes(query));
   });
 
-  // get the state of a tag across all albums
+  // get the state of a tag across all entities
   const getTagState = (tagId: string): TagState => {
     const changes = pendingChanges();
 
@@ -129,7 +80,7 @@ export function TagSelectorModal(props: TagSelectorModalProps) {
 
     const count = tagCounts().get(tagId) || 0;
     if (count === 0) return "none";
-    if (count === albumCount()) return "all";
+    if (count === entityCount()) return "all";
     return "some";
   };
 
@@ -139,22 +90,22 @@ export function TagSelectorModal(props: TagSelectorModalProps) {
     const state = getTagState(tagId);
 
     if (state === "all" || state === "some") {
-      // tag is on some/all albums - toggle means remove
+      // tag is on some/all entities - toggle means remove
       if (changes.remove.has(tagId)) {
         // already marked for removal, cancel it
         changes.remove.delete(tagId);
       } else {
-        // mark for removal from all albums
+        // mark for removal from all entities
         changes.remove.add(tagId);
         changes.add.delete(tagId);
       }
     } else {
-      // tag is on no albums - toggle means add
+      // tag is on no entities - toggle means add
       if (changes.add.has(tagId)) {
         // already marked for addition, cancel it
         changes.add.delete(tagId);
       } else {
-        // mark for addition to all albums
+        // mark for addition to all entities
         changes.add.add(tagId);
         changes.remove.delete(tagId);
       }
@@ -210,36 +161,8 @@ export function TagSelectorModal(props: TagSelectorModalProps) {
       // collect tag IDs for tags to remove (filter out temp tags)
       const tagIdsToRemove = Array.from(changes.remove).filter((id) => !id.startsWith("temp_"));
 
-      if (props.remote) {
-        const client = await getClientForRemote(props.remote);
-        if (tagNamesToAdd.length > 0) {
-          await client.music.addAlbumsTags({
-            album_ids: props.albumIds,
-            tag_ids: [],
-            tag_names: tagNamesToAdd,
-          });
-        }
-        if (tagIdsToRemove.length > 0) {
-          await client.music.removeAlbumsTags({
-            album_ids: props.albumIds,
-            tag_ids: tagIdsToRemove,
-          });
-        }
-      } else {
-        const datasource = await getDataSource();
-        // add tags (datasource will find or create)
-        if (tagNamesToAdd.length > 0) {
-          for (const albumId of props.albumIds) {
-            await datasource.addTagsToAlbum?.(albumId, tagNamesToAdd);
-          }
-        }
-        // remove tags
-        if (tagIdsToRemove.length > 0) {
-          for (const albumId of props.albumIds) {
-            await datasource.removeTagsFromAlbum?.(albumId, tagIdsToRemove);
-          }
-        }
-      }
+      await props.adapter.addTags(props.entityIds, tagNamesToAdd, props.remote);
+      await props.adapter.removeTags(props.entityIds, tagIdsToRemove, props.remote);
 
       // call onSave callback to invalidate queries
       props.onSave?.();
@@ -259,139 +182,22 @@ export function TagSelectorModal(props: TagSelectorModalProps) {
   });
 
   const modalTitle = createMemo(() => {
-    if (props.albumIds.length === 1 && props.albumTitle) {
-      return `manage tags: ${props.albumTitle}`;
-    } else if (props.albumIds.length > 1) {
-      return `manage tags: ${props.albumIds.length} albums`;
+    if (props.entityIds.length === 1 && props.entityTitle) {
+      return `manage tags: ${props.entityTitle}`;
+    } else if (props.entityIds.length > 1) {
+      return `manage tags: ${props.entityIds.length} ${props.entityKindLabel ?? "items"}`;
     }
     return "manage tags";
   });
 
   return (
-    <div
-      class="flex items-center justify-center bg-black/50"
-      style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, "z-index": 1050 }}
-      onClick={() => props.onClose()}
-    >
-      <div
-        class="bg-[var(--color-bg-primary)] wide:rounded-lg shadow-xl w-full h-full wide:h-auto wide:max-w-md wide:max-h-[80dvh] flex flex-col"
-        style={{
-          "margin-top": "var(--safe-area-top, 0px)",
-          height: "calc(100% - var(--safe-area-top, 0px))",
-          "max-height": "calc(100% - var(--safe-area-top, 0px))",
-        }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* header */}
-        <div class="flex items-center justify-between p-4 border-b border-[var(--color-border-default)]">
-          <div>
-            <h2 class="text-lg font-semibold text-[var(--color-text-primary)]">{modalTitle()}</h2>
-            <Show when={props.albumIds.length > 1}>
-              <p class="text-xs text-[var(--color-text-tertiary)] mt-1">
-                changes will apply to all selected albums
-              </p>
-            </Show>
-          </div>
-          <button
-            onClick={() => props.onClose()}
-            class="p-1 hover:bg-[var(--color-bg-hover)] rounded transition-colors"
-          >
-            <Icon name={IconNames.close} size={20} />
-          </button>
-        </div>
-
-        {/* search/create input */}
-        <div class="p-4 border-b border-[var(--color-border-default)]">
-          <div class="flex gap-2">
-            <TextInput
-              value={searchQuery()}
-              oninput={(e) => setSearchQuery(e.currentTarget.value)}
-              placeholder="search or create tag..."
-              class="flex-1"
-              disabled={isLoading()}
-            />
-            <Show when={searchQuery().trim() && !filteredTags().length}>
-              <Button onClick={addTagByName} disabled={isLoading()} variant="primary">
-                add
-              </Button>
-            </Show>
-          </div>
-        </div>
-
-        {/* tag list */}
-        <div class="flex-1 overflow-y-auto p-4">
-          <Show
-            when={!isLoading()}
-            fallback={
-              <div class="flex items-center justify-center py-8 text-[var(--color-text-secondary)]">
-                loading tags...
-              </div>
-            }
-          >
-            <Show
-              when={filteredTags().length > 0}
-              fallback={
-                <div class="text-center py-8 text-[var(--color-text-secondary)]">
-                  <Show when={searchQuery().trim()} fallback={<p>no tags yet</p>}>
-                    <p>no tags found</p>
-                    <p class="text-sm mt-2">click "add" to add "{searchQuery().trim()}"</p>
-                  </Show>
-                </div>
-              }
-            >
-              <div class="space-y-1">
-                <For each={filteredTags()}>
-                  {(tag) => {
-                    const state = () => getTagState(tag.tag_id);
-                    const isPending = () => {
-                      const changes = pendingChanges();
-                      return changes.add.has(tag.tag_id) || changes.remove.has(tag.tag_id);
-                    };
-                    const count = () => tagCounts().get(tag.tag_id) || 0;
-
-                    return (
-                      <button
-                        onClick={() => toggleTag(tag.tag_id)}
-                        class={`
-                          w-full flex items-center justify-between px-3 py-2 rounded
-                          transition-colors text-left
-                          ${
-                            state() === "all"
-                              ? "bg-[var(--color-accent-500)]/10 text-[var(--color-accent-500)]"
-                              : state() === "some"
-                                ? "bg-yellow-500/10 text-yellow-500"
-                                : "hover:bg-[var(--color-bg-hover)] text-[var(--color-text-primary)]"
-                          }
-                          ${isPending() ? "ring-2 ring-[var(--color-accent-500)]/50" : ""}
-                        `}
-                      >
-                        <span class="flex items-center gap-2">
-                          <Icon name={IconNames.tag} size={14} />
-                          {tag.name}
-                          {/* show count badge for partial state with multiple albums */}
-                          <Show when={state() === "some" && albumCount() > 1}>
-                            <span class="text-xs bg-yellow-500/20 px-1.5 py-0.5 rounded">
-                              {count()}/{albumCount()}
-                            </span>
-                          </Show>
-                        </span>
-                        <Show when={state() === "all"}>
-                          <Icon name={IconNames.check} size={16} color="var(--color-accent-500)" />
-                        </Show>
-                        <Show when={state() === "some"}>
-                          <span class="w-2 h-0.5 bg-yellow-500 rounded" />
-                        </Show>
-                      </button>
-                    );
-                  }}
-                </For>
-              </div>
-            </Show>
-          </Show>
-        </div>
-
-        {/* footer */}
-        <div class="flex items-center justify-between p-4 border-t border-[var(--color-border-default)]">
+    <Modal
+      isOpen={true}
+      onClose={() => props.onClose()}
+      title={modalTitle()}
+      size="sm"
+      footer={
+        <div class="flex items-center justify-between p-4">
           <div class="text-sm text-[var(--color-text-secondary)]">
             <Show when={hasPendingChanges()}>
               {pendingChanges().add.size > 0 && (
@@ -416,7 +222,102 @@ export function TagSelectorModal(props: TagSelectorModalProps) {
             </Button>
           </div>
         </div>
+      }
+    >
+      {/* search/create input */}
+      <div class="p-4 border-b border-[var(--color-border-default)] flex-shrink-0">
+        <Show when={props.entityIds.length > 1}>
+          <p class="text-xs text-[var(--color-text-tertiary)] mb-2">
+            changes will apply to all selected {props.entityKindLabel ?? "items"}
+          </p>
+        </Show>
+        <div class="flex gap-2">
+          <TextInput
+            value={searchQuery()}
+            oninput={(e) => setSearchQuery(e.currentTarget.value)}
+            placeholder="search or create tag..."
+            class="flex-1"
+            disabled={isLoading()}
+          />
+          <Show when={searchQuery().trim() && !filteredTags().length}>
+            <Button onClick={addTagByName} disabled={isLoading()} variant="primary">
+              add
+            </Button>
+          </Show>
+        </div>
       </div>
-    </div>
+
+      {/* tag list */}
+      <div class="flex-1 overflow-y-auto p-4">
+        <Show
+          when={!isLoading()}
+          fallback={
+            <div class="flex items-center justify-center py-8 text-[var(--color-text-secondary)]">
+              loading tags...
+            </div>
+          }
+        >
+          <Show
+            when={filteredTags().length > 0}
+            fallback={
+              <div class="text-center py-8 text-[var(--color-text-secondary)]">
+                <Show when={searchQuery().trim()} fallback={<p>no tags yet</p>}>
+                  <p>no tags found</p>
+                  <p class="text-sm mt-2">click "add" to add "{searchQuery().trim()}"</p>
+                </Show>
+              </div>
+            }
+          >
+            <div class="space-y-1">
+              <For each={filteredTags()}>
+                {(tag) => {
+                  const state = () => getTagState(tag.tag_id);
+                  const isPending = () => {
+                    const changes = pendingChanges();
+                    return changes.add.has(tag.tag_id) || changes.remove.has(tag.tag_id);
+                  };
+                  const count = () => tagCounts().get(tag.tag_id) || 0;
+
+                  return (
+                    <button
+                      onClick={() => toggleTag(tag.tag_id)}
+                      class={`
+                        w-full flex items-center justify-between px-3 py-2 rounded
+                        transition-colors text-left
+                        ${
+                          state() === "all"
+                            ? "bg-[var(--color-accent-500)]/10 text-[var(--color-accent-500)]"
+                            : state() === "some"
+                              ? "bg-yellow-500/10 text-yellow-500"
+                              : "hover:bg-[var(--color-bg-hover)] text-[var(--color-text-primary)]"
+                        }
+                        ${isPending() ? "ring-2 ring-[var(--color-accent-500)]/50" : ""}
+                      `}
+                    >
+                      <span class="flex items-center gap-2">
+                        <Icon name={IconNames.tag} size={14} />
+                        {tag.name}
+                        {/* show count badge for partial state with multiple entities */}
+                        <Show when={state() === "some" && entityCount() > 1}>
+                          <span class="text-xs bg-yellow-500/20 px-1.5 py-0.5 rounded">
+                            {count()}/{entityCount()}
+                          </span>
+                        </Show>
+                      </span>
+                      <Show when={state() === "all"}>
+                        <Icon name={IconNames.check} size={16} color="var(--color-accent-500)" />
+                      </Show>
+                      <Show when={state() === "some"}>
+                        <span class="w-2 h-0.5 bg-yellow-500 rounded" />
+                      </Show>
+                    </button>
+                  );
+                }}
+              </For>
+            </div>
+          </Show>
+        </Show>
+      </div>
+    </Modal>
   );
 }

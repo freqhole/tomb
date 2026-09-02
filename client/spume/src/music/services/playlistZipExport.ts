@@ -3,6 +3,7 @@ import type { BlobFetcher, PlaylistZipEntry } from "@freqhole/playlistz/zip-bund
 import { generatePlaylistzJs, generateIndexHtml } from "@freqhole/playlistz/templates";
 import type { Transport } from "../../app/api/client";
 import { getTransportForRemote } from "../../app/api/client";
+import { isCharnelMode } from "../../app/services/charnel/mode";
 import { getCurrentRemote } from "../data/currentState";
 import { readAudioFromOPFS } from "./opfs/helpers";
 import { getBlob, getBlobMetadata } from "./storage/blobs";
@@ -177,7 +178,7 @@ export async function downloadPlaylistZip(
 ): Promise<ZipDownloadResult> {
   const entry = await toPlaylistZipEntry(playlist, songs);
   const filename = `${playlist.title.replace(/[^a-zA-Z0-9_-]/g, "_") || "playlist"}.zip`;
-  const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+  const isTauri = isCharnelMode();
 
   // in tauri: stream bytes to rust one file at a time so only one song lives in
   // memory at once. rust writes each file to a temp zip on disk immediately.

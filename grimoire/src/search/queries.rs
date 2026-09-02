@@ -615,7 +615,7 @@ pub async fn search_playlists(
             playlist.is_public as "is_public!: i64",
             playlist.created_by as "created_by!: String",
             fts.rank as "fts_rank!: f64",
-            (SELECT COUNT(DISTINCT ps2.song_id) FROM playlist_songz ps2 WHERE ps2.playlist_id = playlist.id) as "song_count!: i64"
+            (SELECT COUNT(DISTINCT ps2.entity_id) FROM playlist_itemz ps2 WHERE ps2.playlist_id = playlist.id AND ps2.entity_type = 'song') as "song_count!: i64"
         FROM playlistz_fts fts
         JOIN playlistz playlist ON fts.playlist_id = playlist.id
 
@@ -624,18 +624,18 @@ pub async fn search_playlists(
             AND (playlist.is_public = 1 OR playlist.created_by = ?)
             -- tag include filter (OR logic - playlist must contain songs from albums with these tags)
             AND (NOT ? OR EXISTS (
-                SELECT 1 FROM playlist_songz psong
-                JOIN album_songz alsong ON psong.song_id = alsong.song_id
+                SELECT 1 FROM playlist_itemz psong
+                JOIN album_songz alsong ON psong.entity_id = alsong.song_id
                 JOIN album_tagz atag ON atag.album_id = alsong.album_id
-                WHERE psong.playlist_id = playlist.id
+                WHERE psong.playlist_id = playlist.id AND psong.entity_type = 'song'
                 AND atag.tag_id IN (SELECT value FROM json_each(?))
             ))
             -- tag exclude filter (AND NOT logic - playlist must not contain songs from albums with these tags)
             AND (NOT ? OR NOT EXISTS (
-                SELECT 1 FROM playlist_songz psong
-                JOIN album_songz alsong ON psong.song_id = alsong.song_id
+                SELECT 1 FROM playlist_itemz psong
+                JOIN album_songz alsong ON psong.entity_id = alsong.song_id
                 JOIN album_tagz atag ON atag.album_id = alsong.album_id
-                WHERE psong.playlist_id = playlist.id
+                WHERE psong.playlist_id = playlist.id AND psong.entity_type = 'song'
                 AND atag.tag_id IN (SELECT value FROM json_each(?))
             ))
         GROUP BY playlist.id, playlist.title, playlist.description, playlist.is_public, playlist.created_by, fts.rank

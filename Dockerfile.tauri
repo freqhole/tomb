@@ -34,6 +34,13 @@ RUN apt-get update && apt-get install -y \
     # libudev.pc — required by the linux-only `udev` crate used by
     # charnel's external-storage device watcher.
     libudev-dev \
+    # gstreamer — video plays in a separate gstreamer window on linux since
+    # webkitgtk cannot play video in a <video> element. `-bad` supplies
+    # libgstplay-1.0, which GstPlay (the gstreamer-play crate) lives in;
+    # base/good supply playbin3 and gtksink respectively.
+    libgstreamer1.0-dev \
+    libgstreamer-plugins-base1.0-dev \
+    libgstreamer-plugins-bad1.0-dev \
     # for rpm builds
     rpm \
     && rm -rf /var/lib/apt/lists/*
@@ -60,6 +67,6 @@ RUN cd client/charnel && npm ci
 RUN FREQHOLE_GIT_SHA=${FREQHOLE_GIT_SHA} cd client/spume && npm run build
 
 # build tauri app - deb + rpm
-RUN cd client/charnel && SQLX_OFFLINE="true" npm run tauri build -- --target ${TARGET_ARCH} --bundles deb,rpm
+RUN cd client/charnel && SQLX_OFFLINE="true" FREQHOLE_GIT_SHA=${FREQHOLE_GIT_SHA} npm run tauri build -- --target ${TARGET_ARCH} --bundles deb,rpm
 
 # outputs in /app/target/${TARGET_ARCH}/release/bundle/deb/*.deb and rpm/*.rpm

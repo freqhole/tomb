@@ -10,9 +10,9 @@
 /** max width for small/phone layouts (inclusive) */
 export const SM_MAX_WIDTH = 500;
 
-/** 
- * max width for narrow/mobile layouts (inclusive) 
- * mostly used for top nav search 
+/**
+ * max width for narrow/mobile layouts (inclusive)
+ * mostly used for top nav search
  */
 export const NARROW_MAX_WIDTH = 800;
 
@@ -66,4 +66,17 @@ export function isLgViewport(): boolean {
 export function isXlViewport(): boolean {
   if (typeof window === "undefined") return true;
   return window.innerWidth >= XL_MIN_WIDTH;
+}
+
+/**
+ * playerbar height in px, matching theme.css's `--player-height` exactly
+ * (80px narrow / 72px wide, both plus safe-area-bottom). used wherever a
+ * view computes an explicit list height in JS (virtualized lists, etc) -
+ * views that just render the css var directly don't need this. passing the
+ * wrong value here causes a visible gap (or overlap) between list content
+ * and the real playerbar.
+ */
+export function getPlayerBarHeightPx(isNarrow: boolean, visible: boolean): number {
+  if (!visible) return 0;
+  return isNarrow ? 80 : 72;
 }

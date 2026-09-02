@@ -1,5 +1,19 @@
 @import "tailwindcss";
 
+/* /player/ pairing-qr loading spinner - see app/player/CenotaphPlayerApp.tsx.
+   duration is set inline per-frame so it can ramp speed, hence its own named
+   animation rather than tailwind's fixed-duration `animate-spin` utility. */
+@keyframes spin-ramp {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.spin-ramp {
+  animation-name: spin-ramp;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+
 /* =============================================================================
    theme configuration
    ============================================================================= */
@@ -154,22 +168,33 @@
 :root {
   /* safe area insets for mobile status/navigation bars.
      --safe-area-top defaults to 0 and is activated at runtime only on android
-     tauri (where the webview draws behind the system status bar). this prevents
-     ios safari from picking up its own nonzero env() value and adding extra
-     space when running as a plain web app. see index.tsx bootstrap. */
+     tauri (where the webview draws behind the system status bar) or when the
+     chromeless macOS title-bar strip is active (see App.tsx / TitleBarStrip).
+     this prevents ios safari from picking up its own nonzero env() value and
+     adding extra space when running as a plain web app. see index.tsx bootstrap. */
   --safe-area-top: 0px;
   --safe-area-bottom: env(safe-area-inset-bottom, 0px);
   /* player bar: 2-row on narrow (80px), 1-row on wide (64px) */
   --player-height: calc(80px + var(--safe-area-bottom));
-  /* nav bar height (42px base + safe area on android webview) */
+  /* nav bar height (42px base + safe area on android webview / chromeless strip) */
   --nav-height: calc(42px + var(--safe-area-top));
+  /* extra top offset for TopNav (both narrow and wide layouts) so its own
+     box - background included - never overlaps the chromeless macOS
+     title-bar strip's traffic-light buttons. 0 otherwise - safe to always
+     apply, no-op when the strip isn't rendered. see TitleBarStrip.tsx. */
+  --chrome-top-inset: 0px;
+  /* horizontal space reserved for the chromeless macOS title-bar strip's
+     traffic-light button cluster, for any element that floats at the very
+     top-left (e.g. a sticky toolbar) and would otherwise render underneath/
+     alongside those buttons. 0 otherwise - see TitleBarStrip.tsx. */
+  --chrome-traffic-lights-inset: 0px;
 }
 
 @media (min-width: 801px) {
   :root {
     /* single row on wider screens */
     --player-height: 72px;
-    --nav-height: 42px;
+    --nav-height: calc(42px + var(--safe-area-top));
   }
 }
 
@@ -195,6 +220,20 @@ body {
 [data-allow-select] * {
   user-select: text;
   -webkit-user-select: text;
+}
+
+/* recolor the browser's default focus ring to the accent color, without
+   adding one to anything that doesn't already show one. `outline-color`
+   alone isn't enough: the browser default `outline-style` is `auto`, and
+  most engines (chromium, webkit, gtk-webkit) hardcode the platform
+  ring color for `auto` regardless of `outline-color` - only
+   `outline-style: solid` makes them actually honor a custom color. this
+   is why every focusable element still showed blue with just the color
+   override, on both mac and linux. */
+:focus {
+  outline-style: solid;
+  outline-width: 1px;
+  outline-color: var(--color-accent-500);
 }
 
 /* prevent ios safari from zooming into inputs on focus.
@@ -227,7 +266,7 @@ select {
 }
 
 /* interactive elements get a pointer cursor by default. anchor tags already
-   do, but native <button>s and role=button elements do not (and tailwind
+  do, but standard <button>s and role=button elements do not (and tailwind
    removed cursor:pointer on buttons in v3+). disabled buttons fall back to
    not-allowed. */
 button:not(:disabled),
@@ -521,6 +560,18 @@ select option {
   }
   50% {
     opacity: 1;
+  }
+}
+
+/* comet-trail ring for a non-circular (e.g. pill-shaped) button border -
+ * see QueuePlayerTargetRow.tsx. rotating a conic-gradient (as the other
+ * comet rings do) only moves at constant *angular* speed, which looks
+ * uneven on an elongated shape; this instead animates stroke-dashoffset
+ * on an SVG rect with pathLength="100", which travels at constant speed
+ * along the actual perimeter length no matter the aspect ratio. */
+@keyframes comet-dash {
+  to {
+    stroke-dashoffset: -100;
   }
 }
 

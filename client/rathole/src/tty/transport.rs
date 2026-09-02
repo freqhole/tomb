@@ -10,7 +10,7 @@ use grimoire::offal::Caller;
 use grimoire::users::UserService;
 use serde_json::Value as JsonValue;
 
-use crate::ratcore::app::{DispatchResponse, SongRow};
+use crate::ratcore::app::{DispatchResponse, RenditionRow, SeriesRow, SongRow, VideoRow};
 use crate::ratcore::transport::Transport;
 
 pub struct LocalTransport {
@@ -119,7 +119,7 @@ impl Transport for LocalTransport {
     }
 
     async fn toggle_favorite(&self, target_type: &str, target_id: &str) -> Result<bool, String> {
-        use grimoire::music::users::FavoritesService;
+        use grimoire::users::FavoritesService;
         let target = parse_favorite_target(target_type)?;
         let service = FavoritesService::new();
         let resp = service
@@ -133,7 +133,7 @@ impl Transport for LocalTransport {
     }
 
     async fn is_favorited(&self, target_type: &str, target_id: &str) -> Result<bool, String> {
-        use grimoire::music::users::FavoritesService;
+        use grimoire::users::FavoritesService;
         let target = parse_favorite_target(target_type)?;
         let service = FavoritesService::new();
         let resp = service
@@ -269,6 +269,174 @@ impl Transport for LocalTransport {
             return Ok(vec![]);
         };
         Ok(result.items.iter().map(song_query_to_row).collect())
+    }
+
+    async fn query_videos(
+        &self,
+        query: Option<&str>,
+        series_id: Option<&str>,
+        season_id: Option<&str>,
+        limit: u32,
+    ) -> Result<Vec<VideoRow>, String> {
+        use grimoire::music::crud::QueryParams;
+        use grimoire::video::query_videos;
+
+        let params = QueryParams {
+            limit: Some(limit),
+            offset: Some(0),
+            q: query
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty()),
+            ..Default::default()
+        };
+        let resp = query_videos(
+            params,
+            series_id.map(|s| s.to_string()),
+            season_id.map(|s| s.to_string()),
+            false,
+        )
+        .await;
+        if !resp.success {
+            return Err(resp.message);
+        }
+        let Some(result) = resp.data else {
+            return Ok(vec![]);
+        };
+        Ok(result.items.into_iter().map(video_to_row).collect())
+    }
+
+    async fn get_video(&self, id: &str) -> Result<VideoRow, String> {
+        use grimoire::video::get_video;
+        let resp = get_video(id).await;
+        if !resp.success {
+            return Err(resp.message);
+        }
+        resp.data
+            .map(video_to_row)
+            .ok_or_else(|| "video not found".to_string())
+    }
+
+    async fn update_video(
+        &self,
+        id: &str,
+        title: Option<&str>,
+        description: Option<&str>,
+        episode_number: Option<i64>,
+    ) -> Result<VideoRow, String> {
+        use grimoire::video::{update_videos, UpdateVideosRequest};
+        let req = UpdateVideosRequest {
+            video_ids: vec![id.to_string()],
+            title: title.map(|s| s.to_string()),
+            description: description.map(|s| s.to_string()),
+            episode_number,
+            content_type: None,
+            series_id: None,
+            season_id: None,
+            poster_blob_id: None,
+            duration_seconds: None,
+            release_date: None,
+            updated_by: Some(self.caller.user_id.clone()),
+            clear_series_id: false,
+            clear_season_id: false,
+        };
+        let resp = update_videos(req).await;
+        if !resp.success {
+            return Err(resp.message);
+        }
+        // update_videos returns only counts, so refetch the video
+        if let Some(result) = resp.data {
+            if result.videos_updated > 0 {
+                return self.get_video(id).await;
+            }
+        }
+        Err("update failed".to_string())
+    }
+
+    async fn delete_video(&self, id: &str) -> Result<(), String> {
+        use grimoire::video::delete_video;
+        let deleted_by = Some(self.caller.username.clone());
+        let resp = delete_video(id, deleted_by).await;
+        if !resp.success {
+            return Err(resp.message);
+        }
+        Ok(())
+    }
+
+    async fn list_video_series(&self, limit: u32) -> Result<Vec<SeriesRow>, String> {
+        use grimoire::video::list_video_seriez;
+        let resp = list_video_seriez(Some(limit), Some(0)).await;
+        if !resp.success {
+            return Err(resp.message);
+        }
+        let Some(series_list) = resp.data else {
+            return Ok(vec![]);
+        };
+        Ok(series_list
+            .into_iter()
+            .map(|s| SeriesRow {
+                id: s.id,
+                title: s.title,
+                description: s.description,
+            })
+            .collect())
+    }
+
+    async fn list_video_renditions(
+        &self,
+        media_blob_id: &str,
+    ) -> Result<Vec<RenditionRow>, String> {
+        use grimoire::media_blobz::list_renditions;
+        let blobs = list_renditions(media_blob_id)
+            .await
+            .map_err(|e| e.to_string())?;
+        Ok(blobs.into_iter().map(rendition_blob_to_row).collect())
+    }
+
+    async fn delete_video_rendition(&self, blob_id: &str) -> Result<(), String> {
+        use grimoire::media_blobz::hard_delete_rendition_blob;
+        hard_delete_rendition_blob(blob_id)
+            .await
+            .map_err(|e| e.to_string())
+    }
+}
+
+/// shared Video → VideoRow conversion.
+fn video_to_row(v: grimoire::video::Video) -> VideoRow {
+    VideoRow {
+        id: v.id,
+        title: v.title,
+        series_id: v.series_id,
+        series_name: None, // query_videos doesn't populate series name inline
+        season_id: v.season_id,
+        episode_number: v.episode_number,
+        duration_seconds: v.duration_seconds,
+        description: v.description,
+        media_blob_id: v.media_blob_id,
+        poster_blob_id: v.poster_blob_id,
+        release_date: v.release_date,
+    }
+}
+
+/// shared MediaBlob → RenditionRow conversion. mirrors the label/extension
+/// derivation in `grimoire::offal::video::videos::get_renditions`.
+fn rendition_blob_to_row(blob: grimoire::media_blobz::MediaBlob) -> RenditionRow {
+    let label = blob
+        .metadata
+        .get("rendition")
+        .and_then(|v| v.as_str())
+        .unwrap_or("rendition")
+        .to_string();
+    let extension = blob
+        .filename
+        .as_deref()
+        .and_then(|f| f.rsplit('.').next())
+        .unwrap_or("mp4")
+        .to_string();
+    RenditionRow {
+        blob_id: blob.id,
+        label,
+        extension,
+        mime: blob.mime,
     }
 }
 
@@ -585,8 +753,8 @@ fn wrap_grimoire_paged<T: serde::Serialize>(
     }
 }
 
-fn parse_favorite_target(s: &str) -> Result<grimoire::music::users::FavoriteTarget, String> {
-    use grimoire::music::users::FavoriteTarget;
+fn parse_favorite_target(s: &str) -> Result<grimoire::users::FavoriteTarget, String> {
+    use grimoire::users::FavoriteTarget;
     match s {
         "song" => Ok(FavoriteTarget::Song),
         "album" => Ok(FavoriteTarget::Album),

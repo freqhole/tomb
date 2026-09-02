@@ -1,6 +1,7 @@
 import { createEffect, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
 import { clearPageInfo, setPageInfo } from "../src/app/services/pageInfo";
+import { songToMediaItem } from "../src/app/services/storage/mediaItem";
 import {
   registerCoachContext,
   unregisterCoachContext,
@@ -750,9 +751,7 @@ export function FullAppDemoBody() {
           (target as HTMLInputElement | HTMLTextAreaElement).tagName === "TEXTAREA"
             ? (target as HTMLInputElement | HTMLTextAreaElement)
             : (target.querySelector("input, textarea") as
-                | HTMLInputElement
-                | HTMLTextAreaElement
-                | null);
+                HTMLInputElement | HTMLTextAreaElement | null);
         if (!input) return;
         const proto = Object.getPrototypeOf(input);
         const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
@@ -2610,12 +2609,12 @@ export function FullAppDemoBody() {
           >
             <TopNav
               brandName="freqhole"
-              brandTagline="your music library"
+              brandTagline="your music + video library"
               currentPath={`/${currentRoute()}`}
-              searchPlaceholder="search artists, albums, songs..."
+              searchPlaceholder="search your library..."
               searchComponent={
                 <TopNavSearch
-                  placeholder="search artists, albums, songs..."
+                  placeholder="search your library..."
                   suggestions={mockSearchSuggestions()}
                   onSearchChange={setSearchValue}
                   onNavigate={(path) => console.log("navigate:", path)}
@@ -2780,11 +2779,11 @@ export function FullAppDemoBody() {
             <QueueSidebar
               isOpen={queueOpen()}
               variant="overlay"
-              songs={queueSongs()}
+              items={queueSongs().map(songToMediaItem)}
               currentIndex={currentQueueIndex()}
               onClose={() => setQueueOpen(false)}
-              onSongClick={handleQueueSongClick}
-              onRemoveSong={handleRemoveFromQueue}
+              onItemClick={handleQueueSongClick}
+              onRemoveItem={handleRemoveFromQueue}
               onClearAll={() => setQueueSongs([])}
               historyEntries={generateQueueHistory(12, generatedSongs as DomainSong[])}
               onReplayHistoryEntry={(entry) => console.log("replay history entry:", entry.label)}

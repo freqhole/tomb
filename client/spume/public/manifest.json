@@ -1,7 +1,7 @@
 {
   "name": "freqhole",
   "short_name": "freqhole",
-  "description": "music library player",
+  "description": "music + video library player",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#000000",

@@ -4,7 +4,11 @@ import {
   base64Decode,
   base64Encode,
   generateThumbnailDataUrl,
+  hashAbort,
+  hashBegin,
   hashBlake3,
+  hashFinish,
+  hashPush,
   hashSha256,
   opfsStoreSelftest,
   opfsStoreSelftestPersistence,
@@ -23,7 +27,10 @@ import { resetMiddenBlake3Cache } from "./midden-blake3.js";
 class FakeWritable {
   constructor(private readonly file: FakeFileHandle) {}
   async write(data: ArrayBuffer | ArrayBufferView): Promise<void> {
-    this.file.bytes = data instanceof ArrayBuffer ? new Uint8Array(data) : new Uint8Array(data.buffer as ArrayBuffer);
+    this.file.bytes =
+      data instanceof ArrayBuffer
+        ? new Uint8Array(data)
+        : new Uint8Array(data.buffer as ArrayBuffer);
   }
   async close(): Promise<void> {}
 }
@@ -70,7 +77,7 @@ function installFakeOpfs(): FakeDirHandle {
 class FakeImageBitmap {
   constructor(
     public width: number,
-    public height: number
+    public height: number,
   ) {}
   close = vi.fn();
 }
@@ -85,7 +92,7 @@ class FakeOffscreenCanvas {
   context = new FakeOffscreenCanvasContext();
   constructor(
     public width: number,
-    public height: number
+    public height: number,
   ) {
     lastFakeCanvas = this;
   }
@@ -100,7 +107,7 @@ class FakeOffscreenCanvas {
 function installCanvasFakes(size = { width: 100, height: 100 }): void {
   vi.stubGlobal(
     "createImageBitmap",
-    vi.fn(async () => new FakeImageBitmap(size.width, size.height))
+    vi.fn(async () => new FakeImageBitmap(size.width, size.height)),
   );
   vi.stubGlobal("OffscreenCanvas", FakeOffscreenCanvas as unknown as typeof OffscreenCanvas);
 }
@@ -193,6 +200,24 @@ describe("uploadBegin", () => {
   });
 });
 
+describe("hashBegin / hashPush / hashFinish / hashAbort", () => {
+  it("hashBegin throws a clear error when no midden Blake3Hasher is bundled", async () => {
+    await expect(hashBegin()).rejects.toThrow(/Blake3Hasher/);
+  });
+
+  it("hashPush throws for an unknown session id", async () => {
+    await expect(hashPush(999, new ArrayBuffer(4))).rejects.toThrow(/unknown hash session/);
+  });
+
+  it("hashFinish throws for an unknown session id", async () => {
+    await expect(hashFinish(999)).rejects.toThrow(/unknown hash session/);
+  });
+
+  it("hashAbort is a no-op for an unknown session id", async () => {
+    await expect(hashAbort(999)).resolves.toBeUndefined();
+  });
+});
+
 describe("opfsStoreSelftest / opfsStoreSelftestPersistence", () => {
   it("opfsStoreSelftest throws when no midden module is bundled", async () => {
     await expect(opfsStoreSelftest()).rejects.toThrow(/opfs_store_selftest/);
@@ -236,7 +261,7 @@ describe("resizeImageToWebpDataUrl", () => {
       0,
       75,
       200,
-      50
+      50,
     );
   });
 });

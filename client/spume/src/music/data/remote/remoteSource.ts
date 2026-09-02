@@ -25,6 +25,7 @@ import type {
   SearchResponse,
   SuggestionsResponse,
 } from "../types";
+import type { VideoSummary, VideoSeries } from "../../../video/data/types";
 import { adaptSongFromAPI, adaptApiImage, adaptApiUrls, type RemoteSong } from "./adapters";
 import { setRemoteNeedsAuth } from "./authState";
 import { markRemoteOffline, markRemoteOnline, getRemoteById } from "../../../app/services/remotes/remoteManager";
@@ -526,11 +527,15 @@ export class RemoteMusicDataSource implements MusicDataSource {
     }
 
     // adapt API response to our interface
-    // playlist songs have same structure as regular song queries
+    // playlist songs have same structure as regular song queries, plus
+    // this playlist's shared position/added_at (see Song's
+    // playlist_item_position/playlist_item_added_at doc comment)
     return {
-      items: result.data.items.map((item) =>
-        adaptSongFromAPI(item.details, this.baseUrl, this.remoteId),
-      ),
+      items: result.data.items.map((item) => ({
+        ...adaptSongFromAPI(item.details, this.baseUrl, this.remoteId),
+        playlist_item_position: item.position,
+        playlist_item_added_at: item.added_at,
+      })),
       total: result.data.total_count,
       offset: result.data.offset,
       limit: result.data.limit,
@@ -694,39 +699,6 @@ export class RemoteMusicDataSource implements MusicDataSource {
     }
   }
 
-  async addSongsToPlaylist(
-    playlistId: string,
-    songIds: string[],
-  ): Promise<void> {
-    const result = await (await this.getClient()).music.addSongsToPlaylist({
-      playlist_id: playlistId,
-      song_ids: songIds,
-    });
-
-    if (!result.success) {
-      await this.handleFailedRequest(result);
-      console.error("add songs to playlist failed:", result);
-      throw new Error(
-        "failed to add songs to playlist - check console for details",
-      );
-    }
-  }
-
-  async removeSongsFromPlaylist(
-    playlistId: string,
-    songIds: string[],
-  ): Promise<void> {
-    const result = await (await this.getClient()).music.removeSongsFromPlaylist({
-      playlist_id: playlistId,
-      song_ids: songIds,
-    });
-
-    if (!result.success) {
-      await this.handleFailedRequest(result);
-      throw new Error("failed to remove songs from playlist");
-    }
-  }
-
   async reorderPlaylistSongs(
     playlistId: string,
     songIds: string[],
@@ -741,6 +713,21 @@ export class RemoteMusicDataSource implements MusicDataSource {
     if (!result.success) {
       await this.handleFailedRequest(result);
       throw new Error("failed to reorder playlist songs");
+    }
+  }
+
+  async reorderPlaylistItems(
+    playlistId: string,
+    orderedItems: Array<{ entity_type: "song" | "video"; entity_id: string }>,
+  ): Promise<void> {
+    const result = await (await this.getClient()).entities.reorderPlaylistItems({
+      playlist_id: playlistId,
+      ordered_entity_refs: orderedItems,
+    });
+
+    if (!result.success) {
+      await this.handleFailedRequest(result);
+      throw new Error("failed to reorder playlist items");
     }
   }
 
@@ -902,6 +889,28 @@ export class RemoteMusicDataSource implements MusicDataSource {
               is_favorite: apiFav.playlist.is_favorite,
             } as PlaylistSummary,
           };
+        case "video":
+          return {
+            type: "video" as const,
+            favorited_at: apiFav.favorited_at,
+            data: {
+              ...apiFav.video,
+              added_at: apiFav.video.created_at,
+              source_type: "remote",
+              remote_server_id: this.remoteId,
+              opfs_path: null,
+              poster_opfs_path: null,
+            } as unknown as VideoSummary,
+          };
+        case "video_series":
+          return {
+            type: "video_series" as const,
+            favorited_at: apiFav.favorited_at,
+            data: {
+              ...apiFav.series,
+              remote_server_id: this.remoteId,
+            } as VideoSeries,
+          };
       }
     });
 
@@ -920,7 +929,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     targetId: string;
     isFavorite: boolean;
   }): Promise<void> {
-    const result = await (await this.getClient()).music.setFavorite({
+    const result = await (await this.getClient()).entities.setFavorite({
       user_id: null, // server will use authenticated user from session
       target_type: params.targetType,
       target_id: params.targetId,
@@ -939,7 +948,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
   }
 
   async setRating(params: {
-    targetType: "song" | "album" | "artist";
+    targetType: "song" | "album" | "artist" | "video";
     targetId: string;
     rating: number;
   }): Promise<void> {
@@ -948,7 +957,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
       throw new Error("rating must be between 0 and 5");
     }
 
-    const result = await (await this.getClient()).music.setRating({
+    const result = await (await this.getClient()).entities.setRating({
       user_id: null, // server will use authenticated user from session
       target_type: params.targetType,
       target_id: params.targetId,
@@ -1309,9 +1318,9 @@ export class RemoteMusicDataSource implements MusicDataSource {
     return permissions.canDeleteArtist(user.role);
   }
 
-  // listen session operations
-  async getListenSession(sessionId: string): Promise<import("../types").ListenSession | null> {
-    const result = await (await this.getClient()).music.getListenSession(sessionId);
+  // playback session operations
+  async getPlaybackSession(sessionId: string): Promise<import("../types").PlaybackSession | null> {
+    const result = await (await this.getClient()).music.getPlaybackSession(sessionId);
     if (!result.success) {
       await this.handleFailedRequest(result);
       return null;
@@ -1324,24 +1333,24 @@ export class RemoteMusicDataSource implements MusicDataSource {
       entity_id: data.entity_id ?? null,
       label: data.label,
       status: data.status,
-      song_ids: data.song_ids,
-      total_songs: data.total_songs,
-      songs_completed: data.songs_completed,
-      current_song_index: data.current_song_index,
-      current_song_position_ms: data.current_song_position_ms ?? null,
+      items: data.items,
+      total_items: data.total_items,
+      items_completed: data.items_completed,
+      current_item_index: data.current_item_index,
+      current_item_position_ms: data.current_item_position_ms ?? null,
       progress_percent: data.progress_percent ?? null,
       total_duration_ms: data.total_duration_ms,
-      listened_duration_ms: data.listened_duration_ms,
+      played_duration_ms: data.played_duration_ms,
       created_at: data.created_at,
       updated_at: data.updated_at,
     };
   }
 
-  async deleteListenSession(sessionId: string): Promise<void> {
-    const result = await (await this.getClient()).music.deleteListenSession(sessionId);
+  async deletePlaybackSession(sessionId: string): Promise<void> {
+    const result = await (await this.getClient()).music.deletePlaybackSession(sessionId);
     if (!result.success) {
       await this.handleFailedRequest(result);
-      throw new Error("failed to delete listen session");
+      throw new Error("failed to delete playback session");
     }
   }
 

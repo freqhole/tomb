@@ -122,7 +122,7 @@ const middenTarget = isCharnelBuild
 function servePlaylistzBundle(): Plugin {
   const bundlePath = path.resolve(
     dirname,
-    "node_modules/@freqhole/playlistz/dist/freqhole-playlistz.js",
+    "node_modules/@freqhole/playlistz/dist/freqhole-playlistz.js"
   );
   return {
     name: "serve-playlistz-bundle",
@@ -149,7 +149,6 @@ function servePlaylistzBundle(): Plugin {
 
 export default defineConfig({
   server: {
-    allowedHosts: ["a75fda8121f7.ngrok.app"],
     fs: {
       // @freqhole/haruspex/reliquary/midden are file: deps pointing at
       // in-tree lib/ packages (../../lib/<name> from spume/), so vite's
@@ -201,7 +200,7 @@ export default defineConfig({
     alias: isCharnelBuild
       ? {
           // stub out midden in Tauri builds - CharnelTransport handles P2P in app
-            "@freqhole/midden": path.join(dirname, "src/stubs/midden-stub.ts"),
+          "@freqhole/midden": path.join(dirname, "src/stubs/midden-stub.ts"),
         }
       : {},
   },

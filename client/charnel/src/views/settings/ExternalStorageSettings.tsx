@@ -16,6 +16,7 @@ interface ExternalStorageDevice {
   volume_uuid: string | null;
   subpath: string | null;
   last_synced_at: number | null;
+  path_writable: boolean;
 }
 
 interface ExternalStorageSettings {
@@ -352,7 +353,9 @@ export default function ExternalStorageSettingsSection() {
         settings: newSettings,
       });
       setExternalSettings(newSettings);
-      setReencodeProfile(matchReencodeProfile(newSettings.reencode_args, newSettings.reencode_extension));
+      setReencodeProfile(
+        matchReencodeProfile(newSettings.reencode_args, newSettings.reencode_extension),
+      );
       setExternalStorageMessage("re-encode command updated");
     } catch (e) {
       setExternalStorageMessage(`failed to update re-encode command: ${e}`);
@@ -363,12 +366,15 @@ export default function ExternalStorageSettingsSection() {
   }
 
   return (
-    <div style={{ "margin-top": "2rem" }}>
-      <h3 style={{ "font-size": "1rem", "margin-bottom": "0.5rem" }}>external storage</h3>
+    <div class="settings-section" style={{ "margin-top": "2rem" }}>
+      <h2>
+        external storag<span class="pinky">e</span>
+      </h2>
       <p
         style={{
           "font-size": "0.875rem",
           color: "var(--color-text-secondary, #888)",
+          "margin-top": "1rem",
           "margin-bottom": "0.75rem",
         }}
       >
@@ -449,6 +455,25 @@ export default function ExternalStorageSettingsSection() {
                   {device().path}
                 </span>
               </div>
+
+              <Show when={!device().path_writable}>
+                <div
+                  style={{
+                    "font-size": "0.8125rem",
+                    color: "var(--color-error-500, #ff4d6d)",
+                  }}
+                >
+                  this device isn't writable right now - the folder access may have gone stale
+                  (permission revoked, moved, or unmounted). choose it again below.
+                </div>
+                <button
+                  class="button"
+                  onClick={handlePickExternalStorageDevice}
+                  disabled={externalStorageBusy()}
+                >
+                  {externalStorageBusy() ? "working..." : "reselect device"}
+                </button>
+              </Show>
 
               <div class="form-group">
                 <label
@@ -565,8 +590,8 @@ export default function ExternalStorageSettingsSection() {
                   "margin-top": "0.25rem",
                 }}
               >
-                on by default - writes `.m3u8` playlist files alongside the synced songs. applies
-                to every device.
+                on by default - writes `.m3u8` playlist files alongside the synced songs. applies to
+                every device.
               </div>
             </div>
           </div>
@@ -630,8 +655,8 @@ export default function ExternalStorageSettingsSection() {
             color: "var(--color-text-secondary, #888)",
           }}
         >
-          ffmpeg isn't installed, so re-encoding on sync isn't available (raw file bytes are
-          always copied as-is).
+          ffmpeg isn't installed, so re-encoding on sync isn't available (raw file bytes are always
+          copied as-is).
         </div>
       </Show>
 

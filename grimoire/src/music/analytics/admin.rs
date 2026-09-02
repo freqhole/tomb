@@ -125,8 +125,8 @@ pub async fn get_overview_stats() -> GrimoireResponse<OverviewStats> {
             (SELECT COUNT(*) FROM albumz WHERE deleted_at IS NULL) as "total_albums!: i64",
             (SELECT COUNT(*) FROM artistz WHERE deleted_at IS NULL) as "total_artists!: i64",
             (SELECT COUNT(*) FROM user_accountz WHERE deleted_at IS NULL) as "total_users!: i64",
-            (SELECT COUNT(*) FROM music_play_eventz) as "total_plays!: i64",
-            (SELECT COUNT(DISTINCT session_id) FROM music_play_eventz) as "total_sessions!: i64",
+            (SELECT COUNT(*) FROM play_eventz WHERE entity_type = 'song') as "total_plays!: i64",
+            (SELECT COUNT(DISTINCT session_id) FROM play_eventz WHERE entity_type = 'song') as "total_sessions!: i64",
             (SELECT COUNT(*) FROM user_favoritez) as "total_favorites!: i64",
             (SELECT COALESCE(SUM(duration), 0) FROM songz WHERE deleted_at IS NULL) as "total_duration!: i64"
         "#
@@ -166,7 +166,7 @@ pub async fn get_top_songs(limit: i64) -> GrimoireResponse<Vec<TopSong>> {
     let rows = match sqlx::query!(
         r#"
         SELECT
-            mpe.song_id as "song_id!",
+            mpe.entity_id as "song_id!",
             s.title,
             (SELECT json_group_array(json_object('media_blob_id', si.media_blob_id, 'is_primary', si.is_primary, 'blob_type', mb.blob_type))
              FROM song_imagez si
@@ -177,16 +177,16 @@ pub async fn get_top_songs(limit: i64) -> GrimoireResponse<Vec<TopSong>> {
             MAX(mpe.created_at) as "last_played_at?: i64",
             (SELECT a.name FROM artist_songz asz
              JOIN artistz a ON a.id = asz.artist_id
-             WHERE asz.song_id = mpe.song_id
+             WHERE asz.song_id = mpe.entity_id
              LIMIT 1) as "artist_name?",
             (SELECT alb.title FROM album_songz als
              JOIN albumz alb ON alb.id = als.album_id
-             WHERE als.song_id = mpe.song_id
+             WHERE als.song_id = mpe.entity_id
              LIMIT 1) as "album_title?"
-        FROM music_play_eventz mpe
-        JOIN songz s ON s.id = mpe.song_id
-        WHERE s.deleted_at IS NULL
-        GROUP BY mpe.song_id
+        FROM play_eventz mpe
+        JOIN songz s ON s.id = mpe.entity_id
+        WHERE s.deleted_at IS NULL AND mpe.entity_type = 'song'
+        GROUP BY mpe.entity_id
         ORDER BY COUNT(*) DESC
         LIMIT ?
         "#,
@@ -248,10 +248,10 @@ pub async fn get_top_albums(limit: i64) -> GrimoireResponse<Vec<TopAlbum>> {
              FROM album_imagez ai
              JOIN media_blobz mb ON ai.media_blob_id = mb.id
              WHERE ai.album_id = alb.id) as "images?: String"
-        FROM music_play_eventz mpe
-        JOIN album_songz als ON als.song_id = mpe.song_id
+        FROM play_eventz mpe
+        JOIN album_songz als ON als.song_id = mpe.entity_id
         JOIN albumz alb ON alb.id = als.album_id
-        WHERE alb.deleted_at IS NULL
+        WHERE alb.deleted_at IS NULL AND mpe.entity_type = 'song'
         GROUP BY alb.id
         ORDER BY COUNT(*) DESC
         LIMIT ?
@@ -303,15 +303,15 @@ pub async fn get_top_artists(limit: i64) -> GrimoireResponse<Vec<TopArtist>> {
             a.id as "artist_id!",
             a.name as "name!",
             COUNT(*) as "total_plays!: i64",
-            COUNT(DISTINCT mpe.song_id) as "song_count!: i64",
+            COUNT(DISTINCT mpe.entity_id) as "song_count!: i64",
             COUNT(DISTINCT mpe.user_id) as "unique_users!: i64",
             (SELECT COUNT(DISTINCT aa.album_id)
              FROM artist_albumz aa
              WHERE aa.artist_id = a.id) as "album_count!: i64"
-        FROM music_play_eventz mpe
-        JOIN artist_songz asz ON asz.song_id = mpe.song_id
+        FROM play_eventz mpe
+        JOIN artist_songz asz ON asz.song_id = mpe.entity_id
         JOIN artistz a ON a.id = asz.artist_id
-        WHERE a.deleted_at IS NULL
+        WHERE a.deleted_at IS NULL AND mpe.entity_type = 'song'
         GROUP BY a.id
         ORDER BY COUNT(*) DESC
         LIMIT ?
@@ -356,12 +356,12 @@ pub async fn get_user_stats(user_id: &str) -> GrimoireResponse<UserStats> {
         SELECT
             u.id as "user_id!",
             u.username as "username!",
-            (SELECT COUNT(*) FROM music_play_eventz WHERE user_id = u.id) as "total_plays!: i64",
-            (SELECT COUNT(DISTINCT song_id) FROM music_play_eventz WHERE user_id = u.id) as "unique_songs!: i64",
-            (SELECT COUNT(DISTINCT session_id) FROM music_play_eventz WHERE user_id = u.id) as "unique_sessions!: i64",
+            (SELECT COUNT(*) FROM play_eventz WHERE user_id = u.id AND entity_type = 'song') as "total_plays!: i64",
+            (SELECT COUNT(DISTINCT entity_id) FROM play_eventz WHERE user_id = u.id AND entity_type = 'song') as "unique_songs!: i64",
+            (SELECT COUNT(DISTINCT session_id) FROM play_eventz WHERE user_id = u.id AND entity_type = 'song') as "unique_sessions!: i64",
             (SELECT COUNT(*) FROM user_favoritez WHERE user_id = u.id) as "total_favorites!: i64",
-            (SELECT MIN(created_at) FROM music_play_eventz WHERE user_id = u.id) as "first_activity?: i64",
-            (SELECT MAX(created_at) FROM music_play_eventz WHERE user_id = u.id) as "last_activity?: i64"
+            (SELECT MIN(created_at) FROM play_eventz WHERE user_id = u.id AND entity_type = 'song') as "first_activity?: i64",
+            (SELECT MAX(created_at) FROM play_eventz WHERE user_id = u.id AND entity_type = 'song') as "last_activity?: i64"
         FROM user_accountz u
         WHERE u.id = ?
         "#,
@@ -404,15 +404,15 @@ pub async fn get_all_user_stats(limit: i64) -> GrimoireResponse<Vec<UserStats>> 
         SELECT
             u.id as "user_id!",
             u.username as "username!",
-            COALESCE((SELECT COUNT(*) FROM music_play_eventz WHERE user_id = u.id), 0) as "total_plays!: i64",
-            COALESCE((SELECT COUNT(DISTINCT song_id) FROM music_play_eventz WHERE user_id = u.id), 0) as "unique_songs!: i64",
-            COALESCE((SELECT COUNT(DISTINCT session_id) FROM music_play_eventz WHERE user_id = u.id), 0) as "unique_sessions!: i64",
+            COALESCE((SELECT COUNT(*) FROM play_eventz WHERE user_id = u.id AND entity_type = 'song'), 0) as "total_plays!: i64",
+            COALESCE((SELECT COUNT(DISTINCT entity_id) FROM play_eventz WHERE user_id = u.id AND entity_type = 'song'), 0) as "unique_songs!: i64",
+            COALESCE((SELECT COUNT(DISTINCT session_id) FROM play_eventz WHERE user_id = u.id AND entity_type = 'song'), 0) as "unique_sessions!: i64",
             COALESCE((SELECT COUNT(*) FROM user_favoritez WHERE user_id = u.id), 0) as "total_favorites!: i64",
-            (SELECT MIN(created_at) FROM music_play_eventz WHERE user_id = u.id) as "first_activity?: i64",
-            (SELECT MAX(created_at) FROM music_play_eventz WHERE user_id = u.id) as "last_activity?: i64"
+            (SELECT MIN(created_at) FROM play_eventz WHERE user_id = u.id AND entity_type = 'song') as "first_activity?: i64",
+            (SELECT MAX(created_at) FROM play_eventz WHERE user_id = u.id AND entity_type = 'song') as "last_activity?: i64"
         FROM user_accountz u
         WHERE u.deleted_at IS NULL
-        ORDER BY COALESCE((SELECT COUNT(*) FROM music_play_eventz WHERE user_id = u.id), 0) DESC
+        ORDER BY COALESCE((SELECT COUNT(*) FROM play_eventz WHERE user_id = u.id AND entity_type = 'song'), 0) DESC
         LIMIT ?
         "#,
         limit

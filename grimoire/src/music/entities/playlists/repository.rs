@@ -658,9 +658,9 @@ pub async fn get_playlist_images(playlist_id: &str) -> GrimoireResponse<Vec<Stri
             FROM artist_imagez ai
             WHERE ai.artist_id IN (
                 SELECT DISTINCT asz.artist_id
-                FROM playlist_songz ps
-                JOIN artist_songz asz ON ps.song_id = asz.song_id
-                WHERE ps.playlist_id = ?
+                FROM playlist_itemz ps
+                JOIN artist_songz asz ON ps.entity_id = asz.song_id
+                WHERE ps.playlist_id = ? AND ps.entity_type = 'song'
             )
             UNION
             -- album images for songs in playlist (via album_songz)
@@ -668,16 +668,16 @@ pub async fn get_playlist_images(playlist_id: &str) -> GrimoireResponse<Vec<Stri
             FROM album_imagez ali
             WHERE ali.album_id IN (
                 SELECT DISTINCT absz.album_id
-                FROM playlist_songz ps
-                JOIN album_songz absz ON ps.song_id = absz.song_id
-                WHERE ps.playlist_id = ?
+                FROM playlist_itemz ps
+                JOIN album_songz absz ON ps.entity_id = absz.song_id
+                WHERE ps.playlist_id = ? AND ps.entity_type = 'song'
             )
             UNION
             -- song images in playlist
             SELECT si.media_blob_id
-            FROM playlist_songz ps
-            JOIN song_imagez si ON ps.song_id = si.song_id
-            WHERE ps.playlist_id = ?
+            FROM playlist_itemz ps
+            JOIN song_imagez si ON ps.entity_id = si.song_id
+            WHERE ps.playlist_id = ? AND ps.entity_type = 'song'
         )
         AND mb.blob_type != 'waveform'
         AND mb.deleted_at IS NULL
@@ -746,7 +746,7 @@ pub async fn add_songs_to_playlist(
 
     // get all song_ids currently in the playlist
     let existing_song_ids: Vec<String> = match sqlx::query_scalar!(
-        "SELECT song_id FROM playlist_songz WHERE playlist_id = ?",
+        "SELECT entity_id FROM playlist_itemz WHERE playlist_id = ? AND entity_type = 'song'",
         playlist_id
     )
     .fetch_all(&pool)
@@ -805,16 +805,32 @@ pub async fn add_songs_to_playlist(
             return GrimoireResponse::failure("Song not found", vec![ErrorDetail::from(&err)]);
         }
 
-        // Use -1 to trigger auto-positioning
+        // position 0 triggers `trg_playlist_itemz_auto_append`, which
+        // appends to the end of the shared, entity-type-agnostic ordering
         if let Err(e) = sqlx::query!(
-            "INSERT INTO playlist_songz (playlist_id, song_id, position)
-             VALUES (?, ?, -1)",
+            "INSERT INTO playlist_itemz (playlist_id, entity_type, entity_id, position)
+             VALUES (?, 'song', ?, 0)",
             playlist_id,
             song_id
         )
         .execute(&pool)
         .await
         {
+            // same UNIQUE(playlist_id, entity_type, entity_id) constraint
+            // as crate::playlists::add_playlist_item - surface it as the
+            // same structured error_type so the client can show a soft
+            // warning ("already in playlist") instead of a raw db error.
+            let err_str = e.to_string();
+            if err_str.contains("UNIQUE constraint failed: playlist_itemz.playlist_id") {
+                return GrimoireResponse::failure(
+                    "item already in playlist",
+                    vec![ErrorDetail::new(
+                        "duplicate_playlist_item",
+                        "Already in Playlist",
+                        "this item is already in the playlist",
+                    )],
+                );
+            }
             return GrimoireResponse::failure(
                 "Failed to add song to playlist",
                 vec![ErrorDetail::from(e)],
@@ -882,10 +898,13 @@ pub async fn remove_songs_from_playlist(
         return GrimoireResponse::failure("Playlist not found", vec![ErrorDetail::from(&err)]);
     }
 
-    // Remove songs
+    // Remove songs (playlist_itemz's own `trg_playlist_itemz_close_gaps_on_delete`
+    // trigger already renumbers positions across the WHOLE playlist - all entity
+    // types, not just songs - after each delete, so no manual gap-closing needed
+    // here.)
     for song_id in song_ids {
         if let Err(e) = sqlx::query!(
-            "DELETE FROM playlist_songz WHERE playlist_id = ? AND song_id = ?",
+            "DELETE FROM playlist_itemz WHERE playlist_id = ? AND entity_type = 'song' AND entity_id = ?",
             playlist_id,
             song_id
         )
@@ -897,24 +916,6 @@ pub async fn remove_songs_from_playlist(
                 vec![ErrorDetail::from(e)],
             );
         }
-    }
-
-    // Reorder remaining songs to fill gaps
-    if let Err(e) = sqlx::query!(
-        r#"UPDATE playlist_songz
-           SET position = (
-               SELECT ROW_NUMBER() OVER (ORDER BY position)
-               FROM playlist_songz ps2
-               WHERE ps2.playlist_id = playlist_songz.playlist_id
-               AND ps2.position <= playlist_songz.position
-           )
-           WHERE playlist_id = ?"#,
-        playlist_id
-    )
-    .execute(&pool)
-    .await
-    {
-        return GrimoireResponse::failure("Failed to reorder songs", vec![ErrorDetail::from(e)]);
     }
 
     // bump updated_at to invalidate etag (trigger handles timestamp)
@@ -969,9 +970,10 @@ pub async fn set_playlist_songs(
         return GrimoireResponse::failure("playlist not found", vec![ErrorDetail::from(&err)]);
     }
 
-    // clear existing songs
+    // clear existing songs (song membership only - other entity types in
+    // playlist_itemz, e.g. video items, are untouched)
     if let Err(e) = sqlx::query!(
-        "DELETE FROM playlist_songz WHERE playlist_id = ?",
+        "DELETE FROM playlist_itemz WHERE playlist_id = ? AND entity_type = 'song'",
         playlist_id
     )
     .execute(&pool)
@@ -986,8 +988,8 @@ pub async fn set_playlist_songs(
     // add songs with explicit positions
     for (song_id, position) in songs {
         if let Err(e) = sqlx::query!(
-            "INSERT INTO playlist_songz (playlist_id, song_id, position, added_at)
-             VALUES (?, ?, ?, unixepoch())",
+            "INSERT INTO playlist_itemz (playlist_id, entity_type, entity_id, position, added_at)
+             VALUES (?, 'song', ?, ?, unixepoch())",
             playlist_id,
             song_id,
             position
@@ -1034,12 +1036,12 @@ pub async fn get_playlist_songs(playlist_id: &str) -> GrimoireResponse<Vec<Playl
         PlaylistSong,
         r#"SELECT
             ps.playlist_id as "playlist_id!",
-            ps.song_id as "song_id!",
+            ps.entity_id as "song_id!",
             ps.position as "position!",
             ps.added_at as "added_at!"
-           FROM playlist_songz ps
+           FROM playlist_itemz ps
            JOIN playlistz p ON p.id = ps.playlist_id
-           WHERE p.id = ? AND p.deleted_at IS NULL
+           WHERE p.id = ? AND p.deleted_at IS NULL AND ps.entity_type = 'song'
            ORDER BY ps.position ASC"#,
         playlist_id
     )
@@ -1087,10 +1089,10 @@ pub async fn update_songs_position(
     // Step 1: Get all songs in playlist with their current positions
     let all_songs = match sqlx::query!(
         "SELECT s.id, ps.position
-         FROM playlist_songz ps
+         FROM playlist_itemz ps
          JOIN playlistz p ON ps.playlist_id = p.id
-         JOIN songz s ON ps.song_id = s.id
-         WHERE p.id = ? AND p.deleted_at IS NULL
+         JOIN songz s ON ps.entity_id = s.id
+         WHERE p.id = ? AND p.deleted_at IS NULL AND ps.entity_type = 'song'
          ORDER BY ps.position",
         playlist_id
     )
@@ -1151,9 +1153,9 @@ pub async fn update_songs_position(
 
     // First, move all songs to negative positions to avoid UNIQUE constraint conflicts
     if let Err(e) = sqlx::query!(
-        "UPDATE playlist_songz
+        "UPDATE playlist_itemz
          SET position = -position
-         WHERE playlist_id = ?",
+         WHERE playlist_id = ? AND entity_type = 'song'",
         playlist_id
     )
     .execute(&mut *tx)
@@ -1168,10 +1170,11 @@ pub async fn update_songs_position(
     // Then update all positions to their final values
     for (song_id, position) in final_positions {
         if let Err(e) = sqlx::query!(
-            "UPDATE playlist_songz
+            "UPDATE playlist_itemz
              SET position = ?
              WHERE playlist_id = ?
-               AND song_id = ?",
+               AND entity_type = 'song'
+               AND entity_id = ?",
             position,
             playlist_id,
             song_id
@@ -1247,9 +1250,9 @@ pub async fn compute_playlist_etag(playlist_id: &str) -> GrimoireResponse<String
     // get max song updated_at from songs in this playlist
     let max_song_updated = match sqlx::query!(
         r#"SELECT COALESCE(MAX(s.updated_at), 0) as "max_updated!"
-           FROM playlist_songz ps
-           JOIN songz s ON ps.song_id = s.id
-           WHERE ps.playlist_id = ? AND s.deleted_at IS NULL"#,
+           FROM playlist_itemz ps
+           JOIN songz s ON ps.entity_id = s.id
+           WHERE ps.playlist_id = ? AND ps.entity_type = 'song' AND s.deleted_at IS NULL"#,
         playlist_id
     )
     .fetch_one(&pool)

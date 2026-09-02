@@ -41,7 +41,9 @@ standard user with editing rights.
 - all viewer permissions, plus:
 - generate account-link codes for their own account
 - edit song/album/artist metadata
+- edit video/series/season metadata
 - delete songs and albums
+- delete videos
 - create and edit playlists
 - trigger library scans
 - manage tags and genres
@@ -51,7 +53,8 @@ standard user with editing rights.
 read-only access.
 
 - browse songs, albums, artists
-- stream music
+- browse videos, series, seasons
+- stream music + video
 - search the library
 - add favorites and ratings
 - view playback history
@@ -63,11 +66,13 @@ read-only access.
 | action                      | root | admin | member | viewer |
 | --------------------------- | :--: | :---: | :----: | :----: |
 | browse library              |  ✓   |   ✓   |   ✓    |   ✓    |
-| stream music                |  ✓   |   ✓   |   ✓    |   ✓    |
+| stream music + video        |  ✓   |   ✓   |   ✓    |   ✓    |
 | search                      |  ✓   |   ✓   |   ✓    |   ✓    |
 | add favorites / ratings     |  ✓   |   ✓   |   ✓    |   ✓    |
 | edit song/album metadata    |  ✓   |   ✓   |   ✓    |   ✗    |
+| edit video/series metadata  |  ✓   |   ✓   |   ✓    |   ✗    |
 | delete songs/albums         |  ✓   |   ✓   |   ✓    |   ✗    |
+| delete videos               |  ✓   |   ✓   |   ✓    |   ✗    |
 | trigger scan                |  ✓   |   ✓   |   ✓    |   ✗    |
 | manage tags/genres          |  ✓   |   ✓   |   ✓    |   ✗    |
 | create users / invite codes |  ✓   |   ✓   |   ✗    |   ✗    |
@@ -116,6 +121,7 @@ admins can change user roles:
 ### shared (library-wide)
 
 - songs, albums, artists
-- album artwork
+- videos, series, seasons
+- album artwork + video posters
 - metadata edits
 - public playlists

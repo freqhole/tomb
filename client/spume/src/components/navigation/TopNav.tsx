@@ -17,8 +17,10 @@ import {
 } from "../../app/services/remotes/authStatusStore";
 import { getRemoteById } from "../../app/services/remotes/remoteManager";
 import { getPageInfo } from "../../app/services/pageInfo";
+import { startDraggingWindow, toggleMaximizeWindow } from "../../app/services/charnel/commands";
 import { isNarrowViewport } from "../../config/breakpoints";
-import { canCreatePlaylist, canUploadMusic } from "../../music/data/permissions";
+import { getDisableBackdropBlur } from "../../app/services/backdropBlur";
+import { canCreatePlaylist, canUploadMusic, isMemberOrHigher } from "../../music/data/permissions";
 import { resolveBlobUrl } from "../../music/services/storage/blobResolver";
 import type { ImageMetadata } from "../../music/services/storage/types";
 import { routes } from "../../music/utils/routing";
@@ -39,6 +41,26 @@ import { ViewSelector, type ViewOption } from "./ViewSelector";
 // sentinel id used by the shared rename modal to distinguish the local
 // library row from real remote records (which have uuid-shaped ids).
 const LOCAL_LIBRARY_RENAME_ID = "__local_library__";
+
+// how long after the main menu flyout opens (via hover or click) a
+// trigger click is treated as "incidental" and swallowed instead of
+// closing it - see the pointerdown listener in TopNav's onMount for why.
+const MAIN_MENU_CLICK_CLOSE_GRACE_MS = 400;
+const CHROME_DRAG_THRESHOLD_PX = 4;
+
+function isChromePointerTarget(target: EventTarget | null): boolean {
+  return (
+    target instanceof HTMLElement &&
+    !target.closest("button, a, input, textarea, select, [role=button]")
+  );
+}
+
+function chromelessStripActive(): boolean {
+  return (
+    getComputedStyle(document.documentElement).getPropertyValue("--chrome-top-inset").trim() !==
+    "0px"
+  );
+}
 
 export interface NavMenuItem {
   /** menu item label */
@@ -167,10 +189,17 @@ export interface TopNavProps {
   pageCount?: number;
   /** view options for the view selector flyout */
   viewOptions?: ViewOption[];
-  /** callback for add music action */
-  onAddMusic?: () => void;
+  /** callback for add media action */
+  onAddMedia?: () => void;
   /** additional classes */
   class?: string;
+}
+
+// video uploads don't have a dedicated generated permission (no
+// `upload_video` role check exists in the codegen'd `permissions` module
+// yet) - reuse the generic member-role check instead of forking one.
+function canUploadVideo(): boolean {
+  return isMemberOrHigher();
 }
 
 // remote type used internally
@@ -365,10 +394,18 @@ function RowActionsMenu(props: {
 export function TopNav(props: TopNavProps) {
   // responsive: track viewport sizes
   const [isNarrow, setIsNarrow] = createSignal(isNarrowViewport());
+  // Compact by the rendered nav width, not just `window.innerWidth`: titlebar
+  // insets and platform chrome can make an otherwise-wide viewport tight.
+  const [compactTools, setCompactTools] = createSignal(false);
+  const [hideForward, setHideForward] = createSignal(false);
+  const [hideCount, setHideCount] = createSignal(false);
+  const [toolsOpen, setToolsOpen] = createSignal(false);
+  const [toolsLocked, setToolsLocked] = createSignal(false);
   // ref to the <nav> element so a ResizeObserver can publish its
   // actual rendered height into `--nav-height` (see onMount below).
   let navEl: HTMLElement | undefined;
   let menuTriggerEl: HTMLButtonElement | undefined;
+  let mainMenuOpenedAt = 0;
 
   // narrow viewport gets bigger touch-friendly icon buttons
   const iconBtnPad = () => (isNarrow() ? "p-2.5" : "p-1.5");
@@ -379,18 +416,38 @@ export function TopNav(props: TopNavProps) {
   // top-nav buttons when narrow + search is expanded" gates work
   // regardless of which search is mounted.
   const searchExpanded = () => searchExpandedInternal() || !!props.externalSearchExpanded;
-  const [sortOpen, setSortOpen] = createSignal(false);
-  const [sortLocked, setSortLocked] = createSignal(false);
-  const [tagOpen, setTagOpen] = createSignal(false);
-  const [tagLocked, setTagLocked] = createSignal(false);
-  const [feedFilterOpen, setFeedFilterOpen] = createSignal(false);
-  const [feedFilterLocked, setFeedFilterLocked] = createSignal(false);
-  const [statusFilterOpen, setStatusFilterOpen] = createSignal(false);
-  const [statusFilterLocked, setStatusFilterLocked] = createSignal(false);
+  type DesktopFlyoutName = "sort" | "tag" | "feedFilter" | "status";
+  const [activeDesktopFlyout, setActiveDesktopFlyout] = createSignal<DesktopFlyoutName | null>(
+    null
+  );
+  const [desktopFlyoutLockedFor, setDesktopFlyoutLockedFor] =
+    createSignal<DesktopFlyoutName | null>(null);
+  const [navHoverSuppressed, setNavHoverSuppressed] = createSignal(false);
   const [isMainMenuOpen, setIsMainMenuOpen] = createSignal(false);
+  const isDesktopFlyoutOpen = (name: DesktopFlyoutName) => activeDesktopFlyout() === name;
+  let suppressDesktopHoverUntilPointerLeave = false;
+  const closeAllDesktopFlyouts = () => {
+    setActiveDesktopFlyout(null);
+    setDesktopFlyoutLockedFor(null);
+  };
   let statusFilterCloseTimeout: ReturnType<typeof setTimeout> | undefined;
+  let toolsCloseTimeout: ReturnType<typeof setTimeout> | undefined;
   const [navHovered, setNavHovered] = createSignal(false);
   const [recheckingRemoteIds, setRecheckingRemoteIds] = createSignal<Set<string>>(new Set());
+
+  const closeDesktopFlyoutsIfNeeded = (event: MouseEvent) => {
+    const target = event.target as Node | null;
+    if (!target) return;
+    if (!navEl || navEl.contains(target)) return;
+    closeAllDesktopFlyouts();
+  };
+
+  onMount(() => {
+    document.addEventListener("mousedown", closeDesktopFlyoutsIfNeeded);
+    onCleanup(() => {
+      document.removeEventListener("mousedown", closeDesktopFlyoutsIfNeeded);
+    });
+  });
 
   // qr modal state for remote rows
   const [qrPayload, setQrPayload] = createSignal<{
@@ -431,6 +488,12 @@ export function TopNav(props: TopNavProps) {
         bubbles: true,
       })
     );
+  };
+
+  const closeTopNavFlyouts = () => {
+    setToolsOpen(false);
+    setToolsLocked(false);
+    closeAllDesktopFlyouts();
   };
 
   // extract a usable node id from a peer_addr that may be a 64-hex string
@@ -480,9 +543,9 @@ export function TopNav(props: TopNavProps) {
         onClick: async () => {
           try {
             await navigator.clipboard.writeText(localNodeId);
-            toast.success("node id copied");
-          } catch {
-            toast.error("failed to copy");
+          } catch (e) {
+            // no toast for copy failures/successes here - copy actions stay silent
+            console.error("copy node id to clipboard failed:", e);
           }
         },
       });
@@ -504,9 +567,9 @@ export function TopNav(props: TopNavProps) {
         onClick: async () => {
           try {
             await navigator.clipboard.writeText(nodeId);
-            toast.success("node id copied");
-          } catch {
-            toast.error("failed to copy");
+          } catch (e) {
+            // no toast for copy failures/successes here - copy actions stay silent
+            console.error("copy node id to clipboard failed:", e);
           }
         },
       });
@@ -527,9 +590,9 @@ export function TopNav(props: TopNavProps) {
         onClick: async () => {
           try {
             await navigator.clipboard.writeText(remote.url);
-            toast.success("url copied");
-          } catch {
-            toast.error("failed to copy");
+          } catch (e) {
+            // no toast for copy failures/successes here - copy actions stay silent
+            console.error("copy url to clipboard failed:", e);
           }
         },
       });
@@ -691,7 +754,9 @@ export function TopNav(props: TopNavProps) {
     // this lets us suppress secondary rows while the mobile menu is open,
     // which avoids cross-stack rendering oddities on some mobile browsers.
     const syncMainMenuState = () => {
-      setIsMainMenuOpen(menuTriggerEl?.getAttribute("aria-expanded") === "true");
+      const nowOpen = menuTriggerEl?.getAttribute("aria-expanded") === "true";
+      if (nowOpen && !isMainMenuOpen()) mainMenuOpenedAt = Date.now();
+      setIsMainMenuOpen(nowOpen);
     };
     syncMainMenuState();
     const mo =
@@ -710,6 +775,36 @@ export function TopNav(props: TopNavProps) {
       document.removeEventListener("click", syncMainMenuState, true);
     });
 
+    // Narrow menus are click/touch toggled. A capture listener gives them a
+    // real backdrop-dismiss behaviour without adding a visual overlay above
+    // the app or changing desktop hover flyouts.
+    const dismissNarrowFlyouts = (event: PointerEvent) => {
+      if (!isNarrow() || !navEl?.contains(event.target as Node)) {
+        closeTopNavFlyouts();
+      }
+    };
+    document.addEventListener("pointerdown", dismissNarrowFlyouts, true);
+    onCleanup(() => document.removeEventListener("pointerdown", dismissNarrowFlyouts, true));
+
+    // Kobalte's trigger toggles the flyout closed on pointerdown whenever
+    // it's already open, whether that open came from hover or a prior
+    // click - annoying when the flyout just opened from a hover-intent
+    // delay and the user's click was incidental. swallow the trigger's
+    // pointerdown (before Kobalte's own listener sees it) only within a
+    // short grace window after opening; a click after that window still
+    // closes it normally.
+    const onTriggerPointerDown = (e: PointerEvent) => {
+      if (e.pointerType === "touch") return;
+      if (menuTriggerEl?.getAttribute("aria-expanded") !== "true") return;
+      if (Date.now() - mainMenuOpenedAt < MAIN_MENU_CLICK_CLOSE_GRACE_MS) {
+        e.stopImmediatePropagation();
+      }
+    };
+    menuTriggerEl?.addEventListener("pointerdown", onTriggerPointerDown, { capture: true });
+    onCleanup(() => {
+      menuTriggerEl?.removeEventListener("pointerdown", onTriggerPointerDown, { capture: true });
+    });
+
     // publish actual nav height to `--nav-height` whenever the nav
     // resizes (e.g. when extra rows like selected-tag badges appear
     // on narrow). keeps AppLayout's `padding-top: var(--nav-height)`
@@ -724,9 +819,22 @@ export function TopNav(props: TopNavProps) {
       lastH = h;
       document.documentElement.style.setProperty("--nav-height", `${h}px`);
     };
-    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(syncNavHeight) : null;
+    const syncNavSize = () => {
+      syncNavHeight();
+      if (!navEl || !isNarrow()) {
+        setCompactTools(false);
+        setHideForward(false);
+        setHideCount(false);
+        return;
+      }
+      const width = navEl.getBoundingClientRect().width;
+      setCompactTools(width < 620);
+      setHideForward(width < 560);
+      setHideCount(width < 500);
+    };
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(syncNavSize) : null;
     if (ro && navEl) ro.observe(navEl);
-    syncNavHeight();
+    syncNavSize();
     onCleanup(() => {
       ro?.disconnect();
       document.documentElement.style.removeProperty("--nav-height");
@@ -905,21 +1013,82 @@ export function TopNav(props: TopNavProps) {
         ref={(el) => (navEl = el)}
         class={`flex flex-col z-[1000] ${props.class || ""}`}
         classList={{
-          // narrow: full-width fixed strip at top; padding-top insets below
-          // system status bar / notch via safe-area env var (works on both
-          // android webview and ios safari with viewport-fit=cover; zero on
-          // desktop so no effect there).
-          "fixed top-0 left-0 right-0 bg-black/95 backdrop-blur-sm px-3 py-0 border-b border-white/10":
-            isNarrow(),
-          // wide: fixed top-left floating element, doesn't push content
-          "fixed top-2 left-6 bg-black/20 backdrop-blur-sm px-2 py-1.5 rounded-lg border border-white/10 shadow-lg":
-            !isNarrow(),
+          // narrow: full-width fixed strip; padding-top insets below system
+          // status bar / notch via safe-area env var (works on both android
+          // webview and ios safari with viewport-fit=cover; zero on desktop
+          // so no effect there). matches the wide floating variant's
+          // transparency, backdrop-blur skipped when disable_backdrop_blur
+          // is set (perf on some linux compositors).
+          "fixed right-0 bg-black/20 backdrop-blur-sm px-3 py-0 border-b border-white/10":
+            isNarrow() && !getDisableBackdropBlur(),
+          "fixed right-0 bg-black/80 px-3 py-0 border-b border-white/10":
+            isNarrow() && getDisableBackdropBlur(),
+          // wide: fixed top-left floating element, doesn't push content.
+          "fixed bg-black/20 backdrop-blur-sm px-2 py-1.5 rounded-lg border border-white/10 shadow-lg":
+            !isNarrow() && !getDisableBackdropBlur(),
+          "fixed bg-black/80 px-2 py-1.5 rounded-lg border border-white/10 shadow-lg":
+            !isNarrow() && getDisableBackdropBlur(),
         }}
         style={{
-          "padding-top": isNarrow() ? "var(--safe-area-top, 0px)" : undefined,
+          // narrow: sits flush at the very top of the window (left edge
+          // starts past the traffic-light cluster instead of being pushed
+          // down below it - see TitleBarStrip.tsx). wide: floats below the
+          // strip instead, since it doesn't span the traffic-light column.
+          top: isNarrow() ? "0px" : "calc(0.5rem + var(--chrome-top-inset, 0px))",
+          // safe-area-top is ALSO set to the strip height on chromeless
+          // desktop (see TitleBarStrip.tsx), so subtract chrome-top-inset
+          // here to avoid double-counting the same offset via `top` above -
+          // only the mobile-status-bar remainder (if any) should add padding.
+          "padding-top": isNarrow()
+            ? "calc(var(--safe-area-top, 0px) - var(--chrome-top-inset, 0px))"
+            : undefined,
+          left: isNarrow() ? "var(--chrome-traffic-lights-inset, 0px)" : "1.5rem",
         }}
-        onMouseEnter={() => setNavHovered(true)}
-        onMouseLeave={() => setNavHovered(false)}
+        onMouseEnter={() => {
+          if (suppressDesktopHoverUntilPointerLeave) return;
+          setNavHovered(true);
+        }}
+        onMouseLeave={() => {
+          suppressDesktopHoverUntilPointerLeave = false;
+          setNavHovered(false);
+          setNavHoverSuppressed(false);
+        }}
+        onMouseDown={(event) => {
+          suppressDesktopHoverUntilPointerLeave = true;
+          if (
+            !isNarrow() ||
+            event.button !== 0 ||
+            !isChromePointerTarget(event.target) ||
+            !chromelessStripActive()
+          ) {
+            return;
+          }
+          event.stopPropagation();
+          const startX = event.clientX;
+          const startY = event.clientY;
+          const cleanup = () => {
+            window.removeEventListener("mousemove", onMove);
+            window.removeEventListener("mouseup", cleanup);
+          };
+          const onMove = (move: MouseEvent) => {
+            if (
+              Math.abs(move.clientX - startX) < CHROME_DRAG_THRESHOLD_PX &&
+              Math.abs(move.clientY - startY) < CHROME_DRAG_THRESHOLD_PX
+            ) {
+              return;
+            }
+            cleanup();
+            void startDraggingWindow();
+          };
+          window.addEventListener("mousemove", onMove);
+          window.addEventListener("mouseup", cleanup);
+        }}
+        onDblClick={(event) => {
+          if (!isNarrow() || !isChromePointerTarget(event.target) || !chromelessStripActive())
+            return;
+          event.stopPropagation();
+          void toggleMaximizeWindow();
+        }}
       >
         <div
           class="flex items-center"
@@ -937,6 +1106,13 @@ export function TopNav(props: TopNavProps) {
                 style={{
                   "min-width": isNarrow() ? "44px" : "36px",
                   "min-height": isNarrow() ? "44px" : "36px",
+                  // a couple px of margin (not padding - an outline renders
+                  // outside the border box, so padding alone wouldn't give it
+                  // room) above just this button, so its focus ring isn't
+                  // clipped by the viewport edge - the narrow-mode nav sits
+                  // flush at top:0/padding-top:0 and clips any outward-drawn
+                  // focus outline on content sitting right at its top edge.
+                  "margin-top": "2px",
                 }}
                 aria-label="menu"
               >
@@ -1049,14 +1225,28 @@ export function TopNav(props: TopNavProps) {
                             </div>
                           </Show>
                         </div>
-                        <Show when={props.onAddMusic && canUploadMusic()}>
+                        <div class="flex items-center gap-2">
+                          <Show when={props.onAddMedia && (canUploadMusic() || canUploadVideo())}>
+                            <button
+                              class="px-3 py-1.5 text-xs text-[var(--color-accent-500)] hover:bg-[var(--color-accent-500)]/10 rounded transition-colors border border-[var(--color-accent-500)]/30 bg-transparent cursor-pointer font-medium whitespace-nowrap"
+                              onClick={() => props.onAddMedia?.()}
+                            >
+                              add media
+                            </button>
+                          </Show>
                           <button
-                            class="px-3 py-1.5 text-xs text-[var(--color-accent-500)] hover:bg-[var(--color-accent-500)]/10 rounded transition-colors border border-[var(--color-accent-500)]/30 bg-transparent cursor-pointer font-medium whitespace-nowrap"
-                            onClick={() => props.onAddMusic?.()}
+                            class="p-1.5 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded transition-colors border-none bg-transparent cursor-pointer flex items-center justify-center"
+                            title="player mode"
+                            onClick={() => {
+                              // /player/ is a separate top-level pathname
+                              // branch (see index.tsx), not one of this
+                              // HashRouter's own routes - a real nav.
+                              window.location.href = "/player/";
+                            }}
                           >
-                            add music
+                            <Icon name="tv" size={16} />
                           </button>
-                        </Show>
+                        </div>
                       </div>
 
                       {/* aggregate feed link */}
@@ -1499,6 +1689,7 @@ export function TopNav(props: TopNavProps) {
                 currentCount={props.pageCount}
                 onNavigate={(path) => props.onNavigate?.(path)}
                 isNarrow={isNarrow()}
+                hideCount={hideCount()}
               />
             </div>
           </Show>
@@ -1522,7 +1713,13 @@ export function TopNav(props: TopNavProps) {
                 <Icon name="arrowLeft" size={iconBtnSize()} />
               </button>
             </Show>
-            <Show when={canGoForward() && (!isNarrow() || !searchExpanded())}>
+            <Show
+              when={
+                canGoForward() &&
+                (!isNarrow() || !searchExpanded()) &&
+                (!isNarrow() || !hideForward())
+              }
+            >
               <button
                 class={`${iconBtnPad()} rounded transition-colors border-none bg-transparent cursor-pointer flex-shrink-0 order-1 text-white/60 hover:text-white`}
                 onClick={() => window.history.forward()}
@@ -1576,6 +1773,155 @@ export function TopNav(props: TopNavProps) {
               </div>
             </Show>
 
+            {/* At tight narrow widths, preserve all view controls behind one
+                flyout before sacrificing forward navigation or the count. */}
+            <Show
+              when={
+                compactTools() &&
+                !searchExpanded() &&
+                (info().sortFields?.length ||
+                  info().availableTags?.length ||
+                  info().feedTypeOptions?.length ||
+                  info().statusFilterOptions?.length)
+              }
+            >
+              <div
+                class="relative flex-shrink-0 order-2"
+                onMouseEnter={() => {
+                  clearTimeout(toolsCloseTimeout);
+                  if (!toolsOpen()) setToolsOpen(true);
+                }}
+                onMouseLeave={() => {
+                  if (toolsLocked()) return;
+                  toolsCloseTimeout = setTimeout(() => setToolsOpen(false), 150);
+                }}
+              >
+                <button
+                  class={`${iconBtnPad()} rounded transition-colors border-none bg-transparent cursor-pointer`}
+                  classList={{
+                    "text-[var(--color-accent-500)]":
+                      toolsOpen() ||
+                      isNonDefaultSort() ||
+                      hasActiveTags() ||
+                      hasActiveFeedFilters() ||
+                      hasActiveStatusFilters(),
+                    "text-white/60 hover:text-white":
+                      !toolsOpen() &&
+                      !isNonDefaultSort() &&
+                      !hasActiveTags() &&
+                      !hasActiveFeedFilters() &&
+                      !hasActiveStatusFilters(),
+                  }}
+                  onClick={() => {
+                    // Match sort/tag: clicking a hover-open menu locks it in
+                    // place for touch and for moving into its flyout; a second
+                    // click closes and unlocks it.
+                    if (toolsOpen() && toolsLocked()) {
+                      setToolsLocked(false);
+                      setToolsOpen(false);
+                    } else {
+                      setToolsOpen(true);
+                      setToolsLocked(true);
+                    }
+                  }}
+                  title="view controls"
+                  aria-label="view controls"
+                >
+                  <Icon name="filter" size={iconBtnSize()} color="currentColor" />
+                </button>
+                <Show when={toolsOpen()}>
+                  <div class="absolute top-full right-0 mt-1 w-64 max-h-[min(70vh,28rem)] overflow-y-auto bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded-lg shadow-xl z-[1001] p-2 space-y-3">
+                    <Show when={info().sortFields?.length}>
+                      <div class="space-y-1">
+                        <div class="px-1 text-xs text-[var(--color-text-tertiary)]">sort</div>
+                        <div class="flex gap-1">
+                          <select
+                            value={info().sortBy || ""}
+                            onChange={(e) =>
+                              info().onSortChange?.(e.target.value, info().sortDirection || "desc")
+                            }
+                            class="min-w-0 flex-1 px-2 py-1.5 bg-[var(--color-bg-secondary)] text-[var(--color-text-primary)] text-xs rounded border border-[var(--color-border-default)]"
+                          >
+                            <For each={info().sortFields}>
+                              {(field) => <option value={field.value}>{field.label}</option>}
+                            </For>
+                          </select>
+                          <button
+                            class="px-2 py-1.5 bg-[var(--color-bg-secondary)] text-[var(--color-text-primary)] text-xs rounded border border-[var(--color-border-default)]"
+                            onClick={() =>
+                              info().onSortChange?.(
+                                info().sortBy || "",
+                                (info().sortDirection || "desc") === "asc" ? "desc" : "asc"
+                              )
+                            }
+                          >
+                            {(info().sortDirection || "desc") === "asc" ? "↑" : "↓"}
+                          </button>
+                        </div>
+                      </div>
+                    </Show>
+                    <Show when={info().availableTags?.length}>
+                      <div class="space-y-1">
+                        <div class="flex items-center justify-between px-1 text-xs text-[var(--color-text-tertiary)]">
+                          <span>tags</span>
+                          <Show when={hasActiveTags()}>
+                            <button
+                              class="text-[var(--color-accent-500)]"
+                              onClick={() => info().onClearAllTags?.()}
+                            >
+                              clear
+                            </button>
+                          </Show>
+                        </div>
+                        <For each={unselectedTags()}>
+                          {(tag) => (
+                            <button
+                              onClick={() => info().onAddTag?.(tag.value)}
+                              class="w-full px-2 py-1.5 text-left text-xs rounded hover:bg-[var(--color-bg-hover)] text-[var(--color-text-secondary)]"
+                            >
+                              #{tag.label}
+                            </button>
+                          )}
+                        </For>
+                      </div>
+                    </Show>
+                    <Show when={info().feedTypeOptions?.length}>
+                      <div class="space-y-1">
+                        <div class="px-1 text-xs text-[var(--color-text-tertiary)]">filter</div>
+                        <For each={info().feedTypeOptions}>
+                          {(option) => (
+                            <button
+                              onClick={() => info().onToggleFeedType?.(option.value)}
+                              class="w-full px-2 py-1.5 text-left text-xs rounded hover:bg-[var(--color-bg-hover)] text-[var(--color-text-secondary)]"
+                            >
+                              {option.label}
+                            </button>
+                          )}
+                        </For>
+                      </div>
+                    </Show>
+                    <Show when={info().statusFilterOptions?.length}>
+                      <div class="space-y-1">
+                        <div class="px-1 text-xs text-[var(--color-text-tertiary)]">
+                          {info().statusFilterLabel || "status"}
+                        </div>
+                        <For each={unselectedStatusFilters()}>
+                          {(option) => (
+                            <button
+                              onClick={() => info().onAddStatusFilter?.(option.value)}
+                              class="w-full px-2 py-1.5 text-left text-xs rounded hover:bg-[var(--color-bg-hover)] text-[var(--color-text-secondary)]"
+                            >
+                              {option.label}
+                            </button>
+                          )}
+                        </For>
+                      </div>
+                    </Show>
+                  </div>
+                </Show>
+              </div>
+            </Show>
+
             {/* sort controls - when view has sorting, hidden when search expanded on small, hidden on aggregate feed + radio */}
             <Show
               when={
@@ -1583,6 +1929,7 @@ export function TopNav(props: TopNavProps) {
                 !isRadioRoute() &&
                 !isSharedRoute() &&
                 info().sortFields?.length &&
+                !compactTools() &&
                 (!isNarrow() || !searchExpanded())
               }
             >
@@ -1590,35 +1937,43 @@ export function TopNav(props: TopNavProps) {
                 class="relative flex-shrink-0 order-2"
                 onMouseEnter={() => {
                   clearTimeout(sortCloseTimeout);
-                  if (!sortOpen()) setSortOpen(true);
+                  if (navHoverSuppressed()) return;
+                  if (!isDesktopFlyoutOpen("sort") && desktopFlyoutLockedFor() !== "sort") {
+                    setActiveDesktopFlyout("sort");
+                  }
                 }}
                 onMouseLeave={() => {
-                  if (sortLocked()) return;
-                  sortCloseTimeout = setTimeout(() => setSortOpen(false), 150);
+                  if (desktopFlyoutLockedFor() === "sort") return;
+                  sortCloseTimeout = setTimeout(() => {
+                    if (activeDesktopFlyout() === "sort") setActiveDesktopFlyout(null);
+                  }, 150);
                 }}
               >
                 <button
                   class={`${iconBtnPad()} rounded transition-colors border-none bg-transparent cursor-pointer`}
                   classList={{
-                    "text-[var(--color-accent-500)]": isNonDefaultSort(),
-                    "text-white/60 hover:text-white": !isNonDefaultSort(),
+                    "text-[var(--color-accent-500)]":
+                      isNonDefaultSort() || isDesktopFlyoutOpen("sort"),
+                    "text-white/60 hover:text-white":
+                      !isNonDefaultSort() && !isDesktopFlyoutOpen("sort"),
                   }}
-                  onClick={() => {
-                    if (sortOpen() && sortLocked()) {
-                      setSortLocked(false);
-                      setSortOpen(false);
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    suppressDesktopHoverUntilPointerLeave = true;
+                    setNavHoverSuppressed(true);
+                    if (activeDesktopFlyout() === "sort" && desktopFlyoutLockedFor() === "sort") {
+                      setDesktopFlyoutLockedFor(null);
+                      setActiveDesktopFlyout(null);
                     } else {
-                      setSortOpen(true);
-                      setSortLocked(true);
+                      setActiveDesktopFlyout("sort");
+                      setDesktopFlyoutLockedFor("sort");
                     }
-                    setTagOpen(false);
-                    setTagLocked(false);
                   }}
                   title="sort"
                 >
                   <Icon name="sort" size={iconBtnSize()} />
                 </button>
-                <Show when={sortOpen()}>
+                <Show when={isDesktopFlyoutOpen("sort")}>
                   <div class="absolute top-full right-0 mt-1 bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded-lg shadow-xl z-[1001] p-2 flex gap-1">
                     <select
                       value={info().sortBy || ""}
@@ -1660,6 +2015,7 @@ export function TopNav(props: TopNavProps) {
               when={
                 !isRadioRoute() &&
                 info().availableTags?.length &&
+                !compactTools() &&
                 (!isNarrow() || !searchExpanded())
               }
             >
@@ -1667,35 +2023,42 @@ export function TopNav(props: TopNavProps) {
                 class="relative flex-shrink-0 order-2"
                 onMouseEnter={() => {
                   clearTimeout(tagCloseTimeout);
-                  if (!tagOpen()) setTagOpen(true);
+                  if (navHoverSuppressed()) return;
+                  if (!isDesktopFlyoutOpen("tag") && desktopFlyoutLockedFor() !== "tag") {
+                    setActiveDesktopFlyout("tag");
+                  }
                 }}
                 onMouseLeave={() => {
-                  if (tagLocked()) return;
-                  tagCloseTimeout = setTimeout(() => setTagOpen(false), 150);
+                  if (desktopFlyoutLockedFor() === "tag") return;
+                  tagCloseTimeout = setTimeout(() => {
+                    if (activeDesktopFlyout() === "tag") setActiveDesktopFlyout(null);
+                  }, 150);
                 }}
               >
                 <button
                   class={`${iconBtnPad()} rounded transition-colors border-none bg-transparent cursor-pointer`}
                   classList={{
-                    "text-[var(--color-accent-500)]": hasActiveTags(),
-                    "text-white/60 hover:text-white": !hasActiveTags(),
+                    "text-[var(--color-accent-500)]": hasActiveTags() || isDesktopFlyoutOpen("tag"),
+                    "text-white/60 hover:text-white":
+                      !hasActiveTags() && !isDesktopFlyoutOpen("tag"),
                   }}
-                  onClick={() => {
-                    if (tagOpen() && tagLocked()) {
-                      setTagLocked(false);
-                      setTagOpen(false);
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    suppressDesktopHoverUntilPointerLeave = true;
+                    setNavHoverSuppressed(true);
+                    if (activeDesktopFlyout() === "tag" && desktopFlyoutLockedFor() === "tag") {
+                      setDesktopFlyoutLockedFor(null);
+                      setActiveDesktopFlyout(null);
                     } else {
-                      setTagOpen(true);
-                      setTagLocked(true);
+                      setActiveDesktopFlyout("tag");
+                      setDesktopFlyoutLockedFor("tag");
                     }
-                    setSortOpen(false);
-                    setSortLocked(false);
                   }}
                   title="tag filters"
                 >
                   <Icon name="tag" size={iconBtnSize()} />
                 </button>
-                <Show when={tagOpen()}>
+                <Show when={isDesktopFlyoutOpen("tag")}>
                   <div class="absolute top-full right-0 mt-1 bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded-lg shadow-xl z-[1001] min-w-[200px] max-w-[320px]">
                     <div class="p-2">
                       <Show when={hasActiveTags()}>
@@ -1748,42 +2111,60 @@ export function TopNav(props: TopNavProps) {
             </Show>
 
             {/* feed type filter icon - when view has feed types, hidden when search expanded on small */}
-            <Show when={info().feedTypeOptions?.length && (!isNarrow() || !searchExpanded())}>
+            <Show
+              when={
+                info().feedTypeOptions?.length &&
+                !compactTools() &&
+                (!isNarrow() || !searchExpanded())
+              }
+            >
               <div
                 class="relative flex-shrink-0 order-2"
                 onMouseEnter={() => {
                   clearTimeout(feedFilterCloseTimeout);
-                  if (!feedFilterOpen()) setFeedFilterOpen(true);
+                  if (navHoverSuppressed()) return;
+                  if (
+                    !isDesktopFlyoutOpen("feedFilter") &&
+                    desktopFlyoutLockedFor() !== "feedFilter"
+                  ) {
+                    setActiveDesktopFlyout("feedFilter");
+                  }
                 }}
                 onMouseLeave={() => {
-                  if (feedFilterLocked()) return;
-                  feedFilterCloseTimeout = setTimeout(() => setFeedFilterOpen(false), 150);
+                  if (desktopFlyoutLockedFor() === "feedFilter") return;
+                  feedFilterCloseTimeout = setTimeout(() => {
+                    if (activeDesktopFlyout() === "feedFilter") setActiveDesktopFlyout(null);
+                  }, 150);
                 }}
               >
                 <button
                   class={`${iconBtnPad()} rounded transition-colors border-none bg-transparent cursor-pointer`}
                   classList={{
-                    "text-[var(--color-accent-500)]": hasActiveFeedFilters() || feedFilterOpen(),
-                    "text-white/60 hover:text-white": !hasActiveFeedFilters() && !feedFilterOpen(),
+                    "text-[var(--color-accent-500)]":
+                      hasActiveFeedFilters() || isDesktopFlyoutOpen("feedFilter"),
+                    "text-white/60 hover:text-white":
+                      !hasActiveFeedFilters() && !isDesktopFlyoutOpen("feedFilter"),
                   }}
-                  onClick={() => {
-                    if (feedFilterOpen() && feedFilterLocked()) {
-                      setFeedFilterLocked(false);
-                      setFeedFilterOpen(false);
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    suppressDesktopHoverUntilPointerLeave = true;
+                    setNavHoverSuppressed(true);
+                    if (
+                      activeDesktopFlyout() === "feedFilter" &&
+                      desktopFlyoutLockedFor() === "feedFilter"
+                    ) {
+                      setDesktopFlyoutLockedFor(null);
+                      setActiveDesktopFlyout(null);
                     } else {
-                      setFeedFilterOpen(true);
-                      setFeedFilterLocked(true);
+                      setActiveDesktopFlyout("feedFilter");
+                      setDesktopFlyoutLockedFor("feedFilter");
                     }
-                    setSortOpen(false);
-                    setSortLocked(false);
-                    setTagOpen(false);
-                    setTagLocked(false);
                   }}
                   title="feed type filters"
                 >
                   <Icon name="filter" size={iconBtnSize()} />
                 </button>
-                <Show when={feedFilterOpen()}>
+                <Show when={isDesktopFlyoutOpen("feedFilter")}>
                   <div class="absolute top-full left-0 mt-1 bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded-lg shadow-xl z-[1001] min-w-[180px]">
                     <div class="p-2">
                       <Show when={hasActiveFeedFilters()}>
@@ -1827,46 +2208,51 @@ export function TopNav(props: TopNavProps) {
              *  pageInfo.statusFilterOptions. used by the library/table
              *  view for `mb_lookup_status`; other views can opt in by
              *  setting the same fields. */}
-            <Show when={info().statusFilterOptions?.length && !searchExpanded()}>
+            <Show when={info().statusFilterOptions?.length && !compactTools() && !searchExpanded()}>
               <div
                 class="relative flex-shrink-0 order-2"
                 onMouseEnter={() => {
                   clearTimeout(statusFilterCloseTimeout);
-                  if (!statusFilterOpen()) setStatusFilterOpen(true);
+                  if (navHoverSuppressed()) return;
+                  if (!isDesktopFlyoutOpen("status") && desktopFlyoutLockedFor() !== "status") {
+                    setActiveDesktopFlyout("status");
+                  }
                 }}
                 onMouseLeave={() => {
-                  if (statusFilterLocked()) return;
-                  statusFilterCloseTimeout = setTimeout(() => setStatusFilterOpen(false), 150);
+                  if (desktopFlyoutLockedFor() === "status") return;
+                  statusFilterCloseTimeout = setTimeout(() => {
+                    if (activeDesktopFlyout() === "status") setActiveDesktopFlyout(null);
+                  }, 150);
                 }}
               >
                 <button
                   class={`${iconBtnPad()} rounded transition-colors border-none bg-transparent cursor-pointer`}
                   classList={{
                     "text-[var(--color-accent-500)]":
-                      hasActiveStatusFilters() || statusFilterOpen(),
+                      hasActiveStatusFilters() || isDesktopFlyoutOpen("status"),
                     "text-white/60 hover:text-white":
-                      !hasActiveStatusFilters() && !statusFilterOpen(),
+                      !hasActiveStatusFilters() && !isDesktopFlyoutOpen("status"),
                   }}
-                  onClick={() => {
-                    if (statusFilterOpen() && statusFilterLocked()) {
-                      setStatusFilterLocked(false);
-                      setStatusFilterOpen(false);
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    suppressDesktopHoverUntilPointerLeave = true;
+                    setNavHoverSuppressed(true);
+                    if (
+                      activeDesktopFlyout() === "status" &&
+                      desktopFlyoutLockedFor() === "status"
+                    ) {
+                      setDesktopFlyoutLockedFor(null);
+                      setActiveDesktopFlyout(null);
                     } else {
-                      setStatusFilterOpen(true);
-                      setStatusFilterLocked(true);
+                      setActiveDesktopFlyout("status");
+                      setDesktopFlyoutLockedFor("status");
                     }
-                    setSortOpen(false);
-                    setSortLocked(false);
-                    setTagOpen(false);
-                    setTagLocked(false);
-                    setFeedFilterOpen(false);
-                    setFeedFilterLocked(false);
                   }}
                   title={info().statusFilterLabel || "status filters"}
                 >
                   <Icon name="filter" size={iconBtnSize()} />
                 </button>
-                <Show when={statusFilterOpen()}>
+                <Show when={isDesktopFlyoutOpen("status")}>
                   <div class="absolute top-full right-0 mt-1 bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded-lg shadow-xl z-[1001] min-w-[200px] max-w-[320px]">
                     <div class="p-2">
                       <Show when={hasActiveStatusFilters()}>

@@ -48,10 +48,7 @@ export function buildRoute(path: string): string {
  *
  * pass `"local"`, `null`, or `undefined` for the local source.
  */
-export function buildRouteFor(
-  remoteId: string | null | undefined,
-  path: string,
-): string {
+export function buildRouteFor(remoteId: string | null | undefined, path: string): string {
   const prefix = remoteId && remoteId !== "local" ? `/${remoteId}` : "/local";
   const cleanPath = path.startsWith("/") ? path : `/${path}`;
   return `${prefix}${cleanPath}`;
@@ -88,6 +85,11 @@ export const routes = {
     buildRouteFor(remoteId, `/artists/${artistId}`),
   playlistOn: (remoteId: string | null | undefined, playlistId: string) =>
     buildRouteFor(remoteId, `/playlists/${playlistId}`),
+  videoOn: (remoteId: string | null | undefined) => buildRouteFor(remoteId, "/video"),
+  videoDetailOn: (remoteId: string | null | undefined, videoId: string) =>
+    buildRouteFor(remoteId, `/video/${videoId}`),
+  videoSeriesOn: (remoteId: string | null | undefined, seriesId: string) =>
+    buildRouteFor(remoteId, `/video/series/${seriesId}`),
 
   // settings & admin (top-level, not context-aware)
   settings: () => "/settings",
@@ -97,6 +99,7 @@ export const routes = {
   library: () => "/explore", // backcompat alias - points to explore
   remotes: () => buildRoute("/remotes"),
   favorites: () => buildRoute("/favorites"),
+  video: () => buildRoute("/video"),
 
   // radio is a global (not context-aware) view; a station is selected
   // for preview via query params rather than a path segment. nodeId
@@ -138,9 +141,23 @@ export function getDefaultRoute(remoteId?: string): string {
 }
 
 /** parameterless view route keys */
-const VIEW_KEYS = ["feed", "songs", "albums", "artists", "playlists", "favorites", "search", "remotes", "settings", "shared", "explore"] as const;
+const VIEW_KEYS = [
+  "feed",
+  "songs",
+  "albums",
+  "artists",
+  "playlists",
+  "favorites",
+  "search",
+  "remotes",
+  "settings",
+  "shared",
+  "explore",
+  "video",
+  "radio",
+] as const;
 
-export type RouteKey = (typeof VIEW_KEYS)[number];
+export type RouteKey = (typeof VIEW_KEYS)[number] | "series";
 
 /**
  * match a path to a known route key
@@ -150,12 +167,15 @@ export type RouteKey = (typeof VIEW_KEYS)[number];
  */
 export function matchRoute(path: string): RouteKey | null {
   const pathname = path.split("?")[0].replace(/\/+$/, "");
-  
+
   // check settings first (top-level route)
   if (pathname.startsWith("/settings")) return "settings";
   if (pathname.startsWith("/shared")) return "shared";
   if (pathname.startsWith("/explore") || pathname.startsWith("/library")) return "explore";
-  
+  // video series has its own filterable identity distinct from plain
+  // "video" (movie/episode) routes, even though both live under /video.
+  if (/\/video\/series(\/|$)/.test(pathname)) return "series";
+
   // check each view key - exact match or detail view (starts with route + /)
   for (const key of VIEW_KEYS) {
     if (key === "settings") continue; // already handled above
@@ -165,6 +185,6 @@ export function matchRoute(path: string): RouteKey | null {
       return key;
     }
   }
-  
+
   return null;
 }

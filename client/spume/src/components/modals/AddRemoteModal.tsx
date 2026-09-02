@@ -13,6 +13,7 @@ import {
   For,
   Match,
   on,
+  onCleanup,
   Show,
   Switch,
 } from "solid-js";
@@ -27,18 +28,31 @@ import { getLocalNodeId, getLocalNodeIdAsync, isCharnelAvailable } from "../../a
 import { addPeerFlowDeps } from "../../app/services/remotes/addPeerFlowAdapter";
 import { getServerInfo } from "../../app/services/remotes/authService";
 import { getAllRemotes } from "../../app/services/remotes/remoteManager";
-import { getPendingRemoteByPeerAddr } from "../../app/services/storage/db";
+import {
+  getPendingRemoteByPeerAddr,
+  deletePendingRemoteByPeerAddr,
+} from "../../app/services/storage/db";
+import { getCurrentUser } from "../../music/data/currentState";
+import { pairWithPlayer } from "../../app/services/players/playerPairingClient";
+import { savePairedPlayer } from "../../app/services/players/pairedPlayers";
+import { adminLocalRawDispatch, getLocalAdminClient } from "../../app/api/adminClient";
 import { resolveBlobUrl } from "../../music/services/storage/blobResolver";
 import { debug } from "../../utils/logger";
+import { parsePlayerPairingQr } from "../../utils/playerPairingQr";
+import { pushModal, popModal } from "../../music/hooks/modals";
 import { AuthForm } from "../auth/AuthForm";
 import { Button } from "../buttons/Button";
 import { QrScanner } from "../inputs/QrScanner";
 import { MediaImage } from "../media/MediaImage";
+import { toast } from "../feedback/Toast";
 
 export interface AddRemoteModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess?: (remote: SavedRemote) => void;
+  /** called once a detected freqhole-player device is paired via the
+   *  inline pin form (see the "auth" step's player_device branch). */
+  onPlayerPaired?: (player: { node_id: string; username: string }) => void;
   /** initial value to pre-fill the input (e.g., from ?r= query param) */
   initialValue?: string;
   /**
@@ -73,9 +87,20 @@ async function resolveServerImageUrl(
   }
 }
 
+let nextAddRemoteModalId = 0;
+
 export function AddRemoteModal(props: AddRemoteModalProps) {
   const flow: AddPeerFlow = createAddPeerFlow(addPeerFlowDeps);
   const [state, setState] = createSignal<AddPeerState>(flow.state());
+
+  // register with the global modal stack (mirrors Modal.tsx's own
+  // registration) so opening this dismisses the floating mini video player.
+  createEffect(() => {
+    if (!props.isOpen) return;
+    const id = `add-remote-modal-${++nextAddRemoteModalId}`;
+    pushModal(id, () => props.onClose());
+    onCleanup(() => popModal(id));
+  });
 
   const dispatch = async (event: Parameters<AddPeerFlow["dispatch"]>[0]) => {
     await flow.dispatch(event);
@@ -85,9 +110,104 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
   // hint: if current origin is a valid remote server that's not already added
   const [originHint, setOriginHint] = createSignal<string | null>(null);
 
+  // "url" step's input box - hoisted to component scope (not local to the
+  // step's render block) so it survives state() transitions, e.g. into an
+  // error state after a failed connection test.
+  const [inputValue, setInputValue] = createSignal("");
+
   // qr scanner state (browser-only, not in tauri)
   const [showScanner, setShowScanner] = createSignal(false);
   const canScanQr = () => !isCharnelAvailable() && !!navigator.mediaDevices?.getUserMedia;
+
+  // pin pairing state, used only when the probed peer is a freqhole-player
+  // device (s.serverInfo?.player_device) rather than a real remote server.
+  const [playerPin, setPlayerPin] = createSignal("");
+  const [playerControllerName, setPlayerControllerName] = createSignal(
+    getCurrentUser()?.username ?? "spume"
+  );
+  const [playerPairStatus, setPlayerPairStatus] = createSignal<"idle" | "pairing" | "error">(
+    "idle"
+  );
+  const [playerPairError, setPlayerPairError] = createSignal<string | null>(null);
+  createEffect(
+    on(
+      () => props.isOpen,
+      (isOpen) => {
+        if (!isOpen) return;
+        setPlayerPin("");
+        setPlayerPairStatus("idle");
+        setPlayerPairError(null);
+        setSetUpLocalUser(false);
+        setLocalUserRole("viewer");
+        setRoleLoaded(false);
+      }
+    )
+  );
+
+  // "set up a local user for this node id" - grants the paired player
+  // trust to call back into the general freqhole/1 api (see
+  // docs/player-peer-trust-bridge-plan.md's implementation plan, step 2).
+  // only meaningful in charnel/tauri mode - local admin_dispatch has no
+  // equivalent in a plain browser build.
+  const [setUpLocalUser, setSetUpLocalUser] = createSignal(false);
+  const [localUserRole, setLocalUserRole] = createSignal<"admin" | "member" | "viewer">("viewer");
+  const [roleLoaded, setRoleLoaded] = createSignal(false);
+
+  const handleToggleLocalUser = async (checked: boolean) => {
+    setSetUpLocalUser(checked);
+    if (!checked || roleLoaded()) return;
+    setRoleLoaded(true);
+    try {
+      const cfg = await adminLocalRawDispatch<{
+        parsed?: { federation?: { default_role?: string } };
+      }>("config_get");
+      const role = cfg?.parsed?.federation?.default_role;
+      if (role === "admin" || role === "member" || role === "viewer") {
+        setLocalUserRole(role);
+      }
+    } catch {
+      // best-effort prefill only - default stays "viewer"
+    }
+  };
+
+  const handlePairPlayer = async (peerAddr: string, displayNameHint: string) => {
+    const pin = playerPin().trim();
+    if (!pin) return;
+    setPlayerPairStatus("pairing");
+    setPlayerPairError(null);
+    try {
+      const result = await pairWithPlayer(peerAddr, pin, playerControllerName().trim() || "spume");
+      if (!result.ok) {
+        setPlayerPairStatus("error");
+        setPlayerPairError(result.reason ?? "pairing failed");
+        return;
+      }
+      const player = await savePairedPlayer(peerAddr, displayNameHint);
+      if (setUpLocalUser()) {
+        try {
+          const client = getLocalAdminClient();
+          if (client) {
+            await client.dispatchOrThrow("peers_allow", {
+              node_id: peerAddr,
+              username: displayNameHint,
+              role: localUserRole(),
+            });
+          }
+        } catch (err) {
+          toast.error(
+            `paired, but failed to grant local trust: ${err instanceof Error ? err.message : String(err)}`
+          );
+        }
+      }
+      await deletePendingRemoteByPeerAddr(peerAddr).catch(() => {});
+      toast.success(`paired with ${displayNameHint}`);
+      props.onClose();
+      props.onPlayerPaired?.(player);
+    } catch (err) {
+      setPlayerPairStatus("error");
+      setPlayerPairError(err instanceof Error ? err.message : String(err));
+    }
+  };
 
   // charnel mode: link to complete passkey auth in the system browser.
   // generates a ?link= url for spume's /link route. never actually shown
@@ -235,7 +355,16 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
   };
 
   const handleTestConnection = (input: string) => {
-    void dispatch({ type: "SUBMIT_URL", input });
+    // a scanned/pasted freqhole-player pairing qr (`?p=<base64url json>` -
+    // see app/player/renderPairingQr.ts) wraps its node_id in a url whose
+    // host is meaningless (often the player's own dev-server localhost
+    // origin, unreachable from another device) - decode it and hand off
+    // the bare node_id instead of the wrapper url, so the flow's existing
+    // p2p connection test (and its player_device pin-pairing step below)
+    // runs against the real peer_addr rather than trying to fetch the
+    // wrapper as an http remote.
+    const playerQr = parsePlayerPairingQr(input);
+    void dispatch({ type: "SUBMIT_URL", input: playerQr?.node_id ?? input });
   };
 
   const handleRequestAccess = (username: string, message: string) => {
@@ -350,7 +479,6 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
               <Match when={state().step === "url"}>
                 {(() => {
                   const s = state() as Extract<AddPeerState, { step: "url" }>;
-                  const [inputValue, setInputValue] = createSignal("");
                   return (
                     <form
                       onSubmit={(e) => {
@@ -418,8 +546,15 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
                       </div>
 
                       <Show when={s.error}>
-                        <div class="p-3 bg-[var(--color-status-error)]/10 border border-[var(--color-status-error)] rounded-md">
+                        <div class="p-3 bg-[var(--color-status-error)]/10 border border-[var(--color-status-error)] rounded-md space-y-2">
                           <p class="text-sm text-[var(--color-status-error)]">{s.error}</p>
+                          <button
+                            type="button"
+                            class="text-sm text-[var(--color-status-error)] underline hover:no-underline"
+                            onClick={() => handleTestConnection(inputValue())}
+                          >
+                            try again?
+                          </button>
                         </div>
                       </Show>
 
@@ -767,67 +902,157 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
                         </div>
                       </Show>
 
-                      <AuthForm
-                        initialMode={s.peerAddr ? "register" : "login"}
-                        onSubmit={handleAuth}
-                        onPasskeyClick={handlePasskeyAuth}
-                        error={s.error || undefined}
-                        showModeToggle={!s.peerAddr}
-                        hidePasskeyInfo={!!s.peerAddr || isCharnelAvailable()}
-                        hidePasskeyButton={!s.peerAddr && isCharnelAvailable()}
-                      />
-
-                      {/* request access option for P2P when knocking is enabled */}
                       <Show
-                        when={
-                          s.peerAddr &&
-                          (s.serverInfo?.knocking_enabled || s.serverInfo?.passkey_p2p_enabled)
-                        }
-                      >
-                        <div class="text-center pt-4 border-t border-[var(--color-border-default)]">
-                          <Show when={s.serverInfo?.knocking_enabled}>
-                            <p class="text-sm text-[var(--color-text-secondary)] mb-2">
-                              don't have an invite code?
-                            </p>
-                            <button
-                              type="button"
-                              class="text-sm text-[var(--color-accent-primary)] hover:underline"
-                              onClick={() => void dispatch({ type: "BACK" })}
+                        when={s.serverInfo?.player_device}
+                        fallback={
+                          <>
+                            <AuthForm
+                              initialMode={s.peerAddr ? "register" : "login"}
+                              onSubmit={handleAuth}
+                              onPasskeyClick={handlePasskeyAuth}
+                              error={s.error || undefined}
+                              showModeToggle={!s.peerAddr}
+                              hidePasskeyInfo={!!s.peerAddr || isCharnelAvailable()}
+                              hidePasskeyButton={!s.peerAddr && isCharnelAvailable()}
+                            />
+
+                            {/* request access option for P2P when knocking is enabled */}
+                            <Show
+                              when={
+                                s.peerAddr &&
+                                (s.serverInfo?.knocking_enabled ||
+                                  s.serverInfo?.passkey_p2p_enabled)
+                              }
                             >
-                              request access from the admin
-                            </button>
-                          </Show>
-                          <Show when={s.serverInfo?.passkey_p2p_enabled}>
-                            <Show when={isCharnelAvailable() && showCharnelLink()}>
-                              <div class="space-y-2 mt-2">
-                                <div class="flex gap-2">
-                                  <input
-                                    type="text"
-                                    readOnly
-                                    value={charnelSpumeLink() ?? ""}
-                                    class="flex-1 px-3 py-2 text-xs rounded-md border border-[var(--color-border-default)] bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)] select-all cursor-text"
-                                    onClick={(e) => (e.target as HTMLInputElement).select()}
-                                  />
-                                </div>
-                                <div class="flex gap-2">
+                              <div class="text-center pt-4 border-t border-[var(--color-border-default)]">
+                                <Show when={s.serverInfo?.knocking_enabled}>
+                                  <p class="text-sm text-[var(--color-text-secondary)] mb-2">
+                                    don't have an invite code?
+                                  </p>
                                   <button
                                     type="button"
-                                    class="flex-1 py-2 text-sm font-medium rounded-lg border border-[var(--color-border-default)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] transition-colors"
-                                    onClick={handleCharnelLinkCopy}
+                                    class="text-sm text-[var(--color-accent-primary)] hover:underline"
+                                    onClick={() => void dispatch({ type: "BACK" })}
                                   >
-                                    {charnelLinkCopied() ? "copied!" : "copy link"}
+                                    request access from the admin
                                   </button>
-                                  <button
-                                    type="button"
-                                    class="flex-1 py-2 text-sm font-medium rounded-lg bg-[var(--color-accent-primary)] text-white hover:opacity-90 transition-opacity"
-                                    onClick={handleCharnelLinkOpen}
-                                  >
-                                    open in browser
-                                  </button>
-                                </div>
+                                </Show>
+                                <Show when={s.serverInfo?.passkey_p2p_enabled}>
+                                  <Show when={isCharnelAvailable() && showCharnelLink()}>
+                                    <div class="space-y-2 mt-2">
+                                      <div class="flex gap-2">
+                                        <input
+                                          type="text"
+                                          readOnly
+                                          value={charnelSpumeLink() ?? ""}
+                                          class="flex-1 px-3 py-2 text-xs rounded-md border border-[var(--color-border-default)] bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)] select-all cursor-text"
+                                          onClick={(e) => (e.target as HTMLInputElement).select()}
+                                        />
+                                      </div>
+                                      <div class="flex gap-2">
+                                        <button
+                                          type="button"
+                                          class="flex-1 py-2 text-sm font-medium rounded-lg border border-[var(--color-border-default)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] transition-colors"
+                                          onClick={handleCharnelLinkCopy}
+                                        >
+                                          {charnelLinkCopied() ? "copied!" : "copy link"}
+                                        </button>
+                                        <button
+                                          type="button"
+                                          class="flex-1 py-2 text-sm font-medium rounded-lg bg-[var(--color-accent-primary)] text-white hover:opacity-90 transition-opacity"
+                                          onClick={handleCharnelLinkOpen}
+                                        >
+                                          open in browser
+                                        </button>
+                                      </div>
+                                    </div>
+                                  </Show>
+                                </Show>
                               </div>
                             </Show>
+                          </>
+                        }
+                      >
+                        {/* freqhole-player device: pin pairing instead of grimoire auth */}
+                        <div class="space-y-4">
+                          <div>
+                            <label class="block text-sm font-medium text-[var(--color-text-primary)] mb-2">
+                              pin (shown on the player's screen)
+                            </label>
+                            <input
+                              type="text"
+                              inputmode="numeric"
+                              value={playerPin()}
+                              onInput={(e) => setPlayerPin(e.currentTarget.value)}
+                              placeholder="123456"
+                              class="w-full px-3 py-2 bg-[var(--color-bg-secondary)] border border-[var(--color-border-default)] rounded-md text-[var(--color-text-primary)] font-mono text-lg tracking-widest"
+                              disabled={playerPairStatus() === "pairing"}
+                            />
+                          </div>
+                          <div>
+                            <label class="block text-sm font-medium text-[var(--color-text-primary)] mb-2">
+                              your name (shown on the player)
+                            </label>
+                            <input
+                              type="text"
+                              value={playerControllerName()}
+                              onInput={(e) => setPlayerControllerName(e.currentTarget.value)}
+                              class="w-full px-3 py-2 bg-[var(--color-bg-secondary)] border border-[var(--color-border-default)] rounded-md text-[var(--color-text-primary)] text-sm"
+                              disabled={playerPairStatus() === "pairing"}
+                            />
+                          </div>
+                          <Show when={playerPairStatus() === "error"}>
+                            <div class="p-3 bg-[var(--color-status-error)]/10 border border-[var(--color-status-error)] rounded-md">
+                              <p class="text-sm text-[var(--color-status-error)]">
+                                {playerPairError()}
+                              </p>
+                            </div>
                           </Show>
+                          <Show when={isCharnelAvailable()}>
+                            <div class="flex flex-col gap-2">
+                              <label class="flex items-center gap-2 text-sm text-[var(--color-text-primary)]">
+                                <input
+                                  type="checkbox"
+                                  checked={setUpLocalUser()}
+                                  onChange={(e) =>
+                                    void handleToggleLocalUser(e.currentTarget.checked)
+                                  }
+                                  disabled={playerPairStatus() === "pairing"}
+                                />
+                                set up a local user for this node id
+                              </label>
+                              <Show when={setUpLocalUser()}>
+                                <select
+                                  value={localUserRole()}
+                                  onChange={(e) =>
+                                    setLocalUserRole(
+                                      e.currentTarget.value as "admin" | "member" | "viewer"
+                                    )
+                                  }
+                                  class="w-full px-3 py-2 bg-[var(--color-bg-secondary)] border border-[var(--color-border-default)] rounded-md text-[var(--color-text-primary)] text-sm"
+                                  disabled={playerPairStatus() === "pairing"}
+                                >
+                                  <option value="viewer">viewer</option>
+                                  <option value="member">member</option>
+                                  <option value="admin">admin</option>
+                                </select>
+                              </Show>
+                            </div>
+                          </Show>
+                          <Button
+                            type="button"
+                            disabled={playerPairStatus() === "pairing" || !playerPin().trim()}
+                            class="w-full"
+                            onClick={() =>
+                              s.peerAddr &&
+                              void handlePairPlayer(
+                                s.peerAddr,
+                                s.serverInfo?.name ?? `player ${s.peerAddr.slice(0, 8)}`
+                              )
+                            }
+                          >
+                            {playerPairStatus() === "pairing" ? "pairing..." : "pair"}
+                          </Button>
                         </div>
                       </Show>
                     </div>

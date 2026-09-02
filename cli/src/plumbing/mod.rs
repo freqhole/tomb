@@ -27,12 +27,12 @@ mod migrate_to_haruspex;
 mod migrate_to_reliquary;
 mod music;
 #[cfg(feature = "rodio-playback")]
-mod player;
 mod radio;
 mod rathole_remote;
 mod sync;
 mod users;
 pub mod utils;
+mod video;
 mod wordlist;
 
 // Re-export action enums for use in main CLI
@@ -46,11 +46,11 @@ pub use jobs::JobAction;
 pub use maintenance::MaintenanceAction;
 pub use music::MusicAction;
 #[cfg(feature = "rodio-playback")]
-pub use player::PlayerAction;
 pub use radio::RadioAction;
 pub use rathole_remote::RatholeRemoteAction;
 pub use sync::SyncAction;
 pub use users::UserAction;
+pub use video::VideoAction;
 pub use wordlist::WordlistAction;
 
 use std::path::PathBuf;
@@ -192,6 +192,12 @@ pub async fn handle_music(action: MusicAction, json_output: bool) -> anyhow::Res
     utils::print_and_exit(output, format);
 }
 
+pub async fn handle_video(action: VideoAction, json_output: bool) -> anyhow::Result<()> {
+    let format = OutputFormat::from_json_flag(json_output);
+    let output = video::handle_command(action).await;
+    utils::print_and_exit(output, format);
+}
+
 pub async fn handle_wordlist(action: WordlistAction, json_output: bool) -> anyhow::Result<()> {
     let format = OutputFormat::from_json_flag(json_output);
     let output = wordlist::handle_command(action).await;
@@ -274,13 +280,6 @@ pub async fn handle_rathole_remote(
 ) -> anyhow::Result<()> {
     let format = OutputFormat::from_json_flag(json_output);
     let output = rathole_remote::handle_command(action);
-    utils::print_and_exit(output, format);
-}
-
-#[cfg(feature = "rodio-playback")]
-pub async fn handle_player(action: PlayerAction, json_output: bool) -> anyhow::Result<()> {
-    let format = OutputFormat::from_json_flag(json_output);
-    let output = player::handle_command(action).await;
     utils::print_and_exit(output, format);
 }
 

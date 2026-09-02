@@ -1,8 +1,9 @@
 //! first-run setup wizard. owns its own ratatui terminal and runs a
 //! multi-step form, then calls `grimoire::setup::SetupService` to do the
 //! actual work (config file + db init + migrations + admin user). after
-//! the core setup completes, an optional second step lets the user point
-//! at a music directory and watch a live scan/import progress bar.
+//! the core setup completes, two optional steps let the user point at a
+//! music directory and then a video directory, each with a live
+//! scan/import progress bar.
 //!
 //! invoked by the cli when `Commands::Rathole` is selected and no
 //! `freqhole-config.toml` exists at the resolved path. on success
@@ -151,10 +152,46 @@ struct ScanHandle {
     enqueue: Arc<Mutex<Option<std::result::Result<DirectoryScanOutcome, String>>>>,
 }
 
+/// video-scan step state. offered right after the music scan step
+/// completes/skips. reuses `ScanHandle`/`ProgressSnapshot`/
+/// `CompletionSnapshot` since the underlying job-progress wire shape
+/// (from `grimoire::jobs::runner`'s badge-progress rollup) is the same
+/// regardless of media domain - only the field *names* (`songs_added`
+/// etc.) are music-flavored, the values are really "items completed".
+struct VideoScanState {
+    video_dir: String,
+    tags_csv: String,
+    selected_path: bool, // true = path field selected, false = tags field
+    /// background scan in flight (Some = scanning, None = not yet started or done)
+    handle: Option<ScanHandle>,
+    progress: Option<ProgressSnapshot>,
+    completion: Option<CompletionSnapshot>,
+    finished: Option<String>,
+    error: Option<String>,
+    path_cycle: Option<CompletionState>,
+}
+
+impl VideoScanState {
+    fn new() -> Self {
+        Self {
+            video_dir: String::new(),
+            tags_csv: String::new(),
+            selected_path: true,
+            handle: None,
+            progress: None,
+            completion: None,
+            finished: None,
+            error: None,
+            path_cycle: None,
+        }
+    }
+}
+
 #[allow(clippy::large_enum_variant)]
 enum Phase {
     Form,
     Scan(ScanState),
+    VideoScan(VideoScanState),
     Done,
 }
 
@@ -410,19 +447,34 @@ async fn run_inner(mut terminal: DefaultTerminal, config_path: PathBuf) -> Resul
 }
 
 /// inspect the scanner's enqueue slot. if it's populated with `Err`
-/// (fs / db blow-up) or `Ok(0)` (no audio files in the chosen dir),
+/// (fs / db blow-up) or `Ok(0)` (no matching files in the chosen dir),
 /// finalize the scan phase manually since the runner won't emit any
 /// JobSessionComplete event in either case. consumes the slot so we
 /// only fire once.
 fn check_enqueue_result(app: &mut WizardApp) {
-    let scan = match &mut app.phase {
-        Phase::Scan(s) => s,
-        _ => return,
-    };
+    match &mut app.phase {
+        Phase::Scan(s) => {
+            check_scan_enqueue_result(&mut s.handle, &mut s.finished, &mut s.error, "audio")
+        }
+        Phase::VideoScan(s) => {
+            check_scan_enqueue_result(&mut s.handle, &mut s.finished, &mut s.error, "video")
+        }
+        _ => {}
+    }
+}
+
+/// shared enqueue-result handling for both the music and video scan
+/// steps. `unit_label` only affects the user-facing message.
+fn check_scan_enqueue_result(
+    handle_slot: &mut Option<ScanHandle>,
+    finished: &mut Option<String>,
+    error: &mut Option<String>,
+    unit_label: &str,
+) {
     // only act while a scan is in flight and we have no progress yet
     // (once a JobProgress event arrives the runner is alive and will
     // eventually emit JobSessionComplete on its own).
-    let handle = match scan.handle.as_ref() {
+    let handle = match handle_slot.as_ref() {
         Some(h) => h,
         None => return,
     };
@@ -436,25 +488,25 @@ fn check_enqueue_result(app: &mut WizardApp) {
     let Some(result) = result else { return };
     match result {
         Err(msg) => {
-            scan.error = Some(format!("scan failed: {msg}"));
+            *error = Some(format!("scan failed: {msg}"));
             handle.cancel.cancel();
-            scan.handle = None;
+            *handle_slot = None;
         }
         Ok(outcome) if outcome.jobs_created == 0 => {
-            // no jobs were created - either the directory has no audio
+            // no jobs were created - either the directory has no matching
             // files at all, or every file found is already imported and
             // unchanged. either way, no job events will ever fire, so
             // finish the scan phase now instead of waiting forever.
-            scan.finished = Some(if outcome.file_count == 0 {
-                "no audio files found in that directory".into()
+            *finished = Some(if outcome.file_count == 0 {
+                format!("no {unit_label} files found in that directory")
             } else {
                 format!(
-                    "{} audio file(s) found, already all in your library",
+                    "{} {unit_label} file(s) found, already all in your library",
                     outcome.file_count
                 )
             });
             handle.cancel.cancel();
-            scan.handle = None;
+            *handle_slot = None;
         }
         Ok(_) => {
             // jobs were enqueued; let the runner drive the rest of
@@ -464,11 +516,41 @@ fn check_enqueue_result(app: &mut WizardApp) {
 }
 
 fn apply_grimoire_event(app: &mut WizardApp, ev: JobEvent) {
-    let scan = match &mut app.phase {
-        Phase::Scan(s) => s,
-        _ => return,
-    };
-    let handle = match &scan.handle {
+    match &mut app.phase {
+        Phase::Scan(s) => apply_scan_event(
+            &mut s.handle,
+            &mut s.progress,
+            &mut s.completion,
+            &mut s.finished,
+            ev,
+            "songs",
+        ),
+        Phase::VideoScan(s) => apply_scan_event(
+            &mut s.handle,
+            &mut s.progress,
+            &mut s.completion,
+            &mut s.finished,
+            ev,
+            "videos",
+        ),
+        _ => {}
+    }
+}
+
+/// shared job-event handling for both the music and video scan steps.
+/// `item_label` only affects the "scan complete" message wording - the
+/// wire fields themselves (`songs_added` etc.) come from
+/// `grimoire::jobs::runner`'s generic badge-progress rollup, which is
+/// domain-agnostic despite the music-flavored field names.
+fn apply_scan_event(
+    handle_slot: &mut Option<ScanHandle>,
+    progress: &mut Option<ProgressSnapshot>,
+    completion: &mut Option<CompletionSnapshot>,
+    finished: &mut Option<String>,
+    ev: JobEvent,
+    item_label: &str,
+) {
+    let handle = match handle_slot.as_ref() {
         Some(h) => h,
         None => return,
     };
@@ -486,7 +568,7 @@ fn apply_grimoire_event(app: &mut WizardApp, ev: JobEvent) {
             let songs_added = d.get("songs_added").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
             let jobs_pending = d.get("jobs_pending").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
             let jobs_total = d.get("jobs_total").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
-            scan.progress = Some(ProgressSnapshot {
+            *progress = Some(ProgressSnapshot {
                 directory,
                 songs_added,
                 jobs_pending,
@@ -513,14 +595,17 @@ fn apply_grimoire_event(app: &mut WizardApp, ev: JobEvent) {
                 .and_then(|d| d.get("artists_added"))
                 .and_then(|v| v.as_u64())
                 .unwrap_or(0) as u32;
-            scan.completion = Some(CompletionSnapshot {
+            *completion = Some(CompletionSnapshot {
                 songs_added,
                 albums_added,
                 artists_added,
             });
-            scan.finished = Some(format!("scan complete: {} songs imported.", songs_added));
+            *finished = Some(format!(
+                "scan complete: {} {item_label} imported.",
+                songs_added
+            ));
             handle.cancel.cancel();
-            scan.handle = None;
+            *handle_slot = None;
         }
         _ => {}
     }
@@ -535,10 +620,18 @@ async fn handle_key(app: &mut WizardApp, code: KeyCode, mods: KeyModifiers) {
         return;
     }
     if mods.contains(KeyModifiers::CONTROL) && matches!(code, KeyCode::Char('c')) {
-        if let Phase::Scan(s) = &mut app.phase {
-            if let Some(h) = &s.handle {
-                h.cancel.cancel();
+        match &mut app.phase {
+            Phase::Scan(s) => {
+                if let Some(h) = &s.handle {
+                    h.cancel.cancel();
+                }
             }
+            Phase::VideoScan(s) => {
+                if let Some(h) = &s.handle {
+                    h.cancel.cancel();
+                }
+            }
+            _ => {}
         }
         app.cancelled = true;
         return;
@@ -547,6 +640,7 @@ async fn handle_key(app: &mut WizardApp, code: KeyCode, mods: KeyModifiers) {
     match &mut app.phase {
         Phase::Form => handle_key_form(app, code).await,
         Phase::Scan(_) => handle_key_scan(app, code).await,
+        Phase::VideoScan(_) => handle_key_video_scan(app, code).await,
         Phase::Done => {}
     }
 }
@@ -650,9 +744,9 @@ async fn handle_key_scan(app: &mut WizardApp, code: KeyCode) {
         Phase::Scan(s) => s,
         _ => return,
     };
-    // if a scan is already finished, any key advances to done
+    // if a scan is already finished, any key advances to the video-scan step
     if scan.finished.is_some() {
-        app.phase = Phase::Done;
+        app.phase = Phase::VideoScan(VideoScanState::new());
         return;
     }
     // if a scan is in flight, enter or esc finishes the wizard
@@ -675,7 +769,7 @@ async fn handle_key_scan(app: &mut WizardApp, code: KeyCode) {
             }
             scan.handle = None;
             scan.finished = Some("scan continues in background. opening rathole...".to_string());
-            app.phase = Phase::Done;
+            app.phase = Phase::VideoScan(VideoScanState::new());
         }
         return;
     }
@@ -683,7 +777,7 @@ async fn handle_key_scan(app: &mut WizardApp, code: KeyCode) {
         // esc on the scan-prompt step skips this optional step.
         // ctrl+c (handled above) is the way to abort the whole wizard.
         KeyCode::Esc => {
-            app.phase = Phase::Done;
+            app.phase = Phase::VideoScan(VideoScanState::new());
         }
         KeyCode::Up | KeyCode::Down | KeyCode::BackTab => {
             scan.selected_path = !scan.selected_path;
@@ -831,9 +925,173 @@ async fn start_scan(scan: &mut ScanState) {
     scan.completion = None;
 }
 
-// ---------------------------------------------------------------------------
-// path completion
-// ---------------------------------------------------------------------------
+async fn handle_key_video_scan(app: &mut WizardApp, code: KeyCode) {
+    let scan = match &mut app.phase {
+        Phase::VideoScan(s) => s,
+        _ => return,
+    };
+    // if a scan is already finished, any key advances to done
+    if scan.finished.is_some() {
+        app.phase = Phase::Done;
+        return;
+    }
+    // if a scan is in flight, enter or esc finishes the wizard
+    // and lets the scan keep running in the background, same
+    // handoff behavior as the music scan step.
+    if scan.handle.is_some() {
+        if matches!(code, KeyCode::Enter | KeyCode::Esc) {
+            if let Some(h) = &scan.handle {
+                h.cancel.cancel();
+            }
+            scan.handle = None;
+            scan.finished = Some("scan continues in background. opening rathole...".to_string());
+            app.phase = Phase::Done;
+        }
+        return;
+    }
+    match code {
+        // esc on the scan-prompt step skips this optional step.
+        // ctrl+c (handled above) is the way to abort the whole wizard.
+        KeyCode::Esc => {
+            app.phase = Phase::Done;
+        }
+        KeyCode::Up | KeyCode::Down | KeyCode::BackTab => {
+            scan.selected_path = !scan.selected_path;
+            scan.path_cycle = None;
+        }
+        KeyCode::Tab => {
+            if scan.selected_path {
+                cycle_path(&mut scan.video_dir, &mut scan.path_cycle);
+            } else {
+                scan.selected_path = true;
+            }
+        }
+        KeyCode::Enter => {
+            // enter always starts the scan (only one meaningful action here)
+            start_video_scan(scan).await;
+        }
+        KeyCode::Backspace => {
+            if scan.selected_path {
+                scan.video_dir.pop();
+            } else {
+                scan.tags_csv.pop();
+            }
+            scan.path_cycle = None;
+        }
+        KeyCode::Char(c) => {
+            if scan.selected_path {
+                scan.video_dir.push(c);
+                scan.path_cycle = None;
+            } else {
+                scan.tags_csv.push(c);
+            }
+        }
+        _ => {}
+    }
+}
+
+async fn start_video_scan(scan: &mut VideoScanState) {
+    let raw = scan.video_dir.trim().to_string();
+    if raw.is_empty() {
+        scan.error = Some("video dir is required (or press esc to skip)".into());
+        return;
+    }
+    // expand `~` so users can type shell-style paths
+    let path = expand_tilde(&raw);
+    if !Path::new(&path).is_dir() {
+        scan.error = Some(format!("not a directory: {path}"));
+        return;
+    }
+    let tags: Vec<String> = scan
+        .tags_csv
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+    scan.error = None;
+    let cancel = CancellationToken::new();
+    let enqueue: Arc<Mutex<Option<std::result::Result<DirectoryScanOutcome, String>>>> =
+        Arc::new(Mutex::new(None));
+
+    // create the job session row first so the per-file jobs created
+    // by `scan_directory` can satisfy their FK on `job_sessionz(id)`.
+    let session_request = jobs::CreateJobSessionRequest {
+        job_type: jobs::JobType::ProcessFile,
+        batch_size: None,
+        created_by: Some("rathole-wizard".to_string()),
+    };
+    let session_response = jobs::create_job_session(session_request).await;
+    let session_id = match session_response.data {
+        Some(s) => s.id,
+        None => {
+            scan.error = Some(format!(
+                "failed to create job session: {}",
+                session_response.message
+            ));
+            return;
+        }
+    };
+
+    if !tags.is_empty() {
+        let tag_res =
+            jobs::add_directory_tags(&path, tags.clone(), Some("wizard-scan".to_string())).await;
+        if !tag_res.success {
+            scan.error = Some(format!(
+                "failed to apply directory tags: {}",
+                tag_res.message
+            ));
+            return;
+        }
+    }
+
+    // spawn the job processor (consumes pending jobs as they appear).
+    let proc_token = cancel.clone();
+    tokio::spawn(async move {
+        jobs::run_job_processor_with_token(proc_token).await;
+    });
+
+    // spawn the scanner (enqueues jobs into the session).
+    let session_for_scan = session_id.clone();
+    let path_for_scan = path.clone();
+    let enqueue_for_scan = enqueue.clone();
+    tokio::spawn(async move {
+        let resp = grimoire::video::scan_directory(
+            &path_for_scan,
+            &session_for_scan,
+            true,
+            None,
+            None,
+            true,
+        )
+        .await;
+        let result = match resp.data {
+            Some(outcome) => Ok(outcome),
+            None => {
+                let msg = if resp.errors.is_empty() {
+                    resp.message
+                } else {
+                    resp.errors
+                        .iter()
+                        .map(|e| e.detail.clone())
+                        .collect::<Vec<_>>()
+                        .join("; ")
+                };
+                Err(msg)
+            }
+        };
+        if let Ok(mut slot) = enqueue_for_scan.lock() {
+            *slot = Some(result);
+        }
+    });
+
+    scan.handle = Some(ScanHandle {
+        session_id,
+        cancel,
+        enqueue,
+    });
+    scan.progress = None;
+    scan.completion = None;
+}
 
 /// per-field tab-completion state. lets repeated tabs cycle through
 /// matches like a shell. invalidated whenever the user edits the buffer
@@ -1038,6 +1296,7 @@ fn draw(f: &mut Frame, app: &WizardApp) {
     match &app.phase {
         Phase::Form => draw_form(f, chunks[1], app),
         Phase::Scan(s) => draw_scan(f, chunks[1], s, app),
+        Phase::VideoScan(s) => draw_video_scan(f, chunks[1], s, app),
         Phase::Done => draw_done(f, chunks[1], app),
     }
     draw_help(f, chunks[2], app);
@@ -1045,8 +1304,9 @@ fn draw(f: &mut Frame, app: &WizardApp) {
 
 fn draw_header(f: &mut Frame, area: Rect, app: &WizardApp) {
     let title = match app.phase {
-        Phase::Form => "freqhole setup wizard — step 1/2: install",
-        Phase::Scan(_) => "freqhole setup wizard — step 2/2: music scan",
+        Phase::Form => "freqhole setup wizard — step 1/3: install",
+        Phase::Scan(_) => "freqhole setup wizard — step 2/3: music scan",
+        Phase::VideoScan(_) => "freqhole setup wizard — step 3/3: video scan",
         Phase::Done => "freqhole setup wizard — done",
     };
     let header = Paragraph::new(Line::from(vec![
@@ -1327,6 +1587,143 @@ fn draw_scan(f: &mut Frame, area: Rect, scan: &ScanState, app: &WizardApp) {
     );
 }
 
+fn draw_video_scan(f: &mut Frame, area: Rect, scan: &VideoScanState, app: &WizardApp) {
+    use Constraint::*;
+    let chunks = Layout::vertical([
+        Length(6), // inputs
+        Length(4), // progress
+        Min(3),    // info
+    ])
+    .split(area);
+
+    // video dir input
+    let path_sel = scan.selected_path && scan.handle.is_none() && scan.finished.is_none();
+    let label_style = if path_sel {
+        Style::new().fg(Color::Black).bg(Color::Magenta).bold()
+    } else {
+        Style::new().dim()
+    };
+    let cursor_span = if path_sel {
+        Span::styled("█", Style::new().fg(Color::Magenta))
+    } else {
+        Span::raw(" ")
+    };
+    let hint = if path_sel {
+        Span::styled("  [tab: complete]", Style::new().fg(Color::Magenta).dim())
+    } else {
+        Span::raw("")
+    };
+    let input_lines = vec![
+        Line::from(vec![
+            Span::styled(" video dir ", label_style),
+            Span::raw(" "),
+            Span::raw(scan.video_dir.clone()),
+            cursor_span,
+            hint,
+        ]),
+        Line::from(vec![
+            Span::styled(
+                " tags ",
+                if !scan.selected_path && scan.handle.is_none() && scan.finished.is_none() {
+                    Style::new().fg(Color::Black).bg(Color::Magenta).bold()
+                } else {
+                    Style::new().dim()
+                },
+            ),
+            Span::raw(" "),
+            Span::raw(scan.tags_csv.clone()),
+            if !scan.selected_path && scan.handle.is_none() && scan.finished.is_none() {
+                Span::styled("█", Style::new().fg(Color::Magenta))
+            } else {
+                Span::raw(" ")
+            },
+            Span::styled("  [comma-separated optional tags]", Style::new().dim()),
+        ]),
+        Line::from(""),
+    ];
+    f.render_widget(
+        Paragraph::new(input_lines).block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(" optional video scan "),
+        ),
+        chunks[0],
+    );
+
+    // progress gauge — driven by JobProgress events from grimoire
+    let (ratio, label) = match (&scan.completion, &scan.progress, &scan.handle) {
+        (Some(c), _, _) => (1.0, format!("done · {} videos", c.songs_added)),
+        (_, Some(p), _) if p.jobs_total > 0 => {
+            let done = p.jobs_total.saturating_sub(p.jobs_pending);
+            let ratio = done as f64 / p.jobs_total as f64;
+            (
+                ratio.clamp(0.0, 1.0),
+                format!(
+                    "{}/{} jobs · {} videos added",
+                    done, p.jobs_total, p.songs_added
+                ),
+            )
+        }
+        (_, _, Some(_)) => (0.0, "discovering files...".to_string()),
+        _ => (0.0, "press enter to scan, or esc to skip".to_string()),
+    };
+    f.render_widget(
+        Gauge::default()
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title(" scan progress "),
+            )
+            .gauge_style(Style::new().fg(Color::Magenta).bg(Color::Black))
+            .ratio(ratio)
+            .label(label),
+        chunks[1],
+    );
+
+    // info / status text
+    let (text, color) = if let Some(msg) = &scan.finished {
+        (
+            format!("{msg}\n\npress any key to launch rathole."),
+            Color::Green,
+        )
+    } else if let Some(err) = &scan.error {
+        (format!("error: {err}"), Color::Red)
+    } else if scan.handle.is_some() {
+        let mut s = String::from(
+            "scanning + importing in background.\n\
+             press enter or esc to finish the wizard and let the \
+             scan continue in the background (ctrl+c aborts).",
+        );
+        if let Some(p) = &scan.progress {
+            if !p.directory.is_empty() {
+                s.push_str(&format!("\n\ncurrent: {}", p.directory));
+            }
+        }
+        (s, Color::Yellow)
+    } else {
+        let mut s = String::from(
+            "point at a directory of video files to scan + import.\n\
+             optional tags are applied to that directory before scan.\n\
+             leave blank or edit, then press enter to scan.\n\
+             press esc to skip and finish setup.\n\n",
+        );
+        if let Some(r) = &app.setup_result {
+            s.push_str(&format!("config: {}\n", r.config_path));
+            if let Some(k) = &r.api_key {
+                s.push_str(&format!("api key: {k}\n"));
+            }
+        }
+        (s, Color::Gray)
+    };
+    f.render_widget(
+        Paragraph::new(text)
+            .style(Style::new().fg(color))
+            .wrap(Wrap { trim: false })
+            .block(Block::default().borders(Borders::ALL).title(" info ")),
+        chunks[2],
+    );
+}
+
 fn draw_done(f: &mut Frame, area: Rect, app: &WizardApp) {
     let mut s = String::from("setup complete!\n\n");
     if let Some(r) = &app.setup_result {
@@ -1375,6 +1772,15 @@ fn draw_help(f: &mut Frame, area: Rect, app: &WizardApp) {
                 " esc: cancel scan  ctrl+c: abort "
             } else {
                 " up/down: path/tags  tab: complete path  enter: scan  esc: skip  ctrl+c: abort "
+            }
+        }
+        Phase::VideoScan(s) => {
+            if s.finished.is_some() {
+                " any key: continue  ctrl+c: abort "
+            } else if s.handle.is_some() {
+                " esc: cancel scan  ctrl+c: abort "
+            } else {
+                " tab: complete path  enter: scan  esc: skip  ctrl+c: abort "
             }
         }
         Phase::Done => " any key: launch rathole ",

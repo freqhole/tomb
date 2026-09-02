@@ -12,6 +12,7 @@ mod p2p_commands;
 mod p2p_state;
 #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
 mod player_commands;
+mod player_pairing_commands;
 #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
 mod player_commands {
     //! mobile fallback: rodio is desktop-only. these stubs satisfy the
@@ -48,6 +49,27 @@ mod player_commands {
         Err("rodio backend is desktop-only".to_string())
     }
 }
+#[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
+mod media_session;
+#[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+mod media_session {
+    //! mobile fallback: playwire is desktop-only. these stubs satisfy the
+    //! single `invoke_handler!` list so spume can call them on every
+    //! target; on mobile the android media-session plugin covers this
+    //! instead, so these are simply no-ops.
+    #[tauri::command]
+    pub fn media_session_set_track(
+        _id: String,
+        _title: String,
+        _artist: String,
+        _album: String,
+        _artwork_url: String,
+    ) {
+    }
+
+    #[tauri::command]
+    pub fn media_session_clear_track() {}
+}
 mod jobs_events_commands;
 mod radio_commands;
 mod remotez_commands;
@@ -55,6 +77,7 @@ mod server_controls;
 mod spume_bridge;
 #[cfg(desktop)]
 mod tray;
+mod video_window;
 mod wizard;
 
 use std::path::PathBuf;
@@ -545,10 +568,38 @@ pub fn run() {
                     .resizable(true)
                     .center()
                     .inner_size(800.0, 600.0)
+                    .min_inner_size(100.0, 100.0)
                     .title("freqhole setup")
                     .theme(Some(Theme::Dark))
                     .background_color(Color(0, 0, 0, 255));
-                let _wizard = wizard_builder.build()?;
+
+                #[cfg(target_os = "macos")]
+                let wizard_builder = if app_config.chromeless_title_bar {
+                    wizard_builder.decorations(false)
+                } else {
+                    wizard_builder.title_bar_style(TitleBarStyle::Transparent)
+                };
+                // linux has no TitleBarStyle equivalent - leave native
+                // decorations alone when the toggle is off.
+                #[cfg(target_os = "linux")]
+                let wizard_builder = if app_config.chromeless_title_bar {
+                    wizard_builder.decorations(false)
+                } else {
+                    wizard_builder
+                };
+
+                #[cfg_attr(not(target_os = "macos"), allow(unused_variables))]
+                let wizard = wizard_builder.build()?;
+
+                // tao's Borderless style mask (used for decorations(false))
+                // never includes Closable, which silently disables cmd+w /
+                // the app-menu close item (macOS beeps instead) - add it
+                // back. unconditional - see wizard.rs for why.
+                #[cfg(target_os = "macos")]
+                {
+                    let result = wizard.set_closable(true);
+                    tracing::info!(?result, "first-run wizard: set_closable(true) called");
+                }
 
                 // wizard will start server when setup completes
             } else {
@@ -684,17 +735,42 @@ pub fn run() {
                 #[cfg(desktop)]
                 let win_builder = win_builder
                     .inner_size(800.0, 600.0)
+                    .min_inner_size(100.0, 100.0)
                     .title("freqhole")
                     .theme(Some(Theme::Dark))
                     .background_color(Color(0, 0, 0, 255));
 
                 #[cfg(target_os = "macos")]
-                let win_builder = win_builder.title_bar_style(TitleBarStyle::Transparent);
+                let win_builder = if app_config.chromeless_title_bar {
+                    win_builder.decorations(false)
+                } else {
+                    win_builder.title_bar_style(TitleBarStyle::Transparent)
+                };
+                // linux has no TitleBarStyle equivalent - leave native
+                // decorations alone when the toggle is off.
+                #[cfg(target_os = "linux")]
+                let win_builder = if app_config.chromeless_title_bar {
+                    win_builder.decorations(false)
+                } else {
+                    win_builder
+                };
 
                 let window = win_builder.build()?;
                 tracing::info!(elapsed_ms = %boot_start.elapsed().as_millis(), "boot: main window built (native window visible from here)");
                 // suppress unused variable warning on non-macOS
                 let _ = &window;
+
+                // tao's Borderless style mask (used for decorations(false))
+                // never includes Closable, which silently disables cmd+w /
+                // the app-menu close item (macOS beeps instead) - add it
+                // back. unconditional (not just when chromeless) and logged -
+                // this is the main window builder used on every regular
+                // (non-first-run) launch, previously missing both.
+                #[cfg(target_os = "macos")]
+                {
+                    let result = window.set_closable(true);
+                    tracing::info!(?result, "main window: set_closable(true) called");
+                }
 
                 // set background color only when building for macOS
                 #[cfg(target_os = "macos")]
@@ -751,6 +827,14 @@ pub fn run() {
     let builder = builder.plugin(
         tauri_plugin_window_state::Builder::new()
             .with_denylist(&["setup-wizard"])
+            // exclude DECORATIONS: otherwise this restores whatever
+            // `decorated` value was saved to .window-state.json on a
+            // previous run, silently overriding our config-driven
+            // decorations(false)/title_bar_style choice above every launch.
+            .with_state_flags(
+                tauri_plugin_window_state::StateFlags::all()
+                    - tauri_plugin_window_state::StateFlags::DECORATIONS,
+            )
             .build(),
     );
 
@@ -765,9 +849,14 @@ pub fn run() {
             commands::resolve_path,
             commands::get_os_username,
             commands::get_app_version,
+            commands::get_build_info,
             commands::take_pending_deep_links,
             commands::get_config_path,
             commands::get_data_dir,
+            commands::is_flatpak,
+            commands::check_dir_writable,
+            commands::get_fetch_music_dir,
+            commands::update_fetch_music_dir,
             commands::get_freqhole_config,
             commands::get_client_config,
             commands::open_config_dir,
@@ -788,6 +877,9 @@ pub fn run() {
             // app config settings
             commands::get_sync_queue_to_local,
             commands::set_sync_queue_to_local,
+            commands::get_chromeless_title_bar,
+            commands::set_chromeless_title_bar,
+            commands::supports_chromeless_title_bar,
             commands::get_rodio_playback,
             commands::set_rodio_playback,
             external_storage::commands::external_storage_command,
@@ -803,6 +895,12 @@ pub fn run() {
             commands::api_call,
             wizard::open_setup_wizard,
             wizard::close_setup_wizard,
+            // separate video window (linux; stubbed elsewhere)
+            video_window::video_window_available,
+            video_window::video_window_diagnostics,
+            video_window::video_window_command,
+            video_window::native_video_available,
+            video_window::native_video_command,
             // P2P native transport commands
             p2p_commands::p2p_is_available,
             p2p_commands::p2p_get_node_id,
@@ -832,6 +930,8 @@ pub fn run() {
             p2p_state::p2p_start,
             p2p_state::p2p_stop,
             p2p_state::p2p_restart,
+            // about window (chromeless title-bar context menu)
+            menu::open_about_window,
             // shared remote registry (used by spume + wizard)
             remotez_commands::remotez_list,
             remotez_commands::remotez_get,
@@ -847,6 +947,13 @@ pub fn run() {
             player_commands::player_snapshot,
             player_commands::player_init,
             player_commands::resolve_blob_path,
+            // OS media session / now-playing controls for the rodio +
+            // gst video paths (desktop-real, mobile-stub - android has
+            // its own plugin instead)
+            media_session::media_session_set_track,
+            media_session::media_session_clear_track,
+            // native transport for player.freqhole.net pairing/control
+            player_pairing_commands::player_pairing_dial,
             // ephemeral blob fetch + cleanup (sync_queue_to_local OFF path)
             ephemeral_blob_commands::fetch_ephemeral_blob,
             ephemeral_blob_commands::delete_ephemeral_blob,

@@ -338,11 +338,12 @@ async fn check_has_root_user() -> Result<bool, String> {
 }
 
 /// resolve a file path to its canonical form (resolves symlinks, etc.)
+/// delegates to `canonicalize_or_original` so flatpak document-portal paths are
+/// left untouched instead of being resolved to their (typically read-only) real
+/// host path - see grimoire::paths and docs/flatpak-filesystem-access-plan.md.
 #[tauri::command]
 pub fn resolve_path(path: String) -> Result<String, String> {
-    std::fs::canonicalize(&path)
-        .map(|p| p.to_string_lossy().to_string())
-        .map_err(|e| format!("failed to resolve path '{}': {}", path, e))
+    Ok(canonicalize_or_original(&path))
 }
 
 /// get the default app data directory path
@@ -367,6 +368,27 @@ pub fn get_os_username() -> String {
 #[tauri::command]
 pub fn get_app_version() -> String {
     crate::app_config::get_binary_version().to_string()
+}
+
+/// build provenance of the running binary: semver + the git short sha baked in
+/// at compile time by `build.rs`. paired with the frontend's own build-time sha
+/// so a stale ui bundle (or stale binary) is visible in the ui.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct BuildInfo {
+    pub version: String,
+    pub git_sha: String,
+    pub target_os: String,
+    pub debug: bool,
+}
+
+#[tauri::command]
+pub fn get_build_info() -> BuildInfo {
+    BuildInfo {
+        version: crate::app_config::get_binary_version().to_string(),
+        git_sha: env!("FREQHOLE_GIT_SHA").to_string(),
+        target_os: std::env::consts::OS.to_string(),
+        debug: cfg!(debug_assertions),
+    }
 }
 
 /// drain any deep-link urls (`freqhole://...`) received before the frontend's
@@ -417,6 +439,78 @@ pub fn get_data_dir(app_handle: tauri::AppHandle) -> Option<String> {
         .app_data_dir()
         .ok()
         .map(|p| p.display().to_string())
+}
+
+/// true if this process is running inside a flatpak sandbox. flatpak sets
+/// `FLATPAK_ID` in the environment of every app it launches - see
+/// docs/flatpak-filesystem-access-plan.md for why this matters (only
+/// portal-brokered folders are writable, typed real paths are not).
+#[tauri::command]
+pub fn is_flatpak() -> bool {
+    std::env::var("FLATPAK_ID").is_ok()
+}
+
+/// probe whether `path` (a directory) is actually writable, by creating and
+/// removing a throwaway marker file inside it. used to detect a stale/broken
+/// flatpak document-portal grant (revoked permission, deleted folder, etc.)
+/// instead of only finding out deep inside a background sync job.
+#[tauri::command]
+pub fn check_dir_writable(path: String) -> bool {
+    let dir = Path::new(&path);
+    if !dir.is_dir() {
+        return false;
+    }
+    let probe = dir.join(format!(".freqhole-write-probe-{}", std::process::id()));
+    match std::fs::write(&probe, b"") {
+        Ok(()) => {
+            let _ = std::fs::remove_file(&probe);
+            true
+        }
+        Err(_) => false,
+    }
+}
+
+/// get the fetched-music storage directory from loaded config (falls back to
+/// `<data_dir>/fetch`, mirroring grimoire's own default resolution).
+#[tauri::command]
+pub fn get_fetch_music_dir(app_handle: tauri::AppHandle) -> Option<String> {
+    let config_path = get_server_config_path_resolved(&app_handle)?;
+    ensure_config_initialized(&config_path).ok()?;
+    let config = grimoire::config::get_config();
+    let output_dir = config
+        .server
+        .as_ref()
+        .and_then(|s| s.fetch_music.as_ref())
+        .and_then(|f| f.output_dir.clone());
+    Some(output_dir.unwrap_or_else(|| config.data_dir.join("fetch").display().to_string()))
+}
+
+/// update the fetched-music storage directory (`server.fetch_music.output_dir`)
+/// and reload the in-memory config immediately - no restart required. `path`
+/// is resolved via `canonicalize_or_original` first (a no-op for flatpak
+/// document-portal paths, see grimoire::paths).
+#[tauri::command]
+pub fn update_fetch_music_dir(
+    app_handle: tauri::AppHandle,
+    path: String,
+) -> Result<String, String> {
+    let config_path = get_server_config_path_resolved(&app_handle)
+        .ok_or_else(|| "config file not found - run setup first".to_string())?;
+    let resolved = canonicalize_or_original(&path);
+
+    std::fs::create_dir_all(&resolved)
+        .map_err(|e| format!("failed to create '{}': {}", resolved, e))?;
+    if !check_dir_writable(resolved.clone()) {
+        return Err(format!("'{}' is not writable", resolved));
+    }
+
+    grimoire::set_config_values(
+        &config_path,
+        &[("server.fetch_music.output_dir", resolved.clone().into())],
+    )
+    .map_err(|e| format!("failed to update config: {}", e))?;
+
+    Ok(resolved)
 }
 
 /// freqhole config info for the bridge (exposed to frontend via CustomEvent)
@@ -762,13 +856,24 @@ pub struct ScanResult {
     pub message: String,
 }
 
-/// scan a directory for music files (creates import jobs)
+/// scan a directory for music and/or video files (creates a ScanDirectory job,
+/// which in turn creates ProcessFile jobs for each file found)
+///
+/// `domain` selects which media pipeline to scan for: `"music"`, `"video"`,
+/// or omitted. a JSON-absent `domain` defaults to music-only (matching
+/// `media_domain::default_music_domain`), preserving today's behavior for
+/// any call site that hasn't been updated to pass it explicitly - `None`
+/// itself would mean "scan for both", which is a UI-visible behavior change
+/// we don't want to apply silently.
 #[tauri::command]
 pub async fn scan_directory(
     app_handle: tauri::AppHandle,
     path: String,
     tags: Vec<String>,
+    domain: Option<String>,
 ) -> ScanResult {
+    use std::str::FromStr;
+
     // ensure config and database are initialized
     if let Err(e) = ensure_initialized(&app_handle).await {
         return ScanResult {
@@ -790,6 +895,20 @@ pub async fn scan_directory(
         };
     }
 
+    let domain = match domain {
+        Some(s) => match grimoire::MediaDomain::from_str(&s) {
+            Ok(d) => Some(d),
+            Err(e) => {
+                return ScanResult {
+                    success: false,
+                    jobs_created: 0,
+                    message: e,
+                }
+            }
+        },
+        None => Some(grimoire::MediaDomain::Music),
+    };
+
     // set up directory tag rules if tags were specified
     if !tags.is_empty() {
         let tag_response =
@@ -800,10 +919,11 @@ pub async fn scan_directory(
         }
     }
 
-    // create a job session first (required for foreign key constraint)
+    // create a job session first (required for foreign key constraint) -
+    // mirrors cli's `jobs scan` handler (cli/src/plumbing/jobs.rs)
     let session_request = grimoire::jobs::CreateJobSessionRequest {
-        job_type: grimoire::jobs::JobType::ProcessFile,
-        batch_size: None,
+        job_type: grimoire::jobs::JobType::ScanDirectory,
+        batch_size: Some(100),
         created_by: Some("tauri-scan".to_string()),
     };
     let session_response = grimoire::jobs::create_job_session(session_request).await;
@@ -815,58 +935,64 @@ pub async fn scan_directory(
         };
     }
     let session = session_response.data.unwrap();
-    let session_id = &session.id;
+    let session_id = session.id.clone();
 
-    let result = grimoire::music::scanner::scan_directory(
-        &path, session_id, true,  // recursive
-        None,  // no max depth
-        None,  // default extensions
-        false, // don't skip tracked subdirs
-    )
-    .await;
+    let scan_params = grimoire::jobs::ScanDirectoryParams {
+        directory_path: path.clone(),
+        recursive: true,
+        max_depth: None,
+        file_extensions: None,
+        skip_tracked_subdirs: false,
+        domain,
+    };
 
-    match result.data {
-        Some(outcome) => {
-            // record the scanned directory in the database
-            let _ =
-                grimoire::jobs::record_scanned_directory(&path, outcome.file_count as i64, None)
-                    .await;
+    let job_request = grimoire::jobs::CreateJobRequest {
+        job_type: grimoire::jobs::JobType::ScanDirectory,
+        session_id: Some(session_id.clone()),
+        parameters: serde_json::json!(scan_params),
+        max_retries: Some(3),
+        scheduled_at: None,
+        created_by: Some("tauri-scan".to_string()),
+        priority: None,
+    };
+    let job_response = grimoire::jobs::create_job(job_request).await;
 
-            if outcome.jobs_created > 0 {
-                // start background polling for job completion
-                let app_handle_clone = app_handle.clone();
-                let session_id_clone = session_id.clone();
-                let shutdown_token = app_handle.state::<ShutdownToken>().inner().clone();
-                tauri::async_runtime::spawn(async move {
-                    poll_scan_jobs_until_complete(
-                        app_handle_clone,
-                        session_id_clone,
-                        shutdown_token,
-                    )
-                    .await;
-                });
-            }
-
-            let message = if outcome.jobs_created == 0 && outcome.files_skipped > 0 {
-                format!(
-                    "nothing new to import: {} file(s) already in your library",
-                    outcome.files_skipped
-                )
-            } else {
-                format!("scheduled {} music files for import", outcome.files_queued)
+    let job = match job_response.data {
+        Some(j) => j,
+        None => {
+            return ScanResult {
+                success: false,
+                jobs_created: 0,
+                message: format!("failed to create scan job: {}", job_response.message),
             };
-
-            ScanResult {
-                success: true,
-                jobs_created: outcome.jobs_created as u32,
-                message,
-            }
         }
-        None => ScanResult {
-            success: false,
-            jobs_created: 0,
-            message: result.message,
-        },
+    };
+
+    // start background polling for job completion. the ScanDirectory job
+    // and every ProcessFile job it spawns share this session_id (see
+    // `grimoire::jobs::music::scan_processor`), so polling by session_id
+    // already covers both the scan itself and its resulting imports.
+    let app_handle_clone = app_handle.clone();
+    let session_id_clone = session_id.clone();
+    let scan_job_id = job.id.clone();
+    let scanned_path = path.clone();
+    let shutdown_token = app_handle.state::<ShutdownToken>().inner().clone();
+    tauri::async_runtime::spawn(async move {
+        poll_scan_jobs_until_complete(
+            app_handle_clone,
+            session_id_clone,
+            scan_job_id,
+            scanned_path,
+            shutdown_token,
+        )
+        .await;
+    });
+
+    let domain_label = domain.map(|d| d.as_str()).unwrap_or("music and video");
+    ScanResult {
+        success: true,
+        jobs_created: 1,
+        message: format!("scanning {} for {} files", path, domain_label),
     }
 }
 
@@ -1096,6 +1222,8 @@ async fn poll_rescan_job_until_complete(
 async fn poll_scan_jobs_until_complete(
     app_handle: tauri::AppHandle,
     session_id: String,
+    scan_job_id: String,
+    scanned_path: String,
     shutdown_token: ShutdownToken,
 ) {
     use grimoire::jobs::{list_jobs, JobStatus};
@@ -1192,6 +1320,31 @@ async fn poll_scan_jobs_until_complete(
                 }
 
                 if pending == 0 && !jobs.is_empty() {
+                    // record the scanned directory now that the scan job's
+                    // own result (file count) is available - this used to
+                    // happen synchronously right after `scan_directory`
+                    // returned, back when it called the scanner directly
+                    // instead of going through the job queue.
+                    if let Some(scan_job) = grimoire::jobs::get_job(&scan_job_id).await.data {
+                        if let Some(result_str) = &scan_job.result {
+                            match serde_json::from_str::<grimoire::jobs::ScanDirectoryResult>(
+                                result_str,
+                            ) {
+                                Ok(scan_result) => {
+                                    let _ = grimoire::jobs::record_scanned_directory(
+                                        &scanned_path,
+                                        scan_result.files_discovered as i64,
+                                        None,
+                                    )
+                                    .await;
+                                }
+                                Err(e) => {
+                                    tracing::warn!(error = %e, "scan-poll: failed to parse scan job result");
+                                }
+                            }
+                        }
+                    }
+
                     // all jobs complete - send final notification
                     if let Err(e) =
                         notify_scan_complete(&app_handle, songs_added, albums_added, artists_added)
@@ -1739,6 +1892,25 @@ pub fn get_rodio_playback(app_handle: tauri::AppHandle) -> bool {
         .unwrap_or_else(crate::app_config::default_use_rodio_playback)
 }
 
+/// get the chromeless_title_bar setting (default: true). read by both the
+/// main (spume) and setup-wizard frontends to decide whether to render
+/// their own drag-strip + traffic-light buttons, mirroring whatever the
+/// rust side actually did when it built the window (see lib.rs/wizard.rs).
+///
+/// always false off macOS/linux - `decorations(false)` is only ever applied
+/// `#[cfg(any(target_os = "macos", target_os = "linux"))]`, so other
+/// platforms (windows, mobile) keep their native title bar regardless of
+/// the config value, and must not also draw a custom one on top of it.
+#[tauri::command]
+pub fn get_chromeless_title_bar(app_handle: tauri::AppHandle) -> bool {
+    if !cfg!(any(target_os = "macos", target_os = "linux")) {
+        return false;
+    }
+    FreqholeAppConfig::load(&app_handle)
+        .map(|c| c.chromeless_title_bar)
+        .unwrap_or_else(crate::app_config::default_chromeless_title_bar)
+}
+
 /// set the use_rodio_playback setting. fires `config_changed` so spume can
 /// re-read it without a restart. does NOT swap any in-flight backend; the
 /// new value takes effect when the playback session next reconstructs its
@@ -1750,6 +1922,29 @@ pub fn set_rodio_playback(app_handle: tauri::AppHandle, enabled: bool) -> Result
     config.save(&app_handle)?;
 
     let _ = notify_config_changed(&app_handle, "use_rodio_playback changed");
+
+    Ok(())
+}
+
+/// whether this build's platform actually supports the chromeless title
+/// bar - used by the settings ui to hide the toggle entirely on platforms
+/// where it has no effect (see `get_chromeless_title_bar`'s matching gate).
+#[tauri::command]
+pub fn supports_chromeless_title_bar() -> bool {
+    cfg!(any(target_os = "macos", target_os = "linux"))
+}
+
+/// set the chromeless_title_bar setting. the native window is only ever
+/// built with decorations on/off once, at window-creation time (see
+/// lib.rs/wizard.rs), so this just persists the preference - it takes
+/// effect the next time the app is restarted, same as `use_rodio_playback`.
+#[tauri::command]
+pub fn set_chromeless_title_bar(app_handle: tauri::AppHandle, enabled: bool) -> Result<(), String> {
+    let mut config = FreqholeAppConfig::load(&app_handle).unwrap_or_default();
+    config.chromeless_title_bar = enabled;
+    config.save(&app_handle)?;
+
+    let _ = notify_config_changed(&app_handle, "chromeless_title_bar changed");
 
     Ok(())
 }
@@ -1772,6 +1967,12 @@ pub async fn api_call(
     body: serde_json::Value,
 ) -> Result<serde_json::Value, String> {
     ensure_initialized(&app_handle).await?;
+
+    // temporary diagnostic for the tauri tag-filter bug - confirm the body
+    // tauri's IPC layer actually delivers matches what the JS side sent.
+    if path.contains("/query") {
+        tracing::info!("api_call: path={} body={}", path, body);
+    }
 
     // get caller from app config admin user
     let caller = get_caller_from_app_config(&app_handle)?;

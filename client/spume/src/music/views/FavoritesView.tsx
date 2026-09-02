@@ -1,6 +1,6 @@
 // favorites view - displays all favorited items with infinite scroll
 import { useNavigate } from "@solidjs/router";
-import { createEffect, createMemo, on, onCleanup, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, on, onCleanup, onMount, Show } from "solid-js";
 import {
   FavoritesLayout,
   type FavoriteItem as LayoutFavoriteItem,
@@ -8,6 +8,7 @@ import {
 } from "../../components/layout/FavoritesLayout";
 import { playQueue } from "../services/queue/queue";
 import { setPageInfo, clearPageInfo } from "../../app/services/pageInfo";
+import { isNarrowViewport, getPlayerBarHeightPx } from "../../config/breakpoints";
 import { getDataSource, RemoteOfflineError } from "../data";
 import { appState } from "../../app/services/storage/db";
 import { isRadioPlayerBarActive } from "../../app/services/radio/radioService";
@@ -19,6 +20,9 @@ import type {
   PlaylistSummary,
   GenreRef,
 } from "../data/types";
+import type { VideoSummary, VideoSeries } from "../../video/data/types";
+import { getVideoDataSource } from "../../video/data";
+import { playVideoQueue } from "../../video/services/queue/playVideoQueue";
 import { useFavoritesInfiniteQuery, useToggleFavoriteMutation } from "../queries/favorites";
 import {
   useSongContextMenu,
@@ -26,11 +30,12 @@ import {
   useArtistContextMenu,
   usePlaylistContextMenu,
 } from "../hooks/contextMenu";
-import { routes } from "../utils/routing";
+import { useVideoContextMenu, useVideoSeriesContextMenu } from "../../video/hooks/contextMenu";
+import { routes, buildRoute } from "../utils/routing";
 import { useViewportHeight, getNavHeight } from "../../utils/viewport";
 
 export interface FavoritesViewProps {
-  onAddMusic: () => void;
+  onAddMedia: () => void;
   onSongDoubleClick?: (song: Song) => void;
 }
 
@@ -38,11 +43,28 @@ export function FavoritesView(props: FavoritesViewProps) {
   const navigate = useNavigate();
   const toggleFavorite = useToggleFavoriteMutation();
 
+  // reactive narrow/wide tracking - isNarrowViewport() alone is a plain
+  // function read (not a signal), so calling it directly in a JSX prop
+  // never re-evaluates on resize; mirror the resize-listener pattern used
+  // elsewhere (e.g. ArtistsView) to keep this reactive.
+  const [isNarrow, setIsNarrow] = createSignal(isNarrowViewport());
+  onMount(() => {
+    const handleResize = () => setIsNarrow(isNarrowViewport());
+    window.addEventListener("resize", handleResize);
+    onCleanup(() => window.removeEventListener("resize", handleResize));
+  });
+
   // responsive height — reactive to safari toolbar changes
   const viewportHeight = useViewportHeight();
   const playerBarHeight = () =>
-    (appState()?.queue.length || 0) > 0 || isRadioPlayerBarActive() ? 80 : 0;
-  const containerHeight = () => viewportHeight() - getNavHeight() - playerBarHeight();
+    getPlayerBarHeightPx(
+      isNarrow(),
+      (appState()?.queue.length || 0) > 0 || isRadioPlayerBarActive()
+    );
+  // FavoritesLayout scrolls its own content behind the (now floating,
+  // non-space-reserving) nav via scrollPaddingTop - height spans the full
+  // available area, same as every other list view.
+  const containerHeight = () => viewportHeight() - playerBarHeight();
 
   // infinite query for favorites
   const favoritesQuery = useFavoritesInfiniteQuery({
@@ -83,6 +105,10 @@ export function FavoritesView(props: FavoritesViewProps) {
           return { ...item.data, type: "artist", is_favorite: true };
         case "playlist":
           return { ...item.data, type: "playlist", is_favorite: true };
+        case "video":
+          return { ...item.data, type: "video" };
+        case "video_series":
+          return { ...item.data, type: "video_series" };
       }
     });
 
@@ -118,8 +144,7 @@ export function FavoritesView(props: FavoritesViewProps) {
 
   const handleSongFavoriteToggle = (songId: string, isFavorite: boolean) => {
     const song = allFavorites().find((f) => f.type === "song" && (f as any).id === songId) as
-      | Song
-      | undefined;
+      Song | undefined;
     if (!song) return;
 
     toggleFavorite.mutate({
@@ -294,6 +319,74 @@ export function FavoritesView(props: FavoritesViewProps) {
     });
   };
 
+  // video handlers
+  const handleVideoClick = (video: VideoSummary) => {
+    navigate(buildRoute(`/video/${video.id}`));
+  };
+
+  const handleVideoPlay = async (video: VideoSummary) => {
+    await playVideoQueue([video], 0, {
+      type: "video",
+      label: video.title,
+      entity_id: video.id,
+    });
+  };
+
+  const getVideoContextMenuActions = (video: VideoSummary) => {
+    return useVideoContextMenu(video, {
+      showPlayActions: true,
+      isFavorite: true,
+    });
+  };
+
+  const handleVideoFavoriteToggle = (videoId: string, isFavorite: boolean) => {
+    toggleFavorite.mutate({
+      targetType: "video",
+      targetId: videoId,
+      isFavorite,
+    });
+  };
+
+  // video series handlers
+  const handleSeriesClick = (series: VideoSeries) => {
+    navigate(buildRoute(`/video/series/${series.id}`));
+  };
+
+  const handleSeriesPlay = async (series: VideoSeries) => {
+    try {
+      const dataSource = getVideoDataSource();
+      const detail = await dataSource.getVideoSeriesDetail(series.id);
+      if (!detail) return;
+      const videos = [
+        ...detail.seasons.flatMap((season) => season.videos),
+        ...detail.unassignedVideos,
+      ];
+      if (videos.length === 0) return;
+      await playVideoQueue(videos, 0, {
+        type: "series",
+        label: series.title,
+        entity_id: series.id,
+      });
+    } catch (err) {
+      console.error("failed to play series:", err);
+    }
+  };
+
+  const handleSeriesFavoriteToggle = (seriesId: string, isFavorite: boolean) => {
+    toggleFavorite.mutate({
+      targetType: "video_series",
+      targetId: seriesId,
+      isFavorite,
+    });
+  };
+
+  // series favorites here are all favorited by definition, and no
+  // per-series video list is loaded in this list, so "play all"/"add all
+  // to queue" are omitted (VideoSeriesCard's own play button handles
+  // play, same as handleSeriesPlay above).
+  const getSeriesContextMenuActions = (series: VideoSeries) =>
+    useVideoSeriesContextMenu(series, [], { isFavorite: true });
+
   // navigation handlers
   const handleArtistNavigate = (artistId: string) => {
     navigate(routes.artist(artistId));
@@ -348,6 +441,12 @@ export function FavoritesView(props: FavoritesViewProps) {
               console.error("failed to load playlist songs for favorites playback:", err);
               return [];
             }
+          case "video":
+          case "video_series":
+            // videos aren't songs and use their own playback queue (see
+            // VideoCard/VideoSeriesCard's own play buttons) - excluded from
+            // the mixed song play/shuffle-all-favorites queue.
+            return [];
         }
       })
     );
@@ -411,6 +510,7 @@ export function FavoritesView(props: FavoritesViewProps) {
           favorites={allFavorites()}
           isLoading={favoritesQuery.isLoading || favoritesQuery.isFetching}
           height={containerHeight()}
+          scrollPaddingTop={isNarrow() ? getNavHeight() : 0}
           onSongClick={handleSongClick}
           onSongPlay={handleSongDoubleClick}
           onPlayAllFavorites={handlePlayAllFavorites}
@@ -429,6 +529,14 @@ export function FavoritesView(props: FavoritesViewProps) {
           onPlaylistPlay={handlePlaylistPlay}
           getPlaylistContextMenuActions={getPlaylistContextMenuActions}
           onPlaylistFavoriteToggle={handlePlaylistFavoriteToggle}
+          onVideoClick={handleVideoClick}
+          onVideoPlay={handleVideoPlay}
+          getVideoContextMenuActions={getVideoContextMenuActions}
+          onVideoFavoriteToggle={handleVideoFavoriteToggle}
+          onSeriesClick={handleSeriesClick}
+          onSeriesPlay={handleSeriesPlay}
+          getSeriesContextMenuActions={getSeriesContextMenuActions}
+          onSeriesFavoriteToggle={handleSeriesFavoriteToggle}
           onArtistNavigate={handleArtistNavigate}
           onAlbumNavigate={handleAlbumNavigate}
           onGenreClick={handleGenreClick}

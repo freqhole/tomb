@@ -3,7 +3,7 @@
 //! Provides configuration loading, validation, and global storage.
 //! Config files use TOML format (supports comments).
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::{OnceLock, RwLock};
 use thiserror::Error;
@@ -53,6 +53,14 @@ pub struct GrimoireConfig {
     #[serde(default)]
     pub audio: AudioConfig,
 
+    /// gst-based video window tuning (linux-only, charnel desktop app).
+    /// separate from `[audio]` since the video window's own audio sink
+    /// commonly wants a different (usually larger) buffer than the
+    /// dedicated music player. all fields optional; omit the whole
+    /// section to accept defaults.
+    #[serde(default)]
+    pub video: VideoConfig,
+
     /// new-version update checks (queries github releases). off by default;
     /// opt-in via the setup wizard or by adding `[updates]\nenabled = true`.
     #[serde(default)]
@@ -80,6 +88,37 @@ pub struct AudioConfig {
     /// macos / windows.
     #[serde(default)]
     pub linux_buffer_frames: Option<u32>,
+}
+
+fn default_video_linux_buffer_frames() -> Option<u32> {
+    Some(8192)
+}
+
+/// gst-based video window tuning (linux-only, charnel desktop app). all
+/// fields are optional — omit the `[video]` section to accept the
+/// built-in defaults.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VideoConfig {
+    /// linux-only: buffer-time (converted to frames-at-48k, same
+    /// convention as `[audio].linux_buffer_frames`) for the gst video
+    /// window's own audio sink. kept separate from `[audio]` since video
+    /// playback's audio path differs from the dedicated music player's
+    /// rodio/cpal backend and commonly wants a larger buffer to avoid
+    /// stutters. defaults to 8192 (~170ms @ 48k) when unset - higher
+    /// than `[audio]`'s own 2048 default, since video's software decode
+    /// path is more prone to scheduler-jitter-induced underruns than
+    /// simple audio playback. try 4096/16384/32768 if still glitchy.
+    /// ignored on macos / windows.
+    #[serde(default = "default_video_linux_buffer_frames")]
+    pub linux_buffer_frames: Option<u32>,
+}
+
+impl Default for VideoConfig {
+    fn default() -> Self {
+        Self {
+            linux_buffer_frames: default_video_linux_buffer_frames(),
+        }
+    }
 }
 
 /// new-version update check configuration. when enabled, the app
@@ -160,6 +199,54 @@ pub struct MediaConfig {
     /// when enabled, thumbnails are generated lazily on first request
     #[serde(default)]
     pub thumbnail_on_demand_enabled: bool,
+    /// Supported video file formats
+    #[serde(default = "default_supported_video_formats")]
+    pub supported_video_formats: Vec<String>,
+    /// Args for extracting video duration/resolution/codec via ffprobe
+    /// (placeholder: {input}). output must be JSON with format and streams sections.
+    #[serde(default = "default_ffprobe_video_properties_args")]
+    pub ffprobe_video_properties_args: String,
+    /// Args for extracting a poster frame from a video (placeholders: {input}, {output})
+    #[serde(default = "default_extract_video_poster_args")]
+    pub extract_video_poster_args: String,
+    /// Enable video transcoding (`TranscodeVideo` job). requires ffmpeg to
+    /// be installed. when disabled, imported videos are only ever served in
+    /// their originally-uploaded format/codec.
+    #[serde(default = "default_true")]
+    pub transcode_video_enabled: bool,
+    /// Renditions produced by the TranscodeVideo job (ignored when
+    /// `transcode_video_enabled` is false). each rendition supplies its own
+    /// full ffmpeg args (placeholders: {input}, {output}).
+    #[serde(default = "default_video_transcode_renditions")]
+    pub video_transcode_renditions: Vec<VideoRenditionConfig>,
+}
+
+/// one rendition produced by the `TranscodeVideo` job. `args` is a full
+/// ffmpeg args template (placeholders: {input}, {output}) - scale/bitrate/
+/// codec choices all live in the args string itself, so profiles can be as
+/// simple (just a codec swap) or specific (fixed resolution + bitrate) as
+/// the operator wants.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VideoRenditionConfig {
+    pub label: String,
+    pub args: String,
+    /// output file extension (no leading dot) - must match whatever
+    /// container/muxer `args` actually produces (e.g. `-f mp4` -> "mp4",
+    /// `-f webm` -> "webm"), since it's used both for the output filename
+    /// ffmpeg writes to and the blob's stored filename/mime.
+    #[serde(default = "default_rendition_extension")]
+    pub extension: String,
+    /// target video codec (e.g. "h264", "vp9") - used to skip transcoding
+    /// when the source video already uses this codec. optional; when unset,
+    /// always transcode.
+    #[serde(default)]
+    pub target_codec: Option<String>,
+    /// target container format (e.g. "mp4", "matroska,webm") - used to skip
+    /// transcoding when the source video already uses this container. optional;
+    /// when unset, always transcode. matches against ffprobe's format_name
+    /// (which can be a comma-separated list of synonyms, e.g. "matroska,webm").
+    #[serde(default)]
+    pub target_container: Option<String>,
 }
 
 fn default_max_connections() -> u32 {
@@ -225,6 +312,40 @@ fn default_supported_audio_formats() -> Vec<String> {
         "aif".to_string(),
         "aiff".to_string(),
     ]
+}
+
+fn default_supported_video_formats() -> Vec<String> {
+    vec![
+        "mp4".to_string(),
+        "mkv".to_string(),
+        "webm".to_string(),
+        "mov".to_string(),
+        "avi".to_string(),
+    ]
+}
+
+fn default_ffprobe_video_properties_args() -> String {
+    "-v quiet -print_format json -show_format -show_streams {input}".to_string()
+}
+
+fn default_extract_video_poster_args() -> String {
+    "-i {input} -ss {seek} -vframes 1 -q:v 2 -y {output}".to_string()
+}
+
+fn default_rendition_extension() -> String {
+    "mp4".to_string()
+}
+
+fn default_video_transcode_renditions() -> Vec<VideoRenditionConfig> {
+    // single widely-compatible profile: h264 + aac, no forced resolution
+    // or bitrate (keeps the source's own size/bitrate, just swaps codecs).
+    vec![VideoRenditionConfig {
+        label: "compatible".to_string(),
+        args: "-i {input} -map 0:v:0 -map 0:a:0? -c:v libx264 -preset veryfast -crf 23 -c:a aac -b:a 192k -movflags +faststart -f mp4 -y {output}".to_string(),
+        extension: default_rendition_extension(),
+        target_codec: Some("h264".to_string()),
+        target_container: Some("mp4".to_string()),
+    }]
 }
 
 /// MusicBrainz integration configuration
@@ -361,12 +482,6 @@ pub struct FederationConfig {
     /// rejected. see docs/wizard-remote-admin.md.
     #[serde(default)]
     pub remote_admin: Option<RemoteAdminConfig>,
-    /// remote player configuration (`freqhole-player/1` ALPN).
-    /// when absent or `enabled = false`, incoming player-control
-    /// connections are rejected. opt-in. see
-    /// docs/rodio-into-freqhole-plan.md.
-    #[serde(default)]
-    pub remote_player: Option<RemotePlayerConfig>,
 }
 
 /// remote admin configuration for the `freqhole-admin/1` ALPN
@@ -403,46 +518,6 @@ impl RemoteAdminConfig {
     /// is this peer node id allowed?
     /// returns true when the allowlist is empty (admin role check still
     /// applies elsewhere) or when the node id is explicitly listed.
-    pub fn is_allowed_node(&self, node_id: &str) -> bool {
-        self.allowed_node_ids.is_empty() || self.allowed_node_ids.iter().any(|n| n == node_id)
-    }
-}
-
-/// remote player configuration for the `freqhole-player/1` ALPN.
-///
-/// opt-in. structure mirrors [`RemoteAdminConfig`] for symmetry: an
-/// `enabled` switch, an optional explicit allowlist, and a frame size
-/// cap. peer must resolve to a User with `role == Admin` to be
-/// accepted; this protocol is intentionally admin-only because it
-/// drives a process running real audio output on the host machine.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct RemotePlayerConfig {
-    /// main switch (default: false)
-    #[serde(default)]
-    pub enabled: bool,
-    /// optional explicit allowlist of player peer node IDs.
-    /// empty = any admin peer is allowed; non-empty = require both
-    /// role==admin AND node_id membership.
-    #[serde(default)]
-    pub allowed_node_ids: Vec<String>,
-    /// per-frame size cap, in mb (default: 1). much smaller than the
-    /// admin cap because player frames are typed commands/events, not
-    /// blob payloads.
-    #[serde(default = "default_player_max_message_size_mb")]
-    pub max_message_size_mb: u32,
-}
-
-fn default_player_max_message_size_mb() -> u32 {
-    1
-}
-
-impl RemotePlayerConfig {
-    /// max message size in bytes
-    pub fn max_message_size_bytes(&self) -> usize {
-        (self.max_message_size_mb as usize) * 1024 * 1024
-    }
-
-    /// is this peer node id allowed?
     pub fn is_allowed_node(&self, node_id: &str) -> bool {
         self.allowed_node_ids.is_empty() || self.allowed_node_ids.iter().any(|n| n == node_id)
     }
@@ -511,6 +586,9 @@ pub struct ServerConfig {
     /// Fetch music configuration
     #[serde(default)]
     pub fetch_music: Option<FetchMusicConfig>,
+    /// Fetch video configuration
+    #[serde(default)]
+    pub fetch_video: Option<FetchVideoConfig>,
     /// Start job processor in server (default: false)
     /// When enabled, server spawns a background task to process jobs
     /// When disabled, jobs must be processed via CLI (freqhole jobs run-processor)
@@ -677,11 +755,36 @@ pub struct FetchMusicConfig {
     /// Enable media fetching functionality
     pub enabled: bool,
     /// Absolute path where fetched files are temporarily stored
+    #[serde(default, deserialize_with = "deserialize_optional_output_dir")]
     pub output_dir: Option<String>,
     /// Command to extract metadata without downloading (for precheck/deduplication)
     pub precheck_command: Option<String>,
     /// Command to actually fetch media files
     pub fetch_command: Option<String>,
+}
+
+/// Fetch video configuration (same shape as `FetchMusicConfig`)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FetchVideoConfig {
+    /// Enable media fetching functionality
+    pub enabled: bool,
+    /// Absolute path where fetched files are temporarily stored
+    #[serde(default, deserialize_with = "deserialize_optional_output_dir")]
+    pub output_dir: Option<String>,
+    /// Command to extract metadata without downloading (for precheck/deduplication)
+    pub precheck_command: Option<String>,
+    /// Command to actually fetch media files
+    pub fetch_command: Option<String>,
+}
+
+const LEGACY_FETCH_OUTPUT_DIR_PLACEHOLDER: &str = "/path/to/fetch/directory";
+
+fn deserialize_optional_output_dir<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = Option::<String>::deserialize(deserializer)?;
+    Ok(value.filter(|path| !path.trim().is_empty() && path != LEGACY_FETCH_OUTPUT_DIR_PLACEHOLDER))
 }
 
 impl ServerConfig {
@@ -775,6 +878,21 @@ impl GrimoireConfig {
                 }
             }
 
+            // Validate fetch_video.output_dir is absolute when enabled
+            if let Some(ref fetch) = server.fetch_video {
+                if fetch.enabled {
+                    if let Some(ref output_dir) = fetch.output_dir {
+                        let path = Path::new(output_dir);
+                        if !path.is_absolute() {
+                            return Err(ConfigError::InvalidValue(format!(
+                                "server.fetch_video.output_dir must be an absolute path when enabled, got: {}",
+                                output_dir
+                            )));
+                        }
+                    }
+                }
+            }
+
             // Validate session_cookie_mode
             if SessionCookieMode::from_str(&server.auth.session_cookie_mode).is_none() {
                 return Err(ConfigError::InvalidValue(format!(
@@ -819,6 +937,13 @@ impl GrimoireConfig {
     /// Get path to temp directory
     pub fn temp_dir(&self) -> PathBuf {
         self.data_dir.join("tmp")
+    }
+
+    /// Get path to the (permanent) video renditions directory - unlike
+    /// `temp_dir()`, files here are referenced by a `media_blobz.local_path`
+    /// and must not be cleaned up as scratch space.
+    pub fn renditions_dir(&self) -> PathBuf {
+        self.data_dir.join("renditions")
     }
 
     /// Get path to freqhole-blobz directory (iroh-blobs FsStore)
@@ -882,6 +1007,11 @@ pub fn init_config_for_tests() {
             generate_scan_duplicate_report: default_generate_scan_duplicate_report(),
             thumbnail_sizes: default_thumbnail_sizes(),
             thumbnail_on_demand_enabled: false,
+            supported_video_formats: default_supported_video_formats(),
+            ffprobe_video_properties_args: default_ffprobe_video_properties_args(),
+            extract_video_poster_args: default_extract_video_poster_args(),
+            transcode_video_enabled: true,
+            video_transcode_renditions: default_video_transcode_renditions(),
         },
         musicbrainz: MusicBrainzConfig::default(),
         lastfm: LastFmConfig::default(),
@@ -896,6 +1026,7 @@ pub fn init_config_for_tests() {
         client: None,
         jobs: JobsConfig::default(),
         audio: AudioConfig::default(),
+        video: VideoConfig::default(),
         updates: UpdatesConfig::default(),
         loaded_from: None,
     };
@@ -1504,6 +1635,7 @@ pub async fn ensure_server_image_blob(config_path: &Path) -> Result<String, Conf
         width: None,
         height: None,
         blake3: None,
+        delete_duplicate_local_path: false,
     };
 
     let blob = create_media_blob(request)
@@ -1668,6 +1800,14 @@ fn merge_values_into_doc(
             continue;
         }
 
+        if matches!(
+            full_path.as_str(),
+            "server.fetch_music.output_dir" | "server.fetch_video.output_dir"
+        ) && user_value.as_str() == Some(LEGACY_FETCH_OUTPUT_DIR_PLACEHOLDER)
+        {
+            continue;
+        }
+
         match user_value {
             toml::Value::Table(nested_table) => {
                 // check if this table exists in template
@@ -1746,6 +1886,33 @@ mod tests {
     use super::*;
 
     #[test]
+    fn fetch_output_dir_treats_blank_and_legacy_placeholder_as_unset() {
+        for value in ["", LEGACY_FETCH_OUTPUT_DIR_PLACEHOLDER] {
+            let config: FetchMusicConfig =
+                toml::from_str(&format!("enabled = false\noutput_dir = {value:?}\n")).unwrap();
+            assert_eq!(config.output_dir, None);
+        }
+
+        let config: FetchMusicConfig =
+            toml::from_str("enabled = true\noutput_dir = \"/srv/freqhole/fetch\"\n").unwrap();
+        assert_eq!(config.output_dir.as_deref(), Some("/srv/freqhole/fetch"));
+    }
+
+    #[test]
+    fn config_upgrade_drops_legacy_fetch_output_dir_placeholder() {
+        let mut doc = CONFIG_TEMPLATE.parse::<DocumentMut>().unwrap();
+        let user: toml::Value =
+            toml::from_str("[server.fetch_music]\noutput_dir = \"/path/to/fetch/directory\"\n")
+                .unwrap();
+        merge_values_into_doc(&mut doc, user.as_table().unwrap(), "");
+
+        assert_eq!(
+            get_item_at_path(&doc, "server.fetch_music.output_dir").and_then(|item| item.as_str()),
+            Some("")
+        );
+    }
+
+    #[test]
     fn test_config_helper_methods() {
         let config = GrimoireConfig {
             data_dir: PathBuf::from("/data"),
@@ -1769,6 +1936,11 @@ mod tests {
                 skip_duplicates: true,
                 thumbnail_sizes: vec![50, 200],
                 thumbnail_on_demand_enabled: false,
+                supported_video_formats: default_supported_video_formats(),
+                ffprobe_video_properties_args: default_ffprobe_video_properties_args(),
+                extract_video_poster_args: default_extract_video_poster_args(),
+                transcode_video_enabled: true,
+                video_transcode_renditions: default_video_transcode_renditions(),
             },
             musicbrainz: MusicBrainzConfig::default(),
             lastfm: LastFmConfig::default(),
@@ -1783,6 +1955,7 @@ mod tests {
             client: None,
             jobs: JobsConfig::default(),
             audio: AudioConfig::default(),
+            video: VideoConfig::default(),
             updates: UpdatesConfig::default(),
             loaded_from: None,
         };
@@ -1816,6 +1989,11 @@ mod tests {
                 skip_duplicates: true,
                 thumbnail_sizes: vec![50, 200],
                 thumbnail_on_demand_enabled: false,
+                supported_video_formats: default_supported_video_formats(),
+                ffprobe_video_properties_args: default_ffprobe_video_properties_args(),
+                extract_video_poster_args: default_extract_video_poster_args(),
+                transcode_video_enabled: true,
+                video_transcode_renditions: default_video_transcode_renditions(),
             },
             musicbrainz: MusicBrainzConfig::default(),
             lastfm: LastFmConfig::default(),
@@ -1830,6 +2008,7 @@ mod tests {
             client: None,
             jobs: JobsConfig::default(),
             audio: AudioConfig::default(),
+            video: VideoConfig::default(),
             updates: UpdatesConfig::default(),
             loaded_from: None,
         };
@@ -1861,6 +2040,11 @@ mod tests {
                 skip_duplicates: true,
                 thumbnail_sizes: vec![50, 200],
                 thumbnail_on_demand_enabled: false,
+                supported_video_formats: default_supported_video_formats(),
+                ffprobe_video_properties_args: default_ffprobe_video_properties_args(),
+                extract_video_poster_args: default_extract_video_poster_args(),
+                transcode_video_enabled: true,
+                video_transcode_renditions: default_video_transcode_renditions(),
             },
             musicbrainz: MusicBrainzConfig::default(),
             lastfm: LastFmConfig::default(),
@@ -1875,6 +2059,7 @@ mod tests {
             client: None,
             jobs: JobsConfig::default(),
             audio: AudioConfig::default(),
+            video: VideoConfig::default(),
             updates: UpdatesConfig::default(),
             loaded_from: None,
         };

@@ -14,6 +14,7 @@ import { getBlobObjectURL, getCachedBlobObjectURL } from "../../music/services/s
 import type { ImageMetadata } from "../../music/services/storage/types";
 import { pickBestImage } from "../../utils/images";
 import { Icon } from "../icons/registry";
+import { warn } from "../../utils/logger";
 
 // flip to true to trace MediaImage url resolution. very chatty;
 // off by default. set to true when investigating missing artwork /
@@ -57,7 +58,13 @@ interface MediaImageProps {
   class?: string;
   enableAlbumHover?: boolean;
   showFallback?: boolean;
-  domainType?: "song" | "album" | "artist" | "genre" | "playlist";
+  domainType?:
+    "song" | "album" | "artist" | "genre" | "playlist" | "video" | "video_series" | "video_season";
+  /** object-fit mode for the resolved image. defaults to "cover" (the
+   *  previous, always-on behavior). use "contain" to letterbox instead of
+   *  cropping — e.g. a video poster shown at something close to its real
+   *  aspect ratio. */
+  objectFit?: "cover" | "contain";
   onError?: () => void;
   onLoad?: () => void;
 }
@@ -364,6 +371,10 @@ export function MediaImage(props: MediaImageProps): JSX.Element {
         return <Icon name="genre" {...iconProps} />;
       case "playlist":
         return <Icon name="playlist" {...iconProps} />;
+      case "video":
+      case "video_series":
+      case "video_season":
+        return <Icon name="video" {...iconProps} />;
       default:
         return <Icon name="music" {...iconProps} />;
     }
@@ -375,11 +386,12 @@ export function MediaImage(props: MediaImageProps): JSX.Element {
 
   return (
     <div
-      class={`relative overflow-hidden bg-gray-800/50 flex items-center justify-center ${
+      class={`relative overflow-hidden flex items-center justify-center ${
         props.enableAlbumHover
           ? "transition-transform duration-300 group-hover:scale-105 pan-on-hover"
           : ""
       } ${getSizeClasses()} ${props.class || ""}`}
+      classList={{ "bg-gray-800/50": !imageLoaded() }}
     >
       <Show when={isLoading()}>
         <div class="absolute inset-0 bg-gray-700/30 animate-pulse z-10" />
@@ -396,7 +408,9 @@ export function MediaImage(props: MediaImageProps): JSX.Element {
           src={resolvedUrl()!}
           alt={props.alt}
           draggable={false}
-          class={`${props.class || ""} "absolute inset-0 w-full h-full object-cover z-30"`}
+          class={`${props.class || ""} absolute inset-0 w-full h-full ${
+            props.objectFit === "contain" ? "object-contain" : "object-cover"
+          } z-30`}
           style={{ "user-select": "none" }}
           onLoad={() => {
             setImageLoaded(true);
@@ -404,6 +418,14 @@ export function MediaImage(props: MediaImageProps): JSX.Element {
             props.onLoad?.();
           }}
           onError={() => {
+            // no retry/full player-style event here by design (this is the
+            // lowest-priority error-surfacing gap in the whole
+            // error-handling doc) — just stop failed thumbnail/cover loads
+            // from being completely silent.
+            warn(
+              "MediaImage",
+              `image failed to load: domainType=${props.domainType ?? "?"} alt="${props.alt}" blobId=${props.blobId ?? "?"} remoteBlobId=${props.remoteBlobId ?? "?"} url=${resolvedUrl()?.slice(0, 120) ?? "?"}`
+            );
             setImageError(true);
             setImageLoaded(false);
             props.onError?.();

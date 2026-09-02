@@ -23,10 +23,17 @@ import { queryClient } from "../../../queryClient";
 import { debug, warn } from "../../../utils/logger";
 import { queryKeys } from "../../queries/queryKeys";
 import { evictCachedBlob, getCachedBlob, isCached, saveP2PBlobMetadata } from "../cache/blobCache";
-import { addToLoadingSet, removeFromLoadingSet, updateLoadingProgress, isSongOnDiskEphemeral } from "../download";
+import {
+  addToLoadingSet,
+  removeFromLoadingSet,
+  updateLoadingProgress,
+  isSongOnDiskEphemeral,
+} from "../download";
 import { canSyncSong, syncSongToLocal } from "../sync";
 import type { SyncableSong } from "../sync";
-import { isRodioEnabled } from "../audio/select";
+// import directly from the leaf module (not select.ts) - select.ts pulls
+// in RodioBackend's own import chain, which would close a cycle back here.
+import { isRodioEnabled } from "../audio/rodioPreference";
 import { isCharnelMode } from "../../../app/services/charnel/mode";
 import { fetchEphemeralForSong } from "../audio/ephemeralFetch";
 import type { Song } from "./types";
@@ -190,7 +197,7 @@ export function withThumbSuffix(url: string, size?: ThumbnailSize): string {
 export async function resolveBlobUrl(
   blobId: string,
   remoteId: string,
-  type: "audio" | "image" = "image",
+  type: "audio" | "image" | "video" = "image",
   onProgress?: BlobProgressCallback,
   thumbnailSize?: ThumbnailSize,
   blake3?: string,
@@ -282,7 +289,7 @@ async function resolveP2PBlob(
   blobId: string,
   remote: BlobRemote,
   cacheKey: string,
-  type: "audio" | "image",
+  type: "audio" | "image" | "video",
   onProgress?: BlobProgressCallback,
   blake3?: string,
   signal?: AbortSignal,
@@ -315,7 +322,15 @@ async function resolveP2PBlob(
       return url;
     }
   } catch (err) {
-    debug("blobResolver", `cache check failed for ${blobId.slice(0, 8)}...: ${err}`);
+    // cache misses/errors are expected to fall through to a P2P fetch,
+    // so this isn't fatal — but it shouldn't be completely silent
+    // either (a broken Cache API on some platform would otherwise be
+    // invisible and every blob would silently pay the full P2P-fetch
+    // cost with no clue why the cache never hits).
+    warn(
+      "blobResolver",
+      `cache check failed for ${blobId.slice(0, 8)}..., falling back to P2P fetch: ${err}`
+    );
   }
 
   // not in cache - fetch from peer
@@ -346,17 +361,51 @@ async function resolveP2PBlob(
     // pass blake3 for verified streaming via iroh-blobs
     let url: string;
     if (onProgress && transport.getBlobUrlWithProgress) {
-      url = await transport.getBlobUrlWithProgress(blobId, onProgress, blake3, totalBytes, mimeType);
+      url = await transport.getBlobUrlWithProgress(
+        blobId,
+        onProgress,
+        blake3,
+        totalBytes,
+        mimeType
+      );
     } else {
+      if (onProgress) {
+        // no progress-capable path: either the transport doesn't implement
+        // one, or (more often) blake3/totalBytes were never resolved, so
+        // the ui stays on its indeterminate indicator for the whole fetch.
+        debug(
+          "blobResolver",
+          `no progress for ${blobId.slice(0, 8)}...: withProgress=${!!transport.getBlobUrlWithProgress} blake3=${!!blake3} totalBytes=${totalBytes ?? "none"}`
+        );
+      }
       url = await transport.getBlobUrl(blobId, blake3);
     }
     return url;
   })();
 
-  // race download against abort signal
-  const url = abortPromise
-    ? await Promise.race([downloadPromise, abortPromise])
-    : await downloadPromise;
+  // race download against abort signal. rethrown unchanged (not wrapped/
+  // flattened) so a structured `TransportError` (error_type, and — for
+  // the fallback-chain fetch methods — `.attempts`) survives intact to
+  // whoever called `resolveBlobUrl`/`resolveP2PBlob`; we just log the
+  // extra context here first since it would otherwise only be visible
+  // to whoever eventually catches it (if anyone does).
+  let url: string;
+  try {
+    url = abortPromise
+      ? await Promise.race([downloadPromise, abortPromise])
+      : await downloadPromise;
+  } catch (err) {
+    const errorType = (err as { errorType?: string })?.errorType;
+    const attempts = (err as { attempts?: Array<{ step: string; reason: string }> })?.attempts;
+    warn(
+      "blobResolver",
+      `P2P fetch failed for blob ${blobId.slice(0, 8)}... from remote ${remote.remote_id}` +
+        (errorType ? ` error_type=${errorType}` : "") +
+        (attempts?.length ? ` attempts=${JSON.stringify(attempts)}` : "") +
+        `: ${err instanceof Error ? err.message : err}`
+    );
+    throw err;
+  }
 
   // track the URL for cleanup and trigger reactive updates
   addActiveBlobUrl(cacheKey, url);
@@ -568,24 +617,25 @@ export async function isP2PBlobCached(blobId: string, remoteId: string): Promise
  * tracks loading state and progress for UI feedback.
  *
  * id types (do not conflate!):
- * @param blobId   the *remote's* `media_blobz.id` short pk (7–16
- *                 hex chars). this is what `/api/blobs/{id}/*`
- *                 routes look up against. each freqhole instance
- *                 generates its own ids — NOT portable. when
- *                 caching a blob from a remote song, pass
- *                 `song.media_blob_id`, never `song.sha256`.
- * @param remoteId the remote_server_id (which peer to fetch from).
- * @param sha256   the 64-char content hash. used here ONLY for
- *                 client-side loading-set tracking + progress UI.
- *                 not sent on the wire as a route param.
- * @param blake3   optional blake3 hash for verified streaming via
- *                 iroh-blobs (audio only).
+ * @param blobId     the *remote's* `media_blobz.id` short pk (7–16
+ *                    hex chars). this is what `/api/blobs/{id}/*`
+ *                    routes look up against. each freqhole instance
+ *                    generates its own ids — NOT portable. when
+ *                    caching a blob from a remote song, pass
+ *                    `song.media_blob_id`, never `song.sha256`.
+ * @param remoteId   the remote_server_id (which peer to fetch from).
+ * @param trackingId client-side-only key for the loading-set/progress UI
+ *                    (see downloadState.ts) - a song's sha256 content
+ *                    hash, or a video's own `id` (NOT a content hash -
+ *                    videos have no sha256). never sent on the wire.
+ * @param blake3     optional blake3 hash for verified streaming via
+ *                    iroh-blobs (audio only).
  */
 export async function preCacheP2PBlob(
   blobId: string,
   remoteId: string,
-  sha256?: string,
-  type: "audio" | "image" = "audio",
+  trackingId?: string,
+  type: "audio" | "image" | "video" = "audio",
   blake3?: string,
   totalBytes?: number
 ): Promise<void> {
@@ -630,9 +680,9 @@ export async function preCacheP2PBlob(
   }
 
   // track loading state for UI (use blobCache's unified loading set)
-  if (sha256 && type === "audio") {
-    addToLoadingSet(sha256);
-    updateLoadingProgress(sha256, null); // indeterminate until we get total size
+  if (trackingId && (type === "audio" || type === "video")) {
+    addToLoadingSet(trackingId);
+    updateLoadingProgress(trackingId, null); // indeterminate until we get total size
   }
 
   try {
@@ -641,12 +691,12 @@ export async function preCacheP2PBlob(
       `pre-caching P2P blob: ${blobId.slice(0, 8)}...${blake3 ? ` (verified)` : ""}`
     );
 
-    // create progress callback if we have sha256 for tracking
+    // create progress callback if we have an id for tracking
     const onProgress: BlobProgressCallback | undefined =
-      sha256 && type === "audio"
+      trackingId && (type === "audio" || type === "video")
         ? (received, total) => {
             if (total > 0) {
-              updateLoadingProgress(sha256, received / total);
+              updateLoadingProgress(trackingId, received / total);
             }
           }
         : undefined;
@@ -660,8 +710,8 @@ export async function preCacheP2PBlob(
   } catch (err) {
     warn("blobResolver", `pre-cache failed for p2p blob ${blobId.slice(0, 8)}:`, err);
   } finally {
-    if (sha256 && type === "audio") {
-      removeFromLoadingSet(sha256);
+    if (trackingId && (type === "audio" || type === "video")) {
+      removeFromLoadingSet(trackingId);
     }
   }
 }
@@ -677,9 +727,15 @@ export async function preCacheP2PBlob(
 export async function preCacheNextP2PSongs(
   currentSongSha256: string | null,
   queue: Song[],
-  targetMinutes: number = 30
+  targetMinutes: number = 30,
+  // when the queue is a mixed song+video queue and the currently-playing
+  // item is a video, `currentSongSha256` won't match anything in `queue`
+  // (song-only). callers that already know where "songs after current"
+  // begins (see `songStartIndexAfter` in `app/services/storage/mediaItem.ts`)
+  // can pass it here to skip the findIndex-based derivation entirely.
+  startIndexOverride?: number
 ): Promise<void> {
-  if (!currentSongSha256 || queue.length === 0) {
+  if (queue.length === 0) {
     return;
   }
 
@@ -693,10 +749,18 @@ export async function preCacheNextP2PSongs(
   // calls `fetchEphemeralForSong`.
   const useEphemeralPreFetch = !shouldSync && isCharnelMode() && isRodioEnabled();
 
-  // find current song index
-  const currentIdx = queue.findIndex((s) => s.sha256 === currentSongSha256);
-  if (currentIdx < 0) {
-    return;
+  let currentIdx: number;
+  if (startIndexOverride !== undefined) {
+    currentIdx = startIndexOverride;
+  } else {
+    if (!currentSongSha256) {
+      return;
+    }
+    // find current song index
+    currentIdx = queue.findIndex((s) => s.sha256 === currentSongSha256);
+    if (currentIdx < 0) {
+      return;
+    }
   }
 
   // songs selected for caching/syncing (we need full Song for sync mode).
@@ -717,7 +781,7 @@ export async function preCacheNextP2PSongs(
   const songsToProcess: Array<{
     song: Song; // full song for sync mode
     mediaBlobId: string; // remote's media_blobz.id pk (route param)
-    sha256: string;      // content hash (loading-set / cache keys)
+    sha256: string; // content hash (loading-set / cache keys)
     remoteId: string;
     blake3?: string;
     waveformBlobId?: string;
@@ -792,7 +856,7 @@ export async function preCacheNextP2PSongs(
     songsToProcess.push({
       song, // keep full song for sync mode
       mediaBlobId: song.media_blob_id, // remote's db pk — used for /api/blobs/{id}/* lookups
-      sha256: song.sha256,             // content hash — used for client-side tracking only
+      sha256: song.sha256, // content hash — used for client-side tracking only
       remoteId: song.remote_server_id,
       blake3: song.blake3 ?? undefined,
       waveformBlobId,
@@ -838,11 +902,6 @@ export async function preCacheNextP2PSongs(
           "blobResolver",
           `first P2P song synced: ${firstEntry.sha256.slice(0, 8)}...${result.skipped ? " (already exists)" : ""}`
         );
-        // invalidate queries so local views can show the new song
-        if (!result.skipped) {
-          void queryClient.invalidateQueries({ queryKey: queryKeys.songs.all() });
-          void queryClient.invalidateQueries({ queryKey: queryKeys.albums.all() });
-        }
       } else {
         // sync failed - when sync mode is enabled, we don't fall back to Cache API
         // the song won't be pre-cached but will be fetched on-demand when played
@@ -998,7 +1057,10 @@ export async function preCacheNextP2PSongs(
           } else {
             // sync failed - when sync mode is enabled, we don't fall back to Cache API
             // the song won't be pre-cached but will be fetched on-demand when played
-            warn("blobResolver", `p2p sync failed for ${entry.sha256.slice(0, 8)}: ${result.error}`);
+            warn(
+              "blobResolver",
+              `p2p sync failed for ${entry.sha256.slice(0, 8)}: ${result.error}`
+            );
           }
         } catch (err) {
           warn("blobResolver", `p2p sync threw for ${entry.sha256.slice(0, 8)}:`, err);
@@ -1019,7 +1081,11 @@ export async function preCacheNextP2PSongs(
         try {
           await fetchEphemeralForSong(entry.song);
         } catch (err) {
-          warn("blobResolver", `p2p ephemeral pre-fetch failed for ${entry.sha256.slice(0, 8)}:`, err);
+          warn(
+            "blobResolver",
+            `p2p ephemeral pre-fetch failed for ${entry.sha256.slice(0, 8)}:`,
+            err
+          );
         } finally {
           removeFromLoadingSet(entry.sha256);
         }

@@ -11,12 +11,15 @@ import { ListFavoritesResponseSchema } from "./favorites.types.js";
 import type { CallFn } from "./types.js";
 
 // partial schemas for update operations
-const UpdateSongsRequestPartialSchema =
-  UpdateSongsRequestSchema.partial().required({ song_ids: true });
-const UpdateArtistRequestPartialSchema =
-  UpdateArtistRequestSchema.partial().required({ artist_id: true });
-const UpdateAlbumRequestPartialSchema =
-  UpdateAlbumRequestSchema.partial().required({ album_id: true });
+const UpdateSongsRequestPartialSchema = UpdateSongsRequestSchema.partial().required({
+  song_ids: true,
+});
+const UpdateArtistRequestPartialSchema = UpdateArtistRequestSchema.partial().required({
+  artist_id: true,
+});
+const UpdateAlbumRequestPartialSchema = UpdateAlbumRequestSchema.partial().required({
+  album_id: true,
+});
 
 export function createMusicMethods(call: CallFn) {
   return {
@@ -70,9 +73,7 @@ export function createMusicMethods(call: CallFn) {
       );
     },
 
-    updateSongs: (
-      params: Partial<s.UpdateSongsRequest> & { song_ids: string[] },
-    ) => {
+    updateSongs: (params: Partial<s.UpdateSongsRequest> & { song_ids: string[] }) => {
       return call(
         "music",
         "update_songs",
@@ -157,9 +158,7 @@ export function createMusicMethods(call: CallFn) {
       );
     },
 
-    updateAlbum: (
-      params: Partial<s.UpdateAlbumRequest> & { album_id: string },
-    ) => {
+    updateAlbum: (params: Partial<s.UpdateAlbumRequest> & { album_id: string }) => {
       return call(
         "music",
         "update_album",
@@ -344,9 +343,7 @@ export function createMusicMethods(call: CallFn) {
       );
     },
 
-    updateArtist: (
-      params: Partial<s.UpdateArtistRequest> & { artist_id: string },
-    ) => {
+    updateArtist: (params: Partial<s.UpdateArtistRequest> & { artist_id: string }) => {
       return call(
         "music",
         "update_artist",
@@ -412,10 +409,7 @@ export function createMusicMethods(call: CallFn) {
     },
 
     getPlaylistEtag: (params: s.GetPlaylistRequest) => {
-      const path = routes.music.get_playlist_etag.path.replace(
-        "{id}",
-        params.id,
-      );
+      const path = routes.music.get_playlist_etag.path.replace("{id}", params.id);
       return call(
         "music",
         "get_playlist_etag",
@@ -619,44 +613,8 @@ export function createMusicMethods(call: CallFn) {
       );
     },
 
-    // ratings
-    setRating: (params: s.SetRatingRequest) => {
-      return call(
-        "music",
-        "set_rating",
-        routes.music.set_rating.resp,
-        routes.music.set_rating.req,
-        routes.music.set_rating.method,
-        routes.music.set_rating.path,
-        params,
-      );
-    },
-
-    removeRating: (params: s.RemoveRatingRequest) => {
-      return call(
-        "music",
-        "remove_rating",
-        routes.music.remove_rating.resp,
-        routes.music.remove_rating.req,
-        routes.music.remove_rating.method,
-        routes.music.remove_rating.path,
-        params,
-      );
-    },
-
-    getRatingStats: (params: s.GetRatingStatsRequest) => {
-      return call(
-        "music",
-        "get_rating_stats",
-        routes.music.get_rating_stats.resp,
-        routes.music.get_rating_stats.req,
-        routes.music.get_rating_stats.method,
-        routes.music.get_rating_stats.path,
-        params,
-      );
-    },
-
-    // favorites
+    // favorites listing (music-specific rich shapes; generic set/status-check
+    // live on client.entities)
     listFavorites: (params: s.ListFavoritesRequest) => {
       return call(
         "music",
@@ -665,18 +623,6 @@ export function createMusicMethods(call: CallFn) {
         routes.music.list_favorites.req,
         routes.music.list_favorites.method,
         routes.music.list_favorites.path,
-        params,
-      );
-    },
-
-    setFavorite: (params: s.SetFavoriteRequest) => {
-      return call(
-        "music",
-        "set_favorite",
-        routes.music.set_favorite.resp,
-        routes.music.set_favorite.req,
-        routes.music.set_favorite.method,
-        routes.music.set_favorite.path,
         params,
       );
     },
@@ -702,6 +648,18 @@ export function createMusicMethods(call: CallFn) {
         routes.music.record_play.req,
         routes.music.record_play.method,
         routes.music.record_play.path,
+        params,
+      );
+    },
+
+    recordVideoPlay: (params: s.RecordVideoPlayRequest) => {
+      return call(
+        "music",
+        "record_video_play",
+        routes.music.record_video_play.resp,
+        routes.music.record_video_play.req,
+        routes.music.record_video_play.method,
+        routes.music.record_video_play.path,
         params,
       );
     },
@@ -778,39 +736,40 @@ export function createMusicMethods(call: CallFn) {
       );
     },
 
-    // listen sessions
-    createListenSession: (params: s.CreateListenSessionRequest) => {
+    // playback sessions
+    createPlaybackSession: (params: s.CreatePlaybackSessionRequest) => {
       return call(
         "music",
-        "create_listen_session",
-        routes.music.create_listen_session.resp,
-        routes.music.create_listen_session.req,
-        routes.music.create_listen_session.method,
-        routes.music.create_listen_session.path,
+        "create_playback_session",
+        routes.music.create_playback_session.resp,
+        routes.music.create_playback_session.req,
+        routes.music.create_playback_session.method,
+        routes.music.create_playback_session.path,
         params,
       );
     },
 
-    getListenSession: (id: string) => {
-      const path = routes.music.get_listen_session.path.replace("{id}", id);
+    getPlaybackSession: (id: string) => {
+      const path = routes.music.get_playback_session.path.replace("{id}", id);
       return call(
         "music",
-        "get_listen_session",
-        routes.music.get_listen_session.resp,
-        routes.music.get_listen_session.req,
-        routes.music.get_listen_session.method,
+        "get_playback_session",
+        routes.music.get_playback_session.resp,
+        routes.music.get_playback_session.req,
+        routes.music.get_playback_session.method,
         path,
+        { id },
       );
     },
 
-    deleteListenSession: (id: string) => {
+    deletePlaybackSession: (id: string) => {
       return call(
         "music",
-        "delete_listen_session",
-        routes.music.delete_listen_session.resp,
-        routes.music.delete_listen_session.req,
-        routes.music.delete_listen_session.method,
-        routes.music.delete_listen_session.path,
+        "delete_playback_session",
+        routes.music.delete_playback_session.resp,
+        routes.music.delete_playback_session.req,
+        routes.music.delete_playback_session.method,
+        routes.music.delete_playback_session.path,
         { id },
       );
     },
@@ -839,66 +798,55 @@ export function createMusicMethods(call: CallFn) {
       );
     },
 
-    updateListenSessionProgress: (
-      id: string,
-      params: s.UpdateListenSessionProgressRequest,
-    ) => {
-      const path = routes.music.update_listen_session_progress.path.replace(
-        "{id}",
-        id,
-      );
+    updatePlaybackSessionProgress: (id: string, params: s.UpdatePlaybackSessionProgressRequest) => {
+      const path = routes.music.update_playback_session_progress.path.replace("{id}", id);
       return call(
         "music",
-        "update_listen_session_progress",
-        routes.music.update_listen_session_progress.resp,
-        routes.music.update_listen_session_progress.req,
-        routes.music.update_listen_session_progress.method,
+        "update_playback_session_progress",
+        routes.music.update_playback_session_progress.resp,
+        routes.music.update_playback_session_progress.req,
+        routes.music.update_playback_session_progress.method,
         path,
         params,
       );
     },
 
-    updateListenSessionStatus: (id: string, status: string) => {
-      const path = routes.music.update_listen_session_status.path
+    updatePlaybackSessionStatus: (id: string, status: string) => {
+      const path = routes.music.update_playback_session_status.path
         .replace("{id}", id)
         .replace("{status}", status);
       return call(
         "music",
-        "update_listen_session_status",
-        routes.music.update_listen_session_status.resp,
-        routes.music.update_listen_session_status.req,
-        routes.music.update_listen_session_status.method,
+        "update_playback_session_status",
+        routes.music.update_playback_session_status.resp,
+        routes.music.update_playback_session_status.req,
+        routes.music.update_playback_session_status.method,
         path,
+        { id, status },
       );
     },
 
-    updateListenSessionSongs: (
-      id: string,
-      params: s.UpdateListenSessionSongsRequest,
-    ) => {
-      const path = routes.music.update_listen_session_songs.path.replace(
-        "{id}",
-        id,
-      );
+    updatePlaybackSessionItems: (id: string, params: s.UpdatePlaybackSessionItemsRequest) => {
+      const path = routes.music.update_playback_session_items.path.replace("{id}", id);
       return call(
         "music",
-        "update_listen_session_songs",
-        routes.music.update_listen_session_songs.resp,
-        routes.music.update_listen_session_songs.req,
-        routes.music.update_listen_session_songs.method,
+        "update_playback_session_items",
+        routes.music.update_playback_session_items.resp,
+        routes.music.update_playback_session_items.req,
+        routes.music.update_playback_session_items.method,
         path,
         params,
       );
     },
 
-    listListenSessions: (params: s.ListListenSessionsRequest) => {
+    listPlaybackSessions: (params: s.ListPlaybackSessionsRequest) => {
       return call(
         "music",
-        "list_listen_sessions",
-        routes.music.list_listen_sessions.resp,
-        routes.music.list_listen_sessions.req,
-        routes.music.list_listen_sessions.method,
-        routes.music.list_listen_sessions.path,
+        "list_playback_sessions",
+        routes.music.list_playback_sessions.resp,
+        routes.music.list_playback_sessions.req,
+        routes.music.list_playback_sessions.method,
+        routes.music.list_playback_sessions.path,
         params,
       );
     },
@@ -1189,7 +1137,7 @@ export function createMusicMethods(call: CallFn) {
     // taxonomy (cross-kind labels: genre, label, mood, era, region, ...)
     // ----------------------------------------------------------------------
 
-    listTaxonKinds: () => {
+    listTaxonKinds: (params?: s.ListTaxonKindsRequest) => {
       return call(
         "music",
         "list_taxon_kinds",
@@ -1197,7 +1145,7 @@ export function createMusicMethods(call: CallFn) {
         routes.music.list_taxon_kinds.req,
         routes.music.list_taxon_kinds.method,
         routes.music.list_taxon_kinds.path,
-        undefined,
+        params,
       );
     },
 

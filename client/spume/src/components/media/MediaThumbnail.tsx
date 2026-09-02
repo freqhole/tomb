@@ -10,9 +10,10 @@ import {
   type ThumbnailSize,
 } from "../../music/services/storage/blobResolver";
 import { isCharnelAvailable } from "../../app/api/client";
-import { Icon } from "../icons/registry";
+import { Icon, type IconName } from "../icons/registry";
 import type { ImageMetadata } from "../../music/services/storage/types";
 import { pickBestImage } from "../../utils/images";
+import { warn } from "../../utils/logger";
 
 /**
  * determine thumbnail size to request based on display size
@@ -109,6 +110,14 @@ export interface MediaThumbnailProps {
   showPlayIcon?: boolean;
   /** size of the thumbnail in pixels (default: 48) */
   size?: number;
+  /** icon shown when there's no image to display (default: "music") */
+  fallbackIcon?: IconName;
+  /** small icon badge pinned to the bottom-right corner (e.g. "video" to
+   *  mark video items among mixed-kind rows - mirrors VideoQueueRow.tsx's
+   *  corner badge) - omit for no badge */
+  cornerBadgeIcon?: IconName;
+  /** whether to hide the corner badge (e.g. on row hover, mirrors hideIndex) */
+  hideCornerBadge?: boolean;
   /** additional classes */
   class?: string;
 }
@@ -206,13 +215,24 @@ export function MediaThumbnail(props: MediaThumbnailProps): JSX.Element {
           when={imageUrl()}
           fallback={
             <Icon
-              name="music"
+              name={props.fallbackIcon ?? "music"}
               size={(size() ?? 48) > 40 ? 32 : 24}
               color="var(--color-text-disabled)"
             />
           }
         >
-          <img src={imageUrl()!} alt="" class="w-full h-full object-cover" decoding="async" />
+          <img
+            src={imageUrl()!}
+            alt=""
+            class="w-full h-full object-cover"
+            decoding="async"
+            onError={() =>
+              warn(
+                "MediaThumbnail",
+                `image failed to load: url=${imageUrl()?.slice(0, 120) ?? "?"}`
+              )
+            }
+          />
         </Show>
       </div>
 
@@ -254,6 +274,17 @@ export function MediaThumbnail(props: MediaThumbnailProps): JSX.Element {
       <Show when={showPlayIcon()}>
         <div class="absolute inset-0 flex items-center justify-center opacity-0 group-hover/thumbnail:opacity-100 transition-opacity bg-black/40 pointer-events-none">
           <Icon name="play" size={24} color="white" />
+        </div>
+      </Show>
+
+      {/* corner badge - e.g. marks a row as video among mixed-kind lists.
+          hidden on row hover, same signal that drives hideIndex */}
+      <Show when={props.cornerBadgeIcon}>
+        <div
+          class="absolute bottom-0.5 right-0.5 bg-black/70 rounded px-0.5 pointer-events-none transition-opacity duration-200"
+          style={{ opacity: props.hideCornerBadge ? 0 : 1 }}
+        >
+          <Icon name={props.cornerBadgeIcon!} size={10} color="white" />
         </div>
       </Show>
     </div>

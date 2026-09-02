@@ -159,6 +159,30 @@ pub async fn is_uploader(album_id: &str, user_id: &str) -> GrimoireResult<bool> 
     Ok(row.count > 0)
 }
 
+/// check if the given user uploaded the media blob backing this song.
+/// used to authorise member-level moves - checked against the song being
+/// moved rather than the destination album, since a move into a
+/// not-yet-created album has no destination album id to check yet.
+pub async fn is_song_uploader(song_id: &str, user_id: &str) -> GrimoireResult<bool> {
+    let pool = database::connect().await?;
+    let row = sqlx::query!(
+        r#"
+        SELECT COUNT(*) AS "count!: i64"
+        FROM songz s
+        JOIN media_blobz mb ON mb.id = s.media_blob_id
+        WHERE s.id = ?
+          AND mb.created_by = ?
+        LIMIT 1
+        "#,
+        song_id,
+        user_id
+    )
+    .fetch_one(&pool)
+    .await
+    .map_err(GrimoireError::from)?;
+    Ok(row.count > 0)
+}
+
 /// mark all pending blobs for an album in a session as reviewed.
 pub async fn mark_album_reviewed(
     album_id: &str,

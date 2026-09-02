@@ -35,7 +35,7 @@ import { buildRoute } from "../utils/routing";
 import { getArtistAbbreviation } from "../utils/format";
 import { warn } from "../../utils/logger";
 import type { ImageMetadata } from "../services/storage/types";
-import { isNarrowViewport } from "../../config/breakpoints";
+import { isNarrowViewport, getPlayerBarHeightPx } from "../../config/breakpoints";
 import { createCurrentRemoteFull } from "../../app/services/remotes/currentRemoteFull";
 import {
   resolveBlobUrl,
@@ -44,7 +44,7 @@ import {
 } from "../services/storage/blobResolver";
 
 export interface ArtistsViewProps {
-  onAddMusic: () => void;
+  onAddMedia: () => void;
   onArtistClick?: (artistId: string) => void;
 }
 
@@ -62,8 +62,11 @@ export function ArtistsView(props: ArtistsViewProps) {
   // reactive viewport height for safari toolbar handling
   const viewportHeight = useViewportHeight();
   const playerBarHeight = () =>
-    (appState()?.queue.length || 0) > 0 || isRadioPlayerBarActive() ? 80 : 0;
-  const listHeight = () => viewportHeight() - getNavHeight() - playerBarHeight();
+    getPlayerBarHeightPx(
+      isNarrow(),
+      (appState()?.queue.length || 0) > 0 || isRadioPlayerBarActive()
+    );
+  const listHeight = () => viewportHeight() - playerBarHeight();
 
   // restore selected artist from URL params or history state on mount
   const initialArtistId =
@@ -238,12 +241,25 @@ export function ArtistsView(props: ArtistsViewProps) {
     return sorted;
   });
 
-  // update page info for TopNav (mobile displays "artists (N)")
+  // get selected artist data. prefer the dedicated single-artist query
+  // (resolves fast) and fall back to the list result so wide-viewport
+  // browsing still works seamlessly when the list arrives first.
+  const selectedArtist = createMemo(() => {
+    const id = selectedArtistId();
+    if (!id) return null;
+    const fromDetail = selectedArtistQuery.data;
+    if (fromDetail && fromDetail.artist_id === id) return fromDetail;
+    return sortedArtists().find((a) => a.artist_id === id) ?? null;
+  });
+
+  // update page info for TopNav (mobile displays "artists (N)"). when an
+  // artist is selected, use its actual name for the browser tab title.
   createEffect(() => {
     const count = sortedArtists().length;
     setPageInfo({
       title: "artists",
       count,
+      documentTitle: selectedArtist()?.name,
       sortFields: artistSortFields,
       sortBy: sortBy(),
       sortDirection: sortDirection(),
@@ -254,17 +270,6 @@ export function ArtistsView(props: ArtistsViewProps) {
         setSortDirection(direction);
       },
     });
-  });
-
-  // get selected artist data. prefer the dedicated single-artist query
-  // (resolves fast) and fall back to the list result so wide-viewport
-  // browsing still works seamlessly when the list arrives first.
-  const selectedArtist = createMemo(() => {
-    const id = selectedArtistId();
-    if (!id) return null;
-    const fromDetail = selectedArtistQuery.data;
-    if (fromDetail && fromDetail.artist_id === id) return fromDetail;
-    return sortedArtists().find((a) => a.artist_id === id) ?? null;
   });
 
   // convert to list items
@@ -542,6 +547,19 @@ export function ArtistsView(props: ArtistsViewProps) {
       });
     };
 
+    // song-level images additionally skip non-primary "original"-typed
+    // images: this blob taxonomy is fuzzy (see utils/images.ts's
+    // getSongDisplayImages comment) - a song-level "original" that isn't
+    // flagged primary is, in practice, usually an auto-generated waveform
+    // that got linked with the wrong blob_type rather than real curated
+    // art, so it's excluded here too even though its blob_type says
+    // otherwise. album/artist images don't get this extra check - they're
+    // reliably real artwork.
+    const addSongImage = (img: ImageMetadata) => {
+      if (img.blob_type === "original" && !img.is_primary) return;
+      addImage(img);
+    };
+
     // artist images
     if (artist.images?.length) {
       for (const img of artist.images) addImage(img);
@@ -550,7 +568,7 @@ export function ArtistsView(props: ArtistsViewProps) {
     // song + album images from all songs
     for (const song of songs) {
       if (song.images?.length) {
-        for (const img of song.images) addImage(img);
+        for (const img of song.images) addSongImage(img);
       }
       if (song.album_images?.length) {
         for (const img of song.album_images) addImage(img);
@@ -716,7 +734,7 @@ export function ArtistsView(props: ArtistsViewProps) {
                         <p class="text-sm text-[var(--color-text-tertiary)] mb-6">
                           add music to import local audio files or download from urls
                         </p>
-                        <Button variant="primary" onClick={props.onAddMusic}>
+                        <Button variant="primary" onClick={props.onAddMedia}>
                           add music
                         </Button>
                       </div>
@@ -733,7 +751,7 @@ export function ArtistsView(props: ArtistsViewProps) {
                 <VirtualItemList
                   items={artistListItems()}
                   selectedId={selectedArtistId()}
-                  scrollPaddingTop={100}
+                  scrollPaddingTop={isNarrow() ? getNavHeight() : 100}
                   onItemClick={(item) => {
                     setIsLocalClick(true);
                     // show detail on narrow viewport
@@ -813,6 +831,7 @@ export function ArtistsView(props: ArtistsViewProps) {
           onBack={handleBack}
           remote={currentRemoteFull}
           isLoadingSongs={artistSongsQuery.isPending}
+          playingSongId={artistSongs().find((s) => s.sha256 === appState()?.current_sha256)?.id}
         />
       )}
     </Show>

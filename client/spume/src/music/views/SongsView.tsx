@@ -13,6 +13,7 @@ import type { TagFilter } from "../../components/forms/TagFilterPicker";
 import { SelectionActionBar } from "../../components/layout/SelectionActionBar";
 import { BulkEditSongsModal } from "../../components/modals/BulkEditSongsModal";
 import { TagSelectorModal } from "../../components/modals/TagSelectorModal";
+import { albumTagAdapter } from "../../components/modals/tagAdapters/albumTagAdapter";
 import {
   VirtualSongList,
   type SortField,
@@ -30,7 +31,7 @@ import { useSetRatingMutation } from "../queries/ratings";
 import { useTagsQuery } from "../queries/tags";
 import { playQueue, addToQueue } from "../services/queue/queue";
 import { useSongContextMenu } from "../hooks/contextMenu";
-import { isNarrowViewport } from "../../config/breakpoints";
+import { isNarrowViewport, getPlayerBarHeightPx } from "../../config/breakpoints";
 import { RemoteOfflineError } from "../data";
 import { isAdmin } from "../data/permissions";
 import { showPlaylistSelector } from "../hooks/playlistSelectorState";
@@ -56,7 +57,7 @@ const songSortFields = [
 ];
 
 export interface SongsViewProps {
-  onAddMusic: () => void;
+  onAddMedia: () => void;
   onSongClick?: (song: Song) => void;
   onSongDoubleClick?: (song: Song) => void;
 }
@@ -85,8 +86,8 @@ export function SongsView(props: SongsViewProps) {
   // gets covered by the bar when listening to radio).
   const viewportHeight = useViewportHeight();
   const isPlayerBarVisible = () => (appState()?.queue.length || 0) > 0 || isRadioPlayerBarActive();
-  const playerBarHeight = () => (isPlayerBarVisible() ? 80 : 0);
-  const listHeight = () => viewportHeight() - getNavHeight() - playerBarHeight();
+  const playerBarHeight = () => getPlayerBarHeightPx(isNarrowViewport(), isPlayerBarVisible());
+  const listHeight = () => viewportHeight() - playerBarHeight();
 
   onMount(() => {
     const handleResize = () => {
@@ -425,7 +426,7 @@ export function SongsView(props: SongsViewProps) {
           <div class="flex flex-col items-center justify-center h-full gap-4 p-8">
             <div class="text-center max-w-md">
               <p class="text-lg text-[var(--color-text-secondary)] mb-2">no songs found!</p>
-              <Button variant="primary" onClick={props.onAddMusic}>
+              <Button variant="primary" onClick={props.onAddMedia}>
                 add music
               </Button>
             </div>
@@ -452,7 +453,7 @@ export function SongsView(props: SongsViewProps) {
               onSelectionClick={isAdmin() ? onSelectionClick : undefined}
               showSelectionHighlight={isAdmin() && selectionCount() > 1}
               onContextMenuOpen={clearSelection}
-              scrollPaddingTop={72}
+              scrollPaddingTop={isNarrowViewport() ? getNavHeight() : 100}
             />
             <LoadingMoreIndicator isLoading={songsQuery.isFetchingNextPage} />
             {isAdmin() && (
@@ -492,7 +493,9 @@ export function SongsView(props: SongsViewProps) {
       {/* tag selector modal */}
       <Show when={showTagSelectorModal()}>
         <TagSelectorModal
-          albumIds={selectedAlbumIds()}
+          entityIds={selectedAlbumIds()}
+          entityKindLabel="albums"
+          adapter={albumTagAdapter}
           onClose={() => setShowTagSelectorModal(false)}
           onSave={() => {
             clearSelection();

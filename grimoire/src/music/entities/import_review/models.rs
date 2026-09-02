@@ -88,7 +88,18 @@ pub struct MergeAlbumsReviewRequest {
 pub struct MoveSongReviewRequest {
     pub session_id: String,
     pub song_id: String,
-    pub to_album_id: String,
+    /// existing album to move into - ignored if `new_album_title` is set
+    pub to_album_id: Option<String>,
+    /// title for a brand-new album to create (and move the song into),
+    /// resolved (find-or-create) server-side under this call's own review
+    /// permission - takes precedence over `to_album_id` when both are set,
+    /// so an uploading member can name a new album for their own upload
+    /// without needing the admin-gated create_album route.
+    pub new_album_title: Option<String>,
+    /// artist name for the new album (found or created, same
+    /// case-insensitive dedup as the general import pipeline); defaults to
+    /// "Unknown Artist" when omitted. ignored unless `new_album_title` is set.
+    pub new_album_artist_name: Option<String>,
 }
 
 /// request to check if a specific album has pending (unreviewed) import blobs

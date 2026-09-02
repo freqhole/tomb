@@ -4,7 +4,7 @@
 use crate::database;
 use crate::music::crud::models::{
     FavoriteAlbumResult, FavoriteArtistResult, FavoriteItem, FavoritePlaylistResult,
-    FavoriteSongResult,
+    FavoriteSongResult, FavoriteVideoResult, FavoriteVideoSeriesResult,
 };
 use crate::music::crud::query::{AlbumViewRow, ArtistViewRow, SongViewRow};
 use crate::music::crud::query_playlists::PlaylistViewRow;
@@ -31,7 +31,16 @@ pub async fn query_favorites(
         Some("album") => vec!["album"],
         Some("artist") => vec!["artist"],
         Some("playlist") => vec!["playlist"],
-        _ => vec!["song", "album", "artist", "playlist"],
+        Some("video") => vec!["video"],
+        Some("video_series") => vec!["video_series"],
+        _ => vec![
+            "song",
+            "album",
+            "artist",
+            "playlist",
+            "video",
+            "video_series",
+        ],
     };
 
     // query each type and collect all favorites with their timestamps
@@ -93,6 +102,34 @@ pub async fn query_favorites(
                 };
                 for playlist in playlists {
                     all_favorites.push((playlist.favorited_at, FavoriteItem::Playlist(playlist)));
+                }
+            }
+            "video" => {
+                let videos = match query_video_favorites(&pool, user_id).await {
+                    Ok(v) => v,
+                    Err(e) => {
+                        return GrimoireResponse::failure(
+                            "Failed to query video favorites",
+                            vec![e.into()],
+                        )
+                    }
+                };
+                for video in videos {
+                    all_favorites.push((video.favorited_at, FavoriteItem::Video(video)));
+                }
+            }
+            "video_series" => {
+                let series_list = match query_video_series_favorites(&pool, user_id).await {
+                    Ok(s) => s,
+                    Err(e) => {
+                        return GrimoireResponse::failure(
+                            "Failed to query video series favorites",
+                            vec![e.into()],
+                        )
+                    }
+                };
+                for series in series_list {
+                    all_favorites.push((series.favorited_at, FavoriteItem::VideoSeries(series)));
                 }
             }
             _ => {}
@@ -258,6 +295,74 @@ async fn query_playlist_favorites(
             }
         })
         .collect();
+
+    Ok(results)
+}
+
+// query video favorites - no video query view exists (unlike
+// song/album/artist/playlist), so this fetches favorited target_ids from
+// user_favoritez then loads each video individually via the video domain's
+// own `get_video`. silently skips ids that fail to load (e.g. deleted
+// since being favorited) rather than failing the whole list.
+async fn query_video_favorites(
+    pool: &sqlx::SqlitePool,
+    user_id: &str,
+) -> Result<Vec<FavoriteVideoResult>, crate::error::GrimoireError> {
+    let rows = sqlx::query(
+        r#"
+        SELECT target_id, created_at
+        FROM user_favoritez
+        WHERE user_id = ?1 AND target_type = 'video'
+        ORDER BY created_at DESC
+        "#,
+    )
+    .bind(user_id)
+    .fetch_all(pool)
+    .await?;
+
+    let mut results = Vec::new();
+    for row in rows {
+        let target_id: String = row.try_get("target_id")?;
+        let favorited_at: i64 = row.try_get("created_at").unwrap_or(0);
+        if let Some(video) = crate::video::get_video(&target_id).await.data {
+            results.push(FavoriteVideoResult {
+                favorited_at,
+                video,
+            });
+        }
+    }
+
+    Ok(results)
+}
+
+// query video series favorites - mirrors query_video_favorites above.
+async fn query_video_series_favorites(
+    pool: &sqlx::SqlitePool,
+    user_id: &str,
+) -> Result<Vec<FavoriteVideoSeriesResult>, crate::error::GrimoireError> {
+    let rows = sqlx::query(
+        r#"
+        SELECT target_id, created_at
+        FROM user_favoritez
+        WHERE user_id = ?1 AND target_type = 'video_series'
+        ORDER BY created_at DESC
+        "#,
+    )
+    .bind(user_id)
+    .fetch_all(pool)
+    .await?;
+
+    let mut results = Vec::new();
+    for row in rows {
+        let target_id: String = row.try_get("target_id")?;
+        let favorited_at: i64 = row.try_get("created_at").unwrap_or(0);
+        if let Some(series) = crate::video::get_video_series(&target_id).await.data {
+            results.push(FavoriteVideoSeriesResult {
+                favorited_at,
+                series,
+            });
+        }
+    }
 
     Ok(results)
 }

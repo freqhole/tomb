@@ -24,8 +24,9 @@
  */
 
 import { debug } from "./logger";
+import { isCharnelMode } from "../app/services/charnel/mode";
 
-export type FileKind = "audio" | "image";
+export type FileKind = "audio" | "image" | "video" | "media";
 
 export interface PickedFile {
   /** display filename (best-effort — derived from path/uri when native picker doesn't surface one) */
@@ -60,22 +61,54 @@ export interface PickFilesOptions {
 // file extension filters per kind (used by native dialogs).
 export const AUDIO_EXTS = ["mp3", "flac", "wav", "m4a", "ogg", "aac", "alac", "wma"];
 const IMAGE_EXTS = ["png", "jpg", "jpeg", "gif", "webp", "avif"];
+// mirrors grimoire/src/config.rs's default_supported_video_formats()
+export const VIDEO_EXTS = ["mp4", "mkv", "webm", "mov", "avi"];
+
+const AUDIO_ACCEPT_LIST = [
+  "audio/mpeg",
+  "audio/mp3",
+  "audio/flac",
+  "audio/x-flac",
+  "audio/wav",
+  "audio/x-wav",
+  "audio/wave",
+  "audio/mp4",
+  "audio/x-m4a",
+  "audio/m4a",
+  "audio/ogg",
+  "audio/aac",
+  "audio/x-aac",
+  ".mp3",
+  ".flac",
+  ".wav",
+  ".m4a",
+  ".ogg",
+  ".aac",
+  ".alac",
+  ".wma",
+];
+const VIDEO_ACCEPT_LIST = [
+  "video/mp4",
+  "video/x-matroska",
+  "video/webm",
+  "video/quicktime",
+  "video/x-msvideo",
+  ".mp4",
+  ".mkv",
+  ".webm",
+  ".mov",
+  ".avi",
+];
 
 // accept attribute for <input type=file> on the web.
 // ios safari mishandles `audio/*` wildcard — it grays out audio files and
 // enables video files instead. listing explicit mime types + extensions fixes
 // this while still working everywhere else.
 const WEB_ACCEPT: Record<FileKind, string> = {
-  audio: [
-    "audio/mpeg", "audio/mp3",
-    "audio/flac", "audio/x-flac",
-    "audio/wav", "audio/x-wav", "audio/wave",
-    "audio/mp4", "audio/x-m4a", "audio/m4a",
-    "audio/ogg",
-    "audio/aac", "audio/x-aac",
-    ".mp3", ".flac", ".wav", ".m4a", ".ogg", ".aac", ".alac", ".wma",
-  ].join(","),
+  audio: AUDIO_ACCEPT_LIST.join(","),
   image: "image/*",
+  video: VIDEO_ACCEPT_LIST.join(","),
+  media: [...AUDIO_ACCEPT_LIST, ...VIDEO_ACCEPT_LIST].join(","),
 };
 
 // rough mime guess from extension for wrapping read bytes into a `File`.
@@ -90,6 +123,17 @@ function guessMime(name: string, kind: FileKind): string {
     if (ext === "avif") return "image/avif";
     return "image/*";
   }
+  if (kind === "video") {
+    if (ext === "mp4") return "video/mp4";
+    if (ext === "mkv") return "video/x-matroska";
+    if (ext === "webm") return "video/webm";
+    if (ext === "mov") return "video/quicktime";
+    if (ext === "avi") return "video/x-msvideo";
+    return "video/mp4";
+  }
+  if (kind === "media") {
+    return VIDEO_EXTS.includes(ext) ? guessMime(name, "video") : guessMime(name, "audio");
+  }
   if (ext === "mp3") return "audio/mpeg";
   if (ext === "flac") return "audio/flac";
   if (ext === "wav") return "audio/wav";
@@ -97,6 +141,31 @@ function guessMime(name: string, kind: FileKind): string {
   if (ext === "ogg") return "audio/ogg";
   if (ext === "aac") return "audio/aac";
   return "audio/*";
+}
+
+/**
+ * classify a filename into the music or video domain by extension alone
+ * (used for tauri paths, which have no `File.type` to consult). returns
+ * null for an unrecognized extension — callers should skip/warn on those
+ * rather than guessing.
+ */
+export function classifyFileName(name: string): "music" | "video" | null {
+  const ext = (name.split(".").pop() ?? "").toLowerCase();
+  if (VIDEO_EXTS.includes(ext)) return "video";
+  if (AUDIO_EXTS.includes(ext)) return "music";
+  return null;
+}
+
+/**
+ * classify a `File` into the music or video domain — mime type first (more
+ * reliable when present, e.g. web file inputs/drag-drop), falling back to
+ * the filename extension (tauri-read files sometimes carry a generic/empty
+ * `type`). returns null when neither signal matches a known media type.
+ */
+export function classifyFile(file: File): "music" | "video" | null {
+  if (file.type.startsWith("audio/")) return "music";
+  if (file.type.startsWith("video/")) return "video";
+  return classifyFileName(file.name);
 }
 
 // derive a displayable filename from a path or content:// uri.
@@ -114,8 +183,7 @@ function nameFromPathOrUri(s: string): string {
 // true when running inside a tauri runtime (desktop or mobile).
 function isTauri(): boolean {
   if (typeof window === "undefined") return false;
-  // @ts-expect-error __TAURI_INTERNALS__ injected by tauri
-  return typeof window.__TAURI_INTERNALS__?.invoke === "function";
+  return isCharnelMode();
 }
 
 function isAndroid(): boolean {
@@ -141,6 +209,29 @@ async function loadFs(): Promise<{ readFile: TauriFsReadFileFn }> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
   return (await import("@tauri-apps/plugin-fs" as any)) as { readFile: TauriFsReadFileFn };
+}
+
+/**
+ * canonicalize a path returned by the native file/directory dialog via
+ * charnel's `resolve_path` command.
+ *
+ * on Linux Flatpak, the dialog hands back document-portal paths like
+ * `/run/user/1000/doc/666aaa99/song.mp3` instead of the real filesystem
+ * path - `resolve_path` deliberately leaves those unchanged (see
+ * grimoire::paths and docs/flatpak-filesystem-access-plan.md), since
+ * they're the only form of that path the sandbox can actually write
+ * through; the real host path is typically read-only. for non-portal
+ * paths (macOS, plain linux), this still canonicalizes symlinks/relative
+ * bits as before. falls back to the original path if resolution isn't
+ * available (non-tauri/non-desktop) or fails.
+ */
+async function resolveTauriPath(path: string): Promise<string> {
+  try {
+    const { invoke } = await import("@tauri-apps/api/core");
+    return await invoke<string>("resolve_path", { path });
+  } catch {
+    return path;
+  }
 }
 
 /**
@@ -207,13 +298,32 @@ async function pickViaInputElement(opts: PickFilesOptions): Promise<PickedFile[]
 
 async function pickViaTauriDialog(opts: PickFilesOptions): Promise<PickedFile[]> {
   const dialog = await loadDialog();
-  const filters = [
-    {
-      name: opts.kind === "audio" ? "audio" : "images",
-      extensions: opts.kind === "audio" ? AUDIO_EXTS : IMAGE_EXTS,
-    },
-  ];
-  const title = opts.title ?? (opts.kind === "audio" ? "select music files" : "select image");
+  const filterName =
+    opts.kind === "audio"
+      ? "audio"
+      : opts.kind === "video"
+        ? "video"
+        : opts.kind === "media"
+          ? "media"
+          : "images";
+  const filterExts =
+    opts.kind === "audio"
+      ? AUDIO_EXTS
+      : opts.kind === "video"
+        ? VIDEO_EXTS
+        : opts.kind === "media"
+          ? [...AUDIO_EXTS, ...VIDEO_EXTS]
+          : IMAGE_EXTS;
+  const filters = [{ name: filterName, extensions: filterExts }];
+  const title =
+    opts.title ??
+    (opts.kind === "audio"
+      ? "select music files"
+      : opts.kind === "video"
+        ? "select video files"
+        : opts.kind === "media"
+          ? "select media files"
+          : "select image");
 
   const selected = await dialog.open({
     multiple: !!opts.multiple,
@@ -233,7 +343,11 @@ async function pickViaTauriDialog(opts: PickFilesOptions): Promise<PickedFile[]>
   const fs = mustRead ? await loadFs() : null;
 
   const out: PickedFile[] = [];
-  for (const entry of entries) {
+  for (const rawEntry of entries) {
+    // resolve before use: a raw Flatpak document-portal path can still be
+    // read here (same process), but must not be the one we hand off to
+    // callers that persist it or forward it elsewhere.
+    const entry = android ? rawEntry : await resolveTauriPath(rawEntry);
     const name = nameFromPathOrUri(entry);
     const picked: PickedFile = { name };
     if (android) {
@@ -282,7 +396,7 @@ export async function pickFiles(opts: PickFilesOptions): Promise<PickedFile[]> {
 
 /** convenience: pick a single file, or null if cancelled. */
 export async function pickFile(
-  opts: Omit<PickFilesOptions, "multiple">,
+  opts: Omit<PickFilesOptions, "multiple">
 ): Promise<PickedFile | null> {
   const picked = await pickFiles({ ...opts, multiple: false });
   return picked[0] ?? null;
@@ -300,7 +414,7 @@ export async function pickDirectory(title = "select folder"): Promise<string | n
   try {
     const dialog = await loadDialog();
     const selected = await dialog.open({ multiple: false, directory: true, title });
-    if (selected && typeof selected === "string") return selected;
+    if (selected && typeof selected === "string") return resolveTauriPath(selected);
     return null;
   } catch (err) {
     debug("filePicker", "pickDirectory failed:", err);

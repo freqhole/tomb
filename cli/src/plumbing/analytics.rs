@@ -175,13 +175,10 @@ pub async fn handle_command(action: AnalyticsAction) -> CommandOutput<serde_json
                 event_data,
             );
 
-            // Add album and artist IDs to music event
-            if let Some(artist) = &song_result.artist {
-                music_event = music_event.with_artist_id(&artist.id);
-            }
-            if let Some(album) = &song_result.album {
-                music_event = music_event.with_album_id(&album.id);
-            }
+            // Add playlist ID to play event (album/artist ids are no longer
+            // denormalized on play_eventz - they were dead columns, never
+            // populated in production; album/artist rollups now go through
+            // album_songz/artist_songz joins keyed on song_id)
             if let Some(pid) = &playlist_id {
                 music_event = music_event.with_playlist_id(pid);
             }

@@ -1,8 +1,16 @@
 // audio access abstraction - handles getting audio urls from various sources
 import { createSignal } from "solid-js";
 import { getCachedBlob, preCacheBlob } from "../cache/blobCache";
-import { addToLoadingSet, updateLoadingProgress, removeFromLoadingSet } from "../download";
+import {
+  addToLoadingSet,
+  updateLoadingProgress,
+  removeFromLoadingSet,
+  isSongSyncedLocally,
+} from "../download";
 import { readAudioFromOPFS } from "../opfs/helpers";
+import { resolveLocalAudioUrl } from "./localAudio";
+import { canSyncSong, syncSongToLocal } from "../sync/syncSongToLocal";
+import { getSyncQueueToLocal } from "../../../app/services/storage/db";
 import type { Song } from "./types";
 import { debug, warn, error as errorLog } from "../../../utils/logger";
 import { resolveBlobUrl, isP2PRemote, usesBlobResolver, revokeBlobUrl } from "./blobResolver";
@@ -10,7 +18,10 @@ import type { BlobProgressCallback } from "@freqhole/api-client";
 
 // cache of active blob urls to prevent memory leaks
 // stores {url, remoteId, blobId} so we can properly cleanup from blobResolver too
-const activeBlobURLs = new Map<string, { url: string; remoteId: string | null; blobId: string | null }>();
+const activeBlobURLs = new Map<
+  string,
+  { url: string; remoteId: string | null; blobId: string | null }
+>();
 
 // track songs currently playing from a direct (non-cached) remote URL
 // maps sha256 -> { sourceUrl, remoteId } so we can swap to cached version later
@@ -39,10 +50,7 @@ function removeFromDirectURLSet(sha256: string): void {
 // get audio url for playback
 // handles opfs, cached remote, and direct remote streaming
 export async function getAudioURL(song: Song): Promise<string> {
-  debug(
-    "audioAccess",
-    `getting audio url for song: ${song.title} (source: ${song.source_type})`,
-  );
+  debug("audioAccess", `getting audio url for song: ${song.title} (source: ${song.source_type})`);
 
   // cleanup previous url if exists
   if (activeBlobURLs.has(song.sha256)) {
@@ -59,7 +67,11 @@ export async function getAudioURL(song: Song): Promise<string> {
   removeFromDirectURLSet(song.sha256);
 
   // local, downloaded, and synced files: read from opfs
-  if (song.source_type === "local" || song.source_type === "downloaded" || song.source_type === "synced") {
+  if (
+    song.source_type === "local" ||
+    song.source_type === "downloaded" ||
+    song.source_type === "synced"
+  ) {
     if (!song.opfs_path) {
       throw new Error(`song has no opfs path: ${song.sha256}`);
     }
@@ -78,14 +90,54 @@ export async function getAudioURL(song: Song): Promise<string> {
 
   // remote files: check cache first, then fall back to direct streaming URL
   if (song.source_type === "remote") {
+    // a queue item is a snapshot taken when it was added, so a song that has
+    // since been synced into the library still says "remote" here. re-read the
+    // library first, otherwise playback re-fetches over the network even though
+    // the file is already on disk.
+    if (isSongSyncedLocally(song.sha256)) {
+      const localUrl = await resolveLocalAudioUrl(song.sha256);
+      if (localUrl) {
+        debug("audioAccess", `playing synced copy from the local library`);
+        activeBlobURLs.set(song.sha256, { url: localUrl, remoteId: null, blobId: null });
+        return localUrl;
+      }
+    }
+
+    // sync-to-local on: the bytes belong in the library, not the api cache.
+    // download once, write to the library, then play from there. falls through
+    // to streaming if the sync fails so playback never hard-fails on it.
+    if (getSyncQueueToLocal() && canSyncSong(song)) {
+      addToLoadingSet(song.sha256);
+      updateLoadingProgress(song.sha256, null);
+      try {
+        const result = await syncSongToLocal(song, (received, total) => {
+          if (total > 0) updateLoadingProgress(song.sha256, received / total);
+        });
+        if (result.success) {
+          const localUrl = await resolveLocalAudioUrl(song.sha256, result.localPath);
+          if (localUrl) {
+            debug("audioAccess", `synced "${song.title}" to the library, playing from there`);
+            activeBlobURLs.set(song.sha256, { url: localUrl, remoteId: null, blobId: null });
+            return localUrl;
+          }
+        }
+        warn(
+          "audioAccess",
+          `sync-to-local failed for ${song.sha256.slice(0, 8)} (${result.error ?? "no local copy"}), streaming instead`
+        );
+      } finally {
+        removeFromLoadingSet(song.sha256);
+      }
+    }
+
     // check if this remote uses blobResolver (P2P or Tauri-managed)
-    if (song.remote_server_id && await usesBlobResolver(song.remote_server_id)) {
+    if (song.remote_server_id && (await usesBlobResolver(song.remote_server_id))) {
       debug("audioAccess", `using blobResolver for remote song: ${song.sha256}`);
-      
+
       // track loading state for UI feedback
       addToLoadingSet(song.sha256);
       updateLoadingProgress(song.sha256, null); // indeterminate until we get total size
-      
+
       try {
         // use blobResolver which handles P2P/Tauri transports and caching
         // pass progress callback for 0-100% loading indicator
@@ -120,12 +172,16 @@ export async function getAudioURL(song: Song): Promise<string> {
           undefined,
           song.blake3 ?? undefined,
           song.file_size ?? undefined,
-          song.mime_type ?? undefined,
+          song.mime_type ?? undefined
         );
         activeBlobURLs.set(song.sha256, { url, remoteId: song.remote_server_id, blobId });
         return url;
       } catch (error) {
-        errorLog("audioAccess", `blob fetch failed for ${song.sha256.slice(0, 8)} via ${song.remote_server_id}:`, error);
+        errorLog(
+          "audioAccess",
+          `blob fetch failed for ${song.sha256.slice(0, 8)} via ${song.remote_server_id}:`,
+          error
+        );
         throw new Error(`failed to fetch audio from remote`);
       } finally {
         removeFromLoadingSet(song.sha256);
@@ -149,13 +205,20 @@ export async function getAudioURL(song: Song): Promise<string> {
       const blob = await cachedResponse.blob();
       const url = URL.createObjectURL(blob);
       // for HTTP cache, blobId is sha256 (cache is keyed by sha256)
-      activeBlobURLs.set(song.sha256, { url, remoteId: song.remote_server_id, blobId: song.sha256 });
+      activeBlobURLs.set(song.sha256, {
+        url,
+        remoteId: song.remote_server_id,
+        blobId: song.sha256,
+      });
       return url;
     }
 
     // not cached: return direct URL for immediate streaming
     debug("audioAccess", `CACHE MISS - streaming direct URL for: ${song.sha256.slice(0, 8)}...`);
-    directURLSongs.set(song.sha256, { sourceUrl: song.source_url, remoteId: song.remote_server_id });
+    directURLSongs.set(song.sha256, {
+      sourceUrl: song.source_url,
+      remoteId: song.remote_server_id,
+    });
     addToDirectURLSet(song.sha256);
 
     // start background caching so the song is available offline later
@@ -252,7 +315,10 @@ export async function refreshBlobURL(song: Song): Promise<string | null> {
   // local/downloaded: re-read from OPFS
   if (song.source_type === "local" || song.source_type === "downloaded") {
     if (!song.opfs_path) {
-      warn("audioAccess", `cannot refresh: no opfs_path for ${song.sha256.slice(0, 8)} (source=${song.source_type})`);
+      warn(
+        "audioAccess",
+        `cannot refresh: no opfs_path for ${song.sha256.slice(0, 8)} (source=${song.source_type})`
+      );
       return null;
     }
     try {
@@ -270,7 +336,7 @@ export async function refreshBlobURL(song: Song): Promise<string | null> {
   // remote: try API Cache first (or use P2P resolver)
   if (song.source_type === "remote") {
     // P2P remotes: use blobResolver
-    if (song.remote_server_id && await isP2PRemote(song.remote_server_id)) {
+    if (song.remote_server_id && (await isP2PRemote(song.remote_server_id))) {
       try {
         // `media_blob_id` is the *remote's* media_blobz.id pk - the
         // only id `/api/blobs/{id}/*` accepts. sha256 (the content
@@ -278,11 +344,21 @@ export async function refreshBlobURL(song: Song): Promise<string | null> {
         // somehow missing, bail rather than fabricate a doomed call.
         const blobId = song.media_blob_id;
         if (!blobId) {
-          warn("audioAccess", `cannot refresh p2p blob: no media_blob_id (sha256=${song.sha256.slice(0, 8)})`);
+          warn(
+            "audioAccess",
+            `cannot refresh p2p blob: no media_blob_id (sha256=${song.sha256.slice(0, 8)})`
+          );
           return null;
         }
         // pass blake3 for verified streaming via iroh-blobs.
-        const url = await resolveBlobUrl(blobId, song.remote_server_id, "audio", undefined, undefined, song.blake3 ?? undefined);
+        const url = await resolveBlobUrl(
+          blobId,
+          song.remote_server_id,
+          "audio",
+          undefined,
+          undefined,
+          song.blake3 ?? undefined
+        );
         activeBlobURLs.set(song.sha256, { url, remoteId: song.remote_server_id, blobId });
         debug("audioAccess", `refreshed blob URL from P2P: ${song.sha256}`);
         return url;
@@ -299,18 +375,28 @@ export async function refreshBlobURL(song: Song): Promise<string | null> {
         const blob = await cachedResponse.blob();
         const url = URL.createObjectURL(blob);
         // for HTTP cache, blobId is sha256
-        activeBlobURLs.set(song.sha256, { url, remoteId: song.remote_server_id, blobId: song.sha256 });
+        activeBlobURLs.set(song.sha256, {
+          url,
+          remoteId: song.remote_server_id,
+          blobId: song.sha256,
+        });
         debug("audioAccess", `refreshed blob URL from API Cache: ${song.sha256}`);
         return url;
       }
       // not in cache - fall back to remote URL (browser will handle it)
       debug("audioAccess", `not in cache, falling back to remote URL: ${song.source_url}`);
-      directURLSongs.set(song.sha256, { sourceUrl: song.source_url, remoteId: song.remote_server_id });
+      directURLSongs.set(song.sha256, {
+        sourceUrl: song.source_url,
+        remoteId: song.remote_server_id,
+      });
       addToDirectURLSet(song.sha256);
       return song.source_url;
     }
   }
 
-  errorLog("audioAccess", `cannot refresh: unsupported source type "${song.source_type}" for ${song.sha256.slice(0, 8)}`);
+  errorLog(
+    "audioAccess",
+    `cannot refresh: unsupported source type "${song.source_type}" for ${song.sha256.slice(0, 8)}`
+  );
   return null;
 }

@@ -10,8 +10,6 @@ import {
   formatForCopy,
   subscribe,
 } from "../../app/services/logCapture";
-import { toast } from "../../components/feedback/Toast";
-import { setWindowTitle } from "../../app/services/charnel";
 
 const LEVELS: ReadonlyArray<LogLevel> = ["log", "info", "debug", "warn", "error"];
 
@@ -42,7 +40,6 @@ export function LogzSettingsView() {
   let scrollRef: HTMLDivElement | undefined;
 
   onMount(() => {
-    setWindowTitle("freqhole — logz");
     const unsubscribe = subscribe((next) => {
       setEntries(next);
       // defer to next frame so the dom has the new rows before we
@@ -77,8 +74,9 @@ export function LogzSettingsView() {
       await navigator.clipboard.writeText(text);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    } catch {
-      toast.error("failed to copy logs");
+    } catch (e) {
+      // no toast for copy failures - the copied-state flash is enough feedback
+      console.error("copy logs to clipboard failed:", e);
     }
   };
 

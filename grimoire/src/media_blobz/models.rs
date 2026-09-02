@@ -18,11 +18,19 @@ pub enum BlobType {
     Waveform,
     /// preview/sample clip - parent_blob_id points to original
     Preview,
+    /// transcoded video rendition (e.g. 480p/720p) - parent_blob_id points to the original video.
+    /// note: not yet in migration 001's `media_blobz.blob_type` CHECK constraint
+    /// (`original`/`thumbnail`/`waveform`/`preview` only) - inserting this blob_type
+    /// fails at runtime until a follow-up migration extends that list.
+    Rendition,
+    /// extracted subtitle track - parent_blob_id points to the original video.
+    /// same CHECK-constraint caveat as `Rendition`.
+    Subtitle,
 }
 
 impl ZodSchema for BlobType {
     fn zod_schema() -> String {
-        r#"z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])"#.to_string()
+        r#"z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])"#.to_string()
     }
 }
 
@@ -33,6 +41,8 @@ impl BlobType {
             BlobType::Thumbnail => "thumbnail",
             BlobType::Waveform => "waveform",
             BlobType::Preview => "preview",
+            BlobType::Rendition => "rendition",
+            BlobType::Subtitle => "subtitle",
         }
     }
 }
@@ -58,6 +68,8 @@ impl std::str::FromStr for BlobType {
             "thumbnail" => Ok(BlobType::Thumbnail),
             "waveform" => Ok(BlobType::Waveform),
             "preview" => Ok(BlobType::Preview),
+            "rendition" => Ok(BlobType::Rendition),
+            "subtitle" => Ok(BlobType::Subtitle),
             _ => Err(format!("invalid blob_type: {}", s)),
         }
     }
@@ -147,6 +159,21 @@ pub struct CreateMediaBlobRequest {
     pub height: Option<i64>,
     /// blake3 content hash for iroh-blobs (computed on ingest or on-demand)
     pub blake3: Option<String>,
+    /// when true and this request turns out to be a duplicate (same sha256
+    /// as an already-imported, non-deleted blob) with a different, real
+    /// (non-null) `local_path`, delete the file at *this* request's
+    /// `local_path` instead of relocating the existing blob to point at it.
+    /// set by the yt-dlp fetch-download import path and by direct-upload
+    /// paths that write the file to disk before calling this (a freshly
+    /// downloaded/uploaded duplicate has no reason to keep both copies on
+    /// disk) - never set by the directory scanner, which must keep
+    /// relocating. never set true when the existing blob's `local_path` is
+    /// `None` (nothing to prefer keeping yet, so that case always relocates
+    /// regardless of this flag). this struct is never deserialized from an
+    /// external request body (see `data`'s `#[serde(skip)]` above), so this
+    /// can't be set by a client.
+    #[serde(default)]
+    pub delete_duplicate_local_path: bool,
 }
 
 impl ZodSchema for MediaBlob {

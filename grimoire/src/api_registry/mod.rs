@@ -32,6 +32,8 @@ pub enum Domain {
     Auth,
     Music,
     Admin,
+    Video,
+    Entities,
 }
 
 impl Domain {
@@ -41,6 +43,8 @@ impl Domain {
             Domain::Auth => "auth",
             Domain::Music => "music",
             Domain::Admin => "admin",
+            Domain::Video => "video",
+            Domain::Entities => "entities",
         }
     }
 }
@@ -198,9 +202,9 @@ pub mod type_registry {
     use crate::music::entities::taxonomy::{
         AddAlbumTaxonRequest, AddTaxonParentRequest, AlbumTaxonLink, AlbumTaxonLinkInput,
         CreateTaxonKindRequest, CreateTaxonRequest, DeleteTaxonRequest, GetAlbumTaxonLinksRequest,
-        GetTaxonRequest, ListTaxonParentsForKindRequest, ListTaxonsByKindRequest,
-        QueryScalarRangeRequest, QueryTaxonsRequest, RemoveAlbumTaxonRequest,
-        RemoveTaxonParentRequest, ScalarAttribute, SetAlbumTaxonsRequest,
+        GetTaxonRequest, ListTaxonKindsRequest, ListTaxonParentsForKindRequest,
+        ListTaxonsByKindRequest, QueryScalarRangeRequest, QueryTaxonsRequest,
+        RemoveAlbumTaxonRequest, RemoveTaxonParentRequest, ScalarAttribute, SetAlbumTaxonsRequest,
         SetScalarAttributeRequest, SetTaxonColorRequest, SetTaxonKindColorRequest,
         SetTaxonKindLabelRequest, SetTaxonLabelRequest, Taxon, TaxonKind, TaxonParentEdge,
         TaxonRef, TaxonWithStats, TaxonsQueryResult,
@@ -212,18 +216,20 @@ pub mod type_registry {
     use crate::upload::{
         AssociationHint, AssociationInfo, DeleteImageRequest, ImageUploadResponse,
         MusicImportResponse, MusicMetadataHints, MusicUploadResponse, SetPrimaryImageRequest,
+        VideoMetadataHints, VideoUploadResponse,
     };
 
     // analytics types
     use crate::music::analytics::{
-        CreateListenSessionRequest, DeleteFeedEventRequest, DeleteListenSessionRequest, FeedItem,
-        FeedItemType, FeedRequest, FeedResponse, GetListenSessionRequest,
-        ListListenSessionsRequest, ListListenSessionsResponse, ListenSession, ListenSessionStatus,
-        ListenSessionType, ListeningHistoryItem, ListeningHistoryRequest, ListeningHistoryResponse,
-        OverviewStats, PlayAnalytics, RecordPlayRequest, SessionSong, SessionSummary,
-        SongAnalyticsRequest, TopAlbum, TopAlbumsRequest, TopArtist, TopArtistsRequest, TopSong,
-        TopSongsRequest, UpdateListenSessionProgressRequest, UpdateListenSessionSongsRequest,
-        UpdateListenSessionStatusRequest, UserStats,
+        CreatePlaybackSessionRequest, DeleteFeedEventRequest, DeletePlaybackSessionRequest,
+        FeedItem, FeedItemType, FeedRequest, FeedResponse, GetPlaybackSessionRequest,
+        ListPlaybackSessionsRequest, ListPlaybackSessionsResponse, ListeningHistoryItem,
+        ListeningHistoryRequest, ListeningHistoryResponse, OverviewStats, PlayAnalytics,
+        PlaybackSession, PlaybackSessionStatus, PlaybackSessionType, RecordPlayRequest,
+        RecordVideoPlayRequest, SessionItem, SessionSong, SessionSummary, SongAnalyticsRequest,
+        TopAlbum, TopAlbumsRequest, TopArtist, TopArtistsRequest, TopSong, TopSongsRequest,
+        UpdatePlaybackSessionItemsRequest, UpdatePlaybackSessionProgressRequest,
+        UpdatePlaybackSessionStatusRequest, UserStats,
     };
 
     // musicbrainz types
@@ -299,12 +305,13 @@ pub mod type_registry {
     };
 
     // upload request types
-    use crate::offal::upload::UploadMusicByBlake3Request;
+    use crate::offal::upload::{UploadMusicByBlake3Request, UploadVideoByBlake3Request};
 
     // sync types
     use crate::offal::sync::{
         SyncAlbumRequest, SyncAlbumResponse, SyncImageRef, SyncPlaylistRequest,
         SyncPlaylistResponse, SyncSongByBlake3Request, SyncSongByBlake3Response,
+        SyncVideoByBlake3Request, SyncVideoByBlake3Response,
     };
 
     // related artists (phase 13h)
@@ -334,6 +341,58 @@ pub mod type_registry {
     // radio admin types
     use crate::radio::stations::models::{
         CreateStationRequest, RadioStation, StationFilter, UpdateStationRequest,
+    };
+
+    // video domain types (phase 1)
+    use crate::music::crud::{EntityUrl, ImageMetadata};
+    use crate::playlists::PlaylistItem;
+    use crate::video::{
+        BulkDeleteVideosResponse, CreateVideoRequest, CreateVideoSeasonRequest,
+        CreateVideoSeriesRequest, EntityTagCount, EntityTaxonLink, ListPendingVideoReviewRequest,
+        MarkVideoGroupReviewedRequest, MoveVideoReviewRequest, PatchVideoGroupReviewRequest,
+        PendingReviewVideoSummary, PendingVideoReviewGroup, PendingVideoReviewSession,
+        PlaybackProgress, SeasonWithVideos, SeriesDetail, SeriesQueryResult, UpdateVideoRequest,
+        UpdateVideoSeasonRequest, UpdateVideoSeriesRequest, UpdateVideosRequest,
+        UpdateVideosResult, Video, VideoImportReviewOk, VideoPendingRequest, VideoPendingResponse,
+        VideoReviewPatch, VideoSearchResult, VideoSeason, VideoSeries, VideoSeriesSearchResult,
+        VideoWithMetadata, VideosQueryResult,
+    };
+
+    // video domain offal request/response types (phase 2-3)
+    use crate::offal::entities::favorites::{FavoriteStatusItem, GetFavoriteStatusBulkRequest};
+    use crate::offal::entities::image_links::GetEntityImagesRequest;
+    use crate::offal::entities::playlist_items::{
+        AddPlaylistItemRequest, AddPlaylistItemsRequest, ListPlaylistItemsRequest, PlaylistItemRef,
+        RemovePlaylistItemRequest, RemovePlaylistItemsRequest, ReorderPlaylistItemsRequest,
+    };
+    use crate::offal::entities::ratings::{GetRatingStatusBulkRequest, RatingStatusItem};
+    use crate::offal::entities::tag_links::{
+        AddEntitiesTagsRequest, GetEntitiesTagsRequest, ListEntityTypeTagsRequest,
+        RemoveEntitiesTagsRequest,
+    };
+    use crate::offal::entities::taxon_links::{
+        AddEntityTaxonRequest, GetEntityTaxonsRequest, RemoveEntityTaxonRequest,
+    };
+    use crate::offal::entities::url_links::{
+        AddEntityUrlRequest, GetEntityUrlsRequest, RemoveEntityUrlRequest,
+    };
+    use crate::offal::video::progress::{
+        GetPlaybackProgressRequest, ListPlaybackProgressRequest, UpsertPlaybackProgressRequest,
+    };
+    use crate::offal::video::relations::{
+        RecentlyAddedVideosRequest, RecentlyAddedVideosResponse, UnassignedVideosRequest,
+        UnassignedVideosResponse, VideosByValueRequest, VideosByValueResponse,
+    };
+    use crate::offal::video::seasons::{
+        DeleteVideoSeasonRequest, GetVideoSeasonRequest, ListVideoSeasonsRequest,
+    };
+    use crate::offal::video::series::{
+        DeleteVideoSeriesRequest, GetVideoSeriesRequest, ListVideoSeriesRequest,
+    };
+    use crate::offal::video::videos::{
+        BulkDeleteVideosRequest, DeleteVideoRenditionRequest, DeleteVideoRequest,
+        GetVideoRenditionsRequest, GetVideoRequest, ListVideosBySeasonRequest,
+        ListVideosBySeriesRequest, ListVideosUnattachedRequest, QueryVideosRequest, VideoRendition,
     };
 
     pub fn register_all_types(gen: &mut ZodGenerator, registered: &mut HashSet<String>) {
@@ -583,6 +642,9 @@ pub mod type_registry {
         gen.add_schema::<RecordPlayRequest>("RecordPlayRequest");
         registered.insert("RecordPlayRequest".to_string());
 
+        gen.add_schema::<RecordVideoPlayRequest>("RecordVideoPlayRequest");
+        registered.insert("RecordVideoPlayRequest".to_string());
+
         gen.add_schema::<ListeningHistoryRequest>("ListeningHistoryRequest");
         registered.insert("ListeningHistoryRequest".to_string());
 
@@ -640,30 +702,35 @@ pub mod type_registry {
         gen.add_schema::<UserStats>("UserStats");
         registered.insert("UserStats".to_string());
 
-        // listen session types
-        gen.add_schema::<ListenSession>("ListenSession");
-        registered.insert("ListenSession".to_string());
+        // playback session types
+        gen.add_schema::<SessionItem>("SessionItem");
+        registered.insert("SessionItem".to_string());
 
-        gen.add_schema::<ListenSessionType>("ListenSessionType");
-        registered.insert("ListenSessionType".to_string());
+        gen.add_schema::<PlaybackSession>("PlaybackSession");
+        registered.insert("PlaybackSession".to_string());
 
-        gen.add_schema::<ListenSessionStatus>("ListenSessionStatus");
-        registered.insert("ListenSessionStatus".to_string());
+        gen.add_schema::<PlaybackSessionType>("PlaybackSessionType");
+        registered.insert("PlaybackSessionType".to_string());
 
-        gen.add_schema::<CreateListenSessionRequest>("CreateListenSessionRequest");
-        registered.insert("CreateListenSessionRequest".to_string());
+        gen.add_schema::<PlaybackSessionStatus>("PlaybackSessionStatus");
+        registered.insert("PlaybackSessionStatus".to_string());
 
-        gen.add_schema::<UpdateListenSessionProgressRequest>("UpdateListenSessionProgressRequest");
-        registered.insert("UpdateListenSessionProgressRequest".to_string());
+        gen.add_schema::<CreatePlaybackSessionRequest>("CreatePlaybackSessionRequest");
+        registered.insert("CreatePlaybackSessionRequest".to_string());
 
-        gen.add_schema::<UpdateListenSessionSongsRequest>("UpdateListenSessionSongsRequest");
-        registered.insert("UpdateListenSessionSongsRequest".to_string());
+        gen.add_schema::<UpdatePlaybackSessionProgressRequest>(
+            "UpdatePlaybackSessionProgressRequest",
+        );
+        registered.insert("UpdatePlaybackSessionProgressRequest".to_string());
 
-        gen.add_schema::<ListListenSessionsRequest>("ListListenSessionsRequest");
-        registered.insert("ListListenSessionsRequest".to_string());
+        gen.add_schema::<UpdatePlaybackSessionItemsRequest>("UpdatePlaybackSessionItemsRequest");
+        registered.insert("UpdatePlaybackSessionItemsRequest".to_string());
 
-        gen.add_schema::<ListListenSessionsResponse>("ListListenSessionsResponse");
-        registered.insert("ListListenSessionsResponse".to_string());
+        gen.add_schema::<ListPlaybackSessionsRequest>("ListPlaybackSessionsRequest");
+        registered.insert("ListPlaybackSessionsRequest".to_string());
+
+        gen.add_schema::<ListPlaybackSessionsResponse>("ListPlaybackSessionsResponse");
+        registered.insert("ListPlaybackSessionsResponse".to_string());
 
         // musicbrainz types
         gen.add_schema::<SearchReleasesRequest>("SearchReleasesRequest");
@@ -758,6 +825,156 @@ pub mod type_registry {
 
         gen.add_schema::<Album>("Album");
         registered.insert("Album".to_string());
+
+        // video domain types (phase 1)
+        gen.add_schema::<VideoSeries>("VideoSeries");
+        registered.insert("VideoSeries".to_string());
+        gen.add_schema::<CreateVideoSeriesRequest>("CreateVideoSeriesRequest");
+        registered.insert("CreateVideoSeriesRequest".to_string());
+        gen.add_schema::<UpdateVideoSeriesRequest>("UpdateVideoSeriesRequest");
+        registered.insert("UpdateVideoSeriesRequest".to_string());
+
+        gen.add_schema::<VideoSeason>("VideoSeason");
+        registered.insert("VideoSeason".to_string());
+        gen.add_schema::<CreateVideoSeasonRequest>("CreateVideoSeasonRequest");
+        registered.insert("CreateVideoSeasonRequest".to_string());
+        gen.add_schema::<UpdateVideoSeasonRequest>("UpdateVideoSeasonRequest");
+        registered.insert("UpdateVideoSeasonRequest".to_string());
+
+        gen.add_schema::<Video>("Video");
+        registered.insert("Video".to_string());
+        gen.add_schema::<VideoWithMetadata>("VideoWithMetadata");
+        registered.insert("VideoWithMetadata".to_string());
+        gen.add_schema::<CreateVideoRequest>("CreateVideoRequest");
+        registered.insert("CreateVideoRequest".to_string());
+        gen.add_schema::<UpdateVideoRequest>("UpdateVideoRequest");
+        registered.insert("UpdateVideoRequest".to_string());
+        gen.add_schema::<UpdateVideosRequest>("UpdateVideosRequest");
+        registered.insert("UpdateVideosRequest".to_string());
+        gen.add_schema::<UpdateVideosResult>("UpdateVideosResult");
+        registered.insert("UpdateVideosResult".to_string());
+        gen.add_schema::<BulkDeleteVideosResponse>("BulkDeleteVideosResponse");
+        registered.insert("BulkDeleteVideosResponse".to_string());
+        gen.add_schema::<SeriesQueryResult>("SeriesQueryResult");
+        registered.insert("SeriesQueryResult".to_string());
+        gen.add_schema::<VideosQueryResult>("VideosQueryResult");
+        registered.insert("VideosQueryResult".to_string());
+
+        gen.add_schema::<SeasonWithVideos>("SeasonWithVideos");
+        registered.insert("SeasonWithVideos".to_string());
+        gen.add_schema::<SeriesDetail>("SeriesDetail");
+        registered.insert("SeriesDetail".to_string());
+
+        gen.add_schema::<EntityTaxonLink>("EntityTaxonLink");
+        registered.insert("EntityTaxonLink".to_string());
+        gen.add_schema::<EntityTagCount>("EntityTagCount");
+        registered.insert("EntityTagCount".to_string());
+        gen.add_schema::<EntityUrl>("EntityUrl");
+        registered.insert("EntityUrl".to_string());
+        gen.add_schema::<ImageMetadata>("ImageMetadata");
+        registered.insert("ImageMetadata".to_string());
+        gen.add_schema::<PlaylistItem>("PlaylistItem");
+        registered.insert("PlaylistItem".to_string());
+        gen.add_schema::<PlaybackProgress>("PlaybackProgress");
+        registered.insert("PlaybackProgress".to_string());
+
+        // video domain offal request/response types (phase 2-3)
+        gen.add_schema::<GetVideoSeriesRequest>("GetVideoSeriesRequest");
+        registered.insert("GetVideoSeriesRequest".to_string());
+        gen.add_schema::<ListVideoSeriesRequest>("ListVideoSeriesRequest");
+        registered.insert("ListVideoSeriesRequest".to_string());
+        gen.add_schema::<DeleteVideoSeriesRequest>("DeleteVideoSeriesRequest");
+        registered.insert("DeleteVideoSeriesRequest".to_string());
+
+        gen.add_schema::<GetVideoSeasonRequest>("GetVideoSeasonRequest");
+        registered.insert("GetVideoSeasonRequest".to_string());
+        gen.add_schema::<ListVideoSeasonsRequest>("ListVideoSeasonsRequest");
+        registered.insert("ListVideoSeasonsRequest".to_string());
+        gen.add_schema::<DeleteVideoSeasonRequest>("DeleteVideoSeasonRequest");
+        registered.insert("DeleteVideoSeasonRequest".to_string());
+
+        gen.add_schema::<GetVideoRequest>("GetVideoRequest");
+        registered.insert("GetVideoRequest".to_string());
+        gen.add_schema::<ListVideosBySeriesRequest>("ListVideosBySeriesRequest");
+        registered.insert("ListVideosBySeriesRequest".to_string());
+        gen.add_schema::<ListVideosBySeasonRequest>("ListVideosBySeasonRequest");
+        registered.insert("ListVideosBySeasonRequest".to_string());
+        gen.add_schema::<ListVideosUnattachedRequest>("ListVideosUnattachedRequest");
+        registered.insert("ListVideosUnattachedRequest".to_string());
+        gen.add_schema::<DeleteVideoRequest>("DeleteVideoRequest");
+        registered.insert("DeleteVideoRequest".to_string());
+        gen.add_schema::<BulkDeleteVideosRequest>("BulkDeleteVideosRequest");
+        registered.insert("BulkDeleteVideosRequest".to_string());
+        gen.add_schema::<QueryVideosRequest>("QueryVideosRequest");
+        registered.insert("QueryVideosRequest".to_string());
+        gen.add_schema::<VideoRendition>("VideoRendition");
+        registered.insert("VideoRendition".to_string());
+        gen.add_schema::<GetVideoRenditionsRequest>("GetVideoRenditionsRequest");
+        registered.insert("GetVideoRenditionsRequest".to_string());
+        gen.add_schema::<DeleteVideoRenditionRequest>("DeleteVideoRenditionRequest");
+        registered.insert("DeleteVideoRenditionRequest".to_string());
+        gen.add_schema::<UpsertPlaybackProgressRequest>("UpsertPlaybackProgressRequest");
+        registered.insert("UpsertPlaybackProgressRequest".to_string());
+        gen.add_schema::<GetPlaybackProgressRequest>("GetPlaybackProgressRequest");
+        registered.insert("GetPlaybackProgressRequest".to_string());
+        gen.add_schema::<ListPlaybackProgressRequest>("ListPlaybackProgressRequest");
+        registered.insert("ListPlaybackProgressRequest".to_string());
+
+        // video domain: universal-domain relation hubs (era/recently_added/
+        // unassigned + generic categorical hubs), mirrors music's relations.rs
+        gen.add_schema::<VideosByValueRequest>("VideosByValueRequest");
+        registered.insert("VideosByValueRequest".to_string());
+        gen.add_schema::<VideosByValueResponse>("VideosByValueResponse");
+        registered.insert("VideosByValueResponse".to_string());
+        gen.add_schema::<RecentlyAddedVideosRequest>("RecentlyAddedVideosRequest");
+        registered.insert("RecentlyAddedVideosRequest".to_string());
+        gen.add_schema::<RecentlyAddedVideosResponse>("RecentlyAddedVideosResponse");
+        registered.insert("RecentlyAddedVideosResponse".to_string());
+        gen.add_schema::<UnassignedVideosRequest>("UnassignedVideosRequest");
+        registered.insert("UnassignedVideosRequest".to_string());
+        gen.add_schema::<UnassignedVideosResponse>("UnassignedVideosResponse");
+        registered.insert("UnassignedVideosResponse".to_string());
+
+        gen.add_schema::<GetEntityTaxonsRequest>("GetEntityTaxonsRequest");
+        registered.insert("GetEntityTaxonsRequest".to_string());
+        gen.add_schema::<AddEntityTaxonRequest>("AddEntityTaxonRequest");
+        registered.insert("AddEntityTaxonRequest".to_string());
+        gen.add_schema::<RemoveEntityTaxonRequest>("RemoveEntityTaxonRequest");
+        registered.insert("RemoveEntityTaxonRequest".to_string());
+
+        gen.add_schema::<GetEntitiesTagsRequest>("GetEntitiesTagsRequest");
+        registered.insert("GetEntitiesTagsRequest".to_string());
+        gen.add_schema::<ListEntityTypeTagsRequest>("ListEntityTypeTagsRequest");
+        registered.insert("ListEntityTypeTagsRequest".to_string());
+        gen.add_schema::<AddEntitiesTagsRequest>("AddEntitiesTagsRequest");
+        registered.insert("AddEntitiesTagsRequest".to_string());
+        gen.add_schema::<RemoveEntitiesTagsRequest>("RemoveEntitiesTagsRequest");
+        registered.insert("RemoveEntitiesTagsRequest".to_string());
+
+        gen.add_schema::<GetEntityUrlsRequest>("GetEntityUrlsRequest");
+        registered.insert("GetEntityUrlsRequest".to_string());
+        gen.add_schema::<AddEntityUrlRequest>("AddEntityUrlRequest");
+        registered.insert("AddEntityUrlRequest".to_string());
+        gen.add_schema::<RemoveEntityUrlRequest>("RemoveEntityUrlRequest");
+        registered.insert("RemoveEntityUrlRequest".to_string());
+
+        gen.add_schema::<GetEntityImagesRequest>("GetEntityImagesRequest");
+        registered.insert("GetEntityImagesRequest".to_string());
+
+        gen.add_schema::<ListPlaylistItemsRequest>("ListPlaylistItemsRequest");
+        registered.insert("ListPlaylistItemsRequest".to_string());
+        gen.add_schema::<AddPlaylistItemRequest>("AddPlaylistItemRequest");
+        registered.insert("AddPlaylistItemRequest".to_string());
+        gen.add_schema::<RemovePlaylistItemRequest>("RemovePlaylistItemRequest");
+        registered.insert("RemovePlaylistItemRequest".to_string());
+        gen.add_schema::<PlaylistItemRef>("PlaylistItemRef");
+        registered.insert("PlaylistItemRef".to_string());
+        gen.add_schema::<ReorderPlaylistItemsRequest>("ReorderPlaylistItemsRequest");
+        registered.insert("ReorderPlaylistItemsRequest".to_string());
+        gen.add_schema::<AddPlaylistItemsRequest>("AddPlaylistItemsRequest");
+        registered.insert("AddPlaylistItemsRequest".to_string());
+        gen.add_schema::<RemovePlaylistItemsRequest>("RemovePlaylistItemsRequest");
+        registered.insert("RemovePlaylistItemsRequest".to_string());
 
         // album metadata blob types — single source of truth.
         gen.add_schema::<MbLookupStatus>("MbLookupStatus");
@@ -1030,6 +1247,8 @@ pub mod type_registry {
         registered.insert("ScalarAttribute".to_string());
         gen.add_schema::<CreateTaxonKindRequest>("CreateTaxonKindRequest");
         registered.insert("CreateTaxonKindRequest".to_string());
+        gen.add_schema::<ListTaxonKindsRequest>("ListTaxonKindsRequest");
+        registered.insert("ListTaxonKindsRequest".to_string());
         gen.add_schema::<CreateTaxonRequest>("CreateTaxonRequest");
         registered.insert("CreateTaxonRequest".to_string());
         gen.add_schema::<GetTaxonRequest>("GetTaxonRequest");
@@ -1188,12 +1407,24 @@ pub mod type_registry {
         gen.add_schema::<RatingStats>("RatingStats");
         registered.insert("RatingStats".to_string());
 
+        gen.add_schema::<GetRatingStatusBulkRequest>("GetRatingStatusBulkRequest");
+        registered.insert("GetRatingStatusBulkRequest".to_string());
+
+        gen.add_schema::<RatingStatusItem>("RatingStatusItem");
+        registered.insert("RatingStatusItem".to_string());
+
         // upload types
         gen.add_schema::<ImageUploadResponse>("ImageUploadResponse");
         registered.insert("ImageUploadResponse".to_string());
 
         gen.add_schema::<MusicUploadResponse>("MusicUploadResponse");
         registered.insert("MusicUploadResponse".to_string());
+
+        gen.add_schema::<VideoUploadResponse>("VideoUploadResponse");
+        registered.insert("VideoUploadResponse".to_string());
+
+        gen.add_schema::<VideoMetadataHints>("VideoMetadataHints");
+        registered.insert("VideoMetadataHints".to_string());
 
         gen.add_schema::<MusicImportResponse>("MusicImportResponse");
         registered.insert("MusicImportResponse".to_string());
@@ -1216,6 +1447,10 @@ pub mod type_registry {
         // user interaction types
         gen.add_schema::<SetFavoriteRequest>("SetFavoriteRequest");
         registered.insert("SetFavoriteRequest".to_string());
+        gen.add_schema::<GetFavoriteStatusBulkRequest>("GetFavoriteStatusBulkRequest");
+        registered.insert("GetFavoriteStatusBulkRequest".to_string());
+        gen.add_schema::<FavoriteStatusItem>("FavoriteStatusItem");
+        registered.insert("FavoriteStatusItem".to_string());
 
         gen.add_schema::<SetRatingRequest>("SetRatingRequest");
         registered.insert("SetRatingRequest".to_string());
@@ -1262,6 +1497,12 @@ pub mod type_registry {
 
         gen.add_schema::<PlaylistSearchResult>("PlaylistSearchResult");
         registered.insert("PlaylistSearchResult".to_string());
+
+        gen.add_schema::<VideoSearchResult>("VideoSearchResult");
+        registered.insert("VideoSearchResult".to_string());
+
+        gen.add_schema::<VideoSeriesSearchResult>("VideoSeriesSearchResult");
+        registered.insert("VideoSeriesSearchResult".to_string());
 
         // knock types
         gen.add_schema::<KnockRequest>("KnockRequest");
@@ -1413,18 +1654,18 @@ pub mod type_registry {
         gen.add_schema::<StationFilter>("StationFilter");
         registered.insert("StationFilter".to_string());
 
-        // listen session request types
-        gen.add_schema::<GetListenSessionRequest>("GetListenSessionRequest");
-        registered.insert("GetListenSessionRequest".to_string());
+        // playback session request types
+        gen.add_schema::<GetPlaybackSessionRequest>("GetPlaybackSessionRequest");
+        registered.insert("GetPlaybackSessionRequest".to_string());
 
-        gen.add_schema::<DeleteListenSessionRequest>("DeleteListenSessionRequest");
-        registered.insert("DeleteListenSessionRequest".to_string());
+        gen.add_schema::<DeletePlaybackSessionRequest>("DeletePlaybackSessionRequest");
+        registered.insert("DeletePlaybackSessionRequest".to_string());
 
         gen.add_schema::<DeleteFeedEventRequest>("DeleteFeedEventRequest");
         registered.insert("DeleteFeedEventRequest".to_string());
 
-        gen.add_schema::<UpdateListenSessionStatusRequest>("UpdateListenSessionStatusRequest");
-        registered.insert("UpdateListenSessionStatusRequest".to_string());
+        gen.add_schema::<UpdatePlaybackSessionStatusRequest>("UpdatePlaybackSessionStatusRequest");
+        registered.insert("UpdatePlaybackSessionStatusRequest".to_string());
 
         // blob metadata request type
         gen.add_schema::<GetBlobMetadataRequest>("GetBlobMetadataRequest");
@@ -1450,6 +1691,8 @@ pub mod type_registry {
         // upload request types
         gen.add_schema::<UploadMusicByBlake3Request>("UploadMusicByBlake3Request");
         registered.insert("UploadMusicByBlake3Request".to_string());
+        gen.add_schema::<UploadVideoByBlake3Request>("UploadVideoByBlake3Request");
+        registered.insert("UploadVideoByBlake3Request".to_string());
 
         // sync types
         gen.add_schema::<SyncSongByBlake3Request>("SyncSongByBlake3Request");
@@ -1466,6 +1709,10 @@ pub mod type_registry {
         registered.insert("SyncAlbumRequest".to_string());
         gen.add_schema::<SyncAlbumResponse>("SyncAlbumResponse");
         registered.insert("SyncAlbumResponse".to_string());
+        gen.add_schema::<SyncVideoByBlake3Request>("SyncVideoByBlake3Request");
+        registered.insert("SyncVideoByBlake3Request".to_string());
+        gen.add_schema::<SyncVideoByBlake3Response>("SyncVideoByBlake3Response");
+        registered.insert("SyncVideoByBlake3Response".to_string());
 
         // import review types
         gen.add_schema::<ListPendingReviewRequest>("ListPendingReviewRequest");
@@ -1490,5 +1737,29 @@ pub mod type_registry {
         registered.insert("AlbumPendingRequest".to_string());
         gen.add_schema::<AlbumPendingResponse>("AlbumPendingResponse");
         registered.insert("AlbumPendingResponse".to_string());
+
+        // video import review types (grouped by detected series)
+        gen.add_schema::<ListPendingVideoReviewRequest>("ListPendingVideoReviewRequest");
+        registered.insert("ListPendingVideoReviewRequest".to_string());
+        gen.add_schema::<PendingReviewVideoSummary>("PendingReviewVideoSummary");
+        registered.insert("PendingReviewVideoSummary".to_string());
+        gen.add_schema::<PendingVideoReviewGroup>("PendingVideoReviewGroup");
+        registered.insert("PendingVideoReviewGroup".to_string());
+        gen.add_schema::<PendingVideoReviewSession>("PendingVideoReviewSession");
+        registered.insert("PendingVideoReviewSession".to_string());
+        gen.add_schema::<MarkVideoGroupReviewedRequest>("MarkVideoGroupReviewedRequest");
+        registered.insert("MarkVideoGroupReviewedRequest".to_string());
+        gen.add_schema::<VideoReviewPatch>("VideoReviewPatch");
+        registered.insert("VideoReviewPatch".to_string());
+        gen.add_schema::<PatchVideoGroupReviewRequest>("PatchVideoGroupReviewRequest");
+        registered.insert("PatchVideoGroupReviewRequest".to_string());
+        gen.add_schema::<MoveVideoReviewRequest>("MoveVideoReviewRequest");
+        registered.insert("MoveVideoReviewRequest".to_string());
+        gen.add_schema::<VideoImportReviewOk>("VideoImportReviewOk");
+        registered.insert("VideoImportReviewOk".to_string());
+        gen.add_schema::<VideoPendingRequest>("VideoPendingRequest");
+        registered.insert("VideoPendingRequest".to_string());
+        gen.add_schema::<VideoPendingResponse>("VideoPendingResponse");
+        registered.insert("VideoPendingResponse".to_string());
     }
 }

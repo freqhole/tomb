@@ -20,6 +20,10 @@ const ExternalStorageDeviceSchema = z.object({
   volume_uuid: z.string().nullish(),
   subpath: z.string().nullish(),
   last_synced_at: z.number().nullish(),
+  // real write-access probe, not just "does the path exist" - catches a
+  // stale flatpak doc-portal grant. defaulted for forward/backward
+  // compat across app versions on either side of this field's addition.
+  path_writable: z.boolean().default(true),
 });
 
 export type ExternalStorageDevice = z.infer<typeof ExternalStorageDeviceSchema>;

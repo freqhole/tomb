@@ -155,7 +155,7 @@ export function drawNode(
       : null;
   ctx.strokeStyle =
     n.role === "root" || n.role === "remote"
-      ? color // root/remote: stroke matches the magenta-ish fill (override pivot ring)
+      ? color // root/remote: stroke matches the fill (override pivot ring)
       : n.isPivot
         ? PIVOT_RING_COLOR
         : n.isBreadcrumb
@@ -175,6 +175,38 @@ export function drawNode(
               ? 3 // group (parent-of-parent) taxons get a thicker stroke
               : 2
             : 1;
+
+  // video_series: draw the two "peeking" back cards as opaque-black-filled
+  // 16:9 rectangles (matching the front card's ratio) before the front
+  // card's own fill+stroke pass below, so they read as layered behind it
+  // (mirrors VideoSeriesIcon's dominant-front + thin-peeks silhouette,
+  // without reusing the SVG path directly on canvas). filled (not just
+  // outlined) so edges/lines passing behind the node are visually
+  // occluded by the peek cards, matching the front card's own opacity.
+  // stroke intentionally does NOT use the pivot/hover/selection-emphasis
+  // color+width computed above (that's reserved for the front card only,
+  // just below) — giving the peek cards their own emphasis ring made all
+  // three rectangles' edges bold at once, reading as overlapping/crossed
+  // outlines instead of one clean silhouette ring around the icon.
+  if (n.role === "video_series") {
+    const step = radius * 0.16;
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = Math.max(1, radius * 0.08);
+    for (const mul of [2, 1]) {
+      const halfW = radius * 1.175;
+      const halfH = radius * 0.66;
+      const px = x + step * mul;
+      const py = y - step * mul;
+      const cornerR = Math.max(1, halfH * 0.18);
+      ctx.beginPath();
+      ctx.roundRect(px - halfW, py - halfH, halfW * 2, halfH * 2, cornerR);
+      ctx.fillStyle = "#000000";
+      ctx.fill();
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
 
   nodeShapePath(ctx, n.role, x, y, radius);
   ctx.fill();
@@ -221,6 +253,25 @@ export function drawNode(
       // re-establish path for stroke (clip block called beginPath)
       nodeShapePath(ctx, n.role, x, y, radius);
     }
+  } else if (
+    (n.role === "video" || n.role === "video_series" || n.role === "video_season") &&
+    getImage
+  ) {
+    // same 16:9 rounded-rect geometry as this role's shape in shapes.ts.
+    const img = getNodeImage(n.id, getImage(n.id), undefined);
+    if (img) {
+      const halfW = radius * 1.175;
+      const halfH = radius * 0.66;
+      const cornerR = Math.max(2, halfH * 0.18);
+      ctx.save();
+      ctx.beginPath();
+      ctx.roundRect(x - halfW, y - halfH, halfW * 2, halfH * 2, cornerR);
+      ctx.clip();
+      ctx.drawImage(img, x - halfW, y - halfH, halfW * 2, halfH * 2);
+      ctx.restore();
+      // re-establish path for stroke (clip block called beginPath)
+      nodeShapePath(ctx, n.role, x, y, radius);
+    }
   }
 
   ctx.stroke();
@@ -246,7 +297,10 @@ export function drawNode(
   }
 
   if (
-    (n.role === "relation" || n.role === "value" || n.role === "group" || (n.role === "remote" && isHovered)) &&
+    (n.role === "relation" ||
+      n.role === "value" ||
+      n.role === "group" ||
+      (n.role === "remote" && isHovered)) &&
     n.childCount > 0
   ) {
     // count label: pick a high-contrast foreground from the actual fill

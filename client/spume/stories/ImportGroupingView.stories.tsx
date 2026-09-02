@@ -125,6 +125,7 @@ export const SingleAlbum: Story = {
             albums={[singleAlbum]}
             onMerge={(src, tgt) => console.log("merge", src, "->", tgt)}
             onMoveSong={(sid, aid) => console.log("move song", sid, "->", aid)}
+            onCreateAlbumForSong={(sid, title, artist) => console.log("create album", title, artist, "for", sid)}
             onConfirm={() => setDone(true)}
           />
         )}
@@ -163,6 +164,7 @@ export const OverSplit: Story = {
             albums={albums()}
             onMerge={handleMerge}
             onMoveSong={(sid, aid) => console.log("move song", sid, "->", aid)}
+            onCreateAlbumForSong={(sid, title, artist) => console.log("create album", title, artist, "for", sid)}
             onConfirm={() => setDone(true)}
           />
         )}
@@ -204,6 +206,7 @@ export const UnderSplit: Story = {
             albums={albums()}
             onMerge={(src, tgt) => console.log("merge", src, "->", tgt)}
             onMoveSong={handleMoveSong}
+            onCreateAlbumForSong={(sid, title, artist) => console.log("create album", title, artist, "for", sid)}
             onConfirm={() => setDone(true)}
           />
         )}
@@ -242,6 +245,7 @@ export const ThreeAlbums: Story = {
             albums={albums()}
             onMerge={handleMerge}
             onMoveSong={(sid, aid) => console.log("move song", sid, "->", aid)}
+            onCreateAlbumForSong={(sid, title, artist) => console.log("create album", title, artist, "for", sid)}
             onConfirm={() => setDone(true)}
           />
         )}

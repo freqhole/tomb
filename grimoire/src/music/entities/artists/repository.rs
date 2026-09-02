@@ -263,9 +263,12 @@ pub async fn delete_artist(id: &str, deleted_by: Option<String>) -> GrimoireResp
             }
 
             // Remove from all playlists
-            if let Err(e) = sqlx::query!("DELETE FROM playlist_songz WHERE song_id = ?", song_id)
-                .execute(&pool)
-                .await
+            if let Err(e) = sqlx::query!(
+                "DELETE FROM playlist_itemz WHERE entity_type = 'song' AND entity_id = ?",
+                song_id
+            )
+            .execute(&pool)
+            .await
             {
                 return GrimoireResponse::failure(
                     "Failed to remove song from playlists",
@@ -311,9 +314,12 @@ pub async fn delete_artist(id: &str, deleted_by: Option<String>) -> GrimoireResp
         }
 
         // Remove from all playlists
-        if let Err(e) = sqlx::query!("DELETE FROM playlist_songz WHERE song_id = ?", song_id)
-            .execute(&pool)
-            .await
+        if let Err(e) = sqlx::query!(
+            "DELETE FROM playlist_itemz WHERE entity_type = 'song' AND entity_id = ?",
+            song_id
+        )
+        .execute(&pool)
+        .await
         {
             return GrimoireResponse::failure(
                 "Failed to remove song from playlists",

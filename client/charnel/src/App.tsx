@@ -1,16 +1,10 @@
-import {
-  createSignal,
-  onMount,
-  Show,
-  ParentProps,
-  createContext,
-  useContext,
-} from "solid-js";
+import { createSignal, onMount, Show, ParentProps, createContext, useContext } from "solid-js";
 import { A, useLocation, useNavigate } from "@solidjs/router";
 import { invoke } from "@tauri-apps/api/core";
-import { VERSION } from "./version";
+import { VERSION, UI_GIT_SHA } from "./version";
 import { AdminTransportProvider } from "./admin/context";
 import { AdminTargetPicker, AdminScopeBanner } from "./admin/AdminTargetPicker";
+import { TitleBarStrip } from "./components/TitleBarStrip";
 import "./App.css";
 
 interface P2pStatus {
@@ -24,6 +18,13 @@ interface SetupStatus {
   has_root_user: boolean;
   config_path: string | null;
   data_dir: string | null;
+}
+
+interface BuildInfo {
+  version: string;
+  git_sha: string;
+  target_os: string;
+  debug: boolean;
 }
 
 // context to share setup state across components
@@ -44,6 +45,7 @@ function App(props: ParentProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const [p2pStatus, setP2pStatus] = createSignal<P2pStatus | null>(null);
+  const [buildInfo, setBuildInfo] = createSignal<BuildInfo | null>(null);
   const [setupComplete, setSetupComplete] = createSignal(false);
   const [checkingSetup, setCheckingSetup] = createSignal(true);
 
@@ -103,6 +105,17 @@ function App(props: ParentProps) {
     setInterval(updateP2pStatus, 3000);
   });
 
+  // rust binary's baked-in git sha; compared against the ui bundle's own sha
+  // so a stale dist/ (or stale binary) is visible instead of looking like a
+  // missing feature.
+  onMount(async () => {
+    try {
+      setBuildInfo(await invoke<BuildInfo>("get_build_info"));
+    } catch (e) {
+      console.error("failed to get build info:", e);
+    }
+  });
+
   async function updateP2pStatus() {
     try {
       const status = await invoke<P2pStatus>("p2p_get_status");
@@ -121,10 +134,7 @@ function App(props: ParentProps) {
 
   // during initial setup, show centered layout without sidebar
   const isInSetupFlow = () => {
-    return (
-      !setupComplete() &&
-      (location.pathname === "/" || location.pathname === "/setup")
-    );
+    return !setupComplete() && (location.pathname === "/" || location.pathname === "/setup");
   };
 
   const contextValue: AppContextType = {
@@ -135,6 +145,7 @@ function App(props: ParentProps) {
   // use Show components for proper SolidJS reactivity (if statements don't re-render)
   return (
     <AppContext.Provider value={contextValue}>
+      <TitleBarStrip />
       <AdminTransportProvider>
         <Show
           when={!checkingSetup()}
@@ -163,48 +174,28 @@ function App(props: ParentProps) {
                 <AdminTargetPicker />
 
                 <div class="nav-links">
-                  <A
-                    href="/library"
-                    class={`nav-link ${isActive("/library") ? "active" : ""}`}
-                  >
+                  <A href="/library" class={`nav-link ${isActive("/library") ? "active" : ""}`}>
                     library
                   </A>
-                  <A
-                    href="/users"
-                    class={`nav-link ${isActive("/users") ? "active" : ""}`}
-                  >
+                  <A href="/users" class={`nav-link ${isActive("/users") ? "active" : ""}`}>
                     user<span class="pinky">z</span>
                   </A>
                   <A
                     href="/federation"
-                    class={`nav-link ${
-                      isActive("/federation") ? "active" : ""
-                    }`}
+                    class={`nav-link ${isActive("/federation") ? "active" : ""}`}
                   >
                     federation
                   </A>
-                  <A
-                    href="/radio"
-                    class={`nav-link ${isActive("/radio") ? "active" : ""}`}
-                  >
+                  <A href="/radio" class={`nav-link ${isActive("/radio") ? "active" : ""}`}>
                     radi<span class="pinky">o</span>
                   </A>
-                  <A
-                    href="/settings"
-                    class={`nav-link ${isActive("/settings") ? "active" : ""}`}
-                  >
+                  <A href="/settings" class={`nav-link ${isActive("/settings") ? "active" : ""}`}>
                     setting<span class="pinky">z</span>
                   </A>
-                  <A
-                    href="/config"
-                    class={`nav-link ${isActive("/config") ? "active" : ""}`}
-                  >
+                  <A href="/config" class={`nav-link ${isActive("/config") ? "active" : ""}`}>
                     confi<span class="pinky">g</span>
                   </A>
-                  <A
-                    href="/logs"
-                    class={`nav-link ${isActive("/logs") ? "active" : ""}`}
-                  >
+                  <A href="/logs" class={`nav-link ${isActive("/logs") ? "active" : ""}`}>
                     log<span class="pinky">z</span>
                   </A>
                 </div>
@@ -219,19 +210,35 @@ function App(props: ParentProps) {
                             p2pStatus()?.status === "online"
                               ? "running"
                               : p2pStatus()?.status === "connecting..." ||
-                                p2pStatus()?.status === "starting..."
-                              ? "connecting"
-                              : "stopped"
+                                  p2pStatus()?.status === "starting..."
+                                ? "connecting"
+                                : "stopped"
                           }`}
                         />
-                        <span class="status-text">
-                          p2p {p2pStatus()?.status}
-                        </span>
+                        <span class="status-text">p2p {p2pStatus()?.status}</span>
                       </div>
                     </div>
                   </Show>
 
                   <p class="version">version {VERSION}</p>
+                  <p
+                    class="version build-sha"
+                    title={`ui bundle: ${UI_GIT_SHA}\napp binary: ${
+                      buildInfo()?.git_sha ?? "?"
+                    }${buildInfo() ? ` (${buildInfo()!.target_os}, ${buildInfo()!.debug ? "debug" : "release"})` : ""}`}
+                  >
+                    ui {UI_GIT_SHA}
+                    <Show when={buildInfo()}>
+                      {" · "}
+                      <span
+                        style={{
+                          color: buildInfo()!.git_sha === UI_GIT_SHA ? undefined : "#ff9f1c",
+                        }}
+                      >
+                        app {buildInfo()!.git_sha}
+                      </span>
+                    </Show>
+                  </p>
                 </div>
               </nav>
 

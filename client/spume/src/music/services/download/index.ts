@@ -13,23 +13,24 @@ export {
   unmarkEphemeralOnDisk,
   clearEphemeralOnDisk,
   setEphemeralOnDiskBlake3s,
-  
+
   // loading/progress
-  getLoadingSongIds,
+  getLoadingIds,
+  getVisibleLoadingIds,
   isLoading,
   getLoadingProgress,
   getAllLoadingProgress,
   addToLoadingSet,
   updateLoadingProgress,
   removeFromLoadingSet,
-  
+
   // in-progress tracking
   isDownloadInProgress,
   getInProgressDownload,
   registerDownload,
   canStartDownload,
   getActiveDownloadCount,
-  
+
   // failed downloads
   hasFailedPermanently,
   markDownloadFailed,
@@ -37,12 +38,12 @@ export {
   clearFailure,
   clearAllFailures,
   MAX_RETRY_ATTEMPTS,
-  
+
   // pause/resume
   isDownloadsPaused,
   pauseDownloads,
   resumeDownloads,
-  
+
   // initialization
   initDownloadState,
 } from "./downloadState";

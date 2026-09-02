@@ -3,14 +3,9 @@
 // uses midden's MiddenNode to make API requests to peer nodes.
 // blobs are cached in Cache API for audio playback.
 
-import type { BlobData, Transport, TransportResponse } from "./transport.js";
+import type { BlobData, BlobFetchOptions, Transport, TransportResponse } from "./transport.js";
 import { snapshotJobEventsViaRequest } from "./transport.js";
-import type {
-  CloseReason,
-  EventFilter,
-  JobEvent,
-  JobStateSnapshot,
-} from "./codegen/schema.js";
+import type { CloseReason, EventFilter, JobEvent, JobStateSnapshot } from "./codegen/schema.js";
 import { JobEventsStreamClosed } from "./CharnelLocalTransport.js";
 
 /**
@@ -34,7 +29,11 @@ export interface BiStreamLike {
   // length-prefixed framing (unused here, but matches the wasm class)
   write_message?(data: Uint8Array): Promise<void>;
   read_message?(): Promise<Uint8Array | null>;
-  // raw byte primitives (read_to_end / write_raw_and_finish exist too)
+  // raw byte primitives - used by cenotaph's freqhole/1 api router and
+  // the freqhole-player/1 pairing/control handler's write_raw_and_finish
+  // response framing (see @freqhole/cenotaph's control/apiRouter.ts).
+  read_to_end(max_size: number): Promise<Uint8Array | null>;
+  write_raw_and_finish(data: Uint8Array): Promise<void>;
   close(): void;
 }
 
@@ -44,6 +43,12 @@ export interface BiStreamLike {
  */
 export interface MiddenNodeLike {
   node_id(): string;
+  // full endpoint address JSON (node_id + relay url + any direct addrs) -
+  // lets a dialer skip pkarr/DNS discovery, which otherwise races on a
+  // freshly-booted identity (the connecting peer may 404 the pkarr lookup
+  // before it's ever published). optional: not every MiddenNodeLike impl
+  // (e.g. spume's charnel/tauri stub) has a real iroh endpoint to report.
+  node_addr?(): string;
   secret_key(): Uint8Array;
   api_request(
     peer_addr: string,
@@ -73,15 +78,9 @@ export interface MiddenNodeLike {
   // must be called once for remote peers to pull blobs from this node
   start_blob_server?(): void;
   // download blob with iroh-blobs verified streaming - optional
-  download_verified?(
-    peer_addr: string,
-    blake3_hash: string,
-  ): Promise<Uint8Array>;
+  download_verified?(peer_addr: string, blake3_hash: string): Promise<Uint8Array>;
   // download blob with automatic ensure + retry - optional
-  download_verified_with_ensure?(
-    peer_addr: string,
-    blake3_hash: string,
-  ): Promise<Uint8Array>;
+  download_verified_with_ensure?(peer_addr: string, blake3_hash: string): Promise<Uint8Array>;
   // download blob by ID with on-demand blake3 computation - optional
   // returns [Uint8Array, string] but typed as any[] for wasm-bindgen compatibility
   download_verified_by_id?(peer_addr: string, blob_id: string): Promise<any[]>;
@@ -106,11 +105,7 @@ export interface MiddenNodeLike {
   // dispatch a freqhole-admin/1 ALPN command to a peer.
   // returns the grimoire response envelope `{ success, message, data, errors }`.
   // `args` is a json-encoded string (use "null" for commands with no payload).
-  proxy_admin?(
-    peer_addr: string,
-    command: string,
-    args: string,
-  ): Promise<unknown>;
+  proxy_admin?(peer_addr: string, command: string, args: string): Promise<unknown>;
   // tune into a freqhole radio broadcaster (freqhole-radio/1 ALPN).
   // callbacks:
   //   on_hello(json: string)   — HelloMessage as JSON, fires once on connect
@@ -127,6 +122,13 @@ export interface MiddenNodeLike {
   // open a raw bi-directional stream on an arbitrary ALPN. used for
   // job events (freqhole-events/1) and other custom protocols.
   open_bi?(peer_addr: string, alpn: string): Promise<BiStreamLike>;
+  // accept the next incoming connection on any registered ALPN (blocks
+  // until one arrives; resolves null once the endpoint is closed). used
+  // by @freqhole/cenotaph's startAcceptLoop to drive spume's own
+  // remote-playback accept mode - see docs/cenotaph-migration-plan.md
+  // phase 1. optional because charnel's CharnelTransport has no wasm
+  // accept-loop equivalent (yet).
+  accept?(): Promise<BiStreamLike | null>;
 }
 
 /**
@@ -174,6 +176,110 @@ function cacheKey(blobId: string): string {
 }
 
 /**
+ * error thrown by request()/upload methods when a midden/wasm call
+ * fails. mirrors sendToRemote.ts's `EnvelopeError` shape (and
+ * CharnelTransport.ts's `TransportError`) so callers can consistently
+ * check `.errorType` regardless of which transport produced the failure.
+ */
+export class TransportError extends Error {
+  readonly errorType?: string;
+  /** the original error this was derived from, if any (see uploadViaIrohBlobs). */
+  readonly cause?: unknown;
+  /**
+   * per-step breakdown for a multi-step fallback chain (e.g. `fetchBlob`'s
+   * verified-download -> api-request -> on-demand-blake3 -> legacy
+   * fetch_blob sequence). populated only by call sites that actually fall
+   * through multiple attempts before failing.
+   */
+  readonly attempts?: Array<{ step: string; reason: string }>;
+  constructor(
+    message: string,
+    opts?: {
+      errorType?: string;
+      cause?: unknown;
+      attempts?: Array<{ step: string; reason: string }>;
+    },
+  ) {
+    super(message);
+    this.name = "TransportError";
+    this.errorType = opts?.errorType;
+    this.cause = opts?.cause;
+    this.attempts = opts?.attempts;
+  }
+}
+
+/**
+ * extract a best-effort `error_type` out of a caught midden/wasm
+ * rejection. these are sometimes a plain string, sometimes an `Error`,
+ * and (once the rust side lands the convention - see
+ * docs/error-handling-tasks.md track P0-D) sometimes a short
+ * machine-parseable prefix like `"file_not_found: could not open file"`,
+ * or a JSON-encoded structured error body forwarded from a remote peer's
+ * response. this parses either shape, falling back to the raw message
+ * when neither is present - never matches on natural-language message
+ * text (the prefix regex only matches a single snake_case token
+ * immediately before the colon, so an ordinary sentence like "failed to
+ * open file: permission denied" is left alone).
+ */
+// P2P `ApiRequest` messages are read in one shot on the remote peer and
+// capped by that peer's configured `federation.max_message_size_mb`
+// (10 MB by default - see grimoire/src/config.rs). the base64 fallback
+// (used here when a blob-pull upload path isn't available for this
+// route, e.g. video uploads today) embeds the whole file directly in
+// that message, inflated ~4/3 by base64 plus a small JSON envelope. we
+// don't know the actual remote's configured cap, so this is a
+// conservative pre-flight check against the documented default with
+// headroom for that overhead - it exists purely to fail fast with a
+// clear message instead of a raw mid-transfer "stream too long"/generic
+// "network error".
+const MAX_BASE64_UPLOAD_BYTES = 7 * 1024 * 1024;
+
+function uploadTooLargeError(file: File, path: string): TransportError {
+  const mb = (file.size / (1024 * 1024)).toFixed(1);
+  const limitMb = (MAX_BASE64_UPLOAD_BYTES / (1024 * 1024)).toFixed(0);
+  const kind = path.includes("/video") ? "video uploads" : "uploads of this size";
+  return new TransportError(
+    `this file is ${mb} MB, too large to upload over this P2P connection (roughly ${limitMb} MB limit) - large ${kind} aren't fully supported over P2P yet`,
+    { errorType: "upload_too_large_for_transport" },
+  );
+}
+
+function extractErrorType(err: unknown): { message: string; errorType?: string } {
+  const message = err instanceof Error ? err.message : String(err);
+  const trimmed = message.trim();
+
+  if (trimmed.startsWith("{")) {
+    try {
+      const parsed = JSON.parse(trimmed) as Record<string, unknown>;
+      const firstError =
+        Array.isArray(parsed.errors) && parsed.errors.length > 0
+          ? (parsed.errors[0] as Record<string, unknown>)
+          : undefined;
+      const errorType =
+        (typeof firstError?.error_type === "string" && firstError.error_type) ||
+        (typeof parsed.error_type === "string" && parsed.error_type) ||
+        undefined;
+      if (errorType) {
+        const detail =
+          (typeof firstError?.detail === "string" && firstError.detail) ||
+          (typeof parsed.message === "string" && parsed.message) ||
+          message;
+        return { message: detail, errorType };
+      }
+    } catch {
+      // not valid json, fall through to prefix-token parsing below
+    }
+  }
+
+  const prefixMatch = /^([a-z][a-z0-9_]*):\s*(.+)$/s.exec(message);
+  if (prefixMatch) {
+    return { message: prefixMatch[2], errorType: prefixMatch[1] };
+  }
+
+  return { message };
+}
+
+/**
  * WASM transport - uses midden for P2P connections
  *
  * usage:
@@ -212,31 +318,41 @@ export class WasmTransport implements Transport {
     return this.peerAddr;
   }
 
-  async request(
-    method: string,
-    path: string,
-    body?: string,
-  ): Promise<TransportResponse> {
+  async request(method: string, path: string, body?: string): Promise<TransportResponse> {
     try {
-      const result = await this.node.api_request(
-        this.peerAddr,
-        method,
-        path,
-        body ?? null,
-      );
+      // TEMP DEBUG - remove once the first-pair-attempt-fails bug is found
+      console.log(`[debug/WasmTransport] request start ${method} ${path} -> ${this.peerAddr}`);
+      const result = await this.node.api_request(this.peerAddr, method, path, body ?? null);
+      // TEMP DEBUG - remove once the first-pair-attempt-fails bug is found
+      console.log(`[debug/WasmTransport] request ok ${method} ${path} status=${result.status}`);
+      if (result.status < 200 || result.status >= 300) {
+        // TEMP DEBUG - remove once sync-to-local wiring bug is found
+        console.log(`[debug/WasmTransport] ${method} ${path} non-2xx body:`, result.body);
+      }
       return {
         status: result.status,
         body: result.body,
       };
     } catch (e) {
       // P2P connection errors - rethrow with message that isNetworkError will catch
-      const errorMessage = e instanceof Error ? e.message : String(e);
-      console.warn(`[WasmTransport] P2P request failed: ${errorMessage}`);
-      throw new Error(`connection failed: ${errorMessage}`);
+      const { message, errorType } = extractErrorType(e);
+      // TEMP DEBUG - remove once sync-to-local wiring bug is found
+      console.log(`[debug/WasmTransport] ${method} ${path} threw:`, e);
+      console.warn(`[WasmTransport] P2P request failed: ${message}`);
+      throw new TransportError(`connection failed: ${message}`, { errorType });
     }
   }
 
-  async upload(path: string, formData: FormData): Promise<TransportResponse> {
+  async upload(
+    path: string,
+    formData: FormData,
+    _onProgress?: (loaded: number, total: number) => void,
+  ): Promise<TransportResponse> {
+    // no byte-level progress possible here - unlike CharnelTransport's tauri
+    // IPC path (which self-chunks and can report per-chunk progress), the
+    // midden wasm binding's `import_blob(bytes)` is a single opaque call
+    // with no progress callback exposed, and the base64 fallback also sends
+    // one JSON request.
     const file = formData.get("file") as File | null;
     if (!file) {
       return {
@@ -255,9 +371,11 @@ export class WasmTransport implements Transport {
       };
     }
 
-    // for music uploads, use iroh-blobs pull model if available
-    if (path === "/api/upload/music" && this.node.import_blob) {
-      return this.uploadViaIrohBlobs(file, formData);
+    // music and video uploads both go through the iroh-blobs pull model if
+    // available - chunked/verified streaming, no base64/raw-bytes framing.
+    const blobPullPaths = ["/api/upload/music", "/api/upload/video"];
+    if (blobPullPaths.includes(path) && this.node.import_blob) {
+      return this.uploadViaIrohBlobs(path, file, formData);
     }
 
     // fallback: base64 encode and send via api_request (works for image uploads)
@@ -267,11 +385,12 @@ export class WasmTransport implements Transport {
   /**
    * upload via iroh-blobs pull model:
    * 1. import file bytes into local iroh-blobs store (returns blake3 hash)
-   * 2. tell remote peer the hash via /api/upload/music-by-blake3
+   * 2. tell remote peer the hash via `${path}-by-blake3` (e.g. /api/upload/music-by-blake3)
    * 3. remote peer pulls the blob from us via iroh-blobs verified streaming
    * 4. release the TempTag so local GC can reclaim the blob
    */
   private async uploadViaIrohBlobs(
+    path: string,
     file: File,
     formData: FormData,
   ): Promise<TransportResponse> {
@@ -297,9 +416,7 @@ export class WasmTransport implements Transport {
         }
 
         // include associate_with if present
-        const associateWithStr = formData.get("associate_with") as
-          | string
-          | null;
+        const associateWithStr = formData.get("associate_with") as string | null;
         if (associateWithStr) {
           try {
             body.associate_with = JSON.parse(associateWithStr);
@@ -308,11 +425,7 @@ export class WasmTransport implements Transport {
           }
         }
 
-        const response = await this.request(
-          "POST",
-          "/api/upload/music-by-blake3",
-          JSON.stringify(body),
-        );
+        const response = await this.request("POST", `${path}-by-blake3`, JSON.stringify(body));
         return response;
       } finally {
         // release TempTag so local GC can reclaim the blob
@@ -320,7 +433,11 @@ export class WasmTransport implements Transport {
       }
     } catch (error) {
       console.error("[WasmTransport] upload failed:", error);
-      throw error;
+      // preserve the original error (structure, stack, any extra
+      // properties) via `cause` rather than flattening it into a plain
+      // string - only the message/error_type get normalized here.
+      const { message, errorType } = extractErrorType(error);
+      throw new TransportError(`upload failed: ${message}`, { errorType, cause: error });
     }
   }
 
@@ -334,18 +451,19 @@ export class WasmTransport implements Transport {
     file: File,
     formData: FormData,
   ): Promise<TransportResponse> {
-    if (path === "/api/upload/music") {
+    if (path === "/api/upload/music" || path === "/api/upload/video") {
       console.warn(
-        "[WasmTransport] falling back to base64 upload for music (import_blob not available)",
+        `[WasmTransport] falling back to base64 upload for ${path} (import_blob not available)`,
       );
+    }
+
+    if (file.size > MAX_BASE64_UPLOAD_BYTES) {
+      throw uploadTooLargeError(file, path);
     }
 
     const arrayBuffer = await file.arrayBuffer();
     const base64 = btoa(
-      new Uint8Array(arrayBuffer).reduce(
-        (data, byte) => data + String.fromCharCode(byte),
-        "",
-      ),
+      new Uint8Array(arrayBuffer).reduce((data, byte) => data + String.fromCharCode(byte), ""),
     );
 
     const body: Record<string, unknown> = {
@@ -367,46 +485,61 @@ export class WasmTransport implements Transport {
     return this.request("POST", path, JSON.stringify(body));
   }
 
-  async fetchBlob(blobId: string, blake3?: string): Promise<BlobData> {
+  /** write fetched bytes into the Cache API, unless the caller opted out.
+   * centralized so every fallback-chain step in `fetchBlob` shares one
+   * definition of the cache policy. */
+  private async storeInCache(
+    cache: Cache,
+    blobId: string,
+    data: Uint8Array,
+    contentType: string,
+    opts?: BlobFetchOptions,
+  ): Promise<void> {
+    if (opts?.cache === "skip") return;
+    const arrayBuffer = data.buffer.slice(
+      data.byteOffset,
+      data.byteOffset + data.byteLength,
+    ) as ArrayBuffer;
+    const response = new Response(arrayBuffer, {
+      headers: { "Content-Type": contentType },
+    });
+    await cache.put(cacheKey(blobId), response);
+  }
+
+  async fetchBlob(blobId: string, blake3?: string, opts?: BlobFetchOptions): Promise<BlobData> {
     // check Cache API first
     const cache = await caches.open(this.cacheName);
     const cached = await cache.match(cacheKey(blobId));
 
     if (cached) {
       const data = new Uint8Array(await cached.arrayBuffer());
-      const contentType =
-        cached.headers.get("Content-Type") || "application/octet-stream";
+      const contentType = cached.headers.get("Content-Type") || "application/octet-stream";
       return { data, contentType };
     }
+
+    // per-step failure breakdown, attached to the final thrown error so a
+    // bug report/log has the full fallback-chain picture, not just the
+    // last step's message.
+    const attempts: Array<{ step: string; reason: string }> = [];
 
     // if blake3 is provided, try iroh-blobs verified download
     // prefer download_verified_with_ensure (handles on-demand loading)
     // fall back to download_verified if that's not available
     if (blake3) {
-      const downloadFn =
-        this.node.download_verified_with_ensure ?? this.node.download_verified;
+      const downloadFn = this.node.download_verified_with_ensure ?? this.node.download_verified;
 
       if (downloadFn) {
         try {
           const data = await downloadFn.call(this.node, this.peerAddr, blake3);
           const contentType = "audio/mpeg"; // iroh-blobs doesn't track content type, assume audio
 
-          // cache for future use
-          const arrayBuffer = data.buffer.slice(
-            data.byteOffset,
-            data.byteOffset + data.byteLength,
-          ) as ArrayBuffer;
-          const response = new Response(arrayBuffer, {
-            headers: { "Content-Type": contentType },
-          });
-          await cache.put(cacheKey(blobId), response);
+          await this.storeInCache(cache, blobId, data, contentType, opts);
 
           return { data, contentType };
         } catch (e) {
           const errorMessage = e instanceof Error ? e.message : String(e);
-          console.warn(
-            `[WasmTransport] verified download failed, falling back: ${errorMessage}`,
-          );
+          attempts.push({ step: "verified_download", reason: errorMessage });
+          console.warn(`[WasmTransport] verified download failed, falling back: ${errorMessage}`);
           // fall through to api fetch
         }
       }
@@ -427,50 +560,37 @@ export class WasmTransport implements Transport {
           const data = base64ToBytes(parsed.data.data);
           const contentType = parsed.data.mime || "application/octet-stream";
 
-          // cache for future use with correct content type
-          const arrayBuffer = data.buffer.slice(
-            data.byteOffset,
-            data.byteOffset + data.byteLength,
-          ) as ArrayBuffer;
-          const response = new Response(arrayBuffer, {
-            headers: { "Content-Type": contentType },
-          });
-          await cache.put(cacheKey(blobId), response);
+          await this.storeInCache(cache, blobId, data, contentType, opts);
 
           return { data, contentType };
         }
+        attempts.push({
+          step: "api_request",
+          reason: `unexpected response shape (status ${result.status})`,
+        });
+      } else {
+        attempts.push({ step: "api_request", reason: `http ${result.status}` });
       }
     } catch (e) {
       const errorMessage = e instanceof Error ? e.message : String(e);
-      console.warn(
-        `[WasmTransport] api blob data request failed, falling back: ${errorMessage}`,
-      );
+      attempts.push({ step: "api_request", reason: errorMessage });
+      console.warn(`[WasmTransport] api blob data request failed, falling back: ${errorMessage}`);
     }
 
     // fallback: try on-demand blake3 computation + verified download via iroh-blobs
     if (!blake3 && this.node.download_verified_by_id) {
       try {
-        const result = await this.node.download_verified_by_id(
-          this.peerAddr,
-          blobId,
-        );
+        const result = await this.node.download_verified_by_id(this.peerAddr, blobId);
         const data = result[0] as Uint8Array;
         // result[1] is the computed blake3 hash
         const contentType = "application/octet-stream";
 
-        // cache for future use
-        const arrayBuffer = data.buffer.slice(
-          data.byteOffset,
-          data.byteOffset + data.byteLength,
-        ) as ArrayBuffer;
-        const response = new Response(arrayBuffer, {
-          headers: { "Content-Type": contentType },
-        });
-        await cache.put(cacheKey(blobId), response);
+        await this.storeInCache(cache, blobId, data, contentType, opts);
 
         return { data, contentType };
       } catch (e) {
         const errorMessage = e instanceof Error ? e.message : String(e);
+        attempts.push({ step: "on_demand_blake3", reason: errorMessage });
         console.warn(
           `[WasmTransport] on-demand verified download failed, falling back: ${errorMessage}`,
         );
@@ -485,26 +605,20 @@ export class WasmTransport implements Transport {
         const data = result.data();
         const contentType = result.content_type() ?? "application/octet-stream";
 
-        // cache for future use
-        const arrayBuffer = data.buffer.slice(
-          data.byteOffset,
-          data.byteOffset + data.byteLength,
-        ) as ArrayBuffer;
-        const response = new Response(arrayBuffer, {
-          headers: { "Content-Type": contentType },
-        });
-        await cache.put(cacheKey(blobId), response);
+        await this.storeInCache(cache, blobId, data, contentType, opts);
 
         return { data, contentType };
       } catch (e) {
         const errorMessage = e instanceof Error ? e.message : String(e);
+        attempts.push({ step: "legacy_fetch_blob", reason: errorMessage });
         console.warn(`[WasmTransport] P2P fetch_blob failed: ${errorMessage}`);
-        throw new Error(`P2P fetch_blob failed: ${errorMessage}`);
+        throw new TransportError(`P2P fetch_blob failed: ${errorMessage}`, { attempts });
       }
     }
 
-    throw new Error(
+    throw new TransportError(
       "no download method available for this blob (no blake3 hash and no legacy fetch_blob)",
+      { attempts },
     );
   }
 
@@ -529,6 +643,7 @@ export class WasmTransport implements Transport {
     blake3?: string,
     totalBytes?: number,
     mimeType?: string,
+    opts?: BlobFetchOptions,
   ): Promise<BlobData> {
     // check Cache API first
     const cache = await caches.open(this.cacheName);
@@ -536,12 +651,16 @@ export class WasmTransport implements Transport {
 
     if (cached) {
       const data = new Uint8Array(await cached.arrayBuffer());
-      const contentType =
-        cached.headers.get("Content-Type") || "application/octet-stream";
+      const contentType = cached.headers.get("Content-Type") || "application/octet-stream";
       // report 100% progress for cached blobs
       onProgress(data.length, data.length);
       return { data, contentType };
     }
+
+    // per-step failure breakdown, attached to the final thrown error so a
+    // bug report/log has the full fallback-chain picture, not just the
+    // last step's message (see docs/error-handling-tasks.md track P0-E).
+    const attempts: Array<{ step: string; reason: string }> = [];
 
     // if blake3 is provided, try iroh-blobs verified download
     // prefer streaming path (chunk-by-chunk into a Blob) for large files —
@@ -549,8 +668,7 @@ export class WasmTransport implements Transport {
     // fails around 32MB+ with "encode error".
     if (blake3) {
       const streamingFn =
-        this.node.download_verified_streaming_with_ensure ??
-        this.node.download_verified_streaming;
+        this.node.download_verified_streaming_with_ensure ?? this.node.download_verified_streaming;
 
       if (streamingFn) {
         try {
@@ -579,10 +697,7 @@ export class WasmTransport implements Transport {
               // truth for the UI when totalBytes is known so we get a smooth
               // 0..100% even before chunks start flowing in the read phase.
               if (totalBytes && totalBytes > 0) {
-                const received = Math.min(
-                  totalBytes,
-                  Math.floor(fraction * totalBytes),
-                );
+                const received = Math.min(totalBytes, Math.floor(fraction * totalBytes));
                 onProgress(received, totalBytes);
               }
             },
@@ -600,19 +715,12 @@ export class WasmTransport implements Transport {
           }
           chunks.length = 0; // free per-chunk refs early
 
-          // cache for future use
-          const cacheArrayBuffer = data.buffer.slice(
-            data.byteOffset,
-            data.byteOffset + data.byteLength,
-          ) as ArrayBuffer;
-          const response = new Response(cacheArrayBuffer, {
-            headers: { "Content-Type": contentType },
-          });
-          await cache.put(cacheKey(blobId), response);
+          await this.storeInCache(cache, blobId, data, contentType, opts);
 
           return { data, contentType };
         } catch (e) {
           const errorMessage = e instanceof Error ? e.message : String(e);
+          attempts.push({ step: "streaming_verified_download", reason: errorMessage });
           console.warn(
             `[WasmTransport] streaming verified download failed, trying non-streaming: ${errorMessage}`,
           );
@@ -620,8 +728,7 @@ export class WasmTransport implements Transport {
         }
       }
 
-      const downloadFn =
-        this.node.download_verified_with_ensure ?? this.node.download_verified;
+      const downloadFn = this.node.download_verified_with_ensure ?? this.node.download_verified;
 
       if (downloadFn) {
         try {
@@ -631,22 +738,13 @@ export class WasmTransport implements Transport {
           // report 100% progress
           onProgress(data.length, data.length);
 
-          // cache for future use
-          const arrayBuffer = data.buffer.slice(
-            data.byteOffset,
-            data.byteOffset + data.byteLength,
-          ) as ArrayBuffer;
-          const response = new Response(arrayBuffer, {
-            headers: { "Content-Type": contentType },
-          });
-          await cache.put(cacheKey(blobId), response);
+          await this.storeInCache(cache, blobId, data, contentType, opts);
 
           return { data, contentType };
         } catch (e) {
           const errorMessage = e instanceof Error ? e.message : String(e);
-          console.warn(
-            `[WasmTransport] verified download failed, falling back: ${errorMessage}`,
-          );
+          attempts.push({ step: "verified_download", reason: errorMessage });
+          console.warn(`[WasmTransport] verified download failed, falling back: ${errorMessage}`);
           // fall through to regular fetch_blob
         }
       }
@@ -657,33 +755,20 @@ export class WasmTransport implements Transport {
     // fallback because `/api/blobs/{id}/data` only works for DB-backed blobs
     // and file-backed media blobs would otherwise fail first, then fall back
     // anyway.
-    if (
-      !blake3 &&
-      this.node.download_verified_by_id &&
-      mimeType?.startsWith("audio/")
-    ) {
+    if (!blake3 && this.node.download_verified_by_id && mimeType?.startsWith("audio/")) {
       try {
-        const result = await this.node.download_verified_by_id(
-          this.peerAddr,
-          blobId,
-        );
+        const result = await this.node.download_verified_by_id(this.peerAddr, blobId);
         const data = result[0] as Uint8Array;
         const contentType = mimeType || "application/octet-stream";
 
         onProgress(data.length, data.length);
 
-        const arrayBuffer = data.buffer.slice(
-          data.byteOffset,
-          data.byteOffset + data.byteLength,
-        ) as ArrayBuffer;
-        const response = new Response(arrayBuffer, {
-          headers: { "Content-Type": contentType },
-        });
-        await cache.put(cacheKey(blobId), response);
+        await this.storeInCache(cache, blobId, data, contentType, opts);
 
         return { data, contentType };
       } catch (e) {
         const errorMessage = e instanceof Error ? e.message : String(e);
+        attempts.push({ step: "audio_verified_by_id", reason: errorMessage });
         console.warn(
           `[WasmTransport] audio verified-by-id failed, falling back to api_request: ${errorMessage}`,
         );
@@ -708,30 +793,23 @@ export class WasmTransport implements Transport {
           // report 100% progress
           onProgress(data.length, data.length);
 
-          // cache for future use with correct content type
-          const arrayBuffer = data.buffer.slice(
-            data.byteOffset,
-            data.byteOffset + data.byteLength,
-          ) as ArrayBuffer;
-          const response = new Response(arrayBuffer, {
-            headers: { "Content-Type": contentType },
-          });
-          await cache.put(cacheKey(blobId), response);
+          await this.storeInCache(cache, blobId, data, contentType, opts);
 
           return { data, contentType };
         }
         apiFailureReason = `success=false in api response body for blob ${blobId}`;
+        attempts.push({ step: "api_request", reason: apiFailureReason });
         console.warn(`[WasmTransport] ${apiFailureReason}`);
       } else {
         apiFailureReason = `api request returned status ${result.status} for blob ${blobId}`;
+        attempts.push({ step: "api_request", reason: apiFailureReason });
         console.warn(`[WasmTransport] ${apiFailureReason}`);
       }
     } catch (e) {
       const errorMessage = e instanceof Error ? e.message : String(e);
       apiFailureReason = `api request threw: ${errorMessage}`;
-      console.warn(
-        `[WasmTransport] api blob data request failed, falling back: ${errorMessage}`,
-      );
+      attempts.push({ step: "api_request", reason: apiFailureReason });
+      console.warn(`[WasmTransport] api blob data request failed, falling back: ${errorMessage}`);
     }
 
     // fallback: try on-demand blake3 computation + verified download via iroh-blobs.
@@ -740,30 +818,19 @@ export class WasmTransport implements Transport {
     // blake3 for a song.
     if (!blake3 && this.node.download_verified_by_id) {
       try {
-        const result = await this.node.download_verified_by_id(
-          this.peerAddr,
-          blobId,
-        );
+        const result = await this.node.download_verified_by_id(this.peerAddr, blobId);
         const data = result[0] as Uint8Array;
         const contentType = mimeType || "application/octet-stream";
 
         onProgress(data.length, data.length);
 
-        const arrayBuffer = data.buffer.slice(
-          data.byteOffset,
-          data.byteOffset + data.byteLength,
-        ) as ArrayBuffer;
-        const response = new Response(arrayBuffer, {
-          headers: { "Content-Type": contentType },
-        });
-        await cache.put(cacheKey(blobId), response);
+        await this.storeInCache(cache, blobId, data, contentType, opts);
 
         return { data, contentType };
       } catch (e) {
         const errorMessage = e instanceof Error ? e.message : String(e);
-        console.warn(
-          `[WasmTransport] on-demand verified download failed: ${errorMessage}`,
-        );
+        attempts.push({ step: "on_demand_blake3", reason: errorMessage });
+        console.warn(`[WasmTransport] on-demand verified download failed: ${errorMessage}`);
       }
     }
 
@@ -772,11 +839,7 @@ export class WasmTransport implements Transport {
       try {
         let result: BlobResultLike;
         if (this.node.fetch_blob_with_progress) {
-          result = await this.node.fetch_blob_with_progress(
-            this.peerAddr,
-            blobId,
-            onProgress,
-          );
+          result = await this.node.fetch_blob_with_progress(this.peerAddr, blobId, onProgress);
         } else {
           // fallback to non-progress fetch
           result = await this.node.fetch_blob!(this.peerAddr, blobId);
@@ -784,33 +847,27 @@ export class WasmTransport implements Transport {
         const data = result.data();
         const contentType = result.content_type() ?? "application/octet-stream";
 
-        // cache for future use
-        const arrayBuffer = data.buffer.slice(
-          data.byteOffset,
-          data.byteOffset + data.byteLength,
-        ) as ArrayBuffer;
-        const response = new Response(arrayBuffer, {
-          headers: { "Content-Type": contentType },
-        });
-        await cache.put(cacheKey(blobId), response);
+        await this.storeInCache(cache, blobId, data, contentType, opts);
 
         return { data, contentType };
       } catch (e) {
         const errorMessage = e instanceof Error ? e.message : String(e);
+        attempts.push({ step: "legacy_fetch_blob", reason: errorMessage });
         console.warn(`[WasmTransport] P2P fetch_blob failed: ${errorMessage}`);
-        throw new Error(`P2P fetch_blob failed: ${errorMessage}`);
+        throw new TransportError(`P2P fetch_blob failed: ${errorMessage}`, { attempts });
       }
     }
 
-    throw new Error(
+    throw new TransportError(
       `no download method available for blob ${blobId} ` +
         `(blake3=${blake3 ? "yes" : "no"}, ` +
         `api=${apiFailureReason ?? "not attempted"}, ` +
         `legacy_fetch_blob=${this.node.fetch_blob ? "available" : "missing"})`,
+      { attempts },
     );
   }
 
-  async getBlobUrl(blobId: string, blake3?: string): Promise<string> {
+  async getBlobUrl(blobId: string, blake3?: string, opts?: BlobFetchOptions): Promise<string> {
     // check in-memory cache first
     const cached = this.blobUrlCache.get(blobId);
     if (cached) {
@@ -818,7 +875,7 @@ export class WasmTransport implements Transport {
     }
 
     // fetch and create object URL (pass blake3 for verified download)
-    const { data, contentType } = await this.fetchBlob(blobId, blake3);
+    const { data, contentType } = await this.fetchBlob(blobId, blake3, opts);
     const arrayBuffer = data.buffer.slice(
       data.byteOffset,
       data.byteOffset + data.byteLength,
@@ -845,6 +902,7 @@ export class WasmTransport implements Transport {
     blake3?: string,
     totalBytes?: number,
     mimeType?: string,
+    opts?: BlobFetchOptions,
   ): Promise<string> {
     // check in-memory cache first
     const cached = this.blobUrlCache.get(blobId);
@@ -861,6 +919,7 @@ export class WasmTransport implements Transport {
       blake3,
       totalBytes,
       mimeType,
+      opts,
     );
     const arrayBuffer = data.buffer.slice(
       data.byteOffset,
@@ -932,9 +991,7 @@ export class WasmTransport implements Transport {
     const stream = await this.node.open_bi(this.peerAddr, EVENTS_ALPN);
     try {
       const id = 1;
-      await stream.write_line(
-        JSON.stringify({ type: "subscribe", id, filter: filter ?? {} }),
-      );
+      await stream.write_line(JSON.stringify({ type: "subscribe", id, filter: filter ?? {} }));
       // first server frame is always Snapshot for this id
       const snapLine = await stream.read_line();
       if (snapLine === null) {
@@ -963,19 +1020,11 @@ export class WasmTransport implements Transport {
     }
   }
 
-  subscribeJobEvents(
-    filter?: EventFilter,
-    signal?: AbortSignal,
-  ): AsyncIterable<JobEvent> {
+  subscribeJobEvents(filter?: EventFilter, signal?: AbortSignal): AsyncIterable<JobEvent> {
     if (!this.node.open_bi) {
       return wasmFallbackPollingIterable(this, filter, signal);
     }
-    return wasmSubscribeJobEventsIterable(
-      this.node,
-      this.peerAddr,
-      filter,
-      signal,
-    );
+    return wasmSubscribeJobEventsIterable(this.node, this.peerAddr, filter, signal);
   }
 }
 
@@ -1040,9 +1089,7 @@ async function* wasmSubscribeJobEventsIterable(
   signal?.addEventListener("abort", onAbort, { once: true });
 
   try {
-    await stream.write_line(
-      JSON.stringify({ type: "subscribe", id, filter: filter ?? {} }),
-    );
+    await stream.write_line(JSON.stringify({ type: "subscribe", id, filter: filter ?? {} }));
 
     while (true) {
       if (signal?.aborted) return;
@@ -1061,8 +1108,7 @@ async function* wasmSubscribeJobEventsIterable(
         continue;
       }
       if (frame.type === "close") {
-        const reasonKind =
-          (frame.reason as { kind: string }).kind ?? "internal";
+        const reasonKind = (frame.reason as { kind: string }).kind ?? "internal";
         if (reasonKind === "client_unsubscribed") return;
         throw new JobEventsStreamClosed(frame.reason);
       }

@@ -5,12 +5,7 @@
 // uses Tauri's asset protocol for blob/audio file access (no HTTP streaming).
 
 import type { Transport, TransportResponse, BlobData } from "./transport.js";
-import type {
-  CloseReason,
-  EventFilter,
-  JobEvent,
-  JobStateSnapshot,
-} from "./codegen/schema.js";
+import type { CloseReason, EventFilter, JobEvent, JobStateSnapshot } from "./codegen/schema.js";
 
 // tauri invoke function type
 type InvokeFn = (cmd: string, args?: unknown) => Promise<unknown>;
@@ -30,6 +25,16 @@ let convertFileSrc: ((path: string) => string) | null = null;
 // rodio is *not* enabled and we're on linux, we fall back to the
 // blob: object url path below.
 const isLinuxWebKit = typeof navigator !== "undefined" && navigator.userAgent.includes("Linux");
+
+/**
+ * blobs that must never be buffered into memory as a blob: URL, even on
+ * linux: a local video can easily be multi-GB, and `fetch().arrayBuffer()`
+ * on one hangs the whole app. these stream from asset:// instead, which
+ * also gives `<video>` real range requests for seeking.
+ */
+function isStreamableMime(mime?: string | null): boolean {
+  return (mime ?? "").startsWith("video/");
+}
 
 /**
  * initialize tauri invoke function
@@ -94,6 +99,13 @@ export class CharnelLocalTransport implements Transport {
       }
     }
 
+    // temporary diagnostic: log the exact payload sent over IPC for
+    // query-style routes, to rule out serialization loss between the
+    // caller and the tauri invoke() call (see tauri tag-filter bug).
+    if (path.includes("/query")) {
+      console.info(`[CharnelLocalTransport] -> ${path}`, jsonBody);
+    }
+
     // temporary boot-timing instrumentation (see slow-tauri-boot investigation) —
     // logs elapsed ms per IPC round-trip so a slow "loading..." screen can be
     // narrowed down to a specific api call instead of guessing.
@@ -149,11 +161,22 @@ export class CharnelLocalTransport implements Transport {
 
   /**
    * upload - converts FormData to base64 JSON and calls dispatch
-   * 
+   *
    * for tauri-local, we use wait_for_completion to block until the job
    * finishes, avoiding the need for polling from the client side.
    */
-  async upload(path: string, formData: FormData): Promise<TransportResponse> {
+  async upload(
+    path: string,
+    formData: FormData,
+    _onProgress?: (loaded: number, total: number) => void,
+  ): Promise<TransportResponse> {
+    // no byte-level progress possible here - unlike CharnelTransport (P2P),
+    // which already chunks the file for android/memory reasons and can
+    // report progress per chunk, this local-dispatch path reads the whole
+    // file into one base64 JSON body and sends it as a single IPC call.
+    // chunking this too would need a new local (non-P2P) equivalent of the
+    // `-by-blake3` upload route, since that route currently requires a
+    // `node_id` and always pulls from a remote peer.
     // extract file and other fields from FormData
     const file = formData.get("file") as File | null;
     if (!file) {
@@ -170,7 +193,7 @@ export class CharnelLocalTransport implements Transport {
     // read file as base64
     const arrayBuffer = await file.arrayBuffer();
     const base64 = btoa(
-      new Uint8Array(arrayBuffer).reduce((data, byte) => data + String.fromCharCode(byte), "")
+      new Uint8Array(arrayBuffer).reduce((data, byte) => data + String.fromCharCode(byte), ""),
     );
 
     // build JSON body for dispatch
@@ -249,11 +272,13 @@ export class CharnelLocalTransport implements Transport {
           this.blobPathCache.set(blobId, pathInfo);
         }
       }
-      
+
       // check for no_local_path error - fall back to /data endpoint
       if (!pathInfo) {
         const parsed = JSON.parse(response.body);
-        const isNoLocalPath = parsed.errors?.some((e: { error_type: string }) => e.error_type === "no_local_path");
+        const isNoLocalPath = parsed.errors?.some(
+          (e: { error_type: string }) => e.error_type === "no_local_path",
+        );
         if (isNoLocalPath || response.status !== 200) {
           return this.fetchBlobData(blobId);
         }
@@ -285,26 +310,26 @@ export class CharnelLocalTransport implements Transport {
     if (response.status !== 200) {
       throw new Error(`failed to get blob data: ${response.body}`);
     }
-    
+
     const parsed = JSON.parse(response.body);
     if (!parsed.data?.data) {
       throw new Error(`blob data not found: ${blobId}`);
     }
-    
+
     // decode base64 to Uint8Array
     const binaryString = atob(parsed.data.data);
     const bytes = new Uint8Array(binaryString.length);
     for (let i = 0; i < binaryString.length; i++) {
       bytes[i] = binaryString.charCodeAt(i);
     }
-    
+
     const mime = parsed.data.mime ?? "application/octet-stream";
-    
+
     // create and cache object URL for future use
     const blob = new Blob([bytes], { type: mime });
     const objectUrl = URL.createObjectURL(blob);
     this.blobObjectUrlCache.set(blobId, objectUrl);
-    
+
     return {
       data: bytes,
       contentType: mime,
@@ -317,6 +342,10 @@ export class CharnelLocalTransport implements Transport {
    * 2. tauri asset:// (via `convertFileSrc`) on macos/windows
    * 3. linux fallback: fetch via asset:// and wrap in a blob: object URL
    *    (webkitgtk can't stream asset:// into `<audio>`)
+   *
+   * the linux fallback buffers the ENTIRE file in memory, so it is never
+   * used for video - a multi-GB local video would exhaust memory and hang
+   * the app (`<video>` also seeks, which a one-shot blob can't stream).
    *
    * note: when the rodio audio backend is enabled (charnel + opt-in)
    * playback bypasses html `<audio>` entirely and reads files via
@@ -331,14 +360,16 @@ export class CharnelLocalTransport implements Transport {
     }
 
     // on linux without rodio, we MUST go async to wrap in a blob:
-    // url (asset:// can't stream into <audio> on webkitgtk).
-    if (isLinuxWebKit) {
+    // url (asset:// can't stream into <audio> on webkitgtk) - except for
+    // video, which streams from asset:// directly (see below).
+    const cachedPath = this.blobPathCache.get(blobId);
+    if (isLinuxWebKit && !isStreamableMime(cachedPath?.mime)) {
       console.debug(`[CharnelLocalTransport] blob ${blobId}: linux fallback (async)`);
       return this.getBlobUrlAsync(blobId);
     }
 
     // check path cache (filesystem blobs) — direct asset:// url
-    const cached = this.blobPathCache.get(blobId);
+    const cached = cachedPath;
     if (cached && convertFileSrc) {
       const url = convertFileSrc(cached.path);
       console.debug(`[CharnelLocalTransport] blob ${blobId}: asset:// (cached) -> ${url}`);
@@ -358,7 +389,7 @@ export class CharnelLocalTransport implements Transport {
     await ensureInvoke(); // ensure convertFileSrc is loaded
 
     const response = await this.request("GET", `/api/blobs/${blobId}/path`, undefined);
-    
+
     if (response.status === 200) {
       const parsed = JSON.parse(response.body);
       if (parsed.data?.path) {
@@ -376,18 +407,24 @@ export class CharnelLocalTransport implements Transport {
         //   - other (images / waveforms / cover art): per-blob cache so
         //     multiple `<img>` and css `background-image` urls coexist
         //     across the playerbar, queue sidebar, etc.
-        if (isLinuxWebKit) {
+        // video is excluded - buffering it would hang the app.
+        if (isLinuxWebKit && !isStreamableMime(parsed.data.mime)) {
           return this.createBlobObjectUrl(blobId, parsed.data.path, parsed.data.mime);
         }
 
+        console.debug(
+          `[CharnelLocalTransport] blob ${blobId}: asset:// stream (mime=${parsed.data.mime ?? "?"})`,
+        );
         return convertFileSrc(parsed.data.path);
       }
     }
-    
+
     // check for no_local_path - fall back to /data endpoint
     const parsed = JSON.parse(response.body);
-    const isNoLocalPath = parsed.errors?.some((e: { error_type: string }) => e.error_type === "no_local_path");
-    
+    const isNoLocalPath = parsed.errors?.some(
+      (e: { error_type: string }) => e.error_type === "no_local_path",
+    );
+
     if (isNoLocalPath) {
       // fetch blob data and create object URL
       await this.fetchBlobData(blobId);
@@ -396,7 +433,7 @@ export class CharnelLocalTransport implements Transport {
         return objectUrl;
       }
     }
-    
+
     throw new Error(`failed to get blob path: ${response.body}`);
   }
 
@@ -415,7 +452,11 @@ export class CharnelLocalTransport implements Transport {
    *     css `background-image` references coexist without one
    *     revoking another.
    */
-  private async createBlobObjectUrl(blobId: string, localPath: string, mime?: string): Promise<string> {
+  private async createBlobObjectUrl(
+    blobId: string,
+    localPath: string,
+    mime?: string,
+  ): Promise<string> {
     if (!convertFileSrc) {
       throw new Error("convertFileSrc not available");
     }
@@ -465,10 +506,7 @@ export class CharnelLocalTransport implements Transport {
     return out;
   }
 
-  subscribeJobEvents(
-    filter?: EventFilter,
-    signal?: AbortSignal,
-  ): AsyncIterable<JobEvent> {
+  subscribeJobEvents(filter?: EventFilter, signal?: AbortSignal): AsyncIterable<JobEvent> {
     return charnelJobEventsIterable(filter, signal);
   }
 }
@@ -509,9 +547,7 @@ export function createCharnelLocalTransport(baseUrl: string): CharnelLocalTransp
  * `EventsServerMsg` from `events_protocol.rs` but flattened — no
  * per-bistream correlation id (per-channel on tauri makes it unneeded).
  */
-type JobsEventsFrame =
-  | { kind: "event"; evt: JobEvent }
-  | { kind: "closed"; reason: CloseReason };
+type JobsEventsFrame = { kind: "event"; evt: JobEvent } | { kind: "closed"; reason: CloseReason };
 
 async function* charnelJobEventsIterable(
   filter: EventFilter | undefined,
@@ -574,8 +610,7 @@ async function* charnelJobEventsIterable(
         // surface the close reason as a typed error so consumers can
         // distinguish `Lagged` (re-snapshot + reconnect) from other
         // terminal conditions.
-        const reasonKind =
-          (frame.reason as { kind: string }).kind ?? "internal";
+        const reasonKind = (frame.reason as { kind: string }).kind ?? "internal";
         if (reasonKind === "client_unsubscribed") return;
         throw new JobEventsStreamClosed(frame.reason);
       }

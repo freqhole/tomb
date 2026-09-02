@@ -6,6 +6,12 @@ export const ROLE_COLOR: Record<string, string> = {
   group: "#059669",
   artist: "#d97706",
   album: "#475569",
+  // video domain: deep red/maroon family so mixed-domain graphs read at
+  // a glance as "a different kind of entity", not just another hue in
+  // the music palette (teal/green/amber/slate).
+  video: "#b91c1c",
+  video_season: "#991b1b",
+  video_series: "#7f1d1d",
 };
 
 // deterministic per-kind color for value nodes. derived from a small string
@@ -96,6 +102,9 @@ export const ROLE_RANK: Record<string, number> = {
   artist: 4,
   album: 5,
   ghost_artist: 6,
+  video_series: 4,
+  video_season: 4.5,
+  video: 5,
 };
 
 export const EDGE_COLOR = "#6b7280"; // visible on black

@@ -1,9 +1,4 @@
-import {
-  childrenOf,
-  clusterLeaderOf,
-  clusterMembers,
-  state,
-} from "./walkerState";
+import { childrenOf, clusterLeaderOf, clusterMembers, state } from "./walkerState";
 
 export function crossKey(a: string, b: string): string {
   return a < b ? `${a}||${b}` : `${b}||${a}`;
@@ -19,7 +14,11 @@ export function remoteHubId(remoteId: string): string {
  *  name matching (artists, album titles). matches "MF DOOM" with "Mf Doom",
  *  "Sunn O)))" with "sunn o", "Post-Punk" with "post punk". */
 export function slug(s: string): string {
-  return s.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  return s
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
 }
 
 /** parse the remote id out of an entity id like `artist::raid::r01`. returns
@@ -68,9 +67,12 @@ export function clusterChildrenOf(id: string): string[] {
 
 export function nodeRadius(role: string, childCount: number): number {
   switch (role) {
-    case "root":     return 34;
-    case "remote":   return 28 + Math.min(Math.sqrt(childCount) * 3, 16);
-    case "relation": return 20 + Math.min(Math.sqrt(childCount) * 4, 20);
+    case "root":
+      return 34;
+    case "remote":
+      return 28 + Math.min(Math.sqrt(childCount) * 3, 16);
+    case "relation":
+      return 20 + Math.min(Math.sqrt(childCount) * 4, 20);
     case "value":
       return 14 + Math.min(Math.sqrt(childCount) * 3, 16);
     case "group":
@@ -82,9 +84,20 @@ export function nodeRadius(role: string, childCount: number): number {
     // baseR/radialStep and gives related-artist ghosts + album rings
     // breathing room around a fat catalog. 3 albums → 27 (unchanged),
     // 7 → ~37, 15 → ~46, 30+ → caps at ~51.
-    case "artist":   return 27 + Math.min(Math.sqrt(Math.max(0, childCount - 3)) * 5, 24);
-    case "album":    return 16;
-    case "ghost_artist": return 8; // text-only, small footprint just for layout
-    default:         return 14;
+    case "artist":
+      return 32 + Math.min(Math.sqrt(Math.max(0, childCount - 3)) * 5, 24);
+    case "album":
+      return 20;
+    case "video":
+      return 23;
+    case "video_season":
+      return 25 + Math.min(Math.sqrt(Math.max(0, childCount - 3)) * 3, 14);
+    case "video_series":
+      // sits just above the season tier, not as big as artist/remote.
+      return 24 + Math.min(Math.sqrt(Math.max(0, childCount - 3)) * 2.5, 12);
+    case "ghost_artist":
+      return 8; // text-only, small footprint just for layout
+    default:
+      return 14;
   }
 }

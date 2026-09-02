@@ -43,8 +43,12 @@ export interface ImportGroupingViewProps {
   albums: ImportReviewAlbum[];
   /** called with the ids of albums to merge and the target album id */
   onMerge: (sourceIds: string[], targetId: string) => void;
-  /** called when a song is moved to a different album */
+  /** called when a song is moved to a different (existing) album */
   onMoveSong: (songId: string, toAlbumId: string) => void;
+  /** called when a song is moved to a brand-new album (created inline,
+   * resolved find-or-create server-side under the review permission gate -
+   * see grimoire's move_song handler) */
+  onCreateAlbumForSong: (songId: string, title: string, artistName: string | null) => void;
   /** "all look right" - advance to metadata stage */
   onConfirm: () => void;
 }
@@ -149,14 +153,35 @@ function SingleAlbumCollapsed(props: { album: ImportReviewAlbum; onConfirm: () =
 // album card (multi-album grouping view)
 // -------------------------------------------------------------------------
 
+const NEW_ALBUM_VALUE = "__new__";
+
 function AlbumGroupCard(props: {
   album: ImportReviewAlbum;
   otherAlbums: ImportReviewAlbum[];
   selected: boolean;
   onToggleSelect: () => void;
   onMoveSong: (songId: string, toAlbumId: string) => void;
+  onCreateAlbumForSong: (songId: string, title: string, artistName: string | null) => void;
 }) {
   const [expanded, setExpanded] = createSignal(true);
+  // song currently showing the "create new album" inline form (at most one
+  // at a time, mirrors the single-select nature of the move-to dropdown)
+  const [creatingForSongId, setCreatingForSongId] = createSignal<string | null>(null);
+  const [newAlbumTitle, setNewAlbumTitle] = createSignal("");
+  const [newAlbumArtist, setNewAlbumArtist] = createSignal("");
+
+  const startCreating = (songId: string) => {
+    setCreatingForSongId(songId);
+    setNewAlbumTitle("");
+    setNewAlbumArtist("");
+  };
+  const cancelCreating = () => setCreatingForSongId(null);
+  const confirmCreating = (songId: string) => {
+    const title = newAlbumTitle().trim();
+    if (!title) return;
+    props.onCreateAlbumForSong(songId, title, newAlbumArtist().trim() || null);
+    setCreatingForSongId(null);
+  };
 
   return (
     <div
@@ -215,37 +240,71 @@ function AlbumGroupCard(props: {
         <div class="border-t border-[var(--color-border-subtle)] divide-y divide-[var(--color-border-subtle)] overflow-hidden rounded-b-lg">
           <For each={props.album.songs}>
             {(song) => (
-              <div class="flex items-center gap-2 px-3 py-1.5 bg-[var(--color-bg-primary)] text-sm group">
-                <span class="w-5 text-right body-xs text-[var(--color-text-muted)] flex-shrink-0">
-                  {fmtTrack(song)}
-                </span>
-                <span class="flex-1 min-w-0 truncate text-[var(--color-text-primary)] body-small">
-                  {song.title}
-                </span>
-                <span class="body-xs text-[var(--color-text-muted)] flex-shrink-0">
-                  {formatDuration(song.durationSeconds)}
-                </span>
+              <div class="flex flex-col gap-1.5 px-3 py-1.5 bg-[var(--color-bg-primary)] text-sm group">
+                <div class="flex items-center gap-2">
+                  <span class="w-5 text-right body-xs text-[var(--color-text-muted)] flex-shrink-0">
+                    {fmtTrack(song)}
+                  </span>
+                  <span class="flex-1 min-w-0 truncate text-[var(--color-text-primary)] body-small">
+                    {song.title}
+                  </span>
+                  <span class="body-xs text-[var(--color-text-muted)] flex-shrink-0">
+                    {formatDuration(song.durationSeconds)}
+                  </span>
 
-                {/* move-to dropdown - only relevant when there are other albums */}
-                <Show when={props.otherAlbums.length > 0}>
+                  {/* move-to dropdown - always offers "create new album",
+                      plus other albums in this session when there are any */}
                   <select
                     class="opacity-0 group-hover:opacity-100 body-xs bg-[var(--color-bg-tertiary)] border border-[var(--color-border-default)] rounded px-1 py-0.5 text-[var(--color-text-secondary)] transition-opacity flex-shrink-0 max-w-[120px]"
                     value=""
                     aria-label={`move ${song.title} to album`}
                     onChange={(e) => {
-                      if (e.currentTarget.value) {
-                        props.onMoveSong(song.id, e.currentTarget.value);
-                        e.currentTarget.value = "";
+                      const value = e.currentTarget.value;
+                      e.currentTarget.value = "";
+                      if (!value) return;
+                      if (value === NEW_ALBUM_VALUE) {
+                        startCreating(song.id);
+                        return;
                       }
+                      props.onMoveSong(song.id, value);
                     }}
                   >
                     <option value="" disabled>
                       move to...
                     </option>
+                    <option value={NEW_ALBUM_VALUE}>+ new album...</option>
                     <For each={props.otherAlbums}>
                       {(other) => <option value={other.id}>{other.title}</option>}
                     </For>
                   </select>
+                </div>
+
+                {/* inline "create new album" form for this song */}
+                <Show when={creatingForSongId() === song.id}>
+                  <div class="flex items-center gap-1.5 pl-7">
+                    <input
+                      type="text"
+                      value={newAlbumTitle()}
+                      onInput={(e) => setNewAlbumTitle(e.currentTarget.value)}
+                      placeholder="new album title"
+                      aria-label={`new album title for ${song.title}`}
+                      class="flex-1 min-w-0 body-xs bg-[var(--color-bg-tertiary)] border border-[var(--color-border-default)] rounded px-1.5 py-0.5 text-[var(--color-text-primary)]"
+                    />
+                    <input
+                      type="text"
+                      value={newAlbumArtist()}
+                      onInput={(e) => setNewAlbumArtist(e.currentTarget.value)}
+                      placeholder="artist (optional)"
+                      aria-label={`new album artist for ${song.title}`}
+                      class="flex-1 min-w-0 body-xs bg-[var(--color-bg-tertiary)] border border-[var(--color-border-default)] rounded px-1.5 py-0.5 text-[var(--color-text-primary)]"
+                    />
+                    <Button variant="primary" size="sm" onClick={() => confirmCreating(song.id)}>
+                      add
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={cancelCreating}>
+                      cancel
+                    </Button>
+                  </div>
                 </Show>
               </div>
             )}
@@ -317,6 +376,7 @@ export function ImportGroupingView(props: ImportGroupingViewProps) {
               selected={selectedIds().has(album.id)}
               onToggleSelect={() => toggleSelect(album.id)}
               onMoveSong={props.onMoveSong}
+              onCreateAlbumForSong={props.onCreateAlbumForSong}
             />
           )}
         </For>

@@ -4,6 +4,7 @@ import { createEffect, createMemo, createSignal, on, onCleanup, onMount, Show } 
 import { setPageInfo, clearPageInfo } from "../../app/services/pageInfo";
 import { useHistoryState } from "../../utils/historyState";
 import { useViewportHeight, getNavHeight } from "../../utils/viewport";
+import { isNarrowViewport, getPlayerBarHeightPx } from "../../config/breakpoints";
 import { Button } from "../../components/buttons/Button";
 import { LoadingState, LoadingMoreIndicator } from "../../components/feedback";
 import type { CollectionCardData } from "../../components/cards/CollectionCard";
@@ -28,6 +29,7 @@ import { AlbumBulkActionBar } from "../../library/components/AlbumBulkActionBar"
 import { MbProgressStrip } from "../../library/components/MbProgressStrip";
 import { BulkEditAlbumsModal } from "../../components/modals/BulkEditAlbumsModal";
 import { TagSelectorModal } from "../../components/modals/TagSelectorModal";
+import { albumTagAdapter } from "../../components/modals/tagAdapters/albumTagAdapter";
 import {
   useAlbumSelectionLifecycle,
   useSelectedAlbumIds,
@@ -44,7 +46,7 @@ import { queryClient } from "../../queryClient";
 import { toast } from "../../components/feedback/Toast";
 
 export interface AlbumsViewProps {
-  onAddMusic: () => void;
+  onAddMedia: () => void;
   onAlbumClick?: (albumId: string) => void;
 }
 
@@ -63,8 +65,11 @@ export function AlbumsView(props: AlbumsViewProps) {
   // responsive grid height — reactive to safari toolbar changes
   const viewportHeight = useViewportHeight();
   const playerBarHeight = () =>
-    (appState()?.queue.length || 0) > 0 || isRadioPlayerBarActive() ? 80 : 0;
-  const gridHeight = () => viewportHeight() - getNavHeight() - playerBarHeight();
+    getPlayerBarHeightPx(
+      isNarrowViewport(),
+      (appState()?.queue.length || 0) > 0 || isRadioPlayerBarActive()
+    );
+  const gridHeight = () => viewportHeight() - playerBarHeight();
 
   onMount(() => {
     onCleanup(() => {
@@ -471,21 +476,16 @@ export function AlbumsView(props: AlbumsViewProps) {
 
   return (
     <div class="flex flex-col h-full">
-      {/* view-mode switcher — inline above table mode only.
-          in grid mode the switcher floats over the grid (see below) so
-          the album grid can fill the full viewport height. */}
-      <Show when={!!currentRemote() && viewMode() === "table"}>
-        <div class="flex items-center justify-end gap-3 px-4 pt-3 pb-2 flex-wrap">
-          <MbProgressStrip />
-          {viewModeSwitcher()}
-        </div>
-      </Show>
-
       {/* album grid or table */}
       <div class="flex-1 min-h-0 overflow-hidden relative">
-        {/* floating switcher overlay — grid mode only, top-right */}
-        <Show when={!!currentRemote() && viewMode() === "grid"}>
-          <div class="absolute top-2 right-4 z-20">{viewModeSwitcher()}</div>
+        {/* floating switcher overlay - both grid and table modes, so rows
+            (like grid cards) can scroll all the way up under the title bar
+            instead of being pushed down by a permanent header strip. */}
+        <Show when={!!currentRemote()}>
+          <div class="absolute top-[calc(var(--nav-height,42px)+0.5rem)] wide:top-2 right-4 z-[110] flex items-center gap-3">
+            <MbProgressStrip />
+            {viewModeSwitcher()}
+          </div>
         </Show>
         <Show
           when={viewMode() === "table" && !!currentRemote()}
@@ -521,7 +521,7 @@ export function AlbumsView(props: AlbumsViewProps) {
                     <p class="text-sm text-[var(--color-text-tertiary)] mb-6">
                       add music to import local audio files or download from urls
                     </p>
-                    <Button variant="primary" onClick={props.onAddMusic}>
+                    <Button variant="primary" onClick={props.onAddMedia}>
                       add music
                     </Button>
                   </div>
@@ -541,7 +541,7 @@ export function AlbumsView(props: AlbumsViewProps) {
                     showGenres={true}
                     cardSize="medium"
                     height={gridHeight()}
-                    scrollPaddingTop={100}
+                    scrollPaddingTop={isNarrowViewport() ? getNavHeight() : 100}
                     scrollRestoreKey={`albums-${searchQuery() || ""}-${tagFilters()
                       .map((f) => f.tag)
                       .join(",")}`}
@@ -606,7 +606,9 @@ export function AlbumsView(props: AlbumsViewProps) {
 
       <Show when={showTagSelectorModal() && !!currentRemote() && tagSelectorAlbumIds().length > 0}>
         <TagSelectorModal
-          albumIds={tagSelectorAlbumIds()}
+          entityIds={tagSelectorAlbumIds()}
+          entityKindLabel="albums"
+          adapter={albumTagAdapter}
           remote={currentRemote()!}
           onClose={() => {
             setShowTagSelectorModal(false);

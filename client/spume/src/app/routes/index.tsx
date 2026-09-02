@@ -27,6 +27,9 @@ import { SongsView } from "../../music/views/SongsView";
 import { RadioView } from "../../music/views/RadioView";
 import { SharedItemsView } from "../../music/views/SharedItemsView";
 import { StorageOverviewView } from "../../storage/views/StorageOverviewView";
+import { VideosView } from "../../video/views/VideosView";
+import { VideoDetailView } from "../../video/views/VideoDetailView";
+import { VideoSeriesView } from "../../video/views/VideoSeriesView";
 import { AppLayout } from "../AppLayout";
 import {
   SettingsLayout,
@@ -40,13 +43,14 @@ import {
   PendingKnocksView,
   UserProfileView,
   LinkDeviceView,
+  PairedPlayersView,
 } from "../../settings";
 import { isCharnelMode } from "../services/charnel";
 import { getDefaultRoute } from "../../music/utils/routing";
 import { debug } from "../../utils/logger";
 
 interface RoutesProps {
-  onAddMusic: () => void;
+  onAddMedia: () => void;
   onSongDoubleClick: (song: any) => void;
   onImportReview?: (sessionId: string) => void;
 }
@@ -127,6 +131,7 @@ export function routes(props: RoutesProps) {
         <Route path="/admin-knocks" component={PendingKnocksView} />
         <Route path="/federation" component={FederationSettingsView} />
         <Route path="/radio" component={RadioSettingsView} />
+        <Route path="/players" component={PairedPlayersView} />
         <Route path="/logz" component={LogzSettingsView} />
         {/* redirect /settings to /settings/storage */}
         <Route
@@ -168,35 +173,38 @@ export function routes(props: RoutesProps) {
               path="/songs"
               component={() => (
                 <SongsView
-                  onAddMusic={props.onAddMusic}
+                  onAddMedia={props.onAddMedia}
                   onSongDoubleClick={props.onSongDoubleClick}
                 />
               )}
             />
-            <Route path="/albums" component={() => <AlbumsView onAddMusic={props.onAddMusic} />} />
+            <Route path="/albums" component={() => <AlbumsView onAddMedia={props.onAddMedia} />} />
             <Route path="/albums/:id" component={AlbumDetailView} />
             <Route
               path="/artists/:id?"
               component={() => (
                 <ArtistsView
-                  onAddMusic={props.onAddMusic}
+                  onAddMedia={props.onAddMedia}
                   onArtistClick={(artistId) => debug("routes", "artist clicked:", artistId)}
                 />
               )}
             />
             <Route
               path="/playlists/:id?"
-              component={() => <PlaylistsView onAddMusic={props.onAddMusic} />}
+              component={() => <PlaylistsView onAddMedia={props.onAddMedia} />}
             />
             <Route
               path="/favorites"
               component={() => (
                 <FavoritesView
-                  onAddMusic={props.onAddMusic}
+                  onAddMedia={props.onAddMedia}
                   onSongDoubleClick={props.onSongDoubleClick}
                 />
               )}
             />
+            <Route path="/video" component={() => <VideosView onAddMedia={props.onAddMedia} />} />
+            <Route path="/video/:videoId" component={VideoDetailView} />
+            <Route path="/video/series/:id?" component={VideoSeriesView} />
           </Route>
         )}
 
@@ -207,35 +215,38 @@ export function routes(props: RoutesProps) {
             path="/songs"
             component={() => (
               <SongsView
-                onAddMusic={props.onAddMusic}
+                onAddMedia={props.onAddMedia}
                 onSongDoubleClick={props.onSongDoubleClick}
               />
             )}
           />
-          <Route path="/albums" component={() => <AlbumsView onAddMusic={props.onAddMusic} />} />
+          <Route path="/albums" component={() => <AlbumsView onAddMedia={props.onAddMedia} />} />
           <Route path="/albums/:id" component={AlbumDetailView} />
           <Route
             path="/artists/:id?"
             component={() => (
               <ArtistsView
-                onAddMusic={props.onAddMusic}
+                onAddMedia={props.onAddMedia}
                 onArtistClick={(artistId) => debug("routes", "artist clicked:", artistId)}
               />
             )}
           />
           <Route
             path="/playlists/:id?"
-            component={() => <PlaylistsView onAddMusic={props.onAddMusic} />}
+            component={() => <PlaylistsView onAddMedia={props.onAddMedia} />}
           />
           <Route
             path="/favorites"
             component={() => (
               <FavoritesView
-                onAddMusic={props.onAddMusic}
+                onAddMedia={props.onAddMedia}
                 onSongDoubleClick={props.onSongDoubleClick}
               />
             )}
           />
+          <Route path="/video" component={() => <VideosView onAddMedia={props.onAddMedia} />} />
+          <Route path="/video/:videoId" component={VideoDetailView} />
+          <Route path="/video/series/:id?" component={VideoSeriesView} />
         </Route>
       </Route>
     </>

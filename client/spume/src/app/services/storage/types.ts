@@ -1,10 +1,11 @@
 // application-level storage types (domain-agnostic)
 import type { ImageMetadata, Song } from "../../../music/services/storage/types";
+import type { MediaItem, QueuedVideo } from "./mediaItem";
 
 export interface AppState {
   id: "app_state";
-  current_sha256: string | null; // currently playing song
-  queue: Song[]; // array of songs in play order
+  current_sha256: string | null; // currently playing song/video identity key
+  queue: MediaItem[]; // array of songs/videos in play order
   queue_open: boolean; // whether queue sidebar is open
   active_remote_id: string | null; // currently active remote source id
   last_updated: number;
@@ -20,6 +21,10 @@ export interface AppState {
   // user-configurable display name for the web/indexeddb-backed "local
   // library" source. defaults to "local library" when unset.
   local_library_name?: string;
+  // when true (default), video grid/table thumbnails crop to a square via
+  // object-fit: cover. when false, they letterbox (object-fit: contain)
+  // instead so nothing is cropped.
+  cropped_square_thumbnails?: boolean;
 }
 
 /** graph-view preferences — stored as id: "graph_prefs" in STORE_APP_STATE. */
@@ -33,21 +38,15 @@ export interface GraphPrefs {
 
 // queue history entry — represents one "add to queue" action
 export type QueueHistorySourceType =
-  | "song"
-  | "album"
-  | "artist"
-  | "genre"
-  | "playlist"
-  | "shuffle"
-  | "radio_station";
+  "song" | "album" | "artist" | "genre" | "playlist" | "shuffle" | "radio_station";
 
 // reference to a radio station stored in queue history
 export interface RadioStationRef {
-  peer_addr: string;        // peer addr used with tuneIntoRadio
-  station_id?: string;      // optional station id
-  station_name: string;     // display label
-  is_local?: boolean;       // true if this is an in-process (self) station
-  art_thumb_b64?: string;   // base64 thumbnail for display
+  peer_addr: string; // peer addr used with tuneIntoRadio
+  station_id?: string; // optional station id
+  station_name: string; // display label
+  is_local?: boolean; // true if this is an in-process (self) station
+  art_thumb_b64?: string; // base64 thumbnail for display
   art_thumb_mime?: string;
 }
 
@@ -76,16 +75,9 @@ export interface QueueHistoryEntry {
 
 // analytics event — queued locally for offline-first sync to server
 export type AnalyticsEventType =
-  | "play_complete"
-  | "favorite"
-  | "unfavorite"
-  | "rate";
+  "play_complete" | "video_play_complete" | "favorite" | "unfavorite" | "rate";
 
-export type AnalyticsEventStatus =
-  | "pending"
-  | "sending"
-  | "failed"
-  | "sent";
+export type AnalyticsEventStatus = "pending" | "sending" | "failed" | "sent";
 
 export interface AnalyticsEvent {
   id: string; // uuid
@@ -93,6 +85,7 @@ export interface AnalyticsEvent {
   payload: {
     media_blob_id?: string;
     song_id?: string;
+    video_id?: string;
     session_id?: string;
     event_data?: Record<string, unknown>;
     // routing: which remote this event should be sent to
@@ -113,6 +106,45 @@ export interface QueueSourceContext {
   label: string;
   entity_id?: string;
   image?: ImageMetadata;
+}
+
+// --- video queue history (parallel to the song history above) ---
+// kept as fully separate types/store from QueueHistoryEntry, which stays
+// song-only by design (see music/services/queue/queueHistory.ts). server
+// session linkage mirrors the song side (phase 5c of
+// docs/playlist-unification-plan.md) — see
+// video/services/queue/videoQueueHistory.ts's
+// updateVideoHistoryServerSession/clearVideoHistoryServerSession.
+export type VideoQueueHistorySourceType = "video" | "series" | "season" | "shuffle" | "playlist";
+
+// source context passed to addVideoHistoryEntry/playVideoQueue for history tracking
+export interface VideoQueueSourceContext {
+  type: VideoQueueHistorySourceType;
+  label: string;
+  entity_id?: string; // series_id/season_id
+  image?: ImageMetadata;
+}
+
+export interface VideoQueueHistoryEntry {
+  id: string; // uuid
+  type: VideoQueueHistorySourceType;
+  label: string; // display text, e.g. a video/series title
+  entity_id?: string; // series_id/season_id
+  remote_name?: string; // name of the remote server (undefined for local)
+  video_count: number; // how many videos were added
+  videos: QueuedVideo[]; // the actual videos (for re-queuing)
+  queued_at: number; // timestamp
+  image?: ImageMetadata; // thumbnail, when available
+  // local watch-progress tracking (idb-only)
+  watched_seconds: number; // total seconds watched across all videos
+  total_seconds: number; // sum of all video durations
+  videos_completed: number; // videos where >90% was watched
+  current_video_index: number; // which video we're on (for resume)
+  current_video_position: number; // position in current video (for resume)
+  // server session tracking (for reconnection after page reload) — mirrors
+  // QueueHistoryEntry's fields above
+  server_session_id?: string; // active server-side playback session id
+  server_remote_id?: string; // remote_server_id the session is on
 }
 
 // remote types - re-export from centralized zod schemas
@@ -137,7 +169,7 @@ export type { P2PIdentity } from "@freqhole/haruspex/identity";
 
 // database schema version
 export const APP_DB_NAME = "freqhole_app";
-export const APP_DB_VERSION = 8; // added shared_items store
+export const APP_DB_VERSION = 13; // replaced paired_players/trusted_controllers with users/user_peer_nodes
 
 // app store names
 export const STORE_APP_STATE = "app_state"; // also stores P2PIdentity with id: "p2p_identity"
@@ -147,13 +179,13 @@ export const STORE_ANALYTICS_EVENTS = "analytics_events";
 export const STORE_PENDING_REMOTES = "pending_remotes";
 export const STORE_RADIO_HISTORY = "radio_history";
 export const STORE_SHARED_ITEMS = "shared_items";
+export const STORE_VIDEO_QUEUE_HISTORY = "video_queue_history"; // capped at 200 entries by videoQueueHistory.ts
+export const STORE_USERS = "users";
+export const STORE_USER_PEER_NODES = "user_peer_nodes";
+export const STORE_PLAYER_SESSION = "player_session"; // singleton row, see remotePlayback/playerSessionAdapter.ts
 
 export type SharedItemKind =
-  | "album"
-  | "playlist"
-  | "song"
-  | "artist"
-  | "radio_station";
+  "album" | "playlist" | "song" | "artist" | "radio_station" | "video" | "video_series";
 
 export interface SharedItemEntry {
   // deterministic dedupe key from (kind, id, parent, source)
@@ -171,31 +203,88 @@ export interface SharedItemEntry {
   seen_count: number;
 }
 
+// mirrors grimoire's `UserRole`, minus `"root"` (see
+// grimoire/src/users/models.rs and cenotaph's own `PeerRole`, which this is
+// deliberately kept structurally identical to) - a root/instance-owner
+// concept doesn't apply to a browser peer identity.
+export type UserRole = "admin" | "member" | "viewer";
+
+// mirrors grimoire's `users::User` (grimoire/src/users/models.rs) as
+// closely as idb allows - a single, shared record of "a known peer
+// identity", used for BOTH outbound player pairing (see
+// services/players/pairedPlayers.ts) and inbound controller trust (see
+// services/remotePlayback/trustStoreAdapter.ts). kept as its own store
+// rather than flattened into `UserPeerNode` below, and kept structurally
+// identical to grimoire's own `User` (not renamed/reshaped for browser
+// convenience), so a future real grimoire-backed multi-device user is a
+// straightforward mapping rather than a redesign (see
+// docs/player-peer-trust-bridge-plan.md). `api_key`/`haruspex_user_id` are
+// unused in browser-only mode today but kept for schema parity.
+export interface User {
+  id: string;
+  username: string;
+  role: UserRole;
+  api_key: string | null;
+  created_at: number;
+  updated_at: number;
+  deleted_at: number | null; // soft-delete modeled for parity; browser ui hard-deletes for now
+  haruspex_user_id: string | null;
+  metadata: string | null;
+}
+
+// mirrors grimoire's `users::UserPeerNode` (grimoire/src/users/models.rs) -
+// maps an iroh node_id to a `User.id`. `node_id` is the primary key
+// (unique across the whole store, same constraint grimoire enforces).
+export interface UserPeerNode {
+  node_id: string;
+  user_id: string;
+  instance_name: string | null;
+  metadata: string | null;
+  created_at: number;
+  last_seen_at: number | null;
+  deleted_at: number | null; // soft-delete modeled for parity; browser ui hard-deletes for now
+}
+
+// mirrors grimoire's `users::PeerNodeWithUser` (grimoire/src/users/models.rs)
+// exactly - a peer node joined with its user's username/role, for listing.
+// this is the shape `services/users/usersStore.ts`'s join helpers return.
+export interface PeerNodeWithUser {
+  user_id: string;
+  node_id: string;
+  instance_name: string | null;
+  created_at: number;
+  last_seen_at: number | null;
+  username: string;
+  role: UserRole;
+  deleted_at: number | null; // soft-delete on the peer row
+  user_deleted_at: number | null; // soft-delete on the joined user row
+}
+
 // radio history entry — one per (station, song_id) transition observed by
 // the listener. capped at MAX_RADIO_HISTORY rows by radioHistory module.
 export interface RadioHistoryEntry {
-  id: string;                       // uuid
-  played_at: number;                // ms epoch (sort key)
+  id: string; // uuid
+  played_at: number; // ms epoch (sort key)
   station_id: string | null;
   station_name: string | null;
-  peer_addr: string;                // remote that served the stream
+  peer_addr: string; // remote that served the stream
   song_id: string | null;
   title: string;
   artist: string | null;
   album: string | null;
   duration_ms: number | null;
   art_blob_id: string | null;
-  art_thumb_b64: string | null;     // optional inline thumb (option A)
+  art_thumb_b64: string | null; // optional inline thumb (option A)
   art_thumb_mime: string | null;
 }
 
 // pending remote stage - tracks progress of adding a new remote
 export type PendingRemoteStage =
-  | "testing"         // connection test in progress
-  | "connected"       // test connection succeeded, have server info
-  | "failed"          // connection failed (timeout, unreachable, etc.)
-  | "knock_pending"   // knock request was sent, awaiting response
-  | "knock_accepted"  // knock was accepted, can complete setup
+  | "testing" // connection test in progress
+  | "connected" // test connection succeeded, have server info
+  | "failed" // connection failed (timeout, unreachable, etc.)
+  | "knock_pending" // knock request was sent, awaiting response
+  | "knock_accepted" // knock was accepted, can complete setup
   | "knock_rejected"; // knock was rejected
 
 // pending remote — tracks in-progress remote additions

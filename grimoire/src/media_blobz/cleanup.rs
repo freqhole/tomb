@@ -14,6 +14,15 @@ pub struct MediaBlobReferences {
     pub album_image_references: i64,
     pub song_image_references: i64,
     pub child_blob_references: i64, // Other blobs that have this as parent
+    pub video_media_references: i64,
+    pub video_poster_references: i64, // videoz/video_seriez/video_seasonz poster_blob_id
+    pub entity_image_references: i64, // entity_imagez (video/video_series galleries)
+    // derived blobs (renditions/thumbnails/waveforms) have no direct
+    // reference column of their own - they're only reachable via
+    // parent_blob_id, so `child_blob_references` never protects them.
+    // this counts as "referenced" when the parent blob itself is still
+    // a live song's/video's original media file.
+    pub parent_still_referenced: i64,
 }
 
 impl MediaBlobReferences {
@@ -25,6 +34,10 @@ impl MediaBlobReferences {
             || self.album_image_references > 0
             || self.song_image_references > 0
             || self.child_blob_references > 0
+            || self.video_media_references > 0
+            || self.video_poster_references > 0
+            || self.entity_image_references > 0
+            || self.parent_still_referenced > 0
     }
 
     /// Get total reference count
@@ -35,6 +48,10 @@ impl MediaBlobReferences {
             + self.album_image_references
             + self.song_image_references
             + self.child_blob_references
+            + self.video_media_references
+            + self.video_poster_references
+            + self.entity_image_references
+            + self.parent_still_referenced
     }
 }
 
@@ -96,6 +113,58 @@ pub async fn find_media_blob_references(blob_id: &str) -> GrimoireResult<MediaBl
     .await?
     .count;
 
+    // Check video original-file references (videoz.media_blob_id)
+    let video_media_refs = sqlx::query!(
+        "SELECT COUNT(*) as count FROM videoz WHERE media_blob_id = ? AND deleted_at IS NULL",
+        blob_id
+    )
+    .fetch_one(&pool)
+    .await?
+    .count;
+
+    // Check video/series/season poster references
+    let video_poster_refs = sqlx::query!(
+        "SELECT
+            (SELECT COUNT(*) FROM videoz WHERE poster_blob_id = ? AND deleted_at IS NULL)
+          + (SELECT COUNT(*) FROM video_seriez WHERE poster_blob_id = ? AND deleted_at IS NULL)
+          + (SELECT COUNT(*) FROM video_seasonz WHERE poster_blob_id = ? AND deleted_at IS NULL)
+          as count",
+        blob_id,
+        blob_id,
+        blob_id
+    )
+    .fetch_one(&pool)
+    .await?
+    .count;
+
+    // Check entity_imagez references (video/video_series image galleries)
+    let entity_image_refs = sqlx::query!(
+        "SELECT COUNT(*) as count FROM entity_imagez WHERE media_blob_id = ?",
+        blob_id
+    )
+    .fetch_one(&pool)
+    .await?
+    .count;
+
+    // Check whether this blob's parent (if any) is itself a still-live
+    // song's or video's original media file - protects renditions and
+    // other derived blobs that have no references/children of their own.
+    let parent_still_referenced = sqlx::query!(
+        "SELECT COUNT(*) as count
+         FROM media_blobz child
+         JOIN media_blobz parent ON parent.id = child.parent_blob_id
+         WHERE child.id = ?
+           AND parent.deleted_at IS NULL
+           AND (
+             EXISTS (SELECT 1 FROM songz WHERE songz.media_blob_id = parent.id AND songz.deleted_at IS NULL)
+             OR EXISTS (SELECT 1 FROM videoz WHERE videoz.media_blob_id = parent.id AND videoz.deleted_at IS NULL)
+           )",
+        blob_id
+    )
+    .fetch_one(&pool)
+    .await?
+    .count;
+
     Ok(MediaBlobReferences {
         blob_id: blob_id.to_string(),
         song_media_references: song_media_refs,
@@ -104,6 +173,10 @@ pub async fn find_media_blob_references(blob_id: &str) -> GrimoireResult<MediaBl
         album_image_references: album_image_refs,
         song_image_references: song_image_refs,
         child_blob_references: child_blob_refs,
+        video_media_references: video_media_refs,
+        video_poster_references: video_poster_refs,
+        entity_image_references: entity_image_refs,
+        parent_still_referenced,
     })
 }
 
@@ -142,6 +215,10 @@ mod tests {
             album_image_references: 0,
             song_image_references: 0,
             child_blob_references: 0,
+            video_media_references: 0,
+            video_poster_references: 0,
+            entity_image_references: 0,
+            parent_still_referenced: 0,
         };
 
         assert!(refs.has_references());
@@ -158,6 +235,10 @@ mod tests {
             album_image_references: 0,
             song_image_references: 0,
             child_blob_references: 0,
+            video_media_references: 0,
+            video_poster_references: 0,
+            entity_image_references: 0,
+            parent_still_referenced: 0,
         };
 
         assert!(!refs.has_references());

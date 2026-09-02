@@ -93,7 +93,8 @@ impl Encoder {
         debug!("[radio-encoder] spawning ffmpeg for {input_path}");
 
         let mut cmd = Command::new(&ffmpeg);
-        cmd.args(&args)
+        cmd.arg("-hide_banner")
+            .args(&args)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .stdin(Stdio::null())

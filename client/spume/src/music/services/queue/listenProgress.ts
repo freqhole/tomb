@@ -6,6 +6,7 @@
 import { createSignal } from "solid-js";
 import { error as errorLog } from "../../../utils/logger";
 import { appState } from "../../../app/services/storage/db";
+import { songsOnly } from "../../../app/services/storage/mediaItem";
 import { queueHistory, updateHistoryProgress } from "./queueHistory";
 import { advanceServerProgress, reconnectServerSession } from "./serverSession";
 import { isPlaying, setVisualPosition } from "../audio/playerState";
@@ -53,7 +54,7 @@ export function resumeTracking(
     songs_completed: number;
     current_song_index: number;
     current_song_position: number;
-  },
+  }
 ): void {
   if (activeHistoryEntryId()) {
     void flushProgress(true);
@@ -101,7 +102,7 @@ export function recordTimeProgress(
   delta: number,
   songIndex: number,
   songPosition: number,
-  _currentSong: Song | null,
+  _currentSong: Song | null
 ): void {
   if (!activeHistoryEntryId()) return;
 
@@ -116,8 +117,9 @@ export function recordTimeProgress(
 export function markSongCompleted(songIndex: number, currentSong: Song | null = null): void {
   if (!activeHistoryEntryId()) return;
   completedSongs.add(songIndex);
-  // advance server progress to the next song
-  advanceServerProgress(songIndex, currentSong);
+  // advance server progress to the next song (resolves the item's global
+  // queue-order position itself — see serverSession.ts's advanceServerProgress)
+  advanceServerProgress(currentSong ? { kind: "song", song: currentSong } : null);
   // flush to IDB immediately and restart interval
   void flushAndRestartInterval();
 }
@@ -153,7 +155,7 @@ export function getCurrentProgress(): {
 async function flushProgress(force = false, skipQueueSave = false): Promise<void> {
   const entryId = activeHistoryEntryId();
   if (!entryId) return;
-  
+
   // skip periodic flushes if player is not playing (no new progress to save)
   if (!force && !isPlaying()) return;
 
@@ -190,9 +192,11 @@ export function reconnectProgressTracking(): void {
   const history = queueHistory();
   if (!history.length) return;
 
-  // find the most recent history entry whose songs match the current queue
-  // compare by sha256 list since that's the unique song identifier
-  const queueHashes = state.queue.map((s) => s.sha256);
+  // find the most recent history entry whose songs match the current queue's
+  // song subset (history entries are song-only — video items don't
+  // participate in queue history yet, see phase 9 MVP scope note).
+  const queueSongs = songsOnly(state.queue);
+  const queueHashes = queueSongs.map((s) => s.sha256);
   const entry = history.find((h) => {
     if (h.songs.length !== queueHashes.length) return false;
     return h.songs.every((s, i) => s.sha256 === queueHashes[i]);
@@ -201,7 +205,7 @@ export function reconnectProgressTracking(): void {
   if (!entry) return;
 
   // set the visual position in the player bar (without starting playback)
-  const currentSong = state.queue.find(s => s.sha256 === state.current_sha256);
+  const currentSong = queueSongs.find((s) => s.sha256 === state.current_sha256);
   if (currentSong && entry.current_song_position > 0) {
     setVisualPosition(entry.current_song_position, currentSong.duration_seconds ?? undefined);
   }

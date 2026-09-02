@@ -179,6 +179,12 @@ export interface MsgSetPinned {
   nodeIds: string[];
 }
 
+/** toggle worker-side sim rebuild logging. */
+export interface MsgSetDebugSim {
+  type: "setDebugSim";
+  enabled: boolean;
+}
+
 export type MainToWorker =
   | MsgBack
   | MsgExpand
@@ -191,6 +197,7 @@ export type MainToWorker =
   | MsgRemove
   | MsgRepivot
   | MsgResize
+  | MsgSetDebugSim
   | MsgSetHidden
   | MsgSetPaused
   | MsgSetPinned
@@ -237,10 +244,11 @@ export interface MsgVisibleIds {
   ids: string[];
 }
 
+/** diagnostic line from the worker; only emitted while `debugSim` is on. */
+export interface MsgLog {
+  type: "log";
+  message: string;
+}
+
 export type WorkerToMain =
-  | MsgBoundsResult
-  | MsgFrame
-  | MsgHitResult
-  | MsgReady
-  | MsgTopology
-  | MsgVisibleIds;
+  MsgBoundsResult | MsgFrame | MsgHitResult | MsgLog | MsgReady | MsgTopology | MsgVisibleIds;

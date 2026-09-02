@@ -17,14 +17,16 @@ mod music;
 pub mod rate_limit;
 mod runner;
 mod service;
+mod video;
 
 // re-export public types
 pub use models::{
     CancelJobRequest, CreateJobRequest, CreateJobSessionRequest, EnrichmentSource, GetJobRequest,
     GetJobsStatusRequest, GetJobsStatusResponse, Job, JobError, JobListResponse, JobProgress,
     JobResponse, JobResult, JobSession, JobStatsResponse, JobStatus, JobType, ListJobsRequest,
-    ProcessorResponse, QueueStats, SessionStatus,
+    ProcessorResponse, QueueStats, SessionStatus, TranscodeVideoParams, TranscodeVideoResult,
 };
+pub(crate) use video::should_skip_transcode;
 
 // re-export music job types for backward compatibility
 pub use music::{
@@ -78,3 +80,6 @@ pub use music::{
     process_convert_webp_job, process_directory_job, process_fetch_media_job, process_file_job,
     process_import_music_job, process_scan_directory_job,
 };
+
+// re-export video job processors (used by runner module)
+pub use video::{process_import_video_job, process_transcode_video_job};

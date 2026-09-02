@@ -376,6 +376,22 @@ pub async fn delete_image(caller: &Caller, body: JsonValue) -> GrimoireResponse<
         "album" => remove_album_image(&req.entity_id, &req.blob_id).await,
         "artist" => remove_artist_image(&req.entity_id, &req.blob_id).await,
         "playlist" => remove_playlist_image(&req.entity_id, &req.blob_id).await,
+        "video" => {
+            crate::video::remove_entity_image(
+                crate::video::VideoEntityType::Video,
+                &req.entity_id,
+                &req.blob_id,
+            )
+            .await
+        }
+        "video_series" => {
+            crate::video::remove_entity_image(
+                crate::video::VideoEntityType::VideoSeries,
+                &req.entity_id,
+                &req.blob_id,
+            )
+            .await
+        }
         _ => {
             return GrimoireResponse::failure(
                 "bad request",
@@ -418,6 +434,22 @@ pub async fn set_primary_image(caller: &Caller, body: JsonValue) -> GrimoireResp
         "album" => set_primary_album_image(&req.entity_id, &req.blob_id).await,
         "artist" => set_primary_artist_image(&req.entity_id, &req.blob_id).await,
         "playlist" => set_primary_playlist_image(&req.entity_id, &req.blob_id).await,
+        "video" => {
+            crate::video::set_primary_entity_image(
+                crate::video::VideoEntityType::Video,
+                &req.entity_id,
+                &req.blob_id,
+            )
+            .await
+        }
+        "video_series" => {
+            crate::video::set_primary_entity_image(
+                crate::video::VideoEntityType::VideoSeries,
+                &req.entity_id,
+                &req.blob_id,
+            )
+            .await
+        }
         _ => {
             return GrimoireResponse::failure(
                 "bad request",
@@ -901,6 +933,7 @@ pub async fn ingest_remote_image_inner(
                 width: processed_w,
                 height: processed_h,
                 blake3: Some(blake3_hash),
+                delete_duplicate_local_path: false,
             })
             .await
             {
@@ -953,8 +986,10 @@ pub async fn ingest_remote_image_inner(
                     )],
                 );
             }
-            // record local_path on the blob row
-            let _ = crate::media_blobz::update_blob_local_path(
+            // record local_path on the blob row - purges the just-written
+            // file instead if it's a duplicate of an already-owned file
+            // elsewhere (see set_blob_local_path_or_purge_duplicate's doc).
+            let _ = crate::media_blobz::set_blob_local_path_or_purge_duplicate(
                 &blob.id,
                 full_path.to_string_lossy().as_ref(),
                 Some(created_by_id.to_string()),

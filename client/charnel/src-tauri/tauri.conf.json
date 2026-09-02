@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "freqhole",
-  "version": "0.2.15",
+  "version": "0.3.0",
   "identifier": "net.freqhole.charnel",
   "build": {
     "beforeDevCommand": "npm run dev:all",
@@ -11,17 +11,33 @@
   },
   "app": {
     "windows": [],
+    "macOSPrivateApi": true,
     "security": {
       "csp": null,
       "assetProtocol": {
         "enable": true,
-        "scope": ["$HOME/**", "$APPDATA/**", "$APPLOCALDATA/**", "/home/**", "/var/home/**", "/run/flatpak/**", "/tmp/**"]
+        "scope": [
+          "$HOME/**",
+          "$APPDATA/**",
+          "$APPLOCALDATA/**",
+          "/home/**",
+          "/var/home/**",
+          "/run/flatpak/**",
+          "/tmp/**"
+        ]
       }
     }
   },
   "bundle": {
     "active": true,
     "targets": "all",
+    "publisher": "freqhole",
+    "homepage": "https://freqhole.net",
+    "copyright": "copyright © 2026 freqhole",
+    "license": "MIT",
+    "category": "Music",
+    "shortDescription": "self-hosted media library with P2P streaming",
+    "longDescription": "freqhole is a self-hosted media server with peer-to-peer sharing. run your own server, scan your music library, and stream it anywhere. share with friends over P2P connections (via iroh) with no port forwarding needed. includes offline caching, MusicBrainz metadata enrichment, invite-based access control, and a web app for remote access.",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -31,22 +47,42 @@
     ],
     "linux": {
       "deb": {
-        "depends": ["libayatana-appindicator3-1", "ffmpeg"],
-        "desktopTemplate": "freqhole.desktop"
+        "depends": [
+          "libayatana-appindicator3-1",
+          "ffmpeg"
+        ],
+        "section": "sound",
+        "priority": "optional",
+        "desktopTemplate": "freqhole.desktop",
+        "files": {
+          "/usr/share/metainfo/net.freqhole.freqhole.metainfo.xml": "../../../flatpak/net.freqhole.freqhole.metainfo.xml"
+        }
       },
       "rpm": {
-        "depends": ["libayatana-appindicator-gtk3"],
-        "desktopTemplate": "freqhole.desktop"
+        "depends": [
+          "libayatana-appindicator-gtk3"
+        ],
+        "desktopTemplate": "freqhole.desktop",
+        "files": {
+          "/usr/share/metainfo/net.freqhole.freqhole.metainfo.xml": "../../../flatpak/net.freqhole.freqhole.metainfo.xml"
+        }
       }
     }
   },
   "plugins": {
     "deep-link": {
       "mobile": [
-        { "host": "*", "scheme": ["freqhole"] }
+        {
+          "host": "*",
+          "scheme": [
+            "freqhole"
+          ]
+        }
       ],
       "desktop": {
-        "schemes": ["freqhole"]
+        "schemes": [
+          "freqhole"
+        ]
       }
     }
   }

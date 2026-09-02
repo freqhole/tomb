@@ -1,22 +1,59 @@
 // centralized queue operations for music playback
 // provides high-level queue manipulation, delegating persistence to db.ts
 // and audio playback to player.ts
-import {
-  appState,
-  setCurrentSong,
-  setQueue,
-  setQueueOpen,
-} from "../../../app/services/storage/db";
+import { appState, setCurrentSong, setQueue, setQueueOpen } from "../../../app/services/storage/db";
 import type { QueueHistoryEntry, QueueSourceContext } from "../../../app/services/storage/types";
-import { evictCachedBlob } from "../cache/blobCache";
-import { evictP2PBlob, preCacheNextP2PSongs, cancelP2PDownload } from "../storage/blobResolver";
-import { clearPendingUpNext, pendingUpNextSha256, playSong, seek, stop } from "../audio/player";
+import {
+  mediaItemKey,
+  mediaItemQueueEntryId,
+  songsOnly,
+  songStartIndexAfter,
+  videosOnly,
+  videoStartIndexAfter,
+  songToMediaItem,
+  toMediaItems,
+  type MediaItem,
+} from "../../../app/services/storage/mediaItem";
+import { preCacheNextP2PSongs } from "../storage/blobResolver";
+import { initQueueDeparturePurge } from "./purgeDepartedMedia";
+import { registerQueueDeparture } from "../../../app/services/media/queueDeparture";
+import { preCacheNextVideos } from "../../../video/services/videoPreCache";
+import {
+  clearPendingUpNext,
+  pendingUpNextSha256,
+  playSong,
+  playMediaItem,
+  seek,
+  stop,
+} from "../audio/player";
 import { hasPlaybackEnded } from "./queueState";
 import { addHistoryEntry, updateHistoryEntrySongs, unwrapSongs } from "./queueHistory";
-import { activeHistoryEntryId, resumeTracking, startTracking, stopTracking } from "./listenProgress";
+import { unwrapVideos } from "../../../video/services/queue/videoQueueHistory";
+import {
+  mirrorAppendToQueue,
+  mirrorRemoveFromQueue,
+  mirrorReorderQueue,
+  mirrorReplaceQueue,
+} from "../../../app/services/players/remoteQueueMirror";
+import { isRemoteTargetActive } from "../../../app/services/players/activeTarget";
+import {
+  activeHistoryEntryId,
+  resumeTracking,
+  startTracking,
+  stopTracking,
+} from "./listenProgress";
+import { stopVideoTracking } from "../../../video/services/queue/videoListenProgress";
 import { clearAllQueueProgress, clearQueueItemProgress } from "./queueProgress";
-import { createServerSession, stopServerSession, updateServerSessionSongs, activeServerSessionId, activeSessionMatchesSource, reconnectServerSession } from "./serverSession";
+import {
+  createServerSession,
+  stopServerSession,
+  updateServerSessionItems,
+  activeServerSessionId,
+  activeSessionMatchesSource,
+  reconnectServerSession,
+} from "./serverSession";
 import { getQueueSizeLimit, showQueueFullModal } from "./queueLimit";
+import { showReplaceQueueConfirm } from "./queueReplaceConfirm";
 import { syncPlaylistToLocalFromQueue } from "../sync";
 import type { Song } from "../storage/types";
 import { debug, error as errorLog } from "../../../utils/logger";
@@ -33,8 +70,51 @@ export {
   resetPlaybackEnded,
 } from "./queueState";
 
+// immediate (queue-start/queue-modification) pre-cache trigger — mirrors
+// preCacheScheduler.ts's rolling window, but fires right away instead of
+// waiting for the 50%-progress tick, so the *next* item is already
+// warming from time zero. `currentKey` is whatever `mediaItemKey()`
+// returns for the item that's (about to be) playing — may be a song OR
+// a video's key.
+function triggerImmediatePreCache(
+  mixedItems: MediaItem[],
+  currentKey: string | null | undefined
+): void {
+  if (!currentKey) return;
+  const songs = songsOnly(mixedItems);
+  const videos = videosOnly(mixedItems);
+  const currentIsVideo = mixedItems.some(
+    (i) => i.kind === "video" && mediaItemKey(i) === currentKey
+  );
+  if (currentIsVideo) {
+    // currentKey won't match anything in `songs` (song-only) - use the
+    // mixed-queue-derived start index instead of preCacheNextP2PSongs's
+    // own findIndex-based lookup so upcoming songs still get cached.
+    void preCacheNextP2PSongs(null, songs, 30, songStartIndexAfter(mixedItems, currentKey));
+  } else {
+    // unchanged behavior: preCacheNextP2PSongs finds currentKey itself
+    // and includes it (for immediate waveform display).
+    void preCacheNextP2PSongs(currentKey, songs);
+  }
+  void preCacheNextVideos(videos, 30, videoStartIndexAfter(mixedItems, currentKey));
+}
+
 // re-export queue limit helper
 export { getQueueSizeLimit } from "./queueLimit";
+
+initQueueDeparturePurge();
+
+// `clearSongsAbove`/`clearSongsBelow` can remove the playing item without
+// taking the removeFromQueue branch. The departure stream is the exhaustive
+// place to stop HTML, Rodio, or the separate video window in that case.
+registerQueueDeparture((departed) => {
+  const current = appState()?.current_sha256;
+  if (current && departed.some((item) => mediaItemKey(item) === current)) {
+    stop();
+    void setCurrentSong(null);
+    clearPendingUpNext();
+  }
+});
 
 // when radio takes over, wipe the music queue so a stray `ended`/`error`
 // from the previously-loaded song can't auto-advance into another music
@@ -43,21 +123,17 @@ export { getQueueSizeLimit } from "./queueLimit";
 // bump the in-flight tune attempt id and abort the tune that triggered
 // us).
 registerStopMusic(async () => {
-  const state = appState();
   stopTracking(true);
+  // this handler wipes the shared queue/current_sha256 below, which
+  // video items ride on too (queue.ts's anti-hijack wipe predates video
+  // support) — flush + clear video tracking the same way so a stale
+  // `activeVideoHistoryEntryId` doesn't linger pointing at an entry the
+  // now-cleared queue can no longer resolve.
+  stopVideoTracking(true);
   clearAllQueueProgress();
   clearPendingUpNext();
   void stopServerSession("abandoned");
   await setCurrentSong(null);
-  if (state?.queue) {
-    for (const song of state.queue) {
-      if (song.source_type === "remote" && song.remote_server_id) {
-        void evictCachedBlob(song.remote_server_id, song.sha256);
-        cancelP2PDownload(song.sha256, song.remote_server_id);
-        void evictP2PBlob(song.sha256, song.remote_server_id);
-      }
-    }
-  }
   await setQueue([]);
 });
 
@@ -93,12 +169,34 @@ function assertCloneable(songs: Song[], context: string): void {
     errorLog(
       "queue",
       `[${context}] songs cannot be structured-cloned; problematic props: ${problemProps.join(", ") || "unknown"} — update unwrapSongs()`,
-      e,
+      e
     );
   }
 }
 
 // --- queue manipulation ---
+
+// unwrap solid-proxy-wrapped song/video objects across a mixed `MediaItem[]`
+// (required for Tauri IPC/IndexedDB structured-clone) — dispatches to the
+// existing per-kind unwrap helpers (`unwrapSongs`/`unwrapVideos`) while
+// preserving order.
+function unwrapMediaItems(items: MediaItem[]): MediaItem[] {
+  const unwrappedSongs = unwrapSongs(items.filter((i) => i.kind === "song").map((i) => i.song));
+  const unwrappedVideos = unwrapVideos(items.filter((i) => i.kind === "video").map((i) => i.video));
+  let songIdx = 0;
+  let videoIdx = 0;
+  return items.map((item) =>
+    item.kind === "song"
+      ? { kind: "song", song: unwrappedSongs[songIdx++] }
+      : { kind: "video", video: unwrappedVideos[videoIdx++] }
+  );
+}
+
+// normalize + unwrap a queue-input array (legacy `Song[]` callers or newer
+// mixed `MediaItem[]` callers) into a ready-to-queue `MediaItem[]`
+function prepareMediaItems(items: Array<Song | MediaItem>): MediaItem[] {
+  return unwrapMediaItems(toMediaItems(items));
+}
 
 // add songs to queue and play from a specific index
 // used for "play all", "shuffle all", "play from here", etc.
@@ -106,7 +204,7 @@ function assertCloneable(songs: Song[], context: string): void {
 // plays songs[startIndex] (default 0) after adding to queue
 // if songs exceed limit, truncates to fit (preserving startIndex)
 export async function playQueue(
-  songs: Song[],
+  songs: Array<Song | MediaItem>,
   options?: {
     startIndex?: number;
     source?: QueueSourceContext;
@@ -117,41 +215,53 @@ export async function playQueue(
       current_song_index: number;
       current_song_position: number;
     };
-  },
+  }
 ): Promise<void> {
   if (songs.length === 0) return;
 
   // unwrap SolidJS proxy objects before any IPC calls (Tauri structured clone)
-  const unwrappedSongs = unwrapSongs(songs);
-  assertCloneable(unwrappedSongs, "playQueue");
+  const unwrappedItems = prepareMediaItems(songs);
+  assertCloneable(songsOnly(unwrappedItems), "playQueue");
 
   let startIndex = options?.startIndex ?? 0;
-  let finalSongs = unwrappedSongs;
+  let finalItems = unwrappedItems;
 
-  // truncate incoming songs if they exceed the limit (before any queue logic)
+  // truncate incoming items if they exceed the limit (before any queue logic)
   const queueSizeLimit = getQueueSizeLimit();
-  if (unwrappedSongs.length > queueSizeLimit) {
+  if (unwrappedItems.length > queueSizeLimit) {
     if (startIndex < queueSizeLimit) {
-      // startIndex is within limit - take first N songs
-      finalSongs = unwrappedSongs.slice(0, queueSizeLimit);
+      // startIndex is within limit - take first N items
+      finalItems = unwrappedItems.slice(0, queueSizeLimit);
     } else {
       // startIndex is beyond limit - center window around it
       const start = startIndex - Math.floor(queueSizeLimit / 2);
-      const adjustedStart = Math.max(0, Math.min(start, unwrappedSongs.length - queueSizeLimit));
-      finalSongs = unwrappedSongs.slice(adjustedStart, adjustedStart + queueSizeLimit);
+      const adjustedStart = Math.max(0, Math.min(start, unwrappedItems.length - queueSizeLimit));
+      finalItems = unwrappedItems.slice(adjustedStart, adjustedStart + queueSizeLimit);
       startIndex = startIndex - adjustedStart;
     }
-    debug("queue", `playQueue: truncated to ${finalSongs.length}/${unwrappedSongs.length} (limit=${queueSizeLimit})`);
+    debug(
+      "queue",
+      `playQueue: truncated to ${finalItems.length}/${unwrappedItems.length} (limit=${queueSizeLimit})`
+    );
   }
 
   // mark songs from playlist source to skip album feed events when syncing
+  // (video items have no equivalent flag yet - feed events are song-only)
   if (options?.source?.type === "playlist") {
-    finalSongs = finalSongs.map((s) => ({ ...s, skip_feed_events: true }));
+    finalItems = finalItems.map((item) =>
+      item.kind === "song" ? { kind: "song", song: { ...item.song, skip_feed_events: true } } : item
+    );
   }
 
   const state = appState();
-  const currentQueue: Song[] = state?.queue || [];
+  const currentQueue: MediaItem[] = state?.queue || [];
   const currentId = state?.current_sha256;
+
+  // song-only side systems (history, server sessions, pre-cache, local
+  // sync) still operate on the song subset only - video items ride along
+  // in the queue itself but aren't tracked by these yet (see phase 5 of
+  // docs/playlist-unification-plan.md for full parity plans).
+  const finalSongs = songsOnly(finalItems);
 
   // sync playlist to local storage (fires in background, non-blocking)
   if (options?.source) {
@@ -160,9 +270,11 @@ export async function playQueue(
 
   // if queue is empty, just set and play
   if (currentQueue.length === 0) {
-    await setQueue(finalSongs);
-    await playSong(finalSongs[startIndex], { userInitiated: true });
-    void preCacheNextP2PSongs(finalSongs[startIndex].sha256, finalSongs);
+    await setQueue(finalItems);
+    mirrorReplaceQueue(finalSongs);
+    const startItem = finalItems[startIndex];
+    await playMediaItem(startItem, { userInitiated: true });
+    triggerImmediatePreCache(finalItems, mediaItemKey(startItem));
 
     if (options?.source) {
       const entryId = await addHistoryEntry(finalSongs, options.source, options.resumeProgress);
@@ -174,7 +286,7 @@ export async function playQueue(
         }
       }
       if (!options?.skipServerSession) {
-        void createServerSession(finalSongs, options.source, entryId ?? undefined);
+        void createServerSession(finalItems, options.source, entryId ?? undefined);
       }
     }
     return;
@@ -183,9 +295,19 @@ export async function playQueue(
   // explicit replace: when the source is an album/artist/genre/playlist/shuffle
   // we wipe the current queue and start fresh (same shape as the empty-queue
   // branch above, but with cleanup of any prior tracking/server session).
-  const shouldReplace =
-    options?.source && REPLACE_SOURCE_TYPES.has(options.source.type);
+  const shouldReplace = options?.source && REPLACE_SOURCE_TYPES.has(options.source.type);
   if (shouldReplace) {
+    // a remote target shares this queue with every other connected client -
+    // confirm before wiping it out from under them (local-only playback
+    // keeps replacing instantly, as before).
+    if (isRemoteTargetActive() && currentQueue.length > 0) {
+      const choice = await showReplaceQueueConfirm(finalItems);
+      if (choice === "cancel") return;
+      if (choice === "append") {
+        return addToQueue(finalItems, { position: "end", source: options?.source });
+      }
+    }
+
     // reuse the existing session (same entity + type already playing, e.g.
     // skipping to another song within the same album/playlist/shuffle) so
     // we don't mint a duplicate listen session + feed event.
@@ -200,16 +322,14 @@ export async function playQueue(
     clearAllQueueProgress();
     clearPendingUpNext();
 
-    await setQueue(finalSongs);
-    await playSong(finalSongs[startIndex], { userInitiated: true });
-    void preCacheNextP2PSongs(finalSongs[startIndex].sha256, finalSongs);
+    await setQueue(finalItems);
+    mirrorReplaceQueue(finalSongs);
+    const startItem = finalItems[startIndex];
+    await playMediaItem(startItem, { userInitiated: true });
+    triggerImmediatePreCache(finalItems, mediaItemKey(startItem));
 
     if (options?.source) {
-      const entryId = await addHistoryEntry(
-        finalSongs,
-        options.source,
-        options.resumeProgress,
-      );
+      const entryId = await addHistoryEntry(finalSongs, options.source, options.resumeProgress);
       if (entryId) {
         if (options.resumeProgress) {
           resumeTracking(entryId, options.resumeProgress);
@@ -219,20 +339,20 @@ export async function playQueue(
       }
       if (!options?.skipServerSession) {
         if (reuseSession) {
-          void updateServerSessionSongs(finalSongs, entryId ?? undefined);
+          void updateServerSessionItems(finalItems, entryId ?? undefined);
         } else {
-          void createServerSession(finalSongs, options.source, entryId ?? undefined);
+          void createServerSession(finalItems, options.source, entryId ?? undefined);
         }
       }
     }
     return;
   }
 
-  // queue has songs - insert after current position (don't replace)
+  // queue has items - insert after current position (don't replace)
   // check if adding would exceed limit
   const queueSizeLimitForPlay = getQueueSizeLimit();
-  if (currentQueue.length + finalSongs.length > queueSizeLimitForPlay) {
-    const choice = await showQueueFullModal(finalSongs, currentQueue.length);
+  if (currentQueue.length + finalItems.length > queueSizeLimitForPlay) {
+    const choice = await showQueueFullModal(finalItems, currentQueue.length);
 
     if (choice === "cancel") {
       return;
@@ -240,51 +360,55 @@ export async function playQueue(
 
     if (choice === "clear-all") {
       // user explicitly cleared - replace queue entirely
-      await setQueue(finalSongs);
-      await playSong(finalSongs[startIndex], { userInitiated: true });
-      void preCacheNextP2PSongs(finalSongs[startIndex].sha256, finalSongs);
+      await setQueue(finalItems);
+      const startItem = finalItems[startIndex];
+      await playMediaItem(startItem, { userInitiated: true });
+      triggerImmediatePreCache(finalItems, mediaItemKey(startItem));
       if (options?.source) {
         const entryId = await addHistoryEntry(finalSongs, options.source);
         if (entryId) startTracking(entryId);
         if (!options?.skipServerSession) {
-          void createServerSession(finalSongs, options.source, entryId ?? undefined);
+          void createServerSession(finalItems, options.source, entryId ?? undefined);
         }
       }
       return;
     }
 
     // choice === "remove-from-start"
-    const removeCount = currentQueue.length + finalSongs.length - queueSizeLimitForPlay;
-    const currentIdx = currentId ? currentQueue.findIndex((s) => s.sha256 === currentId) : -1;
+    const removeCount = currentQueue.length + finalItems.length - queueSizeLimitForPlay;
+    const currentIdx = currentId
+      ? currentQueue.findIndex((i) => mediaItemKey(i) === currentId)
+      : -1;
     const removableSongCount = currentIdx > 0 ? currentIdx : currentQueue.length;
 
     if (removeCount > removableSongCount) {
       // can't remove enough - fall back to clear behavior
-      await setQueue(finalSongs);
-      await playSong(finalSongs[startIndex], { userInitiated: true });
-      void preCacheNextP2PSongs(finalSongs[startIndex].sha256, finalSongs);
+      await setQueue(finalItems);
+      const startItem = finalItems[startIndex];
+      await playMediaItem(startItem, { userInitiated: true });
+      triggerImmediatePreCache(finalItems, mediaItemKey(startItem));
       if (options?.source) {
         const entryId = await addHistoryEntry(finalSongs, options.source);
         if (entryId) startTracking(entryId);
         if (!options?.skipServerSession) {
-          void createServerSession(finalSongs, options.source, entryId ?? undefined);
+          void createServerSession(finalItems, options.source, entryId ?? undefined);
         }
       }
       return;
     }
 
-    // trim songs from start of queue and continue
+    // trim items from start of queue and continue
     const trimmedQueue = currentQueue.slice(removeCount);
-    return playQueueInternal(finalSongs, trimmedQueue, currentId, startIndex, options);
+    return playQueueInternal(finalItems, trimmedQueue, currentId, startIndex, options);
   }
 
-  return playQueueInternal(finalSongs, currentQueue, currentId, startIndex, options);
+  return playQueueInternal(finalItems, currentQueue, currentId, startIndex, options);
 }
 
 // internal: insert songs after current and play from startIndex
 async function playQueueInternal(
-  songs: Song[],
-  currentQueue: Song[],
+  items: MediaItem[],
+  currentQueue: MediaItem[],
   currentId: string | null | undefined,
   startIndex: number,
   options?: {
@@ -296,40 +420,42 @@ async function playQueueInternal(
       current_song_index: number;
       current_song_position: number;
     };
-  },
+  }
 ): Promise<void> {
   // insert after currently playing song
-  let newQueue: Song[];
+  let newQueue: MediaItem[];
   if (!currentId) {
-    newQueue = [...songs, ...currentQueue];
+    newQueue = [...items, ...currentQueue];
   } else {
-    const currentIdx = currentQueue.findIndex((s) => s.sha256 === currentId);
+    const currentIdx = currentQueue.findIndex((i) => mediaItemKey(i) === currentId);
     if (currentIdx === -1) {
-      newQueue = [...currentQueue, ...songs];
+      newQueue = [...currentQueue, ...items];
     } else {
       newQueue = [
         ...currentQueue.slice(0, currentIdx + 1),
-        ...songs,
+        ...items,
         ...currentQueue.slice(currentIdx + 1),
       ];
     }
   }
 
   await setQueue(newQueue);
-  await playSong(songs[startIndex], { userInitiated: true });
-  void preCacheNextP2PSongs(songs[startIndex].sha256, newQueue);
+  await playMediaItem(items[startIndex], { userInitiated: true });
+  const newQueueSongs = songsOnly(newQueue);
+  const startItem = items[startIndex];
+  triggerImmediatePreCache(newQueue, mediaItemKey(startItem));
 
   if (options?.source) {
     const existingEntryId = activeHistoryEntryId();
     if (existingEntryId) {
-      void updateHistoryEntrySongs(existingEntryId, newQueue);
+      void updateHistoryEntrySongs(existingEntryId, newQueueSongs);
       if (activeServerSessionId()) {
-        void updateServerSessionSongs(newQueue);
+        void updateServerSessionItems(newQueue);
       } else if (!options?.skipServerSession) {
         void createServerSession(newQueue, options.source, existingEntryId);
       }
     } else {
-      const entryId = await addHistoryEntry(newQueue, options.source, options.resumeProgress);
+      const entryId = await addHistoryEntry(newQueueSongs, options.source, options.resumeProgress);
       if (entryId) {
         if (options.resumeProgress) {
           resumeTracking(entryId, options.resumeProgress);
@@ -349,38 +475,49 @@ async function playQueueInternal(
 // if songs exceed limit, truncates to first 150
 // shows modal if adding would exceed queue limit
 export async function addToQueue(
-  songs: Song[],
+  songs: Array<Song | MediaItem>,
   options?: {
     startPlaying?: boolean;
     position?: "end" | "next";
     source?: QueueSourceContext;
-  },
+  }
 ): Promise<void> {
   if (songs.length === 0) return;
 
   // unwrap SolidJS proxy objects before any IPC calls (Tauri structured clone)
-  const unwrappedSongs = unwrapSongs(songs);
-  assertCloneable(unwrappedSongs, "addToQueue");
+  const unwrappedItems = prepareMediaItems(songs);
+  assertCloneable(songsOnly(unwrappedItems), "addToQueue");
 
-  // truncate incoming songs if they exceed the limit
-  let finalSongs = unwrappedSongs;
+  // truncate incoming items if they exceed the limit
+  let finalItems = unwrappedItems;
   const queueSizeLimitForAdd = getQueueSizeLimit();
-  if (unwrappedSongs.length > queueSizeLimitForAdd) {
-    finalSongs = unwrappedSongs.slice(0, queueSizeLimitForAdd);
-    debug("queue", `addToQueue: truncated to ${finalSongs.length}/${unwrappedSongs.length} (limit=${queueSizeLimitForAdd})`);
+  if (unwrappedItems.length > queueSizeLimitForAdd) {
+    finalItems = unwrappedItems.slice(0, queueSizeLimitForAdd);
+    debug(
+      "queue",
+      `addToQueue: truncated to ${finalItems.length}/${unwrappedItems.length} (limit=${queueSizeLimitForAdd})`
+    );
   }
 
   // mark songs from playlist source to skip album feed events when syncing
+  // (video items have no equivalent flag yet - feed events are song-only)
   if (options?.source?.type === "playlist") {
-    finalSongs = finalSongs.map((s) => ({ ...s, skip_feed_events: true }));
+    finalItems = finalItems.map((item) =>
+      item.kind === "song" ? { kind: "song", song: { ...item.song, skip_feed_events: true } } : item
+    );
   }
 
   const startPlaying = options?.startPlaying ?? false;
   const position = options?.position ?? "end";
 
   const state = appState();
-  const currentQueue: Song[] = state?.queue || [];
+  const currentQueue: MediaItem[] = state?.queue || [];
   const currentId = state?.current_sha256;
+
+  // song-only side systems (history, server sessions, local sync) still
+  // operate on the song subset only - see phase 5 of
+  // docs/playlist-unification-plan.md for full video parity plans.
+  const finalSongs = songsOnly(finalItems);
 
   // sync playlist to local storage (fires in background, non-blocking)
   if (options?.source) {
@@ -388,104 +525,126 @@ export async function addToQueue(
   }
 
   // check if adding would exceed limit
-  if (currentQueue.length + finalSongs.length > queueSizeLimitForAdd) {
-    const choice = await showQueueFullModal(finalSongs, currentQueue.length);
+  if (currentQueue.length + finalItems.length > queueSizeLimitForAdd) {
+    const choice = await showQueueFullModal(finalItems, currentQueue.length);
 
     if (choice === "cancel") {
       return; // user cancelled, don't add anything
     }
 
     if (choice === "clear-all") {
-      // clear queue and add new songs via playQueue (will handle empty queue path)
-      await setQueue(finalSongs);
-      if (startPlaying || !currentId) {
-        await playSong(finalSongs[0], { userInitiated: true });
+      // clear queue and add new items via playQueue (will handle empty queue path)
+      await setQueue(finalItems);
+      if (startPlaying || !currentId || hasPlaybackEnded()) {
+        await playMediaItem(finalItems[0], { userInitiated: true });
       }
       if (options?.source) {
         const entryId = await addHistoryEntry(finalSongs, options.source);
         if (entryId) startTracking(entryId);
-        void createServerSession(finalSongs, options.source, entryId ?? undefined);
+        void createServerSession(finalItems, options.source, entryId ?? undefined);
       }
       return;
     }
 
-    // choice === "remove-from-start": remove oldest songs to make room
-    const removeCount = currentQueue.length + finalSongs.length - queueSizeLimitForAdd;
-    const currentIdx = currentId ? currentQueue.findIndex((s) => s.sha256 === currentId) : -1;
+    // choice === "remove-from-start": remove oldest items to make room
+    const removeCount = currentQueue.length + finalItems.length - queueSizeLimitForAdd;
+    const currentIdx = currentId
+      ? currentQueue.findIndex((i) => mediaItemKey(i) === currentId)
+      : -1;
     const removableSongCount = currentIdx > 0 ? currentIdx : currentQueue.length;
 
     if (removeCount > removableSongCount) {
-      // can't remove enough songs without affecting currently playing
+      // can't remove enough items without affecting currently playing
       // fall back to clear-all behavior
-      await setQueue(finalSongs);
-      if (startPlaying || !currentId) {
-        await playSong(finalSongs[0], { userInitiated: true });
+      await setQueue(finalItems);
+      if (startPlaying || !currentId || hasPlaybackEnded()) {
+        await playMediaItem(finalItems[0], { userInitiated: true });
       }
       if (options?.source) {
         const entryId = await addHistoryEntry(finalSongs, options.source);
         if (entryId) startTracking(entryId);
-        void createServerSession(finalSongs, options.source, entryId ?? undefined);
+        void createServerSession(finalItems, options.source, entryId ?? undefined);
       }
       return;
     }
 
-    // remove songs from start (before currently playing)
+    // remove items from start (before currently playing)
     const trimmedQueue = currentQueue.slice(removeCount);
-    return addToQueueInternal(finalSongs, trimmedQueue, currentId, startPlaying, position, options?.source);
+    return addToQueueInternal(
+      finalItems,
+      trimmedQueue,
+      currentId,
+      startPlaying,
+      position,
+      options?.source
+    );
   }
 
-  return addToQueueInternal(finalSongs, currentQueue, currentId, startPlaying, position, options?.source);
+  return addToQueueInternal(
+    finalItems,
+    currentQueue,
+    currentId,
+    startPlaying,
+    position,
+    options?.source
+  );
 }
 
 // internal implementation of addToQueue (after limit check)
 async function addToQueueInternal(
-  songs: Song[],
-  currentQueue: Song[],
+  items: MediaItem[],
+  currentQueue: MediaItem[],
   currentId: string | null | undefined,
   startPlaying: boolean,
   position: "end" | "next",
-  source?: QueueSourceContext,
+  source?: QueueSourceContext
 ): Promise<void> {
-  let newQueue: Song[];
+  let newQueue: MediaItem[];
 
   if (position === "next") {
     // insert after currently playing song
     if (!currentId || currentQueue.length === 0) {
-      newQueue = [...songs, ...currentQueue];
+      newQueue = [...items, ...currentQueue];
     } else {
-      const currentIdx = currentQueue.findIndex((s) => s.sha256 === currentId);
+      const currentIdx = currentQueue.findIndex((i) => mediaItemKey(i) === currentId);
       if (currentIdx === -1) {
-        newQueue = [...currentQueue, ...songs];
+        newQueue = [...currentQueue, ...items];
       } else {
         newQueue = [
           ...currentQueue.slice(0, currentIdx + 1),
-          ...songs,
+          ...items,
           ...currentQueue.slice(currentIdx + 1),
         ];
       }
     }
   } else {
-    newQueue = [...currentQueue, ...songs];
+    newQueue = [...currentQueue, ...items];
   }
 
   await setQueue(newQueue);
 
+  // an already-active remote target keeps playing what it has - newly
+  // added songs just extend its queue, they don't take over playback (a
+  // fresh replaceQueue only happens via the "play on" handoff itself).
+  mirrorAppendToQueue(songsOnly(items));
+
   // autoplay if: explicitly requested, nothing is currently playing, or playback ended
   const willAutoPlay = startPlaying || !currentId || hasPlaybackEnded();
   if (willAutoPlay) {
-    await playSong(songs[0], { userInitiated: true });
+    await playMediaItem(items[0], { userInitiated: true });
   }
 
-  // pre-cache P2P songs (~30 min ahead from current position)
+  // pre-cache P2P songs/videos (~30 min ahead from current position)
   // only trigger pre-cache when:
   // 1. starting playback (need immediate cache for smooth playback)
-  // 2. adding as "next" (the song is within the 30-min rolling window)
+  // 2. adding as "next" (the item is within the 30-min rolling window)
   // skip pre-cache when adding to "end" and not starting playback
   // (the rolling 50% progress check will pick it up later if needed)
+  const newQueueSongs = songsOnly(newQueue);
   const shouldPreCache = willAutoPlay || position === "next";
-  const currentSha256 = currentId ?? songs[0]?.sha256;
-  if (shouldPreCache && currentSha256) {
-    void preCacheNextP2PSongs(currentSha256, newQueue);
+  const currentKey = currentId ?? mediaItemKey(items[0]);
+  if (shouldPreCache && currentKey) {
+    triggerImmediatePreCache(newQueue, currentKey);
   }
 
   // sync history + server session with the full queue
@@ -493,17 +652,17 @@ async function addToQueueInternal(
     const existingEntryId = activeHistoryEntryId();
     if (existingEntryId) {
       // update the active history entry with the full queue
-      void updateHistoryEntrySongs(existingEntryId, newQueue);
+      void updateHistoryEntrySongs(existingEntryId, newQueueSongs);
       // sync server session: update active session with full queue
       if (activeServerSessionId()) {
-        void updateServerSessionSongs(newQueue);
+        void updateServerSessionItems(newQueue);
       } else {
         // no active server session — create new and link to existing history entry
         void createServerSession(newQueue, source, existingEntryId);
       }
     } else {
       // no active entry — create a new one and start tracking
-      const entryId = await addHistoryEntry(newQueue, source);
+      const entryId = await addHistoryEntry(newQueueSongs, source);
       if (entryId) {
         startTracking(entryId);
       }
@@ -521,49 +680,40 @@ export async function removeFromQueue(index: number): Promise<void> {
   const state = appState();
   if (!state?.queue) return;
 
-  const removedSong = state.queue[index];
+  const currentIdx = state.queue.findIndex((i) => mediaItemKey(i) === state.current_sha256);
+  mirrorRemoveFromQueue(index, currentIdx);
+
+  const removedItem = state.queue[index];
   const newQueue = state.queue.filter((_, i) => i !== index);
   await setQueue(newQueue);
 
-  // clear progress for the removed song
-  if (removedSong?.queue_entry_id) {
-    clearQueueItemProgress(removedSong.queue_entry_id);
+  // clear progress for the removed item
+  const removedEntryId = removedItem ? mediaItemQueueEntryId(removedItem) : undefined;
+  if (removedEntryId) {
+    clearQueueItemProgress(removedEntryId);
   }
 
-  // if we removed the currently playing song, stop playback and clear it
-  if (removedSong?.sha256 === state.current_sha256) {
+  const removedKey = removedItem ? mediaItemKey(removedItem) : undefined;
+
+  // if we removed the currently playing item, stop playback and clear it
+  if (removedKey && removedKey === state.current_sha256) {
     stop();
     await setCurrentSong(null);
   }
 
-  // if we removed the pending up-next song, clear the pending state
-  if (removedSong?.sha256 === pendingUpNextSha256()) {
+  // if we removed the pending up-next item, clear the pending state
+  if (removedKey && removedKey === pendingUpNextSha256()) {
     clearPendingUpNext();
   }
 
-  // evict from cache if remote song is no longer anywhere in the queue
-  if (removedSong?.source_type === "remote") {
-    const stillInQueue = newQueue.some((s) => s.sha256 === removedSong.sha256);
-    if (!stillInQueue) {
-      // evict HTTP cache (keyed by remoteId + sha256)
-      if (removedSong.remote_server_id) {
-        void evictCachedBlob(removedSong.remote_server_id, removedSong.sha256);
-      }
-      // cancel in-progress P2P download and evict P2P cache (if applicable)
-      if (removedSong.remote_server_id) {
-        cancelP2PDownload(removedSong.sha256, removedSong.remote_server_id);
-        void evictP2PBlob(removedSong.sha256, removedSong.remote_server_id);
-      }
-    }
-  }
-
   // sync history + server session with updated queue
+  const newQueueSongs = songsOnly(newQueue);
   if (newQueue.length > 0) {
     const entryId = activeHistoryEntryId();
     if (entryId) {
-      void updateHistoryEntrySongs(entryId, newQueue);
+      void updateHistoryEntrySongs(entryId, newQueueSongs);
     }
-    void updateServerSessionSongs(newQueue);
+    void updateServerSessionItems(newQueue);
   } else {
     stopTracking();
     void stopServerSession("abandoned");
@@ -575,36 +725,26 @@ export async function clearSongsAbove(index: number): Promise<void> {
   const state = appState();
   if (!state?.queue || index <= 0) return;
 
-  const removedSongs = state.queue.slice(0, index);
+  const removedItems = state.queue.slice(0, index);
   const newQueue = state.queue.slice(index);
   await setQueue(newQueue);
 
-  // clear progress for removed songs
-  for (const song of removedSongs) {
-    if (song.queue_entry_id) {
-      clearQueueItemProgress(song.queue_entry_id);
-    }
-  }
-
-  // evict cached remote songs that are no longer in queue
-  for (const song of removedSongs) {
-    if (song.source_type === "remote" && song.remote_server_id) {
-      const stillInQueue = newQueue.some((s) => s.sha256 === song.sha256);
-      if (!stillInQueue) {
-        void evictCachedBlob(song.remote_server_id, song.sha256);
-        cancelP2PDownload(song.sha256, song.remote_server_id);
-        void evictP2PBlob(song.sha256, song.remote_server_id);
-      }
+  // clear progress for removed items
+  for (const item of removedItems) {
+    const entryId = mediaItemQueueEntryId(item);
+    if (entryId) {
+      clearQueueItemProgress(entryId);
     }
   }
 
   // sync history + server session
+  const newQueueSongs = songsOnly(newQueue);
   if (newQueue.length > 0) {
     const entryId = activeHistoryEntryId();
     if (entryId) {
-      void updateHistoryEntrySongs(entryId, newQueue);
+      void updateHistoryEntrySongs(entryId, newQueueSongs);
     }
-    void updateServerSessionSongs(newQueue);
+    void updateServerSessionItems(newQueue);
   } else {
     stopTracking();
     void stopServerSession("abandoned");
@@ -616,64 +756,55 @@ export async function clearSongsBelow(index: number): Promise<void> {
   const state = appState();
   if (!state?.queue || index >= state.queue.length - 1) return;
 
-  const removedSongs = state.queue.slice(index + 1);
+  const removedItems = state.queue.slice(index + 1);
   const newQueue = state.queue.slice(0, index + 1);
   await setQueue(newQueue);
 
   // clear pending up-next if it was below this song
   const pendingSha = pendingUpNextSha256();
-  if (pendingSha && removedSongs.some((s) => s.sha256 === pendingSha)) {
+  if (pendingSha && removedItems.some((i) => mediaItemKey(i) === pendingSha)) {
     clearPendingUpNext();
   }
 
-  // clear progress for removed songs
-  for (const song of removedSongs) {
-    if (song.queue_entry_id) {
-      clearQueueItemProgress(song.queue_entry_id);
-    }
-  }
-
-  // evict cached remote songs that are no longer in queue
-  for (const song of removedSongs) {
-    if (song.source_type === "remote" && song.remote_server_id) {
-      const stillInQueue = newQueue.some((s) => s.sha256 === song.sha256);
-      if (!stillInQueue) {
-        void evictCachedBlob(song.remote_server_id, song.sha256);
-        cancelP2PDownload(song.sha256, song.remote_server_id);
-        void evictP2PBlob(song.sha256, song.remote_server_id);
-      }
+  // clear progress for removed items
+  for (const item of removedItems) {
+    const entryId = mediaItemQueueEntryId(item);
+    if (entryId) {
+      clearQueueItemProgress(entryId);
     }
   }
 
   // sync history + server session
+  const newQueueSongs = songsOnly(newQueue);
   if (newQueue.length > 0) {
     const entryId = activeHistoryEntryId();
     if (entryId) {
-      void updateHistoryEntrySongs(entryId, newQueue);
+      void updateHistoryEntrySongs(entryId, newQueueSongs);
     }
-    void updateServerSessionSongs(newQueue);
+    void updateServerSessionItems(newQueue);
   }
 }
 
 // reorder a song within the queue (drag-and-drop)
-export async function reorderQueue(
-  fromIndex: number,
-  toIndex: number,
-): Promise<void> {
+export async function reorderQueue(fromIndex: number, toIndex: number): Promise<void> {
   const state = appState();
   if (!state?.queue) return;
 
+  const currentIdx = state.queue.findIndex((i) => mediaItemKey(i) === state.current_sha256);
+  mirrorReorderQueue(fromIndex, toIndex, currentIdx);
+
   const newQueue = [...state.queue];
-  const [movedSong] = newQueue.splice(fromIndex, 1);
-  newQueue.splice(toIndex, 0, movedSong);
+  const [movedItem] = newQueue.splice(fromIndex, 1);
+  newQueue.splice(toIndex, 0, movedItem);
   await setQueue(newQueue);
 
   // sync history + server session with reordered queue
+  const newQueueSongs = songsOnly(newQueue);
   const entryId = activeHistoryEntryId();
   if (entryId) {
-    void updateHistoryEntrySongs(entryId, newQueue);
+    void updateHistoryEntrySongs(entryId, newQueueSongs);
   }
-  void updateServerSessionSongs(newQueue);
+  void updateServerSessionItems(newQueue);
 }
 
 // clear the entire queue and stop playback
@@ -683,7 +814,7 @@ export async function clearQueue(): Promise<void> {
   const state = appState();
   debug(
     "queue",
-    `clearQueue: len=${state?.queue?.length ?? 0} current=${state?.current_sha256?.slice(0, 8) ?? null}`,
+    `clearQueue: len=${state?.queue?.length ?? 0} current=${state?.current_sha256?.slice(0, 8) ?? null}`
   );
 
   stop();
@@ -700,23 +831,6 @@ export async function clearQueue(): Promise<void> {
   leaveRadio();
   await clearCurrentRadioStation();
 
-  // evict cached audio for all remote songs in the queue
-  if (state?.queue) {
-    for (const song of state.queue) {
-      if (song.source_type === "remote") {
-        // evict HTTP cache (keyed by remoteId + sha256)
-        if (song.remote_server_id) {
-          void evictCachedBlob(song.remote_server_id, song.sha256);
-        }
-        // cancel in-progress P2P download and evict P2P cache (if applicable)
-        if (song.remote_server_id) {
-          cancelP2PDownload(song.sha256, song.remote_server_id);
-          void evictP2PBlob(song.sha256, song.remote_server_id);
-        }
-      }
-    }
-  }
-
   await setQueue([]);
   debug("queue", "clearQueue complete");
 }
@@ -725,17 +839,12 @@ export async function clearQueue(): Promise<void> {
 export { setQueueOpen };
 
 // resume a history entry from where it left off
-export async function resumeHistoryEntry(
-  entry: QueueHistoryEntry,
-): Promise<void> {
+export async function resumeHistoryEntry(entry: QueueHistoryEntry): Promise<void> {
   if (entry.songs.length === 0) return;
 
-  const resumeIndex = Math.min(
-    entry.current_song_index || 0,
-    entry.songs.length - 1,
-  );
+  const resumeIndex = Math.min(entry.current_song_index || 0, entry.songs.length - 1);
 
-  await setQueue(entry.songs);
+  await setQueue(entry.songs.map(songToMediaItem));
 
   // play the song at the resume index
   const song = entry.songs[resumeIndex];

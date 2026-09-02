@@ -171,10 +171,18 @@ export function StorageOverviewView() {
 
   onMount(() => {
     void refresh();
+    // `onCleanup` must be registered synchronously here (not after the
+    // `await` below) to actually be tied to this component's disposal -
+    // registering it inside the async callback after an await runs
+    // outside solid's reactive ownership tracking, so it silently never
+    // fires. that previously leaked this listener past unmount, leaving
+    // a zombie `refresh()` (and its `navigate(-1)`) running for every
+    // future mount/unmount event, on whatever page the user navigated to.
+    let unlisten: (() => void) | undefined;
     void (async () => {
-      const unlisten = await onExternalStorageMountedChanged(() => void refresh());
-      onCleanup(() => unlisten());
+      unlisten = await onExternalStorageMountedChanged(() => void refresh());
     })();
+    onCleanup(() => unlisten?.());
   });
 
   // disk usage/song-count stats otherwise only update once a sync

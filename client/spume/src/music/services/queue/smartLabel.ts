@@ -10,6 +10,7 @@
 // the result is truncated to ~100 characters.
 
 import type { Song } from "../storage/types";
+import { songsOnly, videosOnly, type MediaItem } from "../../../app/services/storage/mediaItem";
 
 const MAX_LABEL_LENGTH = 100;
 
@@ -54,7 +55,7 @@ export function computeSmartLabel(songs: Song[]): string {
     const others = artistNames.length - 2;
     return truncate(
       `${artistNames[0]}, ${artistNames[1]} & ${others} ${others === 1 ? "other" : "others"}`,
-      MAX_LABEL_LENGTH,
+      MAX_LABEL_LENGTH
     );
   }
 
@@ -65,4 +66,25 @@ export function computeSmartLabel(songs: Song[]): string {
 function truncate(text: string, max: number): string {
   if (text.length <= max) return text;
   return text.slice(0, max - 1) + "\u2026";
+}
+
+// mixed-media generalization of computeSmartLabel — dispatches to the
+// existing song-based rules for a song-only list, falls back to simple
+// title/count-based labels for video-only or genuinely mixed lists (video
+// metadata doesn't carry an artist-equivalent grouping concept worth
+// mirroring the album/artist rules above for).
+export function computeSmartMediaLabel(items: MediaItem[]): string {
+  const hasSong = items.some((i) => i.kind === "song");
+  const hasVideo = items.some((i) => i.kind === "video");
+
+  if (hasSong && !hasVideo) return computeSmartLabel(songsOnly(items));
+
+  if (hasVideo && !hasSong) {
+    const videos = videosOnly(items);
+    if (videos.length === 1) return truncate(videos[0].title, MAX_LABEL_LENGTH);
+    return `${videos.length} videos`;
+  }
+
+  // genuinely mixed (both songs and videos)
+  return `${items.length} items`;
 }

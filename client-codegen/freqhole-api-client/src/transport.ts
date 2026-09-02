@@ -4,12 +4,7 @@
 // FreqholeClient uses a transport to make requests, then handles
 // Zod validation on top.
 
-import type {
-  CloseReason,
-  EventFilter,
-  JobEvent,
-  JobStateSnapshot,
-} from "./codegen/schema.js";
+import type { CloseReason, EventFilter, JobEvent, JobStateSnapshot } from "./codegen/schema.js";
 
 /**
  * response from a transport request
@@ -25,6 +20,21 @@ export interface TransportResponse {
 export interface BlobData {
   data: Uint8Array;
   contentType: string;
+}
+
+/**
+ * cache policy for a blob fetch.
+ *
+ * transports that back their blob fetches with the Cache API write every blob
+ * they fetch by default. callers that are about to store the bytes somewhere
+ * permanent instead (the sync-to-local path writing to OPFS / the grimoire
+ * library) must pass `cache: "skip"`, or the same audio ends up stored twice.
+ *
+ * "skip" suppresses the *write* only — an existing cache entry is still read,
+ * since the bytes are already there and are blake3-verified.
+ */
+export interface BlobFetchOptions {
+  cache?: "write" | "skip";
 }
 
 /**
@@ -44,25 +54,36 @@ export interface Transport {
    * upload a file via FormData
    * @param path - API path (e.g., /api/upload/music)
    * @param formData - FormData with file and metadata
+   * @param onProgress - optional callback with (loaded, total) bytes sent so
+   *   far. only HttpTransport can report real values (via XHR's upload
+   *   progress event - plain fetch has no cross-browser upload progress
+   *   API); P2P/tauri transports accept but ignore it since their upload
+   *   path doesn't stream raw bytes over a trackable request body.
    * @returns response with status code and body string
    */
-  upload(path: string, formData: FormData): Promise<TransportResponse>;
+  upload(
+    path: string,
+    formData: FormData,
+    onProgress?: (loaded: number, total: number) => void,
+  ): Promise<TransportResponse>;
 
   /**
    * fetch a blob by ID
    * @param blobId - the blob ID to fetch
    * @param blake3 - optional blake3 hash for verified streaming via iroh-blobs
+   * @param opts - optional cache policy
    * @returns blob data with content type
    */
-  fetchBlob(blobId: string, blake3?: string): Promise<BlobData>;
+  fetchBlob(blobId: string, blake3?: string, opts?: BlobFetchOptions): Promise<BlobData>;
 
   /**
    * get a URL for a blob (for <audio>/<img> src)
    * HTTP transport returns direct URL, P2P transports may need caching
    * @param blobId - the blob ID to fetch
    * @param blake3 - optional blake3 hash for verified streaming via iroh-blobs
+   * @param opts - optional cache policy
    */
-  getBlobUrl(blobId: string, blake3?: string): string | Promise<string>;
+  getBlobUrl(blobId: string, blake3?: string, opts?: BlobFetchOptions): string | Promise<string>;
 
   /**
    * get a URL for a blob with progress callback (optional).
@@ -76,6 +97,7 @@ export interface Transport {
    * @param mimeType - optional content type for the assembled blob (e.g.
    *   the song's media_blob.mime). midden's streaming path doesn't surface
    *   the source mime, so callers should pass it when known.
+   * @param opts - optional cache policy
    */
   getBlobUrlWithProgress?(
     blobId: string,
@@ -83,6 +105,7 @@ export interface Transport {
     blake3?: string,
     totalBytes?: number,
     mimeType?: string,
+    opts?: BlobFetchOptions,
   ): Promise<string>;
 
   /**
@@ -121,10 +144,7 @@ export interface Transport {
    * optional `return()` path on the iterator). transports that don't
    * override use the default polling fallback (see `pollingJobEvents`).
    */
-  subscribeJobEvents?(
-    filter?: EventFilter,
-    signal?: AbortSignal,
-  ): AsyncIterable<JobEvent>;
+  subscribeJobEvents?(filter?: EventFilter, signal?: AbortSignal): AsyncIterable<JobEvent>;
 }
 
 /**
@@ -172,28 +192,48 @@ export class HttpTransport implements Transport {
     };
   }
 
-  async upload(path: string, formData: FormData): Promise<TransportResponse> {
+  async upload(
+    path: string,
+    formData: FormData,
+    onProgress?: (loaded: number, total: number) => void,
+  ): Promise<TransportResponse> {
     const url = this.baseUrl + path;
-    const headers: Record<string, string> = {};
 
-    // don't set Content-Type - browser sets it with boundary for FormData
-    if (this.apiKey) {
-      headers["Authorization"] = `Bearer ${this.apiKey}`;
+    // plain fetch has no cross-browser upload-progress event, so only
+    // reach for XHR when a caller actually wants progress reported.
+    if (!onProgress) {
+      const headers: Record<string, string> = {};
+      // don't set Content-Type - browser sets it with boundary for FormData
+      if (this.apiKey) {
+        headers["Authorization"] = `Bearer ${this.apiKey}`;
+      }
+      const response = await fetch(url, {
+        method: "POST",
+        headers,
+        body: formData,
+        credentials: this.apiKey ? "omit" : "include",
+      });
+      const responseBody = await response.text();
+      return { status: response.status, body: responseBody };
     }
 
-    const response = await fetch(url, {
-      method: "POST",
-      headers,
-      body: formData,
-      credentials: this.apiKey ? "omit" : "include",
+    return new Promise<TransportResponse>((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", url);
+      if (this.apiKey) {
+        xhr.setRequestHeader("Authorization", `Bearer ${this.apiKey}`);
+      }
+      xhr.withCredentials = !this.apiKey;
+      xhr.upload.addEventListener("progress", (e) => {
+        if (e.lengthComputable) onProgress(e.loaded, e.total);
+      });
+      xhr.addEventListener("load", () => {
+        resolve({ status: xhr.status, body: xhr.responseText });
+      });
+      xhr.addEventListener("error", () => reject(new Error("upload failed: network error")));
+      xhr.addEventListener("abort", () => reject(new Error("upload failed: aborted")));
+      xhr.send(formData);
     });
-
-    const responseBody = await response.text();
-
-    return {
-      status: response.status,
-      body: responseBody,
-    };
   }
 
   async fetchBlob(blobId: string, _blake3?: string): Promise<BlobData> {
@@ -235,10 +275,7 @@ export class HttpTransport implements Transport {
     return snapshotJobEventsViaRequest(this, filter);
   }
 
-  subscribeJobEvents(
-    filter?: EventFilter,
-    signal?: AbortSignal,
-  ): AsyncIterable<JobEvent> {
+  subscribeJobEvents(filter?: EventFilter, signal?: AbortSignal): AsyncIterable<JobEvent> {
     return pollingJobEvents(this, filter, signal);
   }
 }
@@ -257,11 +294,7 @@ export async function snapshotJobEventsViaRequest(
   filter?: EventFilter,
 ): Promise<JobStateSnapshot[]> {
   const body = JSON.stringify(filter ?? {});
-  const resp = await transport.request(
-    "POST",
-    "/api/jobs/events/snapshot",
-    body,
-  );
+  const resp = await transport.request("POST", "/api/jobs/events/snapshot", body);
   if (resp.status >= 400 || resp.status === 0) {
     throw new Error(`snapshotJobEvents failed: status ${resp.status}`);
   }

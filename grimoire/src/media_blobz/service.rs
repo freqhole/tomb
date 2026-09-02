@@ -179,8 +179,19 @@ pub async fn create_media_blob(mut req: CreateMediaBlobRequest) -> GrimoireResul
             // same path-relocation logic as the active-existing branch:
             // when the resurrected blob is being re-ingested from a new
             // on-disk path, point local_path / filename at the new home
-            // and refresh cheap-skip metadata.
+            // and refresh cheap-skip metadata - unless the caller flagged
+            // this as a fresh duplicate download/upload *and* the resurrected
+            // row already has a different real file of its own, in which
+            // case the new file is purged from disk instead (see
+            // `purge_duplicate_local_file`). a `None` old path means there's
+            // no existing file to prefer keeping, so that case always
+            // relocates regardless of the flag - purging then would discard
+            // the only copy of the content.
             let final_row = match (&req.local_path, &undeleted_with_metadata.local_path) {
+                (Some(new_p), Some(old)) if old != new_p && req.delete_duplicate_local_path => {
+                    purge_duplicate_local_file(&undeleted_with_metadata, new_p).await;
+                    undeleted_with_metadata
+                }
                 (Some(new_p), old) if old.as_deref() != Some(new_p.as_str()) => {
                     let mut relocated =
                         maybe_relocate_existing_blob(&pool, &undeleted_with_metadata, &req).await?;
@@ -211,7 +222,18 @@ pub async fn create_media_blob(mut req: CreateMediaBlobRequest) -> GrimoireResul
         // upload-only callers (data only, no local_path) never trigger
         // this branch, so existing on-disk paths aren't accidentally
         // clobbered.
+        //
+        // when the caller flagged this as a fresh duplicate download/upload
+        // (`delete_duplicate_local_path`) *and* the existing blob already has
+        // a different real file of its own, skip relocation entirely and
+        // purge the just-arrived duplicate file instead - see
+        // `purge_duplicate_local_file`. a `None` existing path always
+        // relocates regardless of the flag (nothing to prefer keeping yet).
         let relocated = match (&req.local_path, &existing_blob.local_path) {
+            (Some(new_p), Some(old)) if old != new_p && req.delete_duplicate_local_path => {
+                purge_duplicate_local_file(&existing_blob, new_p).await;
+                existing_blob
+            }
             (Some(new_p), old) if old.as_deref() != Some(new_p.as_str()) => {
                 maybe_relocate_existing_blob(&pool, &existing_blob, &req).await?
             }
@@ -386,8 +408,9 @@ pub async fn get_media_blob(id: &str) -> GrimoireResult<MediaBlob> {
          LIMIT 1",
         id
     )
-    .fetch_one(&pool)
-    .await?;
+    .fetch_optional(&pool)
+    .await?
+    .ok_or_else(|| crate::error::GrimoireError::MediaBlobNotFound { id: id.to_string() })?;
 
     // Parse the metadata JSON
     let mut blob_with_metadata = blob;
@@ -440,6 +463,56 @@ pub async fn get_media_blob_by_sha256(sha256: &str) -> GrimoireResult<MediaBlob>
     Ok(blob_with_metadata)
 }
 
+/// list transcoded renditions for an original video blob, ordered by
+/// creation time. only rows with `blob_type = 'rendition'` and
+/// `parent_blob_id = id` are returned; deleted rows are excluded.
+pub async fn list_renditions(parent_blob_id: &str) -> GrimoireResult<Vec<MediaBlob>> {
+    let pool = database::connect().await?;
+
+    let blobs = sqlx::query_as!(
+        MediaBlob,
+        "SELECT
+            id as \"id!\",
+            sha256 as \"sha256!\",
+            size,
+            mime,
+            source_client_id,
+            local_path,
+            filename,
+            parent_blob_id,
+            blob_type as \"blob_type!\",
+            metadata,
+            created_at as \"created_at!\",
+            updated_at as \"updated_at!\",
+            deleted_at,
+            deleted_by,
+            created_by,
+            updated_by,
+            width,
+            height,
+            blake3
+         FROM media_blobz
+         WHERE parent_blob_id = ?
+           AND blob_type = 'rendition'
+           AND deleted_at IS NULL
+         ORDER BY created_at ASC",
+        parent_blob_id
+    )
+    .fetch_all(&pool)
+    .await?;
+
+    let blobs = blobs
+        .into_iter()
+        .map(|mut blob| {
+            blob.metadata =
+                serde_json::from_str(blob.metadata.as_str().unwrap_or("{}")).unwrap_or_default();
+            blob
+        })
+        .collect();
+
+    Ok(blobs)
+}
+
 /// get media blob with binary data for streaming
 ///
 /// returns (MediaBlob, Option<Vec<u8>>)
@@ -459,13 +532,26 @@ pub async fn get_media_blob_with_data(id: &str) -> GrimoireResult<(MediaBlob, Op
         return Ok((blob, None));
     }
 
-    // try to get data from blob_data table
+    // try to get data from blob_data table. get_blob_data collapses both
+    // "no row for this id" and genuine db/connectivity failures into the
+    // same success=false shape - only the former should fall through to
+    // the reliquary fallback below and eventually resolve to
+    // MediaBlobNotFound; the latter needs to be remembered and surfaced
+    // as a real error if every other source also comes up empty, instead
+    // of being silently miscategorized as "blob never existed".
     let data_response = blob_data::get_blob_data(&blob.id).await;
+    let mut blob_data_error: Option<String> = None;
 
     if data_response.success {
         if let Some(data) = data_response.data {
             return Ok((blob, Some(data)));
         }
+    } else if let Some(err) = data_response
+        .errors
+        .first()
+        .filter(|e| e.error_type != "media_blob_not_found")
+    {
+        blob_data_error = Some(err.detail.clone());
     }
 
     // fall back to reliquary: any problem reaching it or resolving the blob
@@ -493,6 +579,15 @@ pub async fn get_media_blob_with_data(id: &str) -> GrimoireResult<(MediaBlob, Op
                 return Ok((blob, Some(data)));
             }
         }
+    }
+
+    // a genuine blob_data lookup failure takes priority over the blanket
+    // not-found: it tells the caller "something is actually broken" rather
+    // than "this content was never here".
+    if let Some(detail) = blob_data_error {
+        return Err(GrimoireError::ProcessingFailed {
+            message: format!("blob_data lookup failed for {}: {}", id, detail),
+        });
     }
 
     // no data source available
@@ -573,6 +668,19 @@ pub async fn get_media_blob_stream_source(
         if let Some(data) = data_response.data {
             return Ok((blob, BlobStreamSource::Memory(data)));
         }
+    } else if let Some(err) = data_response
+        .errors
+        .first()
+        .filter(|e| e.error_type != "media_blob_not_found")
+    {
+        // a genuine db/connectivity failure looking up blob_data, not a
+        // clean "no row for this id" - surface it instead of collapsing
+        // into a misleading MediaBlobNotFound (this is the last source
+        // tried, so there's no other fallback left that could still save
+        // this lookup).
+        return Err(GrimoireError::ProcessingFailed {
+            message: format!("blob_data lookup failed for {}: {}", id, err.detail),
+        });
     }
 
     Err(GrimoireError::MediaBlobNotFound { id: id.to_string() })
@@ -624,6 +732,127 @@ pub async fn update_blob_local_path(
             .unwrap_or_default();
 
     Ok(blob_with_metadata)
+}
+
+/// like `update_blob_local_path`, but when the blob already has a
+/// *different*, real (non-null) `local_path`, this is a network-received
+/// duplicate (upload of already-owned content, or a re-upload of something
+/// that was soft-deleted and just got undeleted elsewhere) rather than a
+/// first-time path assignment - purge the just-arrived duplicate file
+/// instead of clobbering the row to point at it, mirroring
+/// `create_media_blob`'s `delete_duplicate_local_path` handling. a `None`
+/// existing path always sets normally (nothing to prefer keeping yet), so
+/// this is safe to use unconditionally in place of every
+/// `update_blob_local_path` call following a network/job-driven file write.
+pub async fn set_blob_local_path_or_purge_duplicate(
+    id: &str,
+    new_local_path: &str,
+    updated_by: Option<String>,
+) -> GrimoireResult<MediaBlob> {
+    let current = get_media_blob(id).await?;
+    match current.local_path.as_deref() {
+        Some(old) if old != new_local_path => {
+            purge_duplicate_local_file(&current, new_local_path).await;
+            Ok(current)
+        }
+        _ => update_blob_local_path(id, new_local_path, updated_by).await,
+    }
+}
+
+/// returns true only when `candidate` canonicalizes to a path inside one of
+/// the app's own managed download/upload scratch directories: the
+/// configured `fetch_music`/`fetch_video` output dirs, or the
+/// `{data_dir}/fetch` fallback the upload handlers (`offal::upload`,
+/// `server::upload::music`) use when those aren't configured - the same
+/// directory tree both yt-dlp downloads and network file uploads write
+/// into (see e.g. `server/src/upload/music.rs`'s `output_dir` resolution).
+///
+/// this is a hard, unconditional safety gate for
+/// `purge_duplicate_local_file` - it is checked independently of whatever
+/// the caller claims, so a bug or bad flag upstream can never cause a file
+/// outside the app's own scratch space to be deleted. any ambiguity
+/// (path doesn't exist, canonicalize fails) resolves to `false` (refuse to
+/// delete), never `true`.
+fn is_within_managed_scratch_dir(candidate: &str) -> bool {
+    let candidate_canon = match std::fs::canonicalize(candidate) {
+        Ok(p) => p,
+        Err(e) => {
+            tracing::warn!(
+                "is_within_managed_scratch_dir: failed to canonicalize candidate path {}: {}",
+                candidate,
+                e
+            );
+            return false;
+        }
+    };
+
+    let cfg = config::get_config();
+    let mut roots = vec![cfg.data_dir.join("fetch")];
+    if let Some(server) = cfg.server.as_ref() {
+        if let Some(dir) = server
+            .fetch_music
+            .as_ref()
+            .and_then(|f| f.output_dir.as_deref())
+        {
+            roots.push(std::path::PathBuf::from(dir));
+        }
+        if let Some(dir) = server
+            .fetch_video
+            .as_ref()
+            .and_then(|f| f.output_dir.as_deref())
+        {
+            roots.push(std::path::PathBuf::from(dir));
+        }
+    }
+
+    roots
+        .into_iter()
+        .filter_map(|dir| std::fs::canonicalize(dir).ok())
+        .any(|dir| candidate_canon.starts_with(&dir))
+}
+
+/// delete a freshly-downloaded/uploaded duplicate file from disk instead of
+/// pointing `existing` at it.
+///
+/// callers only reach this once they've already confirmed `new_path` is a
+/// second on-disk copy of content `existing` already owns (same sha256,
+/// different path) - so this always operates on a genuine, already-verified
+/// content duplicate, never a guess.
+///
+/// deliberately best-effort / non-fatal: a failed delete here must not fail
+/// the caller's larger operation (there's already a perfectly good blob to
+/// return/point at) - it only leaks the duplicate file, the same
+/// (pre-existing) outcome as before this fix existed. errors and refusals
+/// are logged so they're visible/diagnosable.
+async fn purge_duplicate_local_file(existing: &MediaBlob, new_path: &str) {
+    // defense in depth: never delete anything outside the app's own
+    // managed scratch directories, regardless of caller intent.
+    if !is_within_managed_scratch_dir(new_path) {
+        tracing::warn!(
+            "refusing to delete duplicate file outside managed scratch dirs: existing_id={}, sha256={}, path={}",
+            existing.id,
+            existing.sha256,
+            new_path
+        );
+        return;
+    }
+
+    match tokio::fs::remove_file(new_path).await {
+        Ok(()) => {
+            tracing::info!(
+                "deleted duplicate file (kept existing blob {} at {:?}): {}",
+                existing.id,
+                existing.local_path,
+                new_path
+            );
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            // already gone - nothing to clean up
+        }
+        Err(e) => {
+            tracing::warn!("failed to delete duplicate file {}: {}", new_path, e);
+        }
+    }
 }
 
 /// update an existing media_blobz row's `local_path` (and `filename` when
@@ -764,6 +993,70 @@ pub async fn delete_media_blob(id: &str, deleted_by: Option<String>) -> Grimoire
     if let (Some(blake3), Some(actor)) = (row.blake3.as_deref(), deleted_by_for_mirror.as_deref()) {
         reliquary_mirror::mirror_soft_delete(blake3, actor).await;
     }
+
+    Ok(())
+}
+
+/// hard delete a rendition blob immediately (row + underlying bytes)
+///
+/// unlike the soft-delete used for originals (delete_media_blob), this
+/// permanently removes the blob record and its bytes right away. renditions
+/// are cheap to regenerate, so immediate deletion makes sense.
+///
+/// safety: rejects any blob_type != BlobType::Rendition to prevent
+/// accidental deletion of user-supplied originals.
+pub async fn hard_delete_rendition_blob(blob_id: &str) -> GrimoireResult<()> {
+    let pool = database::connect().await?;
+
+    // fetch the blob row to verify it's actually a rendition
+    let blob = get_media_blob(blob_id).await?;
+
+    // safety check: only allow deleting renditions
+    if blob.blob_type != BlobType::Rendition {
+        return Err(GrimoireError::NotARendition {
+            blob_id: blob_id.to_string(),
+            blob_type: format!("{:?}", blob.blob_type),
+        });
+    }
+
+    // delete underlying bytes:
+    // 1. if file-backed (local_path exists), remove the file
+    if let Some(local_path) = blob.local_path.as_ref() {
+        if let Err(e) = tokio::fs::remove_file(local_path).await {
+            tracing::warn!(
+                blob_id = %blob_id,
+                local_path = %local_path,
+                error = %e,
+                "hard_delete_rendition: failed to remove local file, continuing with db cleanup"
+            );
+        }
+    }
+
+    // 2. if blob-data-backed (no local_path), delete from blob_data table
+    if blob.local_path.is_none() {
+        let delete_resp = blob_data::delete_blob_data(blob_id).await;
+        if !delete_resp.success {
+            tracing::warn!(
+                blob_id = %blob_id,
+                message = %delete_resp.message,
+                "hard_delete_rendition: blob_data deletion failed, continuing with db cleanup"
+            );
+        }
+    }
+
+    // mirror to reliquary: soft-delete then hard-delete (back-to-back) so
+    // it's gone immediately from the reliquary side
+    if let Some(blake3) = blob.blake3.as_deref() {
+        // soft-delete first (mirror_hard_delete only removes already-soft-deleted rows)
+        reliquary_mirror::mirror_soft_delete(blake3, "system").await;
+        // then hard-delete immediately
+        reliquary_mirror::mirror_hard_delete(blake3).await;
+    }
+
+    // hard delete from media_blobz table
+    sqlx::query!("DELETE FROM media_blobz WHERE id = ?", blob_id)
+        .execute(&pool)
+        .await?;
 
     Ok(())
 }

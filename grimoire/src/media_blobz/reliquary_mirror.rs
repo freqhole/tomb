@@ -17,14 +17,20 @@ use sqlx::SqlitePool;
 use super::models::{BlobType, MediaBlob};
 use crate::{config, database};
 
-/// map grimoire's blob_type enum onto reliquary's - both have the same four
-/// variants, so this is a plain rename rather than a lossy conversion.
+/// map grimoire's blob_type enum onto reliquary's - both had the same four
+/// original variants (a plain rename), but reliquary's own `BlobType` enum
+/// hasn't grown `Rendition`/`Subtitle` counterparts yet, so those map onto
+/// `Preview` (closest existing "derived, non-thumbnail asset" category) for
+/// the mirror only. this is lossy but harmless: the mirror is best-effort
+/// and never authoritative (grimoire's own `media_blobz` row keeps the
+/// correct type), and reliquary's mirrored copy is only used for iroh-blobs
+/// content-addressed transfer, not type-based filtering.
 fn map_blob_type(blob_type: BlobType) -> ReliquaryBlobType {
     match blob_type {
         BlobType::Original => ReliquaryBlobType::Original,
         BlobType::Thumbnail => ReliquaryBlobType::Thumbnail,
         BlobType::Waveform => ReliquaryBlobType::Waveform,
-        BlobType::Preview => ReliquaryBlobType::Preview,
+        BlobType::Preview | BlobType::Rendition | BlobType::Subtitle => ReliquaryBlobType::Preview,
     }
 }
 

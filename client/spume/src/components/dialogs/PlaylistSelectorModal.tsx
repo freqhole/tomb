@@ -2,14 +2,16 @@ import { createMemo, createSignal, For, Show } from "solid-js";
 import { useQueryClient } from "@tanstack/solid-query";
 import type { PlaylistSummary } from "../../music/data/types";
 import type { Remote } from "../../app/services/storage/schemas/remote";
+import type { PlaylistSelectorItem } from "../../music/hooks/playlistSelectorState";
 import { canCreatePlaylist } from "../../music/data/permissions";
 import {
-  useAddSongsToPlaylistMutation,
   useCreatePlaylistMutation,
   usePlaylistsQuery,
   useRecentPlaylistsQuery,
 } from "../../music/queries/playlists";
 import { queryKeys } from "../../music/queries/queryKeys";
+import { PlaylistItemDuplicateError } from "../../music/data/types";
+import { useAddPlaylistItemsMutation } from "../../video/queries/playlistItems";
 import { Button } from "../buttons/Button";
 import { toast } from "../feedback/Toast";
 import { TextInput } from "../forms/TextInput";
@@ -21,14 +23,14 @@ export interface PlaylistSelectorModalProps {
   isOpen: boolean;
   /** callback when modal is closed */
   onClose: () => void;
-  /** song IDs to add to the selected playlist */
-  songIds: string[];
+  /** items to add to the selected playlist — may mix songs and videos. */
+  items: PlaylistSelectorItem[];
   /** when set, scope all queries/mutations to this remote rather than
    *  the globally-active data source. */
   remote?: Remote;
 }
 
-// playlist selector modal for adding songs to playlists
+// playlist selector modal for adding songs and/or videos to playlists
 export function PlaylistSelectorModal(props: PlaylistSelectorModalProps) {
   const [searchQuery, setSearchQuery] = createSignal("");
   const [isCreatingNew, setIsCreatingNew] = createSignal(false);
@@ -46,8 +48,37 @@ export function PlaylistSelectorModal(props: PlaylistSelectorModalProps) {
     remote: () => props.remote,
   });
 
-  const addSongsMutation = useAddSongsToPlaylistMutation();
+  const addItemsMutation = useAddPlaylistItemsMutation();
   const createPlaylistMutation = useCreatePlaylistMutation();
+
+  const songIds = createMemo(() =>
+    props.items.filter((i) => i.entity_type === "song").map((i) => i.entity_id)
+  );
+  const videoIds = createMemo(() =>
+    props.items.filter((i) => i.entity_type === "video").map((i) => i.entity_id)
+  );
+  const itemCount = () => props.items.length;
+  const itemLabel = () => {
+    const hasSongs = songIds().length > 0;
+    const hasVideos = videoIds().length > 0;
+    const count = itemCount();
+    if (hasSongs && hasVideos) return count === 1 ? "item" : "items";
+    if (hasVideos) return count === 1 ? "video" : "videos";
+    return count === 1 ? "song" : "songs";
+  };
+
+  // add whichever items this modal instance was opened for to a playlist -
+  // songs and videos both go through the shared generic bulk
+  // `entities.addPlaylistItems` route in one request (mirrors how reorder
+  // was already unified).
+  const addItemsToPlaylist = async (playlistId: string) => {
+    if (props.items.length === 0) return;
+    await addItemsMutation.mutateAsync({
+      playlistId,
+      items: props.items.map((i) => ({ entity_type: i.entity_type, entity_id: i.entity_id })),
+      remote: props.remote,
+    });
+  };
 
   // filter playlists based on search query
   const filteredPlaylists = createMemo(() => {
@@ -64,21 +95,22 @@ export function PlaylistSelectorModal(props: PlaylistSelectorModalProps) {
 
   const handleSelectPlaylist = async (playlist: PlaylistSummary) => {
     try {
-      await addSongsMutation.mutateAsync({
-        playlistId: playlist.playlist_id,
-        songIds: props.songIds,
-        remote: props.remote,
-      });
+      await addItemsToPlaylist(playlist.playlist_id);
 
-      const songCount = props.songIds.length;
-      const songText = songCount === 1 ? "song" : "songs";
-      toast.success(`added ${songCount} ${songText} to "${playlist.title}"`);
+      toast.success(`added ${itemCount()} ${itemLabel()} to "${playlist.title}"`);
 
       props.onClose();
     } catch (error) {
-      console.error("failed to add songs to playlist:", error);
+      if (error instanceof PlaylistItemDuplicateError) {
+        // already-in-playlist is a soft/expected condition, not a real
+        // error - a friendly warning reads better than an error toast.
+        toast.warning(`already in "${playlist.title}"`, { title: "already added" });
+        props.onClose();
+        return;
+      }
+      console.error(`failed to add ${itemLabel()} to playlist:`, error);
       const errorMessage = error instanceof Error ? error.message : "unknown error";
-      toast.error(`failed to add songs: ${errorMessage}`, {
+      toast.error(`failed to add ${itemLabel()}: ${errorMessage}`, {
         title: "error",
       });
     }
@@ -95,16 +127,10 @@ export function PlaylistSelectorModal(props: PlaylistSelectorModalProps) {
         remote: props.remote,
       });
 
-      // immediately add songs to the newly created playlist
-      await addSongsMutation.mutateAsync({
-        playlistId: newPlaylist.playlist_id,
-        songIds: props.songIds,
-        remote: props.remote,
-      });
+      // immediately add the items to the newly created playlist
+      await addItemsToPlaylist(newPlaylist.playlist_id);
 
-      const songCount = props.songIds.length;
-      const songText = songCount === 1 ? "song" : "songs";
-      toast.success(`created "${name}" and added ${songCount} ${songText}`);
+      toast.success(`created "${name}" and added ${itemCount()} ${itemLabel()}`);
 
       // close modal immediately - don't wait for query invalidation
       props.onClose();
@@ -127,7 +153,7 @@ export function PlaylistSelectorModal(props: PlaylistSelectorModalProps) {
     props.onClose();
   };
 
-  const isLoading = () => addSongsMutation.isPending || createPlaylistMutation.isPending;
+  const isLoading = () => addItemsMutation.isPending || createPlaylistMutation.isPending;
 
   return (
     <Modal

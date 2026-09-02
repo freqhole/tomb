@@ -22,6 +22,9 @@ export type MenuAction =
       onClick: () => void;
       disabled?: boolean;
       destructive?: boolean;
+      /** small pill shown after the label (e.g. "offline") - purely
+       * informational, never affects onClick/disabled. */
+      badge?: string;
       type?: never;
     };
 
@@ -122,7 +125,12 @@ export function ContextMenu(props: ContextMenuProps) {
                     <Show when={action.icon}>
                       <Icon name={action.icon!} size={16} color="currentColor" />
                     </Show>
-                    <span>{action.label}</span>
+                    <span class="truncate">{action.label}</span>
+                    <Show when={action.badge}>
+                      <span class="shrink-0 rounded-full bg-[var(--color-bg-hover)] px-2 py-0.5 text-xs text-[var(--color-text-secondary)]">
+                        {action.badge}
+                      </span>
+                    </Show>
                   </KobalteContextMenu.Item>
                 );
               }}
@@ -142,10 +150,13 @@ export interface DropdownMenuProps {
   actions: MenuAction[];
   /** additional content to show at the top of the menu */
   header?: JSX.Element;
+  /** called each time the menu opens - e.g. to refresh data the actions
+   * depend on right before they're shown */
+  onOpen?: () => void;
 }
 
 export function DropdownMenu(props: DropdownMenuProps) {
-  const [local, rest] = splitProps(props, ["trigger", "actions", "header"]);
+  const [local, rest] = splitProps(props, ["trigger", "actions", "header", "onOpen"]);
 
   return (
     <KobalteContextMenu {...rest}>
@@ -199,7 +210,12 @@ export function DropdownMenu(props: DropdownMenuProps) {
                     <Show when={action.icon}>
                       <Icon name={action.icon!} size={16} color="currentColor" />
                     </Show>
-                    <span>{action.label}</span>
+                    <span class="truncate">{action.label}</span>
+                    <Show when={action.badge}>
+                      <span class="shrink-0 rounded-full bg-[var(--color-bg-hover)] px-2 py-0.5 text-xs text-[var(--color-text-secondary)]">
+                        {action.badge}
+                      </span>
+                    </Show>
                   </KobalteContextMenu.Item>
                 );
               }}
@@ -218,7 +234,7 @@ export function DropdownMenu(props: DropdownMenuProps) {
 // for reliable viewport-relative placement regardless of ancestor transforms or
 // overflow contexts.
 export function ClickDropdownMenu(props: DropdownMenuProps) {
-  const [local] = splitProps(props, ["trigger", "actions", "header"]);
+  const [local] = splitProps(props, ["trigger", "actions", "header", "onOpen"]);
 
   type MenuPos = { top?: number; bottom?: number; right: number; maxHeight: number };
   const [open, setOpen] = createSignal(false);
@@ -249,6 +265,7 @@ export function ClickDropdownMenu(props: DropdownMenuProps) {
     if (!triggerRef) return;
     setMenuPos(computePos());
     setOpen(true);
+    local.onOpen?.();
   };
 
   const closeMenu = () => setOpen(false);
@@ -336,7 +353,12 @@ export function ClickDropdownMenu(props: DropdownMenuProps) {
                       <Show when={action.icon}>
                         <Icon name={action.icon!} size={16} color="currentColor" />
                       </Show>
-                      <span>{action.label}</span>
+                      <span class="truncate">{action.label}</span>
+                      <Show when={action.badge}>
+                        <span class="shrink-0 rounded-full bg-[var(--color-bg-hover)] px-2 py-0.5 text-xs text-[var(--color-text-secondary)]">
+                          {action.badge}
+                        </span>
+                      </Show>
                     </button>
                   );
                 }}

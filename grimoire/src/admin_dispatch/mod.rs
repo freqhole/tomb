@@ -186,6 +186,9 @@ pub async fn handle(
         "maintenance_hard_delete_old_records" => {
             handlers::maintenance::hard_delete_old_records(args).await
         }
+        "maintenance_hard_delete_old_videos" => {
+            handlers::maintenance::hard_delete_old_videos(args).await
+        }
         "maintenance_run_full" => handlers::maintenance::run_full(args).await,
 
         // -- dir_tags --

@@ -40,6 +40,12 @@ export interface PageInfo {
   title?: string;
   /** item count to display with title */
   count?: number;
+  /**
+   * optional override for the browser tab / window title (e.g. an
+   * album/video/series' actual name), used instead of `title` when set.
+   * falls back to `title` when omitted - most list views don't need this.
+   */
+  documentTitle?: string;
 
   // sort controls (optional - only views with sorting)
   sortFields?: SortField[];

@@ -7,6 +7,12 @@ import { JobPoller } from "../../app/services/jobs/jobService";
 import { toast } from "../../components/feedback/Toast";
 import { getCurrentRemote, getCurrentUser } from "../data";
 import { warn as logWarn } from "../../utils/logger";
+import {
+  humanizeJobError as humanizeJobErrorShared,
+  extractTransportErrorType,
+  type FriendlyError,
+} from "../../utils/humanizeJobError";
+export type { FriendlyError };
 
 // known error types from the server for structured error handling
 const ERROR_TYPE = {
@@ -54,6 +60,11 @@ export interface UploadJob {
    * carries per-file counts (ProcessDirectory jobs) rather than a single
    * song outcome. */
   resultSummary?: string;
+  /** upload transfer progress (0..1) while status is "uploading" - only
+   * populated on transports that can report real byte-level progress
+   * (HttpTransport via XHR); stays undefined (indeterminate) on P2P/tauri
+   * uploads, which don't stream a trackable request body. */
+  progress?: number;
 }
 
 // reactive store for all tracked upload jobs
@@ -118,6 +129,16 @@ function updateJobStage(id: string, stage: string | undefined) {
   );
 }
 
+// update a tracked job's upload transfer progress (0..1).
+function updateJobProgress(id: string, progress: number) {
+  setUploadJobs(
+    (j) => j.id === id,
+    produce((j) => {
+      j.progress = progress;
+    })
+  );
+}
+
 // merge entity ids onto a tracked job once we've resolved them from the
 // server-side job result.
 function updateJobEntities(
@@ -162,17 +183,14 @@ async function resolveJobEntities(
   client: FreqholeClient,
   jobId: string,
   allowSessionFallback = false
-): Promise<
-  | {
-      albumId?: string;
-      artistId?: string;
-      songId?: string;
-      sessionId?: string;
-      isDuplicate?: boolean;
-      resultSummary?: string;
-    }
-  | null
-> {
+): Promise<{
+  albumId?: string;
+  artistId?: string;
+  songId?: string;
+  sessionId?: string;
+  isDuplicate?: boolean;
+  resultSummary?: string;
+} | null> {
   try {
     const statusResp = await client.music.getJobStatus({ job_ids: [jobId] });
     if (!statusResp.success || !statusResp.data) return null;
@@ -180,7 +198,12 @@ async function resolveJobEntities(
     if (!row) return null;
     const fromResult = parseJobResult(row.result ?? null);
     const sessionId = row.session_id ?? undefined;
-    if (fromResult.albumId || fromResult.songId || fromResult.artistId || fromResult.resultSummary) {
+    if (
+      fromResult.albumId ||
+      fromResult.songId ||
+      fromResult.artistId ||
+      fromResult.resultSummary
+    ) {
       return { ...fromResult, sessionId };
     }
     // FetchMedia parent path: walk children via session_id
@@ -218,8 +241,7 @@ function parseJobResult(raw: string | null | undefined): {
   if (!raw) return {};
   try {
     const v = JSON.parse(raw) as Record<string, unknown>;
-    const get = (k: string) =>
-      typeof v[k] === "string" ? (v[k] as string) : undefined;
+    const get = (k: string) => (typeof v[k] === "string" ? (v[k] as string) : undefined);
     const getNum = (k: string) => (typeof v[k] === "number" ? (v[k] as number) : undefined);
 
     // ProcessDirectoryResult carries per-file counts instead of a single
@@ -241,7 +263,8 @@ function parseJobResult(raw: string | null | undefined): {
       albumId: get("album_id"),
       artistId: get("artist_id"),
       songId: get("song_id"),
-      isDuplicate: typeof v["is_duplicate"] === "boolean" ? (v["is_duplicate"] as boolean) : undefined,
+      isDuplicate:
+        typeof v["is_duplicate"] === "boolean" ? (v["is_duplicate"] as boolean) : undefined,
       resultSummary,
     };
   } catch {
@@ -268,37 +291,14 @@ function formatStage(stage: string, message: string | undefined): string | undef
 
 // turn a raw server failure into a short, user-friendly line. the full
 // detail is kept available via the `fullError` field for tooltip / debug.
-export interface FriendlyError {
-  short: string;
-  full: string;
-}
 function humanizeJobError(
   message: string | undefined,
   errorType: string | undefined
 ): FriendlyError {
-  const full = message?.trim() || errorType || "failed";
   if (errorType === ERROR_TYPE.DUPLICATE_SONG) {
-    return { short: "song already exists", full };
+    return { short: "song already exists", full: message?.trim() || errorType };
   }
-  const m = (message ?? "").toLowerCase();
-  if (m.startsWith("file does not exist") || m.includes("downloaded file"))
-    return { short: "downloaded file vanished before processing", full };
-  if (m.includes("no files were downloaded") || m.includes("nothing downloaded"))
-    return { short: "source returned no files", full };
-  if (m.includes("invalid url") || m.includes("unsupported url"))
-    return { short: "unsupported or invalid URL", full };
-  if (m.includes("connection") || m.includes("network") || m.includes("dns"))
-    return { short: "network error", full };
-  if (m.includes("permission denied") || m.includes("forbidden"))
-    return { short: "permission denied", full };
-  if (m.includes("timeout") || m.includes("timed out"))
-    return { short: "timed out", full };
-  if (m.includes("unsupported format") || m.includes("unknown format"))
-    return { short: "unsupported audio format", full };
-  // short message: keep as-is. long message: truncate.
-  const cleaned = full.replace(/\s+/g, " ");
-  const short = cleaned.length > 80 ? cleaned.slice(0, 77) + "\u2026" : cleaned;
-  return { short, full };
+  return humanizeJobErrorShared(message, errorType, "audio");
 }
 
 // ============================================================================
@@ -337,7 +337,9 @@ export async function uploadFilesToRemote(
     (async () => {
       try {
         const client = await getClientForRemote(remote);
-        const result = await client.upload.music(file);
+        const result = await client.upload.music(file, (loaded, total) => {
+          if (total > 0) updateJobProgress(trackId, loaded / total);
+        });
         if (!result.success) {
           // extract error message from the ZodError
           const errMsg = result.error?.issues?.[0]?.message || "upload request failed";
@@ -378,7 +380,7 @@ export async function uploadFilesToRemote(
         }
       } catch (error) {
         const msg = error instanceof Error ? error.message : "unknown error";
-        const friendly = humanizeJobError(msg, undefined);
+        const friendly = humanizeJobError(msg, extractTransportErrorType(error));
         updateJobStatus(trackId, "failed", { error: friendly.short, errorFull: friendly.full });
       }
     })();
@@ -451,7 +453,7 @@ export async function uploadPathsToRemote(
         }
       } catch (error) {
         const msg = error instanceof Error ? error.message : "unknown error";
-        const friendly = humanizeJobError(msg, undefined);
+        const friendly = humanizeJobError(msg, extractTransportErrorType(error));
         updateJobStatus(trackId, "failed", { error: friendly.short, errorFull: friendly.full });
       }
     })();
@@ -523,7 +525,7 @@ export async function importPathsToLocal(
 
     try {
       const listResp = await client.music.listJobs({ session_id: sessionId });
-      const childJobs = (listResp.success && listResp.data) ? listResp.data : [];
+      const childJobs = listResp.success && listResp.data ? listResp.data : [];
 
       if (childJobs.length === 0) {
         // no child jobs found - mark all as completed and open review
@@ -563,7 +565,10 @@ export async function importPathsToLocal(
       }
       const leftoverTrackIds = trackIds.filter((id) => !usedTrackIds.has(id));
       unmatchedJobs.forEach((job, i) => {
-        const trackId = leftoverTrackIds[i] ?? leftoverTrackIds[leftoverTrackIds.length - 1] ?? trackIds[trackIds.length - 1];
+        const trackId =
+          leftoverTrackIds[i] ??
+          leftoverTrackIds[leftoverTrackIds.length - 1] ??
+          trackIds[trackIds.length - 1];
         jobToTrackId.set(job.id, trackId);
       });
 
@@ -585,16 +590,24 @@ export async function importPathsToLocal(
               updateJobStatus(trackId, "completed");
               onJobComplete?.();
             } else if (pollResult.status === "timeout") {
-              updateJobStatus(trackId, "timeout", { error: "taking a long time, check back later" });
+              updateJobStatus(trackId, "timeout", {
+                error: "taking a long time, check back later",
+              });
               onJobComplete?.();
             } else {
-              const friendly = humanizeJobError(pollResult.errorMessage, pollResult.errors?.[0]?.error_type);
-              updateJobStatus(trackId, "failed", { error: friendly.short, errorFull: friendly.full });
+              const friendly = humanizeJobError(
+                pollResult.errorMessage,
+                pollResult.errors?.[0]?.error_type
+              );
+              updateJobStatus(trackId, "failed", {
+                error: friendly.short,
+                errorFull: friendly.full,
+              });
               onJobComplete?.();
             }
           } catch (err) {
             const msg = err instanceof Error ? err.message : "unknown error";
-            const friendly = humanizeJobError(msg, undefined);
+            const friendly = humanizeJobError(msg, extractTransportErrorType(err));
             updateJobStatus(trackId, "failed", { error: friendly.short, errorFull: friendly.full });
           } finally {
             remaining -= 1;
@@ -666,6 +679,7 @@ export async function fetchUrlsOnRemote(urls: string[], onJobComplete?: () => vo
         const result = await client.music.createFetchJob({
           url,
           user_id: userId ?? null,
+          domain: "music",
         });
         if (!result.success) {
           const errMsg = result.error?.issues?.[0]?.message || "failed to create fetch job";
@@ -704,7 +718,7 @@ export async function fetchUrlsOnRemote(urls: string[], onJobComplete?: () => vo
         }
       } catch (error) {
         const msg = error instanceof Error ? error.message : "unknown error";
-        const friendly = humanizeJobError(msg, undefined);
+        const friendly = humanizeJobError(msg, extractTransportErrorType(error));
         updateJobStatus(trackId, "failed", { error: friendly.short, errorFull: friendly.full });
       }
     })();

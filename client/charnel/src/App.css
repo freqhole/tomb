@@ -25,12 +25,30 @@ body {
   min-height: 100vh;
 }
 
+/* recolor the browser's default focus ring to the accent color - mirrors
+   spume's theme.css :focus rule. outline-color alone isn't enough: the
+   default outline-style is `auto`, and webkit/chromium hardcode the
+   platform ring color for `auto` regardless of outline-color -
+   only outline-style: solid makes them honor a custom color. */
+:focus {
+  outline-style: solid;
+  outline-width: 1px;
+  outline-color: #ff1a9e;
+}
+
+:root {
+  /* reserved space for the chromeless macOS title-bar strip (see
+     components/TitleBarStrip.tsx); 0 unless that strip is active. */
+  --safe-area-top: 0px;
+}
+
 /* loading screen */
 .loading-screen {
   min-height: 100vh;
   display: flex;
   align-items: center;
   justify-content: center;
+  padding-top: var(--safe-area-top, 0px);
 }
 
 /* setup flow - centered layout */
@@ -39,7 +57,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 2rem;
+  padding: calc(2rem + var(--safe-area-top, 0px)) 2rem 2rem;
 }
 
 .setup-content {
@@ -61,7 +79,7 @@ body {
   border-right: 1px solid #1f1f1f;
   display: flex;
   flex-direction: column;
-  padding-top: 1rem;
+  padding-top: calc(1rem + var(--safe-area-top, 0px));
   overflow-y: auto;
 }
 
@@ -70,7 +88,6 @@ body {
   display: flex;
   flex-direction: column;
   gap: 0;
-  -webkit-app-region: drag; /* allow window dragging from header area */
 }
 
 .active > .pinky {
@@ -168,7 +185,7 @@ body {
 /* main content */
 .main-content {
   flex: 1;
-  padding: 2rem;
+  padding: calc(2rem + var(--safe-area-top, 0px)) 2rem 2rem;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
@@ -685,13 +702,28 @@ button.small {
   accent-color: #ff1a9e;
 }
 
-.directory-path {
-  font-family: "SF Mono", Monaco, monospace;
-  font-size: 0.875rem;
-  color: #a1a1aa;
+.directory-name {
+  font-size: 0.9375rem;
+  font-weight: 500;
+  color: #e4e4e7;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.directory-path {
+  font-family: "SF Mono", Monaco, monospace;
+  font-size: 0.6875rem;
+  color: #71717a;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.directory-path-hint {
+  font-family: inherit;
+  color: #52525b;
+  font-style: italic;
 }
 
 .tag-input-row {
@@ -903,6 +935,13 @@ button.small {
   color: #52525b;
 }
 
+.build-sha {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.65rem;
+  color: #3f3f46;
+  word-break: break-all;
+}
+
 /* generic list items (users/invites) */
 .list-item {
   display: flex;
@@ -951,7 +990,8 @@ button.small {
   flex-shrink: 0;
 }
 
-.item-actions select, .role-item-actions select {
+.item-actions select,
+.role-item-actions select {
   -webkit-appearance: none;
   -moz-appearance: none;
   appearance: none;
@@ -967,7 +1007,8 @@ button.small {
   cursor: pointer;
 }
 
-.username-row, .user-actions-row {
+.username-row,
+.user-actions-row {
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -1623,7 +1664,9 @@ button.secondary:hover {
 
 .peer-node-id.clickable {
   cursor: pointer;
-  transition: color 0.2s, background 0.2s;
+  transition:
+    color 0.2s,
+    background 0.2s;
 }
 
 .peer-node-id.clickable:hover {
@@ -1843,7 +1886,9 @@ button.danger:hover {
 
 .knock-node-id.clickable {
   cursor: pointer;
-  transition: color 0.2s, background 0.2s;
+  transition:
+    color 0.2s,
+    background 0.2s;
 }
 
 .knock-node-id.clickable:hover {

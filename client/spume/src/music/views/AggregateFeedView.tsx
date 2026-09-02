@@ -1,5 +1,6 @@
 // aggregate feed view — merges activity feeds from all connected remotes
 import { useNavigate } from "@solidjs/router";
+import { isNarrowViewport, getPlayerBarHeightPx } from "../../config/breakpoints";
 import {
   createEffect,
   createMemo,
@@ -57,50 +58,49 @@ function adaptFeedResponse(
   remoteName: string
 ): FeedResponse {
   return {
-    items: (data.items ?? []).map(
-      (item: any): FeedItem => ({
-        id: item.id,
-        feed_type: item.feed_type,
-        song_id: item.song_id ?? null,
-        album_id: item.album_id ?? null,
-        artist_id: item.artist_id ?? null,
-        playlist_id: item.playlist_id ?? null,
-        entity_id: item.entity_id ?? null,
-        title: item.title,
-        subtitle: item.subtitle ?? null,
-        images: adaptFeedImages(item.images, baseUrl, remoteId),
-        created_at: item.created_at,
-        user_id: item.user_id ?? null,
-        username: item.username ?? null,
-        play_count: item.play_count ?? null,
-        rating: item.rating ?? null,
-        target_type: item.target_type ?? null,
-        session_id: item.session_id ?? null,
-        session_type: item.session_type ?? null,
-        session_status: item.session_status ?? null,
-        progress_percent: item.progress_percent ?? null,
-        songs_completed: item.songs_completed ?? null,
-        total_songs: item.total_songs ?? null,
-        artist_name: item.artist_name ?? null,
-        album_title: item.album_title ?? null,
-        genre: item.genre ?? null,
-        genre_id: item.genre_id ?? null,
-        year: item.year ?? null,
-        song_count: item.song_count ?? null,
-        songs_added: item.songs_added ?? null,
-        total_duration_ms: item.total_duration_ms ?? null,
-        image_count: item.image_count ?? null,
-        urls: item.urls ?? null,
-        description: item.description ?? null,
-        tags: item.tags ?? null,
-        is_favorite: item.is_favorite ?? false,
-        is_initial_add: item.is_initial_add ?? true,
-        collage_images: adaptFeedImages(item.collage_images, baseUrl, remoteId),
-        entity_created_at: item.entity_created_at ?? null,
-        remote_id: remoteId,
-        remote_name: remoteName,
-      })
-    ),
+    items: (data.items ?? []).map((item: any): FeedItem => ({
+      id: item.id,
+      feed_type: item.feed_type,
+      song_id: item.song_id ?? null,
+      album_id: item.album_id ?? null,
+      artist_id: item.artist_id ?? null,
+      playlist_id: item.playlist_id ?? null,
+      video_id: item.video_id ?? null,
+      entity_id: item.entity_id ?? null,
+      title: item.title,
+      subtitle: item.subtitle ?? null,
+      images: adaptFeedImages(item.images, baseUrl, remoteId),
+      created_at: item.created_at,
+      user_id: item.user_id ?? null,
+      username: item.username ?? null,
+      play_count: item.play_count ?? null,
+      rating: item.rating ?? null,
+      target_type: item.target_type ?? null,
+      session_id: item.session_id ?? null,
+      session_type: item.session_type ?? null,
+      session_status: item.session_status ?? null,
+      progress_percent: item.progress_percent ?? null,
+      songs_completed: item.songs_completed ?? null,
+      total_songs: item.total_songs ?? null,
+      artist_name: item.artist_name ?? null,
+      album_title: item.album_title ?? null,
+      genre: item.genre ?? null,
+      genre_id: item.genre_id ?? null,
+      year: item.year ?? null,
+      song_count: item.song_count ?? null,
+      songs_added: item.songs_added ?? null,
+      total_duration_ms: item.total_duration_ms ?? null,
+      image_count: item.image_count ?? null,
+      urls: item.urls ?? null,
+      description: item.description ?? null,
+      tags: item.tags ?? null,
+      is_favorite: item.is_favorite ?? false,
+      is_initial_add: item.is_initial_add ?? true,
+      collage_images: adaptFeedImages(item.collage_images, baseUrl, remoteId),
+      entity_created_at: item.entity_created_at ?? null,
+      remote_id: remoteId,
+      remote_name: remoteName,
+    })),
     total: data.total ?? 0,
   };
 }
@@ -547,8 +547,11 @@ export function AggregateFeedView() {
   // responsive height
   const viewportHeight = useViewportHeight();
   const playerBarHeight = () =>
-    (appState()?.queue.length || 0) > 0 || isRadioPlayerBarActive() ? 80 : 0;
-  const listHeight = () => viewportHeight() - getNavHeight() - playerBarHeight();
+    getPlayerBarHeightPx(
+      isNarrowViewport(),
+      (appState()?.queue.length || 0) > 0 || isRadioPlayerBarActive()
+    );
+  const listHeight = () => viewportHeight() - playerBarHeight();
 
   // play handler
   const handlePlayItem = async (item: FeedItem) => {
@@ -565,6 +568,8 @@ export function AggregateFeedView() {
       navigate(`/${item.remote_id}/artists/${item.artist_id}`);
     } else if (item.remote_id && item.playlist_id) {
       navigate(`/${item.remote_id}/playlists/${item.playlist_id}`);
+    } else if (item.remote_id && item.video_id) {
+      navigate(`/${item.remote_id}/video/${item.video_id}`);
     }
   };
 
@@ -602,7 +607,7 @@ export function AggregateFeedView() {
       const remoteUser = getUserForRemote(item.remote_id);
       const isOwnSession = remoteUser && item.user_id === remoteUser.userId;
       if (isOwnSession) {
-        await client.music.deleteListenSession(item.session_id!);
+        await client.music.deletePlaybackSession(item.session_id!);
         // own session deletion removes all items for that session
         removeFromCache((i) => i.session_id === item.session_id);
       } else {
@@ -644,6 +649,13 @@ export function AggregateFeedView() {
         label: "go to playlist",
         icon: IconNames.playlist,
         onClick: () => navigate(`${prefix}/playlists/${item.playlist_id}`),
+      });
+    }
+    if (item.video_id) {
+      actions.push({
+        label: "go to video",
+        icon: IconNames.video,
+        onClick: () => navigate(`${prefix}/video/${item.video_id}`),
       });
     }
 
@@ -739,11 +751,13 @@ export function AggregateFeedView() {
             </div>
           }
         >
-          <div style={{ "padding-top": (remotes() ?? []).length > 1 ? "50px" : "0" }}>
+          <div>
             <VirtualFeedList
               items={filteredItems()}
-              height={listHeight() - ((remotes() ?? []).length > 1 ? 50 : 0)}
-              scrollPaddingTop={0}
+              height={listHeight()}
+              scrollPaddingTop={
+                isNarrowViewport() ? getNavHeight() : (remotes() ?? []).length > 1 ? 50 : 0
+              }
               onItemClick={handlePlayItem}
               onScroll={handleScroll}
               onImageClick={(item) => {

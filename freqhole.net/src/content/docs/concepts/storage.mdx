@@ -1,6 +1,6 @@
 ---
-title: where music lives
-description: how freqhole stores music and metadata across different clients
+title: where media lives
+description: how freqhole stores music, video, and metadata across different clients
 created: 2026-03-25T09:44:27-04:00
 updated: 2026-06-08T14:54:58-04:00
 author: "edward sharp"
@@ -10,7 +10,7 @@ updatedBy: "edwardsharp"
 updatedSha: "3f1c9aa"
 ---
 
-freqhole reads your music collection — it never moves, renames, or deletes your files. here's where data lives depending on how you're running freqhole.
+freqhole reads your music + video collection. it never moves, renames, or deletes files you ask it to scan. here's where data lives depending on how you're running freqhole.
 
 ---
 
@@ -18,10 +18,10 @@ freqhole reads your music collection — it never moves, renames, or deletes you
 
 the server holds two things:
 
-- **your music files** — wherever you already have them. freqhole scans a directory you point it at. it reads the files to extract metadata and artwork, then leaves them alone.
-- **a metadata database** — a single SQLite file (by default `data/grimoire.db`) that stores song titles, artists, albums, artwork, playlists, user accounts, and playback history. this is everything freqhole knows about your library.
+- **your media files** — wherever you already have them. freqhole scans directories you point it at. it reads files to extract metadata, artwork, and posters, then leaves them alone.
+- **a metadata database** — a single SQLite file (by default `data/grimoire.db`) that stores music, video, artwork, posters, playlists, user accounts, and playback history. this is everything freqhole knows about your library.
 
-freqhole does **not** copy, move, or rename your audio files. if you delete a file from disk, freqhole will show it as missing — it won't clean it up on your behalf unless you explicitly run a maintenance command.
+freqhole does **not** copy, move, or rename scanned media files. if you delete a file from disk, freqhole will show it as missing — it won't clean it up on your behalf unless you explicitly run a maintenance command.
 
 ### where the database lives
 
@@ -37,9 +37,9 @@ the `data_dir` setting in `freqhole-config.toml` controls this:
 data_dir = "/home/user/freqhole-data"
 ```
 
-### album artwork
+### artwork + posters
 
-cover art extracted from your files — and art fetched from MusicBrainz — is stored as binary blobs inside `data/grimoire-blobdata.db`, not as separate files on disk. thumbnails at multiple sizes are pre-generated and stored the same way.
+cover art extracted from music, art fetched from metadata providers, and video posters are stored as blobs managed by freqhole. thumbnails at multiple sizes are generated and stored alongside them.
 
 ---
 
@@ -91,17 +91,17 @@ the web app stores everything locally in your browser. nothing is written to you
 
 ### library metadata
 
-when you connect to a server, the web app syncs the library index to **IndexedDB** — a structured database built into every modern browser. this is what lets you browse your full library offline.
+when you connect to a server, the web app syncs music + video library indexes to **IndexedDB** — a structured database built into every modern browser. this is what lets you browse your library offline.
 
-### audio files
+### media files
 
-played audio is cached using the **Origin Private File System (OPFS)** — a private, sandboxed storage area that browsers provide to web apps. OPFS is not accessible to other sites or visible in your regular file manager.
+saved music + video is cached using the **Origin Private File System (OPFS)** — a private, sandboxed storage area that browsers provide to web apps. OPFS is not accessible to other sites or visible in your regular file manager.
 
-cached audio lets you keep listening when you're offline or have a slow connection. you can control how much is cached and clear it at any time from the app's settings.
+cached media lets you keep playing when you're offline or have a slow connection. you can control how much is cached and clear it at any time from the app's settings.
 
-### artwork
+### artwork + posters
 
-album thumbnails and full-size artwork are stored in IndexedDB alongside the library metadata.
+album art, artist images, and video posters are stored in IndexedDB alongside library metadata.
 
 ### saving music from remotes
 
@@ -120,9 +120,9 @@ to clear everything, use the app's settings or clear site data for `spume.freqho
 
 ## the desktop app (charnel)
 
-charnel uses a local freqhole server embedded in the application. all storage follows the same rules as the CLI server above — the database and blob storage live on disk in the app's data directory, and your music files stay wherever you put them.
+charnel uses a local freqhole server embedded in the application. all storage follows the same rules as the CLI server above — the database and blob storage live on disk in the app's data directory, and your scanned media stays wherever you put it.
 
-the app also has a local web view (similar to the web app), but because it talks to the local embedded server over a private channel, audio and artwork are served directly — no OPFS caching needed.
+the app also has a local web view (similar to the web app), but because it talks to the local embedded server over a private channel, media and artwork are served directly — no OPFS caching needed.
 
 ---
 
@@ -133,6 +133,6 @@ to back up your freqhole setup you need:
 1. **`data/grimoire.db`** — main database: metadata, playlists, accounts
 2. **`data/grimoire-blobdata.db`** — blob binary data (artwork, thumbnails)
 3. **`data/blobs/`** — blob files on disk
-4. **`data/fetch/`** — any music downloaded via the fetch feature (if you use it)
+4. **`data/fetch/`** — any media downloaded via the fetch features (if you use them)
 
-your original audio files are managed entirely by you.
+your original media files are managed entirely by you.

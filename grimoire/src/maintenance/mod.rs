@@ -5,6 +5,7 @@ use crate::response::GrimoireResponse;
 
 mod hard_delete;
 mod orphaned;
+mod video_hard_delete;
 
 pub use crate::blob_data::{
     cleanup_orphaned_media_blobs, find_orphaned_media_blobs, OrphanedBlobSummary,
@@ -12,6 +13,9 @@ pub use crate::blob_data::{
 pub use hard_delete::{hard_delete_old_records, HardDeleteOptions, HardDeleteSummary};
 pub use orphaned::{
     cleanup_orphaned_genres, cleanup_orphaned_tags, OrphanedGenresSummary, OrphanedTagsSummary,
+};
+pub use video_hard_delete::{
+    hard_delete_old_videos, HardDeleteVideoOptions, HardDeleteVideoSummary,
 };
 
 /// Default retention period for soft-deleted records (30 days)
@@ -82,7 +86,8 @@ pub async fn run_full_maintenance_with_options(
 pub async fn cleanup_orphaned_media_blobs_older_than(
     min_age_days: f64,
 ) -> GrimoireResponse<OrphanedBlobSummary> {
-    use crate::blob_data::find_orphaned_media_blobs;
+    use crate::blob_data::{find_orphaned_media_blobs, reclaim_blob_bytes, ReclaimOutcome};
+    use crate::config::get_config;
     use crate::media_blobz::delete_media_blob;
     use std::time::Instant;
 
@@ -129,6 +134,9 @@ pub async fn cleanup_orphaned_media_blobs_older_than(
     let mut deleted_count = 0;
     let mut failure_count = 0;
     let mut bytes_freed = 0u64;
+    let mut files_deleted = 0u32;
+    let mut files_skipped_user_owned = 0u32;
+    let data_dir = get_config().data_dir;
 
     println!(
         "Deleting {} orphaned media blobs older than {} days...",
@@ -150,12 +158,10 @@ pub async fn cleanup_orphaned_media_blobs_older_than(
                 if let Some(size) = blob.size {
                     bytes_freed += size as u64;
                 }
-                // also delete from blob_data (separate db, no FK)
-                let _ = crate::blob_data::delete_blob_data(&blob.id).await;
-                // free the bytes in reliquary too, now that the blob is
-                // soft-deleted there (via delete_media_blob's own mirror)
-                if let Some(blake3) = blob.blake3.as_deref() {
-                    crate::media_blobz::mirror_hard_delete(blake3).await;
+                match reclaim_blob_bytes(blob, &data_dir).await {
+                    ReclaimOutcome::FileDeleted => files_deleted += 1,
+                    ReclaimOutcome::FileSkippedUserOwned => files_skipped_user_owned += 1,
+                    ReclaimOutcome::BlobDataDeleted => {}
                 }
                 println!("    ✓ Deleted: {}", blob.id);
             }
@@ -174,6 +180,8 @@ pub async fn cleanup_orphaned_media_blobs_older_than(
         orphaned_blobs_deleted: deleted_count,
         deletion_failures: failure_count,
         bytes_freed,
+        files_deleted,
+        files_skipped_user_owned,
         duration_ms,
     };
 

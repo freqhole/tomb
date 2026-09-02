@@ -7,6 +7,7 @@ export {
   getBlobWorker,
   shutdownBlobWorker,
   hashBlake3,
+  hashBlake3Streaming,
   hashSha256,
   base64Encode,
   base64Decode,
@@ -17,7 +18,11 @@ export {
   generateThumbnailDataUrl,
 } from "./blob-worker-client.js";
 
-export type { MiddenWorkerApi, MiddenWorkerIdentity, StreamInfo } from "./midden-worker-contract.js";
+export type {
+  MiddenWorkerApi,
+  MiddenWorkerIdentity,
+  StreamInfo,
+} from "./midden-worker-contract.js";
 export {
   MIDDEN_WORKER_READY_MESSAGE,
   MIDDEN_WORKER_READY_TIMEOUT_MS,

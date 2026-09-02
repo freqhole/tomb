@@ -17,6 +17,15 @@ export default defineConfig({
       midden: path.resolve(__dirname, "src/worker/midden-not-bundled.stub.ts"),
     },
   },
+  ssr: {
+    resolve: {
+      // vite 6+ resolves ssr/test modules through its own `ssr.resolve`
+      // conditions (defaulting to just "node"), separate from the
+      // top-level `resolve.conditions` above - both must be set or
+      // solid-js still resolves to its server build under vitest.
+      conditions: ["browser"],
+    },
+  },
   test: {
     environment: "node",
     environmentMatchGlobs: [

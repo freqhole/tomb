@@ -19,7 +19,10 @@ import { getClientForRemote } from "../../app/api/client";
 import { getRemoteMediaUrl } from "../../utils/urls";
 import { toast } from "../../components/feedback/Toast";
 import type { CurrentRemoteInfo } from "../data/currentState";
-import type { ImportReviewAlbum, ImportReviewSong } from "../../components/import/ImportGroupingView";
+import type {
+  ImportReviewAlbum,
+  ImportReviewSong,
+} from "../../components/import/ImportGroupingView";
 import type { PatchAlbumReviewRequest, PendingReviewAlbum } from "@freqhole/api-client";
 
 // ----------------------------------------------------------------------------
@@ -29,7 +32,10 @@ import type { PatchAlbumReviewRequest, PendingReviewAlbum } from "@freqhole/api-
 // build an http artwork url from a blob id and the remote's base url.
 // used for plain-http remotes; charnel-managed and P2P remotes resolve via
 // transport so artworkUrl may be null - MediaImage handles both paths.
-function artworkUrlFromBlob(blobId: string | null | undefined, remote: CurrentRemoteInfo | null | undefined): string | null {
+function artworkUrlFromBlob(
+  blobId: string | null | undefined,
+  remote: CurrentRemoteInfo | null | undefined
+): string | null {
   if (!blobId || !remote?.base_url) return null;
   return getRemoteMediaUrl(remote.base_url, blobId);
 }
@@ -41,16 +47,24 @@ function artworkUrlFromBlob(blobId: string | null | undefined, remote: CurrentRe
 export interface ImportReviewHandle {
   albums: () => ImportReviewAlbum[];
   loading: () => boolean;
-  patchAlbum: (albumId: string, req: Omit<PatchAlbumReviewRequest, "album_id" | "session_id">) => Promise<void>;
+  patchAlbum: (
+    albumId: string,
+    req: Omit<PatchAlbumReviewRequest, "album_id" | "session_id">
+  ) => Promise<void>;
   mergeAlbums: (sourceIds: string[], targetId: string) => Promise<void>;
-  moveSong: (songId: string, toAlbumId: string) => Promise<void>;
+  moveSong: (
+    songId: string,
+    toAlbumId: string | null,
+    newAlbumTitle?: string | null,
+    newAlbumArtistName?: string | null
+  ) => Promise<void>;
   markReviewed: (albumId: string) => Promise<void>;
   refetch: () => void;
 }
 
 export function useImportReview(
   sessionId: () => string | null,
-  remote: () => CurrentRemoteInfo | null | undefined,
+  remote: () => CurrentRemoteInfo | null | undefined
 ): ImportReviewHandle {
   // reload key: increment to trigger refetch
   const [reloadKey, setReloadKey] = createSignal(0);
@@ -79,7 +93,9 @@ export function useImportReview(
     if (!pendingResp.success || !pendingResp.data) return [];
 
     // flatten albums across sessions (should be just one session matching sid)
-    const pendingAlbums = pendingResp.data.flatMap((session) => session.albums as PendingReviewAlbum[]);
+    const pendingAlbums = pendingResp.data.flatMap(
+      (session) => session.albums as PendingReviewAlbum[]
+    );
     if (pendingAlbums.length === 0) return [];
 
     // enrich each album with its full song list
@@ -241,7 +257,12 @@ export function useImportReview(
     refetch();
   }
 
-  async function moveSong(songId: string, toAlbumId: string) {
+  async function moveSong(
+    songId: string,
+    toAlbumId: string | null,
+    newAlbumTitle: string | null = null,
+    newAlbumArtistName: string | null = null
+  ) {
     const sid = sessionId();
     const r = remote();
     if (!sid || !r) return;
@@ -256,6 +277,8 @@ export function useImportReview(
       session_id: sid,
       song_id: songId,
       to_album_id: toAlbumId,
+      new_album_title: newAlbumTitle,
+      new_album_artist_name: newAlbumArtistName,
     });
     if (!resp.success) {
       toast.error(`move failed: ${resp.error?.issues?.[0]?.message ?? "unknown error"}`);

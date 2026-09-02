@@ -212,15 +212,33 @@ pub async fn generate_sized_thumbnails(
             };
             match tokio::fs::read(local_path).await {
                 Ok(bytes) => bytes,
-                Err(e) => {
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
                     return GrimoireResponse::failure(
-                        "failed to read parent blob file",
+                        "failed to get parent blob data",
                         vec![ErrorDetail::new(
                             "data_not_found",
                             "Data Not Found",
-                            format!("failed to read {}: {}", local_path, e),
+                            format!(
+                                "file for blob {} no longer exists at {}",
+                                parent_blob_id, local_path
+                            ),
                         )],
                     )
+                }
+                Err(e) => {
+                    // genuine read failure (permission denied, disk error, etc) -
+                    // distinct from "data_not_found" above, which implies the file
+                    // was never there in the first place. this was previously
+                    // conflated under `data_not_found`, which misleadingly implied
+                    // "never uploaded" for what might just be a transient disk issue.
+                    return GrimoireResponse::failure(
+                        "failed to read parent blob file",
+                        vec![ErrorDetail::new(
+                            "thumbnail_read_failed",
+                            "Thumbnail Read Failed",
+                            format!("failed to read {}: {}", local_path, e),
+                        )],
+                    );
                 }
             }
         }
@@ -298,6 +316,7 @@ pub async fn generate_sized_thumbnails(
             width: Some(size as i64),
             height: Some(size as i64),
             blake3: None, // create_media_blob computes this from the bytes above
+            delete_duplicate_local_path: false,
         };
 
         match media_blobz::create_media_blob(request).await {

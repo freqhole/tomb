@@ -4,6 +4,8 @@ import { createSignal } from "solid-js";
 import { persistIdentity, resolveIdentity, type IdentityStore } from "@freqhole/haruspex/identity";
 import { clearInProgressTracking } from "../../../music/services/cache/inProgressTracking";
 import type { Song } from "../../../music/services/storage/types";
+import { withQueueEntryId, type MediaItem } from "./mediaItem";
+import { notifyQueueDepartures } from "../media/queueDeparture";
 import {
   APP_DB_NAME,
   APP_DB_VERSION,
@@ -14,6 +16,10 @@ import {
   STORE_PENDING_REMOTES,
   STORE_RADIO_HISTORY,
   STORE_SHARED_ITEMS,
+  STORE_VIDEO_QUEUE_HISTORY,
+  STORE_USERS,
+  STORE_USER_PEER_NODES,
+  STORE_PLAYER_SESSION,
   type AppState,
   type GraphPrefs,
   type P2PIdentity,
@@ -97,6 +103,64 @@ async function initAppDB(): Promise<IDBPDatabase> {
         sharedStore.createIndex("by_last_seen_at", "last_seen_at");
         sharedStore.createIndex("by_kind", "kind");
       }
+
+      // create video_queue_history store (v9) — capped at 200 by videoQueueHistory module
+      if (!db.objectStoreNames.contains(STORE_VIDEO_QUEUE_HISTORY)) {
+        const videoHistoryStore = db.createObjectStore(STORE_VIDEO_QUEUE_HISTORY, {
+          keyPath: "id",
+        });
+        videoHistoryStore.createIndex("by_queued_at", "queued_at");
+      }
+
+      // drop the old paired_players (v10) / trusted_controllers (v11)
+      // stores — replaced by the unified users/user_peer_nodes model below
+      // (v13), never had a real deployed userbase to migrate (see
+      // docs/player-peer-trust-bridge-plan.md).
+      if (db.objectStoreNames.contains("paired_players")) {
+        db.deleteObjectStore("paired_players");
+      }
+      if (db.objectStoreNames.contains("trusted_controllers")) {
+        db.deleteObjectStore("trusted_controllers");
+      }
+
+      // create player_session store (v12) — singleton row (see
+      // remotePlayback/playerSessionAdapter.ts, backs cenotaph's
+      // injectable PlayerSessionStore).
+      if (!db.objectStoreNames.contains(STORE_PLAYER_SESSION)) {
+        db.createObjectStore(STORE_PLAYER_SESSION);
+      }
+
+      // create users store (v13) — mirrors grimoire's `users::User`
+      // exactly, one record per known peer identity (see
+      // app/services/users/usersStore.ts).
+      if (!db.objectStoreNames.contains(STORE_USERS)) {
+        const usersStore = db.createObjectStore(STORE_USERS, { keyPath: "id" });
+        usersStore.createIndex("by_username", "username");
+        usersStore.createIndex("by_created_at", "created_at");
+      }
+
+      // create user_peer_nodes store (v13) — mirrors grimoire's
+      // `users::UserPeerNode` exactly, maps a node_id to a users.id.
+      // replaces both paired_players (outbound - players this instance
+      // dials) and trusted_controllers (inbound - controllers trusted to
+      // dial this instance), since both are just "known peer identities"
+      // (see docs/player-peer-trust-bridge-plan.md).
+      if (!db.objectStoreNames.contains(STORE_USER_PEER_NODES)) {
+        const userPeerNodesStore = db.createObjectStore(STORE_USER_PEER_NODES, {
+          keyPath: "node_id",
+        });
+        userPeerNodesStore.createIndex("by_user_id", "user_id");
+        userPeerNodesStore.createIndex("by_created_at", "created_at");
+      }
+    },
+    // a dead connection stays cached forever otherwise, so every later
+    // transaction throws "the database connection is closing" until reload
+    terminated() {
+      dbInstance = null;
+    },
+    blocking() {
+      dbInstance?.close();
+      dbInstance = null;
     },
   });
 
@@ -104,6 +168,14 @@ async function initAppDB(): Promise<IDBPDatabase> {
   await loadAppState();
 
   return dbInstance;
+}
+
+// pre-`MediaItem` queue entries were plain `Song` objects (no `kind`
+// discriminant) — wrap any such stragglers still sitting in an existing
+// user's IndexedDB so `mediaItemKey`/`isSongItem`/etc. don't crash on them.
+function migrateLegacyQueueItem(item: MediaItem | Song): MediaItem {
+  if (item && typeof item === "object" && "kind" in item) return item as MediaItem;
+  return { kind: "song", song: item as Song };
 }
 
 // load app state from db
@@ -122,19 +194,20 @@ async function loadAppState(): Promise<AppState> {
       last_updated: Date.now(),
     };
     await db.put(STORE_APP_STATE, state);
+  } else if (state.queue?.some((item: MediaItem | Song) => !item || !("kind" in item))) {
+    state = { ...state, queue: state.queue.map(migrateLegacyQueueItem) };
+    await db.put(STORE_APP_STATE, state);
   }
 
   console.info(
-    `[appState] loadAppState: queue.len=${state.queue?.length ?? 0} current=${state.current_sha256?.slice(0, 8) ?? "null"} last_updated=${new Date(state.last_updated).toISOString()}`,
+    `[appState] loadAppState: queue.len=${state.queue?.length ?? 0} current=${state.current_sha256?.slice(0, 8) ?? "null"} last_updated=${new Date(state.last_updated).toISOString()}`
   );
   setAppState(state);
   return state;
 }
 
 // update app state
-async function updateAppState(
-  updates: Partial<Omit<AppState, "id">>,
-): Promise<AppState> {
+async function updateAppState(updates: Partial<Omit<AppState, "id">>): Promise<AppState> {
   const db = await initAppDB();
   const current = appState() || (await loadAppState());
 
@@ -157,52 +230,57 @@ async function setCurrentSong(songId: string | null): Promise<void> {
 }
 
 // update queue
-async function setQueue(songs: Song[]): Promise<void> {
-  console.info(
-    `[appState] setQueue: writing len=${songs.length}`,
-    new Error("setQueue stack").stack?.split("\n").slice(2, 6).join(" | "),
-  );
-  // unwrap proxy arrays before storing in IndexedDB
-  // assign queue_entry_id to songs that don't have one
-  const plainSongs = songs.map((song) => {
-    const plain: Song = { ...song };
-    if (!plain.queue_entry_id) {
-      plain.queue_entry_id = generateUUID();
-    }
-    if (song.album_tags) plain.album_tags = [...song.album_tags];
-    if (song.album_taxons) plain.album_taxons = song.album_taxons.map(t => ({ ...t }));
-    if (song.album_images) plain.album_images = song.album_images.map(img => ({ ...img }));
-    if (song.artist_images) plain.artist_images = song.artist_images.map(img => ({ ...img }));
-    if (song.images) plain.images = song.images.map(img => ({ ...img }));
-    if (song.urls) plain.urls = song.urls.map(url => ({ ...url }));
+async function setQueue(items: MediaItem[]): Promise<void> {
+  // every queue mutation funnels through here, so diffing old against new is
+  // the only exhaustive way to catch items leaving - callers replacing the
+  // queue wholesale used to drop their bytes silently.
+  const previous = appState()?.queue ?? [];
 
-    return plain;
+  // unwrap proxy objects before storing in IndexedDB; assign a
+  // queue_entry_id to items that don't have one yet (progress tracking).
+  const plainItems = items.map((item) => {
+    const withId = withQueueEntryId(item, generateUUID());
+    if (withId.kind === "song") {
+      const song = withId.song;
+      const plain: Song = { ...song };
+      if (song.album_tags) plain.album_tags = [...song.album_tags];
+      if (song.album_taxons) plain.album_taxons = song.album_taxons.map((t) => ({ ...t }));
+      if (song.album_images) plain.album_images = song.album_images.map((img) => ({ ...img }));
+      if (song.artist_images) plain.artist_images = song.artist_images.map((img) => ({ ...img }));
+      if (song.images) plain.images = song.images.map((img) => ({ ...img }));
+      if (song.urls) plain.urls = song.urls.map((url) => ({ ...url }));
+      return { kind: "song" as const, song: plain };
+    }
+    return {
+      kind: "video" as const,
+      video: { ...withId.video, images: withId.video.images?.map((img) => ({ ...img })) },
+    };
   });
-  
-  await updateAppState({ queue: plainSongs });
+
+  await updateAppState({ queue: plainItems });
   clearInProgressTracking();
+  notifyQueueDepartures(previous, plainItems);
 }
 
 // update a specific song in the queue (for metadata changes like favorites, ratings)
+// no-ops for video queue items (identified by songId/sha256 not matching).
 async function updateSongInQueue(
   songId: string,
   sha256: string,
-  updates: Partial<Song>,
+  updates: Partial<Song>
 ): Promise<void> {
   const state = appState();
   if (!state?.queue) return;
 
   // find and update the song in the queue
-  const updatedQueue = state.queue.map((song) =>
-    song.id === songId || song.sha256 === sha256
-      ? { ...song, ...updates }
-      : song,
+  const updatedQueue = state.queue.map((item) =>
+    item.kind === "song" && (item.song.id === songId || item.song.sha256 === sha256)
+      ? { kind: "song" as const, song: { ...item.song, ...updates } }
+      : item
   );
 
   // only update if something changed
-  const hasChanges = updatedQueue.some(
-    (song, index) => song !== state.queue[index],
-  );
+  const hasChanges = updatedQueue.some((item, index) => item !== state.queue[index]);
 
   if (hasChanges) {
     await setQueue(updatedQueue);
@@ -217,6 +295,11 @@ async function setQueueOpen(isOpen: boolean): Promise<void> {
 // set sync queue to local setting
 async function setSyncQueueToLocal(enabled: boolean): Promise<void> {
   await updateAppState({ sync_queue_to_local: enabled });
+}
+
+// set cropped-square-thumbnails display preference (video grid/table)
+async function setCroppedSquareThumbnails(enabled: boolean): Promise<void> {
+  await updateAppState({ cropped_square_thumbnails: enabled });
 }
 
 // get sync queue to local setting (default: true)
@@ -441,6 +524,7 @@ export {
   setActiveRemoteId,
   setAutoDownloadEnabled,
   setCurrentSong,
+  setCroppedSquareThumbnails,
   setQueue,
   setQueueOpen,
   setSyncQueueToLocal,

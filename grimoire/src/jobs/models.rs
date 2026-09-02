@@ -29,6 +29,10 @@ pub enum JobType {
     // upload processing
     ConvertWebp,
     ImportMusic,
+    ImportVideo,
+
+    // video transcoding: produces rendition MediaBlob rows for a video
+    TranscodeVideo,
 
     // musicbrainz enrichment
     MbAlbumSearch,
@@ -52,6 +56,25 @@ pub enum JobType {
     // every album + artist remote image candidate. final step flips
     // the album to `enriched`.
     AutoApplyAlbumEnrichment,
+}
+
+/// parameters for a `TranscodeVideo` job - produces rendition `MediaBlob`
+/// rows for an already-imported video.
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct TranscodeVideoParams {
+    pub media_blob_id: String,
+    pub video_id: String,
+}
+
+/// result of a `TranscodeVideo` job
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct TranscodeVideoResult {
+    pub video_id: String,
+    pub rendition_blob_ids: Vec<String>,
+    /// non-fatal per-rendition failures (ffmpeg, stat, hash, blake3,
+    /// blob-creation) that dropped a rendition but didn't fail the job.
+    #[serde(default)]
+    pub partial_failures: Vec<ErrorDetail>,
 }
 
 /// external enrichment sources the pipeline can run against.
@@ -338,6 +361,15 @@ pub enum JobError {
     #[error("job processing failed: {reason}")]
     ProcessingFailed { reason: String },
 
+    /// same as ProcessingFailed, but for deterministic failures that will
+    /// never succeed on retry (e.g. fetch not configured/enabled, or a
+    /// download source that reported an unrecoverable error like a 403/404).
+    /// `error_type` is a specific snake_case tag (e.g. `fetch_not_configured`,
+    /// `fetch_source_unavailable`) so the frontend can show a targeted
+    /// message instead of falling back to the generic `processing_failed`.
+    #[error("job processing failed: {reason}")]
+    ProcessingFailedFinal { reason: String, error_type: String },
+
     #[error("job cancelled by user")]
     Cancelled,
 
@@ -380,6 +412,7 @@ impl JobError {
             JobError::JobNotFound { .. } => "job_not_found".to_string(),
             JobError::SessionNotFound { .. } => "session_not_found".to_string(),
             JobError::ProcessingFailed { .. } => "processing_failed".to_string(),
+            JobError::ProcessingFailedFinal { error_type, .. } => error_type.clone(),
             JobError::Cancelled => "job_cancelled".to_string(),
             JobError::Timeout => "job_timeout".to_string(),
             JobError::MaxRetriesExceeded => "max_retries_exceeded".to_string(),
@@ -407,6 +440,7 @@ impl JobError {
             JobError::JobNotFound { .. } => false,
             JobError::SessionNotFound { .. } => false,
             JobError::ProcessingFailed { .. } => true, // generic, might be transient
+            JobError::ProcessingFailedFinal { .. } => false,
             JobError::Cancelled => false,
             JobError::Timeout => true, // might succeed with more time
             JobError::MaxRetriesExceeded => false,

@@ -1,11 +1,10 @@
 //! User system module
 //!
 //! This module contains application-level user domain logic including
-//! user authentication, authorization, and account management.
-//!
-//! Music-specific user functionality (favorites, ratings) has been moved
-//! to `music::users` module to maintain clear domain boundaries.
+//! user authentication, authorization, and account management, plus
+//! domain-agnostic favorites/ratings (see the `favoritez` submodule).
 
+pub mod favoritez;
 pub mod models;
 pub mod repository;
 pub mod service;
@@ -60,8 +59,9 @@ pub use webauthn_models::{
     StartLoginRequest, UpdatePasskeyNameRequest,
 };
 
-// Re-export music-specific user types from music::users for backwards compatibility
-pub use crate::music::users::{
+// re-export favorites/ratings types at the top level - domain-agnostic,
+// usable by any domain (music, video, and future ones)
+pub use favoritez::{
     FavoriteTarget, FavoritesService, RatingStats, RatingTarget, RatingsService,
     SetFavoriteRequest, SetRatingRequest, UserFavorite, UserRating,
 };

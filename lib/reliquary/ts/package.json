@@ -1,6 +1,6 @@
 {
     "name": "@freqhole/reliquary",
-    "version": "0.2.15",
+    "version": "0.3.0",
     "private": false,
     "type": "module",
     "description": "freqhole media blob storage domain: content-addressed blobs, transfer, worker, solid helpers",
@@ -62,7 +62,7 @@
         "@automerge/automerge-repo": "^2.5.6",
         "fake-indexeddb": "^6.0.0",
         "solid-js": "^1.9.0",
-        "vitest": "^2.1.0"
+        "vitest": "^3.2.7"
     },
     "peerDependenciesMeta": {
         "@automerge/automerge-repo": {
@@ -85,6 +85,6 @@
         "happy-dom": "^20.10.6",
         "solid-js": "^1.9.0",
         "typescript": "^5.6.0",
-        "vitest": "^2.1.0"
+        "vitest": "^3.2.7"
     }
 }

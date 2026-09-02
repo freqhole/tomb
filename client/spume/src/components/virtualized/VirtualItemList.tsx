@@ -14,8 +14,17 @@ export interface ListItem {
   metadata?: string;
   images?: ImageMetadata[];
   thumbnailUrl?: string | null;
+  /** local blob id (reliquary store) - resolves through MediaImage's
+   *  `blobId` prop before falling back to remoteBlobId/remoteServerId. */
+  blobId?: string | null;
+  /** blob id + owning remote, for entities (e.g. video series/seasons)
+   *  whose poster isn't exposed via `images`/`thumbnailUrl` - resolves
+   *  through the same transport MediaImage's `remoteBlobId` prop uses. */
+  remoteBlobId?: string | null;
+  remoteServerId?: string | null;
   /** domain type for appropriate fallback icon */
-  domainType?: "song" | "album" | "artist" | "genre" | "playlist";
+  domainType?:
+    "song" | "album" | "artist" | "genre" | "playlist" | "video" | "video_series" | "video_season";
   /** custom fallback text when no image (e.g., artist abbreviation) */
   fallbackText?: string;
 }
@@ -67,10 +76,7 @@ export function VirtualItemList(props: VirtualItemListProps): JSX.Element {
   const { restoreScroll, saveScroll } = useScrollRestore(props.scrollRestoreKey || "item-list");
 
   // only apply scroll padding on wide viewports (narrow has its own fixed nav)
-  const scrollPad = () =>
-    props.scrollPaddingTop && window.matchMedia("(min-width: 768px)").matches
-      ? props.scrollPaddingTop
-      : 0;
+  const scrollPad = () => (props.scrollPaddingTop ? props.scrollPaddingTop : 0);
 
   // bottom padding is always applied when specified
   const scrollPadBottom = () => props.scrollPaddingBottom || 0;
@@ -209,7 +215,8 @@ export function VirtualItemList(props: VirtualItemListProps): JSX.Element {
           const item = props.items[virtualRow.index];
           if (!item) return null;
 
-          const hasImage = item.images?.length || item.thumbnailUrl || !item.fallbackText;
+          const hasImage =
+            item.images?.length || item.thumbnailUrl || item.remoteBlobId || !item.fallbackText;
 
           const itemButton = (
             <button
@@ -235,6 +242,9 @@ export function VirtualItemList(props: VirtualItemListProps): JSX.Element {
                     <MediaImage
                       images={item.images}
                       imageUrl={item.thumbnailUrl || null}
+                      blobId={item.blobId}
+                      remoteBlobId={item.remoteBlobId}
+                      remoteServerId={item.remoteServerId}
                       alt={item.title}
                       class={`w-12 h-12 object-cover flex-shrink-0 ${item.domainType === "artist" ? "rounded-full" : "rounded"}`}
                       domainType={item.domainType || "playlist"}
@@ -253,7 +263,9 @@ export function VirtualItemList(props: VirtualItemListProps): JSX.Element {
                   <MarqueeText text={item.title} hoverOnly={true} />
                 </div>
                 {item.subtitle && (
-                  <div class="text-xs text-[var(--color-text-tertiary)]">{item.subtitle}</div>
+                  <div class="text-xs text-[var(--color-text-tertiary)] line-clamp-2">
+                    {item.subtitle}
+                  </div>
                 )}
                 {item.metadata && (
                   <div class="text-xs text-[var(--color-text-muted)]">{item.metadata}</div>

@@ -38,7 +38,7 @@ pub const ROUTES: &[RouteInfo] = &[
         path: "/api/taxonomy/kinds/list",
         method: Method::POST,
         domain: Domain::Music,
-        request_type: "String",
+        request_type: "ListTaxonKindsRequest",
         response_type: "Vec<TaxonKind>",
         auth: RouteAuth::Authenticated,
     },
@@ -260,8 +260,17 @@ fn to_json<T: serde::Serialize>(resp: GrimoireResponse<T>) -> GrimoireResponse<J
 
 // ---- handlers ----
 
-pub async fn list_kinds(_caller: &Caller, _body: JsonValue) -> GrimoireResponse<JsonValue> {
-    to_json(r_list_taxon_kinds().await)
+pub async fn list_kinds(_caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
+    // tolerate a null/missing/empty body (existing callers predate the
+    // `domain` filter) as well as a proper `ListTaxonKindsRequest` — read
+    // `domain` directly rather than a strict `serde_json::from_value`,
+    // since deserializing a bare struct from `null` would otherwise fail.
+    let domain = body
+        .as_object()
+        .and_then(|o| o.get("domain"))
+        .and_then(|v| v.as_str())
+        .map(str::to_string);
+    to_json(r_list_taxon_kinds(domain.as_deref()).await)
 }
 
 pub async fn create_kind(_caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {

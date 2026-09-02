@@ -4,6 +4,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { resolvePath } from "../util/resolvePath";
 import ConfigView from "./ConfigView";
 import ExternalStorageSettingsSection from "./settings/ExternalStorageSettings";
+import StorageSettingsSection from "./settings/StorageSettings";
 import { useAdminTransport } from "../admin/context";
 
 interface ServerConfig {
@@ -36,12 +37,8 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
 export default function SettingsView() {
   const admin = useAdminTransport();
   let remoteFileInput: HTMLInputElement | undefined;
-  const [activeTab, setActiveTab] = createSignal<"settings" | "config">(
-    "settings",
-  );
-  const [serverConfig, setServerConfig] = createSignal<ServerConfig | null>(
-    null,
-  );
+  const [activeTab, setActiveTab] = createSignal<"settings" | "config">("settings");
+  const [serverConfig, setServerConfig] = createSignal<ServerConfig | null>(null);
   const [imageThumbnail, setImageThumbnail] = createSignal<string | null>(null);
   const [isUpdating, setIsUpdating] = createSignal(false);
   const [imageMessage, setImageMessage] = createSignal("");
@@ -66,6 +63,13 @@ export default function SettingsView() {
   const [rodioBusy, setRodioBusy] = createSignal(false);
   const [rodioError, setRodioError] = createSignal("");
 
+  // chromeless (in-webview) title bar opt-out. macOS + linux only -
+  // hidden entirely elsewhere (see `supports_chromeless_title_bar`).
+  const [chromelessSupported, setChromelessSupported] = createSignal(false);
+  const [chromelessTitleBar, setChromelessTitleBar] = createSignal(true);
+  const [chromelessBusy, setChromelessBusy] = createSignal(false);
+  const [chromelessError, setChromelessError] = createSignal("");
+
   // remote server lifecycle
   const [restartConfirm, setRestartConfirm] = createSignal(false);
   const [restartLoading, setRestartLoading] = createSignal(false);
@@ -88,6 +92,10 @@ export default function SettingsView() {
         setImageMessage("");
         setInfoMessage("");
         loadServerConfig();
+        // app-local settings (rodio, chromeless title bar) are skipped while
+        // scoped remote - reload them when scope returns to local, or their
+        // toggles stay hidden/stale for the rest of the session.
+        loadSyncSettings();
       },
       { defer: true },
     ),
@@ -107,6 +115,12 @@ export default function SettingsView() {
       setUseRodioPlayback(enabled);
     } catch (e) {
       console.error("failed to load rodio playback setting:", e);
+    }
+    try {
+      setChromelessSupported(await invoke<boolean>("supports_chromeless_title_bar"));
+      setChromelessTitleBar(await invoke<boolean>("get_chromeless_title_bar"));
+    } catch (e) {
+      console.error("failed to load chromeless title bar setting:", e);
     }
   }
 
@@ -140,12 +154,27 @@ export default function SettingsView() {
     }
   }
 
+  async function toggleChromelessTitleBar() {
+    if (chromelessBusy()) return;
+    const newValue = !chromelessTitleBar();
+    setChromelessTitleBar(newValue);
+    setChromelessBusy(true);
+    setChromelessError("");
+    try {
+      await invoke("set_chromeless_title_bar", { enabled: newValue });
+    } catch (e) {
+      console.error("failed to toggle chromeless title bar:", e);
+      setChromelessError(String(e));
+      // revert on error
+      setChromelessTitleBar(!newValue);
+    } finally {
+      setChromelessBusy(false);
+    }
+  }
+
   async function loadServerConfig() {
     try {
-      const config = await admin.dispatchOrThrow<ServerConfig>(
-        "server_get_config",
-        {},
-      );
+      const config = await admin.dispatchOrThrow<ServerConfig>("server_get_config", {});
       setServerConfig(config);
       setEditName(config.name);
       setEditDescription(config.description || "");
@@ -229,12 +258,9 @@ export default function SettingsView() {
 
         try {
           const resolved = await resolvePath(selected as string);
-          const result = await invoke<UpdateServerImageResult>(
-            "update_server_image",
-            {
-              imagePath: resolved,
-            },
-          );
+          const result = await invoke<UpdateServerImageResult>("update_server_image", {
+            imagePath: resolved,
+          });
 
           if (result.success) {
             setImageMessage("server image updated successfully");
@@ -273,9 +299,7 @@ export default function SettingsView() {
         image_path: string;
         image_blob_id: string;
       }>("server_update_image", { data, filename: file.name });
-      setImageMessage(
-        `remote server image updated (blob ${result.image_blob_id})`,
-      );
+      setImageMessage(`remote server image updated (blob ${result.image_blob_id})`);
       setImageIsError(false);
       await loadServerConfig();
     } catch (err) {
@@ -294,9 +318,7 @@ export default function SettingsView() {
       await admin.dispatchOrThrow("server_restart", {
         reason: "wizard requested",
       });
-      setRestartMessage(
-        "graceful shutdown initiated; supervisor must respawn the process",
-      );
+      setRestartMessage("graceful shutdown initiated; supervisor must respawn the process");
       setRestartIsError(false);
     } catch (e) {
       setRestartMessage(`restart failed: ${e}`);
@@ -323,7 +345,7 @@ export default function SettingsView() {
         <div style={{ "padding-bottom": "3rem" }}>
           <div class="settings-section">
             <h2>
-              server inf<span class="pinky">o</span>
+              inf<span class="pinky">o</span>
             </h2>
 
             <div
@@ -390,27 +412,17 @@ export default function SettingsView() {
               </div>
 
               <div style={{ "margin-bottom": "0.5rem" }}>
-                <button
-                  class="button"
-                  onClick={handleSaveServerInfo}
-                  disabled={isSavingInfo()}
-                >
+                <button class="button" onClick={handleSaveServerInfo} disabled={isSavingInfo()}>
                   {isSavingInfo() ? "saving..." : "save info"}
                 </button>
               </div>
 
               <Show when={infoMessage()}>
                 <div
-                  class={`wizard-notification sticky-bottom ${
-                    infoIsError() ? "error" : "success"
-                  }`}
+                  class={`wizard-notification sticky-bottom ${infoIsError() ? "error" : "success"}`}
                 >
                   <span class="message-text">{infoMessage()}</span>
-                  <button
-                    class="dismiss-btn"
-                    onClick={() => setInfoMessage("")}
-                    title="dismiss"
-                  >
+                  <button class="dismiss-btn" onClick={() => setInfoMessage("")} title="dismiss">
                     ×
                   </button>
                 </div>
@@ -420,7 +432,7 @@ export default function SettingsView() {
 
           <div class="settings-section" style={{ "margin-top": "2rem" }}>
             <h2>
-              server imag<span class="pinky">e</span>
+              imag<span class="pinky">e</span>
             </h2>
 
             <div
@@ -481,11 +493,7 @@ export default function SettingsView() {
                   gap: "0.5rem",
                 }}
               >
-                <button
-                  class="button"
-                  onClick={handleSelectImage}
-                  disabled={isUpdating()}
-                >
+                <button class="button" onClick={handleSelectImage} disabled={isUpdating()}>
                   {isUpdating() ? "updating..." : "choose image"}
                 </button>
                 <input
@@ -501,6 +509,9 @@ export default function SettingsView() {
                     style={{
                       "font-size": "0.75rem",
                       color: "var(--color-text-muted, #666)",
+                      "max-width": "min(100%, 22rem)",
+                      "overflow-wrap": "anywhere",
+                      "word-break": "break-word",
                     }}
                   >
                     {serverConfig()?.image_path}
@@ -566,9 +577,7 @@ export default function SettingsView() {
                   />
                 </button>
                 <div>
-                  <div style={{ "font-weight": "500" }}>
-                    sync queue to local
-                  </div>
+                  <div style={{ "font-weight": "500" }}>sync queue to local</div>
                   <div
                     style={{
                       "font-size": "0.875rem",
@@ -576,18 +585,27 @@ export default function SettingsView() {
                       "margin-top": "0.25rem",
                     }}
                   >
-                    automatically download remote songs in queue to local
-                    library
+                    automatically download remote songs in queue to local library
                   </div>
                 </div>
               </div>
+            </div>
+
+            <StorageSettingsSection />
+
+            <ExternalStorageSettingsSection />
+
+            <div class="settings-section" style={{ "margin-top": "2rem" }}>
+              <h2>
+                advanced setting<span class="pinky">s</span>
+              </h2>
 
               <div
                 style={{
                   display: "flex",
                   "align-items": "center",
                   gap: "1rem",
-                  "margin-top": "1.5rem",
+                  "margin-top": "1rem",
                 }}
               >
                 <button
@@ -625,9 +643,7 @@ export default function SettingsView() {
                   />
                 </button>
                 <div>
-                  <div style={{ "font-weight": "500" }}>
-                    use experimental player
-                  </div>
+                  <div style={{ "font-weight": "500" }}>use experimental player</div>
                   <div
                     style={{
                       "font-size": "0.875rem",
@@ -635,10 +651,9 @@ export default function SettingsView() {
                       "margin-top": "0.25rem",
                     }}
                   >
-                    route audio through the lower-level audio engine instead of
-                    the web audio element. experimental! you will lose system
-                    media player controls. use this if you are having playback
-                    issues (most likely on linux).
+                    route audio through the lower-level audio engine instead of the web audio
+                    element. experimental! you will lose system media player controls. use this if
+                    you are having playback issues (most likely on linux).
                   </div>
                   <Show when={rodioError()}>
                     <div
@@ -654,7 +669,75 @@ export default function SettingsView() {
                 </div>
               </div>
 
-              <ExternalStorageSettingsSection />
+              <Show when={chromelessSupported()}>
+                <div
+                  style={{
+                    display: "flex",
+                    "align-items": "center",
+                    gap: "1rem",
+                    "margin-top": "1.5rem",
+                  }}
+                >
+                  <button
+                    class={`toggle-button ${chromelessTitleBar() ? "active" : ""}`}
+                    onClick={toggleChromelessTitleBar}
+                    disabled={chromelessBusy()}
+                    style={{
+                      flex: "none",
+                      width: "44px",
+                      height: "24px",
+                      "border-radius": "12px",
+                      border: "none",
+                      padding: "0",
+                      background: chromelessTitleBar()
+                        ? "var(--color-accent-500, #ff69b4)"
+                        : "var(--color-bg-tertiary, #333)",
+                      cursor: chromelessBusy() ? "wait" : "pointer",
+                      position: "relative",
+                      transition: "background 0.2s",
+                      "flex-shrink": "0",
+                      opacity: chromelessBusy() ? "0.6" : "1",
+                    }}
+                  >
+                    <div
+                      style={{
+                        position: "absolute",
+                        top: "4px",
+                        left: chromelessTitleBar() ? "24px" : "4px",
+                        width: "16px",
+                        height: "16px",
+                        "border-radius": "50%",
+                        background: "white",
+                        transition: "left 0.2s",
+                      }}
+                    />
+                  </button>
+                  <div>
+                    <div style={{ "font-weight": "500" }}>use in-app title bar</div>
+                    <div
+                      style={{
+                        "font-size": "0.875rem",
+                        color: "var(--color-text-secondary, #888)",
+                        "margin-top": "0.25rem",
+                      }}
+                    >
+                      turn off to use system default title bar. takes effect next time the app
+                      restarts.
+                    </div>
+                    <Show when={chromelessError()}>
+                      <div
+                        style={{
+                          "font-size": "0.8125rem",
+                          color: "var(--color-error-500, #ff4d6d)",
+                          "margin-top": "0.25rem",
+                        }}
+                      >
+                        {chromelessError()}
+                      </div>
+                    </Show>
+                  </div>
+                </div>
+              </Show>
             </div>
           </Show>
 
@@ -668,8 +751,8 @@ export default function SettingsView() {
                   color: "var(--color-text-secondary, #888)",
                 }}
               >
-                request the remote server to gracefully shut down. it must be
-                respawned by an external supervisor (systemd, launchd, etc).
+                request the remote server to gracefully shut down. it must be respawned by an
+                external supervisor (systemd, launchd, etc).
               </p>
               <div
                 style={{
@@ -689,9 +772,7 @@ export default function SettingsView() {
                   </button>
                 </Show>
                 <Show when={restartConfirm()}>
-                  <span style={{ "font-size": "0.875rem" }}>
-                    really restart?
-                  </span>
+                  <span style={{ "font-size": "0.875rem" }}>really restart?</span>
                   <button
                     class="button danger"
                     onClick={handleServerRestart}
@@ -710,17 +791,11 @@ export default function SettingsView() {
               </div>
               <Show when={restartMessage()}>
                 <div
-                  class={`wizard-notification ${
-                    restartIsError() ? "error" : "success"
-                  }`}
+                  class={`wizard-notification ${restartIsError() ? "error" : "success"}`}
                   style={{ "margin-top": "0.75rem" }}
                 >
                   <span class="message-text">{restartMessage()}</span>
-                  <button
-                    class="dismiss-btn"
-                    onClick={() => setRestartMessage("")}
-                    title="dismiss"
-                  >
+                  <button class="dismiss-btn" onClick={() => setRestartMessage("")} title="dismiss">
                     ×
                   </button>
                 </div>

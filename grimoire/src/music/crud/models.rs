@@ -9,8 +9,9 @@ use crate::media_blobz::BlobType;
 use crate::media_blobz::MediaBlob;
 use crate::music::crud::create_or_update::Genre;
 use crate::music::entities::{albums::Album, artists::Artist, songs::Song};
-use crate::music::users::models::FavoriteTarget;
-use crate::music::users::models::RatingTarget;
+use crate::users::FavoriteTarget;
+use crate::users::RatingTarget;
+use crate::video::{Video, VideoSeries};
 
 /// image metadata with primary indicator
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema, PartialEq)]
@@ -910,15 +911,18 @@ pub struct SetFavoriteResponse {
     pub message: String,
 }
 
-/// favorite item that can be a song, album, artist, or playlist
+/// favorite item that can be a song, album, artist, playlist, video, or
+/// video series
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
-#[serde(tag = "type", rename_all = "lowercase")]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub enum FavoriteItem {
     Song(FavoriteSongResult),
     Album(FavoriteAlbumResult),
     Artist(FavoriteArtistResult),
     Playlist(FavoritePlaylistResult),
+    Video(FavoriteVideoResult),
+    VideoSeries(FavoriteVideoSeriesResult),
 }
 
 /// song favorite with full song metadata
@@ -949,6 +953,20 @@ pub struct FavoritePlaylistResult {
     pub playlist: PlaylistQueryResult,
 }
 
+/// video favorite with full video metadata
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct FavoriteVideoResult {
+    pub favorited_at: i64,
+    pub video: Video,
+}
+
+/// video series favorite with full series metadata
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct FavoriteVideoSeriesResult {
+    pub favorited_at: i64,
+    pub series: VideoSeries,
+}
+
 /// response for listing favorites
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct ListFavoritesResponse {
@@ -970,6 +988,10 @@ pub struct ListBelovedRequest {}
 pub struct ListBelovedResponse {
     pub album_ids: Vec<String>,
     pub artist_ids: Vec<String>,
+    /// directly favorited video ids (`user_favoritez.target_type = 'video'`).
+    /// no song-favorite-style derivation for video: there's no equivalent
+    /// intermediate entity to derive from.
+    pub video_ids: Vec<String>,
 }
 
 // ============================================================================

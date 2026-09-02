@@ -290,6 +290,17 @@ export function AlbumDetailView() {
       });
     };
 
+    // song-level images additionally skip non-primary "original"-typed
+    // images: this blob taxonomy is fuzzy (see utils/images.ts's
+    // getSongDisplayImages comment) - a song-level "original" that isn't
+    // flagged primary is, in practice, usually an auto-generated waveform
+    // that got linked with the wrong blob_type rather than real curated
+    // art. album/artist images don't get this extra check.
+    const addSongImage = (img: ImageMetadata) => {
+      if (img.blob_type === "original" && !img.is_primary) return;
+      addImage(img);
+    };
+
     // album images from the album entity (same source as edit modal)
     const albumImages = albumQuery.data?.images;
     if (albumImages?.length) {
@@ -306,7 +317,14 @@ export function AlbumDetailView() {
     // collect song images across all songs
     for (const song of songList) {
       if (song.images?.length) {
-        for (const img of song.images) addImage(img);
+        for (const img of song.images) addSongImage(img);
+      }
+    }
+
+    // collect artist images across all songs, as a last-resort fallback
+    for (const song of songList) {
+      if (song.artist_images?.length) {
+        for (const img of song.artist_images) addImage(img);
       }
     }
 
@@ -367,7 +385,12 @@ export function AlbumDetailView() {
   });
 
   return (
-    <DetailViewWrapper pageTitle="album" pageCount={songs().length} onBack={buildRoute("/albums")}>
+    <DetailViewWrapper
+      pageTitle="album"
+      pageCount={songs().length}
+      documentTitle={albumInfo()?.title}
+      onBack={buildRoute("/albums")}
+    >
       <div class="flex flex-col h-full">
         <Show when={albumInfo()} fallback={<LoadingState class="flex-1" />}>
           {(info) => (
@@ -375,7 +398,7 @@ export function AlbumDetailView() {
               {/* header with album info - responsive layout */}
               <div class="flex justify-between px-1 wide:gap-6 wide:p-6">
                 {/* album info */}
-                <div class="flex flex-col justify-center min-w-0 wide:mt-[50px] wide:gap-2 wide:text-left">
+                <div class="flex flex-col justify-center min-w-0 wide:mt-20 wide:gap-2 wide:text-left">
                   {/* everything above the action-buttons row gets a min-h
                       matching the artwork box (w-32/w-64 → h-32/h-64) so a
                       sparsely populated album (short title, no tags) can't

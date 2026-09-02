@@ -36,13 +36,15 @@ pub async fn process_precheck_fetch_job(job: &Job) -> Result<Option<Value>, JobE
         .server
         .as_ref()
         .and_then(|s| s.fetch_music.as_ref())
-        .ok_or_else(|| JobError::ProcessingFailed {
+        .ok_or_else(|| JobError::ProcessingFailedFinal {
             reason: "fetch_music not configured".to_string(),
+            error_type: "fetch_not_configured".to_string(),
         })?;
 
     if !fetch_config.enabled {
-        return Err(JobError::ProcessingFailed {
+        return Err(JobError::ProcessingFailedFinal {
             reason: "fetch_music is not enabled".to_string(),
+            error_type: "fetch_not_enabled".to_string(),
         });
     }
 
@@ -50,8 +52,9 @@ pub async fn process_precheck_fetch_job(job: &Job) -> Result<Option<Value>, JobE
         fetch_config
             .precheck_command
             .as_ref()
-            .ok_or_else(|| JobError::ProcessingFailed {
+            .ok_or_else(|| JobError::ProcessingFailedFinal {
                 reason: "precheck_command not configured".to_string(),
+                error_type: "fetch_precheck_command_not_configured".to_string(),
             })?;
 
     let parts: Vec<&str> = precheck_cmd.split_whitespace().collect();
@@ -67,10 +70,18 @@ pub async fn process_precheck_fetch_job(job: &Job) -> Result<Option<Value>, JobE
 
     // spawn yt-dlp with --flat-playlist so each playlist entry is emitted
     // immediately as a single line rather than waiting for per-video page loads.
+    // also inject --ignore-errors (unless already present) so a playlist
+    // containing some private/removed videos doesn't abort the whole
+    // precheck - the empty-check below already tolerates a non-zero exit
+    // when some entries were extracted anyway, but this avoids yt-dlp
+    // bailing out early before reaching later playlist entries.
     let mut command = Command::new(cmd);
     command.args(args);
     if !precheck_cmd.contains("--flat-playlist") {
         command.arg("--flat-playlist");
+    }
+    if !precheck_cmd.contains("--ignore-errors") && !precheck_cmd.contains(" -i ") {
+        command.arg("--ignore-errors");
     }
     command
         .arg("--")

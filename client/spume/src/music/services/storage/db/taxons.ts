@@ -10,10 +10,12 @@ import { initMusicDB } from "./init";
 import { slug as toSlug } from "../../../../components/graph/data/nodeIds";
 import {
   type AlbumTaxonRow,
+  type EntityTaxonRow,
   type TaxonRow,
   LOCAL_TAXON_REMOTE_ID,
   STORE_ALBUMS,
   STORE_ALBUM_TAXONS,
+  STORE_ENTITY_TAXONS,
   STORE_TAXONS,
 } from "../types";
 
@@ -42,9 +44,7 @@ export async function upsertTaxon(input: UpsertTaxonInput): Promise<TaxonRow> {
   const tx = db.transaction(STORE_TAXONS, "readwrite");
   const store = tx.objectStore(STORE_TAXONS);
   const idx = store.index("by_remote_kind_slug");
-  const existing = (await idx.get([remoteId, kindSlug, labelSlug])) as
-    | TaxonRow
-    | undefined;
+  const existing = (await idx.get([remoteId, kindSlug, labelSlug])) as TaxonRow | undefined;
   const now = Date.now();
   let row: TaxonRow;
   if (existing) {
@@ -77,26 +77,26 @@ export async function getTaxonById(taxonId: string): Promise<TaxonRow | undefine
 export async function findTaxon(
   remoteId: string,
   kindSlug: string,
-  label: string,
+  label: string
 ): Promise<TaxonRow | undefined> {
   const labelSlug = toSlug(label);
   if (!labelSlug) return undefined;
   const db = await initMusicDB();
   const idx = db.transaction(STORE_TAXONS).store.index("by_remote_kind_slug");
-  return (await idx.get([remoteId, kindSlug, labelSlug])) as
-    | TaxonRow
-    | undefined;
+  return (await idx.get([remoteId, kindSlug, labelSlug])) as TaxonRow | undefined;
 }
 
 // list taxons, optionally filtered by remote / kind / case-insensitive
 // label substring. used by the local searchSuggestions impl and by
 // the explore graph viz to populate kind groups.
-export async function queryTaxons(opts: {
-  remote_id?: string;
-  kind_slug?: string;
-  partial?: string;
-  limit?: number;
-} = {}): Promise<TaxonRow[]> {
+export async function queryTaxons(
+  opts: {
+    remote_id?: string;
+    kind_slug?: string;
+    partial?: string;
+    limit?: number;
+  } = {}
+): Promise<TaxonRow[]> {
   const db = await initMusicDB();
   const limit = opts.limit ?? 1000;
   let rows: TaxonRow[];
@@ -122,7 +122,7 @@ export async function queryTaxons(opts: {
 
 export async function deleteTaxon(taxonId: string): Promise<void> {
   const db = await initMusicDB();
-  const tx = db.transaction([STORE_TAXONS, STORE_ALBUM_TAXONS], "readwrite");
+  const tx = db.transaction([STORE_TAXONS, STORE_ALBUM_TAXONS, STORE_ENTITY_TAXONS], "readwrite");
   await tx.objectStore(STORE_TAXONS).delete(taxonId);
   // cascade: remove every junction row pointing at this taxon.
   const junction = tx.objectStore(STORE_ALBUM_TAXONS);
@@ -131,6 +131,17 @@ export async function deleteTaxon(taxonId: string): Promise<void> {
   while (cursor) {
     await cursor.delete();
     cursor = await cursor.continue();
+  }
+  // cascade to generic entity junctions too. `by_taxon_id` there is
+  // composite `[entity_type, taxon_id]` (scoped lookups need
+  // entity_type), so a taxon-only cascade has to scan all rows.
+  const entityJunction = tx.objectStore(STORE_ENTITY_TAXONS);
+  let entityCursor = await entityJunction.openCursor();
+  while (entityCursor) {
+    if ((entityCursor.value as EntityTaxonRow).taxon_id === taxonId) {
+      await entityCursor.delete();
+    }
+    entityCursor = await entityCursor.continue();
   }
   await tx.done;
 }
@@ -172,7 +183,7 @@ export async function getAlbumTaxons(albumId: string): Promise<TaxonRow[]> {
   const junctionRows = (await db.getAllFromIndex(
     STORE_ALBUM_TAXONS,
     "by_album_id",
-    albumId,
+    albumId
   )) as AlbumTaxonRow[];
   if (junctionRows.length === 0) return [];
   const tx = db.transaction(STORE_TAXONS);
@@ -192,9 +203,110 @@ export async function getAlbumIdsByTaxon(taxonId: string): Promise<string[]> {
   const rows = (await db.getAllFromIndex(
     STORE_ALBUM_TAXONS,
     "by_taxon_id",
-    taxonId,
+    taxonId
   )) as AlbumTaxonRow[];
   return rows.map((r) => r.album_id);
+}
+
+// ===== generic entity_taxons junction (non-album entities, e.g. video) =====
+//
+// mirrors the album functions above but keyed by `(entity_type,
+// entity_id, taxon_id)` so any entity kind can attach taxons without a
+// dedicated store. album keeps using its own `AlbumTaxonRow` /
+// `STORE_ALBUM_TAXONS` above - this is purely additive.
+
+// link an entity to a taxon (idempotent). `remote_id` defaults to the
+// taxon's owning remote so we never end up with a junction row whose
+// `remote_id` disagrees with its taxon.
+export async function linkEntityTaxon(
+  entityType: string,
+  entityId: string,
+  taxonId: string
+): Promise<void> {
+  const db = await initMusicDB();
+  const tx = db.transaction([STORE_TAXONS, STORE_ENTITY_TAXONS], "readwrite");
+  const taxon = (await tx.objectStore(STORE_TAXONS).get(taxonId)) as TaxonRow | undefined;
+  if (!taxon) {
+    await tx.done;
+    throw new Error(`linkEntityTaxon: taxon ${taxonId} not found`);
+  }
+  const junction = tx.objectStore(STORE_ENTITY_TAXONS);
+  const existing = await junction.get([entityType, entityId, taxonId]);
+  if (!existing) {
+    const row: EntityTaxonRow = {
+      entity_type: entityType,
+      entity_id: entityId,
+      taxon_id: taxonId,
+      remote_id: taxon.remote_id,
+      created_at: Date.now(),
+    };
+    await junction.put(row);
+  }
+  await tx.done;
+}
+
+export async function unlinkEntityTaxon(
+  entityType: string,
+  entityId: string,
+  taxonId: string
+): Promise<void> {
+  const db = await initMusicDB();
+  await db.delete(STORE_ENTITY_TAXONS, [entityType, entityId, taxonId]);
+}
+
+// every taxon attached to an entity (across all kinds). returns the
+// hydrated `TaxonRow`s so callers can render label / kind directly.
+export async function getEntityTaxons(entityType: string, entityId: string): Promise<TaxonRow[]> {
+  const db = await initMusicDB();
+  const junctionRows = (await db.getAllFromIndex(STORE_ENTITY_TAXONS, "by_entity_id", [
+    entityType,
+    entityId,
+  ])) as EntityTaxonRow[];
+  if (junctionRows.length === 0) return [];
+  const tx = db.transaction(STORE_TAXONS);
+  const store = tx.objectStore(STORE_TAXONS);
+  const taxons: TaxonRow[] = [];
+  for (const j of junctionRows) {
+    const t = (await store.get(j.taxon_id)) as TaxonRow | undefined;
+    if (t) taxons.push(t);
+  }
+  return taxons;
+}
+
+// every entity id (of a given entity_type) linked to a taxon. mirrors
+// `getAlbumIdsByTaxon` for the graph viz taxon-hub fan-out.
+export async function getEntityIdsByTaxon(entityType: string, taxonId: string): Promise<string[]> {
+  const db = await initMusicDB();
+  const rows = (await db.getAllFromIndex(STORE_ENTITY_TAXONS, "by_taxon_id", [
+    entityType,
+    taxonId,
+  ])) as EntityTaxonRow[];
+  return rows.map((r) => r.entity_id);
+}
+
+// distinct kind_slugs actually linked to at least one entity of the
+// given type (e.g. "video"). the flat `taxons` store has no per-kind
+// domain of its own (it's shared/global, populated from whatever
+// remote synced values down for autocomplete), so this is the only
+// reliable way to scope "which kinds apply to this entity type" for
+// local/offline storage — presence in `taxons` alone says nothing
+// about which entity types actually use a kind.
+export async function getKindSlugsLinkedToEntityType(entityType: string): Promise<Set<string>> {
+  const db = await initMusicDB();
+  const junctionRows = (await db.getAllFromIndex(
+    STORE_ENTITY_TAXONS,
+    "by_entity_type",
+    entityType
+  )) as EntityTaxonRow[];
+  const taxonIds = [...new Set(junctionRows.map((r) => r.taxon_id))];
+  const tx = db.transaction(STORE_TAXONS);
+  const store = tx.objectStore(STORE_TAXONS);
+  const slugs = new Set<string>();
+  for (const taxonId of taxonIds) {
+    const taxon = (await store.get(taxonId)) as TaxonRow | undefined;
+    if (taxon) slugs.add(taxon.kind_slug);
+  }
+  return slugs;
 }
 
 // distinct-album counts per kind_slug for a single remote, plus the
@@ -202,15 +314,11 @@ export async function getAlbumIdsByTaxon(taxonId: string): Promise<string[]> {
 // scan over taxons + junctions; intended for first-order hub seeding
 // in the graph viz, where counts drive whether a hub renders at all.
 export async function countAlbumsByKindForRemote(
-  remoteId: string,
+  remoteId: string
 ): Promise<{ byKind: Map<string, number>; unassigned: number }> {
   const db = await initMusicDB();
   // taxon_id -> kind_slug, restricted to this remote.
-  const taxons = (await db.getAllFromIndex(
-    STORE_TAXONS,
-    "by_remote_id",
-    remoteId,
-  )) as TaxonRow[];
+  const taxons = (await db.getAllFromIndex(STORE_TAXONS, "by_remote_id", remoteId)) as TaxonRow[];
   const kindByTaxon = new Map<string, string>();
   for (const t of taxons) kindByTaxon.set(t.taxon_id, t.kind_slug);
   // (kind_slug, album_id) -> seen, for distinct-album counts.
@@ -219,7 +327,7 @@ export async function countAlbumsByKindForRemote(
   const junctions = (await db.getAllFromIndex(
     STORE_ALBUM_TAXONS,
     "by_remote_id",
-    remoteId,
+    remoteId
   )) as AlbumTaxonRow[];
   for (const j of junctions) {
     const kind = kindByTaxon.get(j.taxon_id);
@@ -248,6 +356,43 @@ export async function countAlbumsByKindForRemote(
   return { byKind, unassigned };
 }
 
+// distinct-video counts per kind_slug for a single remote. mirrors
+// `countAlbumsByKindForRemote` but scans the generic `entity_taxons`
+// junction (filtered to entity_type "video") instead of the
+// album-specific junction — local video taxon tagging lives there (see
+// `linkEntityTaxon`/`getEntityIdsByTaxon`). no "unassigned videos" tally
+// here yet (would need cross-referencing the separate video-domain
+// indexeddb for the full local video id list); only kind-level counts
+// are needed for hub childCount/visibility today.
+export async function countVideosByKindForRemote(
+  remoteId: string
+): Promise<{ byKind: Map<string, number> }> {
+  const db = await initMusicDB();
+  const taxons = (await db.getAllFromIndex(STORE_TAXONS, "by_remote_id", remoteId)) as TaxonRow[];
+  const kindByTaxon = new Map<string, string>();
+  for (const t of taxons) kindByTaxon.set(t.taxon_id, t.kind_slug);
+  const junctions = (await db.getAllFromIndex(
+    STORE_ENTITY_TAXONS,
+    "by_entity_type",
+    "video"
+  )) as EntityTaxonRow[];
+  const seenByKind = new Map<string, Set<string>>();
+  for (const j of junctions) {
+    if (j.remote_id !== remoteId) continue;
+    const kind = kindByTaxon.get(j.taxon_id);
+    if (!kind) continue;
+    let set = seenByKind.get(kind);
+    if (!set) {
+      set = new Set();
+      seenByKind.set(kind, set);
+    }
+    set.add(j.entity_id);
+  }
+  const byKind = new Map<string, number>();
+  for (const [k, set] of seenByKind) byKind.set(k, set.size);
+  return { byKind };
+}
+
 // list every local album_id that has no junction row (i.e. albums
 // with no taxon assignments at all). only meaningful for the local
 // remote; peers' unassigned lists come from their server.
@@ -256,7 +401,7 @@ export async function listUnassignedLocalAlbumIds(): Promise<string[]> {
   const junctions = (await db.getAllFromIndex(
     STORE_ALBUM_TAXONS,
     "by_remote_id",
-    LOCAL_TAXON_REMOTE_ID,
+    LOCAL_TAXON_REMOTE_ID
   )) as AlbumTaxonRow[];
   const assigned = new Set<string>();
   for (const j of junctions) assigned.add(j.album_id);

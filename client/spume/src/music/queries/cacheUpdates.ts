@@ -2,6 +2,7 @@
 // provides a clean abstraction for "this entity changed, update it everywhere"
 
 import type { QueryClient } from "@tanstack/solid-query";
+import { queryClient } from "../../queryClient";
 import { debug } from "../../utils/logger";
 import type { Album, Artist, Playlist, Song } from "../services/storage/types";
 import { queryKeys } from "./queryKeys";
@@ -14,7 +15,7 @@ export function updateSongInCache(
   queryClient: QueryClient,
   songId: string,
   sha256: string,
-  updates: Partial<Song>,
+  updates: Partial<Song>
 ): void {
   debug("cacheUpdates", "updateSongInCache called:", {
     songId,
@@ -25,19 +26,13 @@ export function updateSongInCache(
   // helper to update song in array if found
   const updateSongInArray = (songs: Song[]): Song[] => {
     return songs.map((song) =>
-      song.id === songId || song.sha256 === sha256
-        ? { ...song, ...updates }
-        : song,
+      song.id === songId || song.sha256 === sha256 ? { ...song, ...updates } : song
     );
   };
 
   // 1. update specific song query
-  queryClient.setQueryData<Song>(["song", sha256], (old) =>
-    old ? { ...old, ...updates } : old,
-  );
-  queryClient.setQueryData<Song>(["song", songId], (old) =>
-    old ? { ...old, ...updates } : old,
-  );
+  queryClient.setQueryData<Song>(["song", sha256], (old) => (old ? { ...old, ...updates } : old));
+  queryClient.setQueryData<Song>(["song", songId], (old) => (old ? { ...old, ...updates } : old));
 
   // 2. update all infinite songs queries
   const songsQueries = queryClient.getQueriesData<{
@@ -119,7 +114,7 @@ export function updateSongInCache(
     limit: number;
     has_more: boolean;
   }>({
-    queryKey: ["genre", "songs"], 
+    queryKey: ["genre", "songs"],
     exact: false,
   });
 
@@ -150,7 +145,8 @@ export function updateSongInCache(
 
   for (const [queryKey, data] of playlistSongsQueries) {
     // only process queries that have "songs" and "infinite" in the key
-    if (!Array.isArray(queryKey) || !queryKey.includes("songs") || !queryKey.includes("infinite")) continue;
+    if (!Array.isArray(queryKey) || !queryKey.includes("songs") || !queryKey.includes("infinite"))
+      continue;
     if (!data?.pages) continue;
 
     debug("cacheUpdates", "updating playlist songs infinite query:", queryKey);
@@ -194,7 +190,7 @@ export function updateSongInCache(
 export function updateAlbumInCache(
   queryClient: QueryClient,
   albumId: string,
-  updates: Partial<Album>,
+  updates: Partial<Album>
 ): void {
   debug("cacheUpdates", "updateAlbumInCache called:", {
     albumId,
@@ -202,14 +198,12 @@ export function updateAlbumInCache(
   });
 
   const updateAlbumInArray = <T extends { album_id: string }>(albums: T[]): T[] => {
-    return albums.map((album) =>
-      album.album_id === albumId ? { ...album, ...updates } : album,
-    );
+    return albums.map((album) => (album.album_id === albumId ? { ...album, ...updates } : album));
   };
 
   // 1. update specific album detail query
   queryClient.setQueryData<Album>(queryKeys.albums.detail(albumId), (old) =>
-    old ? { ...old, ...updates } : old,
+    old ? { ...old, ...updates } : old
   );
 
   // 2. update albums infinite queries (AlbumSummary[])
@@ -306,10 +300,8 @@ export function updateAlbumInCache(
 
       const updatedData = {
         ...data,
-        items: data.items.map(song =>
-          song.album_id === albumId
-            ? { ...song, album_is_favorite: updates.is_favorite }
-            : song
+        items: data.items.map((song) =>
+          song.album_id === albumId ? { ...song, album_is_favorite: updates.is_favorite } : song
         ),
       };
       queryClient.setQueryData(queryKey, updatedData);
@@ -328,10 +320,8 @@ export function updateAlbumInCache(
 
       const updatedData = {
         ...data,
-        items: data.items.map(song =>
-          song.album_id === albumId
-            ? { ...song, album_is_favorite: updates.is_favorite }
-            : song
+        items: data.items.map((song) =>
+          song.album_id === albumId ? { ...song, album_is_favorite: updates.is_favorite } : song
         ),
       };
       queryClient.setQueryData(queryKey, updatedData);
@@ -350,10 +340,8 @@ export function updateAlbumInCache(
 
       const updatedData = {
         ...data,
-        items: data.items.map(song =>
-          song.album_id === albumId
-            ? { ...song, album_is_favorite: updates.is_favorite }
-            : song
+        items: data.items.map((song) =>
+          song.album_id === albumId ? { ...song, album_is_favorite: updates.is_favorite } : song
         ),
       };
       queryClient.setQueryData(queryKey, updatedData);
@@ -367,17 +355,17 @@ export function updateAlbumInCache(
 export function updateArtistInCache(
   queryClient: QueryClient,
   artistId: string,
-  updates: Partial<Artist>,
+  updates: Partial<Artist>
 ): void {
   const updateArtistInArray = (artists: Artist[]): Artist[] => {
     return artists.map((artist) =>
-      artist.artist_id === artistId ? { ...artist, ...updates } : artist,
+      artist.artist_id === artistId ? { ...artist, ...updates } : artist
     );
   };
 
   // 1. update specific artist query
   queryClient.setQueryData<Artist>(["artist", artistId], (old) =>
-    old ? { ...old, ...updates } : old,
+    old ? { ...old, ...updates } : old
   );
 
   // 2. update artists list queries
@@ -407,7 +395,7 @@ export function updateArtistInCache(
 export function updatePlaylistInCache(
   queryClient: QueryClient,
   playlistId: string,
-  updates: Partial<Playlist>,
+  updates: Partial<Playlist>
 ): void {
   debug("cacheUpdates", "updatePlaylistInCache called:", {
     playlistId,
@@ -416,15 +404,13 @@ export function updatePlaylistInCache(
 
   const updatePlaylistInArray = (playlists: Playlist[]): Playlist[] => {
     return playlists.map((playlist) =>
-      playlist.playlist_id === playlistId
-        ? { ...playlist, ...updates }
-        : playlist,
+      playlist.playlist_id === playlistId ? { ...playlist, ...updates } : playlist
     );
   };
 
   // 1. update specific playlist query
   queryClient.setQueryData<Playlist>(["playlist", playlistId], (old) =>
-    old ? { ...old, ...updates } : old,
+    old ? { ...old, ...updates } : old
   );
 
   // 2. update playlists infinite queries
@@ -471,13 +457,25 @@ export function updatePlaylistInCache(
 }
 
 /**
+ * broad invalidation for local-library writes (sync-to-local adding songs,
+ * albums or artists). distinct from `invalidateEntityQueries`, which is
+ * deliberately minimal because mutations update the cache optimistically -
+ * here the rows are genuinely new, so the lists have to refetch.
+ */
+export function invalidateMusicLibraryQueries(): void {
+  void queryClient.invalidateQueries({ queryKey: queryKeys.songs.all() });
+  void queryClient.invalidateQueries({ queryKey: queryKeys.albums.all() });
+  void queryClient.invalidateQueries({ queryKey: queryKeys.artists.all() });
+}
+
+/**
  * minimal invalidation - only invalidate queries that actually need server data refetch.
  * use this instead of broad invalidation to avoid unnecessary network requests.
  */
 export function invalidateEntityQueries(
   queryClient: QueryClient,
   entityType: "song" | "album" | "artist" | "playlist",
-  _entityId: string,
+  _entityId: string
 ): void {
   // for most mutations (favorites, ratings), we don't need to invalidate anything
   // because we update the cache optimistically. only invalidate if we need fresh

@@ -13,6 +13,7 @@ use crate::music::crud::models::{
     QueryResult, SongQueryResult,
 };
 use crate::music::entities::{albums::Album, albums::GenreRef, artists::Artist, songs::Song};
+use crate::query_ordering::apply_tie_breakers;
 use crate::response::GrimoireResponse;
 
 // Table identifiers for type-safe queries
@@ -1025,9 +1026,13 @@ pub async fn query_songs(params: QueryParams) -> GrimoireResponse<QueryResult<So
     }
 
     // Always preserve track order within albums
-    query
-        .order_by(SongView::SongDiscNumber, Order::Asc)
-        .order_by(SongView::SongTrackNumber, Order::Asc);
+    apply_tie_breakers(
+        &mut query,
+        [
+            (Expr::col(SongView::SongDiscNumber), Order::Asc),
+            (Expr::col(SongView::SongTrackNumber), Order::Asc),
+        ],
+    );
 
     query.limit(limit as u64).offset(offset as u64);
 

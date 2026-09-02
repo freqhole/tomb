@@ -6,6 +6,7 @@ import { useRemoteSelection } from "../../components/forms/useRemoteSelection";
 import { useRemoteIsAdmin } from "../hooks/useRemoteRole";
 import { queryClient } from "../../queryClient";
 import { TagSelectorModal } from "../../components/modals/TagSelectorModal";
+import { albumTagAdapter } from "../../components/modals/tagAdapters/albumTagAdapter";
 import { LibraryGraphSubview } from "./graph/LibraryGraphSubview";
 import type { Remote } from "../../app/services/storage/schemas/remote";
 import { useTopNavSlots } from "../../app/shell/topNavSlots";
@@ -107,7 +108,9 @@ export function ExploreView() {
         }
       >
         <TagSelectorModal
-          albumIds={tagSelectorAlbumIds()}
+          entityIds={tagSelectorAlbumIds()}
+          entityKindLabel="albums"
+          adapter={albumTagAdapter}
           remote={(tagSelectorRemote() ?? selectedRemote())!}
           onClose={() => {
             setShowTagSelectorModal(false);

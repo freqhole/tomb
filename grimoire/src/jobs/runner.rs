@@ -2,7 +2,7 @@
 //!
 //! handles dispatching jobs to the appropriate processor and running the job queue loop
 
-use super::models::{Job, JobResult, JobType};
+use super::models::{Job, JobResult, JobStatus, JobType};
 use super::music::{
     process_album_enrichment_pipeline_job, process_audiodb_album_detail_job,
     process_audiodb_artist_detail_job, process_auto_apply_album_enrichment_job,
@@ -15,6 +15,7 @@ use super::service::{
     delete_job, get_job_session, get_next_pending_job, get_session_job_counts, mark_job_completed,
     mark_job_failed, peek_pending_jobs, try_claim_pending_job,
 };
+use super::video::{process_import_video_job, process_transcode_video_job};
 use crate::error::ErrorDetail;
 use crate::jobs::job_events::{self, JobEvent, JobStatusWire};
 use crate::response::GrimoireResponse;
@@ -62,6 +63,8 @@ fn is_badge_progress_job(job_type: &JobType) -> bool {
     matches!(
         job_type,
         JobType::ImportMusic
+            | JobType::ImportVideo
+            | JobType::TranscodeVideo
             | JobType::ProcessFile
             | JobType::ProcessDirectory
             | JobType::FetchMedia
@@ -137,6 +140,8 @@ pub async fn process_job(job: Job) -> GrimoireResponse<JobResult> {
         JobType::AudioDbArtistDetail => process_audiodb_artist_detail_job(&job).await,
         JobType::AlbumEnrichmentPipeline => process_album_enrichment_pipeline_job(&job).await,
         JobType::AutoApplyAlbumEnrichment => process_auto_apply_album_enrichment_job(&job).await,
+        JobType::ImportVideo => process_import_video_job(&job).await,
+        JobType::TranscodeVideo => process_transcode_video_job(&job).await,
     };
 
     let processing_time = start_time.elapsed().as_millis() as u64;
@@ -236,10 +241,10 @@ pub async fn process_job(job: Job) -> GrimoireResponse<JobResult> {
                         // for FetchMedia jobs there's no path on disk
                         // yet, so fall back to the source url so ui
                         // subscribers can classify it as a fetch.
-                        let mut directory = job
-                            .parameters()
-                            .ok()
-                            .and_then(|p: serde_json::Value| {
+                        let job_params = job.parameters().ok();
+                        let mut directory = job_params
+                            .as_ref()
+                            .and_then(|p: &serde_json::Value| {
                                 if let Some(path) = p
                                     .get("local_path")
                                     .or_else(|| p.get("file_path"))
@@ -255,11 +260,37 @@ pub async fn process_job(job: Job) -> GrimoireResponse<JobResult> {
                             directory = "enrich://".to_string();
                         }
 
+                        // an explicit `domain` param wins; otherwise fall back to
+                        // detecting from the file path extension so the ui can
+                        // still tell "music" from "video" when the job was
+                        // dispatched without one (e.g. an older client).
+                        let domain = job_params.as_ref().and_then(|p: &serde_json::Value| {
+                            p.get("domain")
+                                .and_then(|v| v.as_str())
+                                .and_then(|s| match s {
+                                    "music" => Some(crate::media_domain::MediaDomain::Music),
+                                    "video" => Some(crate::media_domain::MediaDomain::Video),
+                                    _ => None,
+                                })
+                                .or_else(|| {
+                                    p.get("local_path")
+                                        .or_else(|| p.get("file_path"))
+                                        .and_then(|v| v.as_str())
+                                        .and_then(|path| {
+                                            crate::media_domain::detect_media_domain_from_extension(
+                                                path,
+                                                &crate::config::get_config(),
+                                            )
+                                        })
+                                })
+                        });
+
                         let rollup = serde_json::json!({
                             "directory": directory,
                             "songs_added": completed_so_far,
                             "jobs_pending": in_flight,
                             "jobs_total": session_total,
+                            "domain": domain.map(|d| d.as_str()),
                         });
                         job_events::emit(JobEvent::Progress {
                             session_id: session_id.clone(),
@@ -282,6 +313,7 @@ pub async fn process_job(job: Job) -> GrimoireResponse<JobResult> {
                                     "songs_added": completed_so_far,
                                     "albums_added": 0,
                                     "artists_added": 0,
+                                    "domain": domain.map(|d| d.as_str()),
                                 })),
                             });
                         }
@@ -305,8 +337,24 @@ pub async fn process_job(job: Job) -> GrimoireResponse<JobResult> {
             );
             // convert error to ErrorDetail for structured storage
             let error_detail: ErrorDetail = error.into();
-            let _failed_job_response =
+            let failed_job_response =
                 mark_job_failed(&job.id, vec![error_detail.clone()], is_retryable).await;
+
+            // `is_retryable` reflects the error TYPE in isolation (e.g. the
+            // generic `ProcessingFailed` always reports `true`), but
+            // `mark_job_failed` also factors in whether max_retries has
+            // been exhausted, and persists whichever status actually won.
+            // trust that persisted status here rather than re-deriving it
+            // from `is_retryable` - otherwise a job that just exhausted its
+            // retries (DB row: Failed) still gets emitted as "back to
+            // Pending" with no `Failed` event, so the client never learns
+            // the job is actually done and stuck showing a stale stage.
+            let truly_exhausted = failed_job_response
+                .data
+                .as_ref()
+                .and_then(|j| j.status().ok())
+                .map(|s| matches!(s, JobStatus::Failed))
+                .unwrap_or(!is_retryable);
 
             // phase 9.0 — typed job-lifecycle emit (failure path).
             // when retryable, mark_job_failed pushes the row back to
@@ -316,10 +364,10 @@ pub async fn process_job(job: Job) -> GrimoireResponse<JobResult> {
             // still emit StatusChanged/Failed so subscribers filtered
             // by `job_ids` receive a terminal event.
             {
-                let to_status = if is_retryable {
-                    JobStatusWire::Pending
-                } else {
+                let to_status = if truly_exhausted {
                     JobStatusWire::Failed
+                } else {
+                    JobStatusWire::Pending
                 };
                 let topic = job_type.clone();
                 let entity_ref = job_events::entity_ref_for_job(&job);
@@ -334,7 +382,7 @@ pub async fn process_job(job: Job) -> GrimoireResponse<JobResult> {
                     entity_ref: entity_ref.clone(),
                     created_by: created_by.clone(),
                 });
-                if !is_retryable {
+                if truly_exhausted {
                     job_events::emit(JobEvent::Failed {
                         session_id: session_id_str,
                         job_id: job.id.clone(),

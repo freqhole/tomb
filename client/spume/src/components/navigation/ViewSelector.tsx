@@ -15,6 +15,8 @@ export interface ViewSelectorProps {
   onNavigate: (path: string) => void;
   /** when true, render a larger touch-friendly trigger */
   isNarrow?: boolean;
+  /** omit the entity count when horizontal space is exhausted. */
+  hideCount?: boolean;
 }
 
 export function ViewSelector(props: ViewSelectorProps) {
@@ -77,7 +79,7 @@ export function ViewSelector(props: ViewSelectorProps) {
           <ChevronDownStrokeIcon size={props.isNarrow ? 18 : 12} />
         </span>
         <span class="font-medium">{props.currentTitle || "navigate"}</span>
-        <Show when={props.currentCount !== undefined}>
+        <Show when={!props.hideCount && props.currentCount !== undefined}>
           <span class="text-white/40">({props.currentCount})</span>
         </Show>
       </button>

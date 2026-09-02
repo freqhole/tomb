@@ -614,7 +614,18 @@ function WalkCanvas(props: WalkCanvasProps) {
       }
 
       // draw nodes (back to front: ghosts (label-only) first, then albums, artists, values, relations, remotes, root)
-      const roleOrder = ["ghost_artist", "album", "artist", "value", "relation", "remote", "root"];
+      const roleOrder = [
+        "ghost_artist",
+        "album",
+        "video",
+        "artist",
+        "video_season",
+        "video_series",
+        "value",
+        "relation",
+        "remote",
+        "root",
+      ];
       const sorted = [...nodes.keys()].sort((a, b) => {
         return roleOrder.indexOf(nodes[a].role) - roleOrder.indexOf(nodes[b].role);
       });
@@ -1260,6 +1271,15 @@ function WalkCanvas(props: WalkCanvasProps) {
         props.onPivot?.(id);
       } else if (role === "remote") {
         // remote root hubs open a remote-level popover alongside their pivot
+        props.onSelect?.(id, role);
+        client.expand(id);
+        props.onPivot?.(id);
+      } else if (role === "video") {
+        // standalone videos are leaves — select for inspection, do not pivot
+        props.onSelect?.(id, "video");
+      } else if (role === "video_series" || role === "video_season") {
+        // series/season are hub-like (have episode children): select +
+        // expand + pivot, mirroring artist/value/group/relation above
         props.onSelect?.(id, role);
         client.expand(id);
         props.onPivot?.(id);

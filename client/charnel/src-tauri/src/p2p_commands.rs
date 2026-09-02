@@ -31,17 +31,49 @@ pub async fn clear_federation_endpoint_handle() {
     }
 }
 
-/// check if an error message indicates a connection failure (peer likely offline)
-fn is_connection_error(error_msg: &str) -> bool {
+/// known-fragile text-pattern fallback for classifying a p2p failure as
+/// "peer is unreachable" vs a permanent rejection - depends entirely on the
+/// exact wording of whatever underlying library (iroh, std::io, etc.)
+/// produced the message, and WILL silently stop matching if that wording
+/// changes upstream. kept only as a last resort for errors that haven't
+/// been given a real, structured `GrimoireError` variant yet (see
+/// `is_connection_error` below, and docs/error-handling-tasks.md track
+/// P0-D/P1-B for the ongoing structural replacement).
+const CONNECTION_ERROR_SUBSTRINGS: &[&str] = &[
+    "failed to connect",
+    "connection refused",
+    "connection reset",
+    "connection closed",
+    "timed out",
+    "timeout",
+    "unreachable",
+    "no route",
+];
+
+/// text-pattern fallback - see `CONNECTION_ERROR_SUBSTRINGS` doc comment.
+fn is_connection_error_text_fallback(error_msg: &str) -> bool {
     let lower = error_msg.to_lowercase();
-    lower.contains("failed to connect")
-        || lower.contains("connection refused")
-        || lower.contains("connection reset")
-        || lower.contains("connection closed")
-        || lower.contains("timed out")
-        || lower.contains("timeout")
-        || lower.contains("unreachable")
-        || lower.contains("no route")
+    CONNECTION_ERROR_SUBSTRINGS
+        .iter()
+        .any(|s| lower.contains(s))
+}
+
+/// check if a p2p failure indicates a connection failure (peer likely
+/// offline), used to decide whether to fire the peer-offline event.
+///
+/// prefers a structural check on the `GrimoireError` variant - transient
+/// connection/timeout failures (`FederationApiError`) are "peer offline",
+/// while permanent rejections (`PeerRejected`, `PeerProtocolMismatch`) are
+/// not - and only falls back to the fragile text-pattern heuristic above
+/// for errors that haven't been classified into one of those p2p variants
+/// yet (e.g. failures raised before the federation endpoint exists at all).
+fn is_connection_error(err: &grimoire::GrimoireError) -> bool {
+    use grimoire::GrimoireError;
+    match err {
+        GrimoireError::FederationApiError { .. } => true,
+        GrimoireError::PeerRejected { .. } | GrimoireError::PeerProtocolMismatch { .. } => false,
+        _ => is_connection_error_text_fallback(&err.to_string()),
+    }
 }
 
 /// response from p2p_api_call
@@ -60,6 +92,23 @@ pub struct P2pBlobResponse {
     pub size: u64,
 }
 
+/// incremental download progress, streamed to the frontend over a tauri
+/// channel while a verified blob download runs.
+#[derive(Debug, Clone, Serialize)]
+pub struct BlobDownloadProgress {
+    pub bytes_downloaded: u64,
+}
+
+/// adapt a tauri channel into the plain callback grimoire's downloader takes.
+/// send failures are ignored - a closed channel (frontend navigated away) must
+/// never abort an in-flight download.
+fn progress_forwarder(
+    channel: tauri::ipc::Channel<BlobDownloadProgress>,
+) -> Box<grimoire::federation::p2p_client::BlobProgressFn> {
+    Box::new(move |bytes_downloaded| {
+        let _ = channel.send(BlobDownloadProgress { bytes_downloaded });
+    })
+}
 /// blob response with base64 data and computed blake3 hash
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct P2pBlobWithBlake3Response {
@@ -146,32 +195,14 @@ pub async fn init_p2p_client(config_path: &Path) -> Result<(), String> {
     // listener; this lets us toggle radio on/off at runtime without a
     // router rebuild (iroh's Router has no runtime add/remove protocol
     // API as of 0.98).
-    //
-    // PLAYER_ALPN is registered on desktop targets too. the inner
-    // handler enforces the auth gate (federation.remote_player.enabled
-    // + admin role + optional allowlist), so registering it here is a
-    // no-op when the operator hasn't opted in. this matches RADIO_ALPN's
-    // "register-once, gate-at-connect-time" pattern and keeps us off
-    // iroh-Router's missing runtime add/remove API.
-    #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
-    let player_protocol = {
-        let controller = crate::player_commands::get_or_init_for_alpn().await;
-        Some(grimoire::player::PlayerProtocol::new(controller))
-    };
 
-    tracing::info!("starting router for blob serving + radio + player");
+    tracing::info!("starting router for blob serving + radio");
     endpoint
         .start_router_with(|builder| {
-            let builder = builder.accept(
+            builder.accept(
                 grimoire::radio::RADIO_ALPN,
                 grimoire::radio::RadioProtocol::new(),
-            );
-            #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
-            let builder = match player_protocol {
-                Some(proto) => builder.accept(grimoire::player::PLAYER_ALPN, proto),
-                None => builder,
-            };
-            builder
+            )
         })
         .await
         .map_err(|e| format!("failed to start P2P router: {}", e))?;
@@ -212,16 +243,19 @@ pub async fn p2p_api_call(
     path: String,
     body: Option<String>,
 ) -> Result<P2pResponse, String> {
-    tracing::info!(peer = %peer_addr, method = %method, path = %path, "p2p api request");
+    // routine background peer-presence ping, fires every ~30s per known
+    // peer regardless of whether it's actually reachable - demoted to
+    // debug to keep logz.txt readable for feature debugging.
+    tracing::debug!(peer = %peer_addr, method = %method, path = %path, "p2p api request");
 
     let response =
         grimoire::federation::p2p_client::api_request(&peer_addr, &method, &path, body)
             .await
             .map_err(|e| {
                 let error_msg = e.to_string();
-                tracing::warn!(peer = %peer_addr, method = %method, path = %path, error = %error_msg, "p2p api request failed");
+                tracing::debug!(peer = %peer_addr, method = %method, path = %path, error = %error_msg, "p2p api request failed");
                 // emit peer-offline event for connection failures
-                if is_connection_error(&error_msg) {
+                if is_connection_error(&e) {
                     let _ = notify_peer_offline(&app_handle, &peer_addr, &error_msg);
                 }
                 error_msg
@@ -245,23 +279,29 @@ pub async fn p2p_fetch_blob_verified(
     app_handle: tauri::AppHandle,
     peer_addr: String,
     blake3_hash: String,
+    on_progress: tauri::ipc::Channel<BlobDownloadProgress>,
 ) -> Result<P2pBlobResponse, String> {
     use base64::{engine::general_purpose::STANDARD, Engine};
 
     tracing::info!(peer = %peer_addr, blake3 = %blake3_hash, "fetching verified blob");
 
+    let progress_cb = progress_forwarder(on_progress);
+
     // use fetch_blob_verified_with_ensure which handles on-demand loading
-    let data =
-        grimoire::federation::p2p_client::fetch_blob_verified_with_ensure(&peer_addr, &blake3_hash)
-            .await
-            .map_err(|e| {
-                let error_msg = e.to_string();
-                tracing::warn!(peer = %peer_addr, blake3 = %blake3_hash, error = %error_msg, "fetch verified blob failed");
-                if is_connection_error(&error_msg) {
-                    let _ = notify_peer_offline(&app_handle, &peer_addr, &error_msg);
-                }
-                error_msg
-            })?;
+    let data = grimoire::federation::p2p_client::fetch_blob_verified_with_ensure_progress(
+        &peer_addr,
+        &blake3_hash,
+        Some(progress_cb.as_ref()),
+    )
+    .await
+    .map_err(|e| {
+        let error_msg = e.to_string();
+        tracing::warn!(peer = %peer_addr, blake3 = %blake3_hash, error = %error_msg, "fetch verified blob failed");
+        if is_connection_error(&e) {
+            let _ = notify_peer_offline(&app_handle, &peer_addr, &error_msg);
+        }
+        error_msg
+    })?;
 
     Ok(P2pBlobResponse {
         data: STANDARD.encode(&data),
@@ -280,22 +320,28 @@ pub async fn p2p_fetch_blob_verified_by_id(
     app_handle: tauri::AppHandle,
     peer_addr: String,
     blob_id: String,
+    on_progress: tauri::ipc::Channel<BlobDownloadProgress>,
 ) -> Result<P2pBlobWithBlake3Response, String> {
     use base64::{engine::general_purpose::STANDARD, Engine};
 
-    tracing::info!(peer = %peer_addr, blob_id = %blob_id, "fetching verified blob by id");
+    tracing::debug!(peer = %peer_addr, blob_id = %blob_id, "fetching verified blob by id");
 
-    let (data, blake3) =
-        grimoire::federation::p2p_client::fetch_blob_verified_by_id(&peer_addr, &blob_id)
-            .await
-            .map_err(|e| {
-                let error_msg = e.to_string();
-                tracing::warn!(peer = %peer_addr, blob_id = %blob_id, error = %error_msg, "fetch verified blob by id failed");
-                if is_connection_error(&error_msg) {
-                    let _ = notify_peer_offline(&app_handle, &peer_addr, &error_msg);
-                }
-                error_msg
-            })?;
+    let progress_cb = progress_forwarder(on_progress);
+
+    let (data, blake3) = grimoire::federation::p2p_client::fetch_blob_verified_by_id_progress(
+        &peer_addr,
+        &blob_id,
+        Some(progress_cb.as_ref()),
+    )
+    .await
+    .map_err(|e| {
+        let error_msg = e.to_string();
+        tracing::warn!(peer = %peer_addr, blob_id = %blob_id, error = %error_msg, "fetch verified blob by id failed");
+        if is_connection_error(&e) {
+            let _ = notify_peer_offline(&app_handle, &peer_addr, &error_msg);
+        }
+        error_msg
+    })?;
 
     Ok(P2pBlobWithBlake3Response {
         data: STANDARD.encode(&data),
@@ -323,7 +369,7 @@ pub async fn p2p_fetch_hello_image(
         .map_err(|e| {
             let error_msg = e.to_string();
             tracing::warn!(peer = %peer_addr, error = %error_msg, "fetch hello image failed");
-            if is_connection_error(&error_msg) {
+            if is_connection_error(&e) {
                 let _ = notify_peer_offline(&app_handle, &peer_addr, &error_msg);
             }
             error_msg
@@ -374,14 +420,14 @@ pub async fn p2p_import_blob(file_path: String) -> Result<String, String> {
     let path = Path::new(&file_path);
 
     if !path.exists() {
-        return Err(format!("file not found: {}", file_path));
+        return Err(format!("file_not_found: file not found: {}", file_path));
     }
 
     tracing::info!("importing file into blobs store: {}", file_path);
 
     let hash = grimoire::blobz::add_file_to_store(path)
         .await
-        .map_err(|e| format!("failed to import blob: {}", e))?;
+        .map_err(|e| format!("{}: failed to import blob: {}", e.error_type(), e))?;
 
     let blake3 = hash.to_hex().to_string();
     tracing::info!("imported blob: {} -> {}", file_path, &blake3[..16]);
@@ -399,12 +445,12 @@ pub async fn p2p_import_blob_bytes(data: String) -> Result<String, String> {
     use base64::Engine;
     let data = base64::engine::general_purpose::STANDARD
         .decode(&data)
-        .map_err(|e| format!("failed to decode base64: {}", e))?;
+        .map_err(|e| format!("invalid_base64: failed to decode base64: {}", e))?;
     tracing::info!("importing {} bytes into blobs store", data.len());
 
     let hash = grimoire::blobz::add_bytes_to_store(&data)
         .await
-        .map_err(|e| format!("failed to import blob bytes: {}", e))?;
+        .map_err(|e| format!("{}: failed to import blob bytes: {}", e.error_type(), e))?;
 
     let blake3 = hash.to_hex().to_string();
     tracing::info!("imported blob bytes: {} -> {}", data.len(), &blake3[..16]);
@@ -423,7 +469,7 @@ pub async fn p2p_import_blob_bytes(data: String) -> Result<String, String> {
 pub async fn p2p_import_begin() -> Result<String, String> {
     grimoire::blobz::begin_chunked_import()
         .await
-        .map_err(|e| format!("failed to begin chunked import: {}", e))
+        .map_err(|e| format!("{}: failed to begin chunked import: {}", e.error_type(), e))
 }
 
 /// append a base64-encoded chunk to an in-flight chunked import.
@@ -433,11 +479,11 @@ pub async fn p2p_import_chunk(upload_id: String, data: String) -> Result<u64, St
     use base64::Engine;
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(&data)
-        .map_err(|e| format!("failed to decode base64 chunk: {}", e))?;
+        .map_err(|e| format!("invalid_base64: failed to decode base64 chunk: {}", e))?;
 
     grimoire::blobz::append_chunk(&upload_id, &bytes)
         .await
-        .map_err(|e| format!("failed to append chunk: {}", e))
+        .map_err(|e| format!("{}: failed to append chunk: {}", e.error_type(), e))
 }
 
 /// finish a chunked import: import the accumulated temp file into the blobs
@@ -446,7 +492,7 @@ pub async fn p2p_import_chunk(upload_id: String, data: String) -> Result<u64, St
 pub async fn p2p_import_finish(upload_id: String) -> Result<String, String> {
     let hash = grimoire::blobz::finish_chunked_import(&upload_id)
         .await
-        .map_err(|e| format!("failed to finish chunked import: {}", e))?;
+        .map_err(|e| format!("{}: failed to finish chunked import: {}", e.error_type(), e))?;
 
     let blake3 = hash.to_hex().to_string();
     tracing::info!("finished chunked import {} -> {}", upload_id, &blake3[..16]);
@@ -458,5 +504,5 @@ pub async fn p2p_import_finish(upload_id: String) -> Result<String, String> {
 pub async fn p2p_import_abort(upload_id: String) -> Result<(), String> {
     grimoire::blobz::abort_chunked_import(&upload_id)
         .await
-        .map_err(|e| format!("failed to abort chunked import: {}", e))
+        .map_err(|e| format!("{}: failed to abort chunked import: {}", e.error_type(), e))
 }

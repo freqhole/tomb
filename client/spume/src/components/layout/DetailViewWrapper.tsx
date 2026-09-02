@@ -8,6 +8,12 @@ export interface DetailViewWrapperProps extends ParentProps {
   pageTitle: string;
   /** optional count for TopNav */
   pageCount?: number;
+  /**
+   * optional browser tab title override (e.g. the loaded entity's actual
+   * name, like an album or video title) - falls back to `pageTitle` when
+   * omitted or not yet loaded.
+   */
+  documentTitle?: string;
   /** back navigation - string path to navigate to, or function to call */
   onBack?: string | (() => void);
   /** force show/hide back button (auto-detected from isNarrow if not provided) */
@@ -34,7 +40,7 @@ export interface DetailViewWrapperProps extends ParentProps {
  */
 export function DetailViewWrapper(props: DetailViewWrapperProps) {
   // narrow viewport detection
-  const [_isNarrow, setIsNarrow] = createSignal(isNarrowViewport());
+  const [isNarrow, setIsNarrow] = createSignal(isNarrowViewport());
 
   onMount(() => {
     const handleResize = () => {
@@ -52,13 +58,21 @@ export function DetailViewWrapper(props: DetailViewWrapperProps) {
     setPageInfo({
       title: props.pageTitle,
       count: props.pageCount,
+      documentTitle: props.documentTitle || props.pageTitle,
     });
   });
 
   return (
     <div class={`flex flex-col h-full ${props.class || ""}`}>
-      {/* main content */}
-      <div class="flex-1 overflow-hidden">{props.children}</div>
+      {/* main content - clears the narrow nav (no longer reserved by
+          AppLayout) so the back button/title aren't hidden under it. wide
+          floats a small corner pill and never needed this. */}
+      <div
+        class="flex-1 overflow-hidden"
+        style={{ "padding-top": isNarrow() ? "var(--nav-height, 42px)" : undefined }}
+      >
+        {props.children}
+      </div>
     </div>
   );
 }
@@ -70,6 +84,8 @@ export function DetailViewWrapper(props: DetailViewWrapperProps) {
 export function useDetailViewSetup(options: {
   pageTitle: string;
   getCount?: () => number | undefined;
+  /** optional getter for a browser tab title override (e.g. loaded entity name) */
+  getDocumentTitle?: () => string | undefined;
 }) {
   const [isNarrow, setIsNarrow] = createSignal(isNarrowViewport());
 
@@ -89,6 +105,7 @@ export function useDetailViewSetup(options: {
     setPageInfo({
       title: options.pageTitle,
       count: options.getCount?.(),
+      documentTitle: options.getDocumentTitle?.() || options.pageTitle,
     });
   });
 

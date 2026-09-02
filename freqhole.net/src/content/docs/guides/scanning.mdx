@@ -1,6 +1,6 @@
 ---
 title: scanning your library
-description: importing music into freqhole
+description: importing music and video into freqhole
 created: 2026-03-25T09:44:27-04:00
 updated: 2026-06-08T14:54:58-04:00
 author: "edward sharp"
@@ -10,15 +10,17 @@ updatedBy: "edwardsharp"
 updatedSha: "3f1c9aa"
 ---
 
-freqhole scans directories to import music files into your library.
+freqhole scans directories to import music + video files into your library. discovery is shared, then each file goes through its domain-specific import pipeline.
 
 ## configuring scan directories
 
-scan directories are passed as arguments to the scan command — there's no config file section for them. supported audio formats are configured in `[media].supported_audio_formats`.
+scan directories are passed to the scan command or selected in the desktop app — there's no config file section for them. supported formats are configured in `[media].supported_audio_formats` and `[media].supported_video_formats`.
 
 ### in desktop app
 
 settings → library → add folder
+
+choose **music** or **video** for the folder. the desktop command defaults to music when no domain is supplied so older callers keep their existing behavior.
 
 ---
 
@@ -29,6 +31,8 @@ settings → library → add folder
 ```bash
 freqhole music scan --path ~/Music
 ```
+
+despite the legacy `music scan` command name, this CLI path currently scans for both configured audio and video formats.
 
 rescan all previously tracked directories:
 
@@ -48,16 +52,17 @@ settings → library → scan (member/admin only)
 
 ## what happens during scan
 
-1. **discover files**: find all audio files in configured directories
-2. **extract metadata**: read ID3/Vorbis tags from files
-3. **extract artwork**: pull embedded cover art
-4. **deduplicate**: skip files already in library (by path)
-5. **create entities**: songs → albums → artists (linked)
-6. **index for search**: update full-text search index
+1. **discover files**: find configured audio and/or video formats in the directory
+2. **deduplicate**: skip files already tracked at the same path
+3. **queue imports**: create background jobs for new files
+4. **extract metadata**: read music tags or probe video properties
+5. **extract images**: pull embedded cover art or generate a video poster
+6. **create entities**: songs link to albums + artists; videos enter the video library
+7. **index for search**: make imported media available to library queries
 
 ---
 
-## metadata extraction
+## music metadata extraction
 
 ### supported tags
 
@@ -76,9 +81,33 @@ cover art is extracted from:
 
 stored as blobs, deduplicated by content hash.
 
+## video metadata extraction
+
+video imports use `ffprobe` to inspect the container and streams. freqhole records properties including:
+
+- duration
+- width + height
+- video + audio codecs
+- container format
+- embedded subtitle streams
+
+the filename becomes the initial title for a scanned video. you can edit its title, content type, series, season, episode, and other library metadata after import.
+
+### generated posters
+
+freqhole uses `ffmpeg` to extract a representative frame as the initial video poster. poster extraction is best-effort: a video can still import if no poster can be generated.
+
+### renditions
+
+when video transcoding is enabled, follow-up jobs can create configured playback renditions. the original file remains the source and is not modified.
+
 ---
 
 ## file formats
+
+defaults are shown below; both lists are configurable.
+
+### music
 
 | format     | extension | notes             |
 | ---------- | --------- | ----------------- |
@@ -89,11 +118,21 @@ stored as blobs, deduplicated by content hash.
 | WAV        | .wav      | limited metadata  |
 | Opus       | .opus     | Vorbis comments   |
 
+### video
+
+| format    | extension | notes                      |
+| --------- | --------- | -------------------------- |
+| MPEG-4    | .mp4      | common browser playback    |
+| Matroska  | .mkv      | may require a rendition    |
+| WebM      | .webm     | browser-friendly container |
+| QuickTime | .mov      | probed with ffprobe        |
+| AVI       | .avi      | may require a rendition    |
+
 ---
 
 ## handling duplicates
 
-freqhole tracks files by path. if the same file is moved:
+freqhole tracks media files by path. if the same file is moved:
 
 - old path: shows as missing
 - new path: imports as new song
@@ -111,7 +150,7 @@ freqhole maintenance cleanup-orphans
 ### incremental (default)
 
 - only processes new files (not in database)
-- fast for adding new music
+- fast for adding new media
 - does not update changed tags
 
 ### rescan
@@ -131,11 +170,11 @@ freqhole music scan rescan
 
 check:
 
-1. file extension in `[media].supported_audio_formats`?
+1. file extension in the matching `[media].supported_audio_formats` or `[media].supported_video_formats` list?
 2. file readable by the freqhole process?
-3. valid audio file (not corrupted)?
+3. valid media file (not corrupted)?
 
-### wrong metadata
+### wrong music metadata
 
 tags embedded in the file take priority. to fix:
 
@@ -144,12 +183,16 @@ tags embedded in the file take priority. to fix:
 
 or edit in the web app (overrides file tags).
 
+### wrong video metadata or missing poster
+
+check that `ffprobe` and `ffmpeg` are installed and that their paths are configured correctly. scanned filenames provide only an initial title; edit video, series, and season metadata in the app after import.
+
 ### scan is slow
 
 normal for large libraries on first scan. subsequent scans are incremental.
 
 tips:
 
-- exclude non-music directories
+- exclude non-media directories
 - use SSD for database
 - reduce extensions list

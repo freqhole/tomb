@@ -174,6 +174,7 @@ async fn build_test_app() -> TestApp {
         width: None,
         height: None,
         blake3: None,
+        delete_duplicate_local_path: false,
     })
     .await
     .expect("create test media blob");
@@ -209,6 +210,7 @@ async fn build_test_app() -> TestApp {
         width: None,
         height: None,
         blake3: None,
+        delete_duplicate_local_path: false,
     })
     .await
     .expect("create reliquary-only media blob row");

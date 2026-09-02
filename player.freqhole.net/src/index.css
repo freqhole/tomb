@@ -1,0 +1,34 @@
+@import "tailwindcss";
+
+body {
+  margin: 0;
+  font-family:
+    system-ui,
+    -apple-system,
+    sans-serif;
+}
+
+/* "up next" queue row loading indicator - see App.tsx's queue-list rows */
+@keyframes bounce-bar {
+  0%,
+  100% {
+    transform: translateX(-100%);
+  }
+  50% {
+    transform: translateX(100%);
+  }
+}
+
+/* pairing-qr loading spinner - see App.tsx/activityIndicator.ts. duration is
+   set inline per-frame so it can ramp speed, hence its own named animation
+   rather than tailwind's fixed-duration `animate-spin` utility. */
+@keyframes spin-ramp {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.spin-ramp {
+  animation-name: spin-ramp;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}

@@ -40,6 +40,47 @@ export const AddAlbumsTagsRequestSchema = z.object({
 });
 export type AddAlbumsTagsRequest = z.infer<typeof AddAlbumsTagsRequestSchema>;
 
+export const AddEntitiesTagsRequestSchema = z.object({
+  entity_type: z.string(),
+  entity_ids: z.array(z.string()),
+  tag_names: z.array(z.string())
+});
+export type AddEntitiesTagsRequest = z.infer<typeof AddEntitiesTagsRequestSchema>;
+
+export const AddEntityTaxonRequestSchema = z.object({
+  entity_type: z.string(),
+  entity_id: z.string(),
+  taxon_id: z.string(),
+  origin: z.string(),
+  confidence: z.number().nullish()
+});
+export type AddEntityTaxonRequest = z.infer<typeof AddEntityTaxonRequestSchema>;
+
+export const AddEntityUrlRequestSchema = z.object({
+  entity_type: z.string(),
+  entity_id: z.string(),
+  name: z.string().nullish(),
+  url: z.string()
+});
+export type AddEntityUrlRequest = z.infer<typeof AddEntityUrlRequestSchema>;
+
+export const AddPlaylistItemRequestSchema = z.object({
+  playlist_id: z.string(),
+  entity_type: z.string(),
+  entity_id: z.string(),
+  position: z.number().nullish()
+});
+export type AddPlaylistItemRequest = z.infer<typeof AddPlaylistItemRequestSchema>;
+
+export const AddPlaylistItemsRequestSchema = z.object({
+  playlist_id: z.string(),
+  items: z.array(z.object({
+  entity_type: z.string(),
+  entity_id: z.string()
+}))
+});
+export type AddPlaylistItemsRequest = z.infer<typeof AddPlaylistItemsRequestSchema>;
+
 export const AddSongsToPlaylistRequestSchema = z.object({
   playlist_id: z.string(),
   song_ids: z.array(z.string())
@@ -277,7 +318,7 @@ export const AlbumSchema = z.object({
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
   urls: z.array(z.object({
   id: z.string().nullish(),
@@ -554,7 +595,7 @@ export const AlbumQueryResultSchema = z.object({
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
   urls: z.array(z.object({
   id: z.string().nullish(),
@@ -583,7 +624,7 @@ export const AlbumQueryResultSchema = z.object({
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
   urls: z.array(z.object({
   id: z.string().nullish(),
@@ -605,7 +646,7 @@ export const AlbumQueryResultSchema = z.object({
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
   album_tags: z.array(z.string()).nullish(),
   is_favorite: z.boolean().nullish(),
@@ -684,7 +725,7 @@ export const AlbumsByValueResponseSchema = z.object({
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
   urls: z.array(z.object({
   id: z.string().nullish(),
@@ -713,7 +754,7 @@ export const AlbumsByValueResponseSchema = z.object({
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
   urls: z.array(z.object({
   id: z.string().nullish(),
@@ -735,7 +776,7 @@ export const AlbumsByValueResponseSchema = z.object({
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
   album_tags: z.array(z.string()).nullish(),
   is_favorite: z.boolean().nullish(),
@@ -767,7 +808,7 @@ export const AlbumsQueryResultSchema = z.object({
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
   urls: z.array(z.object({
   id: z.string().nullish(),
@@ -796,7 +837,7 @@ export const AlbumsQueryResultSchema = z.object({
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
   urls: z.array(z.object({
   id: z.string().nullish(),
@@ -818,7 +859,7 @@ export const AlbumsQueryResultSchema = z.object({
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
   album_tags: z.array(z.string()).nullish(),
   is_favorite: z.boolean().nullish(),
@@ -916,7 +957,7 @@ export const ArtistSchema = z.object({
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
   urls: z.array(z.object({
   id: z.string().nullish(),
@@ -1105,7 +1146,7 @@ export const ArtistQueryResultSchema = z.object({
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
   urls: z.array(z.object({
   id: z.string().nullish(),
@@ -1122,7 +1163,7 @@ export const ArtistQueryResultSchema = z.object({
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
   song_count: z.number(),
   album_count: z.number(),
@@ -1156,7 +1197,7 @@ export const ArtistsQueryResultSchema = z.object({
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
   urls: z.array(z.object({
   id: z.string().nullish(),
@@ -1173,7 +1214,7 @@ export const ArtistsQueryResultSchema = z.object({
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
   song_count: z.number(),
   album_count: z.number(),
@@ -1195,7 +1236,7 @@ export const AssociationHintSchema = z.object({
   entity_type: z.string(),
   entity_id: z.string(),
   is_primary: z.boolean().nullish(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")]).nullish()
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")]).nullish()
 });
 export type AssociationHint = z.infer<typeof AssociationHintSchema>;
 
@@ -1293,7 +1334,7 @@ export const BlobMetadataResponseSchema = z.object({
   size: z.number().nullish(),
   mime: z.string().nullish(),
   filename: z.string().nullish(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")]),
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")]),
   blake3: z.string().nullish()
 });
 export type BlobMetadataResponse = z.infer<typeof BlobMetadataResponseSchema>;
@@ -1331,6 +1372,19 @@ export const BulkDeleteSongsResponseSchema = z.object({
   failed_ids: z.array(z.string())
 });
 export type BulkDeleteSongsResponse = z.infer<typeof BulkDeleteSongsResponseSchema>;
+
+export const BulkDeleteVideosRequestSchema = z.object({
+  video_ids: z.array(z.string())
+});
+export type BulkDeleteVideosRequest = z.infer<typeof BulkDeleteVideosRequestSchema>;
+
+export const BulkDeleteVideosResponseSchema = z.object({
+  success: z.boolean(),
+  message: z.string(),
+  deleted_count: z.number(),
+  failed_ids: z.array(z.string())
+});
+export type BulkDeleteVideosResponse = z.infer<typeof BulkDeleteVideosResponseSchema>;
 
 export const BulkEnrichmentRequestSchema = z.object({
   album_ids: z.array(z.string()),
@@ -1402,7 +1456,7 @@ export const CreateArtistRequestSchema = z.object({
 export type CreateArtistRequest = z.infer<typeof CreateArtistRequestSchema>;
 
 export const CreateJobRequestSchema = z.object({
-  job_type: z.union([z.literal('ScanDirectory'), z.literal('RescanDirectories'), z.literal('ProcessFile'), z.literal('ProcessDirectory'), z.literal('FetchMedia'), z.literal('PreCheckFetch'), z.literal('ConvertWebp'), z.literal('ImportMusic'), z.literal('MbAlbumSearch'), z.literal('MbAlbumDetail'), z.literal('LastFmAlbumDetail'), z.literal('LastFmArtistDetail'), z.literal('AudioDbAlbumDetail'), z.literal('AudioDbArtistDetail'), z.literal('AlbumEnrichmentPipeline'), z.literal('AutoApplyAlbumEnrichment')]),
+  job_type: z.union([z.literal('ScanDirectory'), z.literal('RescanDirectories'), z.literal('ProcessFile'), z.literal('ProcessDirectory'), z.literal('FetchMedia'), z.literal('PreCheckFetch'), z.literal('ConvertWebp'), z.literal('ImportMusic'), z.literal('ImportVideo'), z.literal('TranscodeVideo'), z.literal('MbAlbumSearch'), z.literal('MbAlbumDetail'), z.literal('LastFmAlbumDetail'), z.literal('LastFmArtistDetail'), z.literal('AudioDbAlbumDetail'), z.literal('AudioDbArtistDetail'), z.literal('AlbumEnrichmentPipeline'), z.literal('AutoApplyAlbumEnrichment')]),
   session_id: z.string().nullish(),
   parameters: z.any(),
   max_retries: z.number().nullish(),
@@ -1418,15 +1472,18 @@ export const CreateKnockRequestSchema = z.object({
 });
 export type CreateKnockRequest = z.infer<typeof CreateKnockRequestSchema>;
 
-export const CreateListenSessionRequestSchema = z.object({
+export const CreatePlaybackSessionRequestSchema = z.object({
   session_type: z.string(),
   entity_id: z.string().nullish(),
   label: z.string(),
-  song_ids: z.array(z.string()),
-  total_songs: z.number(),
+  items: z.array(z.object({
+  entity_type: z.string(),
+  entity_id: z.string()
+})),
+  total_items: z.number(),
   total_duration_ms: z.number()
 });
-export type CreateListenSessionRequest = z.infer<typeof CreateListenSessionRequestSchema>;
+export type CreatePlaybackSessionRequest = z.infer<typeof CreatePlaybackSessionRequestSchema>;
 
 export const CreatePlaylistRequestSchema = z.object({
   id: z.string().nullish(),
@@ -1461,7 +1518,8 @@ export const CreateTaxonKindRequestSchema = z.object({
   color: z.string().nullish(),
   value_type: z.string().nullish(),
   unit: z.string().nullish(),
-  display_order: z.number().nullish()
+  display_order: z.number().nullish(),
+  domain: z.string().nullish()
 });
 export type CreateTaxonKindRequest = z.infer<typeof CreateTaxonKindRequestSchema>;
 
@@ -1472,6 +1530,38 @@ export const CreateTaxonRequestSchema = z.object({
   parent_ids: z.array(z.string()).nullish()
 });
 export type CreateTaxonRequest = z.infer<typeof CreateTaxonRequestSchema>;
+
+export const CreateVideoRequestSchema = z.object({
+  series_id: z.string().nullish(),
+  season_id: z.string().nullish(),
+  episode_number: z.number().nullish(),
+  content_type: z.string().nullish(),
+  title: z.string(),
+  description: z.string().nullish(),
+  media_blob_id: z.string(),
+  poster_blob_id: z.string().nullish(),
+  duration_seconds: z.number().nullish(),
+  release_date: z.string().nullish(),
+  created_by: z.string().nullish()
+});
+export type CreateVideoRequest = z.infer<typeof CreateVideoRequestSchema>;
+
+export const CreateVideoSeasonRequestSchema = z.object({
+  series_id: z.string(),
+  season_number: z.number(),
+  title: z.string().nullish(),
+  description: z.string().nullish(),
+  poster_blob_id: z.string().nullish()
+});
+export type CreateVideoSeasonRequest = z.infer<typeof CreateVideoSeasonRequestSchema>;
+
+export const CreateVideoSeriesRequestSchema = z.object({
+  title: z.string(),
+  description: z.string().nullish(),
+  poster_blob_id: z.string().nullish(),
+  created_by: z.string().nullish()
+});
+export type CreateVideoSeriesRequest = z.infer<typeof CreateVideoSeriesRequestSchema>;
 
 export const DeleteAlbumRequestSchema = z.object({
   id: z.string(),
@@ -1514,15 +1604,15 @@ export const DeleteKnockRequestSchema = z.object({
 });
 export type DeleteKnockRequest = z.infer<typeof DeleteKnockRequestSchema>;
 
-export const DeleteListenSessionRequestSchema = z.object({
-  id: z.string()
-});
-export type DeleteListenSessionRequest = z.infer<typeof DeleteListenSessionRequestSchema>;
-
 export const DeletePasskeyRequestSchema = z.object({
   credential_id: z.string()
 });
 export type DeletePasskeyRequest = z.infer<typeof DeletePasskeyRequestSchema>;
+
+export const DeletePlaybackSessionRequestSchema = z.object({
+  id: z.string()
+});
+export type DeletePlaybackSessionRequest = z.infer<typeof DeletePlaybackSessionRequestSchema>;
 
 export const DeletePlaylistRequestSchema = z.object({
   playlist_id: z.string()
@@ -1551,6 +1641,26 @@ export const DeleteTaxonRequestSchema = z.object({
   id: z.string()
 });
 export type DeleteTaxonRequest = z.infer<typeof DeleteTaxonRequestSchema>;
+
+export const DeleteVideoRenditionRequestSchema = z.object({
+  blob_id: z.string()
+});
+export type DeleteVideoRenditionRequest = z.infer<typeof DeleteVideoRenditionRequestSchema>;
+
+export const DeleteVideoRequestSchema = z.object({
+  id: z.string()
+});
+export type DeleteVideoRequest = z.infer<typeof DeleteVideoRequestSchema>;
+
+export const DeleteVideoSeasonRequestSchema = z.object({
+  id: z.string()
+});
+export type DeleteVideoSeasonRequest = z.infer<typeof DeleteVideoSeasonRequestSchema>;
+
+export const DeleteVideoSeriesRequestSchema = z.object({
+  id: z.string()
+});
+export type DeleteVideoSeriesRequest = z.infer<typeof DeleteVideoSeriesRequestSchema>;
 
 export const DeviceLinkedCallbackRequestSchema = z.object({
   peer_addr: z.string(),
@@ -1625,6 +1735,25 @@ export const EntityRefSchema = z.union([z.object({
 })]);
 export type EntityRef = z.infer<typeof EntityRefSchema>;
 
+export const EntityTagCountSchema = z.object({
+  tag_id: z.string(),
+  tag_name: z.string(),
+  tag_created_at: z.number(),
+  count: z.number()
+});
+export type EntityTagCount = z.infer<typeof EntityTagCountSchema>;
+
+export const EntityTaxonLinkSchema = z.object({
+  entity_type: z.string(),
+  entity_id: z.string(),
+  taxon_id: z.string(),
+  origin: z.string(),
+  confidence: z.number().nullish(),
+  created_at: z.number(),
+  created_by: z.string().nullish()
+});
+export type EntityTaxonLink = z.infer<typeof EntityTaxonLinkSchema>;
+
 export const EntityTaxonsBatchRequestSchema = z.object({
   entity_kind: z.string(),
   entity_ids: z.array(z.string())
@@ -1653,6 +1782,13 @@ export const EntityTaxonsEntrySchema = z.object({
 }))
 });
 export type EntityTaxonsEntry = z.infer<typeof EntityTaxonsEntrySchema>;
+
+export const EntityUrlSchema = z.object({
+  id: z.string().nullish(),
+  name: z.string().nullish(),
+  url: z.string()
+});
+export type EntityUrl = z.infer<typeof EntityUrlSchema>;
 
 export const EraAlbumsRequestSchema = z.object({
   min_year: z.number(),
@@ -1684,7 +1820,7 @@ export const EraAlbumsResponseSchema = z.object({
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
   urls: z.array(z.object({
   id: z.string().nullish(),
@@ -1713,7 +1849,7 @@ export const EraAlbumsResponseSchema = z.object({
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
   urls: z.array(z.object({
   id: z.string().nullish(),
@@ -1735,7 +1871,7 @@ export const EraAlbumsResponseSchema = z.object({
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
   album_tags: z.array(z.string()).nullish(),
   is_favorite: z.boolean().nullish(),
@@ -1782,7 +1918,7 @@ export const ErrorDetailSchema = z.object({
 export type ErrorDetail = z.infer<typeof ErrorDetailSchema>;
 
 export const EventFilterSchema = z.object({
-  kinds: z.array(z.union([z.literal('ScanDirectory'), z.literal('RescanDirectories'), z.literal('ProcessFile'), z.literal('ProcessDirectory'), z.literal('FetchMedia'), z.literal('PreCheckFetch'), z.literal('ConvertWebp'), z.literal('ImportMusic'), z.literal('MbAlbumSearch'), z.literal('MbAlbumDetail'), z.literal('LastFmAlbumDetail'), z.literal('LastFmArtistDetail'), z.literal('AudioDbAlbumDetail'), z.literal('AudioDbArtistDetail'), z.literal('AlbumEnrichmentPipeline'), z.literal('AutoApplyAlbumEnrichment')])).nullish(),
+  kinds: z.array(z.union([z.literal('ScanDirectory'), z.literal('RescanDirectories'), z.literal('ProcessFile'), z.literal('ProcessDirectory'), z.literal('FetchMedia'), z.literal('PreCheckFetch'), z.literal('ConvertWebp'), z.literal('ImportMusic'), z.literal('ImportVideo'), z.literal('TranscodeVideo'), z.literal('MbAlbumSearch'), z.literal('MbAlbumDetail'), z.literal('LastFmAlbumDetail'), z.literal('LastFmArtistDetail'), z.literal('AudioDbAlbumDetail'), z.literal('AudioDbArtistDetail'), z.literal('AlbumEnrichmentPipeline'), z.literal('AutoApplyAlbumEnrichment')])).nullish(),
   job_ids: z.array(z.string()).nullish(),
   session_ids: z.array(z.string()).nullish(),
   entity_refs: z.array(z.union([z.object({
@@ -1831,7 +1967,7 @@ export const FavoriteAlbumResultSchema = z.object({
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
   urls: z.array(z.object({
   id: z.string().nullish(),
@@ -1860,7 +1996,7 @@ export const FavoriteAlbumResultSchema = z.object({
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
   urls: z.array(z.object({
   id: z.string().nullish(),
@@ -1882,7 +2018,7 @@ export const FavoriteAlbumResultSchema = z.object({
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
   album_tags: z.array(z.string()).nullish(),
   is_favorite: z.boolean().nullish(),
@@ -1903,7 +2039,7 @@ export const FavoriteArtistResultSchema = z.object({
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
   urls: z.array(z.object({
   id: z.string().nullish(),
@@ -1920,7 +2056,7 @@ export const FavoriteArtistResultSchema = z.object({
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
   song_count: z.number(),
   album_count: z.number(),
@@ -1944,7 +2080,7 @@ export const FavoriteItemSchema = z.union([z.intersection(z.object({
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
   urls: z.array(z.object({
   id: z.string().nullish(),
@@ -1976,7 +2112,7 @@ export const FavoriteItemSchema = z.union([z.intersection(z.object({
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
   urls: z.array(z.object({
   id: z.string().nullish(),
@@ -2008,7 +2144,7 @@ export const FavoriteItemSchema = z.union([z.intersection(z.object({
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
   urls: z.array(z.object({
   id: z.string().nullish(),
@@ -2043,7 +2179,7 @@ export const FavoriteItemSchema = z.union([z.intersection(z.object({
   source_client_id: z.string().nullish(),
   filename: z.string().nullish(),
   parent_blob_id: z.string().nullish(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")]),
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")]),
   metadata: z.any(),
   created_at: z.number(),
   updated_at: z.number(),
@@ -2058,7 +2194,7 @@ export const FavoriteItemSchema = z.union([z.intersection(z.object({
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
   relevance_score: z.number().nullish(),
   snippet: z.string().nullish(),
@@ -2096,7 +2232,7 @@ export const FavoriteItemSchema = z.union([z.intersection(z.object({
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
   urls: z.array(z.object({
   id: z.string().nullish(),
@@ -2125,7 +2261,7 @@ export const FavoriteItemSchema = z.union([z.intersection(z.object({
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
   urls: z.array(z.object({
   id: z.string().nullish(),
@@ -2147,7 +2283,7 @@ export const FavoriteItemSchema = z.union([z.intersection(z.object({
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
   album_tags: z.array(z.string()).nullish(),
   is_favorite: z.boolean().nullish(),
@@ -2167,7 +2303,7 @@ export const FavoriteItemSchema = z.union([z.intersection(z.object({
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
   urls: z.array(z.object({
   id: z.string().nullish(),
@@ -2184,7 +2320,7 @@ export const FavoriteItemSchema = z.union([z.intersection(z.object({
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
   song_count: z.number(),
   album_count: z.number(),
@@ -2207,7 +2343,7 @@ export const FavoriteItemSchema = z.union([z.intersection(z.object({
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
   urls: z.array(z.object({
   id: z.string().nullish(),
@@ -2228,6 +2364,51 @@ export const FavoriteItemSchema = z.union([z.intersection(z.object({
   is_favorite: z.boolean().nullish(),
   play_count: z.number().nullish()
 })
+})), z.intersection(z.object({
+  type: z.literal('Video')
+}), z.object({
+  favorited_at: z.number(),
+  video: z.object({
+  id: z.string(),
+  series_id: z.string().nullish(),
+  season_id: z.string().nullish(),
+  episode_number: z.number().nullish(),
+  content_type: z.string(),
+  title: z.string(),
+  description: z.string().nullish(),
+  media_blob_id: z.string(),
+  poster_blob_id: z.string().nullish(),
+  duration_seconds: z.number().nullish(),
+  release_date: z.string().nullish(),
+  created_at: z.number(),
+  updated_at: z.number(),
+  deleted_at: z.number().nullish(),
+  created_by: z.string().nullish(),
+  updated_by: z.string().nullish(),
+  deleted_by: z.string().nullish(),
+  images: z.array(z.object({
+  blob_id: z.string(),
+  is_primary: z.number(),
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
+})).nullish(),
+  play_count: z.number().nullish()
+})
+})), z.intersection(z.object({
+  type: z.literal('VideoSeries')
+}), z.object({
+  favorited_at: z.number(),
+  series: z.object({
+  id: z.string(),
+  title: z.string(),
+  description: z.string().nullish(),
+  poster_blob_id: z.string().nullish(),
+  created_at: z.number(),
+  updated_at: z.number(),
+  deleted_at: z.number().nullish(),
+  created_by: z.string().nullish(),
+  updated_by: z.string().nullish(),
+  deleted_by: z.string().nullish()
+})
 }))]);
 export type FavoriteItem = z.infer<typeof FavoriteItemSchema>;
 
@@ -2242,7 +2423,7 @@ export const FavoritePlaylistResultSchema = z.object({
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
   urls: z.array(z.object({
   id: z.string().nullish(),
@@ -2275,7 +2456,7 @@ export const FavoriteSongResultSchema = z.object({
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
   urls: z.array(z.object({
   id: z.string().nullish(),
@@ -2307,7 +2488,7 @@ export const FavoriteSongResultSchema = z.object({
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
   urls: z.array(z.object({
   id: z.string().nullish(),
@@ -2339,7 +2520,7 @@ export const FavoriteSongResultSchema = z.object({
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
   urls: z.array(z.object({
   id: z.string().nullish(),
@@ -2374,7 +2555,7 @@ export const FavoriteSongResultSchema = z.object({
   source_client_id: z.string().nullish(),
   filename: z.string().nullish(),
   parent_blob_id: z.string().nullish(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")]),
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")]),
   metadata: z.any(),
   created_at: z.number(),
   updated_at: z.number(),
@@ -2389,7 +2570,7 @@ export const FavoriteSongResultSchema = z.object({
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
   relevance_score: z.number().nullish(),
   snippet: z.string().nullish(),
@@ -2407,19 +2588,26 @@ export const FavoriteSongResultSchema = z.object({
 });
 export type FavoriteSongResult = z.infer<typeof FavoriteSongResultSchema>;
 
+export const FavoriteStatusItemSchema = z.object({
+  target_id: z.string(),
+  is_favorite: z.boolean()
+});
+export type FavoriteStatusItem = z.infer<typeof FavoriteStatusItemSchema>;
+
 export const FeedItemSchema = z.object({
   id: z.string(),
-  feed_type: z.union([z.literal("recent_listen"), z.literal("recent_favorite"), z.literal("recent_album"), z.literal("recent_rating"), z.literal("recent_playlist"), z.literal("listen_session"), z.literal("new_image")]),
+  feed_type: z.union([z.literal("recent_listen"), z.literal("recent_favorite"), z.literal("recent_album"), z.literal("recent_rating"), z.literal("recent_playlist"), z.literal("listen_session"), z.literal("new_image"), z.literal("recent_video_watch"), z.literal("recent_video_favorite"), z.literal("recent_video")]),
   song_id: z.string().nullish(),
   album_id: z.string().nullish(),
   artist_id: z.string().nullish(),
   playlist_id: z.string().nullish(),
+  video_id: z.string().nullish(),
   title: z.string(),
   subtitle: z.string().nullish(),
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
   created_at: z.number(),
   user_id: z.string().nullish(),
@@ -2455,19 +2643,19 @@ export const FeedItemSchema = z.object({
   collage_images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
   entity_created_at: z.number().nullish()
 });
 export type FeedItem = z.infer<typeof FeedItemSchema>;
 
-export const FeedItemTypeSchema = z.union([z.literal("recent_listen"), z.literal("recent_favorite"), z.literal("recent_album"), z.literal("recent_rating"), z.literal("recent_playlist"), z.literal("listen_session"), z.literal("new_image")]);
+export const FeedItemTypeSchema = z.union([z.literal("recent_listen"), z.literal("recent_favorite"), z.literal("recent_album"), z.literal("recent_rating"), z.literal("recent_playlist"), z.literal("listen_session"), z.literal("new_image"), z.literal("recent_video_watch"), z.literal("recent_video_favorite"), z.literal("recent_video")]);
 export type FeedItemType = z.infer<typeof FeedItemTypeSchema>;
 
 export const FeedRequestSchema = z.object({
   limit: z.number().nullish(),
   offset: z.number().nullish(),
-  feed_types: z.array(z.union([z.literal("recent_listen"), z.literal("recent_favorite"), z.literal("recent_album"), z.literal("recent_rating"), z.literal("recent_playlist"), z.literal("listen_session"), z.literal("new_image")])).nullish(),
+  feed_types: z.array(z.union([z.literal("recent_listen"), z.literal("recent_favorite"), z.literal("recent_album"), z.literal("recent_rating"), z.literal("recent_playlist"), z.literal("listen_session"), z.literal("new_image"), z.literal("recent_video_watch"), z.literal("recent_video_favorite"), z.literal("recent_video")])).nullish(),
   user_id: z.string().nullish()
 });
 export type FeedRequest = z.infer<typeof FeedRequestSchema>;
@@ -2475,17 +2663,18 @@ export type FeedRequest = z.infer<typeof FeedRequestSchema>;
 export const FeedResponseSchema = z.object({
   items: z.array(z.object({
   id: z.string(),
-  feed_type: z.union([z.literal("recent_listen"), z.literal("recent_favorite"), z.literal("recent_album"), z.literal("recent_rating"), z.literal("recent_playlist"), z.literal("listen_session"), z.literal("new_image")]),
+  feed_type: z.union([z.literal("recent_listen"), z.literal("recent_favorite"), z.literal("recent_album"), z.literal("recent_rating"), z.literal("recent_playlist"), z.literal("listen_session"), z.literal("new_image"), z.literal("recent_video_watch"), z.literal("recent_video_favorite"), z.literal("recent_video")]),
   song_id: z.string().nullish(),
   album_id: z.string().nullish(),
   artist_id: z.string().nullish(),
   playlist_id: z.string().nullish(),
+  video_id: z.string().nullish(),
   title: z.string(),
   subtitle: z.string().nullish(),
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
   created_at: z.number(),
   user_id: z.string().nullish(),
@@ -2521,7 +2710,7 @@ export const FeedResponseSchema = z.object({
   collage_images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
   entity_created_at: z.number().nullish()
 })),
@@ -2531,7 +2720,8 @@ export type FeedResponse = z.infer<typeof FeedResponseSchema>;
 
 export const FetchMediaParamsSchema = z.object({
   url: z.string(),
-  user_id: z.string().nullish()
+  user_id: z.string().nullish(),
+  domain: z.union([z.literal("music"), z.literal("video")])
 });
 export type FetchMediaParams = z.infer<typeof FetchMediaParamsSchema>;
 
@@ -2579,7 +2769,7 @@ export const FindByMergedKeyResponseSchema = z.object({
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
   urls: z.array(z.object({
   id: z.string().nullish(),
@@ -2608,7 +2798,7 @@ export const FindByMergedKeyResponseSchema = z.object({
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
   urls: z.array(z.object({
   id: z.string().nullish(),
@@ -2727,6 +2917,36 @@ export const GetEnrichmentProgressResponseSchema = z.object({
 });
 export type GetEnrichmentProgressResponse = z.infer<typeof GetEnrichmentProgressResponseSchema>;
 
+export const GetEntitiesTagsRequestSchema = z.object({
+  entity_type: z.string(),
+  entity_ids: z.array(z.string())
+});
+export type GetEntitiesTagsRequest = z.infer<typeof GetEntitiesTagsRequestSchema>;
+
+export const GetEntityImagesRequestSchema = z.object({
+  entity_type: z.string(),
+  entity_id: z.string()
+});
+export type GetEntityImagesRequest = z.infer<typeof GetEntityImagesRequestSchema>;
+
+export const GetEntityTaxonsRequestSchema = z.object({
+  entity_type: z.string(),
+  entity_id: z.string()
+});
+export type GetEntityTaxonsRequest = z.infer<typeof GetEntityTaxonsRequestSchema>;
+
+export const GetEntityUrlsRequestSchema = z.object({
+  entity_type: z.string(),
+  entity_id: z.string()
+});
+export type GetEntityUrlsRequest = z.infer<typeof GetEntityUrlsRequestSchema>;
+
+export const GetFavoriteStatusBulkRequestSchema = z.object({
+  target_type: z.union([z.literal("song"), z.literal("artist"), z.literal("album"), z.literal("taxon"), z.literal("playlist"), z.literal("video"), z.literal("video_series")]),
+  target_ids: z.array(z.string())
+});
+export type GetFavoriteStatusBulkRequest = z.infer<typeof GetFavoriteStatusBulkRequestSchema>;
+
 export const GetJobRequestSchema = z.object({
   job_id: z.string()
 });
@@ -2766,10 +2986,16 @@ export const GetKnockRequestSchema = z.object({
 });
 export type GetKnockRequest = z.infer<typeof GetKnockRequestSchema>;
 
-export const GetListenSessionRequestSchema = z.object({
+export const GetPlaybackProgressRequestSchema = z.object({
+  entity_type: z.string(),
+  entity_id: z.string()
+});
+export type GetPlaybackProgressRequest = z.infer<typeof GetPlaybackProgressRequestSchema>;
+
+export const GetPlaybackSessionRequestSchema = z.object({
   id: z.string()
 });
-export type GetListenSessionRequest = z.infer<typeof GetListenSessionRequestSchema>;
+export type GetPlaybackSessionRequest = z.infer<typeof GetPlaybackSessionRequestSchema>;
 
 export const GetPlaylistRequestSchema = z.object({
   id: z.string()
@@ -2777,10 +3003,16 @@ export const GetPlaylistRequestSchema = z.object({
 export type GetPlaylistRequest = z.infer<typeof GetPlaylistRequestSchema>;
 
 export const GetRatingStatsRequestSchema = z.object({
-  target_type: z.union([z.literal("song"), z.literal("artist"), z.literal("album")]),
+  target_type: z.union([z.literal("song"), z.literal("artist"), z.literal("album"), z.literal("video")]),
   target_id: z.string()
 });
 export type GetRatingStatsRequest = z.infer<typeof GetRatingStatsRequestSchema>;
+
+export const GetRatingStatusBulkRequestSchema = z.object({
+  target_type: z.union([z.literal("song"), z.literal("artist"), z.literal("album"), z.literal("video")]),
+  target_ids: z.array(z.string())
+});
+export type GetRatingStatusBulkRequest = z.infer<typeof GetRatingStatusBulkRequestSchema>;
 
 export const GetRecordingRequestSchema = z.object({
   mbid: z.string()
@@ -2801,6 +3033,26 @@ export const GetTaxonRequestSchema = z.object({
   id: z.string()
 });
 export type GetTaxonRequest = z.infer<typeof GetTaxonRequestSchema>;
+
+export const GetVideoRenditionsRequestSchema = z.object({
+  media_blob_id: z.string()
+});
+export type GetVideoRenditionsRequest = z.infer<typeof GetVideoRenditionsRequestSchema>;
+
+export const GetVideoRequestSchema = z.object({
+  id: z.string()
+});
+export type GetVideoRequest = z.infer<typeof GetVideoRequestSchema>;
+
+export const GetVideoSeasonRequestSchema = z.object({
+  id: z.string()
+});
+export type GetVideoSeasonRequest = z.infer<typeof GetVideoSeasonRequestSchema>;
+
+export const GetVideoSeriesRequestSchema = z.object({
+  id: z.string()
+});
+export type GetVideoSeriesRequest = z.infer<typeof GetVideoSeriesRequestSchema>;
 
 export const HasBlobsRequestSchema = z.object({
   blake3s: z.array(z.string()),
@@ -2830,6 +3082,13 @@ export const ImageIngestTargetSchema = z.union([z.object({
   id: z.string()
 })]);
 export type ImageIngestTarget = z.infer<typeof ImageIngestTargetSchema>;
+
+export const ImageMetadataSchema = z.object({
+  blob_id: z.string(),
+  is_primary: z.number(),
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
+});
+export type ImageMetadata = z.infer<typeof ImageMetadataSchema>;
 
 export const ImageUploadResponseSchema = z.object({
   blob_id: z.string(),
@@ -2879,7 +3138,7 @@ export const JobEventSchema = z.union([z.object({
   session_id: z.string(),
   complete: z.number(),
   total: z.number(),
-  topic: z.union([z.literal('ScanDirectory'), z.literal('RescanDirectories'), z.literal('ProcessFile'), z.literal('ProcessDirectory'), z.literal('FetchMedia'), z.literal('PreCheckFetch'), z.literal('ConvertWebp'), z.literal('ImportMusic'), z.literal('MbAlbumSearch'), z.literal('MbAlbumDetail'), z.literal('LastFmAlbumDetail'), z.literal('LastFmArtistDetail'), z.literal('AudioDbAlbumDetail'), z.literal('AudioDbArtistDetail'), z.literal('AlbumEnrichmentPipeline'), z.literal('AutoApplyAlbumEnrichment')]),
+  topic: z.union([z.literal('ScanDirectory'), z.literal('RescanDirectories'), z.literal('ProcessFile'), z.literal('ProcessDirectory'), z.literal('FetchMedia'), z.literal('PreCheckFetch'), z.literal('ConvertWebp'), z.literal('ImportMusic'), z.literal('ImportVideo'), z.literal('TranscodeVideo'), z.literal('MbAlbumSearch'), z.literal('MbAlbumDetail'), z.literal('LastFmAlbumDetail'), z.literal('LastFmArtistDetail'), z.literal('AudioDbAlbumDetail'), z.literal('AudioDbArtistDetail'), z.literal('AlbumEnrichmentPipeline'), z.literal('AutoApplyAlbumEnrichment')]),
   entity_ref: z.union([z.object({
   kind: z.literal('album'),
   id: z.string()
@@ -2895,7 +3154,7 @@ export const JobEventSchema = z.union([z.object({
   job_id: z.string(),
   from: z.union([z.literal('pending'), z.literal('running'), z.literal('completed'), z.literal('failed'), z.literal('cancelled')]).nullish(),
   to: z.union([z.literal('pending'), z.literal('running'), z.literal('completed'), z.literal('failed'), z.literal('cancelled')]),
-  topic: z.union([z.literal('ScanDirectory'), z.literal('RescanDirectories'), z.literal('ProcessFile'), z.literal('ProcessDirectory'), z.literal('FetchMedia'), z.literal('PreCheckFetch'), z.literal('ConvertWebp'), z.literal('ImportMusic'), z.literal('MbAlbumSearch'), z.literal('MbAlbumDetail'), z.literal('LastFmAlbumDetail'), z.literal('LastFmArtistDetail'), z.literal('AudioDbAlbumDetail'), z.literal('AudioDbArtistDetail'), z.literal('AlbumEnrichmentPipeline'), z.literal('AutoApplyAlbumEnrichment')]),
+  topic: z.union([z.literal('ScanDirectory'), z.literal('RescanDirectories'), z.literal('ProcessFile'), z.literal('ProcessDirectory'), z.literal('FetchMedia'), z.literal('PreCheckFetch'), z.literal('ConvertWebp'), z.literal('ImportMusic'), z.literal('ImportVideo'), z.literal('TranscodeVideo'), z.literal('MbAlbumSearch'), z.literal('MbAlbumDetail'), z.literal('LastFmAlbumDetail'), z.literal('LastFmArtistDetail'), z.literal('AudioDbAlbumDetail'), z.literal('AudioDbArtistDetail'), z.literal('AlbumEnrichmentPipeline'), z.literal('AutoApplyAlbumEnrichment')]),
   entity_ref: z.union([z.object({
   kind: z.literal('album'),
   id: z.string()
@@ -2910,7 +3169,7 @@ export const JobEventSchema = z.union([z.object({
   job_id: z.string(),
   error_type: z.string(),
   message: z.string(),
-  topic: z.union([z.literal('ScanDirectory'), z.literal('RescanDirectories'), z.literal('ProcessFile'), z.literal('ProcessDirectory'), z.literal('FetchMedia'), z.literal('PreCheckFetch'), z.literal('ConvertWebp'), z.literal('ImportMusic'), z.literal('MbAlbumSearch'), z.literal('MbAlbumDetail'), z.literal('LastFmAlbumDetail'), z.literal('LastFmArtistDetail'), z.literal('AudioDbAlbumDetail'), z.literal('AudioDbArtistDetail'), z.literal('AlbumEnrichmentPipeline'), z.literal('AutoApplyAlbumEnrichment')]),
+  topic: z.union([z.literal('ScanDirectory'), z.literal('RescanDirectories'), z.literal('ProcessFile'), z.literal('ProcessDirectory'), z.literal('FetchMedia'), z.literal('PreCheckFetch'), z.literal('ConvertWebp'), z.literal('ImportMusic'), z.literal('ImportVideo'), z.literal('TranscodeVideo'), z.literal('MbAlbumSearch'), z.literal('MbAlbumDetail'), z.literal('LastFmAlbumDetail'), z.literal('LastFmArtistDetail'), z.literal('AudioDbAlbumDetail'), z.literal('AudioDbArtistDetail'), z.literal('AlbumEnrichmentPipeline'), z.literal('AutoApplyAlbumEnrichment')]),
   entity_ref: z.union([z.object({
   kind: z.literal('album'),
   id: z.string()
@@ -2925,7 +3184,7 @@ export const JobEventSchema = z.union([z.object({
   job_id: z.string(),
   stage: z.string(),
   message: z.string().nullish(),
-  topic: z.union([z.literal('ScanDirectory'), z.literal('RescanDirectories'), z.literal('ProcessFile'), z.literal('ProcessDirectory'), z.literal('FetchMedia'), z.literal('PreCheckFetch'), z.literal('ConvertWebp'), z.literal('ImportMusic'), z.literal('MbAlbumSearch'), z.literal('MbAlbumDetail'), z.literal('LastFmAlbumDetail'), z.literal('LastFmArtistDetail'), z.literal('AudioDbAlbumDetail'), z.literal('AudioDbArtistDetail'), z.literal('AlbumEnrichmentPipeline'), z.literal('AutoApplyAlbumEnrichment')]),
+  topic: z.union([z.literal('ScanDirectory'), z.literal('RescanDirectories'), z.literal('ProcessFile'), z.literal('ProcessDirectory'), z.literal('FetchMedia'), z.literal('PreCheckFetch'), z.literal('ConvertWebp'), z.literal('ImportMusic'), z.literal('ImportVideo'), z.literal('TranscodeVideo'), z.literal('MbAlbumSearch'), z.literal('MbAlbumDetail'), z.literal('LastFmAlbumDetail'), z.literal('LastFmArtistDetail'), z.literal('AudioDbAlbumDetail'), z.literal('AudioDbArtistDetail'), z.literal('AlbumEnrichmentPipeline'), z.literal('AutoApplyAlbumEnrichment')]),
   entity_ref: z.union([z.object({
   kind: z.literal('album'),
   id: z.string()
@@ -2937,7 +3196,7 @@ export const JobEventSchema = z.union([z.object({
 }), z.object({
   kind: z.literal('completed'),
   session_id: z.string(),
-  topic: z.union([z.literal('ScanDirectory'), z.literal('RescanDirectories'), z.literal('ProcessFile'), z.literal('ProcessDirectory'), z.literal('FetchMedia'), z.literal('PreCheckFetch'), z.literal('ConvertWebp'), z.literal('ImportMusic'), z.literal('MbAlbumSearch'), z.literal('MbAlbumDetail'), z.literal('LastFmAlbumDetail'), z.literal('LastFmArtistDetail'), z.literal('AudioDbAlbumDetail'), z.literal('AudioDbArtistDetail'), z.literal('AlbumEnrichmentPipeline'), z.literal('AutoApplyAlbumEnrichment')]),
+  topic: z.union([z.literal('ScanDirectory'), z.literal('RescanDirectories'), z.literal('ProcessFile'), z.literal('ProcessDirectory'), z.literal('FetchMedia'), z.literal('PreCheckFetch'), z.literal('ConvertWebp'), z.literal('ImportMusic'), z.literal('ImportVideo'), z.literal('TranscodeVideo'), z.literal('MbAlbumSearch'), z.literal('MbAlbumDetail'), z.literal('LastFmAlbumDetail'), z.literal('LastFmArtistDetail'), z.literal('AudioDbAlbumDetail'), z.literal('AudioDbArtistDetail'), z.literal('AlbumEnrichmentPipeline'), z.literal('AutoApplyAlbumEnrichment')]),
   entity_ref: z.union([z.object({
   kind: z.literal('album'),
   id: z.string()
@@ -2975,7 +3234,7 @@ export type JobResponse = z.infer<typeof JobResponseSchema>;
 export const JobStateSnapshotSchema = z.object({
   job_id: z.string(),
   session_id: z.string().nullish(),
-  job_type: z.union([z.literal('ScanDirectory'), z.literal('RescanDirectories'), z.literal('ProcessFile'), z.literal('ProcessDirectory'), z.literal('FetchMedia'), z.literal('PreCheckFetch'), z.literal('ConvertWebp'), z.literal('ImportMusic'), z.literal('MbAlbumSearch'), z.literal('MbAlbumDetail'), z.literal('LastFmAlbumDetail'), z.literal('LastFmArtistDetail'), z.literal('AudioDbAlbumDetail'), z.literal('AudioDbArtistDetail'), z.literal('AlbumEnrichmentPipeline'), z.literal('AutoApplyAlbumEnrichment')]),
+  job_type: z.union([z.literal('ScanDirectory'), z.literal('RescanDirectories'), z.literal('ProcessFile'), z.literal('ProcessDirectory'), z.literal('FetchMedia'), z.literal('PreCheckFetch'), z.literal('ConvertWebp'), z.literal('ImportMusic'), z.literal('ImportVideo'), z.literal('TranscodeVideo'), z.literal('MbAlbumSearch'), z.literal('MbAlbumDetail'), z.literal('LastFmAlbumDetail'), z.literal('LastFmArtistDetail'), z.literal('AudioDbAlbumDetail'), z.literal('AudioDbArtistDetail'), z.literal('AlbumEnrichmentPipeline'), z.literal('AutoApplyAlbumEnrichment')]),
   status: z.union([z.literal('pending'), z.literal('running'), z.literal('completed'), z.literal('failed'), z.literal('cancelled')]),
   entity_ref: z.union([z.object({
   kind: z.literal('album'),
@@ -3076,13 +3335,19 @@ export type ListBelovedRequest = z.infer<typeof ListBelovedRequestSchema>;
 
 export const ListBelovedResponseSchema = z.object({
   album_ids: z.array(z.string()),
-  artist_ids: z.array(z.string())
+  artist_ids: z.array(z.string()),
+  video_ids: z.array(z.string())
 });
 export type ListBelovedResponse = z.infer<typeof ListBelovedResponseSchema>;
 
+export const ListEntityTypeTagsRequestSchema = z.object({
+  entity_type: z.string()
+});
+export type ListEntityTypeTagsRequest = z.infer<typeof ListEntityTypeTagsRequestSchema>;
+
 export const ListFavoritesRequestSchema = z.object({
   user_id: z.string().nullish(),
-  target_type: z.union([z.literal("song"), z.literal("artist"), z.literal("album"), z.literal("taxon"), z.literal("playlist")]).nullish(),
+  target_type: z.union([z.literal("song"), z.literal("artist"), z.literal("album"), z.literal("taxon"), z.literal("playlist"), z.literal("video"), z.literal("video_series")]).nullish(),
   limit: z.number().nullish(),
   offset: z.number().nullish()
 });
@@ -3100,7 +3365,7 @@ export const ListFavoritesResponseSchema = z.object({
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
   urls: z.array(z.object({
   id: z.string().nullish(),
@@ -3132,7 +3397,7 @@ export const ListFavoritesResponseSchema = z.object({
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
   urls: z.array(z.object({
   id: z.string().nullish(),
@@ -3164,7 +3429,7 @@ export const ListFavoritesResponseSchema = z.object({
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
   urls: z.array(z.object({
   id: z.string().nullish(),
@@ -3199,7 +3464,7 @@ export const ListFavoritesResponseSchema = z.object({
   source_client_id: z.string().nullish(),
   filename: z.string().nullish(),
   parent_blob_id: z.string().nullish(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")]),
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")]),
   metadata: z.any(),
   created_at: z.number(),
   updated_at: z.number(),
@@ -3214,7 +3479,7 @@ export const ListFavoritesResponseSchema = z.object({
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
   relevance_score: z.number().nullish(),
   snippet: z.string().nullish(),
@@ -3252,7 +3517,7 @@ export const ListFavoritesResponseSchema = z.object({
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
   urls: z.array(z.object({
   id: z.string().nullish(),
@@ -3281,7 +3546,7 @@ export const ListFavoritesResponseSchema = z.object({
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
   urls: z.array(z.object({
   id: z.string().nullish(),
@@ -3303,7 +3568,7 @@ export const ListFavoritesResponseSchema = z.object({
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
   album_tags: z.array(z.string()).nullish(),
   is_favorite: z.boolean().nullish(),
@@ -3323,7 +3588,7 @@ export const ListFavoritesResponseSchema = z.object({
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
   urls: z.array(z.object({
   id: z.string().nullish(),
@@ -3340,7 +3605,7 @@ export const ListFavoritesResponseSchema = z.object({
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
   song_count: z.number(),
   album_count: z.number(),
@@ -3363,7 +3628,7 @@ export const ListFavoritesResponseSchema = z.object({
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
   urls: z.array(z.object({
   id: z.string().nullish(),
@@ -3384,6 +3649,51 @@ export const ListFavoritesResponseSchema = z.object({
   is_favorite: z.boolean().nullish(),
   play_count: z.number().nullish()
 })
+})), z.intersection(z.object({
+  type: z.literal('Video')
+}), z.object({
+  favorited_at: z.number(),
+  video: z.object({
+  id: z.string(),
+  series_id: z.string().nullish(),
+  season_id: z.string().nullish(),
+  episode_number: z.number().nullish(),
+  content_type: z.string(),
+  title: z.string(),
+  description: z.string().nullish(),
+  media_blob_id: z.string(),
+  poster_blob_id: z.string().nullish(),
+  duration_seconds: z.number().nullish(),
+  release_date: z.string().nullish(),
+  created_at: z.number(),
+  updated_at: z.number(),
+  deleted_at: z.number().nullish(),
+  created_by: z.string().nullish(),
+  updated_by: z.string().nullish(),
+  deleted_by: z.string().nullish(),
+  images: z.array(z.object({
+  blob_id: z.string(),
+  is_primary: z.number(),
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
+})).nullish(),
+  play_count: z.number().nullish()
+})
+})), z.intersection(z.object({
+  type: z.literal('VideoSeries')
+}), z.object({
+  favorited_at: z.number(),
+  series: z.object({
+  id: z.string(),
+  title: z.string(),
+  description: z.string().nullish(),
+  poster_blob_id: z.string().nullish(),
+  created_at: z.number(),
+  updated_at: z.number(),
+  deleted_at: z.number().nullish(),
+  created_by: z.string().nullish(),
+  updated_by: z.string().nullish(),
+  deleted_by: z.string().nullish()
+})
 }))])),
   total_count: z.number(),
   has_more: z.boolean(),
@@ -3400,28 +3710,46 @@ export const ListJobsRequestSchema = z.object({
 });
 export type ListJobsRequest = z.infer<typeof ListJobsRequestSchema>;
 
-export const ListListenSessionsRequestSchema = z.object({
+export const ListPendingReviewRequestSchema = z.object({
+  session_id: z.string().nullish()
+});
+export type ListPendingReviewRequest = z.infer<typeof ListPendingReviewRequestSchema>;
+
+export const ListPendingVideoReviewRequestSchema = z.object({
+  session_id: z.string().nullish()
+});
+export type ListPendingVideoReviewRequest = z.infer<typeof ListPendingVideoReviewRequestSchema>;
+
+export const ListPlaybackProgressRequestSchema = z.object({
+  limit: z.number().nullish()
+});
+export type ListPlaybackProgressRequest = z.infer<typeof ListPlaybackProgressRequestSchema>;
+
+export const ListPlaybackSessionsRequestSchema = z.object({
   user_id: z.string().nullish(),
   status: z.string().nullish(),
   limit: z.number().nullish(),
   offset: z.number().nullish()
 });
-export type ListListenSessionsRequest = z.infer<typeof ListListenSessionsRequestSchema>;
+export type ListPlaybackSessionsRequest = z.infer<typeof ListPlaybackSessionsRequestSchema>;
 
-export const ListListenSessionsResponseSchema = z.object({
+export const ListPlaybackSessionsResponseSchema = z.object({
   items: z.array(z.object({
   id: z.string(),
   user_id: z.string(),
-  session_type: z.union([z.literal("song"), z.literal("album"), z.literal("artist"), z.literal("taxon"), z.literal("playlist"), z.literal("shuffle"), z.literal("radio")]),
+  session_type: z.union([z.literal("song"), z.literal("album"), z.literal("artist"), z.literal("taxon"), z.literal("playlist"), z.literal("shuffle"), z.literal("radio"), z.literal("video"), z.literal("video_series"), z.literal("video_season"), z.literal("mixed")]),
   entity_id: z.string().nullish(),
   label: z.string(),
-  song_ids: z.array(z.string()),
-  total_songs: z.number(),
-  songs_completed: z.number(),
+  items: z.array(z.object({
+  entity_type: z.string(),
+  entity_id: z.string()
+})),
+  total_items: z.number(),
+  items_completed: z.number(),
   total_duration_ms: z.number(),
-  listened_duration_ms: z.number(),
-  current_song_index: z.number(),
-  current_song_position_ms: z.number(),
+  played_duration_ms: z.number(),
+  current_item_index: z.number(),
+  current_item_position_ms: z.number(),
   status: z.union([z.literal("active"), z.literal("paused"), z.literal("completed"), z.literal("abandoned")]),
   created_at: z.number(),
   updated_at: z.number(),
@@ -3430,12 +3758,12 @@ export const ListListenSessionsResponseSchema = z.object({
 })),
   total: z.number()
 });
-export type ListListenSessionsResponse = z.infer<typeof ListListenSessionsResponseSchema>;
+export type ListPlaybackSessionsResponse = z.infer<typeof ListPlaybackSessionsResponseSchema>;
 
-export const ListPendingReviewRequestSchema = z.object({
-  session_id: z.string().nullish()
+export const ListPlaylistItemsRequestSchema = z.object({
+  playlist_id: z.string()
 });
-export type ListPendingReviewRequest = z.infer<typeof ListPendingReviewRequestSchema>;
+export type ListPlaylistItemsRequest = z.infer<typeof ListPlaylistItemsRequestSchema>;
 
 export const ListRelatedArtistsBatchRequestSchema = z.object({
   artist_ids: z.array(z.string()),
@@ -3514,6 +3842,11 @@ export const ListRelatedArtistsResponseSchema = z.object({
 });
 export type ListRelatedArtistsResponse = z.infer<typeof ListRelatedArtistsResponseSchema>;
 
+export const ListTaxonKindsRequestSchema = z.object({
+  domain: z.string().nullish()
+});
+export type ListTaxonKindsRequest = z.infer<typeof ListTaxonKindsRequestSchema>;
+
 export const ListTaxonParentsForKindRequestSchema = z.object({
   kind_slug: z.string()
 });
@@ -3524,32 +3857,32 @@ export const ListTaxonsByKindRequestSchema = z.object({
 });
 export type ListTaxonsByKindRequest = z.infer<typeof ListTaxonsByKindRequestSchema>;
 
-export const ListenSessionSchema = z.object({
-  id: z.string(),
-  user_id: z.string(),
-  session_type: z.union([z.literal("song"), z.literal("album"), z.literal("artist"), z.literal("taxon"), z.literal("playlist"), z.literal("shuffle"), z.literal("radio")]),
-  entity_id: z.string().nullish(),
-  label: z.string(),
-  song_ids: z.array(z.string()),
-  total_songs: z.number(),
-  songs_completed: z.number(),
-  total_duration_ms: z.number(),
-  listened_duration_ms: z.number(),
-  current_song_index: z.number(),
-  current_song_position_ms: z.number(),
-  status: z.union([z.literal("active"), z.literal("paused"), z.literal("completed"), z.literal("abandoned")]),
-  created_at: z.number(),
-  updated_at: z.number(),
-  username: z.string().nullish(),
-  progress_percent: z.number().nullish()
+export const ListVideoSeasonsRequestSchema = z.object({
+  series_id: z.string().nullish()
 });
-export type ListenSession = z.infer<typeof ListenSessionSchema>;
+export type ListVideoSeasonsRequest = z.infer<typeof ListVideoSeasonsRequestSchema>;
 
-export const ListenSessionStatusSchema = z.union([z.literal("active"), z.literal("paused"), z.literal("completed"), z.literal("abandoned")]);
-export type ListenSessionStatus = z.infer<typeof ListenSessionStatusSchema>;
+export const ListVideoSeriesRequestSchema = z.object({
+  limit: z.number().nullish(),
+  offset: z.number().nullish()
+});
+export type ListVideoSeriesRequest = z.infer<typeof ListVideoSeriesRequestSchema>;
 
-export const ListenSessionTypeSchema = z.union([z.literal("song"), z.literal("album"), z.literal("artist"), z.literal("taxon"), z.literal("playlist"), z.literal("shuffle"), z.literal("radio")]);
-export type ListenSessionType = z.infer<typeof ListenSessionTypeSchema>;
+export const ListVideosBySeasonRequestSchema = z.object({
+  season_id: z.string()
+});
+export type ListVideosBySeasonRequest = z.infer<typeof ListVideosBySeasonRequestSchema>;
+
+export const ListVideosBySeriesRequestSchema = z.object({
+  series_id: z.string()
+});
+export type ListVideosBySeriesRequest = z.infer<typeof ListVideosBySeriesRequestSchema>;
+
+export const ListVideosUnattachedRequestSchema = z.object({
+  limit: z.number().nullish(),
+  offset: z.number().nullish()
+});
+export type ListVideosUnattachedRequest = z.infer<typeof ListVideosUnattachedRequestSchema>;
 
 export const ListeningHistoryItemSchema = z.object({
   id: z.string(),
@@ -3608,6 +3941,12 @@ export const MarkAlbumReviewedRequestSchema = z.object({
   session_id: z.string()
 });
 export type MarkAlbumReviewedRequest = z.infer<typeof MarkAlbumReviewedRequestSchema>;
+
+export const MarkVideoGroupReviewedRequestSchema = z.object({
+  group_key: z.string(),
+  session_id: z.string()
+});
+export type MarkVideoGroupReviewedRequest = z.infer<typeof MarkVideoGroupReviewedRequestSchema>;
 
 export const MbAlbumDetailParamsSchema = z.object({
   album_id: z.string(),
@@ -3906,7 +4245,7 @@ export const MediaBlobSchema = z.object({
   source_client_id: z.string().nullish(),
   filename: z.string().nullish(),
   parent_blob_id: z.string().nullish(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")]),
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")]),
   metadata: z.any(),
   created_at: z.number(),
   updated_at: z.number(),
@@ -3947,7 +4286,7 @@ export const MergedKeyMatchSchema = z.object({
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
   urls: z.array(z.object({
   id: z.string().nullish(),
@@ -3976,7 +4315,7 @@ export const MergedKeyMatchSchema = z.object({
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
   urls: z.array(z.object({
   id: z.string().nullish(),
@@ -3996,9 +4335,24 @@ export type MergedKeyMatch = z.infer<typeof MergedKeyMatchSchema>;
 export const MoveSongReviewRequestSchema = z.object({
   session_id: z.string(),
   song_id: z.string(),
-  to_album_id: z.string()
+  to_album_id: z.string().nullish(),
+  new_album_title: z.string().nullish(),
+  new_album_artist_name: z.string().nullish()
 });
 export type MoveSongReviewRequest = z.infer<typeof MoveSongReviewRequestSchema>;
+
+export const MoveVideoReviewRequestSchema = z.object({
+  video_id: z.string(),
+  to_series_id: z.string().nullish(),
+  to_season_id: z.string().nullish(),
+  content_type: z.string().nullish(),
+  new_series_title: z.string().nullish(),
+  new_season: z.object({
+  season_number: z.number(),
+  title: z.string().nullish()
+}).nullish()
+});
+export type MoveVideoReviewRequest = z.infer<typeof MoveVideoReviewRequestSchema>;
 
 export const MusicImportResponseSchema = z.object({
   session_id: z.string(),
@@ -4070,6 +4424,25 @@ export const PatchAlbumReviewRequestSchema = z.object({
 });
 export type PatchAlbumReviewRequest = z.infer<typeof PatchAlbumReviewRequestSchema>;
 
+export const PatchVideoGroupReviewRequestSchema = z.object({
+  group_key: z.string(),
+  session_id: z.string(),
+  series_title: z.string().nullish(),
+  series_description: z.string().nullish(),
+  videos: z.array(z.object({
+  video_id: z.string(),
+  title: z.string().nullish(),
+  episode_number: z.number().nullish(),
+  season_id: z.string().nullish(),
+  new_season: z.object({
+  season_number: z.number(),
+  title: z.string().nullish()
+}).nullish(),
+  content_type: z.string().nullish()
+})).nullish()
+});
+export type PatchVideoGroupReviewRequest = z.infer<typeof PatchVideoGroupReviewRequestSchema>;
+
 export const PendingReviewAlbumSchema = z.object({
   album_id: z.string(),
   title: z.string(),
@@ -4097,6 +4470,58 @@ export const PendingReviewSessionSchema = z.object({
 });
 export type PendingReviewSession = z.infer<typeof PendingReviewSessionSchema>;
 
+export const PendingReviewVideoSummarySchema = z.object({
+  video_id: z.string(),
+  title: z.string(),
+  content_type: z.string(),
+  season_id: z.string().nullish(),
+  season_number: z.number().nullish(),
+  season_title: z.string().nullish(),
+  episode_number: z.number().nullish()
+});
+export type PendingReviewVideoSummary = z.infer<typeof PendingReviewVideoSummarySchema>;
+
+export const PendingVideoReviewGroupSchema = z.object({
+  group_key: z.string(),
+  series_id: z.string().nullish(),
+  series_title: z.string().nullish(),
+  poster_blob_id: z.string().nullish(),
+  videos: z.array(z.object({
+  video_id: z.string(),
+  title: z.string(),
+  content_type: z.string(),
+  season_id: z.string().nullish(),
+  season_number: z.number().nullish(),
+  season_title: z.string().nullish(),
+  episode_number: z.number().nullish()
+})),
+  pending_blob_count: z.number()
+});
+export type PendingVideoReviewGroup = z.infer<typeof PendingVideoReviewGroupSchema>;
+
+export const PendingVideoReviewSessionSchema = z.object({
+  session_id: z.string(),
+  created_at: z.number(),
+  uploader_username: z.string().nullish(),
+  groups: z.array(z.object({
+  group_key: z.string(),
+  series_id: z.string().nullish(),
+  series_title: z.string().nullish(),
+  poster_blob_id: z.string().nullish(),
+  videos: z.array(z.object({
+  video_id: z.string(),
+  title: z.string(),
+  content_type: z.string(),
+  season_id: z.string().nullish(),
+  season_number: z.number().nullish(),
+  season_title: z.string().nullish(),
+  episode_number: z.number().nullish()
+})),
+  pending_blob_count: z.number()
+}))
+});
+export type PendingVideoReviewSession = z.infer<typeof PendingVideoReviewSessionSchema>;
+
 export const PlayAnalyticsSchema = z.object({
   song_id: z.string(),
   total_plays: z.number(),
@@ -4111,6 +4536,49 @@ export const PlayAnalyticsSchema = z.object({
   last_played_at: z.number().nullish()
 });
 export type PlayAnalytics = z.infer<typeof PlayAnalyticsSchema>;
+
+export const PlaybackProgressSchema = z.object({
+  user_id: z.string(),
+  entity_type: z.string(),
+  entity_id: z.string(),
+  position_fraction: z.number(),
+  position_seconds: z.number().nullish(),
+  duration_seconds: z.number().nullish(),
+  position_locator: z.string().nullish(),
+  completed_at: z.number().nullish(),
+  updated_at: z.number()
+});
+export type PlaybackProgress = z.infer<typeof PlaybackProgressSchema>;
+
+export const PlaybackSessionSchema = z.object({
+  id: z.string(),
+  user_id: z.string(),
+  session_type: z.union([z.literal("song"), z.literal("album"), z.literal("artist"), z.literal("taxon"), z.literal("playlist"), z.literal("shuffle"), z.literal("radio"), z.literal("video"), z.literal("video_series"), z.literal("video_season"), z.literal("mixed")]),
+  entity_id: z.string().nullish(),
+  label: z.string(),
+  items: z.array(z.object({
+  entity_type: z.string(),
+  entity_id: z.string()
+})),
+  total_items: z.number(),
+  items_completed: z.number(),
+  total_duration_ms: z.number(),
+  played_duration_ms: z.number(),
+  current_item_index: z.number(),
+  current_item_position_ms: z.number(),
+  status: z.union([z.literal("active"), z.literal("paused"), z.literal("completed"), z.literal("abandoned")]),
+  created_at: z.number(),
+  updated_at: z.number(),
+  username: z.string().nullish(),
+  progress_percent: z.number().nullish()
+});
+export type PlaybackSession = z.infer<typeof PlaybackSessionSchema>;
+
+export const PlaybackSessionStatusSchema = z.union([z.literal("active"), z.literal("paused"), z.literal("completed"), z.literal("abandoned")]);
+export type PlaybackSessionStatus = z.infer<typeof PlaybackSessionStatusSchema>;
+
+export const PlaybackSessionTypeSchema = z.union([z.literal("song"), z.literal("album"), z.literal("artist"), z.literal("taxon"), z.literal("playlist"), z.literal("shuffle"), z.literal("radio"), z.literal("video"), z.literal("video_series"), z.literal("video_season"), z.literal("mixed")]);
+export type PlaybackSessionType = z.infer<typeof PlaybackSessionTypeSchema>;
 
 export const PlayerCommandSchema = z.union([
 z.object({ kind: z.literal("load"), paths: z.array(z.string()) }),
@@ -4158,7 +4626,7 @@ export const PlaylistSchema = z.object({
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
   urls: z.array(z.object({
   id: z.string().nullish(),
@@ -4176,6 +4644,23 @@ export const PlaylistSchema = z.object({
 });
 export type Playlist = z.infer<typeof PlaylistSchema>;
 
+export const PlaylistItemSchema = z.object({
+  id: z.string(),
+  playlist_id: z.string(),
+  entity_type: z.string(),
+  entity_id: z.string(),
+  position: z.number(),
+  added_at: z.number(),
+  added_by: z.string().nullish()
+});
+export type PlaylistItem = z.infer<typeof PlaylistItemSchema>;
+
+export const PlaylistItemRefSchema = z.object({
+  entity_type: z.string(),
+  entity_id: z.string()
+});
+export type PlaylistItemRef = z.infer<typeof PlaylistItemRefSchema>;
+
 export const PlaylistQueryResultSchema = z.object({
   playlist: z.object({
   id: z.string(),
@@ -4185,7 +4670,7 @@ export const PlaylistQueryResultSchema = z.object({
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
   urls: z.array(z.object({
   id: z.string().nullish(),
@@ -4229,7 +4714,7 @@ export const PlaylistSongResultSchema = z.object({
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
   urls: z.array(z.object({
   id: z.string().nullish(),
@@ -4261,7 +4746,7 @@ export const PlaylistSongResultSchema = z.object({
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
   urls: z.array(z.object({
   id: z.string().nullish(),
@@ -4293,7 +4778,7 @@ export const PlaylistSongResultSchema = z.object({
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
   urls: z.array(z.object({
   id: z.string().nullish(),
@@ -4328,7 +4813,7 @@ export const PlaylistSongResultSchema = z.object({
   source_client_id: z.string().nullish(),
   filename: z.string().nullish(),
   parent_blob_id: z.string().nullish(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")]),
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")]),
   metadata: z.any(),
   created_at: z.number(),
   updated_at: z.number(),
@@ -4343,7 +4828,7 @@ export const PlaylistSongResultSchema = z.object({
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
   relevance_score: z.number().nullish(),
   snippet: z.string().nullish(),
@@ -4372,7 +4857,7 @@ export const PlaylistSongsQueryResultSchema = z.object({
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
   urls: z.array(z.object({
   id: z.string().nullish(),
@@ -4404,7 +4889,7 @@ export const PlaylistSongsQueryResultSchema = z.object({
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
   urls: z.array(z.object({
   id: z.string().nullish(),
@@ -4436,7 +4921,7 @@ export const PlaylistSongsQueryResultSchema = z.object({
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
   urls: z.array(z.object({
   id: z.string().nullish(),
@@ -4471,7 +4956,7 @@ export const PlaylistSongsQueryResultSchema = z.object({
   source_client_id: z.string().nullish(),
   filename: z.string().nullish(),
   parent_blob_id: z.string().nullish(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")]),
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")]),
   metadata: z.any(),
   created_at: z.number(),
   updated_at: z.number(),
@@ -4486,7 +4971,7 @@ export const PlaylistSongsQueryResultSchema = z.object({
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
   relevance_score: z.number().nullish(),
   snippet: z.string().nullish(),
@@ -4522,7 +5007,7 @@ export const PlaylistsQueryResultSchema = z.object({
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
   urls: z.array(z.object({
   id: z.string().nullish(),
@@ -4816,6 +5301,28 @@ export const QueryTaxonsRequestSchema = z.object({
 });
 export type QueryTaxonsRequest = z.infer<typeof QueryTaxonsRequestSchema>;
 
+export const QueryVideosRequestSchema = z.object({
+  params: z.object({
+  q: z.string().nullish(),
+  search_fields: z.array(z.string()).nullish(),
+  filters: z.record(z.string(), z.any()),
+  sort_by: z.string().nullish(),
+  sort_direction: z.string().nullish(),
+  limit: z.number().nullish(),
+  offset: z.number().nullish(),
+  user_id: z.string().nullish(),
+  favorites_only: z.boolean().nullish(),
+  min_rating: z.number().nullish(),
+  mb_lookup_status: z.array(z.string()).nullish(),
+  pending_review: z.boolean().nullish(),
+  caller_is_admin: z.boolean().nullish()
+}),
+  series_id: z.string().nullish(),
+  season_id: z.string().nullish(),
+  unassigned: z.boolean()
+});
+export type QueryVideosRequest = z.infer<typeof QueryVideosRequestSchema>;
+
 export const RadioBumperSchema = z.object({
   id: z.string(),
   station_id: z.string(),
@@ -5001,6 +5508,12 @@ export const RatingStatsSchema = z.object({
 });
 export type RatingStats = z.infer<typeof RatingStatsSchema>;
 
+export const RatingStatusItemSchema = z.object({
+  target_id: z.string(),
+  rating: z.number().nullish()
+});
+export type RatingStatusItem = z.infer<typeof RatingStatusItemSchema>;
+
 export const RecentSongsRequestSchema = z.object({
   limit: z.number().nullish()
 });
@@ -5031,7 +5544,7 @@ export const RecentlyAddedAlbumsResponseSchema = z.object({
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
   urls: z.array(z.object({
   id: z.string().nullish(),
@@ -5060,7 +5573,7 @@ export const RecentlyAddedAlbumsResponseSchema = z.object({
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
   urls: z.array(z.object({
   id: z.string().nullish(),
@@ -5082,7 +5595,7 @@ export const RecentlyAddedAlbumsResponseSchema = z.object({
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
   album_tags: z.array(z.string()).nullish(),
   is_favorite: z.boolean().nullish(),
@@ -5094,6 +5607,41 @@ export const RecentlyAddedAlbumsResponseSchema = z.object({
 });
 export type RecentlyAddedAlbumsResponse = z.infer<typeof RecentlyAddedAlbumsResponseSchema>;
 
+export const RecentlyAddedVideosRequestSchema = z.object({
+  limit: z.number().nullish()
+});
+export type RecentlyAddedVideosRequest = z.infer<typeof RecentlyAddedVideosRequestSchema>;
+
+export const RecentlyAddedVideosResponseSchema = z.object({
+  videos: z.array(z.object({
+  id: z.string(),
+  series_id: z.string().nullish(),
+  season_id: z.string().nullish(),
+  episode_number: z.number().nullish(),
+  content_type: z.string(),
+  title: z.string(),
+  description: z.string().nullish(),
+  media_blob_id: z.string(),
+  poster_blob_id: z.string().nullish(),
+  duration_seconds: z.number().nullish(),
+  release_date: z.string().nullish(),
+  created_at: z.number(),
+  updated_at: z.number(),
+  deleted_at: z.number().nullish(),
+  created_by: z.string().nullish(),
+  updated_by: z.string().nullish(),
+  deleted_by: z.string().nullish(),
+  images: z.array(z.object({
+  blob_id: z.string(),
+  is_primary: z.number(),
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
+})).nullish(),
+  play_count: z.number().nullish()
+})),
+  count: z.number()
+});
+export type RecentlyAddedVideosResponse = z.infer<typeof RecentlyAddedVideosResponseSchema>;
+
 export const RecordPlayRequestSchema = z.object({
   media_blob_id: z.string(),
   song_id: z.string(),
@@ -5101,6 +5649,14 @@ export const RecordPlayRequestSchema = z.object({
   event_data: z.any().nullish()
 });
 export type RecordPlayRequest = z.infer<typeof RecordPlayRequestSchema>;
+
+export const RecordVideoPlayRequestSchema = z.object({
+  media_blob_id: z.string(),
+  video_id: z.string(),
+  session_id: z.string().nullish(),
+  event_data: z.any().nullish()
+});
+export type RecordVideoPlayRequest = z.infer<typeof RecordVideoPlayRequestSchema>;
 
 export const RedeemInviteRequestSchema = z.object({
   invite_code: z.string(),
@@ -5234,6 +5790,44 @@ export const RemoveAlbumsTagsRequestSchema = z.object({
 });
 export type RemoveAlbumsTagsRequest = z.infer<typeof RemoveAlbumsTagsRequestSchema>;
 
+export const RemoveEntitiesTagsRequestSchema = z.object({
+  entity_type: z.string(),
+  entity_ids: z.array(z.string()),
+  tag_ids: z.array(z.string())
+});
+export type RemoveEntitiesTagsRequest = z.infer<typeof RemoveEntitiesTagsRequestSchema>;
+
+export const RemoveEntityTaxonRequestSchema = z.object({
+  entity_type: z.string(),
+  entity_id: z.string(),
+  taxon_id: z.string(),
+  origin: z.string()
+});
+export type RemoveEntityTaxonRequest = z.infer<typeof RemoveEntityTaxonRequestSchema>;
+
+export const RemoveEntityUrlRequestSchema = z.object({
+  entity_type: z.string(),
+  entity_id: z.string(),
+  id: z.string()
+});
+export type RemoveEntityUrlRequest = z.infer<typeof RemoveEntityUrlRequestSchema>;
+
+export const RemovePlaylistItemRequestSchema = z.object({
+  playlist_id: z.string(),
+  entity_type: z.string(),
+  entity_id: z.string()
+});
+export type RemovePlaylistItemRequest = z.infer<typeof RemovePlaylistItemRequestSchema>;
+
+export const RemovePlaylistItemsRequestSchema = z.object({
+  playlist_id: z.string(),
+  items: z.array(z.object({
+  entity_type: z.string(),
+  entity_id: z.string()
+}))
+});
+export type RemovePlaylistItemsRequest = z.infer<typeof RemovePlaylistItemsRequestSchema>;
+
 export const RemovePlaylistThumbnailRequestSchema = z.object({
   playlist_id: z.string(),
   cleanup_blob: z.boolean().nullish(),
@@ -5243,7 +5837,7 @@ export type RemovePlaylistThumbnailRequest = z.infer<typeof RemovePlaylistThumbn
 
 export const RemoveRatingRequestSchema = z.object({
   user_id: z.string().nullish(),
-  target_type: z.union([z.literal("song"), z.literal("artist"), z.literal("album")]),
+  target_type: z.union([z.literal("song"), z.literal("artist"), z.literal("album"), z.literal("video")]),
   target_id: z.string()
 });
 export type RemoveRatingRequest = z.infer<typeof RemoveRatingRequestSchema>;
@@ -5265,6 +5859,15 @@ export const RemoveTaxonParentRequestSchema = z.object({
   parent_id: z.string()
 });
 export type RemoveTaxonParentRequest = z.infer<typeof RemoveTaxonParentRequestSchema>;
+
+export const ReorderPlaylistItemsRequestSchema = z.object({
+  playlist_id: z.string(),
+  ordered_entity_refs: z.array(z.object({
+  entity_type: z.string(),
+  entity_id: z.string()
+}))
+});
+export type ReorderPlaylistItemsRequest = z.infer<typeof ReorderPlaylistItemsRequestSchema>;
 
 export const ReorderPlaylistSongsRequestSchema = z.object({
   playlist_id: z.string(),
@@ -5329,7 +5932,7 @@ export const ScalarAttributeSchema = z.object({
 });
 export type ScalarAttribute = z.infer<typeof ScalarAttributeSchema>;
 
-export const SearchFieldSchema = z.union([z.literal("all"), z.literal("artists"), z.literal("albums"), z.literal("songs"), z.literal("genres"), z.literal("playlists")]);
+export const SearchFieldSchema = z.union([z.literal("all"), z.literal("artists"), z.literal("albums"), z.literal("songs"), z.literal("genres"), z.literal("playlists"), z.literal("videos"), z.literal("video_series")]);
 export type SearchField = z.infer<typeof SearchFieldSchema>;
 
 export const SearchRecordingsRequestSchema = z.object({
@@ -5351,7 +5954,7 @@ export type SearchReleasesRequest = z.infer<typeof SearchReleasesRequestSchema>;
 
 export const SearchRequestSchema = z.object({
   query: z.string(),
-  field: z.union([z.literal("all"), z.literal("artists"), z.literal("albums"), z.literal("songs"), z.literal("genres"), z.literal("playlists")]).nullish(),
+  field: z.union([z.literal("all"), z.literal("artists"), z.literal("albums"), z.literal("songs"), z.literal("genres"), z.literal("playlists"), z.literal("videos"), z.literal("video_series")]).nullish(),
   page: z.number().nullish(),
   page_size: z.number().nullish(),
   context: z.object({
@@ -5425,6 +6028,30 @@ export const SearchResponseSchema = z.object({
   search_rank: z.number(),
   highlight: z.string().nullish()
 })).nullish(),
+  videos: z.array(z.object({
+  id: z.string(),
+  title: z.string(),
+  series_id: z.string().nullish(),
+  series_name: z.string().nullish(),
+  episode_number: z.number().nullish(),
+  duration_seconds: z.number().nullish(),
+  thumbnail_url: z.string().nullish(),
+  user_rating: z.number().nullish(),
+  is_favorite: z.boolean(),
+  search_rank: z.number(),
+  match_type: z.string(),
+  highlight: z.string().nullish()
+})).nullish(),
+  video_series: z.array(z.object({
+  id: z.string(),
+  title: z.string(),
+  description: z.string().nullish(),
+  video_count: z.number(),
+  thumbnail_url: z.string().nullish(),
+  search_rank: z.number(),
+  match_type: z.string(),
+  highlight: z.string().nullish()
+})).nullish(),
   total_count: z.number(),
   page: z.number(),
   page_size: z.number(),
@@ -5437,11 +6064,151 @@ export const SearchResponseSchema = z.object({
 });
 export type SearchResponse = z.infer<typeof SearchResponseSchema>;
 
+export const SeasonWithVideosSchema = z.object({
+  season: z.object({
+  id: z.string(),
+  series_id: z.string(),
+  season_number: z.number(),
+  title: z.string().nullish(),
+  description: z.string().nullish(),
+  poster_blob_id: z.string().nullish(),
+  created_at: z.number(),
+  updated_at: z.number(),
+  deleted_at: z.number().nullish()
+}),
+  videos: z.array(z.object({
+  id: z.string(),
+  series_id: z.string().nullish(),
+  season_id: z.string().nullish(),
+  episode_number: z.number().nullish(),
+  content_type: z.string(),
+  title: z.string(),
+  description: z.string().nullish(),
+  media_blob_id: z.string(),
+  poster_blob_id: z.string().nullish(),
+  duration_seconds: z.number().nullish(),
+  release_date: z.string().nullish(),
+  created_at: z.number(),
+  updated_at: z.number(),
+  deleted_at: z.number().nullish(),
+  created_by: z.string().nullish(),
+  updated_by: z.string().nullish(),
+  deleted_by: z.string().nullish(),
+  images: z.array(z.object({
+  blob_id: z.string(),
+  is_primary: z.number(),
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
+})).nullish(),
+  play_count: z.number().nullish()
+}))
+});
+export type SeasonWithVideos = z.infer<typeof SeasonWithVideosSchema>;
+
 export const SelfAccountLinkResponseSchema = z.object({
   code: z.string(),
   expires_at: z.number()
 });
 export type SelfAccountLinkResponse = z.infer<typeof SelfAccountLinkResponseSchema>;
+
+export const SeriesDetailSchema = z.object({
+  series: z.object({
+  id: z.string(),
+  title: z.string(),
+  description: z.string().nullish(),
+  poster_blob_id: z.string().nullish(),
+  created_at: z.number(),
+  updated_at: z.number(),
+  deleted_at: z.number().nullish(),
+  created_by: z.string().nullish(),
+  updated_by: z.string().nullish(),
+  deleted_by: z.string().nullish()
+}),
+  seasons: z.array(z.object({
+  season: z.object({
+  id: z.string(),
+  series_id: z.string(),
+  season_number: z.number(),
+  title: z.string().nullish(),
+  description: z.string().nullish(),
+  poster_blob_id: z.string().nullish(),
+  created_at: z.number(),
+  updated_at: z.number(),
+  deleted_at: z.number().nullish()
+}),
+  videos: z.array(z.object({
+  id: z.string(),
+  series_id: z.string().nullish(),
+  season_id: z.string().nullish(),
+  episode_number: z.number().nullish(),
+  content_type: z.string(),
+  title: z.string(),
+  description: z.string().nullish(),
+  media_blob_id: z.string(),
+  poster_blob_id: z.string().nullish(),
+  duration_seconds: z.number().nullish(),
+  release_date: z.string().nullish(),
+  created_at: z.number(),
+  updated_at: z.number(),
+  deleted_at: z.number().nullish(),
+  created_by: z.string().nullish(),
+  updated_by: z.string().nullish(),
+  deleted_by: z.string().nullish(),
+  images: z.array(z.object({
+  blob_id: z.string(),
+  is_primary: z.number(),
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
+})).nullish(),
+  play_count: z.number().nullish()
+}))
+})),
+  unassigned_videos: z.array(z.object({
+  id: z.string(),
+  series_id: z.string().nullish(),
+  season_id: z.string().nullish(),
+  episode_number: z.number().nullish(),
+  content_type: z.string(),
+  title: z.string(),
+  description: z.string().nullish(),
+  media_blob_id: z.string(),
+  poster_blob_id: z.string().nullish(),
+  duration_seconds: z.number().nullish(),
+  release_date: z.string().nullish(),
+  created_at: z.number(),
+  updated_at: z.number(),
+  deleted_at: z.number().nullish(),
+  created_by: z.string().nullish(),
+  updated_by: z.string().nullish(),
+  deleted_by: z.string().nullish(),
+  images: z.array(z.object({
+  blob_id: z.string(),
+  is_primary: z.number(),
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
+})).nullish(),
+  play_count: z.number().nullish()
+}))
+});
+export type SeriesDetail = z.infer<typeof SeriesDetailSchema>;
+
+export const SeriesQueryResultSchema = z.object({
+  items: z.array(z.object({
+  id: z.string(),
+  title: z.string(),
+  description: z.string().nullish(),
+  poster_blob_id: z.string().nullish(),
+  created_at: z.number(),
+  updated_at: z.number(),
+  deleted_at: z.number().nullish(),
+  created_by: z.string().nullish(),
+  updated_by: z.string().nullish(),
+  deleted_by: z.string().nullish()
+})),
+  total_count: z.number(),
+  has_more: z.boolean(),
+  offset: z.number(),
+  limit: z.number(),
+  query_time_ms: z.number().nullish()
+});
+export type SeriesQueryResult = z.infer<typeof SeriesQueryResultSchema>;
 
 export const ServerInfoResponseSchema = z.object({
   name: z.string(),
@@ -5454,9 +6221,17 @@ export const ServerInfoResponseSchema = z.object({
   lastfm_enabled: z.boolean().nullish(),
   audiodb_enabled: z.boolean().nullish(),
   passkey_p2p_enabled: z.boolean().nullish(),
-  fetch_precheck_enabled: z.boolean().nullish()
+  fetch_precheck_enabled: z.boolean().nullish(),
+  fetch_video_enabled: z.boolean().nullish(),
+  player_device: z.boolean().nullish()
 });
 export type ServerInfoResponse = z.infer<typeof ServerInfoResponseSchema>;
+
+export const SessionItemSchema = z.object({
+  entity_type: z.string(),
+  entity_id: z.string()
+});
+export type SessionItem = z.infer<typeof SessionItemSchema>;
 
 export const SessionSongSchema = z.object({
   song_id: z.string(),
@@ -5466,7 +6241,7 @@ export const SessionSongSchema = z.object({
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
   played_at: z.number()
 });
@@ -5484,7 +6259,7 @@ export const SessionSummarySchema = z.object({
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
   played_at: z.number()
 })),
@@ -5507,7 +6282,7 @@ export type SetAlbumTaxonsRequest = z.infer<typeof SetAlbumTaxonsRequestSchema>;
 
 export const SetFavoriteRequestSchema = z.object({
   user_id: z.string().nullish(),
-  target_type: z.union([z.literal("song"), z.literal("artist"), z.literal("album"), z.literal("taxon"), z.literal("playlist")]),
+  target_type: z.union([z.literal("song"), z.literal("artist"), z.literal("album"), z.literal("taxon"), z.literal("playlist"), z.literal("video"), z.literal("video_series")]),
   target_id: z.string(),
   is_favorite: z.boolean()
 });
@@ -5534,7 +6309,7 @@ export type SetPrimaryImageRequest = z.infer<typeof SetPrimaryImageRequestSchema
 
 export const SetRatingRequestSchema = z.object({
   user_id: z.string().nullish(),
-  target_type: z.union([z.literal("song"), z.literal("artist"), z.literal("album")]),
+  target_type: z.union([z.literal("song"), z.literal("artist"), z.literal("album"), z.literal("video")]),
   target_id: z.string(),
   rating: z.number()
 });
@@ -5595,7 +6370,7 @@ export const SongSchema = z.object({
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
   urls: z.array(z.object({
   id: z.string().nullish(),
@@ -5634,7 +6409,7 @@ export const SongQueryResultSchema = z.object({
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
   urls: z.array(z.object({
   id: z.string().nullish(),
@@ -5666,7 +6441,7 @@ export const SongQueryResultSchema = z.object({
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
   urls: z.array(z.object({
   id: z.string().nullish(),
@@ -5698,7 +6473,7 @@ export const SongQueryResultSchema = z.object({
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
   urls: z.array(z.object({
   id: z.string().nullish(),
@@ -5733,7 +6508,7 @@ export const SongQueryResultSchema = z.object({
   source_client_id: z.string().nullish(),
   filename: z.string().nullish(),
   parent_blob_id: z.string().nullish(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")]),
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")]),
   metadata: z.any(),
   created_at: z.number(),
   updated_at: z.number(),
@@ -5748,7 +6523,7 @@ export const SongQueryResultSchema = z.object({
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
   relevance_score: z.number().nullish(),
   snippet: z.string().nullish(),
@@ -5804,7 +6579,7 @@ export const SongsQueryResultSchema = z.object({
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
   urls: z.array(z.object({
   id: z.string().nullish(),
@@ -5836,7 +6611,7 @@ export const SongsQueryResultSchema = z.object({
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
   urls: z.array(z.object({
   id: z.string().nullish(),
@@ -5868,7 +6643,7 @@ export const SongsQueryResultSchema = z.object({
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
   urls: z.array(z.object({
   id: z.string().nullish(),
@@ -5903,7 +6678,7 @@ export const SongsQueryResultSchema = z.object({
   source_client_id: z.string().nullish(),
   filename: z.string().nullish(),
   parent_blob_id: z.string().nullish(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")]),
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")]),
   metadata: z.any(),
   created_at: z.number(),
   updated_at: z.number(),
@@ -5918,7 +6693,7 @@ export const SongsQueryResultSchema = z.object({
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
   relevance_score: z.number().nullish(),
   snippet: z.string().nullish(),
@@ -5963,7 +6738,7 @@ export const SuggestionSchema = z.object({
   display: z.string(),
   highlight: z.string(),
   count: z.number(),
-  suggestion_type: z.union([z.literal("artist"), z.literal("album"), z.literal("song"), z.literal("taxon"), z.literal("genre"), z.literal("playlist")]),
+  suggestion_type: z.union([z.literal("artist"), z.literal("album"), z.literal("song"), z.literal("taxon"), z.literal("genre"), z.literal("playlist"), z.literal("video"), z.literal("video_series")]),
   confidence: z.number(),
   metadata: z.any().nullish(),
   entity_id: z.string(),
@@ -5973,11 +6748,11 @@ export const SuggestionSchema = z.object({
 });
 export type Suggestion = z.infer<typeof SuggestionSchema>;
 
-export const SuggestionTypeSchema = z.union([z.literal("artist"), z.literal("album"), z.literal("song"), z.literal("taxon"), z.literal("genre"), z.literal("playlist")]);
+export const SuggestionTypeSchema = z.union([z.literal("artist"), z.literal("album"), z.literal("song"), z.literal("taxon"), z.literal("genre"), z.literal("playlist"), z.literal("video"), z.literal("video_series")]);
 export type SuggestionType = z.infer<typeof SuggestionTypeSchema>;
 
 export const SuggestionsRequestSchema = z.object({
-  field: z.union([z.literal("all"), z.literal("artists"), z.literal("albums"), z.literal("songs"), z.literal("genres"), z.literal("playlists")]),
+  field: z.union([z.literal("all"), z.literal("artists"), z.literal("albums"), z.literal("songs"), z.literal("genres"), z.literal("playlists"), z.literal("videos"), z.literal("video_series")]),
   partial: z.string(),
   page: z.number().nullish(),
   page_size: z.number().nullish(),
@@ -5999,7 +6774,7 @@ export const SuggestionsResponseSchema = z.object({
   display: z.string(),
   highlight: z.string(),
   count: z.number(),
-  suggestion_type: z.union([z.literal("artist"), z.literal("album"), z.literal("song"), z.literal("taxon"), z.literal("genre"), z.literal("playlist")]),
+  suggestion_type: z.union([z.literal("artist"), z.literal("album"), z.literal("song"), z.literal("taxon"), z.literal("genre"), z.literal("playlist"), z.literal("video"), z.literal("video_series")]),
   confidence: z.number(),
   metadata: z.any().nullish(),
   entity_id: z.string(),
@@ -6138,6 +6913,61 @@ export const SyncSongByBlake3ResponseSchema = z.object({
 });
 export type SyncSongByBlake3Response = z.infer<typeof SyncSongByBlake3ResponseSchema>;
 
+export const SyncVideoByBlake3RequestSchema = z.object({
+  blake3: z.string(),
+  sha256: z.string().nullish(),
+  size: z.number().nullish(),
+  filename: z.string(),
+  source_node_id: z.string(),
+  source_remote_id: z.string().nullish(),
+  remote_name: z.string().nullish(),
+  title: z.string(),
+  description: z.string().nullish(),
+  content_type: z.string().nullish(),
+  episode_number: z.number().nullish(),
+  duration_seconds: z.number().nullish(),
+  release_date: z.string().nullish(),
+  series_title: z.string().nullish(),
+  series_description: z.string().nullish(),
+  season_number: z.number().nullish(),
+  season_title: z.string().nullish(),
+  video_images: z.array(z.object({
+  content_sha256: z.string(),
+  data_base64: z.string().nullish(),
+  mime_type: z.string(),
+  is_primary: z.boolean(),
+  blob_type: z.string().nullish()
+})),
+  series_images: z.array(z.object({
+  content_sha256: z.string(),
+  data_base64: z.string().nullish(),
+  mime_type: z.string(),
+  is_primary: z.boolean(),
+  blob_type: z.string().nullish()
+})),
+  season_images: z.array(z.object({
+  content_sha256: z.string(),
+  data_base64: z.string().nullish(),
+  mime_type: z.string(),
+  is_primary: z.boolean(),
+  blob_type: z.string().nullish()
+}))
+});
+export type SyncVideoByBlake3Request = z.infer<typeof SyncVideoByBlake3RequestSchema>;
+
+export const SyncVideoByBlake3ResponseSchema = z.object({
+  video_id: z.string(),
+  media_blob_id: z.string(),
+  file_path: z.string(),
+  blake3: z.string(),
+  series_id: z.string().nullish(),
+  season_id: z.string().nullish(),
+  existing: z.boolean(),
+  images_linked: z.number(),
+  missing_image_sha256s: z.array(z.string())
+});
+export type SyncVideoByBlake3Response = z.infer<typeof SyncVideoByBlake3ResponseSchema>;
+
 export const TagSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -6170,7 +7000,9 @@ export const TaxonKindSchema = z.object({
   display_order: z.number(),
   is_user_defined: z.boolean(),
   created_at: z.number(),
-  album_count: z.number()
+  album_count: z.number(),
+  video_count: z.number(),
+  domain: z.string()
 });
 export type TaxonKind = z.infer<typeof TaxonKindSchema>;
 
@@ -6205,7 +7037,8 @@ export const TaxonWithStatsSchema = z.object({
   created_at: z.number(),
   album_count: z.number(),
   song_count: z.number(),
-  total_duration: z.number()
+  total_duration: z.number(),
+  video_count: z.number()
 });
 export type TaxonWithStats = z.infer<typeof TaxonWithStatsSchema>;
 
@@ -6219,7 +7052,8 @@ export const TaxonsQueryResultSchema = z.object({
   created_at: z.number(),
   album_count: z.number(),
   song_count: z.number(),
-  total_duration: z.number()
+  total_duration: z.number(),
+  video_count: z.number()
 })),
   total_count: z.number(),
   has_more: z.boolean(),
@@ -6235,7 +7069,7 @@ export const TopAlbumSchema = z.object({
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
   total_plays: z.number(),
   song_count: z.number(),
@@ -6273,7 +7107,7 @@ export const TopSongSchema = z.object({
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
   play_count: z.number(),
   unique_users: z.number(),
@@ -6314,7 +7148,7 @@ export const UnassignedAlbumsResponseSchema = z.object({
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
   urls: z.array(z.object({
   id: z.string().nullish(),
@@ -6343,7 +7177,7 @@ export const UnassignedAlbumsResponseSchema = z.object({
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
   urls: z.array(z.object({
   id: z.string().nullish(),
@@ -6365,7 +7199,7 @@ export const UnassignedAlbumsResponseSchema = z.object({
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
   album_tags: z.array(z.string()).nullish(),
   is_favorite: z.boolean().nullish(),
@@ -6376,6 +7210,42 @@ export const UnassignedAlbumsResponseSchema = z.object({
   count: z.number()
 });
 export type UnassignedAlbumsResponse = z.infer<typeof UnassignedAlbumsResponseSchema>;
+
+export const UnassignedVideosRequestSchema = z.object({
+  limit: z.number().nullish(),
+  offset: z.number().nullish()
+});
+export type UnassignedVideosRequest = z.infer<typeof UnassignedVideosRequestSchema>;
+
+export const UnassignedVideosResponseSchema = z.object({
+  videos: z.array(z.object({
+  id: z.string(),
+  series_id: z.string().nullish(),
+  season_id: z.string().nullish(),
+  episode_number: z.number().nullish(),
+  content_type: z.string(),
+  title: z.string(),
+  description: z.string().nullish(),
+  media_blob_id: z.string(),
+  poster_blob_id: z.string().nullish(),
+  duration_seconds: z.number().nullish(),
+  release_date: z.string().nullish(),
+  created_at: z.number(),
+  updated_at: z.number(),
+  deleted_at: z.number().nullish(),
+  created_by: z.string().nullish(),
+  updated_by: z.string().nullish(),
+  deleted_by: z.string().nullish(),
+  images: z.array(z.object({
+  blob_id: z.string(),
+  is_primary: z.number(),
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
+})).nullish(),
+  play_count: z.number().nullish()
+})),
+  count: z.number()
+});
+export type UnassignedVideosResponse = z.infer<typeof UnassignedVideosResponseSchema>;
 
 export const UpdateAlbumRequestSchema = z.object({
   album_id: z.string(),
@@ -6497,32 +7367,35 @@ export const UpdateArtistRequestSchema = z.object({
 });
 export type UpdateArtistRequest = z.infer<typeof UpdateArtistRequestSchema>;
 
-export const UpdateListenSessionProgressRequestSchema = z.object({
-  id: z.string(),
-  progress: z.number()
-});
-export type UpdateListenSessionProgressRequest = z.infer<typeof UpdateListenSessionProgressRequestSchema>;
-
-export const UpdateListenSessionSongsRequestSchema = z.object({
-  id: z.string(),
-  song_ids: z.array(z.string()),
-  label: z.string(),
-  total_songs: z.number(),
-  total_duration_ms: z.number()
-});
-export type UpdateListenSessionSongsRequest = z.infer<typeof UpdateListenSessionSongsRequestSchema>;
-
-export const UpdateListenSessionStatusRequestSchema = z.object({
-  id: z.string(),
-  status: z.string()
-});
-export type UpdateListenSessionStatusRequest = z.infer<typeof UpdateListenSessionStatusRequestSchema>;
-
 export const UpdatePasskeyNameRequestSchema = z.object({
   credential_id: z.string(),
   name: z.string().nullish()
 });
 export type UpdatePasskeyNameRequest = z.infer<typeof UpdatePasskeyNameRequestSchema>;
+
+export const UpdatePlaybackSessionItemsRequestSchema = z.object({
+  id: z.string(),
+  items: z.array(z.object({
+  entity_type: z.string(),
+  entity_id: z.string()
+})),
+  label: z.string(),
+  total_items: z.number(),
+  total_duration_ms: z.number()
+});
+export type UpdatePlaybackSessionItemsRequest = z.infer<typeof UpdatePlaybackSessionItemsRequestSchema>;
+
+export const UpdatePlaybackSessionProgressRequestSchema = z.object({
+  id: z.string(),
+  progress: z.number()
+});
+export type UpdatePlaybackSessionProgressRequest = z.infer<typeof UpdatePlaybackSessionProgressRequestSchema>;
+
+export const UpdatePlaybackSessionStatusRequestSchema = z.object({
+  id: z.string(),
+  status: z.string()
+});
+export type UpdatePlaybackSessionStatusRequest = z.infer<typeof UpdatePlaybackSessionStatusRequestSchema>;
 
 export const UpdatePlaylistRequestSchema = z.object({
   playlist_id: z.string(),
@@ -6608,7 +7481,7 @@ export const UpdateSongsResultSchema = z.object({
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
   urls: z.array(z.object({
   id: z.string().nullish(),
@@ -6640,7 +7513,7 @@ export const UpdateSongsResultSchema = z.object({
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
   urls: z.array(z.object({
   id: z.string().nullish(),
@@ -6689,6 +7562,67 @@ export const UpdateUsernameRequestSchema = z.object({
 });
 export type UpdateUsernameRequest = z.infer<typeof UpdateUsernameRequestSchema>;
 
+export const UpdateVideoRequestSchema = z.object({
+  video_id: z.string(),
+  series_id: z.string().nullish(),
+  season_id: z.string().nullish(),
+  episode_number: z.number().nullish(),
+  content_type: z.string().nullish(),
+  title: z.string().nullish(),
+  description: z.string().nullish(),
+  poster_blob_id: z.string().nullish(),
+  duration_seconds: z.number().nullish(),
+  release_date: z.string().nullish(),
+  updated_by: z.string().nullish(),
+  clear_series_id: z.boolean(),
+  clear_season_id: z.boolean()
+});
+export type UpdateVideoRequest = z.infer<typeof UpdateVideoRequestSchema>;
+
+export const UpdateVideoSeasonRequestSchema = z.object({
+  season_id: z.string(),
+  season_number: z.number().nullish(),
+  title: z.string().nullish(),
+  description: z.string().nullish(),
+  poster_blob_id: z.string().nullish()
+});
+export type UpdateVideoSeasonRequest = z.infer<typeof UpdateVideoSeasonRequestSchema>;
+
+export const UpdateVideoSeriesRequestSchema = z.object({
+  series_id: z.string(),
+  title: z.string().nullish(),
+  description: z.string().nullish(),
+  poster_blob_id: z.string().nullish(),
+  updated_by: z.string().nullish()
+});
+export type UpdateVideoSeriesRequest = z.infer<typeof UpdateVideoSeriesRequestSchema>;
+
+export const UpdateVideosRequestSchema = z.object({
+  video_ids: z.array(z.string()),
+  series_id: z.string().nullish(),
+  season_id: z.string().nullish(),
+  episode_number: z.number().nullish(),
+  content_type: z.string().nullish(),
+  title: z.string().nullish(),
+  description: z.string().nullish(),
+  poster_blob_id: z.string().nullish(),
+  duration_seconds: z.number().nullish(),
+  release_date: z.string().nullish(),
+  updated_by: z.string().nullish(),
+  clear_series_id: z.boolean(),
+  clear_season_id: z.boolean()
+});
+export type UpdateVideosRequest = z.infer<typeof UpdateVideosRequestSchema>;
+
+export const UpdateVideosResultSchema = z.object({
+  videos_updated: z.number(),
+  videos_failed: z.array(z.object({
+  video_id: z.string(),
+  reason: z.string()
+}))
+});
+export type UpdateVideosResult = z.infer<typeof UpdateVideosResultSchema>;
+
 export const UploadMusicByBlake3RequestSchema = z.object({
   blake3: z.string(),
   filename: z.string(),
@@ -6706,6 +7640,31 @@ export const UploadMusicByBlake3RequestSchema = z.object({
 });
 export type UploadMusicByBlake3Request = z.infer<typeof UploadMusicByBlake3RequestSchema>;
 
+export const UploadVideoByBlake3RequestSchema = z.object({
+  blake3: z.string(),
+  filename: z.string(),
+  size: z.number().nullish(),
+  node_id: z.string().nullish(),
+  metadata: z.object({
+  series_id: z.string().nullish(),
+  season_id: z.string().nullish(),
+  episode_number: z.number().nullish(),
+  title: z.string().nullish()
+}).nullish()
+});
+export type UploadVideoByBlake3Request = z.infer<typeof UploadVideoByBlake3RequestSchema>;
+
+export const UpsertPlaybackProgressRequestSchema = z.object({
+  entity_type: z.string(),
+  entity_id: z.string(),
+  position_fraction: z.number(),
+  position_seconds: z.number().nullish(),
+  duration_seconds: z.number().nullish(),
+  position_locator: z.string().nullish(),
+  completed_at: z.number().nullish()
+});
+export type UpsertPlaybackProgressRequest = z.infer<typeof UpsertPlaybackProgressRequestSchema>;
+
 export const UserStatsSchema = z.object({
   user_id: z.string(),
   username: z.string(),
@@ -6717,6 +7676,258 @@ export const UserStatsSchema = z.object({
   last_activity_at: z.number().nullish()
 });
 export type UserStats = z.infer<typeof UserStatsSchema>;
+
+export const VideoSchema = z.object({
+  id: z.string(),
+  series_id: z.string().nullish(),
+  season_id: z.string().nullish(),
+  episode_number: z.number().nullish(),
+  content_type: z.string(),
+  title: z.string(),
+  description: z.string().nullish(),
+  media_blob_id: z.string(),
+  poster_blob_id: z.string().nullish(),
+  duration_seconds: z.number().nullish(),
+  release_date: z.string().nullish(),
+  created_at: z.number(),
+  updated_at: z.number(),
+  deleted_at: z.number().nullish(),
+  created_by: z.string().nullish(),
+  updated_by: z.string().nullish(),
+  deleted_by: z.string().nullish(),
+  images: z.array(z.object({
+  blob_id: z.string(),
+  is_primary: z.number(),
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
+})).nullish(),
+  play_count: z.number().nullish()
+});
+export type Video = z.infer<typeof VideoSchema>;
+
+export const VideoImportReviewOkSchema = z.object({
+  ok: z.boolean()
+});
+export type VideoImportReviewOk = z.infer<typeof VideoImportReviewOkSchema>;
+
+export const VideoMetadataHintsSchema = z.object({
+  series_id: z.string().nullish(),
+  season_id: z.string().nullish(),
+  episode_number: z.number().nullish(),
+  title: z.string().nullish()
+});
+export type VideoMetadataHints = z.infer<typeof VideoMetadataHintsSchema>;
+
+export const VideoPendingRequestSchema = z.object({
+  video_id: z.string()
+});
+export type VideoPendingRequest = z.infer<typeof VideoPendingRequestSchema>;
+
+export const VideoPendingResponseSchema = z.object({
+  session_id: z.string().nullish(),
+  pending_count: z.number(),
+  created_at: z.number().nullish()
+});
+export type VideoPendingResponse = z.infer<typeof VideoPendingResponseSchema>;
+
+export const VideoRenditionSchema = z.object({
+  blob_id: z.string(),
+  label: z.string(),
+  extension: z.string(),
+  mime: z.string().nullish(),
+  skipped: z.boolean()
+});
+export type VideoRendition = z.infer<typeof VideoRenditionSchema>;
+
+export const VideoReviewPatchSchema = z.object({
+  video_id: z.string(),
+  title: z.string().nullish(),
+  episode_number: z.number().nullish(),
+  season_id: z.string().nullish(),
+  new_season: z.object({
+  season_number: z.number(),
+  title: z.string().nullish()
+}).nullish(),
+  content_type: z.string().nullish()
+});
+export type VideoReviewPatch = z.infer<typeof VideoReviewPatchSchema>;
+
+export const VideoSearchResultSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  series_id: z.string().nullish(),
+  series_name: z.string().nullish(),
+  episode_number: z.number().nullish(),
+  duration_seconds: z.number().nullish(),
+  thumbnail_url: z.string().nullish(),
+  user_rating: z.number().nullish(),
+  is_favorite: z.boolean(),
+  search_rank: z.number(),
+  match_type: z.string(),
+  highlight: z.string().nullish()
+});
+export type VideoSearchResult = z.infer<typeof VideoSearchResultSchema>;
+
+export const VideoSeasonSchema = z.object({
+  id: z.string(),
+  series_id: z.string(),
+  season_number: z.number(),
+  title: z.string().nullish(),
+  description: z.string().nullish(),
+  poster_blob_id: z.string().nullish(),
+  created_at: z.number(),
+  updated_at: z.number(),
+  deleted_at: z.number().nullish()
+});
+export type VideoSeason = z.infer<typeof VideoSeasonSchema>;
+
+export const VideoSeriesSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  description: z.string().nullish(),
+  poster_blob_id: z.string().nullish(),
+  created_at: z.number(),
+  updated_at: z.number(),
+  deleted_at: z.number().nullish(),
+  created_by: z.string().nullish(),
+  updated_by: z.string().nullish(),
+  deleted_by: z.string().nullish()
+});
+export type VideoSeries = z.infer<typeof VideoSeriesSchema>;
+
+export const VideoSeriesSearchResultSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  description: z.string().nullish(),
+  video_count: z.number(),
+  thumbnail_url: z.string().nullish(),
+  search_rank: z.number(),
+  match_type: z.string(),
+  highlight: z.string().nullish()
+});
+export type VideoSeriesSearchResult = z.infer<typeof VideoSeriesSearchResultSchema>;
+
+export const VideoUploadResponseSchema = z.object({
+  blob_id: z.string(),
+  job_id: z.string(),
+  sha256: z.string(),
+  size: z.number(),
+  mime: z.string(),
+  existing: z.boolean(),
+  message: z.string()
+});
+export type VideoUploadResponse = z.infer<typeof VideoUploadResponseSchema>;
+
+export const VideoWithMetadataSchema = z.object({
+  video: z.object({
+  id: z.string(),
+  series_id: z.string().nullish(),
+  season_id: z.string().nullish(),
+  episode_number: z.number().nullish(),
+  content_type: z.string(),
+  title: z.string(),
+  description: z.string().nullish(),
+  media_blob_id: z.string(),
+  poster_blob_id: z.string().nullish(),
+  duration_seconds: z.number().nullish(),
+  release_date: z.string().nullish(),
+  created_at: z.number(),
+  updated_at: z.number(),
+  deleted_at: z.number().nullish(),
+  created_by: z.string().nullish(),
+  updated_by: z.string().nullish(),
+  deleted_by: z.string().nullish(),
+  images: z.array(z.object({
+  blob_id: z.string(),
+  is_primary: z.number(),
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
+})).nullish(),
+  play_count: z.number().nullish()
+}),
+  created_by_username: z.string().nullish(),
+  updated_by_username: z.string().nullish(),
+  blob_size: z.number().nullish(),
+  blob_width: z.number().nullish(),
+  blob_height: z.number().nullish(),
+  codec: z.string().nullish(),
+  container: z.string().nullish(),
+  bitrate: z.number().nullish(),
+  frame_rate: z.number().nullish()
+});
+export type VideoWithMetadata = z.infer<typeof VideoWithMetadataSchema>;
+
+export const VideosByValueRequestSchema = z.object({
+  kind: z.string(),
+  value_norm: z.string(),
+  limit: z.number().nullish(),
+  offset: z.number().nullish()
+});
+export type VideosByValueRequest = z.infer<typeof VideosByValueRequestSchema>;
+
+export const VideosByValueResponseSchema = z.object({
+  kind: z.string(),
+  value_norm: z.string(),
+  videos: z.array(z.object({
+  id: z.string(),
+  series_id: z.string().nullish(),
+  season_id: z.string().nullish(),
+  episode_number: z.number().nullish(),
+  content_type: z.string(),
+  title: z.string(),
+  description: z.string().nullish(),
+  media_blob_id: z.string(),
+  poster_blob_id: z.string().nullish(),
+  duration_seconds: z.number().nullish(),
+  release_date: z.string().nullish(),
+  created_at: z.number(),
+  updated_at: z.number(),
+  deleted_at: z.number().nullish(),
+  created_by: z.string().nullish(),
+  updated_by: z.string().nullish(),
+  deleted_by: z.string().nullish(),
+  images: z.array(z.object({
+  blob_id: z.string(),
+  is_primary: z.number(),
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
+})).nullish(),
+  play_count: z.number().nullish()
+})),
+  count: z.number()
+});
+export type VideosByValueResponse = z.infer<typeof VideosByValueResponseSchema>;
+
+export const VideosQueryResultSchema = z.object({
+  items: z.array(z.object({
+  id: z.string(),
+  series_id: z.string().nullish(),
+  season_id: z.string().nullish(),
+  episode_number: z.number().nullish(),
+  content_type: z.string(),
+  title: z.string(),
+  description: z.string().nullish(),
+  media_blob_id: z.string(),
+  poster_blob_id: z.string().nullish(),
+  duration_seconds: z.number().nullish(),
+  release_date: z.string().nullish(),
+  created_at: z.number(),
+  updated_at: z.number(),
+  deleted_at: z.number().nullish(),
+  created_by: z.string().nullish(),
+  updated_by: z.string().nullish(),
+  deleted_by: z.string().nullish(),
+  images: z.array(z.object({
+  blob_id: z.string(),
+  is_primary: z.number(),
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
+})).nullish(),
+  play_count: z.number().nullish()
+})),
+  total_count: z.number(),
+  has_more: z.boolean(),
+  offset: z.number(),
+  limit: z.number(),
+  query_time_ms: z.number().nullish()
+});
+export type VideosQueryResult = z.infer<typeof VideosQueryResultSchema>;
 
 export const WhoAmIResponseSchema = z.object({
   user_id: z.string(),

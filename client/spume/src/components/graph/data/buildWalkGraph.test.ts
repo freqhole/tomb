@@ -1,7 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { buildWalkGraph } from "./buildWalkGraph";
-import { albumNodeId, artistNodeId, parseNodeId, relationHubId } from "./nodeIds";
-import type { AlbumNodeData, ArtistNodeData } from "../../graph/types";
+import {
+  albumNodeId,
+  artistNodeId,
+  parseNodeId,
+  relationHubId,
+  remoteHubId,
+  videoNodeId,
+  videoSeriesNodeId,
+} from "./nodeIds";
+import type { AlbumNodeData, ArtistNodeData, VideoNodeData, VideoSeriesNodeData } from "../../graph/types";
 
 // ---- minimal fixture helpers -----------------------------------------------
 
@@ -197,5 +205,170 @@ describe("buildWalkGraph - favorite hub", () => {
 
     const favHubId = relationHubId("local", "favorites");
     expect(graph.nodes.find((n) => n.id === favHubId)).toBeUndefined();
+  });
+});
+
+// ---- video / video_series -------------------------------------------------
+
+function makeVideoSeries(
+  remoteId: string,
+  seriesId: string,
+  title: string,
+  overrides: Partial<VideoSeriesNodeData> = {},
+): VideoSeriesNodeData {
+  return {
+    id: videoSeriesNodeId(remoteId, seriesId),
+    kind: "video_series",
+    seriesId,
+    title,
+    posterBlobId: null,
+    remoteServerId: remoteId,
+    videoCount: 0,
+    ...overrides,
+  };
+}
+
+function makeVideo(
+  remoteId: string,
+  videoId: string,
+  title: string,
+  seriesId: string | null,
+  overrides: Partial<VideoNodeData> = {},
+): VideoNodeData {
+  return {
+    id: videoNodeId(remoteId, videoId),
+    kind: "video",
+    videoId,
+    title,
+    seriesId,
+    seasonId: null,
+    posterBlobId: null,
+    posterOpfsPath: null,
+    remoteServerId: remoteId,
+    ...overrides,
+  };
+}
+
+describe("buildWalkGraph - video/series", () => {
+  it("creates a video_series node without wiring it directly to the remote hub", () => {
+    const series = makeVideoSeries("local", "ser-1", "Voyager");
+    const { graph } = buildWalkGraph({
+      remoteIds: ["local"],
+      albumsByRemote: new Map(),
+      artistsByRemote: new Map(),
+      videoSeriesByRemote: new Map([["local", [series]]]),
+    });
+
+    const seriesId = videoSeriesNodeId("local", "ser-1");
+    expect(graph.nodes.find((n) => n.id === seriesId)?.role).toBe("video_series");
+    // series reach the graph via taxon-hub pivots, not a direct remote edge
+    // (mirrors artist nodes, which also have no eager remote -> artist edge).
+    expect(
+      graph.edges.find((e) => e.source === remoteHubId("local") && e.target === seriesId)
+    ).toBeUndefined();
+  });
+
+  it("attaches a video with a known seriesId under its series node, not the remote hub", () => {
+    const series = makeVideoSeries("local", "ser-1", "Voyager");
+    const video = makeVideo("local", "vid-1", "Caretaker", "ser-1");
+    const { graph } = buildWalkGraph({
+      remoteIds: ["local"],
+      albumsByRemote: new Map(),
+      artistsByRemote: new Map(),
+      videoSeriesByRemote: new Map([["local", [series]]]),
+      videosByRemote: new Map([["local", [video]]]),
+    });
+
+    const seriesId = videoSeriesNodeId("local", "ser-1");
+    const vId = videoNodeId("local", "vid-1");
+    expect(graph.nodes.find((n) => n.id === vId)?.role).toBe("video");
+    expect(graph.edges.find((e) => e.source === seriesId && e.target === vId)).toBeDefined();
+    expect(graph.edges.find((e) => e.source === remoteHubId("local") && e.target === vId)).toBeUndefined();
+  });
+
+  it("creates a standalone (no series) video node without wiring it directly to the remote hub", () => {
+    const video = makeVideo("local", "vid-standalone", "One-off clip", null);
+    const { graph } = buildWalkGraph({
+      remoteIds: ["local"],
+      albumsByRemote: new Map(),
+      artistsByRemote: new Map(),
+      videosByRemote: new Map([["local", [video]]]),
+    });
+
+    const vId = videoNodeId("local", "vid-standalone");
+    expect(graph.nodes.find((n) => n.id === vId)?.role).toBe("video");
+    // orphan videos reach the graph via the "unassigned" taxon-hub pivot
+    // (createPivotHandler's maybeLoadUnassignedForPivot), not a direct edge.
+    expect(graph.edges.find((e) => e.source === remoteHubId("local") && e.target === vId)).toBeUndefined();
+  });
+
+  it("creates a video node (without a direct remote edge) when its seriesId doesn't match any known series", () => {
+    const video = makeVideo("local", "vid-orphan", "Orphaned episode", "ser-missing");
+    const { graph } = buildWalkGraph({
+      remoteIds: ["local"],
+      albumsByRemote: new Map(),
+      artistsByRemote: new Map(),
+      videosByRemote: new Map([["local", [video]]]),
+    });
+
+    const vId = videoNodeId("local", "vid-orphan");
+    expect(graph.nodes.find((n) => n.id === vId)?.role).toBe("video");
+    expect(graph.edges.find((e) => e.source === remoteHubId("local") && e.target === vId)).toBeUndefined();
+  });
+
+  it("series childCount reflects the number of videos attached to it", () => {
+    const series = makeVideoSeries("local", "ser-1", "Voyager");
+    const videos = [
+      makeVideo("local", "vid-1", "Caretaker", "ser-1"),
+      makeVideo("local", "vid-2", "Parallax", "ser-1"),
+    ];
+    const { graph } = buildWalkGraph({
+      remoteIds: ["local"],
+      albumsByRemote: new Map(),
+      artistsByRemote: new Map(),
+      videoSeriesByRemote: new Map([["local", [series]]]),
+      videosByRemote: new Map([["local", videos]]),
+    });
+
+    const seriesId = videoSeriesNodeId("local", "ser-1");
+    expect(graph.nodes.find((n) => n.id === seriesId)?.childCount).toBe(2);
+  });
+
+  it("populates videoNodesById for both videos and series, keeping nodesById album/artist-only", () => {
+    const series = makeVideoSeries("local", "ser-1", "Voyager");
+    const video = makeVideo("local", "vid-1", "Caretaker", "ser-1");
+    const { nodesById, videoNodesById } = buildWalkGraph({
+      remoteIds: ["local"],
+      albumsByRemote: new Map(),
+      artistsByRemote: new Map(),
+      videoSeriesByRemote: new Map([["local", [series]]]),
+      videosByRemote: new Map([["local", [video]]]),
+    });
+
+    const seriesId = videoSeriesNodeId("local", "ser-1");
+    const vId = videoNodeId("local", "vid-1");
+    expect((videoNodesById.get(seriesId) as VideoSeriesNodeData).title).toBe("Voyager");
+    expect((videoNodesById.get(vId) as VideoNodeData).title).toBe("Caretaker");
+    expect(nodesById.has(seriesId)).toBe(false);
+    expect(nodesById.has(vId)).toBe(false);
+  });
+
+  it("mixes video/series alongside existing album/artist data without interference", () => {
+    const artist = makeArtist("local", "art-grouper", "Grouper");
+    const album = makeAlbum("local", "alb-ling", "Linger", "art-grouper");
+    const series = makeVideoSeries("local", "ser-1", "Voyager");
+    const video = makeVideo("local", "vid-1", "Caretaker", "ser-1");
+    const { graph } = buildWalkGraph({
+      remoteIds: ["local"],
+      albumsByRemote: new Map([["local", [album]]]),
+      artistsByRemote: new Map([["local", [artist]]]),
+      videoSeriesByRemote: new Map([["local", [series]]]),
+      videosByRemote: new Map([["local", [video]]]),
+    });
+
+    expect(graph.nodes.find((n) => n.id === albumNodeId("local", "alb-ling"))).toBeDefined();
+    expect(graph.nodes.find((n) => n.id === artistNodeId("local", "art-grouper"))).toBeDefined();
+    expect(graph.nodes.find((n) => n.id === videoSeriesNodeId("local", "ser-1"))).toBeDefined();
+    expect(graph.nodes.find((n) => n.id === videoNodeId("local", "vid-1"))).toBeDefined();
   });
 });

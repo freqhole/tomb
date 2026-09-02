@@ -2,7 +2,11 @@
 
 use crate::api_registry::{Domain, Method, RouteAuth, RouteInfo};
 use crate::error::ErrorDetail;
-use crate::music::crud::{update_songs, UpdateSongsRequest};
+use crate::music::crud::create_or_update::find_or_create_album_for_artist;
+use crate::music::crud::{
+    find_or_create_artist, update_songs, AlbumImportRequest, ArtistImportRequest,
+    UpdateSongsRequest,
+};
 use crate::music::entities::albums::{update_album as grimoire_update_album, UpdateAlbumRequest};
 use crate::music::entities::import_review::{
     models::{
@@ -353,6 +357,11 @@ pub async fn merge_albums(caller: &Caller, body: JsonValue) -> GrimoireResponse<
 }
 
 /// move a song to a different album, re-keying album_songz via update_songs.
+/// `new_album_title` (with an optional `new_album_artist_name`) resolves a
+/// brand-new album inline, server-side, under this handler's own
+/// owner-or-admin gate - never through the separately admin-gated
+/// create_album route - mirroring the video review flow's
+/// find_or_create_video_series/season pattern.
 pub async fn move_song(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
     let req: MoveSongReviewRequest = match serde_json::from_value(body) {
         Ok(r) => r,
@@ -369,8 +378,10 @@ pub async fn move_song(caller: &Caller, body: JsonValue) -> GrimoireResponse<Jso
     };
 
     if !crate::acl_bridge::caller_meets_scope(caller, "move_song_review").await {
-        // must own the destination album
-        match repository::is_uploader(&req.to_album_id, &caller.user_id).await {
+        // must own the song being moved (checked against the song itself,
+        // not the destination album, since a move into a not-yet-created
+        // album has no destination album id to check yet).
+        match repository::is_song_uploader(&req.song_id, &caller.user_id).await {
             Ok(true) => {}
             Ok(false) => {
                 return GrimoireResponse::failure(
@@ -378,7 +389,7 @@ pub async fn move_song(caller: &Caller, body: JsonValue) -> GrimoireResponse<Jso
                     vec![ErrorDetail::new(
                         "forbidden",
                         "Forbidden",
-                        "you did not upload this album",
+                        "you did not upload this song",
                     )],
                 )
             }
@@ -386,11 +397,59 @@ pub async fn move_song(caller: &Caller, body: JsonValue) -> GrimoireResponse<Jso
         }
     }
 
+    let to_album_id = if let Some(new_album_title) = &req.new_album_title {
+        let artist_name = req
+            .new_album_artist_name
+            .clone()
+            .unwrap_or_else(|| "Unknown Artist".to_string());
+        let artist_req = ArtistImportRequest {
+            name: artist_name,
+            created_by: Some(caller.user_id.clone()),
+        };
+        let artist = match find_or_create_artist(artist_req).await {
+            GrimoireResponse {
+                success: true,
+                data: Some((artist, _created)),
+                ..
+            } => artist,
+            response => {
+                return GrimoireResponse::failure("failed to create artist", response.errors)
+            }
+        };
+
+        let album_req = AlbumImportRequest {
+            title: new_album_title.clone(),
+            album_type: Some("album".to_string()),
+            release_date: None,
+            label: None,
+            genre_ids: None,
+            created_by: Some(caller.user_id.clone()),
+        };
+        match find_or_create_album_for_artist(album_req, &artist.id).await {
+            Ok((album, _created)) => album.id,
+            Err(e) => return GrimoireResponse::failure("failed to create album", vec![e.into()]),
+        }
+    } else {
+        match &req.to_album_id {
+            Some(id) => id.clone(),
+            None => {
+                return GrimoireResponse::failure(
+                    "bad request",
+                    vec![ErrorDetail::new(
+                        "bad_request",
+                        "Bad Request",
+                        "either to_album_id or new_album_title is required",
+                    )],
+                )
+            }
+        }
+    };
+
     // reuse update_songs album_id field - it handles the album_songz DELETE+INSERT
     let update_req: UpdateSongsRequest = match serde_json::from_value(serde_json::json!({
         "song_ids": [req.song_id],
         "user_id": caller.user_id,
-        "album_id": req.to_album_id,
+        "album_id": to_album_id,
     })) {
         Ok(r) => r,
         Err(e) => {

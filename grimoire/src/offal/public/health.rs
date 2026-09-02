@@ -90,6 +90,14 @@ pub async fn server_info() -> GrimoireResponse<JsonValue> {
             .is_some_and(|f| f.enabled && f.precheck_command.is_some()),
     );
 
+    let fetch_video_enabled = Some(
+        config
+            .server
+            .as_ref()
+            .and_then(|s| s.fetch_video.as_ref())
+            .is_some_and(|f| f.enabled && f.fetch_command.is_some()),
+    );
+
     let response = ServerInfoResponse {
         name,
         description,
@@ -102,6 +110,8 @@ pub async fn server_info() -> GrimoireResponse<JsonValue> {
         audiodb_enabled,
         passkey_p2p_enabled,
         fetch_precheck_enabled,
+        fetch_video_enabled,
+        player_device: None,
     };
 
     GrimoireResponse::success("ok", serde_json::to_value(response).unwrap())

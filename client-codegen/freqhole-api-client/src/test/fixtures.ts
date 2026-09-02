@@ -151,11 +151,10 @@ export const addSongsToPlaylistRequest: s.AddSongsToPlaylistRequest = {
   song_ids: [PLACEHOLDER_ID],
 };
 
-export const removeSongsFromPlaylistRequest: s.RemoveSongsFromPlaylistRequest =
-  {
-    playlist_id: PLACEHOLDER_ID,
-    song_ids: [PLACEHOLDER_ID],
-  };
+export const removeSongsFromPlaylistRequest: s.RemoveSongsFromPlaylistRequest = {
+  playlist_id: PLACEHOLDER_ID,
+  song_ids: [PLACEHOLDER_ID],
+};
 
 export const reorderPlaylistSongsRequest: s.ReorderPlaylistSongsRequest = {
   playlist_id: PLACEHOLDER_ID,
@@ -163,12 +162,11 @@ export const reorderPlaylistSongsRequest: s.ReorderPlaylistSongsRequest = {
   new_position: 0,
 };
 
-export const removePlaylistThumbnailRequest: s.RemovePlaylistThumbnailRequest =
-  {
-    playlist_id: PLACEHOLDER_ID,
-    cleanup_blob: false,
-    deleted_by: null,
-  };
+export const removePlaylistThumbnailRequest: s.RemovePlaylistThumbnailRequest = {
+  playlist_id: PLACEHOLDER_ID,
+  cleanup_blob: false,
+  deleted_by: null,
+};
 
 // Favorites
 export const listFavoritesRequest: s.ListFavoritesRequest = {
@@ -312,6 +310,7 @@ export const getJobsStatusRequest: s.GetJobsStatusRequest = {
 // Fetch
 export const fetchMediaParams: s.FetchMediaParams = {
   url: "https://example.com/video",
+  domain: "music",
   user_id: null,
 };
 
@@ -336,10 +335,7 @@ export const redeemInviteRequest: s.RedeemInviteRequest = {
 // ============================================================================
 
 // merge fixture with overrides, replacing PLACEHOLDER_ID with real IDs
-export function merge<T extends Record<string, any>>(
-  fixture: T,
-  overrides: Partial<T>,
-): T {
+export function merge<T extends Record<string, any>>(fixture: T, overrides: Partial<T>): T {
   const merged = { ...fixture, ...overrides };
 
   // recursively replace PLACEHOLDER_ID in the merged object
@@ -357,10 +353,7 @@ export function withId<T extends { id?: string }>(fixture: T, id: string): T {
 }
 
 // create a fixture with specific entity_id
-export function withEntityId<T extends { entity_id?: string }>(
-  fixture: T,
-  entityId: string,
-): T {
+export function withEntityId<T extends { entity_id?: string }>(fixture: T, entityId: string): T {
   return { ...fixture, entity_id: entityId };
 }
 
@@ -373,10 +366,7 @@ export function withPlaylistId<T extends { playlist_id?: string }>(
 }
 
 // create a fixture with specific album_id
-export function withAlbumId<T extends { album_id?: string }>(
-  fixture: T,
-  albumId: string,
-): T {
+export function withAlbumId<T extends { album_id?: string }>(fixture: T, albumId: string): T {
   return { ...fixture, album_id: albumId };
 }
 

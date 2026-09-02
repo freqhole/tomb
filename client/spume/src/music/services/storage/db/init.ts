@@ -8,14 +8,16 @@ import {
   STORE_ALBUM_TAXONS,
   STORE_ALBUMS,
   STORE_ARTISTS,
+  STORE_ENTITY_TAXONS,
   STORE_FAVORITES,
   STORE_GENRES,
-  STORE_PLAYLIST_SONGS,
+  STORE_PLAYLIST_ITEMS,
   STORE_PLAYLISTS,
   STORE_RATINGS,
   STORE_SONGS,
   STORE_TAGS,
   STORE_TAXONS,
+  STORE_TAXON_KINDS,
 } from "../types";
 import { debug } from "../../../../utils/logger";
 
@@ -56,6 +58,7 @@ export async function initMusicDB(): Promise<IDBPDatabase> {
           keyPath: "id",
         });
         songsStore.createIndex("by_sha256", "sha256", { unique: true });
+        songsStore.createIndex("by_blake3", "blake3");
         songsStore.createIndex("by_title", "title");
         songsStore.createIndex("by_artist_id", "artist_id");
         songsStore.createIndex("by_album_id", "album_id");
@@ -63,16 +66,8 @@ export async function initMusicDB(): Promise<IDBPDatabase> {
         songsStore.createIndex("by_year", "year");
         songsStore.createIndex("by_added_at", "added_at");
         songsStore.createIndex("by_source_type", "source_type");
-        songsStore.createIndex("by_file_identity", [
-          "file_name",
-          "file_size",
-          "last_modified",
-        ]);
-        songsStore.createIndex("by_album_disc_track", [
-          "album_id",
-          "disc_number",
-          "track_number",
-        ]);
+        songsStore.createIndex("by_file_identity", ["file_name", "file_size", "last_modified"]);
+        songsStore.createIndex("by_album_disc_track", ["album_id", "disc_number", "track_number"]);
         songsStore.createIndex("by_album_title_disc_track", [
           "album_title",
           "disc_number",
@@ -125,17 +120,15 @@ export async function initMusicDB(): Promise<IDBPDatabase> {
         playlistsStore.createIndex("by_last_synced_at", "last_synced_at");
       }
 
-      // playlist_songs junction
-      if (!db.objectStoreNames.contains(STORE_PLAYLIST_SONGS)) {
-        const playlistSongsStore = db.createObjectStore(STORE_PLAYLIST_SONGS, {
-          keyPath: ["playlist_id", "song_id"],
+      // playlist_items junction (unified across entity types) - one
+      // shared position space per playlist across every entity type it
+      // can hold (song, video, ...), so songs and videos can be freely
+      // interleaved/drag-reordered together locally.
+      if (!db.objectStoreNames.contains(STORE_PLAYLIST_ITEMS)) {
+        const playlistItemsStore = db.createObjectStore(STORE_PLAYLIST_ITEMS, {
+          keyPath: ["playlist_id", "entity_type", "entity_id"],
         });
-        playlistSongsStore.createIndex("by_playlist_id", "playlist_id");
-        playlistSongsStore.createIndex("by_song_id", "song_id");
-        playlistSongsStore.createIndex("by_position", [
-          "playlist_id",
-          "position",
-        ]);
+        playlistItemsStore.createIndex("by_playlist_id", "playlist_id");
       }
 
       // favorites
@@ -186,11 +179,9 @@ export async function initMusicDB(): Promise<IDBPDatabase> {
         // (remote_id, kind_slug, slug) is the dedup key used by
         // upsertTaxon to avoid creating duplicate "jazz" rows for the
         // same library.
-        taxonsStore.createIndex(
-          "by_remote_kind_slug",
-          ["remote_id", "kind_slug", "slug"],
-          { unique: true },
-        );
+        taxonsStore.createIndex("by_remote_kind_slug", ["remote_id", "kind_slug", "slug"], {
+          unique: true,
+        });
         taxonsStore.createIndex("by_label", "label");
       }
 
@@ -207,6 +198,32 @@ export async function initMusicDB(): Promise<IDBPDatabase> {
         albumTaxonsStore.createIndex("by_created_at", "created_at");
       }
 
+      // entity_taxons junction - generic across any entity type (video
+      // today; album keeps its own dedicated store above). mirrors
+      // `STORE_FAVORITES`'s already-generic `[target_type, target_id]`
+      // keying pattern, extended with `taxon_id` since an entity can
+      // have many taxons.
+      if (!db.objectStoreNames.contains(STORE_ENTITY_TAXONS)) {
+        const entityTaxonsStore = db.createObjectStore(STORE_ENTITY_TAXONS, {
+          keyPath: ["entity_type", "entity_id", "taxon_id"],
+        });
+        entityTaxonsStore.createIndex("by_entity_type", "entity_type");
+        entityTaxonsStore.createIndex("by_entity_id", ["entity_type", "entity_id"]);
+        entityTaxonsStore.createIndex("by_taxon_id", ["entity_type", "taxon_id"]);
+        entityTaxonsStore.createIndex("by_remote_id", "remote_id");
+        entityTaxonsStore.createIndex("by_created_at", "created_at");
+      }
+
+      // taxon_kinds - explicit local kind metadata (see TaxonKindRow doc
+      // comment), keyed by (domain, kind_slug) so "tag" can independently
+      // exist under both "music" and "video" domains.
+      if (!db.objectStoreNames.contains(STORE_TAXON_KINDS)) {
+        const taxonKindsStore = db.createObjectStore(STORE_TAXON_KINDS, {
+          keyPath: ["domain", "kind_slug"],
+        });
+        taxonKindsStore.createIndex("by_domain", "domain");
+      }
+
       // v11 -> v12: migrate cached songs from `album_genres` (GenreRef[]) to
       // `album_taxons` (TaxonRef[]). preserves any existing `album_taxons`,
       // backfilling only the genre kind from the legacy field. uses the
@@ -216,17 +233,13 @@ export async function initMusicDB(): Promise<IDBPDatabase> {
         let cursor = await songsStore.openCursor();
         while (cursor) {
           const song = cursor.value as Record<string, unknown>;
-          const legacyGenres = song.album_genres as
-            | Array<{ id: string; name: string }>
-            | undefined;
+          const legacyGenres = song.album_genres as Array<{ id: string; name: string }> | undefined;
           if (legacyGenres && legacyGenres.length > 0) {
-            const existingTaxons = (song.album_taxons as
-              | Array<{ id: string; kind_slug: string; label: string }>
-              | undefined) ?? [];
+            const existingTaxons =
+              (song.album_taxons as
+                Array<{ id: string; kind_slug: string; label: string }> | undefined) ?? [];
             const haveGenre = new Set(
-              existingTaxons
-                .filter((t) => t.kind_slug === "genre")
-                .map((t) => t.id),
+              existingTaxons.filter((t) => t.kind_slug === "genre").map((t) => t.id)
             );
             const fromLegacy = legacyGenres
               .filter((g) => !haveGenre.has(g.id))
@@ -254,7 +267,11 @@ export async function initMusicDB(): Promise<IDBPDatabase> {
         const albumTaxonsStore = tx.objectStore(STORE_ALBUM_TAXONS);
         const taxonsByDedup = taxonsStore.index("by_remote_kind_slug");
         const slugify = (s: string) =>
-          s.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+          s
+            .toLowerCase()
+            .trim()
+            .replace(/[^a-z0-9]+/g, "-")
+            .replace(/^-+|-+$/g, "");
         const now = Date.now();
         // (album_id, taxon_id) we've already linked in this run; avoids
         // an extra .get() roundtrip per song.
@@ -264,8 +281,7 @@ export async function initMusicDB(): Promise<IDBPDatabase> {
           const song = cursor.value as Record<string, unknown>;
           const albumId = song.album_id as string | undefined;
           const refs = song.album_taxons as
-            | Array<{ id: string; kind_slug: string; label: string }>
-            | undefined;
+            Array<{ id: string; kind_slug: string; label: string }> | undefined;
           if (albumId && refs && refs.length > 0) {
             for (const ref of refs) {
               const kindSlug = ref.kind_slug || "genre";
@@ -306,6 +322,90 @@ export async function initMusicDB(): Promise<IDBPDatabase> {
           cursor = await cursor.continue();
         }
       }
+
+      // v16 -> v17: backfill the unified playlist_items store from the
+      // old split playlist_songs / playlist_video_items stores, then drop
+      // them - mirrors the server's playlist_itemz backfill+cutover.
+      // songs keep their existing relative order (positions 1..N per
+      // playlist, unchanged); video positions are offset to come after a
+      // playlist's songs, preserving the old UI's "songs then videos"
+      // visual order as the new shared ordering.
+      if (oldVersion < 17) {
+        const playlistItemsStore = tx.objectStore(STORE_PLAYLIST_ITEMS);
+        const maxSongPositionByPlaylist = new Map<string, number>();
+
+        if (db.objectStoreNames.contains("playlist_songs")) {
+          const oldSongsStore = tx.objectStore("playlist_songs");
+          let cursor = await oldSongsStore.openCursor();
+          while (cursor) {
+            const row = cursor.value as {
+              playlist_id: string;
+              song_id: string;
+              position: number;
+              added_at: number;
+            };
+            await playlistItemsStore.put({
+              playlist_id: row.playlist_id,
+              entity_type: "song",
+              entity_id: row.song_id,
+              position: row.position,
+              added_at: row.added_at,
+            });
+            const prevMax = maxSongPositionByPlaylist.get(row.playlist_id) ?? 0;
+            if (row.position > prevMax) {
+              maxSongPositionByPlaylist.set(row.playlist_id, row.position);
+            }
+            cursor = await cursor.continue();
+          }
+          db.deleteObjectStore("playlist_songs");
+        }
+
+        if (db.objectStoreNames.contains("playlist_video_items")) {
+          const oldVideoStore = tx.objectStore("playlist_video_items");
+          let cursor = await oldVideoStore.openCursor();
+          while (cursor) {
+            const row = cursor.value as {
+              playlist_id: string;
+              video_id: string;
+              position: number;
+              added_at: number;
+            };
+            const offset = maxSongPositionByPlaylist.get(row.playlist_id) ?? 0;
+            await playlistItemsStore.put({
+              playlist_id: row.playlist_id,
+              entity_type: "video",
+              entity_id: row.video_id,
+              position: offset + row.position,
+              added_at: row.added_at,
+            });
+            cursor = await cursor.continue();
+          }
+          db.deleteObjectStore("playlist_video_items");
+        }
+      }
+
+      // v17 -> v18: add a `by_blake3` index on songs (phase 14b) - lets the
+      // remote-queue-rendering code look up "is this remote queue entry's
+      // blake3_hash already in my local library" with a single indexed
+      // get instead of a full-table scan. non-unique + sparse: plenty of
+      // older songs have no `blake3` yet (only populated once iroh-blobs
+      // verified streaming was added), and IDB indexes simply skip records
+      // whose indexed path is null/undefined.
+      if (oldVersion < 18 && db.objectStoreNames.contains(STORE_SONGS)) {
+        const songsStore = tx.objectStore(STORE_SONGS);
+        if (!songsStore.indexNames.contains("by_blake3")) {
+          songsStore.createIndex("by_blake3", "blake3");
+        }
+      }
+    },
+    // a dead connection stays cached forever otherwise, so every later
+    // transaction throws "the database connection is closing" until reload
+    terminated() {
+      dbInstance = null;
+    },
+    blocking() {
+      dbInstance?.close();
+      dbInstance = null;
     },
   });
 

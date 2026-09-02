@@ -90,9 +90,7 @@ export function getSolidColorClasses(variant: SolidColorVariant): string {
 }
 
 // helper to get tailwind classes for translucent colors
-export function getTranslucentColorClasses(
-  variant: TranslucentColorVariant,
-): string {
+export function getTranslucentColorClasses(variant: TranslucentColorVariant): string {
   const color = translucentColors[variant];
   return `bg-[${color.bg}] bg-opacity-[${color.bgOpacity}] text-[${color.text}] border-[${color.border}]`;
 }
@@ -124,23 +122,22 @@ export function getPlayingIndicatorClasses(isPlaying: boolean): string {
 
 // playing text color - accent when playing, normal otherwise
 export function getPlayingTextClasses(isPlaying: boolean): string {
-  return isPlaying
-    ? "text-[var(--color-accent-500)]"
-    : "text-[var(--color-text-primary)]";
+  return isPlaying ? "text-[var(--color-accent-500)]" : "text-[var(--color-text-primary)]";
 }
 
 // entity type colors — maps high-level entity/action types to colors
 // used in feed rows, badges, and anywhere we need consistent entity-type coloring
 export const entityColors = {
-  song: "var(--color-accent-500)",    // accent pink — listens, plays
-  favorite: "#ef4444",                // red
-  album: "#22c55e",                   // green
-  rating: "#f59e0b",                  // amber
-  playlist: "#8b5cf6",               // purple
-  session: "#06b6d4",                // cyan
-  image: "#ec4899",                  // pink
-  artist: "#14b8a6",                 // teal
-  genre: "#6366f1",                  // indigo
+  song: "var(--color-accent-500)", // accent pink — listens, plays
+  favorite: "#ef4444", // red
+  album: "#22c55e", // green
+  rating: "#f59e0b", // amber
+  playlist: "#8b5cf6", // purple
+  session: "#06b6d4", // cyan
+  image: "#ec4899", // pink
+  artist: "#14b8a6", // teal
+  genre: "#6366f1", // indigo
+  video: "#f97316", // orange
 } as const;
 
 export type EntityColorKey = keyof typeof entityColors;

@@ -118,8 +118,8 @@ pub async fn remove_song_from_all_playlists(song_id: &str) -> GrimoireResponse<(
     // Remove from all playlists
     match sqlx::query!(
         r#"
-        DELETE FROM playlist_songz
-        WHERE song_id = ?
+        DELETE FROM playlist_itemz
+        WHERE entity_type = 'song' AND entity_id = ?
         "#,
         song_id
     )

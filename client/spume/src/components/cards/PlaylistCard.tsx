@@ -36,8 +36,9 @@ export function PlaylistCard(props: PlaylistCardProps) {
       class="bg-[var(--color-bg-primary)] rounded-lg p-4 hover:bg-[var(--color-bg-elevated)] transition-colors cursor-pointer group"
       onClick={() => props.onClick?.(props.playlist)}
       onContextMenu={(e) => {
+        if (!props.onContextMenu) return;
         e.preventDefault();
-        props.onContextMenu?.(e, props.playlist);
+        props.onContextMenu(e, props.playlist);
       }}
       onMouseEnter={() => setIsCardHovered(true)}
       onMouseLeave={() => setIsCardHovered(false)}

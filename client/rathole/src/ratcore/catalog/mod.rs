@@ -130,6 +130,7 @@ fn rich_commands() -> Vec<AdminCommand> {
         builders::maintenance::backfill_thumbnails(),
         builders::maintenance::cleanup_orphaned_blobs(),
         builders::maintenance::hard_delete_old_records(),
+        builders::maintenance::hard_delete_old_videos(),
         builders::maintenance::run_full(),
         // -- dir_tags (rich) --
         builders::dir_tags::list(),

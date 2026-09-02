@@ -361,6 +361,21 @@ export const RadioTowerIcon = (props: IconProps) => (
   </StrokeBaseIcon>
 );
 
+// remote-player "play on" indicator: a wifi/broadcast glyph rotated ~35deg
+// (past the standard 90deg for a bit more of an intentional/stylized tilt)
+// so its arcs fan out sideways instead of upward - deliberately distinct
+// from RadioTowerIcon above (used for radio stations, not player handoff).
+export const RemotePlayerIcon = (props: IconProps) => (
+  <StrokeBaseIcon {...props} aria-label={props["aria-label"] ?? "Playing on remote"}>
+    <g transform="rotate(35 12 12)">
+      <path d="M5 12.55a11 11 0 0 1 14.08 0" />
+      <path d="M1.42 9a16 16 0 0 1 21.16 0" />
+      <path d="M8.53 16.11a6 6 0 0 1 6.95 0" />
+      <circle cx="12" cy="20" r="1.4" fill="currentColor" stroke="none" />
+    </g>
+  </StrokeBaseIcon>
+);
+
 export const CarouselIcon = (props: IconProps) => (
   <BaseIcon {...props} aria-label={props["aria-label"] ?? "Image carousel"}>
     {/* merry-go-round: conical top, center pole, platform, hanging elements */}
@@ -371,6 +386,61 @@ export const CarouselIcon = (props: IconProps) => (
     <rect x="16" y="12" width="2" height="5" rx="1" />
     <rect x="11" y="12" width="2" height="4" rx="1" />
   </BaseIcon>
+);
+
+export const FullscreenIcon = (props: IconProps) => (
+  <StrokeBaseIcon {...props} aria-label={props["aria-label"] ?? "Fullscreen"}>
+    <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3" />
+  </StrokeBaseIcon>
+);
+
+// navigate to /player/ (this app's separate remote-playback screen)
+export const TvIcon = (props: IconProps) => (
+  <StrokeBaseIcon {...props} aria-label={props["aria-label"] ?? "Player mode"}>
+    <rect x="2" y="7" width="20" height="15" rx="2" ry="2" />
+    <path d="M17 2l-5 5-5-5" />
+  </StrokeBaseIcon>
+);
+
+// expand-to-fill-window toggle (distinct from browser Fullscreen API above,
+// and from navigation.tsx's unrelated ExpandIcon used for graph zoom)
+export const ExpandWindowIcon = (props: IconProps) => (
+  <StrokeBaseIcon {...props} aria-label={props["aria-label"] ?? "Expand"}>
+    <polyline points="15 3 21 3 21 9" />
+    <polyline points="9 21 3 21 3 15" />
+    <line x1="21" y1="3" x2="14" y2="10" />
+    <line x1="3" y1="21" x2="10" y2="14" />
+  </StrokeBaseIcon>
+);
+
+export const CollapseWindowIcon = (props: IconProps) => (
+  <StrokeBaseIcon {...props} aria-label={props["aria-label"] ?? "Collapse"}>
+    <polyline points="4 14 10 14 10 20" />
+    <polyline points="20 10 14 10 14 4" />
+    <line x1="14" y1="10" x2="21" y2="3" />
+    <line x1="3" y1="21" x2="10" y2="14" />
+  </StrokeBaseIcon>
+);
+
+export const VideoIcon = (props: IconProps) => (
+  <StrokeBaseIcon {...props} aria-label={props["aria-label"] ?? "Video"}>
+    <rect x="2" y="6" width="14" height="12" rx="2" />
+    <path d="M16 10l6-3.5v11L16 14" />
+  </StrokeBaseIcon>
+);
+
+// video series: user-supplied traced artwork, fitted into the 24x24 viewBox
+export const VideoSeriesIcon = (props: IconProps) => (
+  <StrokeBaseIcon {...props} aria-label={props["aria-label"] ?? "Video series"}>
+    <g transform="translate(0,3.227) scale(0.031332)">
+      <g transform="translate(0,560) scale(0.1,-0.1)" fill="currentColor" stroke="none">
+        <path
+          fill-rule="evenodd"
+          d="M0,0 H7660 V5600 H0 Z M0 2800 l0 -2800 3785 0 c3442 0 3785 1 3785 16 0 12 7 14 33 9 17 -4 34 -11 35 -16 2 -5 8 -9 13 -9 5 0 9 1110 9 2800 l0 2800 -3830 0 -3830 0 0 -2800z m6110 2080 l0 -50 150 0 150 0 0 -50 0 -50 45 0 45 0 0 -50 0 -50 50 0 50 0 0 -95 0 -95 50 0 50 0 0 -1035 0 -1035 -50 0 -50 0 0 -50 0 -50 -50 0 -50 0 0 -95 0 -95 -95 0 -95 0 0 -50 0 -50 -100 0 -100 0 0 835 0 835 -50 0 -50 0 0 145 0 145 -50 0 -50 0 0 50 0 50 -45 0 -45 0 0 50 0 50 -100 0 -100 0 0 50 0 50 -150 0 -150 0 0 50 0 50 -1275 0 -1275 0 0 95 0 95 45 0 45 0 0 100 0 100 100 0 100 0 0 50 0 50 100 0 100 0 0 50 0 50 1425 0 1425 0 0 -50z m-790 -790 l0 -50 150 0 150 0 0 -50 0 -50 50 0 50 0 0 -45 0 -45 50 0 50 0 0 -100 0 -100 45 0 45 0 0 -1230 0 -1230 -45 0 -45 0 0 -50 0 -50 -50 0 -50 0 0 -50 0 -50 -100 0 -100 0 0 -45 0 -45 -100 0 -100 0 0 980 0 980 -45 0 -45 0 0 150 0 150 -50 0 -50 0 0 50 0 50 -50 0 -50 0 0 45 0 45 -100 0 -100 0 0 50 0 50 -145 0 -145 0 0 50 0 50 -1430 0 -1430 0 0 100 0 100 50 0 50 0 0 95 0 95 50 0 50 0 0 50 0 50 445 0 445 0 0 50 0 50 1275 0 1275 0 0 -50z m-680 -785 l0 -45 95 0 95 0 0 -50 0 -50 50 0 50 0 0 -50 0 -50 50 0 50 0 0 -100 0 -100 50 0 50 0 0 -1230 0 -1230 -50 0 -50 0 0 -50 0 -50 -50 0 -50 0 0 -45 0 -45 -100 0 -100 0 0 -50 0 -50 -1620 0 -1620 0 0 50 0 50 -100 0 -100 0 0 45 0 45 -50 0 -50 0 0 50 0 50 -50 0 -50 0 0 50 0 50 -45 0 -45 0 0 100 0 100 -50 0 -50 0 0 1130 0 1130 50 0 50 0 0 100 0 100 45 0 45 0 0 95 0 95 1775 0 1775 0 0 -45z"
+        />
+      </g>
+    </g>
+  </StrokeBaseIcon>
 );
 
 export const ExternalLinkIcon = (props: IconProps) => (
@@ -557,7 +627,14 @@ export const IconRegistry = {
   sdCard: SdCardIcon,
   headphones: HeadphonesIcon,
   radioTower: RadioTowerIcon,
+  remotePlayer: RemotePlayerIcon,
   carousel: CarouselIcon,
+  fullscreen: FullscreenIcon,
+  expandWindow: ExpandWindowIcon,
+  collapseWindow: CollapseWindowIcon,
+  tv: TvIcon,
+  video: VideoIcon,
+  videoSeries: VideoSeriesIcon,
   externalLink: ExternalLinkIcon,
   autoDownload: AutoDownloadIcon,
   downloadZip: DownloadZipIcon,
@@ -668,7 +745,14 @@ export const IconNames = {
   sdCard: "sdCard",
   headphones: "headphones",
   radioTower: "radioTower",
+  remotePlayer: "remotePlayer",
   carousel: "carousel",
+  fullscreen: "fullscreen",
+  expandWindow: "expandWindow",
+  collapseWindow: "collapseWindow",
+  tv: "tv",
+  video: "video",
+  videoSeries: "videoSeries",
   externalLink: "externalLink",
   autoDownload: "autoDownload",
   downloadZip: "downloadZip",

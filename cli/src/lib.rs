@@ -58,6 +58,12 @@ pub enum Commands {
         action: plumbing::MusicAction,
     },
 
+    /// Video query operations
+    Video {
+        #[command(subcommand)]
+        action: plumbing::VideoAction,
+    },
+
     /// Wordlist operations
     Wordlist {
         #[command(subcommand)]
@@ -125,13 +131,6 @@ pub enum Commands {
     Radio {
         #[command(subcommand)]
         action: plumbing::RadioAction,
-    },
-
-    /// Rust rodio player daemon (plays audio on this machine)
-    #[cfg(feature = "rodio-playback")]
-    Player {
-        #[command(subcommand)]
-        action: plumbing::PlayerAction,
     },
 
     /// Start HTTP server and/or P2P endpoint based on config
@@ -362,6 +361,9 @@ pub async fn run_with(mut cli: Cli) -> Result<()> {
         Commands::Music { action } => {
             plumbing::handle_music(action, json_output).await?;
         }
+        Commands::Video { action } => {
+            plumbing::handle_video(action, json_output).await?;
+        }
         Commands::Wordlist { action } => {
             plumbing::handle_wordlist(action, json_output).await?;
         }
@@ -397,10 +399,6 @@ pub async fn run_with(mut cli: Cli) -> Result<()> {
         }
         Commands::Radio { action } => {
             plumbing::handle_radio(action, json_output).await?;
-        }
-        #[cfg(feature = "rodio-playback")]
-        Commands::Player { action } => {
-            plumbing::handle_player(action, json_output).await?;
         }
         Commands::Serve { .. } | Commands::Http { .. } | Commands::P2p { .. } => {
             // handled above with early return

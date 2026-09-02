@@ -1,6 +1,6 @@
 {
     "name": "@freqhole/haruspex",
-    "version": "0.2.15",
+    "version": "0.3.0",
     "private": false,
     "type": "module",
     "description": "freqhole auth domain: identity, webauthn, knock + friendz protocols, permissions",
@@ -77,7 +77,7 @@
         "fake-indexeddb": "^6.0.0",
         "solid-js": "^1.9.0",
         "typescript": "^5.6.0",
-        "vitest": "^2.1.0",
+        "vitest": "^3.2.7",
         "zod": "^4.3.5"
     }
 }

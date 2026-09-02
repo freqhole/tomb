@@ -9,7 +9,7 @@ import { queryKeys } from "./queryKeys";
 function adaptFeedImages(
   images: Array<{ blob_id: string; is_primary: number; blob_type: string }> | null | undefined,
   baseUrl: string | undefined,
-  remoteId?: string,
+  remoteId?: string
 ): ImageMetadata[] | null {
   if (!images || images.length === 0) return null;
   const adapted = images.map((img) => ({
@@ -23,7 +23,11 @@ function adaptFeedImages(
 }
 
 // adapt a raw API feed response to app-level types
-function adaptFeedResponse(data: any, baseUrl: string | undefined, remoteId?: string): FeedResponse {
+function adaptFeedResponse(
+  data: any,
+  baseUrl: string | undefined,
+  remoteId?: string
+): FeedResponse {
   return {
     items: (data.items ?? []).map((item: any): FeedItem => ({
       id: item.id,
@@ -32,6 +36,7 @@ function adaptFeedResponse(data: any, baseUrl: string | undefined, remoteId?: st
       album_id: item.album_id ?? null,
       artist_id: item.artist_id ?? null,
       playlist_id: item.playlist_id ?? null,
+      video_id: item.video_id ?? null,
       entity_id: item.entity_id ?? null,
       title: item.title,
       subtitle: item.subtitle ?? null,
@@ -105,6 +110,7 @@ export type FeedItemTypeFilter =
   | "recent_album"
   | "recent_rating"
   | "recent_playlist"
+  | "recent_video"
   | "listen_session"
   | "new_image";
 
@@ -113,6 +119,7 @@ export const ALL_FEED_TYPES: FeedItemTypeFilter[] = [
   "listen_session",
   "recent_favorite",
   "recent_album",
+  "recent_video",
   "recent_rating",
   "recent_playlist",
   "new_image",
@@ -123,6 +130,7 @@ export const FEED_TYPE_LABELS: Record<FeedItemTypeFilter, string> = {
   recent_listen: "listens",
   recent_favorite: "favorites",
   recent_album: "albums",
+  recent_video: "videos",
   recent_rating: "ratings",
   recent_playlist: "playlists",
   listen_session: "listening sessions",
@@ -133,7 +141,7 @@ export const FEED_TYPE_LABELS: Record<FeedItemTypeFilter, string> = {
 export function useActivityFeedInfiniteQuery(
   pageSize: number = 50,
   feedTypes?: () => FeedItemTypeFilter[] | null,
-  userId?: () => string | null,
+  userId?: () => string | null
 ) {
   return createInfiniteQuery(() => {
     const types = feedTypes?.() ?? null;

@@ -1,11 +1,14 @@
 import { createVirtualizer } from "@tanstack/solid-virtual";
-import { createEffect, createSignal, For, onCleanup, onMount, Show } from "solid-js";
-import type { Song } from "../../music/data/types";
+import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import type { MediaItem } from "../../app/services/storage/mediaItem";
+import { mediaItemKey } from "../../app/services/storage/mediaItem";
+import { QueueSongRow } from "./QueueSongRow";
+import { VideoQueueRow } from "./VideoQueueRow";
+import { RemoteQueueRow } from "./RemoteQueueRow";
+import { QueuePlayerTargetRow } from "./QueuePlayerTargetRow";
 import type { QueueHistoryEntry, RadioStationRef } from "../../app/services/storage/types";
 import type { ImageMetadata } from "../../music/services/storage/types";
 import { isMobile } from "../../utils/isMobile";
-import { formatDuration } from "../../utils/formatDuration";
-import { getSongDisplayImages, getWaveformImage } from "../../utils/images";
 import { isCharnelMode } from "../../app/services/charnel";
 import {
   getAutoDownloadEnabled,
@@ -13,23 +16,31 @@ import {
   getSyncQueueToLocal,
 } from "../../app/services/storage/db";
 import { onAutoDownloadEnabled } from "../../music/services/autoDownload";
+import { isRemoteTargetActive } from "../../app/services/players/activeTarget";
+import { optimisticRemoteQueue } from "../../app/services/players/remoteQueueMirror";
+import {
+  remoteAutoDownloadEnabled,
+  remoteSetAutoDownloadEnabled,
+  remoteQueue,
+  remotePositionMs,
+  remoteOptimisticCurrentIndex,
+  remoteReorderQueue,
+  remoteRemoveFromQueue,
+  remoteStatusKnown,
+} from "../../app/services/players/remotePlaybackControl";
 
 import { Icon, type IconName } from "../icons/registry";
 import { MediaThumbnail } from "../media/MediaThumbnail";
 import { ContextMenu, type MenuAction } from "../overlays/ContextMenu";
 import { MarqueeText } from "../text/MarqueeText";
-import { isSongCachedReactive } from "../../music/services/cache/blobCache";
-import {
-  isSongOnDiskEphemeral,
-  isSongSyncedLocally,
-  getLoadingProgress,
-} from "../../music/services/download";
-import { isPlayingDirectURLReactive } from "../../music/services/storage/audioAccess";
-import { useResolvedP2PImageUrl } from "../../music/services/storage/blobResolver";
-import { getCachedBlobObjectURL } from "../../music/services/storage/blobs";
 import { getBackgroundConfig } from "../../app/services/backgroundImage";
 
 type QueueTab = "queue" | "history";
+
+// fixed row height for the remote-queue block (phase 14a) - no
+// virtualizer there yet, see the render block's comment for why; matches
+// the local list's virtualizer `estimateSize`.
+const ROW_HEIGHT = 68;
 
 // relative time formatting
 function timeAgo(timestamp: number): string {
@@ -68,24 +79,27 @@ function historyTypeIcon(type: QueueHistoryEntry["type"]): IconName {
 }
 
 export interface QueueSidebarProps {
-  /** list of songs in queue */
-  songs: Song[];
-  /** currently playing song index */
+  /** unified, ordered song+video queue (a single interleaved list, per
+   * phase 4b — replaces the old separate `songs`/`videos` props, which
+   * always rendered videos as one non-virtualized block above the songs
+   * regardless of their real position in the queue). */
+  items: MediaItem[];
+  /** currently playing index into `items` */
   currentIndex: number;
   /** whether sidebar is open */
   isOpen: boolean;
   /** callback when close button clicked */
   onClose: () => void;
-  /** callback when song is clicked */
-  onSongClick: (index: number) => void;
-  /** callback when song is double-clicked */
-  onSongDoubleClick?: (index: number) => void;
-  /** callback when remove button clicked */
-  onRemoveSong: (index: number) => void;
+  /** callback when an item row is clicked (mobile tap) */
+  onItemClick: (index: number) => void;
+  /** callback when an item row is double-clicked (desktop) */
+  onItemDoubleClick?: (index: number) => void;
+  /** callback when an item's remove button is clicked */
+  onRemoveItem: (index: number) => void;
   /** callback when clear all clicked */
   onClearAll: () => void;
-  /** callback to get context menu actions for a song */
-  getContextMenuActions?: (index: number, song: Song) => MenuAction[];
+  /** callback to get context menu actions for an item */
+  getContextMenuActions?: (index: number, item: MediaItem) => MenuAction[];
   /** layout variant: overlay (fixed position) or inline (in layout flow) */
   variant?: "overlay" | "inline";
   /** callback when queue is reordered */
@@ -118,9 +132,9 @@ export interface QueueSidebarProps {
   duration?: number;
   /** max progress per queue_entry_id for played songs (reactive signal) */
   progressMap?: Map<string, number>;
-  /** set of song sha256s currently being loaded/preloaded */
-  loadingSongIds?: Set<string>;
-  /** index of the song that is pending "up next" (loading to play next) */
+  /** ids (song sha256s or video ids) currently being loaded/preloaded */
+  loadingIds?: Set<string>;
+  /** index of the item that is pending "up next" (loading to play next) */
   upNextIndex?: number;
   /** callback when resume downloads button is clicked */
   onResumeDownloads?: () => void;
@@ -133,20 +147,44 @@ export function QueueSidebar(props: QueueSidebarProps) {
   let scrollElementRef: HTMLDivElement | undefined;
   let historyScrollRef: HTMLDivElement | undefined;
 
-  // track which song we've scrolled to (plain var, not reactive)
-  let lastScrolledSongId: string | null = null;
+  // track which item we've scrolled to (plain var, not reactive)
+  let lastScrolledItemKey: string | null = null;
 
   const [activeTab, setActiveTab] = createSignal<QueueTab>("queue");
   const [draggedIndex, setDraggedIndex] = createSignal<number | null>(null);
   const [dropTargetIndex, setDropTargetIndex] = createSignal<number | null>(null);
+  // phase 14c: separate, independent drag state for the remote-queue
+  // block - kept isolated from the local queue's drag state above (which
+  // is more involved: HTML5 drag-image cloning, Tauri pointer-drag) to
+  // avoid risking a regression there for a feature only active while a
+  // remote target is active anyway (the two blocks are mutually
+  // exclusive, see the render's outer `<Show when={!isRemoteTargetActive()}>`).
+  const [remoteDraggedIndex, setRemoteDraggedIndex] = createSignal<number | null>(null);
+  const [remoteDropTargetIndex, setRemoteDropTargetIndex] = createSignal<number | null>(null);
   const hasRadioQueueEntry = () => !!props.currentRadioStation;
-  const queueEntryCount = () => props.songs.length + (hasRadioQueueEntry() ? 1 : 0);
+  const queueEntryCount = () => props.items.length + (hasRadioQueueEntry() ? 1 : 0);
 
-  // auto-download toggle state
+  // history doesn't make sense once the queue is shared with a remote
+  // player - bounce back to the queue tab if it was open when that starts.
+  createEffect(() => {
+    if (isRemoteTargetActive() && activeTab() === "history") setActiveTab("queue");
+  });
+
+  // auto-download toggle state - while a remote target is active, this
+  // reflects/propagates the *shared* setting (see remotePlaybackControl.ts's
+  // remoteAutoDownloadEnabled/remoteSetAutoDownloadEnabled) instead of this
+  // device's own local preference, so every client watching the same
+  // player shows and controls the same toggle.
   const [autoDownloadOn, setAutoDownloadOn] = createSignal(getAutoDownloadEnabled());
+  const effectiveAutoDownloadOn = () =>
+    isRemoteTargetActive() ? remoteAutoDownloadEnabled() : autoDownloadOn();
 
   const toggleAutoDownload = () => {
-    const newValue = !autoDownloadOn();
+    const newValue = !effectiveAutoDownloadOn();
+    if (isRemoteTargetActive()) {
+      void remoteSetAutoDownloadEnabled(newValue);
+      return;
+    }
     setAutoDownloadOn(newValue);
     setAutoDownloadEnabled(newValue);
     // when toggling ON, clear failed downloads to allow retry
@@ -157,12 +195,20 @@ export function QueueSidebar(props: QueueSidebarProps) {
 
   // pointer-based drag state for Tauri (HTML5 drag doesn't work in WKWebView)
   const [pointerDragIndex, setPointerDragIndex] = createSignal<number | null>(null);
-  // pending pointer drag - waiting for movement threshold before activating
+  // same, for the remote queue's own row list (see phase 14c comment above
+  // draggedIndex/dropTargetIndex) - kept as a separate signal so remote-
+  // queue pointer-dragging can't interfere with a local-queue drag still
+  // mid-flight, even though the two lists are mutually exclusive in the UI.
+  const [remotePointerDragIndex, setRemotePointerDragIndex] = createSignal<number | null>(null);
+  // pending pointer drag - waiting for movement threshold before activating.
+  // `list` picks which signals/reorder-callback activation targets once the
+  // threshold is crossed (see handlePointerMove/handlePointerUp below).
   let pendingPointerDrag: {
     index: number;
     startY: number;
     pointerId: number;
     target: HTMLElement;
+    list: "local" | "remote";
   } | null = null;
   const DRAG_THRESHOLD = 8; // pixels of movement before drag activates
 
@@ -187,16 +233,22 @@ export function QueueSidebar(props: QueueSidebarProps) {
       if (pendingPointerDrag !== null) {
         const deltaY = Math.abs(e.clientY - pendingPointerDrag.startY);
         if (deltaY >= DRAG_THRESHOLD) {
-          // activate drag
-          setPointerDragIndex(pendingPointerDrag.index);
+          // activate drag - which signal depends on which list this pending
+          // drag started on (see onPointerDown handlers below).
+          if (pendingPointerDrag.list === "remote") {
+            setRemotePointerDragIndex(pendingPointerDrag.index);
+          } else {
+            setPointerDragIndex(pendingPointerDrag.index);
+          }
           pendingPointerDrag.target.setPointerCapture(pendingPointerDrag.pointerId);
           pendingPointerDrag = null;
         }
         return;
       }
 
-      const idx = pointerDragIndex();
-      if (idx === null) return;
+      const remoteIdx = remotePointerDragIndex();
+      const idx = remoteIdx !== null ? null : pointerDragIndex();
+      if (remoteIdx === null && idx === null) return;
 
       // find which row we're over based on Y position
       const scrollEl = scrollElementRef;
@@ -208,18 +260,31 @@ export function QueueSidebar(props: QueueSidebarProps) {
 
       // calculate target index based on position (68px per row)
       const targetIndex = Math.floor(relativeY / 68);
-      const clampedTarget = Math.max(0, Math.min(targetIndex, props.songs.length - 1));
 
-      if (clampedTarget !== idx) {
-        setDropTargetIndex(clampedTarget);
-      } else {
-        setDropTargetIndex(null);
+      if (remoteIdx !== null) {
+        const clampedTarget = Math.max(0, Math.min(targetIndex, remoteQueue().length - 1));
+        setRemoteDropTargetIndex(clampedTarget !== remoteIdx ? clampedTarget : null);
+        return;
       }
+
+      const clampedTarget = Math.max(0, Math.min(targetIndex, props.items.length - 1));
+      setDropTargetIndex(clampedTarget !== idx ? clampedTarget : null);
     };
 
     const handlePointerUp = () => {
       // cancel pending drag if not yet activated
       pendingPointerDrag = null;
+
+      const remoteFromIndex = remotePointerDragIndex();
+      if (remoteFromIndex !== null) {
+        const toIndex = remoteDropTargetIndex();
+        if (toIndex !== null && remoteFromIndex !== toIndex) {
+          void remoteReorderQueue(remoteFromIndex, toIndex);
+        }
+        setRemotePointerDragIndex(null);
+        setRemoteDropTargetIndex(null);
+        return;
+      }
 
       const fromIndex = pointerDragIndex();
       const toIndex = dropTargetIndex();
@@ -242,10 +307,12 @@ export function QueueSidebar(props: QueueSidebarProps) {
 
   // combined dragged index (works for both HTML5 drag and pointer drag)
   const effectiveDraggedIndex = () => (isCharnelMode() ? pointerDragIndex() : draggedIndex());
+  const effectiveRemoteDraggedIndex = () =>
+    isCharnelMode() ? remotePointerDragIndex() : remoteDraggedIndex();
 
   const virtualizer = createVirtualizer({
     get count() {
-      return props.songs.length;
+      return props.items.length;
     },
     getScrollElement: () => scrollElementRef ?? null,
     estimateSize: () => 68,
@@ -261,14 +328,14 @@ export function QueueSidebar(props: QueueSidebarProps) {
     overscan: 5,
   });
 
-  // scroll to current song when it changes (once per song change)
+  // scroll to current item when it changes (once per item change)
   createEffect(() => {
-    const currentSong = props.songs[props.currentIndex];
-    const currentSongId = currentSong?.id;
+    const currentItem = props.items[props.currentIndex];
+    const currentKey = currentItem ? mediaItemKey(currentItem) : undefined;
 
-    // only scroll if song changed and we have a valid song
-    if (currentSongId && currentSongId !== lastScrolledSongId) {
-      lastScrolledSongId = currentSongId;
+    // only scroll if item changed and we have a valid item
+    if (currentKey && currentKey !== lastScrolledItemKey) {
+      lastScrolledItemKey = currentKey;
 
       // check visibility before scrolling (subtract overscan to get actual viewport)
       const visibleItems = virtualizer.getVirtualItems();
@@ -285,40 +352,49 @@ export function QueueSidebar(props: QueueSidebarProps) {
     }
   });
 
-  const handleSongDoubleClick = (index: number) => {
-    if (props.onSongDoubleClick) {
-      props.onSongDoubleClick(index);
-    }
+  const handleItemDoubleClick = (index: number) => {
+    props.onItemDoubleClick?.(index);
   };
 
   const handleRemove = (e: MouseEvent, index: number) => {
     e.stopPropagation();
-    props.onRemoveSong(index);
+    props.onRemoveItem(index);
+  };
+
+  // shared HTML5-drag setup for both the local queue's rows and the
+  // remote queue's rows - factored out because the remote queue's own
+  // `onDragStart` previously skipped this entirely (see phase 15's "can't
+  // drag remote queue rows" fix): without `effectAllowed`/`setData`, some
+  // browsers refuse the drop outright, and without the Safari drag-image
+  // workaround below, dragging a `transform`-positioned row (both lists
+  // use `transform: translateY(...)` for row placement) can produce a
+  // broken/invisible drag in Safari.
+  const setupDragImage = (e: DragEvent, index: number) => {
+    if (!e.dataTransfer) return;
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", String(index));
+    // Safari has issues with drag images on transformed elements
+    // Create a temporary clone positioned at 0,0 for the drag image
+    const target = e.currentTarget as HTMLElement;
+    const clone = target.cloneNode(true) as HTMLElement;
+    clone.style.position = "absolute";
+    clone.style.top = "-9999px";
+    clone.style.left = "-9999px";
+    clone.style.transform = "none";
+    clone.style.width = `${target.offsetWidth}px`;
+    document.body.appendChild(clone);
+    e.dataTransfer.setDragImage(
+      clone,
+      e.clientX - target.getBoundingClientRect().left,
+      e.clientY - target.getBoundingClientRect().top
+    );
+    // Clean up clone after drag starts
+    requestAnimationFrame(() => clone.remove());
   };
 
   const handleDragStart = (index: number) => (e: DragEvent) => {
     setDraggedIndex(index);
-    if (e.dataTransfer) {
-      e.dataTransfer.effectAllowed = "move";
-      e.dataTransfer.setData("text/plain", String(index));
-      // Safari has issues with drag images on transformed elements
-      // Create a temporary clone positioned at 0,0 for the drag image
-      const target = e.currentTarget as HTMLElement;
-      const clone = target.cloneNode(true) as HTMLElement;
-      clone.style.position = "absolute";
-      clone.style.top = "-9999px";
-      clone.style.left = "-9999px";
-      clone.style.transform = "none";
-      clone.style.width = `${target.offsetWidth}px`;
-      document.body.appendChild(clone);
-      e.dataTransfer.setDragImage(
-        clone,
-        e.clientX - target.getBoundingClientRect().left,
-        e.clientY - target.getBoundingClientRect().top
-      );
-      // Clean up clone after drag starts
-      requestAnimationFrame(() => clone.remove());
-    }
+    setupDragImage(e, index);
   };
 
   const handleDragOver = (index: number) => (e: DragEvent) => {
@@ -374,9 +450,11 @@ export function QueueSidebar(props: QueueSidebarProps) {
       <div
         class={`${getBackgroundConfig() ? "bg-[var(--color-bg-primary)]/60" : "bg-[var(--color-bg-primary)]/95 backdrop-blur-xl"} flex flex-col ${
           isOverlay()
-            ? /* narrow: bottom sheet above player bar, clears system status bar */
+            ? /* narrow: bottom sheet above player bar, clears system status bar
+                 (or the chromeless title-bar strip on macOS, if active - both
+                 flow through --safe-area-top, see theme.css / TitleBarStrip) */
               `fixed z-1140 transition-transform duration-300 ease-out
-               inset-x-0 bottom-[var(--player-height)] top-[env(safe-area-inset-top,0px)]
+               inset-x-0 bottom-[var(--player-height)] top-[var(--safe-area-top,0px)]
                wide:inset-x-auto wide:top-0 wide:right-0 wide:bottom-0 wide:h-auto wide:w-72 lg:w-80 xl:w-96
                ${
                  props.isOpen
@@ -384,7 +462,7 @@ export function QueueSidebar(props: QueueSidebarProps) {
                    : "invisible translate-y-full wide:visible wide:translate-y-0 wide:translate-x-full"
                }`
             : props.isOpen
-              ? "w-72 lg:w-80 xl:w-96 flex-shrink-0"
+              ? "relative z-[110] w-72 lg:w-80 xl:w-96 flex-shrink-0"
               : "hidden"
         } ${props.class || ""}`}
       >
@@ -395,8 +473,14 @@ export function QueueSidebar(props: QueueSidebarProps) {
           </div>
         </Show> */}
 
-        {/* header — tabs + clear + close */}
-        <div class="flex items-center justify-between px-4 pt-3 pb-2">
+        {/* header — tabs + clear + close.
+            relative + z-[110]: in inline/wide mode this header (and its
+            z-[110] parent above) sits at the very top of the sidebar,
+            which can overlap the chromeless title-bar drag strip (see
+            App.tsx / TitleBarStrip, z-[100]) - queue controls must win
+            that overlap so they stay clickable. no-op in overlay/narrow
+            mode (the whole drawer is already z-1140). */}
+        <div class="relative z-[110] flex items-center justify-between px-4 pt-3 pb-2">
           <div class="flex items-center gap-1">
             <button
               class={`px-3 py-1.5 text-sm font-medium rounded transition-colors ${
@@ -408,34 +492,38 @@ export function QueueSidebar(props: QueueSidebarProps) {
             >
               queue{queueEntryCount() > 0 ? ` (${queueEntryCount()})` : ""}
             </button>
-            <button
-              class={`px-3 py-1.5 text-sm font-medium rounded transition-colors ${
-                activeTab() === "history"
-                  ? "text-[var(--color-accent-500)] bg-[var(--color-accent-500)]/10"
-                  : "text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-accent-500)]/5"
-              }`}
-              onClick={() => setActiveTab("history")}
-            >
-              history
-              {/* {props.historyEntries.length > 0 ? ` (${props.historyEntries.length})` : ""} */}
-            </button>
+            <Show when={!isRemoteTargetActive()}>
+              <button
+                class={`px-3 py-1.5 text-sm font-medium rounded transition-colors ${
+                  activeTab() === "history"
+                    ? "text-[var(--color-accent-500)] bg-[var(--color-accent-500)]/10"
+                    : "text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-accent-500)]/5"
+                }`}
+                onClick={() => setActiveTab("history")}
+              >
+                history
+                {/* {props.historyEntries.length > 0 ? ` (${props.historyEntries.length})` : ""} */}
+              </button>
+            </Show>
           </div>
 
           <div class="flex items-center gap-1">
             <Show when={activeTab() === "queue"}>
               <button
                 class={`px-1.5 py-1.5 rounded transition-colors ${
-                  autoDownloadOn()
+                  effectiveAutoDownloadOn()
                     ? "text-[var(--color-accent-500)] bg-[var(--color-accent-500)]/20"
                     : "text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)] hover:bg-[var(--color-accent-500)]/10"
                 }`}
                 onClick={toggleAutoDownload}
                 title={
-                  autoDownloadOn()
+                  effectiveAutoDownloadOn()
                     ? "turn off auto download for all songs in the queue"
                     : "turn on auto download for all songs in the queue"
                 }
-                aria-label={autoDownloadOn() ? "disable auto download" : "enable auto download"}
+                aria-label={
+                  effectiveAutoDownloadOn() ? "disable auto download" : "enable auto download"
+                }
               >
                 <Icon name="autoDownload" size={14} />
               </button>
@@ -443,7 +531,7 @@ export function QueueSidebar(props: QueueSidebarProps) {
 
             <Show
               when={
-                (activeTab() === "queue" && (props.songs.length > 0 || hasRadioQueueEntry())) ||
+                (activeTab() === "queue" && (props.items.length > 0 || hasRadioQueueEntry())) ||
                 (activeTab() === "history" && props.historyEntries.length > 0)
               }
             >
@@ -564,8 +652,127 @@ export function QueueSidebar(props: QueueSidebarProps) {
           }}
         >
           <Show
-            when={props.songs.length > 0}
+            // stay on the LOCAL queue view (still showing whatever this
+            // device had queued pre-switch) until the player's own status
+            // actually arrives - avoids a jarring "queue is empty" flash
+            // the instant a remote target is selected (see
+            // selectPlaybackTarget.ts's resetRemoteStatus() call, which
+            // intentionally clears remoteStatus right away so a PREVIOUS
+            // target's stale status never shows through). once the real
+            // status lands, this swaps to the confirmed remote queue.
+            when={!isRemoteTargetActive() || !remoteStatusKnown()}
             fallback={
+              <Show
+                when={optimisticRemoteQueue().length > 0}
+                fallback={
+                  <div class="flex flex-col items-center justify-center h-full text-center px-8">
+                    <div class="w-16 h-16 mb-4 bg-[var(--color-accent-500)]/10 flex items-center justify-center">
+                      <Icon name="queue" size={32} color="var(--color-accent-500)" />
+                    </div>
+                    <p class="text-[var(--color-text-secondary)] text-sm m-0 mb-2">
+                      queue is empty
+                    </p>
+                    <p class="text-[var(--color-text-muted)] text-xs m-0">
+                      add songs to see them here
+                    </p>
+                  </div>
+                }
+              >
+                {/* phase 14a/14c: remote target's shared queue - any
+                    connected client can reorder/remove (14c), current
+                    entry (index 0, "current item first" per the player's
+                    status protocol) is highlighted and ticks its own
+                    progress from the local clock (14d), and the current
+                    index optimistically advances a single step once the
+                    ticking clock predicts the item has finished (14e) -
+                    all purely display-layer, self-correcting once the
+                    next real status lands. no virtualizer yet (remote
+                    queues are expected to stay modest-sized) - revisit if
+                    that becomes a real limitation.
+                    phase 18: rows beyond confirmedCount() are this
+                    device's own optimistic, not-yet-acked additions (see
+                    remoteQueueMirror.ts's optimisticRemoteQueue) - shown
+                    right away instead of waiting for the player's ack,
+                    but not yet draggable/removable since they don't have
+                    a real remote index yet. */}
+                <div
+                  class="relative p-2"
+                  style={{ height: `${optimisticRemoteQueue().length * ROW_HEIGHT}px` }}
+                >
+                  <For each={optimisticRemoteQueue()} fallback={null}>
+                    {(ref, i) => {
+                      const confirmedCount = () => remoteQueue().length;
+                      const isPending = () => i() >= confirmedCount();
+                      const isCurrentlyPlaying = () => i() === remoteOptimisticCurrentIndex();
+                      const isDragging = () => effectiveRemoteDraggedIndex() === i();
+                      const isDropTarget = () => remoteDropTargetIndex() === i();
+
+                      return (
+                        <RemoteQueueRow
+                          item={ref}
+                          index={i()}
+                          isCurrentlyPlaying={isCurrentlyPlaying()}
+                          isPending={isPending()}
+                          positionMs={isCurrentlyPlaying() ? remotePositionMs() : undefined}
+                          isDragging={isDragging()}
+                          isDropTarget={isDropTarget()}
+                          top={i() * ROW_HEIGHT}
+                          onClick={() => {}}
+                          onDoubleClick={() => {}}
+                          onRemove={(e) => {
+                            e.stopPropagation();
+                            if (isPending()) return;
+                            void remoteRemoveFromQueue(i());
+                          }}
+                          onDragStart={(e) => {
+                            if (isPending()) return;
+                            setRemoteDraggedIndex(i());
+                            setupDragImage(e, i());
+                          }}
+                          onDragOver={(e) => {
+                            if (isPending()) return;
+                            e.preventDefault();
+                            if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
+                            setRemoteDropTargetIndex(i());
+                          }}
+                          onDragLeave={() => setRemoteDropTargetIndex(null)}
+                          onDragEnd={() => {
+                            setRemoteDraggedIndex(null);
+                            setRemoteDropTargetIndex(null);
+                          }}
+                          onDrop={() => {
+                            if (isPending()) return;
+                            const fromIndex = remoteDraggedIndex();
+                            const toIndex = i();
+                            setRemoteDraggedIndex(null);
+                            setRemoteDropTargetIndex(null);
+                            if (fromIndex === null || fromIndex === toIndex) return;
+                            void remoteReorderQueue(fromIndex, toIndex);
+                          }}
+                          onPointerDown={(e) => {
+                            // pointer-based drag for Tauri only (native HTML5
+                            // drag doesn't work in WKWebView) - see the local
+                            // queue's identical pattern above.
+                            if (isPending()) return;
+                            if (isCharnelMode() && e.button === 0) {
+                              pendingPointerDrag = {
+                                index: i(),
+                                startY: e.clientY,
+                                pointerId: e.pointerId,
+                                target: e.currentTarget as HTMLElement,
+                                list: "remote",
+                              };
+                            }
+                          }}
+                        />
+                      );
+                    }}
+                  </For>
+                </div>
+              </Show>
+            }
+          >
+            <Show when={props.items.length === 0}>
               <Show
                 when={!hasRadioQueueEntry()}
                 fallback={
@@ -589,112 +796,67 @@ export function QueueSidebar(props: QueueSidebarProps) {
                   </p>
                 </div>
               </Show>
-            }
-          >
-            <div
-              class="relative p-2"
-              style={{
-                height: `${virtualizer.getTotalSize()}px`,
-              }}
-            >
-              <For each={virtualizer.getVirtualItems()} fallback={null}>
-                {(virtualItem) => {
-                  const itemIndex = virtualItem.index;
-                  const song = () => props.songs[itemIndex];
-                  const isCurrentlyPlaying = () => itemIndex === props.currentIndex;
-                  const isUpNext = () => itemIndex === props.upNextIndex;
+            </Show>
 
-                  const isDragging = () => effectiveDraggedIndex() === itemIndex;
-                  const isDropTarget = () => dropTargetIndex() === itemIndex;
-                  const [isRowHovered, setIsRowHovered] = createSignal(false);
+            {/* unified, virtualized song+video queue list (phase 4b) - one
+                virtualizer/reconciliation pass for the whole interleaved
+                queue instead of a separate non-virtualized video block,
+                which also fixes video rows losing their identity (and
+                re-mounting/flickering their thumbnail) on every queue
+                change since they were rebuilt as brand-new wrapper objects
+                on each render. */}
+            <Show when={props.items.length > 0}>
+              <div
+                class="relative p-2"
+                style={{
+                  height: `${virtualizer.getTotalSize()}px`,
+                }}
+              >
+                <For each={virtualizer.getVirtualItems()} fallback={null}>
+                  {(virtualItem) => {
+                    const itemIndex = virtualItem.index;
+                    // memoized: `createMemo`'s default `===` equality bails
+                    // out downstream recomputation whenever `props.items`
+                    // re-derives (e.g. every periodic `saveProgressToIDB`
+                    // flush during playback) but the object reference at
+                    // THIS index is unchanged - without this, every row
+                    // (including untouched video rows) would tear down and
+                    // rebuild its whole child component on every flush,
+                    // which is what caused the video-thumbnail flicker.
+                    const item = createMemo(() => props.items[itemIndex]);
+                    const isCurrentlyPlaying = () => itemIndex === props.currentIndex;
+                    const isUpNext = () => itemIndex === props.upNextIndex;
+                    const isDragging = () => effectiveDraggedIndex() === itemIndex;
+                    const isDropTarget = () => dropTargetIndex() === itemIndex;
 
-                  // calculate progress for this song row
-                  const progress = (): number => {
-                    const s = song();
-                    if (!s) return 0;
-
-                    if (isCurrentlyPlaying()) {
-                      // currently playing: use live progress
-                      const dur = props.duration ?? 0;
-                      const ct = props.currentTime ?? 0;
-                      return dur > 0 ? ct / dur : 0;
-                    } else {
-                      // not playing: use stored max progress from signal
-                      const queueEntryId = s.queue_entry_id;
-                      if (queueEntryId && props.progressMap) {
-                        return props.progressMap.get(queueEntryId) ?? 0;
+                    // calculate progress for currently-relevant rows. songs
+                    // have a stored per-queue-entry max progress; videos
+                    // don't (yet) - only their live currently-playing
+                    // progress is shown.
+                    const progress = (): number => {
+                      const it = item();
+                      if (!it) return 0;
+                      if (isCurrentlyPlaying()) {
+                        const dur = props.duration ?? 0;
+                        const ct = props.currentTime ?? 0;
+                        return dur > 0 ? ct / dur : 0;
+                      }
+                      if (it.kind === "song") {
+                        const queueEntryId = it.song.queue_entry_id;
+                        if (queueEntryId && props.progressMap) {
+                          return props.progressMap.get(queueEntryId) ?? 0;
+                        }
                       }
                       return 0;
-                    }
-                  };
-
-                  // get waveform URL - check local blob first, then P2P/remote
-                  const waveformUrl = () => {
-                    const s = song();
-                    if (!s?.images) return undefined;
-
-                    const waveformImg = getWaveformImage(s.images);
-                    if (!waveformImg) return undefined;
-
-                    // local blob takes priority when actually present in the
-                    // browser-side cache (opfs/idb). in charnel mode, db-stored
-                    // waveforms carry a local_blob_id but live in charnel's
-                    // sqlite — that lookup will miss, so we fall through to
-                    // the remote_blob_id path which resolves via the
-                    // charnel-managed self remote (transport.getBlobUrl).
-                    if (waveformImg.local_blob_id) {
-                      const cached = getCachedBlobObjectURL(waveformImg.local_blob_id);
-                      if (cached) return cached;
-                    }
-
-                    // fall back to remote/P2P resolution
-                    return resolvedP2PWaveformUrl();
-                  };
-
-                  // P2P waveform resolver (also used for charnel-managed self
-                  // remote). only skip when there's no remote_* pair to try.
-                  const resolvedP2PWaveformUrl = useResolvedP2PImageUrl(() => {
-                    const s = song();
-                    if (!s?.images) return undefined;
-
-                    const waveformImg = getWaveformImage(s.images);
-                    if (!waveformImg) return undefined;
-                    if (!waveformImg.remote_blob_id || !waveformImg.remote_server_id) {
-                      return undefined;
-                    }
-
-                    return {
-                      blobId: waveformImg.remote_blob_id,
-                      remoteId: waveformImg.remote_server_id,
-                      httpFallback: waveformImg.remote_url,
                     };
-                  });
 
-                  const songRow = (
-                    <div
-                      draggable={!isCharnelMode()}
-                      class={`absolute top-0 left-0 w-full flex items-center py-2 pl-2 group transition-all duration-200 cursor-move overflow-hidden ${
-                        isDropTarget()
-                          ? "bg-[var(--color-accent-500)]/20 border-t-2 border-[var(--color-accent-500)] scale-[1.02]"
-                          : isDragging()
-                            ? "opacity-40 bg-[var(--color-accent-500)]/5 scale-95"
-                            : isCurrentlyPlaying()
-                              ? "rounded-lg"
-                              : progress() > 0
-                                ? "rounded-lg"
-                                : "hover:bg-[var(--color-accent-500)]/10"
-                      }`}
-                      style={{
-                        transform: `translateY(${virtualItem.start}px)`,
-                      }}
-                      onMouseEnter={() => setIsRowHovered(true)}
-                      onMouseLeave={() => setIsRowHovered(false)}
-                      onDragStart={handleDragStart(itemIndex)}
-                      onDragOver={handleDragOver(itemIndex)}
-                      onDragLeave={handleDragLeave}
-                      onDragEnd={handleDragEnd}
-                      onDrop={() => handleDrop(itemIndex)}
-                      onPointerDown={(e) => {
+                    const dragHandlers = {
+                      onDragStart: handleDragStart(itemIndex),
+                      onDragOver: handleDragOver(itemIndex),
+                      onDragLeave: handleDragLeave,
+                      onDragEnd: handleDragEnd,
+                      onDrop: () => handleDrop(itemIndex),
+                      onPointerDown: (e: PointerEvent) => {
                         // pointer-based drag for Tauri only - set up pending drag
                         if (isCharnelMode() && e.button === 0) {
                           pendingPointerDrag = {
@@ -702,261 +864,74 @@ export function QueueSidebar(props: QueueSidebarProps) {
                             startY: e.clientY,
                             pointerId: e.pointerId,
                             target: e.currentTarget as HTMLElement,
+                            list: "local",
                           };
                         }
-                      }}
-                      onClick={() => {
-                        if (isMobile()) {
-                          handleSongDoubleClick(itemIndex);
-                        }
-                      }}
-                      onDblClick={() => {
-                        if (!isMobile()) {
-                          handleSongDoubleClick(itemIndex);
-                        }
-                      }}
-                      title={
-                        isCurrentlyPlaying()
-                          ? "currently playing"
-                          : isMobile()
-                            ? "tap to play"
-                            : "double-click to play"
-                      }
-                    >
-                      {/* progress fill background - behind all content */}
-                      <Show when={progress() > 0}>
-                        {/* static background behind thumbnail */}
-                        <div
-                          class="absolute inset-y-0 left-0 pointer-events-none z-0"
-                          style={{
-                            width: "60px",
-                            "background-color": isCurrentlyPlaying()
-                              ? "rgba(102, 0, 59, 0.55)"
-                              : "rgba(102, 0, 59, 0.22)",
-                          }}
-                        />
-                        {/* progress fill layer (starts after thumbnail, reveals progressively) */}
-                        <div
-                          class="absolute inset-y-0 pointer-events-none z-0"
-                          style={{
-                            left: "60px",
-                            right: "0",
-                            "background-color": isCurrentlyPlaying()
-                              ? "rgba(102, 0, 59, 0.55)"
-                              : "rgba(102, 0, 59, 0.22)",
-                            "clip-path": `inset(0 ${100 - Math.min(progress() * 100, 100)}% 0 0)`,
-                          }}
-                        />
-                        {/* waveform overlay layer (starts after thumbnail, reveals progressively, scaled 2x height) */}
-                        <Show when={waveformUrl()}>
-                          <div
-                            class="absolute inset-y-0 pointer-events-none z-0 overflow-hidden"
-                            style={{
-                              left: "60px",
-                              right: "0",
-                              "clip-path": `inset(0 ${100 - Math.min(progress() * 100, 100)}% 0 0)`,
-                            }}
-                          >
-                            <div
-                              class="w-full h-full"
-                              style={{
-                                "background-image": `url(${waveformUrl()})`,
-                                "background-position": "left center",
-                                "background-size": "100% 100%",
-                                "background-repeat": "no-repeat",
-                                opacity: isCurrentlyPlaying() ? 0.5 : 0.15,
-                                "mix-blend-mode": "screen",
-                                transform: "scaleY(2)",
-                              }}
-                            />
-                          </div>
-                        </Show>
+                      },
+                    };
+
+                    return (
+                      // `keyed`: the children callback below only re-runs
+                      // (and thus only reconstructs `<QueueSongRow>`/
+                      // `<VideoQueueRow>`) when `item()`'s memoized value
+                      // actually changes reference - individual props
+                      // (isCurrentlyPlaying, progress, etc.) still update
+                      // live via Solid's per-attribute getter reactivity,
+                      // since those are read fresh on each JSX prop access
+                      // regardless of how often this outer callback reruns.
+                      <Show when={item()} keyed>
+                        {(it) => {
+                          const row =
+                            it.kind === "song" ? (
+                              <QueueSongRow
+                                song={it.song}
+                                index={itemIndex}
+                                isCurrentlyPlaying={isCurrentlyPlaying()}
+                                isUpNext={isUpNext()}
+                                isDragging={isDragging()}
+                                isDropTarget={isDropTarget()}
+                                top={virtualItem.start}
+                                progress={progress()}
+                                loadingIds={props.loadingIds}
+                                onClick={() => handleItemDoubleClick(itemIndex)}
+                                onDoubleClick={() => handleItemDoubleClick(itemIndex)}
+                                onRemove={(e) => handleRemove(e, itemIndex)}
+                                {...dragHandlers}
+                              />
+                            ) : (
+                              <VideoQueueRow
+                                video={it.video}
+                                index={itemIndex}
+                                isCurrentlyPlaying={isCurrentlyPlaying()}
+                                isUpNext={isUpNext()}
+                                isDragging={isDragging()}
+                                isDropTarget={isDropTarget()}
+                                top={virtualItem.start}
+                                progress={progress()}
+                                loadingIds={props.loadingIds}
+                                onClick={() => handleItemDoubleClick(itemIndex)}
+                                onDoubleClick={() => handleItemDoubleClick(itemIndex)}
+                                onRemove={(e) => handleRemove(e, itemIndex)}
+                                {...dragHandlers}
+                              />
+                            );
+
+                          const actions = () => props.getContextMenuActions?.(itemIndex, it);
+
+                          return (
+                            <Show when={actions()} fallback={row}>
+                              {(menuActions) => (
+                                <ContextMenu actions={menuActions()}>{row}</ContextMenu>
+                              )}
+                            </Show>
+                          );
+                        }}
                       </Show>
-
-                      {/* thumbnail with index overlay */}
-                      <MediaThumbnail
-                        images={song() ? getSongDisplayImages(song()!) : undefined}
-                        index={itemIndex}
-                        hideIndex={isRowHovered()}
-                        isUpNext={isUpNext()}
-                        onPlayClick={() => handleSongDoubleClick(itemIndex)}
-                        showPlayIcon={!isCurrentlyPlaying()}
-                        enablePlayClick={!isCurrentlyPlaying()}
-                        size={48}
-                        class="mr-3 relative z-10"
-                      />
-
-                      {/* song info */}
-                      <div class="flex-1 min-w-0 relative z-10">
-                        <h4
-                          class={`text-sm font-medium m-0 text-shadow-glow ${
-                            isCurrentlyPlaying()
-                              ? "text-[var(--color-accent-500)] font-semibold"
-                              : "text-[var(--color-text-primary)]"
-                          }`}
-                        >
-                          <MarqueeText text={song()?.title || ""} isHovering={isRowHovered} />
-                        </h4>
-                        <p
-                          class={`text-xs m-0 text-shadow-glow ${
-                            isCurrentlyPlaying()
-                              ? "text-[var(--color-text-primary)] font-semibold"
-                              : "text-[var(--color-text-secondary)]"
-                          }`}
-                        >
-                          <MarqueeText
-                            text={
-                              song()?.album_type === "compilation" && song()?.track_artist?.trim()
-                                ? song()!.track_artist!
-                                : song()?.artist_name || ""
-                            }
-                            isHovering={isRowHovered}
-                          />
-                        </p>
-                        <Show when={song()?.album_title}>
-                          <p
-                            class={`text-xs m-0 text-shadow-glow ${
-                              isCurrentlyPlaying()
-                                ? "text-[var(--color-text-secondary)] font-semibold"
-                                : "text-[var(--color-text-tertiary)]"
-                            }`}
-                          >
-                            <MarqueeText
-                              text={song()?.album_title || ""}
-                              isHovering={isRowHovered}
-                            />
-                          </p>
-                        </Show>
-                      </div>
-
-                      {/* duration and favorite indicator */}
-                      <div class="flex flex-col items-center ml-3 flex-shrink-0 relative z-10">
-                        {/* favorite icon above duration */}
-                        <div class="h-3 flex items-center -mt-2 mb-1.5">
-                          <Show when={song()?.is_favorite}>
-                            <Icon name="favorite" size={10} color="var(--color-accent-500)" />
-                          </Show>
-                        </div>
-                        {/* duration with loading underline */}
-                        <div class="relative inline-flex flex-col items-center">
-                          <span
-                            class="text-xs text-shadow-glow px-1"
-                            style={{
-                              color: (() => {
-                                const isLoading = props.loadingSongIds?.has(song()?.sha256 ?? "");
-                                // if loading, let animation handle color
-                                if (isLoading) {
-                                  return undefined;
-                                }
-                                return "var(--color-text-secondary)";
-                              })(),
-                              animation: props.loadingSongIds?.has(song()?.sha256 ?? "")
-                                ? "pulse-text 4s ease-in-out infinite"
-                                : undefined,
-                              "text-decoration": (() => {
-                                const isLoading = props.loadingSongIds?.has(song()?.sha256 ?? "");
-                                // don't underline if currently loading
-                                if (isLoading) return undefined;
-
-                                // local/downloaded/synced songs are always available offline
-                                const sourceType = song()?.source_type;
-                                if (
-                                  sourceType === "local" ||
-                                  sourceType === "downloaded" ||
-                                  sourceType === "synced"
-                                ) {
-                                  return "underline";
-                                }
-
-                                // check if remote song has been synced to local storage
-                                const sha256 = song()?.sha256;
-                                if (sha256 && isSongSyncedLocally(sha256)) {
-                                  return "underline";
-                                }
-
-                                // rodio + sync_queue_to_local=off lands audio
-                                // in `<fetch_dir>/_ephemeral/` without writing
-                                // any sqlite rows; flip the underline on for
-                                // those songs too so the row reflects what's
-                                // actually playable instantly. keyed by blake3
-                                // (the disk identifier).
-                                if (song()?.blake3 && isSongOnDiskEphemeral(song()?.blake3)) {
-                                  return "underline";
-                                }
-
-                                // for remote songs, underline only when cached (not when playing direct URL)
-                                const isCached = isSongCachedReactive(
-                                  song()?.remote_server_id,
-                                  song()?.sha256
-                                );
-                                const isPlayingDirect =
-                                  isCurrentlyPlaying() &&
-                                  isPlayingDirectURLReactive(song()?.sha256);
-                                return isCached && !isPlayingDirect ? "underline" : undefined;
-                              })(),
-                            }}
-                          >
-                            {formatDuration(song()?.duration_seconds)}
-                          </span>
-                          {/* loading underline - shows progress or bouncing bar */}
-                          <Show when={props.loadingSongIds?.has(song()?.sha256 ?? "")}>
-                            {(() => {
-                              const sha256 = song()?.sha256;
-                              const progress = sha256 ? getLoadingProgress(sha256) : undefined;
-                              const hasProgress = typeof progress === "number" && progress >= 0;
-
-                              return (
-                                <div
-                                  class="w-full h-0.5 overflow-hidden rounded-full"
-                                  style={{
-                                    "margin-top": "-2px",
-                                    background: "rgba(168, 85, 247, 0.2)",
-                                  }}
-                                >
-                                  <div
-                                    style={{
-                                      width: hasProgress
-                                        ? `${Math.min(progress * 100, 100)}%`
-                                        : "100%",
-                                      height: "100%",
-                                      background:
-                                        "linear-gradient(90deg, #a855f7 0%, #d946ef 50%, #ec4899 100%)",
-                                      animation: hasProgress
-                                        ? undefined
-                                        : "bounce-bar 2s ease-in-out infinite",
-                                      "border-radius": "9999px",
-                                      transition: hasProgress ? "width 150ms ease-out" : undefined,
-                                    }}
-                                  />
-                                </div>
-                              );
-                            })()}
-                          </Show>
-                        </div>
-                      </div>
-
-                      {/* remove button */}
-                      <button
-                        class={`relative z-10 ${isMobile() ? "" : "opacity-0 group-hover:opacity-100 "}p-2 ml-2 text-[var(--color-text-muted)] hover:text-red-400 hover:bg-red-500/20 transition-all duration-200 flex-shrink-0`}
-                        onClick={(e) => handleRemove(e, itemIndex)}
-                        title="remove from queue"
-                        aria-label="remove from queue"
-                      >
-                        <Icon name="close" size={14} />
-                      </button>
-                    </div>
-                  );
-
-                  return props.getContextMenuActions && song() ? (
-                    <ContextMenu actions={props.getContextMenuActions(itemIndex, song()!)}>
-                      {songRow}
-                    </ContextMenu>
-                  ) : (
-                    songRow
-                  );
-                }}
-              </For>
-            </div>
+                    );
+                  }}
+                </For>
+              </div>
+            </Show>
           </Show>
         </div>
 
@@ -1155,6 +1130,8 @@ export function QueueSidebar(props: QueueSidebarProps) {
             </div>
           </Show>
         </div>
+
+        <QueuePlayerTargetRow />
       </div>
     </>
   );

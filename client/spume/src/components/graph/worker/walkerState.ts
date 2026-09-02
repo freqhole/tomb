@@ -81,6 +81,9 @@ export const state: {
    *  cleared by `back`. */
   eagerExpansions: Set<string>;
   tuning: SimTuning;
+  /** when true, the worker logs every sim rebuild with its cause. toggled
+   *  from the host so settling problems can be traced without a rebuild. */
+  debugSim: boolean;
 } = {
   fullGraph: { nodes: [], edges: [] },
   width: 800,
@@ -92,12 +95,13 @@ export const state: {
   pinned: new Set<string>(),
   eagerExpansions: new Set<string>(),
   tuning: { ...DEFAULT_SIM_TUNING },
+  debugSim: false,
 };
 
 // node + edge maps rebuilt on each init
 export const nodeMap = new Map<string, WalkNode>();
 export const childrenOf = new Map<string, string[]>(); // parentId -> [childId]
-export const parentsOf  = new Map<string, string[]>(); // childId  -> [parentId]
+export const parentsOf = new Map<string, string[]>(); // childId  -> [parentId]
 
 // phase 3: synthesized cross-remote links (artist↔artist, album↔album) keyed
 // by a sorted "a||b" string for fast lookup at emit time. populated by

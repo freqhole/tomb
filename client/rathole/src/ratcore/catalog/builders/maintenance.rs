@@ -129,6 +129,38 @@ pub(in crate::ratcore::catalog) fn hard_delete_old_records() -> AdminCommand {
     }
 }
 
+fn hard_delete_video_args() -> Vec<crate::ratcore::app::ArgSpec> {
+    use crate::ratcore::app::{ArgKind, ArgSpec};
+    vec![
+        ArgSpec {
+            name: "retention_days".to_string(),
+            kind: ArgKind::Number {
+                placeholder: "(blank = 30) min days since soft-delete".to_string(),
+                signed: false,
+                min: Some(0),
+                max: None,
+            },
+            required: false,
+            help: Some(
+                "row-level purge only; any media blobs/files this orphans are reclaimed separately by cleanup-orphaned-blobs/run-full"
+                    .to_string(),
+            ),
+        },
+        dry_run_arg(),
+    ]
+}
+
+pub(in crate::ratcore::catalog) fn hard_delete_old_videos() -> AdminCommand {
+    AdminCommand {
+        name: "maintenance_hard_delete_old_videos".to_string(),
+        request_type: "MaintenanceHardDeleteVideoRequest".to_string(),
+        response_type: "HardDeleteVideoSummary".to_string(),
+        auth: "Admin".to_string(),
+        kind: CommandKind::Admin,
+        args: hard_delete_video_args(),
+    }
+}
+
 pub(in crate::ratcore::catalog) fn run_full() -> AdminCommand {
     AdminCommand {
         name: "maintenance_run_full".to_string(),

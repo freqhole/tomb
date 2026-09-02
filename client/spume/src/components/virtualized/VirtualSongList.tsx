@@ -25,14 +25,7 @@ const scrollCache = new Map<string, number>();
 
 // sort field types matching query params
 export type SortField =
-  | "title"
-  | "artist"
-  | "album"
-  | "genre"
-  | "year"
-  | "duration"
-  | "added_at"
-  | "play_count";
+  "title" | "artist" | "album" | "genre" | "year" | "duration" | "added_at" | "play_count";
 export type SortDirection = "asc" | "desc" | null;
 
 export interface SortState {
@@ -282,10 +275,7 @@ export function VirtualSongList(props: VirtualSongListProps) {
   };
 
   // only apply scroll padding on wide viewports (narrow has its own fixed nav)
-  const scrollPad = () =>
-    props.scrollPaddingTop && window.matchMedia("(min-width: 768px)").matches
-      ? props.scrollPaddingTop
-      : 0;
+  const scrollPad = () => (props.scrollPaddingTop ? props.scrollPaddingTop : 0);
 
   // get images for a song - tries song images first, then album images
   const getImages = (song: Song) => {

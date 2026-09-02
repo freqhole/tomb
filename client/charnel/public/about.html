@@ -15,8 +15,7 @@
         height: 100%;
         background: #0a0a0a;
         color: #e5e5e5;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-          sans-serif;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
         -webkit-user-select: none;
         user-select: none;
       }
@@ -42,6 +41,13 @@
       .version {
         font-size: 14px;
         color: #888;
+        margin-bottom: 20px;
+      }
+      .build-sha {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 11px;
+        color: #555;
+        margin-top: -16px;
         margin-bottom: 20px;
       }
       .tagline {
@@ -89,41 +95,48 @@
     </style>
   </head>
   <body>
-    <svg
-      class="logo"
-      viewBox="0 0 500 500"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-    >
-      <path
-        d="M250 405L125 155L375 155L303.611 340.714L250 405Z"
-        fill="#FF00FF"
-      />
+    <svg class="logo" viewBox="0 0 500 500" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M250 405L125 155L375 155L303.611 340.714L250 405Z" fill="#FF00FF" />
     </svg>
     <h1>freqhole</h1>
-    <div class="version">v0.2.15</div>
-    <div class="tagline">made with <svg class="heart-sparkle" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path d="M12 4.248C8.852-1.154 0 .423 0 7.192 0 11.853 5.571 16.619 12 23c6.43-6.381 12-11.147 12-15.808C24 .423 15.125-1.154 12 4.248z" fill="#ff00ff"/>
-    </svg> in NYC</div>
+    <div class="version" id="version">v0.3.0</div>
+    <div class="build-sha" id="build-sha"></div>
+    <div class="tagline">
+      made with
+      <svg class="heart-sparkle" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path
+          d="M12 4.248C8.852-1.154 0 .423 0 7.192 0 11.853 5.571 16.619 12 23c6.43-6.381 12-11.147 12-15.808C24 .423 15.125-1.154 12 4.248z"
+          fill="#ff00ff"
+        />
+      </svg>
+      in NYC
+    </div>
     <div class="link-container">
       <a class="link" id="website-link">freqhole.net</a>
       <div class="copied" id="copied">copied link!</div>
     </div>
 
     <script>
-      document
-        .getElementById("website-link")
-        .addEventListener("click", async (e) => {
-          e.preventDefault();
-          try {
-            await navigator.clipboard.writeText("https://freqhole.net");
-            const copied = document.getElementById("copied");
-            copied.classList.add("show");
-            setTimeout(() => copied.classList.remove("show"), 3000);
-          } catch (e) {
-            console.error("copy failed:", e);
-          }
-        });
+      // injected by menu.rs's initialization_script when this window is built
+      const build = window.__FREQHOLE_BUILD__;
+      if (build) {
+        document.getElementById("version").textContent = `v${build.version}`;
+        document.getElementById("build-sha").textContent = `${build.gitSha}${
+          build.debug ? " (debug)" : ""
+        }`;
+      }
+
+      document.getElementById("website-link").addEventListener("click", async (e) => {
+        e.preventDefault();
+        try {
+          await navigator.clipboard.writeText("https://freqhole.net");
+          const copied = document.getElementById("copied");
+          copied.classList.add("show");
+          setTimeout(() => copied.classList.remove("show"), 3000);
+        } catch (e) {
+          console.error("copy failed:", e);
+        }
+      });
     </script>
   </body>
 </html>

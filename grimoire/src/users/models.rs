@@ -310,9 +310,9 @@ impl UserSession {
     }
 }
 
-// Music-specific types (FavoriteTarget, RatingTarget, UserFavorite, UserRating)
-// have been moved to music::users::models
-// Re-exported from users::mod for backwards compatibility
+// favorites/ratings types (FavoriteTarget, RatingTarget, UserFavorite,
+// UserRating) live in the `favoritez` submodule and are re-exported from
+// users::mod for convenience
 
 /// Request to create a new user
 #[derive(Debug, Clone, Serialize, Deserialize, clap::Parser)]
@@ -344,9 +344,8 @@ pub struct CreateInviteCodeRequest {
     pub grants_role: Option<UserRole>,
 }
 
-// Music-specific request types (SetFavoriteRequest, SetRatingRequest)
-// have been moved to music::users::models
-// Re-exported from users::mod for backwards compatibility
+// favorites/ratings request types (SetFavoriteRequest, SetRatingRequest) live
+// in the `favoritez` submodule and are re-exported from users::mod
 
 /// Query parameters for user searches
 #[derive(Debug, Clone, Serialize, Deserialize)]

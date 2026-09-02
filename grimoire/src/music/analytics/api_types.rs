@@ -17,6 +17,21 @@ pub struct RecordPlayRequest {
     pub event_data: Option<serde_json::Value>,
 }
 
+/// request to record a video play event - mirrors `RecordPlayRequest`, kept
+/// as its own named type per the "keep differences between listening and
+/// watching" convention.
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct RecordVideoPlayRequest {
+    /// media blob id being played
+    pub media_blob_id: String,
+    /// video id being played
+    pub video_id: String,
+    /// session id for grouping plays
+    pub session_id: Option<String>,
+    /// additional event data (position, progress, etc.)
+    pub event_data: Option<serde_json::Value>,
+}
+
 /// request to get listening history
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct ListeningHistoryRequest {

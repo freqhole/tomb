@@ -45,12 +45,20 @@ impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         let (status, error_code, error_message) = match self {
             ApiError::Grimoire(e) => {
-                tracing::error!("grimoire error: {}", e);
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "internal_error".to_string(),
-                    format!("internal error: {}", e),
-                )
+                // preserve the underlying GrimoireError's real error_type and
+                // status code instead of collapsing every domain error into a
+                // generic 500 "internal_error" - both already exist on
+                // GrimoireError (error_type()/status_code()), they just
+                // weren't wired up at this http boundary.
+                let status = StatusCode::from_u16(e.status_code())
+                    .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+                let error_type = e.error_type();
+                if status.is_server_error() {
+                    tracing::error!("grimoire error ({}): {}", error_type, e);
+                } else {
+                    tracing::debug!("grimoire error ({}): {}", error_type, e);
+                }
+                (status, error_type, e.to_string())
             }
             ApiError::Unauthorized => (
                 StatusCode::UNAUTHORIZED,
@@ -90,9 +98,13 @@ impl IntoResponse for ApiError {
             }
         };
 
+        // `error_type` mirrors `code` under its RFC-9457/ErrorDetail name -
+        // client-side parsing (client-codegen's errors.ts) prefers
+        // `error_type` but still falls back to `code` for older callers.
         let body = Json(json!({
             "error": error_message,
             "code": error_code,
+            "error_type": error_code,
         }));
 
         (status, body).into_response()

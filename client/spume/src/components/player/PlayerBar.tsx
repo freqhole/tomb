@@ -10,6 +10,20 @@ import MediaImage from "../media/MediaImage";
 import { FavoriteHeart } from "../ratings/FavoriteHeart";
 import { MarqueeText } from "../text/MarqueeText";
 import { VolumeControl } from "./VolumeControl";
+import { useLocalVideoPosterUrl } from "../../video/components/VideoCard";
+
+/** poster fields the bar's thumbnail slot needs - a subset of `QueuedVideo`. */
+export interface PlayerBarVideo {
+  /** video id, needed for the favorite toggle callback */
+  id: string;
+  title: string;
+  source_type?: "local" | "remote";
+  poster_blob_id?: string | null;
+  poster_opfs_path?: string | null;
+  remote_server_id?: string;
+  /** structured image metadata array (includes the waveform blob, if any) */
+  images?: ImageMetadata[];
+}
 
 export interface PlayerBarSong {
   /** song id */
@@ -26,6 +40,8 @@ export interface PlayerBarSong {
   images?: ImageMetadata[];
   /** album images for fallback when song has no images */
   album_images?: ImageMetadata[];
+  /** artist images for fallback when song has no song/album images */
+  artist_images?: ImageMetadata[];
   /** thumbnail blob id (legacy, for backward compatibility) */
   thumbnailBlobId?: string;
   /** thumbnail image url (legacy, fallback for remote) */
@@ -43,6 +59,12 @@ export interface PlayerBarProps {
   isLoading?: boolean;
   /** whether there's a pending "up next" song loading (shows spinner but keeps current song info) */
   hasUpNext?: boolean;
+  /** live download/transfer progress (0..1) of the currently-playing song
+   * or video's own blob fetch, if known (shared loadingIds/progress map —
+   * see music/services/download). drives the play/pause loading ring as a
+   * determinate fill instead of a plain indeterminate spin, same treatment
+   * as `externalStorageProgress` below but for the single active item. */
+  mediaTransferProgress?: number | null;
   /** current time in seconds */
   currentTime: number;
   /** total duration in seconds */
@@ -59,6 +81,12 @@ export interface PlayerBarProps {
   onNext: () => void;
   /** callback when favorite toggled */
   onFavoriteToggle?: (songId: string) => void;
+  /** whether the currently-playing video is favorited (video has no
+   * denormalized `is_favorite` field on its own record, so this is passed
+   * separately rather than nested in `video`). */
+  isVideoFavorite?: boolean;
+  /** callback when the currently-playing video's favorite is toggled */
+  onVideoFavoriteToggle?: (videoId: string) => void;
   /** callback when seeking on progress bar */
   onSeek: (percentage: number) => void;
   /** callback when volume changes */
@@ -96,12 +124,71 @@ export interface PlayerBarProps {
   externalStorageProgress?: { current: number; total: number } | null;
   /** callback when the removable-storage icon is clicked (opens the storage overview). */
   onExternalStorageIconClick?: () => void;
+  /** whether the active target is a remote paired player (phase 6 - swaps
+   * the queue-toggle icon to `remotePlayer`; the picker itself now lives in
+   * QueueSidebar's bottom row rather than a standalone player-bar button). */
+  activeTargetIsRemote?: boolean;
+  /** whether the active backend is playing video (mounts `videoElement`
+   * into the thumbnail slot + shows a fullscreen toggle, instead of the
+   * usual song artwork). */
+  isVideoActive?: boolean;
+  /** the singleton `<video>` element owned by the video backend — moved
+   * into the bar's thumbnail slot via DOM append (not recreated), same
+   * pattern as `RadioAudioSink`'s owned `<audio>` element. */
+  videoElement?: HTMLVideoElement | null;
+  /** currently playing video (poster shown in the thumbnail slot, icon
+   * fallback when no poster exists). */
+  video?: PlayerBarVideo | null;
   /** additional classes */
   class?: string;
 }
 
 // compact mode: 801-1200px, reduce progress bar width and padding
 const COMPACT_MAX_WIDTH = 1200;
+
+/** small static placeholder shown in the bar's thumbnail slot while a video
+ * is active — the actual `<video>` element lives in the floating
+ * `VideoMiniPlayer` above the bar (see `AppLayout.tsx`), not here, so only
+ * one place ever calls `appendChild` on the shared singleton element.
+ * shows the video's poster when one exists, icon otherwise. */
+function VideoThumbSlot(props: { sizeClass: string; video?: PlayerBarVideo | null }) {
+  const localPosterUrl = useLocalVideoPosterUrl(() =>
+    props.video?.source_type === "local" ? (props.video.poster_opfs_path ?? null) : null
+  );
+  const hasPoster = () =>
+    props.video?.source_type === "remote" ? !!props.video.poster_blob_id : !!localPosterUrl();
+
+  return (
+    <div
+      class={`relative ${props.sizeClass} flex-shrink-0 bg-black rounded overflow-hidden flex items-center justify-center`}
+    >
+      <Show
+        when={hasPoster()}
+        fallback={<Icon name={IconNames.video} size={18} className="text-white/70" />}
+      >
+        <Show
+          when={props.video?.source_type === "remote"}
+          fallback={
+            <img
+              src={localPosterUrl()!}
+              alt={props.video?.title}
+              class="absolute inset-0 w-full h-full object-cover"
+            />
+          }
+        >
+          <MediaImage
+            remoteBlobId={props.video?.poster_blob_id}
+            remoteServerId={props.video?.remote_server_id}
+            alt={props.video?.title ?? "video"}
+            showFallback={false}
+            thumbnailSize={50}
+            class="absolute inset-0 w-full h-full object-cover"
+          />
+        </Show>
+      </Show>
+    </div>
+  );
+}
 
 // player bar component for bottom of screen
 export function PlayerBar(props: PlayerBarProps) {
@@ -124,6 +211,22 @@ export function PlayerBar(props: PlayerBarProps) {
     const p = props.externalStorageProgress;
     return p ? `syncing to removable storage (${p.current}/${p.total})` : "removable storage";
   };
+  // percent complete for the play/pause loading ring, or null to fall back
+  // to the plain indeterminate spin (no progress known yet, e.g. still
+  // waiting on a content-length header).
+  const mediaTransferProgressPct = () => {
+    const p = props.mediaTransferProgress;
+    if (typeof p !== "number") return null;
+    return Math.min(100, Math.max(0, p * 100));
+  };
+  // true while the current item's blob is still being fetched (e.g. from a
+  // remote peer), even before local playback-level `isLoading` flips true -
+  // that one only fires once decoding actually starts, which for some
+  // backends (video pre-caching in particular) is well after the fetch
+  // this reflects has finished. without this, the loading ring never
+  // appeared during a fresh remote video's download even though the queue
+  // row (driven by the same underlying loadingIds tracking) correctly did.
+  const isTransferringMedia = () => props.mediaTransferProgress != null;
   // true while a click on the thumbnail is still resolving image urls
   // for the carousel — shows a spinner instead of the carousel icon.
   const imageCarouselLoading = useImageCarouselLoading();
@@ -154,9 +257,13 @@ export function PlayerBar(props: PlayerBarProps) {
     onCleanup(() => window.removeEventListener("resize", handleResize));
   });
 
-  // get waveform image from current song
+  // get waveform image from current song/video (whichever media is active)
   const incomingWaveform = createMemo(() => {
-    return props.song ? getWaveformImage(props.song.images) : undefined;
+    return props.video
+      ? getWaveformImage(props.video.images)
+      : props.song
+        ? getWaveformImage(props.song.images)
+        : undefined;
   });
 
   // update display waveform when loading transitions to complete
@@ -373,52 +480,77 @@ export function PlayerBar(props: PlayerBarProps) {
             </div>
           </Show>
 
-          {/* thumbnail */}
-          <div
-            class={`relative group w-10 h-10 flex-shrink-0 ${props.onImageClick ? "cursor-pointer" : ""}`}
-            onClick={() => props.onImageClick?.()}
-          >
-            <MediaImage
-              images={props.song ? getSongDisplayImages(props.song) : undefined}
-              blobId={props.song?.thumbnailBlobId}
-              imageUrl={props.song?.thumbnailUrl}
-              alt={props.song?.title || "song artwork"}
-              domainType="song"
-              thumbnailSize={50}
-              class="w-10 h-10 rounded object-cover"
-            />
-            <Show when={props.onImageClick && props.song}>
+          {/* thumbnail - poster comes from `props.video` regardless of
+              whether an inline <video> element exists (the gst video window
+              path never has one, videoElement is always null there) */}
+          <Show
+            when={props.isVideoActive}
+            fallback={
               <div
-                class="absolute inset-0 bg-black/0 transition-colors flex items-center justify-center rounded"
-                classList={{
-                  "opacity-0 group-hover:bg-black/30 group-hover:opacity-100":
-                    !imageCarouselLoading(),
-                  "bg-black/30 opacity-100": imageCarouselLoading(),
-                }}
+                class={`relative group w-10 h-10 flex-shrink-0 ${props.onImageClick ? "cursor-pointer" : ""}`}
+                onClick={() => props.onImageClick?.()}
               >
-                <Show
-                  when={!imageCarouselLoading()}
-                  fallback={
-                    <Icon
-                      name={IconNames.loader}
-                      size={16}
-                      className="text-white drop-shadow-lg animate-spin"
-                    />
-                  }
-                >
-                  <Icon name={IconNames.carousel} size={16} className="text-white drop-shadow-lg" />
+                <MediaImage
+                  images={props.song ? getSongDisplayImages(props.song) : undefined}
+                  blobId={props.song?.thumbnailBlobId}
+                  imageUrl={props.song?.thumbnailUrl}
+                  alt={props.song?.title || "song artwork"}
+                  domainType="song"
+                  thumbnailSize={50}
+                  class="w-10 h-10 rounded object-cover"
+                />
+                <Show when={props.onImageClick && props.song}>
+                  <div
+                    class="absolute inset-0 bg-black/0 transition-colors flex items-center justify-center rounded"
+                    classList={{
+                      "opacity-0 group-hover:bg-black/30 group-hover:opacity-100":
+                        !imageCarouselLoading(),
+                      "bg-black/30 opacity-100": imageCarouselLoading(),
+                    }}
+                  >
+                    <Show
+                      when={!imageCarouselLoading()}
+                      fallback={
+                        <Icon
+                          name={IconNames.loader}
+                          size={16}
+                          className="text-white drop-shadow-lg animate-spin"
+                        />
+                      }
+                    >
+                      <Icon
+                        name={IconNames.carousel}
+                        size={16}
+                        className="text-white drop-shadow-lg"
+                      />
+                    </Show>
+                  </div>
                 </Show>
               </div>
-            </Show>
-          </div>
+            }
+          >
+            <VideoThumbSlot sizeClass="w-10 h-10" video={props.video} />
+          </Show>
 
           {/* favorite button */}
-          <Show when={props.song}>
+          <Show when={!props.isVideoActive && props.song}>
             {(song) => (
               <div class="flex-shrink-0">
                 <FavoriteHeart
                   isFavorite={song().isFavorite || false}
                   onToggle={() => props.onFavoriteToggle?.(song().id)}
+                  size="sm"
+                  class="opacity-80"
+                />
+              </div>
+            )}
+          </Show>
+          <Show when={props.isVideoActive && props.video}>
+            {(video) => (
+              <div class="flex-shrink-0">
+                <FavoriteHeart
+                  isFavorite={props.isVideoFavorite || false}
+                  onToggle={() => props.onVideoFavoriteToggle?.(video().id)}
                   size="sm"
                   class="opacity-80"
                 />
@@ -469,17 +601,24 @@ export function PlayerBar(props: PlayerBarProps) {
             </Show>
 
             <div class="relative">
-              {/* loading ring - gradient arc (shows for isLoading OR hasUpNext) */}
-              <Show when={props.isLoading || props.hasUpNext}>
+              {/* loading ring - gradient arc (shows for isLoading, hasUpNext,
+                  or an in-progress media transfer), determinate fill once
+                  mediaTransferProgress is known */}
+              <Show when={props.isLoading || props.hasUpNext || isTransferringMedia()}>
                 <div
                   class="absolute inset-[-4px] rounded-full pointer-events-none"
                   style={{
                     background:
-                      "conic-gradient(from 0deg, transparent 0%, #ec489920 6%, #ec489940 12%, #ec489980 20%, #ec4899cc 28%, #ec4899 38%, #c026d3 55%, #a855f7 70%, #a855f7 86%, transparent 88%)",
+                      mediaTransferProgressPct() !== null
+                        ? `conic-gradient(from -90deg, #ec4899 ${mediaTransferProgressPct()}%, #ec489930 ${mediaTransferProgressPct()}%)`
+                        : "conic-gradient(from 0deg, transparent 0%, #ec489920 6%, #ec489940 12%, #ec489980 20%, #ec4899cc 28%, #ec4899 38%, #c026d3 55%, #a855f7 70%, #a855f7 86%, transparent 88%)",
                     mask: "radial-gradient(farthest-side, transparent calc(100% - 3px), black calc(100% - 3px))",
                     "-webkit-mask":
                       "radial-gradient(farthest-side, transparent calc(100% - 3px), black calc(100% - 3px))",
-                    animation: "spin 1.5s linear infinite",
+                    animation:
+                      mediaTransferProgressPct() !== null ? undefined : "spin 1.5s linear infinite",
+                    transition:
+                      mediaTransferProgressPct() !== null ? "background 150ms ease-out" : undefined,
                   }}
                 />
               </Show>
@@ -516,10 +655,16 @@ export function PlayerBar(props: PlayerBarProps) {
                   : "bg-[var(--color-accent-500)]/10 text-[var(--color-accent-500)] hover:bg-[var(--color-accent-500)]/30"
               }`}
               onClick={() => props.onQueueToggle()}
-              title={props.queueOpen ? "hide queue" : "show queue"}
+              title={
+                props.activeTargetIsRemote
+                  ? "queue (playing on remote)"
+                  : props.queueOpen
+                    ? "hide queue"
+                    : "show queue"
+              }
               aria-label={props.queueOpen ? "hide queue" : "show queue"}
             >
-              <Icon name="queue" size={16} />
+              <Icon name={props.activeTargetIsRemote ? "remotePlayer" : "queue"} size={16} />
               <Show when={(props.queueLength || 0) > 0}>
                 <span class="absolute -top-1 -right-1 bg-[var(--color-accent-500)] text-[var(--color-text-on-accent)] text-[10px] rounded-full w-4 h-4 flex items-center justify-center font-medium">
                   {props.queueLength}
@@ -580,56 +725,77 @@ export function PlayerBar(props: PlayerBarProps) {
               </div>
             </Show>
 
-            {/* thumbnail */}
-            <div
-              class={`relative group w-12 h-12 flex-shrink-0 ${props.onImageClick ? "cursor-pointer hover:opacity-80 transition-opacity" : ""}`}
-              onClick={() => props.onImageClick?.()}
-            >
-              <MediaImage
-                images={props.song ? getSongDisplayImages(props.song) : undefined}
-                blobId={props.song?.thumbnailBlobId}
-                imageUrl={props.song?.thumbnailUrl}
-                alt={props.song?.title || "song artwork"}
-                domainType="song"
-                thumbnailSize={50}
-                class="w-12 h-12 rounded object-cover"
-              />
-              <Show when={props.onImageClick && props.song}>
+            {/* thumbnail - poster comes from `props.video` regardless of
+                whether an inline <video> element exists (the gst video window
+                path never has one, videoElement is always null there) */}
+            <Show
+              when={props.isVideoActive}
+              fallback={
                 <div
-                  class="absolute inset-0 bg-black/0 transition-colors flex items-center justify-center rounded"
-                  classList={{
-                    "opacity-0 group-hover:bg-black/30 group-hover:opacity-100":
-                      !imageCarouselLoading(),
-                    "bg-black/30 opacity-100": imageCarouselLoading(),
-                  }}
+                  class={`relative group w-12 h-12 flex-shrink-0 ${props.onImageClick ? "cursor-pointer hover:opacity-80 transition-opacity" : ""}`}
+                  onClick={() => props.onImageClick?.()}
                 >
-                  <Show
-                    when={!imageCarouselLoading()}
-                    fallback={
-                      <Icon
-                        name={IconNames.loader}
-                        size={20}
-                        className="text-white drop-shadow-lg animate-spin"
-                      />
-                    }
-                  >
-                    <Icon
-                      name={IconNames.carousel}
-                      size={20}
-                      className="text-white drop-shadow-lg"
-                    />
+                  <MediaImage
+                    images={props.song ? getSongDisplayImages(props.song) : undefined}
+                    blobId={props.song?.thumbnailBlobId}
+                    imageUrl={props.song?.thumbnailUrl}
+                    alt={props.song?.title || "song artwork"}
+                    domainType="song"
+                    thumbnailSize={50}
+                    class="w-12 h-12 rounded object-cover"
+                  />
+                  <Show when={props.onImageClick && props.song}>
+                    <div
+                      class="absolute inset-0 bg-black/0 transition-colors flex items-center justify-center rounded"
+                      classList={{
+                        "opacity-0 group-hover:bg-black/30 group-hover:opacity-100":
+                          !imageCarouselLoading(),
+                        "bg-black/30 opacity-100": imageCarouselLoading(),
+                      }}
+                    >
+                      <Show
+                        when={!imageCarouselLoading()}
+                        fallback={
+                          <Icon
+                            name={IconNames.loader}
+                            size={20}
+                            className="text-white drop-shadow-lg animate-spin"
+                          />
+                        }
+                      >
+                        <Icon
+                          name={IconNames.carousel}
+                          size={20}
+                          className="text-white drop-shadow-lg"
+                        />
+                      </Show>
+                    </div>
                   </Show>
                 </div>
-              </Show>
-            </div>
+              }
+            >
+              <VideoThumbSlot sizeClass="w-12 h-12" video={props.video} />
+            </Show>
 
             {/* favorite button */}
-            <Show when={props.song}>
+            <Show when={!props.isVideoActive && props.song}>
               {(song) => (
                 <div class="flex-shrink-0">
                   <FavoriteHeart
                     isFavorite={song().isFavorite || false}
                     onToggle={() => props.onFavoriteToggle?.(song().id)}
+                    size="md"
+                    class="opacity-80 hover:opacity-100"
+                  />
+                </div>
+              )}
+            </Show>
+            <Show when={props.isVideoActive && props.video}>
+              {(video) => (
+                <div class="flex-shrink-0">
+                  <FavoriteHeart
+                    isFavorite={props.isVideoFavorite || false}
+                    onToggle={() => props.onVideoFavoriteToggle?.(video().id)}
                     size="md"
                     class="opacity-80 hover:opacity-100"
                   />
@@ -692,17 +858,24 @@ export function PlayerBar(props: PlayerBarProps) {
           </Show>
 
           <div class="relative">
-            {/* loading ring - gradient arc (shows for isLoading OR hasUpNext) */}
-            <Show when={props.isLoading || props.hasUpNext}>
+            {/* loading ring - gradient arc (shows for isLoading, hasUpNext,
+                or an in-progress media transfer), determinate fill once
+                mediaTransferProgress is known */}
+            <Show when={props.isLoading || props.hasUpNext || isTransferringMedia()}>
               <div
                 class="absolute inset-[-4px] rounded-full pointer-events-none"
                 style={{
                   background:
-                    "conic-gradient(from 0deg, transparent 0%, #ec489920 6%, #ec489940 12%, #ec489980 20%, #ec4899cc 28%, #ec4899 38%, #c026d3 55%, #a855f7 70%, #a855f7 86%, transparent 88%)",
+                    mediaTransferProgressPct() !== null
+                      ? `conic-gradient(from -90deg, #ec4899 ${mediaTransferProgressPct()}%, #ec489930 ${mediaTransferProgressPct()}%)`
+                      : "conic-gradient(from 0deg, transparent 0%, #ec489920 6%, #ec489940 12%, #ec489980 20%, #ec4899cc 28%, #ec4899 38%, #c026d3 55%, #a855f7 70%, #a855f7 86%, transparent 88%)",
                   mask: "radial-gradient(farthest-side, transparent calc(100% - 3px), black calc(100% - 3px))",
                   "-webkit-mask":
                     "radial-gradient(farthest-side, transparent calc(100% - 3px), black calc(100% - 3px))",
-                  animation: "spin 1.5s linear infinite",
+                  animation:
+                    mediaTransferProgressPct() !== null ? undefined : "spin 1.5s linear infinite",
+                  transition:
+                    mediaTransferProgressPct() !== null ? "background 150ms ease-out" : undefined,
                 }}
               />
             </Show>
@@ -846,10 +1019,16 @@ export function PlayerBar(props: PlayerBarProps) {
                 : "bg-[var(--color-accent-500)]/10 text-[var(--color-accent-500)] hover:bg-[var(--color-accent-500)]/30"
             }`}
             onClick={() => props.onQueueToggle()}
-            title={props.queueOpen ? "hide queue" : "show queue"}
+            title={
+              props.activeTargetIsRemote
+                ? "queue (playing on remote)"
+                : props.queueOpen
+                  ? "hide queue"
+                  : "show queue"
+            }
             aria-label={props.queueOpen ? "hide queue" : "show queue"}
           >
-            <Icon name="queue" size={20} />
+            <Icon name={props.activeTargetIsRemote ? "remotePlayer" : "queue"} size={20} />
             <Show when={(props.queueLength || 0) > 0}>
               <span class="absolute -top-1 -right-1 bg-[var(--color-accent-500)] text-[var(--color-text-on-accent)] text-xs rounded-full w-5 h-5 flex items-center justify-center font-medium">
                 {props.queueLength}

@@ -112,6 +112,57 @@ export function nodeShapePath(
       ctx.rect(x - half, y - half, half * 2, half * 2);
       break;
     }
+    case "video": {
+      // 16:9 rounded rect — area tuned to roughly match an album square
+      // at the same r, for fair visual weight in the force layout.
+      const halfW = (r + gap) * 1.175;
+      const halfH = (r + gap) * 0.66;
+      const cornerR = Math.max(2, halfH * 0.18);
+      ctx.beginPath();
+      ctx.roundRect(x - halfW, y - halfH, halfW * 2, halfH * 2, cornerR);
+      break;
+    }
+    case "video_series": {
+      // front (dominant) card only when gap===0 (the fill/hit-test pass) —
+      // the two "peeking" back cards are drawn separately by drawNode (see
+      // drawing.ts) before this shape's own fill+stroke pass, so they read
+      // as layered behind it. 16:9 (same ratio as "video") rather than
+      // square — series are meant to read as a stack of widescreen video
+      // cards, not a photo album; the "bigger" half of the size bump comes
+      // from `nodeRadius.ts`'s larger base r for this role, not from the
+      // multipliers here.
+      //
+      // ring passes (gap>0, from WalkCanvas's hover/selection outline)
+      // additionally widen toward the top-right by the same offset the
+      // peek cards use (radius*0.32, see drawing.ts), so the ring hugs the
+      // full icon (front + peeks) instead of just the front card — a
+      // symmetric gap left the ring floating away from the front card on
+      // the bottom-left while clipping/crowding the peek cards up top-right.
+      const halfW = (r + gap) * 1.175;
+      const halfH = (r + gap) * 0.66;
+      const cornerR = Math.max(2, halfH * 0.18);
+      const peekExtra = gap > 0 ? r * 0.32 : 0;
+      ctx.beginPath();
+      ctx.roundRect(
+        x - halfW,
+        y - halfH - peekExtra,
+        halfW * 2 + peekExtra,
+        halfH * 2 + peekExtra,
+        cornerR
+      );
+      break;
+    }
+    case "video_season": {
+      // same 16:9 ratio as "video"/"video_series" — sits visually between
+      // them via a smaller base r from `nodeRadius.ts`, not a different
+      // aspect ratio.
+      const halfW = (r + gap) * 1.175;
+      const halfH = (r + gap) * 0.66;
+      const cornerR = Math.max(2, halfH * 0.18);
+      ctx.beginPath();
+      ctx.roundRect(x - halfW, y - halfH, halfW * 2, halfH * 2, cornerR);
+      break;
+    }
     case "artist":
     default:
       ctx.beginPath();
@@ -166,6 +217,36 @@ export function shapePolyline(
         { x: cx - half, y: cy + half },
       ];
     }
+    case "video": {
+      const halfW = r * 1.175 + outset;
+      const halfH = r * 0.66 + outset;
+      return [
+        { x: cx - halfW, y: cy - halfH },
+        { x: cx + halfW, y: cy - halfH },
+        { x: cx + halfW, y: cy + halfH },
+        { x: cx - halfW, y: cy + halfH },
+      ];
+    }
+    case "video_series": {
+      const halfW = r * 1.175 + outset;
+      const halfH = r * 0.66 + outset;
+      return [
+        { x: cx - halfW, y: cy - halfH },
+        { x: cx + halfW, y: cy - halfH },
+        { x: cx + halfW, y: cy + halfH },
+        { x: cx - halfW, y: cy + halfH },
+      ];
+    }
+    case "video_season": {
+      const halfW = r * 1.175 + outset;
+      const halfH = r * 0.66 + outset;
+      return [
+        { x: cx - halfW, y: cy - halfH },
+        { x: cx + halfW, y: cy - halfH },
+        { x: cx + halfW, y: cy + halfH },
+        { x: cx - halfW, y: cy + halfH },
+      ];
+    }
     case "artist":
     default: {
       // circle → discretize to 64 segments so the perimeter sampler can
@@ -198,11 +279,7 @@ export function regularPolyVerts(
 }
 
 // ray-casting point-in-polygon test (crossing number algorithm).
-export function pointInPolygon(
-  px: number,
-  py: number,
-  poly: { x: number; y: number }[]
-): boolean {
+export function pointInPolygon(px: number, py: number, poly: { x: number; y: number }[]): boolean {
   let inside = false;
   for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
     const xi = poly[i].x,

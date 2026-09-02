@@ -93,11 +93,20 @@ pub(crate) async fn stream_sha256_hash(file_path: &str) -> Result<String, std::i
 ///
 /// Creates a media blob record from an audio file path.
 /// Calculates SHA256 hash of the actual file contents for deduplication.
+///
+/// `is_fetch_download` should be true only when `file_path` is a file that
+/// was just downloaded by the yt-dlp fetch pipeline (i.e. lives under the
+/// configured `fetch_music`/`fetch_video` output dir) - when true, a
+/// same-content duplicate hit deletes this fresh download instead of
+/// relocating the pre-existing blob to point at it. false for scanner
+/// rediscovery / user uploads, which must keep the existing relocate
+/// behavior.
 pub async fn create_media_blob_from_file(
     file_path: &str,
     file_size: u64,
     file_modified_at: i64,
     created_by: Option<String>,
+    is_fetch_download: bool,
 ) -> GrimoireResponse<String> {
     let file_name = Path::new(file_path)
         .file_name()
@@ -118,9 +127,13 @@ pub async fn create_media_blob_from_file(
                 vec![ErrorDetail::new(
                     "file_hash_error",
                     "File Hash Error",
-                    format!("Failed to hash file {}: {}", file_path, e),
+                    // preserve the underlying io error's kind + message (file disappeared
+                    // mid-stream, disk read error, permission denied, etc) so this is
+                    // diagnosable later - one error_type covers every cause on purpose,
+                    // but the detail text still tells them apart.
+                    format!("Failed to hash file {}: {} ({:?})", file_path, e, e.kind()),
                 )],
-            )
+            );
         }
     };
 
@@ -128,7 +141,19 @@ pub async fn create_media_blob_from_file(
     let blake3 = match compute_blake3_hash(Path::new(file_path)).await {
         Ok(hash) => Some(hash),
         Err(e) => {
-            tracing::warn!("failed to compute blake3 for {}: {}", file_path, e);
+            // non-fatal today (blake3 can be backfilled on-demand later), but a
+            // future p2p/iroh-blobs transfer of this blob will fail with zero
+            // connection back to "blake3 was never computed because X" - kept as
+            // log-only for now (no partial_failures field on this response type
+            // to surface it through, see docs/error-handling-tasks.md's P0-C
+            // section for the coordinated schema fix this needs).
+            // TODO: give blake3 computation its own recoverable retry step
+            // instead of silently giving up, per P0-A in error-handling-tasks.md.
+            tracing::warn!(
+                "failed to compute blake3 for {}: {} - blob will have no blake3 until backfilled on next upload/rescan",
+                file_path,
+                e
+            );
             None // non-fatal, can compute on-demand later
         }
     };
@@ -153,6 +178,9 @@ pub async fn create_media_blob_from_file(
         width: None,
         height: None,
         blake3, // computed at ingest for audio files
+        // only a fresh yt-dlp download should ever purge a duplicate file
+        // from disk instead of relocating - see the field's doc comment.
+        delete_duplicate_local_path: is_fetch_download,
     };
 
     match media_blobz::create_media_blob(request).await {
@@ -234,8 +262,8 @@ async fn extract_album_art_to_webp(
 
     // Build command from config - parse args first, then replace placeholders
     let mut args = shell_words::split(&config.media.extract_album_art_args).map_err(|e| {
-        GrimoireError::ProcessingFailed {
-            message: format!("Failed to parse ffmpeg args: {}", e),
+        GrimoireError::FfmpegFailed {
+            reason: format!("failed to parse ffmpeg args: {}", e),
         }
     })?;
 
@@ -250,24 +278,26 @@ async fn extract_album_art_to_webp(
     }
 
     let mut cmd = tokio::process::Command::new(&config.media.ffmpeg_path);
-    cmd.args(args).stdout(Stdio::null()).stderr(Stdio::piped());
+    cmd.arg("-hide_banner")
+        .args(args)
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped());
 
     let output = tokio::time::timeout(tokio::time::Duration::from_secs(30), cmd.output())
         .await
-        .map_err(|_| GrimoireError::ProcessingFailed {
-            message: "Album art extraction timed out".to_string(),
+        .map_err(|_| GrimoireError::FfmpegFailed {
+            reason: "album art extraction timed out".to_string(),
         })?
-        .map_err(|e| GrimoireError::ProcessingFailed {
-            message: format!("Failed to run ffmpeg: {}", e),
+        .map_err(|e| GrimoireError::FfmpegFailed {
+            reason: format!("failed to run ffmpeg: {}", e),
         })?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(GrimoireError::ProcessingFailed {
-            message: format!(
-                "ffmpeg failed to extract album art. Exit code: {:?}. Error: {}",
-                output.status.code(),
-                stderr
+        return Err(GrimoireError::FfmpegFailed {
+            reason: format!(
+                "failed to extract album art: {}",
+                crate::media_blobz::ffmpeg_runner::humanize_ffmpeg_error(&stderr)
             ),
         });
     }
@@ -383,8 +413,8 @@ async fn generate_waveform_to_webp(
 
     // Build command from config - parse args first, then replace placeholders
     let mut args = shell_words::split(&config.media.generate_waveform_args).map_err(|e| {
-        GrimoireError::ProcessingFailed {
-            message: format!("Failed to parse ffmpeg args: {}", e),
+        GrimoireError::FfmpegFailed {
+            reason: format!("failed to parse ffmpeg args: {}", e),
         }
     })?;
 
@@ -399,24 +429,26 @@ async fn generate_waveform_to_webp(
     }
 
     let mut cmd = tokio::process::Command::new(&config.media.ffmpeg_path);
-    cmd.args(args).stdout(Stdio::null()).stderr(Stdio::piped());
+    cmd.arg("-hide_banner")
+        .args(args)
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped());
 
     let output = tokio::time::timeout(tokio::time::Duration::from_secs(60), cmd.output())
         .await
-        .map_err(|_| GrimoireError::ProcessingFailed {
-            message: "Waveform generation timed out".to_string(),
+        .map_err(|_| GrimoireError::FfmpegFailed {
+            reason: "waveform generation timed out".to_string(),
         })?
-        .map_err(|e| GrimoireError::ProcessingFailed {
-            message: format!("Failed to run ffmpeg: {}", e),
+        .map_err(|e| GrimoireError::FfmpegFailed {
+            reason: format!("failed to run ffmpeg: {}", e),
         })?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(GrimoireError::ProcessingFailed {
-            message: format!(
-                "ffmpeg failed to generate waveform. Exit code: {:?}. Error: {}",
-                output.status.code(),
-                stderr
+        return Err(GrimoireError::FfmpegFailed {
+            reason: format!(
+                "failed to generate waveform: {}",
+                crate::media_blobz::ffmpeg_runner::humanize_ffmpeg_error(&stderr)
             ),
         });
     }
@@ -439,9 +471,10 @@ async fn generate_waveform_to_webp(
 /// convert any image format to webp
 pub fn convert_to_webp(image_data: &[u8]) -> Result<Vec<u8>, GrimoireError> {
     // Try to detect and load the image
-    let img = image::load_from_memory(image_data).map_err(|e| GrimoireError::ProcessingFailed {
-        message: format!("Failed to decode image: {}", e),
-    })?;
+    let img =
+        image::load_from_memory(image_data).map_err(|e| GrimoireError::ImageDecodeFailed {
+            reason: format!("failed to decode image: {}", e),
+        })?;
 
     // convert to 8-bit RGBA — ImageMagick can produce 16-bit PNGs (e.g. from PDF
     // rendering) and the WebP encoder only supports 8-bit color types
@@ -452,8 +485,8 @@ pub fn convert_to_webp(image_data: &[u8]) -> Result<Vec<u8>, GrimoireError> {
     let mut cursor = Cursor::new(&mut webp_data);
 
     img.write_to(&mut cursor, ImageOutputFormat::WebP)
-        .map_err(|e| GrimoireError::ProcessingFailed {
-            message: format!("Failed to convert to WebP: {}", e),
+        .map_err(|e| GrimoireError::ImageDecodeFailed {
+            reason: format!("failed to convert to webp: {}", e),
         })?;
 
     Ok(webp_data)
@@ -487,6 +520,7 @@ pub async fn create_image_blob_from_webp_data(
         width: None,
         height: None,
         blake3: None, // create_media_blob computes this from the bytes above
+        delete_duplicate_local_path: false,
     };
 
     match media_blobz::create_media_blob(request).await {

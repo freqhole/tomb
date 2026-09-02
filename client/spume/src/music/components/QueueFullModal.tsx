@@ -15,7 +15,7 @@ import {
 export function QueueFullModal() {
   const state = () => queueFullModal();
   const removeCount = () =>
-    calculateRemoveCount(state().currentQueueSize, state().songsToAdd.length);
+    calculateRemoveCount(state().currentQueueSize, state().itemsToAdd.length);
 
   return (
     <Show when={state().isOpen}>
@@ -28,11 +28,11 @@ export function QueueFullModal() {
         <div class="space-y-4">
           <Alert variant="warning">
             <p>
-              your queue has {state().currentQueueSize} songs (limit: {getQueueSizeLimit()}).
+              your queue has {state().currentQueueSize} items (limit: {getQueueSizeLimit()}).
             </p>
             <p class="mt-1">
-              adding {state().songsToAdd.length} more song
-              {state().songsToAdd.length === 1 ? "" : "s"} would exceed the limit.
+              adding {state().itemsToAdd.length} more item
+              {state().itemsToAdd.length === 1 ? "" : "s"} would exceed the limit.
             </p>
           </Alert>
 
@@ -44,7 +44,7 @@ export function QueueFullModal() {
               onClick={() => closeQueueFullModal("remove-from-start")}
               class="w-full justify-center"
             >
-              remove {removeCount()} song{removeCount() === 1 ? "" : "s"} from start
+              remove {removeCount()} item{removeCount() === 1 ? "" : "s"} from start
             </Button>
 
             <Button
@@ -52,7 +52,7 @@ export function QueueFullModal() {
               onClick={() => closeQueueFullModal("clear-all")}
               class="w-full justify-center"
             >
-              clear queue &amp; add new songs
+              clear queue &amp; add new items
             </Button>
 
             <Button

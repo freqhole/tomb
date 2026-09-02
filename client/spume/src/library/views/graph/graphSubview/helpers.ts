@@ -3,7 +3,10 @@ import type { Remote } from "../../../../app/services/storage/schemas/remote";
 import { resolveBlobUrl } from "../../../../music/services/storage/blobResolver";
 import { usesBlobResolver } from "../../../../music/services/storage/transportCache";
 import { resolveLocalBlobUrl } from "../../../../music/utils/images";
-import { RemoteMusicDataSource, RemoteOfflineError } from "../../../../music/data/remote/remoteSource";
+import {
+  RemoteMusicDataSource,
+  RemoteOfflineError,
+} from "../../../../music/data/remote/remoteSource";
 import { probeRemote } from "../../../../app/services/remotes/remoteHealth";
 
 // pick the "best" artist image for avatar/glyph display. priority:
@@ -13,9 +16,7 @@ import { probeRemote } from "../../../../app/services/remotes/remoteHealth";
 // waveforms are filtered out — they're audio peak data, not visual
 // art. returns null when the list is empty or contains only
 // waveforms, so the caller can fall back to an album cover.
-export function pickPrimaryImage(
-  images: ImageMetadata[] | null | undefined
-): ImageMetadata | null {
+export function pickPrimaryImage(images: ImageMetadata[] | null | undefined): ImageMetadata | null {
   if (!images || images.length === 0) return null;
   const visual = images.filter((i) => i.blob_type !== "waveform");
   if (visual.length === 0) return null;
@@ -84,5 +85,21 @@ export async function fetchAlbumSongs(remote: Remote, albumId: string) {
     // remote confirmed online: retry once with a fresh data-source instance.
     const ds = new RemoteMusicDataSource(remote);
     return (await ds.getAlbumSongs(albumId)).items;
+  }
+}
+
+/** every in-library song across every album by this artist — mirrors
+ *  fetchAlbumSongs's shape/retry behavior, used by ArtistDetailPopover's
+ *  play/shuffle/queue actions. */
+export async function fetchArtistSongs(remote: Remote, artistId: string) {
+  try {
+    const ds = new RemoteMusicDataSource(remote);
+    return (await ds.getArtistSongs?.(artistId, { limit: 1000 }))?.items ?? [];
+  } catch (err) {
+    if (!(err instanceof RemoteOfflineError)) throw err;
+    const isOnline = await probeRemote(remote, { force: true });
+    if (!isOnline) throw err;
+    const ds = new RemoteMusicDataSource(remote);
+    return (await ds.getArtistSongs?.(artistId, { limit: 1000 }))?.items ?? [];
   }
 }

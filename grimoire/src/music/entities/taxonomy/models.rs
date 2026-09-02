@@ -57,6 +57,16 @@ pub struct TaxonKind {
     /// (`find_or_create_taxon_kind`, `create_taxon_kind`) set 0 since
     /// no album_taxonz rows exist yet.
     pub album_count: i64,
+    /// distinct video-domain entity count (videos/series/seasons, via
+    /// `entity_taxonz`) having at least one taxon of this kind. same
+    /// population/fresh-create rules as `album_count`. lets clients
+    /// (e.g. the graph viz hub icons) show which domains have content
+    /// under a taxon kind without a second round trip.
+    pub video_count: i64,
+    /// owning entity domain: `"music"` | `"video"` | `"universal"`.
+    /// `list_taxon_kinds`'s optional `domain` filter includes a kind when
+    /// its domain matches the request OR is `"universal"`.
+    pub domain: String,
 }
 
 /// a categorical taxon node (e.g. `(kind=genre, label="rock")`).
@@ -94,6 +104,11 @@ pub struct TaxonWithStats {
     pub album_count: i64,
     pub song_count: i64,
     pub total_duration: i64,
+    /// distinct video-domain entity count (videos/series/seasons, via
+    /// `entity_taxonz`) tagged with this taxon value. albums use the
+    /// legacy `album_taxonz` table (see album_count above) so this is
+    /// tracked separately rather than merged into album_count.
+    pub video_count: i64,
 }
 
 /// taxon + immediate parent / child ids, for tree rendering.
@@ -143,6 +158,17 @@ pub struct CreateTaxonKindRequest {
     pub value_type: Option<String>,
     pub unit: Option<String>,
     pub display_order: Option<i64>,
+    /// `"music"` | `"video"` | `"universal"`. defaults to `"universal"`
+    /// when omitted.
+    pub domain: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct ListTaxonKindsRequest {
+    /// when set, only kinds whose `domain` matches this value (or is
+    /// `"universal"`) are returned. omit to get every kind (back-compat
+    /// for the album editor, which predates domain scoping).
+    pub domain: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]

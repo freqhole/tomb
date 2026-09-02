@@ -77,6 +77,18 @@ pub enum GrimoireError {
     #[error("genre not found: {id}")]
     GenreNotFound { id: String },
 
+    #[error("video not found: {id}")]
+    VideoNotFound { id: String },
+
+    #[error("video series not found: {id}")]
+    VideoSeriesNotFound { id: String },
+
+    #[error("video season not found: {id}")]
+    VideoSeasonNotFound { id: String },
+
+    #[error("invalid entity type: {entity_type}")]
+    InvalidEntityType { entity_type: String },
+
     #[error("tag not found: {id}")]
     TagNotFound { id: String },
 
@@ -94,6 +106,12 @@ pub enum GrimoireError {
 
     #[error("thumbnail generation failed: {reason}")]
     ThumbnailGeneration { reason: String },
+
+    #[error("ffmpeg failed: {reason}")]
+    FfmpegFailed { reason: String },
+
+    #[error("could not process image: {reason}")]
+    ImageDecodeFailed { reason: String },
 
     #[error("validation error: {field} - {message}")]
     Validation { field: String, message: String },
@@ -144,11 +162,42 @@ pub enum GrimoireError {
     #[error("federation token refresh failed: {message}")]
     FederationTokenRefreshFailed { message: String },
 
+    /// transient p2p failure (connection/timeout related) - safe to retry.
     #[error("federation api error: {message}")]
     FederationApiError { message: String },
 
+    /// peer explicitly refused the request (not an auth issue, not a timeout) -
+    /// e.g. the peer's own service-side check said no. permanent, not retryable.
+    #[error("peer {peer_id} rejected request: {reason}")]
+    PeerRejected { peer_id: String, reason: String },
+
+    /// the peer responded, but not in a shape our protocol expects (response id
+    /// mismatch, unexpected response variant, ALPN/handshake incompatibility).
+    /// permanent, not retryable - a different peer version won't fix itself by
+    /// retrying the same request.
+    #[error("peer protocol mismatch: {reason}")]
+    PeerProtocolMismatch { reason: String },
+
     #[error("peer {peer} unauthorized to access blob {blake3}")]
     PeerUnauthorized { peer: String, blake3: String },
+
+    /// peer confirmed (structurally, not just via a generic error string) that
+    /// it does not have this blob at all - e.g. iroh-blobs reported an eof
+    /// reading the blob header, or a not-found chunk/parent. permanent, don't
+    /// retry against this peer for this blob. `blake3` is usually the blake3
+    /// hash that was requested, but a couple of call sites (on-demand
+    /// blake3 computation, which fails before a blake3 hash exists) reuse this
+    /// variant with the blob's sha256 `blob_id` instead - both are "the
+    /// identifier we asked the peer about", just from different id spaces.
+    #[error("peer {peer} does not have blob {blake3}")]
+    BlobNotFoundOnPeer { peer: String, blake3: String },
+
+    /// a peer sent data that didn't match the requested blake3 hash (bao-tree
+    /// leaf/parent hash mismatch). either a bug on the peer's end or a
+    /// malicious peer - permanent, and worth flagging loudly since it's a
+    /// stronger signal than an ordinary transfer failure.
+    #[error("blob verification failed for {blake3}: {reason}")]
+    BlobVerificationFailed { blake3: String, reason: String },
 
     #[error("federation not configured")]
     FederationNotConfigured,
@@ -177,6 +226,9 @@ pub enum GrimoireError {
 
     #[error("route not found: {path}")]
     RouteNotFound { path: String },
+
+    #[error("blob {blob_id} is not a rendition (type: {blob_type})")]
+    NotARendition { blob_id: String, blob_type: String },
 }
 
 /// result type alias for grimoire operations
@@ -215,6 +267,10 @@ impl GrimoireError {
             GrimoireError::SongNotInPlaylist { .. } => false,
             GrimoireError::GenreNotFound { .. } => false,
             GrimoireError::TagNotFound { .. } => false,
+            GrimoireError::VideoNotFound { .. } => false,
+            GrimoireError::VideoSeriesNotFound { .. } => false,
+            GrimoireError::VideoSeasonNotFound { .. } => false,
+            GrimoireError::InvalidEntityType { .. } => false,
             GrimoireError::DatabaseNotFound(_) => false,
             GrimoireError::Validation { .. } => false,
             GrimoireError::InvalidSha256 { .. } => false,
@@ -229,6 +285,8 @@ impl GrimoireError {
             GrimoireError::SetupFailed { .. } => false,
             GrimoireError::MusicBrainzConfig(_) => false,
             GrimoireError::MusicBrainzNoResults => false,
+            GrimoireError::FfmpegFailed { .. } => false,
+            GrimoireError::ImageDecodeFailed { .. } => false,
             // transient errors - might succeed on retry
             GrimoireError::Database(_) => true,
             GrimoireError::Io(_) => true,
@@ -242,7 +300,11 @@ impl GrimoireError {
             GrimoireError::FederationAuthFailed { .. } => false, // bad credentials
             GrimoireError::FederationTokenRefreshFailed { .. } => true, // token may have expired
             GrimoireError::FederationApiError { .. } => true,    // network issues
+            GrimoireError::PeerRejected { .. } => false,         // peer said no - permanent
+            GrimoireError::PeerProtocolMismatch { .. } => false, // incompatible peer - permanent
             GrimoireError::PeerUnauthorized { .. } => false,     // needs knock, not retry
+            GrimoireError::BlobNotFoundOnPeer { .. } => false,   // peer confirmed it has nothing
+            GrimoireError::BlobVerificationFailed { .. } => false, // corrupt/malicious, retrying won't fix it
             GrimoireError::FederationNotConfigured => false,
             GrimoireError::FederationCredentialsNotFound => false,
             GrimoireError::FederationCredentialsInvalid { .. } => false,
@@ -254,6 +316,7 @@ impl GrimoireError {
             GrimoireError::Forbidden { .. } => false,
             GrimoireError::BadRequest { .. } => false,
             GrimoireError::RouteNotFound { .. } => false,
+            GrimoireError::NotARendition { .. } => false,
         }
     }
 
@@ -267,6 +330,10 @@ impl GrimoireError {
             GrimoireError::Validation { .. } => 400,
             GrimoireError::InvalidFormat { .. } => 400,
             GrimoireError::Serialization(_) => 400,
+            GrimoireError::InvalidEntityType { .. } => 400,
+            GrimoireError::NotARendition { .. } => 400,
+            GrimoireError::FfmpegFailed { .. } => 422,
+            GrimoireError::ImageDecodeFailed { .. } => 422,
             // not found errors
             GrimoireError::SongNotFound { .. }
             | GrimoireError::AlbumNotFound { .. }
@@ -276,9 +343,16 @@ impl GrimoireError {
             | GrimoireError::TagNotFound { .. }
             | GrimoireError::MediaBlobNotFound { .. }
             | GrimoireError::KnockNotFound { .. }
+            | GrimoireError::VideoNotFound { .. }
+            | GrimoireError::VideoSeriesNotFound { .. }
+            | GrimoireError::VideoSeasonNotFound { .. }
             | GrimoireError::FileNotFound { .. } => 404,
             // peer auth — client can react by showing knock message
             GrimoireError::PeerUnauthorized { .. } => 403,
+            GrimoireError::PeerRejected { .. } => 409,
+            GrimoireError::PeerProtocolMismatch { .. } => 400,
+            GrimoireError::BlobNotFoundOnPeer { .. } => 404,
+            GrimoireError::BlobVerificationFailed { .. } => 422,
             // everything else is internal error
             _ => 500,
         }

@@ -171,10 +171,24 @@ pub async fn build_atlas_response(req: BuildAtlasRequest) -> GrimoireResult<Atla
     let mut cell_index: u32 = 0;
     for parent_id in &req.ids {
         let Some(thumb_id) = parent_to_thumb.get(parent_id) else {
+            // no thumbnail row at all for this size (never generated, or
+            // parent has no thumbnails yet) - genuinely missing, not a read error.
+            tracing::debug!(
+                "atlas: no thumbnail at size {} for blob {}",
+                size,
+                parent_id
+            );
             missing.push(parent_id.clone());
             continue;
         };
         let Ok((thumb_blob, thumb_bytes)) = get_media_blob_with_data(thumb_id).await else {
+            // thumbnail blob row itself couldn't be loaded (deleted, db error) -
+            // distinct from "file missing on disk" below.
+            tracing::warn!(
+                "atlas: failed to load thumbnail blob {} for parent {}",
+                thumb_id,
+                parent_id
+            );
             missing.push(parent_id.clone());
             continue;
         };
@@ -182,10 +196,29 @@ pub async fn build_atlas_response(req: BuildAtlasRequest) -> GrimoireResult<Atla
             Some(bytes) => bytes,
             None => {
                 let Some(local_path) = thumb_blob.local_path.as_deref() else {
+                    // blob row exists but has neither inline data nor a local_path -
+                    // genuinely missing content, not a read failure.
+                    tracing::warn!(
+                        "atlas: thumbnail blob {} (parent {}) has no data and no local_path",
+                        thumb_id,
+                        parent_id
+                    );
                     missing.push(parent_id.clone());
                     continue;
                 };
                 let Ok(bytes) = tokio::fs::read(local_path).await else {
+                    // file missing/unreadable at the recorded path (permission
+                    // denied, disk error, or deleted out from under us) - a real
+                    // read failure, not "never had a thumbnail". today this still
+                    // lands in the same flat `missing` list since it's a plain
+                    // Vec<String> with no room for a per-item reason without a
+                    // wire-format change; logged here so it's diagnosable.
+                    tracing::warn!(
+                        "atlas: failed to read thumbnail file for blob {} (parent {}) at {}",
+                        thumb_id,
+                        parent_id,
+                        local_path
+                    );
                     missing.push(parent_id.clone());
                     continue;
                 };
@@ -194,7 +227,13 @@ pub async fn build_atlas_response(req: BuildAtlasRequest) -> GrimoireResult<Atla
         };
         let img = match image::load_from_memory(&bytes) {
             Ok(i) => i,
-            Err(_) => {
+            Err(e) => {
+                tracing::warn!(
+                    "atlas: failed to decode thumbnail for blob {} (parent {}): {}",
+                    thumb_id,
+                    parent_id,
+                    e
+                );
                 missing.push(parent_id.clone());
                 continue;
             }

@@ -5,6 +5,9 @@ import { getRemoteById } from "../../../app/services/remotes/remoteManager";
 import { initMusicDB } from "../storage/db";
 import { upsertLocalPlaylistWithSongs } from "../storage/playlists";
 import { downloadAndStoreImages, syncSongToLocal, canSyncSong } from "./syncSongToLocal";
+import { invalidateMusicLibraryQueries } from "../../queries/cacheUpdates";
+import { queryClient } from "../../../queryClient";
+import { queryKeys } from "../../queries/queryKeys";
 import type { QueueSourceContext } from "../../../app/services/storage/types";
 import type { Song, ImageMetadata } from "../storage/types";
 import { debug, error as errorLog } from "../../../utils/logger";
@@ -23,7 +26,7 @@ import { debug, error as errorLog } from "../../../utils/logger";
 async function syncPlaylistViaLocalGrimoire(
   songs: Song[],
   source: QueueSourceContext,
-  remote: { remote_id: string; name: string },
+  remote: { remote_id: string; name: string }
 ): Promise<void> {
   try {
     // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
@@ -36,10 +39,7 @@ async function syncPlaylistViaLocalGrimoire(
       .map((s) => ({ ...s, skip_feed_events: true }));
 
     if (songsToSync.length > 0) {
-      debug(
-        "syncPlaylistViaLocalGrimoire",
-        `syncing ${songsToSync.length} songs before playlist`,
-      );
+      debug("syncPlaylistViaLocalGrimoire", `syncing ${songsToSync.length} songs before playlist`);
       // batch of 5 to avoid overwhelming the iroh transport.
       const batchSize = 5;
       for (let i = 0; i < songsToSync.length; i += batchSize) {
@@ -50,15 +50,10 @@ async function syncPlaylistViaLocalGrimoire(
 
     // collect blake3s for the playlist body. songs without blake3 cannot be
     // referenced; the dest will report any missing ones in the response.
-    const songBlake3s = songs
-      .map((s) => s.blake3)
-      .filter((b): b is string => !!b);
+    const songBlake3s = songs.map((s) => s.blake3).filter((b): b is string => !!b);
 
     if (songBlake3s.length === 0) {
-      debug(
-        "syncPlaylistViaLocalGrimoire",
-        "no songs with blake3 to include in playlist",
-      );
+      debug("syncPlaylistViaLocalGrimoire", "no songs with blake3 to include in playlist");
       return;
     }
 
@@ -93,11 +88,7 @@ async function syncPlaylistViaLocalGrimoire(
     };
 
     if (!response.success) {
-      errorLog(
-        "syncPlaylistViaLocalGrimoire",
-        "failed to sync playlist:",
-        response.message,
-      );
+      errorLog("syncPlaylistViaLocalGrimoire", "failed to sync playlist:", response.message);
       return;
     }
 
@@ -106,8 +97,10 @@ async function syncPlaylistViaLocalGrimoire(
       "syncPlaylistViaLocalGrimoire",
       `synced playlist "${source.label}" — ${data?.songs_added ?? 0} added, ` +
         `${data?.song_stubs_created ?? 0} stubs created, ` +
-        `${data?.missing_song_blake3s.length ?? 0} missing`,
+        `${data?.missing_song_blake3s.length ?? 0} missing`
     );
+    invalidateMusicLibraryQueries();
+    void queryClient.invalidateQueries({ queryKey: queryKeys.playlists.all() });
   } catch (err) {
     errorLog("syncPlaylistViaLocalGrimoire", "error syncing playlist:", err);
   }
@@ -116,7 +109,7 @@ async function syncPlaylistViaLocalGrimoire(
 /**
  * sync a playlist to local storage when adding to queue.
  * called from playQueue/addToQueue when source.type === "playlist".
- * 
+ *
  * conditions:
  * - sync_queue_to_local setting is enabled
  * - source has entity_id (playlist_id)
@@ -125,7 +118,7 @@ async function syncPlaylistViaLocalGrimoire(
  */
 export async function syncPlaylistToLocalFromQueue(
   songs: Song[],
-  source: QueueSourceContext,
+  source: QueueSourceContext
 ): Promise<void> {
   // skip if sync not enabled
   if (!getSyncQueueToLocal()) {
@@ -203,10 +196,11 @@ export async function syncPlaylistToLocalFromQueue(
         title: source.label,
         images: localImages.length > 0 ? localImages : undefined,
       },
-      songs,
+      songs
     );
 
     debug("syncPlaylistToLocal", `synced playlist "${source.label}" with ${songs.length} songs`);
+    void queryClient.invalidateQueries({ queryKey: queryKeys.playlists.all() });
   } catch (err) {
     errorLog("syncPlaylistToLocal", "failed to sync playlist:", err);
   }

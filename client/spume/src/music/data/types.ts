@@ -2,9 +2,16 @@
 // supports local (indexeddb/opfs) and remote (server) sources
 
 import type { Song, ImageMetadata } from "../services/storage/types";
+import type { VideoSummary, VideoSeries } from "../../video/data/types";
 
 // re-export for convenience
 export type { Song, ImageMetadata };
+
+/** thrown when an add-to-playlist mutation fails because the item is
+ * already in the playlist - a soft/expected condition callers should
+ * surface as a warning, not a hard error (shared by both the song and
+ * video add-to-playlist paths - see PlaylistSelectorModal.tsx). */
+export class PlaylistItemDuplicateError extends Error {}
 
 // query parameters for listing/filtering
 export interface QueryParams {
@@ -122,6 +129,8 @@ export interface PlaylistSummary {
   images?: ImageMetadata[];
   urls?: EntityUrl[];
   song_count: number;
+  /** undefined when the source doesn't report it (older remotes). */
+  video_count?: number;
   created_at: number;
   updated_at: number;
   is_favorite?: boolean;
@@ -129,14 +138,22 @@ export interface PlaylistSummary {
 }
 
 // favorite target type for mutations
-export type FavoriteTarget = "song" | "album" | "artist" | "playlist";
+export type FavoriteTarget =
+  | "song"
+  | "album"
+  | "artist"
+  | "playlist"
+  | "video"
+  | "video_series";
 
 // favorite item - discriminated union of all favoritable types
 export type FavoriteItem =
   | { type: "song"; favorited_at: number; data: Song }
   | { type: "album"; favorited_at: number; data: AlbumSummary }
   | { type: "artist"; favorited_at: number; data: ArtistSummary }
-  | { type: "playlist"; favorited_at: number; data: PlaylistSummary };
+  | { type: "playlist"; favorited_at: number; data: PlaylistSummary }
+  | { type: "video"; favorited_at: number; data: VideoSummary }
+  | { type: "video_series"; favorited_at: number; data: VideoSeries };
 
 // request params for listing favorites
 export interface ListFavoritesParams {
@@ -155,7 +172,9 @@ export type SuggestionType =
   | "song"
   | "taxon"
   | "genre"
-  | "playlist";
+  | "playlist"
+  | "video"
+  | "video_series";
 
 export interface SearchSuggestion {
   value: string;
@@ -256,6 +275,8 @@ export interface SearchResponse {
   albums?: SearchAlbumResult[] | null;
   genres?: SearchGenreResult[] | null;
   playlists?: SearchPlaylistResult[] | null;
+  videos?: VideoSearchResult[] | null;
+  video_series?: VideoSeriesSearchResult[] | null;
   total_count: number;
   page: number;
   page_size: number;
@@ -267,13 +288,41 @@ export interface SearchResponse {
   sort_applied?: string | null;
 }
 
+export interface VideoSearchResult {
+  id: string;
+  title: string;
+  series_id?: string | null;
+  series_name?: string | null;
+  episode_number?: number | null;
+  duration_seconds?: number | null;
+  thumbnail_url?: string | null;
+  user_rating?: number | null;
+  is_favorite: boolean;
+  search_rank: number;
+  match_type: string;
+  highlight?: string | null;
+}
+
+export interface VideoSeriesSearchResult {
+  id: string;
+  title: string;
+  description?: string | null;
+  video_count: number;
+  thumbnail_url?: string | null;
+  search_rank: number;
+  match_type: string;
+  highlight?: string | null;
+}
+
 export type SearchField =
   | "all"
   | "artists"
   | "albums"
   | "songs"
   | "genres"
-  | "playlists";
+  | "playlists"
+  | "videos"
+  | "video_series";
 
 // main data source interface
 // both local and remote sources implement this
@@ -329,15 +378,18 @@ export interface MusicDataSource {
   bulkClearSongArtwork?(songIds: string[]): Promise<{ cleared_count: number; failed_ids: string[] }>;
   deleteAlbum?(albumId: string): Promise<void>;
   deleteArtist?(artistId: string): Promise<void>;
-  addSongsToPlaylist?(playlistId: string, songIds: string[]): Promise<void>;
-  removeSongsFromPlaylist?(
-    playlistId: string,
-    songIds: string[],
-  ): Promise<void>;
   reorderPlaylistSongs?(
     playlistId: string,
     songIds: string[],
     newPosition: number,
+  ): Promise<void>;
+  // unified cross-type reorder - `orderedItems` must contain every item
+  // currently in the playlist (song AND video), in the desired new order
+  // (see grimoire's ReorderPlaylistItemsRequest doc comment for why a
+  // full ordered list, rather than a move-to-position delta, is required)
+  reorderPlaylistItems?(
+    playlistId: string,
+    orderedItems: Array<{ entity_type: "song" | "video"; entity_id: string }>,
   ): Promise<void>;
 
   // search (optional - remote only initially)
@@ -368,7 +420,7 @@ export interface MusicDataSource {
   }): Promise<void>;
 
   setRating?(params: {
-    targetType: "song" | "album" | "artist";
+    targetType: "song" | "album" | "artist" | "video";
     targetId: string;
     rating: number; // 0-5, where 0 means remove rating
   }): Promise<void>;
@@ -461,9 +513,9 @@ export interface MusicDataSource {
   canDeleteAlbum?(): boolean;
   canDeleteArtist?(): boolean;
 
-  // listen session operations (remote only — returns undefined for local)
-  getListenSession?(sessionId: string): Promise<ListenSession | null>;
-  deleteListenSession?(sessionId: string): Promise<void>;
+  // playback session operations (remote only — returns undefined for local)
+  getPlaybackSession?(sessionId: string): Promise<PlaybackSession | null>;
+  deletePlaybackSession?(sessionId: string): Promise<void>;
 
   // feed event deletion (admin can delete any feed event)
   deleteFeedEvent?(feedEventId: string): Promise<void>;
@@ -492,6 +544,7 @@ export type FeedItemType =
   | "recent_album"
   | "recent_rating"
   | "recent_playlist"
+  | "recent_video"
   | "listen_session"
   | "new_image";
 
@@ -503,6 +556,7 @@ export interface FeedItem {
   album_id: string | null;
   artist_id: string | null;
   playlist_id: string | null;
+  video_id: string | null;
   // generic entity id for session types with no dedicated FK column
   // above (genre, shuffle, radio) — see listen_sessionz.entity_id.
   entity_id: string | null;
@@ -550,22 +604,22 @@ export interface FeedResponse {
   total: number;
 }
 
-// listen session data from server
-export interface ListenSession {
+// playback session data from server
+export interface PlaybackSession {
   id: string;
   user_id: string;
   session_type: string;
   entity_id: string | null;
   label: string;
   status: string;
-  song_ids: string[];
-  total_songs: number;
-  songs_completed: number;
-  current_song_index: number;
-  current_song_position_ms: number | null;
+  items: { entity_type: string; entity_id: string }[];
+  total_items: number;
+  items_completed: number;
+  current_item_index: number;
+  current_item_position_ms: number | null;
   progress_percent: number | null;
   total_duration_ms: number;
-  listened_duration_ms: number;
+  played_duration_ms: number;
   created_at: number;
   updated_at: number;
 }

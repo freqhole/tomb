@@ -4,7 +4,9 @@ import { useQueryClient } from "@tanstack/solid-query";
 import {
   createEffect,
   createMemo,
+  createResource,
   createSignal,
+  on,
   onCleanup,
   onMount,
   Show,
@@ -22,8 +24,12 @@ import {
   getConnectionProgress,
   cancelConnection,
   connectToRemote,
-  recheckRemote,
 } from "./services/remotes/connectionProgress";
+import { createRemoteSwitchingHandlers } from "./services/remotes/remoteSwitching";
+import { selectLocalPlaybackTarget } from "./services/players/selectPlaybackTarget";
+import { openPlayerImageCarousel } from "./services/playerImageCarousel";
+import { createDebouncedBoolean } from "../utils/createDebouncedBoolean";
+import { isTouchDevice } from "../utils/isMobile";
 import { TopNav } from "../components/navigation/TopNav";
 import {
   topNavRightContent,
@@ -33,21 +39,51 @@ import {
   topNavSearchExpanded,
 } from "./shell/topNavSlots";
 import type { ViewOption } from "../components/navigation/ViewSelector";
-import { PlayerBar } from "../components/player/PlayerBar";
+import { PlayerBar, type PlayerBarVideo } from "../components/player/PlayerBar";
+import {
+  VideoMiniPlayer,
+  videoMiniPlayerExpanded,
+  collapseVideoMiniPlayer,
+} from "../components/player/VideoMiniPlayer";
 import { QueueSidebar } from "../components/player/QueueSidebar";
-import { getCurrentRemote, getCurrentUser, getDataSource, useLocalSource } from "../music/data";
+
+import { isRemoteTargetActive } from "./services/players/activeTarget";
+import {
+  remotePause,
+  remoteResume,
+  remoteSkip,
+  remoteSetVolume,
+  remoteIsPlaying,
+  remotePositionMs,
+  remoteDurationMs,
+  remoteVolume,
+  remoteSeek,
+  remoteQueue,
+  remoteOptimisticCurrentIndex,
+  remoteCommandPending,
+  remoteStatusKnown,
+  remoteCurrentItem,
+  remoteTargetOffline,
+  setRemoteStatusPolling,
+} from "./services/players/remotePlaybackControl";
+import { getCurrentRemote, getCurrentUser, getDataSource } from "../music/data";
+import { syncArtistImagesForRemotePlay } from "../music/services/sync/syncArtistImagesOnPlay";
 import { useRouteDataSource } from "../music/hooks/useRouteDataSource";
 import { useToggleFavoriteMutation } from "../music/queries/favorites";
+import { useVideoFavoriteStatuses } from "../video/hooks/useVideoFavoriteStatuses";
 import { useRecentPlaylistsQuery } from "../music/queries/playlists";
 import {
   currentTime,
   duration,
+  getVideoElement,
+  isVideoWindowActive,
   isLoading,
   isPlaying,
+  pause,
   pendingUpNextSha256,
+  playMediaItem,
   playNext,
   playPrevious,
-  playSong,
   seek,
   setPlayerVolume,
   togglePlayback,
@@ -57,15 +93,14 @@ import {
   clearExternalMediaSession,
   setExternalMediaSession,
 } from "../music/services/audio/mediaSessionBridge";
-import { getLoadingSongIds, isSongSyncedLocally } from "../music/services/download";
 import {
-  getLoadingP2PSongIds,
-  preCacheRemoteTransport,
-  resolveBlobUrl,
-  usesBlobResolver,
-  withThumbSuffix,
-} from "../music/services/storage/blobResolver";
-import { resolveLocalBlobUrl } from "../music/utils/images";
+  getVisibleLoadingIds,
+  isSongSyncedLocally,
+  getLoadingProgress,
+  getLoadingIds,
+} from "../music/services/download";
+import { getLoadingP2PSongIds } from "../music/services/storage/blobResolver";
+import { getSongByBlake3 } from "../music/services/storage/db/songs";
 import { getClientForRemote } from "./api/client";
 import { adminLocalRawDispatch, adminRawDispatch } from "./api/adminClient";
 import { deleteSongFromLocal } from "../music/services/sync";
@@ -85,21 +120,26 @@ import {
   reorderQueue,
 } from "../music/services/queue/queue";
 import { useSongContextMenu } from "../music/hooks/contextMenu";
+import { useVideoContextMenu } from "../video/hooks/contextMenu";
 import {
   getAllRemotes,
   getRemoteById,
   onRemoteStatusChange,
   onSwitchToLocal,
-  deleteRemote,
-  updateRemote,
 } from "./services/remotes/remoteManager";
 import { seedOnlineMap, wakeAllRemotes } from "./services/remotes/remoteHealth";
+import { wakeAllPlayers } from "./services/players/playerPresenceStore";
 import type { ImageMetadata, Song } from "../music/services/storage/types";
+import {
+  mediaItemKey,
+  songsOnly,
+  findMediaItemIndex,
+  type QueuedVideo,
+} from "./services/storage/mediaItem";
 import {
   type Remote,
   type QueueHistoryEntry,
   type RadioStationRef,
-  STORE_QUEUE_HISTORY,
   isHttpRemote,
   isP2PRemote,
 } from "./services/storage/types";
@@ -108,24 +148,16 @@ import { IconNames, type IconName } from "../components/icons/registry";
 import { routes, matchRoute, getDefaultRoute, hasFeedView } from "../music/utils/routing";
 import { confirmState, closeConfirm, resolveConfirm, confirm } from "./services/confirmState";
 import { playlistSelectorState, closePlaylistSelector } from "../music/hooks/playlistSelectorState";
-import {
-  openAddMusic,
-  showShareModal,
-  formatImageCarouselTitle,
-  beginImageCarouselLoading,
-  endImageCarouselLoading,
-  openImageCarouselFromResolvers,
-  type ImageResolveResult,
-} from "../music/hooks/modals";
+import { showShareModal, useIsAnyModalOpen } from "../music/hooks/modals";
+import { openAddMedia } from "./hooks/mediaModal";
 import {
   appState,
   setQueueOpen,
   getLocalLibraryName,
   setLocalLibraryName,
-  initAppDB,
 } from "./services/storage/db";
-import { clearBlobCache } from "../music/services/cache/blobCache";
 import { getPageInfo } from "./services/pageInfo";
+import { setAppDocumentTitle } from "./services/documentTitle";
 import {
   queueHistory,
   loadQueueHistory,
@@ -137,13 +169,13 @@ import { addToQueue, resumeHistoryEntry } from "../music/services/queue/queue";
 import { loadProgressFromStorage, progressMap } from "../music/services/queue/queueProgress";
 import { startAnalyticsSync, stopAnalyticsSync } from "../music/services/analytics/analyticsQueue";
 import { reconnectProgressTracking } from "../music/services/queue/listenProgress";
+import { loadVideoQueueHistory } from "../video/services/queue/videoQueueHistory";
+import { reconnectVideoProgressTracking } from "../video/services/queue/videoListenProgress";
 import {
   isCharnelMode,
   listMountedExternalStorageDevices,
   onExternalStorageMountedChanged,
   onExternalStorageSyncProgress,
-  setWindowTitle,
-  updateServerInfo,
 } from "./services/charnel";
 import {
   externalStorageSyncingSignal,
@@ -154,7 +186,10 @@ import {
   getAuthInfo,
   refreshOne as refreshRemoteAuthStatus,
 } from "./services/remotes/authStatusStore";
-import { checkAndShowConfigUpgradeToast } from "./services/toastNotices";
+import {
+  checkAndShowConfigUpgradeToast,
+  checkAndShowStorageHealthToast,
+} from "./services/toastNotices";
 import { debug } from "../utils/logger";
 import { isNarrowViewport } from "../config/breakpoints";
 import { getBackgroundConfig } from "./services/backgroundImage";
@@ -193,7 +228,80 @@ export function AppLayout(props: AppLayoutProps) {
   const location = useLocation();
   const queryClient = useQueryClient();
   const [currentSongData, setCurrentSongData] = createSignal<Song | null>(null);
+  const [currentVideoData, setCurrentVideoData] = createSignal<QueuedVideo | null>(null);
   const toggleFavoriteMutation = useToggleFavoriteMutation();
+
+  // mini video player's "closed" state - the x button pauses + hides the
+  // panel without touching the queue (see VideoMiniPlayer's onClose).
+  // starts dismissed so a video restored from persisted state on app
+  // boot (paused, not yet actually playing) never auto-shows the panel
+  // - only a real switch to a different video *during* the session, or
+  // actual playback starting, un-dismisses it (see the two effects below).
+  const [videoMiniPlayerDismissed, setVideoMiniPlayerDismissed] = createSignal(true);
+  // only fires for an actual video-to-video switch (prevId defined and
+  // different) - going from no-id to an id (boot restore, or a user
+  // picking their first video of the session) is intentionally ignored
+  // here; the latter case still un-dismisses via the isPlaying effect
+  // below once real playback starts. this can't use `on`'s `{ defer }`
+  // option instead: currentVideoData is populated by a separate, later
+  // effect (watching appState()), so by the time it lands this effect
+  // is already on its second run (first run saw `undefined`, before
+  // that other effect ran) - defer only special-cases the very first run.
+  createEffect(
+    on(
+      () => currentVideoData()?.id,
+      (id, prevId) => {
+        if (prevId !== undefined && id !== prevId) setVideoMiniPlayerDismissed(false);
+      }
+    )
+  );
+  // scoped to `isPlaying` alone (via `on`) so this only reacts to real
+  // play/pause transitions, not to `videoMiniPlayerDismissed` itself
+  // changing - otherwise dismissing while the pause command is still
+  // in flight (isPlaying briefly stale-true) would immediately re-open
+  // the panel, requiring a second click to actually close it.
+  createEffect(
+    on(isPlaying, (playing) => {
+      if (playing && videoMiniPlayerDismissed()) setVideoMiniPlayerDismissed(false);
+    })
+  );
+
+  // the mini player floats above everything, including modals - hide it
+  // (pausing playback first) whenever any modal opens so it doesn't sit
+  // on top of the modal. only applies when a video is actually loaded
+  // (the mini player is video-only - songs have no floating panel to
+  // hide, so opening a modal shouldn't pause music playback).
+  const isAnyModalOpenReactive = useIsAnyModalOpen();
+  createEffect(() => {
+    if (currentVideoData() && isAnyModalOpenReactive() && !videoMiniPlayerDismissed()) {
+      if (isPlaying()) pause();
+      setVideoMiniPlayerDismissed(true);
+    }
+  });
+
+  // favorite status for the currently-playing video (video summary rows
+  // don't carry is_favorite, so it's hydrated separately, same as
+  // VideoDetailView/VideoCard do).
+  const currentVideoIds = createMemo(() => {
+    const id = currentVideoData()?.id;
+    return id ? [id] : [];
+  });
+  const currentVideoFavoriteQuery = useVideoFavoriteStatuses(currentVideoIds);
+  const isCurrentVideoFavorite = createMemo(() => {
+    const id = currentVideoData()?.id;
+    return id ? (currentVideoFavoriteQuery.data?.has(id) ?? false) : false;
+  });
+
+  // favorite status for videos currently in the queue - hoisted to setup
+  // level (not built inline inside QueueSidebar's JSX) so `<QueueSidebar>`
+  // itself is only constructed once; wrapping it in a reactive IIFE that
+  // reads appState()/currentTime()/etc. would re-invoke the component on
+  // every progress tick, remounting it and resetting its local state
+  // (e.g. the queue/history tab selection).
+  const queueVideoIds = createMemo(() =>
+    (appState()?.queue ?? []).filter((i) => i.kind === "video").map((i) => i.video.id)
+  );
+  const queueVideoFavoriteQuery = useVideoFavoriteStatuses(queueVideoIds);
 
   // background image config (reactive)
   const bgConfig = () => getBackgroundConfig();
@@ -204,21 +312,75 @@ export function AppLayout(props: AppLayoutProps) {
   const [storageQuota, setStorageQuota] = createSignal<number>(0);
   const [externalStorageMounted, setExternalStorageMounted] = createSignal(false);
 
+  // phase 6: unified playback target (paired freqhole-player devices) -
+  // the "play on" picker itself now lives in QueueSidebar's bottom row.
+  createEffect(() => setRemoteStatusPolling(isRemoteTargetActive()));
+  onCleanup(() => setRemoteStatusPolling(false));
+
+  // "optimistic remote-target playerbar sync" follow-up: surface the
+  // client-side offline timeout (remoteTargetOffline(), see
+  // remotePlaybackControl.ts) as a one-shot toast on the rising edge only
+  // - not a persistent banner, so it doesn't need its own dismiss/retry ui
+  // yet, and doesn't repeat on every tick while still offline. also falls
+  // back to local playback automatically (docs/player-peer-trust-bridge-plan.md
+  // step 6) rather than leaving the user stuck on a dead remote target.
+  createEffect(
+    on(remoteTargetOffline, (offline, prevOffline) => {
+      if (offline && !prevOffline) {
+        toast.error("lost connection to the player - controls may not respond", {
+          title: "remote-player-connection-error",
+        });
+        void selectLocalPlaybackTarget();
+      }
+    })
+  );
+
   // responsive: track narrow viewport
   const [isNarrow, setIsNarrow] = createSignal(isNarrowViewport());
 
-  // reactive memo for loading song ids (combines HTTP + P2P + current song loading)
-  const loadingSongIds = createMemo(() => {
-    const loadingSet = new Set(getLoadingSongIds());
+  // reactive memo for currently-loading media ids (combines HTTP + P2P
+  // song fetches, the current song, and now also video pre-caching).
+  // uses the debounced/visible loading set so a load that finishes
+  // within ~1s never flashes the queue row's loading indicator at all.
+  const debouncedCurrentIsLoading = createDebouncedBoolean(isLoading);
+  const loadingIds = createMemo(() => {
+    const loadingSet = new Set(getVisibleLoadingIds());
     for (const sha256 of getLoadingP2PSongIds()) {
       loadingSet.add(sha256);
     }
     // add current song if audio is loading (includes P2P fetch wait)
     const currentSha256 = appState()?.current_sha256;
-    if (isLoading() && currentSha256) {
+    if (debouncedCurrentIsLoading() && currentSha256) {
       loadingSet.add(currentSha256);
     }
     return loadingSet;
+  });
+
+  // download/transfer progress (0..1) of whichever item is currently
+  // loading — the active video takes priority (no video is ever also the
+  // current song). gated on the download module's own tracked-ids set
+  // (getLoadingIds, NOT the playback-level `isLoading` signal above —
+  // that one only flips true once decoding starts, well *after* the blob
+  // fetch this progress reflects has already finished for some backends,
+  // e.g. htmlAudio.ts's synthetic "loading" state is emitted post-fetch).
+  // prefers `pendingUpNextSha256` (despite the name, holds a `mediaItemKey`
+  // — song sha256 OR video id — for whichever item is actively being
+  // fetched, set before appState().current_sha256 flips over — see
+  // htmlAudio.ts and videoBackend.ts) so progress shows for the *incoming*
+  // item, not a stale current one. drives the playerbar's play/pause ring
+  // as a determinate fill instead of a plain indeterminate spin.
+  const mediaTransferProgress = createMemo<number | null>(() => {
+    const videoId = currentVideoData()?.id;
+    if (videoId && getLoadingIds().has(videoId)) {
+      const p = getLoadingProgress(videoId);
+      return typeof p === "number" ? p : null;
+    }
+    const sha256 = pendingUpNextSha256() ?? appState()?.current_sha256;
+    if (sha256 && getLoadingIds().has(sha256)) {
+      const p = getLoadingProgress(sha256);
+      return typeof p === "number" ? p : null;
+    }
+    return null;
   });
 
   // connection progress state (shared module)
@@ -328,23 +490,19 @@ export function AppLayout(props: AppLayoutProps) {
     });
   };
 
-  // update window/document title (freqhole ▸ remote ▸ route)
+  // update window/document title (freqhole ▸ remote ▸ page). prefers the
+  // current view's pageInfo (documentTitle override, e.g. a loaded album's
+  // actual name, else its bucket title like "songs"/"albums") - falls back
+  // to a route-key guess for the brief window before a view mounts and
+  // calls setPageInfo/DetailViewWrapper.
   createEffect(() => {
     const remote = getCurrentRemote();
     const remoteName = remote?.name ?? "local";
+    const info = getPageInfo();
     const pathname = location.pathname;
-    const routeKey = matchRoute(pathname);
-    const routeName = routeKey || "songs";
+    const pageName = info.documentTitle || info.title || matchRoute(pathname) || "songs";
 
-    const title = `freqhole ▸ ${remoteName} ▸ ${routeName}`;
-
-    // set browser document title
-    document.title = title;
-
-    // also set tauri window title if in tauri mode
-    if (isCharnelMode()) {
-      setWindowTitle(title);
-    }
+    setAppDocumentTitle([remoteName, pageName]);
   });
 
   // fetch recent playlists (contextual to current data source)
@@ -362,51 +520,8 @@ export function AppLayout(props: AppLayoutProps) {
   });
 
   // load remotes and storage info on mount
-  onMount(async () => {
+  onMount(() => {
     window.addEventListener("resize", handleResize);
-
-    // load queue history from idb
-    await loadQueueHistory();
-
-    // load persisted radio queue entry (display only; no autoplay)
-    await loadCurrentRadioStation();
-
-    // load queue progress from storage
-    loadProgressFromStorage();
-
-    // reconnect progress tracking if there's an active queue from a previous page load
-    reconnectProgressTracking();
-
-    // resume auto-downloads if enabled (downloads songs beyond rolling window)
-    void resumeAutoDownloadsOnInit();
-
-    // start analytics sync loop
-    startAnalyticsSync();
-
-    // check if config needs upgrade (tauri mode only, shows persistent toast if needed)
-    checkAndShowConfigUpgradeToast();
-
-    try {
-      const allRemotes = await getAllRemotes();
-      debug("AppLayout", "loaded remotes from IDB", {
-        count: allRemotes.length,
-        remotes: allRemotes.map((r) => ({
-          id: r.remote_id,
-          name: r.name,
-          is_offline: r.is_offline,
-          last_checked: r.last_checked,
-        })),
-      });
-      setRemotes(allRemotes);
-    } catch (error) {
-      console.error("failed to load remotes:", error);
-    }
-
-    // seed the reactive `isOnline(id)` map and fire a background wake-up
-    // probe for every offline remote. dedupe + backoff lives in
-    // remoteHealth so it's safe to call this freely.
-    void seedOnlineMap();
-    wakeAllRemotes();
 
     // re-probe when the tab/window becomes visible again — covers the
     // "laptop woke from sleep / switched back to tab" case where
@@ -416,233 +531,167 @@ export function AppLayout(props: AppLayoutProps) {
     };
     document.addEventListener("visibilitychange", onVisibility);
     window.addEventListener("focus", onVisibility);
+
+    // filled in by the async setup below. `onCleanup` must be registered
+    // synchronously, before any `await`, to actually attach to this
+    // component's disposal - registering it later (after crossing an
+    // await boundary) runs outside solid's reactive ownership tracking
+    // and triggers "cleanups created outside a `createRoot` or `render`
+    // will never be run", so these start undefined and get populated
+    // once each piece of async setup resolves.
+    let unsubscribeStatusChange: (() => void) | undefined;
+    let unsubscribeSwitchToLocalFn: (() => void) | undefined;
+    let interval: ReturnType<typeof setInterval> | undefined;
+    let unlistenExternalStorageMounted: (() => void) | undefined;
+    let unlistenSyncProgress: (() => void) | undefined;
+
     onCleanup(() => {
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("focus", onVisibility);
+      unsubscribeStatusChange?.();
+      unsubscribeSwitchToLocalFn?.();
+      if (interval !== undefined) clearInterval(interval);
+      unlistenExternalStorageMounted?.();
+      unlistenSyncProgress?.();
     });
 
-    // listen for remote status changes (offline/online) and refresh remotes list
-    const unsubscribeStatusChange = onRemoteStatusChange(async (_remoteId, _isOffline) => {
+    void (async () => {
+      // load queue history from idb
+      await loadQueueHistory();
+      await loadVideoQueueHistory();
+
+      // load persisted radio queue entry (display only; no autoplay)
+      await loadCurrentRadioStation();
+
+      // load queue progress from storage
+      loadProgressFromStorage();
+
+      // reconnect progress tracking if there's an active queue from a previous page load
+      reconnectProgressTracking();
+      reconnectVideoProgressTracking();
+
+      // resume auto-downloads if enabled (downloads songs beyond rolling window)
+      void resumeAutoDownloadsOnInit();
+
+      // start analytics sync loop
+      startAnalyticsSync();
+
+      // check if config needs upgrade (tauri mode only, shows persistent toast if needed)
+      checkAndShowConfigUpgradeToast();
+
+      // check if fetch-music-dir / external-storage paths are still
+      // writable (flatpak doc-portal grants can go stale) - shows a
+      // toast prompting reselect if not.
+      void checkAndShowStorageHealthToast();
+
       try {
         const allRemotes = await getAllRemotes();
-        setRemotes(allRemotes);
-        debug("AppLayout", "refreshed remotes after status change", {
+        debug("AppLayout", "loaded remotes from IDB", {
           count: allRemotes.length,
+          remotes: allRemotes.map((r) => ({
+            id: r.remote_id,
+            name: r.name,
+            is_offline: r.is_offline,
+            last_checked: r.last_checked,
+          })),
         });
-      } catch (error) {
-        console.error("failed to refresh remotes after status change:", error);
-      }
-    });
-
-    // listen for "switch to local" action from toast
-    const unsubscribeSwitchToLocal = onSwitchToLocal(() => {
-      handleSwitchToLocal();
-    });
-
-    // update storage usage
-    const updateStorage = async () => {
-      if (navigator.storage?.estimate) {
-        try {
-          const estimate = await navigator.storage.estimate();
-          setStorageUsage(estimate.usage || 0);
-          setStorageQuota(estimate.quota || 0);
-        } catch (error) {
-          console.error("failed to get storage estimate:", error);
-        }
-      }
-    };
-
-    await updateStorage();
-    // refresh storage info every 30 seconds
-    const interval = setInterval(updateStorage, 30000);
-
-    // poll for mounted removable-storage devices (desktop/tauri only) -
-    // drives playerbar icon visibility, so it should disappear fairly
-    // promptly once a device is unplugged.
-    if (isCharnelMode()) {
-      const updateExternalStorageMounted = async () => {
-        try {
-          const mounted = await listMountedExternalStorageDevices();
-          setExternalStorageMounted(mounted.length > 0);
-        } catch (error) {
-          console.error("failed to check mounted external storage devices:", error);
-        }
-      };
-      void updateExternalStorageMounted();
-      const unlistenExternalStorageMounted = await onExternalStorageMountedChanged(
-        () => void updateExternalStorageMounted()
-      );
-      onCleanup(() => unlistenExternalStorageMounted());
-
-      // global per-song sync progress - lives here (not just
-      // StorageOverviewView) so the playerbar icon keeps showing live
-      // progress even after navigating away mid-sync.
-      const unlistenSyncProgress = await onExternalStorageSyncProgress((event) => {
-        setExternalStorageSyncProgress({
-          title: event.data.title,
-          current: event.data.current,
-          total: event.data.total,
-        });
-      });
-      onCleanup(() => unlistenSyncProgress());
-    }
-
-    return () => {
-      clearInterval(interval);
-      unsubscribeStatusChange();
-      unsubscribeSwitchToLocal();
-    };
-  });
-
-  // handle switching to local source
-  const handleSwitchToLocal = async () => {
-    try {
-      debug("AppLayout", "switching to local source...");
-      // switch data source first
-      await useLocalSource();
-      // navigate to local route
-      navigate(getDefaultRoute("local"));
-      // invalidate all queries to refetch from local source
-      queryClient.invalidateQueries();
-      debug("AppLayout", "switched to local source");
-    } catch (error) {
-      console.error("failed to switch to local:", error);
-    }
-  };
-
-  // handle switching to remote source (from TopNav)
-  const handleSwitchToRemote = async (remoteId: string) => {
-    try {
-      debug("AppLayout", `switching to remote: ${remoteId}...`);
-
-      // pre-cache transport type for blob resolution (avoids flicker on image load)
-      await preCacheRemoteTransport(remoteId);
-
-      // connect with progress modal support
-      const result = await connectToRemote(remoteId);
-
-      if (result.cancelled) {
-        debug("AppLayout", "connection cancelled by user");
-        return;
-      }
-
-      if (!result.success) {
-        debug("AppLayout", `remote ${remoteId} is offline, not switching`);
-        // refresh remotes list to show updated status
-        const allRemotes = await getAllRemotes();
         setRemotes(allRemotes);
-        return;
+      } catch (error) {
+        console.error("failed to load remotes:", error);
       }
 
-      // navigate to remote route
-      navigate(getDefaultRoute(remoteId));
-      // invalidate all queries to refetch from remote source
-      queryClient.invalidateQueries();
+      // seed the reactive `isOnline(id)` map and fire a background wake-up
+      // probe for every offline remote. dedupe + backoff lives in
+      // remoteHealth so it's safe to call this freely.
+      void seedOnlineMap();
+      wakeAllRemotes();
 
-      // refresh remotes list to show updated status
-      const allRemotes = await getAllRemotes();
-      setRemotes(allRemotes);
+      // same idea for paired players (playerPresenceStore.ts) - a
+      // fire-and-forget sweep, never awaited, so this never delays
+      // initial load/render. QueuePlayerTargetRow's flyout re-triggers
+      // this itself on open for a fresher read.
+      wakeAllPlayers();
 
-      debug("AppLayout", `switched to remote: ${remoteId}`);
-    } catch (error) {
-      console.error("failed to switch to remote:", error);
-    }
-  };
-
-  // handle rechecking a remote's status (with progress modal)
-  const handleRecheckRemote = async (remoteId: string): Promise<boolean> => {
-    try {
-      debug("AppLayout", `rechecking remote: ${remoteId}...`);
-
-      const isOnline = await recheckRemote(remoteId);
-
-      // refresh remotes list to update UI
-      const allRemotes = await getAllRemotes();
-      setRemotes(allRemotes);
-
-      debug("AppLayout", `remote ${remoteId} recheck result: ${isOnline ? "online" : "offline"}`);
-      return isOnline;
-    } catch (error) {
-      console.error("failed to recheck remote:", error);
-      return false;
-    }
-  };
-
-  // handle deleting a remote (called from topnav context menu)
-  // topnav already handles user confirmation; here we just perform cleanup
-  const handleDeleteRemote = async (remoteId: string): Promise<void> => {
-    try {
-      debug("AppLayout", `deleting remote: ${remoteId}...`);
-
-      // clear queue history entries for this remote
-      try {
-        const db = await initAppDB();
-        const allEntries = await db.getAll(STORE_QUEUE_HISTORY);
-        const toDelete = (allEntries as QueueHistoryEntry[]).filter(
-          (e) => e.server_remote_id === remoteId
-        );
-        for (const entry of toDelete) {
-          await db.delete(STORE_QUEUE_HISTORY, entry.id);
+      // listen for remote status changes (offline/online) and refresh remotes list
+      unsubscribeStatusChange = onRemoteStatusChange(async (_remoteId, _isOffline) => {
+        try {
+          const allRemotes = await getAllRemotes();
+          setRemotes(allRemotes);
+          debug("AppLayout", "refreshed remotes after status change", {
+            count: allRemotes.length,
+          });
+        } catch (error) {
+          console.error("failed to refresh remotes after status change:", error);
         }
-      } catch (e) {
-        debug("AppLayout", "failed to clear queue history:", e);
-      }
+      });
 
-      // clear cached blobs for this remote
-      try {
-        await clearBlobCache(remoteId);
-      } catch (e) {
-        debug("AppLayout", "failed to clear blob cache:", e);
-      }
+      // listen for "switch to local" action from toast
+      unsubscribeSwitchToLocalFn = onSwitchToLocal(() => {
+        handleSwitchToLocal();
+      });
 
-      // delete the remote record
-      await deleteRemote(remoteId);
-
-      // refresh remotes list
-      const allRemotes = await getAllRemotes();
-      setRemotes(allRemotes);
-
-      toast.success("remote deleted");
-    } catch (error) {
-      console.error("failed to delete remote:", error);
-      toast.error("failed to delete remote");
-    }
-  };
-
-  // handle renaming a remote (called from topnav context menu).
-  // rename is only offered for "local library" remotes in topnav:
-  //   - web: synthetic row, routed through onRenameLocalLibrary (not here)
-  //   - charnel (android/desktop): the is_charnel_managed sqlite row;
-  //     its name lives in the freqhole config toml and gets re-seeded on
-  //     every startup by `upsertTauriRemote(config.server_name)`. so for
-  //     these we also update server.name in the config to make the
-  //     rename survive a restart.
-  const handleRenameRemote = async (remoteId: string, newName: string): Promise<void> => {
-    try {
-      await updateRemote(remoteId, { name: newName });
-      if (isCharnelMode()) {
-        const target = await getRemoteById(remoteId);
-        if (target?.is_charnel_managed) {
+      // update storage usage
+      const updateStorage = async () => {
+        if (navigator.storage?.estimate) {
           try {
-            await updateServerInfo({ name: newName });
-          } catch (err) {
-            console.error("failed to persist server.name to charnel config:", err);
-            // re-throw so the modal surfaces the failure; the IDB write
-            // above will be undone on next startup anyway when charnel
-            // re-seeds from the (un-updated) toml.
-            throw err;
+            const estimate = await navigator.storage.estimate();
+            setStorageUsage(estimate.usage || 0);
+            setStorageQuota(estimate.quota || 0);
+          } catch (error) {
+            console.error("failed to get storage estimate:", error);
           }
         }
+      };
+
+      await updateStorage();
+      // refresh storage info every 30 seconds
+      interval = setInterval(updateStorage, 30000);
+
+      // poll for mounted removable-storage devices (desktop/tauri only) -
+      // drives playerbar icon visibility, so it should disappear fairly
+      // promptly once a device is unplugged.
+      if (isCharnelMode()) {
+        const updateExternalStorageMounted = async () => {
+          try {
+            const mounted = await listMountedExternalStorageDevices();
+            // TEMP(external-storage): makes an absent playerbar icon
+            // diagnosable as a mount-query result rather than a render issue.
+            console.info(
+              `[external-storage] playerbar mounted=${mounted.length} ids=${mounted.map((d) => d.id).join(",")}`
+            );
+            setExternalStorageMounted(mounted.length > 0);
+          } catch (error) {
+            console.error("failed to check mounted external storage devices:", error);
+          }
+        };
+        void updateExternalStorageMounted();
+        unlistenExternalStorageMounted = await onExternalStorageMountedChanged(
+          () => void updateExternalStorageMounted()
+        );
+
+        // global per-song sync progress - lives here (not just
+        // StorageOverviewView) so the playerbar icon keeps showing live
+        // progress even after navigating away mid-sync.
+        unlistenSyncProgress = await onExternalStorageSyncProgress((event) => {
+          setExternalStorageSyncProgress({
+            title: event.data.title,
+            current: event.data.current,
+            total: event.data.total,
+          });
+        });
       }
-      const allRemotes = await getAllRemotes();
-      setRemotes(allRemotes);
-      toast.success("remote renamed");
-    } catch (error) {
-      console.error("failed to rename remote:", error);
-      toast.error("failed to rename remote");
-      throw error;
-    }
-  };
+    })();
+  });
+
+  // remote switch/recheck/delete/rename handlers (extracted - see
+  // app/services/remotes/remoteSwitching.ts)
+  const {
+    handleSwitchToLocal,
+    handleSwitchToRemote,
+    handleRecheckRemote,
+    handleDeleteRemote,
+    handleRenameRemote,
+  } = createRemoteSwitchingHandlers({ navigate, queryClient, setRemotes });
 
   const currentSourceName = createMemo(() => {
     const remote = getCurrentRemote();
@@ -666,15 +715,37 @@ export function AppLayout(props: AppLayoutProps) {
 
   // handle favorite toggle for current song (deprecated - replaced by inline handler)
 
-  // watch for current song changes and load song data
+  // watch for current song/video changes and load the corresponding data
   createEffect(() => {
     const state = appState();
     if (state?.current_sha256) {
       const sha256 = state.current_sha256;
-      // first check if song is in queue (avoids fetching from wrong remote)
-      const songInQueue = state.queue.find((s) => s.sha256 === sha256);
-      if (songInQueue) {
-        setCurrentSongData(songInQueue);
+      // first check if the item is in queue (avoids fetching from wrong remote)
+      const itemInQueue = state.queue.find((i) => mediaItemKey(i) === sha256);
+      if (itemInQueue?.kind === "video") {
+        setCurrentVideoData(itemInQueue.video);
+        setCurrentSongData(null);
+        return;
+      }
+      if (itemInQueue?.kind === "song") {
+        setCurrentVideoData(null);
+        setCurrentSongData(itemInQueue.song);
+        // keep a local artist's images fresh when streaming from a remote,
+        // so the playerbar's artist-image fallback also works for remote
+        // plays (already works for local-library plays). no-ops entirely
+        // if the artist isn't already in the local library, or if its
+        // images already match the remote's - see syncArtistImagesOnPlay.ts.
+        const remote = getCurrentRemote();
+        if (remote) {
+          void syncArtistImagesForRemotePlay(remote.remote_id, itemInQueue.song).then(
+            (artist_images) => {
+              // guard against staleness: the user may have moved on to a
+              // different song by the time this download finishes.
+              if (!artist_images || appState()?.current_sha256 !== sha256) return;
+              setCurrentSongData((prev) => (prev ? { ...prev, artist_images } : prev));
+            }
+          );
+        }
       } else if (state.queue.length > 0) {
         // sha256 is set but not yet in the queue. this is a brief transitional
         // window while the queue is being rebuilt for a new track (setQueue
@@ -686,6 +757,7 @@ export function AppLayout(props: AppLayoutProps) {
       } else {
         // queue is empty - try fetching the song directly (page-reload case
         // where the queue hasn't been rehydrated yet).
+        setCurrentVideoData(null);
         const dataSource = getDataSource();
         void dataSource.getSongById(sha256).then((song) => {
           // guard against stale response: only apply if sha256 is still current
@@ -699,23 +771,28 @@ export function AppLayout(props: AppLayoutProps) {
       }
     } else {
       setCurrentSongData(null);
+      setCurrentVideoData(null);
     }
   });
 
-  // update auto-download queue when queue or current song changes
+  // update auto-download queue when queue or current song changes. the
+  // song-rolling-window index is computed against the song-only subset of
+  // the queue; updateAutoDownloadQueue separately handles videos internally
+  // (keyed off the unified current_sha256/mediaItemKey), so this effect
+  // must still fire for a video-only queue with no songs in it at all.
   createEffect(() => {
     const state = appState();
     if (!state) return;
 
+    const queueSongs = songsOnly(state.queue);
     const currentIndex = state.current_sha256
-      ? state.queue.findIndex((s) => s.sha256 === state.current_sha256)
+      ? queueSongs.findIndex((s) => s.sha256 === state.current_sha256)
       : 0;
-    const queueLength = state.queue.length;
 
     // this effect will re-run when queue or current index changes
     // the function internally checks if auto-download is enabled
-    if (queueLength > 0) {
-      void updateAutoDownloadQueue(currentIndex);
+    if (state.queue.length > 0) {
+      void updateAutoDownloadQueue(Math.max(0, currentIndex));
     }
   });
 
@@ -815,164 +892,31 @@ export function AppLayout(props: AppLayoutProps) {
     });
   };
 
+  // handle video favorite toggle from player bar
+  const handleVideoFavoriteToggle = (videoId: string) => {
+    toggleFavoriteMutation.mutate({
+      targetType: "video",
+      targetId: videoId,
+      isFavorite: !isCurrentVideoFavorite(),
+    });
+  };
+
   // handle player bar image click - show song + album images in carousel
+  // (see app/services/playerImageCarousel.ts)
   const handlePlayerImageClick = async () => {
     const song = currentSongData();
     if (!song) return;
-
-    // give immediate feedback on click — the hydration + url-resolution
-    // work below can take a while (network/p2p lookups), and without this
-    // the button just looks unresponsive until everything settles.
-    beginImageCarouselLoading();
-
-    type ImageItem = {
-      blobId?: string;
-      url?: string;
-      serverId?: string;
-      localBlobId?: string;
-    };
-    const seen = new Set<string>();
-    const imageItems: ImageItem[] = [];
-
-    const addImage = (img: {
-      remote_blob_id?: string;
-      local_blob_id?: string;
-      remote_url?: string;
-      remote_server_id?: string;
-      blob_type: string;
-    }) => {
-      // skip waveforms (audio viz) and the size-derivative variants
-      // (`thumbnail`, `preview`) — those are different blob ids that
-      // visually render as the same logical image, so including them
-      // produces a carousel full of duplicate-looking slides. only
-      // keep `original` (full-res) records for the carousel.
-      if (img.blob_type !== "original") return;
-      const key = img.remote_blob_id || img.local_blob_id || img.remote_url;
-      if (!key || seen.has(key)) return;
-      seen.add(key);
-      imageItems.push({
-        // remote blob id only — local blob ids aren't fetchable via
-        // the blobResolver path (they're resolved through OPFS via
-        // resolveLocalBlobUrl instead).
-        blobId: img.remote_blob_id,
-        url: img.remote_url,
-        serverId: img.remote_server_id,
-        localBlobId: img.local_blob_id,
-      });
-    };
-
-    // add song images (except waveforms), deduplicate by blob_id
-    if (song.images?.length) {
-      for (const img of song.images) addImage(img);
-    }
-
-    // add album images (except waveforms), deduplicate by blob_id
-    if (song.album_images?.length) {
-      for (const img of song.album_images) addImage(img);
-    }
-
-    // add artist images too — gives the player-bar carousel full
-    // context (song → album → artist art) with the same `seen` set
-    // dedup'ing across all three sources.
-    if (song.artist_images?.length) {
-      for (const img of song.artist_images) addImage(img);
-    }
-
-    // hydrate from the canonical album + artist records. song entries
-    // (especially local OPFS songs, and pre-album_images queue rows)
-    // often carry only the song's own image — the album / artist may
-    // have additional artwork that isn't denormalized onto the song.
-    // fetching here makes the carousel reflect the full set even
-    // when the song row is sparse. errors are swallowed so a failed
-    // lookup doesn't kill the click.
-    try {
-      const ds = getDataSource();
-      const tasks: Promise<void>[] = [];
-      if (song.album_id && ds.getAlbums) {
-        tasks.push(
-          ds
-            .getAlbums({ album_id: song.album_id, limit: 1 })
-            .then((res) => {
-              for (const img of res.items[0]?.images ?? []) addImage(img);
-            })
-            .catch(() => {})
-        );
-      }
-      if (song.artist_id && ds.getArtists) {
-        tasks.push(
-          ds
-            .getArtists({ artist_id: song.artist_id, limit: 1 })
-            .then((res) => {
-              for (const img of res.items[0]?.images ?? []) addImage(img);
-            })
-            .catch(() => {})
-        );
-      }
-      if (tasks.length) await Promise.all(tasks);
-    } catch {
-      // best-effort hydration — proceed with whatever we already have
-    }
-
-    if (imageItems.length === 0) {
-      // no images found at all — a normal state (many songs simply
-      // have no artwork), not a failure, so clear the spinner silently.
-      endImageCarouselLoading();
-      return;
-    }
-
-    // check if we need blob resolution (P2P or tauri-managed)
-    const firstWithServerId = imageItems.find((item) => item.serverId);
-    const needsResolution = firstWithServerId
-      ? await usesBlobResolver(firstWithServerId.serverId!)
-      : false;
-
-    // resolve each item's url independently so the carousel can open as
-    // soon as the first one lands, instead of waiting on every image.
-    const resolveOne = async (item: ImageItem): Promise<ImageResolveResult> => {
-      if (needsResolution) {
-        if (item.blobId && item.serverId) {
-          try {
-            const url = await resolveBlobUrl(item.blobId, item.serverId, "image");
-            return { url };
-          } catch {
-            // fall through to other paths below
-          }
-        }
-        if (item.localBlobId) {
-          try {
-            const url = await resolveLocalBlobUrl(item.localBlobId);
-            return url ? { url } : null;
-          } catch {
-            /* ignore */
-          }
-        }
-        return item.url ? { url: item.url } : null;
-      }
-      // mixed http remote + local: prefer remote_url (a small server-
-      // generated thumbnail variant is cheap here since it's a plain
-      // http remote), fall back to an OPFS-resolved object url for
-      // local-only images.
-      if (item.url) {
-        return { url: item.url, thumbnailUrl: withThumbSuffix(item.url, 200) };
-      }
-      if (item.localBlobId) {
-        try {
-          const url = await resolveLocalBlobUrl(item.localBlobId);
-          return url ? { url } : null;
-        } catch {
-          /* ignore */
-        }
-      }
-      return null;
-    };
-
-    await openImageCarouselFromResolvers(
-      imageItems.map((item) => () => resolveOne(item)),
-      { title: formatImageCarouselTitle(song.title), entityLabel: song.title }
-    );
+    await openPlayerImageCarousel(song);
   };
 
   const handleQueueToggle = async () => {
+    // the queue sidebar never renders above the expanded mini player, so
+    // its toggle button is otherwise dead while expanded on touch devices
+    // (no hover affordance to collapse it instead) - repurpose it.
+    if (isTouchDevice() && videoMiniPlayerExpanded()) {
+      collapseVideoMiniPlayer();
+      return;
+    }
     await setQueueOpen(!queueOpen());
   };
 
@@ -1173,6 +1117,8 @@ export function AppLayout(props: AppLayoutProps) {
       { label: "artists", path: `${prefix}/artists` },
       { label: "playlists", path: `${prefix}/playlists` },
       { label: "favorites", path: `${prefix}/favorites` },
+      { label: "videos", path: `${prefix}/video` },
+      { label: "series", path: `${prefix}/video/series` },
     ];
     // feed is only available for remote sources
     if (!routeContext.isLocal()) {
@@ -1282,7 +1228,7 @@ export function AppLayout(props: AppLayoutProps) {
         }
         onViewAllPlaylists={handleViewAllPlaylists}
         onCreatePlaylist={handleCreatePlaylist}
-        onAddMusic={() => openAddMusic()}
+        onAddMedia={() => openAddMedia()}
         pageTitle={getPageInfo().title}
         pageCount={getPageInfo().count}
         viewOptions={viewOptions()}
@@ -1356,51 +1302,44 @@ export function AppLayout(props: AppLayoutProps) {
       <div
         class="flex-1 overflow-hidden flex"
         style={{
-          "padding-top": isNarrow() ? "var(--nav-height, 42px)" : undefined,
+          // narrow's nav is a floating, semi-transparent strip like wide's -
+          // content spans the full height (starting behind it) so scrolling
+          // moves content up under it, instead of reserving solid space here.
           "padding-bottom": "var(--player-bar-height)",
         }}
       >
         <div class="flex-1 overflow-hidden">{props.children}</div>
 
-        {/* queue sidebar - overlay drawer on narrow, inline sidebar on wide */}
+        {/* queue sidebar - overlay drawer on narrow, inline sidebar on wide.
+            operates directly on the real, ordered `MediaItem[]` queue
+            (phase 4b) - QueueSidebar now renders one unified, interleaved
+            virtualized list, so no more song-only/video-only index-mapping
+            is needed. */}
         <QueueSidebar
           isOpen={queueOpen()}
           variant={isNarrow() ? "overlay" : "inline"}
-          songs={appState()?.queue || []}
-          currentIndex={
-            appState()?.current_sha256
-              ? appState()!.queue.findIndex((s) => s.sha256 === appState()!.current_sha256)
-              : -1
-          }
+          items={appState()?.queue ?? []}
+          currentIndex={findMediaItemIndex(appState()?.queue ?? [], appState()?.current_sha256)}
           upNextIndex={
             pendingUpNextSha256()
-              ? (appState()?.queue.findIndex((s) => s.sha256 === pendingUpNextSha256()) ??
-                undefined)
+              ? findMediaItemIndex(appState()?.queue ?? [], pendingUpNextSha256())
               : undefined
           }
           currentTime={currentTime()}
           duration={duration()}
           progressMap={progressMap()}
-          loadingSongIds={loadingSongIds()}
+          loadingIds={loadingIds()}
           onClose={() => void setQueueOpen(false)}
-          onSongClick={(index) => {
-            const state = appState();
-            if (state?.queue[index]) {
-              void playSong(state.queue[index], { userInitiated: true });
-            }
+          onItemClick={(index) => {
+            const item = appState()?.queue[index];
+            if (item) void playMediaItem(item, { userInitiated: true });
           }}
-          onSongDoubleClick={(index) => {
-            const state = appState();
-            if (state?.queue[index]) {
-              void playSong(state.queue[index], { userInitiated: true });
-            }
+          onItemDoubleClick={(index) => {
+            const item = appState()?.queue[index];
+            if (item) void playMediaItem(item, { userInitiated: true });
           }}
-          onRemoveSong={(index) => {
-            void removeFromQueue(index);
-          }}
-          onReorder={(fromIndex, toIndex) => {
-            void reorderQueue(fromIndex, toIndex);
-          }}
+          onRemoveItem={(index) => void removeFromQueue(index)}
+          onReorder={(fromIndex, toIndex) => void reorderQueue(fromIndex, toIndex)}
           onClearAll={() => {
             void clearQueue();
           }}
@@ -1416,16 +1355,28 @@ export function AppLayout(props: AppLayoutProps) {
             resumeAutoDownload();
           }}
           pendingDownloadCount={getPendingDownloadCount()}
-          getContextMenuActions={(index, _queueSong) => {
-            const state = appState();
-            if (!state?.queue[index]) return [];
+          getContextMenuActions={(index, item) => {
+            const queueLength = appState()?.queue.length ?? 0;
 
-            const fullSong = state.queue[index];
-            const queueLength = state.queue.length;
-            const isSynced = isSongSyncedLocally(fullSong.sha256);
-            return useSongContextMenu(fullSong, {
+            if (item.kind === "video") {
+              return useVideoContextMenu(item.video, {
+                showPlayActions: false,
+                isFavorite: queueVideoFavoriteQuery.data?.has(item.video.id) ?? false,
+                showRemoveFromQueue: true,
+                queueIndex: index,
+                onRemoveFromQueue: () => void removeFromQueue(index),
+                showClearAbove: index > 0,
+                onClearAbove: () => void clearSongsAbove(index),
+                showClearBelow: index < queueLength - 1,
+                onClearBelow: () => void clearSongsBelow(index),
+              });
+            }
+
+            const song = item.song;
+            const isSynced = isSongSyncedLocally(song.sha256);
+            return useSongContextMenu(song, {
               showPlayActions: false,
-              isFavorite: fullSong.is_favorite || false,
+              isFavorite: song.is_favorite || false,
               showRemoveFromQueue: true,
               queueIndex: index,
               onRemoveFromQueue: () => void removeFromQueue(index),
@@ -1435,9 +1386,9 @@ export function AppLayout(props: AppLayoutProps) {
               onClearBelow: () => void clearSongsBelow(index),
               showDeleteFromLocal: isSynced,
               onDeleteFromLocal: async () => {
-                const result = await deleteSongFromLocal(fullSong.id, {
-                  remoteServerId: fullSong.remote_server_id,
-                  sha256: fullSong.sha256,
+                const result = await deleteSongFromLocal(song.id, {
+                  remoteServerId: song.remote_server_id,
+                  sha256: song.sha256,
                 });
                 if (result.success) {
                   // also remove from queue after deletion
@@ -1503,15 +1454,57 @@ export function AppLayout(props: AppLayoutProps) {
           `setRadioAudioSink` is called once on mount. */}
       <Show
         when={
-          (appState()?.queue.length || 0) > 0 || radioStatus() !== "idle" || !!currentRadioStation()
+          (appState()?.queue.length || 0) > 0 ||
+          radioStatus() !== "idle" ||
+          !!currentRadioStation() ||
+          isRemoteTargetActive()
         }
       >
         {(() => {
           const isRadio = () => playbackMode() === "radio";
 
+          // phase 14b-style local-library lookup for whatever's currently
+          // playing on a remote target - mirrors RemoteQueueRow.tsx's own
+          // per-row lookup, so the bar can show a resolved song's real
+          // images/favorite state instead of just the raw thumb the source
+          // device sent, when this device happens to already have it.
+          const [remoteBarSong] = createResource(
+            () => remoteCurrentItem()?.blake3_hash,
+            getSongByBlake3
+          );
+
           // build the song-shaped object the bar consumes. in radio mode,
           // map fields from radioNowPlaying() + radioArtUrl().
           const barSong = () => {
+            if (isRemoteTargetActive()) {
+              const item = remoteCurrentItem();
+              if (!item) return undefined;
+              const resolved = remoteBarSong();
+              if (resolved) {
+                return {
+                  id: resolved.id,
+                  sha256: resolved.sha256,
+                  title: resolved.title,
+                  artist:
+                    resolved.album_type === "compilation" && resolved.track_artist?.trim()
+                      ? resolved.track_artist
+                      : resolved.artist_name,
+                  album: resolved.album_title,
+                  images: resolved.images,
+                  album_images: resolved.album_images,
+                  isFavorite: resolved.is_favorite || false,
+                };
+              }
+              return {
+                id: item.blake3_hash,
+                title: item.title || "untitled",
+                artist: item.artist ?? "unknown artist",
+                album: undefined,
+                thumbnailUrl: item.artwork_full_url ?? item.artwork_thumb_url,
+                images: undefined,
+                isFavorite: false,
+              };
+            }
             if (isRadio()) {
               const np = radioNowPlaying();
               if (!np) {
@@ -1574,7 +1567,25 @@ export function AppLayout(props: AppLayoutProps) {
                 album: cs.album_title,
                 images: cs.images,
                 album_images: cs.album_images,
+                artist_images: cs.artist_images,
                 isFavorite: cs.is_favorite || false,
+              };
+            }
+            const cv = currentVideoData();
+            if (cv) {
+              // video mode: player bar shows a minimal metadata surface
+              // (title only, no favorite/album-nav actions yet). the
+              // actual video element is mounted on the dedicated watch
+              // page via getVideoElement(), not embedded in the bar.
+              return {
+                id: cv.id,
+                sha256: cv.id,
+                title: cv.title,
+                artist: "video",
+                album: undefined,
+                images: undefined,
+                album_images: undefined,
+                isFavorite: false,
               };
             }
             // fall back to appState directly so the bar never flashes "no
@@ -1583,8 +1594,21 @@ export function AppLayout(props: AppLayoutProps) {
             const state = appState();
             const sha256 = state?.current_sha256;
             if (!sha256) return undefined;
-            const queueSong = state?.queue.find((s) => s.sha256 === sha256);
-            if (!queueSong) return undefined;
+            const queueItem = state?.queue.find((i) => mediaItemKey(i) === sha256);
+            if (!queueItem) return undefined;
+            if (queueItem.kind === "video") {
+              return {
+                id: queueItem.video.id,
+                sha256: queueItem.video.id,
+                title: queueItem.video.title,
+                artist: "video",
+                album: undefined,
+                images: undefined,
+                album_images: undefined,
+                isFavorite: false,
+              };
+            }
+            const queueSong = queueItem.song;
             return {
               id: queueSong.id,
               sha256: queueSong.sha256,
@@ -1596,21 +1620,79 @@ export function AppLayout(props: AppLayoutProps) {
               album: queueSong.album_title,
               images: queueSong.images,
               album_images: queueSong.album_images,
+              artist_images: queueSong.artist_images,
               isFavorite: queueSong.is_favorite || false,
             };
           };
 
-          const barIsPlaying = () => (isRadio() ? radioStatus() === "playing" : isPlaying());
-          const barIsLoading = () => (isRadio() ? radioStatus() === "connecting" : isLoading());
-          const barCurrentTime = () => (isRadio() ? radioElapsedMs() / 1000 : currentTime());
-          const barDuration = () => {
-            if (isRadio()) {
-              return 0;
-            }
-            return duration();
+          // map the currently playing video's raw codegen `images` shape
+          // (`blob_id`/`is_primary: number`) to the bar's `ImageMetadata`
+          // shape (`remote_blob_id`/`is_primary: boolean`) — mirrors the
+          // same mapping done for queued video rows in QueueSidebar.tsx.
+          const barVideo = (): PlayerBarVideo | null => {
+            const cv = currentVideoData();
+            if (!cv) return null;
+            return {
+              id: cv.id,
+              title: cv.title,
+              source_type: cv.source_type,
+              poster_blob_id: cv.poster_blob_id,
+              poster_opfs_path: cv.poster_opfs_path,
+              remote_server_id: cv.remote_server_id,
+              images: cv.images?.map((img) => ({
+                remote_blob_id: img.blob_id,
+                remote_server_id: cv.remote_server_id,
+                is_primary: !!img.is_primary,
+                blob_type: img.blob_type,
+              })),
+            };
           };
 
+          const barIsPlaying = () =>
+            isRemoteTargetActive()
+              ? remoteIsPlaying()
+              : isRadio()
+                ? radioStatus() === "playing"
+                : isPlaying();
+          // for remote targets: show the loading ring while a control
+          // command is in flight (play/pause/skip/seek/volume) or before
+          // the first status has arrived for this target (reconnect-safe -
+          // avoids briefly showing a stale/wrong play-pause icon while the
+          // real state is still unknown).
+          const barIsLoading = () =>
+            isRemoteTargetActive()
+              ? remoteCommandPending() || !remoteStatusKnown()
+              : isRadio()
+                ? radioStatus() === "connecting"
+                : isLoading();
+          const debouncedBarIsLoading = createDebouncedBoolean(barIsLoading);
+          const barCurrentTime = () =>
+            isRemoteTargetActive()
+              ? remotePositionMs() / 1000
+              : isRadio()
+                ? radioElapsedMs() / 1000
+                : currentTime();
+          const barDuration = () => {
+            if (isRemoteTargetActive()) {
+              const ms = remoteDurationMs();
+              return ms ? ms / 1000 : 0;
+            }
+            if (isRadio()) return 0;
+            return duration();
+          };
+          // hides the seek/duration ui for radio (always live) and for
+          // remote targets whose current item didn't report a duration
+          // (e.g. tuned radio relayed through a player) - a remote item with
+          // a known duration gets full seek support (phase 13).
+          const barIsLiveStream = () =>
+            isRadio() || (isRemoteTargetActive() && barDuration() === 0);
+
           const onPlayPause = () => {
+            if (isRemoteTargetActive()) {
+              if (remoteTargetOffline()) return;
+              void (remoteIsPlaying() ? remotePause() : remoteResume());
+              return;
+            }
             if (isRadio()) {
               if (radioStatus() === "paused") {
                 if (radioUseTimelineMode()) {
@@ -1633,10 +1715,17 @@ export function AppLayout(props: AppLayoutProps) {
             togglePlayback();
           };
           const onPrev = () => {
+            // no previous-track support in the freqhole-player control protocol yet
+            if (isRemoteTargetActive()) return;
             if (isRadio()) return; // radio has no track skip
             playPrevious();
           };
           const onNext = () => {
+            if (isRemoteTargetActive()) {
+              if (remoteTargetOffline()) return;
+              void remoteSkip();
+              return;
+            }
             if (isRadio()) {
               if (!canAdminSkipRadioTrack()) return;
               void requestRadioTrackSkip().catch((e) => {
@@ -1647,8 +1736,23 @@ export function AppLayout(props: AppLayoutProps) {
             playNext();
           };
           const onSeekCb = (pct: number) => {
+            if (isRemoteTargetActive()) {
+              if (remoteTargetOffline()) return;
+              const ms = remoteDurationMs();
+              if (!ms) return; // no known duration - seek ui is hidden anyway
+              void remoteSeek((pct / 100) * ms);
+              return;
+            }
             if (isRadio()) return; // live audio is not seekable
             handleSeek(pct);
+          };
+          const onVolumeChangeCb = (vol: number) => {
+            if (isRemoteTargetActive()) {
+              if (remoteTargetOffline()) return;
+              void remoteSetVolume(vol);
+              return;
+            }
+            setPlayerVolume(vol);
           };
           const onFavToggle = (songId: string) => {
             if (isRadio()) {
@@ -1782,36 +1886,73 @@ export function AppLayout(props: AppLayoutProps) {
             ) : undefined;
 
           return (
-            <PlayerBar
-              song={barSong()}
-              isPlaying={barIsPlaying()}
-              isLoading={barIsLoading()}
-              hasUpNext={isRadio() ? false : !!pendingUpNextSha256()}
-              currentTime={barCurrentTime()}
-              duration={barDuration()}
-              volume={volume()}
-              queueOpen={queueOpen()}
-              onPlayPause={onPlayPause}
-              onPrevious={onPrev}
-              onNext={onNext}
-              onSeek={onSeekCb}
-              onVolumeChange={setPlayerVolume}
-              onQueueToggle={handleQueueToggle}
-              onFavoriteToggle={onFavToggle}
-              onImageClick={onImageClick}
-              onSongMetaClick={onSongMetaClick}
-              queueLength={appState()?.queue.length || 0}
-              canGoNext={isRadio() ? canAdminSkipRadioTrack() : canGoNext()}
-              canGoPrevious={isRadio() ? false : canGoPrevious()}
-              showNext={!isRadio() || canAdminSkipRadioTrack()}
-              showPrevious={!isRadio()}
-              statusBadge={statusBadge()}
-              isLiveStream={isRadio()}
-              showExternalStorageIcon={externalStorageMounted()}
-              externalStorageBusy={externalStorageSyncingSignal()}
-              externalStorageProgress={externalStorageSyncProgressSignal()}
-              onExternalStorageIconClick={() => navigate("/storage-overview")}
-            />
+            <>
+              <Show
+                when={
+                  !videoMiniPlayerDismissed() &&
+                  !isRadio() &&
+                  currentVideoData() &&
+                  // on linux the picture is in its own gstreamer window, so
+                  // there is no element here to mirror
+                  !isVideoWindowActive() &&
+                  getVideoElement()
+                }
+              >
+                {(el) => (
+                  <VideoMiniPlayer
+                    videoElement={el()}
+                    onClose={() => setVideoMiniPlayerDismissed(true)}
+                  />
+                )}
+              </Show>
+              <PlayerBar
+                song={barSong()}
+                isPlaying={barIsPlaying()}
+                isLoading={debouncedBarIsLoading()}
+                mediaTransferProgress={mediaTransferProgress()}
+                hasUpNext={isRadio() ? false : !!pendingUpNextSha256()}
+                currentTime={barCurrentTime()}
+                duration={barDuration()}
+                volume={isRemoteTargetActive() ? remoteVolume() : volume()}
+                queueOpen={queueOpen()}
+                onPlayPause={onPlayPause}
+                onPrevious={onPrev}
+                onNext={onNext}
+                onSeek={onSeekCb}
+                onVolumeChange={onVolumeChangeCb}
+                onQueueToggle={handleQueueToggle}
+                onFavoriteToggle={onFavToggle}
+                onImageClick={onImageClick}
+                onSongMetaClick={onSongMetaClick}
+                queueLength={appState()?.queue.length || 0}
+                canGoNext={
+                  isRadio()
+                    ? canAdminSkipRadioTrack()
+                    : isRemoteTargetActive()
+                      ? remoteQueue().length > remoteOptimisticCurrentIndex() + 1
+                      : canGoNext()
+                }
+                canGoPrevious={isRadio() || isRemoteTargetActive() ? false : canGoPrevious()}
+                showNext={!isRadio() || canAdminSkipRadioTrack()}
+                showPrevious={!isRadio()}
+                statusBadge={statusBadge()}
+                isLiveStream={barIsLiveStream()}
+                showExternalStorageIcon={externalStorageMounted()}
+                externalStorageBusy={externalStorageSyncingSignal()}
+                externalStorageProgress={externalStorageSyncProgressSignal()}
+                onExternalStorageIconClick={() => navigate("/storage-overview")}
+                activeTargetIsRemote={isRemoteTargetActive()}
+                isVideoActive={!isRadio() && !!currentVideoData()}
+                videoElement={
+                  !isRadio() && currentVideoData() && !isVideoWindowActive()
+                    ? getVideoElement()
+                    : null
+                }
+                video={!isRadio() ? barVideo() : null}
+                isVideoFavorite={isCurrentVideoFavorite()}
+                onVideoFavoriteToggle={handleVideoFavoriteToggle}
+              />
+            </>
           );
         })()}
       </Show>
@@ -1861,7 +2002,7 @@ export function AppLayout(props: AppLayoutProps) {
       <PlaylistSelectorModal
         isOpen={playlistSelectorState().isOpen}
         onClose={closePlaylistSelector}
-        songIds={playlistSelectorState().songIds}
+        items={playlistSelectorState().items}
         remote={playlistSelectorState().remote}
       />
 

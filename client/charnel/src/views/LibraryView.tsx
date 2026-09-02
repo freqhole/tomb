@@ -1,16 +1,7 @@
-import {
-  createSignal,
-  createEffect,
-  on,
-  onMount,
-  onCleanup,
-  For,
-  Show,
-} from "solid-js";
+import { createSignal, createEffect, on, onMount, onCleanup, For, Show } from "solid-js";
 import { open } from "@tauri-apps/plugin-dialog";
-import { openUrl } from "@tauri-apps/plugin-opener";
 import { invoke, Channel } from "@tauri-apps/api/core";
-import { resolvePath } from "../util/resolvePath";
+import { resolvePath, directoryDisplayName, isDocumentPortalPath } from "../util/resolvePath";
 import { useAdminTransport } from "../admin/context";
 
 interface ScannedDir {
@@ -57,6 +48,7 @@ interface JobProgressPayload {
   songs_added: number;
   jobs_pending: number;
   jobs_total: number;
+  domain?: "music" | "video";
 }
 
 interface JobSessionCompletePayload {
@@ -64,6 +56,7 @@ interface JobSessionCompletePayload {
   songs_added: number;
   albums_added: number;
   artists_added: number;
+  domain?: "music" | "video";
 }
 
 export default function LibraryView() {
@@ -73,28 +66,28 @@ export default function LibraryView() {
   const [showAddModal, setShowAddModal] = createSignal(false);
   const [pendingPath, setPendingPath] = createSignal("");
   const [pendingTags, setPendingTags] = createSignal("");
+  const [pendingDomain, setPendingDomain] = createSignal<"music" | "video">("music");
   const [pathValidating, setPathValidating] = createSignal(false);
-  const [pathValidation, setPathValidation] =
-    createSignal<ValidatePathResult | null>(null);
+  const [pathValidation, setPathValidation] = createSignal<ValidatePathResult | null>(null);
   const [confirmRemove, setConfirmRemove] = createSignal<string | null>(null);
   const [scanning, setScanning] = createSignal<string | null>(null);
   const [lastResult, setLastResult] = createSignal("");
   const [lastError, setLastError] = createSignal("");
   // live progress fed by grimoire JobProgress events forwarded through
   // charnel's grimoire event subscription (no polling required).
-  const [scanProgress, setScanProgress] =
-    createSignal<JobProgressPayload | null>(null);
-  const [scanSummary, setScanSummary] =
-    createSignal<JobSessionCompletePayload | null>(null);
+  const [scanProgress, setScanProgress] = createSignal<JobProgressPayload | null>(null);
+  const [scanSummary, setScanSummary] = createSignal<JobSessionCompletePayload | null>(null);
   // move directory modal state
   const [showMoveModal, setShowMoveModal] = createSignal(false);
   const [moveOldPath, setMoveOldPath] = createSignal("");
   const [moveNewPath, setMoveNewPath] = createSignal("");
-  const [moveNewPathValidation, setMoveNewPathValidation] =
-    createSignal<ValidatePathResult | null>(null);
+  const [moveNewPathValidation, setMoveNewPathValidation] = createSignal<ValidatePathResult | null>(
+    null,
+  );
   const [moveNewPathValidating, setMoveNewPathValidating] = createSignal(false);
-  const [movePreviewResult, setMovePreviewResult] =
-    createSignal<MoveScanDirectoryResult | null>(null);
+  const [movePreviewResult, setMovePreviewResult] = createSignal<MoveScanDirectoryResult | null>(
+    null,
+  );
   const [moveInProgress, setMoveInProgress] = createSignal(false);
   const [moveError, setMoveError] = createSignal("");
 
@@ -126,6 +119,7 @@ export default function LibraryView() {
             songs_added?: number;
             jobs_pending?: number;
             jobs_total?: number;
+            domain?: "music" | "video";
           };
           setScanProgress({
             session_id: evt.session_id ?? "",
@@ -133,6 +127,7 @@ export default function LibraryView() {
             songs_added: d.songs_added ?? 0,
             jobs_pending: d.jobs_pending ?? 0,
             jobs_total: d.jobs_total ?? 0,
+            domain: d.domain,
           });
           setScanSummary(null);
         } else if (evt.kind === "completed") {
@@ -140,12 +135,14 @@ export default function LibraryView() {
             songs_added?: number;
             albums_added?: number;
             artists_added?: number;
+            domain?: "music" | "video";
           };
           setScanSummary({
             session_id: evt.session_id ?? "",
             songs_added: d.songs_added ?? 0,
             albums_added: d.albums_added ?? 0,
             artists_added: d.artists_added ?? 0,
+            domain: d.domain,
           });
           setScanProgress(null);
           // refresh directory file counts after scan completes
@@ -187,10 +184,7 @@ export default function LibraryView() {
   async function loadDirectories() {
     setLoading(true);
     try {
-      const dirs = await admin.dispatchOrThrow<ScannedDir[]>(
-        "library_list_directories",
-        {},
-      );
+      const dirs = await admin.dispatchOrThrow<ScannedDir[]>("library_list_directories", {});
       setDirectories(dirs);
     } catch (e) {
       console.error("failed to load directories:", e);
@@ -206,6 +200,7 @@ export default function LibraryView() {
     // they must press "confirm" to actually submit.
     setPendingPath("");
     setPendingTags("");
+    setPendingDomain("music");
     setPathValidation(null);
     setShowAddModal(true);
   }
@@ -240,11 +235,7 @@ export default function LibraryView() {
     const trimmed = p.trim();
     if (!trimmed) return false;
     // absolute unix path, home-relative, or windows drive letter
-    return (
-      trimmed.startsWith("/") ||
-      trimmed.startsWith("~") ||
-      /^[a-zA-Z]:[\\/]/.test(trimmed)
-    );
+    return trimmed.startsWith("/") || trimmed.startsWith("~") || /^[a-zA-Z]:[\\/]/.test(trimmed);
   }
 
   async function validatePendingPath() {
@@ -255,10 +246,9 @@ export default function LibraryView() {
     }
     setPathValidating(true);
     try {
-      const result = await admin.dispatchOrThrow<ValidatePathResult>(
-        "library_validate_path",
-        { path },
-      );
+      const result = await admin.dispatchOrThrow<ValidatePathResult>("library_validate_path", {
+        path,
+      });
       setPathValidation(result);
     } catch (e) {
       setPathValidation({
@@ -301,19 +291,23 @@ export default function LibraryView() {
       .map((t) => t.trim())
       .filter((t) => t.length > 0);
 
+    const domain = pendingDomain();
+
     setShowAddModal(false);
     setPendingPath("");
     setPendingTags("");
+    setPendingDomain("music");
     setPathValidation(null);
 
     // scan the directory (which also records it in the database)
-    await scanDirectory(resolvedPath, tags);
+    await scanDirectory(resolvedPath, tags, domain);
   }
 
   function cancelAddDirectory() {
     setShowAddModal(false);
     setPendingPath("");
     setPendingTags("");
+    setPendingDomain("music");
     setPathValidation(null);
   }
 
@@ -353,10 +347,9 @@ export default function LibraryView() {
     }
     setMoveNewPathValidating(true);
     try {
-      const result = await admin.dispatchOrThrow<ValidatePathResult>(
-        "library_validate_path",
-        { path },
-      );
+      const result = await admin.dispatchOrThrow<ValidatePathResult>("library_validate_path", {
+        path,
+      });
       setMoveNewPathValidation(result);
     } catch (e) {
       setMoveNewPathValidation({
@@ -432,9 +425,7 @@ export default function LibraryView() {
       closeMoveModal();
       setLastResult(
         `moved directory: ${
-          result.relocated_exact_path +
-          result.relocated_parent +
-          result.relocated_filename
+          result.relocated_exact_path + result.relocated_parent + result.relocated_filename
         } files relocated`,
       );
     } catch (e) {
@@ -445,7 +436,7 @@ export default function LibraryView() {
     }
   }
 
-  async function scanDirectory(path: string, tags: string[]) {
+  async function scanDirectory(path: string, tags: string[], domain?: "music" | "video") {
     setScanning(path);
     setLastResult("");
     setLastError("");
@@ -456,17 +447,16 @@ export default function LibraryView() {
     // clear error instead of a cryptic backend failure.
     if (!admin.isRemote()) {
       try {
-        const v = await admin.dispatchOrThrow<ValidatePathResult>(
-          "library_validate_path",
-          { path },
-        );
+        const v = await admin.dispatchOrThrow<ValidatePathResult>("library_validate_path", {
+          path,
+        });
         if (!v.exists || !v.is_dir || !v.is_readable) {
           setLastError(
             !v.exists
               ? `path does not exist: ${path}`
               : !v.is_dir
-              ? `path is not a directory: ${path}`
-              : `path is not readable: ${path}`,
+                ? `path is not a directory: ${path}`
+                : `path is not readable: ${path}`,
           );
           setScanning(null);
           return;
@@ -483,9 +473,10 @@ export default function LibraryView() {
         ? await admin.dispatchOrThrow<ScanResult>("library_scan", {
             path,
             tags,
+            domain,
             recursive: true,
           })
-        : await invoke<ScanResult>("scan_directory", { path, tags });
+        : await invoke<ScanResult>("scan_directory", { path, tags, domain });
       setLastResult(result.message);
       // reload directories to show updated file count
       await loadDirectories();
@@ -527,11 +518,6 @@ export default function LibraryView() {
       </div>
 
       <div class="section">
-        <p class="section-desc">
-          add folders containing music. freqhole will scan each directory and
-          import music.
-        </p>
-
         <Show when={loading()}>
           <div class="loading">
             <div class="spinner" />
@@ -548,7 +534,13 @@ export default function LibraryView() {
               {(dir) => (
                 <div class="directory-item">
                   <div class="directory-info">
-                    <span class="directory-path">{dir.path}</span>
+                    <span class="directory-name">{directoryDisplayName(dir.path)}</span>
+                    <span class="directory-path" title={dir.path}>
+                      {dir.path}
+                      <Show when={isDocumentPortalPath(dir.path)}>
+                        <span class="directory-path-hint"> (sandbox folder access)</span>
+                      </Show>
+                    </span>
                     <span class="directory-meta">
                       {dir.file_count} files
                       <Show when={dir.tags.length > 0}>
@@ -574,24 +566,15 @@ export default function LibraryView() {
                       edit path
                     </button>
                     <Show when={confirmRemove() === dir.path}>
-                      <button
-                        class="danger small"
-                        onClick={() => removeDirectory(dir.path)}
-                      >
+                      <button class="danger small" onClick={() => removeDirectory(dir.path)}>
                         confirm
                       </button>
-                      <button
-                        class="secondary small"
-                        onClick={() => setConfirmRemove(null)}
-                      >
+                      <button class="secondary small" onClick={() => setConfirmRemove(null)}>
                         cancel
                       </button>
                     </Show>
                     <Show when={confirmRemove() !== dir.path}>
-                      <button
-                        class="secondary small"
-                        onClick={() => setConfirmRemove(dir.path)}
-                      >
+                      <button class="secondary small" onClick={() => setConfirmRemove(dir.path)}>
                         remove
                       </button>
                     </Show>
@@ -620,10 +603,9 @@ export default function LibraryView() {
 
         <Show when={directories().length > 0}>
           <p class="hint">
-            "scan" finds new files in one directory. "repair library" walks
-            every tracked directory: imports new music, relocates moved files,
-            restores songs whose files came back, and soft-deletes songs whose
-            files are gone.
+            "scan" finds new files in one directory. "repair library" walks every tracked directory:
+            imports new music, relocates moved files, restores songs whose files came back, and
+            soft-deletes songs whose files are gone.
           </p>
         </Show>
 
@@ -632,29 +614,24 @@ export default function LibraryView() {
           {(p) => {
             const total = () => p().jobs_total || 0;
             const done = () => Math.max(0, total() - (p().jobs_pending || 0));
-            const pct = () =>
-              total() > 0 ? Math.round((done() / total()) * 100) : 0;
+            const pct = () => (total() > 0 ? Math.round((done() / total()) * 100) : 0);
+            const noun = () => (p().domain === "video" ? "video" : "music");
             return (
               <div class="scan-progress-card">
                 <div class="scan-progress-header">
                   <div class="spinner" />
-                  <span>importing music...</span>
+                  <span>importing {noun()}...</span>
                   <span class="scan-progress-counts">
                     {done()} / {total()} jobs
                   </span>
                 </div>
                 <div class="scan-progress-bar">
-                  <div
-                    class="scan-progress-bar-fill"
-                    style={{ width: `${pct()}%` }}
-                  />
+                  <div class="scan-progress-bar-fill" style={{ width: `${pct()}%` }} />
                 </div>
                 <Show when={p().directory}>
-                  <div class="scan-progress-stats">{p().directory}</div>
+                  <div class="scan-progress-stats">{directoryDisplayName(p().directory!)}</div>
                 </Show>
-                <div class="scan-progress-stats">
-                  {p().songs_added} processed
-                </div>
+                <div class="scan-progress-stats">{p().songs_added} processed</div>
               </div>
             );
           }}
@@ -664,40 +641,15 @@ export default function LibraryView() {
         <Show when={!scanProgress() && scanSummary()}>
           {(s) => {
             const nothingNew = () =>
-              s().songs_added === 0 &&
-              s().albums_added === 0 &&
-              s().artists_added === 0;
+              s().songs_added === 0 && s().albums_added === 0 && s().artists_added === 0;
+            const noun = () => (s().domain === "video" ? "videos" : "songs");
             return (
               <div class="scan-progress-card success">
                 <Show when={nothingNew()}>scan complete</Show>
                 <Show when={!nothingNew()}>
-                  import complete: {s().songs_added} songs
-                  <Show when={s().albums_added > 0}>
-                    {" "}
-                    · {s().albums_added} albums
-                  </Show>
-                  <Show when={s().artists_added > 0}>
-                    {" "}
-                    · {s().artists_added} artists
-                  </Show>
-                  <Show when={s().songs_added > 0 && s().session_id}>
-                    <span style="margin-left: 0.75rem">
-                      <a
-                        href="#"
-                        onClick={(e) => {
-                          e.preventDefault();
-                          void openUrl(
-                            `https://spume.freqhole.net/#/import-review/${
-                              s().session_id
-                            }`,
-                          );
-                        }}
-                        style="color: var(--color-accent, #a78bfa); text-decoration: underline; font-size: 0.8em;"
-                      >
-                        review imported music
-                      </a>
-                    </span>
-                  </Show>
+                  import complete: {s().songs_added} {noun()}
+                  <Show when={s().albums_added > 0}> · {s().albums_added} albums</Show>
+                  <Show when={s().artists_added > 0}> · {s().artists_added} artists</Show>
                 </Show>
               </div>
             );
@@ -741,14 +693,14 @@ export default function LibraryView() {
               />
               <Show when={admin.isRemote()}>
                 <p class="hint">
-                  enter a path that exists on the remote server. press tab or
-                  click "validate" to check.
+                  enter a path that exists on the remote server. press tab or click "validate" to
+                  check.
                 </p>
               </Show>
               <Show when={!admin.isRemote()}>
                 <p class="hint">
-                  type a path (supports `~/...`) or click "browse..." to pick
-                  one. press tab or "validate" to check.
+                  type a path (supports `~/...`) or click "browse..." to pick one. press tab or
+                  "validate" to check.
                 </p>
               </Show>
               <div class="button-row">
@@ -773,14 +725,37 @@ export default function LibraryView() {
                       {ok()
                         ? `✓ readable directory (${v().path})`
                         : !v().exists
-                        ? `path does not exist: ${v().path}`
-                        : !v().is_dir
-                        ? "path is not a directory"
-                        : "path is not readable"}
+                          ? `path does not exist: ${v().path}`
+                          : !v().is_dir
+                            ? "path is not a directory"
+                            : "path is not readable"}
                     </p>
                   );
                 }}
               </Show>
+            </div>
+            <div class="form-group">
+              <label>media type</label>
+              <div style={{ display: "flex", gap: "1rem" }}>
+                <label>
+                  <input
+                    type="radio"
+                    name="pending-domain"
+                    checked={pendingDomain() === "music"}
+                    onChange={() => setPendingDomain("music")}
+                  />{" "}
+                  music
+                </label>
+                <label>
+                  <input
+                    type="radio"
+                    name="pending-domain"
+                    checked={pendingDomain() === "video"}
+                    onChange={() => setPendingDomain("video")}
+                  />{" "}
+                  video
+                </label>
+              </div>
             </div>
             <div class="form-group">
               <label>tags (optional)</label>
@@ -790,9 +765,7 @@ export default function LibraryView() {
                 onInput={(e) => setPendingTags(e.currentTarget.value)}
                 placeholder="rock, jazz, 90s"
               />
-              <p class="hint">
-                comma-separated tags to apply to all songs from this directory
-              </p>
+              <p class="hint">comma-separated tags to apply to all songs from this directory</p>
             </div>
             <div class="button-row">
               <button class="secondary" onClick={cancelAddDirectory}>
@@ -823,8 +796,8 @@ export default function LibraryView() {
           <div class="modal" onClick={(e) => e.stopPropagation()}>
             <h2>move scan directory</h2>
             <p class="section-desc">
-              update the path for files that were moved on disk. matches files
-              by name and size (no rehashing required).
+              update the path for files that were moved on disk. matches files by name and size (no
+              rehashing required).
             </p>
 
             <div class="form-group">
@@ -850,9 +823,7 @@ export default function LibraryView() {
                 onBlur={validateMoveNewPath}
                 disabled={moveInProgress()}
               />
-              <p class="hint">
-                enter the path where the music files are now located
-              </p>
+              <p class="hint">enter the path where the music files are now located</p>
               <div class="button-row">
                 <button
                   class="secondary small"
@@ -870,10 +841,10 @@ export default function LibraryView() {
                       {ok()
                         ? `✓ readable directory (${v().path})`
                         : !v().exists
-                        ? `path does not exist: ${v().path}`
-                        : !v().is_dir
-                        ? "path is not a directory"
-                        : "path is not readable"}
+                          ? `path does not exist: ${v().path}`
+                          : !v().is_dir
+                            ? "path is not a directory"
+                            : "path is not readable"}
                     </p>
                   );
                 }}
@@ -893,23 +864,16 @@ export default function LibraryView() {
                     </div>
                     <div class="scan-progress-stats">
                       <p>
-                        <strong>{totalRelocated()}</strong> files will be
-                        relocated
+                        <strong>{totalRelocated()}</strong> files will be relocated
                       </p>
                       <Show when={result().relocated_exact_path > 0}>
-                        <p>
-                          · {result().relocated_exact_path} exact path matches
-                        </p>
+                        <p>· {result().relocated_exact_path} exact path matches</p>
                       </Show>
                       <Show when={result().relocated_parent > 0}>
-                        <p>
-                          · {result().relocated_parent} parent+filename matches
-                        </p>
+                        <p>· {result().relocated_parent} parent+filename matches</p>
                       </Show>
                       <Show when={result().relocated_filename > 0}>
-                        <p>
-                          · {result().relocated_filename} filename-only matches
-                        </p>
+                        <p>· {result().relocated_filename} filename-only matches</p>
                       </Show>
                       <Show when={result().ambiguous_skipped > 0}>
                         <p class="scan-progress error">
@@ -917,26 +881,20 @@ export default function LibraryView() {
                         </p>
                       </Show>
                       <Show when={result().new_files_unmatched > 0}>
-                        <p>
-                          · {result().new_files_unmatched} new files unmatched
-                        </p>
+                        <p>· {result().new_files_unmatched} new files unmatched</p>
                       </Show>
                       <Show when={result().unmatched_old_blobs > 0}>
                         <p>
                           · {result().unmatched_old_blobs} old files unmatched
-                          <Show
-                            when={result().unmatched_old_blobs_soft_deleted > 0}
-                          >
+                          <Show when={result().unmatched_old_blobs_soft_deleted > 0}>
                             {" "}
-                            ({result().unmatched_old_blobs_soft_deleted} will be
-                            soft-deleted)
+                            ({result().unmatched_old_blobs_soft_deleted} will be soft-deleted)
                           </Show>
                         </p>
                       </Show>
                       <Show when={result().fs_store_refresh_failures > 0}>
                         <p class="scan-progress error">
-                          · {result().fs_store_refresh_failures} blob store
-                          refresh failures
+                          · {result().fs_store_refresh_failures} blob store refresh failures
                         </p>
                       </Show>
                     </div>
@@ -950,11 +908,7 @@ export default function LibraryView() {
             </Show>
 
             <div class="button-row">
-              <button
-                class="secondary"
-                onClick={closeMoveModal}
-                disabled={moveInProgress()}
-              >
+              <button class="secondary" onClick={closeMoveModal} disabled={moveInProgress()}>
                 cancel
               </button>
               <button

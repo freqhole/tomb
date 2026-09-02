@@ -41,9 +41,9 @@ pub async fn get_song_play_analytics(song_id: &str) -> GrimoireResponse<PlayAnal
                     ELSE 0
                 END
             ) as "total_play_time?: i64"
-        FROM music_play_eventz mpe
+        FROM play_eventz mpe
         JOIN media_eventz me ON me.id = mpe.media_event_id
-        WHERE mpe.song_id = ?
+        WHERE mpe.entity_type = 'song' AND mpe.entity_id = ?
         "#,
         song_id
     )
@@ -102,8 +102,8 @@ pub async fn get_user_listening_history(
     let count_result = match sqlx::query!(
         r#"
         SELECT COUNT(*) as count
-        FROM music_play_eventz
-        WHERE user_id = ?
+        FROM play_eventz
+        WHERE user_id = ? AND entity_type = 'song'
         "#,
         user_id
     )
@@ -127,7 +127,7 @@ pub async fn get_user_listening_history(
         SELECT
             mpe.id,
             mpe.media_event_id as "media_event_id!",
-            mpe.song_id as "song_id!",
+            mpe.entity_id as "song_id!",
             mpe.playlist_id,
             mpe.session_id,
             mpe.created_at,
@@ -139,19 +139,19 @@ pub async fn get_user_listening_history(
             -- Get artist name (first artist from join)
             (SELECT a.name FROM artist_songz asz
              JOIN artistz a ON a.id = asz.artist_id
-             WHERE asz.song_id = mpe.song_id
+             WHERE asz.song_id = mpe.entity_id
              LIMIT 1) as "artist_name?",
             -- Get album title
             (SELECT alb.title FROM album_songz als
              JOIN albumz alb ON alb.id = als.album_id
-             WHERE als.song_id = mpe.song_id
+             WHERE als.song_id = mpe.entity_id
              LIMIT 1) as "album_title?",
             -- Get genre name (kind=genre taxon)
             (SELECT g.label FROM album_songz als
              JOIN album_taxonz ag ON ag.album_id = als.album_id
              JOIN taxonz g ON g.id = ag.taxon_id
              JOIN taxon_kindz k ON k.id = g.kind_id AND k.slug = 'genre'
-             WHERE als.song_id = mpe.song_id
+             WHERE als.song_id = mpe.entity_id
              LIMIT 1) as "genre_name?",
             -- Get playlist name if applicable
             (SELECT p.title FROM playlistz p
@@ -159,10 +159,10 @@ pub async fn get_user_listening_history(
             -- Get username
             (SELECT u.username FROM user_accountz u
              WHERE u.id = mpe.user_id) as "username?"
-        FROM music_play_eventz mpe
-        JOIN songz s ON s.id = mpe.song_id
+        FROM play_eventz mpe
+        JOIN songz s ON s.id = mpe.entity_id
         JOIN media_eventz me ON me.id = mpe.media_event_id
-        WHERE mpe.user_id = ?
+        WHERE mpe.user_id = ? AND mpe.entity_type = 'song'
         ORDER BY mpe.created_at DESC
         LIMIT ? OFFSET ?
         "#,
@@ -228,8 +228,8 @@ pub async fn get_song_play_count(song_id: &str) -> GrimoireResponse<i64> {
     let result = match sqlx::query!(
         r#"
         SELECT COUNT(*) as count
-        FROM music_play_eventz
-        WHERE song_id = ?
+        FROM play_eventz
+        WHERE entity_type = 'song' AND entity_id = ?
         "#,
         song_id
     )
@@ -243,6 +243,38 @@ pub async fn get_song_play_count(song_id: &str) -> GrimoireResponse<i64> {
     };
 
     GrimoireResponse::success("Song play count retrieved successfully", result.count)
+}
+
+/// Get simple play count for a video - mirrors `get_song_play_count`, kept
+/// as its own named function per the "keep differences between listening
+/// and watching" naming convention, backed by the same shared `play_eventz`
+/// table.
+pub async fn get_video_play_count(video_id: &str) -> GrimoireResponse<i64> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to connect to database", vec![e.into()])
+        }
+    };
+
+    let result = match sqlx::query!(
+        r#"
+        SELECT COUNT(*) as count
+        FROM play_eventz
+        WHERE entity_type = 'video' AND entity_id = ?
+        "#,
+        video_id
+    )
+    .fetch_one(&pool)
+    .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to get video play count", vec![e.into()])
+        }
+    };
+
+    GrimoireResponse::success("Video play count retrieved successfully", result.count)
 }
 
 /// Get aggregate play count for all songs in an album
@@ -259,8 +291,8 @@ pub async fn get_album_play_count(album_id: &str) -> GrimoireResponse<i64> {
     let result = match sqlx::query!(
         r#"
         SELECT COUNT(*) as count
-        FROM music_play_eventz mpe
-        WHERE mpe.song_id IN (
+        FROM play_eventz mpe
+        WHERE mpe.entity_type = 'song' AND mpe.entity_id IN (
             SELECT song_id FROM album_songz WHERE album_id = ?
         )
         "#,
@@ -292,8 +324,8 @@ pub async fn get_artist_play_count(artist_id: &str) -> GrimoireResponse<i64> {
     let result = match sqlx::query!(
         r#"
         SELECT COUNT(*) as count
-        FROM music_play_eventz mpe
-        WHERE mpe.song_id IN (
+        FROM play_eventz mpe
+        WHERE mpe.entity_type = 'song' AND mpe.entity_id IN (
             SELECT song_id FROM artist_songz WHERE artist_id = ?
         )
         "#,
@@ -331,7 +363,7 @@ pub async fn get_session_summary(session_id: &str) -> GrimoireResponse<SessionSu
             MAX(created_at) as "session_end?: i64",
             COUNT(*) as "song_count?: i64",
             (SELECT username FROM user_accountz WHERE id = mpe.user_id LIMIT 1) as "username?"
-        FROM music_play_eventz mpe
+        FROM play_eventz mpe
         WHERE session_id = ?
         GROUP BY user_id
         "#,
@@ -356,7 +388,7 @@ pub async fn get_session_summary(session_id: &str) -> GrimoireResponse<SessionSu
     let songs_rows = match sqlx::query!(
         r#"
         SELECT
-            mpe.song_id as "song_id!",
+            mpe.entity_id as "song_id!",
             mpe.created_at,
             s.title,
             (SELECT json_group_array(json_object('media_blob_id', si.media_blob_id, 'is_primary', si.is_primary, 'blob_type', mb.blob_type))
@@ -365,15 +397,15 @@ pub async fn get_session_summary(session_id: &str) -> GrimoireResponse<SessionSu
              WHERE si.song_id = s.id) as "images?: String",
             (SELECT a.name FROM artist_songz asz
              JOIN artistz a ON a.id = asz.artist_id
-             WHERE asz.song_id = mpe.song_id
+             WHERE asz.song_id = mpe.entity_id
              LIMIT 1) as "artist_name?",
             (SELECT alb.title FROM album_songz als
              JOIN albumz alb ON alb.id = als.album_id
-             WHERE als.song_id = mpe.song_id
+             WHERE als.song_id = mpe.entity_id
              LIMIT 1) as "album_title?"
-        FROM music_play_eventz mpe
-        JOIN songz s ON s.id = mpe.song_id
-        WHERE mpe.session_id = ?
+        FROM play_eventz mpe
+        JOIN songz s ON s.id = mpe.entity_id
+        WHERE mpe.session_id = ? AND mpe.entity_type = 'song'
         ORDER BY mpe.created_at ASC
         "#,
         session_id

@@ -22,12 +22,8 @@
 // state is observed via dom events. the supervisor is responsible
 // for translating "command accepted" into observable events.
 
-import type {
-  PlayerCommand,
-  PlayerEvent,
-  PlayerSnapshot,
-} from "@freqhole/api-client";
-import type { Song } from "../storage/types";
+import type { PlayerCommand, PlayerEvent, PlayerSnapshot } from "@freqhole/api-client";
+import type { MediaItem } from "../../../app/services/storage/mediaItem";
 
 /// listener registered via `PlayerBackend.subscribe`.
 /// receives every event the backend emits, in order.
@@ -55,6 +51,9 @@ export interface LoadAndPlayOptions {
   initialPosition?: number;
   initialDuration?: number;
   autoPlay?: boolean;
+  /** queue-owned generation; a late load whose item left the queue must stop
+   * before it assigns a source or sends a player command. */
+  loadGeneration?: number;
 }
 
 /// the surface every audio backend implements.
@@ -67,15 +66,18 @@ export interface PlayerBackend {
   /// one of: "html_audio" | "rodio" | "sibyl" | "dummy".
   readonly kind: BackendKind;
 
-  /// load a song and start playing it. spume's higher-level entry
-  /// point — the html backend resolves a blob/http url and feeds
-  /// the `<audio>` element; the rodio backend resolves a local
-  /// filesystem path and sends `Load` + `Play` to the supervisor.
+  /// load a media item (song or video) and start playing it. spume's
+  /// higher-level entry point — the html backend resolves a blob/http
+  /// url and feeds the `<audio>` element for `kind: "song"` items; the
+  /// video backend does the same for `kind: "video"` items via a
+  /// `<video>` element. a backend that can't handle the given item's
+  /// kind throws `BackendPlaybackError` with `error_type:
+  /// "unsupported_media_kind"`.
   ///
   /// throws a `BackendPlaybackError` (with `error_type` set to e.g.
-  /// `"no_local_path"`) when the backend can't play a given song;
+  /// `"no_local_path"`) when the backend can't play a given item;
   /// callers can introspect to choose a fallback or surface a toast.
-  loadAndPlay(song: Song, options?: LoadAndPlayOptions): Promise<void>;
+  loadAndPlay(item: MediaItem, options?: LoadAndPlayOptions): Promise<void>;
 
   /// dispatch a command. returns once the backend has accepted
   /// the command into its queue; observable effects arrive via
@@ -112,7 +114,60 @@ export class BackendPlaybackError extends Error {
   }
 }
 
-export type BackendKind = "html_audio" | "rodio" | "sibyl" | "dummy";
+export type BackendKind = "html_audio" | "rodio" | "sibyl" | "dummy" | "video";
+
+/**
+ * classify a native `<audio>`/`<video>` element error (`HTMLMediaElement.
+ * error`) into a structured `error_type` + curated title/detail. the media
+ * error `code` (1=ABORTED, 2=NETWORK, 3=DECODE, 4=SRC_NOT_SUPPORTED) is
+ * encoded directly into `error_type` (e.g. `audio_element_error_network`)
+ * so downstream consumers (`bindAutoAdvance` in `audio/player.ts`) can
+ * branch on the stable `error_type` string alone - never on the message
+ * text - to distinguish a transient network blip (worth one retry) from a
+ * permanent decode failure (not worth retrying). shared by both
+ * `HtmlAudioBackend` and `VideoBackend` so the two stay in sync.
+ */
+export function classifyMediaElementError(
+  kind: "audio" | "video",
+  mediaError: { code: number; message: string } | null
+): { error_type: string; title: string; detail: string } {
+  const rawDetail = mediaError
+    ? `media error code: ${mediaError.code}, message: ${mediaError.message}`
+    : `unknown <${kind}> element error`;
+  const label = kind === "audio" ? "Audio" : "Video";
+  switch (mediaError?.code) {
+    case 1: // MEDIA_ERR_ABORTED
+      return {
+        error_type: `${kind}_element_error_aborted`,
+        title: `${label} Aborted`,
+        detail: rawDetail,
+      };
+    case 2: // MEDIA_ERR_NETWORK
+      return {
+        error_type: `${kind}_element_error_network`,
+        title: "Network Error",
+        detail: rawDetail,
+      };
+    case 3: // MEDIA_ERR_DECODE
+      return {
+        error_type: `${kind}_element_error_decode`,
+        title: "Decode Error",
+        detail: `this file may be corrupted (${rawDetail})`,
+      };
+    case 4: // MEDIA_ERR_SRC_NOT_SUPPORTED
+      return {
+        error_type: `${kind}_element_error_src_not_supported`,
+        title: "Unsupported Format",
+        detail: rawDetail,
+      };
+    default:
+      return {
+        error_type: `${kind}_element_error`,
+        title: `${label} Element Error`,
+        detail: rawDetail,
+      };
+  }
+}
 
 /// initial snapshot for a freshly-constructed backend that hasn't
 /// observed any events yet.

@@ -91,21 +91,26 @@ fn build_and_set_menu(app: &AppHandle<Wry>) -> tauri::Result<()> {
         .accelerator("CmdOrCtrl+,")
         .build(app)?;
     let config_item = MenuItemBuilder::with_id(MENU_CONFIG, "config").build(app)?;
-    let devtools_item = MenuItemBuilder::with_id(MENU_DEVTOOLS, "developer tools")
-        .accelerator("CmdOrCtrl+Shift+I")
-        .build(app)?;
 
-    let view_submenu = SubmenuBuilder::with_id(app, "view", "view")
+    let view_builder = SubmenuBuilder::with_id(app, "view", "view")
         .item(&logs_item)
         .item(&library_item)
         .item(&users_item)
         .item(&radio_item)
         .item(&federation_item)
         .item(&settings_item)
-        .item(&config_item)
-        .separator()
-        .item(&devtools_item)
-        .build()?;
+        .item(&config_item);
+
+    // no devtools entry on linux: opening webkitgtk's inspector crashes the app.
+    #[cfg(not(target_os = "linux"))]
+    let view_builder = {
+        let devtools_item = MenuItemBuilder::with_id(MENU_DEVTOOLS, "developer tools")
+            .accelerator("CmdOrCtrl+Shift+I")
+            .build(app)?;
+        view_builder.separator().item(&devtools_item)
+    };
+
+    let view_submenu = view_builder.build()?;
 
     // build Edit submenu with standard keyboard shortcuts
     let edit_submenu = SubmenuBuilder::with_id(app, "edit", "edit")
@@ -118,8 +123,30 @@ fn build_and_set_menu(app: &AppHandle<Wry>) -> tauri::Result<()> {
         .item(&PredefinedMenuItem::select_all(app, Some("select all"))?)
         .build()?;
 
+    // build Window submenu - without this, tauri's default Cmd+W/Cmd+M
+    // bindings are gone once we call app.set_menu() with a custom menu.
+    let window_submenu = SubmenuBuilder::with_id(app, "window", "window")
+        .item(&PredefinedMenuItem::minimize(app, Some("minimize"))?)
+        .item(&PredefinedMenuItem::close_window(app, Some("close"))?)
+        .build()?;
+
     // build menu bar
-    let menu = Menu::with_items(app, &[&app_submenu, &edit_submenu, &view_submenu])?;
+    let menu = Menu::with_items(
+        app,
+        &[&app_submenu, &edit_submenu, &window_submenu, &view_submenu],
+    )?;
+
+    // on linux the app menu renders as a gtk menubar *inside* the window,
+    // which defeats the point of a chromeless title bar (macOS puts it in
+    // the system bar, so it's unaffected).
+    #[cfg(target_os = "linux")]
+    if crate::app_config::FreqholeAppConfig::load(app)
+        .map(|c| c.chromeless_title_bar)
+        .unwrap_or_else(crate::app_config::default_chromeless_title_bar)
+    {
+        tracing::info!("chromeless title bar on linux - skipping in-window menubar");
+        return Ok(());
+    }
 
     // set as app menu
     app.set_menu(menu)?;
@@ -248,31 +275,49 @@ fn build_app_submenu(app: &AppHandle<Wry>) -> tauri::Result<Submenu<Wry>> {
 }
 
 /// handle application menu item clicks
+/// show the about window (or focus it if already open). shared by the
+/// native app menu and the chromeless title-bar's web context menu.
+pub fn show_about_window(app: &AppHandle<Wry>) {
+    if let Some(about_window) = app.get_webview_window("about") {
+        let _ = about_window.show();
+        let _ = about_window.set_focus();
+        return;
+    }
+
+    #[cfg(debug_assertions)]
+    let about_url =
+        tauri::WebviewUrl::External("http://localhost:1421/about.html".parse().unwrap());
+    #[cfg(not(debug_assertions))]
+    let about_url = tauri::WebviewUrl::App(std::path::PathBuf::from("about.html"));
+
+    let build_script = format!(
+        "window.__FREQHOLE_BUILD__ = {{ version: {version}, gitSha: {sha}, debug: {debug} }};",
+        version = serde_json::to_string(crate::app_config::get_binary_version())
+            .unwrap_or_else(|_| "\"?\"".into()),
+        sha = serde_json::to_string(env!("FREQHOLE_GIT_SHA")).unwrap_or_else(|_| "\"?\"".into()),
+        debug = cfg!(debug_assertions),
+    );
+
+    let _ = tauri::WebviewWindowBuilder::new(app, "about", about_url)
+        .title("about freqhole")
+        .inner_size(280.0, 320.0)
+        .resizable(false)
+        .center()
+        .theme(Some(tauri::Theme::Dark))
+        .initialization_script(&build_script)
+        .build();
+}
+
+/// tauri command wrapping [`show_about_window`] for the chromeless
+/// title-bar's web context menu (which has no native menu event to hook).
+#[tauri::command]
+pub fn open_about_window(app: tauri::AppHandle) {
+    show_about_window(&app);
+}
+
 fn handle_menu_event(app: &AppHandle<Wry>, id: &str) {
     match id {
-        MENU_ABOUT => {
-            // show about window (or focus if already open)
-            if let Some(about_window) = app.get_webview_window("about") {
-                let _ = about_window.show();
-                let _ = about_window.set_focus();
-            } else {
-                // create about window
-                #[cfg(debug_assertions)]
-                let about_url = tauri::WebviewUrl::External(
-                    "http://localhost:1421/about.html".parse().unwrap(),
-                );
-                #[cfg(not(debug_assertions))]
-                let about_url = tauri::WebviewUrl::App(std::path::PathBuf::from("about.html"));
-
-                let _ = tauri::WebviewWindowBuilder::new(app, "about", about_url)
-                    .title("about freqhole")
-                    .inner_size(280.0, 320.0)
-                    .resizable(false)
-                    .center()
-                    .theme(Some(tauri::Theme::Dark))
-                    .build();
-            }
-        }
+        MENU_ABOUT => show_about_window(app),
         MENU_P2P_START => {
             let state = app.state::<Arc<P2pState>>().inner().clone();
             tauri::async_runtime::spawn(async move {
@@ -335,12 +380,16 @@ fn handle_menu_event(app: &AppHandle<Wry>, id: &str) {
             });
         }
         MENU_DEVTOOLS => {
-            // open devtools for the focused window
-            if let Some(window) = app.get_webview_window("main") {
-                window.open_devtools();
-            }
-            if let Some(wizard) = app.get_webview_window("setup-wizard") {
-                wizard.open_devtools();
+            // linux has no devtools menu entry (webkitgtk's inspector crashes),
+            // but an accelerator could still route here.
+            #[cfg(not(target_os = "linux"))]
+            {
+                if let Some(window) = app.get_webview_window("main") {
+                    window.open_devtools();
+                }
+                if let Some(wizard) = app.get_webview_window("setup-wizard") {
+                    wizard.open_devtools();
+                }
             }
         }
         MENU_LOGS | MENU_LIBRARY | MENU_USERS | MENU_RADIO | MENU_FEDERATION | MENU_SETTINGS

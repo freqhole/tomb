@@ -134,13 +134,13 @@ pub async fn update_station(req: UpdateStationRequest) -> GrimoireResult<RadioSt
 
 pub async fn delete_station(id: &str) -> GrimoireResult<()> {
     let pool = database::connect().await?;
-    // music_play_eventz.radio_station_id has no ON DELETE action (see
-    // migrations/026_play_count_views.sql). nullify any references first so
-    // the cascade-less FK doesn't block the station delete. preserves the
-    // historical play event for song/album/artist crediting.
+    // play_eventz.radio_station_id has no ON DELETE action (see
+    // migrations/026_play_count_views.sql, superseded by migrations/074_play_eventz.sql).
+    // nullify any references first so the cascade-less FK doesn't block the
+    // station delete. preserves the historical play event for song/album/artist crediting.
     let mut tx = pool.begin().await?;
     sqlx::query!(
-        "UPDATE music_play_eventz SET radio_station_id = NULL WHERE radio_station_id = ?",
+        "UPDATE play_eventz SET radio_station_id = NULL WHERE radio_station_id = ?",
         id
     )
     .execute(&mut *tx)
@@ -572,9 +572,9 @@ pub(crate) async fn song_ids_for_clause(
                 // resolve at tune time — edits to the playlist propagate
                 // automatically without re-syncing the station.
                 sqlx::query_scalar!(
-                    r#"SELECT DISTINCT ps.song_id as "song_id!"
-                   FROM playlist_songz ps
-                   WHERE ps.playlist_id = ?"#,
+                    r#"SELECT DISTINCT ps.entity_id as "song_id!"
+                   FROM playlist_itemz ps
+                   WHERE ps.playlist_id = ? AND ps.entity_type = 'song'"#,
                     id
                 )
                 .fetch_all(pool)
@@ -608,7 +608,7 @@ pub(crate) async fn song_ids_for_clause(
                    LEFT JOIN artist_songz ars ON ars.song_id = s.id
                    LEFT JOIN user_favoritez far
                           ON far.target_type = 'artist' AND far.target_id = ars.artist_id AND far.user_id = ?
-                   LEFT JOIN playlist_songz ps ON ps.song_id = s.id
+                   LEFT JOIN playlist_itemz ps ON ps.entity_id = s.id AND ps.entity_type = 'song'
                    LEFT JOIN user_favoritez fap
                           ON fap.target_type = 'playlist' AND fap.target_id = ps.playlist_id AND fap.user_id = ?
                    WHERE fs.id IS NOT NULL OR fal.id IS NOT NULL
@@ -633,7 +633,7 @@ pub(crate) async fn song_ids_for_clause(
                    LEFT JOIN artist_songz ars ON ars.song_id = s.id
                    LEFT JOIN user_favoritez far
                           ON far.target_type = 'artist' AND far.target_id = ars.artist_id
-                   LEFT JOIN playlist_songz ps ON ps.song_id = s.id
+                   LEFT JOIN playlist_itemz ps ON ps.entity_id = s.id AND ps.entity_type = 'song'
                    LEFT JOIN user_favoritez fap
                           ON fap.target_type = 'playlist' AND fap.target_id = ps.playlist_id
                    WHERE fs.id IS NOT NULL OR fal.id IS NOT NULL
@@ -757,7 +757,7 @@ pub(crate) async fn song_ids_for_clause(
                 sqlx::query_scalar!(
                     r#"SELECT s.id as "song_id!"
                    FROM songz s
-                   WHERE (SELECT COUNT(*) FROM music_play_eventz WHERE song_id = s.id) >= ?"#,
+                   WHERE (SELECT COUNT(*) FROM play_eventz WHERE entity_type = 'song' AND entity_id = s.id) >= ?"#,
                     threshold
                 )
                 .fetch_all(pool)
@@ -770,7 +770,7 @@ pub(crate) async fn song_ids_for_clause(
                 sqlx::query_scalar!(
                     r#"SELECT s.id as "song_id!"
                    FROM songz s
-                   WHERE (SELECT COUNT(*) FROM music_play_eventz WHERE song_id = s.id) <= ?"#,
+                   WHERE (SELECT COUNT(*) FROM play_eventz WHERE entity_type = 'song' AND entity_id = s.id) <= ?"#,
                     threshold
                 )
                 .fetch_all(pool)

@@ -8,16 +8,16 @@ import { clusterChildrenOf, leaderOf, nodeRadius, pivot } from "./walkerHelpers"
 // in like a slice of a dartboard rather than ballooning into one huge ring.
 // ancestors go left.
 
-export const RING_STEP        = 170;             // legacy: still used for ancestor placement
-export const FORWARD          = 0;                // wedge points right (→)
-export const INIT_WEDGE       = Math.PI * 1.15;   // ~207° forward arc for first level — clearly a fan
-export const MAX_WEDGE        = Math.PI * 0.9;    // sub-wedge cap per child (keeps cones from overlapping)
+export const RING_STEP = 170; // legacy: still used for ancestor placement
+export const FORWARD = 0; // wedge points right (→)
+export const INIT_WEDGE = Math.PI * 1.15; // ~207° forward arc for first level — clearly a fan
+export const MAX_WEDGE = Math.PI * 0.9; // sub-wedge cap per child (keeps cones from overlapping)
 
 export function computeTargets(
   pivotId: string,
   visibleIds: Set<string>,
   cx: number,
-  cy: number,
+  cy: number
 ): Map<string, { x: number; y: number }> {
   const targets = new Map<string, { x: number; y: number }>();
 
@@ -34,7 +34,7 @@ export function computeTargets(
     parentR: number,
     kidIds: string[],
     midAngle: number,
-    wedge: number,
+    wedge: number
   ) {
     if (kidIds.length === 0) return;
 
@@ -52,14 +52,14 @@ export function computeTargets(
     // tie both knobs to parentR as well so a fat-catalog artist (whose
     // nodeRadius scales with childCount) actually gets a roomier album
     // ring, not just a bigger central glyph crowding the same shell.
-    const minArc    = Math.max(36, avgR * 2.6, parentR * 0.55);
+    const minArc = Math.max(36, avgR * 2.6, parentR * 0.55);
     const radialStep = Math.max(54, maxR * 2.4, parentR * 1.1);
     // first row sits parent-radius + a bit + max-kid-radius away from
     // parent. the third term (`parentR * 1.2`) adds personal space
     // proportional to the parent's footprint — for a 51px artist it
     // pads the album ring outward by ~61px instead of the previous flat
     // 28px floor, which is what was making "fat artist" feel tight.
-    const baseR    = parentR + maxR + Math.max(28, avgR * 1.4, parentR * 1.2);
+    const baseR = parentR + maxR + Math.max(28, avgR * 1.4, parentR * 1.2);
 
     // how many siblings fit per row before they'd be closer than minArc
     const perRow = Math.max(2, Math.floor((wedge * baseR) / minArc));
@@ -68,7 +68,7 @@ export function computeTargets(
     for (let i = 0; i < kidIds.length; i++) {
       if (targets.has(kidIds[i])) continue;
       const rowIdx = Math.floor(i / perRow);
-      const inRow  = i % perRow;
+      const inRow = i % perRow;
       // last partial row may have fewer items — center it inside the wedge
       const rowCount = rowIdx === rows - 1 ? kidIds.length - rowIdx * perRow : perRow;
       const r = baseR + rowIdx * radialStep;
@@ -86,7 +86,7 @@ export function computeTargets(
       const grandKids = (childrenOf.get(kidIds[i]) ?? []).filter((id) => visibleIds.has(id));
       if (grandKids.length > 0) {
         const kidNode = nodeMap.get(kidIds[i]);
-        const kidR    = kidNode ? nodeRadius(kidNode.role, kidNode.childCount) : 14;
+        const kidR = kidNode ? nodeRadius(kidNode.role, kidNode.childCount) : 14;
         // child's wedge = its angular slot, capped. don't promote it past its
         // siblings' share — that's what caused lone descendants to spread out
         // way wider than their parent's footprint and overlap neighbors.
@@ -173,13 +173,18 @@ export function getVisible(): Set<string> {
     // skip hub nodes that ended up with no children (e.g. unmapped genre).
     // lazy hubs are exempt: their children are loaded on pivot, so they
     // legitimately have zero children until the user expands them.
-    if ((wn.role === "value" || wn.role === "relation") && wn.childCount === 0 && !wn.lazy) continue;
+    if ((wn.role === "value" || wn.role === "relation") && wn.childCount === 0 && !wn.lazy)
+      continue;
     // when pivot is a remote hub, only surface its first-order taxon
     // children (relation hubs: genre, mood, tag, style, era, label,
-    // favorite). artists/albums are intentionally hidden until the user
-    // drills through a relation \u2192 value path. without this scope a
+    // favorite). artists/albums/video series/orphan videos are
+    // intentionally hidden until the user drills through a relation ->
+    // value path (or, for video, a taxon-hub pivot) — without this scope a
     // remote with hundreds of artists would dump the entire library on
-    // screen the moment you opened it.
+    // screen the moment you opened it. series/orphan videos no longer have
+    // a direct edge from the remote hub at all (see buildWalkGraph.ts), so
+    // this check is largely redundant for them now, but kept as defense
+    // in depth.
     if (pivRole === "remote" && wn.role !== "relation") continue;
     visible.add(childId);
   }
@@ -193,6 +198,18 @@ export function getVisible(): Set<string> {
   // in the merge/remove handlers), the auto-expansion check below finds
   // the correct leader id rather than silently skipping the album ring.
   const breadcrumbSet = new Set(state.breadcrumb.map(leaderOf));
+  // surface every direct parent hub of the pivot itself — not just the
+  // single ancestor chain picked for the breadcrumb (see ancestorChainTo
+  // in walker.worker.ts, which only picks one "best" path for navigation).
+  // an entity can have several real incoming edges at once: its real
+  // taxonomy/series parent AND synthetic browse-shortcut hubs like
+  // "recently added"/"unassigned"/"era"/"beloved" (createPivotHandler's
+  // maybeLoad*ForPivot loaders wire those directly to the entity too).
+  // all of them should draw a wire to the pivot, not just the one that
+  // happened to become its breadcrumb ancestor.
+  for (const parentId of parentsOf.get(piv) ?? []) {
+    visible.add(parentId);
+  }
   // honor eager-expansion requests: long-press / "expand all" on a hub
   // walks the entire descendant taxon subtree from that hub, surfacing\n  // every value/group taxon plus every artist found along the way. each
   // surfaced artist is then treated as auto-expand source for its albums.
@@ -210,7 +227,12 @@ export function getVisible(): Set<string> {
         const child = nodeMap.get(childId);
         if (!child) continue;
         if (child.role === "album") continue; // albums handled via artist pass below
-        if ((child.role === "value" || child.role === "relation") && child.childCount === 0 && !child.lazy) continue;
+        if (
+          (child.role === "value" || child.role === "relation") &&
+          child.childCount === 0 &&
+          !child.lazy
+        )
+          continue;
         visible.add(childId);
         if (child.role === "artist") {
           eagerArtists.add(childId);
@@ -218,6 +240,58 @@ export function getVisible(): Set<string> {
           stack.push(childId);
         }
       }
+    }
+  }
+  // auto-expand small taxon hubs so, once the user has actually pivoted
+  // INTO a given hub, browsing its low-cardinality children doesn't force
+  // a click-in + click-back for every single one. seeded only from the
+  // current pivot's own (already-visible) direct children — never from
+  // unrelated nodes that merely happen to be visible for other reasons
+  // (e.g. sibling relation hubs sitting next to the pivot) — so that
+  // navigating back to a shallower pivot naturally "closes" this bloom
+  // instead of leaving stale, off-branch nodes stuck visible. also
+  // skipped entirely when the pivot IS the remote hub: relation hubs
+  // (genre/mood/era/etc.) are the top-level taxonomy menu and should
+  // stay a manual click regardless of how few values a given kind has.
+  const AUTO_EXPAND_MAX_CHILDREN = 12;
+  const AUTO_EXPAND_MAX_DEPTH = 4;
+  if (pivRole !== "remote") {
+    const isSmallHub = (wn: { role: string; childCount: number } | undefined): boolean =>
+      !!wn &&
+      (wn.role === "relation" ||
+        wn.role === "value" ||
+        wn.role === "group" ||
+        wn.role === "video_series" ||
+        wn.role === "video_season") &&
+      wn.childCount > 0 &&
+      wn.childCount <= AUTO_EXPAND_MAX_CHILDREN;
+    let frontier = clusterChildrenOf(piv).filter((id) => isSmallHub(nodeMap.get(id)));
+    const seen = new Set<string>(frontier);
+    for (let depth = 0; depth < AUTO_EXPAND_MAX_DEPTH && frontier.length > 0; depth++) {
+      const next: string[] = [];
+      for (const hubId of frontier) {
+        for (const childId of clusterChildrenOf(hubId)) {
+          if (seen.has(childId)) continue;
+          seen.add(childId);
+          const child = nodeMap.get(childId);
+          if (!child) continue;
+          if (
+            (child.role === "value" || child.role === "relation") &&
+            child.childCount === 0 &&
+            !child.lazy
+          )
+            continue;
+          if (child.role === "album") continue; // handled via artist pass below
+          visible.add(childId);
+          if (child.role === "artist") {
+            eagerArtists.add(childId);
+          }
+          if (isSmallHub(child)) {
+            next.push(childId);
+          }
+        }
+      }
+      frontier = next;
     }
   }
   for (const id of [...visible]) {
@@ -236,6 +310,25 @@ export function getVisible(): Set<string> {
       for (const parentId of parentsOf.get(id) ?? []) {
         const parent = nodeMap.get(parentId);
         if (parent?.role === "artist") visible.add(parentId);
+      }
+    }
+  }
+  // when a video is visible (surfaced via a taxon-hub pivot fan-out —
+  // see createPivotHandler's maybeLoadVideosForPivot), keep its parent
+  // season/series visible too, mirroring the album -> artist rule above.
+  // walks up to two hops (video -> season -> series) since a season's
+  // edge direction is series -> season, not season -> series.
+  for (const id of [...visible]) {
+    const wn = nodeMap.get(id);
+    if (wn?.role !== "video") continue;
+    for (const parentId of parentsOf.get(id) ?? []) {
+      const parent = nodeMap.get(parentId);
+      if (parent?.role !== "video_season" && parent?.role !== "video_series") continue;
+      visible.add(parentId);
+      if (parent.role === "video_season") {
+        for (const grandParentId of parentsOf.get(parentId) ?? []) {
+          if (nodeMap.get(grandParentId)?.role === "video_series") visible.add(grandParentId);
+        }
       }
     }
   }

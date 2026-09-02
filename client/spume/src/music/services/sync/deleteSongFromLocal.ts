@@ -8,6 +8,7 @@ import { isCharnelMode } from "../../../app/services/charnel";
 import { debug, warn } from "../../../utils/logger";
 import { deleteSongCascade } from "../storage/db/cascades";
 import { unmarkSongSynced } from "../download";
+import { invalidateMusicLibraryQueries } from "../../queries/cacheUpdates";
 import { getCurrentRemote } from "../../data/currentState";
 
 export interface DeleteSongResult {
@@ -46,7 +47,10 @@ export async function deleteSongFromLocal(
     // song is from a remote P2P peer, cached in browser → delete from browser
     // use sha256 as lookup key since that's how synced songs are stored in IDB
     const browserKey = options.sha256 || songId;
-    debug("deleteSongFromLocal", `song ${browserKey.slice(0, 8)}... is from remote peer, deleting from browser storage`);
+    debug(
+      "deleteSongFromLocal",
+      `song ${browserKey.slice(0, 8)}... is from remote peer, deleting from browser storage`
+    );
     return deleteSongFromBrowser(browserKey);
   }
   return deleteSongFromBrowser(songId);
@@ -58,11 +62,15 @@ export async function deleteSongFromLocal(
 async function deleteSongFromBrowser(songId: string): Promise<DeleteSongResult> {
   try {
     const result = await deleteSongCascade(songId, true);
-    debug("deleteSongFromLocal", `deleted song ${songId.slice(0, 8)}... from browser storage (${result.deletedBlobs} blobs)`);
-    
+    debug(
+      "deleteSongFromLocal",
+      `deleted song ${songId.slice(0, 8)}... from browser storage (${result.deletedBlobs} blobs)`
+    );
+
     // also unmark from synced cache so it can be re-synced if needed
     unmarkSongSynced(songId);
-    
+    invalidateMusicLibraryQueries();
+
     return { success: true };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -79,17 +87,18 @@ async function deleteSongViaOffal(songId: string): Promise<DeleteSongResult> {
   try {
     // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
     const { invoke } = await import("@tauri-apps/api/core");
-    
-    const response = await invoke("api_call", {
+
+    const response = (await invoke("api_call", {
       path: "/api/songs/delete",
       body: { id: songId },
-    }) as { success: boolean; message: string };
+    })) as { success: boolean; message: string };
 
     if (!response.success) {
       return { success: false, error: response.message };
     }
 
     debug("deleteSongFromLocal", `soft-deleted song ${songId.slice(0, 8)}... from grimoire`);
+    invalidateMusicLibraryQueries();
     return { success: true };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

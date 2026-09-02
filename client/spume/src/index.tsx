@@ -9,6 +9,7 @@ installLogCapture();
 import { QueryClientProvider } from "@tanstack/solid-query";
 import { render } from "solid-js/web";
 import { App } from "./app/App";
+import { CenotaphPlayerApp } from "./app/player/CenotaphPlayerApp";
 import { isCharnelMode } from "./app/services/charnel";
 import { queryClient } from "./queryClient";
 
@@ -28,10 +29,15 @@ if (isCharnelMode() && /android/i.test(navigator.userAgent)) {
   document.documentElement.style.setProperty("--safe-area-top", "env(safe-area-inset-top, 0px)");
 }
 
+// `/player/` turns this tab into a remote-controllable playback target
+// instead of spume's normal controller UI (see docs/cenotaph-migration-plan.md
+// phase 6) - a pathname branch, not a separate build/deploy.
+const isPlayerRoute = window.location.pathname.startsWith("/player");
+
 render(
   () => (
     <QueryClientProvider client={queryClient}>
-      <App />
+      {isPlayerRoute ? <CenotaphPlayerApp /> : <App />}
     </QueryClientProvider>
   ),
   root

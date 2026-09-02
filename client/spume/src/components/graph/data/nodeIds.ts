@@ -70,6 +70,18 @@ export function albumNodeId(remoteId: string, albumId: string): string {
   return `album::${remoteId}::${albumId}`;
 }
 
+export function videoNodeId(remoteId: string, videoId: string): string {
+  return `video::${remoteId}::${videoId}`;
+}
+
+export function videoSeriesNodeId(remoteId: string, seriesId: string): string {
+  return `video_series::${remoteId}::${seriesId}`;
+}
+
+export function videoSeasonNodeId(remoteId: string, seasonId: string): string {
+  return `video_season::${remoteId}::${seasonId}`;
+}
+
 /** name is slugged; ghost artists have no stable library id. */
 export function ghostArtistId(name: string): string {
   return `ghost_artist::${slug(name)}`;
@@ -85,7 +97,10 @@ export type ParsedNodeId =
   | { kind: "group"; remoteId: string; relationKind: RelationKind; valueSlug: string }
   | { kind: "artist"; remoteId: string; artistId: string }
   | { kind: "album"; remoteId: string; albumId: string }
-  | { kind: "ghost_artist"; ghostSlug: string };
+  | { kind: "ghost_artist"; ghostSlug: string }
+  | { kind: "video"; remoteId: string; videoId: string }
+  | { kind: "video_series"; remoteId: string; seriesId: string }
+  | { kind: "video_season"; remoteId: string; seasonId: string };
 
 export function parseNodeId(id: string): ParsedNodeId {
   if (id === "root") return { kind: "root" };
@@ -121,6 +136,18 @@ export function parseNodeId(id: string): ParsedNodeId {
     case "ghost_artist": {
       if (rest.length !== 1) throw new Error(`unparseable node id: ${id}`);
       return { kind: "ghost_artist", ghostSlug: rest[0] };
+    }
+    case "video": {
+      if (rest.length !== 2) throw new Error(`unparseable node id: ${id}`);
+      return { kind: "video", remoteId: rest[0], videoId: rest[1] };
+    }
+    case "video_series": {
+      if (rest.length !== 2) throw new Error(`unparseable node id: ${id}`);
+      return { kind: "video_series", remoteId: rest[0], seriesId: rest[1] };
+    }
+    case "video_season": {
+      if (rest.length !== 2) throw new Error(`unparseable node id: ${id}`);
+      return { kind: "video_season", remoteId: rest[0], seasonId: rest[1] };
     }
     default:
       throw new Error(`unparseable node id: ${id}`);

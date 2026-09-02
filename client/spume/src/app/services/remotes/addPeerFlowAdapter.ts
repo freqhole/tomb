@@ -41,7 +41,8 @@ function remoteLikeFor(target: PeerTarget): RemoteLike {
 export const addPeerFlowDeps: AddPeerFlowDeps = {
   getAllRemotes: async () => (await getAllRemotes()) as SavedRemote[],
   getAllPendingRemotes,
-  getPendingRemoteByPeerAddr: async (peerAddr) => (await getPendingRemoteByPeerAddr(peerAddr)) ?? null,
+  getPendingRemoteByPeerAddr: async (peerAddr) =>
+    (await getPendingRemoteByPeerAddr(peerAddr)) ?? null,
   createPendingRemote,
   updatePendingRemote: async (id, patch) => {
     await updatePendingRemote(id, patch as Partial<Omit<SpumePendingRemote, "id" | "created_at">>);
@@ -53,6 +54,8 @@ export const addPeerFlowDeps: AddPeerFlowDeps = {
   getServerInfo: async (target) => {
     const client = await getClientForRemote(remoteLikeFor(target));
     const result = await client.app.serverInfo();
+    // TEMP DEBUG - remove once the first-pair-attempt-fails bug is found
+    console.log("[debug/addPeer] getServerInfo target:", target, "result:", result);
     return result.success && result.data ? (result.data as PeerServerInfo) : null;
   },
 
@@ -67,7 +70,7 @@ export const addPeerFlowDeps: AddPeerFlowDeps = {
     const result = await client.admin.createKnockPublic({ username, message });
     if (!result.success) {
       throw new Error(
-        "error" in result ? formatErrorMessage(result.error) : "failed to send access request",
+        "error" in result ? formatErrorMessage(result.error) : "failed to send access request"
       );
     }
   },
@@ -93,7 +96,7 @@ export const addPeerFlowDeps: AddPeerFlowDeps = {
     });
     if (!result.success) {
       throw new Error(
-        "error" in result ? formatErrorMessage(result.error) : "invite code redemption failed",
+        "error" in result ? formatErrorMessage(result.error) : "invite code redemption failed"
       );
     }
   },
@@ -114,5 +117,6 @@ export const addPeerFlowDeps: AddPeerFlowDeps = {
   transportFor: (target) =>
     target.type === "p2p" ? (isCharnelAvailable() ? "app" : "wasm") : "http",
 
-  defaultScheme: typeof window !== "undefined" && window.location.protocol === "http:" ? "http" : "https",
+  defaultScheme:
+    typeof window !== "undefined" && window.location.protocol === "http:" ? "http" : "https",
 };

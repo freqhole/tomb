@@ -25,13 +25,18 @@
 import { createEffect, createRoot, on } from "solid-js";
 import { appState } from "../../../app/services/storage/db";
 import { currentRadioStation } from "../../../app/services/storage/currentRadioStation";
+import { mediaItemKey, type QueuedVideo } from "../../../app/services/storage/mediaItem";
+import { getVideoDataSource } from "../../../video/data";
+import { formatSeasonLabel } from "../../../components/forms/VideoSeasonAutocomplete";
 import { debug } from "../../../utils/logger";
-import {
-  currentTime,
-  duration,
-  isPlaying,
-} from "../audio/playerState";
+import { currentTime, duration, isPlaying } from "../audio/playerState";
 import type { Song } from "../storage/types";
+import { getMediaSessionArtworkForVideo } from "./mediaSessionArtwork";
+import { getLocalArtworkFilePath } from "./mediaSessionArtwork";
+import {
+  pushMediaSessionTrack,
+  clearMediaSessionTrack,
+} from "../../../app/services/charnel/commands";
 
 export interface ExternalMediaSessionOptions {
   title: string;
@@ -106,9 +111,7 @@ export interface MediaActions {
 
 let mediaActions: MediaActions | null = null;
 let resolveSongById: ((id: string) => Promise<Song | null>) | null = null;
-let resolveArtworkForSong:
-  | ((song: Song) => Promise<MediaImage[]>)
-  | null = null;
+let resolveArtworkForSong: ((song: Song) => Promise<MediaImage[]>) | null = null;
 
 /**
  * register player-facade callbacks + a song-lookup function + an
@@ -119,7 +122,7 @@ let resolveArtworkForSong:
 export function registerMediaActions(
   actions: MediaActions,
   resolveSong: (id: string) => Promise<Song | null>,
-  resolveArtwork: (song: Song) => Promise<MediaImage[]>,
+  resolveArtwork: (song: Song) => Promise<MediaImage[]>
 ): () => void {
   mediaActions = actions;
   resolveSongById = resolveSong;
@@ -149,8 +152,17 @@ export function installMediaSessionBridge(): void {
     createEffect(
       on(
         () => appState()?.current_sha256 ?? null,
-        () => void refreshMetadata(),
-      ),
+        (sha, prevSha) => {
+          // `on()` reruns whenever the tracked signal is written at all,
+          // even if the derived value is unchanged (appState() gets a
+          // brand-new object reference on every write - see
+          // docs/radio-queue-refactor-ideas.md) - guard explicitly so
+          // an unrelated appState rewrite doesn't force a needless
+          // metadata refetch (e.g. video series/season lookups).
+          if (sha === prevSha) return;
+          void refreshMetadata();
+        }
+      )
     );
 
     // playback state — flip `playbackState` between "playing" /
@@ -162,7 +174,7 @@ export function installMediaSessionBridge(): void {
         if (!("mediaSession" in navigator)) return;
         if (!appState()?.current_sha256) return;
         navigator.mediaSession.playbackState = playing ? "playing" : "paused";
-      }),
+      })
     );
 
     // favorite state — reflects live in-app favorite toggles (e.g. the
@@ -176,17 +188,18 @@ export function installMediaSessionBridge(): void {
         () => {
           const state = appState();
           if (!state?.current_sha256) return null;
-          const song = state.queue.find(
-            (s) => s.sha256 === state.current_sha256,
+          const item = state.queue.find(
+            (i) => i.kind === "song" && i.song.sha256 === state.current_sha256
           );
-          return song?.is_favorite ?? false;
+          if (!item || item.kind !== "song") return false;
+          return item.song.is_favorite ?? false;
         },
         (isFavorite) => {
           if (externalActive) return;
           if (isFavorite === null) return;
           pushFavoriteState(isFavorite);
-        },
-      ),
+        }
+      )
     );
 
     // position state — feeds the lock-screen scrubber. update lazily;
@@ -207,10 +220,69 @@ export function installMediaSessionBridge(): void {
         } catch {
           // some browsers reject the call when metadata isn't yet set.
         }
-      }),
+      })
     );
   });
+
+  // OS media session (MPRIS/SMTC/MPNowPlayingInfoCenter, via the rust
+  // `playwire` crate) actions - only relevant for the rodio audio + gst
+  // video paths, which don't get a `navigator.mediaSession` action
+  // handler for free. reuses the same registered actions as the browser
+  // handlers above, so a media key does the same thing regardless of
+  // which surface delivered it.
+  void listenForMediaSessionActions();
 }
+
+async function listenForMediaSessionActions(): Promise<void> {
+  try {
+    // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
+    const { listen } = await import("@tauri-apps/api/event");
+    await listen<OsMediaSessionAction>("freqhole:media_session_action", (event) => {
+      const actions = mediaActions;
+      if (!actions) return;
+      const payload = event.payload;
+      switch (payload.kind) {
+        case "play":
+        case "play_pause":
+          void actions.togglePlayback("mediaSession");
+          break;
+        case "pause":
+        case "stop":
+          actions.pause();
+          break;
+        case "next":
+          if (!intentionalReloadActive) void actions.playNext();
+          break;
+        case "previous":
+          if (!intentionalReloadActive) void actions.playPrevious();
+          break;
+        case "seek_to":
+          actions.seek(payload.ms / 1000);
+          break;
+        case "set_volume":
+          // volume control isn't wired to a queue-level action yet -
+          // no-op rather than guessing at a backend to apply it to.
+          break;
+      }
+    });
+  } catch {
+    // non-tauri - nothing to listen for.
+  }
+}
+
+interface OsMediaSessionActionPayload {
+  kind: "play" | "pause" | "play_pause" | "stop" | "next" | "previous";
+}
+interface OsMediaSessionSeekPayload {
+  kind: "seek_to";
+  ms: number;
+}
+interface OsMediaSessionVolumePayload {
+  kind: "set_volume";
+  volume: number;
+}
+type OsMediaSessionAction =
+  OsMediaSessionActionPayload | OsMediaSessionSeekPayload | OsMediaSessionVolumePayload;
 
 /**
  * push favorite state onto the platform's lock-screen surface. this is
@@ -237,9 +309,7 @@ function pushFavoriteState(isFavorite: boolean): void {
  * when `isLive` is true we explicitly clear position state and seek
  * handlers so platforms render non-seekable controls.
  */
-export function setExternalMediaSession(
-  options: ExternalMediaSessionOptions,
-): void {
+export function setExternalMediaSession(options: ExternalMediaSessionOptions): void {
   if (typeof navigator === "undefined" || !("mediaSession" in navigator)) {
     return;
   }
@@ -252,7 +322,7 @@ export function setExternalMediaSession(
     "artist:",
     options.artist,
     "isPlaying:",
-    options.isPlaying,
+    options.isPlaying
   );
 
   const artwork = options.artworkUrl
@@ -275,24 +345,16 @@ export function setExternalMediaSession(
     artwork,
   });
 
-  navigator.mediaSession.playbackState = options.isPlaying
-    ? "playing"
-    : "paused";
+  navigator.mediaSession.playbackState = options.isPlaying ? "playing" : "paused";
 
   navigator.mediaSession.setActionHandler("play", options.onPlay ?? null);
   navigator.mediaSession.setActionHandler("pause", options.onPause ?? null);
-  navigator.mediaSession.setActionHandler(
-    "nexttrack",
-    options.onNextTrack ?? null,
-  );
-  navigator.mediaSession.setActionHandler(
-    "previoustrack",
-    options.onPreviousTrack ?? null,
-  );
+  navigator.mediaSession.setActionHandler("nexttrack", options.onNextTrack ?? null);
+  navigator.mediaSession.setActionHandler("previoustrack", options.onPreviousTrack ?? null);
   try {
     navigator.mediaSession.setActionHandler(
       "favorite" as MediaSessionAction,
-      options.onFavoriteToggle ?? null,
+      options.onFavoriteToggle ?? null
     );
   } catch {
     // some browsers reject unknown action names; safe to ignore.
@@ -363,6 +425,12 @@ export function isExternalSessionActive(): boolean {
 // ---------------------------------------------------------------------------
 
 async function refreshMetadata(): Promise<void> {
+  // TEMP(media-session): loud trace to find where the OS media session
+  // push isn't reaching rust - remove once confirmed working.
+  console.info(
+    "[media-session] refreshMetadata called, has navigator.mediaSession:",
+    typeof navigator !== "undefined" && "mediaSession" in navigator
+  );
   if (typeof navigator === "undefined" || !("mediaSession" in navigator)) {
     return;
   }
@@ -388,29 +456,90 @@ async function refreshMetadata(): Promise<void> {
   if (!current_sha256) {
     navigator.mediaSession.metadata = null;
     navigator.mediaSession.playbackState = "none";
+    void clearMediaSessionTrack();
     return;
   }
 
-  // check queue first to avoid fetching from wrong remote
-  let song: Song | undefined = queue.find((s) => s.sha256 === current_sha256);
-  if (!song && resolveSongById) {
-    song = (await resolveSongById(current_sha256)) ?? undefined;
-  }
-  if (!song) return;
+  // check queue first to avoid fetching from the wrong remote.
+  const queuedItem = queue.find((i) => mediaItemKey(i) === current_sha256);
+  let song: Song | undefined = queuedItem?.kind === "song" ? queuedItem.song : undefined;
+  let video: QueuedVideo | undefined = queuedItem?.kind === "video" ? queuedItem.video : undefined;
 
-  const artwork = resolveArtworkForSong
-    ? await resolveArtworkForSong(song)
-    : [];
+  if (!song && !video) {
+    if (resolveSongById) {
+      song = (await resolveSongById(current_sha256)) ?? undefined;
+    }
+    if (!song) {
+      video =
+        (await getVideoDataSource()
+          .getVideoById(current_sha256)
+          .catch(() => null)) ?? undefined;
+    }
+  }
+  if (!song && !video) return;
+
+  let artist: string | undefined;
+  let album: string | undefined;
+  let artwork: MediaImage[];
+
+  if (song) {
+    artist = song.artist_name;
+    album = song.album_title;
+    artwork = resolveArtworkForSong ? await resolveArtworkForSong(song) : [];
+  } else {
+    const v = video as QueuedVideo;
+    if (v.series_id) {
+      try {
+        const series = await getVideoDataSource().getVideoSeriesById(v.series_id);
+        artist = series?.title;
+      } catch {
+        // series lookup is best-effort — metadata still shows without it.
+      }
+    }
+    // secondary line: "season N · episode M" — mirrors VideoCard's
+    // seasonEpisodeLine, since the lock-screen has no dedicated fields.
+    const albumParts: string[] = [];
+    if (v.season_id && v.series_id) {
+      try {
+        const seasons = await getVideoDataSource().getVideoSeasons(v.series_id);
+        const season = seasons.find((s) => s.id === v.season_id);
+        if (season) albumParts.push(formatSeasonLabel(season.season_number, season.title));
+      } catch {
+        // season lookup is best-effort — metadata still shows without it.
+      }
+    }
+    if (v.episode_number != null) albumParts.push(`episode ${v.episode_number}`);
+    if (albumParts.length > 0) album = albumParts.join(" · ");
+    artwork = await getMediaSessionArtworkForVideo(v);
+  }
 
   // clear metadata first, then set it (iOS Safari workaround). don't
   // prefix with "loading..." — iOS treats title changes as different
   // tracks.
   navigator.mediaSession.metadata = null;
   navigator.mediaSession.metadata = new MediaMetadata({
-    title: song.title,
-    artist: song.artist_name,
-    album: song.album_title,
+    title: song ? song.title : (video as QueuedVideo).title,
+    artist,
+    album,
     artwork,
+  });
+
+  // OS media session (rodio/gst paths only get metadata this way, since
+  // they don't have their own `navigator.mediaSession`). the widget
+  // fetches artwork itself and can't reach a same-process `blob:` url, so
+  // try a real on-disk path first - best-effort, falls back to nothing.
+  const osArtworkUrl = song ? await getLocalArtworkFilePath(song) : null;
+  console.info(
+    "[media-session] pushing track:",
+    current_sha256,
+    song ? song.title : (video as QueuedVideo).title
+  );
+  void pushMediaSessionTrack({
+    id: current_sha256,
+    title: song ? song.title : (video as QueuedVideo).title,
+    artist: artist ?? "",
+    album: album ?? "",
+    artworkUrl: osArtworkUrl ?? "",
   });
 
   // always reflect actual audio state, not our loading signal. iOS
@@ -441,7 +570,7 @@ async function refreshMetadata(): Promise<void> {
     try {
       navigator.mediaSession.setActionHandler(
         "favorite" as MediaSessionAction,
-        () => void actions.toggleFavorite(),
+        () => void actions.toggleFavorite()
       );
     } catch {
       // some browsers reject unknown action names; safe to ignore.
@@ -449,8 +578,10 @@ async function refreshMetadata(): Promise<void> {
   }
 
   // android-only: reflect this song's favorite state on the lock-screen
-  // notification (no-op extension everywhere else).
-  pushFavoriteState(song.is_favorite ?? false);
+  // notification (no-op extension everywhere else). not wired for video
+  // yet — video favorite status has no cheap single-id lookup today (see
+  // `useVideoFavoriteStatuses.ts`), only a bulk query meant for list views.
+  if (song) pushFavoriteState(song.is_favorite ?? false);
 
   // android plugin "expectedend" watchdog. fires shortly after the
   // expected end of the current track when the webview has throttled
@@ -459,15 +590,12 @@ async function refreshMetadata(): Promise<void> {
   // the handler is installed unconditionally and dispatches to the
   // currently-registered callback (set via `registerWatchdog`).
   try {
-    navigator.mediaSession.setActionHandler(
-      "expectedend" as MediaSessionAction,
-      () => {
-        if (intentionalReloadActive) return;
-        if (!expectedEndCallback) return;
-        debug("player", "expectedend watchdog firing — invoking callback");
-        expectedEndCallback();
-      },
-    );
+    navigator.mediaSession.setActionHandler("expectedend" as MediaSessionAction, () => {
+      if (intentionalReloadActive) return;
+      if (!expectedEndCallback) return;
+      debug("player", "expectedend watchdog firing — invoking callback");
+      expectedEndCallback();
+    });
   } catch {
     // some browsers reject unknown action names; safe to ignore.
   }

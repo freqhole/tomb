@@ -27,6 +27,7 @@
 
 import { createEffect, createRoot } from "solid-js";
 import { appState } from "../../../app/services/storage/db";
+import { songsOnly } from "../../../app/services/storage/mediaItem";
 import {
   activeHistoryEntryId,
   markSongCompleted,
@@ -75,8 +76,14 @@ export function installPlaybackOrchestrator(): void {
         return;
       }
 
-      const songIdx = queue.findIndex((s) => s.sha256 === current_sha256);
-      const currentSong = songIdx >= 0 ? queue[songIdx] : null;
+      // video items don't participate in listen-history/analytics
+      // progress tracking yet (phase 9 MVP scope note) — resolve
+      // against the song-only subset and bail if the current item
+      // isn't a song.
+      const queueSongs = songsOnly(queue);
+      const songIdx = queueSongs.findIndex((s) => s.sha256 === current_sha256);
+      const currentSong = songIdx >= 0 ? queueSongs[songIdx] : null;
+      if (!currentSong) return;
 
       // 1. listen-history progress accumulation. only counts forward
       //    motion within the small-delta window so seeks don't pad
@@ -107,10 +114,7 @@ export function installPlaybackOrchestrator(): void {
       //    queue context, so no history entry) should still record
       //    a play. this used to be inside the same gate, which
       //    silently dropped analytics for single-song listens.
-      if (
-        completionRecordedFor !== current_sha256 &&
-        progress >= COMPLETION_THRESHOLD
-      ) {
+      if (completionRecordedFor !== current_sha256 && progress >= COMPLETION_THRESHOLD) {
         completionRecordedFor = current_sha256;
         if (activeHistoryEntryId()) {
           markSongCompleted(songIdx >= 0 ? songIdx : 0, currentSong);

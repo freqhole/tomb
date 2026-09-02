@@ -1,11 +1,4 @@
-import {
-  createSignal,
-  createEffect,
-  on,
-  onMount,
-  onCleanup,
-  Show,
-} from "solid-js";
+import { createSignal, createEffect, on, onMount, onCleanup, Show } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
 import * as monaco from "monaco-editor";
 import { useAdminTransport } from "../admin/context";
@@ -52,8 +45,7 @@ export default function ConfigView(props: ConfigViewProps = {}) {
   const [wordWrap, setWordWrap] = createSignal(false);
 
   // config upgrade state
-  const [upgradeStatus, setUpgradeStatus] =
-    createSignal<ConfigUpgradeStatus | null>(null);
+  const [upgradeStatus, setUpgradeStatus] = createSignal<ConfigUpgradeStatus | null>(null);
   const [isUpgrading, setIsUpgrading] = createSignal(false);
 
   // "show in finder" button copy state
@@ -149,9 +141,7 @@ export default function ConfigView(props: ConfigViewProps = {}) {
       return;
     }
     try {
-      const status = await invoke<ConfigUpgradeStatus>(
-        "check_config_needs_upgrade",
-      );
+      const status = await invoke<ConfigUpgradeStatus>("check_config_needs_upgrade");
       setUpgradeStatus(status);
       relayoutEditor();
     } catch (e) {
@@ -168,28 +158,13 @@ export default function ConfigView(props: ConfigViewProps = {}) {
     try {
       const result = await invoke<ConfigUpgradeResult>("upgrade_config");
 
-      // build message parts
+      // full details (spume update, haruspex/reliquary migration summaries,
+      // backup path) go to the console instead of the on-screen message.
       const versionMsg = `${result.old_version} → ${result.new_version}`;
-      const spumeMsg = result.spume_updated
-        ? `, web client updated (${result.spume_files} files)`
-        : "";
-      const migrationLine = (
-        name: string,
-        m?: { status: string; summary?: string; error?: string },
-      ) => {
-        if (m?.status === "ran" && m.summary) return `; ${name}: ${m.summary}`;
-        if (m?.status === "failed")
-          return `; ${name} migration failed: ${m.error}`;
-        return "";
-      };
-      const migrationMsg =
-        migrationLine("haruspex", result.haruspex_migration) +
-        migrationLine("reliquary", result.reliquary_migration);
+      console.log("config upgrade details:", result);
 
       // success - reload config
-      setSaveMessage(
-        `config upgraded: ${versionMsg}${spumeMsg}${migrationMsg} (backup: ${result.backup_path})`,
-      );
+      setSaveMessage(`config upgraded: ${versionMsg}`);
       setIsError(false);
 
       // reload editor with new config
@@ -198,13 +173,9 @@ export default function ConfigView(props: ConfigViewProps = {}) {
       // reload config and restart P2P endpoint
       try {
         await invoke("reload_config");
-        setSaveMessage(
-          `config upgraded: ${versionMsg}${spumeMsg}${migrationMsg} - config reloaded (backup: ${result.backup_path})`,
-        );
+        setSaveMessage(`config upgraded: ${versionMsg}`);
       } catch (e) {
-        setSaveMessage(
-          `config upgraded but failed to reload: ${e} (backup: ${result.backup_path})`,
-        );
+        setSaveMessage(`config upgraded but failed to reload: ${e}`);
         setIsError(true);
       }
 
@@ -296,11 +267,7 @@ export default function ConfigView(props: ConfigViewProps = {}) {
     try {
       const content = await fetchConfigContent();
       editor.setValue(content);
-      setSaveMessage(
-        admin.isRemote()
-          ? "remote config reloaded"
-          : "config reloaded from disk",
-      );
+      setSaveMessage(admin.isRemote() ? "remote config reloaded" : "config reloaded from disk");
       setSaveErrors([]);
       setIsError(false);
     } catch (e) {
@@ -344,18 +311,14 @@ export default function ConfigView(props: ConfigViewProps = {}) {
             {upgradeStatus()?.binary_version})
           </span>
           <span>
-            please upgrade your config file to the latest version. a backup of
-            your old config will be created.
+            please upgrade your config file to the latest version. a backup of your old config will
+            be created.
           </span>
         </div>
       </Show>
 
       <div class="editor-toolbar">
-        <button
-          class="primary small"
-          onClick={saveConfig}
-          disabled={isSaving() || isUpgrading()}
-        >
+        <button class="primary small" onClick={saveConfig} disabled={isSaving() || isUpgrading()}>
           {isSaving() ? "saving..." : "save & restart"}
         </button>
         <button
@@ -366,11 +329,7 @@ export default function ConfigView(props: ConfigViewProps = {}) {
           reload
         </button>
         <Show when={configPath() && !admin.isRemote()}>
-          <button
-            class="secondary small"
-            onClick={openConfigDir}
-            title={configPath()}
-          >
+          <button class="secondary small" onClick={openConfigDir} title={configPath()}>
             {pathCopied() ? "copied path!" : "show in finder"}
           </button>
         </Show>
@@ -406,11 +365,7 @@ export default function ConfigView(props: ConfigViewProps = {}) {
             }}
           >
             <strong>validation errors:</strong>
-            <button
-              class="dismiss-btn"
-              onClick={dismissMessage}
-              title="dismiss"
-            >
+            <button class="dismiss-btn" onClick={dismissMessage} title="dismiss">
               ×
             </button>
           </div>

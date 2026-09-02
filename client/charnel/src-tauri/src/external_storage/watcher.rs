@@ -83,8 +83,19 @@ mod platform {
                 tracing::warn!("removable-storage watcher: failed to create udev monitor");
                 return;
             };
+            // "disk" devtype only covers whole-disk devices (e.g. /dev/sdb) -
+            // most usb drives are partitioned, so the mountable device udisks
+            // actually mounts is devtype "partition" (e.g. /dev/sdb1). without
+            // this second filter, plugging in a partitioned drive never fired
+            // a matching event at all.
             let Ok(builder) = builder.match_subsystem_devtype("block", "disk") else {
-                tracing::warn!("removable-storage watcher: failed to filter udev monitor");
+                tracing::warn!("removable-storage watcher: failed to filter udev monitor (disk)");
+                return;
+            };
+            let Ok(builder) = builder.match_subsystem_devtype("block", "partition") else {
+                tracing::warn!(
+                    "removable-storage watcher: failed to filter udev monitor (partition)"
+                );
                 return;
             };
             let Ok(socket) = builder.listen() else {

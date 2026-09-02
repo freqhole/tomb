@@ -15,7 +15,7 @@ exclude = [
 resolver = "2"
 
 [workspace.package]
-version = "0.2.15"
+version = "0.3.0"
 edition = "2021"
 
 [workspace.dependencies]
@@ -91,7 +91,7 @@ walkdir = "2.4"
 inquire = "0.7"
 bigdecimal = { version = "0.4", features = ["serde"] }
 image = "0.24"
-iroh = "1.0.3"
+iroh = "1.1.0"
 iroh-blobs = "0.103"
 irpc = "0.17"
 blake3 = "1.5"

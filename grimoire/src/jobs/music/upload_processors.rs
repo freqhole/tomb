@@ -11,7 +11,8 @@ use crate::database;
 use crate::error::GrimoireError;
 use crate::jobs::{Job, JobError};
 use crate::media_blobz::{
-    get_media_blob_with_data, mirror_insert_bytes, update_blob_content, update_blob_local_path,
+    get_media_blob_with_data, mirror_insert_bytes, set_blob_local_path_or_purge_duplicate,
+    update_blob_content,
 };
 use crate::music::analytics::feed_events::upsert_album_feed_event;
 use crate::music::entities::albums::add_album_image;
@@ -269,6 +270,22 @@ async fn associate_image_with_entity(
         "playlist" => add_playlist_image(entity_id, blob_id, is_primary, created_by).await,
         "song" => add_song_image(entity_id, blob_id, is_primary, created_by).await,
         "artist" => add_artist_image(entity_id, blob_id, is_primary, created_by).await,
+        "video" | "video_series" => {
+            let video_entity_type = if entity_type == "video" {
+                crate::video::VideoEntityType::Video
+            } else {
+                crate::video::VideoEntityType::VideoSeries
+            };
+            crate::video::add_entity_image(
+                video_entity_type,
+                entity_id,
+                blob_id,
+                Some(is_primary),
+                crate::media_blobz::BlobType::Thumbnail,
+                created_by.map(|(uid, _)| uid),
+            )
+            .await
+        }
         _ => {
             return Err(GrimoireError::ProcessingFailed {
                 message: format!("unknown entity type: {}", entity_type),
@@ -324,6 +341,15 @@ async fn count_entity_images(
                 "SELECT COUNT(*) as count FROM artist_imagez WHERE artist_id = ?",
                 entity_id
             )
+            .fetch_one(pool)
+            .await?
+        }
+        "video" | "video_series" => {
+            sqlx::query_scalar!(
+            "SELECT COUNT(*) as count FROM entity_imagez WHERE entity_type = ? AND entity_id = ?",
+            entity_type,
+            entity_id
+        )
             .fetch_one(pool)
             .await?
         }
@@ -386,8 +412,15 @@ pub async fn process_import_music_job(job: &Job) -> Result<Option<Value>, JobErr
         });
     }
 
-    // update blob with local_path (in case it wasn't set during upload)
-    match update_blob_local_path(&blob_id, local_path_str, Some("job_processor".to_string())).await
+    // update blob with local_path (in case it wasn't set during upload) -
+    // purges the just-uploaded file instead if it's a duplicate of an
+    // already-owned file elsewhere (see the function's doc comment).
+    match set_blob_local_path_or_purge_duplicate(
+        &blob_id,
+        local_path_str,
+        Some("job_processor".to_string()),
+    )
+    .await
     {
         Ok(_) => {
             info!(

@@ -99,6 +99,14 @@ pub async fn dispatch(
         return resp;
     }
 
+    if let Some(resp) = super::video::dispatch(path, caller, &body, method).await {
+        return resp;
+    }
+
+    if let Some(resp) = super::entities::dispatch(path, caller, &body, method).await {
+        return resp;
+    }
+
     // no domain handled this path
     GrimoireResponse::failure(
         "route not found",
@@ -305,24 +313,36 @@ mod tests {
             "list_passkeys",
             "delete_passkey",
             "link_node",
-            // listen session writes - repository functions scope to caller.user_id
-            "update_listen_session_progress",
-            "update_listen_session_songs",
-            "update_listen_session_status",
-            // listen session delete - handler checks owner or admin
-            "delete_listen_session",
+            // playback session writes - repository functions scope to caller.user_id
+            "update_playback_session_progress",
+            "update_playback_session_items",
+            "update_playback_session_status",
+            // playback session delete - handler checks owner or admin
+            "delete_playback_session",
             // playlist mutations - handler checks owner or admin
             "update_playlist",
             "delete_playlist",
             "add_songs_to_playlist",
             "remove_songs_from_playlist",
             "reorder_playlist_songs",
+            // generic playlist item mutations - additive alongside the
+            // song-only routes above, same require_owner_or_scope check
+            "add_playlist_item",
+            "remove_playlist_item",
+            "reorder_playlist_items",
+            "add_playlist_items",
+            "remove_playlist_items",
             // import review mutations - handler checks admin, or that the
             // caller uploaded at least one song in the target album
             "mark_album_reviewed",
             "patch_album_review",
             "merge_albums_review",
             "move_song_review",
+            // video import review mutations - same pattern, scoped to the
+            // caller having uploaded at least one video in the target group
+            "mark_video_group_reviewed",
+            "patch_video_group_review",
+            "move_video_review",
         ];
 
         let allowlist: HashSet<&str> = HANDLER_ENFORCED_OWNER_ROUTES.iter().copied().collect();

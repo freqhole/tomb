@@ -55,9 +55,7 @@ export async function runStatefulTests() {
       console.log(`✓ ${name}`);
       passed++;
     } catch (err) {
-      console.log(
-        `✗ ${name}: ${err instanceof Error ? err.message : "unknown error"}`,
-      );
+      console.log(`✗ ${name}: ${err instanceof Error ? err.message : "unknown error"}`);
       failed++;
     }
   }
@@ -119,11 +117,7 @@ export async function runStatefulTests() {
   console.log("");
 
   // abort if setup failed
-  if (
-    !testState.existingSongId ||
-    !testState.existingAlbumId ||
-    !testState.existingGenreId
-  ) {
+  if (!testState.existingSongId || !testState.existingAlbumId || !testState.existingGenreId) {
     console.log("✗ setup failed - aborting stateful tests\n");
     return { passed, failed };
   }
@@ -216,9 +210,7 @@ export async function runStatefulTests() {
       offset: 0,
     });
     if (!result.success) {
-      throw new Error(
-        `failed to query playlist songs: ${result.error.message}`,
-      );
+      throw new Error(`failed to query playlist songs: ${result.error.message}`);
     }
     if (!result.data.items || result.data.items.length === 0) {
       throw new Error("expected at least one song in playlist");
@@ -248,7 +240,7 @@ export async function runStatefulTests() {
   });
 
   await test("set favorite on song", async () => {
-    const result = await client.music.setFavorite({
+    const result = await client.entities.setFavorite({
       user_id: testState.userId!,
       target_type: "song",
       target_id: testState.existingSongId!,
@@ -272,7 +264,7 @@ export async function runStatefulTests() {
   });
 
   await test("set rating on song", async () => {
-    const result = await client.music.setRating({
+    const result = await client.entities.setRating({
       user_id: testState.userId!,
       target_type: "song",
       target_id: testState.existingSongId!,
@@ -284,7 +276,7 @@ export async function runStatefulTests() {
   });
 
   await test("get rating stats", async () => {
-    const result = await client.music.getRatingStats({
+    const result = await client.entities.getRatingStats({
       target_type: "song",
       target_id: testState.existingSongId!,
     });
@@ -375,16 +367,12 @@ export async function runStatefulTests() {
       context: null,
     });
     if (!result.success) {
-      throw new Error(
-        `failed to get song suggestions: ${result.error.message}`,
-      );
+      throw new Error(`failed to get song suggestions: ${result.error.message}`);
     }
     // verify all suggestions are songs
     for (const suggestion of result.data.suggestions) {
       if (suggestion.suggestion_type !== "song") {
-        throw new Error(
-          `expected song suggestions, got ${suggestion.suggestion_type}`,
-        );
+        throw new Error(`expected song suggestions, got ${suggestion.suggestion_type}`);
       }
     }
   });
@@ -447,9 +435,7 @@ export async function runStatefulTests() {
       },
     });
     if (!result.success) {
-      throw new Error(
-        `failed to search with tag filter: ${result.error.message}`,
-      );
+      throw new Error(`failed to search with tag filter: ${result.error.message}`);
     }
     // verify context was applied (may or may not return results depending on data)
     if (!result.data.applied_filters) {
@@ -477,9 +463,7 @@ export async function runStatefulTests() {
       },
     });
     if (!result.success) {
-      throw new Error(
-        `failed to search with exclude filter: ${result.error.message}`,
-      );
+      throw new Error(`failed to search with exclude filter: ${result.error.message}`);
     }
     // verify exclude filter was applied
     if (typeof result.data.total_count !== "number") {
@@ -507,9 +491,7 @@ export async function runStatefulTests() {
       },
     });
     if (!result.success) {
-      throw new Error(
-        `failed to search all types with tags: ${result.error.message}`,
-      );
+      throw new Error(`failed to search all types with tags: ${result.error.message}`);
     }
     // verify response structure (results depend on data with tag002)
     if (!result.data.songs) {

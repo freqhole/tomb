@@ -89,8 +89,12 @@ pub async fn extract_and_import(
     let tagged_file = match Probe::open(file_path).and_then(|p| p.read()) {
         Ok(file) => file,
         Err(e) => {
-            tracing::info!(
-                "warning: could not read metadata from {:?}: {}",
+            // metadata extraction genuinely failed (not "no tags present") - the
+            // resulting song will look like a normal import but with only
+            // filename-derived metadata, so this needs to be loud enough to find
+            // in logs when a user reports "why does this song have no artist/album"
+            tracing::warn!(
+                "lofty tag read failed for {:?}, falling back to filename-only import: {}",
                 file_path,
                 e
             );

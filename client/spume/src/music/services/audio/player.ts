@@ -30,6 +30,10 @@
 
 import { HtmlAudioBackend } from "./backends/htmlAudio";
 import { BackendPlaybackError, type PlayerBackend } from "./backend";
+import { VideoBackend } from "../../../video/services/videoBackend";
+import { VideoWindowBackend } from "../../../video/services/videoWindowBackend";
+import { selectVideoBackend } from "./selectVideo";
+import { beginMediaLoad } from "../../../app/services/media/loadGuard";
 import { selectBackend } from "./select";
 import { registerStopMusic } from "../../../app/services/playbackCoordinator";
 import { installPreCacheScheduler } from "../queue/preCacheScheduler";
@@ -44,19 +48,45 @@ import {
 } from "./playerState";
 import { debug, warn } from "../../../utils/logger";
 import { appState } from "../../../app/services/storage/db";
-import { canGoNext, markPlaybackEnded } from "../queue/queueState";
+import { toast } from "../../../components/feedback/Toast";
+import {
+  mediaItemKey,
+  songToMediaItem,
+  videoToMediaItem,
+  type MediaItem,
+  type QueuedVideo,
+} from "../../../app/services/storage/mediaItem";
+import { canGoNext, markPlaybackEnded, resetPlaybackEnded } from "../queue/queueState";
 import { stopServerSession } from "../queue/serverSession";
 import { stopRadioForMusic } from "../../../app/services/playbackCoordinator";
 import { getDataSource } from "../../data";
 import { toggleSongFavoriteDirect } from "../../queries/favorites";
 import { getMediaSessionArtwork } from "./mediaSessionArtwork";
 import { resolveSongOrId } from "./facadeHelpers";
+import { isRemoteTargetActive } from "../../../app/services/players/activeTarget";
 
 import type { Song } from "../storage/types";
 // auto-advance past unplayable songs before giving up.
 const PLAY_NEXT_MAX_ATTEMPTS = 5;
 // per-song setup timeout for `playNext`.
 const PLAY_SONG_TIMEOUT_MS = 20_000;
+
+// `error_type`s emitted by `classifyMediaElementError` (see
+// `audio/backend.ts`) for the native media error codes worth
+// distinguishing in `bindAutoAdvance` below: NETWORK (2) is often a
+// transient blip worth one retry; DECODE (3) is permanent (the file
+// itself is bad) and should never retry.
+const NETWORK_ELEMENT_ERROR_TYPES = new Set([
+  "audio_element_error_network",
+  "video_element_error_network",
+]);
+const DECODE_ELEMENT_ERROR_TYPES = new Set([
+  "audio_element_error_decode",
+  "video_element_error_decode",
+]);
+// delay before retrying a network-error track once, so a transient
+// blip has a moment to clear before we hammer the same request again.
+const NETWORK_RETRY_DELAY_MS = 1500;
 
 // retry budget for `playNext` — caps how many times the queue will
 // (non-userInitiated) `playSong` calls land but the resulting
@@ -114,7 +144,7 @@ registerMediaActions(
   async (id: string): Promise<Song | null> => {
     return (await getDataSource().getSongById(id)) ?? null;
   },
-  getMediaSessionArtwork,
+  getMediaSessionArtwork
 );
 
 // android lock-screen "favorite" button for regular (non-radio) queue
@@ -125,8 +155,9 @@ async function toggleCurrentSongFavorite(): Promise<void> {
   const state = appState();
   const sha256 = state?.current_sha256;
   if (!sha256) return;
+  const queuedItem = state.queue.find((i) => i.kind === "song" && i.song.sha256 === sha256);
   const song =
-    state.queue.find((s) => s.sha256 === sha256) ??
+    (queuedItem?.kind === "song" ? queuedItem.song : undefined) ??
     (await getDataSource().getSongById(sha256));
   if (!song) return;
   try {
@@ -143,6 +174,35 @@ async function toggleCurrentSongFavorite(): Promise<void> {
 // players running in parallel.
 let activeBackend: PlayerBackend = selectBackend(htmlBackend);
 
+// always-allocated singleton for video playback. constructed lazily-cheap
+// (no dom work until first command), swapped into `activeBackend` only
+// while the current queue item is a video — see `ensureBackendForKind`.
+const videoBackend = new VideoBackend();
+
+// linux-only alternative that plays in charnel's separate gstreamer window.
+// constructed unconditionally (it opens no window until told to load) so the
+// selector can swap without async setup.
+const videoWindowBackend = new VideoWindowBackend();
+
+/** exposes the video backend's owned `<video>` element for `PlayerBar`'s
+ * video-aware rendering (mini video + fullscreen toggle). */
+export function getVideoElement(): HTMLVideoElement {
+  return videoBackend.element();
+}
+
+/** true while video is playing in the separate window rather than the inline
+ * `<video>` element - PlayerBar uses this to skip its mini-video rendering,
+ * since there is no element to show. */
+export function isVideoWindowActive(): boolean {
+  return activeBackend === videoWindowBackend;
+}
+
+/** true while a video backend is the active backend (i.e. a video is
+ * the current queue item). */
+export function isVideoBackendActive(): boolean {
+  return activeBackend === videoBackend || activeBackend === videoWindowBackend;
+}
+
 // playerStateSync is the single owner of the playback signals
 // (`isPlaying`/`currentTime`/`duration`/`isLoading`). bind it to the
 // active backend at boot, and re-bind whenever the backend swaps.
@@ -152,9 +212,19 @@ let activeBackend: PlayerBackend = selectBackend(htmlBackend);
 // the supervisor). the facade subscribes once and runs unified queue
 // traversal regardless of backend.
 let autoAdvanceUnsubscribe: (() => void) | null = null;
+// sha256/id of the track we've already retried once for a network
+// element error — cleared implicitly once the current track changes
+// (a new key never matches an old retry marker), so each track gets
+// exactly one network retry before falling back to advancing the
+// queue.
+let networkRetriedKey: string | null = null;
 function bindAutoAdvance(backend: PlayerBackend): void {
   if (autoAdvanceUnsubscribe) {
-    try { autoAdvanceUnsubscribe(); } catch { /* swallow */ }
+    try {
+      autoAdvanceUnsubscribe();
+    } catch {
+      /* swallow */
+    }
     autoAdvanceUnsubscribe = null;
   }
   autoAdvanceUnsubscribe = backend.subscribe((event) => {
@@ -164,13 +234,57 @@ function bindAutoAdvance(backend: PlayerBackend): void {
       return;
     }
     if (event.kind === "error") {
+      const errorType = event.detail?.error_type;
+      const reason = event.detail?.detail ?? event.detail?.title ?? "unknown";
+
+      // NETWORK element errors are often transient — retry the same
+      // track once (after a short delay) before giving up on it.
+      if (errorType && NETWORK_ELEMENT_ERROR_TYPES.has(errorType)) {
+        const state = appState();
+        const current = state?.current_sha256 ?? null;
+        const item = current ? state?.queue.find((i) => mediaItemKey(i) === current) : undefined;
+        if (current && item && networkRetriedKey !== current) {
+          networkRetriedKey = current;
+          warn(
+            "player",
+            `backend "${backend.kind}" network error — retrying current track once before advancing: ${reason}`
+          );
+          setTimeout(() => {
+            void playMediaItem(item, { userInitiated: false }).catch((err) => {
+              warn(
+                "player",
+                `backend "${backend.kind}" network-error retry failed, advancing queue: ${err instanceof Error ? err.message : err}`
+              );
+              void playNext();
+            });
+          }, NETWORK_RETRY_DELAY_MS);
+          return;
+        }
+      }
+
       // playback errors are treated as "skip + try the next track" —
       // `playNext` has its own retry budget so a string of bad tracks
-      // doesn't loop forever.
-      warn(
-        "player",
-        `backend "${backend.kind}" error — advancing queue: ${event.detail?.detail ?? event.detail?.title ?? "unknown"}`,
-      );
+      // doesn't loop forever. DECODE errors are permanent (the file
+      // itself is bad), so call that out distinctly rather than
+      // implying a retry would help.
+      const state = appState();
+      const current = state?.current_sha256 ?? null;
+      const item = current ? state?.queue.find((i) => mediaItemKey(i) === current) : undefined;
+      const title = item ? (item.kind === "video" ? item.video.title : item.song.title) : null;
+      if (errorType && DECODE_ELEMENT_ERROR_TYPES.has(errorType)) {
+        warn(
+          "player",
+          `backend "${backend.kind}" decode error (file may be corrupted), not retrying — advancing queue: ${reason}`
+        );
+        toast.error(title ? `couldn't play "${title}": ${reason}` : `couldn't play: ${reason}`, {
+          title: "playback error",
+        });
+      } else {
+        warn("player", `backend "${backend.kind}" error — advancing queue: ${reason}`);
+        toast.error(title ? `couldn't play "${title}": ${reason}` : `couldn't play: ${reason}`, {
+          title: "playback error",
+        });
+      }
       void playNext();
       return;
     }
@@ -209,10 +323,7 @@ export async function swapPlayerBackend(): Promise<void> {
     return;
   }
 
-  debug(
-    "player",
-    `backend swap: ${activeBackend.kind} -> ${next.kind}`,
-  );
+  debug("player", `backend swap: ${activeBackend.kind} -> ${next.kind}`);
 
   // STOP whatever the previous backend was doing. without this,
   // swapping rodio -> html (or vice versa) leaves the previous
@@ -268,16 +379,53 @@ registerStopMusic(() => {
 // receives the result via the `autoPlay` option on `loadAndPlay`.
 // =============================================================================
 
+/**
+ * ensure `activeBackend` is appropriate for the given media kind,
+ * swapping (and stopping whatever was previously playing) if needed.
+ * mirrors `swapPlayerBackend`'s teardown/rebind steps but triggers
+ * automatically based on the media kind of the item about to play,
+ * rather than a user settings change.
+ */
+function ensureBackendForKind(kind: "song" | "video"): PlayerBackend {
+  if (kind === "video") {
+    const wanted = selectVideoBackend(videoBackend, videoWindowBackend);
+    if (activeBackend !== wanted) {
+      void activeBackend.send({ kind: "stop" });
+      activeBackend = wanted;
+      bindActiveBackend(activeBackend);
+      bindAutoAdvance(activeBackend);
+    }
+    return activeBackend;
+  }
+  if (activeBackend.kind === "video") {
+    void activeBackend.send({ kind: "stop" });
+    activeBackend = selectBackend(htmlBackend);
+    bindActiveBackend(activeBackend);
+    bindAutoAdvance(activeBackend);
+  }
+  return activeBackend;
+}
+
 export async function playSong(
   songOrId: string | Song,
   options?: {
     userInitiated?: boolean;
     initialPosition?: number;
     initialDuration?: number;
-  },
+  }
 ): Promise<void> {
   const userInitiated = !!options?.userInitiated;
   const song = await resolveSongOrId(songOrId);
+  const loadGeneration = beginMediaLoad(song.sha256);
+
+  // a remote target (paired freqhole-player) owns playback instead of
+  // this device - playSong is queue/state-driven and gets called from
+  // many code paths that don't know about the active target, so guard
+  // centrally here rather than at every call site.
+  if (isRemoteTargetActive()) {
+    debug("player", `skipping local playback for "${song.title}" - remote target is active`);
+    return;
+  }
 
   // user-initiated playback wins over any active radio session.
   // centralized here so every backend gets the same coexistence
@@ -292,8 +440,19 @@ export async function playSong(
   // auto-play (the gate was just cleared).
   const autoPlay = userInitiated || !userExplicitlyPaused;
 
+  // clear the stale "queue fully finished" flag the moment we actually
+  // attempt to play something again, so a later addToQueue() doesn't
+  // mistake "ended once, earlier this session" for "idle right now" and
+  // wrongly force-starts playback over an already-playing song. this is
+  // the one place every play path (queue advance, direct playSong calls
+  // from radio/search/etc.) funnels through - previously only
+  // htmlAudio.ts reset this, so rodio (desktop) left it stuck forever
+  // after the first full queue completion.
+  resetPlaybackEnded();
+
   try {
-    await activeBackend.loadAndPlay(song, { ...options, autoPlay });
+    const backend = ensureBackendForKind("song");
+    await backend.loadAndPlay(songToMediaItem(song), { ...options, autoPlay, loadGeneration });
   } catch (err) {
     if (
       err instanceof BackendPlaybackError &&
@@ -308,7 +467,7 @@ export async function playSong(
       // this refactor is trying to avoid. phase 5 may revisit.
       warn(
         "player",
-        `rodio cannot play "${song.title}" (${song.sha256.slice(0, 8)}) — no local path; disable rodio in settings to stream remote files`,
+        `rodio cannot play "${song.title}" (${song.sha256.slice(0, 8)}) — no local path; disable rodio in settings to stream remote files`
       );
     }
     // make sure the pending-up-next spinner doesn't get stuck.
@@ -317,9 +476,70 @@ export async function playSong(
   }
 }
 
-export async function togglePlayback(
-  source: "ui" | "mediaSession" = "ui",
+/**
+ * play a video item through the shared queue/player pipeline. mirrors
+ * `playSong`'s pause-gate + radio-silencing semantics but routes
+ * through the video backend instead of the runtime-selected audio
+ * backend.
+ */
+export async function playVideo(
+  video: QueuedVideo,
+  options?: {
+    userInitiated?: boolean;
+    initialPosition?: number;
+    initialDuration?: number;
+  }
 ): Promise<void> {
+  const userInitiated = !!options?.userInitiated;
+  const loadGeneration = beginMediaLoad(video.id);
+
+  // see playSong's identical guard - no video-over-freqhole-player support
+  // exists anyway (phase 6), so a remote target should never play locally.
+  if (isRemoteTargetActive()) {
+    debug("player", `skipping local playback for "${video.title}" - remote target is active`);
+    return;
+  }
+
+  if (userInitiated) {
+    await stopRadioForMusic();
+    userExplicitlyPaused = false;
+  }
+
+  const autoPlay = userInitiated || !userExplicitlyPaused;
+
+  // see playSong's identical reset - keeps hasPlaybackEnded() accurate
+  // for video playback too.
+  resetPlaybackEnded();
+
+  try {
+    const backend = ensureBackendForKind("video");
+    await backend.loadAndPlay(videoToMediaItem(video), { ...options, autoPlay, loadGeneration });
+  } catch (err) {
+    setPendingUpNextSha256(null);
+    throw err;
+  }
+}
+
+/** unified entry point for queue-index-driven playback — dispatches to
+ * `playSong` or `playVideo` based on the item's kind. prefer this over
+ * calling `playSong`/`playVideo` directly when playing from a queue
+ * position, since queue items are `MediaItem`s. */
+export async function playMediaItem(
+  item: MediaItem,
+  options?: {
+    userInitiated?: boolean;
+    initialPosition?: number;
+    initialDuration?: number;
+  }
+): Promise<void> {
+  if (item.kind === "song") {
+    await playSong(item.song, options);
+    return;
+  }
+  await playVideo(item.video, options);
+}
+
+export async function togglePlayback(source: "ui" | "mediaSession" = "ui"): Promise<void> {
   void source;
 
   // pause path: short-circuit, set the gate, send pause through the
@@ -331,7 +551,10 @@ export async function togglePlayback(
   }
 
   // play path: silence radio + clear gate up-front so any pending
-  // up-next loads honor the user's intent.
+  // up-next loads honor the user's intent. `stopRadioForMusic()` is a
+  // no-op when radio isn't active (see leaveRadio's guard) - it used to
+  // unconditionally rewrite appState on every resume even when radio was
+  // never involved.
   await stopRadioForMusic();
   userExplicitlyPaused = false;
 
@@ -348,7 +571,7 @@ export async function togglePlayback(
       warn(
         "player",
         "resume failed, falling back to full load:",
-        e instanceof Error ? e.message : e,
+        e instanceof Error ? e.message : e
       );
     }
   }
@@ -367,8 +590,18 @@ export async function togglePlayback(
   const initialDuration = dur > 0 ? dur : undefined;
 
   if (current_sha256) {
-    const currentSong = queue.find((s) => s.sha256 === current_sha256);
-    await playSong(currentSong ?? current_sha256, {
+    const currentItem = queue.find((i) => mediaItemKey(i) === current_sha256);
+    if (currentItem) {
+      await playMediaItem(currentItem, {
+        userInitiated: true,
+        initialPosition,
+        initialDuration,
+      });
+      return;
+    }
+    // fallback: no matching queue item (e.g. queue was cleared but
+    // current_sha256 still points at a song) — resolve by id.
+    await playSong(current_sha256, {
       userInitiated: true,
       initialPosition,
       initialDuration,
@@ -376,7 +609,7 @@ export async function togglePlayback(
     return;
   }
   if (queue.length) {
-    await playSong(queue[0], { userInitiated: true });
+    await playMediaItem(queue[0], { userInitiated: true });
     return;
   }
   warn("player", "togglePlayback: nothing to play (queue empty)");
@@ -448,7 +681,7 @@ export async function playNext(): Promise<void> {
   const _dbgState = appState();
   debug(
     "player",
-    `playNext: queueLen=${_dbgState?.queue.length ?? 0} current=${_dbgState?.current_sha256?.slice(0, 8) ?? null} canGoNext=${canGoNext()}`,
+    `playNext: queueLen=${_dbgState?.queue.length ?? 0} current=${_dbgState?.current_sha256?.slice(0, 8) ?? null} canGoNext=${canGoNext()}`
   );
   if (!canGoNext()) {
     debug("player", "playNext: queue empty — marking playback ended");
@@ -459,38 +692,29 @@ export async function playNext(): Promise<void> {
   const state = appState();
   if (!state) return;
   const { queue, current_sha256 } = state;
-  let currentIdx = current_sha256
-    ? queue.findIndex((s) => s.sha256 === current_sha256)
-    : -1;
+  let currentIdx = current_sha256 ? queue.findIndex((i) => mediaItemKey(i) === current_sha256) : -1;
 
   let attempts = 0;
-  while (
-    currentIdx < queue.length - 1 &&
-    attempts < PLAY_NEXT_MAX_ATTEMPTS
-  ) {
+  while (currentIdx < queue.length - 1 && attempts < PLAY_NEXT_MAX_ATTEMPTS) {
     const nextIdx = currentIdx + 1;
-    const nextSong = queue[nextIdx];
+    const nextItem = queue[nextIdx];
     attempts++;
     try {
       await Promise.race([
-        playSong(nextSong, { userInitiated: true }),
+        playMediaItem(nextItem, { userInitiated: true }),
         new Promise<never>((_, reject) =>
           setTimeout(
-            () =>
-              reject(
-                new Error(
-                  `playSong timed out after ${PLAY_SONG_TIMEOUT_MS}ms`,
-                ),
-              ),
-            PLAY_SONG_TIMEOUT_MS,
-          ),
+            () => reject(new Error(`playMediaItem timed out after ${PLAY_SONG_TIMEOUT_MS}ms`)),
+            PLAY_SONG_TIMEOUT_MS
+          )
         ),
       ]);
       return;
     } catch (err) {
+      const nextTitle = nextItem?.kind === "song" ? nextItem.song.title : nextItem?.video.title;
       warn(
         "player",
-        `playNext: failed "${nextSong?.title}" idx=${nextIdx} attempt=${attempts}/${PLAY_NEXT_MAX_ATTEMPTS}: ${err instanceof Error ? err.message : err}`,
+        `playNext: failed "${nextTitle}" idx=${nextIdx} attempt=${attempts}/${PLAY_NEXT_MAX_ATTEMPTS}: ${err instanceof Error ? err.message : err}`
       );
       currentIdx = nextIdx;
       if (nextIdx >= queue.length - 1) {
@@ -503,7 +727,7 @@ export async function playNext(): Promise<void> {
   }
   warn(
     "player",
-    `playNext: exceeded retry budget (${PLAY_NEXT_MAX_ATTEMPTS}) — no playable song found`,
+    `playNext: exceeded retry budget (${PLAY_NEXT_MAX_ATTEMPTS}) — no playable song found`
   );
 }
 
@@ -512,11 +736,11 @@ export async function playPrevious(): Promise<void> {
   if (!state) return;
   const { queue, current_sha256 } = state;
   const currentIdx = current_sha256
-    ? queue.findIndex((s) => s.sha256 === current_sha256)
+    ? queue.findIndex((i) => mediaItemKey(i) === current_sha256)
     : -1;
   const prevIdx = currentIdx - 1;
   if (prevIdx >= 0) {
-    await playSong(queue[prevIdx], { userInitiated: true });
+    await playMediaItem(queue[prevIdx], { userInitiated: true });
   }
 }
 
@@ -529,6 +753,9 @@ export async function dispose(): Promise<void> {
   // a different backend (rodio/dummy) is currently active.
   if (activeBackend !== htmlBackend) {
     await htmlBackend.dispose();
+  }
+  if (activeBackend !== videoBackend) {
+    await videoBackend.dispose();
   }
 }
 

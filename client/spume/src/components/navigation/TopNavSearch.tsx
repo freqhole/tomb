@@ -4,7 +4,7 @@ import { isNarrowViewport } from "../../config/breakpoints";
 import { getCurrentRemote, getDataSource } from "../../music/data";
 import type { SearchSuggestion as APISuggestion } from "../../music/data/types";
 import { addToQueue, playQueue } from "../../music/services/queue/queue";
-import { routes, matchRoute } from "../../music/utils/routing";
+import { routes, matchRoute, buildRoute } from "../../music/utils/routing";
 import { valueNodeId, type RelationKind } from "../graph/data/nodeIds";
 import { setHighlightedSongId } from "../../music/state/highlightedSong";
 import { Icon } from "../icons/registry";
@@ -12,6 +12,8 @@ import type { SearchSuggestion } from "../forms/SearchInput";
 import { SearchInput } from "../forms/SearchInput";
 import type { MenuAction } from "../overlays/ContextMenu";
 import { extractShareTokenFromAnyText, SHARE_HASH_PARAM } from "../../utils/permalink";
+import { extractAddRemoteValue } from "../../utils/addRemoteLink";
+import { requestAddRemote } from "../../app/services/remotes/addRemoteRequest";
 import { recordSharedItemFromToken } from "../../app/services/storage/sharedItems";
 import { getRemoteById } from "../../app/services/remotes/remoteManager";
 import { showPlaylistSelector } from "../../music/hooks/playlistSelectorState";
@@ -21,6 +23,11 @@ import { isP2PRemote } from "../../app/services/storage/schemas/remote";
 import { createShareMenuAction } from "../../music/hooks/contextMenu";
 import { useToggleFavoriteMutation } from "../../music/queries/favorites";
 import { RemoteMusicDataSource } from "../../music/data/remote/remoteSource";
+import {
+  getSearchFilterRegistration,
+  isFilterableRoute,
+  isFilterOnlyRoute,
+} from "./searchFilterRegistry";
 
 export interface TopNavSearchProps {
   placeholder?: string;
@@ -86,10 +93,9 @@ export interface TopNavSearchProps {
   hintOverride?: () => { message: string; onClick?: () => void } | null;
 }
 
-// filterable route keys — used for the "press return to filter X" hint
-const FILTERABLE_KEYS = new Set(["songs", "albums", "artists", "playlists", "genres", "library"]);
-// routes that filter inline (no autocomplete dropdown, debounced as-you-type)
-const FILTER_ONLY_KEYS = new Set(["library"]);
+// filterable route keys, and the "press return to filter X" hint copy,
+// are registered per-view in `searchFilterRegistry.ts` — see that file
+// instead of growing a hardcoded Set/switch here.
 
 export function TopNavSearch(props: TopNavSearchProps) {
   const [searchValue, setSearchValue] = createSignal("");
@@ -118,7 +124,7 @@ export function TopNavSearch(props: TopNavSearchProps) {
   const currentRouteKey = createMemo(() => matchRoute(props.currentPath || ""));
   const filterableView = createMemo(() => {
     const key = currentRouteKey();
-    return key && FILTERABLE_KEYS.has(key) ? key : null;
+    return isFilterableRoute(key) ? key : null;
   });
 
   // hint message — overridden by parent if `hintOverride` provided,
@@ -128,7 +134,7 @@ export function TopNavSearch(props: TopNavSearchProps) {
     if (override) return override.message;
     const view = filterableView();
     if (!view || !isFocused()) return null;
-    return `press return to filter ${view}`;
+    return `press return to filter ${getSearchFilterRegistration(view)?.label ?? view}`;
   });
 
   const hintClick = () => {
@@ -257,12 +263,22 @@ export function TopNavSearch(props: TopNavSearchProps) {
         return;
       }
     }
+    // add-remote link interception: a pasted `?r=<node_id>` url (or bare
+    // node_id) opens AddRemoteModal pre-filled instead of searching.
+    if (value.length >= 20) {
+      const addRemoteValue = extractAddRemoteValue(value);
+      if (addRemoteValue) {
+        requestAddRemote(addRemoteValue);
+        collapse();
+        return;
+      }
+    }
     setSearchValue(value);
     props.onSearchChange?.(value);
     if (value && !isExpanded()) setIsExpanded(true);
     // filter-only routes (e.g. library): suppress autocomplete + debounce-submit
     const key = currentRouteKey();
-    if (key && FILTER_ONLY_KEYS.has(key)) {
+    if (isFilterOnlyRoute(key)) {
       setSuggestionsOpen(false);
       clearTimeout(filterDebounceTimer);
       filterDebounceTimer = setTimeout(() => submitFilter(), 250);
@@ -300,7 +316,7 @@ export function TopNavSearch(props: TopNavSearchProps) {
   const handleFocus = () => {
     setIsFocused(true);
     const key = currentRouteKey();
-    if (key && FILTER_ONLY_KEYS.has(key)) return;
+    if (isFilterOnlyRoute(key)) return;
     // reopen suggestions if there's a query (results may still be cached from previous search)
     if (searchValue().length >= 2 || (props.suggestions?.length ?? 0) > 0) {
       setSuggestionsOpen(true);
@@ -325,7 +341,7 @@ export function TopNavSearch(props: TopNavSearchProps) {
     const fullPath = props.currentPath || "";
     const pathname = fullPath.split("?")[0];
     const key = matchRoute(fullPath);
-    if (fullPath.includes("?") && key && FILTERABLE_KEYS.has(key)) {
+    if (fullPath.includes("?") && isFilterableRoute(key)) {
       props.onNavigate?.(pathname);
     }
   };
@@ -336,13 +352,13 @@ export function TopNavSearch(props: TopNavSearchProps) {
     const fullPath = props.currentPath || "";
     const pathname = fullPath.split("?")[0];
     const key = matchRoute(fullPath);
-    if (!key || !FILTERABLE_KEYS.has(key)) return;
+    if (!isFilterableRoute(key)) return;
     // empty q on filter-only routes clears the filter; otherwise require >=2 chars
     if (!q) {
       props.onNavigate?.(pathname);
       return;
     }
-    if (q.length < 2 && !FILTER_ONLY_KEYS.has(key)) return;
+    if (q.length < 2 && !isFilterOnlyRoute(key)) return;
     props.onNavigate?.(`${pathname}?q=${encodeURIComponent(q)}`);
   };
 
@@ -434,6 +450,12 @@ export function TopNavSearch(props: TopNavSearchProps) {
         props.onNavigate?.(`/explore?graph=${encodeURIComponent(nodeId)}`);
         break;
       }
+      case "video":
+        props.onNavigate?.(buildRoute(`/video/${s.entity_id}`));
+        break;
+      case "video_series":
+        props.onNavigate?.(buildRoute(`/video/series/${s.entity_id}`));
+        break;
     }
 
     // close dropdown and clear focus so hint doesn't linger
@@ -943,6 +965,50 @@ export function TopNavSearch(props: TopNavSearchProps) {
                     ? routes.playlistOn(rid, apiSuggestion.entity_id)
                     : routes.playlist(apiSuggestion.entity_id)
                 ),
+            });
+            break;
+          }
+          case "video": {
+            contextMenuActions.push({
+              label: "play video",
+              icon: "play",
+              onClick: () => props.onNavigate?.(buildRoute(`/video/${apiSuggestion.entity_id}`)),
+            });
+            contextMenuActions.push({ type: "separator" });
+            contextMenuActions.push({
+              label: isFav ? "remove from favorites" : "add to favorites",
+              icon: isFav ? "favorite" : "favoriteOutline",
+              onClick: async () => {
+                const r = await resolveDs();
+                toggleFavoriteMutation.mutate({
+                  targetType: "video",
+                  targetId: apiSuggestion.entity_id,
+                  isFavorite: !isFav,
+                  remote: r?.remote ?? undefined,
+                });
+              },
+            });
+            contextMenuActions.push({ type: "separator" });
+            contextMenuActions.push({
+              label: "go to video",
+              icon: "video",
+              onClick: () => props.onNavigate?.(buildRoute(`/video/${apiSuggestion.entity_id}`)),
+            });
+            if (meta?.series_id) {
+              contextMenuActions.push({
+                label: "go to series",
+                icon: "list",
+                onClick: () => props.onNavigate?.(buildRoute(`/video/series/${meta.series_id}`)),
+              });
+            }
+            break;
+          }
+          case "video_series": {
+            contextMenuActions.push({
+              label: "go to series",
+              icon: "list",
+              onClick: () =>
+                props.onNavigate?.(buildRoute(`/video/series/${apiSuggestion.entity_id}`)),
             });
             break;
           }

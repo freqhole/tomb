@@ -7,9 +7,27 @@
 //! `action` rather than registering a separate tauri command per
 //! operation.
 
+use std::collections::HashSet;
+use std::sync::{LazyLock, Mutex};
+
 use super::{disk_usage, eject_device, is_still_mounted, path_naming, resolve_volume_info};
-use crate::app_config::{ExternalStorageDevice, FreqholeAppConfig};
+use crate::app_config::{
+    default_external_storage_reencode_args, default_external_storage_reencode_extension,
+    ExternalStorageDevice, FreqholeAppConfig,
+};
 use serde::{Deserialize, Serialize};
+
+/// last set of mounted device ids seen by *any* window's `ListMounted`
+/// call - lets that call detect when it's the first to notice a change
+/// (e.g. the wizard's storage view was opened before the os-level watcher
+/// fired, or before a device was even configured) so it can nudge every
+/// other window rather than leaving them stale until the next watcher
+/// event. compared by value (not just "did the watcher already tell us"),
+/// so this converges after at most one extra round-trip instead of
+/// looping: a `ListMounted` call triggered BY a `notify_...` listener
+/// will see no further diff against the set it just wrote, and stop.
+static LAST_MOUNTED_IDS: LazyLock<Mutex<Option<HashSet<String>>>> =
+    LazyLock::new(|| Mutex::new(None));
 
 /// global removable-storage sync settings, shared by every configured
 /// device (per-device state - which device, its subpath override, etc -
@@ -42,15 +60,22 @@ pub struct DeviceWithStats {
     pub device: ExternalStorageDevice,
     /// unix ms timestamp of the last completed sync to this device, if any.
     pub last_synced_at: Option<i64>,
+    /// real write-access probe (not just "does the path exist") - catches
+    /// a stale flatpak document-portal grant (permission revoked) that
+    /// still resolves as a readable/existing path but can no longer be
+    /// written through. see docs/flatpak-filesystem-access-plan.md phase C4.
+    pub path_writable: bool,
 }
 
 async fn with_stats(device: ExternalStorageDevice) -> DeviceWithStats {
     let last_synced_at = grimoire::external_storage::get_device_last_synced_at(&device.id)
         .await
         .unwrap_or(None);
+    let path_writable = crate::commands::check_dir_writable(device.path.clone());
     DeviceWithStats {
         device,
         last_synced_at,
+        path_writable,
     }
 }
 
@@ -184,6 +209,14 @@ fn to_value<T: Serialize>(v: T) -> Result<serde_json::Value, String> {
     serde_json::to_value(v).map_err(|e| e.to_string())
 }
 
+fn nonempty_or_default(value: String, fallback: &str) -> String {
+    if value.trim().is_empty() {
+        fallback.to_string()
+    } else {
+        value
+    }
+}
+
 /// single tauri command entrypoint for all removable-storage sync
 /// operations.
 #[tauri::command]
@@ -193,27 +226,71 @@ pub async fn external_storage_command(
 ) -> Result<serde_json::Value, String> {
     match action {
         ExternalStorageAction::GetSettings => {
-            let config = FreqholeAppConfig::load(&app_handle).unwrap_or_default();
+            let mut config = FreqholeAppConfig::load(&app_handle).unwrap_or_default();
+            let default_subpath =
+                nonempty_or_default(config.external_storage_default_subpath.clone(), "Music");
+            let playlists_subpath = nonempty_or_default(
+                config.external_storage_playlists_subpath.clone(),
+                "Playlists",
+            );
+            // same repair as above: an explicit empty string bypasses
+            // serde's missing-field default and made ffmpeg run with no
+            // {input}/{output} at all (args=["-f", "mp3"]) - see
+            // run_ffmpeg's "Trailing option(s) found" failure mode.
+            let reencode_args = nonempty_or_default(
+                config.external_storage_reencode_args.clone(),
+                &default_external_storage_reencode_args(),
+            );
+            let reencode_extension = nonempty_or_default(
+                config.external_storage_reencode_extension.clone(),
+                &default_external_storage_reencode_extension(),
+            );
+            // Persist the repair so copy_engine sees the default too, rather
+            // than merely making the settings field look correct.
+            if config.external_storage_default_subpath != default_subpath
+                || config.external_storage_playlists_subpath != playlists_subpath
+                || config.external_storage_reencode_args != reencode_args
+                || config.external_storage_reencode_extension != reencode_extension
+            {
+                config.external_storage_default_subpath = default_subpath.clone();
+                config.external_storage_playlists_subpath = playlists_subpath.clone();
+                config.external_storage_reencode_args = reencode_args.clone();
+                config.external_storage_reencode_extension = reencode_extension.clone();
+                config.save(&app_handle)?;
+            }
             to_value(ExternalStorageSettings {
-                default_subpath: config.external_storage_default_subpath,
-                playlists_subpath: config.external_storage_playlists_subpath,
+                // Older config files can contain an explicit empty string,
+                // which bypasses serde's missing-field default and made the
+                // device music root silently become its mount root.
+                default_subpath,
+                playlists_subpath,
                 playlists_sync_enabled: !config.external_storage_playlists_sync_disabled,
                 reencode_enabled: config.external_storage_reencode_enabled,
-                reencode_args: config.external_storage_reencode_args,
-                reencode_extension: config.external_storage_reencode_extension,
+                reencode_args,
+                reencode_extension,
             })
         }
 
         ExternalStorageAction::SetSettings { settings } => {
             let mut config = FreqholeAppConfig::load(&app_handle).unwrap_or_default();
-            config.external_storage_default_subpath =
-                path_naming::sanitize_subpath(&settings.default_subpath);
-            config.external_storage_playlists_subpath =
-                path_naming::sanitize_subpath(&settings.playlists_subpath);
+            config.external_storage_default_subpath = nonempty_or_default(
+                path_naming::sanitize_subpath(&settings.default_subpath),
+                "Music",
+            );
+            config.external_storage_playlists_subpath = nonempty_or_default(
+                path_naming::sanitize_subpath(&settings.playlists_subpath),
+                "Playlists",
+            );
             config.external_storage_playlists_sync_disabled = !settings.playlists_sync_enabled;
             config.external_storage_reencode_enabled = settings.reencode_enabled;
-            config.external_storage_reencode_args = settings.reencode_args;
-            config.external_storage_reencode_extension = settings.reencode_extension;
+            config.external_storage_reencode_args = nonempty_or_default(
+                settings.reencode_args,
+                &default_external_storage_reencode_args(),
+            );
+            config.external_storage_reencode_extension = nonempty_or_default(
+                settings.reencode_extension,
+                &default_external_storage_reencode_extension(),
+            );
             config.save(&app_handle)?;
             to_value(())
         }
@@ -232,6 +309,18 @@ pub async fn external_storage_command(
                 .into_iter()
                 .filter(is_still_mounted)
                 .collect();
+            let current_ids: HashSet<String> = mounted.iter().map(|d| d.id.clone()).collect();
+            let changed = {
+                let mut last = LAST_MOUNTED_IDS.lock().unwrap_or_else(|p| p.into_inner());
+                let changed = last.as_ref() != Some(&current_ids);
+                if changed {
+                    *last = Some(current_ids);
+                }
+                changed
+            };
+            if changed {
+                let _ = crate::spume_bridge::notify_external_storage_mounted_changed(&app_handle);
+            }
             to_value(with_stats_many(mounted).await)
         }
 

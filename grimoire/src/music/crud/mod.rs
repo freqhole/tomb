@@ -17,10 +17,11 @@ pub use models::{
     AlbumImportRequest, AlbumImportResult, AlbumQueryResult, AlbumStatusCounts, AlbumsQueryResult,
     ArtistImportRequest, ArtistQueryResult, ArtistsQueryResult, BulkImportRequest,
     BulkImportResult, CreateSongWithMetadataRequest, EntityUrl, FavoriteAlbumResult,
-    FavoriteArtistResult, FavoriteItem, FavoritePlaylistResult, FavoriteSongResult, ImageMetadata,
-    ImportSongRequest, ImportSongResult, PlaylistQueryResult, PlaylistSongResult,
-    PlaylistSongsQueryResult, PlaylistsQueryResult, QueryParams, QueryPlaylistSongsRequest,
-    QueryResult, SongImportError, SongQueryResult, SongUpdateError, SongsQueryResult,
+    FavoriteArtistResult, FavoriteItem, FavoritePlaylistResult, FavoriteSongResult,
+    FavoriteVideoResult, FavoriteVideoSeriesResult, ImageMetadata, ImportSongRequest,
+    ImportSongResult, PlaylistQueryResult, PlaylistSongResult, PlaylistSongsQueryResult,
+    PlaylistsQueryResult, QueryParams, QueryPlaylistSongsRequest, QueryResult, SongImportError,
+    SongQueryResult, SongUpdateError, SongsQueryResult,
 };
 
 // re-export update types from models

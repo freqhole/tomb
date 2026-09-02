@@ -20,6 +20,8 @@ export interface RemoteDetailPopoverProps {
   onCreateKind: (input: { slug: string; label: string; color: string | null }) => void;
   /** navigate to the remote's default browse view (albums). */
   onBrowse?: () => void;
+  /** navigate to the remote's video library. */
+  onBrowseVideo?: () => void;
   /** toggle hierarchy edit mode scoped to this remote. shown when set. */
   onToggleEdit?: () => void;
   /** whether edit mode is currently active for this remote. */
@@ -132,6 +134,19 @@ export function RemoteDetailPopover(props: RemoteDetailPopoverProps) {
               }}
             >
               browse albums
+            </button>
+          </Show>
+
+          <Show when={props.onBrowseVideo}>
+            <button
+              type="button"
+              class="w-full py-1.5 px-3 rounded text-xs font-medium border border-magenta-400/30 bg-magenta-500/10 hover:bg-magenta-500/20 text-magenta-100 hover:text-white transition-colors cursor-pointer"
+              onClick={(e) => {
+                e.stopPropagation();
+                props.onBrowseVideo?.();
+              }}
+            >
+              browse video
             </button>
           </Show>
 

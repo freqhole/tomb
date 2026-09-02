@@ -124,6 +124,64 @@ thumbnail_sizes = [50, 200]
 # (default: false)
 thumbnail_on_demand_enabled = false
 
+# OPTIONAL: supported video file formats for video scanning
+# files with these extensions will be processed by the video pipeline
+# (default: ["mp4", "mkv", "webm", "mov", "avi"])
+supported_video_formats = ["mp4", "mkv", "webm", "mov", "avi"]
+
+# OPTIONAL: ffprobe args for extracting video duration/resolution/codec info
+# (placeholder: {input}). output must be JSON with format and streams sections.
+# (default: "-v quiet -print_format json -show_format -show_streams {input}")
+ffprobe_video_properties_args = "-v quiet -print_format json -show_format -show_streams {input}"
+
+# OPTIONAL: ffmpeg args for extracting a poster/thumbnail frame from a video
+# (placeholders: {input}, {output})
+# (default: "-i {input} -ss 00:00:05 -vframes 1 -q:v 2 -y {output}")
+extract_video_poster_args = "-i {input} -ss 00:00:05 -vframes 1 -q:v 2 -y {output}"
+
+# OPTIONAL: renditions produced by the TranscodeVideo job (one entry per
+# output quality level). each entry is transcoded independently via
+# OPTIONAL: enable video transcoding (TranscodeVideo job) after import.
+# requires ffmpeg to be installed - if it isn't, transcoding is skipped
+# per-rendition (best-effort) and imported videos are only ever served in
+# their originally-uploaded format/codec.
+# (default: true)
+transcode_video_enabled = true
+
+# OPTIONAL: renditions produced by the TranscodeVideo job (ignored when
+# transcode_video_enabled is false). one entry per output profile - each
+# supplies its own full ffmpeg args (placeholders: {input}, {output}), so a
+# profile can be as simple as a codec swap or as specific as a fixed
+# resolution/bitrate.
+#
+# the default profile below is a single, widely browser-compatible h264 +
+# aac transcode with no forced resolution or bitrate (keeps the source's
+# own size/bitrate, just swaps codecs/container for compatibility).
+[[media.video_transcode_renditions]]
+label = "compatible"
+args = "-i {input} -map 0:v:0 -map 0:a:0? -c:v libx264 -preset veryfast -crf 23 -c:a aac -b:a 192k -movflags +faststart -f mp4 -y {output}"
+# OPTIONAL: output file extension (no leading dot) - must match whatever
+# container/muxer `args` actually produces (e.g. `-f mp4` -> "mp4", `-f
+# webm` -> "webm"). used for the rendition's stored filename/mime, and
+# for the temp filename ffmpeg writes to.
+# (default: "mp4")
+extension = "mp4"
+
+# OPTIONAL: add more profiles for fixed-resolution renditions (e.g. lower
+# bandwidth streaming targets) by appending more [[media.video_transcode_renditions]]
+# entries with your own ffmpeg args. examples (uncomment / adapt to enable):
+#
+# [[media.video_transcode_renditions]]
+# label = "480p"
+# args = "-i {input} -map 0:v:0 -map 0:a:0? -c:v libx264 -preset veryfast -vf scale=-2:480 -b:v 1000k -c:a aac -b:a 128k -movflags +faststart -f mp4 -y {output}"
+# extension = "mp4"
+#
+# [[media.video_transcode_renditions]]
+# label = "720p"
+# args = "-i {input} -map 0:v:0 -map 0:a:0? -c:v libx264 -preset veryfast -vf scale=-2:720 -b:v 2500k -c:a aac -b:a 128k -movflags +faststart -f mp4 -y {output}"
+# extension = "mp4"
+
+
 # ============================================================================
 # MusicBrainz integration for metadata enrichment
 # ============================================================================
@@ -218,8 +276,23 @@ max_concurrency = 0
 # guests, or low-power boards. each doubling roughly doubles output
 # latency but adds proportional headroom against scheduler jitter.
 # default when unset: 2048 (~43ms @ 48k). try 4096 (~85ms) or
-# 8192 (~170ms) if 2048 still glitches.
-linux_buffer_frames = 4096
+# 8192 (~170ms), 16384 (~340ms), 32768 (~680ms), even 65536 (~1.360s) if still getting glitchz.
+linux_buffer_frames = 8192
+
+# ============================================================================
+# OPTIONAL: gst-based video window tuning (linux only, charnel desktop app)
+# separate from [audio] above - the video window's own audio sink commonly
+# wants a different (usually larger) buffer than the dedicated music player,
+# since video's software decode path is more prone to scheduler-jitter
+# underruns. the whole section is optional; omit it to accept defaults.
+# ============================================================================
+[video]
+# OPTIONAL (linux only): same convention as [audio].linux_buffer_frames
+# above (converted to a buffer-time in microseconds assuming 48k), but
+# applied only to the gst video window's audio sink.
+# default when unset: 8192 (~170ms @ 48k). try 4096/16384/32768 if still
+# getting glitchz during video playback.
+linux_buffer_frames = 8192
 
 # ============================================================================
 # OPTIONAL: new-version update checks
@@ -251,7 +324,7 @@ enabled = true
 # also used for session cookie name: "{name}_session" (sanitized: lowercase, no spaces/special chars)
 name = "freqhole"
 # REQUIRED: server version (you probably should never edit this)
-version = "0.2.15"
+version = "0.3.0"
 # OPTIONAL: server description (default: null)
 description = "get yr freq on"
 
@@ -391,11 +464,11 @@ directory = ""
 enabled = false
 
 # REQUIRED when enabled=true: absolute path where fetched files are temporarily stored
-# OPTIONAL when enabled=false (can omit)
+# OPTIONAL when enabled=false
 # files are downloaded here, then processed and moved to blob storage
 # must be an absolute path
-# example: "/var/lib/freqhole/fetch" or "/Users/you/freqhole/data/fetch"
-output_dir = "/path/to/fetch/directory"
+# example: output_dir = "/var/lib/freqhole/fetch" or "/Users/you/freqhole/data/fetch"
+output_dir = ""
 
 # OPTIONAL: command to extract metadata without downloading (default: null)
 # used for precheck/deduplication - checks if content already exists
@@ -462,6 +535,36 @@ precheck_command = "yt-dlp --print-json --no-download"
 # the command will be invoked as: <command> --paths <job_id_dir> <url>
 # it should print progress lines (download:/postprocess: prefixes) and final file paths to stdout
 fetch_command = "yt-dlp --ignore-errors --extract-audio --audio-format mp3 --audio-quality 0 --add-metadata --embed-thumbnail --no-overwrites --output %(uploader)s-%(title)s-[%(id)s].%(ext)s --newline --progress --progress-template \"download:%(info.id)s|%(progress.status)s|%(progress.downloaded_bytes)s|%(progress.total_bytes_estimate)s|%(progress.filename)s\" --progress-template \"postprocess:%(info.id)s|%(progress.status)s\" --print after_move:filepath"
+
+# ============================================================================
+# OPTIONAL: video fetching from external sources (same shape as
+# [server.fetch_music] above, but downloads full video instead of
+# extracting audio only)
+# this entire section is optional (default: null - feature disabled)
+# ============================================================================
+[server.fetch_video]
+# REQUIRED when section exists: enable video fetching functionality
+# when disabled, fetch routes will return 404
+enabled = false
+
+# REQUIRED when enabled=true: absolute path where fetched files are temporarily stored
+# OPTIONAL when enabled=false
+# must be an absolute path
+output_dir = ""
+
+# OPTIONAL: command to extract metadata without downloading (default: null)
+# see [server.fetch_music].precheck_command above for details
+# the command will be invoked as: <command> <url>
+precheck_command = "yt-dlp --print-json --no-download"
+
+# OPTIONAL: command to actually fetch and download video files (default: null)
+# same conventions as [server.fetch_music].fetch_command above (playlists,
+# --ignore-errors, unquoted --output template, progress templates) but
+# downloads full video+audio instead of extracting audio only
+#
+# the command will be invoked as: <command> --paths <job_id_dir> <url>
+# it should print progress lines (download:/postprocess: prefixes) and final file paths to stdout
+fetch_command = "yt-dlp --ignore-errors --format bestvideo+bestaudio/best --merge-output-format mp4 --add-metadata --no-overwrites --output %(uploader)s-%(title)s-[%(id)s].%(ext)s --newline --progress --progress-template \"download:%(info.id)s|%(progress.status)s|%(progress.downloaded_bytes)s|%(progress.total_bytes_estimate)s|%(progress.filename)s\" --progress-template \"postprocess:%(info.id)s|%(progress.status)s\" --print after_move:filepath"
 
 # ============================================================================
 # OPTIONAL: federation/P2P configuration

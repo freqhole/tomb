@@ -118,6 +118,7 @@ pub async fn handle_command(action: ScanAction) -> CommandOutput<serde_json::Val
                 max_depth: None,
                 file_extensions: None,
                 skip_tracked_subdirs: true,
+                domain: None,
             };
 
             let job_request = CreateJobRequest {
