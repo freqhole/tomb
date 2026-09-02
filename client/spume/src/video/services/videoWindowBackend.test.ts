@@ -23,6 +23,10 @@ vi.mock("./videoWindowClient", () => ({
 vi.mock("./localVideo", () => ({
   resolveLocalVideoPath: (...a: unknown[]) => resolveLocalVideoPath(...(a as [])),
 }));
+const setCurrentSong = vi.fn(async () => {});
+vi.mock("../../app/services/storage/db", () => ({
+  setCurrentSong: (...a: unknown[]) => setCurrentSong(...(a as [])),
+}));
 
 import { VideoWindowBackend } from "./videoWindowBackend";
 

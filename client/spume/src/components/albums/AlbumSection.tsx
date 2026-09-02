@@ -103,23 +103,20 @@ function AlbumHeader(props: {
   };
 
   return (
-    <div class="bg-[var(--color-bg-elevated)] rounded-lg hover:bg-[var(--color-bg-hover)] transition-colors">
+    <div
+      onClick={props.onAlbumClick}
+      class="bg-[var(--color-bg-elevated)] rounded-lg hover:bg-[var(--color-bg-hover)] transition-colors cursor-pointer"
+    >
       {/* narrow layout: title full width, then artwork with info/actions */}
       <div class="wide:hidden px-3 py-3">
         {/* row 1: title full width */}
-        <button
-          onClick={props.onAlbumClick}
-          class="text-base font-semibold text-[var(--color-text-primary)] hover:underline text-left block w-full min-w-0 overflow-hidden"
-        >
+        <button class="text-base font-semibold text-[var(--color-text-primary)] hover:underline text-left block w-full min-w-0 overflow-hidden">
           <MarqueeText text={props.albumTitle} hoverOnly={true} />
         </button>
         {/* rows 2-3: artwork on left, info + actions on right */}
         <div class="flex gap-3 mt-2">
           {/* artwork */}
-          <button
-            onClick={props.onAlbumClick}
-            class="w-12 h-12 bg-[var(--color-bg-primary)] rounded flex items-center justify-center flex-shrink-0 hover:opacity-80 transition-opacity overflow-hidden"
-          >
+          <button class="w-12 h-12 bg-[var(--color-bg-primary)] rounded flex items-center justify-center flex-shrink-0 hover:opacity-80 transition-opacity overflow-hidden">
             <MediaImage
               images={props.images}
               imageUrl={props.artworkUrl || null}
@@ -184,10 +181,7 @@ function AlbumHeader(props: {
       {/* wide layout: horizontal with image on left */}
       <div class="hidden wide:flex items-start gap-4 p-4">
         {/* album artwork */}
-        <button
-          onClick={props.onAlbumClick}
-          class="w-16 h-16 bg-[var(--color-bg-primary)] rounded flex items-center justify-center flex-shrink-0 hover:opacity-80 transition-opacity overflow-hidden"
-        >
+        <button class="w-16 h-16 bg-[var(--color-bg-primary)] rounded flex items-center justify-center flex-shrink-0 hover:opacity-80 transition-opacity overflow-hidden">
           <MediaImage
             images={props.images}
             imageUrl={props.artworkUrl || null}
@@ -202,10 +196,7 @@ function AlbumHeader(props: {
         {/* album info - title gets full width, actions on second row */}
         <div class="flex-1 min-w-0 overflow-hidden">
           {/* row 1: title full width */}
-          <button
-            onClick={props.onAlbumClick}
-            class="text-xl font-semibold text-[var(--color-text-primary)] hover:underline text-left block w-full min-w-0 overflow-hidden"
-          >
+          <button class="text-xl font-semibold text-[var(--color-text-primary)] hover:underline text-left block w-full min-w-0 overflow-hidden">
             <MarqueeText text={props.albumTitle} hoverOnly={true} />
           </button>
           {/* row 2: track info + actions */}

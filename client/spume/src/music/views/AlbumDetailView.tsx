@@ -290,6 +290,17 @@ export function AlbumDetailView() {
       });
     };
 
+    // song-level images additionally skip non-primary "original"-typed
+    // images: this blob taxonomy is fuzzy (see utils/images.ts's
+    // getSongDisplayImages comment) - a song-level "original" that isn't
+    // flagged primary is, in practice, usually an auto-generated waveform
+    // that got linked with the wrong blob_type rather than real curated
+    // art. album/artist images don't get this extra check.
+    const addSongImage = (img: ImageMetadata) => {
+      if (img.blob_type === "original" && !img.is_primary) return;
+      addImage(img);
+    };
+
     // album images from the album entity (same source as edit modal)
     const albumImages = albumQuery.data?.images;
     if (albumImages?.length) {
@@ -306,7 +317,7 @@ export function AlbumDetailView() {
     // collect song images across all songs
     for (const song of songList) {
       if (song.images?.length) {
-        for (const img of song.images) addImage(img);
+        for (const img of song.images) addSongImage(img);
       }
     }
 

@@ -67,6 +67,7 @@ import {
   setRemoteStatusPolling,
 } from "./services/players/remotePlaybackControl";
 import { getCurrentRemote, getCurrentUser, getDataSource } from "../music/data";
+import { syncArtistImagesForRemotePlay } from "../music/services/sync/syncArtistImagesOnPlay";
 import { useRouteDataSource } from "../music/hooks/useRouteDataSource";
 import { useToggleFavoriteMutation } from "../music/queries/favorites";
 import { useVideoFavoriteStatuses } from "../video/hooks/useVideoFavoriteStatuses";
@@ -729,6 +730,15 @@ export function AppLayout(props: AppLayoutProps) {
       if (itemInQueue?.kind === "song") {
         setCurrentVideoData(null);
         setCurrentSongData(itemInQueue.song);
+        // keep a local artist's images fresh when streaming from a remote,
+        // so the playerbar's artist-image fallback also works for remote
+        // plays (already works for local-library plays). no-ops entirely
+        // if the artist isn't already in the local library, or if its
+        // images already match the remote's - see syncArtistImagesOnPlay.ts.
+        const remote = getCurrentRemote();
+        if (remote) {
+          void syncArtistImagesForRemotePlay(remote.remote_id, itemInQueue.song);
+        }
       } else if (state.queue.length > 0) {
         // sha256 is set but not yet in the queue. this is a brief transitional
         // window while the queue is being rebuilt for a new track (setQueue

@@ -403,7 +403,15 @@ fn build_video_area(
     overlay.add_overlay(&events);
 
     // centered play/pause indicator, flashed on every toggle (see
-    // `flash_icon()`). starts hidden; never intercepts input.
+    // `flash_icon()`). starts hidden; never intercepts input - GtkOverlay
+    // children capture input for their whole allocation by default (this is
+    // also what caused the close-button ping-pong below), and without
+    // `pass_through` this icon would swallow clicks/motion landing on it
+    // for the length of every fade, which is most of dead-center of the
+    // video - exactly where a user naturally clicks to pause. that read as
+    // "the play icon gets stuck and there's no mouse interaction", and as
+    // "toggle never reaches paused" (the very click meant to pause never
+    // reached `events` underneath).
     let flash_icon =
         gtk::Image::from_icon_name(Some("media-playback-start-symbolic"), gtk::IconSize::Dialog);
     flash_icon.set_halign(gtk::Align::Center);
@@ -412,10 +420,16 @@ fn build_video_area(
     flash_icon.set_opacity(0.0);
     flash_icon.set_visible(false);
     overlay.add_overlay(&flash_icon);
+    overlay.set_overlay_pass_through(&flash_icon, true);
+    tint_magenta(&flash_icon);
 
     if !chromeless {
         return (overlay, None, flash_icon);
     }
+
+    // gtk::Window has no `is_fullscreen()` query in this gtk-rs version, so
+    // track it ourselves off window-state-event.
+    let is_fullscreen = Rc::new(std::cell::Cell::new(false));
 
     let close = gtk::Button::with_label("\u{2715}");
     close.set_relief(gtk::ReliefStyle::None);
@@ -424,77 +438,56 @@ fn build_video_area(
     close.set_margin_top(12);
     close.set_margin_end(12);
     close.set_tooltip_text(Some("close video"));
-    // gtk::Window has no `is_fullscreen()` query in this gtk-rs version, so
-    // track it ourselves off window-state-event.
-    let is_fullscreen = Rc::new(std::cell::Cell::new(false));
-    let is_fullscreen_for_state = is_fullscreen.clone();
-    window.connect_window_state_event(move |_, ev| {
-        is_fullscreen_for_state.set(ev.new_window_state().contains(gdk::WindowState::FULLSCREEN));
-        glib::Propagation::Proceed
-    });
-    let close_timeout: Rc<RefCell<Option<glib::SourceId>>> = Rc::new(RefCell::new(None));
-    let close_for_timer = close.clone();
-    let timeout_ref = close_timeout.clone();
-    let reset_close_timer = move || {
-        if let Some(id) = timeout_ref.borrow_mut().take() {
-            id.remove();
-        }
-        let close_clone = close_for_timer.clone();
-        let timer_ref = timeout_ref.clone();
-        let id = glib::timeout_add_local(std::time::Duration::from_millis(1800), move || {
-            close_clone.hide();
-            *timer_ref.borrow_mut() = None;
-            glib::ControlFlow::Break
-        });
-        *timeout_ref.borrow_mut() = Some(id);
-    };
-
     close.connect_clicked(move |_| close_window());
     close.hide();
+    tint_magenta(&close);
     overlay.add_overlay(&close);
 
-    // show-on-hover only; hiding is driven solely by `reset_close_timer`'s
-    // inactivity timeout below. a paired leave-notify "hide" handler here
-    // (and on `close` itself) used to fight the button's own enter-notify:
-    // moving onto the overlapping button widget fires a leave-notify on
-    // `events` first, hiding the button an instant before its own
-    // enter-notify re-showed it, which read as a hover/click glitch-flash
-    // and could eat clicks landing during the hidden instant.
-    let close_for_enter = close.clone();
-    let close_enter_timer = reset_close_timer.clone();
-    events.connect_enter_notify_event(move |_, _| {
-        close_for_enter.show();
-        close_enter_timer();
-        glib::Propagation::Proceed
+    let fullscreen_btn = gtk::Button::new();
+    fullscreen_btn.set_image(Some(&gtk::Image::from_icon_name(
+        Some("view-fullscreen-symbolic"),
+        gtk::IconSize::Button,
+    )));
+    fullscreen_btn.set_relief(gtk::ReliefStyle::None);
+    fullscreen_btn.set_halign(gtk::Align::End);
+    fullscreen_btn.set_valign(gtk::Align::Start);
+    fullscreen_btn.set_margin_top(12);
+    // sits just to the left of the close button.
+    fullscreen_btn.set_margin_end(44);
+    fullscreen_btn.set_tooltip_text(Some("enter fullscreen"));
+    let app_for_fullscreen_btn = app.clone();
+    fullscreen_btn.connect_clicked(move |_| {
+        let _ = handle_on_main(&app_for_fullscreen_btn, VideoCommand::ToggleFullscreen);
     });
-    let close_for_button_enter = close.clone();
-    let close_button_enter_timer = reset_close_timer.clone();
-    close.connect_enter_notify_event(move |_, _| {
-        close_for_button_enter.show();
-        close_button_enter_timer();
-        glib::Propagation::Proceed
-    });
-    let close_for_motion = close.clone();
-    let motion_reset = reset_close_timer.clone();
-    events.connect_motion_notify_event(move |_, _| {
-        if is_fullscreen.get() {
-            close_for_motion.show();
-            motion_reset();
+    fullscreen_btn.hide();
+    tint_magenta(&fullscreen_btn);
+    overlay.add_overlay(&fullscreen_btn);
+
+    // only visible while windowed - once fullscreen there's nothing left to
+    // toggle it *to* from this button (escape/click-video/space still work).
+    let fullscreen_btn_for_state = fullscreen_btn.clone();
+    let is_fullscreen_for_state = is_fullscreen.clone();
+    window.connect_window_state_event(move |_, ev| {
+        let now_fullscreen = ev.new_window_state().contains(gdk::WindowState::FULLSCREEN);
+        is_fullscreen_for_state.set(now_fullscreen);
+        if now_fullscreen {
+            fullscreen_btn_for_state.hide();
         }
         glib::Propagation::Proceed
     });
 
     // undecorated windows lose the window manager's resize border, so drag
-    // the corner ourselves - a small always-visible grip where the window
+    // the corner ourselves - a small hover-visible grip where the window
     // manager would otherwise put one.
     let resize_grip = gtk::EventBox::new();
     resize_grip.set_halign(gtk::Align::End);
     resize_grip.set_valign(gtk::Align::End);
     resize_grip.set_size_request(18, 18);
-    resize_grip.add_events(gdk::EventMask::BUTTON_PRESS_MASK);
-    let grip_label = gtk::Label::new(Some("⋱"));
-    grip_label.set_opacity(0.6);
+    resize_grip.add_events(gdk::EventMask::BUTTON_PRESS_MASK | gdk::EventMask::ENTER_NOTIFY_MASK);
+    let grip_label = gtk::Label::new(Some("\u{2571}\u{2571}"));
+    tint_magenta(&grip_label);
     resize_grip.add(&grip_label);
+    resize_grip.hide();
     let window_for_resize = window.clone();
     resize_grip.connect_button_press_event(move |_, ev| {
         if ev.button() == 1 {
@@ -511,7 +504,98 @@ fn build_video_area(
     });
     overlay.add_overlay(&resize_grip);
 
+    // one shared hover/inactivity timer for every chromeless overlay
+    // control (close, fullscreen toggle, resize grip): show + reset on any
+    // hover/motion, hide everything after 1.8s of none. a single group
+    // avoids each control fighting the others' enter/leave events (see the
+    // comment below on why leave-notify-driven hiding was removed).
+    let controls_timeout: Rc<RefCell<Option<glib::SourceId>>> = Rc::new(RefCell::new(None));
+    let close_for_timer = close.clone();
+    let fullscreen_btn_for_timer = fullscreen_btn.clone();
+    let resize_grip_for_timer = resize_grip.clone();
+    let is_fullscreen_for_timer = is_fullscreen.clone();
+    let timeout_ref = controls_timeout.clone();
+    let reset_controls_timer = move || {
+        if let Some(id) = timeout_ref.borrow_mut().take() {
+            id.remove();
+        }
+        let close_clone = close_for_timer.clone();
+        let fullscreen_btn_clone = fullscreen_btn_for_timer.clone();
+        let resize_grip_clone = resize_grip_for_timer.clone();
+        let timer_ref = timeout_ref.clone();
+        let id = glib::timeout_add_local(std::time::Duration::from_millis(1800), move || {
+            close_clone.hide();
+            fullscreen_btn_clone.hide();
+            resize_grip_clone.hide();
+            *timer_ref.borrow_mut() = None;
+            glib::ControlFlow::Break
+        });
+        *timeout_ref.borrow_mut() = Some(id);
+    };
+    let show_controls = {
+        let close = close.clone();
+        let fullscreen_btn = fullscreen_btn.clone();
+        let resize_grip = resize_grip.clone();
+        let is_fullscreen = is_fullscreen_for_timer.clone();
+        let reset = reset_controls_timer.clone();
+        move || {
+            close.show();
+            if !is_fullscreen.get() {
+                fullscreen_btn.show();
+            }
+            resize_grip.show();
+            reset();
+        }
+    };
+
+    // show-on-hover only; hiding is driven solely by `reset_controls_timer`'s
+    // inactivity timeout above. a paired leave-notify "hide" handler here
+    // (and on `close` itself) used to fight the button's own enter-notify:
+    // moving onto an overlapping control widget fires a leave-notify on
+    // `events` first, hiding it an instant before its own enter-notify
+    // re-showed it, which read as a hover/click glitch-flash and could eat
+    // clicks landing during the hidden instant.
+    let show_for_events_enter = show_controls.clone();
+    events.connect_enter_notify_event(move |_, _| {
+        show_for_events_enter();
+        glib::Propagation::Proceed
+    });
+    let show_for_close_enter = show_controls.clone();
+    close.connect_enter_notify_event(move |_, _| {
+        show_for_close_enter();
+        glib::Propagation::Proceed
+    });
+    let show_for_fullscreen_enter = show_controls.clone();
+    fullscreen_btn.connect_enter_notify_event(move |_, _| {
+        show_for_fullscreen_enter();
+        glib::Propagation::Proceed
+    });
+    let show_for_grip_enter = show_controls.clone();
+    resize_grip.connect_enter_notify_event(move |_, _| {
+        show_for_grip_enter();
+        glib::Propagation::Proceed
+    });
+    let show_for_motion = show_controls.clone();
+    events.connect_motion_notify_event(move |_, _| {
+        if is_fullscreen.get() {
+            show_for_motion();
+        }
+        glib::Propagation::Proceed
+    });
+
     (overlay, Some(close.upcast()), flash_icon)
+}
+
+/// apply the video window's magenta accent to a control widget's own color
+/// (and, since gtk css `color` inherits, to any of its child widgets too -
+/// e.g. a `gtk::Button`'s internal label).
+fn tint_magenta(widget: &impl IsA<gtk::Widget>) {
+    let css = gtk::CssProvider::new();
+    if css.load_from_data(b"* { color: #ff2fd0; }").is_ok() {
+        widget
+            .style_context()
+            .add_provider(&css, gtk::STYLE_PROVIDER_PRIORITY_APPLICATION);
+    }
 }
 
 /// translate GstPlay signals into `VideoEvent`s. GstPlay already owns bus

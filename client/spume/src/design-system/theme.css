@@ -223,9 +223,15 @@ body {
 }
 
 /* recolor the browser's default focus ring to the accent color, without
-   adding one to anything that doesn't already show one - only sets
-   outline-color, never outline-style/width. */
+   adding one to anything that doesn't already show one. `outline-color`
+   alone isn't enough: the browser default `outline-style` is `auto`, and
+   most engines (chromium, webkit, gtk-webkit) hardcode the *native*
+   platform ring color for `auto` regardless of `outline-color` - only
+   `outline-style: solid` makes them actually honor a custom color. this
+   is why every focusable element still showed blue with just the color
+   override, on both mac and linux. */
 :focus {
+  outline-style: solid;
   outline-color: var(--color-accent-500);
 }
 

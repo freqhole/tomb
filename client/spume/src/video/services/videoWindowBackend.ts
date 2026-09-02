@@ -15,6 +15,7 @@ import {
 } from "../../music/services/audio/backend";
 import type { PlayerCommand, PlayerEvent, PlayerSnapshot } from "@freqhole/api-client";
 import type { MediaItem } from "../../app/services/storage/mediaItem";
+import { setCurrentSong } from "../../app/services/storage/db";
 import { isMediaLoadCurrent } from "../../app/services/media/loadGuard";
 import { debug, warn } from "../../utils/logger";
 import { resolveLocalVideoPath } from "./localVideo";
@@ -69,6 +70,18 @@ export class VideoWindowBackend implements PlayerBackend {
     // TEMP(video-window): proves the GStreamer branch received the video.
     console.info(`[video-window] loading ${item.video.id} from ${path}`);
     this.emit({ kind: "state", state: "loading" });
+
+    // update app state - AppLayout/PlayerBar watch `current_sha256` to
+    // decide whether the video-aware bar UI (title/images/waveform/"no song
+    // playing") shows up; `videoBackend.ts` (the inline <video> path) already
+    // does this, but this gstreamer-window path never did, so the playerbar
+    // never knew a video was playing at all. see videoBackend.ts's identical
+    // call for the full rationale.
+    // TEMP(video-window): confirms current_sha256 actually gets set for the
+    // gst path on the next linux build - remove once confirmed fixed.
+    console.info(`[video-window] setCurrentSong(${item.video.id})`);
+    await setCurrentSong(item.video.id);
+
     await sendVideoWindowCommand({
       kind: "load",
       path,

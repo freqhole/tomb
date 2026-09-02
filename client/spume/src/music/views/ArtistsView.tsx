@@ -547,6 +547,19 @@ export function ArtistsView(props: ArtistsViewProps) {
       });
     };
 
+    // song-level images additionally skip non-primary "original"-typed
+    // images: this blob taxonomy is fuzzy (see utils/images.ts's
+    // getSongDisplayImages comment) - a song-level "original" that isn't
+    // flagged primary is, in practice, usually an auto-generated waveform
+    // that got linked with the wrong blob_type rather than real curated
+    // art, so it's excluded here too even though its blob_type says
+    // otherwise. album/artist images don't get this extra check - they're
+    // reliably real artwork.
+    const addSongImage = (img: ImageMetadata) => {
+      if (img.blob_type === "original" && !img.is_primary) return;
+      addImage(img);
+    };
+
     // artist images
     if (artist.images?.length) {
       for (const img of artist.images) addImage(img);
@@ -555,7 +568,7 @@ export function ArtistsView(props: ArtistsViewProps) {
     // song + album images from all songs
     for (const song of songs) {
       if (song.images?.length) {
-        for (const img of song.images) addImage(img);
+        for (const img of song.images) addSongImage(img);
       }
       if (song.album_images?.length) {
         for (const img of song.album_images) addImage(img);

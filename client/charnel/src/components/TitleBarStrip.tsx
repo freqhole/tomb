@@ -32,6 +32,7 @@ export function TitleBarStrip() {
   const [enabled, setEnabled] = createSignal(false);
   const [focused, setFocused] = createSignal(true);
   const [hovered, setHovered] = createSignal(false);
+  const [resizeHovered, setResizeHovered] = createSignal(false);
 
   onMount(() => {
     let unlistenFocus: (() => void) | undefined;
@@ -207,6 +208,39 @@ export function TitleBarStrip() {
             </Show>
           </button>
         </div>
+      </div>
+      {/* undecorated windows lose the window manager's own resize border,
+       *  so give the corner back as a small hover-visible grip. */}
+      <div
+        style={{
+          position: "fixed",
+          bottom: "0",
+          right: "0",
+          "z-index": 20,
+          width: "16px",
+          height: "16px",
+          cursor: "nwse-resize",
+        }}
+        onMouseEnter={() => setResizeHovered(true)}
+        onMouseLeave={() => setResizeHovered(false)}
+        onMouseDown={(e) => {
+          if (e.button !== 0) return;
+          e.preventDefault();
+          void getCurrentWindow()
+            .startResizeDragging("SouthEast")
+            .catch((error) => console.error("startResizeDragging failed:", error));
+        }}
+      >
+        <Show when={resizeHovered()}>
+          <svg viewBox="0 0 16 16" style={{ width: "16px", height: "16px" }}>
+            <path
+              d="M14 2L2 14M14 8L8 14"
+              stroke="#ff1a9e"
+              stroke-width="2"
+              stroke-linecap="round"
+            />
+          </svg>
+        </Show>
       </div>
     </Show>
   );

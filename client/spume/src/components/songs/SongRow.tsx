@@ -109,7 +109,11 @@ export function SongRow(props: SongRowProps): JSX.Element {
           <MarqueeText text={props.title} hoverOnly={true} />
         </div>
         <Show when={props.artist}>
-          <div class="text-xs text-[var(--color-text-tertiary)]">{props.artist}</div>
+          <MarqueeText
+            text={props.artist}
+            hoverOnly={true}
+            class="text-xs text-[var(--color-text-tertiary)]"
+          />
         </Show>
       </div>
 

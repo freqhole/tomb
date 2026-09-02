@@ -206,6 +206,24 @@ export async function startDraggingWindow(): Promise<void> {
 }
 
 /**
+ * start a native window resize from a corner grip. undecorated (chromeless)
+ * windows lose the window manager's own resize border, so the title-bar
+ * strip draws a small hover-visible grip that calls this instead.
+ */
+export async function startResizingWindow(
+  direction:
+    "East" | "North" | "NorthEast" | "NorthWest" | "South" | "SouthEast" | "SouthWest" | "West"
+): Promise<void> {
+  try {
+    // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
+    const { getCurrentWindow } = await import("@tauri-apps/api/window");
+    await getCurrentWindow().startResizeDragging(direction);
+  } catch (error) {
+    console.error("startResizeDragging failed:", error);
+  }
+}
+
+/**
  * drain any pending deep-link urls (`freqhole://...`) received before this
  * frontend's event listeners were attached. used on cold start to handle the
  * case where the app was launched by clicking a `freqhole://o/<token>` link.
