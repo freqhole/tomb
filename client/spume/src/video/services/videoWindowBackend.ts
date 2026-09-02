@@ -25,6 +25,34 @@ import {
   type VideoWindowEvent,
 } from "./videoWindowClient";
 
+// turns gstreamer's own error text (rarely more than "No such file or
+// directory" / "Your GStreamer installation is missing a plug-in.") into a
+// sentence naming the actual video and, where we have one, the path that
+// was tried - `error_type` here is `classify_error()`'s output from
+// `client/charnel/src-tauri/src/video_window/backend.rs`.
+function friendlyErrorDetail(
+  errorType: string,
+  rawMessage: string,
+  title: string | null,
+  path: string | null
+): string {
+  const name = title ? `"${title}"` : "this video";
+  switch (errorType) {
+    case "file_not_found":
+      return path
+        ? `couldn't find the file for ${name} (looked for it at ${path})`
+        : `couldn't find the file for ${name}`;
+    case "permission_denied":
+      return path
+        ? `couldn't open ${name} — permission denied reading ${path}`
+        : `couldn't open ${name} — permission denied`;
+    case "missing_plugin":
+      return `playing ${name} needs a GStreamer plugin that isn't installed (${rawMessage})`;
+    default:
+      return `couldn't play ${name}: ${rawMessage}`;
+  }
+}
+
 export class VideoWindowBackend implements PlayerBackend {
   readonly kind: BackendKind = "video";
 
@@ -33,6 +61,11 @@ export class VideoWindowBackend implements PlayerBackend {
   private disposed = false;
   private snap: PlayerSnapshot = { ...emptySnapshot };
   private durationMs = 0;
+  // title/path of whatever is currently loaded, kept only so an `error`
+  // event (which carries just `error_type` + gstreamer's own raw message)
+  // can be turned into a readable sentence - see `friendlyErrorDetail`.
+  private currentTitle: string | null = null;
+  private currentPath: string | null = null;
 
   constructor() {
     this.unsubscribeWindow = onVideoWindowEvent((e) => this.onWindowEvent(e));
@@ -67,6 +100,8 @@ export class VideoWindowBackend implements PlayerBackend {
     }
 
     this.durationMs = 0;
+    this.currentTitle = item.video.title;
+    this.currentPath = path;
     // TEMP(video-window): proves the GStreamer branch received the video.
     console.info(`[video-window] loading ${item.video.id} from ${path}`);
     this.emit({ kind: "state", state: "loading" });
@@ -189,7 +224,12 @@ export class VideoWindowBackend implements PlayerBackend {
           detail: {
             error_type: e.error_type,
             title: e.error_type === "missing_plugin" ? "missing codec" : "playback error",
-            detail: e.message,
+            detail: friendlyErrorDetail(
+              e.error_type,
+              e.message,
+              this.currentTitle,
+              this.currentPath
+            ),
           },
         });
         return;

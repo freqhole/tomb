@@ -278,7 +278,10 @@ async fn extract_album_art_to_webp(
     }
 
     let mut cmd = tokio::process::Command::new(&config.media.ffmpeg_path);
-    cmd.args(args).stdout(Stdio::null()).stderr(Stdio::piped());
+    cmd.arg("-hide_banner")
+        .args(args)
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped());
 
     let output = tokio::time::timeout(tokio::time::Duration::from_secs(30), cmd.output())
         .await
@@ -293,9 +296,8 @@ async fn extract_album_art_to_webp(
         let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(GrimoireError::FfmpegFailed {
             reason: format!(
-                "ffmpeg failed to extract album art (exit code {:?}): {}",
-                output.status.code(),
-                stderr
+                "failed to extract album art: {}",
+                crate::media_blobz::ffmpeg_runner::humanize_ffmpeg_error(&stderr)
             ),
         });
     }
@@ -427,7 +429,10 @@ async fn generate_waveform_to_webp(
     }
 
     let mut cmd = tokio::process::Command::new(&config.media.ffmpeg_path);
-    cmd.args(args).stdout(Stdio::null()).stderr(Stdio::piped());
+    cmd.arg("-hide_banner")
+        .args(args)
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped());
 
     let output = tokio::time::timeout(tokio::time::Duration::from_secs(60), cmd.output())
         .await
@@ -442,9 +447,8 @@ async fn generate_waveform_to_webp(
         let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(GrimoireError::FfmpegFailed {
             reason: format!(
-                "ffmpeg failed to generate waveform (exit code {:?}): {}",
-                output.status.code(),
-                stderr
+                "failed to generate waveform: {}",
+                crate::media_blobz::ffmpeg_runner::humanize_ffmpeg_error(&stderr)
             ),
         });
     }

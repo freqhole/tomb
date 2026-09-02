@@ -543,9 +543,9 @@ export function TopNav(props: TopNavProps) {
         onClick: async () => {
           try {
             await navigator.clipboard.writeText(localNodeId);
-            toast.success("node id copied");
-          } catch {
-            toast.error("failed to copy");
+          } catch (e) {
+            // no toast for copy failures/successes here - copy actions stay silent
+            console.error("copy node id to clipboard failed:", e);
           }
         },
       });
@@ -567,9 +567,9 @@ export function TopNav(props: TopNavProps) {
         onClick: async () => {
           try {
             await navigator.clipboard.writeText(nodeId);
-            toast.success("node id copied");
-          } catch {
-            toast.error("failed to copy");
+          } catch (e) {
+            // no toast for copy failures/successes here - copy actions stay silent
+            console.error("copy node id to clipboard failed:", e);
           }
         },
       });
@@ -590,9 +590,9 @@ export function TopNav(props: TopNavProps) {
         onClick: async () => {
           try {
             await navigator.clipboard.writeText(remote.url);
-            toast.success("url copied");
-          } catch {
-            toast.error("failed to copy");
+          } catch (e) {
+            // no toast for copy failures/successes here - copy actions stay silent
+            console.error("copy url to clipboard failed:", e);
           }
         },
       });
@@ -1106,6 +1106,13 @@ export function TopNav(props: TopNavProps) {
                 style={{
                   "min-width": isNarrow() ? "44px" : "36px",
                   "min-height": isNarrow() ? "44px" : "36px",
+                  // a couple px of margin (not padding - an outline renders
+                  // outside the border box, so padding alone wouldn't give it
+                  // room) above just this button, so its focus ring isn't
+                  // clipped by the viewport edge - the narrow-mode nav sits
+                  // flush at top:0/padding-top:0 and clips any outward-drawn
+                  // focus outline on content sitting right at its top edge.
+                  "margin-top": "2px",
                 }}
                 aria-label="menu"
               >

@@ -61,6 +61,13 @@ struct SessionState {
 
 static SESSION: OnceLock<Option<SessionState>> = OnceLock::new();
 
+/// why `ensure_started` produced `None`, set once alongside `SESSION` so
+/// every later "no session" log line can say why, instead of relying on
+/// catching the one-time init log (which only fires on the very first call
+/// via `OnceLock::get_or_init` and is easy to lose to log truncation/
+/// rotation if that first call happened before the current log window).
+static UNAVAILABLE_REASON: OnceLock<String> = OnceLock::new();
+
 /// serializable subset of `playwire::Event` forwarded to spume. only the
 /// variants spume can actually act on - shuffle/repeat/openuri/raise/quit
 /// aren't meaningful concepts here.
@@ -91,14 +98,23 @@ fn ensure_started(app: &AppHandle) -> Option<&'static SessionState> {
                 .unwrap_or_else(crate::app_config::default_use_rodio_playback);
             info!(enabled, "media-session: ensure_started");
             if !enabled {
-                info!("media-session: disabled by config - not constructing MediaControls");
+                let reason = "disabled by config (use_rodio_playback is off)".to_string();
+                info!("media-session: {reason}");
+                let _ = UNAVAILABLE_REASON.set(reason);
                 return None;
             }
 
             let config = PlayerConfig::new("freqhole").desktop_entry("net.freqhole.freqhole");
             let app_for_events = app.clone();
             let controls = match MediaControls::new(config, move |event| {
-                debug!(?event, "media-session: event from OS");
+                // info, not debug: this is the ONLY signal that the OS media
+                // widget/media keys reached playwire at all - rare enough
+                // (only on actual user interaction with the OS controls) that
+                // it won't flood the log, and its total absence during a
+                // failed pause attempt is the single most useful fact for
+                // telling "os never told us" apart from "we got told but
+                // didn't act on it".
+                info!(?event, "media-session: event from OS");
                 handle_action(&app_for_events, event);
             }) {
                 Ok(c) => {
@@ -106,7 +122,9 @@ fn ensure_started(app: &AppHandle) -> Option<&'static SessionState> {
                     c
                 }
                 Err(e) => {
+                    let reason = format!("MediaControls::new failed: {e}");
                     warn!(error = %e, "media session unavailable - continuing without OS media controls");
+                    let _ = UNAVAILABLE_REASON.set(reason);
                     return None;
                 }
             };
@@ -172,7 +190,9 @@ fn republish(session: &SessionState) {
     );
 
     if track.id.is_empty() {
-        debug!("media-session: republish skipped, no track id set yet");
+        // info, not debug: this being the ONLY thing in the log for a whole
+        // session would mean spume never called set_track at all.
+        info!("media-session: republish skipped, no track id set yet");
         return;
     }
 
@@ -220,7 +240,10 @@ pub fn set_track(
 ) {
     info!(%id, ?title, ?artist, "media-session: set_track");
     let Some(session) = ensure_started(app) else {
-        info!("media-session: set_track: no session (disabled or unavailable)");
+        info!(
+            reason = ?UNAVAILABLE_REASON.get(),
+            "media-session: set_track: no session (disabled or unavailable)"
+        );
         return;
     };
     *session.track.lock().unwrap() = TrackMeta {
@@ -251,13 +274,16 @@ pub fn on_rodio_event(app: &AppHandle, event: &PlayerEvent) {
     };
     match event {
         PlayerEvent::State { state } => {
-            *session.playing.lock().unwrap() = *state == RodioPlayerState::Playing;
+            let playing = *state == RodioPlayerState::Playing;
+            info!(playing, "media-session: on_rodio_event folding State");
+            *session.playing.lock().unwrap() = playing;
         }
         PlayerEvent::Progress { ms, total_ms } => {
             *session.position.lock().unwrap() = Duration::from_millis(*ms);
             *session.duration.lock().unwrap() = Some(Duration::from_millis(*total_ms));
         }
         PlayerEvent::Ended => {
+            info!("media-session: on_rodio_event folding Ended");
             *session.playing.lock().unwrap() = false;
         }
         _ => return,
@@ -271,8 +297,14 @@ pub fn on_video_event(app: &AppHandle, event: &VideoEvent) {
         return;
     };
     match event {
-        VideoEvent::Playing => *session.playing.lock().unwrap() = true,
-        VideoEvent::Paused => *session.playing.lock().unwrap() = false,
+        VideoEvent::Playing => {
+            info!("media-session: on_video_event folding Playing");
+            *session.playing.lock().unwrap() = true;
+        }
+        VideoEvent::Paused => {
+            info!("media-session: on_video_event folding Paused");
+            *session.playing.lock().unwrap() = false;
+        }
         VideoEvent::Position { seconds } => {
             *session.position.lock().unwrap() = Duration::from_secs_f64((*seconds).max(0.0));
         }
@@ -280,6 +312,7 @@ pub fn on_video_event(app: &AppHandle, event: &VideoEvent) {
             *session.duration.lock().unwrap() = Some(Duration::from_secs_f64((*seconds).max(0.0)));
         }
         VideoEvent::Ended | VideoEvent::Closed => {
+            info!("media-session: on_video_event folding Ended/Closed");
             *session.playing.lock().unwrap() = false;
         }
         _ => return,

@@ -69,19 +69,28 @@ export function TitleBarStrip() {
   const showGlyphs = () => hovered() && focused();
 
   const dotStyle = (idleColor: string) => ({
+    position: "relative" as const, // anchors the absolutely-centered glyph below
     flex: "none", // override App.css's global `button { flex: 1; }`
     width: "12px",
     height: "12px",
     "border-radius": "9999px",
     border: "none",
     padding: "0",
-    display: "flex",
-    "align-items": "center",
-    "justify-content": "center",
     background: dotColor(idleColor),
     transition: "background-color 0.15s",
     cursor: "pointer",
   });
+
+  // absolute + transform centering (not flexbox) so an odd-vs-even sized
+  // glyph never sub-pixel-rounds off-center - mirrors spume's TitleBarStrip.
+  const glyphStyle = {
+    position: "absolute" as const,
+    top: "50%",
+    left: "50%",
+    transform: "translate(-50%, -50%)",
+    width: "6px",
+    height: "6px",
+  };
 
   return (
     <Show when={enabled()}>
@@ -166,7 +175,7 @@ export function TitleBarStrip() {
             onClick={() => void getCurrentWindow().close()}
           >
             <Show when={showGlyphs()}>
-              <svg viewBox="0 0 10 10" style={{ width: "7px", height: "7px" }}>
+              <svg viewBox="0 0 10 10" style={glyphStyle}>
                 <path
                   d="M1.5 1.5l7 7M8.5 1.5l-7 7"
                   stroke="#4d0000"
@@ -183,7 +192,7 @@ export function TitleBarStrip() {
             onClick={() => void getCurrentWindow().minimize()}
           >
             <Show when={showGlyphs()}>
-              <svg viewBox="0 0 10 10" style={{ width: "7px", height: "7px" }}>
+              <svg viewBox="0 0 10 10" style={glyphStyle}>
                 <path d="M1.5 5h7" stroke="#985712" stroke-width="1.5" stroke-linecap="round" />
               </svg>
             </Show>
@@ -195,7 +204,7 @@ export function TitleBarStrip() {
             onClick={() => void getCurrentWindow().toggleMaximize()}
           >
             <Show when={showGlyphs()}>
-              <svg viewBox="0 0 10 10" style={{ width: "7px", height: "7px" }}>
+              <svg viewBox="0 0 10 10" style={glyphStyle}>
                 <path
                   d="M6 2h2v2M4 8H2V6"
                   stroke="#0f5c1d"

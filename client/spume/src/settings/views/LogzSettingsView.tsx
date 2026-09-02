@@ -10,7 +10,6 @@ import {
   formatForCopy,
   subscribe,
 } from "../../app/services/logCapture";
-import { toast } from "../../components/feedback/Toast";
 
 const LEVELS: ReadonlyArray<LogLevel> = ["log", "info", "debug", "warn", "error"];
 
@@ -75,8 +74,9 @@ export function LogzSettingsView() {
       await navigator.clipboard.writeText(text);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    } catch {
-      toast.error("failed to copy logs");
+    } catch (e) {
+      // no toast for copy failures - the copied-state flash is enough feedback
+      console.error("copy logs to clipboard failed:", e);
     }
   };
 

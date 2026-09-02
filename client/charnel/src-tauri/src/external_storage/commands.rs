@@ -7,9 +7,24 @@
 //! `action` rather than registering a separate tauri command per
 //! operation.
 
+use std::collections::HashSet;
+use std::sync::{LazyLock, Mutex};
+
 use super::{disk_usage, eject_device, is_still_mounted, path_naming, resolve_volume_info};
 use crate::app_config::{ExternalStorageDevice, FreqholeAppConfig};
 use serde::{Deserialize, Serialize};
+
+/// last set of mounted device ids seen by *any* window's `ListMounted`
+/// call - lets that call detect when it's the first to notice a change
+/// (e.g. the wizard's storage view was opened before the os-level watcher
+/// fired, or before a device was even configured) so it can nudge every
+/// other window rather than leaving them stale until the next watcher
+/// event. compared by value (not just "did the watcher already tell us"),
+/// so this converges after at most one extra round-trip instead of
+/// looping: a `ListMounted` call triggered BY a `notify_...` listener
+/// will see no further diff against the set it just wrote, and stop.
+static LAST_MOUNTED_IDS: LazyLock<Mutex<Option<HashSet<String>>>> =
+    LazyLock::new(|| Mutex::new(None));
 
 /// global removable-storage sync settings, shared by every configured
 /// device (per-device state - which device, its subpath override, etc -
@@ -269,6 +284,18 @@ pub async fn external_storage_command(
                 .into_iter()
                 .filter(is_still_mounted)
                 .collect();
+            let current_ids: HashSet<String> = mounted.iter().map(|d| d.id.clone()).collect();
+            let changed = {
+                let mut last = LAST_MOUNTED_IDS.lock().unwrap_or_else(|p| p.into_inner());
+                let changed = last.as_ref() != Some(&current_ids);
+                if changed {
+                    *last = Some(current_ids);
+                }
+                changed
+            };
+            if changed {
+                let _ = crate::spume_bridge::notify_external_storage_mounted_changed(&app_handle);
+            }
             to_value(with_stats_many(mounted).await)
         }
 

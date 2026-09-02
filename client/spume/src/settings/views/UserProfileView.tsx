@@ -453,7 +453,6 @@ export function UserProfileView() {
                           class="shrink-0 px-2 py-1 text-xs rounded border border-[var(--color-border-default)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] transition-colors"
                           onClick={() => {
                             void navigator.clipboard.writeText(invite.code);
-                            toast.success("copied");
                           }}
                         >
                           copy
@@ -692,7 +691,6 @@ export function UserProfileView() {
                           class="w-full px-3 py-1.5 text-sm font-medium rounded-lg bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-600)] text-white transition-colors"
                           onClick={() => {
                             void navigator.clipboard.writeText(url());
-                            toast.success("link copied");
                           }}
                         >
                           copy link

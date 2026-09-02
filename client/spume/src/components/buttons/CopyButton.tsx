@@ -6,7 +6,6 @@
 // generator). on failure shows a toast and resets to the idle label.
 
 import { createSignal, onCleanup } from "solid-js";
-import { toast } from "../feedback/Toast";
 
 export interface CopyButtonProps {
   /** static value to copy. one of `text` or `getText` is required. */
@@ -44,7 +43,8 @@ export function CopyButton(props: CopyButtonProps) {
       timer = setTimeout(() => setState("idle"), 5000);
     } catch (e) {
       setState("idle");
-      toast.error(`copy failed: ${e instanceof Error ? e.message : String(e)}`);
+      // no toast for copy failures - the button's own idle state is enough feedback
+      console.error("copy to clipboard failed:", e);
     }
   };
 

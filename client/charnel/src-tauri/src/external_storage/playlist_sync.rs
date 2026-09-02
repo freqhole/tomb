@@ -467,6 +467,19 @@ pub async fn sync_playlists_to_device(
         );
         let outcome = match sync_song_to_device(app_handle, device_id, song_id).await {
             Ok(result) => Ok((result.relative_path, result.tag_warning)),
+            Err(e) if e.contains("source audio file not found on disk") => {
+                // best-effort sync: a stale/moved blob-storage entry
+                // shouldn't fail the whole run or show up as a scary
+                // "failed" song in the ui - warn-log it and move on,
+                // falling back to whatever's already on the device (if
+                // anything) via the `None` arm below.
+                tracing::warn!(
+                    song_id = %song_id,
+                    error = %e,
+                    "external_storage: skipping song with missing source file"
+                );
+                continue;
+            }
             Err(e) => Err(format!("{song_id}: {e}")),
         };
         if let Some(free) = remaining_free_bytes.as_mut() {

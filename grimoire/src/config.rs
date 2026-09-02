@@ -53,6 +53,14 @@ pub struct GrimoireConfig {
     #[serde(default)]
     pub audio: AudioConfig,
 
+    /// gst-based video window tuning (linux-only, charnel desktop app).
+    /// separate from `[audio]` since the video window's own audio sink
+    /// commonly wants a different (usually larger) buffer than the
+    /// dedicated music player. all fields optional; omit the whole
+    /// section to accept defaults.
+    #[serde(default)]
+    pub video: VideoConfig,
+
     /// new-version update checks (queries github releases). off by default;
     /// opt-in via the setup wizard or by adding `[updates]\nenabled = true`.
     #[serde(default)]
@@ -80,6 +88,37 @@ pub struct AudioConfig {
     /// macos / windows.
     #[serde(default)]
     pub linux_buffer_frames: Option<u32>,
+}
+
+fn default_video_linux_buffer_frames() -> Option<u32> {
+    Some(8192)
+}
+
+/// gst-based video window tuning (linux-only, charnel desktop app). all
+/// fields are optional — omit the `[video]` section to accept the
+/// built-in defaults.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VideoConfig {
+    /// linux-only: buffer-time (converted to frames-at-48k, same
+    /// convention as `[audio].linux_buffer_frames`) for the gst video
+    /// window's own audio sink. kept separate from `[audio]` since video
+    /// playback's audio path differs from the dedicated music player's
+    /// rodio/cpal backend and commonly wants a larger buffer to avoid
+    /// stutters. defaults to 8192 (~170ms @ 48k) when unset - higher
+    /// than `[audio]`'s own 2048 default, since video's software decode
+    /// path is more prone to scheduler-jitter-induced underruns than
+    /// simple audio playback. try 4096/16384/32768 if still glitchy.
+    /// ignored on macos / windows.
+    #[serde(default = "default_video_linux_buffer_frames")]
+    pub linux_buffer_frames: Option<u32>,
+}
+
+impl Default for VideoConfig {
+    fn default() -> Self {
+        Self {
+            linux_buffer_frames: default_video_linux_buffer_frames(),
+        }
+    }
 }
 
 /// new-version update check configuration. when enabled, the app
@@ -987,6 +1026,7 @@ pub fn init_config_for_tests() {
         client: None,
         jobs: JobsConfig::default(),
         audio: AudioConfig::default(),
+        video: VideoConfig::default(),
         updates: UpdatesConfig::default(),
         loaded_from: None,
     };

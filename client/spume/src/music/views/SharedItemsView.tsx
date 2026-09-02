@@ -1,6 +1,5 @@
 import { useNavigate } from "@solidjs/router";
 import { createEffect, createResource, For, onMount, Show } from "solid-js";
-import { toast } from "../../components/feedback/Toast";
 import { Icon } from "../../components/icons/registry";
 import { getAllRemotes, getRemoteByPeerAddr } from "../../app/services/remotes/remoteManager";
 import { getDefaultRoute } from "../utils/routing";
@@ -99,9 +98,9 @@ export function SharedItemsView() {
     const url = `${window.location.origin}${window.location.pathname}#?share=${token}`;
     try {
       await navigator.clipboard.writeText(url);
-      toast.success("copied share url");
-    } catch {
-      toast.error("failed to copy share url");
+    } catch (e) {
+      // no toast for copy failures/successes here - copy actions stay silent
+      console.error("copy share url to clipboard failed:", e);
     }
   };
 

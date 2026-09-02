@@ -122,8 +122,9 @@ export function FederationSettingsView() {
       await navigator.clipboard.writeText(nodeId);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    } catch {
-      toast.error("failed to copy");
+    } catch (e) {
+      // no toast for copy failures - the copied-state flash is enough feedback
+      console.error("copy to clipboard failed:", e);
     }
   };
 

@@ -219,6 +219,14 @@ export function PlayerBar(props: PlayerBarProps) {
     if (typeof p !== "number") return null;
     return Math.min(100, Math.max(0, p * 100));
   };
+  // true while the current item's blob is still being fetched (e.g. from a
+  // remote peer), even before local playback-level `isLoading` flips true -
+  // that one only fires once decoding actually starts, which for some
+  // backends (video pre-caching in particular) is well after the fetch
+  // this reflects has finished. without this, the loading ring never
+  // appeared during a fresh remote video's download even though the queue
+  // row (driven by the same underlying loadingIds tracking) correctly did.
+  const isTransferringMedia = () => props.mediaTransferProgress != null;
   // true while a click on the thumbnail is still resolving image urls
   // for the carousel — shows a spinner instead of the carousel icon.
   const imageCarouselLoading = useImageCarouselLoading();
@@ -472,9 +480,11 @@ export function PlayerBar(props: PlayerBarProps) {
             </div>
           </Show>
 
-          {/* thumbnail */}
+          {/* thumbnail - poster comes from `props.video` regardless of
+              whether an inline <video> element exists (the gst video window
+              path never has one, videoElement is always null there) */}
           <Show
-            when={props.isVideoActive && props.videoElement}
+            when={props.isVideoActive}
             fallback={
               <div
                 class={`relative group w-10 h-10 flex-shrink-0 ${props.onImageClick ? "cursor-pointer" : ""}`}
@@ -591,9 +601,10 @@ export function PlayerBar(props: PlayerBarProps) {
             </Show>
 
             <div class="relative">
-              {/* loading ring - gradient arc (shows for isLoading OR hasUpNext),
-                  determinate fill once mediaTransferProgress is known */}
-              <Show when={props.isLoading || props.hasUpNext}>
+              {/* loading ring - gradient arc (shows for isLoading, hasUpNext,
+                  or an in-progress media transfer), determinate fill once
+                  mediaTransferProgress is known */}
+              <Show when={props.isLoading || props.hasUpNext || isTransferringMedia()}>
                 <div
                   class="absolute inset-[-4px] rounded-full pointer-events-none"
                   style={{
@@ -714,9 +725,11 @@ export function PlayerBar(props: PlayerBarProps) {
               </div>
             </Show>
 
-            {/* thumbnail */}
+            {/* thumbnail - poster comes from `props.video` regardless of
+                whether an inline <video> element exists (the gst video window
+                path never has one, videoElement is always null there) */}
             <Show
-              when={props.isVideoActive && props.videoElement}
+              when={props.isVideoActive}
               fallback={
                 <div
                   class={`relative group w-12 h-12 flex-shrink-0 ${props.onImageClick ? "cursor-pointer hover:opacity-80 transition-opacity" : ""}`}
@@ -845,9 +858,10 @@ export function PlayerBar(props: PlayerBarProps) {
           </Show>
 
           <div class="relative">
-            {/* loading ring - gradient arc (shows for isLoading OR hasUpNext),
-                determinate fill once mediaTransferProgress is known */}
-            <Show when={props.isLoading || props.hasUpNext}>
+            {/* loading ring - gradient arc (shows for isLoading, hasUpNext,
+                or an in-progress media transfer), determinate fill once
+                mediaTransferProgress is known */}
+            <Show when={props.isLoading || props.hasUpNext || isTransferringMedia()}>
               <div
                 class="absolute inset-[-4px] rounded-full pointer-events-none"
                 style={{

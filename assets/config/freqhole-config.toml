@@ -280,6 +280,21 @@ max_concurrency = 0
 linux_buffer_frames = 8192
 
 # ============================================================================
+# OPTIONAL: gst-based video window tuning (linux only, charnel desktop app)
+# separate from [audio] above - the video window's own audio sink commonly
+# wants a different (usually larger) buffer than the dedicated music player,
+# since video's software decode path is more prone to scheduler-jitter
+# underruns. the whole section is optional; omit it to accept defaults.
+# ============================================================================
+[video]
+# OPTIONAL (linux only): same convention as [audio].linux_buffer_frames
+# above (converted to a buffer-time in microseconds assuming 48k), but
+# applied only to the gst video window's audio sink.
+# default when unset: 8192 (~170ms @ 48k). try 4096/16384/32768 if still
+# getting glitchz during video playback.
+linux_buffer_frames = 8192
+
+# ============================================================================
 # OPTIONAL: new-version update checks
 # when enabled, freqhole periodically queries the github releases api to see
 # if a newer release exists, and surfaces a dismissible notice (spume toast /

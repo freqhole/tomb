@@ -422,7 +422,18 @@ fn write_audio(
     // ffmpeg needs a real input file path - stage in-memory bytes to a
     // temp file first, cleaning it up afterward either way.
     let (input_path, temp_input) = match source {
-        BlobStreamSource::File { path, .. } => (path.clone(), None),
+        BlobStreamSource::File { path, .. } => {
+            // check up front so a stale/moved blob-storage file produces a
+            // clear error instead of ffmpeg's own "no such file" stderr,
+            // which needs `humanize_ffmpeg_error` to guess at correctly.
+            if !path.exists() {
+                return Err(format!(
+                    "source audio file not found on disk: {}",
+                    path.display()
+                ));
+            }
+            (path.clone(), None)
+        }
         BlobStreamSource::Memory(bytes) => {
             let temp = std::env::temp_dir().join(temp_file_name("tmp"));
             std::fs::write(&temp, bytes)
@@ -462,20 +473,24 @@ fn run_ffmpeg(
 ) -> Result<(), String> {
     let mut args = shell_words::split(args_template)
         .map_err(|e| format!("failed to parse ffmpeg args: {e}"))?;
-    for arg in args.iter_mut() {
+    // track the arg that came from `{output}` by index while substituting,
+    // rather than re-finding it afterward by string equality - re-finding
+    // silently falls back to `args.len()` (appending past the real output
+    // filename) if the substituted value doesn't match verbatim for any
+    // reason, and an inserted `-f <fmt>` AFTER the output arg is exactly
+    // what makes ffmpeg exit with "Trailing option(s) found in the command".
+    let mut output_arg_index = None;
+    for (i, arg) in args.iter_mut().enumerate() {
         if arg.contains("{input}") {
             *arg = arg.replace("{input}", &input.to_string_lossy());
         }
         if arg.contains("{output}") {
             *arg = arg.replace("{output}", &output.to_string_lossy());
+            output_arg_index = Some(i);
         }
     }
     if !args.iter().any(|a| a == "-f") {
-        let output_str = output.to_string_lossy().into_owned();
-        let insert_at = args
-            .iter()
-            .position(|a| a == &output_str)
-            .unwrap_or(args.len());
+        let insert_at = output_arg_index.unwrap_or(args.len());
         args.insert(
             insert_at,
             ffmpeg_format_for_extension(target_ext).to_string(),
@@ -483,13 +498,22 @@ fn run_ffmpeg(
         args.insert(insert_at, "-f".to_string());
     }
     let result = std::process::Command::new(ffmpeg_path)
+        // suppress the version/build-config banner ffmpeg always prints -
+        // it's pure noise here and was drowning out the actual error.
+        .arg("-hide_banner")
         .args(&args)
         .output()
         .map_err(|e| format!("failed to run ffmpeg: {e}"))?;
     if !result.status.success() {
+        let stderr = String::from_utf8_lossy(&result.stderr);
+        tracing::warn!(
+            %stderr,
+            args = ?args,
+            "external_storage: ffmpeg re-encode failed"
+        );
         return Err(format!(
             "ffmpeg failed: {}",
-            String::from_utf8_lossy(&result.stderr)
+            grimoire::media_blobz::ffmpeg_runner::humanize_ffmpeg_error(&stderr)
         ));
     }
     Ok(())

@@ -14,6 +14,10 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use gstreamer as gst;
+// single targeted trait import (not the full gst::prelude::*) so this
+// doesn't reintroduce the ambiguous-Cast collision with gtk's own prelude
+// noted below.
+use gstreamer::prelude::GstBinExt as _;
 use gstreamer_play::{Play, PlaySignalAdapter, PlayState, PlayVideoRenderer};
 // gdk/glib come from gtk's re-exports so their versions can never drift from
 // gtk's own. importing only gtk's prelude also avoids the ambiguous `Cast`
@@ -114,6 +118,11 @@ fn handle_on_main(app: &AppHandle<Wry>, command: VideoCommand) -> Result<(), Str
                 },
                 c => c,
             };
+            tracing::info!(
+                before_state = ?w.state.state,
+                ?resolved,
+                "video_window: handle_on_main resolved command"
+            );
             w.state.apply_command(&resolved);
             apply(w, &resolved)
         }),
@@ -261,6 +270,14 @@ fn open_or_reuse(
             control.hide();
         }
         w.window.present();
+        // present() *asks* the window manager for input focus but some
+        // wms/compositors ignore or delay that - grab_focus() is a second,
+        // more direct request GTK makes of itself. logged so a future "space
+        // bar does nothing" report can be correlated against whether the
+        // window ever actually reports having focus (see connect_focus_in/
+        // out_event below).
+        w.window.grab_focus();
+        tracing::info!("video_window: present() + grab_focus() called after load");
         Ok(())
     })
 }
@@ -279,6 +296,7 @@ fn build_window(app: &AppHandle<Wry>) -> Result<VideoWindow, String> {
     // is the documented route but is built around GstVideoOverlay, which
     // gtksink does not implement.
     play.pipeline().set_property("video-sink", &sink);
+    apply_audio_buffer_tuning(&play);
 
     let window = gtk::Window::new(gtk::WindowType::Toplevel);
     window.set_default_size(960, 540);
@@ -309,6 +327,15 @@ fn build_window(app: &AppHandle<Wry>) -> Result<VideoWindow, String> {
         glib::Propagation::Proceed
     });
 
+    window.connect_focus_in_event(|_, _| {
+        tracing::info!("video_window: window gained keyboard focus");
+        glib::Propagation::Proceed
+    });
+    window.connect_focus_out_event(|_, _| {
+        tracing::info!("video_window: window lost keyboard focus (space/escape won't reach it until it's refocused)");
+        glib::Propagation::Proceed
+    });
+
     let signals = connect_play_signals(app, &play);
 
     Ok(VideoWindow {
@@ -321,6 +348,45 @@ fn build_window(app: &AppHandle<Wry>) -> Result<VideoWindow, String> {
         flash_timer: Rc::new(RefCell::new(None)),
         state: PlayerState::default(),
     })
+}
+
+/// mirror `[audio].linux_buffer_frames` (the rodio/cpal period-size tuning
+/// documented in `grimoire/src/player/rodio.rs`) for gst's own audio sink -
+/// the same pipewire/pulseaudio underrun issue that causes stutters on
+/// native music playback can also affect video playback. uses its own
+/// `[video].linux_buffer_frames` knob (default 8192) rather than reusing
+/// `[audio]`'s value, since video's audio path commonly wants a different
+/// buffer size than the dedicated music player. "deep-element-added"
+/// fires for whatever real sink `autoaudiosink` picks internally
+/// (pulsesink/pipewiresink/alsasink), not just direct pipeline children, so
+/// this catches it regardless of which backend the host actually uses, and
+/// fires again on every subsequent `Load` (a fresh audio sink is created per
+/// uri), so hooking it once here at window-build time is enough for the
+/// window's whole lifetime.
+fn apply_audio_buffer_tuning(play: &Play) {
+    let Ok(bin) = play.pipeline().downcast::<gst::Bin>() else {
+        return;
+    };
+    bin.connect_deep_element_added(|_bin, _sub_bin, element| {
+        // GstAudioBaseSink (alsasink/pulsesink/pipewiresink) exposes
+        // `buffer-time` as a gint64 in microseconds; elements without it
+        // (video sinks, decoders, etc.) are silently skipped.
+        if !element.has_property("buffer-time", None) {
+            return;
+        }
+        let Some(frames) = grimoire::config::get_config().video.linux_buffer_frames else {
+            return;
+        };
+        // same frame-count-at-48k assumption rodio.rs's own doc comment
+        // uses for its "~43ms @ 48k" default (2048 frames).
+        let buffer_time_us = (frames as i64 * 1_000_000) / 48_000;
+        tracing::info!(
+            frames,
+            buffer_time_us,
+            "video_window: applying audio buffer tuning"
+        );
+        element.set_property("buffer-time", buffer_time_us);
+    });
 }
 
 /// video widget plus a transparent click surface. fullscreen controls are
@@ -384,7 +450,13 @@ fn build_video_area(
     let press_for_up = press.clone();
     let app_for_release = app.clone();
     events.connect_button_release_event(move |_, ev| {
-        if ev.button() == 1 && press_for_up.borrow_mut().take().is_some() {
+        let had_press = press_for_up.borrow_mut().take().is_some();
+        tracing::info!(
+            button = ev.button(),
+            had_press,
+            "video_window: button_release_event fired"
+        );
+        if ev.button() == 1 && had_press {
             let _ = handle_on_main(&app_for_release, VideoCommand::TogglePlay);
         }
         glib::Propagation::Proceed
@@ -396,16 +468,25 @@ fn build_video_area(
     // almost certainly why space/escape "didn't work"). the toplevel window
     // always receives key events for anything not consumed by a focused
     // child, so bind here instead.
-    window.connect_key_press_event(move |_, ev| match ev.keyval().name().as_deref() {
-        Some("space") => {
-            let _ = handle_on_main(&app_for_keys, VideoCommand::TogglePlay);
-            glib::Propagation::Stop
+    window.connect_key_press_event(move |_, ev| {
+        let keyval = ev.keyval().name();
+        // logged unconditionally (not just on space/escape) - if this line
+        // never shows up in charnel.log for a keypress the user swears they
+        // made, the event isn't reaching gtk at all (most likely the window
+        // never got keyboard focus - see connect_focus_in/out_event above),
+        // which is a completely different fix than a logic bug in here.
+        tracing::info!(?keyval, "video_window: key_press_event fired");
+        match keyval.as_deref() {
+            Some("space") => {
+                let _ = handle_on_main(&app_for_keys, VideoCommand::TogglePlay);
+                glib::Propagation::Stop
+            }
+            Some("Escape") => {
+                let _ = handle_on_main(&app_for_keys, VideoCommand::Close);
+                glib::Propagation::Stop
+            }
+            _ => glib::Propagation::Proceed,
         }
-        Some("Escape") => {
-            let _ = handle_on_main(&app_for_keys, VideoCommand::Close);
-            glib::Propagation::Stop
-        }
-        _ => glib::Propagation::Proceed,
     });
     overlay.add_overlay(&events);
 
@@ -681,10 +762,13 @@ fn connect_play_signals(app: &AppHandle<Wry>, play: &Play) -> PlaySignalAdapter 
     });
 
     let a = app.clone();
-    adapter.connect_state_changed(move |_, state| match state {
-        PlayState::Playing => emit_state(&a, VideoEvent::Playing),
-        PlayState::Paused => emit_state(&a, VideoEvent::Paused),
-        _ => {}
+    adapter.connect_state_changed(move |_, state| {
+        tracing::info!(?state, "video_window: connect_state_changed fired");
+        match state {
+            PlayState::Playing => emit_state(&a, VideoEvent::Playing),
+            PlayState::Paused => emit_state(&a, VideoEvent::Paused),
+            _ => {}
+        }
     });
 
     let a = app.clone();
@@ -725,7 +809,18 @@ fn connect_play_signals(app: &AppHandle<Wry>, play: &Play) -> PlaySignalAdapter 
 /// 1Hz position tick doesn't spam the webview with redundant updates.
 fn emit_state(app: &AppHandle<Wry>, event: VideoEvent) {
     let changed = WINDOW.with(|cell| match cell.borrow_mut().as_mut() {
-        Some(w) => w.state.apply(&event),
+        Some(w) => {
+            let before = w.state.state;
+            let changed = w.state.apply(&event);
+            tracing::info!(
+                ?before,
+                after = ?w.state.state,
+                ?event,
+                changed,
+                "video_window: emit_state folded event"
+            );
+            changed
+        }
         // events can arrive after the window is gone; forward them so the
         // webview still sees a terminal state
         None => true,

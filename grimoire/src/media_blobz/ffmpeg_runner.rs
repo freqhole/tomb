@@ -46,6 +46,8 @@ pub fn humanize_ffmpeg_error(raw: &str) -> String {
             || l.starts_with("libpostproc")
             || l.starts_with("built with")
             || l.starts_with("press [q]")
+            || l.starts_with("universal media converter usage")
+            || l.starts_with("use -h to get full help")
     };
     let candidate = trimmed
         .lines()
@@ -62,6 +64,9 @@ pub fn humanize_ffmpeg_error(raw: &str) -> String {
     }
     if lower.contains("does not contain any stream") || lower.contains("stream map") {
         return "no matching audio/video stream found".to_string();
+    }
+    if lower.contains("trailing option") {
+        return "ffmpeg command had a syntax error (extra arguments after the output file) - check the configured ffmpeg args template".to_string();
     }
     if candidate.len() > 160 {
         format!("{}\u{2026}", &candidate[..157])
@@ -103,7 +108,10 @@ pub async fn run_ffmpeg(
     }
 
     let mut cmd = tokio::process::Command::new(ffmpeg_path);
-    cmd.args(&args).stdout(Stdio::null()).stderr(Stdio::piped());
+    cmd.arg("-hide_banner")
+        .args(&args)
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped());
 
     let output = tokio::time::timeout(FFMPEG_TIMEOUT, cmd.output())
         .await
