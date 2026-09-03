@@ -268,6 +268,7 @@ pub async fn handle_sync(action: SyncAction, json_output: bool) -> anyhow::Resul
     utils::print_and_exit(output, format);
 }
 
+#[cfg(feature = "rodio-playback")]
 pub async fn handle_radio(action: RadioAction, json_output: bool) -> anyhow::Result<()> {
     let format = OutputFormat::from_json_flag(json_output);
     let output = radio::handle_command(action).await;

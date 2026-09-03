@@ -574,6 +574,18 @@ pub fn get_freqhole_config(app_handle: tauri::AppHandle) -> Option<FreqholeConfi
     })
 }
 
+/// open (or focus) the "about freqhole" window - desktop only (mobile has
+/// no native window to open); referenced unconditionally from the single
+/// invoke_handler list, unlike `menu::show_about_window` which lives in a
+/// `#[cfg(desktop)]`-gated module.
+#[tauri::command]
+pub fn open_about_window(app_handle: tauri::AppHandle) {
+    #[cfg(desktop)]
+    crate::menu::show_about_window(&app_handle);
+    #[cfg(not(desktop))]
+    let _ = app_handle;
+}
+
 /// open the data directory in Finder
 #[tauri::command]
 pub fn open_config_dir(app_handle: tauri::AppHandle) -> Result<(), String> {

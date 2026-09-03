@@ -69,6 +69,14 @@ mod media_session {
 
     #[tauri::command]
     pub fn media_session_clear_track() {}
+
+    /// no-op: mobile has no playwire-backed media session to fold gst
+    /// video events into (android's own media-session plugin covers this).
+    pub fn on_video_event(
+        _app: &tauri::AppHandle,
+        _event: &crate::video_window::backend::VideoEvent,
+    ) {
+    }
 }
 mod jobs_events_commands;
 mod radio_commands;
@@ -931,7 +939,7 @@ pub fn run() {
             p2p_state::p2p_stop,
             p2p_state::p2p_restart,
             // about window (chromeless title-bar context menu)
-            menu::open_about_window,
+            commands::open_about_window,
             // shared remote registry (used by spume + wizard)
             remotez_commands::remotez_list,
             remotez_commands::remotez_get,
