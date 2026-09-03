@@ -93,6 +93,8 @@ pub async fn run_server(options: ServerOptions) -> anyhow::Result<()> {
     let job_cancellation_token = grimoire::jobs::CancellationToken::new();
     let job_cancellation_token_clone = job_cancellation_token.clone();
 
+    // tokio::signal::unix is gated out on windows, which only gets ctrl-c.
+    #[cfg(unix)]
     tokio::spawn(async move {
         use tokio::signal::unix::{signal, SignalKind};
 
@@ -131,6 +133,34 @@ pub async fn run_server(options: ServerOptions) -> anyhow::Result<()> {
                 std::process::exit(1);
             }
         }
+    });
+
+    #[cfg(windows)]
+    tokio::spawn(async move {
+        // wait for first ctrl-c
+        tokio::signal::ctrl_c()
+            .await
+            .expect("failed to setup ctrl-c handler");
+        tracing::info!("received ctrl-c, initiating graceful shutdown...");
+        eprintln!(
+            "\none moment please! shutting down gracefully... (press ctrl-c again to force quit)"
+        );
+
+        // trigger shutdown
+        if let Some(tx) = shutdown_tx_clone.lock().await.take() {
+            let _ = tx.send(());
+        }
+
+        // cancel job processor
+        job_cancellation_token_clone.cancel();
+
+        // wait for second ctrl-c to force quit
+        tokio::signal::ctrl_c()
+            .await
+            .expect("failed to setup ctrl-c handler");
+        tracing::warn!("received second ctrl-c, forcing shutdown!");
+        eprintln!("forcing immediate shutdown!");
+        std::process::exit(1);
     });
 
     // register a graceful shutdown hook for admin_dispatch::server_restart.

@@ -122,8 +122,12 @@ pub async fn upload_music_handler(
     // if the write below then failed, the row was left orphaned with no local_path,
     // and a retry saw the existing dedup key and silently no-op'd instead of
     // re-attempting the write, so the user believed the upload had succeeded.
-    let rel_path = format!("{:04}/{:02}/{}.{}", year, month, hash, ext);
-    let full_path = output_dir.join(&rel_path);
+    // join each segment separately - a single format!() string with embedded
+    // "/" produces a mixed \ and / path on windows once joined onto output_dir.
+    let full_path = output_dir
+        .join(format!("{:04}", year))
+        .join(format!("{:02}", month))
+        .join(format!("{}.{}", hash, ext));
 
     // real dedup skip: only treat the file as already-uploaded if it actually
     // exists on disk with the right size, not just because a db row exists.

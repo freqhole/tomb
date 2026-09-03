@@ -13,7 +13,7 @@
 //! `blob_data`'s crud functions and the reliquary migration tooling are the
 //! only remaining callers).
 
-use sqlx::sqlite::SqlitePoolOptions;
+use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use sqlx::{Executor, SqlitePool};
 use tokio::sync::OnceCell;
 
@@ -161,7 +161,11 @@ async fn create_main_pool() -> GrimoireResult<SqlitePool> {
         )));
     }
 
-    let connection_string = format!("sqlite:{}?mode=rwc", db_path.display());
+    // built via SqliteConnectOptions (not a hand-formatted "sqlite:{path}"
+    // string) so windows paths (drive letters, backslashes) parse correctly.
+    let connect_options = SqliteConnectOptions::new()
+        .filename(&db_path)
+        .create_if_missing(true);
     let pool = SqlitePoolOptions::new()
         .max_connections(config.database.max_connections)
         .acquire_timeout(std::time::Duration::from_secs(
@@ -170,7 +174,7 @@ async fn create_main_pool() -> GrimoireResult<SqlitePool> {
         .idle_timeout(std::time::Duration::from_secs(
             config.database.idle_timeout_seconds,
         ))
-        .connect(&connection_string)
+        .connect_with(connect_options)
         .await?;
 
     // Configure SQLite settings via PRAGMA statements (runs ONCE)
@@ -202,8 +206,12 @@ async fn create_blob_pool() -> GrimoireResult<SqlitePool> {
     let config = get_config();
     let db_path = config.blob_data_path();
 
-    // create file if it doesn't exist (using mode=rwc)
-    let connection_string = format!("sqlite:{}?mode=rwc", db_path.display());
+    // create file if it doesn't exist - same SqliteConnectOptions approach
+    // as create_main_pool (a hand-formatted "sqlite:{path}" string breaks on
+    // windows paths).
+    let connect_options = SqliteConnectOptions::new()
+        .filename(&db_path)
+        .create_if_missing(true);
     let pool = SqlitePoolOptions::new()
         .max_connections(config.database.max_connections)
         .acquire_timeout(std::time::Duration::from_secs(
@@ -212,7 +220,7 @@ async fn create_blob_pool() -> GrimoireResult<SqlitePool> {
         .idle_timeout(std::time::Duration::from_secs(
             config.database.idle_timeout_seconds,
         ))
-        .connect(&connection_string)
+        .connect_with(connect_options)
         .await?;
 
     // configure SQLite settings (runs ONCE)

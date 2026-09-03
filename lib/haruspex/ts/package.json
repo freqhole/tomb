@@ -59,7 +59,7 @@
         }
     },
     "scripts": {
-        "build": "cp ../README.md ./README.md && tsc -p tsconfig.json",
+        "build": "node -e \"require('fs').copyFileSync('../README.md','README.md')\" && tsc -p tsconfig.json",
         "typecheck": "tsc --noEmit",
         "test": "vitest run"
     },

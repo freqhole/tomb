@@ -200,8 +200,12 @@ pub async fn upload_video(caller: &Caller, body: JsonValue) -> GrimoireResponse<
     let now = time::OffsetDateTime::now_utc();
     let year = now.year();
     let month = now.month() as u8;
-    let rel_path = format!("{:04}/{:02}/{}.{}", year, month, blob.id, ext);
-    let full_path = output_dir.join(&rel_path);
+    // join each segment separately - a single format!() string with embedded
+    // "/" produces a mixed \ and / path on windows once joined onto output_dir.
+    let full_path = output_dir
+        .join(format!("{:04}", year))
+        .join(format!("{:02}", month))
+        .join(format!("{}.{}", blob.id, ext));
 
     if let Some(parent) = full_path.parent() {
         if let Err(e) = tokio::fs::create_dir_all(parent).await {

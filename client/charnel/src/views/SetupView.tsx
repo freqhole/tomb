@@ -427,23 +427,35 @@ export default function SetupView() {
                     "align-items": "center",
                     gap: "0.5rem",
                     "margin-bottom": "0.5rem",
+                    "min-width": 0,
                   }}
                 >
                   <span
                     style={{
                       color: depCheck()!.ffmpeg_installed ? "#4ade80" : "#f87171",
+                      "flex-shrink": 0,
                     }}
                   >
                     {depCheck()!.ffmpeg_installed ? "✓" : "✕"}
                   </span>
-                  <span>ffmpeg</span>
+                  <span style={{ "flex-shrink": 0 }}>ffmpeg</span>
                   <Show when={depCheck()!.ffmpeg_installed}>
-                    <span style={{ color: "#71717a", "font-size": "0.75rem" }}>
+                    <span
+                      title={depCheck()!.ffmpeg_path ?? undefined}
+                      style={{
+                        color: "#71717a",
+                        "font-size": "0.75rem",
+                        overflow: "hidden",
+                        "text-overflow": "ellipsis",
+                        "white-space": "nowrap",
+                        "min-width": 0,
+                      }}
+                    >
                       ({depCheck()!.ffmpeg_path})
                     </span>
                   </Show>
                   <Show when={!depCheck()!.ffmpeg_installed}>
-                    <span style={{ color: "#f87171" }}>(required)</span>
+                    <span style={{ color: "#f87171", "flex-shrink": 0 }}>(required)</span>
                   </Show>
                 </div>
 
@@ -453,23 +465,35 @@ export default function SetupView() {
                     display: "flex",
                     "align-items": "center",
                     gap: "0.5rem",
+                    "min-width": 0,
                   }}
                 >
                   <span
                     style={{
                       color: depCheck()!.ytdlp_installed ? "#4ade80" : "#fbbf24",
+                      "flex-shrink": 0,
                     }}
                   >
                     {depCheck()!.ytdlp_installed ? "✓" : "○"}
                   </span>
-                  <span>yt-dlp</span>
+                  <span style={{ "flex-shrink": 0 }}>yt-dlp</span>
                   <Show when={depCheck()!.ytdlp_installed}>
-                    <span style={{ color: "#71717a", "font-size": "0.75rem" }}>
+                    <span
+                      title={depCheck()!.ytdlp_path ?? undefined}
+                      style={{
+                        color: "#71717a",
+                        "font-size": "0.75rem",
+                        overflow: "hidden",
+                        "text-overflow": "ellipsis",
+                        "white-space": "nowrap",
+                        "min-width": 0,
+                      }}
+                    >
                       ({depCheck()!.ytdlp_path})
                     </span>
                   </Show>
                   <Show when={!depCheck()!.ytdlp_installed}>
-                    <span style={{ color: "#fbbf24" }}>(optional)</span>
+                    <span style={{ color: "#fbbf24", "flex-shrink": 0 }}>(optional)</span>
                   </Show>
                 </div>
 

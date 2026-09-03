@@ -6,7 +6,7 @@
   "build": {
     "beforeDevCommand": "npm run dev:all",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "npm run build:wizard && cd ../spume && VITE_CHARNEL_MODE=true npm run build && cp -r ../charnel/dist/wizard dist/ && cp ../charnel/public/about.html dist/",
+    "beforeBuildCommand": "npm run build:wizard && node scripts/build-spume-for-charnel.mjs",
     "frontendDist": "../../spume/dist"
   },
   "app": {

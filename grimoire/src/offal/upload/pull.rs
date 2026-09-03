@@ -274,7 +274,12 @@ pub async fn pull_audio_blob_to_local_storage(
 
     // use a temp filename based on blake3 hash (will rename after blob record creation)
     let temp_filename = format!("{}.{}", &blake3[..16], ext);
-    let temp_path = output_dir.join(format!("{:04}/{:02}/{}", year, month, temp_filename));
+    // join each segment separately - a single format!() string with embedded
+    // "/" produces a mixed \ and / path on windows once joined onto output_dir.
+    let temp_path = output_dir
+        .join(format!("{:04}", year))
+        .join(format!("{:02}", month))
+        .join(temp_filename);
 
     // ensure directory exists
     if let Some(parent) = temp_path.parent() {
@@ -449,8 +454,12 @@ pub async fn pull_audio_blob_to_local_storage(
     };
 
     // 9. rename temp file to final path with blob id
-    let rel_path = format!("{:04}/{:02}/{}.{}", year, month, blob.id, ext);
-    let full_path = output_dir.join(&rel_path);
+    // join each segment separately - a single format!() string with embedded
+    // "/" produces a mixed \ and / path on windows once joined onto output_dir.
+    let full_path = output_dir
+        .join(format!("{:04}", year))
+        .join(format!("{:02}", month))
+        .join(format!("{}.{}", blob.id, ext));
 
     if temp_path != full_path && tokio::fs::rename(&temp_path, &full_path).await.is_err() {
         // fall back to copy+delete if rename fails (cross-device)

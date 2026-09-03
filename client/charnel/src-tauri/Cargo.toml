@@ -71,10 +71,19 @@ nix = { version = "0.29", features = ["signal", "fs"] }
 # but we don't want the extra build cost there yet, and the existing html
 # audio path keeps working. cargo unions features across target tables, so
 # this just adds `rodio-playback` to the base grimoire dep on desktop.
-[target."cfg(any(target_os = \"macos\", target_os = \"linux\", target_os = \"windows\"))".dependencies]
+[target."cfg(any(target_os = \"macos\", target_os = \"linux\"))".dependencies]
 grimoire = { path = "../../../grimoire", default-features = false, features = [
     "webauthn",
     "vendored-openssl",
+    "rodio-playback",
+] }
+# windows: webauthn disabled for now to skip openssl-sys's slow vendored
+# build — webauthn-rs-core hard-depends on openssl/openssl-sys regardless of
+# grimoire's own vendored-openssl flag, so disabling vendored-openssl alone
+# doesn't help. passkey/webauthn p2p login won't work in this build; restore
+# "webauthn"/"vendored-openssl" here (matching the block above) when needed.
+[target."cfg(target_os = \"windows\")".dependencies]
+grimoire = { path = "../../../grimoire", default-features = false, features = [
     "rodio-playback",
 ] }
 # OS media session / now-playing controls (MPRIS on linux via zbus, SMTC on
