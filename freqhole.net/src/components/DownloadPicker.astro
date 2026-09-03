@@ -21,6 +21,8 @@ const BASE = `https://github.com/${REPO}/releases/download/v${VERSION}`;
 const ASSETS: Record<string, string> = {
   "charnel-mac-arm": `freqhole_charnel_${VERSION}_aarch64.dmg`,
   "charnel-mac-intel": `freqhole_charnel_${VERSION}_x86_64.dmg`,
+  "charnel-windows-x86-msi": `freqhole_charnel_${VERSION}_x86_64.msi`,
+  "charnel-windows-x86-exe": `freqhole_charnel_${VERSION}_x86_64-setup.exe`,
   "charnel-linux-x86-flatpak": `freqhole_charnel_${VERSION}_x86_64.flatpak`,
   "charnel-linux-x86-deb": `freqhole_charnel_${VERSION}_x86_64.deb`,
   "charnel-linux-x86-rpm": `freqhole_charnel_${VERSION}_x86_64.rpm`,
@@ -60,10 +62,21 @@ const urlsJson = JSON.stringify(
         data-dl-hero-button
         href="https://github.com/freqhole/tomb/releases/latest"
         rel="noopener"
+        title="download charnel"
       >
         <span class="dl-hero-button-label" data-dl-hero-button-label>download charnel</span>
         <span class="dl-hero-button-meta" data-dl-hero-button-meta></span>
       </a>
+      <div class="dl-hero-mac-buttons" data-dl-hero-mac-buttons hidden>
+        <a class="dl-hero-button dl-hero-button--mac" data-dl-mac-btn="arm" href={url("charnel-mac-arm")} rel="noopener" title="download charnel for apple silicon macs">
+          <span class="dl-hero-button-label">apple silicon</span>
+          <span class="dl-hero-button-meta" data-dl-mac-meta></span>
+        </a>
+        <a class="dl-hero-button dl-hero-button--mac" data-dl-mac-btn="intel" href={url("charnel-mac-intel")} rel="noopener" title="download charnel for intel macs">
+          <span class="dl-hero-button-label">intel</span>
+          <span class="dl-hero-button-meta" data-dl-mac-meta></span>
+        </a>
+      </div>
       <a
         class="dl-hero-secondary"
         data-dl-hero-secondary
@@ -83,10 +96,21 @@ const urlsJson = JSON.stringify(
       data-dl-hero-button
       href="https://github.com/freqhole/tomb/releases/latest"
       rel="noopener"
+      title="download charnel"
     >
       <span class="dl-hero-button-label" data-dl-hero-button-label>download charnel</span>
       <span class="dl-hero-button-meta" data-dl-hero-button-meta></span>
     </a>
+    <div class="dl-hero-mac-buttons dl-mac-buttons-standalone" data-dl-hero-mac-buttons hidden>
+      <a class="dl-hero-button dl-hero-button--mac dl-button-standalone" data-dl-mac-btn="arm" href={url("charnel-mac-arm")} rel="noopener" title="download charnel for apple silicon macs">
+        <span class="dl-hero-button-label">apple silicon</span>
+        <span class="dl-hero-button-meta" data-dl-mac-meta></span>
+      </a>
+      <a class="dl-hero-button dl-hero-button--mac dl-button-standalone" data-dl-mac-btn="intel" href={url("charnel-mac-intel")} rel="noopener" title="download charnel for intel macs">
+        <span class="dl-hero-button-label">intel</span>
+        <span class="dl-hero-button-meta" data-dl-mac-meta></span>
+      </a>
+    </div>
   )}
 
   {!buttonOnly && !heroOnly && (
@@ -121,6 +145,19 @@ const urlsJson = JSON.stringify(
             <div class="dl-arch-label">intel</div>
             <ul class="dl-list">
               <li><a data-dl="charnel-mac-intel" href={url("charnel-mac-intel")}>.dmg</a></li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section class="dl-plat">
+        <h4><span class="dl-plat-icon"><Icon name="laptop" size="1.1rem" /></span> windows</h4>
+        <div class="dl-arch-row">
+          <div class="dl-arch">
+            <div class="dl-arch-label">x86_64</div>
+            <ul class="dl-list">
+              <li><a data-dl="charnel-windows-x86-msi" href={url("charnel-windows-x86-msi")}>.msi</a></li>
+              <li><a data-dl="charnel-windows-x86-exe" href={url("charnel-windows-x86-exe")}>.exe (nsis)</a></li>
             </ul>
           </div>
         </div>
@@ -301,27 +338,34 @@ const urlsJson = JSON.stringify(
     }
 
     function pickHero({ os, arch }) {
-      if (os === "windows" || os === "ios" || os === "unknown") {
+      if (os === "ios" || os === "unknown") {
         return {
           kind: "web",
-          icon: os === "windows" ? "laptop" : "cloud",
-          label: os === "windows" ? "windows" : os === "ios" ? "iOS" : "your browser",
+          icon: "cloud",
+          label: os === "ios" ? "iOS" : "your browser",
           buttonLabel: "open web app",
           sub: "freqhole runs in your browser via spume",
           href: SPUME_URL,
           meta: "spume.freqhole.net",
         };
       }
-      if (os === "mac") {
-        const isArm = arch === "arm64" || arch === "unknown";
+      if (os === "windows") {
         return {
           kind: "charnel",
+          icon: "laptop",
+          label: "windows",
+          buttonLabel: "download windows app",
+          sub: "desktop app — .msi installer",
+          assetKey: "charnel-windows-x86-msi",
+          ext: ".msi",
+        };
+      }
+      if (os === "mac") {
+        return {
+          kind: "mac",
           icon: "apple",
-          label: isArm ? "macOS · apple silicon" : "macOS · intel",
-          buttonLabel: "download mac app",
-          sub: "desktop app — recommended",
-          assetKey: isArm ? "charnel-mac-arm" : "charnel-mac-intel",
-          ext: ".dmg",
+          label: "macOS",
+          sub: "desktop app - pick the chip that matches your mac",
         };
       }
       if (os === "linux") {
@@ -381,6 +425,7 @@ const urlsJson = JSON.stringify(
       const btnLabel = root.querySelector("[data-dl-hero-button-label]");
       const btnMeta = root.querySelector("[data-dl-hero-button-meta]");
       const secondary = /** @type {HTMLAnchorElement} */ (root.querySelector("[data-dl-hero-secondary]"));
+      const macButtons = root.querySelector("[data-dl-hero-mac-buttons]");
 
       if (!pick) return;
 
@@ -388,7 +433,23 @@ const urlsJson = JSON.stringify(
       if (eyebrow) eyebrow.textContent = `detected: ${pick.label}`;
       if (title) title.textContent = pick.kind === "web" ? "use the web app" : "desktop app";
       if (sub) sub.textContent = pick.sub;
+
+      if (pick.kind === "mac") {
+        if (btn) btn.hidden = true;
+        if (macButtons) {
+          macButtons.hidden = false;
+          macButtons.querySelectorAll("[data-dl-mac-meta]").forEach((meta) => {
+            meta.textContent = version ? `v${version} · .dmg` : ".dmg";
+          });
+        }
+        if (secondary) secondary.hidden = false;
+        return;
+      }
+
+      if (btn) btn.hidden = false;
+      if (macButtons) macButtons.hidden = true;
       if (btnLabel) btnLabel.textContent = pick.buttonLabel;
+      if (btn) btn.title = pick.buttonLabel;
 
       if (pick.kind === "web") {
         if (btn) btn.href = pick.href;
@@ -660,20 +721,57 @@ const urlsJson = JSON.stringify(
     color: var(--sl-color-white, #fff);
     font-weight: 600;
     text-decoration: none;
-    transition: transform 0.12s ease, filter 0.12s ease;
+    transition: transform 0.18s ease, filter 0.12s ease;
   }
   .dl-hero-button:hover {
-    transform: translateY(-1px);
+    transform: translateY(-3px) scale(1.05);
     filter: brightness(1.08);
-    text-decoration: none;
+    text-decoration: underline;
     color: var(--sl-color-white, #fff);
   }
-  .dl-hero-button:active { transform: translateY(0); }
+  .dl-hero-button:active { transform: translateY(-1px) scale(1.02); }
   .dl-hero-button-meta {
     font-weight: 400;
     font-size: 0.8rem;
     opacity: 0.85;
     font-variant-numeric: tabular-nums;
+  }
+
+  .dl-hero-button[hidden],
+  .dl-hero-mac-buttons[hidden] {
+    display: none;
+  }
+
+  .dl-hero-mac-buttons {
+    margin-top: 0.5rem;
+    align-self: flex-start;
+    min-width: 300px;
+    display: flex;
+    flex-direction: column;
+    border-radius: 9999px;
+    overflow: hidden;
+    background: var(--sl-color-accent, #d63384);
+    transition: transform 0.18s ease, filter 0.12s ease;
+  }
+  .dl-hero-mac-buttons:has(.dl-hero-button--mac:hover) {
+    transform: translateY(-3px) scale(1.05);
+    filter: brightness(1.08);
+  }
+
+  .dl-hero-button--mac {
+    margin-top: 0;
+    align-self: stretch;
+    border-radius: 0;
+    justify-content: space-between;
+    gap: 2rem;
+    padding: 0.75rem 2.8rem;
+    background: transparent;
+  }
+  .dl-hero-button--mac:first-child { padding-top: 0.9rem; }
+  .dl-hero-button--mac:last-child { padding-bottom: 0.9rem; }
+  .dl-hero-button--mac:hover { transform: none; }
+  .dl-hero-button--mac + .dl-hero-button--mac {
+    border-top: 1px solid color-mix(in srgb, var(--sl-color-white, #fff) 25%, transparent);
   }
 
   .dl-hero-secondary {
@@ -816,6 +914,7 @@ const urlsJson = JSON.stringify(
 
   .dl-button-only { margin: 0; gap: 0; align-items: center; display: inline-flex; }
   .dl-button-standalone { margin-top: 0; }
+  .dl-mac-buttons-standalone { margin-top: 0; }
 
   @media (max-width: 600px) {
     .dl-hero {

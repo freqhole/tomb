@@ -25,11 +25,12 @@ freqhole does **not** copy, move, or rename scanned media files. if you delete a
 
 ### where the database lives
 
-| how you're running  | default location                                                      |
-| ------------------- | --------------------------------------------------------------------- |
-| desktop app (macOS) | `~/Library/Application Support/net.freqhole.charnel/data/grimoire.db` |
-| desktop app (Linux) | `~/.local/share/freqhole/data/grimoire.db`                            |
-| CLI                 | `./data/grimoire.db` (relative to config file, configurable)          |
+| how you're running    | default location                                                      |
+| --------------------- | --------------------------------------------------------------------- |
+| desktop app (macOS)   | `~/Library/Application Support/net.freqhole.charnel/data/grimoire.db` |
+| desktop app (Linux)   | `~/.local/share/freqhole/data/grimoire.db`                            |
+| desktop app (Windows) | `%APPDATA%\net.freqhole.charnel\data\grimoire.db`                     |
+| CLI                   | `./data/grimoire.db` (relative to config file, configurable)          |
 
 the `data_dir` setting in `freqhole-config.toml` controls this:
 
