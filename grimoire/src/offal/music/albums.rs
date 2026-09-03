@@ -956,14 +956,12 @@ pub async fn ingest_remote_image_inner(
                 .map(std::path::PathBuf::from)
                 .unwrap_or_else(|| cfg.data_dir.join("fetch"));
             let now = time::OffsetDateTime::now_utc();
-            let rel_path = format!(
-                "{:04}/{:02}/{}.{}",
-                now.year(),
-                now.month() as u8,
-                blob.id,
-                ext
-            );
-            let full_path = output_dir.join(&rel_path);
+            // join each segment separately - a single format!() string with embedded
+            // "/" produces a mixed \ and / path on windows once joined onto output_dir.
+            let full_path = output_dir
+                .join(format!("{:04}", now.year()))
+                .join(format!("{:02}", now.month() as u8))
+                .join(format!("{}.{}", blob.id, ext));
             if let Some(parent) = full_path.parent() {
                 if let Err(e) = tokio::fs::create_dir_all(parent).await {
                     return GrimoireResponse::failure(

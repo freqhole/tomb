@@ -1,13 +1,13 @@
 {
   "name": "charnel",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "",
   "type": "module",
   "scripts": {
     "start": "vite",
     "dev": "vite",
     "dev:wizard": "vite --port 1421",
-    "dev:all": "concurrently -n wizard,spume -c cyan,magenta \"npm run dev:wizard\" \"cd ../spume && VITE_CHARNEL_MODE=true npm run dev -- --port 1420 --host\"",
+    "dev:all": "concurrently -n wizard,spume -c cyan,magenta \"npm run dev:wizard\" \"node scripts/dev-spume-for-charnel.mjs\"",
     "build": "vite build",
     "build:wizard": "vite build --outDir dist/wizard",
     "serve": "vite preview",

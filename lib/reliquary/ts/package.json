@@ -1,6 +1,6 @@
 {
     "name": "@freqhole/reliquary",
-    "version": "0.3.0",
+    "version": "0.3.1",
     "private": false,
     "type": "module",
     "description": "freqhole media blob storage domain: content-addressed blobs, transfer, worker, solid helpers",
@@ -51,7 +51,7 @@
         }
     },
     "scripts": {
-        "build": "cp ../README.md ./README.md && tsc -p tsconfig.json",
+        "build": "node -e \"require('fs').copyFileSync('../README.md','README.md')\" && tsc -p tsconfig.json",
         "typecheck": "tsc --noEmit",
         "test": "vitest run"
     },

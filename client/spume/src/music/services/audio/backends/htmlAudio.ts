@@ -344,12 +344,33 @@ export class HtmlAudioBackend implements PlayerBackend {
       this.currentSongId = song.sha256;
 
       // set crossOrigin for direct remote URLs (needed for cookie auth on
-      // cross-origin).
+      // cross-origin). tauri's windows asset protocol serves local files
+      // over a fake `http://asset.localhost` origin (webview2 can't do
+      // custom URI schemes like macOS/linux's `asset://`) - that's still a
+      // local file read, not a credentialed cross-origin fetch, and tauri's
+      // asset protocol handler doesn't send back an
+      // Access-Control-Allow-Credentials header, so forcing credentials
+      // mode on it fails CORS. only treat it as needing credentials when
+      // it's actually http(s) to some other host.
+      let needsCredentials = false;
       if (audioURL.startsWith("http")) {
-        audio.crossOrigin = "use-credentials";
-      } else {
-        audio.crossOrigin = "";
+        try {
+          needsCredentials = new URL(audioURL).hostname !== "asset.localhost";
+        } catch {
+          needsCredentials = true;
+        }
       }
+      audio.crossOrigin = needsCredentials ? "use-credentials" : "";
+
+      // TEMP DEBUG LOGGING - remove once windows audio-src issue is confirmed fixed.
+      console.log(
+        "[htmlAudio TEMP] setting audio.src",
+        JSON.stringify({
+          audioURL,
+          needsCredentials,
+          crossOrigin: audio.crossOrigin,
+        })
+      );
 
       audio.src = audioURL;
 
@@ -660,6 +681,16 @@ export class HtmlAudioBackend implements PlayerBackend {
       const error = audio.error;
       const code = error?.code ?? null;
       const msg = error?.message ?? "unknown error";
+      // TEMP DEBUG LOGGING - remove once windows audio-src issue is confirmed fixed.
+      console.log(
+        "[htmlAudio TEMP] audio error event",
+        JSON.stringify({
+          code,
+          msg,
+          fullSrc: audio.src,
+          crossOrigin: audio.crossOrigin,
+        })
+      );
       warn(
         "player.html",
         `audio element error code=${code} src=${audio.src?.slice(0, 60) ?? null}: ${msg}`

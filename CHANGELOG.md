@@ -1,5 +1,13 @@
 # freqhole-release
 
+## 0.3.1
+
+### Patch Changes
+
+- e98c6df: macos app now has option for chromeless title bar. edge2edge!
+- b0435e1: viewer roles can create feed sessions + play analytics
+- c9bffce: only navigate back when removable storage is ejected && if on storage overview route
+
 ## 0.2.15
 
 ### Patch Changes

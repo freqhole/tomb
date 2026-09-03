@@ -33,6 +33,12 @@ sudo apt install ffmpeg   # debian/ubuntu
 sudo dnf install ffmpeg   # fedora
 ```
 
+**Windows**:
+
+```powershell
+winget install --id Gyan.FFmpeg
+```
+
 ---
 
 ## yt-dlp
@@ -48,6 +54,12 @@ pip install yt-dlp
 # or download the binary directly
 curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o ~/.local/bin/yt-dlp
 chmod +x ~/.local/bin/yt-dlp
+```
+
+**Windows**:
+
+```powershell
+winget install --id yt-dlp.yt-dlp
 ```
 
 freqhole will find yt-dlp automatically if it's in your PATH or a common install location. for non-standard paths, set it explicitly in `freqhole-config.toml`:

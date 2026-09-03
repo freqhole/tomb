@@ -501,15 +501,16 @@ pub async fn process_job(job: Job) -> GrimoireResponse<JobResult> {
 /// This version manages its own signal handlers - use for standalone CLI operation.
 /// For embedded use (e.g. server), use `run_job_processor_with_token` instead.
 pub async fn run_job_processor() -> GrimoireResponse<()> {
-    use tokio::signal::unix::{signal, SignalKind};
-
     info!("job processor started (with internal signal handlers)");
 
     let cancellation_token = CancellationToken::new();
     let cancellation_token_clone = cancellation_token.clone();
 
-    // Spawn signal handlers
+    // tokio::signal::unix is gated out on windows, which only gets ctrl-c.
+    #[cfg(unix)]
     tokio::spawn(async move {
+        use tokio::signal::unix::{signal, SignalKind};
+
         let mut sigterm = signal(SignalKind::terminate()).expect("failed to setup SIGTERM handler");
         let mut sigint = signal(SignalKind::interrupt()).expect("failed to setup SIGINT handler");
 
@@ -523,6 +524,15 @@ pub async fn run_job_processor() -> GrimoireResponse<()> {
                 cancellation_token_clone.cancel();
             }
         }
+    });
+
+    #[cfg(windows)]
+    tokio::spawn(async move {
+        tokio::signal::ctrl_c()
+            .await
+            .expect("failed to setup ctrl-c handler");
+        info!("received ctrl-c, initiating graceful shutdown");
+        cancellation_token_clone.cancel();
     });
 
     run_job_processor_loop(cancellation_token).await

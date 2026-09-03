@@ -501,7 +501,10 @@
           ] },
         ] },
         { id: "windows", label: "windows", icon: "windows", kids: [
-          { id: "windows/web", label: "web app", sub: "spume", icon: "web", leaf: web },
+          { id: "windows/gui", label: "gui app", sub: "charnel", icon: "gui", kids: [
+            { id: "windows/gui/msi", label: ".msi", sub: "windows installer", icon: "download", leaf: charnel("charnel-windows-x86-msi", ".msi") },
+            { id: "windows/gui/exe", label: ".exe", sub: "nsis setup", icon: "download", leaf: charnel("charnel-windows-x86-exe", ".exe") },
+          ] },
         ] },
         { id: "linux", label: "linux", icon: "linux", kids: [
           { id: "linux/gui", label: "gui app", sub: "charnel", icon: "gui", kids: [
@@ -555,6 +558,8 @@
     "charnel-mac-intel": { icon: "download", title: "charnel for macOS", badge: "gui", body: "the desktop app, .dmg for intel macs.", link: { href: DL, text: "download charnel" } },
     "cli-mac-arm": { icon: "cli", title: "rathole for macOS", badge: "cli", body: "the tui/server binary for apple silicon.", link: { href: DL, text: "download rathole" } },
     "cli-mac-intel": { icon: "cli", title: "rathole for macOS", badge: "cli", body: "the tui/server binary for intel macs.", link: { href: DL, text: "download rathole" } },
+    "charnel-windows-x86-msi": { icon: "download", title: "charnel for windows", badge: "gui", body: "the desktop app, .msi installer for x86_64 windows.", link: { href: DL, text: "download charnel" } },
+    "charnel-windows-x86-exe": { icon: "download", title: "charnel for windows", badge: "gui", body: "the desktop app, .exe (nsis) installer for x86_64 windows.", link: { href: DL, text: "download charnel" } },
     "charnel-linux-x86-deb": { icon: "download", title: "charnel for linux", badge: "gui", body: "desktop app as a .deb (debian / ubuntu), x86_64.", link: { href: DL, text: "download charnel" } },
     "charnel-linux-x86-rpm": { icon: "download", title: "charnel for linux", badge: "gui", body: "desktop app as an .rpm (fedora / red hat), x86_64.", link: { href: DL, text: "download charnel" } },
     "charnel-linux-x86-flatpak": { icon: "download", title: "charnel for linux", badge: "gui", body: "desktop app as a .flatpak, x86_64.", link: { href: DL, text: "download charnel" } },

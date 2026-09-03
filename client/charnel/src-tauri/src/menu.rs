@@ -274,7 +274,6 @@ fn build_app_submenu(app: &AppHandle<Wry>) -> tauri::Result<Submenu<Wry>> {
         .build()
 }
 
-/// handle application menu item clicks
 /// show the about window (or focus it if already open). shared by the
 /// native app menu and the chromeless title-bar's web context menu.
 pub fn show_about_window(app: &AppHandle<Wry>) {
@@ -306,13 +305,6 @@ pub fn show_about_window(app: &AppHandle<Wry>) {
         .theme(Some(tauri::Theme::Dark))
         .initialization_script(&build_script)
         .build();
-}
-
-/// tauri command wrapping [`show_about_window`] for the chromeless
-/// title-bar's web context menu (which has no native menu event to hook).
-#[tauri::command]
-pub fn open_about_window(app: tauri::AppHandle) {
-    show_about_window(&app);
 }
 
 fn handle_menu_event(app: &AppHandle<Wry>, id: &str) {

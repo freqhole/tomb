@@ -100,6 +100,57 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: node scripts/release-notes.mjs "${{ steps.meta.outputs.tag }}"
 
+  # ---- Windows x86_64: charnel .msi/.exe (msvc) -----------------------------
+  windows-x86_64:
+    name: windows x86_64 (msi/nsis)
+    needs: create-release
+    runs-on: ${{ vars.WINDOWS_X86_64_RUNNER || 'windows-latest' }}
+    env:
+      DATABASE_URL: sqlite:data/grimoire.db
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: install sqlx-cli
+        run: cargo install sqlx-cli --no-default-features --features sqlite,rustls --locked
+      # windows-latest ships winget but not the sqlite3 cli build.ps1 needs
+      # for creating views/blob_data - install it and expose it to later
+      # steps via GITHUB_PATH (winget's own PATH registration doesn't take
+      # effect until a new shell/session, which ci steps don't get).
+      - name: install sqlite3 cli (winget)
+        run: |
+          winget install --id SQLite.SQLite -e --accept-package-agreements --accept-source-agreements --disable-interactivity
+          $sqlite3 = Get-ChildItem "$env:LOCALAPPDATA\Microsoft\WinGet" -Recurse -Filter "sqlite3.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $sqlite3) { throw "sqlite3.exe not found after winget install" }
+          Add-Content $env:GITHUB_PATH $sqlite3.DirectoryName
+      # build.ps1 does everything from here: db setup (migrations/views/
+      # blob_data), the haruspex/reliquary/cenotaph ts libs + spume client,
+      # then `npm run tauri build` for charnel - the windows equivalent of
+      # the make targets the other platform jobs call individually.
+      - name: build charnel msi/nsis (x86_64)
+        run: .\scripts\windows\build.ps1
+      - name: upload assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "${{ needs.create-release.outputs.tag }}"
+          $v = "${{ needs.create-release.outputs.version }}"
+          $msi = Get-ChildItem "target\x86_64-pc-windows-msvc\release\bundle\msi" -Filter "*.msi" | Select-Object -First 1
+          $nsis = Get-ChildItem "target\x86_64-pc-windows-msvc\release\bundle\nsis" -Filter "*.exe" | Select-Object -First 1
+          if (-not $msi -or -not $nsis) { throw "expected both an .msi and a .exe under target\x86_64-pc-windows-msvc\release\bundle" }
+          # rename to match the freqhole_charnel_<version>_<arch>.<ext> convention
+          # the other platform jobs use (see Makefile's build-tauri-* targets).
+          $msiOut = "freqhole_charnel_${v}_x86_64.msi"
+          $nsisOut = "freqhole_charnel_${v}_x86_64-setup.exe"
+          Copy-Item $msi.FullName $msiOut
+          Copy-Item $nsis.FullName $nsisOut
+          gh release upload $tag $msiOut $nsisOut --clobber
+
   # ---- macOS arm64: rathole cli + charnel .dmg ------------------------------
   mac-arm64:
     name: macOS arm64 (cli + dmg)
