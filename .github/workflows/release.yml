@@ -101,9 +101,6 @@ jobs:
         run: node scripts/release-notes.mjs "${{ steps.meta.outputs.tag }}"
 
   # ---- Windows x86_64: charnel .msi/.exe (msvc) -----------------------------
-  # this is the only platform job enabled right now while the windows build
-  # gets ironed out in ci - every other job below has `if: false` added
-  # temporarily. remove those guards once this job is green.
   windows-x86_64:
     name: windows x86_64 (msi/nsis)
     needs: create-release
@@ -158,7 +155,6 @@ jobs:
   mac-arm64:
     name: macOS arm64 (cli + dmg)
     needs: create-release
-    if: false # TEMP: disabled while ironing out the windows build (see windows-x86_64)
     runs-on: ${{ vars.MACOS_ARM64_RUNNER || 'macos-14' }}
     env:
       DATABASE_URL: sqlite:data/grimoire.db
@@ -227,7 +223,6 @@ jobs:
   mac-intel:
     name: macOS x86_64 (cli + dmg)
     needs: create-release
-    if: false # TEMP: disabled while ironing out the windows build (see windows-x86_64)
     runs-on: ${{ vars.MACOS_X86_64_RUNNER || 'macos-14' }}
     env:
       DATABASE_URL: sqlite:data/grimoire.db
@@ -292,7 +287,6 @@ jobs:
   linux-x86_64:
     name: linux x86_64 (cli + deb/rpm)
     needs: create-release
-    if: false # TEMP: disabled while ironing out the windows build (see windows-x86_64)
     runs-on: ${{ vars.LINUX_X86_64_RUNNER || 'ubuntu-24.04' }}
     env:
       DATABASE_URL: sqlite:data/grimoire.db
@@ -333,7 +327,6 @@ jobs:
   linux-arm64:
     name: linux arm64 (cli + deb/rpm)
     needs: create-release
-    if: false # TEMP: disabled while ironing out the windows build (see windows-x86_64)
     runs-on: ${{ vars.LINUX_ARM64_RUNNER || 'ubuntu-24.04-arm' }}
     env:
       DATABASE_URL: sqlite:data/grimoire.db
@@ -374,7 +367,6 @@ jobs:
   flatpak-x86_64:
     name: flatpak x86_64
     needs: [create-release, linux-x86_64]
-    if: false # TEMP: disabled while ironing out the windows build (see windows-x86_64)
     runs-on: ${{ vars.LINUX_X86_64_RUNNER || 'ubuntu-24.04' }}
     steps:
       - uses: actions/checkout@v4
@@ -404,7 +396,6 @@ jobs:
   flatpak-arm64:
     name: flatpak arm64
     needs: [create-release, linux-arm64]
-    if: false # TEMP: disabled while ironing out the windows build (see windows-x86_64)
     runs-on: ${{ vars.LINUX_ARM64_RUNNER || 'ubuntu-24.04-arm' }}
     steps:
       - uses: actions/checkout@v4
@@ -437,7 +428,6 @@ jobs:
   android:
     name: android (universal + arm64 apk)
     needs: create-release
-    if: false # TEMP: disabled while ironing out the windows build (see windows-x86_64)
     runs-on: ${{ vars.LINUX_X86_64_RUNNER || 'ubuntu-24.04' }}
     continue-on-error: true
     env:
@@ -538,7 +528,6 @@ jobs:
   pi32:
     name: pi32 armv7 cli (best effort)
     needs: create-release
-    if: false # TEMP: disabled while ironing out the windows build (see windows-x86_64)
     runs-on: ${{ vars.LINUX_X86_64_RUNNER || 'ubuntu-24.04' }}
     continue-on-error: true
     env:
