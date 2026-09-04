@@ -623,18 +623,77 @@ pub fn open_config_dir(app_handle: tauri::AppHandle) -> Result<(), String> {
     }
 }
 
-/// save raw bytes to ~/Downloads/<filename> and return the final file path.
-/// used by spume's zip-bundle download in tauri mode.
+/// directory playlist zip bundles get saved to.
+///
+/// macOS has a real, always-accessible `~/Downloads`, so bundles land there
+/// as before. linux and windows builds instead get a `playlistz` folder
+/// inside the app's own data dir: on linux, `~/Downloads` may not exist (or
+/// may be a different filesystem than temp, see `move_file_across_devices`),
+/// and sandboxed/flatpak installs may not have permission to write there at
+/// all; windows has no equivalent guarantee either. the app data dir always
+/// exists and is always writable.
+fn zip_bundle_dir(app_handle: &tauri::AppHandle) -> Result<PathBuf, String> {
+    #[cfg(target_os = "macos")]
+    {
+        app_handle
+            .path()
+            .download_dir()
+            .map_err(|e| format!("could not resolve downloads directory: {}", e))
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let dir = app_handle
+            .path()
+            .app_data_dir()
+            .map_err(|e| format!("could not resolve app data directory: {}", e))?
+            .join("playlistz");
+        std::fs::create_dir_all(&dir)
+            .map_err(|e| format!("failed to create playlistz directory: {}", e))?;
+        Ok(dir)
+    }
+}
+
+/// move a file, falling back to copy+delete if `rename` fails because `src`
+/// and `dest` are on different filesystems (`EXDEV` / "invalid cross-device
+/// link", os error 18 on linux) - e.g. a temp dir on tmpfs and a destination
+/// on a real disk/mount. `rename` is tried first since it's atomic and free
+/// when both paths share a filesystem, which is the common case.
+fn move_file_across_devices(src: &Path, dest: &Path) -> std::io::Result<()> {
+    match std::fs::rename(src, dest) {
+        Ok(()) => Ok(()),
+        Err(e) if e.raw_os_error() == Some(libc_exdev()) => {
+            std::fs::copy(src, dest)?;
+            std::fs::remove_file(src)?;
+            Ok(())
+        }
+        Err(e) => Err(e),
+    }
+}
+
+/// os error code for "invalid cross-device link" (EXDEV). windows' rename
+/// (`MoveFileExW`) can fail across drives too, but returns a different code
+/// (`ERROR_NOT_SAME_DEVICE`, 17) than linux's EXDEV (18) - check whichever
+/// applies to the target OS.
+fn libc_exdev() -> i32 {
+    #[cfg(windows)]
+    {
+        17
+    }
+    #[cfg(not(windows))]
+    {
+        18
+    }
+}
+
+/// save raw bytes to the platform's zip bundle dir (see `zip_bundle_dir`) and
+/// return the final file path. used by spume's zip-bundle download in tauri mode.
 #[tauri::command]
 pub fn save_zip_to_downloads(
     app_handle: tauri::AppHandle,
     bytes: Vec<u8>,
     filename: String,
 ) -> Result<String, String> {
-    let downloads = app_handle
-        .path()
-        .download_dir()
-        .map_err(|e| format!("could not resolve downloads directory: {}", e))?;
+    let downloads = zip_bundle_dir(&app_handle)?;
 
     if !downloads.exists() {
         std::fs::create_dir_all(&downloads)
@@ -781,7 +840,8 @@ pub fn zip_append_file(temp_id: String, path: String, bytes: Vec<u8>) -> Result<
     Ok(())
 }
 
-/// finalize the zip, move it to ~/Downloads with deduplication, return the final path.
+/// finalize the zip, move it into the platform's zip bundle dir (see
+/// `zip_bundle_dir`) with deduplication, return the final path.
 #[tauri::command]
 pub fn zip_finish(
     app_handle: tauri::AppHandle,
@@ -798,10 +858,7 @@ pub fn zip_finish(
         .map_err(|e| format!("failed to finalize zip: {}", e))?;
 
     let temp_path = zip_temp_path(&temp_id);
-    let downloads = app_handle
-        .path()
-        .download_dir()
-        .map_err(|e| format!("could not resolve downloads directory: {}", e))?;
+    let downloads = zip_bundle_dir(&app_handle)?;
 
     let safe: String = filename
         .chars()
@@ -845,7 +902,7 @@ pub fn zip_finish(
         }
     };
 
-    std::fs::rename(&temp_path, &dest)
+    move_file_across_devices(&temp_path, &dest)
         .map_err(|e| format!("failed to move zip to downloads: {}", e))?;
 
     dest.to_str()
