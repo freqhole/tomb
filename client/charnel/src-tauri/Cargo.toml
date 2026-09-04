@@ -18,11 +18,19 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2.11", features = ["macos-private-api",
+tauri = { version = "=2.10.3", features = ["macos-private-api",
     "protocol-asset",
     "tray-icon",
     "devtools",
 ] }
+# pinned exactly alongside tauri (not otherwise used directly) so tao stays on
+# 0.34.8 -- tauri-runtime-wry 2.11.x pulls in tao 0.35.x, which regressed
+# ndk-context init on android (never calls initialize_android_context()) and
+# aborts real devices with "android context was not initialized" the moment
+# any android-context-dependent networking (iroh's netwatch, rustls
+# platform-verifier) runs. same fix as skein's tauri/Cargo.toml.
+tauri-runtime = "=2.10.1"
+tauri-runtime-wry = "=2.10.1"
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
 tauri-plugin-opener = "2"

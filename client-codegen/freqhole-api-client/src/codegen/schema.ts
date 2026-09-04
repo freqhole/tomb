@@ -3246,6 +3246,11 @@ export const JobStateSnapshotSchema = z.object({
   created_by: z.string().nullish(),
   last_stage: z.string().nullish(),
   last_message: z.string().nullish(),
+  errors: z.array(z.object({
+  error_type: z.string(),
+  title: z.string(),
+  detail: z.string()
+})).nullish(),
   updated_at: z.number()
 });
 export type JobStateSnapshot = z.infer<typeof JobStateSnapshotSchema>;

@@ -24,6 +24,7 @@
 //!   - `created_by: Option<String>` — user id of the caller who enqueued
 //!     the job (or the session). powers per-user visibility.
 
+use crate::error::ErrorDetail;
 use crate::jobs::models::{Job, JobStatus, JobType};
 use crate::jobs::service::{get_job_session, list_jobs};
 use crate::offal::Caller;
@@ -279,6 +280,12 @@ pub struct JobStateSnapshot {
     pub created_by: Option<String>,
     pub last_stage: Option<String>,
     pub last_message: Option<String>,
+    /// typed error details (only present when status is Failed) - parsed
+    /// from the job's persisted `result` column the same way `JobResponse`
+    /// does. this is what lets a client recover the real `error_type` (for
+    /// a friendly message) via a snapshot fallback if the live `Failed`
+    /// event was ever missed (e.g. a subscription reconnect gap).
+    pub errors: Option<Vec<ErrorDetail>>,
     /// unix epoch millis of the last lifecycle change for this row
     /// (`completed_at`, else `started_at`, else `scheduled_at`).
     pub updated_at: i64,
@@ -555,6 +562,15 @@ fn job_to_snapshot(job: &Job) -> Option<JobStateSnapshot> {
         .or(job.started_at)
         .unwrap_or(job.scheduled_at);
     let stage_state = read_stage(&job.id);
+    // mirrors `JobResponse`'s `From<Job>` parsing (models.rs) - the job's
+    // `result` column holds serialized `Vec<ErrorDetail>` once failed.
+    let errors: Option<Vec<ErrorDetail>> = if job.status == "Failed" {
+        job.result
+            .as_ref()
+            .and_then(|r| serde_json::from_str(r).ok())
+    } else {
+        None
+    };
     Some(JobStateSnapshot {
         job_id: job.id.clone(),
         session_id: job.session_id.clone(),
@@ -564,6 +580,7 @@ fn job_to_snapshot(job: &Job) -> Option<JobStateSnapshot> {
         created_by: job.created_by.clone(),
         last_stage: stage_state.as_ref().and_then(|s| s.stage.clone()),
         last_message: stage_state.and_then(|s| s.message),
+        errors,
         updated_at,
     })
 }
