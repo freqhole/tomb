@@ -1,5 +1,13 @@
 # freqhole-release
 
+## 0.3.2
+
+### Patch Changes
+
+- 5ddca91: pin tauri version to avoid android boot crashes
+- f0a09ea: try to handle remote import errorz better
+- 1b7a637: fix issue with adding UNC-style windows file path
+
 ## 0.3.1
 
 ### Patch Changes

@@ -286,6 +286,7 @@ export function PlaylistDetailPanel(props: PlaylistDetailPanelProps) {
   const narrowOverflowActions = (): MenuAction[] => {
     const playlist = props.playlist();
     const hasSongs = playlistSongs().length > 0;
+    const hasSongsOrVideos = hasSongs || playlistVideoItems().length > 0;
     const actions: MenuAction[] = [];
 
     if (canUpdatePlaylist(playlist?.created_by_id ?? null)) {
@@ -320,11 +321,16 @@ export function PlaylistDetailPanel(props: PlaylistDetailPanelProps) {
           buildSendPayload: buildPlaylistSendPayload,
         }),
     });
-    if (hasSongs && playlist) {
+    if (hasSongsOrVideos && playlist) {
       actions.push({
         label: "download zip",
         icon: "downloadZip",
-        onClick: () => void downloadPlaylistZipWithToast(playlist, playlistSongs()),
+        onClick: () =>
+          void downloadPlaylistZipWithToast(
+            playlist,
+            playlistSongs(),
+            playlistVideoItems().map((i) => i.video)
+          ),
       });
     }
     return actions;
@@ -511,10 +517,11 @@ export function PlaylistDetailPanel(props: PlaylistDetailPanelProps) {
                 source={() => currentRemoteFull()}
                 buildSendPayload={buildPlaylistSendPayload}
               />
-              <Show when={playlistSongs().length > 0}>
+              <Show when={playlistSongs().length > 0 || playlistVideoItems().length > 0}>
                 <DownloadPlaylistZipBundleButton
                   playlist={props.playlist()!}
                   songs={playlistSongs()}
+                  videos={playlistVideoItems().map((i) => i.video)}
                 />
               </Show>
             </div>

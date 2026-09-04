@@ -9,6 +9,7 @@ import { readAudioFromOPFS } from "./opfs/helpers";
 import { getBlob, getBlobMetadata } from "./storage/blobs";
 import { getCachedBlob } from "./cache/blobCache";
 import type { Song, Playlist, ImageMetadata } from "./storage/types";
+import type { VideoSummary } from "../../video/data/types";
 
 // picks the primary cover image from an ImageMetadata array.
 // prefers blob_type "original", falls back to first entry with any blob id.
@@ -174,7 +175,8 @@ export type ZipDownloadResult = { kind: "browser" } | { kind: "tauri"; filePath:
 
 export async function downloadPlaylistZip(
   playlist: Playlist,
-  songs: Song[]
+  songs: Song[],
+  videos: VideoSummary[] = []
 ): Promise<ZipDownloadResult> {
   const entry = await toPlaylistZipEntry(playlist, songs);
   const filename = `${playlist.title.replace(/[^a-zA-Z0-9_-]/g, "_") || "playlist"}.zip`;
@@ -182,8 +184,10 @@ export async function downloadPlaylistZip(
 
   // in tauri: stream bytes to rust one file at a time so only one song lives in
   // memory at once. rust writes each file to a temp zip on disk immediately.
+  // videos are only supported here - see downloadPlaylistZipTauri's own doc
+  // comment for why the browser path doesn't get them too.
   if (isTauri) {
-    return downloadPlaylistZipTauri(entry, playlist, songs, filename);
+    return downloadPlaylistZipTauri(entry, playlist, songs, videos, filename);
   }
 
   // browser: build zip in js (fflate → OPFS when available) then download.
@@ -205,10 +209,19 @@ export async function downloadPlaylistZip(
   return { kind: "browser" };
 }
 
+/// videos are exported as raw files (`data/<name>.<ext>`) plus `.m3u8`
+/// entries only - not the self-contained player app the library builds
+/// (playlistz.js/index.html only understand songs). tauri-only for now:
+/// this function already builds the zip by hand file-by-file (unlike the
+/// browser path, which delegates the whole thing to `buildPlaylistZip`),
+/// so adding videos here needs no `@freqhole/playlistz` changes; the
+/// browser path would need the library itself extended to accept extra
+/// files, so it stays audio-only until that's worth doing.
 async function downloadPlaylistZipTauri(
   entry: PlaylistZipEntry,
   playlist: Playlist,
   songs: Song[],
+  videos: VideoSummary[],
   filename: string
 ): Promise<ZipDownloadResult> {
   // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
@@ -297,6 +310,36 @@ async function downloadPlaylistZipTauri(
       });
     }
 
+    // videos: raw files only, written straight to data/ and referenced from
+    // the m3u8 below - no entry in playlistz.js (the self-contained player
+    // app only understands songs), see downloadPlaylistZipTauri's doc comment.
+    // fetched directly via the active remote's transport rather than through
+    // fetchBlob/BlobFetcher: unlike Song, VideoSummary carries no sha256 or
+    // mimeType of its own, and transport.fetchBlob's response already
+    // includes the real contentType, so no extra blob_metadata round trip
+    // is needed to pick a file extension.
+    const resolvedVideos: Array<{ title: string; duration: number; videoPath: string }> = [];
+    if (videos.length > 0) {
+      const remote = getCurrentRemote();
+      const transport = remote ? await getTransportForRemote(remote) : null;
+      for (const video of videos) {
+        if (!transport || !video.media_blob_id) continue;
+        try {
+          const { data, contentType } = await transport.fetchBlob(video.media_blob_id);
+          const safeFilename = sanitizeForZip(`${video.title}${videoExtFromMime(contentType)}`);
+          const videoPath = `data/${safeFilename}`;
+          await appendFile(`${rootName}/${videoPath}`, data);
+          resolvedVideos.push({
+            title: video.title,
+            duration: video.duration_seconds ?? 0,
+            videoPath,
+          });
+        } catch (e) {
+          console.error(`failed to fetch video blob for zip export (${video.id}):`, e);
+        }
+      }
+    }
+
     // m3u8 file - paths inside are relative to the data/ folder it lives in
     const relativeToData = (p: string) => p.replace(/^data\//, "");
     const m3uContent = generateM3UContent(
@@ -314,6 +357,11 @@ async function downloadPlaylistZipTauri(
         duration: r.duration,
         audioPath: relativeToData(r.audioPath),
         imagePath: r.imagePath && relativeToData(r.imagePath),
+      })),
+      resolvedVideos.map((v) => ({
+        title: v.title,
+        duration: v.duration,
+        videoPath: relativeToData(v.videoPath),
       }))
     );
     await appendText(`${rootName}/data/${rootName}.m3u8`, m3uContent);
@@ -387,6 +435,21 @@ function extFromMime(mime: string): string {
   return map[mime] ?? ".jpg";
 }
 
+// derive a file extension from a video mime type (mirrors extFromMime above).
+// falls back to .mp4, the most common web-compatible container.
+function videoExtFromMime(mime: string): string {
+  const map: Record<string, string> = {
+    "video/mp4": ".mp4",
+    "video/webm": ".webm",
+    "video/quicktime": ".mov",
+    "video/x-matroska": ".mkv",
+    "video/mpeg": ".mpeg",
+    "video/3gpp": ".3gp",
+    "video/x-msvideo": ".avi",
+  };
+  return map[mime] ?? ".mp4";
+}
+
 // derive a mime type from a file path extension (for playlistzData)
 function mimeFromPath(filePath: string): string {
   const ext = filePath.split(".").pop()?.toLowerCase();
@@ -425,6 +488,15 @@ interface M3uSong {
   imagePath?: string;
 }
 
+// video entries: no artist/album/cover concept, just title + duration -
+// see downloadPlaylistZipTauri's doc comment for why videos only ever get
+// this far (raw file + m3u8 line, no self-player app awareness).
+interface M3uVideo {
+  title: string;
+  duration: number;
+  videoPath: string;
+}
+
 interface M3uPlaylist {
   id: string;
   title: string;
@@ -433,7 +505,11 @@ interface M3uPlaylist {
   imagePath?: string;
 }
 
-function generateM3UContent(playlist: M3uPlaylist, songs: M3uSong[]): string {
+function generateM3UContent(
+  playlist: M3uPlaylist,
+  songs: M3uSong[],
+  videos: M3uVideo[] = []
+): string {
   let out = "#EXTM3U\n";
   out += `# Playlist: ${playlist.title}\n`;
   out += `# PlaylistId: ${playlist.id}\n`;
@@ -450,6 +526,13 @@ function generateM3UContent(playlist: M3uPlaylist, songs: M3uSong[]): string {
     out += `# Album: ${song.album}\n`;
     if (song.imagePath) out += `# Image: ${song.imagePath}\n`;
     out += `${song.audioPath}\n\n`;
+  }
+
+  for (const video of videos) {
+    const duration = Math.round(video.duration);
+    out += `#EXTINF:${duration}, ${video.title}\n`;
+    out += `# Title: ${video.title}\n`;
+    out += `${video.videoPath}\n\n`;
   }
 
   return out;

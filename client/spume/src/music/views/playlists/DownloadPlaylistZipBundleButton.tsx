@@ -5,21 +5,27 @@ import { DownloadZipIcon } from "../../../components/icons/registry";
 import { LoaderIcon } from "../../../components/icons/registry";
 import type { Playlist } from "../../services/storage/types";
 import type { Song } from "../../data/types";
+import type { VideoSummary } from "../../../video/data/types";
 
 interface Props {
   playlist: Playlist;
   songs: Song[];
+  videos?: VideoSummary[];
 }
 
 // shared download logic - reused by the icon button below and by narrow-view
 // overflow flyout menus that just need the click behavior without the
 // standalone icon button chrome.
-export async function downloadPlaylistZipWithToast(playlist: Playlist, songs: Song[]) {
+export async function downloadPlaylistZipWithToast(
+  playlist: Playlist,
+  songs: Song[],
+  videos: VideoSummary[] = []
+) {
   try {
-    const result = await downloadPlaylistZip(playlist, songs);
+    const result = await downloadPlaylistZip(playlist, songs, videos);
     if (result.kind === "tauri") {
       const filePath = result.filePath;
-      toast.success("zip saved to downloads", {
+      toast.success("zip bundle saved", {
         action: {
           label: "open folder",
           onClick: async () => {
@@ -45,7 +51,7 @@ export function DownloadPlaylistZipBundleButton(props: Props) {
     if (isDownloading()) return;
     setIsDownloading(true);
     try {
-      await downloadPlaylistZipWithToast(props.playlist, props.songs);
+      await downloadPlaylistZipWithToast(props.playlist, props.songs, props.videos ?? []);
     } finally {
       setIsDownloading(false);
     }
