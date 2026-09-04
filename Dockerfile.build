@@ -26,12 +26,35 @@ RUN if [ "$TARGET_ARCH" = "aarch64-unknown-linux-gnu" ]; then \
     fi
 
 # install cross-compilation tools for ARMv7 (32-bit Pi 2+)
+# no libssl-dev:armhf here - pi32's build passes --no-default-features
+# (see Makefile's build-pi32), which drops both `server`/`cli`'s own
+# "webauthn" default and disables it workspace-wide for this invocation,
+# so openssl/openssl-sys/webauthn-rs never enter the dependency graph for
+# this target (verified via `cargo tree -p server -p cli
+# --no-default-features --target armv7-unknown-linux-gnueabihf -i
+# openssl-sys` returning no matches). libasound2-dev:armhf stays: cpal/alsa
+# still get pulled in unconditionally via `client/rathole`'s own default
+# features (cli depends on rathole as a normal, non-optional dependency,
+# so cli's own --no-default-features doesn't reach it).
+#
+# bullseye is now oldoldstable and its -security pool's newest armhf
+# builds of alsa-lib (libasound2/-data/-dev, deb11u1 security patch) have
+# been pulled from every live mirror (deb.debian.org, ftp.us/de.debian.org,
+# kernel.org all 404 - confirmed, not a transient CDN blip) while the apt
+# index still advertises them - an in-progress, not-yet-finished archival
+# migration. archive.debian.org's frozen main pool still has the
+# pre-security-patch build (1.2.4-1.1, no +deb11uN suffix), so pull just
+# that trio from there instead, pinned exactly (all three together, since
+# libasound2-data has a Breaks against an older libasound2 than its own
+# version - installing them at mismatched versions fails to resolve).
 RUN if [ "$TARGET_ARCH" = "armv7-unknown-linux-gnueabihf" ]; then \
     dpkg --add-architecture armhf && \
+    echo "deb [check-valid-until=no] http://archive.debian.org/debian bullseye main" > /etc/apt/sources.list.d/archive-bullseye.list && \
     apt-get update && \
     apt-get install -y \
-    libssl-dev:armhf \
-    libasound2-dev:armhf \
+    libasound2-data=1.2.4-1.1 \
+    libasound2:armhf=1.2.4-1.1 \
+    libasound2-dev:armhf=1.2.4-1.1 \
     gcc-arm-linux-gnueabihf; \
     fi
 
