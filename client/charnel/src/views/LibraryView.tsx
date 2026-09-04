@@ -234,8 +234,16 @@ export default function LibraryView() {
   function isPathPlausible(p: string): boolean {
     const trimmed = p.trim();
     if (!trimmed) return false;
-    // absolute unix path, home-relative, or windows drive letter
-    return trimmed.startsWith("/") || trimmed.startsWith("~") || /^[a-zA-Z]:[\\/]/.test(trimmed);
+    // absolute unix path, home-relative, windows drive letter (optionally
+    // with the "\\?\" extended-length prefix that std::fs::canonicalize
+    // always adds on windows - see resolve_path/canonical_path_string), or
+    // a plain UNC share path (\\server\share)
+    return (
+      trimmed.startsWith("/") ||
+      trimmed.startsWith("~") ||
+      /^(\\\\\?\\)?[a-zA-Z]:[\\/]/.test(trimmed) ||
+      /^\\\\[^\\]+\\[^\\]+/.test(trimmed)
+    );
   }
 
   async function validatePendingPath() {
@@ -780,7 +788,17 @@ export default function LibraryView() {
                       !pathValidation()!.exists ||
                       !pathValidation()!.is_dir ||
                       !pathValidation()!.is_readable
-                    : !isPathPlausible(pendingPath())
+                    : // a successful server-side validation always unlocks this,
+                      // even for path shapes isPathPlausible's regexes don't
+                      // recognize (e.g. windows' "\\?\" extended-length prefix) -
+                      // the heuristic only exists to light the button up before
+                      // the user has pressed "validate".
+                      !isPathPlausible(pendingPath()) &&
+                      !(
+                        pathValidation()?.exists &&
+                        pathValidation()?.is_dir &&
+                        pathValidation()?.is_readable
+                      )
                 }
               >
                 add & scan
