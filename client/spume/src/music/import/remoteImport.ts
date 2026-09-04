@@ -284,6 +284,8 @@ function formatStage(stage: string, message: string | undefined): string | undef
       return message ? `downloaded ${message}` : "downloaded";
     case "postprocess":
       return message ?? "converting\u2026";
+    case "reconnecting":
+      return "reconnecting\u2026";
     default:
       return message;
   }
@@ -360,12 +362,17 @@ export async function uploadFilesToRemote(
           updateJobStatus(trackId, "completed");
           onJobComplete?.();
         } else if (pollResult.status === "timeout") {
-          updateJobStatus(trackId, "timeout", { error: "taking a long time, check back later" });
+          updateJobStatus(trackId, "timeout", {
+            error: "lost connection while tracking this upload",
+          });
           // partial work may have landed server-side; refresh queries.
           onJobComplete?.();
-          toast.info(`upload of ${file.name} is still processing — check back later`, {
-            title: "processing queued",
-          });
+          toast.info(
+            `lost connection while tracking upload of ${file.name} — it may still finish`,
+            {
+              title: "connection lost",
+            }
+          );
         } else {
           const friendly = humanizeJobError(
             pollResult.errorMessage,
@@ -435,10 +442,12 @@ export async function uploadPathsToRemote(
           updateJobStatus(trackId, "completed");
           onJobComplete?.();
         } else if (pollResult.status === "timeout") {
-          updateJobStatus(trackId, "timeout", { error: "taking a long time, check back later" });
+          updateJobStatus(trackId, "timeout", {
+            error: "lost connection while tracking this upload",
+          });
           onJobComplete?.();
-          toast.info(`upload of ${filename} is still processing — check back later`, {
-            title: "processing queued",
+          toast.info(`lost connection while tracking upload of ${filename} — it may still finish`, {
+            title: "connection lost",
           });
         } else {
           const friendly = humanizeJobError(
@@ -591,7 +600,7 @@ export async function importPathsToLocal(
               onJobComplete?.();
             } else if (pollResult.status === "timeout") {
               updateJobStatus(trackId, "timeout", {
-                error: "taking a long time, check back later",
+                error: "lost connection while tracking this job",
               });
               onJobComplete?.();
             } else {
@@ -700,10 +709,12 @@ export async function fetchUrlsOnRemote(urls: string[], onJobComplete?: () => vo
           updateJobStatus(trackId, "completed");
           onJobComplete?.();
         } else if (pollResult.status === "timeout") {
-          updateJobStatus(trackId, "timeout", { error: "taking a long time, check back later" });
+          updateJobStatus(trackId, "timeout", {
+            error: "lost connection while tracking this download",
+          });
           onJobComplete?.();
-          toast.info(`download is still processing — check back later`, {
-            title: "processing queued",
+          toast.info(`lost connection while tracking the download — it may still finish`, {
+            title: "connection lost",
           });
         } else {
           const friendly = humanizeJobError(

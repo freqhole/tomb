@@ -65,7 +65,7 @@ export class JobPoller {
   waitForJob(
     jobId: string,
     timeoutMs: number = 120_000,
-    opts?: WaitForJobOptions,
+    opts?: WaitForJobOptions
   ): Promise<PollResultDetails> {
     const ac = new AbortController();
     this.inflight.add(ac);
@@ -85,68 +85,60 @@ export class JobPoller {
 // internal: one subscription per wait
 // ============================================================================
 
+/** turn a terminal (failed/cancelled) snapshot row into a `PollResultDetails`. */
+function snapshotToFailedResult(cur: JobStateSnapshot): PollResultDetails {
+  const first = cur.errors?.[0];
+  const msg = first?.detail ?? cur.last_message ?? undefined;
+  return {
+    status: "failed",
+    errorMessage: msg,
+    errors: first
+      ? [first]
+      : msg
+        ? [{ error_type: "unknown", title: cur.status, detail: msg }]
+        : undefined,
+  };
+}
+
+/**
+ * `timeoutMs` is a "how long can we be completely unreachable before
+ * giving up" budget, NOT a "how long can the job take" budget - a job
+ * that's genuinely still running (server reachable, status still
+ * pending/running) is tracked indefinitely. every successful event or
+ * snapshot resets the reachability clock, so only a sustained outage
+ * (server down, network partition) with no successful contact for the
+ * whole `timeoutMs` window resolves as `"timeout"`. stream drops,
+ * lagged broadcasts, and other recoverable `CloseReason`s reconnect
+ * with capped exponential backoff instead of failing outright.
+ */
 async function subscribeAndWait(
   remote: RemoteRef,
   jobId: string,
   timeoutMs: number,
   controller: AbortController,
-  opts?: WaitForJobOptions,
+  opts?: WaitForJobOptions
 ): Promise<PollResultDetails> {
-  let client;
-  try {
-    client = await getClientForRemote(remote);
-  } catch (err) {
-    errorLog("jobs", `waitForJob ${jobId}: getClientForRemote failed:`, err);
-    return { status: "failed", errorMessage: String(err) };
-  }
-
-  // initial snapshot to catch jobs that finished before we could subscribe.
-  // missing from snapshot = either already-completed-and-evicted, or simply
-  // not yet visible; either way the live subscription handles the rest.
-  try {
-    const snap: JobStateSnapshot[] = await client.jobs.events.snapshot({
-      job_ids: [jobId],
-    });
-    const cur = snap.find((s) => s.job_id === jobId);
-    if (cur) {
-      if (cur.status === "completed") {
-        debug("jobs", `job ${jobId} already completed (snapshot)`);
-        return { status: "completed" };
-      }
-      if (cur.status === "failed" || cur.status === "cancelled") {
-        const msg = cur.last_message ?? undefined;
-        debug("jobs", `job ${jobId} already terminal (snapshot): ${cur.status}`);
-        return {
-          status: "failed",
-          errorMessage: msg,
-          errors: msg
-            ? [{ error_type: "unknown", title: cur.status, detail: msg }]
-            : undefined,
-        };
-      }
-    }
-  } catch (err) {
-    // snapshot failed — proceed to subscribe anyway
-    warn("jobs", `waitForJob ${jobId}: snapshot failed (continuing):`, err);
-  }
-
-  // subscribe and wait for a terminal event for this jobId.
   return new Promise<PollResultDetails>((resolve) => {
     let settled = false;
+    let client: Awaited<ReturnType<typeof getClientForRemote>> | undefined;
+    let lastReachableAt = Date.now();
+
     const finish = (r: PollResultDetails) => {
       if (settled) return;
       settled = true;
-      clearTimeout(timeoutId);
       if (idleTimerId !== undefined) clearTimeout(idleTimerId);
       if (terminalGraceTimer !== undefined) clearTimeout(terminalGraceTimer);
+      if (reconnectTimerId !== undefined) clearTimeout(reconnectTimerId);
       controller.abort();
       resolve(r);
     };
 
-    const timeoutId = setTimeout(() => {
-      warn("jobs", `job ${jobId} timed out`);
+    const giveUpIfStale = (context: string): boolean => {
+      if (Date.now() - lastReachableAt <= timeoutMs) return false;
+      warn("jobs", `job ${jobId}: unreachable for over ${timeoutMs}ms (${context}), giving up`);
       finish({ status: "timeout" });
-    }, timeoutMs);
+      return true;
+    };
 
     // idle-watchdog: if no event arrives within IDLE_POLL_MS, fall back
     // to a one-shot snapshot. covers cases where the event stream is up
@@ -161,10 +153,17 @@ async function subscribeAndWait(
     };
     const pollSnapshotOnIdle = async () => {
       if (settled) return;
+      if (connecting || !client) {
+        // a (re)connect attempt is already in flight and will re-snapshot
+        // on its own; just check back later.
+        armIdleTimer();
+        return;
+      }
       try {
         const snap: JobStateSnapshot[] = await client.jobs.events.snapshot({
           job_ids: [jobId],
         });
+        lastReachableAt = Date.now();
         if (settled) return;
         const cur = snap.find((s) => s.job_id === jobId);
         if (cur) {
@@ -174,20 +173,14 @@ async function subscribeAndWait(
             return;
           }
           if (cur.status === "failed" || cur.status === "cancelled") {
-            const msg = cur.last_message ?? undefined;
             debug("jobs", `job ${jobId} terminal via idle-poll: ${cur.status}`);
-            finish({
-              status: "failed",
-              errorMessage: msg,
-              errors: msg
-                ? [{ error_type: "unknown", title: cur.status, detail: msg }]
-                : undefined,
-            });
+            finish(snapshotToFailedResult(cur));
             return;
           }
         }
       } catch (err) {
         warn("jobs", `job ${jobId}: idle snapshot poll failed (continuing):`, err);
+        if (giveUpIfStale("idle-poll")) return;
       }
       armIdleTimer();
     };
@@ -204,32 +197,113 @@ async function subscribeAndWait(
     let terminalGraceTimer: ReturnType<typeof setTimeout> | undefined;
     const TERMINAL_GRACE_MS = 2000;
 
-    (async () => {
+    // reconnect with capped exponential backoff on any recoverable drop.
+    // network blips / server restarts / broker lag shouldn't abandon
+    // tracking - only `unauthorized` (role downgrade) or the caller's
+    // own abort() stop us for good.
+    const RECONNECT_BASE_MS = 1000;
+    const RECONNECT_MAX_MS = 30_000;
+    let reconnectDelay = RECONNECT_BASE_MS;
+    let reconnectTimerId: ReturnType<typeof setTimeout> | undefined;
+    let connecting = true;
+
+    const scheduleReconnect = (context: string) => {
+      if (settled || controller.signal.aborted) return;
+      if (giveUpIfStale(context)) return;
+      const delay = reconnectDelay;
+      reconnectDelay = Math.min(reconnectDelay * 2, RECONNECT_MAX_MS);
+      opts?.onStage?.("reconnecting", undefined);
+      reconnectTimerId = setTimeout(attemptConnect, delay);
+    };
+
+    const attemptConnect = async () => {
+      if (settled || controller.signal.aborted) return;
+      connecting = true;
+      if (!client) {
+        try {
+          client = await getClientForRemote(remote);
+        } catch (err) {
+          warn("jobs", `job ${jobId}: getClientForRemote failed, will retry:`, err);
+          scheduleReconnect("client");
+          return;
+        }
+      }
+      // re-snapshot on every (re)connect - catches a job that finished
+      // while we were never subscribed yet, or while disconnected.
       try {
-        for await (const evt of client.jobs.events.subscribe(
+        const snap: JobStateSnapshot[] = await client.jobs.events.snapshot({
+          job_ids: [jobId],
+        });
+        lastReachableAt = Date.now();
+        if (settled) return;
+        const cur = snap.find((s) => s.job_id === jobId);
+        if (cur) {
+          if (cur.status === "completed") {
+            debug("jobs", `job ${jobId} already completed (snapshot)`);
+            finish({ status: "completed" });
+            return;
+          }
+          if (cur.status === "failed" || cur.status === "cancelled") {
+            debug("jobs", `job ${jobId} already terminal (snapshot): ${cur.status}`);
+            finish(snapshotToFailedResult(cur));
+            return;
+          }
+        }
+      } catch (err) {
+        warn("jobs", `job ${jobId}: snapshot failed, will retry:`, err);
+        scheduleReconnect("snapshot");
+        return;
+      }
+      connecting = false;
+      runSubscription();
+    };
+
+    const runSubscription = async () => {
+      try {
+        for await (const evt of client!.jobs.events.subscribe(
           { job_ids: [jobId] },
-          controller.signal,
+          controller.signal
         )) {
+          reconnectDelay = RECONNECT_BASE_MS;
+          lastReachableAt = Date.now();
           armIdleTimer();
           handleEvent(evt);
           if (settled) return;
         }
-        // stream ended without a terminal event for this job
-        if (!settled) {
-          warn("jobs", `job ${jobId} subscription ended without terminal event`);
-          finish({ status: "timeout" });
+        // stream ended without a terminal event for this job - reconnect
+        // rather than give up (server restart, idle connection reaped, etc).
+        if (!settled && !controller.signal.aborted) {
+          warn("jobs", `job ${jobId} subscription ended without terminal event, reconnecting`);
+          scheduleReconnect("stream-ended");
         }
       } catch (err) {
+        if (controller.signal.aborted) return;
         if (err instanceof JobEventsStreamClosed) {
-          warn("jobs", `job ${jobId} stream closed: ${err.reason.kind}`);
-          finish({ status: "timeout" });
+          if (err.reason.kind === "unauthorized") {
+            warn("jobs", `job ${jobId} stream closed: unauthorized, giving up`);
+            finish({
+              status: "failed",
+              errorMessage: "no longer authorized to view this job",
+              errors: [
+                {
+                  error_type: "unauthorized",
+                  title: "unauthorized",
+                  detail: "no longer authorized to view this job",
+                },
+              ],
+            });
+            return;
+          }
+          warn("jobs", `job ${jobId} stream closed: ${err.reason.kind}, reconnecting`);
+          scheduleReconnect(`stream-closed:${err.reason.kind}`);
           return;
         }
-        if (controller.signal.aborted) return;
-        errorLog("jobs", `job ${jobId} subscription error:`, err);
-        finish({ status: "failed", errorMessage: String(err) });
+        errorLog("jobs", `job ${jobId} subscription error, reconnecting:`, err);
+        scheduleReconnect("stream-error");
       }
-    })();
+    };
+
+    attemptConnect();
 
     function handleEvent(evt: JobEvent) {
       if (evt.kind === "stage" && evt.job_id === jobId) {
@@ -241,9 +315,7 @@ async function subscribeAndWait(
         finish({
           status: "failed",
           errorMessage: evt.message,
-          errors: [
-            { error_type: evt.error_type, title: "job failed", detail: evt.message },
-          ],
+          errors: [{ error_type: evt.error_type, title: "job failed", detail: evt.message }],
         });
         return;
       }
@@ -263,24 +335,45 @@ async function subscribeAndWait(
           }
           if (terminalGraceTimer === undefined) {
             const toStatus = evt.to;
-            terminalGraceTimer = setTimeout(() => finishFailedFromDetail(toStatus), TERMINAL_GRACE_MS);
+            terminalGraceTimer = setTimeout(
+              () => finishFailedFromDetail(toStatus),
+              TERMINAL_GRACE_MS
+            );
           }
         }
       }
     }
 
     // resolve a failed/cancelled terminal state using whatever detail the
-    // `failed` event provided (if any).
+    // `failed` event provided. if it never landed (e.g. dropped mid
+    // reconnect), the real detail is already persisted server-side by the
+    // time `status_changed` fires, so recover it via one snapshot instead
+    // of reporting an unknown/empty error.
     function finishFailedFromDetail(toStatus: string) {
-      const detail = lastFailedDetail?.message;
-      const errType = lastFailedDetail?.error_type ?? "unknown";
-      finish({
-        status: "failed",
-        errorMessage: detail,
-        errors: detail
-          ? [{ error_type: errType, title: toStatus, detail }]
-          : undefined,
-      });
+      if (lastFailedDetail) {
+        const { error_type, message } = lastFailedDetail;
+        finish({
+          status: "failed",
+          errorMessage: message,
+          errors: [{ error_type, title: toStatus, detail: message }],
+        });
+        return;
+      }
+      (async () => {
+        try {
+          if (client) {
+            const snap = await client.jobs.events.snapshot({ job_ids: [jobId] });
+            const cur = snap.find((s) => s.job_id === jobId);
+            if (cur?.errors?.length) {
+              finish(snapshotToFailedResult(cur));
+              return;
+            }
+          }
+        } catch (err) {
+          warn("jobs", `job ${jobId}: terminal-grace snapshot failed:`, err);
+        }
+        finish({ status: "failed" });
+      })();
     }
   });
 }
@@ -296,7 +389,7 @@ export async function pollJobUntilComplete(
   remote: RemoteRef,
   jobId: string,
   timeoutMs: number = 10000,
-  opts?: WaitForJobOptions,
+  opts?: WaitForJobOptions
 ): Promise<PollResult> {
   const poller = new JobPoller(remote, 0);
   const result = await poller.waitForJob(jobId, timeoutMs, opts);
@@ -310,7 +403,7 @@ export async function pollJobUntilComplete(
 export async function pollJobWithDetails(
   remote: RemoteRef,
   jobId: string,
-  timeoutMs: number = 10000,
+  timeoutMs: number = 10000
 ): Promise<PollResultDetails> {
   const poller = new JobPoller(remote, 0);
   const result = await poller.waitForJob(jobId, timeoutMs);
