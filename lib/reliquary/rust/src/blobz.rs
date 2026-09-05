@@ -1683,6 +1683,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(again.filename.as_deref(), Some("still-here.bin"));
+        assert_eq!(again.blake3, first.blake3);
     }
 
     #[tokio::test]
