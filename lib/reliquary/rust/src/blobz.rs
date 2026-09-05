@@ -179,7 +179,11 @@ pub trait BlobStore: Send + Sync {
     /// metadata is recorded, and the file stays where it is. streams the
     /// file through blake3 so large files never load fully into memory.
     /// `on_progress` is throttled internally (roughly every 4MB plus once at
-    /// completion); `cancel` allows aborting mid-hash. dedupes on blake3.
+    /// completion); `cancel` allows aborting mid-hash. dedupes on blake3 -
+    /// if a matching row already exists but is `external` and its recorded
+    /// path no longer resolves to a real file (moved/renamed/deleted since
+    /// registration), the row is repaired to point at `abs_path` instead of
+    /// silently returning a row known to be stale.
     async fn register_external_path(
         &self,
         abs_path: &Path,
@@ -594,14 +598,50 @@ impl BlobStore for SqliteBlobStore {
             cb(size as u64, total_size);
         }
         let blake3_hex = hasher.finalize().to_hex().to_string();
+        let path_str = abs_path.to_string_lossy().to_string();
 
         // see `insert()` for why a racing duplicate here is expected and
-        // must not surface as an error - same reasoning applies.
+        // must not surface as an error - same reasoning applies. an
+        // existing EXTERNAL row can go stale though: the file it points at
+        // may since have been moved, renamed, or deleted (the store never
+        // owned it - that's the whole point of "external"), which silently
+        // breaks every later local-disk read of this blob (thumbnail/
+        // waveform generation, transcode, etc: "No such file or
+        // directory") until the row is corrected. this caller just proved
+        // (by hashing it above) that `abs_path` has the exact same content
+        // right now, so if the recorded path no longer resolves to a real
+        // file, repair the row to point at this one instead of silently
+        // handing back a row that's known to be wrong - mirrors
+        // `register_ingested()`'s own stale-`size` repair above.
         if let Some(existing) = self.get_any(&blake3_hex).await? {
+            if existing.external {
+                let recorded_path_ok = tokio::fs::metadata(&existing.path)
+                    .await
+                    .map(|m| m.is_file())
+                    .unwrap_or(false);
+                if !recorded_path_ok && existing.path != path_str {
+                    tracing::warn!(
+                        blake3 = %blake3_hex,
+                        recorded_path = %existing.path,
+                        new_path = %path_str,
+                        "register_external_path: existing external row's path no \
+                         longer resolves to a file - repairing"
+                    );
+                    sqlx::query("UPDATE blobz SET path = ?1 WHERE blake3 = ?2")
+                        .bind(&path_str)
+                        .bind(&blake3_hex)
+                        .execute(&self.pool)
+                        .await?;
+                    return self.get_any(&blake3_hex).await?.ok_or_else(|| {
+                        BlobStoreError::Storage(
+                            "row vanished immediately after repair update".to_string(),
+                        )
+                    });
+                }
+            }
             return Ok(existing);
         }
 
-        let path_str = abs_path.to_string_lossy().to_string();
         self.insert_row(&blake3_hex, &blake3_hex, &path_str, size, true, meta)
             .await
     }
@@ -1574,6 +1614,75 @@ mod tests {
         assert_eq!(again.blake3, blob.blake3);
         let (rows, _) = store.list(100, 0).await.unwrap();
         assert_eq!(rows.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn register_external_path_repairs_a_stale_path_once_the_file_has_moved() {
+        // simulates the bug this fixes: a local file upload registers the
+        // user's original file in place (never copied); the user later
+        // moves/renames it, so the recorded path stops resolving to a real
+        // file (breaking any later local-disk read - thumbnail/waveform
+        // generation, transcode, etc). re-adding the SAME content from its
+        // new location must repair the row's path instead of silently
+        // handing back a row that's known to be wrong.
+        let (store, _pool, _tmp) = make_store().await;
+        let src_dir = tempfile::tempdir().expect("src tempdir");
+        let old_path = src_dir.path().join("original.mp3");
+        let payload = b"identical audio bytes";
+        tokio::fs::write(&old_path, payload).await.unwrap();
+
+        let first = store
+            .register_external_path(&old_path, NewBlobMeta::default(), None, None)
+            .await
+            .expect("register_external_path");
+        assert_eq!(store.path_for(&first), old_path);
+
+        // the user moves the file to a new location (same content).
+        let new_path = src_dir.path().join("renamed.mp3");
+        tokio::fs::rename(&old_path, &new_path).await.unwrap();
+
+        let repaired = store
+            .register_external_path(&new_path, NewBlobMeta::default(), None, None)
+            .await
+            .expect("register_external_path after move");
+        assert_eq!(repaired.blake3, first.blake3);
+        assert_eq!(store.path_for(&repaired), new_path);
+
+        // the repair persisted, not just returned for this one call.
+        let refetched = store.get_any(&first.blake3).await.unwrap().unwrap();
+        assert_eq!(store.path_for(&refetched), new_path);
+        let (rows, _) = store.list(100, 0).await.unwrap();
+        assert_eq!(rows.len(), 1, "still one row, not a duplicate");
+    }
+
+    #[tokio::test]
+    async fn register_external_path_leaves_a_still_valid_row_untouched() {
+        let (store, _pool, _tmp) = make_store().await;
+        let src_dir = tempfile::tempdir().expect("src tempdir");
+        let src_path = src_dir.path().join("still-here.bin");
+        tokio::fs::write(&src_path, b"never moved").await.unwrap();
+
+        let first = store
+            .register_external_path(
+                &src_path,
+                NewBlobMeta {
+                    filename: Some("still-here.bin".into()),
+                    ..Default::default()
+                },
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+
+        // re-registering the exact same (still-valid) path must not touch
+        // the row's metadata (a repair should only ever kick in when the
+        // recorded path no longer resolves to a real file).
+        let again = store
+            .register_external_path(&src_path, NewBlobMeta::default(), None, None)
+            .await
+            .unwrap();
+        assert_eq!(again.filename.as_deref(), Some("still-here.bin"));
     }
 
     #[tokio::test]
