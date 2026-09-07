@@ -571,7 +571,11 @@ pub async fn search_playlists(
     limit: u32,
     offset: u32,
 ) -> GrimoireResult<Vec<PlaylistSearchResult>> {
-    // FTS search on playlistz_fts with privacy filtering
+    // FTS search on playlistz_fts. `is_public` is intentionally NOT
+    // enforced here - unlike `private`, it has no UI to ever set it true,
+    // so treating it as a real gate would make every playlist invisible
+    // to every caller except its exact creator. playlists are open-to-all
+    // in search, same as every other entity type, unless marked `private`.
     // tag filtering: only show playlists containing songs from albums with matching tags
 
     #[derive(sqlx::FromRow)]
@@ -621,7 +625,6 @@ pub async fn search_playlists(
 
         WHERE playlistz_fts MATCH ?
             AND playlist.deleted_at IS NULL
-            AND (playlist.is_public = 1 OR playlist.created_by = ?)
             AND (playlist.private = 0 OR playlist.created_by_id = ?)
             -- tag include filter (OR logic - playlist must contain songs from albums with these tags)
             AND (NOT ? OR EXISTS (
@@ -644,7 +647,6 @@ pub async fn search_playlists(
         LIMIT ? OFFSET ?
         "#,
         sanitized_query,
-        user_id_param,
         user_id_param,
         has_tag_include,
         tag_include_json,
