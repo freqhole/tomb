@@ -153,6 +153,12 @@ export interface DropdownMenuProps {
   /** called each time the menu opens - e.g. to refresh data the actions
    * depend on right before they're shown */
   onOpen?: () => void;
+  /** which side of the trigger the menu's edge anchors to (only used by
+   * `ClickDropdownMenu`). defaults to "right", which anchors the menu's
+   * right edge to the trigger's right edge - wrong for a trigger near the
+   * left edge of the viewport (e.g. the title-bar hamburger), where it
+   * pushes the menu off-screen to the left. use "left" there instead. */
+  align?: "left" | "right";
 }
 
 export function DropdownMenu(props: DropdownMenuProps) {
@@ -234,9 +240,15 @@ export function DropdownMenu(props: DropdownMenuProps) {
 // for reliable viewport-relative placement regardless of ancestor transforms or
 // overflow contexts.
 export function ClickDropdownMenu(props: DropdownMenuProps) {
-  const [local] = splitProps(props, ["trigger", "actions", "header", "onOpen"]);
+  const [local] = splitProps(props, ["trigger", "actions", "header", "onOpen", "align"]);
 
-  type MenuPos = { top?: number; bottom?: number; right: number; maxHeight: number };
+  type MenuPos = {
+    top?: number;
+    bottom?: number;
+    left?: number;
+    right?: number;
+    maxHeight: number;
+  };
   const [open, setOpen] = createSignal(false);
   const [menuPos, setMenuPos] = createSignal<MenuPos | null>(null);
   let triggerRef: HTMLDivElement | undefined;
@@ -246,15 +258,18 @@ export function ClickDropdownMenu(props: DropdownMenuProps) {
     const rect = triggerRef!.getBoundingClientRect();
     const gutter = 4;
     const pad = 8;
-    const right = Math.max(pad, window.innerWidth - rect.right);
+    const horizontal =
+      local.align === "left"
+        ? { left: Math.max(pad, rect.left) }
+        : { right: Math.max(pad, window.innerWidth - rect.right) };
     const spaceBelow = window.innerHeight - rect.bottom - pad;
     const spaceAbove = rect.top - pad;
     if (spaceBelow >= spaceAbove) {
-      return { top: rect.bottom + gutter, right, maxHeight: spaceBelow - gutter };
+      return { top: rect.bottom + gutter, ...horizontal, maxHeight: spaceBelow - gutter };
     } else {
       return {
         bottom: window.innerHeight - rect.top + gutter,
-        right,
+        ...horizontal,
         maxHeight: spaceAbove - gutter,
       };
     }
@@ -263,6 +278,10 @@ export function ClickDropdownMenu(props: DropdownMenuProps) {
   const openMenu = (e: MouseEvent) => {
     e.stopPropagation();
     if (!triggerRef) return;
+    if (open()) {
+      setOpen(false);
+      return;
+    }
     setMenuPos(computePos());
     setOpen(true);
     local.onOpen?.();
@@ -294,10 +313,11 @@ export function ClickDropdownMenu(props: DropdownMenuProps) {
     if (!p) return {};
     const s: JSX.CSSProperties = {
       position: "fixed",
-      right: `${p.right}px`,
       "max-height": `${p.maxHeight}px`,
       "z-index": "1200",
     };
+    if (p.left !== undefined) s.left = `${p.left}px`;
+    if (p.right !== undefined) s.right = `${p.right}px`;
     if (p.top !== undefined) s.top = `${p.top}px`;
     if (p.bottom !== undefined) s.bottom = `${p.bottom}px`;
     return s;
