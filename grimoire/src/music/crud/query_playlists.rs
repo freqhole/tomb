@@ -140,6 +140,7 @@ impl PlaylistViewRow {
             deleted_by: None,
             created_by: None,
             updated_by: None,
+            created_by_username: None,
             song_count: self.playlist_song_count,
         };
 
@@ -484,6 +485,18 @@ fn add_playlist_filters(query: &mut SelectStatement, params: &QueryParams) {
             );
         }
     }
+
+    // restrict to playlists the caller can edit: their own, or collaborative.
+    // admins/root (caller_is_admin, set server-side by the route handler)
+    // always see everything regardless of this flag.
+    if params.own_or_collaborative_only == Some(true) && !params.caller_is_admin.unwrap_or(false) {
+        let uid = params.user_id.clone().unwrap_or_default();
+        query.cond_where(
+            Cond::any()
+                .add(Expr::col(PlaylistView::PlaylistCreatedById).eq(uid))
+                .add(Expr::col(PlaylistView::PlaylistCollaborative).eq(1)),
+        );
+    }
 }
 
 // Main playlist query function
@@ -592,6 +605,15 @@ pub async fn query_playlists(
     // apply user favorites if user_id provided (playlists don't have ratings)
     if let Some(uid) = &params.user_id {
         user_prefs::apply_user_preferences_playlists(&mut playlists, uid).await;
+    }
+
+    if let Err(e) = super::usernames::enrich_playlist_usernames(
+        &pool,
+        playlists.iter_mut().map(|p| &mut p.playlist).collect(),
+    )
+    .await
+    {
+        tracing::warn!("failed to resolve playlist creator usernames: {}", e);
     }
 
     let playlist_count = playlists.len();
@@ -754,6 +776,7 @@ pub async fn list_user_playlists(
         min_rating: None,
         mb_lookup_status: None,
         pending_review: None,
+        own_or_collaborative_only: None,
         caller_is_admin: None,
     };
     query_playlists(params).await
@@ -777,6 +800,7 @@ pub async fn search_playlists(
         min_rating: None,
         mb_lookup_status: None,
         pending_review: None,
+        own_or_collaborative_only: None,
         caller_is_admin: None,
     };
     query_playlists(params).await

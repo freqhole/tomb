@@ -2358,6 +2358,7 @@ export const FavoriteItemSchema = z.union([z.intersection(z.object({
   deleted_by: z.string().nullish(),
   created_by: z.string().nullish(),
   updated_by: z.string().nullish(),
+  created_by_username: z.string().nullish(),
   song_count: z.number()
 }),
   song_count: z.number(),
@@ -2439,6 +2440,7 @@ export const FavoritePlaylistResultSchema = z.object({
   deleted_by: z.string().nullish(),
   created_by: z.string().nullish(),
   updated_by: z.string().nullish(),
+  created_by_username: z.string().nullish(),
   song_count: z.number()
 }),
   song_count: z.number(),
@@ -3650,6 +3652,7 @@ export const ListFavoritesResponseSchema = z.object({
   deleted_by: z.string().nullish(),
   created_by: z.string().nullish(),
   updated_by: z.string().nullish(),
+  created_by_username: z.string().nullish(),
   song_count: z.number()
 }),
   song_count: z.number(),
@@ -4649,6 +4652,7 @@ export const PlaylistSchema = z.object({
   deleted_by: z.string().nullish(),
   created_by: z.string().nullish(),
   updated_by: z.string().nullish(),
+  created_by_username: z.string().nullish(),
   song_count: z.number()
 });
 export type Playlist = z.infer<typeof PlaylistSchema>;
@@ -4694,6 +4698,7 @@ export const PlaylistQueryResultSchema = z.object({
   deleted_by: z.string().nullish(),
   created_by: z.string().nullish(),
   updated_by: z.string().nullish(),
+  created_by_username: z.string().nullish(),
   song_count: z.number()
 }),
   song_count: z.number(),
@@ -5032,6 +5037,7 @@ export const PlaylistsQueryResultSchema = z.object({
   deleted_by: z.string().nullish(),
   created_by: z.string().nullish(),
   updated_by: z.string().nullish(),
+  created_by_username: z.string().nullish(),
   song_count: z.number()
 }),
   song_count: z.number(),
@@ -5276,6 +5282,7 @@ export const QueryParamsSchema = z.object({
   min_rating: z.number().nullish(),
   mb_lookup_status: z.array(z.string()).nullish(),
   pending_review: z.boolean().nullish(),
+  own_or_collaborative_only: z.boolean().nullish(),
   caller_is_admin: z.boolean().nullish()
 });
 export type QueryParams = z.infer<typeof QueryParamsSchema>;
@@ -5326,6 +5333,7 @@ export const QueryVideosRequestSchema = z.object({
   min_rating: z.number().nullish(),
   mb_lookup_status: z.array(z.string()).nullish(),
   pending_review: z.boolean().nullish(),
+  own_or_collaborative_only: z.boolean().nullish(),
   caller_is_admin: z.boolean().nullish()
 }),
   series_id: z.string().nullish(),

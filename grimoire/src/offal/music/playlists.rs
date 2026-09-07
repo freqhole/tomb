@@ -166,6 +166,7 @@ pub async fn list(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValu
     };
 
     params.user_id = Some(target_user_id);
+    params.caller_is_admin = Some(caller.is_admin());
 
     let response = query_playlists(params).await;
     response.map(|data| serde_json::to_value(data).unwrap())

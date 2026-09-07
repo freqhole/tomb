@@ -26,6 +26,9 @@ pub struct Playlist {
     pub deleted_by: Option<String>,
     pub created_by: Option<String>,
     pub updated_by: Option<String>,
+    /// resolved display name for `created_by_id` - populated as a second
+    /// pass by `enrich_playlist_usernames`, not stored in the db.
+    pub created_by_username: Option<String>,
     /// Song count - always calculated via COUNT() in queries
     pub song_count: i64,
 }

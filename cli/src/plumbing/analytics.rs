@@ -136,6 +136,7 @@ pub async fn handle_command(action: AnalyticsAction) -> CommandOutput<serde_json
                 min_rating: None,
                 mb_lookup_status: None,
                 pending_review: None,
+                own_or_collaborative_only: None,
                 caller_is_admin: None,
             };
 
@@ -221,6 +222,7 @@ pub async fn handle_command(action: AnalyticsAction) -> CommandOutput<serde_json
                 min_rating: None,
                 mb_lookup_status: None,
                 pending_review: None,
+                own_or_collaborative_only: None,
                 caller_is_admin: None,
             };
 

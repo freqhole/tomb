@@ -178,6 +178,7 @@ export interface Playlist {
   created_at: number;
   updated_at: number;
   created_by_id?: string | null; // user who created the playlist
+  created_by_username?: string | null;
   // user-specific fields (from query views)
   is_favorite?: boolean;
   user_rating?: number;

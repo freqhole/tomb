@@ -82,6 +82,7 @@ pub async fn create_playlist(req: CreatePlaylistRequest) -> GrimoireResponse<Pla
             playlist_deleted_by as "deleted_by?",
             playlist_created_by as "created_by?",
             playlist_updated_by as "updated_by?",
+            NULL as "created_by_username?: String",
             playlist_song_count as "song_count!: i64",
             playlist_images as "images: JsonVec<ImageMetadata>",
             NULL as "urls: JsonVec<EntityUrl>"
@@ -143,6 +144,7 @@ pub async fn list_playlists() -> GrimoireResponse<Vec<Playlist>> {
             playlist_deleted_by as "deleted_by?",
             playlist_created_by as "created_by?",
             playlist_updated_by as "updated_by?",
+            NULL as "created_by_username?: String",
             playlist_song_count as "song_count!: i64",
             playlist_images as "images: JsonVec<ImageMetadata>",
             NULL as "urls: JsonVec<EntityUrl>"
@@ -191,6 +193,7 @@ pub async fn get_playlist(id: &str) -> GrimoireResponse<Playlist> {
             playlist_deleted_by as "deleted_by?",
             playlist_created_by as "created_by?",
             playlist_updated_by as "updated_by?",
+            NULL as "created_by_username?: String",
             playlist_song_count as "song_count!: i64",
             playlist_images as "images: JsonVec<ImageMetadata>",
             NULL as "urls: JsonVec<EntityUrl>"
@@ -208,7 +211,15 @@ pub async fn get_playlist(id: &str) -> GrimoireResponse<Playlist> {
     };
 
     match playlist_opt {
-        Some(playlist) => GrimoireResponse::success("Playlist retrieved successfully", playlist),
+        Some(mut playlist) => {
+            if let Err(e) =
+                crate::music::crud::usernames::enrich_playlist_usernames(&pool, vec![&mut playlist])
+                    .await
+            {
+                tracing::warn!("failed to resolve playlist creator username: {}", e);
+            }
+            GrimoireResponse::success("Playlist retrieved successfully", playlist)
+        }
         None => {
             let err = GrimoireError::PlaylistNotFound { id: id.to_string() };
             GrimoireResponse::failure("Playlist not found", vec![ErrorDetail::from(&err)])

@@ -449,7 +449,13 @@ export function PlaylistDetailPanel(props: PlaylistDetailPanelProps) {
               {/* line break on narrow screens */}
               <div class="basis-full wide:hidden" />
               <Show when={props.playlist()?.created_at}>
-                <span>created {formatRelativeTime(props.playlist()!.created_at)}</span>
+                <span>
+                  created {formatRelativeTime(props.playlist()!.created_at)}
+                  <Show when={props.playlist()?.created_by_username}>
+                    {" "}
+                    by {props.playlist()!.created_by_username}
+                  </Show>
+                </span>
               </Show>
             </div>
           </Show>

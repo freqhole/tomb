@@ -14,6 +14,7 @@ use sqlx::{Row, SqlitePool};
 
 use crate::error::GrimoireResult;
 use crate::music::entities::{Album, Song};
+use crate::music::Playlist;
 
 /// batch-resolve usernames for a set of user ids.
 ///
@@ -105,6 +106,32 @@ pub async fn enrich_album_usernames(
             .and_then(|id| map.get(id).cloned());
         album.updated_by_username = album
             .updated_by
+            .as_ref()
+            .and_then(|id| map.get(id).cloned());
+    }
+    Ok(())
+}
+
+/// resolves and fills in `created_by_username` on a batch of playlists,
+/// using each playlist's `created_by_id` - NOT `created_by` (a separate,
+/// always-redundant duplicate column also holding the same user id, kept
+/// only for backward compat - `created_by_id` is the field actually used
+/// everywhere else for playlist ownership/ACL checks).
+///
+/// takes an already-collected `Vec` for the same reason as
+/// `enrich_song_usernames` above - see its doc comment.
+pub async fn enrich_playlist_usernames(
+    pool: &SqlitePool,
+    playlists: Vec<&mut Playlist>,
+) -> GrimoireResult<()> {
+    let ids: Vec<String> = playlists
+        .iter()
+        .filter_map(|p| p.created_by_id.clone())
+        .collect();
+    let map = usernames_for(pool, ids).await?;
+    for playlist in playlists {
+        playlist.created_by_username = playlist
+            .created_by_id
             .as_ref()
             .and_then(|id| map.get(id).cloned());
     }

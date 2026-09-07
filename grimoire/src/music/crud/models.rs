@@ -220,6 +220,14 @@ pub struct QueryParams {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pending_review: Option<bool>,
 
+    /// filter playlists to only ones the caller can edit: their own, or
+    /// marked collaborative. members see only those; admins/root see all
+    /// (checked via `caller_is_admin`, same as `pending_review`). applied
+    /// in the SQL WHERE clause (not post-fetch) so pagination stays correct.
+    #[arg(long)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub own_or_collaborative_only: Option<bool>,
+
     /// set server-side by the route handler - never comes from the client.
     /// when true, pending_review shows all albums regardless of uploader.
     #[arg(skip)]
@@ -242,6 +250,7 @@ impl Default for QueryParams {
             min_rating: None,
             mb_lookup_status: None,
             pending_review: None,
+            own_or_collaborative_only: None,
             caller_is_admin: None,
         }
     }

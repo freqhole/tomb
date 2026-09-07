@@ -32,6 +32,9 @@ export interface QueryParams {
   // flexible filters (for tag filtering and other dynamic filters)
   include_tags?: string[];
   exclude_tags?: string[];
+  /** playlists only: restrict to the caller's own + collaborative ones.
+   *  no-op for admins/root (server always shows them everything). */
+  own_or_collaborative_only?: boolean;
   [key: string]: any; // allow other filters
 }
 
@@ -137,6 +140,7 @@ export interface PlaylistSummary {
   updated_at: number;
   is_favorite?: boolean;
   created_by_id?: string | null;
+  created_by_username?: string | null;
 }
 
 // favorite target type for mutations

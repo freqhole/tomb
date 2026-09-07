@@ -10,7 +10,7 @@ mod query_favorites;
 mod query_playlists;
 mod update;
 mod user_prefs;
-mod usernames;
+pub(crate) mod usernames;
 
 // re-export public types
 pub use models::{
