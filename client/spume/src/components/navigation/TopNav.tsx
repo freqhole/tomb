@@ -89,7 +89,7 @@ type FlyoutPos = { left: number; top?: number; bottom?: number; maxHeight: numbe
 function computeFlyoutPos(rowRect: DOMRect): FlyoutPos {
   const gutter = 4;
   const pad = 8;
-  const flyoutWidth = 200;
+  const flyoutWidth = 180;
   const left = Math.min(rowRect.right + gutter, window.innerWidth - flyoutWidth - pad);
   const spaceBelow = window.innerHeight - rowRect.top - pad;
   const spaceAbove = rowRect.bottom - pad;
@@ -1655,7 +1655,7 @@ export function TopNav(props: TopNavProps) {
                                           <Portal mount={document.body}>
                                             <div
                                               data-kb-top-layer=""
-                                              class="fixed min-w-[200px] bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded-lg shadow-xl z-[1002] py-1 overflow-y-auto"
+                                              class="fixed w-[180px] bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded-lg shadow-xl z-[1002] py-1 overflow-y-auto"
                                               style={{
                                                 left: `${pos().left}px`,
                                                 top:
