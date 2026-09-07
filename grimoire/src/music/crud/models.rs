@@ -220,11 +220,28 @@ pub struct QueryParams {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pending_review: Option<bool>,
 
+    /// filter playlists to only ones the caller can edit: their own, or
+    /// marked collaborative. members see only those; admins/root see all
+    /// (checked via `caller_is_admin`, same as `pending_review`). applied
+    /// in the SQL WHERE clause (not post-fetch) so pagination stays correct.
+    #[arg(long)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub own_or_collaborative_only: Option<bool>,
+
     /// set server-side by the route handler - never comes from the client.
     /// when true, pending_review shows all albums regardless of uploader.
     #[arg(skip)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub caller_is_admin: Option<bool>,
+
+    /// the REAL caller's own user id, set server-side by the route handler -
+    /// never comes from the client, and distinct from `user_id` (which may
+    /// be a different target user an admin is querying on behalf of).
+    /// used by the private-playlist visibility filter, which must always
+    /// check against who is actually calling, not the query target.
+    #[arg(skip)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub caller_user_id: Option<String>,
 }
 
 impl Default for QueryParams {
@@ -242,7 +259,9 @@ impl Default for QueryParams {
             min_rating: None,
             mb_lookup_status: None,
             pending_review: None,
+            own_or_collaborative_only: None,
             caller_is_admin: None,
+            caller_user_id: None,
         }
     }
 }

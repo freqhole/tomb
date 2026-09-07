@@ -351,11 +351,11 @@ pub mod type_registry {
         CreateVideoSeriesRequest, EntityTagCount, EntityTaxonLink, ListPendingVideoReviewRequest,
         MarkVideoGroupReviewedRequest, MoveVideoReviewRequest, PatchVideoGroupReviewRequest,
         PendingReviewVideoSummary, PendingVideoReviewGroup, PendingVideoReviewSession,
-        PlaybackProgress, SeasonWithVideos, SeriesDetail, SeriesQueryResult, UpdateVideoRequest,
-        UpdateVideoSeasonRequest, UpdateVideoSeriesRequest, UpdateVideosRequest,
-        UpdateVideosResult, Video, VideoImportReviewOk, VideoPendingRequest, VideoPendingResponse,
-        VideoReviewPatch, VideoSearchResult, VideoSeason, VideoSeries, VideoSeriesSearchResult,
-        VideoWithMetadata, VideosQueryResult,
+        PlaybackProgress, ReprocessVideoResult, SeasonWithVideos, SeriesDetail, SeriesQueryResult,
+        UpdateVideoRequest, UpdateVideoSeasonRequest, UpdateVideoSeriesRequest,
+        UpdateVideosRequest, UpdateVideosResult, Video, VideoImportReviewOk, VideoPendingRequest,
+        VideoPendingResponse, VideoReviewPatch, VideoSearchResult, VideoSeason, VideoSeries,
+        VideoSeriesSearchResult, VideoWithMetadata, VideosQueryResult,
     };
 
     // video domain offal request/response types (phase 2-3)
@@ -392,7 +392,8 @@ pub mod type_registry {
     use crate::offal::video::videos::{
         BulkDeleteVideosRequest, DeleteVideoRenditionRequest, DeleteVideoRequest,
         GetVideoRenditionsRequest, GetVideoRequest, ListVideosBySeasonRequest,
-        ListVideosBySeriesRequest, ListVideosUnattachedRequest, QueryVideosRequest, VideoRendition,
+        ListVideosBySeriesRequest, ListVideosUnattachedRequest, QueryVideosRequest,
+        ReprocessVideoRequest, VideoRendition,
     };
 
     pub fn register_all_types(gen: &mut ZodGenerator, registered: &mut HashSet<String>) {
@@ -913,6 +914,10 @@ pub mod type_registry {
         registered.insert("GetVideoRenditionsRequest".to_string());
         gen.add_schema::<DeleteVideoRenditionRequest>("DeleteVideoRenditionRequest");
         registered.insert("DeleteVideoRenditionRequest".to_string());
+        gen.add_schema::<ReprocessVideoRequest>("ReprocessVideoRequest");
+        registered.insert("ReprocessVideoRequest".to_string());
+        gen.add_schema::<ReprocessVideoResult>("ReprocessVideoResult");
+        registered.insert("ReprocessVideoResult".to_string());
         gen.add_schema::<UpsertPlaybackProgressRequest>("UpsertPlaybackProgressRequest");
         registered.insert("UpsertPlaybackProgressRequest".to_string());
         gen.add_schema::<GetPlaybackProgressRequest>("GetPlaybackProgressRequest");

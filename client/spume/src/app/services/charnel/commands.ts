@@ -221,6 +221,21 @@ export async function getChromelessTitleBar(): Promise<boolean> {
 }
 
 /**
+ * OS the running tauri binary was built for ("macos" | "linux" | "windows" |
+ * ...). used to gate platform-specific chrome (e.g. the linux-styled
+ * title-bar buttons). returns null outside tauri (web builds).
+ */
+export async function getTargetOs(): Promise<string | null> {
+  try {
+    const invoke = await getInvoke();
+    const result = await invoke<{ target_os: string }>("get_build_info");
+    return result.target_os;
+  } catch (error) {
+    return null;
+  }
+}
+
+/**
  * minimize the current window. used by the custom title-bar strip's
  * traffic-light buttons when running chromeless (see `getChromelessTitleBar`).
  */

@@ -28,7 +28,11 @@ import type {
 import type { VideoSummary, VideoSeries } from "../../../video/data/types";
 import { adaptSongFromAPI, adaptApiImage, adaptApiUrls, type RemoteSong } from "./adapters";
 import { setRemoteNeedsAuth } from "./authState";
-import { markRemoteOffline, markRemoteOnline, getRemoteById } from "../../../app/services/remotes/remoteManager";
+import {
+  markRemoteOffline,
+  markRemoteOnline,
+  getRemoteById,
+} from "../../../app/services/remotes/remoteManager";
 import { getCurrentUser } from "../currentState";
 import { debug, error } from "../../../utils/logger";
 import { getRemoteMediaUrl } from "../../../utils/urls";
@@ -67,7 +71,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     this._remoteId = remote.remote_id;
     // client is lazily initialized on first getClient() call
   }
-  
+
   // lazily initialize the client (needed for app transport which requires async init)
   private async getClient(): Promise<ApiClient> {
     if (!this._client) {
@@ -116,12 +120,16 @@ export class RemoteMusicDataSource implements MusicDataSource {
   private async checkNetworkError(result: SafeParseResult<unknown>): Promise<void> {
     // debug: log failed results to help diagnose P2P error detection
     if (!result.success) {
-      const issues = result.error.issues.map(i => ({ code: i.code, message: i.message, path: i.path }));
+      const issues = result.error.issues.map((i) => ({
+        code: i.code,
+        message: i.message,
+        path: i.path,
+      }));
       debug("remoteSource", `checkNetworkError: failed result`, { issues });
     }
-    
+
     if (!isNetworkError(result)) return;
-    
+
     debug("remoteSource", `detected network error for remote ${this.remoteId}`);
 
     // mark remote as offline in IDB
@@ -133,7 +141,10 @@ export class RemoteMusicDataSource implements MusicDataSource {
     const remoteName = remote?.name ?? this.remoteId;
 
     // only show toast once per session to avoid spam
-    debug("remoteSource", `hasShownOfflineToast=${this.hasShownOfflineToast}, remoteName=${remoteName}`);
+    debug(
+      "remoteSource",
+      `hasShownOfflineToast=${this.hasShownOfflineToast}, remoteName=${remoteName}`
+    );
     if (!this.hasShownOfflineToast) {
       this.hasShownOfflineToast = true;
       debug("remoteSource", `showing offline toast for ${remoteName}`);
@@ -170,7 +181,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
   private async handleSuccessfulRequest(): Promise<void> {
     // skip check if we never marked this remote offline
     if (!this.wasMarkedOffline) return;
-    
+
     // check if this remote is still marked offline
     const remote = await getRemoteById(this.remoteId);
     if (remote?.is_offline) {
@@ -212,6 +223,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
       user_id: null,
       favorites_only: null,
       min_rating: null,
+      own_or_collaborative_only: params?.own_or_collaborative_only ?? null,
     };
   }
 
@@ -230,9 +242,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
 
     // adapt API response to our interface
     return {
-      items: result.data.items.map((item) =>
-        adaptSongFromAPI(item, this.baseUrl, this.remoteId),
-      ),
+      items: result.data.items.map((item) => adaptSongFromAPI(item, this.baseUrl, this.remoteId)),
       total: result.data.total_count,
       offset: result.data.offset,
       limit: result.data.limit,
@@ -244,7 +254,9 @@ export class RemoteMusicDataSource implements MusicDataSource {
     // note: there's no getSong endpoint in the API yet
     // we'll need to query with filter
     const filters: Record<string, any> = { song_ids: [id] };
-    const result = await (await this.getClient()).music.querySongs({
+    const result = await (
+      await this.getClient()
+    ).music.querySongs({
       q: null,
       search_fields: null,
       filters,
@@ -270,7 +282,9 @@ export class RemoteMusicDataSource implements MusicDataSource {
 
     // batch fetch all songs in a single request using song_ids filter
     const filters: Record<string, any> = { song_ids: ids };
-    const result = await (await this.getClient()).music.querySongs({
+    const result = await (
+      await this.getClient()
+    ).music.querySongs({
       q: null,
       search_fields: null,
       filters,
@@ -300,9 +314,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
   }
 
   // albums
-  async getAlbums(
-    params?: QueryParams,
-  ): Promise<PaginatedResponse<AlbumSummary>> {
+  async getAlbums(params?: QueryParams): Promise<PaginatedResponse<AlbumSummary>> {
     const apiParams = this.buildApiParams(params);
     // TEMP DEBUG
     console.log("[RemoteMusicDataSource.getAlbums] request", { apiParams });
@@ -340,9 +352,10 @@ export class RemoteMusicDataSource implements MusicDataSource {
           taxons: item.album.taxons ?? undefined,
           song_count: item.album.song_count,
           total_duration: item.album.total_duration,
-          images: item.images && item.images.length > 0
-            ? item.images.map((img) => adaptApiImage(img, this.baseUrl, this.remoteId))
-            : undefined,
+          images:
+            item.images && item.images.length > 0
+              ? item.images.map((img) => adaptApiImage(img, this.baseUrl, this.remoteId))
+              : undefined,
           urls: adaptApiUrls(item.album.urls),
           is_favorite: item.is_favorite ?? undefined,
           user_rating: item.rating ?? undefined,
@@ -366,7 +379,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
 
   async getAlbumSongs(
     albumId: string,
-    params?: QueryParams,
+    params?: QueryParams
   ): Promise<PaginatedResponse<RemoteSong>> {
     const apiParams = this.buildApiParams({
       ...params,
@@ -384,9 +397,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     await this.handleSuccessfulRequest();
 
     return {
-      items: result.data.items.map((item) =>
-        adaptSongFromAPI(item, this.baseUrl, this.remoteId),
-      ),
+      items: result.data.items.map((item) => adaptSongFromAPI(item, this.baseUrl, this.remoteId)),
       total: result.data.total_count,
       offset: result.data.offset,
       limit: result.data.limit,
@@ -395,9 +406,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
   }
 
   // artists
-  async getArtists(
-    params?: QueryParams,
-  ): Promise<PaginatedResponse<ArtistSummary>> {
+  async getArtists(params?: QueryParams): Promise<PaginatedResponse<ArtistSummary>> {
     const apiParams = this.buildApiParams(params);
     const result = await (await this.getClient()).music.queryArtists(apiParams);
 
@@ -419,9 +428,10 @@ export class RemoteMusicDataSource implements MusicDataSource {
           album_count: item.album_count,
           song_count: item.song_count,
           total_duration: item.total_duration ? Math.floor(item.total_duration / 1000) : 0, // convert ms to seconds
-          images: item.images && item.images.length > 0
-            ? item.images.map((img) => adaptApiImage(img, this.baseUrl, this.remoteId))
-            : undefined,
+          images:
+            item.images && item.images.length > 0
+              ? item.images.map((img) => adaptApiImage(img, this.baseUrl, this.remoteId))
+              : undefined,
           urls: adaptApiUrls(item.artist.urls),
           is_favorite: item.is_favorite ?? undefined,
           user_rating: item.rating ?? undefined,
@@ -436,7 +446,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
 
   async getArtistSongs(
     artistId: string,
-    params?: QueryParams,
+    params?: QueryParams
   ): Promise<PaginatedResponse<RemoteSong>> {
     const apiParams = this.buildApiParams({
       ...params,
@@ -451,7 +461,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     }
 
     const mappedItems = result.data.items.map((item) =>
-      adaptSongFromAPI(item, this.baseUrl, this.remoteId),
+      adaptSongFromAPI(item, this.baseUrl, this.remoteId)
     );
 
     return {
@@ -469,9 +479,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
   // links from there.
 
   // playlists
-  async getPlaylists(
-    params?: QueryParams,
-  ): Promise<PaginatedResponse<PlaylistSummary>> {
+  async getPlaylists(params?: QueryParams): Promise<PaginatedResponse<PlaylistSummary>> {
     const apiParams = this.buildApiParams(params);
     const result = await (await this.getClient()).music.listPlaylists(apiParams);
 
@@ -490,15 +498,19 @@ export class RemoteMusicDataSource implements MusicDataSource {
         title: item.playlist.title,
         description: item.playlist.description ?? null,
         is_public: item.playlist.is_public === 1,
-        images: item.playlist.images && item.playlist.images.length > 0
-          ? item.playlist.images.map((img) => adaptApiImage(img, this.baseUrl, this.remoteId))
-          : undefined,
+        collaborative: item.playlist.collaborative === 1,
+        private: item.playlist.private === 1,
+        images:
+          item.playlist.images && item.playlist.images.length > 0
+            ? item.playlist.images.map((img) => adaptApiImage(img, this.baseUrl, this.remoteId))
+            : undefined,
         urls: adaptApiUrls(item.playlist.urls),
         song_count: item.song_count,
         created_at: item.playlist.created_at * 1000, // convert seconds to milliseconds
         updated_at: item.playlist.updated_at * 1000, // convert seconds to milliseconds
         is_favorite: item.is_favorite ?? undefined,
         created_by_id: item.playlist.created_by_id,
+        created_by_username: item.playlist.created_by_username,
         play_count: item.play_count ?? null,
       })),
       total: result.data.total_count,
@@ -510,9 +522,11 @@ export class RemoteMusicDataSource implements MusicDataSource {
 
   async getPlaylistSongs(
     playlistId: string,
-    params?: QueryParams,
+    params?: QueryParams
   ): Promise<PaginatedResponse<RemoteSong>> {
-    const result = await (await this.getClient()).music.queryPlaylistSongs({
+    const result = await (
+      await this.getClient()
+    ).music.queryPlaylistSongs({
       playlist_id: playlistId,
       q: params?.search || null,
       sort_by: params?.sort_by || null,
@@ -548,7 +562,9 @@ export class RemoteMusicDataSource implements MusicDataSource {
     description?: string | null;
     is_public?: boolean;
   }): Promise<PlaylistSummary> {
-    const result = await (await this.getClient()).music.createPlaylist({
+    const result = await (
+      await this.getClient()
+    ).music.createPlaylist({
       id: null,
       title: params.title,
       description: params.description || null,
@@ -567,6 +583,8 @@ export class RemoteMusicDataSource implements MusicDataSource {
       title: result.data.title,
       description: result.data.description ?? null,
       is_public: result.data.is_public === 1,
+      collaborative: result.data.collaborative === 1,
+      private: result.data.private === 1,
       song_count: result.data.song_count,
       created_at: result.data.created_at * 1000, // convert seconds to milliseconds
       updated_at: result.data.updated_at * 1000, // convert seconds to milliseconds
@@ -579,15 +597,23 @@ export class RemoteMusicDataSource implements MusicDataSource {
       title?: string | null;
       description?: string | null;
       is_public?: boolean | null;
+      collaborative?: boolean | null;
+      private?: boolean | null;
       entity_urls?: Array<{ id?: string | null; name?: string | null; url: string }>;
-    },
+    }
   ): Promise<PlaylistSummary> {
-    const result = await (await this.getClient()).music.updatePlaylist({
+    const result = await (
+      await this.getClient()
+    ).music.updatePlaylist({
       playlist_id: playlistId,
       title: params.title || null,
       description: params.description || null,
       is_public: params.is_public ?? null,
-      entity_urls: params.entity_urls?.map(u => ({ id: u.id ?? null, name: u.name ?? null, url: u.url })) ?? null,
+      collaborative: params.collaborative ?? null,
+      private: params.private ?? null,
+      entity_urls:
+        params.entity_urls?.map((u) => ({ id: u.id ?? null, name: u.name ?? null, url: u.url })) ??
+        null,
       updated_by: null, // server will use authenticated user
     });
 
@@ -601,6 +627,8 @@ export class RemoteMusicDataSource implements MusicDataSource {
       title: result.data.title,
       description: result.data.description ?? null,
       is_public: result.data.is_public === 1,
+      collaborative: result.data.collaborative === 1,
+      private: result.data.private === 1,
       song_count: result.data.song_count,
       created_at: result.data.created_at * 1000, // convert seconds to milliseconds
       updated_at: result.data.updated_at * 1000, // convert seconds to milliseconds
@@ -608,7 +636,9 @@ export class RemoteMusicDataSource implements MusicDataSource {
   }
 
   async deletePlaylist(playlistId: string): Promise<void> {
-    const result = await (await this.getClient()).music.deletePlaylist({
+    const result = await (
+      await this.getClient()
+    ).music.deletePlaylist({
       playlist_id: playlistId,
     });
 
@@ -619,7 +649,9 @@ export class RemoteMusicDataSource implements MusicDataSource {
   }
 
   async deleteSong(songId: string): Promise<void> {
-    const result = await (await this.getClient()).music.deleteSong({
+    const result = await (
+      await this.getClient()
+    ).music.deleteSong({
       id: songId,
       user_id: null,
     });
@@ -633,7 +665,9 @@ export class RemoteMusicDataSource implements MusicDataSource {
   async bulkDeleteSongs(
     songIds: string[]
   ): Promise<{ deleted_count: number; failed_ids: string[] }> {
-    const result = await (await this.getClient()).music.bulkDeleteSongs({
+    const result = await (
+      await this.getClient()
+    ).music.bulkDeleteSongs({
       song_ids: songIds,
       user_id: null,
     });
@@ -656,7 +690,9 @@ export class RemoteMusicDataSource implements MusicDataSource {
   async bulkClearSongArtwork(
     songIds: string[]
   ): Promise<{ cleared_count: number; failed_ids: string[] }> {
-    const result = await (await this.getClient()).music.bulkClearSongArtwork({
+    const result = await (
+      await this.getClient()
+    ).music.bulkClearSongArtwork({
       song_ids: songIds,
     });
 
@@ -676,7 +712,9 @@ export class RemoteMusicDataSource implements MusicDataSource {
   }
 
   async deleteAlbum(albumId: string): Promise<void> {
-    const result = await (await this.getClient()).music.deleteAlbum({
+    const result = await (
+      await this.getClient()
+    ).music.deleteAlbum({
       id: albumId,
       user_id: null,
     });
@@ -688,7 +726,9 @@ export class RemoteMusicDataSource implements MusicDataSource {
   }
 
   async deleteArtist(artistId: string): Promise<void> {
-    const result = await (await this.getClient()).music.deleteArtist({
+    const result = await (
+      await this.getClient()
+    ).music.deleteArtist({
       id: artistId,
       user_id: null,
     });
@@ -702,9 +742,11 @@ export class RemoteMusicDataSource implements MusicDataSource {
   async reorderPlaylistSongs(
     playlistId: string,
     songIds: string[],
-    newPosition: number,
+    newPosition: number
   ): Promise<void> {
-    const result = await (await this.getClient()).music.reorderPlaylistSongs({
+    const result = await (
+      await this.getClient()
+    ).music.reorderPlaylistSongs({
       playlist_id: playlistId,
       song_ids: songIds,
       new_position: newPosition,
@@ -718,9 +760,11 @@ export class RemoteMusicDataSource implements MusicDataSource {
 
   async reorderPlaylistItems(
     playlistId: string,
-    orderedItems: Array<{ entity_type: "song" | "video"; entity_id: string }>,
+    orderedItems: Array<{ entity_type: "song" | "video"; entity_id: string }>
   ): Promise<void> {
-    const result = await (await this.getClient()).entities.reorderPlaylistItems({
+    const result = await (
+      await this.getClient()
+    ).entities.reorderPlaylistItems({
       playlist_id: playlistId,
       ordered_entity_refs: orderedItems,
     });
@@ -738,7 +782,9 @@ export class RemoteMusicDataSource implements MusicDataSource {
     page?: number;
     page_size?: number;
   }): Promise<SuggestionsResponse> {
-    const result = await (await this.getClient()).music.suggestions({
+    const result = await (
+      await this.getClient()
+    ).music.suggestions({
       field: params.field,
       partial: params.partial,
       page: params.page || 1,
@@ -761,7 +807,9 @@ export class RemoteMusicDataSource implements MusicDataSource {
     page?: number;
     page_size?: number;
   }): Promise<SearchResponse> {
-    const result = await (await this.getClient()).music.search({
+    const result = await (
+      await this.getClient()
+    ).music.search({
       query: params.query,
       field: params.field || null,
       page: params.page || null,
@@ -781,10 +829,10 @@ export class RemoteMusicDataSource implements MusicDataSource {
   }
 
   // favorites
-  async listFavorites(
-    params?: ListFavoritesParams,
-  ): Promise<PaginatedResponse<FavoriteItem>> {
-    const result = await (await this.getClient()).music.listFavorites({
+  async listFavorites(params?: ListFavoritesParams): Promise<PaginatedResponse<FavoriteItem>> {
+    const result = await (
+      await this.getClient()
+    ).music.listFavorites({
       user_id: null, // server uses authenticated user from session
       target_type: params?.target_type || null,
       offset: params?.offset ?? null,
@@ -793,9 +841,10 @@ export class RemoteMusicDataSource implements MusicDataSource {
 
     if (!result.success || !result.data) {
       if (!result.success) await this.handleFailedRequest(result);
-      const errorMsg = result.success === false && 'error' in result 
-        ? JSON.stringify(result.error) 
-        : 'unknown error';
+      const errorMsg =
+        result.success === false && "error" in result
+          ? JSON.stringify(result.error)
+          : "unknown error";
       throw new Error(`failed to list favorites: ${errorMsg}`);
     }
 
@@ -825,15 +874,16 @@ export class RemoteMusicDataSource implements MusicDataSource {
               taxons: apiFav.album.album.taxons || undefined,
               song_count: apiFav.album.album.song_count,
               total_duration: apiFav.album.album.total_duration,
-              images: apiFav.album.images && apiFav.album.images.length > 0
-                ? apiFav.album.images.map((img) => ({
-                    remote_blob_id: img.blob_id,
-                    remote_url: this.getBlobHttpUrl(img.blob_id),
-                    remote_server_id: this.remoteId,
-                    is_primary: img.is_primary ? true : false,
-                    blob_type: 'thumbnail' as const,
-                  }))
-                : undefined,
+              images:
+                apiFav.album.images && apiFav.album.images.length > 0
+                  ? apiFav.album.images.map((img) => ({
+                      remote_blob_id: img.blob_id,
+                      remote_url: this.getBlobHttpUrl(img.blob_id),
+                      remote_server_id: this.remoteId,
+                      is_primary: img.is_primary ? true : false,
+                      blob_type: "thumbnail" as const,
+                    }))
+                  : undefined,
               is_favorite: apiFav.album.is_favorite,
               user_rating: apiFav.album.rating,
               tags: apiFav.album.album_tags || undefined,
@@ -853,16 +903,19 @@ export class RemoteMusicDataSource implements MusicDataSource {
               bio: apiFav.artist.artist.bio,
               album_count: apiFav.artist.album_count,
               song_count: apiFav.artist.song_count,
-              total_duration: apiFav.artist.total_duration ? Math.floor(apiFav.artist.total_duration / 1000) : 0,
-              images: apiFav.artist.images && apiFav.artist.images.length > 0
-                ? apiFav.artist.images.map((img) => ({
-                    remote_blob_id: img.blob_id,
-                    remote_url: this.getBlobHttpUrl(img.blob_id),
-                    remote_server_id: this.remoteId,
-                    is_primary: img.is_primary ? true : false,
-                    blob_type: 'thumbnail' as const,
-                  }))
-                : undefined,
+              total_duration: apiFav.artist.total_duration
+                ? Math.floor(apiFav.artist.total_duration / 1000)
+                : 0,
+              images:
+                apiFav.artist.images && apiFav.artist.images.length > 0
+                  ? apiFav.artist.images.map((img) => ({
+                      remote_blob_id: img.blob_id,
+                      remote_url: this.getBlobHttpUrl(img.blob_id),
+                      remote_server_id: this.remoteId,
+                      is_primary: img.is_primary ? true : false,
+                      blob_type: "thumbnail" as const,
+                    }))
+                  : undefined,
               is_favorite: apiFav.artist.is_favorite,
               user_rating: apiFav.artist.rating,
             } as ArtistSummary,
@@ -876,12 +929,14 @@ export class RemoteMusicDataSource implements MusicDataSource {
               title: apiFav.playlist.playlist.title,
               description: apiFav.playlist.playlist.description,
               is_public: apiFav.playlist.playlist.is_public === 1,
+              collaborative: apiFav.playlist.playlist.collaborative === 1,
+              private: apiFav.playlist.playlist.private === 1,
               images: (apiFav.playlist.playlist.images || []).map((img) => ({
                 remote_blob_id: img.blob_id,
                 remote_url: this.getBlobHttpUrl(img.blob_id),
                 remote_server_id: this.remoteId,
                 is_primary: img.is_primary === 1,
-                blob_type: img.blob_type as 'thumbnail' | 'waveform',
+                blob_type: img.blob_type as "thumbnail" | "waveform",
               })),
               song_count: apiFav.playlist.song_count,
               created_at: apiFav.playlist.playlist.created_at * 1000,
@@ -929,7 +984,9 @@ export class RemoteMusicDataSource implements MusicDataSource {
     targetId: string;
     isFavorite: boolean;
   }): Promise<void> {
-    const result = await (await this.getClient()).entities.setFavorite({
+    const result = await (
+      await this.getClient()
+    ).entities.setFavorite({
       user_id: null, // server will use authenticated user from session
       target_type: params.targetType,
       target_id: params.targetId,
@@ -938,7 +995,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
 
     if (!result.success) {
       await this.handleFailedRequest(result);
-      const errorMsg = 'error' in result ? JSON.stringify(result.error) : 'unknown error';
+      const errorMsg = "error" in result ? JSON.stringify(result.error) : "unknown error";
       throw new Error(`failed to set favorite: ${errorMsg}`);
     }
 
@@ -957,7 +1014,9 @@ export class RemoteMusicDataSource implements MusicDataSource {
       throw new Error("rating must be between 0 and 5");
     }
 
-    const result = await (await this.getClient()).entities.setRating({
+    const result = await (
+      await this.getClient()
+    ).entities.setRating({
       user_id: null, // server will use authenticated user from session
       target_type: params.targetType,
       target_id: params.targetId,
@@ -966,7 +1025,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
 
     if (!result.success) {
       await this.handleFailedRequest(result);
-      const errorMsg = 'error' in result ? JSON.stringify(result.error) : 'unknown error';
+      const errorMsg = "error" in result ? JSON.stringify(result.error) : "unknown error";
       throw new Error(`failed to set rating: ${errorMsg}`);
     }
 
@@ -981,11 +1040,15 @@ export class RemoteMusicDataSource implements MusicDataSource {
     bio?: string;
     entity_urls?: Array<{ id?: string | null; name?: string | null; url: string }>;
   }): Promise<void> {
-    const result = await (await this.getClient()).music.updateArtist({
+    const result = await (
+      await this.getClient()
+    ).music.updateArtist({
       artist_id: params.artist_id,
       name: params.name ?? null,
       bio: params.bio ?? null,
-      entity_urls: params.entity_urls?.map(u => ({ id: u.id ?? null, name: u.name ?? null, url: u.url })) ?? null,
+      entity_urls:
+        params.entity_urls?.map((u) => ({ id: u.id ?? null, name: u.name ?? null, url: u.url })) ??
+        null,
       updated_by: null,
     });
 
@@ -1011,7 +1074,9 @@ export class RemoteMusicDataSource implements MusicDataSource {
     entity_urls?: Array<{ id?: string | null; name?: string | null; url: string }>;
     merge_into_album_id?: string;
   }): Promise<{ album_id: string }> {
-    const result = await (await this.getClient()).music.updateAlbum({
+    const result = await (
+      await this.getClient()
+    ).music.updateAlbum({
       album_id: params.album_id,
       title: params.title ?? null,
       artist_id: params.artist_id ?? null,
@@ -1019,7 +1084,9 @@ export class RemoteMusicDataSource implements MusicDataSource {
       album_type: params.album_type ?? null,
       release_date: params.release_date ?? null,
       label: params.label ?? null,
-      entity_urls: params.entity_urls?.map(u => ({ id: u.id ?? null, name: u.name ?? null, url: u.url })) ?? null,
+      entity_urls:
+        params.entity_urls?.map((u) => ({ id: u.id ?? null, name: u.name ?? null, url: u.url })) ??
+        null,
       updated_by: null,
       merge_into_album_id: params.merge_into_album_id ?? null,
     });
@@ -1062,10 +1129,10 @@ export class RemoteMusicDataSource implements MusicDataSource {
     const apiParams: any = {
       song_ids: params.song_ids,
       title: params.title,
-      artist_id: params.artist_id,      // direct ID (preferred)
-      artist_name: params.artist,        // name fallback
-      album_id: params.album_id,         // direct ID (preferred)
-      album_title: params.album,         // name fallback
+      artist_id: params.artist_id, // direct ID (preferred)
+      artist_name: params.artist, // name fallback
+      album_id: params.album_id, // direct ID (preferred)
+      album_title: params.album, // name fallback
       album_type: params.album_type,
       populate_track_artist: params.populate_track_artist,
       aggregate_album_images: params.aggregate_album_images,
@@ -1081,7 +1148,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
       user_id: params.user_id,
       updated_by: params.updated_by,
     };
-    
+
     const result = await (await this.getClient()).music.updateSongs(apiParams);
 
     if (!result.success) {
@@ -1150,7 +1217,9 @@ export class RemoteMusicDataSource implements MusicDataSource {
   }
 
   async addTagsToAlbum(albumId: string, tagNames: string[]): Promise<void> {
-    const result = await (await this.getClient()).music.addAlbumsTags({ album_ids: [albumId], tag_ids: [], tag_names: tagNames });
+    const result = await (
+      await this.getClient()
+    ).music.addAlbumsTags({ album_ids: [albumId], tag_ids: [], tag_names: tagNames });
     if (!result.success) {
       await this.handleFailedRequest(result);
       throw new Error("failed to add tags to album");
@@ -1158,7 +1227,9 @@ export class RemoteMusicDataSource implements MusicDataSource {
   }
 
   async removeTagsFromAlbum(albumId: string, tagIds: string[]): Promise<void> {
-    const result = await (await this.getClient()).music.removeAlbumsTags({ album_ids: [albumId], tag_ids: tagIds });
+    const result = await (
+      await this.getClient()
+    ).music.removeAlbumsTags({ album_ids: [albumId], tag_ids: tagIds });
     if (!result.success) {
       await this.handleFailedRequest(result);
       throw new Error("failed to remove tags from album");
@@ -1169,7 +1240,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
   async uploadImage(params: {
     file?: File;
     filePath?: string;
-    entityType: 'song' | 'artist' | 'album' | 'playlist';
+    entityType: "song" | "artist" | "album" | "playlist";
     entityId: string;
     isPrimary?: boolean;
   }): Promise<{ blob_id: string; job_id: string }> {
@@ -1212,23 +1283,25 @@ export class RemoteMusicDataSource implements MusicDataSource {
     } else {
       throw new Error("either file or filePath must be provided");
     }
-    
+
     if (!result.success) {
       await this.handleFailedRequest(result);
       throw new Error("failed to upload image");
     }
-    
+
     return { blob_id: result.data.blob_id, job_id: result.data.job_id };
   }
 
   async getEntityImages(params: {
-    entityType: 'song' | 'artist' | 'album' | 'playlist';
+    entityType: "song" | "artist" | "album" | "playlist";
     entityId: string;
   }): Promise<string[]> {
     // map entity type to API function
     switch (params.entityType) {
-      case 'artist': {
-        const result = await (await this.getClient()).music.getArtistImages({ id: params.entityId });
+      case "artist": {
+        const result = await (
+          await this.getClient()
+        ).music.getArtistImages({ id: params.entityId });
         if (!result.success) {
           await this.handleFailedRequest(result);
           throw new Error("failed to get artist images");
@@ -1238,9 +1311,9 @@ export class RemoteMusicDataSource implements MusicDataSource {
           .map((blobId: string) => this.getBlobHttpUrl(blobId))
           .filter((url): url is string => url !== undefined);
       }
-      case 'album':
-      case 'song':
-      case 'playlist':
+      case "album":
+      case "song":
+      case "playlist":
         // TODO: implement album/song/playlist image APIs once available
         return [];
       default:
@@ -1249,38 +1322,42 @@ export class RemoteMusicDataSource implements MusicDataSource {
   }
 
   async removeImage(params: {
-    entityType: 'song' | 'artist' | 'album' | 'playlist';
+    entityType: "song" | "artist" | "album" | "playlist";
     entityId: string;
     blobId: string;
   }): Promise<void> {
-    debug("remoteSource", 'removeImage called with:', params);
-    
-    const result = await (await this.getClient()).music.deleteImage({
+    debug("remoteSource", "removeImage called with:", params);
+
+    const result = await (
+      await this.getClient()
+    ).music.deleteImage({
       entity_type: params.entityType,
       entity_id: params.entityId,
       blob_id: params.blobId,
     });
-    
-    debug("remoteSource", 'deleteImage result:', result);
-    
+
+    debug("remoteSource", "deleteImage result:", result);
+
     if (!result.success) {
       await this.handleFailedRequest(result);
-      error("remoteSource", 'deleteImage failed:', result);
+      error("remoteSource", "deleteImage failed:", result);
       throw new Error("failed to remove image");
     }
   }
 
   async setPrimaryImage(params: {
-    entityType: 'song' | 'artist' | 'album' | 'playlist';
+    entityType: "song" | "artist" | "album" | "playlist";
     entityId: string;
     blobId: string;
   }): Promise<void> {
-    const result = await (await this.getClient()).music.setPrimaryImage({
+    const result = await (
+      await this.getClient()
+    ).music.setPrimaryImage({
       entity_type: params.entityType,
       entity_id: params.entityId,
       blob_id: params.blobId,
     });
-    
+
     if (!result.success) {
       await this.handleFailedRequest(result);
       throw new Error("failed to set primary image");
@@ -1400,7 +1477,9 @@ export class RemoteMusicDataSource implements MusicDataSource {
     limit?: number | null;
     offset?: number | null;
   }): Promise<import("@freqhole/api-client").AlbumsByValueResponse | null> {
-    const result = await (await this.getClient()).music.albumsByValue({
+    const result = await (
+      await this.getClient()
+    ).music.albumsByValue({
       kind: params.kind,
       value_norm: params.value_norm,
       limit: params.limit ?? null,
@@ -1423,7 +1502,9 @@ export class RemoteMusicDataSource implements MusicDataSource {
     if (params.entity_ids.length === 0) {
       return { entity_kind: params.entity_kind, entries: [] };
     }
-    const result = await (await this.getClient()).music.entityTaxonsBatch({
+    const result = await (
+      await this.getClient()
+    ).music.entityTaxonsBatch({
       entity_kind: params.entity_kind,
       entity_ids: params.entity_ids,
     });
@@ -1445,7 +1526,9 @@ export class RemoteMusicDataSource implements MusicDataSource {
     if (params.keys.length === 0) {
       return { entity_kind: params.entity_kind, matches: [] };
     }
-    const result = await (await this.getClient()).music.findByMergedKey({
+    const result = await (
+      await this.getClient()
+    ).music.findByMergedKey({
       entity_kind: params.entity_kind,
       keys: params.keys,
     });
@@ -1467,9 +1550,11 @@ export class RemoteMusicDataSource implements MusicDataSource {
   // greedy decade-aware year binning for the "era" hub. server may
   // return an empty `bins` vec while the heuristic is still pending.
   async eraBins(
-    params: { target_min?: number | null; target_max?: number | null } = {},
+    params: { target_min?: number | null; target_max?: number | null } = {}
   ): Promise<import("@freqhole/api-client").EraBinsResponse | null> {
-    const result = await (await this.getClient()).music.eraBins({
+    const result = await (
+      await this.getClient()
+    ).music.eraBins({
       target_min: params.target_min ?? null,
       target_max: params.target_max ?? null,
     });
@@ -1484,9 +1569,11 @@ export class RemoteMusicDataSource implements MusicDataSource {
   // top-N most recently added albums (enriched: includes artist +
   // images + favorites). default 32, server-capped at 256.
   async recentlyAddedAlbums(
-    params: { limit?: number | null } = {},
+    params: { limit?: number | null } = {}
   ): Promise<import("@freqhole/api-client").RecentlyAddedAlbumsResponse | null> {
-    const result = await (await this.getClient()).music.recentlyAddedAlbums({
+    const result = await (
+      await this.getClient()
+    ).music.recentlyAddedAlbums({
       limit: params.limit ?? null,
     });
     if (!result.success) {

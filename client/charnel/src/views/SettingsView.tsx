@@ -5,6 +5,7 @@ import { resolvePath } from "../util/resolvePath";
 import ConfigView from "./ConfigView";
 import ExternalStorageSettingsSection from "./settings/ExternalStorageSettings";
 import StorageSettingsSection from "./settings/StorageSettings";
+import MediaBinariesSettings from "./settings/MediaBinariesSettings";
 import { useAdminTransport } from "../admin/context";
 
 interface ServerConfig {
@@ -738,6 +739,8 @@ export default function SettingsView() {
                   </div>
                 </div>
               </Show>
+
+              <MediaBinariesSettings />
             </div>
           </Show>
 

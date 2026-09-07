@@ -108,7 +108,7 @@ export function openKnockReview(): void {
       try {
         // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
         const { invoke } = await import("@tauri-apps/api/core");
-        await invoke("open_setup_wizard", { route: "/users" });
+        await invoke("open_setup_wizard", { route: "/federation" });
       } catch (e) {
         console.debug("[toastNotices] failed to open wizard for knock review:", e);
       }

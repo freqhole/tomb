@@ -186,28 +186,52 @@ export function canUpdatePlaylist(playlistOwnerId: string | null): boolean {
   return permissions.canUpdatePlaylist(user.userId, playlistOwnerId, user.role);
 }
 
-/** can user add songs to this playlist? requires ownership or Admin role (or local mode) */
-export function canAddSongsToPlaylist(playlistOwnerId: string | null): boolean {
+/** can user add songs to this playlist? requires ownership, Admin role, or collaborative mode (or local mode) */
+export function canAddSongsToPlaylist(
+  playlistOwnerId: string | null,
+  isCollaborative = false
+): boolean {
   if (isLocalMode()) return true;
   const user = getCurrentUser();
   if (!user) return false;
-  return permissions.canAddSongsToPlaylist(user.userId, playlistOwnerId, user.role);
+  return permissions.canAddSongsToPlaylist(
+    user.userId,
+    playlistOwnerId,
+    user.role,
+    isCollaborative
+  );
 }
 
-/** can user remove songs from this playlist? requires ownership or Admin role (or local mode) */
-export function canRemoveSongsFromPlaylist(playlistOwnerId: string | null): boolean {
+/** can user remove songs from this playlist? requires ownership, Admin role, or collaborative mode (or local mode) */
+export function canRemoveSongsFromPlaylist(
+  playlistOwnerId: string | null,
+  isCollaborative = false
+): boolean {
   if (isLocalMode()) return true;
   const user = getCurrentUser();
   if (!user) return false;
-  return permissions.canRemoveSongsFromPlaylist(user.userId, playlistOwnerId, user.role);
+  return permissions.canRemoveSongsFromPlaylist(
+    user.userId,
+    playlistOwnerId,
+    user.role,
+    isCollaborative
+  );
 }
 
-/** can user reorder songs in this playlist? requires ownership or Admin role (or local mode) */
-export function canReorderPlaylistSongs(playlistOwnerId: string | null): boolean {
+/** can user reorder songs in this playlist? requires ownership, Admin role, or collaborative mode (or local mode) */
+export function canReorderPlaylistSongs(
+  playlistOwnerId: string | null,
+  isCollaborative = false
+): boolean {
   if (isLocalMode()) return true;
   const user = getCurrentUser();
   if (!user) return false;
-  return permissions.canReorderPlaylistSongs(user.userId, playlistOwnerId, user.role);
+  return permissions.canReorderPlaylistSongs(
+    user.userId,
+    playlistOwnerId,
+    user.role,
+    isCollaborative
+  );
 }
 
 /** can user delete this listen session? owner or admin can delete */

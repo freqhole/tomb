@@ -1,6 +1,7 @@
 import { createSignal, onMount, onCleanup, Show } from "solid-js";
 import {
   getChromelessTitleBar,
+  getTargetOs,
   minimizeWindow,
   toggleMaximizeWindow,
   closeWindow,
@@ -15,7 +16,7 @@ import {
   type P2pStatusResponse,
 } from "../../app/services/charnel/commands";
 import { videoMiniPlayerExpanded } from "../player/VideoMiniPlayer";
-import { ContextMenu, type MenuAction } from "../overlays/ContextMenu";
+import { ContextMenu, ClickDropdownMenu, type MenuAction } from "../overlays/ContextMenu";
 import { isNarrowViewport } from "../../config/breakpoints";
 
 /**
@@ -27,6 +28,9 @@ import { isNarrowViewport } from "../../config/breakpoints";
 const STRIP_HEIGHT_PX = 38;
 // width of the pl-[10px] + 3 buttons (12px) + 2 gaps (8px) traffic-light cluster below.
 const TRAFFIC_LIGHTS_WIDTH_PX = 80;
+// width of the linux-chrome cluster: pl-[10px] + 4 buttons (20px, close/min/max/menu)
+// + 3 gaps (8px) + backdrop padding (7px each side).
+const LINUX_CHROME_WIDTH_PX = 132;
 /** pointer movement (px) before a press on the strip becomes a window drag. */
 const DRAG_THRESHOLD_PX = 4;
 
@@ -63,11 +67,15 @@ export function TitleBarStrip() {
   const [hovered, setHovered] = createSignal(false);
   const [resizeHovered, setResizeHovered] = createSignal(false);
   let beginResize: (() => void) | undefined;
-  // narrow (mobile top nav) only shows the close dot - the cluster's width
-  // stays fixed either way so the drag handle + right-click context menu
-  // keep the same reserved space regardless of button count.
+  // narrow (mobile top nav) only shows the close dot (plus the hamburger menu
+  // in linux-chrome mode) - the cluster's width stays fixed either way so the
+  // drag handle + right-click context menu keep the same reserved space
+  // regardless of button count.
   const [narrow, setNarrow] = createSignal(isNarrowViewport());
   const [p2pStatus, setP2pStatus] = createSignal<P2pStatusResponse | null>(null);
+  const [targetOs, setTargetOs] = createSignal<string | null>(null);
+  const isLinux = () => targetOs() === "linux";
+  const useLinuxChrome = isLinux;
 
   const refreshP2pStatus = () => void getP2pStatus().then(setP2pStatus);
 
@@ -107,20 +115,30 @@ export function TitleBarStrip() {
       void openSetupWizard("/settings");
     };
     window.addEventListener("keydown", onKeyDown);
-    const onResize = () => setNarrow(isNarrowViewport());
-    window.addEventListener("resize", onResize);
+    // recompute on a rAF tick rather than synchronously in the resize handler -
+    // some webviews deliver `resize` a frame before layout/`innerWidth` has
+    // actually settled, which can leave `narrow()` reading a stale value (a
+    // likely contributor to the traffic-light cluster occasionally failing to
+    // reflect narrow/wide state). also recompute on focus, since a resize that
+    // happens while the window is unfocused/backgrounded can have its event
+    // throttled or dropped entirely by the OS/webview.
+    const recomputeNarrow = () => requestAnimationFrame(() => setNarrow(isNarrowViewport()));
+    window.addEventListener("resize", recomputeNarrow);
+    window.addEventListener("focus", recomputeNarrow);
 
     void (async () => {
-      const isChromeless = await getChromelessTitleBar();
+      const [isChromeless, os] = await Promise.all([getChromelessTitleBar(), getTargetOs()]);
       if (!isChromeless) {
         return;
       }
+      setTargetOs(os);
       setEnabled(true);
+      recomputeNarrow();
       document.documentElement.style.setProperty("--safe-area-top", `${STRIP_HEIGHT_PX}px`);
       document.documentElement.style.setProperty("--chrome-top-inset", `${STRIP_HEIGHT_PX}px`);
       document.documentElement.style.setProperty(
         "--chrome-traffic-lights-inset",
-        `${TRAFFIC_LIGHTS_WIDTH_PX}px`
+        `${useLinuxChrome() ? LINUX_CHROME_WIDTH_PX : TRAFFIC_LIGHTS_WIDTH_PX}px`
       );
       appliedSafeAreaTop = true;
 
@@ -142,7 +160,8 @@ export function TitleBarStrip() {
 
     onCleanup(() => {
       window.removeEventListener("keydown", onKeyDown);
-      window.removeEventListener("resize", onResize);
+      window.removeEventListener("resize", recomputeNarrow);
+      window.removeEventListener("focus", recomputeNarrow);
       unlistenFocus?.();
       if (appliedSafeAreaTop) {
         document.documentElement.style.setProperty("--safe-area-top", "0px");
@@ -158,6 +177,20 @@ export function TitleBarStrip() {
     }`;
 
   const showGlyphs = () => hovered() && focused();
+
+  // linux-chrome (outline-style) buttons: dark grey, white border, magenta
+  // accent on hover - deliberately not macOS-dot-shaped. `currentColor` on
+  // each glyph inherits the button's own hover/focus text color, so hover
+  // recolors the border AND the icon together with no extra classes needed
+  // on the svg itself.
+  const linuxButtonClass = () =>
+    `relative w-[20px] h-[20px] rounded-[5px] border transition-colors ${
+      focused()
+        ? "bg-[#232323] border-white/50 text-white/80 hover:border-[var(--color-accent-500)] hover:text-[var(--color-accent-500)]"
+        : "bg-[#1a1a1a] border-white/25 text-white/40"
+    }`;
+  const linuxIconClass =
+    "absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[11px] h-[11px] pointer-events-none";
 
   return (
     <Show when={enabled()}>
@@ -224,67 +257,163 @@ export function TitleBarStrip() {
         >
           <div class="flex items-center h-full pl-[10px]">
             {/* rounded semi-transparent backdrop so the dots keep contrast
-              against light/bright window backgrounds behind the strip. */}
-            <div class="flex items-center gap-2 px-[7px] py-[5px] rounded-lg bg-black/40">
-              <button
-                type="button"
-                aria-label="close window"
-                class={dotClass("bg-[#ff5f57]")}
-                onClick={() => void closeWindow()}
+              against light/bright window backgrounds behind the strip.
+              linux-chrome buttons get nudged down a few px to line up
+              better with the top nav's own items. */}
+            <div
+              class={`flex items-center gap-2 px-[7px] py-[5px] rounded-lg bg-black/40 ${
+                useLinuxChrome() ? "mt-[4px]" : ""
+              }`}
+            >
+              <Show
+                when={useLinuxChrome()}
+                fallback={
+                  <>
+                    <button
+                      type="button"
+                      aria-label="close window"
+                      class={dotClass("bg-[#ff5f57]")}
+                      onClick={() => void closeWindow()}
+                    >
+                      <Show when={showGlyphs()}>
+                        <svg
+                          viewBox="0 0 10 10"
+                          class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[6px] h-[6px]"
+                        >
+                          <path
+                            d="M1.5 1.5l7 7M8.5 1.5l-7 7"
+                            stroke="#4d0000"
+                            stroke-width="1.5"
+                            stroke-linecap="round"
+                          />
+                        </svg>
+                      </Show>
+                    </button>
+                    <button
+                      type="button"
+                      aria-label="minimize window"
+                      class={dotClass("bg-[#ffbd2e]")}
+                      classList={{ invisible: narrow() }}
+                      onClick={() => void minimizeWindow()}
+                    >
+                      <Show when={showGlyphs() && !narrow()}>
+                        <svg
+                          viewBox="0 0 10 10"
+                          class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[6px] h-[6px]"
+                        >
+                          <path
+                            d="M1.5 5h7"
+                            stroke="#985712"
+                            stroke-width="1.5"
+                            stroke-linecap="round"
+                          />
+                        </svg>
+                      </Show>
+                    </button>
+                    <button
+                      type="button"
+                      aria-label="maximize window"
+                      class={dotClass("bg-[#28c840]")}
+                      classList={{ invisible: narrow() }}
+                      onClick={() => void toggleMaximizeWindow()}
+                    >
+                      <Show when={showGlyphs() && !narrow()}>
+                        <svg
+                          viewBox="0 0 10 10"
+                          class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[6px] h-[6px]"
+                        >
+                          <path
+                            d="M6 2h2v2M4 8H2V6"
+                            stroke="#0f5c1d"
+                            stroke-width="1.3"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            fill="none"
+                          />
+                        </svg>
+                      </Show>
+                    </button>
+                  </>
+                }
               >
-                <Show when={showGlyphs()}>
-                  <svg
-                    viewBox="0 0 10 10"
-                    class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[6px] h-[6px]"
-                  >
+                <button
+                  type="button"
+                  aria-label="close window"
+                  class={linuxButtonClass()}
+                  onClick={() => void closeWindow()}
+                >
+                  <svg viewBox="0 0 12 12" class={linuxIconClass}>
                     <path
-                      d="M1.5 1.5l7 7M8.5 1.5l-7 7"
-                      stroke="#4d0000"
-                      stroke-width="1.5"
+                      d="M2.5 2.5l7 7M9.5 2.5l-7 7"
+                      stroke="currentColor"
+                      stroke-width="1.4"
                       stroke-linecap="round"
-                    />
-                  </svg>
-                </Show>
-              </button>
-              <button
-                type="button"
-                aria-label="minimize window"
-                class={dotClass("bg-[#ffbd2e]")}
-                classList={{ invisible: narrow() }}
-                onClick={() => void minimizeWindow()}
-              >
-                <Show when={showGlyphs() && !narrow()}>
-                  <svg
-                    viewBox="0 0 10 10"
-                    class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[6px] h-[6px]"
-                  >
-                    <path d="M1.5 5h7" stroke="#985712" stroke-width="1.5" stroke-linecap="round" />
-                  </svg>
-                </Show>
-              </button>
-              <button
-                type="button"
-                aria-label="maximize window"
-                class={dotClass("bg-[#28c840]")}
-                classList={{ invisible: narrow() }}
-                onClick={() => void toggleMaximizeWindow()}
-              >
-                <Show when={showGlyphs() && !narrow()}>
-                  <svg
-                    viewBox="0 0 10 10"
-                    class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[6px] h-[6px]"
-                  >
-                    <path
-                      d="M6 2h2v2M4 8H2V6"
-                      stroke="#0f5c1d"
-                      stroke-width="1.3"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
                       fill="none"
                     />
                   </svg>
+                </button>
+                {/* min/max removed from the flex flow entirely (not just
+                  `invisible`) when narrow, so the hamburger sits right next
+                  to close instead of leaving a gap where they'd otherwise be. */}
+                <Show when={!narrow()}>
+                  <button
+                    type="button"
+                    aria-label="minimize window"
+                    class={linuxButtonClass()}
+                    onClick={() => void minimizeWindow()}
+                  >
+                    <svg viewBox="0 0 12 12" class={linuxIconClass}>
+                      <path
+                        d="M2.5 9h7"
+                        stroke="currentColor"
+                        stroke-width="1.4"
+                        stroke-linecap="round"
+                        fill="none"
+                      />
+                    </svg>
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="maximize window"
+                    class={linuxButtonClass()}
+                    onClick={() => void toggleMaximizeWindow()}
+                  >
+                    <svg viewBox="0 0 12 12" class={linuxIconClass}>
+                      <rect
+                        x="2.5"
+                        y="2.5"
+                        width="7"
+                        height="7"
+                        rx="1"
+                        stroke="currentColor"
+                        stroke-width="1.4"
+                        fill="none"
+                      />
+                    </svg>
+                  </button>
                 </Show>
-              </button>
+                {/* hamburger: opens the same flyout as right-clicking the
+                  strip - always visible (wide and narrow), since right-click
+                  isn't very discoverable and this is its only other entry
+                  point. */}
+                <ClickDropdownMenu
+                  trigger={
+                    <button type="button" aria-label="menu" class={linuxButtonClass()}>
+                      <svg viewBox="0 0 12 12" class={linuxIconClass}>
+                        <path
+                          d="M2.5 3.5h7M2.5 6h7M2.5 8.5h7"
+                          stroke="currentColor"
+                          stroke-width="1.4"
+                          stroke-linecap="round"
+                        />
+                      </svg>
+                    </button>
+                  }
+                  actions={chromeMenuActions()}
+                  onOpen={refreshP2pStatus}
+                  align="left"
+                />
+              </Show>
             </div>
           </div>
         </div>

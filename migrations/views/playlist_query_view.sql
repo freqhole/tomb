@@ -8,6 +8,8 @@ SELECT
     pl.title as playlist_title,
     pl.description as playlist_description,
     pl.is_public as playlist_is_public,
+    pl.collaborative as playlist_collaborative,
+    pl.private as playlist_private,
     pl.created_by_id as playlist_created_by_id,
     pl.created_at as playlist_created_at,
     pl.updated_at as playlist_updated_at,
@@ -50,5 +52,5 @@ FROM playlistz pl
 LEFT JOIN playlist_itemz ps ON pl.id = ps.playlist_id AND ps.entity_type = 'song'
 LEFT JOIN songz s ON ps.entity_id = s.id AND s.deleted_at IS NULL
 WHERE pl.deleted_at IS NULL
-GROUP BY pl.id, pl.title, pl.description, pl.is_public, pl.created_by_id,
+GROUP BY pl.id, pl.title, pl.description, pl.is_public, pl.collaborative, pl.private, pl.created_by_id,
          pl.created_at, pl.updated_at, pl.deleted_at;

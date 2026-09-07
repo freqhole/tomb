@@ -1158,6 +1158,8 @@ pub async fn get_or_create_playlist_by_name(
             p.title as "title!",
             p.description,
             p.is_public as "is_public!",
+            p.collaborative as "collaborative!",
+            p.private as "private!",
             NULL as "images?: JsonVec<ImageMetadata>",
             NULL as "urls?: JsonVec<EntityUrl>",
             p.created_by_id,
@@ -1167,6 +1169,7 @@ pub async fn get_or_create_playlist_by_name(
             p.deleted_by,
             p.created_by,
             p.updated_by,
+            NULL as "created_by_username?: String",
             COALESCE(COUNT(ps.entity_id), 0) as "song_count!: i64"
            FROM playlistz p
            LEFT JOIN playlist_itemz ps ON p.id = ps.playlist_id AND ps.entity_type = 'song'

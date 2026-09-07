@@ -2340,6 +2340,8 @@ export const FavoriteItemSchema = z.union([z.intersection(z.object({
   title: z.string(),
   description: z.string().nullish(),
   is_public: z.number(),
+  collaborative: z.number(),
+  private: z.number(),
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
@@ -2357,6 +2359,7 @@ export const FavoriteItemSchema = z.union([z.intersection(z.object({
   deleted_by: z.string().nullish(),
   created_by: z.string().nullish(),
   updated_by: z.string().nullish(),
+  created_by_username: z.string().nullish(),
   song_count: z.number()
 }),
   song_count: z.number(),
@@ -2420,6 +2423,8 @@ export const FavoritePlaylistResultSchema = z.object({
   title: z.string(),
   description: z.string().nullish(),
   is_public: z.number(),
+  collaborative: z.number(),
+  private: z.number(),
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
@@ -2437,6 +2442,7 @@ export const FavoritePlaylistResultSchema = z.object({
   deleted_by: z.string().nullish(),
   created_by: z.string().nullish(),
   updated_by: z.string().nullish(),
+  created_by_username: z.string().nullish(),
   song_count: z.number()
 }),
   song_count: z.number(),
@@ -3630,6 +3636,8 @@ export const ListFavoritesResponseSchema = z.object({
   title: z.string(),
   description: z.string().nullish(),
   is_public: z.number(),
+  collaborative: z.number(),
+  private: z.number(),
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
@@ -3647,6 +3655,7 @@ export const ListFavoritesResponseSchema = z.object({
   deleted_by: z.string().nullish(),
   created_by: z.string().nullish(),
   updated_by: z.string().nullish(),
+  created_by_username: z.string().nullish(),
   song_count: z.number()
 }),
   song_count: z.number(),
@@ -4628,6 +4637,8 @@ export const PlaylistSchema = z.object({
   title: z.string(),
   description: z.string().nullish(),
   is_public: z.number(),
+  collaborative: z.number(),
+  private: z.number(),
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
@@ -4645,6 +4656,7 @@ export const PlaylistSchema = z.object({
   deleted_by: z.string().nullish(),
   created_by: z.string().nullish(),
   updated_by: z.string().nullish(),
+  created_by_username: z.string().nullish(),
   song_count: z.number()
 });
 export type Playlist = z.infer<typeof PlaylistSchema>;
@@ -4672,6 +4684,8 @@ export const PlaylistQueryResultSchema = z.object({
   title: z.string(),
   description: z.string().nullish(),
   is_public: z.number(),
+  collaborative: z.number(),
+  private: z.number(),
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
@@ -4689,6 +4703,7 @@ export const PlaylistQueryResultSchema = z.object({
   deleted_by: z.string().nullish(),
   created_by: z.string().nullish(),
   updated_by: z.string().nullish(),
+  created_by_username: z.string().nullish(),
   song_count: z.number()
 }),
   song_count: z.number(),
@@ -5009,6 +5024,8 @@ export const PlaylistsQueryResultSchema = z.object({
   title: z.string(),
   description: z.string().nullish(),
   is_public: z.number(),
+  collaborative: z.number(),
+  private: z.number(),
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
@@ -5026,6 +5043,7 @@ export const PlaylistsQueryResultSchema = z.object({
   deleted_by: z.string().nullish(),
   created_by: z.string().nullish(),
   updated_by: z.string().nullish(),
+  created_by_username: z.string().nullish(),
   song_count: z.number()
 }),
   song_count: z.number(),
@@ -5270,7 +5288,9 @@ export const QueryParamsSchema = z.object({
   min_rating: z.number().nullish(),
   mb_lookup_status: z.array(z.string()).nullish(),
   pending_review: z.boolean().nullish(),
-  caller_is_admin: z.boolean().nullish()
+  own_or_collaborative_only: z.boolean().nullish(),
+  caller_is_admin: z.boolean().nullish(),
+  caller_user_id: z.string().nullish()
 });
 export type QueryParams = z.infer<typeof QueryParamsSchema>;
 
@@ -5320,7 +5340,9 @@ export const QueryVideosRequestSchema = z.object({
   min_rating: z.number().nullish(),
   mb_lookup_status: z.array(z.string()).nullish(),
   pending_review: z.boolean().nullish(),
-  caller_is_admin: z.boolean().nullish()
+  own_or_collaborative_only: z.boolean().nullish(),
+  caller_is_admin: z.boolean().nullish(),
+  caller_user_id: z.string().nullish()
 }),
   series_id: z.string().nullish(),
   season_id: z.string().nullish(),
@@ -5886,6 +5908,17 @@ export const ReplaceAlbumsTagsRequestSchema = z.object({
   tag_ids: z.array(z.string())
 });
 export type ReplaceAlbumsTagsRequest = z.infer<typeof ReplaceAlbumsTagsRequestSchema>;
+
+export const ReprocessVideoRequestSchema = z.object({
+  id: z.string()
+});
+export type ReprocessVideoRequest = z.infer<typeof ReprocessVideoRequestSchema>;
+
+export const ReprocessVideoResultSchema = z.object({
+  video_id: z.string(),
+  job_id: z.string().nullish()
+});
+export type ReprocessVideoResult = z.infer<typeof ReprocessVideoResultSchema>;
 
 export const RequeryEnrichmentRequestSchema = z.object({
   album_id: z.string(),
@@ -7407,6 +7440,8 @@ export const UpdatePlaylistRequestSchema = z.object({
   title: z.string().nullish(),
   description: z.string().nullish(),
   is_public: z.boolean().nullish(),
+  collaborative: z.boolean().nullish(),
+  private: z.boolean().nullish(),
   entity_urls: z.array(z.object({
   id: z.string().nullish(),
   name: z.string().nullish(),

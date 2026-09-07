@@ -28,10 +28,15 @@ function pickSource(remote: Remote | undefined): MusicDataSource {
 export function useRecentPlaylistsQuery(
   limit: number = 5,
   enabled: Accessor<boolean> = () => true,
-  remote?: Accessor<Remote | undefined>
+  remote?: Accessor<Remote | undefined>,
+  ownedOrCollaborativeOnly: boolean = false
 ) {
   return createQuery(() => ({
-    queryKey: [...queryKeys.playlists.recent(limit), remote?.()?.remote_id ?? null] as const,
+    queryKey: [
+      ...queryKeys.playlists.recent(limit),
+      remote?.()?.remote_id ?? null,
+      ownedOrCollaborativeOnly,
+    ] as const,
     queryFn: async () => {
       const dataSource = pickSource(remote?.());
 
@@ -42,6 +47,7 @@ export function useRecentPlaylistsQuery(
       const response = await dataSource.getPlaylists({
         offset: 0,
         limit,
+        own_or_collaborative_only: ownedOrCollaborativeOnly,
       });
 
       // playlists already have thumbnail_url from data source
@@ -59,6 +65,9 @@ interface UsePlaylistsQueryOptions {
   pageSize?: number;
   /** when set, scope the query to this remote (overrides active source). */
   remote?: Accessor<Remote | undefined>;
+  /** restrict results to the caller's own + collaborative playlists
+   *  (no-op for admins/root - server always shows them everything). */
+  ownedOrCollaborativeOnly?: Accessor<boolean>;
 }
 
 // infinite query hook for playlists
@@ -66,9 +75,16 @@ export function usePlaylistsQuery(options?: UsePlaylistsQueryOptions) {
   const search = options?.search;
   const pageSize = options?.pageSize || 50;
   const remote = options?.remote;
+  const ownedOrCollaborativeOnly = options?.ownedOrCollaborativeOnly;
 
   return createInfiniteQuery(() => ({
-    queryKey: [...queryKeys.playlists.all(), "infinite", search?.(), remote?.()?.remote_id ?? null],
+    queryKey: [
+      ...queryKeys.playlists.all(),
+      "infinite",
+      search?.(),
+      remote?.()?.remote_id ?? null,
+      ownedOrCollaborativeOnly?.() ?? false,
+    ],
     queryFn: async ({ pageParam }: { pageParam: number }) => {
       const dataSource = pickSource(remote?.());
 
@@ -87,6 +103,7 @@ export function usePlaylistsQuery(options?: UsePlaylistsQueryOptions) {
         offset: pageParam,
         limit: pageSize,
         search: search?.(),
+        own_or_collaborative_only: ownedOrCollaborativeOnly?.() ?? false,
       });
 
       // playlists already have thumbnail_url from data source
@@ -195,6 +212,8 @@ export function useUpdatePlaylistMutation() {
       title?: string | null;
       description?: string | null;
       is_public?: boolean | null;
+      collaborative?: boolean | null;
+      private?: boolean | null;
       images?: ImageMetadata[] | null;
       entity_urls?: Array<{ id?: string | null; name?: string | null; url: string }>;
     }) => {

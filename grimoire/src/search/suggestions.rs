@@ -453,8 +453,13 @@ pub async fn get_playlist_suggestions(
     partial: &str,
     user_id: Option<&str>,
 ) -> GrimoireResult<Vec<Suggestion>> {
-    // query playlistz_fts with prefix match: `title:partial*`
-    // filter by privacy: (is_public = 1 OR created_by = user_id)
+    // query playlistz_fts with prefix match: `title:partial*`. `is_public`
+    // is intentionally NOT enforced here - unlike `private`, it has no UI
+    // to ever set it true, so treating it as a real gate would make every
+    // playlist invisible to every caller except its exact creator (which
+    // silently broke search for anyone other than the local owner, e.g.
+    // any p2p peer). playlists are open-to-all in search, same as every
+    // other entity type, unless explicitly marked `private`.
 
     let match_query = sanitize_fts_query(partial);
     let user_id_param = user_id.map(|s| s.to_string());
@@ -483,7 +488,7 @@ pub async fn get_playlist_suggestions(
             AND favorite.user_id = ?
         WHERE playlistz_fts MATCH ?
             AND playlist.deleted_at IS NULL
-            AND (playlist.is_public = 1 OR playlist.created_by = ?)
+            AND (playlist.private = 0 OR playlist.created_by_id = ?)
         GROUP BY playlist.id, playlist.title, playlist.is_public, playlist.created_by, fts.rank, favorite.id
         ORDER BY fts.rank
         LIMIT 100

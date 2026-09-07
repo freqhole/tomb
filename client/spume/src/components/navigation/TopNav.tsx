@@ -9,6 +9,7 @@ import {
   Show,
   type JSX,
 } from "solid-js";
+import { Portal } from "solid-js/web";
 import { permissions, type UserRoleName } from "@freqhole/api-client";
 import { getLocalNodeId, isCharnelMode } from "../../app/services/charnel";
 import {
@@ -60,6 +61,42 @@ function chromelessStripActive(): boolean {
     getComputedStyle(document.documentElement).getPropertyValue("--chrome-top-inset").trim() !==
     "0px"
   );
+}
+
+// view-switcher options for a given remote's own hover flyout in the main
+// menu (routes.ts builds these for the CURRENT source only - this mirrors
+// that same route shape for an arbitrary remote id).
+function remoteViewOptions(remoteId: string): ViewOption[] {
+  const prefix = `/${remoteId}`;
+  return [
+    { label: "feed", path: `${prefix}/feed` },
+    { label: "songs", path: `${prefix}/songs` },
+    { label: "albums", path: `${prefix}/albums` },
+    { label: "artists", path: `${prefix}/artists` },
+    { label: "playlists", path: `${prefix}/playlists` },
+    { label: "favorites", path: `${prefix}/favorites` },
+    { label: "videos", path: `${prefix}/video` },
+    { label: "series", path: `${prefix}/video/series` },
+  ];
+}
+
+type FlyoutPos = { left: number; top?: number; bottom?: number; maxHeight: number };
+
+// position a remote row's view-switcher flyout relative to the row's own
+// rect, fixed/viewport-clamped (rendered via a Portal) so it can't get cut
+// off by the scrollable remotes list it lives inside - mirrors
+// `ClickDropdownMenu`'s spaceBelow/spaceAbove flip logic in ContextMenu.tsx.
+function computeFlyoutPos(rowRect: DOMRect): FlyoutPos {
+  const gutter = 4;
+  const pad = 8;
+  const flyoutWidth = 180;
+  const left = Math.min(rowRect.right + gutter, window.innerWidth - flyoutWidth - pad);
+  const spaceBelow = window.innerHeight - rowRect.top - pad;
+  const spaceAbove = rowRect.bottom - pad;
+  if (spaceBelow >= spaceAbove) {
+    return { left, top: rowRect.top, maxHeight: spaceBelow };
+  }
+  return { left, bottom: window.innerHeight - rowRect.bottom, maxHeight: spaceAbove };
 }
 
 export interface NavMenuItem {
@@ -424,6 +461,60 @@ export function TopNav(props: TopNavProps) {
     createSignal<DesktopFlyoutName | null>(null);
   const [navHoverSuppressed, setNavHoverSuppressed] = createSignal(false);
   const [isMainMenuOpen, setIsMainMenuOpen] = createSignal(false);
+  // ids of remotes whose view-switcher flyout is currently open/hovered
+  // (portaled outside KobalteNav.Content, so a real viewport-relative
+  // `position: fixed` works even though Content's animate-in/out classes
+  // leave a residual `transform` on it that would otherwise offset a
+  // nested fixed child). a Set (not a single boolean) so one row closing
+  // doesn't clobber another row's still-open flyout when hovering moves
+  // directly from one remote to another. checked by the Content
+  // pointerleave interceptor below so Kobalte doesn't treat moving onto a
+  // portaled flyout as "left the menu" and auto-close everything.
+  //
+  // this state (and the row refs/hover-tracking/timeouts below) is lifted
+  // up here, keyed by remote id, rather than living as local variables
+  // inside the `<For>` row callback - `AppLayout.tsx` passes `remotes={...}`
+  // as a fresh `.map()`'d array of brand-new objects on every re-render, so
+  // per-row local state would get silently wiped (flyout snaps shut) any
+  // time something elsewhere causes that prop to recompute, even mid-hover.
+  // keying by `remote.id` (stable across those re-renders, same trick
+  // `openMenuFor`/`RowActionsMenu` below already relies on) survives it.
+  const [activeRemoteFlyouts, setActiveRemoteFlyouts] = createSignal<Set<string>>(new Set());
+  const remoteFlyoutActive = () => activeRemoteFlyouts().size > 0;
+  const [remoteFlyoutPosById, setRemoteFlyoutPosById] = createSignal<Record<string, FlyoutPos>>({});
+  const remoteRowRefs = new Map<string, HTMLDivElement>();
+  const remoteFlyoutHovered = new Set<string>();
+  const remoteFlyoutCloseTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
+  const openRemoteFlyout = (id: string) => {
+    remoteFlyoutHovered.add(id);
+    clearTimeout(remoteFlyoutCloseTimeouts.get(id));
+    const row = remoteRowRefs.get(id);
+    if (row) {
+      const pos = computeFlyoutPos(row.getBoundingClientRect());
+      setRemoteFlyoutPosById((prev) => ({ ...prev, [id]: pos }));
+    }
+    setActiveRemoteFlyouts((prev) => new Set(prev).add(id));
+  };
+  // generous delay + the flyout itself also calls openRemoteFlyout on hover,
+  // so briefly crossing the gap between the row and the flyout (or hovering
+  // back and forth) doesn't close it. re-checks remoteFlyoutHovered when the
+  // timeout actually fires (not just at schedule time) in case a re-entry
+  // raced the clear.
+  const closeRemoteFlyoutDelayed = (id: string) => {
+    remoteFlyoutHovered.delete(id);
+    clearTimeout(remoteFlyoutCloseTimeouts.get(id));
+    remoteFlyoutCloseTimeouts.set(
+      id,
+      setTimeout(() => {
+        if (remoteFlyoutHovered.has(id)) return;
+        setActiveRemoteFlyouts((prev) => {
+          const next = new Set(prev);
+          next.delete(id);
+          return next;
+        });
+      }, 400)
+    );
+  };
   const isDesktopFlyoutOpen = (name: DesktopFlyoutName) => activeDesktopFlyout() === name;
   let suppressDesktopHoverUntilPointerLeave = false;
   const closeAllDesktopFlyouts = () => {
@@ -487,6 +578,19 @@ export function TopNav(props: TopNavProps) {
         code: "Escape",
         bubbles: true,
       })
+    );
+  };
+
+  // force the main menu closed even on wide/desktop. normal menu items rely
+  // on Kobalte's own hover-based dismiss (mouse naturally leaves Content after
+  // clicking), but the per-remote flyout's items are portaled + still under
+  // the pointer after click, so nothing re-triggers that - dispatch the same
+  // escape-close closeTopNavMenu() already uses for narrow, unconditionally.
+  const forceCloseTopNavMenu = () => {
+    const active = document.activeElement as HTMLElement | null;
+    active?.blur();
+    document.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true })
     );
   };
 
@@ -1152,11 +1256,14 @@ export function TopNav(props: TopNavProps) {
                     // intercept pointerleave in capture phase before Kobalte sees it.
                     // Kobalte's NavigationMenu.Content calls startLeaveTimer() on
                     // pointerleave without checking pointerType, so touch scrolling
-                    // closes the menu on Android. we swallow the event for touch.
+                    // closes the menu on Android. we swallow the event for touch,
+                    // and also whenever a per-remote view-switcher flyout is active -
+                    // that flyout is portaled to <body> (see below), so moving the
+                    // pointer onto it looks like "left Content" to Kobalte otherwise.
                     el.addEventListener(
                       "pointerleave",
                       (e) => {
-                        if (e.pointerType === "touch") {
+                        if (e.pointerType === "touch" || remoteFlyoutActive()) {
                           e.stopImmediatePropagation();
                         }
                       },
@@ -1417,8 +1524,24 @@ export function TopNav(props: TopNavProps) {
                                       : "never checked";
                                     return `${lastChecked} - click to retry`;
                                   };
+                                  // hover flyout listing this remote's own view routes
+                                  // (albums/playlists/etc) - separate from the row's own
+                                  // click handler (switches remote), which stays as-is.
+                                  // state lives in the shared, id-keyed maps/signals above
+                                  // (see the comment there for why - this row's own local
+                                  // variables would get wiped by upstream re-renders).
+                                  const viewsOpen = () => activeRemoteFlyouts().has(remote.id);
+                                  const flyoutPos = () => remoteFlyoutPosById()[remote.id];
+                                  const openViews = () => openRemoteFlyout(remote.id);
+                                  const closeViewsDelayed = () =>
+                                    closeRemoteFlyoutDelayed(remote.id);
                                   return (
-                                    <div class="relative flex items-center gap-1">
+                                    <div
+                                      ref={(el) => remoteRowRefs.set(remote.id, el)}
+                                      class="relative flex items-center gap-1"
+                                      onMouseEnter={openViews}
+                                      onMouseLeave={closeViewsDelayed}
+                                    >
                                       <button
                                         class="flex-1 min-w-0 px-3 py-2 text-left text-sm flex items-center gap-2 rounded transition-colors border-none bg-transparent"
                                         classList={{
@@ -1512,6 +1635,68 @@ export function TopNav(props: TopNavProps) {
                                           onClose={() => setOpenMenuFor(null)}
                                           onAction={() => closeTopNavMenu()}
                                         />
+                                      </Show>
+                                      {/* per-remote view switcher - hover only for now (click
+                                        stays reserved for the row's own switch-remote action).
+                                        portaled to <body> for correct viewport-relative fixed
+                                        positioning (KobalteNav.Content's animate-in/out classes
+                                        leave a residual transform that would otherwise offset a
+                                        nested fixed child). the pointerleave interceptor above
+                                        (gated on remoteFlyoutActive) keeps the main menu open
+                                        while this is hovered despite it being portaled outside
+                                        Content's own DOM subtree. `data-kb-top-layer` tells
+                                        Kobalte's dismissable layer (used by NavigationMenu.Content)
+                                        this element isn't "outside" the menu either - without it,
+                                        a pointerdown here closes the whole menu before the click
+                                        can register (same attribute Kobalte's own Toast uses for
+                                        this exact reason - see create-interact-outside.ts). */}
+                                      <Show when={viewsOpen() && flyoutPos()}>
+                                        {(pos) => (
+                                          <Portal mount={document.body}>
+                                            <div
+                                              data-kb-top-layer=""
+                                              class="fixed w-[180px] bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded-lg shadow-xl z-[1002] py-1 overflow-y-auto"
+                                              style={{
+                                                left: `${pos().left}px`,
+                                                top:
+                                                  pos().top !== undefined
+                                                    ? `${pos().top}px`
+                                                    : undefined,
+                                                bottom:
+                                                  pos().bottom !== undefined
+                                                    ? `${pos().bottom}px`
+                                                    : undefined,
+                                                "max-height": `${pos().maxHeight}px`,
+                                              }}
+                                              onMouseEnter={openViews}
+                                              onMouseLeave={closeViewsDelayed}
+                                            >
+                                              <div class="px-3 py-1.5 text-xs font-medium text-[var(--color-text-muted)] truncate border-b border-[var(--color-border-subtle)] mb-1">
+                                                {remote.name}
+                                              </div>
+                                              <For each={remoteViewOptions(remote.id)}>
+                                                {(view) => (
+                                                  <button
+                                                    class="w-full text-left px-3 py-2 text-sm transition-colors border-none bg-transparent cursor-pointer text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
+                                                    onClick={() => {
+                                                      closeTopNavMenu();
+                                                      forceCloseTopNavMenu();
+                                                      remoteFlyoutHovered.delete(remote.id);
+                                                      setActiveRemoteFlyouts((prev) => {
+                                                        const next = new Set(prev);
+                                                        next.delete(remote.id);
+                                                        return next;
+                                                      });
+                                                      props.onNavigate?.(view.path);
+                                                    }}
+                                                  >
+                                                    {view.label}
+                                                  </button>
+                                                )}
+                                              </For>
+                                            </div>
+                                          </Portal>
+                                        )}
                                       </Show>
                                     </div>
                                   );

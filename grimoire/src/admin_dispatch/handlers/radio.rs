@@ -262,7 +262,9 @@ pub(in crate::admin_dispatch) async fn seed_suggest(
                 min_rating: None,
                 mb_lookup_status: None,
                 pending_review: None,
+                own_or_collaborative_only: None,
                 caller_is_admin: None,
+                caller_user_id: None,
             };
             let resp = query_artists(params).await;
             resp.data
@@ -290,7 +292,9 @@ pub(in crate::admin_dispatch) async fn seed_suggest(
                 min_rating: None,
                 mb_lookup_status: None,
                 pending_review: None,
+                own_or_collaborative_only: None,
                 caller_is_admin: None,
+                caller_user_id: None,
             };
             let resp = query_albums(params).await;
             resp.data

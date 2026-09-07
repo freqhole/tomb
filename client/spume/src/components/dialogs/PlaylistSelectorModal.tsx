@@ -4,6 +4,7 @@ import type { PlaylistSummary } from "../../music/data/types";
 import type { Remote } from "../../app/services/storage/schemas/remote";
 import type { PlaylistSelectorItem } from "../../music/hooks/playlistSelectorState";
 import { canCreatePlaylist } from "../../music/data/permissions";
+import { getCurrentUser, isLocalSourceActive } from "../../music/data";
 import {
   useCreatePlaylistMutation,
   usePlaylistsQuery,
@@ -13,6 +14,7 @@ import { queryKeys } from "../../music/queries/queryKeys";
 import { PlaylistItemDuplicateError } from "../../music/data/types";
 import { useAddPlaylistItemsMutation } from "../../video/queries/playlistItems";
 import { Button } from "../buttons/Button";
+import { Badge } from "../badges/Badge";
 import { toast } from "../feedback/Toast";
 import { TextInput } from "../forms/TextInput";
 import { Icon, IconNames } from "../icons/registry";
@@ -37,15 +39,29 @@ export function PlaylistSelectorModal(props: PlaylistSelectorModalProps) {
   const [newPlaylistName, setNewPlaylistName] = createSignal("");
 
   const queryClient = useQueryClient();
+
+  // for non-admin remote members, restrict to playlists they can actually
+  // add items to: their own, or any marked collaborative. applied server-
+  // side (via own_or_collaborative_only) so pagination reflects the
+  // already-filtered set rather than filtering after the fact - local mode
+  // and admin/root still see every playlist regardless.
+  const restrictToOwnedOrCollaborative = () => {
+    if (isLocalSourceActive()) return false;
+    const user = getCurrentUser();
+    return !!user && user.role !== "admin" && user.role !== "root";
+  };
+
   const recentPlaylistsQuery = useRecentPlaylistsQuery(
     5,
     () => true,
-    () => props.remote
+    () => props.remote,
+    restrictToOwnedOrCollaborative()
   );
   const allPlaylistsQuery = usePlaylistsQuery({
     search: searchQuery,
     pageSize: 100,
     remote: () => props.remote,
+    ownedOrCollaborativeOnly: restrictToOwnedOrCollaborative,
   });
 
   const addItemsMutation = useAddPlaylistItemsMutation();
@@ -80,16 +96,15 @@ export function PlaylistSelectorModal(props: PlaylistSelectorModalProps) {
     });
   };
 
-  // filter playlists based on search query
+  // filter playlists based on search query - ownership/collaborative
+  // visibility is already applied server-side (see restrictToOwnedOrCollaborative).
   const filteredPlaylists = createMemo(() => {
     const query = searchQuery().toLowerCase().trim();
     if (!query) {
       return recentPlaylistsQuery.data || [];
     }
 
-    // gather all playlists from infinite query pages
     const allPlaylists = allPlaylistsQuery.data?.pages.flatMap((page) => page.items) || [];
-
     return allPlaylists.filter((playlist) => playlist.title.toLowerCase().includes(query));
   });
 
@@ -273,8 +288,13 @@ export function PlaylistSelectorModal(props: PlaylistSelectorModalProps) {
                       className="w-5 h-5 text-[var(--color-text-tertiary)] flex-shrink-0"
                     />
                     <div class="flex-1 min-w-0">
-                      <div class="body-sm text-[var(--color-text-primary)] truncate">
-                        {playlist.title}
+                      <div class="body-sm text-[var(--color-text-primary)] flex items-center gap-2">
+                        <span class="truncate min-w-0 flex-1">{playlist.title}</span>
+                        <Show when={playlist.collaborative}>
+                          <Badge variant="default" size="sm">
+                            collaborative
+                          </Badge>
+                        </Show>
                       </div>
                       <Show when={playlist.song_count > 0}>
                         <div class="body-xs text-[var(--color-text-tertiary)]">

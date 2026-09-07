@@ -850,6 +850,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::check_setup_status,
             commands::check_dependencies,
+            commands::validate_and_set_ffmpeg_path,
+            commands::validate_and_set_ytdlp_path,
             commands::get_setup_defaults,
             commands::run_setup_core,
             commands::create_admin_user,

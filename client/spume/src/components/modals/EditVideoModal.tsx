@@ -138,6 +138,8 @@ export function EditVideoModal(props: EditVideoModalProps) {
   const [renditions, setRenditions] = createSignal<VideoRendition[]>([]);
   const [renditionsLoading, setRenditionsLoading] = createSignal(false);
   const [deletingRendition, setDeletingRendition] = createSignal<string | null>(null);
+  const [reprocessing, setReprocessing] = createSignal(false);
+  const [reprocessStatus, setReprocessStatus] = createSignal<string | null>(null);
 
   // images — fetched/mutated immediately (not deferred to save), mirrors
   // AlbumEditorModal.tsx's image handling
@@ -209,6 +211,59 @@ export function EditVideoModal(props: EditVideoModalProps) {
       toast.error("failed to delete rendition");
     } finally {
       setDeletingRendition(null);
+    }
+  };
+
+  // re-probe ffprobe metadata + (re)generate any missing/broken rendition -
+  // recovery path for a video that got stuck (e.g. imported while ffmpeg
+  // was unavailable). safe to re-run: existing healthy renditions are
+  // reused, not regenerated.
+  const handleReprocess = async () => {
+    const remote = getCurrentRemote();
+    if (!remote) {
+      toast.error("no remote available");
+      return;
+    }
+
+    setReprocessing(true);
+    setReprocessStatus("reprocessing...");
+    try {
+      const client = await getClientForRemote(remote);
+      const result = await client.video.reprocessVideo({ id: props.videoId });
+      if (!result.success || !result.data) {
+        toast.error("failed to start reprocessing");
+        return;
+      }
+
+      const jobId = result.data.job_id;
+      if (jobId) {
+        const pollResult = await pollJobUntilComplete(remote, jobId, 60_000, {
+          onStage: (_stage, message) => setReprocessStatus(message ?? "reprocessing..."),
+        });
+        if (pollResult === "failed") {
+          toast.error("reprocessing failed");
+        } else if (pollResult === "timeout") {
+          toast.info("reprocessing is taking a long time — check back later", {
+            title: "processing queued",
+          });
+        } else {
+          toast.success("video reprocessed");
+        }
+      } else {
+        toast.success("video metadata refreshed");
+      }
+
+      const video = videoQuery.data;
+      if (video?.media_blob_id) {
+        await fetchRenditions(video.media_blob_id);
+      }
+      invalidateVideoQueries();
+    } catch (err) {
+      console.error("failed to reprocess video:", err);
+      toast.error("failed to reprocess video");
+    } finally {
+      setReprocessing(false);
+      setReprocessStatus(null);
     }
   };
 
@@ -848,7 +903,20 @@ export function EditVideoModal(props: EditVideoModalProps) {
 
           {/* metadata section */}
           <div class="space-y-3 border-t border-[var(--color-border-default)] pt-4">
-            <h3 class="text-sm font-medium text-[var(--color-text-primary)]">metadata</h3>
+            <div class="flex items-center justify-between gap-2">
+              <h3 class="text-sm font-medium text-[var(--color-text-primary)]">metadata</h3>
+              <Show when={canUpdateVideo()}>
+                <button
+                  type="button"
+                  onClick={() => void handleReprocess()}
+                  disabled={reprocessing()}
+                  class="flex items-center gap-1 px-2 py-1 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-elevated)] rounded border border-[var(--color-border-default)] disabled:opacity-50"
+                  title="re-probe metadata and (re)generate any missing or broken rendition"
+                >
+                  {reprocessing() ? (reprocessStatus() ?? "reprocessing...") : "reprocess"}
+                </button>
+              </Show>
+            </div>
 
             <Show when={videoMetadataQuery.data}>
               {(metadata) => (

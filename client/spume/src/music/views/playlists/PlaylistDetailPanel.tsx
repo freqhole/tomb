@@ -18,6 +18,7 @@ import type { Accessor, JSX } from "solid-js";
 import { playQueue, addToQueue } from "../../services/queue/queue";
 import { Button } from "../../../components/buttons/Button";
 import { IconButton } from "../../../components/buttons/IconButton";
+import { Badge } from "../../../components/badges/Badge";
 import { ImageCarouselModal } from "../../../components/modals/ImageCarouselModal";
 import { HeadingSection } from "../../../components/layout/HeadingSection";
 import { MarqueeText } from "../../../components/text/MarqueeText";
@@ -387,14 +388,36 @@ export function PlaylistDetailPanel(props: PlaylistDetailPanelProps) {
                   </p>
                 </Show>
 
-                <Show when={(props.playlist()?.play_count ?? 0) > 0}>
-                  <p
-                    class="text-xs text-[var(--color-text-muted)] mb-3"
-                    title="number of times this playlist's play button has been pressed"
-                  >
-                    played {props.playlist()!.play_count}
-                    {(props.playlist()!.play_count ?? 0) === 1 ? " time" : " times"}
-                  </p>
+                <Show
+                  when={
+                    (props.playlist()?.play_count ?? 0) > 0 ||
+                    props.playlist()?.collaborative ||
+                    props.playlist()?.private
+                  }
+                >
+                  <div class="flex items-center gap-2 mb-3">
+                    <Show when={(props.playlist()?.play_count ?? 0) > 0}>
+                      <p
+                        class="text-xs text-[var(--color-text-muted)] m-0"
+                        title="number of times this playlist's play button has been pressed"
+                      >
+                        played {props.playlist()!.play_count}
+                        {(props.playlist()!.play_count ?? 0) === 1 ? " time" : " times"}
+                      </p>
+                    </Show>
+
+                    <Show when={props.playlist()?.collaborative}>
+                      <Badge variant="default" size="sm">
+                        collaborative
+                      </Badge>
+                    </Show>
+
+                    <Show when={props.playlist()?.private}>
+                      <Badge variant="default" size="sm">
+                        private
+                      </Badge>
+                    </Show>
+                  </div>
                 </Show>
 
                 {/* entity links — independently collapsible row */}
@@ -436,7 +459,13 @@ export function PlaylistDetailPanel(props: PlaylistDetailPanelProps) {
               {/* line break on narrow screens */}
               <div class="basis-full wide:hidden" />
               <Show when={props.playlist()?.created_at}>
-                <span>created {formatRelativeTime(props.playlist()!.created_at)}</span>
+                <span>
+                  created {formatRelativeTime(props.playlist()!.created_at)}
+                  <Show when={props.playlist()?.created_by_username}>
+                    {" "}
+                    by {props.playlist()!.created_by_username}
+                  </Show>
+                </span>
               </Show>
             </div>
           </Show>
@@ -652,6 +681,7 @@ export function PlaylistDetailPanel(props: PlaylistDetailPanelProps) {
                           index={index()}
                           playlistId={props.playlistId()}
                           playlistOwnerId={props.playlist()?.created_by_id ?? null}
+                          playlistCollaborative={props.playlist()?.collaborative ?? false}
                           isTouch={isTouch}
                           isNarrow={props.isNarrow}
                           editMode={props.editMode}

@@ -14,8 +14,8 @@ use crate::video::{
     bulk_delete_videos as grimoire_bulk_delete_videos, create_video,
     delete_video as grimoire_delete_video, get_video, get_video_with_metadata,
     list_videos_by_season, list_videos_by_series, list_videos_unattached,
-    query_videos as grimoire_query_videos, update_videos as grimoire_update_videos,
-    CreateVideoRequest, UpdateVideosRequest,
+    query_videos as grimoire_query_videos, reprocess_video as grimoire_reprocess_video,
+    update_videos as grimoire_update_videos, CreateVideoRequest, UpdateVideosRequest,
 };
 
 /// request for getting a video by id
@@ -66,6 +66,12 @@ pub struct GetVideoRenditionsRequest {
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct DeleteVideoRenditionRequest {
     pub blob_id: String,
+}
+
+/// request for reprocessing a video's metadata/renditions
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct ReprocessVideoRequest {
+    pub id: String,
 }
 
 /// a single transcoded rendition of a video's original media blob.
@@ -205,6 +211,15 @@ pub const ROUTES: &[RouteInfo] = &[
         domain: Domain::Video,
         request_type: "DeleteVideoRenditionRequest",
         response_type: "EmptyResponse",
+        auth: RouteAuth::Role(UserRole::Admin),
+    },
+    RouteInfo {
+        name: "reprocess_video",
+        path: "/api/video/videos/reprocess",
+        method: Method::POST,
+        domain: Domain::Video,
+        request_type: "ReprocessVideoRequest",
+        response_type: "ReprocessVideoResult",
         auth: RouteAuth::Role(UserRole::Admin),
     },
 ];
@@ -573,4 +588,34 @@ pub async fn delete_rendition(caller: &Caller, body: JsonValue) -> GrimoireRespo
         }
         Err(e) => GrimoireResponse::failure("failed to delete rendition", vec![e.into()]),
     }
+}
+
+/// re-run ffprobe metadata extraction + rendition (re)generation for a
+/// video - manual recovery for one that got stuck with missing/incomplete
+/// metadata or a missing/corrupt rendition (e.g. imported while ffmpeg was
+/// unavailable). safe to call repeatedly - existing healthy renditions are
+/// reused, not regenerated.
+///
+/// path: POST /api/video/videos/reprocess
+pub async fn reprocess(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
+    if let Err(resp) = crate::acl_bridge::require_scope(caller, "reprocess_video").await {
+        return resp;
+    }
+
+    let req: ReprocessVideoRequest = match serde_json::from_value(body) {
+        Ok(r) => r,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "bad request",
+                vec![ErrorDetail::new(
+                    "bad_request",
+                    "bad request",
+                    e.to_string(),
+                )],
+            )
+        }
+    };
+
+    let response = grimoire_reprocess_video(&req.id, Some(caller.user_id.clone())).await;
+    response.map(|data| serde_json::to_value(data).unwrap())
 }

@@ -21,6 +21,8 @@ description = "allow the app's own commands to be invoked from any window/webvie
 commands.allow = [
     "check_setup_status",
     "check_dependencies",
+    "validate_and_set_ffmpeg_path",
+    "validate_and_set_ytdlp_path",
     "get_setup_defaults",
     "run_setup_core",
     "create_admin_user",

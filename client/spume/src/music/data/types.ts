@@ -32,6 +32,9 @@ export interface QueryParams {
   // flexible filters (for tag filtering and other dynamic filters)
   include_tags?: string[];
   exclude_tags?: string[];
+  /** playlists only: restrict to the caller's own + collaborative ones.
+   *  no-op for admins/root (server always shows them everything). */
+  own_or_collaborative_only?: boolean;
   [key: string]: any; // allow other filters
 }
 
@@ -126,6 +129,10 @@ export interface PlaylistSummary {
   title: string;
   description: string | null;
   is_public: boolean;
+  /** any authenticated member (not just the owner/admin) may edit membership. */
+  collaborative?: boolean;
+  /** only the owner or an admin can see this playlist at all. */
+  private?: boolean;
   images?: ImageMetadata[];
   urls?: EntityUrl[];
   song_count: number;
@@ -135,16 +142,11 @@ export interface PlaylistSummary {
   updated_at: number;
   is_favorite?: boolean;
   created_by_id?: string | null;
+  created_by_username?: string | null;
 }
 
 // favorite target type for mutations
-export type FavoriteTarget =
-  | "song"
-  | "album"
-  | "artist"
-  | "playlist"
-  | "video"
-  | "video_series";
+export type FavoriteTarget = "song" | "album" | "artist" | "playlist" | "video" | "video_series";
 
 // favorite item - discriminated union of all favoritable types
 export type FavoriteItem =
@@ -167,14 +169,7 @@ export interface ListFavoritesParams {
 // upgraded past the rename still validate. new code should emit
 // `"taxon"` and switch on both when consuming.
 export type SuggestionType =
-  | "artist"
-  | "album"
-  | "song"
-  | "taxon"
-  | "genre"
-  | "playlist"
-  | "video"
-  | "video_series";
+  "artist" | "album" | "song" | "taxon" | "genre" | "playlist" | "video" | "video_series";
 
 export interface SearchSuggestion {
   value: string;
@@ -315,14 +310,7 @@ export interface VideoSeriesSearchResult {
 }
 
 export type SearchField =
-  | "all"
-  | "artists"
-  | "albums"
-  | "songs"
-  | "genres"
-  | "playlists"
-  | "videos"
-  | "video_series";
+  "all" | "artists" | "albums" | "songs" | "genres" | "playlists" | "videos" | "video_series";
 
 // main data source interface
 // both local and remote sources implement this
@@ -334,30 +322,19 @@ export interface MusicDataSource {
 
   // albums (optional - may aggregate from songs)
   getAlbums?(params?: QueryParams): Promise<PaginatedResponse<AlbumSummary>>;
-  getAlbumSongs?(
-    albumId: string,
-    params?: QueryParams,
-  ): Promise<PaginatedResponse<Song>>;
+  getAlbumSongs?(albumId: string, params?: QueryParams): Promise<PaginatedResponse<Song>>;
 
   // artists (optional - may aggregate from songs)
   getArtists?(params?: QueryParams): Promise<PaginatedResponse<ArtistSummary>>;
-  getArtistSongs?(
-    artistId: string,
-    params?: QueryParams,
-  ): Promise<PaginatedResponse<Song>>;
+  getArtistSongs?(artistId: string, params?: QueryParams): Promise<PaginatedResponse<Song>>;
 
   // genres were removed during the taxonomy refactor — fetch them via
   // the unified taxonomy api (queryTaxons / getTaxon with kind='genre')
   // instead of dedicated genre routes.
 
   // playlists (optional)
-  getPlaylists?(
-    params?: QueryParams,
-  ): Promise<PaginatedResponse<PlaylistSummary>>;
-  getPlaylistSongs?(
-    playlistId: string,
-    params?: QueryParams,
-  ): Promise<PaginatedResponse<Song>>;
+  getPlaylists?(params?: QueryParams): Promise<PaginatedResponse<PlaylistSummary>>;
+  getPlaylistSongs?(playlistId: string, params?: QueryParams): Promise<PaginatedResponse<Song>>;
   createPlaylist?(params: {
     title: string;
     description?: string | null;
@@ -369,27 +346,27 @@ export interface MusicDataSource {
       title?: string | null;
       description?: string | null;
       is_public?: boolean | null;
+      collaborative?: boolean | null;
+      private?: boolean | null;
       entity_urls?: Array<{ id?: string | null; name?: string | null; url: string }>;
-    },
+    }
   ): Promise<PlaylistSummary>;
   deletePlaylist?(playlistId: string): Promise<void>;
   deleteSong?(songId: string): Promise<void>;
   bulkDeleteSongs?(songIds: string[]): Promise<{ deleted_count: number; failed_ids: string[] }>;
-  bulkClearSongArtwork?(songIds: string[]): Promise<{ cleared_count: number; failed_ids: string[] }>;
+  bulkClearSongArtwork?(
+    songIds: string[]
+  ): Promise<{ cleared_count: number; failed_ids: string[] }>;
   deleteAlbum?(albumId: string): Promise<void>;
   deleteArtist?(artistId: string): Promise<void>;
-  reorderPlaylistSongs?(
-    playlistId: string,
-    songIds: string[],
-    newPosition: number,
-  ): Promise<void>;
+  reorderPlaylistSongs?(playlistId: string, songIds: string[], newPosition: number): Promise<void>;
   // unified cross-type reorder - `orderedItems` must contain every item
   // currently in the playlist (song AND video), in the desired new order
   // (see grimoire's ReorderPlaylistItemsRequest doc comment for why a
   // full ordered list, rather than a move-to-position delta, is required)
   reorderPlaylistItems?(
     playlistId: string,
-    orderedItems: Array<{ entity_type: "song" | "video"; entity_id: string }>,
+    orderedItems: Array<{ entity_type: "song" | "video"; entity_id: string }>
   ): Promise<void>;
 
   // search (optional - remote only initially)
@@ -408,9 +385,7 @@ export interface MusicDataSource {
   }): Promise<SearchResponse>;
 
   // favorites (optional - remote only initially)
-  listFavorites?(
-    params?: ListFavoritesParams,
-  ): Promise<PaginatedResponse<FavoriteItem>>;
+  listFavorites?(params?: ListFavoritesParams): Promise<PaginatedResponse<FavoriteItem>>;
 
   // mutations (optional - not all sources support all mutations)
   setFavorite?(params: {
@@ -483,24 +458,24 @@ export interface MusicDataSource {
   uploadImage?(params: {
     file?: File;
     filePath?: string;
-    entityType: 'song' | 'artist' | 'album' | 'playlist';
+    entityType: "song" | "artist" | "album" | "playlist";
     entityId: string;
     isPrimary?: boolean;
   }): Promise<{ blob_id: string; job_id: string }>;
 
   getEntityImages?(params: {
-    entityType: 'song' | 'artist' | 'album' | 'playlist';
+    entityType: "song" | "artist" | "album" | "playlist";
     entityId: string;
   }): Promise<string[]>;
 
   removeImage?(params: {
-    entityType: 'song' | 'artist' | 'album' | 'playlist';
+    entityType: "song" | "artist" | "album" | "playlist";
     entityId: string;
     blobId: string;
   }): Promise<void>;
 
   setPrimaryImage?(params: {
-    entityType: 'song' | 'artist' | 'album' | 'playlist';
+    entityType: "song" | "artist" | "album" | "playlist";
     entityId: string;
     blobId: string;
   }): Promise<void>;
@@ -571,7 +546,8 @@ export interface FeedItem {
   target_type: string | null;
   session_id: string | null;
   session_type: string | null;
-  session_status: string | null;  progress_percent: number | null;
+  session_status: string | null;
+  progress_percent: number | null;
   songs_completed: number | null;
   total_songs: number | null;
   // enrichment fields

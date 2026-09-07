@@ -831,6 +831,26 @@ pub async fn upsert_session_feed_event(session_id: &str) -> GrimoireResponse<Fee
         );
     }
 
+    // don't surface a "listening to playlist X" card in the feed for a
+    // private playlist - mixed/shuffle/album/artist sessions are unaffected
+    // even if their underlying songs happen to come from a private playlist.
+    if session.session_type == "playlist" {
+        if let Some(playlist_id) = &session.entity_id {
+            let is_private: Option<i64> =
+                sqlx::query_scalar!("SELECT private FROM playlistz WHERE id = ?", playlist_id)
+                    .fetch_optional(&pool)
+                    .await
+                    .ok()
+                    .flatten();
+            if is_private == Some(1) {
+                return GrimoireResponse::success(
+                    "skipped feed event for private playlist session",
+                    FeedEventResult::Skipped,
+                );
+            }
+        }
+    }
+
     let feed_type = FeedEventType::Session.to_string();
     let username = session.username.unwrap_or_else(|| "unknown".to_string());
     let title = session.label;

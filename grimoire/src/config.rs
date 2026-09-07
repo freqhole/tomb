@@ -265,6 +265,21 @@ fn default_ffmpeg_path() -> String {
     "ffmpeg".to_string()
 }
 
+/// yt-dlp precheck command template - shared by `generate_config_template`
+/// (fresh config) and `set_ytdlp_path` (re-pointing an existing config at a
+/// new yt-dlp binary), so both stay in sync.
+fn ytdlp_precheck_command(ytdlp_path: &str) -> String {
+    format!("{} --print-json --no-download", ytdlp_path)
+}
+
+/// yt-dlp fetch command template - see `ytdlp_precheck_command`.
+fn ytdlp_fetch_command(ytdlp_path: &str) -> String {
+    format!(
+        "{} --ignore-errors --extract-audio --audio-format mp3 --audio-quality 0 --add-metadata --embed-thumbnail --no-overwrites --output %(uploader)s-%(title)s-[%(id)s].%(ext)s --newline --progress --progress-template \"download:%(info.id)s|%(progress.status)s|%(progress.downloaded_bytes)s|%(progress.total_bytes_estimate)s|%(progress.filename)s\" --progress-template \"postprocess:%(info.id)s|%(progress.status)s\" --print after_move:filepath",
+        ytdlp_path
+    )
+}
+
 fn default_ffprobe_duration_args() -> String {
     "-v quiet -show_entries format=duration -of csv=p=0 {input}".to_string()
 }
@@ -1384,14 +1399,8 @@ fn generate_config_template(
     if let Some(ytdlp) = ytdlp_path {
         let ytdlp_str = ytdlp.display().to_string();
         if let Some(fetch_music) = doc["server"]["fetch_music"].as_table_mut() {
-            // precheck_command uses yt-dlp
-            fetch_music["precheck_command"] =
-                value(format!("{} --print-json --no-download", ytdlp_str));
-            // fetch_command uses yt-dlp
-            fetch_music["fetch_command"] = value(format!(
-                "{} --ignore-errors --extract-audio --audio-format mp3 --audio-quality 0 --add-metadata --embed-thumbnail --no-overwrites --output %(uploader)s-%(title)s-[%(id)s].%(ext)s --newline --progress --progress-template \"download:%(info.id)s|%(progress.status)s|%(progress.downloaded_bytes)s|%(progress.total_bytes_estimate)s|%(progress.filename)s\" --progress-template \"postprocess:%(info.id)s|%(progress.status)s\" --print after_move:filepath",
-                ytdlp_str
-            ));
+            fetch_music["precheck_command"] = value(ytdlp_precheck_command(&ytdlp_str));
+            fetch_music["fetch_command"] = value(ytdlp_fetch_command(&ytdlp_str));
         }
     }
 
@@ -1482,6 +1491,54 @@ pub fn set_config_values(
     }
 
     Ok(())
+}
+
+/// re-point an existing config's `media.ffmpeg_path` (and, if given,
+/// `media.ffprobe_path`) at a user-picked binary - used by the settings
+/// UI's "select ffmpeg binary" flow when the configured ffmpeg can't be
+/// found on `PATH` anymore. only touches those two keys, so any other
+/// customization in the config file is left untouched.
+pub fn set_ffmpeg_path(
+    config_path: &Path,
+    ffmpeg_path: &Path,
+    ffprobe_path: Option<&Path>,
+) -> Result<(), ConfigError> {
+    let mut updates: Vec<(&str, toml_edit::Value)> = vec![(
+        "media.ffmpeg_path",
+        ffmpeg_path.display().to_string().into(),
+    )];
+    if let Some(path) = ffprobe_path {
+        updates.push(("media.ffprobe_path", path.display().to_string().into()));
+    }
+    set_config_values(config_path, &updates)
+}
+
+/// re-point an existing config's yt-dlp binary at a user-picked path -
+/// used by the settings UI's "select yt-dlp binary" flow when the
+/// configured yt-dlp can't be found on `PATH` anymore. yt-dlp's path
+/// isn't its own config field (see `ytdlp_precheck_command`/
+/// `ytdlp_fetch_command`) - it's baked into `server.fetch_music`'s
+/// `precheck_command`/`fetch_command` templates, so this regenerates
+/// both from the canonical templates with the new path. this mirrors
+/// what `generate_config_template` does for a fresh config, which means
+/// any hand-customized args in those two commands get reset to the
+/// defaults - acceptable since this is only invoked when yt-dlp
+/// couldn't be found at all (nothing was working anyway).
+pub fn set_ytdlp_path(config_path: &Path, ytdlp_path: &Path) -> Result<(), ConfigError> {
+    let ytdlp_str = ytdlp_path.display().to_string();
+    set_config_values(
+        config_path,
+        &[
+            (
+                "server.fetch_music.precheck_command",
+                ytdlp_precheck_command(&ytdlp_str).into(),
+            ),
+            (
+                "server.fetch_music.fetch_command",
+                ytdlp_fetch_command(&ytdlp_str).into(),
+            ),
+        ],
+    )
 }
 
 /// convenience wrapper for the rathole repl: set both autostart

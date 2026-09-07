@@ -171,11 +171,16 @@ export interface Playlist {
   title: string;
   description: string | null;
   is_public: boolean;
+  /** any authenticated member (not just the owner/admin) may edit membership. */
+  collaborative?: boolean;
+  /** only the owner or an admin can see this playlist at all. */
+  private?: boolean;
   images?: ImageMetadata[]; // playlist images
   urls?: Array<{ id?: string; name?: string; url: string }>; // entity URLs
   created_at: number;
   updated_at: number;
   created_by_id?: string | null; // user who created the playlist
+  created_by_username?: string | null;
   // user-specific fields (from query views)
   is_favorite?: boolean;
   user_rating?: number;

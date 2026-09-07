@@ -14,6 +14,13 @@ pub struct Playlist {
     pub title: String,
     pub description: Option<String>,
     pub is_public: i64, // sqlite boolean (0/1)
+    /// when true, any authenticated member may edit this playlist's song/item
+    /// membership (not just the owner or an admin) - see `require_owner_or_collaborative_or_scope`.
+    pub collaborative: i64, // sqlite boolean (0/1)
+    /// when true, only the owner or an admin can see this playlist at all -
+    /// see `require_playlist_visible`. a separate flag from `is_public`
+    /// (see 078_playlistz_private_mode.sql's comment for why).
+    pub private: i64, // sqlite boolean (0/1)
     pub images: Option<JsonVec<ImageMetadata>>,
     pub urls: Option<JsonVec<EntityUrl>>,
     pub created_by_id: Option<String>,
@@ -23,6 +30,9 @@ pub struct Playlist {
     pub deleted_by: Option<String>,
     pub created_by: Option<String>,
     pub updated_by: Option<String>,
+    /// resolved display name for `created_by_id` - populated as a second
+    /// pass by `enrich_playlist_usernames`, not stored in the db.
+    pub created_by_username: Option<String>,
     /// Song count - always calculated via COUNT() in queries
     pub song_count: i64,
 }
@@ -96,6 +106,16 @@ pub struct UpdatePlaylistRequest {
     /// Make playlist public or private
     #[arg(long)]
     pub is_public: Option<bool>,
+
+    /// Enable/disable collaborative mode - lets any authenticated member
+    /// edit song/item membership, not just the owner or an admin.
+    #[arg(long)]
+    pub collaborative: Option<bool>,
+
+    /// Enable/disable private mode - only the owner or an admin can see
+    /// this playlist at all once set (see `require_playlist_visible`).
+    #[arg(long)]
+    pub private: Option<bool>,
 
     /// Entity URLs (replaces all existing URLs)
     #[arg(skip)]

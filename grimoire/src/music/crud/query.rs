@@ -1588,7 +1588,9 @@ pub async fn list_recent_songs(
         min_rating: None,
         mb_lookup_status: None,
         pending_review: None,
+        own_or_collaborative_only: None,
         caller_is_admin: None,
+        caller_user_id: None,
     };
     query_songs(params).await
 }
@@ -1611,7 +1613,9 @@ pub async fn search_songs(
         min_rating: None,
         mb_lookup_status: None,
         pending_review: None,
+        own_or_collaborative_only: None,
         caller_is_admin: None,
+        caller_user_id: None,
     };
     query_songs(params).await
 }
@@ -1640,7 +1644,9 @@ pub async fn list_songs_by_artist(
         min_rating: None,
         mb_lookup_status: None,
         pending_review: None,
+        own_or_collaborative_only: None,
         caller_is_admin: None,
+        caller_user_id: None,
     };
     query_songs(params).await
 }
@@ -1669,7 +1675,9 @@ pub async fn list_songs_by_album(
         min_rating: None,
         mb_lookup_status: None,
         pending_review: None,
+        own_or_collaborative_only: None,
         caller_is_admin: None,
+        caller_user_id: None,
     };
     query_songs(params).await
 }
@@ -1698,7 +1706,9 @@ pub async fn list_songs_by_genre(
         min_rating: None,
         mb_lookup_status: None,
         pending_review: None,
+        own_or_collaborative_only: None,
         caller_is_admin: None,
+        caller_user_id: None,
     };
     query_songs(params).await
 }
@@ -1727,7 +1737,9 @@ pub async fn list_albums_by_artist(
         min_rating: None,
         mb_lookup_status: None,
         pending_review: None,
+        own_or_collaborative_only: None,
         caller_is_admin: None,
+        caller_user_id: None,
     };
     query_albums(params).await
 }
@@ -1753,7 +1765,9 @@ mod tests {
             min_rating: None,
             mb_lookup_status: None,
             pending_review: None,
+            own_or_collaborative_only: None,
             caller_is_admin: None,
+            caller_user_id: None,
         };
         let mut q = Query::select();
         q.column(sea_query::Asterisk).from(AlbumView::Table);

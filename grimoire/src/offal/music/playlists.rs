@@ -166,6 +166,8 @@ pub async fn list(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValu
     };
 
     params.user_id = Some(target_user_id);
+    params.caller_is_admin = Some(caller.is_admin());
+    params.caller_user_id = Some(caller.user_id.clone());
 
     let response = query_playlists(params).await;
     response.map(|data| serde_json::to_value(data).unwrap())
@@ -203,7 +205,7 @@ pub async fn create(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonVa
 /// get playlist by id
 ///
 /// path: POST /api/music/playlists/get
-pub async fn get(_caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
+pub async fn get(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
     let req: GetPlaylistRequest = match serde_json::from_value(body) {
         Ok(r) => r,
         Err(e) => {
@@ -219,13 +221,18 @@ pub async fn get(_caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValu
     };
 
     let response = get_playlist(&req.id).await;
+    if let Some(playlist) = &response.data {
+        if let Err(resp) = crate::acl_bridge::require_playlist_visible(playlist, caller) {
+            return resp;
+        }
+    }
     response.map(|data| serde_json::to_value(data).unwrap())
 }
 
 /// get playlist etag
 ///
 /// path: POST /api/music/playlists/etag
-pub async fn get_etag(_caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
+pub async fn get_etag(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
     let req: GetPlaylistRequest = match serde_json::from_value(body) {
         Ok(r) => r,
         Err(e) => {
@@ -241,6 +248,11 @@ pub async fn get_etag(_caller: &Caller, body: JsonValue) -> GrimoireResponse<Jso
     };
 
     let response = get_playlist(&req.id).await;
+    if let Some(playlist) = &response.data {
+        if let Err(resp) = crate::acl_bridge::require_playlist_visible(playlist, caller) {
+            return resp;
+        }
+    }
     response.map(|playlist| {
         serde_json::json!({
             "etag": playlist.updated_at.to_string()
@@ -251,7 +263,7 @@ pub async fn get_etag(_caller: &Caller, body: JsonValue) -> GrimoireResponse<Jso
 /// get playlist images
 ///
 /// path: POST /api/playlists/images
-pub async fn get_images(_caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
+pub async fn get_images(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
     let req: GetPlaylistRequest = match serde_json::from_value(body) {
         Ok(r) => r,
         Err(e) => {
@@ -265,6 +277,15 @@ pub async fn get_images(_caller: &Caller, body: JsonValue) -> GrimoireResponse<J
             )
         }
     };
+
+    let playlist_response = get_playlist(&req.id).await;
+    if let Some(playlist) = &playlist_response.data {
+        if let Err(resp) = crate::acl_bridge::require_playlist_visible(playlist, caller) {
+            return resp;
+        }
+    } else {
+        return playlist_response.map(|_| serde_json::Value::Null);
+    }
 
     let response = grimoire_get_playlist_images(&req.id).await;
     response.map(|data| serde_json::to_value(data).unwrap())
@@ -361,11 +382,12 @@ pub async fn add_songs(caller: &Caller, body: JsonValue) -> GrimoireResponse<Jso
         }
     };
 
-    // check ownership
+    // check ownership (or collaborative mode)
     let playlist_response = get_playlist(&req.playlist_id).await;
     if let Some(playlist) = &playlist_response.data {
-        if let Err(resp) = crate::acl_bridge::require_owner_or_scope(
+        if let Err(resp) = crate::acl_bridge::require_owner_or_collaborative_or_scope(
             playlist.created_by_id.as_deref(),
+            playlist.collaborative != 0,
             caller,
             "add_songs_to_playlist",
         )
@@ -398,11 +420,12 @@ pub async fn remove_songs(caller: &Caller, body: JsonValue) -> GrimoireResponse<
         }
     };
 
-    // check ownership
+    // check ownership (or collaborative mode)
     let playlist_response = get_playlist(&req.playlist_id).await;
     if let Some(playlist) = &playlist_response.data {
-        if let Err(resp) = crate::acl_bridge::require_owner_or_scope(
+        if let Err(resp) = crate::acl_bridge::require_owner_or_collaborative_or_scope(
             playlist.created_by_id.as_deref(),
+            playlist.collaborative != 0,
             caller,
             "remove_songs_from_playlist",
         )
@@ -435,11 +458,12 @@ pub async fn reorder(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonV
         }
     };
 
-    // check ownership
+    // check ownership (or collaborative mode)
     let playlist_response = get_playlist(&req.playlist_id).await;
     if let Some(playlist) = &playlist_response.data {
-        if let Err(resp) = crate::acl_bridge::require_owner_or_scope(
+        if let Err(resp) = crate::acl_bridge::require_owner_or_collaborative_or_scope(
             playlist.created_by_id.as_deref(),
+            playlist.collaborative != 0,
             caller,
             "reorder_playlist_songs",
         )
