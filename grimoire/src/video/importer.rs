@@ -12,12 +12,16 @@
 //! 5. enqueues a `TranscodeVideo` job
 
 use crate::config::{get_config, GrimoireConfig};
+use crate::error::ErrorDetail;
 use crate::jobs::{CreateJobRequest, Job, JobError, JobType, TranscodeVideoParams};
 use crate::media_blobz::ffmpeg_runner::{humanize_ffmpeg_error, run_ffmpeg};
-use crate::media_blobz::{create_media_blob, BlobType, CreateMediaBlobRequest};
-use crate::video::{create_video, CreateVideoRequest};
+use crate::media_blobz::{create_media_blob, get_media_blob, BlobType, CreateMediaBlobRequest};
+use crate::response::GrimoireResponse;
+use crate::video::{create_video, get_video, CreateVideoRequest};
+use serde::{Deserialize, Serialize};
 use std::path::Path;
 use tracing::{debug, info, warn};
+use zod_gen_derive::ZodSchema;
 
 /// result of importing a single video file
 #[derive(Debug, Clone)]
@@ -522,6 +526,148 @@ pub async fn import_video_file(
         subtitle_blob_ids,
         is_duplicate: false,
     })
+}
+
+/// result of a `reprocess_video` call
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct ReprocessVideoResult {
+    pub video_id: String,
+    /// id of the (re-)enqueued `TranscodeVideo` job, if one was created -
+    /// `None` when transcoding is disabled or no renditions are configured.
+    pub job_id: Option<String>,
+}
+
+/// re-run ffprobe metadata extraction + rendition (re)generation for an
+/// already-imported video - a manual recovery path for a video that got
+/// stuck with missing/incomplete metadata or a missing/corrupt rendition
+/// (e.g. imported while ffmpeg/ffprobe was unavailable or misconfigured).
+///
+/// re-probes duration/codec/container/bitrate/dimensions/frame_rate from
+/// the source file and updates the video + its media blob, then
+/// (re-)enqueues a `TranscodeVideo` job. that job is idempotent - it reuses
+/// any rendition that already has a valid (non-empty) local file and only
+/// regenerates what's missing or broken, so calling this repeatedly is
+/// safe and won't duplicate work or blob rows.
+pub async fn reprocess_video(
+    video_id: &str,
+    updated_by: Option<String>,
+) -> GrimoireResponse<ReprocessVideoResult> {
+    let video = match get_video(video_id).await {
+        response if response.success => match response.data {
+            Some(v) => v,
+            None => return GrimoireResponse::failure("video not found", vec![]),
+        },
+        response => return GrimoireResponse::failure(&response.message, response.errors),
+    };
+
+    let source_blob = match get_media_blob(&video.media_blob_id).await {
+        Ok(b) => b,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "failed to load video's source media blob",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
+    let Some(local_path) = source_blob.local_path.clone() else {
+        return GrimoireResponse::failure(
+            "video's source file is not available locally",
+            vec![ErrorDetail::new(
+                "no_local_path",
+                "video's source file is not available locally",
+                "this video's original file has no local_path - it may only exist remotely",
+            )],
+        );
+    };
+
+    let config = get_config();
+    let props = probe_video_properties(Path::new(&local_path), &config).await;
+    info!(
+        "reprocess: re-probed video {} properties: duration={:?}, codec={:?}, container={:?}, bitrate={:?}, dimensions={:?}x{:?}, frame_rate={:?}",
+        video_id,
+        props.duration_seconds,
+        props.codec_name,
+        props.container_format,
+        props.bit_rate,
+        props.width,
+        props.height,
+        props.frame_rate
+    );
+
+    if let Err(e) = update_media_blob_with_video_metadata(&video.media_blob_id, &props).await {
+        warn!(
+            "reprocess: failed to update media blob {} metadata: {}",
+            video.media_blob_id, e
+        );
+    }
+
+    if props.duration_seconds.is_some() {
+        let update_resp = crate::video::update_video(crate::video::UpdateVideoRequest {
+            video_id: video.id.clone(),
+            series_id: None,
+            season_id: None,
+            episode_number: None,
+            content_type: None,
+            title: None,
+            description: None,
+            poster_blob_id: None,
+            duration_seconds: props.duration_seconds,
+            release_date: None,
+            updated_by: updated_by.clone(),
+            clear_series_id: false,
+            clear_season_id: false,
+        })
+        .await;
+        if !update_resp.success {
+            warn!(
+                "reprocess: failed to update video {} duration: {}",
+                video.id, update_resp.message
+            );
+        }
+    }
+
+    let transcode_params = TranscodeVideoParams {
+        media_blob_id: video.media_blob_id.clone(),
+        video_id: video.id.clone(),
+    };
+    let params_json = match serde_json::to_value(&transcode_params) {
+        Ok(v) => v,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "failed to serialize reprocess job parameters",
+                vec![ErrorDetail::new(
+                    "serialization_failed",
+                    "failed to serialize reprocess job parameters",
+                    e.to_string(),
+                )],
+            )
+        }
+    };
+    let job_response = crate::jobs::create_job(CreateJobRequest {
+        job_type: JobType::TranscodeVideo,
+        session_id: None,
+        parameters: params_json,
+        max_retries: Some(3),
+        scheduled_at: None,
+        created_by: updated_by,
+        priority: None,
+    })
+    .await;
+    if !job_response.success {
+        warn!(
+            "reprocess: failed to enqueue TranscodeVideo job for video {}: {}",
+            video.id, job_response.message
+        );
+    }
+    let job_id = job_response.data.map(|j| j.id);
+
+    GrimoireResponse::success(
+        "video reprocessing started",
+        ReprocessVideoResult {
+            video_id: video.id,
+            job_id,
+        },
+    )
 }
 
 /// resolve (or create) the video series/season for a detected series

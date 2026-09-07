@@ -15,6 +15,9 @@ pub mod search;
 // directory scanning entry point (mirrors `crate::music::scan_directory`)
 pub use scanner::scan_directory;
 
+// manual metadata/rendition recovery for an already-imported video
+pub use importer::{reprocess_video, ReprocessVideoResult};
+
 // series/season/video CRUD (create/get/list/update). deletes are exposed
 // from `crud::delete` instead, since they cascade + clean up side tables.
 pub use entities::seasons::{

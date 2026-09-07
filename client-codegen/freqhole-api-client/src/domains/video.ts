@@ -167,6 +167,18 @@ export function createVideoMethods(call: CallFn) {
       );
     },
 
+    reprocessVideo: (params: s.ReprocessVideoRequest) => {
+      return call(
+        "video",
+        "reprocess_video",
+        routes.video.reprocess_video.resp,
+        routes.video.reprocess_video.req,
+        routes.video.reprocess_video.method,
+        routes.video.reprocess_video.path,
+        params,
+      );
+    },
+
     // playback progress
     upsertPlaybackProgress: (params: s.UpsertPlaybackProgressRequest) => {
       return call(

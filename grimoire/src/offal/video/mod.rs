@@ -75,6 +75,7 @@ pub async fn dispatch(
         "/api/video/videos/renditions/delete" => {
             Some(videos::delete_rendition(caller, body.clone()).await)
         }
+        "/api/video/videos/reprocess" => Some(videos::reprocess(caller, body.clone()).await),
 
         // playback progress
         "/api/video/progress/upsert" => Some(progress::upsert(caller, body.clone()).await),

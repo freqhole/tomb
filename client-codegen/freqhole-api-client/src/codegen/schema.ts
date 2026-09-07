@@ -5909,6 +5909,17 @@ export const ReplaceAlbumsTagsRequestSchema = z.object({
 });
 export type ReplaceAlbumsTagsRequest = z.infer<typeof ReplaceAlbumsTagsRequestSchema>;
 
+export const ReprocessVideoRequestSchema = z.object({
+  id: z.string()
+});
+export type ReprocessVideoRequest = z.infer<typeof ReprocessVideoRequestSchema>;
+
+export const ReprocessVideoResultSchema = z.object({
+  video_id: z.string(),
+  job_id: z.string().nullish()
+});
+export type ReprocessVideoResult = z.infer<typeof ReprocessVideoResultSchema>;
+
 export const RequeryEnrichmentRequestSchema = z.object({
   album_id: z.string(),
   source: z.union([z.literal('Mb'), z.literal('Lastfm'), z.literal('Audiodb')]),

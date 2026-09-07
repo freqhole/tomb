@@ -12,9 +12,23 @@ use crate::jobs::job_events;
 use crate::jobs::models::{TranscodeVideoParams, TranscodeVideoResult};
 use crate::jobs::{Job, JobError};
 use crate::media_blobz::ffmpeg_runner::run_ffmpeg;
-use crate::media_blobz::{create_media_blob, get_media_blob, BlobType, CreateMediaBlobRequest};
+use crate::media_blobz::{
+    create_media_blob, get_media_blob, hard_delete_rendition_blob, list_renditions, BlobType,
+    CreateMediaBlobRequest, MediaBlob,
+};
 use std::path::Path;
 use tracing::{info, warn};
+
+/// true when `blob`'s `local_path` points at a real, non-empty file on
+/// disk - used to decide whether an already-existing rendition blob can be
+/// reused as-is, or needs to be regenerated (missing/zero-byte local file,
+/// e.g. from an interrupted transcode or manual file deletion).
+async fn rendition_file_is_valid(blob: &MediaBlob) -> bool {
+    let Some(path) = blob.local_path.as_deref() else {
+        return false;
+    };
+    matches!(tokio::fs::metadata(path).await, Ok(meta) if meta.len() > 0)
+}
 
 pub async fn process_transcode_video_job(job: &Job) -> Result<Option<serde_json::Value>, JobError> {
     let params: TranscodeVideoParams = job.parameters()?;
@@ -73,6 +87,21 @@ pub async fn process_transcode_video_job(job: &Job) -> Result<Option<serde_json:
 
     let mut rendition_blob_ids = Vec::new();
     let mut partial_failures: Vec<ErrorDetail> = Vec::new();
+    // existing renditions for this video, keyed by label - lets a re-run
+    // (e.g. a user-triggered reprocess) reuse anything already healthy
+    // instead of re-transcoding every rendition from scratch every time.
+    let existing_renditions = list_renditions(&params.media_blob_id)
+        .await
+        .unwrap_or_default();
+    let existing_by_label: std::collections::HashMap<String, &MediaBlob> = existing_renditions
+        .iter()
+        .filter_map(|b| {
+            b.metadata
+                .get("rendition")
+                .and_then(|v| v.as_str())
+                .map(|label| (label.to_string(), b))
+        })
+        .collect();
     let total = renditions.len();
     for (i, rendition) in renditions.iter().enumerate() {
         job_events::emit_stage_from_job(
@@ -85,6 +114,31 @@ pub async fn process_transcode_video_job(job: &Job) -> Result<Option<serde_json:
                 rendition.label
             )),
         );
+
+        // reuse an already-healthy rendition instead of re-transcoding it -
+        // makes this job safe to re-run (e.g. a user-triggered "reprocess")
+        // without duplicating work or blob rows. a stale row whose file is
+        // missing/empty is removed first so it gets cleanly replaced below.
+        if let Some(existing) = existing_by_label.get(rendition.label.as_str()) {
+            if rendition_file_is_valid(existing).await {
+                info!(
+                    "reusing existing rendition for video {} rendition {}: already healthy",
+                    params.video_id, rendition.label
+                );
+                rendition_blob_ids.push(existing.id.clone());
+                continue;
+            }
+            warn!(
+                "existing rendition for video {} rendition {} is missing or empty on disk, regenerating",
+                params.video_id, rendition.label
+            );
+            if let Err(e) = hard_delete_rendition_blob(&existing.id).await {
+                warn!(
+                    "failed to clean up stale rendition blob {} for video {} rendition {}: {}",
+                    existing.id, params.video_id, rendition.label, e
+                );
+            }
+        }
 
         // skip transcoding if source already matches target codec/container
         if should_skip_transcode(&source_blob, rendition) {
