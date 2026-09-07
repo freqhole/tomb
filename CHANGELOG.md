@@ -1,5 +1,18 @@
 # freqhole-release
 
+## 0.3.3
+
+### Patch Changes
+
+- 466a6d4: feat: private playlistz; when on, only admin users can see the playlist (and hopefully it's not included in search results or feed view)
+- ca9a505: add hamburger menu for linux and add stoplight variationz so it's not no mac-y
+- da850cb: add re-process button in video edit modal to re-run ffprobe + ffmpeg rendition (transcode only if needed)
+- 22c84d4: show new flyout menu in top nav for each remote to get to each remote's routes
+- 2fafc1c: feat: collaborative playlistz
+- f050eed: add new wizard thing that checks if ffmpeg and yt-dlp are configured valid binz and if not let's user browse + pick 'em
+- 5c62511: fix bug where playlistz were not getting included in search resultz
+- 2bab740: lib/reliquary: before rejecting duplicate blob, check if the local_path is still a file, and if not, update.
+
 ## 0.3.2
 
 ### Patch Changes
