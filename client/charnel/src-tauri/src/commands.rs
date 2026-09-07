@@ -110,6 +110,130 @@ pub async fn check_dependencies() -> DependencyCheckResult {
     }
 }
 
+/// result of validating and persisting a user-picked binary path.
+#[derive(Debug, Clone, Serialize)]
+pub struct BinaryValidationResult {
+    pub path: String,
+    /// first line of the binary's own version output, shown to the user
+    /// as confirmation that the picked file is really that binary.
+    pub version_info: String,
+}
+
+/// result of validating a user-picked ffmpeg binary. `ffprobe` is `None`
+/// when a sibling ffprobe binary couldn't be found/validated next to
+/// ffmpeg - the ffmpeg path is still saved either way, ffprobe is best-effort.
+#[derive(Debug, Clone, Serialize)]
+pub struct FfmpegValidationResult {
+    pub ffmpeg: BinaryValidationResult,
+    pub ffprobe: Option<BinaryValidationResult>,
+}
+
+/// shell out `<path> <version_flag>` and confirm it looks like a real,
+/// runnable binary - some tools print version info to stdout, some to
+/// stderr, so both are checked. returns the first non-blank output line
+/// as a human-readable confirmation string, or a specific error message
+/// explaining what went wrong.
+fn validate_binary(path: &Path, version_flag: &str) -> Result<String, String> {
+    if !path.is_file() {
+        return Err(format!("'{}' is not a file", path.display()));
+    }
+
+    let output = std::process::Command::new(path)
+        .arg(version_flag)
+        .output()
+        .map_err(|e| format!("couldn't run '{}': {}", path.display(), e))?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let first_line = stdout
+        .lines()
+        .chain(stderr.lines())
+        .find(|line| !line.trim().is_empty())
+        .map(|line| line.trim().to_string());
+
+    match first_line {
+        Some(line) => Ok(line),
+        None => Err(format!(
+            "'{}' ran but produced no output - this doesn't look like a valid {} binary",
+            path.display(),
+            path.file_stem()
+                .map(|s| s.to_string_lossy().into_owned())
+                .unwrap_or_default()
+        )),
+    }
+}
+
+/// infer ffprobe's path from ffmpeg's directory (same directory, same
+/// executable extension) - ffmpeg and ffprobe always ship as sibling
+/// binaries, so no separate file picker is needed for ffprobe.
+fn infer_ffprobe_path(ffmpeg_path: &Path) -> Option<PathBuf> {
+    let dir = ffmpeg_path.parent()?;
+    let mut ffprobe_name = std::ffi::OsString::from("ffprobe");
+    if let Some(ext) = ffmpeg_path.extension() {
+        ffprobe_name.push(".");
+        ffprobe_name.push(ext);
+    }
+    Some(dir.join(ffprobe_name))
+}
+
+/// validate a user-picked ffmpeg binary (and its inferred ffprobe sibling,
+/// best-effort), then persist both into the currently running instance's
+/// config file. called from the settings view's "advanced" section, which
+/// only offers this picker when the configured ffmpeg couldn't be found.
+#[tauri::command]
+pub async fn validate_and_set_ffmpeg_path(
+    app_handle: tauri::AppHandle,
+    path: String,
+) -> Result<FfmpegValidationResult, String> {
+    let ffmpeg_path = PathBuf::from(canonicalize_or_original(&path));
+    let ffmpeg_version = validate_binary(&ffmpeg_path, "-version")?;
+
+    let ffprobe_result = infer_ffprobe_path(&ffmpeg_path)
+        .and_then(|p| validate_binary(&p, "-version").ok().map(|v| (p, v)));
+
+    let config_path = get_server_config_path_resolved(&app_handle)
+        .ok_or_else(|| "server config not found - run setup first".to_string())?;
+
+    grimoire::config::set_ffmpeg_path(
+        &config_path,
+        &ffmpeg_path,
+        ffprobe_result.as_ref().map(|(p, _)| p.as_path()),
+    )
+    .map_err(|e| e.to_string())?;
+
+    Ok(FfmpegValidationResult {
+        ffmpeg: BinaryValidationResult {
+            path: ffmpeg_path.display().to_string(),
+            version_info: ffmpeg_version,
+        },
+        ffprobe: ffprobe_result.map(|(p, v)| BinaryValidationResult {
+            path: p.display().to_string(),
+            version_info: v,
+        }),
+    })
+}
+
+/// validate a user-picked yt-dlp binary, then persist it into the
+/// currently running instance's config file. see `validate_and_set_ffmpeg_path`.
+#[tauri::command]
+pub async fn validate_and_set_ytdlp_path(
+    app_handle: tauri::AppHandle,
+    path: String,
+) -> Result<BinaryValidationResult, String> {
+    let ytdlp_path = PathBuf::from(canonicalize_or_original(&path));
+    let version_info = validate_binary(&ytdlp_path, "--version")?;
+
+    let config_path = get_server_config_path_resolved(&app_handle)
+        .ok_or_else(|| "server config not found - run setup first".to_string())?;
+
+    grimoire::config::set_ytdlp_path(&config_path, &ytdlp_path).map_err(|e| e.to_string())?;
+
+    Ok(BinaryValidationResult {
+        path: ytdlp_path.display().to_string(),
+        version_info,
+    })
+}
+
 /// get platform-appropriate defaults for setup wizard
 #[tauri::command]
 pub async fn get_setup_defaults() -> grimoire::setup::SetupDefaults {
