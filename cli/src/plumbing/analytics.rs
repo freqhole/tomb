@@ -138,6 +138,7 @@ pub async fn handle_command(action: AnalyticsAction) -> CommandOutput<serde_json
                 pending_review: None,
                 own_or_collaborative_only: None,
                 caller_is_admin: None,
+                caller_user_id: None,
             };
 
             let response = query_songs(params).await;
@@ -224,6 +225,7 @@ pub async fn handle_command(action: AnalyticsAction) -> CommandOutput<serde_json
                 pending_review: None,
                 own_or_collaborative_only: None,
                 caller_is_admin: None,
+                caller_user_id: None,
             };
 
             let response = query_songs(params).await;

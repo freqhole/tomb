@@ -213,6 +213,7 @@ export function useUpdatePlaylistMutation() {
       description?: string | null;
       is_public?: boolean | null;
       collaborative?: boolean | null;
+      private?: boolean | null;
       images?: ImageMetadata[] | null;
       entity_urls?: Array<{ id?: string | null; name?: string | null; url: string }>;
     }) => {

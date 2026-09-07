@@ -1590,6 +1590,7 @@ pub async fn list_recent_songs(
         pending_review: None,
         own_or_collaborative_only: None,
         caller_is_admin: None,
+        caller_user_id: None,
     };
     query_songs(params).await
 }
@@ -1614,6 +1615,7 @@ pub async fn search_songs(
         pending_review: None,
         own_or_collaborative_only: None,
         caller_is_admin: None,
+        caller_user_id: None,
     };
     query_songs(params).await
 }
@@ -1644,6 +1646,7 @@ pub async fn list_songs_by_artist(
         pending_review: None,
         own_or_collaborative_only: None,
         caller_is_admin: None,
+        caller_user_id: None,
     };
     query_songs(params).await
 }
@@ -1674,6 +1677,7 @@ pub async fn list_songs_by_album(
         pending_review: None,
         own_or_collaborative_only: None,
         caller_is_admin: None,
+        caller_user_id: None,
     };
     query_songs(params).await
 }
@@ -1704,6 +1708,7 @@ pub async fn list_songs_by_genre(
         pending_review: None,
         own_or_collaborative_only: None,
         caller_is_admin: None,
+        caller_user_id: None,
     };
     query_songs(params).await
 }
@@ -1734,6 +1739,7 @@ pub async fn list_albums_by_artist(
         pending_review: None,
         own_or_collaborative_only: None,
         caller_is_admin: None,
+        caller_user_id: None,
     };
     query_albums(params).await
 }
@@ -1761,6 +1767,7 @@ mod tests {
             pending_review: None,
             own_or_collaborative_only: None,
             caller_is_admin: None,
+            caller_user_id: None,
         };
         let mut q = Query::select();
         q.column(sea_query::Asterisk).from(AlbumView::Table);

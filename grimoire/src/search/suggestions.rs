@@ -484,12 +484,14 @@ pub async fn get_playlist_suggestions(
         WHERE playlistz_fts MATCH ?
             AND playlist.deleted_at IS NULL
             AND (playlist.is_public = 1 OR playlist.created_by = ?)
+            AND (playlist.private = 0 OR playlist.created_by_id = ?)
         GROUP BY playlist.id, playlist.title, playlist.is_public, playlist.created_by, fts.rank, favorite.id
         ORDER BY fts.rank
         LIMIT 100
         "#,
         user_id_param,
         match_query,
+        user_id_param,
         user_id_param
     )
     .fetch_all(pool)

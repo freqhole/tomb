@@ -28,6 +28,7 @@ export function PlaylistEditor(props: PlaylistEditorProps) {
   const [editCollaborative, setEditCollaborative] = createSignal(
     props.playlist.collaborative ?? false
   );
+  const [editPrivate, setEditPrivate] = createSignal(props.playlist.private ?? false);
   const [playlistImages, setPlaylistImages] = createSignal(props.playlist.images || []);
   const [showDeleteConfirm, setShowDeleteConfirm] = createSignal(false);
   const [isDeleting, setIsDeleting] = createSignal(false);
@@ -216,7 +217,8 @@ export function PlaylistEditor(props: PlaylistEditorProps) {
         playlistId: props.playlist.playlist_id,
         title: editTitle() || null,
         description: editDescription() || null,
-        collaborative: editCollaborative(),
+        collaborative: editPrivate() ? false : editCollaborative(),
+        private: editPrivate(),
         images: playlistImages(),
         // send entity URLs if changed (filter out deleted, map with null id for new)
         entity_urls: urlsChanged()
@@ -288,21 +290,47 @@ export function PlaylistEditor(props: PlaylistEditorProps) {
           onInput={(e) => setEditDescription(e.currentTarget.value)}
           placeholder="description (optional)"
         />
-        <button
-          type="button"
-          class="self-start flex items-center gap-2 px-3 py-1 rounded-full border text-sm transition-colors"
-          classList={{
-            "bg-[var(--color-accent-500)] border-[var(--color-accent-500)] text-white":
-              editCollaborative(),
-            "bg-[var(--color-bg-secondary)] border-[var(--color-border-default)] text-[var(--color-text-secondary)]":
-              !editCollaborative(),
-          }}
-          aria-pressed={editCollaborative()}
-          onClick={() => setEditCollaborative(!editCollaborative())}
-          title="any member can add, remove, or reorder songs"
-        >
-          collaborative mode: {editCollaborative() ? "on" : "off"}
-        </button>
+        <div class="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            class="flex items-center gap-2 px-3 py-1 rounded-full border text-sm transition-colors"
+            classList={{
+              "bg-[var(--color-accent-500)] border-[var(--color-accent-500)] text-white":
+                editPrivate(),
+              "bg-[var(--color-bg-secondary)] border-[var(--color-border-default)] text-[var(--color-text-secondary)]":
+                !editPrivate(),
+            }}
+            aria-pressed={editPrivate()}
+            onClick={() => {
+              const next = !editPrivate();
+              setEditPrivate(next);
+              // making a playlist private always turns off collaborative mode
+              if (next) {
+                setEditCollaborative(false);
+              }
+            }}
+            title="only you or an admin can see this playlist"
+          >
+            private: {editPrivate() ? "on" : "off"}
+          </button>
+          <Show when={!editPrivate()}>
+            <button
+              type="button"
+              class="flex items-center gap-2 px-3 py-1 rounded-full border text-sm transition-colors"
+              classList={{
+                "bg-[var(--color-accent-500)] border-[var(--color-accent-500)] text-white":
+                  editCollaborative(),
+                "bg-[var(--color-bg-secondary)] border-[var(--color-border-default)] text-[var(--color-text-secondary)]":
+                  !editCollaborative(),
+              }}
+              aria-pressed={editCollaborative()}
+              onClick={() => setEditCollaborative(!editCollaborative())}
+              title="any member can add, remove, or reorder songs"
+            >
+              collaborative mode: {editCollaborative() ? "on" : "off"}
+            </button>
+          </Show>
+        </div>
         <div class="flex gap-2">
           <Show when={canUpdatePlaylist(props.playlist.created_by_id ?? null)}>
             <Button variant="primary" onClick={handleSave}>

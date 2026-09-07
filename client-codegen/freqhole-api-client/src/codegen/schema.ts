@@ -2341,6 +2341,7 @@ export const FavoriteItemSchema = z.union([z.intersection(z.object({
   description: z.string().nullish(),
   is_public: z.number(),
   collaborative: z.number(),
+  private: z.number(),
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
@@ -2423,6 +2424,7 @@ export const FavoritePlaylistResultSchema = z.object({
   description: z.string().nullish(),
   is_public: z.number(),
   collaborative: z.number(),
+  private: z.number(),
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
@@ -3635,6 +3637,7 @@ export const ListFavoritesResponseSchema = z.object({
   description: z.string().nullish(),
   is_public: z.number(),
   collaborative: z.number(),
+  private: z.number(),
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
@@ -4635,6 +4638,7 @@ export const PlaylistSchema = z.object({
   description: z.string().nullish(),
   is_public: z.number(),
   collaborative: z.number(),
+  private: z.number(),
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
@@ -4681,6 +4685,7 @@ export const PlaylistQueryResultSchema = z.object({
   description: z.string().nullish(),
   is_public: z.number(),
   collaborative: z.number(),
+  private: z.number(),
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
@@ -5020,6 +5025,7 @@ export const PlaylistsQueryResultSchema = z.object({
   description: z.string().nullish(),
   is_public: z.number(),
   collaborative: z.number(),
+  private: z.number(),
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
@@ -5283,7 +5289,8 @@ export const QueryParamsSchema = z.object({
   mb_lookup_status: z.array(z.string()).nullish(),
   pending_review: z.boolean().nullish(),
   own_or_collaborative_only: z.boolean().nullish(),
-  caller_is_admin: z.boolean().nullish()
+  caller_is_admin: z.boolean().nullish(),
+  caller_user_id: z.string().nullish()
 });
 export type QueryParams = z.infer<typeof QueryParamsSchema>;
 
@@ -5334,7 +5341,8 @@ export const QueryVideosRequestSchema = z.object({
   mb_lookup_status: z.array(z.string()).nullish(),
   pending_review: z.boolean().nullish(),
   own_or_collaborative_only: z.boolean().nullish(),
-  caller_is_admin: z.boolean().nullish()
+  caller_is_admin: z.boolean().nullish(),
+  caller_user_id: z.string().nullish()
 }),
   series_id: z.string().nullish(),
   season_id: z.string().nullish(),
@@ -7422,6 +7430,7 @@ export const UpdatePlaylistRequestSchema = z.object({
   description: z.string().nullish(),
   is_public: z.boolean().nullish(),
   collaborative: z.boolean().nullish(),
+  private: z.boolean().nullish(),
   entity_urls: z.array(z.object({
   id: z.string().nullish(),
   name: z.string().nullish(),

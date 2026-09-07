@@ -499,6 +499,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
         description: item.playlist.description ?? null,
         is_public: item.playlist.is_public === 1,
         collaborative: item.playlist.collaborative === 1,
+        private: item.playlist.private === 1,
         images:
           item.playlist.images && item.playlist.images.length > 0
             ? item.playlist.images.map((img) => adaptApiImage(img, this.baseUrl, this.remoteId))
@@ -583,6 +584,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
       description: result.data.description ?? null,
       is_public: result.data.is_public === 1,
       collaborative: result.data.collaborative === 1,
+      private: result.data.private === 1,
       song_count: result.data.song_count,
       created_at: result.data.created_at * 1000, // convert seconds to milliseconds
       updated_at: result.data.updated_at * 1000, // convert seconds to milliseconds
@@ -596,6 +598,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
       description?: string | null;
       is_public?: boolean | null;
       collaborative?: boolean | null;
+      private?: boolean | null;
       entity_urls?: Array<{ id?: string | null; name?: string | null; url: string }>;
     }
   ): Promise<PlaylistSummary> {
@@ -607,6 +610,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
       description: params.description || null,
       is_public: params.is_public ?? null,
       collaborative: params.collaborative ?? null,
+      private: params.private ?? null,
       entity_urls:
         params.entity_urls?.map((u) => ({ id: u.id ?? null, name: u.name ?? null, url: u.url })) ??
         null,
@@ -624,6 +628,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
       description: result.data.description ?? null,
       is_public: result.data.is_public === 1,
       collaborative: result.data.collaborative === 1,
+      private: result.data.private === 1,
       song_count: result.data.song_count,
       created_at: result.data.created_at * 1000, // convert seconds to milliseconds
       updated_at: result.data.updated_at * 1000, // convert seconds to milliseconds
@@ -925,6 +930,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
               description: apiFav.playlist.playlist.description,
               is_public: apiFav.playlist.playlist.is_public === 1,
               collaborative: apiFav.playlist.playlist.collaborative === 1,
+              private: apiFav.playlist.playlist.private === 1,
               images: (apiFav.playlist.playlist.images || []).map((img) => ({
                 remote_blob_id: img.blob_id,
                 remote_url: this.getBlobHttpUrl(img.blob_id),

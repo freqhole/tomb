@@ -191,6 +191,30 @@ pub(crate) async fn require_owner_or_collaborative_or_scope(
     require_owner_or_scope(owner_id, caller, scope).await
 }
 
+/// visibility gate for a private playlist: passes if the playlist isn't
+/// private, or `caller` owns it, or `caller` is an admin. a failed check
+/// returns the SAME "not found" response `get_playlist` already returns
+/// for a missing id (not a "forbidden" response) - so a private playlist's
+/// existence is never leaked to a caller who can't see it.
+pub(crate) fn require_playlist_visible(
+    playlist: &crate::music::Playlist,
+    caller: &Caller,
+) -> Result<(), GrimoireResponse<JsonValue>> {
+    if playlist.private == 0
+        || playlist.created_by_id.as_deref() == Some(caller.user_id.as_str())
+        || caller.is_admin()
+    {
+        return Ok(());
+    }
+    let err = GrimoireError::PlaylistNotFound {
+        id: playlist.id.clone(),
+    };
+    Err(GrimoireResponse::failure(
+        "Playlist not found",
+        vec![ErrorDetail::from(&err)],
+    ))
+}
+
 /// the boolean counterpart to `require_scope`, for call sites that need to
 /// combine the result with an ownership check that isn't a simple
 /// `Option<&str>` comparison (e.g. "uploaded at least one song in this

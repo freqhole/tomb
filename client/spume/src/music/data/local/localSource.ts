@@ -428,6 +428,7 @@ export class LocalMusicDataSource implements MusicDataSource {
           description: playlist.description,
           is_public: playlist.is_public,
           collaborative: playlist.collaborative ?? false,
+          private: playlist.private ?? false,
           images: adaptDatabaseImages(playlist.images),
           urls: playlist.urls,
           song_count: counts.songs,
@@ -546,6 +547,7 @@ export class LocalMusicDataSource implements MusicDataSource {
       description: playlist.description,
       is_public: playlist.is_public,
       collaborative: playlist.collaborative ?? false,
+      private: playlist.private ?? false,
       images: [],
       song_count: 0,
       created_at: playlist.created_at,
@@ -560,6 +562,7 @@ export class LocalMusicDataSource implements MusicDataSource {
       description?: string | null;
       is_public?: boolean | null;
       collaborative?: boolean | null;
+      private?: boolean | null;
       images?: ImageMetadata[] | null;
       entity_urls?: Array<{ id?: string | null; name?: string | null; url: string }> | null;
     }
@@ -583,6 +586,13 @@ export class LocalMusicDataSource implements MusicDataSource {
     }
     if (params.collaborative !== undefined) {
       playlist.collaborative = params.collaborative ?? false;
+    }
+    if (params.private !== undefined) {
+      playlist.private = params.private ?? false;
+      // making a playlist private always turns off collaborative mode
+      if (playlist.private) {
+        playlist.collaborative = false;
+      }
     }
     if (params.images !== undefined) {
       playlist.images = params.images || undefined;
@@ -608,6 +618,7 @@ export class LocalMusicDataSource implements MusicDataSource {
       description: playlist.description,
       is_public: playlist.is_public,
       collaborative: playlist.collaborative ?? false,
+      private: playlist.private ?? false,
       images: playlist.images,
       urls: playlist.urls,
       song_count: songCount,
@@ -1324,6 +1335,7 @@ export class LocalMusicDataSource implements MusicDataSource {
               description: playlist.description || null,
               is_public: playlist.is_public,
               collaborative: playlist.collaborative ?? false,
+              private: playlist.private ?? false,
               images: playlist.images,
               song_count: songCount,
               created_at: playlist.created_at,

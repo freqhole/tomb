@@ -30,6 +30,8 @@ enum PlaylistView {
     PlaylistIsPublic,
     #[iden = "playlist_collaborative"]
     PlaylistCollaborative,
+    #[iden = "playlist_private"]
+    PlaylistPrivate,
     #[iden = "playlist_created_by_id"]
     PlaylistCreatedById,
     #[iden = "playlist_created_at"]
@@ -90,6 +92,7 @@ pub struct PlaylistViewRow {
     playlist_description: Option<String>,
     playlist_is_public: i64,
     playlist_collaborative: i64,
+    playlist_private: i64,
     playlist_images: Option<String>, // JSON array from view
     playlist_urls: Option<String>,   // JSON array of entity URLs from view
     playlist_created_by_id: Option<String>,
@@ -131,6 +134,7 @@ impl PlaylistViewRow {
             description: self.playlist_description,
             is_public: self.playlist_is_public,
             collaborative: self.playlist_collaborative,
+            private: self.playlist_private,
             images,
             urls,
             created_by_id: self.playlist_created_by_id,
@@ -497,6 +501,21 @@ fn add_playlist_filters(query: &mut SelectStatement, params: &QueryParams) {
                 .add(Expr::col(PlaylistView::PlaylistCollaborative).eq(1)),
         );
     }
+
+    // hide private playlists from anyone but their owner or an admin.
+    // unlike `own_or_collaborative_only` this is NOT opt-in - it's always
+    // enforced for real network callers. `caller_is_admin` is only ever
+    // `Some(_)` when a real HTTP route handler set it (see list_playlists);
+    // CLI-internal callers that query the DB directly leave it `None` and
+    // must NOT be restricted by this filter.
+    if params.caller_is_admin == Some(false) {
+        let uid = params.caller_user_id.clone().unwrap_or_default();
+        query.cond_where(
+            Cond::any()
+                .add(Expr::col(PlaylistView::PlaylistPrivate).eq(0))
+                .add(Expr::col(PlaylistView::PlaylistCreatedById).eq(uid)),
+        );
+    }
 }
 
 // Main playlist query function
@@ -520,6 +539,7 @@ pub async fn query_playlists(
         .column(PlaylistView::PlaylistDescription)
         .column(PlaylistView::PlaylistIsPublic)
         .column(PlaylistView::PlaylistCollaborative)
+        .column(PlaylistView::PlaylistPrivate)
         .column(PlaylistView::PlaylistImages)
         .column(PlaylistView::PlaylistUrls)
         .column(PlaylistView::PlaylistCreatedById)
@@ -778,6 +798,7 @@ pub async fn list_user_playlists(
         pending_review: None,
         own_or_collaborative_only: None,
         caller_is_admin: None,
+        caller_user_id: None,
     };
     query_playlists(params).await
 }
@@ -802,6 +823,7 @@ pub async fn search_playlists(
         pending_review: None,
         own_or_collaborative_only: None,
         caller_is_admin: None,
+        caller_user_id: None,
     };
     query_playlists(params).await
 }

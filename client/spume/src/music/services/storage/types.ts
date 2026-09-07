@@ -173,6 +173,8 @@ export interface Playlist {
   is_public: boolean;
   /** any authenticated member (not just the owner/admin) may edit membership. */
   collaborative?: boolean;
+  /** only the owner or an admin can see this playlist at all. */
+  private?: boolean;
   images?: ImageMetadata[]; // playlist images
   urls?: Array<{ id?: string; name?: string; url: string }>; // entity URLs
   created_at: number;

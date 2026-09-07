@@ -622,6 +622,7 @@ pub async fn search_playlists(
         WHERE playlistz_fts MATCH ?
             AND playlist.deleted_at IS NULL
             AND (playlist.is_public = 1 OR playlist.created_by = ?)
+            AND (playlist.private = 0 OR playlist.created_by_id = ?)
             -- tag include filter (OR logic - playlist must contain songs from albums with these tags)
             AND (NOT ? OR EXISTS (
                 SELECT 1 FROM playlist_itemz psong
@@ -643,6 +644,7 @@ pub async fn search_playlists(
         LIMIT ? OFFSET ?
         "#,
         sanitized_query,
+        user_id_param,
         user_id_param,
         has_tag_include,
         tag_include_json,

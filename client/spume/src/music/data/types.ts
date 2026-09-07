@@ -131,6 +131,8 @@ export interface PlaylistSummary {
   is_public: boolean;
   /** any authenticated member (not just the owner/admin) may edit membership. */
   collaborative?: boolean;
+  /** only the owner or an admin can see this playlist at all. */
+  private?: boolean;
   images?: ImageMetadata[];
   urls?: EntityUrl[];
   song_count: number;
@@ -345,6 +347,7 @@ export interface MusicDataSource {
       description?: string | null;
       is_public?: boolean | null;
       collaborative?: boolean | null;
+      private?: boolean | null;
       entity_urls?: Array<{ id?: string | null; name?: string | null; url: string }>;
     }
   ): Promise<PlaylistSummary>;

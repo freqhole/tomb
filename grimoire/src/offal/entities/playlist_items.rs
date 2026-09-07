@@ -137,7 +137,7 @@ pub const ROUTES: &[RouteInfo] = &[
 /// list every item in a playlist, ordered by position
 ///
 /// path: POST /api/entities/playlists/items/list
-pub async fn list(_caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
+pub async fn list(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
     let req: ListPlaylistItemsRequest = match serde_json::from_value(body) {
         Ok(r) => r,
         Err(e) => {
@@ -151,6 +151,15 @@ pub async fn list(_caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonVal
             )
         }
     };
+
+    let playlist_response = get_playlist(&req.playlist_id).await;
+    if let Some(playlist) = &playlist_response.data {
+        if let Err(resp) = crate::acl_bridge::require_playlist_visible(playlist, caller) {
+            return resp;
+        }
+    } else {
+        return playlist_response.map(|_| serde_json::Value::Null);
+    }
 
     let response = crate::playlists::list_playlist_items(&req.playlist_id).await;
     response.map(|data| serde_json::to_value(data).unwrap())

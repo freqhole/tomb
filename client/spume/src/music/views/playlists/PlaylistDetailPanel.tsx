@@ -389,7 +389,11 @@ export function PlaylistDetailPanel(props: PlaylistDetailPanelProps) {
                 </Show>
 
                 <Show
-                  when={(props.playlist()?.play_count ?? 0) > 0 || props.playlist()?.collaborative}
+                  when={
+                    (props.playlist()?.play_count ?? 0) > 0 ||
+                    props.playlist()?.collaborative ||
+                    props.playlist()?.private
+                  }
                 >
                   <div class="flex items-center gap-2 mb-3">
                     <Show when={(props.playlist()?.play_count ?? 0) > 0}>
@@ -405,6 +409,12 @@ export function PlaylistDetailPanel(props: PlaylistDetailPanelProps) {
                     <Show when={props.playlist()?.collaborative}>
                       <Badge variant="default" size="sm">
                         collaborative
+                      </Badge>
+                    </Show>
+
+                    <Show when={props.playlist()?.private}>
+                      <Badge variant="default" size="sm">
+                        private
                       </Badge>
                     </Show>
                   </div>
