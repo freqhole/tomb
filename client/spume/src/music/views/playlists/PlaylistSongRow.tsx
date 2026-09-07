@@ -18,6 +18,7 @@ export interface PlaylistSongRowProps {
   index: number;
   playlistId: string;
   playlistOwnerId: string | null;
+  playlistCollaborative: boolean;
   isTouch: boolean;
   isNarrow: Accessor<boolean>;
   editMode: Accessor<boolean>;
@@ -93,7 +94,10 @@ export function PlaylistSongRow(props: PlaylistSongRowProps) {
               />
             </Show>
             <Show
-              when={!props.isNarrow() && canRemoveSongsFromPlaylist(props.playlistOwnerId)}
+              when={
+                !props.isNarrow() &&
+                canRemoveSongsFromPlaylist(props.playlistOwnerId, props.playlistCollaborative)
+              }
               fallback={null}
             >
               <IconButton

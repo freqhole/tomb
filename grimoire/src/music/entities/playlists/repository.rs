@@ -74,6 +74,7 @@ pub async fn create_playlist(req: CreatePlaylistRequest) -> GrimoireResponse<Pla
             playlist_title as "title!",
             playlist_description as "description?",
             playlist_is_public as "is_public!",
+            playlist_collaborative as "collaborative!",
             playlist_created_by_id as "created_by_id?",
             playlist_created_at as "created_at!",
             playlist_updated_at as "updated_at!",
@@ -134,6 +135,7 @@ pub async fn list_playlists() -> GrimoireResponse<Vec<Playlist>> {
             playlist_title as "title!",
             playlist_description as "description?",
             playlist_is_public as "is_public!",
+            playlist_collaborative as "collaborative!",
             playlist_created_by_id as "created_by_id?",
             playlist_created_at as "created_at!",
             playlist_updated_at as "updated_at!",
@@ -181,6 +183,7 @@ pub async fn get_playlist(id: &str) -> GrimoireResponse<Playlist> {
             playlist_title as "title!",
             playlist_description as "description?",
             playlist_is_public as "is_public!",
+            playlist_collaborative as "collaborative!",
             playlist_created_by_id as "created_by_id?",
             playlist_created_at as "created_at!",
             playlist_updated_at as "updated_at!",
@@ -296,6 +299,7 @@ pub async fn update_playlist(id: &str, req: UpdatePlaylistRequest) -> GrimoireRe
 
     // Convert is_public boolean to integer for SQLite
     let is_public_int = req.is_public.map(|p| if p { 1 } else { 0 });
+    let collaborative_int = req.collaborative.map(|c| if c { 1 } else { 0 });
 
     // Single query that updates all provided fields using COALESCE
     // This keeps existing values when the request field is None
@@ -305,11 +309,13 @@ pub async fn update_playlist(id: &str, req: UpdatePlaylistRequest) -> GrimoireRe
             title = COALESCE(?, title),
             description = COALESCE(?, description),
             is_public = COALESCE(?, is_public),
+            collaborative = COALESCE(?, collaborative),
             updated_by = COALESCE(?, updated_by)
         WHERE id = ? AND deleted_at IS NULL",
         req.title,
         req.description,
         is_public_int,
+        collaborative_int,
         req.updated_by,
         id
     )

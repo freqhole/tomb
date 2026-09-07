@@ -28,6 +28,8 @@ enum PlaylistView {
     PlaylistDescription,
     #[iden = "playlist_is_public"]
     PlaylistIsPublic,
+    #[iden = "playlist_collaborative"]
+    PlaylistCollaborative,
     #[iden = "playlist_created_by_id"]
     PlaylistCreatedById,
     #[iden = "playlist_created_at"]
@@ -87,6 +89,7 @@ pub struct PlaylistViewRow {
     playlist_title: String,
     playlist_description: Option<String>,
     playlist_is_public: i64,
+    playlist_collaborative: i64,
     playlist_images: Option<String>, // JSON array from view
     playlist_urls: Option<String>,   // JSON array of entity URLs from view
     playlist_created_by_id: Option<String>,
@@ -127,6 +130,7 @@ impl PlaylistViewRow {
             title: self.playlist_title,
             description: self.playlist_description,
             is_public: self.playlist_is_public,
+            collaborative: self.playlist_collaborative,
             images,
             urls,
             created_by_id: self.playlist_created_by_id,
@@ -502,6 +506,7 @@ pub async fn query_playlists(
         .column(PlaylistView::PlaylistTitle)
         .column(PlaylistView::PlaylistDescription)
         .column(PlaylistView::PlaylistIsPublic)
+        .column(PlaylistView::PlaylistCollaborative)
         .column(PlaylistView::PlaylistImages)
         .column(PlaylistView::PlaylistUrls)
         .column(PlaylistView::PlaylistCreatedById)

@@ -361,11 +361,12 @@ pub async fn add_songs(caller: &Caller, body: JsonValue) -> GrimoireResponse<Jso
         }
     };
 
-    // check ownership
+    // check ownership (or collaborative mode)
     let playlist_response = get_playlist(&req.playlist_id).await;
     if let Some(playlist) = &playlist_response.data {
-        if let Err(resp) = crate::acl_bridge::require_owner_or_scope(
+        if let Err(resp) = crate::acl_bridge::require_owner_or_collaborative_or_scope(
             playlist.created_by_id.as_deref(),
+            playlist.collaborative != 0,
             caller,
             "add_songs_to_playlist",
         )
@@ -398,11 +399,12 @@ pub async fn remove_songs(caller: &Caller, body: JsonValue) -> GrimoireResponse<
         }
     };
 
-    // check ownership
+    // check ownership (or collaborative mode)
     let playlist_response = get_playlist(&req.playlist_id).await;
     if let Some(playlist) = &playlist_response.data {
-        if let Err(resp) = crate::acl_bridge::require_owner_or_scope(
+        if let Err(resp) = crate::acl_bridge::require_owner_or_collaborative_or_scope(
             playlist.created_by_id.as_deref(),
+            playlist.collaborative != 0,
             caller,
             "remove_songs_from_playlist",
         )
@@ -435,11 +437,12 @@ pub async fn reorder(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonV
         }
     };
 
-    // check ownership
+    // check ownership (or collaborative mode)
     let playlist_response = get_playlist(&req.playlist_id).await;
     if let Some(playlist) = &playlist_response.data {
-        if let Err(resp) = crate::acl_bridge::require_owner_or_scope(
+        if let Err(resp) = crate::acl_bridge::require_owner_or_collaborative_or_scope(
             playlist.created_by_id.as_deref(),
+            playlist.collaborative != 0,
             caller,
             "reorder_playlist_songs",
         )

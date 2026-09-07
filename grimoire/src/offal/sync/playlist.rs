@@ -133,6 +133,7 @@ pub async fn sync_playlist(caller: &Caller, body: JsonValue) -> GrimoireResponse
                 title: Some(req.title.clone()),
                 description: req.description.clone(),
                 is_public: Some(false),
+                collaborative: None,
                 updated_by: Some(caller.user_id.clone()),
                 entity_urls: None,
             },

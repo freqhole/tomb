@@ -1158,6 +1158,7 @@ pub async fn get_or_create_playlist_by_name(
             p.title as "title!",
             p.description,
             p.is_public as "is_public!",
+            p.collaborative as "collaborative!",
             NULL as "images?: JsonVec<ImageMetadata>",
             NULL as "urls?: JsonVec<EntityUrl>",
             p.created_by_id,

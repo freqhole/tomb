@@ -93,13 +93,9 @@ async function countPlaylistItems(
   return { songs, videos };
 }
 
-async function countPlaylistSongs(
-  db: IDBPDatabase,
-  playlistId: string
-): Promise<number> {
+async function countPlaylistSongs(db: IDBPDatabase, playlistId: string): Promise<number> {
   return (await countPlaylistItems(db, playlistId)).songs;
 }
-
 
 // return the song's own images (never mix in album images)
 function buildSongImages(song: Song): ImageMetadata[] {
@@ -107,14 +103,22 @@ function buildSongImages(song: Song): ImageMetadata[] {
 }
 
 // helper to construct ImageMetadata from database image records
-function adaptDatabaseImages(dbImages?: Array<{ blob_id?: string; local_blob_id?: string; remote_url?: string | null; is_primary: number | boolean; type?: string }>): ImageMetadata[] {
+function adaptDatabaseImages(
+  dbImages?: Array<{
+    blob_id?: string;
+    local_blob_id?: string;
+    remote_url?: string | null;
+    is_primary: number | boolean;
+    type?: string;
+  }>
+): ImageMetadata[] {
   if (!dbImages?.length) return [];
-  
-  return dbImages.map(img => ({
+
+  return dbImages.map((img) => ({
     local_blob_id: img.local_blob_id || img.blob_id || undefined,
     remote_url: img.remote_url ?? undefined,
-    is_primary: typeof img.is_primary === 'boolean' ? img.is_primary : img.is_primary === 1,
-    blob_type: (img.type as 'thumbnail' | 'waveform') || 'thumbnail',
+    is_primary: typeof img.is_primary === "boolean" ? img.is_primary : img.is_primary === 1,
+    blob_type: (img.type as "thumbnail" | "waveform") || "thumbnail",
   }));
 }
 
@@ -134,7 +138,9 @@ export class LocalMusicDataSource implements MusicDataSource {
     const offset = params?.offset ?? 0;
 
     // map sort field to db format
-    const sortField = (params?.sort_by as "added_at" | "title" | "artist" | "album" | "genre" | "year" | "duration") ?? "added_at";
+    const sortField =
+      (params?.sort_by as
+        "added_at" | "title" | "artist" | "album" | "genre" | "year" | "duration") ?? "added_at";
     const sortDirection = params?.sort_direction ?? "desc";
 
     let results = await querySongsWithDetails({
@@ -149,10 +155,11 @@ export class LocalMusicDataSource implements MusicDataSource {
     // apply search filter if provided
     if (params?.search) {
       const searchLower = params.search.toLowerCase();
-      results = results.filter(song => 
-        song.title?.toLowerCase().includes(searchLower) ||
-        song.artist_name?.toLowerCase().includes(searchLower) ||
-        song.album_title?.toLowerCase().includes(searchLower)
+      results = results.filter(
+        (song) =>
+          song.title?.toLowerCase().includes(searchLower) ||
+          song.artist_name?.toLowerCase().includes(searchLower) ||
+          song.album_title?.toLowerCase().includes(searchLower)
       );
     }
 
@@ -163,25 +170,28 @@ export class LocalMusicDataSource implements MusicDataSource {
       for (const song of results) {
         if (!albumTagsMap.has(song.album_id)) {
           const tags = await getAlbumTags(song.album_id);
-          albumTagsMap.set(song.album_id, tags.map(t => t.name));
+          albumTagsMap.set(
+            song.album_id,
+            tags.map((t) => t.name)
+          );
         }
       }
 
-      results = results.filter(song => {
+      results = results.filter((song) => {
         const songTags = albumTagsMap.get(song.album_id) || [];
-        
+
         // include filter: song must have at least one of the include tags
         if (params?.include_tags?.length) {
-          const hasIncludeTag = params.include_tags.some(tag => songTags.includes(tag));
+          const hasIncludeTag = params.include_tags.some((tag) => songTags.includes(tag));
           if (!hasIncludeTag) return false;
         }
-        
+
         // exclude filter: song must not have any of the exclude tags
         if (params?.exclude_tags?.length) {
-          const hasExcludeTag = params.exclude_tags.some(tag => songTags.includes(tag));
+          const hasExcludeTag = params.exclude_tags.some((tag) => songTags.includes(tag));
           if (hasExcludeTag) return false;
         }
-        
+
         return true;
       });
     }
@@ -204,7 +214,7 @@ export class LocalMusicDataSource implements MusicDataSource {
   async getSongById(id: string): Promise<Song | null> {
     const song = await getSongById(id);
     if (!song) return null;
-    
+
     return {
       ...song,
       images: buildSongImages(song),
@@ -220,9 +230,7 @@ export class LocalMusicDataSource implements MusicDataSource {
   }
 
   // albums (optional - aggregate from songs)
-  async getAlbums(
-    params?: QueryParams,
-  ): Promise<PaginatedResponse<AlbumSummary>> {
+  async getAlbums(params?: QueryParams): Promise<PaginatedResponse<AlbumSummary>> {
     const limit = params?.limit ?? 50;
     const offset = params?.offset ?? 0;
     const albumId = params?.album_id;
@@ -252,7 +260,7 @@ export class LocalMusicDataSource implements MusicDataSource {
     });
 
     const albumResults = await Promise.all(albumPromises);
-    const albums = albumResults.filter(a => a !== null) as AlbumSummary[];
+    const albums = albumResults.filter((a) => a !== null) as AlbumSummary[];
 
     // TODO: get total count properly from database
     // for now, assume has_more if we got a full page
@@ -267,10 +275,7 @@ export class LocalMusicDataSource implements MusicDataSource {
     };
   }
 
-  async getAlbumSongs(
-    albumId: string,
-    params?: QueryParams,
-  ): Promise<PaginatedResponse<Song>> {
+  async getAlbumSongs(albumId: string, params?: QueryParams): Promise<PaginatedResponse<Song>> {
     const limit = params?.limit ?? 50;
     const offset = params?.offset ?? 0;
 
@@ -294,80 +299,80 @@ export class LocalMusicDataSource implements MusicDataSource {
     };
   }
   // artists (optional - aggregate from songs)
-  async getArtists(
-    params?: QueryParams,
-  ): Promise<PaginatedResponse<ArtistSummary>> {
+  async getArtists(params?: QueryParams): Promise<PaginatedResponse<ArtistSummary>> {
     debug("localSource", `[LocalMusicDataSource.getArtists] called with params:`, params);
     try {
-
       const limit = params?.limit ?? 50;
       const offset = params?.offset ?? 0;
 
       debug("localSource", `[LocalMusicDataSource.getArtists] calling queryArtists...`);
       // query artists with aggregated stats
-      const results = await queryArtists({ 
-        limit, 
+      const results = await queryArtists({
+        limit,
         offset,
-        artistId: params?.artist_id, 
+        artistId: params?.artist_id,
       });
 
-      debug("localSource", `[localSource.getArtists] queryArtists returned ${results.length} results`);
+      debug(
+        "localSource",
+        `[localSource.getArtists] queryArtists returned ${results.length} results`
+      );
 
-    // map to ArtistSummary format with images array
-    const artistPromises = results.map(async (result) => {
-      try {
-        // validate required fields
-        if (!result.artist || !result.artist.artist_id) {
-          console.warn("skipping artist with missing id:", result);
+      // map to ArtistSummary format with images array
+      const artistPromises = results.map(async (result) => {
+        try {
+          // validate required fields
+          if (!result.artist || !result.artist.artist_id) {
+            console.warn("skipping artist with missing id:", result);
+            return null;
+          }
+          if (!result.artist.name) {
+            console.warn("artist missing name, using fallback:", result.artist.artist_id);
+          }
+
+          return {
+            artist_id: result.artist.artist_id,
+            name: result.artist.name || "Unknown Artist",
+            album_count: result.album_count,
+            song_count: result.song_count,
+            total_duration: result.total_duration,
+            images: result.artist.images || [], // images are already ImageMetadata[] from IDB
+            is_favorite: result.artist.is_favorite,
+            user_rating: result.artist.user_rating,
+          };
+        } catch (error) {
+          console.error("failed to process artist:", result.artist?.artist_id, error);
           return null;
         }
-        if (!result.artist.name) {
-          console.warn("artist missing name, using fallback:", result.artist.artist_id);
-        }
-        
-        return {
-          artist_id: result.artist.artist_id,
-          name: result.artist.name || "Unknown Artist",
-          album_count: result.album_count,
-          song_count: result.song_count,
-          total_duration: result.total_duration,
-          images: result.artist.images || [], // images are already ImageMetadata[] from IDB
-          is_favorite: result.artist.is_favorite,
-          user_rating: result.artist.user_rating,
-        };
-      } catch (error) {
-        console.error("failed to process artist:", result.artist?.artist_id, error);
-        return null;
-      }
-    });
+      });
 
-    const artistResults = await Promise.all(artistPromises);
-    // filter out null entries (failed artists)
-    const artists = artistResults.filter(a => a !== null) as ArtistSummary[];
+      const artistResults = await Promise.all(artistPromises);
+      // filter out null entries (failed artists)
+      const artists = artistResults.filter((a) => a !== null) as ArtistSummary[];
 
-    debug("localSource", `[localSource.getArtists] returning ${artists.length} artists after filtering`);
+      debug(
+        "localSource",
+        `[localSource.getArtists] returning ${artists.length} artists after filtering`
+      );
 
-    // TODO: get total count properly from database
-    // for now, assume has_more if we got a full page
-    const hasMore = artists.length === limit;
+      // TODO: get total count properly from database
+      // for now, assume has_more if we got a full page
+      const hasMore = artists.length === limit;
 
-    return {
-      items: artists,
-      total: artists.length,
-      offset,
-      limit,
-      has_more: hasMore,
-    };
+      return {
+        items: artists,
+        total: artists.length,
+        offset,
+        limit,
+        has_more: hasMore,
+      };
     } catch (error) {
       console.error(`[LocalMusicDataSource.getArtists] ERROR:`, error);
       throw error;
     }
   }
 
-  async getArtistSongs(
-    artistId: string,
-    params?: QueryParams,
-  ): Promise<PaginatedResponse<Song>> {
+  async getArtistSongs(artistId: string, params?: QueryParams): Promise<PaginatedResponse<Song>> {
     const limit = params?.limit ?? 50;
     const offset = params?.offset ?? 0;
 
@@ -397,9 +402,7 @@ export class LocalMusicDataSource implements MusicDataSource {
   // each cached song's `album_taxons` locally.
 
   // playlists
-  async getPlaylists(
-    params?: QueryParams,
-  ): Promise<PaginatedResponse<PlaylistSummary>> {
+  async getPlaylists(params?: QueryParams): Promise<PaginatedResponse<PlaylistSummary>> {
     const limit = params?.limit ?? 50;
     const offset = params?.offset ?? 0;
 
@@ -416,7 +419,7 @@ export class LocalMusicDataSource implements MusicDataSource {
           console.warn("skipping playlist with missing id:", playlist);
           return null;
         }
-        
+
         const counts = await countPlaylistItems(db, playlist.playlist_id);
 
         const summary: PlaylistSummary = {
@@ -424,6 +427,7 @@ export class LocalMusicDataSource implements MusicDataSource {
           title: playlist.title || "Untitled Playlist",
           description: playlist.description,
           is_public: playlist.is_public,
+          collaborative: playlist.collaborative ?? false,
           images: adaptDatabaseImages(playlist.images),
           urls: playlist.urls,
           song_count: counts.songs,
@@ -440,13 +444,10 @@ export class LocalMusicDataSource implements MusicDataSource {
     });
 
     const playlistResults = await Promise.all(playlistPromises);
-    const playlistsWithCounts = playlistResults.filter(p => p !== null) as PlaylistSummary[];
+    const playlistsWithCounts = playlistResults.filter((p) => p !== null) as PlaylistSummary[];
 
     // apply pagination
-    const paginatedPlaylists = playlistsWithCounts.slice(
-      offset,
-      offset + limit,
-    );
+    const paginatedPlaylists = playlistsWithCounts.slice(offset, offset + limit);
 
     return {
       items: paginatedPlaylists,
@@ -459,7 +460,7 @@ export class LocalMusicDataSource implements MusicDataSource {
 
   async getPlaylistSongs(
     playlistId: string,
-    params?: QueryParams,
+    params?: QueryParams
   ): Promise<PaginatedResponse<Song>> {
     const limit = params?.limit ?? 50;
     const offset = params?.offset ?? 0;
@@ -471,7 +472,7 @@ export class LocalMusicDataSource implements MusicDataSource {
     const allItems = (await db.getAllFromIndex(
       STORE_PLAYLIST_ITEMS,
       "by_playlist_id",
-      playlistId,
+      playlistId
     )) as PlaylistItem[];
     const playlistSongs = allItems.filter((item) => item.entity_type === "song");
 
@@ -491,9 +492,7 @@ export class LocalMusicDataSource implements MusicDataSource {
     // maintain playlist order, attaching each song's shared playlist
     // position/added_at (see Song's playlist_item_position doc comment)
     const songMap = new Map(songsWithImages.map((song) => [song.id, song]));
-    const playlistItemBySongId = new Map(
-      playlistSongs.map((ps) => [ps.entity_id, ps]),
-    );
+    const playlistItemBySongId = new Map(playlistSongs.map((ps) => [ps.entity_id, ps]));
     const songs = songIds
       .map((id) => {
         const song = songMap.get(id);
@@ -546,6 +545,7 @@ export class LocalMusicDataSource implements MusicDataSource {
       title: playlist.title,
       description: playlist.description,
       is_public: playlist.is_public,
+      collaborative: playlist.collaborative ?? false,
       images: [],
       song_count: 0,
       created_at: playlist.created_at,
@@ -559,9 +559,10 @@ export class LocalMusicDataSource implements MusicDataSource {
       title?: string | null;
       description?: string | null;
       is_public?: boolean | null;
+      collaborative?: boolean | null;
       images?: ImageMetadata[] | null;
       entity_urls?: Array<{ id?: string | null; name?: string | null; url: string }> | null;
-    },
+    }
   ): Promise<PlaylistSummary> {
     const db = await initMusicDB();
 
@@ -579,6 +580,9 @@ export class LocalMusicDataSource implements MusicDataSource {
     }
     if (params.is_public !== undefined) {
       playlist.is_public = params.is_public ?? false;
+    }
+    if (params.collaborative !== undefined) {
+      playlist.collaborative = params.collaborative ?? false;
     }
     if (params.images !== undefined) {
       playlist.images = params.images || undefined;
@@ -603,6 +607,7 @@ export class LocalMusicDataSource implements MusicDataSource {
       title: playlist.title,
       description: playlist.description,
       is_public: playlist.is_public,
+      collaborative: playlist.collaborative ?? false,
       images: playlist.images,
       urls: playlist.urls,
       song_count: songCount,
@@ -634,7 +639,7 @@ export class LocalMusicDataSource implements MusicDataSource {
   async reorderPlaylistSongs(
     playlistId: string,
     songIds: string[],
-    newPosition: number,
+    newPosition: number
   ): Promise<void> {
     const db = await initMusicDB();
 
@@ -643,7 +648,7 @@ export class LocalMusicDataSource implements MusicDataSource {
     const allItems = (await db.getAllFromIndex(
       STORE_PLAYLIST_ITEMS,
       "by_playlist_id",
-      playlistId,
+      playlistId
     )) as PlaylistItem[];
     const allSongs = allItems.filter((item) => item.entity_type === "song");
 
@@ -680,7 +685,7 @@ export class LocalMusicDataSource implements MusicDataSource {
 
   async reorderPlaylistItems(
     playlistId: string,
-    orderedItems: Array<{ entity_type: "song" | "video"; entity_id: string }>,
+    orderedItems: Array<{ entity_type: "song" | "video"; entity_id: string }>
   ): Promise<void> {
     const db = await initMusicDB();
     await reorderLocalPlaylistItems(db, playlistId, orderedItems);
@@ -710,13 +715,9 @@ export class LocalMusicDataSource implements MusicDataSource {
         album.is_favorite = params.isFavorite;
         await db.put(STORE_ALBUMS, album);
       }
-      
+
       // also update album_is_favorite on all songs from this album
-      const albumSongs = await db.getAllFromIndex(
-        STORE_SONGS,
-        "by_album_id",
-        params.targetId
-      );
+      const albumSongs = await db.getAllFromIndex(STORE_SONGS, "by_album_id", params.targetId);
       for (const song of albumSongs) {
         song.album_is_favorite = params.isFavorite;
         await db.put(STORE_SONGS, song);
@@ -773,11 +774,7 @@ export class LocalMusicDataSource implements MusicDataSource {
     }
   }
 
-  async updateArtist(params: {
-    artist_id: string;
-    name?: string;
-    bio?: string;
-  }): Promise<void> {
+  async updateArtist(params: { artist_id: string; name?: string; bio?: string }): Promise<void> {
     await updateArtist(params.artist_id, {
       name: params.name,
       bio: params.bio,
@@ -801,7 +798,7 @@ export class LocalMusicDataSource implements MusicDataSource {
       const genre = await getOrCreateGenre(params.genre);
       genreId = genre.genre_id;
     }
-    
+
     // build updates object, skipping null/undefined values
     const updates: Record<string, any> = {};
     if (params.title != null) updates.title = params.title;
@@ -811,7 +808,7 @@ export class LocalMusicDataSource implements MusicDataSource {
     if (params.label != null) updates.label = params.label;
     if (genreId != null) updates.genre_id = genreId;
     if (params.year != null) updates.year = params.year;
-    
+
     await updateAlbum(params.album_id, updates);
     // local store keys by stable uuid; id never changes on edit.
     return { album_id: params.album_id };
@@ -849,11 +846,11 @@ export class LocalMusicDataSource implements MusicDataSource {
     let artistId = params.artist_id;
     let albumId = params.album_id;
     let genreId = params.genre_id;
-    
+
     if (params.artist && !artistId) {
       // get old artist for metadata copying
       const oldArtist = oldArtistId ? await getArtistById(oldArtistId) : null;
-      
+
       // create or get new artist
       const artist = await getOrCreateArtist(params.artist);
       artistId = artist.artist_id;
@@ -866,7 +863,7 @@ export class LocalMusicDataSource implements MusicDataSource {
         });
       }
     }
-    
+
     if (params.album && !albumId && artistId) {
       // get old album for metadata copying
       const oldAlbum = oldAlbumId ? await getAlbumById(oldAlbumId) : null;
@@ -888,30 +885,30 @@ export class LocalMusicDataSource implements MusicDataSource {
         });
       }
     }
-    
+
     if (params.genre && !genreId) {
       const genre = await getOrCreateGenre(params.genre);
       genreId = genre.genre_id;
     }
-    
+
     // get artist and album names for denormalized fields
     let artistName: string | undefined;
     let albumTitle: string | undefined;
-    
+
     if (artistId && params.artist) {
       artistName = params.artist;
     } else if (artistId) {
       const artist = await getArtistById(artistId);
       artistName = artist?.name;
     }
-    
+
     if (albumId && params.album) {
       albumTitle = params.album;
     } else if (albumId) {
       const album = await getAlbumById(albumId);
       albumTitle = album?.title;
     }
-    
+
     // update each song - bulk update for local storage
     const updates = {
       title: params.title,
@@ -927,12 +924,12 @@ export class LocalMusicDataSource implements MusicDataSource {
       lyrics: params.lyrics,
       track_artist: params.track_artist,
     };
-    
+
     // filter out null/undefined values
     const filteredUpdates = Object.fromEntries(
       Object.entries(updates).filter(([_, v]) => v != null)
     );
-    
+
     for (const songId of params.song_ids) {
       await updateSong(songId, filteredUpdates);
     }
@@ -984,7 +981,7 @@ export class LocalMusicDataSource implements MusicDataSource {
         await createTag(tagName);
         tag = await findTagByName(tagName);
       }
-      
+
       if (tag) {
         await addAlbumTag(albumId, tag.tag_id);
       }
@@ -1001,7 +998,7 @@ export class LocalMusicDataSource implements MusicDataSource {
   async uploadImage(params: {
     file?: File;
     filePath?: string;
-    entityType: 'song' | 'artist' | 'album' | 'playlist';
+    entityType: "song" | "artist" | "album" | "playlist";
     entityId: string;
     isPrimary?: boolean;
   }): Promise<{ blob_id: string; job_id: string }> {
@@ -1018,7 +1015,7 @@ export class LocalMusicDataSource implements MusicDataSource {
     const imageMetadata: ImageMetadata = {
       local_blob_id: blobId,
       is_primary: params.isPrimary ?? false,
-      blob_type: 'thumbnail',
+      blob_type: "thumbnail",
     };
 
     if (params.entityType === "song") {
@@ -1026,7 +1023,7 @@ export class LocalMusicDataSource implements MusicDataSource {
       if (song) {
         const images = song.images || [];
         if (params.isPrimary) {
-          images.forEach((img: ImageMetadata) => img.is_primary = false);
+          images.forEach((img: ImageMetadata) => (img.is_primary = false));
         }
         images.push(imageMetadata);
         song.images = images;
@@ -1039,7 +1036,7 @@ export class LocalMusicDataSource implements MusicDataSource {
         const images = album.images || [];
         // if this is primary, mark others as non-primary
         if (params.isPrimary) {
-          images.forEach((img: ImageMetadata) => img.is_primary = false);
+          images.forEach((img: ImageMetadata) => (img.is_primary = false));
         }
         images.push(imageMetadata);
         album.images = images;
@@ -1051,7 +1048,7 @@ export class LocalMusicDataSource implements MusicDataSource {
       if (artist) {
         const images = artist.images || [];
         if (params.isPrimary) {
-          images.forEach((img: ImageMetadata) => img.is_primary = false);
+          images.forEach((img: ImageMetadata) => (img.is_primary = false));
         }
         images.push(imageMetadata);
         artist.images = images;
@@ -1063,7 +1060,7 @@ export class LocalMusicDataSource implements MusicDataSource {
       if (playlist) {
         const images = playlist.images || [];
         if (params.isPrimary) {
-          images.forEach((img: ImageMetadata) => img.is_primary = false);
+          images.forEach((img: ImageMetadata) => (img.is_primary = false));
         }
         images.push(imageMetadata);
         playlist.images = images;
@@ -1073,11 +1070,11 @@ export class LocalMusicDataSource implements MusicDataSource {
     }
 
     // local source doesn't have async jobs, return empty job_id
-    return { blob_id: blobId, job_id: '' };
+    return { blob_id: blobId, job_id: "" };
   }
 
   async getEntityImages(params: {
-    entityType: 'song' | 'artist' | 'album' | 'playlist';
+    entityType: "song" | "artist" | "album" | "playlist";
     entityId: string;
   }): Promise<string[]> {
     const db = await initMusicDB();
@@ -1100,14 +1097,16 @@ export class LocalMusicDataSource implements MusicDataSource {
     // resolve to display URLs, matching remoteSource's string[] contract
     const urls = await Promise.all(
       images.map((img) =>
-        img.local_blob_id ? getBlobObjectURL(img.local_blob_id) : Promise.resolve(img.remote_url ?? null)
+        img.local_blob_id
+          ? getBlobObjectURL(img.local_blob_id)
+          : Promise.resolve(img.remote_url ?? null)
       )
     );
     return urls.filter((url): url is string => !!url);
   }
 
   async removeImage(params: {
-    entityType: 'song' | 'artist' | 'album' | 'playlist';
+    entityType: "song" | "artist" | "album" | "playlist";
     entityId: string;
     blobId: string;
   }): Promise<void> {
@@ -1166,7 +1165,7 @@ export class LocalMusicDataSource implements MusicDataSource {
   }
 
   async setPrimaryImage(params: {
-    entityType: 'song' | 'artist' | 'album' | 'playlist';
+    entityType: "song" | "artist" | "album" | "playlist";
     entityId: string;
     blobId: string;
   }): Promise<void> {
@@ -1207,9 +1206,7 @@ export class LocalMusicDataSource implements MusicDataSource {
   }
 
   // favorites
-  async listFavorites(
-    params?: ListFavoritesParams,
-  ): Promise<PaginatedResponse<FavoriteItem>> {
+  async listFavorites(params?: ListFavoritesParams): Promise<PaginatedResponse<FavoriteItem>> {
     const db = await initMusicDB();
     const limit = params?.limit ?? 50;
     const offset = params?.offset ?? 0;
@@ -1219,9 +1216,7 @@ export class LocalMusicDataSource implements MusicDataSource {
 
     // filter by target_type if specified
     if (params?.target_type) {
-      allFavorites = allFavorites.filter(
-        (fav) => fav.target_type === params.target_type,
-      );
+      allFavorites = allFavorites.filter((fav) => fav.target_type === params.target_type);
     }
 
     // sort by favorited_at descending (most recent first)
@@ -1244,7 +1239,7 @@ export class LocalMusicDataSource implements MusicDataSource {
               song.album_images = album.images;
             }
           }
-          
+
           // enrich with images array
           const enriched = enrichSongsWithImages([song])[0];
           items.push({
@@ -1259,13 +1254,9 @@ export class LocalMusicDataSource implements MusicDataSource {
           const isFavorite = await checkFavorite("album", album.album_id);
           const rating = await getRating("album", album.album_id);
           // count songs in this album
-          const albumSongs = await db
-            .getAllFromIndex(STORE_SONGS, "by_album_id", album.album_id);
-          const totalDuration = albumSongs.reduce(
-            (sum, song) => sum + song.duration_seconds,
-            0,
-          );
-          
+          const albumSongs = await db.getAllFromIndex(STORE_SONGS, "by_album_id", album.album_id);
+          const totalDuration = albumSongs.reduce((sum, song) => sum + song.duration_seconds, 0);
+
           // album.images is already in ImageMetadata[] format, no need to adapt
           items.push({
             type: "album",
@@ -1292,15 +1283,18 @@ export class LocalMusicDataSource implements MusicDataSource {
           const isFavorite = await checkFavorite("artist", artist.artist_id);
           const rating = await getRating("artist", artist.artist_id);
           // count songs and albums by this artist
-          const artistSongs = await db
-            .getAllFromIndex(STORE_SONGS, "by_artist_id", artist.artist_id);
-          const artistAlbums = await db
-            .getAllFromIndex(STORE_ALBUMS, "by_artist_id", artist.artist_id);
-          const totalDuration = artistSongs.reduce(
-            (sum, song) => sum + song.duration_seconds,
-            0,
+          const artistSongs = await db.getAllFromIndex(
+            STORE_SONGS,
+            "by_artist_id",
+            artist.artist_id
           );
-          
+          const artistAlbums = await db.getAllFromIndex(
+            STORE_ALBUMS,
+            "by_artist_id",
+            artist.artist_id
+          );
+          const totalDuration = artistSongs.reduce((sum, song) => sum + song.duration_seconds, 0);
+
           items.push({
             type: "artist",
             favorited_at: favorite.favorited_at,
@@ -1329,6 +1323,7 @@ export class LocalMusicDataSource implements MusicDataSource {
               title: playlist.title,
               description: playlist.description || null,
               is_public: playlist.is_public,
+              collaborative: playlist.collaborative ?? false,
               images: playlist.images,
               song_count: songCount,
               created_at: playlist.created_at,
@@ -1385,12 +1380,15 @@ export class LocalMusicDataSource implements MusicDataSource {
     // search songs
     if (params.field === "all" || params.field === "songs") {
       const songs = await querySongsWithDetails({ limit: 1000 });
-      const matchingSongs = songs.filter(s => 
-        s.title?.toLowerCase().includes(partial) ||
-        s.artist_name?.toLowerCase().includes(partial) ||
-        s.album_title?.toLowerCase().includes(partial)
-      ).slice(0, 20);
-      
+      const matchingSongs = songs
+        .filter(
+          (s) =>
+            s.title?.toLowerCase().includes(partial) ||
+            s.artist_name?.toLowerCase().includes(partial) ||
+            s.album_title?.toLowerCase().includes(partial)
+        )
+        .slice(0, 20);
+
       for (const song of matchingSongs) {
         suggestions.push({
           value: song.sha256,
@@ -1399,7 +1397,11 @@ export class LocalMusicDataSource implements MusicDataSource {
           count: 1,
           suggestion_type: "song",
           confidence: 1.0,
-          metadata: { artist_name: song.artist_name, album_title: song.album_title, album_id: song.album_id },
+          metadata: {
+            artist_name: song.artist_name,
+            album_title: song.album_title,
+            album_id: song.album_id,
+          },
           entity_id: song.sha256,
           is_favorite: await checkFavorite("song", song.sha256),
         });
@@ -1409,10 +1411,10 @@ export class LocalMusicDataSource implements MusicDataSource {
     // search artists
     if (params.field === "all" || params.field === "artists") {
       const artistResults = await queryArtists({ limit: 1000 });
-      const matchingArtists = artistResults.filter(a => 
-        a.artist?.name?.toLowerCase().includes(partial)
-      ).slice(0, 10);
-      
+      const matchingArtists = artistResults
+        .filter((a) => a.artist?.name?.toLowerCase().includes(partial))
+        .slice(0, 10);
+
       for (const result of matchingArtists) {
         suggestions.push({
           value: result.artist.artist_id,
@@ -1431,13 +1433,15 @@ export class LocalMusicDataSource implements MusicDataSource {
     // search albums (also match on genre names)
     if (params.field === "all" || params.field === "albums") {
       const albumResults = await queryAlbums({ limit: 1000 });
-      const matchingAlbums = albumResults.filter(a => {
-        if (a.album?.title?.toLowerCase().includes(partial)) return true;
-        // also match on genre names
-        if (a.genres?.some(g => g.name?.toLowerCase().includes(partial))) return true;
-        return false;
-      }).slice(0, 10);
-      
+      const matchingAlbums = albumResults
+        .filter((a) => {
+          if (a.album?.title?.toLowerCase().includes(partial)) return true;
+          // also match on genre names
+          if (a.genres?.some((g) => g.name?.toLowerCase().includes(partial))) return true;
+          return false;
+        })
+        .slice(0, 10);
+
       for (const result of matchingAlbums) {
         if (result.album) {
           suggestions.push({
@@ -1458,9 +1462,9 @@ export class LocalMusicDataSource implements MusicDataSource {
     // search genres
     if (params.field === "all" || params.field === "genres") {
       const genreResults = await queryGenres({ limit: 1000 });
-      const matchingGenres = genreResults.filter(g =>
-        g.genre.name?.toLowerCase().includes(partial)
-      ).slice(0, 10);
+      const matchingGenres = genreResults
+        .filter((g) => g.genre.name?.toLowerCase().includes(partial))
+        .slice(0, 10);
 
       for (const result of matchingGenres) {
         suggestions.push({
@@ -1481,10 +1485,13 @@ export class LocalMusicDataSource implements MusicDataSource {
     if (params.field === "all" || params.field === "playlists") {
       const db = await initMusicDB();
       const allPlaylists = await db.getAll(STORE_PLAYLISTS);
-      const matchingPlaylists = allPlaylists.filter((p: Playlist) =>
-        p.title?.toLowerCase().includes(partial) ||
-        p.description?.toLowerCase().includes(partial)
-      ).slice(0, 10);
+      const matchingPlaylists = allPlaylists
+        .filter(
+          (p: Playlist) =>
+            p.title?.toLowerCase().includes(partial) ||
+            p.description?.toLowerCase().includes(partial)
+        )
+        .slice(0, 10);
 
       for (const playlist of matchingPlaylists) {
         const songCount = await countPlaylistSongs(db, playlist.playlist_id);
@@ -1555,27 +1562,26 @@ export class LocalMusicDataSource implements MusicDataSource {
     // search songs
     if (field === "all" || field === "songs") {
       const allSongs = await querySongsWithDetails({ limit: 10000 });
-      songs = allSongs.filter(s => 
-        s.title?.toLowerCase().includes(query) ||
-        s.artist_name?.toLowerCase().includes(query) ||
-        s.album_title?.toLowerCase().includes(query)
+      songs = allSongs.filter(
+        (s) =>
+          s.title?.toLowerCase().includes(query) ||
+          s.artist_name?.toLowerCase().includes(query) ||
+          s.album_title?.toLowerCase().includes(query)
       );
     }
 
     // search artists
     if (field === "all" || field === "artists") {
       const artistResults = await queryArtists({ limit: 1000 });
-      artists = artistResults.filter(a => 
-        a.artist?.name?.toLowerCase().includes(query)
-      );
+      artists = artistResults.filter((a) => a.artist?.name?.toLowerCase().includes(query));
     }
 
     // search albums
     if (field === "all" || field === "albums") {
       const albumResults = await queryAlbums({ limit: 1000 });
       albums = albumResults
-        .filter(a => a.album?.title?.toLowerCase().includes(query))
-        .map(r => adaptAlbumFromIDB(r));
+        .filter((a) => a.album?.title?.toLowerCase().includes(query))
+        .map((r) => adaptAlbumFromIDB(r));
     }
 
     const totalCount = songs.length + (artists?.length ?? 0) + (albums?.length ?? 0);

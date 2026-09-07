@@ -171,6 +171,8 @@ export interface Playlist {
   title: string;
   description: string | null;
   is_public: boolean;
+  /** any authenticated member (not just the owner/admin) may edit membership. */
+  collaborative?: boolean;
   images?: ImageMetadata[]; // playlist images
   urls?: Array<{ id?: string; name?: string; url: string }>; // entity URLs
   created_at: number;

@@ -120,13 +120,17 @@ export function canUpdatePlaylist(
 
 /**
  * check if user can add songs to a playlist.
- * playlists use OwnerOr(Admin).
+ * playlists use OwnerOr(Admin) - collaborative playlists additionally
+ * allow any authenticated user, mirroring the backend's
+ * `require_owner_or_collaborative_or_scope`.
  */
 export function canAddSongsToPlaylist(
   userId: string,
   playlistOwnerId: string | null,
   userRole: UserRoleName,
+  isCollaborative = false,
 ): boolean {
+  if (isCollaborative) return true;
   const auth = routes.music.add_songs_to_playlist.auth;
   if (auth.type === "owner_or") {
     return canAccessOwnerOr(userId, playlistOwnerId, userRole, auth.role);
@@ -136,13 +140,16 @@ export function canAddSongsToPlaylist(
 
 /**
  * check if user can remove songs from a playlist.
- * playlists use OwnerOr(Admin).
+ * playlists use OwnerOr(Admin) - collaborative playlists additionally
+ * allow any authenticated user.
  */
 export function canRemoveSongsFromPlaylist(
   userId: string,
   playlistOwnerId: string | null,
   userRole: UserRoleName,
+  isCollaborative = false,
 ): boolean {
+  if (isCollaborative) return true;
   const auth = routes.music.remove_songs_from_playlist.auth;
   if (auth.type === "owner_or") {
     return canAccessOwnerOr(userId, playlistOwnerId, userRole, auth.role);
@@ -402,13 +409,16 @@ export function canAccessMusicBrainz(userRole: UserRoleName): boolean {
 
 /**
  * check if user can reorder songs in a playlist.
- * playlists use OwnerOr(Admin).
+ * playlists use OwnerOr(Admin) - collaborative playlists additionally
+ * allow any authenticated user.
  */
 export function canReorderPlaylistSongs(
   userId: string,
   playlistOwnerId: string | null,
   userRole: UserRoleName,
+  isCollaborative = false,
 ): boolean {
+  if (isCollaborative) return true;
   const auth = routes.music.reorder_playlist_songs.auth;
   if (auth.type === "owner_or") {
     return canAccessOwnerOr(userId, playlistOwnerId, userRole, auth.role);

@@ -176,8 +176,9 @@ pub async fn add(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue
 
     let playlist_response = get_playlist(&req.playlist_id).await;
     if let Some(playlist) = &playlist_response.data {
-        if let Err(resp) = crate::acl_bridge::require_owner_or_scope(
+        if let Err(resp) = crate::acl_bridge::require_owner_or_collaborative_or_scope(
             playlist.created_by_id.as_deref(),
+            playlist.collaborative != 0,
             caller,
             "add_playlist_item",
         )
@@ -223,8 +224,9 @@ pub async fn remove(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonVa
 
     let playlist_response = get_playlist(&req.playlist_id).await;
     if let Some(playlist) = &playlist_response.data {
-        if let Err(resp) = crate::acl_bridge::require_owner_or_scope(
+        if let Err(resp) = crate::acl_bridge::require_owner_or_collaborative_or_scope(
             playlist.created_by_id.as_deref(),
+            playlist.collaborative != 0,
             caller,
             "remove_playlist_item",
         )
@@ -264,8 +266,9 @@ pub async fn reorder(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonV
 
     let playlist_response = get_playlist(&req.playlist_id).await;
     if let Some(playlist) = &playlist_response.data {
-        if let Err(resp) = crate::acl_bridge::require_owner_or_scope(
+        if let Err(resp) = crate::acl_bridge::require_owner_or_collaborative_or_scope(
             playlist.created_by_id.as_deref(),
+            playlist.collaborative != 0,
             caller,
             "reorder_playlist_items",
         )
@@ -307,8 +310,9 @@ pub async fn add_many(caller: &Caller, body: JsonValue) -> GrimoireResponse<Json
 
     let playlist_response = get_playlist(&req.playlist_id).await;
     if let Some(playlist) = &playlist_response.data {
-        if let Err(resp) = crate::acl_bridge::require_owner_or_scope(
+        if let Err(resp) = crate::acl_bridge::require_owner_or_collaborative_or_scope(
             playlist.created_by_id.as_deref(),
+            playlist.collaborative != 0,
             caller,
             "add_playlist_items",
         )
@@ -355,8 +359,9 @@ pub async fn remove_many(caller: &Caller, body: JsonValue) -> GrimoireResponse<J
 
     let playlist_response = get_playlist(&req.playlist_id).await;
     if let Some(playlist) = &playlist_response.data {
-        if let Err(resp) = crate::acl_bridge::require_owner_or_scope(
+        if let Err(resp) = crate::acl_bridge::require_owner_or_collaborative_or_scope(
             playlist.created_by_id.as_deref(),
+            playlist.collaborative != 0,
             caller,
             "remove_playlist_items",
         )

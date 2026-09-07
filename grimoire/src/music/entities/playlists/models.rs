@@ -14,6 +14,9 @@ pub struct Playlist {
     pub title: String,
     pub description: Option<String>,
     pub is_public: i64, // sqlite boolean (0/1)
+    /// when true, any authenticated member may edit this playlist's song/item
+    /// membership (not just the owner or an admin) - see `require_owner_or_collaborative_or_scope`.
+    pub collaborative: i64, // sqlite boolean (0/1)
     pub images: Option<JsonVec<ImageMetadata>>,
     pub urls: Option<JsonVec<EntityUrl>>,
     pub created_by_id: Option<String>,
@@ -96,6 +99,11 @@ pub struct UpdatePlaylistRequest {
     /// Make playlist public or private
     #[arg(long)]
     pub is_public: Option<bool>,
+
+    /// Enable/disable collaborative mode - lets any authenticated member
+    /// edit song/item membership, not just the owner or an admin.
+    #[arg(long)]
+    pub collaborative: Option<bool>,
 
     /// Entity URLs (replaces all existing URLs)
     #[arg(skip)]

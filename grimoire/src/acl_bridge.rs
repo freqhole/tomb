@@ -173,6 +173,24 @@ pub(crate) async fn require_owner_or_scope(
     require_scope(caller, scope).await
 }
 
+/// like `require_owner_or_scope`, but also passes when the resource is
+/// marked `collaborative` - any authenticated caller may then act on it,
+/// not just the owner or an admin. used for playlist song/item membership
+/// mutation routes (add/remove/reorder) - renaming, deleting, or toggling
+/// `collaborative` itself still go through the strict
+/// `require_owner_or_scope` at their own call sites.
+pub(crate) async fn require_owner_or_collaborative_or_scope(
+    owner_id: Option<&str>,
+    collaborative: bool,
+    caller: &Caller,
+    scope: &str,
+) -> Result<(), GrimoireResponse<JsonValue>> {
+    if collaborative {
+        return Ok(());
+    }
+    require_owner_or_scope(owner_id, caller, scope).await
+}
+
 /// the boolean counterpart to `require_scope`, for call sites that need to
 /// combine the result with an ownership check that isn't a simple
 /// `Option<&str>` comparison (e.g. "uploaded at least one song in this

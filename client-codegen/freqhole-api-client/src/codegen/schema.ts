@@ -2340,6 +2340,7 @@ export const FavoriteItemSchema = z.union([z.intersection(z.object({
   title: z.string(),
   description: z.string().nullish(),
   is_public: z.number(),
+  collaborative: z.number(),
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
@@ -2420,6 +2421,7 @@ export const FavoritePlaylistResultSchema = z.object({
   title: z.string(),
   description: z.string().nullish(),
   is_public: z.number(),
+  collaborative: z.number(),
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
@@ -3630,6 +3632,7 @@ export const ListFavoritesResponseSchema = z.object({
   title: z.string(),
   description: z.string().nullish(),
   is_public: z.number(),
+  collaborative: z.number(),
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
@@ -4628,6 +4631,7 @@ export const PlaylistSchema = z.object({
   title: z.string(),
   description: z.string().nullish(),
   is_public: z.number(),
+  collaborative: z.number(),
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
@@ -4672,6 +4676,7 @@ export const PlaylistQueryResultSchema = z.object({
   title: z.string(),
   description: z.string().nullish(),
   is_public: z.number(),
+  collaborative: z.number(),
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
@@ -5009,6 +5014,7 @@ export const PlaylistsQueryResultSchema = z.object({
   title: z.string(),
   description: z.string().nullish(),
   is_public: z.number(),
+  collaborative: z.number(),
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
@@ -7407,6 +7413,7 @@ export const UpdatePlaylistRequestSchema = z.object({
   title: z.string().nullish(),
   description: z.string().nullish(),
   is_public: z.boolean().nullish(),
+  collaborative: z.boolean().nullish(),
   entity_urls: z.array(z.object({
   id: z.string().nullish(),
   name: z.string().nullish(),
