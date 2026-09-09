@@ -53,7 +53,7 @@ pub async fn sync_song_by_blake3(caller: &Caller, body: JsonValue) -> GrimoireRe
         }
     };
 
-    tracing::info!(
+    tracing::debug!(
         "sync_song_by_blake3: START from {} -- title=\"{}\" blake3={} sha256={} size={:?} source_node={} source_remote={:?} filename=\"{}\"",
         caller.username,
         req.title,
@@ -76,7 +76,7 @@ pub async fn sync_song_by_blake3(caller: &Caller, body: JsonValue) -> GrimoireRe
     if let Ok(Some(existing_song_id)) =
         crate::music::entities::songs::get_song_by_blake3(&req.blake3).await
     {
-        tracing::info!(
+        tracing::debug!(
             "sync_song_by_blake3: song already exists for blake3 {} -> {}; reconciling links",
             &req.blake3[..16.min(req.blake3.len())],
             existing_song_id
@@ -112,7 +112,7 @@ pub async fn sync_song_by_blake3(caller: &Caller, body: JsonValue) -> GrimoireRe
                 media_blob_id,
             );
         } else {
-            tracing::info!(
+            tracing::debug!(
                 "sync_song_by_blake3: song {} already local — media_blob={} path={}",
                 existing_song_id,
                 media_blob_id,

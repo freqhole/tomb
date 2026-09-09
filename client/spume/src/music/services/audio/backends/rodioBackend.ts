@@ -158,6 +158,35 @@ export class RodioBackend implements PlayerBackend {
 
     const blobId = song.media_blob_id ?? song.sha256;
     let path: string;
+    // try the stable blake3 first (when known): `song.media_blob_id` is
+    // often the REMOTE server's id, which gets replaced by a freshly-
+    // generated LOCAL media_blobz.id every time this song is
+    // (re-)synced/fetched - so a queue snapshot carrying the original
+    // remote id can never find an already-synced local copy through
+    // `blobId` below, and this backend would otherwise re-sync/re-fetch
+    // on every replay even though the song is already on disk. every
+    // song that's ever been successfully synced locally is guaranteed
+    // to have a blake3 (syncSongToLocal hard-requires one to pull via
+    // iroh-blobs), so a missing blake3 here just means "never synced
+    // yet" - falls through to the existing `blobId`-based attempt
+    // unchanged either way.
+    if (song.blake3) {
+      try {
+        path = await this.resolveLocalPathByBlake3(song.blake3);
+        if (!isMediaLoadCurrent(song.sha256, options?.loadGeneration)) {
+          return;
+        }
+        debug("player.rodio", `load: "${song.title}" (${song.sha256.slice(0, 8)}) -> ${path}`);
+        bridgeClearExternal();
+        await setCurrentSong(song.sha256);
+        await this.send({ kind: "load", paths: [path] });
+        await this.send({ kind: "play" });
+        await this.applyInitialPosition(options);
+        return;
+      } catch {
+        // fall through to the original media_blob_id-based flow below.
+      }
+    }
     try {
       path = await this.resolveLocalPath(blobId);
     } catch (e) {
@@ -323,12 +352,16 @@ export class RodioBackend implements PlayerBackend {
       } else {
         // last resort: the existing-song shortcut returns no path
         // info, but the song is supposedly already in the db.
-        // try the original blob id; if that fails fall back to
-        // sha256-based lookup.
+        // try the original blob id; if that fails fall back to a
+        // proper blake3-keyed lookup (not `resolveLocalPath`, which
+        // treats its argument as a media_blobz.id and would never
+        // match a 64-char blake3 string). `song.blake3` is guaranteed
+        // present here - this branch only runs after a successful
+        // sync, which itself requires a blake3 to pull via iroh-blobs.
         try {
           path = await this.resolveLocalPath(blobId);
         } catch {
-          path = await this.resolveLocalPath(song.sha256);
+          path = await this.resolveLocalPathByBlake3(song.blake3!);
         }
       }
     }
@@ -381,6 +414,27 @@ export class RodioBackend implements PlayerBackend {
     } catch (e) {
       // the tauri command rejects with `"<error_type>: <message>"` —
       // split the discriminant out so callers can branch on it.
+      const raw = e instanceof Error ? e.message : String(e);
+      const match = raw.match(/^([a-z_]+):\s*(.+)$/);
+      const error_type = match?.[1] ?? "resolve_failed";
+      const detail = match?.[2] ?? raw;
+      throw new BackendPlaybackError(this.kind, error_type, detail);
+    }
+  }
+
+  /// same as `resolveLocalPath`, but keyed on the song's stable
+  /// blake3 via the `resolve_blob_path_by_blake3` tauri command -
+  /// see `loadAndPlay`'s fast-path comment for why this exists.
+  private async resolveLocalPathByBlake3(blake3: string): Promise<string> {
+    // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
+    const { invoke } = await import("@tauri-apps/api/core");
+    try {
+      const result = await invoke<{ id: string; path: string; mime?: string }>(
+        "resolve_blob_path_by_blake3",
+        { blake3 }
+      );
+      return result.path;
+    } catch (e) {
       const raw = e instanceof Error ? e.message : String(e);
       const match = raw.match(/^([a-z_]+):\s*(.+)$/);
       const error_type = match?.[1] ?? "resolve_failed";

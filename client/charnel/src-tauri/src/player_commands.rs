@@ -184,3 +184,36 @@ pub async fn resolve_blob_path(blob_id: String) -> Result<serde_json::Value, Str
         }
     }
 }
+
+/// same as `resolve_blob_path`, but resolved by blake3 instead of
+/// `media_blobz.id`. a song's `media_blobz.id` gets replaced with a fresh
+/// one every time it's (re-)synced/downloaded locally, so a caller that
+/// only has a queue snapshot's original (often remote) `media_blob_id`
+/// can't reliably find the CURRENT local record with it - the blake3 is
+/// stable across syncs and is what callers should key their "have we
+/// already got this on disk" lookup on. every song that's ever been
+/// synced locally via iroh-blobs is guaranteed to have a blake3 (the sync
+/// itself hard-requires one), so callers can try this unconditionally for
+/// any queue item that has one. see rodioBackend.ts's
+/// `resolveLocalPathByBlake3` for the caller.
+#[tauri::command]
+pub async fn resolve_blob_path_by_blake3(blake3: String) -> Result<serde_json::Value, String> {
+    let resp = grimoire::media_blobz::build_blob_path_response_by_blake3(&blake3).await;
+    match resp.data {
+        Some(data) => Ok(data),
+        None => {
+            let kind = resp
+                .errors
+                .first()
+                .map(|e| e.error_type.clone())
+                .unwrap_or_else(|| "unknown_error".to_string());
+            tracing::debug!(
+                blake3 = %blake3,
+                error_type = %kind,
+                "resolve_blob_path_by_blake3: {}",
+                resp.message,
+            );
+            Err(format!("{kind}: {}", resp.message))
+        }
+    }
+}

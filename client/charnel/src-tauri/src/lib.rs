@@ -48,6 +48,11 @@ mod player_commands {
     pub async fn resolve_blob_path(_blob_id: String) -> Result<Value, String> {
         Err("rodio backend is desktop-only".to_string())
     }
+
+    #[tauri::command]
+    pub async fn resolve_blob_path_by_blake3(_blake3: String) -> Result<Value, String> {
+        Err("rodio backend is desktop-only".to_string())
+    }
 }
 #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
 mod media_session;
@@ -957,6 +962,7 @@ pub fn run() {
             player_commands::player_snapshot,
             player_commands::player_init,
             player_commands::resolve_blob_path,
+            player_commands::resolve_blob_path_by_blake3,
             // OS media session / now-playing controls for the rodio +
             // gst video paths (desktop-real, mobile-stub - android has
             // its own plugin instead)

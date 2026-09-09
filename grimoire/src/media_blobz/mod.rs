@@ -13,8 +13,8 @@ mod service;
 
 // re-export public types
 pub use access::{
-    build_blob_data_response, build_blob_path_response, build_blob_response,
-    build_blob_thumbnail_response,
+    build_blob_data_response, build_blob_path_response, build_blob_path_response_by_blake3,
+    build_blob_response, build_blob_thumbnail_response,
 };
 pub use atlas::{
     build_atlas_response, AtlasEntry, AtlasManifest, AtlasResponse, BuildAtlasRequest,

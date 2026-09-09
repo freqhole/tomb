@@ -425,12 +425,6 @@ export function isExternalSessionActive(): boolean {
 // ---------------------------------------------------------------------------
 
 async function refreshMetadata(): Promise<void> {
-  // TEMP(media-session): loud trace to find where the OS media session
-  // push isn't reaching rust - remove once confirmed working.
-  console.info(
-    "[media-session] refreshMetadata called, has navigator.mediaSession:",
-    typeof navigator !== "undefined" && "mediaSession" in navigator
-  );
   if (typeof navigator === "undefined" || !("mediaSession" in navigator)) {
     return;
   }
@@ -529,11 +523,6 @@ async function refreshMetadata(): Promise<void> {
   // fetches artwork itself and can't reach a same-process `blob:` url, so
   // try a real on-disk path first - best-effort, falls back to nothing.
   const osArtworkUrl = song ? await getLocalArtworkFilePath(song) : null;
-  console.info(
-    "[media-session] pushing track:",
-    current_sha256,
-    song ? song.title : (video as QueuedVideo).title
-  );
   void pushMediaSessionTrack({
     id: current_sha256,
     title: song ? song.title : (video as QueuedVideo).title,
