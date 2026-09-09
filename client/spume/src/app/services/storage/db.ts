@@ -22,6 +22,7 @@ import {
   STORE_PLAYER_SESSION,
   type AppState,
   type GraphPrefs,
+  type MiddenRelaySettings,
   type P2PIdentity,
   type PendingRemote,
 } from "./types";
@@ -377,6 +378,28 @@ async function saveGraphPrefs(updates: Partial<Omit<GraphPrefs, "id">>): Promise
 }
 
 // ============================================================================
+// midden (wasm p2p) custom relay settings - browser builds only
+// ============================================================================
+
+/** read the persisted midden relay settings. returns sensible defaults
+ *  (no custom relays, public n0 preset only) if not yet stored. */
+async function getMiddenRelaySettings(): Promise<MiddenRelaySettings> {
+  const db = await initAppDB();
+  const stored = await db.get(STORE_APP_STATE, "midden_relay_settings");
+  if (stored) return stored as MiddenRelaySettings;
+  return { id: "midden_relay_settings", relay_urls: [], relay_custom_only: false };
+}
+
+/** persist midden relay settings fields. */
+async function saveMiddenRelaySettings(
+  updates: Partial<Omit<MiddenRelaySettings, "id">>
+): Promise<void> {
+  const db = await initAppDB();
+  const current = await getMiddenRelaySettings();
+  await db.put(STORE_APP_STATE, { ...current, ...updates });
+}
+
+// ============================================================================
 // P2P identity persistence (midden)
 //
 // backed by the same app_state store as AppState/GraphPrefs (an inline-keyPath
@@ -514,6 +537,8 @@ export {
   getPendingRemoteByPeerAddr,
   getGraphPrefs,
   saveGraphPrefs,
+  getMiddenRelaySettings,
+  saveMiddenRelaySettings,
   getP2PIdentity,
   getSyncQueueToLocal,
   getLocalLibraryName,

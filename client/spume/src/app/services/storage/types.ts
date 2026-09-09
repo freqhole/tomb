@@ -36,6 +36,18 @@ export interface GraphPrefs {
   multi_remote_mode: boolean;
 }
 
+// custom iroh relay server settings for the browser/wasm (midden) p2p node -
+// tauri/charnel builds use CharnelTransport instead and never read this.
+export interface MiddenRelaySettings {
+  id: "midden_relay_settings";
+  /** custom relay url(s), parsed from a single comma-separated settings
+   *  text field. empty = use only the public n0 relay preset. */
+  relay_urls: string[];
+  /** when true, route only through relay_urls (no public n0 fallback).
+   *  when false (default), use relay_urls alongside the public n0 relay. */
+  relay_custom_only: boolean;
+}
+
 // queue history entry — represents one "add to queue" action
 export type QueueHistorySourceType =
   "song" | "album" | "artist" | "genre" | "playlist" | "shuffle" | "radio_station";

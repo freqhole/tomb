@@ -432,9 +432,9 @@ fn default_audiodb_api_key() -> String {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum RelayModeConfig {
-    /// use only the custom `relay_url`; no fallback to the public relay.
+    /// use only the custom `relay_urls`; no fallback to the public relay.
     CustomOnly,
-    /// prefer the custom `relay_url` but keep the public iroh relay as fallback.
+    /// prefer the custom `relay_urls` but keep the public iroh relay as fallback.
     PreferCustom,
     /// use the public iroh relay only (historical default behavior).
     #[default]
@@ -481,15 +481,15 @@ pub struct FederationConfig {
     /// the same port should be forwarded on the router (UDP, external:same -> internal:same)
     #[serde(default)]
     pub bind_port: Option<u16>,
-    /// optional: custom iroh http relay server url for all p2p endpoints.
-    /// when set and `relay_mode` is `custom_only` or `prefer_custom`, the
-    /// iroh endpoint routes through this relay instead of (or before) the
-    /// public n0/iroh relay. example: "https://relay.example.com".
+    /// optional: custom iroh http relay server url(s) for all p2p endpoints.
+    /// when non-empty and `relay_mode` is `custom_only` or `prefer_custom`, the
+    /// iroh endpoint routes through these relays instead of (or before) the
+    /// public n0/iroh relay. example: `["https://relay.example.com"]`.
     #[serde(default)]
-    pub relay_url: Option<String>,
-    /// how to use `relay_url`. defaults to `default` (public iroh relay only,
-    /// the historical behavior). `custom_only` uses only `relay_url`;
-    /// `prefer_custom` uses `relay_url` but keeps the public relay as fallback.
+    pub relay_urls: Vec<String>,
+    /// how to use `relay_urls`. defaults to `default` (public iroh relay only,
+    /// the historical behavior). `custom_only` uses only `relay_urls`;
+    /// `prefer_custom` uses `relay_urls` but keeps the public relay as fallback.
     #[serde(default)]
     pub relay_mode: RelayModeConfig,
     /// remote admin configuration (`freqhole-admin/1` ALPN).
