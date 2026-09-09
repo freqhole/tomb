@@ -1,5 +1,13 @@
 # freqhole-release
 
+## 0.3.4
+
+### Patch Changes
+
+- 0b1e9ef: try harder to find song locally when playing back from queue (instead of re-fetching from remote)
+- 3ba24e2: try to fix android playback issuez, yank silly linux useragent workaround
+- 8c1eac1: try to improve remote view-switcher sub-routes in top nav on mobile touch devicez
+
 ## 0.3.3
 
 ### Patch Changes
