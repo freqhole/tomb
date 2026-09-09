@@ -616,6 +616,19 @@ export class MiddenNodeOptions {
     get opfs_store_dir(): string | undefined;
     set opfs_store_dir(value: string | null | undefined);
     /**
+     * when true, route only through `relay_urls` (no public n0 fallback).
+     * when false (default), use `relay_urls` alongside the public n0
+     * relay(s). ignored when `relay_urls` is empty/unset.
+     */
+    relay_custom_only: boolean;
+    /**
+     * custom iroh relay server url(s), e.g. ["https://relay.example.com"].
+     * omit (or pass null/undefined/empty) to use only the public n0 relay
+     * preset. combined with the n0 preset unless `relay_custom_only` is set.
+     */
+    get relay_urls(): string[] | undefined;
+    set relay_urls(value: string[] | null | undefined);
+    /**
      * the node's secret key (32 raw bytes). omit (or pass null/undefined)
      * to generate a random identity.
      */

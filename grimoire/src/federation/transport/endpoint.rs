@@ -28,12 +28,13 @@ use tracing::{info, warn};
 /// returns `Ok(None)` when the public iroh relay should be used as-is (the
 /// default, matching the preset). returns `Ok(Some(mode))` to override the
 /// preset's relay setup:
-/// - `custom_only`: route through `relay_url` only, no public fallback.
-/// - `prefer_custom`: include both `relay_url` and the public n0 relays so the
+/// - `custom_only`: route through `relay_urls` only, no public fallback.
+/// - `prefer_custom`: include both `relay_urls` and the public n0 relays so the
 ///   endpoint can use whichever is reachable / lowest-latency (custom acts as
 ///   the preferred home relay when it is the closest).
 ///
-/// errors when a custom mode is selected but `relay_url` is missing or invalid.
+/// errors when a custom mode is selected but `relay_urls` is empty or
+/// contains only invalid entries.
 fn resolve_relay_mode(fed: Option<&FederationConfig>) -> GrimoireResult<Option<RelayMode>> {
     let fed = match fed {
         Some(f) => f,
@@ -43,35 +44,50 @@ fn resolve_relay_mode(fed: Option<&FederationConfig>) -> GrimoireResult<Option<R
     match fed.relay_mode {
         RelayModeConfig::Default => Ok(None),
         RelayModeConfig::CustomOnly => {
-            let url = parse_relay_url(fed.relay_url.as_deref())?;
-            info!("using custom iroh relay only: {}", url);
-            Ok(Some(RelayMode::custom([url])))
+            let urls = parse_relay_urls(&fed.relay_urls)?;
+            info!("using custom iroh relay(s) only: {:?}", urls);
+            Ok(Some(RelayMode::custom(urls)))
         }
         RelayModeConfig::PreferCustom => {
-            let url = parse_relay_url(fed.relay_url.as_deref())?;
-            // start with the custom relay, then add the public n0 relays as
+            let urls = parse_relay_urls(&fed.relay_urls)?;
+            // start with the custom relays, then add the public n0 relays as
             // fallback. iroh selects its home relay by reachability/latency.
-            let map = RelayMap::from(url.clone());
+            let map: RelayMap = urls.iter().cloned().collect();
             map.extend(&RelayMode::Default.relay_map());
-            info!("preferring custom iroh relay {} with public fallback", url);
+            info!(
+                "preferring custom iroh relay(s) {:?} with public fallback",
+                urls
+            );
             Ok(Some(RelayMode::Custom(map)))
         }
     }
 }
 
-/// parse a configured relay url string into a `RelayUrl`, rejecting empty or
-/// missing values (required when a custom relay mode is selected).
-fn parse_relay_url(url: Option<&str>) -> GrimoireResult<RelayUrl> {
-    let url = url
-        .map(str::trim)
+/// parse configured relay url strings into `RelayUrl`s, rejecting an empty
+/// list or one whose entries are all blank/invalid (required when a custom
+/// relay mode is selected). also strips leading/trailing quote characters
+/// left over from pasting a quoted list (e.g. a JSON array's contents) into
+/// a plain-text config source.
+fn parse_relay_urls(urls: &[String]) -> GrimoireResult<Vec<RelayUrl>> {
+    let parsed = urls
+        .iter()
+        .map(|s| s.trim().trim_matches(['"', '\'']).trim())
         .filter(|s| !s.is_empty())
-        .ok_or_else(|| GrimoireError::FederationApiError {
-            message: "federation.relay_mode requires a non-empty federation.relay_url".to_string(),
-        })?;
-    url.parse::<RelayUrl>()
-        .map_err(|e| GrimoireError::FederationApiError {
-            message: format!("invalid federation.relay_url '{}': {}", url, e),
+        .map(|s| {
+            s.parse::<RelayUrl>()
+                .map_err(|e| GrimoireError::FederationApiError {
+                    message: format!("invalid federation.relay_urls entry '{}': {}", s, e),
+                })
         })
+        .collect::<GrimoireResult<Vec<_>>>()?;
+    if parsed.is_empty() {
+        return Err(GrimoireError::FederationApiError {
+            message:
+                "federation.relay_mode requires at least one non-empty federation.relay_urls entry"
+                    .to_string(),
+        });
+    }
+    Ok(parsed)
 }
 
 /// federation endpoint - manages iroh P2P connections
@@ -304,10 +320,10 @@ mod tests {
     use super::*;
     use crate::config::RelayModeConfig;
 
-    fn fed(relay_mode: RelayModeConfig, relay_url: Option<&str>) -> FederationConfig {
+    fn fed(relay_mode: RelayModeConfig, relay_urls: &[&str]) -> FederationConfig {
         FederationConfig {
             relay_mode,
-            relay_url: relay_url.map(str::to_string),
+            relay_urls: relay_urls.iter().map(|s| s.to_string()).collect(),
             ..Default::default()
         }
     }
@@ -318,16 +334,13 @@ mod tests {
         assert!(resolve_relay_mode(None).unwrap().is_none());
 
         // federation config present but relay_mode left at its default: still no override.
-        let cfg = fed(RelayModeConfig::Default, None);
+        let cfg = fed(RelayModeConfig::Default, &[]);
         assert!(resolve_relay_mode(Some(&cfg)).unwrap().is_none());
     }
 
     #[test]
     fn relay_mode_custom_only_routes_through_custom_relay_alone() {
-        let cfg = fed(
-            RelayModeConfig::CustomOnly,
-            Some("https://relay.example.com"),
-        );
+        let cfg = fed(RelayModeConfig::CustomOnly, &["https://relay.example.com"]);
         let mode = resolve_relay_mode(Some(&cfg)).unwrap().unwrap();
         let url: RelayUrl = "https://relay.example.com".parse().unwrap();
 
@@ -345,10 +358,34 @@ mod tests {
     }
 
     #[test]
+    fn relay_mode_custom_only_routes_through_multiple_custom_relays() {
+        let cfg = fed(
+            RelayModeConfig::CustomOnly,
+            &["https://relay-a.example.com", "https://relay-b.example.com"],
+        );
+        let mode = resolve_relay_mode(Some(&cfg)).unwrap().unwrap();
+        let url_a: RelayUrl = "https://relay-a.example.com".parse().unwrap();
+        let url_b: RelayUrl = "https://relay-b.example.com".parse().unwrap();
+
+        match mode {
+            RelayMode::Custom(map) => {
+                assert!(map.contains(&url_a));
+                assert!(map.contains(&url_b));
+                assert_eq!(
+                    map.len(),
+                    2,
+                    "custom_only must not include the public relays"
+                );
+            }
+            other => panic!("expected RelayMode::Custom, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn relay_mode_prefer_custom_includes_public_fallback() {
         let cfg = fed(
             RelayModeConfig::PreferCustom,
-            Some("https://relay.example.com"),
+            &["https://relay.example.com"],
         );
         let mode = resolve_relay_mode(Some(&cfg)).unwrap().unwrap();
         let custom_url: RelayUrl = "https://relay.example.com".parse().unwrap();
@@ -368,10 +405,10 @@ mod tests {
 
     #[test]
     fn relay_mode_custom_requires_a_relay_url() {
-        let cfg = fed(RelayModeConfig::CustomOnly, None);
+        let cfg = fed(RelayModeConfig::CustomOnly, &[]);
         assert!(resolve_relay_mode(Some(&cfg)).is_err());
 
-        let cfg = fed(RelayModeConfig::PreferCustom, Some("   "));
+        let cfg = fed(RelayModeConfig::PreferCustom, &["   "]);
         assert!(resolve_relay_mode(Some(&cfg)).is_err());
     }
 }

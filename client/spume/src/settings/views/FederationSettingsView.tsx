@@ -1,6 +1,11 @@
 // federation settings view - P2P identity management
 import { createSignal, onMount, Show } from "solid-js";
-import { getP2PIdentity, deleteP2PIdentity } from "../../app/services/storage/db";
+import {
+  getP2PIdentity,
+  deleteP2PIdentity,
+  getMiddenRelaySettings,
+  saveMiddenRelaySettings,
+} from "../../app/services/storage/db";
 import {
   getMiddenNode,
   isMiddenInitialized,
@@ -59,6 +64,13 @@ export function FederationSettingsView() {
   const [isExporting, setIsExporting] = createSignal(false);
   const [isImporting, setIsImporting] = createSignal(false);
 
+  // custom relay urls - comma-separated text field, parsed into an array on
+  // save. browser/wasm only - tauri/charnel builds use CharnelTransport,
+  // which never reads this.
+  const [relayUrlsInput, setRelayUrlsInput] = createSignal("");
+  const [relayCustomOnly, setRelayCustomOnly] = createSignal(false);
+  const [isSavingRelaySettings, setIsSavingRelaySettings] = createSignal(false);
+
   const isTauri = isCharnelAvailable();
 
   // load existing identity on mount
@@ -73,6 +85,9 @@ export function FederationSettingsView() {
         // in browser, get from IndexedDB
         const existing = await getP2PIdentity();
         setIdentity(existing);
+        const relaySettings = await getMiddenRelaySettings();
+        setRelayUrlsInput(relaySettings.relay_urls.join(", "));
+        setRelayCustomOnly(relaySettings.relay_custom_only);
       }
     } catch (err) {
       console.error("failed to load P2P identity:", err);
@@ -131,6 +146,31 @@ export function FederationSettingsView() {
   // get current node ID for display
   const currentNodeId = () => (isTauri ? tauriNodeId() : identity()?.node_id);
   const hasIdentity = () => (isTauri ? !!tauriNodeId() : !!identity());
+
+  // parse the comma-separated relay urls field and persist it - browser only.
+  // also strips leading/trailing quote characters left over from pasting a
+  // quoted list (e.g. a JSON array's contents), which would otherwise fail
+  // to parse as a valid relay url on the rust side.
+  const handleSaveRelaySettings = async () => {
+    setIsSavingRelaySettings(true);
+    try {
+      const urls = relayUrlsInput()
+        .split(",")
+        .map((s) =>
+          s
+            .trim()
+            .replace(/^["']+|["']+$/g, "")
+            .trim()
+        )
+        .filter((s) => s.length > 0);
+      await saveMiddenRelaySettings({ relay_urls: urls, relay_custom_only: relayCustomOnly() });
+      toast.success("relay settings saved — reload the page for changes to take effect");
+    } catch (err) {
+      console.error("failed to save relay settings:", err);
+      toast.error("failed to save relay settings");
+    }
+    setIsSavingRelaySettings(false);
+  };
 
   // export federation backup
   const handleExport = async () => {
@@ -303,6 +343,42 @@ export function FederationSettingsView() {
                 </button>
               </div>
             </Show>
+          </div>
+        </Show>
+
+        {/* custom relay servers - browser/wasm only, always visible */}
+        <Show when={!isTauri}>
+          <div class="bg-[var(--color-bg-secondary)] border border-[var(--color-border-subtle)] rounded-lg p-6 mt-6">
+            <h2 class="text-sm font-semibold text-[var(--color-text-muted)] uppercase tracking-wider mb-3">
+              custom relay servers
+            </h2>
+            <p class="text-xs text-[var(--color-text-muted)] mb-4">
+              by default, this browser uses the public n0/iroh relay servers. enter one or more of
+              your own relay urls (comma-separated) to use instead. changes take effect after
+              reloading the page.
+            </p>
+            <input
+              type="text"
+              class="w-full font-mono text-xs bg-[var(--color-bg-tertiary)] text-[var(--color-text-primary)] border border-[var(--color-border-default)] rounded-lg p-3 mb-3"
+              placeholder="https://relay.example.com, https://relay2.example.com"
+              value={relayUrlsInput()}
+              onInput={(e) => setRelayUrlsInput(e.currentTarget.value)}
+            />
+            <label class="flex items-center gap-2 text-sm text-[var(--color-text-secondary)] mb-4 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={relayCustomOnly()}
+                onChange={(e) => setRelayCustomOnly(e.currentTarget.checked)}
+              />
+              use only these relays (no public relay fallback)
+            </label>
+            <button
+              class="px-4 py-2 text-sm font-medium rounded-lg border border-[var(--color-border-default)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              onClick={handleSaveRelaySettings}
+              disabled={isSavingRelaySettings()}
+            >
+              {isSavingRelaySettings() ? "saving..." : "save relay settings"}
+            </button>
           </div>
         </Show>
 
