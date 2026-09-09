@@ -470,6 +470,85 @@ pub fn resolve_path(path: String) -> Result<String, String> {
     Ok(canonicalize_or_original(&path))
 }
 
+/// resolve a media blob id to a local filesystem path.
+///
+/// returns `Ok({ id, path, mime })` for blobs that have a
+/// `local_path` (i.e. the file lives on disk — true for songs synced
+/// via the local importer or downloaded over p2p), and an `Err` with
+/// a structured `error_type` discriminant otherwise. spume callers
+/// (both the desktop rodio backend and the cross-platform html
+/// `<audio>` backend) can introspect the error to decide whether to
+/// fall back to streaming on a per-song basis. NOT gated to desktop -
+/// android/ios need this too (see `resolve_blob_path_by_blake3`'s
+/// doc comment for why it used to live in the desktop-only
+/// `player_commands.rs` and no longer does).
+#[tauri::command]
+pub async fn resolve_blob_path(blob_id: String) -> Result<serde_json::Value, String> {
+    let resp = grimoire::media_blobz::build_blob_path_response(&blob_id).await;
+    match resp.data {
+        Some(data) => Ok(data),
+        None => {
+            // surface the first error_type if available so the client
+            // can branch on `no_local_path` vs `not_found` etc.
+            let kind = resp
+                .errors
+                .first()
+                .map(|e| e.error_type.clone())
+                .unwrap_or_else(|| "unknown_error".to_string());
+            // log at warn so path failures are visible in charnel logz
+            tracing::warn!(
+                blob_id = %blob_id,
+                error_type = %kind,
+                "resolve_blob_path: {}",
+                resp.message,
+            );
+            Err(format!("{kind}: {}", resp.message))
+        }
+    }
+}
+
+/// same as `resolve_blob_path`, but resolved by blake3 instead of
+/// `media_blobz.id`. a song's `media_blobz.id` gets replaced with a fresh
+/// one every time it's (re-)synced/downloaded locally, so a caller that
+/// only has a queue snapshot's original (often remote) `media_blob_id`
+/// can't reliably find the CURRENT local record with it - the blake3 is
+/// stable across syncs and is what callers should key their "have we
+/// already got this on disk" lookup on. every song that's ever been
+/// synced locally via iroh-blobs is guaranteed to have a blake3 (the sync
+/// itself hard-requires one), so callers can try this unconditionally for
+/// any queue item that has one. see rodioBackend.ts's
+/// `resolveLocalPathByBlake3` and audioAccess.ts's
+/// `resolveCharnelLocalPath` for the callers.
+///
+/// this and `resolve_blob_path` used to live in the desktop-only
+/// `player_commands.rs` (rodio is desktop-only), but the html `<audio>`
+/// backend's `resolveCharnelLocalPath` needs it on every platform
+/// including android/ios - that fast-path check was previously a
+/// guaranteed no-op on mobile since the command didn't exist there at
+/// all, forcing every play of an already-downloaded song through a full
+/// network round-trip. moved here (an always-compiled module) to fix that.
+#[tauri::command]
+pub async fn resolve_blob_path_by_blake3(blake3: String) -> Result<serde_json::Value, String> {
+    let resp = grimoire::media_blobz::build_blob_path_response_by_blake3(&blake3).await;
+    match resp.data {
+        Some(data) => Ok(data),
+        None => {
+            let kind = resp
+                .errors
+                .first()
+                .map(|e| e.error_type.clone())
+                .unwrap_or_else(|| "unknown_error".to_string());
+            tracing::debug!(
+                blake3 = %blake3,
+                error_type = %kind,
+                "resolve_blob_path_by_blake3: {}",
+                resp.message,
+            );
+            Err(format!("{kind}: {}", resp.message))
+        }
+    }
+}
+
 /// get the default app data directory path
 #[tauri::command]
 pub fn get_default_data_dir(app_handle: tauri::AppHandle) -> Option<String> {
