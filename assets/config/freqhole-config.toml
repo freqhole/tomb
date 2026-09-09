@@ -652,18 +652,18 @@ knocking_enabled = false
 # set to 0 to disable (use random port) - this is the default behavior
 bind_port = 0
 
-# OPTIONAL: custom iroh http relay server url for all P2P endpoints
+# OPTIONAL: custom iroh http relay server url(s) for all P2P endpoints
 # by default freqhole uses the public n0/iroh relay servers. if you host your
-# own iroh relay you can point freqhole at it here. parsed as a relay url, e.g.
-# "https://relay.example.com". leave commented out (or empty) to use the public
+# own iroh relay(s) you can point freqhole at them here - one or more urls,
+# e.g. ["https://relay.example.com"]. leave empty (or omit) to use the public
 # relay only.
-relay_url = "https://relay.freqhole.net"
+relay_urls = ["https://relay.freqhole.net"]
 
-# OPTIONAL: how to use relay_url (default: "default")
-#   "default"       - use the public iroh relay only (ignores relay_url)
-#   "custom_only"   - use only relay_url; no fallback to the public relay
-#   "prefer_custom" - use relay_url but keep the public iroh relay as fallback
-# requires a valid relay_url when set to "custom_only" or "prefer_custom".
+# OPTIONAL: how to use relay_urls (default: "default")
+#   "default"       - use the public iroh relay only (ignores relay_urls)
+#   "custom_only"   - use only relay_urls; no fallback to the public relay
+#   "prefer_custom" - use relay_urls but keep the public iroh relay as fallback
+# requires at least one valid relay_urls entry when set to "custom_only" or "prefer_custom".
 relay_mode = "default"
 
 # ============================================================================

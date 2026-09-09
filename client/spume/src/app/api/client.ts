@@ -95,7 +95,7 @@ export function httpRemote(baseUrl: string, apiKey?: string): RemoteLike {
 // midden node singleton (lazy initialization for P2P transport)
 // ============================================================================
 
-import { getP2PIdentity, saveP2PIdentity } from "../services/storage/db";
+import { getP2PIdentity, getMiddenRelaySettings, saveP2PIdentity } from "../services/storage/db";
 
 let middenNode: MiddenNodeLike | null = null;
 let middenNodePromise: Promise<MiddenNodeLike> | null = null;
@@ -130,6 +130,12 @@ export async function getMiddenNode(): Promise<MiddenNodeLike> {
     // exactly one identity, reused for this, never a second one).
     const options = new MiddenNodeOptions();
     options.extra_alpns = [PLAYER_ALPN];
+
+    const relaySettings = await getMiddenRelaySettings();
+    if (relaySettings.relay_urls.length > 0) {
+      options.relay_urls = relaySettings.relay_urls;
+      options.relay_custom_only = relaySettings.relay_custom_only;
+    }
 
     let node: MiddenNodeLike;
     if (existingIdentity) {

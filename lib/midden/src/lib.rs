@@ -16,7 +16,7 @@ mod opfs_store;
 use iroh::endpoint::presets;
 use iroh::endpoint::{Connection, RecvStream, SendStream};
 use iroh::protocol::ProtocolHandler;
-use iroh::{Endpoint, EndpointAddr, PublicKey, SecretKey};
+use iroh::{Endpoint, EndpointAddr, PublicKey, RelayMap, RelayMode, RelayUrl, SecretKey};
 use iroh_blobs::api::downloader::Downloader;
 use iroh_blobs::api::Store;
 use iroh_blobs::api::TempTag;
@@ -1009,6 +1009,10 @@ pub struct MiddenNodeOptions {
     pub opfs_store_dir: Option<String>,
     #[wasm_bindgen(skip)]
     pub connect_timeout_ms: Option<u32>,
+    #[wasm_bindgen(skip)]
+    pub relay_urls: Option<Vec<String>>,
+    #[wasm_bindgen(skip)]
+    pub relay_custom_only: bool,
 }
 
 #[wasm_bindgen]
@@ -1064,6 +1068,32 @@ impl MiddenNodeOptions {
     pub fn set_connect_timeout_ms(&mut self, ms: Option<u32>) {
         self.connect_timeout_ms = ms;
     }
+
+    /// custom iroh relay server url(s), e.g. ["https://relay.example.com"].
+    /// omit (or pass null/undefined/empty) to use only the public n0 relay
+    /// preset. combined with the n0 preset unless `relay_custom_only` is set.
+    #[wasm_bindgen(getter = relay_urls)]
+    pub fn get_relay_urls(&self) -> Option<Vec<String>> {
+        self.relay_urls.clone()
+    }
+
+    #[wasm_bindgen(setter = relay_urls)]
+    pub fn set_relay_urls(&mut self, urls: Option<Vec<String>>) {
+        self.relay_urls = urls;
+    }
+
+    /// when true, route only through `relay_urls` (no public n0 fallback).
+    /// when false (default), use `relay_urls` alongside the public n0
+    /// relay(s). ignored when `relay_urls` is empty/unset.
+    #[wasm_bindgen(getter = relay_custom_only)]
+    pub fn get_relay_custom_only(&self) -> bool {
+        self.relay_custom_only
+    }
+
+    #[wasm_bindgen(setter = relay_custom_only)]
+    pub fn set_relay_custom_only(&mut self, custom_only: bool) {
+        self.relay_custom_only = custom_only;
+    }
 }
 
 #[wasm_bindgen]
@@ -1093,6 +1123,8 @@ impl MiddenNode {
             options.extra_alpns.unwrap_or_default(),
             options.opfs_store_dir,
             options.connect_timeout_ms,
+            options.relay_urls.unwrap_or_default(),
+            options.relay_custom_only,
         )
         .await
     }
@@ -1167,12 +1199,15 @@ impl MiddenNode {
     }
 
     /// internal: create node with given secret key bytes, extra ALPNs, an
-    /// optional blob-store directory, and an optional connect timeout.
+    /// optional blob-store directory, an optional connect timeout, and
+    /// optional custom relay url(s).
     async fn create_with_secret_key(
         bytes: [u8; 32],
         extra_alpns: Vec<String>,
         opfs_store_dir: Option<String>,
         connect_timeout_ms: Option<u32>,
+        relay_urls: Vec<String>,
+        relay_custom_only: bool,
     ) -> Result<MiddenNode, JsError> {
         let secret_key = SecretKey::from_bytes(&bytes);
 
@@ -1191,12 +1226,17 @@ impl MiddenNode {
         }
 
         // use N0 preset for relay + DNS discovery (peers can find each other)
-        let endpoint = Endpoint::builder(presets::N0)
+        let mut builder = Endpoint::builder(presets::N0)
             .secret_key(secret_key)
-            .alpns(alpns)
-            .bind()
-            .await
-            .map_err(to_js_err)?;
+            .alpns(alpns);
+
+        // apply a custom relay map when configured; leave the preset's relay
+        // setup untouched (default N0 public relay) when no urls are given.
+        if let Some(relay_mode) = resolve_relay_mode(&relay_urls, relay_custom_only)? {
+            builder = builder.relay_mode(relay_mode);
+        }
+
+        let endpoint = builder.bind().await.map_err(to_js_err)?;
 
         // setup iroh-blobs store + gc. periodic gc keeps memory bounded; the
         // combined protect callback (protected_hashes + active_tags) keeps
@@ -2754,4 +2794,44 @@ impl MiddenNode {
 
 fn to_js_err<E: std::fmt::Display>(e: E) -> JsError {
     JsError::new(&e.to_string())
+}
+
+/// resolve the iroh relay mode from `MiddenNodeOptions`' relay fields,
+/// mirroring grimoire's `federation.relay_urls`/`relay_mode` resolution
+/// (see `grimoire/src/federation/transport/endpoint.rs`).
+///
+/// returns `Ok(None)` when no custom relays are configured (the N0 preset's
+/// public relay is left untouched). returns `Ok(Some(mode))` to override it:
+/// - `relay_custom_only`: route through `relay_urls` only, no public fallback.
+/// - otherwise: include both `relay_urls` and the public n0 relays so the
+///   endpoint can use whichever is reachable / lowest-latency.
+///
+/// errors when `relay_urls` contains only blank/invalid entries.
+fn resolve_relay_mode(
+    relay_urls: &[String],
+    relay_custom_only: bool,
+) -> Result<Option<RelayMode>, JsError> {
+    // also strips leading/trailing quote characters left over from pasting
+    // a quoted list (e.g. a JSON array's contents) into the settings field.
+    let parsed: Vec<RelayUrl> = relay_urls
+        .iter()
+        .map(|s| s.trim().trim_matches(['"', '\'']).trim())
+        .filter(|s| !s.is_empty())
+        .map(|s| {
+            s.parse::<RelayUrl>()
+                .map_err(|e| JsError::new(&format!("invalid relay url '{}': {}", s, e)))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    if parsed.is_empty() {
+        return Ok(None);
+    }
+
+    if relay_custom_only {
+        Ok(Some(RelayMode::custom(parsed)))
+    } else {
+        let map: RelayMap = parsed.into_iter().collect();
+        map.extend(&RelayMode::Default.relay_map());
+        Ok(Some(RelayMode::Custom(map)))
+    }
 }
