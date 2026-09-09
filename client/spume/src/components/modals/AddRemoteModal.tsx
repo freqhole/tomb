@@ -364,7 +364,12 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
     // runs against the real peer_addr rather than trying to fetch the
     // wrapper as an http remote.
     const playerQr = parsePlayerPairingQr(input);
-    void dispatch({ type: "SUBMIT_URL", input: playerQr?.node_id ?? input });
+    const resolved = playerQr?.node_id ?? input;
+    // keep the "url" step's input box in sync with whatever's actually
+    // being submitted, so a QR scan (or the origin hint) is visible/
+    // editable rather than a no-op-looking empty field if the test fails.
+    setInputValue(resolved);
+    void dispatch({ type: "SUBMIT_URL", input: resolved });
   };
 
   const handleRequestAccess = (username: string, message: string) => {
@@ -720,7 +725,14 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
                           <div class="space-y-2">
                             <For each={s.pendingRemotes}>
                               {(pending) => (
-                                <div class="flex items-center gap-2 p-2 bg-[var(--color-bg-secondary)] rounded border border-[var(--color-border-default)]">
+                                <div
+                                  class="flex items-center gap-2 p-2 bg-[var(--color-bg-secondary)] rounded border border-[var(--color-border-default)] cursor-pointer"
+                                  onClick={() => {
+                                    // don't clobber something the user's already typed/pasted
+                                    if (inputValue().trim()) return;
+                                    setInputValue(pending.peer_addr);
+                                  }}
+                                >
                                   {/* server image */}
                                   <div class="w-10 h-10 rounded overflow-hidden flex-shrink-0 bg-[var(--color-bg-tertiary)]">
                                     <Show
@@ -782,7 +794,13 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
                                     <button
                                       type="button"
                                       class="p-1.5 cursor-pointer text-[var(--color-text-secondary)] hover:text-[var(--color-accent-primary)] hover:bg-[var(--color-accent-primary)]/10 rounded transition-colors"
-                                      onClick={() => handleRetryPending(pending)}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        if (!inputValue().trim()) {
+                                          setInputValue(pending.peer_addr);
+                                        }
+                                        handleRetryPending(pending);
+                                      }}
                                       title={
                                         pending.stage === "connected"
                                           ? "continue setup"
@@ -795,6 +813,8 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
                                     >
                                       <svg
                                         class="w-4 h-4"
+                                        classList={{ "animate-spin": pending.stage === "testing" }}
+                                        style={{ "animation-direction": "reverse" }}
                                         fill="none"
                                         stroke="currentColor"
                                         viewBox="0 0 24 24"
@@ -810,7 +830,10 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
                                     <button
                                       type="button"
                                       class="p-1.5 cursor-pointer text-[var(--color-text-secondary)] hover:text-[var(--color-accent-primary)] hover:bg-[var(--color-accent-primary)]/10 rounded transition-colors"
-                                      onClick={() => handleDeletePending(pending)}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleDeletePending(pending);
+                                      }}
                                       title="remove"
                                     >
                                       <svg
