@@ -344,14 +344,21 @@ export class HtmlAudioBackend implements PlayerBackend {
       this.currentSongId = song.sha256;
 
       // set crossOrigin for direct remote URLs (needed for cookie auth on
-      // cross-origin). tauri's windows asset protocol serves local files
-      // over a fake `http://asset.localhost` origin (webview2 can't do
-      // custom URI schemes like macOS/linux's `asset://`) - that's still a
-      // local file read, not a credentialed cross-origin fetch, and tauri's
-      // asset protocol handler doesn't send back an
-      // Access-Control-Allow-Credentials header, so forcing credentials
-      // mode on it fails CORS. only treat it as needing credentials when
-      // it's actually http(s) to some other host.
+      // cross-origin). tauri's windows AND android asset protocols serve
+      // local files over a fake `http://asset.localhost` origin (their
+      // chromium-based webviews can't do custom URI schemes like macOS/
+      // linux's real `asset://`) - that's still a local file read, not a
+      // credentialed cross-origin fetch. `audio.crossOrigin = ""` is NOT
+      // "no CORS" - per the CORS-settings-attribute spec, the empty string
+      // is an alias for "anonymous", so it still puts the element in CORS
+      // mode (requiring an Access-Control-Allow-Origin response on every
+      // subsequent range-request read, not just the initial load). tauri's
+      // asset protocol handler doesn't reliably send that back on android,
+      // which manifested as reads failing partway through playback
+      // (immediately, after a few seconds, or after a restart-from-0 retry)
+      // - only REMOVING the attribute actually takes the element out of
+      // CORS mode entirely for these local-file reads. only treat it as
+      // needing credentials when it's actually http(s) to some other host.
       let needsCredentials = false;
       if (audioURL.startsWith("http")) {
         try {
@@ -360,7 +367,11 @@ export class HtmlAudioBackend implements PlayerBackend {
           needsCredentials = true;
         }
       }
-      audio.crossOrigin = needsCredentials ? "use-credentials" : "";
+      if (needsCredentials) {
+        audio.crossOrigin = "use-credentials";
+      } else {
+        audio.removeAttribute("crossorigin");
+      }
 
       // TEMP DEBUG LOGGING - remove once windows audio-src issue is confirmed fixed.
       console.log(
@@ -784,9 +795,12 @@ export class HtmlAudioBackend implements PlayerBackend {
       this.pendingSwapCleanup = null;
     }
 
-    // swap to cached blob URL (same-origin, no crossOrigin needed)
+    // swap to cached blob URL (same-origin, no crossOrigin needed). remove
+    // the attribute rather than setting "" - the empty string still means
+    // CORS mode ("anonymous"), not "no CORS" (see the loadAndPlay comment
+    // above for why this distinction matters).
     if (wasPlaying) audio.pause();
-    audio.crossOrigin = "";
+    audio.removeAttribute("crossorigin");
     audio.src = cachedURL;
 
     // restore position once media is loadable, but only for the right song
