@@ -46,6 +46,7 @@ jobs:
         # by the external-storage device watcher. gstreamer-play is in
         # gst-plugins-bad, so its dev package is required as well as base.
         run: |
+          sudo rm -f /etc/apt/sources.list.d/google-chrome.list
           sudo apt-get update
           sudo apt-get install -y \
             libasound2-dev sqlite3 libudev-dev \
@@ -98,6 +99,7 @@ jobs:
         # by the external-storage device watcher. gstreamer-play is in
         # gst-plugins-bad, so its dev package is required as well as base.
         run: |
+          sudo rm -f /etc/apt/sources.list.d/google-chrome.list
           sudo apt-get update
           sudo apt-get install -y \
             libasound2-dev sqlite3 libudev-dev \
