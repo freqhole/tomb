@@ -70,6 +70,8 @@ export function FederationSettingsView() {
   const [relayUrlsInput, setRelayUrlsInput] = createSignal("");
   const [relayCustomOnly, setRelayCustomOnly] = createSignal(false);
   const [isSavingRelaySettings, setIsSavingRelaySettings] = createSignal(false);
+  const [relaySettingsSaved, setRelaySettingsSaved] = createSignal(false);
+  let relaySettingsSavedTimeout: ReturnType<typeof setTimeout> | undefined;
 
   const isTauri = isCharnelAvailable();
 
@@ -165,6 +167,9 @@ export function FederationSettingsView() {
         .filter((s) => s.length > 0);
       await saveMiddenRelaySettings({ relay_urls: urls, relay_custom_only: relayCustomOnly() });
       toast.success("relay settings saved — reload the page for changes to take effect");
+      setRelaySettingsSaved(true);
+      clearTimeout(relaySettingsSavedTimeout);
+      relaySettingsSavedTimeout = setTimeout(() => setRelaySettingsSaved(false), 5000);
     } catch (err) {
       console.error("failed to save relay settings:", err);
       toast.error("failed to save relay settings");
@@ -357,9 +362,9 @@ export function FederationSettingsView() {
               your own relay urls (comma-separated) to use instead. changes take effect after
               reloading the page.
             </p>
-            <input
-              type="text"
-              class="w-full font-mono text-xs bg-[var(--color-bg-tertiary)] text-[var(--color-text-primary)] border border-[var(--color-border-default)] rounded-lg p-3 mb-3"
+            <textarea
+              class="w-full font-mono text-xs bg-[var(--color-bg-tertiary)] text-[var(--color-text-primary)] border border-[var(--color-border-default)] rounded-lg p-3 mb-3 resize-y"
+              rows={3}
               placeholder="https://relay.example.com, https://relay2.example.com"
               value={relayUrlsInput()}
               onInput={(e) => setRelayUrlsInput(e.currentTarget.value)}
@@ -372,13 +377,18 @@ export function FederationSettingsView() {
               />
               use only these relays (no public relay fallback)
             </label>
-            <button
-              class="px-4 py-2 text-sm font-medium rounded-lg border border-[var(--color-border-default)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              onClick={handleSaveRelaySettings}
-              disabled={isSavingRelaySettings()}
-            >
-              {isSavingRelaySettings() ? "saving..." : "save relay settings"}
-            </button>
+            <div class="flex items-center gap-3">
+              <button
+                class="px-4 py-2 text-sm font-medium rounded-lg border border-[var(--color-border-default)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                onClick={handleSaveRelaySettings}
+                disabled={isSavingRelaySettings()}
+              >
+                {isSavingRelaySettings() ? "saving..." : "save relay settings"}
+              </button>
+              <Show when={relaySettingsSaved()}>
+                <span class="text-sm text-green-400">saved!</span>
+              </Show>
+            </div>
           </div>
         </Show>
 

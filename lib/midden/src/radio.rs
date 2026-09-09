@@ -77,7 +77,7 @@ impl MiddenNode {
         on_meta: &JsFunction,
         on_chunk: &JsFunction,
     ) -> Result<RadioHandle, JsError> {
-        let addr = parse_peer_addr(peer_addr).map_err(|e| JsError::new(&e))?;
+        let addr = parse_peer_addr(peer_addr, &self.own_relay_urls).map_err(|e| JsError::new(&e))?;
 
         info!("[radio] connecting to broadcaster...");
         let conn = self
