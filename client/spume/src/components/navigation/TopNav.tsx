@@ -26,6 +26,7 @@ import { resolveBlobUrl } from "../../music/services/storage/blobResolver";
 import type { ImageMetadata } from "../../music/services/storage/types";
 import { routes } from "../../music/utils/routing";
 import { formatRelativeTime } from "../../utils/dateTime";
+import { isTouchDevice } from "../../utils/isMobile";
 import { DEFAULT_SHARE_WEB_HOST } from "../../utils/permalink";
 import { TopNavSearchContainer } from "../../utils/TopNavSearchContainer";
 import { Badge } from "../badges/Badge";
@@ -66,10 +67,10 @@ function chromelessStripActive(): boolean {
 // view-switcher options for a given remote's own hover flyout in the main
 // menu (routes.ts builds these for the CURRENT source only - this mirrors
 // that same route shape for an arbitrary remote id).
-function remoteViewOptions(remoteId: string): ViewOption[] {
-  const prefix = `/${remoteId}`;
+function viewOptionsForPrefix(prefix: string, includeFeed: boolean): ViewOption[] {
+  const base: ViewOption[] = includeFeed ? [{ label: "feed", path: `${prefix}/feed` }] : [];
   return [
-    { label: "feed", path: `${prefix}/feed` },
+    ...base,
     { label: "songs", path: `${prefix}/songs` },
     { label: "albums", path: `${prefix}/albums` },
     { label: "artists", path: `${prefix}/artists` },
@@ -78,6 +79,16 @@ function remoteViewOptions(remoteId: string): ViewOption[] {
     { label: "videos", path: `${prefix}/video` },
     { label: "series", path: `${prefix}/video/series` },
   ];
+}
+
+function remoteViewOptions(remoteId: string): ViewOption[] {
+  return viewOptionsForPrefix(`/${remoteId}`, true);
+}
+
+// local library never has a feed view in browser mode (no server backend) -
+// see hasFeedView() in routing.ts.
+function localLibraryViewOptions(): ViewOption[] {
+  return viewOptionsForPrefix("/local", isCharnelMode());
 }
 
 type FlyoutPos = { left: number; top?: number; bottom?: number; maxHeight: number };
@@ -483,6 +494,7 @@ export function TopNav(props: TopNavProps) {
   const remoteFlyoutActive = () => activeRemoteFlyouts().size > 0;
   const [remoteFlyoutPosById, setRemoteFlyoutPosById] = createSignal<Record<string, FlyoutPos>>({});
   const remoteRowRefs = new Map<string, HTMLDivElement>();
+  const remoteFlyoutContentRefs = new Map<string, HTMLDivElement>();
   const remoteFlyoutHovered = new Set<string>();
   const remoteFlyoutCloseTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
   const openRemoteFlyout = (id: string) => {
@@ -515,6 +527,39 @@ export function TopNav(props: TopNavProps) {
       }, 400)
     );
   };
+  // closes immediately, no hover-delay - used for touch (outside-tap close,
+  // since there's no mouseleave to rely on) and for the flyout's own item
+  // clicks.
+  const closeRemoteFlyoutNow = (id: string) => {
+    remoteFlyoutHovered.delete(id);
+    clearTimeout(remoteFlyoutCloseTimeouts.get(id));
+    setActiveRemoteFlyouts((prev) => {
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+  };
+
+  // touch devices have no real hover, so the flyout is opened via long-press
+  // (the native contextmenu event, which mobile browsers already dispatch on
+  // long-press for free) instead, and closed on any tap outside the row/
+  // flyout since there's no mouseleave to close it on.
+  const handleRemoteFlyoutOutsideTap = (e: PointerEvent) => {
+    if (!isTouchDevice()) return;
+    const target = e.target as Node | null;
+    if (!target) return;
+    for (const id of activeRemoteFlyouts()) {
+      if (remoteRowRefs.get(id)?.contains(target)) continue;
+      if (remoteFlyoutContentRefs.get(id)?.contains(target)) continue;
+      closeRemoteFlyoutNow(id);
+    }
+  };
+  onMount(() => {
+    document.addEventListener("pointerdown", handleRemoteFlyoutOutsideTap, true);
+    onCleanup(() => {
+      document.removeEventListener("pointerdown", handleRemoteFlyoutOutsideTap, true);
+    });
+  });
   const isDesktopFlyoutOpen = (name: DesktopFlyoutName) => activeDesktopFlyout() === name;
   let suppressDesktopHoverUntilPointerLeave = false;
   const closeAllDesktopFlyouts = () => {
@@ -1441,68 +1486,166 @@ export function TopNav(props: TopNavProps) {
                         <div class="space-y-1">
                           {/* local library option - hidden in tauri mode */}
                           <Show when={!isCharnelMode()}>
-                            <div class="relative flex items-center gap-1">
-                              <button
-                                class="flex-1 min-w-0 px-3 py-2 text-left text-sm flex items-center gap-2 rounded transition-colors border-none bg-transparent"
-                                classList={{
-                                  "text-[var(--color-text-primary)] bg-[var(--color-accent-500)]/10 cursor-default":
-                                    isLocalSourceActive(),
-                                  "text-[var(--color-text-secondary)] cursor-pointer hover:bg-[var(--color-accent-500)]/10":
-                                    isAggregateFeedRoute() ||
-                                    isRadioRoute() ||
-                                    isSharedRoute() ||
-                                    isLibraryRoute() ||
-                                    !!props.currentSourceId,
-                                }}
-                                disabled={!!isLocalSourceActive()}
-                                onClick={() => {
-                                  closeTopNavMenu();
-                                  props.onSwitchToLocal?.();
-                                }}
-                              >
-                                <Show
-                                  when={isLocalSourceActive()}
-                                  fallback={
-                                    <span class="w-2 h-2 rounded-full bg-[var(--color-accent-primary)]" />
-                                  }
-                                >
-                                  <Icon name="check" size={14} color="var(--color-accent-500)" />
-                                </Show>
-                                <span class="truncate">
-                                  {props.localLibraryName ?? "local library"}
-                                </span>
-                                <Icon
-                                  name="home"
-                                  size={14}
-                                  color="var(--color-text-muted)"
-                                  className="flex-shrink-0 ml-1"
-                                />
-                              </button>
-                              <Show when={props.onRenameLocalLibrary}>
-                                <RowActionsMenu
-                                  actions={[
-                                    {
-                                      label: "rename",
-                                      icon: "edit",
-                                      onClick: () => {
-                                        const current = props.localLibraryName ?? "local library";
-                                        setRenameValue(current);
-                                        setPendingRename({
-                                          id: LOCAL_LIBRARY_RENAME_ID,
-                                          name: current,
-                                        });
-                                      },
-                                    },
-                                  ]}
-                                  isOpen={openMenuFor() === LOCAL_LIBRARY_RENAME_ID}
-                                  onToggle={() => {
-                                    const opening = openMenuFor() !== LOCAL_LIBRARY_RENAME_ID;
-                                    setOpenMenuFor(opening ? LOCAL_LIBRARY_RENAME_ID : null);
+                            {(() => {
+                              // same hover(desktop)/long-press(touch) view-switcher
+                              // flyout as remote rows below, keyed by the same
+                              // sentinel id the rename menu already uses.
+                              const id = LOCAL_LIBRARY_RENAME_ID;
+                              const viewsOpen = () => activeRemoteFlyouts().has(id);
+                              const flyoutPos = () => remoteFlyoutPosById()[id];
+                              const openViews = () => {
+                                if (isTouchDevice()) return;
+                                openRemoteFlyout(id);
+                              };
+                              const closeViewsDelayed = () => {
+                                if (isTouchDevice()) return;
+                                closeRemoteFlyoutDelayed(id);
+                              };
+                              let pressTimer: ReturnType<typeof setTimeout> | undefined;
+                              const clearPressTimer = () => {
+                                if (pressTimer !== undefined) {
+                                  clearTimeout(pressTimer);
+                                  pressTimer = undefined;
+                                }
+                              };
+                              onCleanup(clearPressTimer);
+                              const startPressTimer = (e: PointerEvent) => {
+                                if (e.pointerType !== "touch" && e.pointerType !== "pen") return;
+                                clearPressTimer();
+                                pressTimer = setTimeout(() => {
+                                  openRemoteFlyout(id);
+                                }, 500);
+                              };
+                              return (
+                                <div
+                                  ref={(el) => remoteRowRefs.set(id, el)}
+                                  class="relative flex items-center gap-1"
+                                  style={{ "-webkit-touch-callout": "none" }}
+                                  onMouseEnter={openViews}
+                                  onMouseLeave={closeViewsDelayed}
+                                  onPointerDown={startPressTimer}
+                                  onPointerUp={clearPressTimer}
+                                  onPointerMove={clearPressTimer}
+                                  onPointerCancel={clearPressTimer}
+                                  onContextMenu={(e) => {
+                                    if (!isTouchDevice()) return;
+                                    e.preventDefault();
+                                    clearPressTimer();
+                                    openRemoteFlyout(id);
                                   }}
-                                  onClose={() => setOpenMenuFor(null)}
-                                />
-                              </Show>
-                            </div>
+                                >
+                                  <button
+                                    class="flex-1 min-w-0 px-3 py-2 text-left text-sm flex items-center gap-2 rounded transition-colors border-none bg-transparent"
+                                    classList={{
+                                      "text-[var(--color-text-primary)] bg-[var(--color-accent-500)]/10 cursor-default":
+                                        isLocalSourceActive(),
+                                      "text-[var(--color-text-secondary)] cursor-pointer hover:bg-[var(--color-accent-500)]/10":
+                                        isAggregateFeedRoute() ||
+                                        isRadioRoute() ||
+                                        isSharedRoute() ||
+                                        isLibraryRoute() ||
+                                        !!props.currentSourceId,
+                                    }}
+                                    disabled={!!isLocalSourceActive()}
+                                    onClick={() => {
+                                      closeTopNavMenu();
+                                      props.onSwitchToLocal?.();
+                                    }}
+                                  >
+                                    <Show
+                                      when={isLocalSourceActive()}
+                                      fallback={
+                                        <span class="w-2 h-2 rounded-full bg-[var(--color-accent-primary)]" />
+                                      }
+                                    >
+                                      <Icon
+                                        name="check"
+                                        size={14}
+                                        color="var(--color-accent-500)"
+                                      />
+                                    </Show>
+                                    <span class="truncate">
+                                      {props.localLibraryName ?? "local library"}
+                                    </span>
+                                    <Icon
+                                      name="home"
+                                      size={14}
+                                      color="var(--color-text-muted)"
+                                      className="flex-shrink-0 ml-1"
+                                    />
+                                  </button>
+                                  <Show when={props.onRenameLocalLibrary}>
+                                    <RowActionsMenu
+                                      actions={[
+                                        {
+                                          label: "rename",
+                                          icon: "edit",
+                                          onClick: () => {
+                                            const current =
+                                              props.localLibraryName ?? "local library";
+                                            setRenameValue(current);
+                                            setPendingRename({
+                                              id: LOCAL_LIBRARY_RENAME_ID,
+                                              name: current,
+                                            });
+                                          },
+                                        },
+                                      ]}
+                                      isOpen={openMenuFor() === LOCAL_LIBRARY_RENAME_ID}
+                                      onToggle={() => {
+                                        const opening = openMenuFor() !== LOCAL_LIBRARY_RENAME_ID;
+                                        setOpenMenuFor(opening ? LOCAL_LIBRARY_RENAME_ID : null);
+                                      }}
+                                      onClose={() => setOpenMenuFor(null)}
+                                    />
+                                  </Show>
+                                  <Show when={viewsOpen() && flyoutPos()}>
+                                    {(pos) => (
+                                      <Portal mount={document.body}>
+                                        <div
+                                          ref={(el) => remoteFlyoutContentRefs.set(id, el)}
+                                          data-kb-top-layer=""
+                                          class="fixed w-[180px] bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded-lg shadow-xl z-[1002] py-1 overflow-y-auto"
+                                          style={{
+                                            left: `${pos().left}px`,
+                                            top:
+                                              pos().top !== undefined
+                                                ? `${pos().top}px`
+                                                : undefined,
+                                            bottom:
+                                              pos().bottom !== undefined
+                                                ? `${pos().bottom}px`
+                                                : undefined,
+                                            "max-height": `${pos().maxHeight}px`,
+                                          }}
+                                          onMouseEnter={openViews}
+                                          onMouseLeave={closeViewsDelayed}
+                                        >
+                                          <div class="px-3 py-1.5 text-xs font-medium text-[var(--color-text-muted)] truncate border-b border-[var(--color-border-subtle)] mb-1">
+                                            {props.localLibraryName ?? "local library"}
+                                          </div>
+                                          <For each={localLibraryViewOptions()}>
+                                            {(view) => (
+                                              <button
+                                                class="w-full text-left px-3 py-2 text-sm transition-colors border-none bg-transparent cursor-pointer text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
+                                                onClick={() => {
+                                                  closeTopNavMenu();
+                                                  forceCloseTopNavMenu();
+                                                  closeRemoteFlyoutNow(id);
+                                                  props.onNavigate?.(view.path);
+                                                }}
+                                              >
+                                                {view.label}
+                                              </button>
+                                            )}
+                                          </For>
+                                        </div>
+                                      </Portal>
+                                    )}
+                                  </Show>
+                                </div>
+                              );
+                            })()}
                           </Show>
 
                           {/* remote sources */}
@@ -1530,17 +1673,59 @@ export function TopNav(props: TopNavProps) {
                                   // state lives in the shared, id-keyed maps/signals above
                                   // (see the comment there for why - this row's own local
                                   // variables would get wiped by upstream re-renders).
+                                  //
+                                  // touch devices have no hover, so these no-op there - the
+                                  // row's long-press timer below opens it instead, and
+                                  // handleRemoteFlyoutOutsideTap closes it.
                                   const viewsOpen = () => activeRemoteFlyouts().has(remote.id);
                                   const flyoutPos = () => remoteFlyoutPosById()[remote.id];
-                                  const openViews = () => openRemoteFlyout(remote.id);
-                                  const closeViewsDelayed = () =>
+                                  const openViews = () => {
+                                    if (isTouchDevice()) return;
+                                    openRemoteFlyout(remote.id);
+                                  };
+                                  const closeViewsDelayed = () => {
+                                    if (isTouchDevice()) return;
                                     closeRemoteFlyoutDelayed(remote.id);
+                                  };
+                                  // long-press-to-open on touch/pen, mirroring Kobalte's own
+                                  // ContextMenuTrigger timer: iOS Safari doesn't reliably fire
+                                  // a native contextmenu event on long-press for plain elements,
+                                  // so a pointer-based timer is required (contextmenu alone
+                                  // works on some Android browsers but isn't a safe assumption).
+                                  let pressTimer: ReturnType<typeof setTimeout> | undefined;
+                                  const clearPressTimer = () => {
+                                    if (pressTimer !== undefined) {
+                                      clearTimeout(pressTimer);
+                                      pressTimer = undefined;
+                                    }
+                                  };
+                                  onCleanup(clearPressTimer);
+                                  const startPressTimer = (e: PointerEvent) => {
+                                    if (e.pointerType !== "touch" && e.pointerType !== "pen") {
+                                      return;
+                                    }
+                                    clearPressTimer();
+                                    pressTimer = setTimeout(() => {
+                                      openRemoteFlyout(remote.id);
+                                    }, 500);
+                                  };
                                   return (
                                     <div
                                       ref={(el) => remoteRowRefs.set(remote.id, el)}
                                       class="relative flex items-center gap-1"
+                                      style={{ "-webkit-touch-callout": "none" }}
                                       onMouseEnter={openViews}
                                       onMouseLeave={closeViewsDelayed}
+                                      onPointerDown={startPressTimer}
+                                      onPointerUp={clearPressTimer}
+                                      onPointerMove={clearPressTimer}
+                                      onPointerCancel={clearPressTimer}
+                                      onContextMenu={(e) => {
+                                        if (!isTouchDevice()) return;
+                                        e.preventDefault();
+                                        clearPressTimer();
+                                        openRemoteFlyout(remote.id);
+                                      }}
                                     >
                                       <button
                                         class="flex-1 min-w-0 px-3 py-2 text-left text-sm flex items-center gap-2 rounded transition-colors border-none bg-transparent"
@@ -1654,6 +1839,9 @@ export function TopNav(props: TopNavProps) {
                                         {(pos) => (
                                           <Portal mount={document.body}>
                                             <div
+                                              ref={(el) =>
+                                                remoteFlyoutContentRefs.set(remote.id, el)
+                                              }
                                               data-kb-top-layer=""
                                               class="fixed w-[180px] bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded-lg shadow-xl z-[1002] py-1 overflow-y-auto"
                                               style={{
@@ -1681,12 +1869,7 @@ export function TopNav(props: TopNavProps) {
                                                     onClick={() => {
                                                       closeTopNavMenu();
                                                       forceCloseTopNavMenu();
-                                                      remoteFlyoutHovered.delete(remote.id);
-                                                      setActiveRemoteFlyouts((prev) => {
-                                                        const next = new Set(prev);
-                                                        next.delete(remote.id);
-                                                        return next;
-                                                      });
+                                                      closeRemoteFlyoutNow(remote.id);
                                                       props.onNavigate?.(view.path);
                                                     }}
                                                   >
