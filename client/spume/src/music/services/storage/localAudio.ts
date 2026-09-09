@@ -8,20 +8,8 @@
 import { readAudioFromOPFS } from "../opfs/helpers";
 import { getSongBySha256 } from "./db/songs";
 import { isCharnelMode } from "../../../app/services/charnel";
+import { resolveCharnelMediaSrc } from "@freqhole/api-client";
 import { warn } from "../../../utils/logger";
-
-let convertFileSrc: ((path: string) => string) | null = null;
-
-async function ensureConvertFileSrc(): Promise<((path: string) => string) | null> {
-  if (convertFileSrc) return convertFileSrc;
-  try {
-    const tauri = await import("@tauri-apps/api/core");
-    convertFileSrc = tauri.convertFileSrc;
-    return convertFileSrc;
-  } catch {
-    return null;
-  }
-}
 
 /**
  * build a playable url for a song already in the local library, or null if it
@@ -38,12 +26,19 @@ export async function resolveLocalAudioUrl(
 ): Promise<string | null> {
   if (isCharnelMode()) {
     if (!localPath) return null;
-    const convert = await ensureConvertFileSrc();
-    if (!convert) {
-      warn("localAudio", "convertFileSrc unavailable; cannot play local file under charnel");
+    // android gets the custom `freqhole-media` protocol instead of tauri's
+    // built-in `asset` protocol - see `resolveCharnelMediaSrc`'s doc comment
+    // for why (the built-in one truncates every range response to ~1MB).
+    try {
+      return await resolveCharnelMediaSrc(localPath);
+    } catch (err) {
+      warn(
+        "localAudio",
+        "resolveCharnelMediaSrc failed; cannot play local file under charnel:",
+        err
+      );
       return null;
     }
-    return convert(localPath);
   }
 
   const local = await getSongBySha256(sha256);

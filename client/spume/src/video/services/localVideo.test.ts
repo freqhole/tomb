@@ -7,7 +7,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const getLocalVideoById = vi.fn();
 const readVideoFromOPFS = vi.fn();
 const isCharnelMode = vi.fn(() => false);
-const convertFileSrc = vi.fn((p: string) => `asset://localhost/${p}`);
+const resolveCharnelMediaSrc = vi.fn((p: string) => `asset://localhost/${p}`);
 const syncVideoToLocal = vi.fn(async () => ({ success: false }) as Record<string, unknown>);
 const invoke = vi.fn();
 
@@ -24,8 +24,10 @@ vi.mock("./sync/syncVideoToLocal", () => ({
 vi.mock("../../app/services/charnel", () => ({
   isCharnelMode: () => isCharnelMode(),
 }));
+vi.mock("@freqhole/api-client", () => ({
+  resolveCharnelMediaSrc: (p: string) => resolveCharnelMediaSrc(p),
+}));
 vi.mock("@tauri-apps/api/core", () => ({
-  convertFileSrc: (p: string) => convertFileSrc(p),
   invoke: (...a: unknown[]) => invoke(...(a as [])),
 }));
 

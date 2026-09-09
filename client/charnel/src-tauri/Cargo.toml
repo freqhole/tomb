@@ -53,6 +53,13 @@ base64 = "0.22"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 lofty = { workspace = true }
 shell-words = { workspace = true }
+# for the custom `freqhole-media://` uri scheme protocol (media_protocol.rs) -
+# already transitively present (tauri's own built-in asset protocol uses the
+# same crates), pinned here as direct deps so cargo resolves to the same
+# already-present versions rather than adding duplicates.
+http-range = "0.1"
+percent-encoding = "2"
+mime_guess = "2"
 
 # internal dependencies
 grimoire = { path = "../../../grimoire", default-features = false }

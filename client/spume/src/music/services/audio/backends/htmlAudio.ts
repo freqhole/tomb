@@ -94,6 +94,14 @@ export class HtmlAudioBackend implements PlayerBackend {
   // constructor, called on dispose so the bridge stops dispatching
   // here once the backend is gone.
   private unregisterWatchdog: (() => void) | null = null;
+  // set right before assigning `audio.currentTime` in `seek()`, cleared on
+  // the next "seeked" (success) or "error" (failure) event - lets the
+  // error handler tell "this error immediately followed a seek attempt"
+  // apart from a genuine playback/decode failure. paired with the position
+  // to recover to (some formats, notably FLAC, can't establish a new PTS
+  // from an arbitrary byte-range seek target - see seek()'s own comment).
+  private seekPending = false;
+  private preSeekPositionSec = 0;
 
   constructor() {
     this.unregisterWatchdog = registerWatchdog(() => this.expectedEndWatchdog());
@@ -358,11 +366,15 @@ export class HtmlAudioBackend implements PlayerBackend {
       // (immediately, after a few seconds, or after a restart-from-0 retry)
       // - only REMOVING the attribute actually takes the element out of
       // CORS mode entirely for these local-file reads. only treat it as
-      // needing credentials when it's actually http(s) to some other host.
+      // needing credentials when it's actually http(s) to some other host -
+      // `freqhole-media.localhost` is our own custom protocol (android-only,
+      // see media_protocol.rs), just as local as `asset.localhost`, and its
+      // handler doesn't send Access-Control-* headers at all.
+      const LOCAL_FILE_HOSTNAMES = new Set(["asset.localhost", "freqhole-media.localhost"]);
       let needsCredentials = false;
       if (audioURL.startsWith("http")) {
         try {
-          needsCredentials = new URL(audioURL).hostname !== "asset.localhost";
+          needsCredentials = !LOCAL_FILE_HOSTNAMES.has(new URL(audioURL).hostname);
         } catch {
           needsCredentials = true;
         }
@@ -518,10 +530,61 @@ export class HtmlAudioBackend implements PlayerBackend {
     }
   }
 
-  // seek to position (in seconds)
+  // seek to position (in seconds). some formats/platforms (notably FLAC on
+  // android, via the `freqhole-media` protocol - a raw byte-range seek
+  // request has no access to the file's start-of-stream metadata a demuxer
+  // needs to establish a new timestamp) can fail to seek entirely. tracked
+  // via `seekPending`/`preSeekPositionSec` so the "error" listener below
+  // can recover instead of stopping playback - see that listener's comment.
   seek(seconds: number): void {
     const audio = this.initAudio();
+    this.preSeekPositionSec = audio.currentTime;
+    this.seekPending = true;
     audio.currentTime = Math.max(0, Math.min(seconds, audio.duration || 0));
+  }
+
+  // recover from a seek-triggered playback error: reload the source (the
+  // errored state doesn't clear just by reassigning currentTime) and
+  // resume at the pre-seek position rather than stopping/advancing.
+  private recoverFromFailedSeek(audio: HTMLAudioElement, code: number | null, msg: string): void {
+    const targetSec = this.preSeekPositionSec;
+    const wasPlaying = isPlaying();
+    const state = appState();
+    const song = state?.queue.find(
+      (i) => i.kind === "song" && i.song.sha256 === state.current_sha256
+    );
+    const isFlac =
+      song?.kind === "song" && (song.song.mime_type ?? "").toLowerCase().includes("flac");
+
+    warn(
+      "player.html",
+      isFlac
+        ? `seek failed on a FLAC file (seeking mid-stream can lose the header ` +
+            `info FLAC needs for timing) - resuming at ${targetSec.toFixed(1)}s instead: ` +
+            `code=${code} ${msg}`
+        : `seek failed - resuming at ${targetSec.toFixed(1)}s instead: code=${code} ${msg}`
+    );
+
+    const onLoaded = () => {
+      audio.removeEventListener("loadedmetadata", onLoaded);
+      try {
+        audio.currentTime = targetSec;
+      } catch {
+        // ignore - invalid duration / browser quirk
+      }
+      if (wasPlaying) {
+        void audio.play().catch(() => {
+          // best-effort - if this also fails, the next real error event
+          // (not seek-triggered) will handle it normally.
+        });
+      }
+    };
+    audio.addEventListener("loadedmetadata", onLoaded, { once: true });
+    // reassigning src to itself forces the element to drop the errored
+    // state and reload from scratch.
+    const src = audio.src;
+    audio.src = "";
+    audio.src = src;
   }
 
   // set volume (0-1)
@@ -668,11 +731,14 @@ export class HtmlAudioBackend implements PlayerBackend {
     // network stall - audio is waiting for data. good opportunity to
     // swap to cached version if available.
     audio.addEventListener("waiting", () => {
+      // TEMP DEBUG LOGGING - remove once android media-protocol issue confirmed fixed.
+      console.log("[htmlAudio TEMP] waiting event (network stall/buffering)");
       void this.trySwapCurrentSongToCached();
     });
 
     // seek completed - swap even if playing (brief pause-swap-resume)
     audio.addEventListener("seeked", () => {
+      this.seekPending = false;
       void this.trySwapCurrentSongToCached(true);
     });
 
@@ -706,6 +772,21 @@ export class HtmlAudioBackend implements PlayerBackend {
         "player.html",
         `audio element error code=${code} src=${audio.src?.slice(0, 60) ?? null}: ${msg}`
       );
+
+      // an error that immediately follows a seek attempt - recover in
+      // place (resume at the pre-seek position) instead of advancing the
+      // queue like a genuine playback failure. some formats can't
+      // establish a new decode timestamp from an arbitrary byte-range
+      // seek target (FLAC needs its start-of-stream STREAMINFO block,
+      // which a Range request starting mid-file never includes - MP3's
+      // self-synchronizing frame headers mostly tolerate this, FLAC
+      // doesn't).
+      if (this.seekPending) {
+        this.seekPending = false;
+        this.recoverFromFailedSeek(audio, code, msg);
+        return;
+      }
+
       // surface as a structured error event — facade's auto-advance
       // bridge treats this the same way it treats `ended` (advance
       // the queue with a retry budget), but branches on `error_type`
@@ -728,6 +809,12 @@ export class HtmlAudioBackend implements PlayerBackend {
       this.emit({ kind: "state", state: "loading" });
     });
     audio.addEventListener("waiting", () => {
+      // TEMP DEBUG LOGGING - remove once android media-protocol issue confirmed fixed.
+      // an extended "loading" spinner with no matching "error"/"canplay" for
+      // a while usually means the browser itself is silently retrying a
+      // stalled network read (its own backoff, invisible to us beyond the
+      // devtools network tab) - this fires every single retry attempt.
+      console.log("[htmlAudio TEMP] waiting event (state -> loading)");
       this.emit({ kind: "state", state: "loading" });
     });
     audio.addEventListener("canplay", () => {
@@ -774,10 +861,28 @@ export class HtmlAudioBackend implements PlayerBackend {
     if (!current_sha256) return;
 
     // only attempt if the song is currently using a direct URL
-    if (!isPlayingDirectURL(current_sha256)) return;
+    if (!isPlayingDirectURL(current_sha256)) {
+      // TEMP DEBUG LOGGING - remove once android media-protocol issue confirmed fixed.
+      console.log(
+        "[htmlAudio TEMP] trySwapCurrentSongToCached: not a direct-url song, no-op",
+        current_sha256.slice(0, 8)
+      );
+      return;
+    }
 
+    // TEMP DEBUG LOGGING - remove once android media-protocol issue confirmed fixed.
+    console.log(
+      "[htmlAudio TEMP] trySwapCurrentSongToCached: attempting swap",
+      current_sha256.slice(0, 8)
+    );
     const cachedURL = await trySwapToCachedURL(current_sha256);
-    if (!cachedURL) return;
+    if (!cachedURL) {
+      console.log(
+        "[htmlAudio TEMP] trySwapCurrentSongToCached: no cached url available yet",
+        current_sha256.slice(0, 8)
+      );
+      return;
+    }
 
     // double-check same song before swapping
     const currentState = appState();
