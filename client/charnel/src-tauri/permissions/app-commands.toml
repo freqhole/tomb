@@ -115,6 +115,7 @@ commands.allow = [
     "player_snapshot",
     "player_init",
     "resolve_blob_path",
+    "resolve_blob_path_by_blake3",
     "media_session_set_track",
     "media_session_clear_track",
     "player_pairing_dial",

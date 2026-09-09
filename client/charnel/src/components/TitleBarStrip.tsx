@@ -33,6 +33,8 @@ export function TitleBarStrip() {
   const [focused, setFocused] = createSignal(true);
   const [hovered, setHovered] = createSignal(false);
   const [resizeHovered, setResizeHovered] = createSignal(false);
+  const [targetOs, setTargetOs] = createSignal<string | null>(null);
+  const isLinux = () => targetOs() === "linux";
 
   onMount(() => {
     let unlistenFocus: (() => void) | undefined;
@@ -40,10 +42,14 @@ export function TitleBarStrip() {
 
     void (async () => {
       try {
-        const isChromeless = await invoke<boolean>("get_chromeless_title_bar");
+        const [isChromeless, buildInfo] = await Promise.all([
+          invoke<boolean>("get_chromeless_title_bar"),
+          invoke<{ target_os: string }>("get_build_info").catch(() => null),
+        ]);
         if (!isChromeless) {
           return;
         }
+        setTargetOs(buildInfo?.target_os ?? null);
         setEnabled(true);
         document.documentElement.style.setProperty("--safe-area-top", `${STRIP_HEIGHT_PX}px`);
         appliedSafeAreaTop = true;
@@ -90,6 +96,32 @@ export function TitleBarStrip() {
     transform: "translate(-50%, -50%)",
     width: "6px",
     height: "6px",
+  };
+
+  // linux-chrome (outline-style) buttons: dark grey, white border, magenta
+  // accent on hover - mirrors spume's TitleBarStrip linux cluster (no
+  // hamburger here, the wizard has no separate flyout menu to open).
+  const linuxButtonStyle = () => ({
+    position: "relative" as const,
+    flex: "none",
+    width: "20px",
+    height: "20px",
+    "border-radius": "5px",
+    border: `1px solid ${focused() ? "rgba(255, 255, 255, 0.5)" : "rgba(255, 255, 255, 0.25)"}`,
+    padding: "0",
+    background: focused() ? "#232323" : "#1a1a1a",
+    color: focused() ? "rgba(255, 255, 255, 0.8)" : "rgba(255, 255, 255, 0.4)",
+    transition: "border-color 0.15s, color 0.15s",
+    cursor: "pointer",
+  });
+  const linuxIconStyle = {
+    position: "absolute" as const,
+    top: "50%",
+    left: "50%",
+    transform: "translate(-50%, -50%)",
+    width: "11px",
+    height: "11px",
+    "pointer-events": "none" as const,
   };
 
   return (
@@ -166,56 +198,116 @@ export function TitleBarStrip() {
             height: "100%",
             gap: "8px",
             "padding-left": "10px",
+            "margin-top": isLinux() ? "4px" : "0",
           }}
         >
-          <button
-            type="button"
-            aria-label="close window"
-            style={dotStyle("#ff5f57")}
-            onClick={() => void getCurrentWindow().close()}
+          <Show
+            when={!isLinux()}
+            fallback={
+              <>
+                <button
+                  type="button"
+                  aria-label="close window"
+                  style={linuxButtonStyle()}
+                  onClick={() => void getCurrentWindow().close()}
+                >
+                  <svg viewBox="0 0 12 12" style={linuxIconStyle}>
+                    <path
+                      d="M2.5 2.5l7 7M9.5 2.5l-7 7"
+                      stroke="currentColor"
+                      stroke-width="1.4"
+                      stroke-linecap="round"
+                      fill="none"
+                    />
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  aria-label="minimize window"
+                  style={linuxButtonStyle()}
+                  onClick={() => void getCurrentWindow().minimize()}
+                >
+                  <svg viewBox="0 0 12 12" style={linuxIconStyle}>
+                    <path
+                      d="M2.5 9h7"
+                      stroke="currentColor"
+                      stroke-width="1.4"
+                      stroke-linecap="round"
+                      fill="none"
+                    />
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  aria-label="maximize window"
+                  style={linuxButtonStyle()}
+                  onClick={() => void getCurrentWindow().toggleMaximize()}
+                >
+                  <svg viewBox="0 0 12 12" style={linuxIconStyle}>
+                    <rect
+                      x="2.5"
+                      y="2.5"
+                      width="7"
+                      height="7"
+                      rx="1"
+                      stroke="currentColor"
+                      stroke-width="1.4"
+                      fill="none"
+                    />
+                  </svg>
+                </button>
+              </>
+            }
           >
-            <Show when={showGlyphs()}>
-              <svg viewBox="0 0 10 10" style={glyphStyle}>
-                <path
-                  d="M1.5 1.5l7 7M8.5 1.5l-7 7"
-                  stroke="#4d0000"
-                  stroke-width="1.5"
-                  stroke-linecap="round"
-                />
-              </svg>
-            </Show>
-          </button>
-          <button
-            type="button"
-            aria-label="minimize window"
-            style={dotStyle("#ffbd2e")}
-            onClick={() => void getCurrentWindow().minimize()}
-          >
-            <Show when={showGlyphs()}>
-              <svg viewBox="0 0 10 10" style={glyphStyle}>
-                <path d="M1.5 5h7" stroke="#985712" stroke-width="1.5" stroke-linecap="round" />
-              </svg>
-            </Show>
-          </button>
-          <button
-            type="button"
-            aria-label="maximize window"
-            style={dotStyle("#28c840")}
-            onClick={() => void getCurrentWindow().toggleMaximize()}
-          >
-            <Show when={showGlyphs()}>
-              <svg viewBox="0 0 10 10" style={glyphStyle}>
-                <path
-                  d="M6 2h2v2M4 8H2V6"
-                  stroke="#0f5c1d"
-                  stroke-width="1.3"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  fill="none"
-                />
-              </svg>
-            </Show>
-          </button>
+            <button
+              type="button"
+              aria-label="close window"
+              style={dotStyle("#ff5f57")}
+              onClick={() => void getCurrentWindow().close()}
+            >
+              <Show when={showGlyphs()}>
+                <svg viewBox="0 0 10 10" style={glyphStyle}>
+                  <path
+                    d="M1.5 1.5l7 7M8.5 1.5l-7 7"
+                    stroke="#4d0000"
+                    stroke-width="1.5"
+                    stroke-linecap="round"
+                  />
+                </svg>
+              </Show>
+            </button>
+            <button
+              type="button"
+              aria-label="minimize window"
+              style={dotStyle("#ffbd2e")}
+              onClick={() => void getCurrentWindow().minimize()}
+            >
+              <Show when={showGlyphs()}>
+                <svg viewBox="0 0 10 10" style={glyphStyle}>
+                  <path d="M1.5 5h7" stroke="#985712" stroke-width="1.5" stroke-linecap="round" />
+                </svg>
+              </Show>
+            </button>
+            <button
+              type="button"
+              aria-label="maximize window"
+              style={dotStyle("#28c840")}
+              onClick={() => void getCurrentWindow().toggleMaximize()}
+            >
+              <Show when={showGlyphs()}>
+                <svg viewBox="0 0 10 10" style={glyphStyle}>
+                  <path
+                    d="M6 2h2v2M4 8H2V6"
+                    stroke="#0f5c1d"
+                    stroke-width="1.3"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    fill="none"
+                  />
+                </svg>
+              </Show>
+            </button>
+          </Show>
         </div>
       </div>
       {/* undecorated windows lose the window manager's own resize border,

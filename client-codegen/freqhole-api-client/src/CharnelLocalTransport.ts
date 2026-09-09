@@ -14,28 +14,6 @@ type InvokeFn = (cmd: string, args?: unknown) => Promise<unknown>;
 let invoke: InvokeFn | null = null;
 let convertFileSrc: ((path: string) => string) | null = null;
 
-// webkitgtk (linux) can't play asset:// URLs in <audio> elements.
-// detect once at module level so we can use blob: URLs as a workaround.
-//
-// historically there was a second workaround here — an embedded http
-// loopback server (`media_server_info` ipc + `server::media_server`)
-// that served blobs via plain http. it has been removed in favor of
-// the rodio backend (see `client/spume/src/music/services/audio/`),
-// which bypasses the html `<audio>` element entirely on linux. when
-// rodio is *not* enabled and we're on linux, we fall back to the
-// blob: object url path below.
-const isLinuxWebKit = typeof navigator !== "undefined" && navigator.userAgent.includes("Linux");
-
-/**
- * blobs that must never be buffered into memory as a blob: URL, even on
- * linux: a local video can easily be multi-GB, and `fetch().arrayBuffer()`
- * on one hangs the whole app. these stream from asset:// instead, which
- * also gives `<video>` real range requests for seeking.
- */
-function isStreamableMime(mime?: string | null): boolean {
-  return (mime ?? "").startsWith("video/");
-}
-
 /**
  * initialize tauri invoke function
  */
@@ -74,8 +52,6 @@ export class CharnelLocalTransport implements Transport {
   private blobPathCache = new Map<string, { path: string; mime?: string }>();
   // cache object URLs for db-stored blobs (no local path)
   private blobObjectUrlCache = new Map<string, string>();
-  // single audio blob URL for linux workaround (revoke-on-replace to avoid memory leak)
-  private audioBlobUrl: { blobId: string; url: string } | null = null;
 
   constructor(_baseUrl: string) {
     // baseUrl no longer needed - all requests go through IPC.
@@ -339,13 +315,7 @@ export class CharnelLocalTransport implements Transport {
   /**
    * get blob URL — preference order:
    * 1. cached object URL (db-stored blobs)
-   * 2. tauri asset:// (via `convertFileSrc`) on macos/windows
-   * 3. linux fallback: fetch via asset:// and wrap in a blob: object URL
-   *    (webkitgtk can't stream asset:// into `<audio>`)
-   *
-   * the linux fallback buffers the ENTIRE file in memory, so it is never
-   * used for video - a multi-GB local video would exhaust memory and hang
-   * the app (`<video>` also seeks, which a one-shot blob can't stream).
+   * 2. tauri asset:// (via `convertFileSrc`), for any blob with a local path
    *
    * note: when the rodio audio backend is enabled (charnel + opt-in)
    * playback bypasses html `<audio>` entirely and reads files via
@@ -359,17 +329,8 @@ export class CharnelLocalTransport implements Transport {
       return cachedObjectUrl;
     }
 
-    // on linux without rodio, we MUST go async to wrap in a blob:
-    // url (asset:// can't stream into <audio> on webkitgtk) - except for
-    // video, which streams from asset:// directly (see below).
-    const cachedPath = this.blobPathCache.get(blobId);
-    if (isLinuxWebKit && !isStreamableMime(cachedPath?.mime)) {
-      console.debug(`[CharnelLocalTransport] blob ${blobId}: linux fallback (async)`);
-      return this.getBlobUrlAsync(blobId);
-    }
-
     // check path cache (filesystem blobs) — direct asset:// url
-    const cached = cachedPath;
+    const cached = this.blobPathCache.get(blobId);
     if (cached && convertFileSrc) {
       const url = convertFileSrc(cached.path);
       console.debug(`[CharnelLocalTransport] blob ${blobId}: asset:// (cached) -> ${url}`);
@@ -377,7 +338,6 @@ export class CharnelLocalTransport implements Transport {
     }
 
     // need to fetch path (or data) first
-    // console.debug(`[CharnelLocalTransport] blob ${blobId}: async path lookup`);
     return this.getBlobUrlAsync(blobId);
   }
 
@@ -398,18 +358,6 @@ export class CharnelLocalTransport implements Transport {
 
         if (!convertFileSrc) {
           throw new Error("convertFileSrc not available");
-        }
-
-        // on linux without media server: fall back to blob: workaround.
-        // routes audio + image differently:
-        //   - audio: single-slot cache (revoke-on-replace) since audio
-        //     blobs are large and we only play one at a time
-        //   - other (images / waveforms / cover art): per-blob cache so
-        //     multiple `<img>` and css `background-image` urls coexist
-        //     across the playerbar, queue sidebar, etc.
-        // video is excluded - buffering it would hang the app.
-        if (isLinuxWebKit && !isStreamableMime(parsed.data.mime)) {
-          return this.createBlobObjectUrl(blobId, parsed.data.path, parsed.data.mime);
         }
 
         console.debug(
@@ -435,54 +383,6 @@ export class CharnelLocalTransport implements Transport {
     }
 
     throw new Error(`failed to get blob path: ${response.body}`);
-  }
-
-  /**
-   * create a blob: object URL by fetching via asset:// protocol.
-   * used on linux where webkitgtk can't play asset:// in `<audio>`
-   * elements (and historically also where the embedded http loopback
-   * server stood in for the same workaround).
-   *
-   * mime-aware caching:
-   *   - `audio/*`: single-slot cache, revoke-on-replace. audio blobs
-   *     are large (often tens of MB) and only one ever plays at a
-   *     time, so leaking the rest is wasteful.
-   *   - everything else (images, waveforms, cover art): stored in
-   *     `blobObjectUrlCache` keyed by blob id so multiple `<img>` /
-   *     css `background-image` references coexist without one
-   *     revoking another.
-   */
-  private async createBlobObjectUrl(
-    blobId: string,
-    localPath: string,
-    mime?: string,
-  ): Promise<string> {
-    if (!convertFileSrc) {
-      throw new Error("convertFileSrc not available");
-    }
-
-    const isAudio = (mime ?? "").startsWith("audio/");
-    const effectiveMime = mime ?? (isAudio ? "audio/mpeg" : "application/octet-stream");
-
-    const assetUrl = convertFileSrc(localPath);
-    const resp = await fetch(assetUrl);
-    const arrayBuffer = await resp.arrayBuffer();
-    const blob = new Blob([arrayBuffer], { type: effectiveMime });
-    const objectUrl = URL.createObjectURL(blob);
-
-    if (isAudio) {
-      // revoke previous single-slot audio url (if any) so we don't
-      // leak large buffers as the user moves between tracks.
-      if (this.audioBlobUrl) {
-        URL.revokeObjectURL(this.audioBlobUrl.url);
-      }
-      this.audioBlobUrl = { blobId, url: objectUrl };
-    } else {
-      // per-blob cache so e.g. the playerbar's waveform and the queue
-      // sidebar's matching waveform share a single object url.
-      this.blobObjectUrlCache.set(blobId, objectUrl);
-    }
-    return objectUrl;
   }
 
   // -----------------------------------------------------------------

@@ -1,6 +1,7 @@
 use crate::blob_data::find_existing_thumbnail;
 use crate::error::ErrorDetail;
 use crate::media_blobz::get_media_blob;
+use crate::media_blobz::get_media_blob_by_blake3;
 use crate::media_blobz::get_media_blob_with_data;
 use crate::response::GrimoireResponse;
 use base64::Engine;
@@ -10,9 +11,8 @@ use serde_json::{json, Value as JsonValue};
 ///
 /// `id` is a `media_blobz.id` short pk (7-16 hex chars, generated
 /// per-instance by `lower(hex(randomblob(8)))`). it is NOT a
-/// sha256 or blake3 content hash. callers that only have a sha256
-/// must resolve it to the local media_blob_id first (e.g. via
-/// `get_media_blob_by_sha256`) before hitting this path.
+/// sha256 or blake3 content hash. callers that only have a blake3
+/// should use `build_blob_path_response_by_blake3` instead.
 pub async fn build_blob_path_response(id: &str) -> GrimoireResponse<JsonValue> {
     match get_media_blob(id).await {
         Ok(blob) => {
@@ -32,6 +32,46 @@ pub async fn build_blob_path_response(id: &str) -> GrimoireResponse<JsonValue> {
                 // something an operator needs to act on.
                 tracing::debug!(
                     blob_id = %blob.id,
+                    "blob has no local_path — db record exists but file path is null"
+                );
+                GrimoireResponse::failure(
+                    "blob has no local path",
+                    vec![ErrorDetail::new(
+                        "no_local_path",
+                        "blob has no local path",
+                        "this blob is stored in database, not filesystem",
+                    )],
+                )
+            }
+        }
+        Err(e) => GrimoireResponse::failure("blob not found", vec![ErrorDetail::from(e)]),
+    }
+}
+
+/// same as `build_blob_path_response`, but resolved by content hash (blake3)
+/// instead of `media_blobz.id`. used by callers that only know a song's
+/// stable blake3 (e.g. a play-queue snapshot) and need to find its CURRENT
+/// local blob record - which gets a fresh, different `media_blobz.id` each
+/// time the song is synced/re-synced, so a caller can't cache that id
+/// across a sync the way it can cache the blake3. every song that's ever
+/// been synced locally via iroh-blobs is guaranteed to have a blake3 (sync
+/// hard-requires it), so this is safe to try first for any queue item.
+pub async fn build_blob_path_response_by_blake3(blake3: &str) -> GrimoireResponse<JsonValue> {
+    match get_media_blob_by_blake3(blake3).await {
+        Ok(blob) => {
+            if let Some(path) = blob.local_path {
+                GrimoireResponse::success(
+                    "blob path",
+                    json!({
+                        "id": blob.id,
+                        "path": path,
+                        "mime": blob.mime,
+                    }),
+                )
+            } else {
+                tracing::debug!(
+                    blob_id = %blob.id,
+                    blake3 = %blake3,
                     "blob has no local_path — db record exists but file path is null"
                 );
                 GrimoireResponse::failure(

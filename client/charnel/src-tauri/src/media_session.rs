@@ -238,9 +238,9 @@ pub fn set_track(
     album: String,
     artwork_url: String,
 ) {
-    info!(%id, ?title, ?artist, "media-session: set_track");
+    debug!(%id, ?title, ?artist, "media-session: set_track");
     let Some(session) = ensure_started(app) else {
-        info!(
+        debug!(
             reason = ?UNAVAILABLE_REASON.get(),
             "media-session: set_track: no session (disabled or unavailable)"
         );

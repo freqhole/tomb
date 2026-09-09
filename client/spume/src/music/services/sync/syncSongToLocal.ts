@@ -8,6 +8,7 @@
 
 import { getClientForRemote, getTransportForRemote } from "../../../app/api/client";
 import { getRemoteById } from "../../../app/services/remotes/remoteManager";
+import { isOnlineNow } from "../../../app/services/remotes/remoteHealth";
 import { isCharnelMode } from "../../../app/services/charnel";
 import { extractNodeIdStrict } from "../../../app/services/remotes/peerAddr";
 import { isP2PRemote } from "../../../app/services/storage/schemas/remote";
@@ -74,21 +75,39 @@ async function syncSongViaLocalGrimoire(song: SyncableSong, remote: Remote): Pro
     // pull image bytes from source transport and inline as base64. without
     // this the dest grimoire receives an empty `song_images` array and no
     // images get persisted (audio path uses iroh-blobs but image path is
-    // currently inline-base64 only).
-    const sourceTransport = await getTransportForRemote(remote);
-    const inlineCache: InlineImageCache = new Map();
-    const songImagesBody = await inlineImagesForSync(
-      toInlinableImages(song.images),
-      sourceTransport,
-      inlineCache,
-      `[song "${song.title}"]`
-    );
-    const albumImagesBody = await inlineImagesForSync(
-      toInlinableImages(song.album_images),
-      sourceTransport,
-      inlineCache,
-      `[album "${song.album_title}"]`
-    );
+    // currently inline-base64 only). skipped entirely when the source
+    // remote is known offline: grimoire's own "song already linked to this
+    // blake3" shortcut (see sync/song.rs) doesn't need fresh images for a
+    // song that's already local, but this per-image P2P fetch runs BEFORE
+    // that shortcut even gets a chance to fire - so for an already-synced
+    // song, every one of these fetches was doomed to fail/time out for
+    // nothing, adding real seconds of delay before playback could start.
+    // `isOnlineNow` returns `undefined` when status isn't known yet, which
+    // deliberately still attempts the fetch (don't assume offline).
+    const sourceIsOffline = isOnlineNow(remote.remote_id) === false;
+    let songImagesBody: Awaited<ReturnType<typeof inlineImagesForSync>> = [];
+    let albumImagesBody: Awaited<ReturnType<typeof inlineImagesForSync>> = [];
+    if (!sourceIsOffline) {
+      const sourceTransport = await getTransportForRemote(remote);
+      const inlineCache: InlineImageCache = new Map();
+      songImagesBody = await inlineImagesForSync(
+        toInlinableImages(song.images),
+        sourceTransport,
+        inlineCache,
+        `[song "${song.title}"]`
+      );
+      albumImagesBody = await inlineImagesForSync(
+        toInlinableImages(song.album_images),
+        sourceTransport,
+        inlineCache,
+        `[album "${song.album_title}"]`
+      );
+    } else {
+      debug(
+        "syncSongViaLocalGrimoire",
+        `source remote ${remote.remote_id} is known offline - skipping image inlining for "${song.title}"`
+      );
+    }
 
     // build SyncSongByBlake3Request shape (matches grimoire offal/sync types).
     const body = {

@@ -335,12 +335,8 @@ export async function pushMediaSessionTrack(track: {
       album: track.album,
       artworkUrl: track.artworkUrl,
     });
-    // TEMP(media-session): remove once confirmed working.
-    console.info("[media-session] media_session_set_track invoke succeeded");
-  } catch (error) {
-    // TEMP(media-session): remove once confirmed working - normally this
-    // catch is silent since it also covers "not running in tauri".
-    console.info("[media-session] media_session_set_track invoke failed:", error);
+  } catch {
+    // silent - also covers "not running in tauri".
   }
 }
 
