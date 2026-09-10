@@ -10,7 +10,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const getSongBySha256 = vi.fn();
 const readAudioFromOPFS = vi.fn();
 const isCharnelMode = vi.fn(() => false);
-const convertFileSrc = vi.fn((p: string) => `asset://localhost/${p}`);
+const resolveCharnelMediaSrc = vi.fn((p: string) => `asset://localhost/${p}`);
 
 vi.mock("./db/songs", () => ({
   getSongBySha256: (...a: unknown[]) => getSongBySha256(...a),
@@ -21,8 +21,8 @@ vi.mock("../opfs/helpers", () => ({
 vi.mock("../../../app/services/charnel", () => ({
   isCharnelMode: () => isCharnelMode(),
 }));
-vi.mock("@tauri-apps/api/core", () => ({
-  convertFileSrc: (p: string) => convertFileSrc(p),
+vi.mock("@freqhole/api-client", () => ({
+  resolveCharnelMediaSrc: (p: string) => resolveCharnelMediaSrc(p),
 }));
 
 import { resolveLocalAudioUrl } from "./localAudio";

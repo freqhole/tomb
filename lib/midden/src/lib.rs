@@ -16,7 +16,7 @@ mod opfs_store;
 use iroh::endpoint::presets;
 use iroh::endpoint::{Connection, RecvStream, SendStream};
 use iroh::protocol::ProtocolHandler;
-use iroh::{Endpoint, EndpointAddr, PublicKey, RelayMap, RelayMode, RelayUrl, SecretKey};
+use iroh::{Endpoint, EndpointAddr, PublicKey, RelayMap, RelayMode, RelayUrl, SecretKey, TransportAddr};
 use iroh_blobs::api::downloader::Downloader;
 use iroh_blobs::api::Store;
 use iroh_blobs::api::TempTag;
@@ -603,7 +603,16 @@ impl ImportSession {
 /// parse peer address - accepts either:
 /// - plain node_id (64 hex chars): "13a257b5367d6b5b7ceb67ec6246c3dafbe886af8ed429408cd7619c7a4787b1"
 /// - full endpoint JSON: {"id":"...","addrs":[{"Relay":"..."},{"Ip":"..."}]}
-fn parse_peer_addr(peer_addr: &str) -> Result<EndpointAddr, String> {
+///
+/// `own_relay_urls` (this node's own configured relay(s)) are attached as
+/// relay hints for the plain-node_id case instead of leaving addrs empty:
+/// relay servers route by endpoint id once connected, not by which url
+/// string the client used to dial in, so a peer reachable via iroh's default
+/// n0 relay (whose hostnames are hardcoded FQDN/trailing-dot form, which
+/// some strict tls stacks like safari's reject) is equally reachable via our
+/// own clean relay url pointing at the same physical server - sidesteps
+/// waiting on discovery to hand back a relay we can't dial from safari.
+fn parse_peer_addr(peer_addr: &str, own_relay_urls: &[RelayUrl]) -> Result<EndpointAddr, String> {
     let trimmed = peer_addr.trim();
 
     // try parsing as JSON endpoint address first
@@ -617,8 +626,8 @@ fn parse_peer_addr(peer_addr: &str) -> Result<EndpointAddr, String> {
         .parse()
         .map_err(|e| format!("invalid node_id: {}", e))?;
 
-    // create EndpointAddr with empty addresses - iroh will use relay discovery
-    Ok(EndpointAddr::from_parts(node_id, []))
+    let addrs = own_relay_urls.iter().cloned().map(TransportAddr::Relay);
+    Ok(EndpointAddr::from_parts(node_id, addrs))
 }
 
 /// per-hash allow-list for blob gets: maps a blob's blake3 hash to the set of
@@ -819,6 +828,9 @@ pub struct MiddenNode {
     blob_server_running: RefCell<bool>,
     /// wall-clock ceiling for a single dial in `open_bi` (see DEFAULT_CONNECT_TIMEOUT).
     connect_timeout: std::time::Duration,
+    /// this node's own configured relay(s) - attached as connection hints
+    /// when dialing a peer by plain node_id, see `parse_peer_addr`.
+    own_relay_urls: Vec<RelayUrl>,
 }
 
 /// build a GcConfig that protects any hash present in `protected_hashes`
@@ -1236,6 +1248,9 @@ impl MiddenNode {
             builder = builder.relay_mode(relay_mode);
         }
 
+        // best-effort: invalid entries are already surfaced by resolve_relay_mode above.
+        let own_relay_urls = parse_relay_urls(&relay_urls).unwrap_or_default();
+
         let endpoint = builder.bind().await.map_err(to_js_err)?;
 
         // setup iroh-blobs store + gc. periodic gc keeps memory bounded; the
@@ -1281,6 +1296,7 @@ impl MiddenNode {
             transfers,
             blob_server_running: RefCell::new(false),
             connect_timeout: resolve_connect_timeout(connect_timeout_ms),
+            own_relay_urls,
         })
     }
 
@@ -1371,7 +1387,7 @@ impl MiddenNode {
     ///
     /// returns a BiStream for length-delimited message exchange.
     pub async fn open_bi(&self, peer_addr: &str, alpn: &str) -> Result<BiStream, JsError> {
-        let addr = parse_peer_addr(peer_addr).map_err(|e| JsError::new(&e))?;
+        let addr = parse_peer_addr(peer_addr, &self.own_relay_urls).map_err(|e| JsError::new(&e))?;
         let alpn_bytes = alpn.as_bytes();
 
         // bound the connect attempt with a wall-clock timeout. without an addr
@@ -1608,7 +1624,7 @@ impl MiddenNode {
         path: &str,
         body: Option<String>,
     ) -> Result<JsValue, JsError> {
-        let addr = parse_peer_addr(peer_addr).map_err(|e| JsError::new(&e))?;
+        let addr = parse_peer_addr(peer_addr, &self.own_relay_urls).map_err(|e| JsError::new(&e))?;
 
         let conn = self.connect_to_peer(&addr).await?;
 
@@ -1662,7 +1678,7 @@ impl MiddenNode {
             "[admin-p2p] proxy_admin start: peer={} command={}",
             peer_addr, command
         );
-        let addr = parse_peer_addr(peer_addr).map_err(|e| JsError::new(&e))?;
+        let addr = parse_peer_addr(peer_addr, &self.own_relay_urls).map_err(|e| JsError::new(&e))?;
 
         let parsed_args: serde_json::Value = serde_json::from_str(args)
             .map_err(|e| JsError::new(&format!("invalid args json: {e}")))?;
@@ -1736,7 +1752,7 @@ impl MiddenNode {
     /// used during "add remote" flow before user is authenticated
     /// peer_addr can be plain node_id or full endpoint JSON with relay/IP hints
     pub async fn fetch_hello_image(&self, peer_addr: &str) -> Result<HelloImageResult, JsError> {
-        let addr = parse_peer_addr(peer_addr).map_err(|e| JsError::new(&e))?;
+        let addr = parse_peer_addr(peer_addr, &self.own_relay_urls).map_err(|e| JsError::new(&e))?;
 
         // connect to peer
         let conn = self.connect_to_peer(&addr).await?;
@@ -1797,7 +1813,7 @@ impl MiddenNode {
         peer_addr: &str,
         blake3_hash: &str,
     ) -> Result<Uint8Array, JsError> {
-        let addr = parse_peer_addr(peer_addr).map_err(|e| JsError::new(&e))?;
+        let addr = parse_peer_addr(peer_addr, &self.own_relay_urls).map_err(|e| JsError::new(&e))?;
 
         // parse blake3 hash
         let hash: Hash = blake3_hash
@@ -1879,7 +1895,7 @@ impl MiddenNode {
         on_progress: &JsFunction,
         cancel: Option<CancelToken>,
     ) -> Result<Uint8Array, JsError> {
-        let addr = parse_peer_addr(peer_addr).map_err(|e| JsError::new(&e))?;
+        let addr = parse_peer_addr(peer_addr, &self.own_relay_urls).map_err(|e| JsError::new(&e))?;
 
         let hash: Hash = blake3_hash
             .parse()
@@ -1988,7 +2004,7 @@ impl MiddenNode {
         use n0_future::StreamExt;
         use tokio::io::AsyncReadExt;
 
-        let addr = parse_peer_addr(peer_addr).map_err(|e| JsError::new(&e))?;
+        let addr = parse_peer_addr(peer_addr, &self.own_relay_urls).map_err(|e| JsError::new(&e))?;
         let hash: Hash = blake3_hash
             .parse()
             .map_err(|e| JsError::new(&format!("invalid blake3 hash: {}", e)))?;
@@ -2294,7 +2310,7 @@ impl MiddenNode {
     ///
     /// returns true if blob is now available, false if not found.
     pub async fn ensure_blob(&self, peer_addr: &str, blake3_hash: &str) -> Result<bool, JsError> {
-        let addr = parse_peer_addr(peer_addr).map_err(|e| JsError::new(&e))?;
+        let addr = parse_peer_addr(peer_addr, &self.own_relay_urls).map_err(|e| JsError::new(&e))?;
 
         // connect to peer
         let conn = self.connect_to_peer(&addr).await?;
@@ -2475,7 +2491,7 @@ impl MiddenNode {
         peer_addr: &str,
         blob_id: &str,
     ) -> Result<Option<String>, JsError> {
-        let addr = parse_peer_addr(peer_addr).map_err(|e| JsError::new(&e))?;
+        let addr = parse_peer_addr(peer_addr, &self.own_relay_urls).map_err(|e| JsError::new(&e))?;
 
         // connect to peer
         let conn = self.connect_to_peer(&addr).await?;
@@ -2811,17 +2827,7 @@ fn resolve_relay_mode(
     relay_urls: &[String],
     relay_custom_only: bool,
 ) -> Result<Option<RelayMode>, JsError> {
-    // also strips leading/trailing quote characters left over from pasting
-    // a quoted list (e.g. a JSON array's contents) into the settings field.
-    let parsed: Vec<RelayUrl> = relay_urls
-        .iter()
-        .map(|s| s.trim().trim_matches(['"', '\'']).trim())
-        .filter(|s| !s.is_empty())
-        .map(|s| {
-            s.parse::<RelayUrl>()
-                .map_err(|e| JsError::new(&format!("invalid relay url '{}': {}", s, e)))
-        })
-        .collect::<Result<Vec<_>, _>>()?;
+    let parsed = parse_relay_urls(relay_urls)?;
 
     if parsed.is_empty() {
         return Ok(None);
@@ -2834,4 +2840,19 @@ fn resolve_relay_mode(
         map.extend(&RelayMode::Default.relay_map());
         Ok(Some(RelayMode::Custom(map)))
     }
+}
+
+/// parses+validates configured relay url strings, also stripping leading/
+/// trailing quote characters left over from pasting a quoted list (e.g. a
+/// JSON array's contents) into the settings field.
+fn parse_relay_urls(relay_urls: &[String]) -> Result<Vec<RelayUrl>, JsError> {
+    relay_urls
+        .iter()
+        .map(|s| s.trim().trim_matches(['"', '\'']).trim())
+        .filter(|s| !s.is_empty())
+        .map(|s| {
+            s.parse::<RelayUrl>()
+                .map_err(|e| JsError::new(&format!("invalid relay url '{}': {}", s, e)))
+        })
+        .collect()
 }

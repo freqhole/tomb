@@ -17,6 +17,16 @@ import { toast } from "../../components/feedback/Toast";
 import { formatDateTime } from "../../utils/dateTime";
 import { exportFederationBackup, importFederationBackup } from "../utils/federationBackup";
 
+// n0's own public relay hostnames, without the trailing dot iroh's hardcoded
+// defaults use internally (see parse_peer_addr in lib/midden) - some strict
+// tls stacks (safari) reject the trailing-dot form as a cert mismatch.
+const DEFAULT_PUBLIC_RELAY_URLS = [
+  "https://use1-1.relay.n0.iroh.link/",
+  "https://usw1-1.relay.n0.iroh.link/",
+  "https://euc1-1.relay.n0.iroh.link/",
+  "https://aps1-1.relay.n0.iroh.link/",
+];
+
 // confirmation dialog component
 function ConfirmDialog(props: {
   isOpen: boolean;
@@ -70,6 +80,8 @@ export function FederationSettingsView() {
   const [relayUrlsInput, setRelayUrlsInput] = createSignal("");
   const [relayCustomOnly, setRelayCustomOnly] = createSignal(false);
   const [isSavingRelaySettings, setIsSavingRelaySettings] = createSignal(false);
+  const [relaySettingsSaved, setRelaySettingsSaved] = createSignal(false);
+  let relaySettingsSavedTimeout: ReturnType<typeof setTimeout> | undefined;
 
   const isTauri = isCharnelAvailable();
 
@@ -147,29 +159,54 @@ export function FederationSettingsView() {
   const currentNodeId = () => (isTauri ? tauriNodeId() : identity()?.node_id);
   const hasIdentity = () => (isTauri ? !!tauriNodeId() : !!identity());
 
-  // parse the comma-separated relay urls field and persist it - browser only.
-  // also strips leading/trailing quote characters left over from pasting a
-  // quoted list (e.g. a JSON array's contents), which would otherwise fail
-  // to parse as a valid relay url on the rust side.
-  const handleSaveRelaySettings = async () => {
+  // shared persist step used by save/reset/use-default - shows the same
+  // toast + "saved!" feedback regardless of which button triggered it.
+  const persistRelaySettings = async (urls: string[], customOnly: boolean) => {
     setIsSavingRelaySettings(true);
     try {
-      const urls = relayUrlsInput()
-        .split(",")
-        .map((s) =>
-          s
-            .trim()
-            .replace(/^["']+|["']+$/g, "")
-            .trim()
-        )
-        .filter((s) => s.length > 0);
-      await saveMiddenRelaySettings({ relay_urls: urls, relay_custom_only: relayCustomOnly() });
+      await saveMiddenRelaySettings({ relay_urls: urls, relay_custom_only: customOnly });
       toast.success("relay settings saved — reload the page for changes to take effect");
+      setRelaySettingsSaved(true);
+      clearTimeout(relaySettingsSavedTimeout);
+      relaySettingsSavedTimeout = setTimeout(() => setRelaySettingsSaved(false), 5000);
     } catch (err) {
       console.error("failed to save relay settings:", err);
       toast.error("failed to save relay settings");
     }
     setIsSavingRelaySettings(false);
+  };
+
+  // parse the comma-separated relay urls field and persist it - browser only.
+  // also strips leading/trailing quote characters left over from pasting a
+  // quoted list (e.g. a JSON array's contents), which would otherwise fail
+  // to parse as a valid relay url on the rust side.
+  const handleSaveRelaySettings = async () => {
+    const urls = relayUrlsInput()
+      .split(",")
+      .map((s) =>
+        s
+          .trim()
+          .replace(/^["']+|["']+$/g, "")
+          .trim()
+      )
+      .filter((s) => s.length > 0);
+    await persistRelaySettings(urls, relayCustomOnly());
+  };
+
+  // clear the field + checkbox and persist the empty state (back to iroh's
+  // own default relay selection/discovery).
+  const handleResetRelaySettings = async () => {
+    setRelayUrlsInput("");
+    setRelayCustomOnly(false);
+    await persistRelaySettings([], false);
+  };
+
+  // fill in n0's own public relay hostnames (without the trailing dot iroh's
+  // hardcoded defaults use, which safari's tls stack rejects - see
+  // parse_peer_addr in lib/midden) and persist them as-is.
+  const handleUseDefaultPublicRelays = async () => {
+    setRelayUrlsInput(DEFAULT_PUBLIC_RELAY_URLS.join(", "));
+    await persistRelaySettings(DEFAULT_PUBLIC_RELAY_URLS, relayCustomOnly());
   };
 
   // export federation backup
@@ -357,9 +394,9 @@ export function FederationSettingsView() {
               your own relay urls (comma-separated) to use instead. changes take effect after
               reloading the page.
             </p>
-            <input
-              type="text"
-              class="w-full font-mono text-xs bg-[var(--color-bg-tertiary)] text-[var(--color-text-primary)] border border-[var(--color-border-default)] rounded-lg p-3 mb-3"
+            <textarea
+              class="w-full font-mono text-xs bg-[var(--color-bg-tertiary)] text-[var(--color-text-primary)] border border-[var(--color-border-default)] rounded-lg p-3 mb-3 resize-y"
+              rows={3}
               placeholder="https://relay.example.com, https://relay2.example.com"
               value={relayUrlsInput()}
               onInput={(e) => setRelayUrlsInput(e.currentTarget.value)}
@@ -372,13 +409,32 @@ export function FederationSettingsView() {
               />
               use only these relays (no public relay fallback)
             </label>
-            <button
-              class="px-4 py-2 text-sm font-medium rounded-lg border border-[var(--color-border-default)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              onClick={handleSaveRelaySettings}
-              disabled={isSavingRelaySettings()}
-            >
-              {isSavingRelaySettings() ? "saving..." : "save relay settings"}
-            </button>
+            <div class="flex items-center gap-3 flex-wrap">
+              <button
+                class="px-4 py-2 text-sm font-medium rounded-lg border border-[var(--color-border-default)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                onClick={handleSaveRelaySettings}
+                disabled={isSavingRelaySettings()}
+              >
+                {isSavingRelaySettings() ? "saving..." : "save relay settings"}
+              </button>
+              <button
+                class="px-4 py-2 text-sm font-medium rounded-lg border border-[var(--color-border-default)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                onClick={handleUseDefaultPublicRelays}
+                disabled={isSavingRelaySettings()}
+              >
+                use default public relays
+              </button>
+              <button
+                class="px-4 py-2 text-sm font-medium rounded-lg border border-[var(--color-border-default)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                onClick={handleResetRelaySettings}
+                disabled={isSavingRelaySettings()}
+              >
+                reset
+              </button>
+              <Show when={relaySettingsSaved()}>
+                <span class="text-sm text-green-400">saved!</span>
+              </Show>
+            </div>
           </div>
         </Show>
 

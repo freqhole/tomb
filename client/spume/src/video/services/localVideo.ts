@@ -9,20 +9,8 @@ import { getLocalVideoById } from "./storage/db/videos";
 import { syncVideoToLocal } from "./sync/syncVideoToLocal";
 import { isCharnelMode } from "../../app/services/charnel";
 import type { QueuedVideo } from "../../app/services/storage/mediaItem";
+import { resolveCharnelMediaSrc } from "@freqhole/api-client";
 import { warn, debug } from "../../utils/logger";
-
-let convertFileSrc: ((path: string) => string) | null = null;
-
-async function ensureConvertFileSrc(): Promise<((path: string) => string) | null> {
-  if (convertFileSrc) return convertFileSrc;
-  try {
-    const tauri = await import("@tauri-apps/api/core");
-    convertFileSrc = tauri.convertFileSrc;
-    return convertFileSrc;
-  } catch {
-    return null;
-  }
-}
 
 /**
  * build a playable url for a video already in the local library, or null if it
@@ -38,12 +26,20 @@ export async function resolveLocalVideoUrl(
 ): Promise<string | null> {
   if (isCharnelMode()) {
     if (!localPath) return null;
-    const convert = await ensureConvertFileSrc();
-    if (!convert) {
-      warn("localVideo", "convertFileSrc unavailable; cannot play local file under charnel");
+    // android gets the custom `freqhole-media` protocol instead of tauri's
+    // built-in `asset` protocol - see `resolveCharnelMediaSrc`'s doc comment
+    // for why (the built-in one truncates every range response to ~1MB).
+    let assetUrl: string;
+    try {
+      assetUrl = await resolveCharnelMediaSrc(localPath);
+    } catch (err) {
+      warn(
+        "localVideo",
+        "resolveCharnelMediaSrc failed; cannot play local file under charnel:",
+        err
+      );
       return null;
     }
-    const assetUrl = convert(localPath);
     if (!bufferForWebview) return assetUrl;
 
     // WebKitGTK rejects asset:// in <video>. The non-experimental fallback

@@ -31,6 +31,7 @@ export {
   CharnelLocalTransport,
   createCharnelLocalTransport,
   JobEventsStreamClosed,
+  resolveCharnelMediaSrc,
 } from "./CharnelLocalTransport.js";
 export type {
   MiddenNodeLike,

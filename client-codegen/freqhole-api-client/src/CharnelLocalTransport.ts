@@ -12,7 +12,10 @@ type InvokeFn = (cmd: string, args?: unknown) => Promise<unknown>;
 
 // tauri invoke is dynamically imported to avoid bundling in browser builds
 let invoke: InvokeFn | null = null;
-let convertFileSrc: ((path: string) => string) | null = null;
+let convertFileSrc: ((path: string, protocol?: string) => string) | null = null;
+// cached target_os check (android only, for now) - see mediaSrcFor() below.
+// null = not yet determined, false = determined non-android.
+let isAndroidCached: boolean | null = null;
 
 /**
  * initialize tauri invoke function
@@ -24,10 +27,43 @@ async function ensureInvoke(): Promise<InvokeFn> {
     invoke = tauri.invoke as InvokeFn;
     // also grab convertFileSrc for blob URLs
     convertFileSrc = tauri.convertFileSrc;
+    try {
+      const buildInfo = (await invoke("get_build_info")) as { target_os?: string };
+      isAndroidCached = buildInfo?.target_os === "android";
+    } catch {
+      isAndroidCached = false;
+    }
     return invoke;
   } catch {
     throw new Error("@tauri-apps/api not available - not running in Tauri");
   }
+}
+
+/**
+ * build a playable url for a local file path - tauri's built-in `asset`
+ * protocol everywhere except android, which gets the custom
+ * `freqhole-media` protocol instead (see `client/charnel/src-tauri/src/
+ * media_protocol.rs`: the built-in one caps every range response to
+ * ~1MB, which android's webview media pipeline doesn't reliably recover
+ * from for files larger than that - confirmed via a live network trace).
+ * call `ensureInvoke()` (or anything that awaits it) at least once before
+ * calling this, so `isAndroidCached` is resolved.
+ */
+function mediaSrcFor(path: string): string {
+  if (!convertFileSrc) {
+    throw new Error("convertFileSrc not available");
+  }
+  return isAndroidCached ? convertFileSrc(path, "freqhole-media") : convertFileSrc(path);
+}
+
+/**
+ * public, self-contained version of `mediaSrcFor` for callers outside this
+ * file (spume's `localAudio.ts`/`localVideo.ts`) - ensures tauri's invoke/
+ * convertFileSrc/target_os are loaded before resolving.
+ */
+export async function resolveCharnelMediaSrc(path: string): Promise<string> {
+  await ensureInvoke();
+  return mediaSrcFor(path);
 }
 
 /**
@@ -267,7 +303,7 @@ export class CharnelLocalTransport implements Transport {
     }
 
     // convert to asset URL and fetch via browser
-    const assetUrl = convertFileSrc(pathInfo.path);
+    const assetUrl = mediaSrcFor(pathInfo.path);
     const fetchResponse = await fetch(assetUrl);
     const arrayBuffer = await fetchResponse.arrayBuffer();
 
@@ -332,7 +368,7 @@ export class CharnelLocalTransport implements Transport {
     // check path cache (filesystem blobs) — direct asset:// url
     const cached = this.blobPathCache.get(blobId);
     if (cached && convertFileSrc) {
-      const url = convertFileSrc(cached.path);
+      const url = mediaSrcFor(cached.path);
       console.debug(`[CharnelLocalTransport] blob ${blobId}: asset:// (cached) -> ${url}`);
       return url;
     }
@@ -363,7 +399,7 @@ export class CharnelLocalTransport implements Transport {
         console.debug(
           `[CharnelLocalTransport] blob ${blobId}: asset:// stream (mime=${parsed.data.mime ?? "?"})`,
         );
-        return convertFileSrc(parsed.data.path);
+        return mediaSrcFor(parsed.data.path);
       }
     }
 

@@ -5,6 +5,7 @@ mod app_config;
 mod commands;
 mod ephemeral_blob_commands;
 mod external_storage;
+mod media_protocol;
 
 #[cfg(desktop)]
 mod menu;
@@ -425,7 +426,8 @@ pub fn run() {
     let builder = tauri::Builder::default()
         .manage(ShutdownToken::new())
         .manage(p2p_state.clone())
-        .manage(PendingDeepLinks::default());
+        .manage(PendingDeepLinks::default())
+        .register_uri_scheme_protocol(media_protocol::SCHEME, media_protocol::handler);
 
     // rodio player state. on desktop this is the real supervised
     // controller-holder; on mobile it's a zero-sized stub so the
