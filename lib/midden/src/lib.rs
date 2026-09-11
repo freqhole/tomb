@@ -13,10 +13,14 @@ use indexmap::IndexMap;
 // the unit tests (via the in-memory storage shim)
 #[cfg(any(target_arch = "wasm32", test))]
 mod opfs_store;
+use iroh::address_lookup::{
+    AddressLookup, AddressLookupBuilder, AddressLookupBuilderError, EndpointData, EndpointInfo,
+    Error as AddressLookupError, Item as AddressLookupItem, PkarrPublisher, PkarrResolver,
+};
 use iroh::endpoint::presets;
 use iroh::endpoint::{Connection, RecvStream, SendStream};
 use iroh::protocol::ProtocolHandler;
-use iroh::{Endpoint, EndpointAddr, PublicKey, RelayMap, RelayMode, RelayUrl, SecretKey, TransportAddr};
+use iroh::{Endpoint, EndpointAddr, EndpointId, PublicKey, RelayMode, RelayUrl, SecretKey, TransportAddr};
 use iroh_blobs::api::downloader::Downloader;
 use iroh_blobs::api::Store;
 use iroh_blobs::api::TempTag;
@@ -1083,7 +1087,8 @@ impl MiddenNodeOptions {
 
     /// custom iroh relay server url(s), e.g. ["https://relay.example.com"].
     /// omit (or pass null/undefined/empty) to use only the public n0 relay
-    /// preset. combined with the n0 preset unless `relay_custom_only` is set.
+    /// preset. once set, these are used exclusively - the public n0 relay is
+    /// never merged in as a fallback (see `resolve_relay_mode`'s doc comment).
     #[wasm_bindgen(getter = relay_urls)]
     pub fn get_relay_urls(&self) -> Option<Vec<String>> {
         self.relay_urls.clone()
@@ -1094,9 +1099,9 @@ impl MiddenNodeOptions {
         self.relay_urls = urls;
     }
 
-    /// when true, route only through `relay_urls` (no public n0 fallback).
-    /// when false (default), use `relay_urls` alongside the public n0
-    /// relay(s). ignored when `relay_urls` is empty/unset.
+    /// deprecated / no longer changes behavior: `relay_urls` (once set) are
+    /// always used exclusively now, regardless of this flag - kept only so
+    /// existing callers setting it don't break. see `resolve_relay_mode`.
     #[wasm_bindgen(getter = relay_custom_only)]
     pub fn get_relay_custom_only(&self) -> bool {
         self.relay_custom_only
@@ -1237,19 +1242,33 @@ impl MiddenNode {
             alpns.push(alpn.into_bytes());
         }
 
-        // use N0 preset for relay + DNS discovery (peers can find each other)
-        let mut builder = Endpoint::builder(presets::N0)
+        // TEMPORARY WORKAROUND (safari trailing-dot relay bug, see
+        // `SanitizingPkarrResolverBuilder`'s doc comment) - replicates the
+        // n0 preset's parts by hand instead of `Endpoint::builder(presets::
+        // N0)`, swapping in a resolver that sanitizes ANY peer's resolved
+        // relay url, not just our own. rip this back down to plain
+        // `Endpoint::builder(presets::N0)` once iroh fixes the underlying
+        // bug - relay_mode is overridden by resolve_relay_mode() below
+        // regardless of which preset/base builder we start from, so this
+        // swap only affects address lookup, nothing else.
+        let mut builder = Endpoint::builder(presets::Minimal)
             .secret_key(secret_key)
-            .alpns(alpns);
+            .alpns(alpns)
+            .address_lookup(PkarrPublisher::n0_dns())
+            .address_lookup(SanitizingPkarrResolverBuilder(PkarrResolver::n0_dns()));
 
-        // apply a custom relay map when configured; leave the preset's relay
-        // setup untouched (default N0 public relay) when no urls are given.
+        // apply a custom relay map when configured; falls back to the
+        // (dot-free) n0 defaults when empty - see resolve_relay_mode's doc
+        // comment for why this is no longer `None`/iroh's raw preset.
         if let Some(relay_mode) = resolve_relay_mode(&relay_urls, relay_custom_only)? {
             builder = builder.relay_mode(relay_mode);
         }
 
-        // best-effort: invalid entries are already surfaced by resolve_relay_mode above.
-        let own_relay_urls = parse_relay_urls(&relay_urls).unwrap_or_default();
+        // same effective list (custom, or the dot-free n0 defaults) as the
+        // hint attached to every dial in parse_peer_addr - see
+        // effective_relay_urls's doc comment. best-effort: invalid entries
+        // are already surfaced by resolve_relay_mode above.
+        let own_relay_urls = effective_relay_urls(&relay_urls).unwrap_or_default();
 
         let endpoint = builder.bind().await.map_err(to_js_err)?;
 
@@ -2812,39 +2831,159 @@ fn to_js_err<E: std::fmt::Display>(e: E) -> JsError {
     JsError::new(&e.to_string())
 }
 
-/// resolve the iroh relay mode from `MiddenNodeOptions`' relay fields,
-/// mirroring grimoire's `federation.relay_urls`/`relay_mode` resolution
-/// (see `grimoire/src/federation/transport/endpoint.rs`).
+// TEMPORARY WORKAROUND (safari trailing-dot relay bug) - wraps iroh's own
+// `PkarrResolver` (which looks up a PEER's advertised relay/address by
+// node_id) so that if the peer's own relay happens to be one of iroh's
+// default (trailing-dot) hostnames, we still connect to it fine. covers
+// the case `N0_DEFAULT_RELAY_URLS`/`effective_relay_urls` below can't:
+// dialing a peer whose relay we didn't already know/hint ourselves.
+//
+// rip this whole wrapper out (going back to plain
+// `.address_lookup(PkarrResolver::n0_dns())`) once iroh fixes its default
+// relay hostnames upstream.
+#[derive(Debug)]
+struct SanitizingPkarrResolverBuilder(iroh::address_lookup::PkarrResolverBuilder);
+
+impl AddressLookupBuilder for SanitizingPkarrResolverBuilder {
+    fn into_address_lookup(
+        self,
+        endpoint: &Endpoint,
+    ) -> Result<impl AddressLookup, AddressLookupBuilderError> {
+        let inner = self.0.into_address_lookup(endpoint)?;
+        Ok(SanitizingResolver { inner })
+    }
+}
+
+#[derive(Debug)]
+struct SanitizingResolver<T> {
+    inner: T,
+}
+
+impl<T: AddressLookup> AddressLookup for SanitizingResolver<T> {
+    fn publish(&self, data: &EndpointData) {
+        self.inner.publish(data);
+    }
+
+    fn resolve(
+        &self,
+        endpoint_id: EndpointId,
+    ) -> Option<n0_future::boxed::BoxStream<Result<AddressLookupItem, AddressLookupError>>> {
+        let stream = self.inner.resolve(endpoint_id)?;
+        let sanitized = n0_future::StreamExt::map(stream, |result| result.map(sanitize_item));
+        Some(Box::pin(sanitized))
+    }
+}
+
+/// rebuilds `item` with any trailing-dot relay url stripped, leaving
+/// everything else (direct addrs, user data) untouched. cheap no-op clone
+/// when there's nothing to strip.
+fn sanitize_item(item: AddressLookupItem) -> AddressLookupItem {
+    let info = item.endpoint_info();
+    let relay_urls: Vec<RelayUrl> = info.relay_urls().cloned().collect();
+    let needs_fix = relay_urls
+        .iter()
+        .any(|url| url.host_str().unwrap_or_default().ends_with('.'));
+    if !needs_fix {
+        return item;
+    }
+
+    let mut data = info.data.clone();
+    data.clear_relay_urls();
+    for url in relay_urls {
+        data.add_relay_url(strip_relay_url_trailing_dot(&url));
+    }
+    let sanitized_info = EndpointInfo::from_parts(info.endpoint_id, data);
+    AddressLookupItem::new(sanitized_info, item.provenance(), item.last_updated())
+}
+
+/// strips a trailing `.` from a relay url's host (e.g.
+/// `https://relay.example.com./` -> `https://relay.example.com/`) - the
+/// same physical server, just the spelling safari's tls stack accepts.
+/// returns the url unchanged if it has no host or doesn't end in `.`.
+fn strip_relay_url_trailing_dot(url: &RelayUrl) -> RelayUrl {
+    let mut inner: url::Url = (**url).clone();
+    if let Some(stripped) = inner.host_str().and_then(|h| h.strip_suffix('.')) {
+        let stripped = stripped.to_string();
+        if inner.set_host(Some(&stripped)).is_ok() {
+            return RelayUrl::from(inner);
+        }
+    }
+    url.clone()
+}
+
+// TEMPORARY WORKAROUND (safari trailing-dot relay bug, see
+// `effective_relay_urls`/`resolve_relay_mode` below) - rip this const and
+// its uses out once iroh's own default relay hostnames stop using the
+// FQDN/trailing-dot form (or safari's tls stack stops rejecting it).
+//
+// n0's own public relay hostnames, without the trailing dot iroh's
+// hardcoded defaults use internally (see iroh's `defaults.rs`: all four
+// are FQDN/trailing-dot form). physically the SAME servers as iroh's
+// defaults - only the hostname spelling differs - so using this list
+// instead of iroh's raw preset changes nothing about which relay we
+// connect to, it just avoids the one spelling safari's tls stack rejects.
+const N0_DEFAULT_RELAY_URLS: &[&str] = &[
+    "https://use1-1.relay.n0.iroh.link/",
+    "https://usw1-1.relay.n0.iroh.link/",
+    "https://euc1-1.relay.n0.iroh.link/",
+    "https://aps1-1.relay.n0.iroh.link/",
+];
+
+/// resolves the effective relay list: the caller's `relay_urls` if any were
+/// configured, otherwise `N0_DEFAULT_RELAY_URLS` (see its doc comment).
+/// shared by `resolve_relay_mode` (the endpoint's overall relay map) and
+/// `own_relay_urls` (the per-dial hint `parse_peer_addr` attaches) so both
+/// always agree on the same relay list.
+fn effective_relay_urls(relay_urls: &[String]) -> Result<Vec<RelayUrl>, JsError> {
+    let parsed = parse_relay_urls(relay_urls)?;
+    if parsed.is_empty() {
+        Ok(N0_DEFAULT_RELAY_URLS
+            .iter()
+            .filter_map(|s| s.parse::<RelayUrl>().ok())
+            .collect())
+    } else {
+        Ok(parsed)
+    }
+}
+
+/// resolve the iroh relay mode from `MiddenNodeOptions.relay_urls`.
 ///
-/// returns `Ok(None)` when no custom relays are configured (the N0 preset's
-/// public relay is left untouched). returns `Ok(Some(mode))` to override it:
-/// - `relay_custom_only`: route through `relay_urls` only, no public fallback.
-/// - otherwise: include both `relay_urls` and the public n0 relays so the
-///   endpoint can use whichever is reachable / lowest-latency.
+/// returns `Ok(Some(mode))` to route through `relay_urls` only - once any
+/// custom relay is configured, iroh's own public n0 relay is never merged
+/// in as a fallback: iroh re-evaluates relay reachability over time (not
+/// just at connect), so a merged-in entry could get selected later even if
+/// a clean custom relay worked fine at startup. `relay_custom_only` is
+/// accepted for api compatibility but no longer changes this behavior -
+/// it's effectively always true now.
+///
+/// TEMPORARY WORKAROUND: when `relay_urls` is empty (nothing configured),
+/// this used to return `Ok(None)` and leave iroh's raw N0 preset relay map
+/// untouched - but that preset's 4 default hostnames are hardcoded
+/// FQDN/trailing-dot form, which safari's tls stack rejects as a cert
+/// mismatch. rather than depend on every peer we might dial (or discover
+/// via pkarr) having configured a clean custom relay themselves, default
+/// to `N0_DEFAULT_RELAY_URLS` (same physical servers, dot-free spelling)
+/// so this browser's OWN advertised/preferred relay - and the hint
+/// attached to every dial via `parse_peer_addr`'s `own_relay_urls` - is
+/// always safari-safe out of the box, with no relay config required. rip
+/// this default out once iroh ships a fix upstream (either by not using
+/// FQDN hostnames for its own defaults, or by whatever else resolves the
+/// underlying incompatibility).
 ///
 /// errors when `relay_urls` contains only blank/invalid entries.
 fn resolve_relay_mode(
     relay_urls: &[String],
-    relay_custom_only: bool,
+    _relay_custom_only: bool,
 ) -> Result<Option<RelayMode>, JsError> {
-    let parsed = parse_relay_urls(relay_urls)?;
-
-    if parsed.is_empty() {
-        return Ok(None);
-    }
-
-    if relay_custom_only {
-        Ok(Some(RelayMode::custom(parsed)))
-    } else {
-        let map: RelayMap = parsed.into_iter().collect();
-        map.extend(&RelayMode::Default.relay_map());
-        Ok(Some(RelayMode::Custom(map)))
-    }
+    Ok(Some(RelayMode::custom(effective_relay_urls(relay_urls)?)))
 }
 
 /// parses+validates configured relay url strings, also stripping leading/
 /// trailing quote characters left over from pasting a quoted list (e.g. a
-/// JSON array's contents) into the settings field.
+/// JSON array's contents) into the settings field. a trailing `.` on the
+/// hostname is left as-is if the caller passed one - it's valid url syntax,
+/// only relevant to safari's tls stack, and this fn has no way to know
+/// whether the caller's browser cares.
 fn parse_relay_urls(relay_urls: &[String]) -> Result<Vec<RelayUrl>, JsError> {
     relay_urls
         .iter()
@@ -2856,3 +2995,62 @@ fn parse_relay_urls(relay_urls: &[String]) -> Result<Vec<RelayUrl>, JsError> {
         })
         .collect()
 }
+
+#[cfg(test)]
+mod relay_mode_tests {
+    use super::*;
+
+    #[test]
+    fn empty_relay_urls_default_to_the_dot_free_n0_relays() {
+        let urls = effective_relay_urls(&[]).unwrap();
+        assert_eq!(urls.len(), N0_DEFAULT_RELAY_URLS.len());
+        for url in &urls {
+            assert!(
+                !url.host_str().unwrap_or_default().ends_with('.'),
+                "default relay must not have a trailing dot: {url}"
+            );
+        }
+    }
+
+    #[test]
+    fn configured_relay_urls_override_the_defaults() {
+        let urls =
+            effective_relay_urls(&["https://relay.example.com".to_string()]).unwrap();
+        assert_eq!(urls.len(), 1);
+        assert_eq!(urls[0].to_string(), "https://relay.example.com/");
+    }
+
+    #[test]
+    fn resolve_relay_mode_always_returns_a_custom_mode() {
+        let mode = resolve_relay_mode(&[], false).unwrap().unwrap();
+        match mode {
+            RelayMode::Custom(map) => assert_eq!(map.len(), N0_DEFAULT_RELAY_URLS.len()),
+            other => panic!("expected RelayMode::Custom, got {other:?}"),
+        }
+    }
+
+    fn item_with_relay(relay: &str) -> AddressLookupItem {
+        let id: EndpointId = SecretKey::from_bytes(&[7u8; 32]).public();
+        let mut data = EndpointData::default();
+        data.add_relay_url(relay.parse().unwrap());
+        let info = EndpointInfo::from_parts(id, data);
+        AddressLookupItem::new(info, "test", None)
+    }
+
+    #[test]
+    fn sanitize_item_strips_a_trailing_dot_relay() {
+        let item = item_with_relay("https://use1-1.relay.n0.iroh.link./");
+        let sanitized = sanitize_item(item);
+        let urls: Vec<_> = sanitized.endpoint_info().relay_urls().collect();
+        assert_eq!(urls.len(), 1);
+        assert!(!urls[0].host_str().unwrap_or_default().ends_with('.'));
+    }
+
+    #[test]
+    fn sanitize_item_leaves_a_clean_relay_untouched() {
+        let item = item_with_relay("https://relay.example.com/");
+        let sanitized = sanitize_item(item.clone());
+        assert_eq!(sanitized, item);
+    }
+}
+

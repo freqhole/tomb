@@ -32,6 +32,10 @@ serde_json = "1"
 serde-wasm-bindgen = "0.6"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+# TEMPORARY WORKAROUND (safari trailing-dot relay bug, see lib.rs's
+# strip_relay_url_trailing_dot) - only needed to rewrite a RelayUrl's host;
+# rip out alongside the workaround once iroh fixes this upstream.
+url = "2.4"
 tracing-subscriber-wasm = "0.1"
 # io-util: AsyncReadExt for the chunked BlobReader loop in
 # download_verified_streaming. sync: mpsc/oneshot channels backing

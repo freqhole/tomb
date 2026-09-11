@@ -76,9 +76,11 @@ export function FederationSettingsView() {
 
   // custom relay urls - comma-separated text field, parsed into an array on
   // save. browser/wasm only - tauri/charnel builds use CharnelTransport,
-  // which never reads this.
+  // which never reads this. once any url is configured it's used
+  // exclusively (no merge-with-public-relay fallback option) - see
+  // lib/midden's resolve_relay_mode for why that option was removed.
   const [relayUrlsInput, setRelayUrlsInput] = createSignal("");
-  const [relayCustomOnly, setRelayCustomOnly] = createSignal(false);
+  const [invalidRelayUrls, setInvalidRelayUrls] = createSignal<string[]>([]);
   const [isSavingRelaySettings, setIsSavingRelaySettings] = createSignal(false);
   const [relaySettingsSaved, setRelaySettingsSaved] = createSignal(false);
   let relaySettingsSavedTimeout: ReturnType<typeof setTimeout> | undefined;
@@ -99,7 +101,6 @@ export function FederationSettingsView() {
         setIdentity(existing);
         const relaySettings = await getMiddenRelaySettings();
         setRelayUrlsInput(relaySettings.relay_urls.join(", "));
-        setRelayCustomOnly(relaySettings.relay_custom_only);
       }
     } catch (err) {
       console.error("failed to load P2P identity:", err);
@@ -161,10 +162,13 @@ export function FederationSettingsView() {
 
   // shared persist step used by save/reset/use-default - shows the same
   // toast + "saved!" feedback regardless of which button triggered it.
-  const persistRelaySettings = async (urls: string[], customOnly: boolean) => {
+  // relay_custom_only is always true now: once any relay_urls are
+  // configured they're used exclusively, never merged with the public
+  // n0 relay (see lib/midden's resolve_relay_mode doc comment).
+  const persistRelaySettings = async (urls: string[]) => {
     setIsSavingRelaySettings(true);
     try {
-      await saveMiddenRelaySettings({ relay_urls: urls, relay_custom_only: customOnly });
+      await saveMiddenRelaySettings({ relay_urls: urls, relay_custom_only: true });
       toast.success("relay settings saved — reload the page for changes to take effect");
       setRelaySettingsSaved(true);
       clearTimeout(relaySettingsSavedTimeout);
@@ -176,12 +180,28 @@ export function FederationSettingsView() {
     setIsSavingRelaySettings(false);
   };
 
-  // parse the comma-separated relay urls field and persist it - browser only.
-  // also strips leading/trailing quote characters left over from pasting a
-  // quoted list (e.g. a JSON array's contents), which would otherwise fail
-  // to parse as a valid relay url on the rust side.
+  // a url is "valid" here purely as a well-formed url (must parse via the
+  // URL constructor and use http/https) - a trailing `.` on the hostname is
+  // NOT flagged as invalid. it's valid url syntax; only safari's tls stack
+  // rejects it, and this validator has no way to know which browser the
+  // relay will actually be dialed from.
+  function isWellFormedRelayUrl(candidate: string): boolean {
+    try {
+      const parsed = new URL(candidate);
+      return parsed.protocol === "http:" || parsed.protocol === "https:";
+    } catch {
+      return false;
+    }
+  }
+
+  // parse the comma-separated relay urls field and persist only the
+  // well-formed entries - browser only. also strips leading/trailing quote
+  // characters left over from pasting a quoted list (e.g. a JSON array's
+  // contents), which would otherwise fail to parse as a valid relay url.
+  // any entries that still don't parse as a url are reported (not silently
+  // dropped) via invalidRelayUrls, so the user knows they won't be used.
   const handleSaveRelaySettings = async () => {
-    const urls = relayUrlsInput()
+    const entries = relayUrlsInput()
       .split(",")
       .map((s) =>
         s
@@ -190,15 +210,21 @@ export function FederationSettingsView() {
           .trim()
       )
       .filter((s) => s.length > 0);
-    await persistRelaySettings(urls, relayCustomOnly());
+    const valid = entries.filter(isWellFormedRelayUrl);
+    const invalid = entries.filter((s) => !isWellFormedRelayUrl(s));
+    setInvalidRelayUrls(invalid);
+    if (invalid.length > 0) {
+      toast.error(`ignoring ${invalid.length} invalid relay url(s) - see details below`);
+    }
+    await persistRelaySettings(valid);
   };
 
-  // clear the field + checkbox and persist the empty state (back to iroh's
-  // own default relay selection/discovery).
+  // clear the field and persist the empty state (back to iroh's own
+  // default relay selection/discovery).
   const handleResetRelaySettings = async () => {
     setRelayUrlsInput("");
-    setRelayCustomOnly(false);
-    await persistRelaySettings([], false);
+    setInvalidRelayUrls([]);
+    await persistRelaySettings([]);
   };
 
   // fill in n0's own public relay hostnames (without the trailing dot iroh's
@@ -206,7 +232,8 @@ export function FederationSettingsView() {
   // parse_peer_addr in lib/midden) and persist them as-is.
   const handleUseDefaultPublicRelays = async () => {
     setRelayUrlsInput(DEFAULT_PUBLIC_RELAY_URLS.join(", "));
-    await persistRelaySettings(DEFAULT_PUBLIC_RELAY_URLS, relayCustomOnly());
+    setInvalidRelayUrls([]);
+    await persistRelaySettings(DEFAULT_PUBLIC_RELAY_URLS);
   };
 
   // export federation backup
@@ -401,7 +428,7 @@ export function FederationSettingsView() {
               value={relayUrlsInput()}
               onInput={(e) => setRelayUrlsInput(e.currentTarget.value)}
             />
-            <label class="flex items-center gap-2 text-sm text-[var(--color-text-secondary)] mb-4 cursor-pointer">
+            <label class="flex items-center gap-2 text-sm text-[var(--color-text-secondary)] mb-1 cursor-pointer">
               <input
                 type="checkbox"
                 checked={relayCustomOnly()}
