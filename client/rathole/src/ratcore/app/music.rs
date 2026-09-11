@@ -34,6 +34,20 @@ pub struct SongRow {
     /// if the shell already knows a usable filesystem path, set it
     /// here so the player skips another lookup.
     pub local_path: Option<String>,
+    /// `media_blobz` ids for available artwork, priority-ordered (song's
+    /// own primary image first, then its other images, then album
+    /// images, then artist images; waveform blobs excluded). only the
+    /// first is shown today, but the list is kept in priority order so
+    /// a future art carousel can just rotate through it - see
+    /// docs/rathole-headless-player-plan.md's image rendering section.
+    pub art_blob_ids: Vec<String>,
+    /// artwork for a remote-pushed queue entry (see `media_ref_to_queue_
+    /// entry`), which has no locally-resolvable `art_blob_ids` - a
+    /// `data:` url (spume embeds bytes directly for most cases, see
+    /// `playerQueuePush.ts`'s `resolveArtwork`) or occasionally a real
+    /// http(s) url. `None` for locally-queued songs, which always use
+    /// `art_blob_ids` instead.
+    pub art_url: Option<String>,
 }
 
 /// portable mirror of `grimoire::player::PlayerState`.
@@ -71,7 +85,9 @@ pub enum MusicEvent {
     /// devices - e.g. a pi's hdmi vs. 3.5mm jack). shares
     /// `video_player`'s `AudioDeviceInfo` shape since it's the same
     /// concept, just from the audio-only backend.
-    OutputDevices { devices: Vec<AudioDeviceInfo> },
+    OutputDevices {
+        devices: Vec<AudioDeviceInfo>,
+    },
 }
 
 /// which sub-area of the music view has focus.
@@ -136,6 +152,32 @@ pub struct MusicState {
     /// video preview started from the video browse view (`p` key),
     /// which must NOT trigger the queue to auto-advance when it ends.
     pub queue_video_active: bool,
+    /// set right before sending a song to rodio (`PlayerCmd::Load`),
+    /// cleared as soon as we see a genuine success signal
+    /// (`MusicEvent::State(Playing)`) for it. if `MusicEvent::Ended`
+    /// fires while this is still `Some` and matches the current
+    /// entry's song id, rodio produced zero playable output (couldn't
+    /// decode/init the file) rather than a real end-of-track - see
+    /// `audio_fallback_active`.
+    pub pending_rodio_song_id: Option<String>,
+    /// true while mpv is being used as an audio-only fallback player
+    /// for the current queue entry because rodio couldn't decode it
+    /// (e.g. opus-in-webm, which rodio's symphonia backend doesn't
+    /// support). distinct from `queue_video_active` (a real
+    /// `QueueEntry::Video`): mpv is spawned with `--force-window=no`
+    /// and this file has no video track, so no window shows - but
+    /// mpv's Ended/Closed/Error still needs to advance the queue, and
+    /// the qr/art framebuffer sync needs to back off while it's active,
+    /// same as it already does for a real video.
+    pub audio_fallback_active: bool,
+    /// entries that have finished playing (or been skipped past),
+    /// most-recently-finished first - removed from `queue` as playback
+    /// advances (see `tty::queue::play_index`), so `queue` only ever
+    /// holds "currently playing + upcoming", matching cenotaph/web's
+    /// queue model instead of accumulating every past track forever.
+    /// capped at a small size (see `tty::queue::HISTORY_CAP`);
+    /// `play_previous` pulls from the front of this to go back.
+    pub history: Vec<QueueEntry>,
 }
 
 impl MusicState {

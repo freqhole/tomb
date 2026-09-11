@@ -165,7 +165,47 @@ export function reportCommandAckFailure(
   });
 }
 
-const [remoteStatus, setRemoteStatus] = createSignal<RemoteStatus | null>(null);
+/// rathole/cenotaph now pushes a fresh status every ~250ms (so the
+/// position/playing-state stays live) - most of those pushes only
+/// differ in `position_ms`/`server_time_ms` advancing in step with real
+/// elapsed time, which `remotePositionMs()` already extrapolates
+/// locally between updates via its own `tickNow()` ticker. without a
+/// custom `equals`, solid's default signal equality is reference-based,
+/// so a brand-new status OBJECT every tick made every consumer of
+/// `remoteStatus()` (queue rows, now-playing card, etc.) re-render
+/// every ~250ms even when nothing user-visible actually changed - the
+/// "flashing"/unstable-render symptom.
+///
+/// can't just strip position_ms/server_time_ms unconditionally though -
+/// a real seek needs to be reflected immediately (jumping the visible
+/// position bar), not silently swallowed until some unrelated field
+/// happens to change. so: only treat two statuses as equal if position
+/// moved roughly in step with the real time elapsed between them
+/// (natural playback progression, within a couple seconds of slack for
+/// tick jitter) - a bigger mismatch means a real seek/jump and is
+/// treated as a genuine change.
+function statusEqualsIgnoringClock(a: RemoteStatus | null, b: RemoteStatus | null): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  if ("position_ms" in a && "position_ms" in b && "server_time_ms" in a && "server_time_ms" in b) {
+    const expectedDrift = b.server_time_ms - a.server_time_ms;
+    const actualDrift = b.position_ms - a.position_ms;
+    if (Math.abs(actualDrift - expectedDrift) > 2_000) {
+      return false; // a real seek/jump, not just natural progression.
+    }
+  }
+  const strip = (s: RemoteStatus): unknown => {
+    const clone: Record<string, unknown> = { ...s };
+    delete clone.position_ms;
+    delete clone.server_time_ms;
+    return clone;
+  };
+  return JSON.stringify(strip(a)) === JSON.stringify(strip(b));
+}
+
+const [remoteStatus, setRemoteStatus] = createSignal<RemoteStatus | null>(null, {
+  equals: statusEqualsIgnoringClock,
+});
 export { remoteStatus };
 
 // client-side offline detection: `Date.now()` of the last time a REAL

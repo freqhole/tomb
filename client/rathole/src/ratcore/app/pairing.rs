@@ -383,7 +383,7 @@ impl PresenceAnnouncement {
 /// repeated per-variant like the zod schema does, since rust enums
 /// don't support shared fields directly — flattened back onto the
 /// wire so the actual JSON still matches zod's flat-object shape.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct StatusCommon {
     pub queue: Vec<MediaRef>,
     pub auto_download_enabled: bool,
@@ -391,7 +391,7 @@ pub struct StatusCommon {
     pub recently_played: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "state", rename_all = "snake_case")]
 pub enum PlayerStatus {
     NowPlaying {
@@ -579,6 +579,37 @@ pub struct PairingViewState {
     pub device_picker_open: bool,
     /// cursor into `MusicState::output_devices` while the picker is open.
     pub device_picker_cursor: usize,
+    /// resolved local file paths for the currently-playing song's
+    /// artwork, priority-ordered (see `SongRow::art_blob_ids`) - only
+    /// the first is rendered today, but kept as a list so a future art
+    /// carousel just rotates through it instead of re-plumbing
+    /// resolution. populated by `AppAction::SongArtResolved`; cleared
+    /// when the queue advances to a video entry or goes idle.
+    pub art_paths: Vec<String>,
+    /// framebuffer mode only: the mpv path last sent via
+    /// `VideoCommand::ShowImage` for the qr/art display, so the tick
+    /// loop only re-sends when it actually changes (avoids flicker/
+    /// reload every tick it re-checks).
+    pub framebuffer_shown_path: Option<String>,
+    /// mirrors `grimoire::config::PlayerPairingConfig::enabled` -
+    /// `ratcore` can't depend on grimoire directly (wasm builds don't
+    /// link it), so the tty shell reads the real config once at
+    /// startup and after every settings-screen toggle, and keeps this
+    /// copy in sync. only used for rendering the settings row's label.
+    pub autostart_enabled: bool,
+    /// mirrors `grimoire::config::PlayerPairingConfig::image_mode` -
+    /// same portable-mirror reasoning as `autostart_enabled`.
+    pub image_mode: ImageMode,
+}
+
+/// portable mirror of `grimoire::config::ImageDisplayMode` - see
+/// `PairingViewState::image_mode`'s doc comment for why this can't
+/// just be the grimoire type directly.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ImageMode {
+    #[default]
+    Terminal,
+    Framebuffer,
 }
 
 impl PairingViewState {

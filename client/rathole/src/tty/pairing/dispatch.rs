@@ -59,6 +59,10 @@ pub struct DispatchContext {
     pub position_ms: u64,
     pub duration_ms: u64,
     pub is_playing: bool,
+    /// ids (see `queue_entry_to_media_ref`'s `blake3_hash`) of
+    /// recently-finished queue entries, most recent first - built from
+    /// `MusicState::history` by `run.rs`'s `handle_pairing_dispatch`.
+    pub recently_played: Vec<String>,
 }
 
 /// converts a unified queue entry into the wire `MediaRef` shape -
@@ -109,6 +113,16 @@ fn media_ref_to_queue_entry(media: &MediaRef, resolved_path: String) -> QueueEnt
             duration_ms: media.duration_ms,
             media_blob_id: None,
             local_path: Some(resolved_path),
+            // remote-pushed entries have no locally-resolvable art
+            // blob id - the source peer's MediaRef carries thumb/full
+            // art *urls* instead (usually a `data:` url with embedded
+            // bytes - see `art_url`'s own doc comment), resolved
+            // separately by `tty::queue::resolve_song_art`.
+            art_blob_ids: Vec::new(),
+            art_url: media
+                .artwork_full_url
+                .clone()
+                .or_else(|| media.artwork_thumb_url.clone()),
         }),
         MediaKind::Video => QueueEntry::Video(QueuedVideoRow {
             id: media.blake3_hash.clone(),
@@ -168,7 +182,14 @@ pub async fn dispatch_pairing_command(ctx: DispatchContext, command: PairingComm
             status_ack(&ctx, None)
         }
         PairingCommand::Skip => {
-            send_generic(&ctx, PlayerCmd::Next, crate::ratcore::app::VideoCommand::Next).await;
+            // route through the unified queue's own advance logic
+            // (see `AppAction::PairingSkip`'s doc comment) rather than
+            // a backend-native "next" - neither rodio nor mpv ever
+            // have more than one track loaded at once, so their own
+            // Next/skip primitives are a no-op.
+            if let Some(tx) = &ctx.action_tx {
+                let _ = tx.send(AppAction::PairingSkip);
+            }
             status_ack(&ctx, None)
         }
         PairingCommand::GetStatus => status_ack(&ctx, None),
@@ -299,7 +320,7 @@ async fn replace_queue(ctx: &DispatchContext, items: Vec<MediaRef>) -> CommandAc
             queue: fresh_queue,
             auto_download_enabled: false,
             volume: ctx.volume as f64,
-            recently_played: vec![],
+            recently_played: ctx.recently_played.clone(),
         },
     })
 }
@@ -332,7 +353,7 @@ async fn append_queue(ctx: &DispatchContext, items: Vec<MediaRef>) -> CommandAck
             queue: combined_queue,
             auto_download_enabled: false,
             volume: ctx.volume as f64,
-            recently_played: vec![],
+            recently_played: ctx.recently_played.clone(),
         },
     )
 }
@@ -342,7 +363,7 @@ fn common_from_ctx(ctx: &DispatchContext) -> StatusCommon {
         queue: ctx.queue_snapshot.clone(),
         auto_download_enabled: false,
         volume: ctx.volume as f64,
-        recently_played: vec![],
+        recently_played: ctx.recently_played.clone(),
     }
 }
 
@@ -411,6 +432,7 @@ mod tests {
             position_ms: 0,
             duration_ms: 0,
             is_playing: false,
+            recently_played: vec![],
         }
     }
 

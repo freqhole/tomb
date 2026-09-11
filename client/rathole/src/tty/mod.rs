@@ -3,10 +3,12 @@
 //! owns: ratatui terminal lifecycle, crossterm event loop, the
 //! grimoire-backed `LocalTransport`, and the toml statefile.
 
+pub mod art_fetch;
+pub mod art_render;
+pub mod pairing;
 pub mod pending_remotes;
 mod persist;
 mod player;
-pub mod pairing;
 pub mod qr;
 mod queue;
 mod run;

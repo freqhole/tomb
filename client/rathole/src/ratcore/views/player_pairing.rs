@@ -3,9 +3,9 @@
 //! local audio-device picker), queue glance when playing.
 //!
 //! key map (shell handles input; this file is render-only):
-//! - overview: tab: settings   d/↑/↓: pick connected controller
+//! - overview: tab: player-row controls   s: settings   d/↑/↓: pick connected controller
 //!   y/n: confirm/cancel removing the picked controller   esc: home
-//! - settings: tab: overview   e: toggle everyone/selected mode
+//! - settings: tab: player-row controls   s: overview   e: toggle everyone/selected mode
 //!   a: regenerate admin pin   r: regenerate session pin   esc: home
 
 use ratatui::{
@@ -83,7 +83,7 @@ fn spaced_pin(pin: &str) -> String {
 
 fn draw_overview(frame: &mut Frame, area: Rect, app: &mut App) {
     let snapshot = app.pairing.as_ref().map(|p| p.snapshot());
-    let [left, right] = Layout::horizontal([Percentage(55), Percentage(45)]).areas(area);
+    let [left, right] = Layout::horizontal([Percentage(38), Percentage(62)]).areas(area);
 
     let outer_block = Block::bordered().title(Span::styled(
         "pair a device",
@@ -92,13 +92,62 @@ fn draw_overview(frame: &mut Frame, area: Rect, app: &mut App) {
     let inner = outer_block.inner(left);
     frame.render_widget(outer_block, left);
 
-    let session = snapshot.as_ref().and_then(|s| s.session.as_ref());
+    let session = snapshot.as_ref().and_then(|s| s.session.as_ref()).cloned();
     let qr_text = match &snapshot {
         Some(snap) if snap.node_id.is_some() => {
-            app.state.ephemeral.player_pairing.qr_text.as_deref()
+            app.state.ephemeral.player_pairing.qr_text.clone()
         }
         _ => None,
     };
+
+    // terminal mode, and a song's playing with resolved art: show the
+    // rasterized art in place of the qr+pin (rendering a pin makes no
+    // sense mid-playback anyway - it's only for the pairing exchange).
+    // idle, or no art resolved yet, falls through to qr+pin as usual.
+    let art_path = if app.state.ephemeral.player_pairing.image_mode
+        == crate::ratcore::app::ImageMode::Terminal
+        && !app.state.ephemeral.music.queue_video_active
+        && app.state.ephemeral.music.currently_playing().is_some()
+    {
+        app.state
+            .ephemeral
+            .player_pairing
+            .art_paths
+            .first()
+            .cloned()
+    } else {
+        None
+    };
+
+    let mut showed_art = false;
+    if let Some(path) = &art_path {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            showed_art = crate::tty::art_render::draw_art(frame, inner, path);
+        }
+    }
+    if !showed_art {
+        draw_qr_and_pin(frame, inner, app, &snapshot, qr_text.as_deref(), session.as_ref());
+    }
+
+    let [connected_area, queue_area] =
+        Layout::vertical([Length(7), Min(0)]).areas(right);
+    draw_connected(frame, connected_area, app, snapshot.as_ref());
+    draw_queue_glance(frame, queue_area, app);
+}
+
+/// the qr-code-plus-pin layout: sizes/centers the pair, falling back to
+/// a compact rendering when the terminal's too small for the full-size
+/// version. split out of `draw_overview` so the "show rasterized art
+/// instead" path (see above) can skip straight past all of this.
+fn draw_qr_and_pin(
+    frame: &mut Frame,
+    inner: Rect,
+    app: &mut App,
+    snapshot: &Option<crate::ratcore::app::PairingSnapshot>,
+    qr_text: Option<&str>,
+    session: Option<&crate::ratcore::app::PlayerSession>,
+) {
     let qr_size = qr_text.map(|t| {
         let height = t.lines().count() as u16;
         let width = t.lines().map(str::chars).map(Iterator::count).max().unwrap_or(0) as u16;
@@ -127,16 +176,11 @@ fn draw_overview(frame: &mut Frame, area: Rect, app: &mut App) {
             Layout::vertical([Length(needed_height.saturating_sub(pin_rows)), Length(pin_rows)])
                 .areas(content);
 
-        draw_qr(frame, qr_area, &snapshot, qr_text);
+        draw_qr(frame, qr_area, snapshot, qr_text);
         if let (Some(session), Some(layout)) = (session, pin_layout) {
             draw_big_pin(frame, pin_area, app, session, layout);
         }
     }
-
-    let [connected_area, queue_area] =
-        Layout::vertical([Percentage(50), Percentage(50)]).areas(right);
-    draw_connected(frame, connected_area, app, snapshot.as_ref());
-    draw_queue_glance(frame, queue_area, app);
 }
 
 fn draw_qr(
@@ -292,44 +336,180 @@ fn draw_connected(
 /// reuses the existing music now-playing/queue state rather than a
 /// second queue representation - see phase-4 plan doc.
 fn draw_queue_glance(frame: &mut Frame, area: Rect, app: &App) {
+    let outer = Block::bordered().title(Span::styled("queue", Style::new().fg(ACCENT).bold()));
+    let inner = outer.inner(area);
+    frame.render_widget(outer, area);
+
     let m = &app.state.ephemeral.music;
-    let mut lines: Vec<Line> = Vec::new();
-    match m.current.and_then(|i| m.queue.get(i)) {
+    let current = m.current.and_then(|i| m.queue.get(i));
+
+    // "now playing" title + artist each get a dynamically-sized,
+    // centered big-text line (same shrink-to-fit approach as the pin)
+    // instead of plain text - falls back to normal bold/dim text when
+    // even the smallest big-text size can't fit (long titles/artist
+    // names will often land here - that's fine, still an upgrade for
+    // the ones short enough to benefit). album stays regular text
+    // (centered too), no need for it to compete for the same space.
+    let title_layout = current.and_then(|e| fit_text_layout(e.title(), inner.width, 2));
+    let title_rows = title_layout.as_ref().map(|l| l.rows).unwrap_or(1);
+    let artist_layout = current
+        .and_then(|e| e.artist())
+        .and_then(|a| fit_text_layout(a, inner.width, 2));
+    let artist_rows = match (&artist_layout, current.and_then(|e| e.artist())) {
+        (Some(l), _) => l.rows,
+        (None, Some(_)) => 1,
+        (None, None) => 0,
+    };
+    let album_rows = if current.and_then(|e| e.album()).is_some() { 1 } else { 0 };
+    let progress_rows = if app.state.ephemeral.player_pairing.download_progress.is_some() {
+        2
+    } else {
+        0
+    };
+    let [now_playing_area, rest] = Layout::vertical([
+        Length(title_rows + artist_rows + album_rows + progress_rows),
+        Min(0),
+    ])
+    .areas(inner);
+
+    match current {
         Some(entry) => {
             let kind_glyph = match entry.kind() {
-                crate::ratcore::app::MediaKind::Video => "\u{1f3ac} ",
+                crate::ratcore::app::MediaKind::Video => "[video] ",
                 crate::ratcore::app::MediaKind::Audio => "",
             };
-            lines.push(Line::from(vec![
-                Span::styled("now playing: ", Style::new().bold()),
-                Span::raw(format!("{kind_glyph}{}", entry.title())),
-            ]));
+            let [title_area, artist_area, album_area, progress_area] = Layout::vertical([
+                Length(title_rows),
+                Length(artist_rows),
+                Length(album_rows),
+                Length(progress_rows),
+            ])
+            .areas(now_playing_area);
+            match title_layout {
+                Some(layout) => {
+                    let big = BigText::builder()
+                        .pixel_size(layout.pixel_size)
+                        .style(Style::new().fg(ACCENT).bold())
+                        .alignment(Alignment::Center)
+                        .lines(vec![Line::from(format!("{kind_glyph}{}", entry.title()))])
+                        .build();
+                    frame.render_widget(big, title_area);
+                }
+                None => {
+                    frame.render_widget(
+                        Paragraph::new(Line::from(vec![
+                            Span::styled("now playing: ", Style::new().bold()),
+                            Span::raw(format!("{kind_glyph}{}", entry.title())),
+                        ]))
+                        .alignment(Alignment::Center),
+                        title_area,
+                    );
+                }
+            }
             if let Some(artist) = entry.artist() {
-                lines.push(Line::from(artist.to_string()).dim());
+                match &artist_layout {
+                    Some(layout) => {
+                        let big = BigText::builder()
+                            .pixel_size(layout.pixel_size)
+                            .style(Style::new().fg(ACCENT))
+                            .alignment(Alignment::Center)
+                            .lines(vec![Line::from(artist.to_string())])
+                            .build();
+                        frame.render_widget(big, artist_area);
+                    }
+                    None => {
+                        frame.render_widget(
+                            Paragraph::new(Line::from(artist.to_string()).dim())
+                                .alignment(Alignment::Center),
+                            artist_area,
+                        );
+                    }
+                }
+            }
+            if let Some(album) = entry.album() {
+                frame.render_widget(
+                    Paragraph::new(Line::from(album.to_string()).dim()).alignment(Alignment::Center),
+                    album_area,
+                );
+            }
+            if let Some(progress) = &app.state.ephemeral.player_pairing.download_progress {
+                frame.render_widget(Paragraph::new(download_progress_line(progress)), progress_area);
             }
         }
-        None => lines.push(Line::from("(nothing playing)".dim())),
-    }
-    if let Some(progress) = &app.state.ephemeral.player_pairing.download_progress {
-        lines.push(Line::from(""));
-        lines.push(download_progress_line(progress));
-    }
-    if m.queue.len() > 1 {
-        lines.push(Line::from(""));
-        lines.push(Line::from(format!("queue ({} tracks):", m.queue.len())).bold());
-        for (i, entry) in m.queue.iter().enumerate().take(6) {
-            let marker = if Some(i) == m.current { "\u{25b6} " } else { "  " };
-            let kind_glyph = match entry.kind() {
-                crate::ratcore::app::MediaKind::Video => "\u{1f3ac} ",
-                crate::ratcore::app::MediaKind::Audio => "",
-            };
-            lines.push(Line::from(format!("{marker}{kind_glyph}{}", entry.title())));
+        None => {
+            frame.render_widget(Paragraph::new("(nothing playing)".dim()), now_playing_area);
         }
     }
-    let block = Paragraph::new(lines)
-        .block(Block::bordered().title(Span::styled("queue", Style::new().fg(ACCENT).bold())))
-        .wrap(Wrap { trim: false });
-    frame.render_widget(block, area);
+
+    if m.queue.len() > 1 {
+        let mut lines: Vec<Line> =
+            vec![Line::from(format!("queue ({} tracks):", m.queue.len() - 1)).bold()];
+        for (i, entry) in m.queue.iter().enumerate().skip(1).take(rest.height.saturating_sub(1) as usize) {
+            let marker = if Some(i) == m.current { "\u{25b6} " } else { "  " };
+            let kind_glyph = match entry.kind() {
+                crate::ratcore::app::MediaKind::Video => "[video] ",
+                crate::ratcore::app::MediaKind::Audio => "",
+            };
+            let meta = match (entry.artist(), entry.album()) {
+                (Some(artist), Some(album)) => format!("  \u{2014} {artist} \u{2014} {album}"),
+                (Some(artist), None) => format!("  \u{2014} {artist}"),
+                (None, Some(album)) => format!("  \u{2014} {album}"),
+                (None, None) => String::new(),
+            };
+            let raw = format!("{marker}{kind_glyph}{}{meta}", entry.title());
+            lines.push(Line::from(truncate_to_width(&raw, rest.width)));
+        }
+        // no `.wrap(...)` - each line is already truncated to fit, and
+        // an un-wrapped Paragraph clips rather than spilling onto a
+        // second row, keeping every queue row on exactly one line.
+        frame.render_widget(Paragraph::new(lines), rest);
+    }
+}
+
+/// truncates `s` to at most `width` terminal columns (approximated by
+/// char count - good enough for the ascii-heavy titles/artist names
+/// here), appending an ellipsis when cut short.
+fn truncate_to_width(s: &str, width: u16) -> String {
+    let width = width as usize;
+    if width == 0 {
+        return String::new();
+    }
+    let chars: Vec<char> = s.chars().collect();
+    if chars.len() <= width {
+        return s.to_string();
+    }
+    if width <= 1 {
+        return "\u{2026}".to_string();
+    }
+    let mut truncated: String = chars[..width - 1].iter().collect();
+    truncated.push('\u{2026}');
+    truncated
+}
+
+/// like `fit_pin_layout`, but for an arbitrary title string rather than
+/// a fixed 6-digit pin - picks the largest big-text size (from the same
+/// candidate list) whose glyphs, one per character, fit within
+/// `avail_w` columns. most titles will simply be too long for any
+/// big-text size and fall back to `None` (plain text) - that's fine,
+/// it's an upgrade only for titles short enough to benefit.
+fn fit_text_layout(text: &str, avail_w: u16, avail_h: u16) -> Option<PinLayout> {
+    let n = text.chars().count() as u16;
+    if n == 0 {
+        return None;
+    }
+    for &(pixel_size, cols, rows) in PIN_SIZE_CANDIDATES {
+        if rows > avail_h {
+            continue;
+        }
+        if n * cols <= avail_w {
+            return Some(PinLayout {
+                pixel_size,
+                text: text.to_string(),
+                rows,
+            });
+        }
+    }
+    None
 }
 
 /// renders "downloading 2/5: <title> [####------] 43%" (or a
@@ -385,10 +565,14 @@ fn draw_settings(frame: &mut Frame, area: Rect, app: &mut App) {
         .selected_output_device
         .as_deref()
         .unwrap_or("(default)");
-    let autostart_label = if grimoire::config::get_config().player_pairing.enabled {
+    let autostart_label = if app.state.ephemeral.player_pairing.autostart_enabled {
         "enabled"
     } else {
         "disabled"
+    };
+    let image_mode_label = match app.state.ephemeral.player_pairing.image_mode {
+        crate::ratcore::app::ImageMode::Terminal => "terminal (unicode)",
+        crate::ratcore::app::ImageMode::Framebuffer => "framebuffer (mpv, raster)",
     };
     let items = [
         format!("session mode: {mode_label}   (e: toggle)"),
@@ -399,6 +583,7 @@ fn draw_settings(frame: &mut Frame, area: Rect, app: &mut App) {
             devices.len()
         ),
         format!("auto-start pairing on launch: {autostart_label}   (p: toggle)"),
+        format!("qr/art display: {image_mode_label}   (i: toggle)"),
     ];
     let list_items: Vec<ListItem> = items
         .iter()

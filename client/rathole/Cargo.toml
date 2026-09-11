@@ -48,11 +48,28 @@ arboard = { version = "3", default-features = false }
 open = "5"
 base64 = { workspace = true }
 # qr code rendering for the `--player`/`/player` pairing screen (see
-# docs/rathole-headless-player-plan.md). default-features off: the
-# `image` feature (png/raster output, for the config-selectable
-# "framebuffer" display mode) isn't needed yet - the default "terminal"
-# mode only uses the crate's own unicode half-block renderer.
-qrcode = { version = "0.14", default-features = false }
+# docs/rathole-headless-player-plan.md). `image` feature adds
+# `qrcode::render::image` (renders straight to an `image::ImageBuffer`),
+# used by the "framebuffer" display mode to build a qr+pin png shown
+# via mpv; the default "terminal" mode still uses the crate's own
+# unicode half-block renderer, unaffected by this feature.
+qrcode = { version = "0.14", default-features = false, features = ["image"] }
+# rasterized now-playing art + qr, terminal mode: halfblocks rendering
+# (works in any terminal, no protocol detection) - see the plan doc's
+# "image rendering modes" section. no-default-features + explicit
+# feature list avoids pulling in libchafa (a C library, would be a
+# cross-compile yak-shave for the pi32 target).
+ratatui-image = { version = "11", default-features = false, features = [
+    "image-defaults",
+    "crossterm",
+] }
+# compositing the qr+pin framebuffer png (drawing the pin digits onto
+# the rendered qr) - ratatui-image/qrcode's `image` feature already pull
+# this crate in transitively, but rathole's own code needs it as a
+# direct dependency to name its types (`image::Rgb`, `RgbImage`, ...).
+# default-features off + `png` only: we never decode arbitrary source
+# formats here, just build + encode a png.
+image = { version = "0.25", default-features = false, features = ["png"] }
 # native iroh endpoint for the `--player`/`/player` pairing ALPN
 # (tty/pairing.rs) - same version grimoire itself pins, so the
 # `iroh::protocol::ProtocolHandler`/`Connection`/etc. types registered

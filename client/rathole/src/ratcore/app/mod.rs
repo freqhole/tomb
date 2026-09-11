@@ -16,11 +16,11 @@ pub use events::{
 };
 pub use music::{MusicEvent, MusicMode, MusicState, PlayerState, SongRow};
 pub use pairing::{
-    CommandAck, CommandAckReason, ConnectedControllerInfo, MediaKind, MediaRef, PairRequest,
-    PairResponse, PairResponseReason, PairingDownloadProgress, PairingSnapshot, PairingViewMode,
-    PairingViewState, PeerRole, PlayerCommand as PairingCommand, PlayerSession, PlayerStatus,
-    PlayerStatusMessage, PresenceAnnouncement, PresenceQuery, PresenceState, SessionMode,
-    StatusCommon, SubscribeRequest, TrustedController,
+    CommandAck, CommandAckReason, ConnectedControllerInfo, ImageMode, MediaKind, MediaRef,
+    PairRequest, PairResponse, PairResponseReason, PairingDownloadProgress, PairingSnapshot,
+    PairingViewMode, PairingViewState, PeerRole, PlayerCommand as PairingCommand, PlayerSession,
+    PlayerStatus, PlayerStatusMessage, PresenceAnnouncement, PresenceQuery, PresenceState,
+    SessionMode, StatusCommon, SubscribeRequest, TrustedController,
 };
 pub use queue::{QueueEntry, QueuedVideoRow};
 pub use repl::{ReplState, ReplStatus, ReplStatusLevel};

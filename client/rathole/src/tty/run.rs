@@ -178,6 +178,16 @@ async fn run_inner(
         .map(|f| f.enabled)
         .unwrap_or(false);
     let player_pairing_enabled = grimoire::config::get_config().player_pairing.enabled;
+    app.state.ephemeral.player_pairing.autostart_enabled = player_pairing_enabled;
+    app.state.ephemeral.player_pairing.image_mode = match grimoire::config::get_config()
+        .player_pairing
+        .image_mode
+    {
+        grimoire::config::ImageDisplayMode::Terminal => crate::ratcore::app::ImageMode::Terminal,
+        grimoire::config::ImageDisplayMode::Framebuffer => {
+            crate::ratcore::app::ImageMode::Framebuffer
+        }
+    };
     if opts.player {
         app.state.ephemeral.focus = Focus::PlayerPairing;
     }
@@ -448,6 +458,23 @@ async fn run_inner(
                         }
                     }
                 }
+                // framebuffer mode: keep mpv showing whatever's
+                // currently appropriate (now-playing art, or the
+                // qr+pin when idle) - cheap no-op when nothing changed.
+                // runs regardless of which ratatui view is focused,
+                // since a headless/framebuffer setup may have no
+                // ratatui-visible display at all (see
+                // docs/rathole-headless-player-plan.md).
+                sync_pairing_framebuffer_image(&mut app);
+                // push the current queue/now-playing/position to every
+                // subscribed controller (spume's `subscribeToPlayerStatus`)
+                // every tick, regardless of view/focus - this is what
+                // actually keeps a remote controller's displayed state
+                // (playing/paused, position, queue) live instead of
+                // only updating on its own poll interval. cheap: a
+                // `watch` channel send is a no-op when there are no
+                // subscribers, and coalesces for slow readers.
+                pairing_runtime.broadcast_status(build_player_status(&app));
             }
             Some(action) = action_rx.recv() => {
                 if handle_serve_action(
@@ -1121,7 +1148,8 @@ fn on_action(app: &mut App, action: AppAction, action_tx: &mpsc::UnboundedSender
         AppAction::VideoPlayerEvent(ev) => {
             // pure state fold, same shape as charnel's `PlayerState::apply` -
             let was_queue_driven = app.state.ephemeral.music.queue_video_active;
-            let advance = was_queue_driven
+            let was_audio_fallback = app.state.ephemeral.music.audio_fallback_active;
+            let advance = (was_queue_driven || was_audio_fallback)
                 && matches!(
                     ev,
                     crate::ratcore::app::VideoEvent::Ended
@@ -1130,7 +1158,11 @@ fn on_action(app: &mut App, action: AppAction, action_tx: &mpsc::UnboundedSender
                 );
             app.state.ephemeral.video_player.apply(&ev);
             if advance {
-                // the queue's current entry was a video and it just
+                if was_audio_fallback {
+                    app.state.ephemeral.music.audio_fallback_active = false;
+                }
+                // the queue's current entry was a video (or an mpv
+                // audio fallback for an undecodable song) and it just
                 // finished/errored/closed - advance the SAME unified
                 // queue an audio Ended would, so a mixed audio+video
                 // queue keeps playing through regardless of which
@@ -1378,6 +1410,27 @@ fn on_action(app: &mut App, action: AppAction, action_tx: &mpsc::UnboundedSender
         AppAction::PairingAppendQueue { entries } => {
             append_queue_entries(app, entries, action_tx);
         }
+        AppAction::SongArtResolved { song_id, paths } => {
+            let still_current = app
+                .state
+                .ephemeral
+                .music
+                .currently_playing()
+                .and_then(|e| e.song_id())
+                == Some(song_id.as_str());
+            if still_current {
+                app.state.ephemeral.player_pairing.art_paths = paths;
+            } else {
+                tracing::info!(
+                    target: "rathole::tty::art",
+                    song_id = %song_id,
+                    "dropping art resolution for a song that's no longer current"
+                );
+            }
+        }
+        AppAction::PairingSkip => {
+            play_next(app, action_tx);
+        }
         // collection loaded: rathole-side queue replace + play. used by
         // play_collection's spawn_local once songs are fetched.
         AppAction::CollectionLoaded { songs } => {
@@ -1567,6 +1620,62 @@ fn sync_pending_knocks(app: &App, tx: &mpsc::UnboundedSender<AppAction>) {
     });
 }
 
+/// builds the current `PlayerStatus` snapshot directly from `&App` -
+/// used by the tick loop to broadcast live state to every subscribed
+/// controller (see `PairingRuntime::broadcast_status`). a separate,
+/// slightly duplicated snapshot from `handle_pairing_dispatch`'s own
+/// (ctx-based, `&App`-decoupled) version, since that one deliberately
+/// stays usable from a spawned task without `&App` access.
+fn build_player_status(app: &App) -> crate::ratcore::app::PlayerStatus {
+    use crate::ratcore::app::{PlayerStatus, StatusCommon};
+
+    let m = &app.state.ephemeral.music;
+    let vp = &app.state.ephemeral.video_player;
+    let queue: Vec<_> = m
+        .current
+        .map(|cur| {
+            m.queue[cur..]
+                .iter()
+                .map(super::pairing::queue_entry_to_media_ref)
+                .collect()
+        })
+        .unwrap_or_default();
+    let recently_played = m
+        .history
+        .iter()
+        .map(|e| super::pairing::queue_entry_to_media_ref(e).blake3_hash)
+        .collect();
+    let common = StatusCommon {
+        queue,
+        auto_download_enabled: false,
+        volume: m.volume as f64,
+        recently_played,
+    };
+    let is_playing = is_currently_playing(app);
+    let position_ms = if active_playback_is_video(app) {
+        (vp.position * 1000.0).round() as u64
+    } else {
+        m.position_ms
+    };
+    let server_time_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    match common.queue.first() {
+        None => PlayerStatus::Stopped { common },
+        Some(item) if is_playing => PlayerStatus::NowPlaying {
+            item: item.clone(),
+            position_ms,
+            server_time_ms,
+            common,
+        },
+        Some(_) => PlayerStatus::Paused {
+            position_ms,
+            common,
+        },
+    }
+}
+
 /// synchronously snapshots whatever `app` state the pairing dispatch
 /// needs, then spawns the actual (possibly slow - remote media fetch)
 /// work on the `LocalSet` so the main event loop never blocks on it.
@@ -1576,13 +1685,19 @@ fn handle_pairing_dispatch(
     req: super::pairing::PairingDispatchRequest,
     action_tx: &mpsc::UnboundedSender<AppAction>,
 ) {
-    use crate::ratcore::app::{MediaKind, PlayerState, VideoPlaybackState};
-
     let m = &app.state.ephemeral.music;
     let vp = &app.state.ephemeral.video_player;
-    let active_backend = match m.currently_playing().map(|e| e.kind()) {
-        Some(MediaKind::Video) => super::pairing::ActiveBackend::Video,
-        _ => super::pairing::ActiveBackend::Audio,
+    // an mpv audio-fallback song (rodio couldn't decode it - see
+    // tty::queue::try_mpv_audio_fallback) is still a `MediaKind::Audio`
+    // queue entry, but mpv (not rodio) is what's actually playing it -
+    // generic commands (pause/resume/seek/volume/status) need to
+    // target mpv in that case, or they'd silently hit rodio's idle
+    // sink instead and appear to do nothing. shared with the local key
+    // handlers (`send_generic_local`) so this is derived one way.
+    let active_backend = if active_playback_is_video(app) {
+        super::pairing::ActiveBackend::Video
+    } else {
+        super::pairing::ActiveBackend::Audio
     };
     // real queue/position snapshot for the ack's `PlayerStatus` (see
     // `DispatchContext`'s own doc comment) - built synchronously here
@@ -1598,20 +1713,21 @@ fn handle_pairing_dispatch(
                 .collect()
         })
         .unwrap_or_default();
-    let (position_ms, duration_ms, is_playing) = match active_backend {
-        super::pairing::ActiveBackend::Audio => (
-            m.position_ms,
-            m.duration_ms,
-            m.player_state == PlayerState::Playing,
-        ),
+    let is_playing = is_currently_playing(app);
+    let (position_ms, duration_ms) = match active_backend {
+        super::pairing::ActiveBackend::Audio => (m.position_ms, m.duration_ms),
         super::pairing::ActiveBackend::Video => (
             (vp.position * 1000.0).round() as u64,
             vp.duration
                 .map(|d| (d * 1000.0).round() as u64)
                 .unwrap_or(0),
-            vp.state == VideoPlaybackState::Playing,
         ),
     };
+    let recently_played = m
+        .history
+        .iter()
+        .map(|e| super::pairing::queue_entry_to_media_ref(e).blake3_hash)
+        .collect();
     let ctx = super::pairing::DispatchContext {
         active_backend,
         player: app.player.clone(),
@@ -1622,6 +1738,7 @@ fn handle_pairing_dispatch(
         position_ms,
         duration_ms,
         is_playing,
+        recently_played,
     };
     tokio::task::spawn_local(async move {
         let ack = super::pairing::dispatch_pairing_command(ctx, req.command).await;
@@ -1636,7 +1753,15 @@ fn apply_music_event(
 ) {
     use crate::ratcore::app::MusicEvent;
     match ev {
-        MusicEvent::State(s) => app.state.ephemeral.music.player_state = s,
+        MusicEvent::State(s) => {
+            if s == crate::ratcore::app::PlayerState::Playing {
+                // genuine success signal - rodio actually started
+                // playing what we sent it, so it's no longer a
+                // candidate for the mpv audio-fallback path.
+                app.state.ephemeral.music.pending_rodio_song_id = None;
+            }
+            app.state.ephemeral.music.player_state = s;
+        }
         MusicEvent::Progress { ms, total_ms } => {
             let m = &mut app.state.ephemeral.music;
             m.position_ms = ms;
@@ -1653,17 +1778,33 @@ fn apply_music_event(
             app.state.ephemeral.music.queue_resolving = remaining;
         }
         MusicEvent::Ended => {
-            // rodio finished the single track we loaded. advance to
-            // the next row in the local queue, or stop if we've run
-            // off the end. play_index handles both cases.
-            let next = app
+            // rodio finished the single track we loaded - OR it never
+            // actually started (couldn't decode/init it) and this is
+            // the immediate `Ended` that follows: `pending_rodio_song_id`
+            // is only still set in that latter case (cleared on a real
+            // `State(Playing)` success signal above), so check it
+            // before assuming a normal end-of-track.
+            let current_song_id = app
                 .state
                 .ephemeral
                 .music
-                .current
-                .map(|c| c + 1)
-                .unwrap_or(0);
-            play_index(app, next, tx);
+                .currently_playing()
+                .and_then(|e| e.song_id())
+                .map(str::to_string);
+            let rodio_failed = app.state.ephemeral.music.pending_rodio_song_id.is_some()
+                && app.state.ephemeral.music.pending_rodio_song_id == current_song_id;
+            if rodio_failed {
+                try_mpv_audio_fallback(app, tx);
+            } else {
+                let next = app
+                    .state
+                    .ephemeral
+                    .music
+                    .current
+                    .map(|c| c + 1)
+                    .unwrap_or(0);
+                play_index(app, next, tx);
+            }
         }
         MusicEvent::Error(e) => app.state.ephemeral.music.last_event_error = Some(e),
         MusicEvent::OutputDevices { devices } => {
@@ -2980,7 +3121,17 @@ fn on_player_pairing_key(
             app.state.ephemeral.player_pairing.pending_remove_confirm = None;
             app.state.ephemeral.focus = Focus::Landing;
         }
+        // tab enters the global player-row focus (same convention as
+        // the result panel's tab - see `on_result_panel_key`) so every
+        // playback control (play/pause/skip/seek/volume/favorite)
+        // works exactly like it does on every other view, instead of
+        // this screen reinventing its own subset of shortcuts. 's'
+        // (not tab - tab is taken now) switches the overview/settings
+        // sub-mode.
         (_, KeyCode::Tab) => {
+            crate::ratcore::player_row_keys::enter(&mut app.state);
+        }
+        (_, KeyCode::Char('s')) => {
             app.state.ephemeral.player_pairing.mode = match mode {
                 PairingViewMode::Overview => PairingViewMode::Settings,
                 PairingViewMode::Settings => PairingViewMode::Overview,
@@ -3026,7 +3177,7 @@ fn on_player_pairing_key(
         }
         (PairingViewMode::Settings, KeyCode::Down) => {
             let v = &mut app.state.ephemeral.player_pairing;
-            v.settings_cursor = (v.settings_cursor + 1).min(4);
+            v.settings_cursor = (v.settings_cursor + 1).min(5);
         }
         (PairingViewMode::Settings, KeyCode::Up) => {
             let v = &mut app.state.ephemeral.player_pairing;
@@ -3067,6 +3218,7 @@ fn on_player_pairing_key(
                 }
                 Some(path) => match grimoire::config::set_player_pairing_enabled(&path, want) {
                     Ok(()) => {
+                        app.state.ephemeral.player_pairing.autostart_enabled = want;
                         app.state.ephemeral.repl.status = Some(ReplStatus::ok(format!(
                             "auto-start pairing on launch: {} (takes effect on next launch)",
                             if want { "enabled" } else { "disabled" }
@@ -3078,6 +3230,68 @@ fn on_player_pairing_key(
                         )));
                     }
                 },
+            }
+        }
+        (PairingViewMode::Settings, KeyCode::Char('i')) => {
+            let current = app.state.ephemeral.player_pairing.image_mode;
+            let want = match current {
+                crate::ratcore::app::ImageMode::Terminal => {
+                    crate::ratcore::app::ImageMode::Framebuffer
+                }
+                crate::ratcore::app::ImageMode::Framebuffer => {
+                    crate::ratcore::app::ImageMode::Terminal
+                }
+            };
+            let want_grimoire = match want {
+                crate::ratcore::app::ImageMode::Terminal => {
+                    grimoire::config::ImageDisplayMode::Terminal
+                }
+                crate::ratcore::app::ImageMode::Framebuffer => {
+                    grimoire::config::ImageDisplayMode::Framebuffer
+                }
+            };
+            match grimoire::config::get_config_path() {
+                None => {
+                    app.state.ephemeral.repl.status = Some(ReplStatus::err(
+                        "player pairing: no config file path known; cannot persist",
+                    ));
+                }
+                Some(path) => {
+                    match grimoire::config::set_player_pairing_image_mode(&path, want_grimoire) {
+                        Ok(()) => {
+                            app.state.ephemeral.player_pairing.image_mode = want;
+                            let label = match want {
+                                crate::ratcore::app::ImageMode::Terminal => "terminal",
+                                crate::ratcore::app::ImageMode::Framebuffer => "framebuffer",
+                            };
+                            app.state.ephemeral.repl.status =
+                                Some(ReplStatus::ok(format!("qr/art display: {label}")));
+                            // switching away from framebuffer should
+                            // relinquish whatever it was showing
+                            // rather than leaving a stale mpv image up.
+                            if want == crate::ratcore::app::ImageMode::Terminal {
+                                if let Some(video_player) = app.video_player.clone() {
+                                    app.state
+                                        .ephemeral
+                                        .video_player
+                                        .apply_command(&crate::ratcore::app::VideoCommand::Close);
+                                    app.state.ephemeral.player_pairing.framebuffer_shown_path =
+                                        None;
+                                    tokio::task::spawn_local(async move {
+                                        let _ = video_player
+                                            .send(crate::ratcore::app::VideoCommand::Close)
+                                            .await;
+                                    });
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            app.state.ephemeral.repl.status = Some(ReplStatus::err(format!(
+                                "player pairing: failed to update config: {e}"
+                            )));
+                        }
+                    }
+                }
             }
         }
         (PairingViewMode::Settings, KeyCode::Enter)
@@ -3344,6 +3558,63 @@ fn on_video_key(app: &mut App, code: KeyCode, tx: &mpsc::UnboundedSender<AppActi
         }
         _ => {}
     }
+}
+
+/// framebuffer `image_mode` only: decides what (if anything) mpv
+/// should be showing for the pairing screen right now - the
+/// currently-playing song's art if one's resolved, else the qr+pin
+/// (once the endpoint/session are up), else nothing - and sends
+/// `VideoCommand::ShowImage`/`Close` only when that target actually
+/// changed since last tick. a queue-driven video (`queue_video_active`)
+/// always wins; this never fights it for the mpv backend.
+fn sync_pairing_framebuffer_image(app: &mut App) {
+    use crate::ratcore::app::{ImageMode, VideoCommand};
+
+    if app.state.ephemeral.player_pairing.image_mode != ImageMode::Framebuffer {
+        return;
+    }
+    if app.state.ephemeral.music.queue_video_active
+        || app.state.ephemeral.music.audio_fallback_active
+    {
+        return;
+    }
+
+    let desired = if app.state.ephemeral.music.currently_playing().is_some() {
+        app.state
+            .ephemeral
+            .player_pairing
+            .art_paths
+            .first()
+            .cloned()
+    } else {
+        None
+    }
+    .or_else(|| {
+        let snapshot = app.pairing.as_ref()?.snapshot();
+        let node_id = snapshot.node_id?;
+        let pin = snapshot.session?.pin;
+        let payload =
+            format!(r#"{{"node_id":"{node_id}","name":"rathole","role":"player_remote"}}"#);
+        super::qr::render_qr_pin_png(&payload, &pin)
+            .ok()
+            .map(|p| p.to_string_lossy().into_owned())
+    });
+
+    if desired == app.state.ephemeral.player_pairing.framebuffer_shown_path {
+        return;
+    }
+    let Some(video_player) = app.video_player.clone() else {
+        return;
+    };
+    let command = match &desired {
+        Some(path) => VideoCommand::ShowImage { path: path.clone() },
+        None => VideoCommand::Close,
+    };
+    app.state.ephemeral.video_player.apply_command(&command);
+    tokio::task::spawn_local(async move {
+        let _ = video_player.send(command).await;
+    });
+    app.state.ephemeral.player_pairing.framebuffer_shown_path = desired;
 }
 
 /// resolve the selected video's media blob to a local path, then send
@@ -3685,7 +3956,6 @@ fn adjust_volume(app: &mut App, delta: f32, tx: &mpsc::UnboundedSender<AppAction
 }
 
 fn on_player_row_key(app: &mut App, code: KeyCode, tx: &mpsc::UnboundedSender<AppAction>) {
-    use crate::ratcore::app::PlayerState;
     use crate::ratcore::player_row_keys as prk;
     use crate::ratcore::transport::PlayerCmd;
     match code {
@@ -3719,31 +3989,68 @@ fn on_player_row_key(app: &mut App, code: KeyCode, tx: &mpsc::UnboundedSender<Ap
             let action = prk::activate(&app.state);
             match action {
                 prk::PlayerRowAction::Previous => play_previous(app, tx),
-                prk::PlayerRowAction::PlayPause => match app.state.ephemeral.music.player_state {
-                    PlayerState::Playing => send_player(app, PlayerCmd::Pause, tx),
-                    _ => send_player(app, PlayerCmd::Play, tx),
-                },
+                prk::PlayerRowAction::PlayPause => {
+                    if is_currently_playing(app) {
+                        send_generic_local(
+                            app,
+                            tx,
+                            PlayerCmd::Pause,
+                            crate::ratcore::app::VideoCommand::Pause,
+                        );
+                    } else {
+                        send_generic_local(
+                            app,
+                            tx,
+                            PlayerCmd::Play,
+                            crate::ratcore::app::VideoCommand::Play,
+                        );
+                    }
+                }
                 prk::PlayerRowAction::Next => play_next(app, tx),
                 prk::PlayerRowAction::SeekBack => {
                     let pos = app.state.ephemeral.music.position_ms;
                     let target = pos.saturating_sub(15_000);
-                    send_player(app, PlayerCmd::Seek(target), tx);
+                    send_generic_local(
+                        app,
+                        tx,
+                        PlayerCmd::Seek(target),
+                        crate::ratcore::app::VideoCommand::Seek {
+                            seconds: target as f64 / 1000.0,
+                        },
+                    );
                 }
                 prk::PlayerRowAction::SeekForward => {
                     let pos = app.state.ephemeral.music.position_ms;
                     let total = app.state.ephemeral.music.duration_ms;
                     let target = (pos + 15_000).min(total.max(pos));
-                    send_player(app, PlayerCmd::Seek(target), tx);
+                    send_generic_local(
+                        app,
+                        tx,
+                        PlayerCmd::Seek(target),
+                        crate::ratcore::app::VideoCommand::Seek {
+                            seconds: target as f64 / 1000.0,
+                        },
+                    );
                 }
                 prk::PlayerRowAction::VolumeDown => {
                     let v = (app.state.ephemeral.music.volume - 0.05).clamp(0.0, 2.0);
                     app.state.ephemeral.music.volume = v;
-                    send_player(app, PlayerCmd::SetVolume(v), tx);
+                    send_generic_local(
+                        app,
+                        tx,
+                        PlayerCmd::SetVolume(v),
+                        crate::ratcore::app::VideoCommand::SetVolume { volume: v as f64 },
+                    );
                 }
                 prk::PlayerRowAction::VolumeUp => {
                     let v = (app.state.ephemeral.music.volume + 0.05).clamp(0.0, 2.0);
                     app.state.ephemeral.music.volume = v;
-                    send_player(app, PlayerCmd::SetVolume(v), tx);
+                    send_generic_local(
+                        app,
+                        tx,
+                        PlayerCmd::SetVolume(v),
+                        crate::ratcore::app::VideoCommand::SetVolume { volume: v as f64 },
+                    );
                 }
                 prk::PlayerRowAction::Favorite => {
                     if let Some(id) = app

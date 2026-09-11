@@ -751,6 +751,22 @@ pub enum AppAction {
     /// `tty::queue::append_queue_entries`, starting playback only if
     /// the queue was empty/idle.
     PairingAppendQueue { entries: Vec<super::QueueEntry> },
+    /// a song's artwork blob(s) resolved to local file path(s) (see
+    /// `SongRow::art_blob_ids`) - the ui loop installs `paths` into
+    /// `PairingViewState::art_paths` if `song_id` still matches
+    /// whatever's currently playing (a fast skip could otherwise make
+    /// a stale resolution apply to the wrong song). `paths` is empty
+    /// when the song has no art or resolution failed.
+    SongArtResolved { song_id: String, paths: Vec<String> },
+    /// a `freqhole-player/1` `skip` command - advances the SAME
+    /// unified queue the local `n` key does (`tty::queue::play_next`),
+    /// never a backend-native "next" primitive: both rodio and mpv are
+    /// only ever loaded with a single track at a time (see
+    /// `tty::queue`'s module doc), so their own internal Next/skip is
+    /// a no-op regardless of which one is currently active. dispatch
+    /// can't call `play_next` directly (no `&mut App` there - see
+    /// `DispatchContext`'s doc comment), hence routing through here.
+    PairingSkip,
 }
 
 /// most recent dispatch result, kept for the detail pane.

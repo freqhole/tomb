@@ -48,6 +48,13 @@ impl QueueEntry {
         }
     }
 
+    pub fn album(&self) -> Option<&str> {
+        match self {
+            QueueEntry::Song(s) => s.album.as_deref(),
+            QueueEntry::Video(_) => None,
+        }
+    }
+
     pub fn duration_ms(&self) -> Option<u64> {
         match self {
             QueueEntry::Song(s) => s.duration_ms,

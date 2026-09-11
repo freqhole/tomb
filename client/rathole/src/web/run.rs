@@ -1814,7 +1814,12 @@ fn on_action(app: &mut App, action: AppAction, action_tx: &mpsc::UnboundedSender
         // `freqhole-player/1` endpoint) - arms exist solely for
         // exhaustiveness.
         | AppAction::PairingReplaceQueue { .. }
-        | AppAction::PairingAppendQueue { .. } => {}
+        | AppAction::PairingAppendQueue { .. }
+        // song art resolution + mpv framebuffer display: tty-only.
+        | AppAction::SongArtResolved { .. }
+        // queue-advance from a remote skip command: tty-only (see
+        // AppAction::PairingSkip's doc comment).
+        | AppAction::PairingSkip => {}
     }
 }
 

@@ -268,8 +268,27 @@ fn handle_command(
             }
 
             if loaded_paths.is_empty() {
-                // nothing playable — leave sink alone, stay stopped.
+                // nothing playable - drop whatever sink was previously
+                // playing too: `Load` is a replace operation regardless
+                // of whether the replacement succeeds, and `new_sink`
+                // (empty, never appended to) was about to be discarded
+                // anyway. without this, a failed Load silently left the
+                // OLD sink (from the previous track) playing forever
+                // underneath whatever comes next (e.g. an mpv audio
+                // fallback for this same failed entry) - `*sink` was
+                // only ever reassigned further down, on success.
+                *sink = None;
+                queue.clear();
+                total_per_track.clear();
+                *current_index = None;
+                // also emit `Ended` so a caller that auto-advances a
+                // queue on Ended (e.g. rathole's tty::queue::play_index)
+                // actually skips to the next entry instead of silently
+                // stalling forever on a track that resolved fine but
+                // failed to decode (previously only reachable via
+                // `PlayerEvent::Error`, which nothing treats as "move on").
                 emit_state(events, last_state, PlayerState::Stopped);
+                emit(events, PlayerEvent::Ended);
                 return;
             }
 

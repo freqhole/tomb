@@ -1614,6 +1614,21 @@ pub fn set_player_pairing_enabled(config_path: &Path, enabled: bool) -> Result<(
     set_config_values(config_path, &[("player_pairing.enabled", enabled.into())])
 }
 
+/// convenience wrapper for rathole's player-pairing settings screen:
+/// persist [`PlayerPairingConfig::image_mode`] ("terminal" or
+/// "framebuffer") - takes effect immediately (no restart needed), since
+/// the pairing view reads `get_config()` fresh on every render.
+pub fn set_player_pairing_image_mode(
+    config_path: &Path,
+    mode: ImageDisplayMode,
+) -> Result<(), ConfigError> {
+    let value = match mode {
+        ImageDisplayMode::Terminal => "terminal",
+        ImageDisplayMode::Framebuffer => "framebuffer",
+    };
+    set_config_values(config_path, &[("player_pairing.image_mode", value.into())])
+}
+
 /// helper to set a value at a dot-separated path, creating intermediate tables as needed
 fn set_nested_value(
     doc: &mut DocumentMut,

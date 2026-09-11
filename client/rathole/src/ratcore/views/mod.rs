@@ -217,7 +217,7 @@ fn header_line(app: &App) -> Line<'static> {
     if app.state.ephemeral.is_ssh_session {
         spans.push(Span::raw("   "));
         spans.push(Span::styled(
-            "\u{26a0} ssh session",
+            "ssh session",
             Style::new().fg(Color::Yellow).bold(),
         ));
     }
@@ -417,10 +417,10 @@ fn footer_hints(app: &App) -> &'static str {
         }
         Focus::PlayerPairing => match app.state.ephemeral.player_pairing.mode {
             crate::ratcore::app::PairingViewMode::Overview => {
-                "tab: settings   \u{2191}/\u{2193}: pick controller   d: remove   esc: home"
+                "tab: player controls   s: settings   \u{2191}/\u{2193}: pick controller   d: remove   esc: home"
             }
             crate::ratcore::app::PairingViewMode::Settings => {
-                "tab: overview   e: toggle mode   a: regen admin pin   r: regen pin   esc: home"
+                "tab: player controls   s: overview   e: toggle mode   a: regen admin pin   r: regen pin   esc: home"
             }
         },
     }

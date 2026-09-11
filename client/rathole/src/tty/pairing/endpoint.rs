@@ -46,15 +46,40 @@ pub struct PairingRuntime {
     pub state: SharedPairingState,
     pub dispatch_tx: PairingDispatchTx,
     started: std::rc::Rc<std::cell::Cell<bool>>,
+    /// live `PlayerStatus` broadcast to every connected `subscribe`
+    /// stream (see `handle_stream`'s subscribe arm) - a `watch` channel
+    /// since subscribers only ever want the LATEST status, never a
+    /// backlog. `run.rs`'s tick loop pushes a fresh status here every
+    /// tick via `broadcast_status`.
+    status_tx: tokio::sync::watch::Sender<portable::PlayerStatus>,
 }
 
 impl PairingRuntime {
     pub fn new(state: SharedPairingState, dispatch_tx: PairingDispatchTx) -> Self {
+        let (status_tx, _) = tokio::sync::watch::channel(portable::PlayerStatus::Stopped {
+            common: portable::StatusCommon {
+                queue: Vec::new(),
+                auto_download_enabled: false,
+                volume: 1.0,
+                recently_played: Vec::new(),
+            },
+        });
         Self {
             state,
             dispatch_tx,
             started: std::rc::Rc::new(std::cell::Cell::new(false)),
+            status_tx,
         }
+    }
+
+    /// pushes `status` to every currently-subscribed controller -
+    /// called every tick from `run.rs`'s main loop so a paired
+    /// controller's queue/now-playing/position view stays live instead
+    /// of only updating on its own poll interval.
+    pub fn broadcast_status(&self, status: portable::PlayerStatus) {
+        // `send` errors only when there are zero receivers (nothing
+        // subscribed yet) - not a real failure, nothing to do about it.
+        let _ = self.status_tx.send(status);
     }
 
     /// idempotent: spawns the `freqhole-player/1` endpoint/router on
@@ -66,8 +91,9 @@ impl PairingRuntime {
         }
         let state = self.state.clone();
         let dispatch_tx = self.dispatch_tx.clone();
+        let status_tx = self.status_tx.clone();
         tokio::task::spawn_local(async move {
-            match start_player_endpoint(state, dispatch_tx).await {
+            match start_player_endpoint(state, dispatch_tx, status_tx).await {
                 Ok(node_id) => info!(
                     target: "player_protocol",
                     node_id = %node_id,
@@ -89,6 +115,7 @@ impl PairingRuntime {
 async fn start_player_endpoint(
     state: SharedPairingState,
     dispatch_tx: PairingDispatchTx,
+    status_tx: tokio::sync::watch::Sender<portable::PlayerStatus>,
 ) -> Result<String, String> {
     let mut endpoint = grimoire::federation::transport::FederationEndpoint::new()
         .await
@@ -106,7 +133,7 @@ async fn start_player_endpoint(
     // (see p2p_client.rs's own doc comment: "must be initialized via
     // set_federation_endpoint() before use").
     grimoire::federation::p2p_client::set_federation_endpoint(endpoint.endpoint());
-    let handler = PlayerProtocol::new(state, dispatch_tx);
+    let handler = PlayerProtocol::new(state, dispatch_tx, status_tx);
     endpoint
         .start_router_with(|builder| builder.accept(super::PLAYER_ALPN, handler))
         .await
@@ -127,11 +154,20 @@ async fn start_player_endpoint(
 pub struct PlayerProtocol {
     state: SharedPairingState,
     dispatch_tx: PairingDispatchTx,
+    status_tx: tokio::sync::watch::Sender<portable::PlayerStatus>,
 }
 
 impl PlayerProtocol {
-    pub fn new(state: SharedPairingState, dispatch_tx: PairingDispatchTx) -> Self {
-        Self { state, dispatch_tx }
+    pub fn new(
+        state: SharedPairingState,
+        dispatch_tx: PairingDispatchTx,
+        status_tx: tokio::sync::watch::Sender<portable::PlayerStatus>,
+    ) -> Self {
+        Self {
+            state,
+            dispatch_tx,
+            status_tx,
+        }
     }
 }
 
@@ -141,13 +177,16 @@ impl ProtocolHandler for PlayerProtocol {
         info!(target: "player_protocol", peer = %peer_id, "accepted freqhole-player/1 connection");
         let state = self.state.clone();
         let dispatch_tx = self.dispatch_tx.clone();
+        let status_tx = self.status_tx.clone();
         loop {
             match conn.accept_bi().await {
                 Ok((send, recv)) => {
                     let state = state.clone();
                     let dispatch_tx = dispatch_tx.clone();
+                    let status_tx = status_tx.clone();
                     tokio::spawn(async move {
-                        if let Err(e) = handle_stream(peer_id, send, recv, state, dispatch_tx).await
+                        if let Err(e) =
+                            handle_stream(peer_id, send, recv, state, dispatch_tx, status_tx).await
                         {
                             warn!(target: "player_protocol", peer = %peer_id, error = %e, "stream error");
                         }
@@ -185,6 +224,7 @@ async fn handle_stream(
     recv: iroh::endpoint::RecvStream,
     state: SharedPairingState,
     dispatch_tx: PairingDispatchTx,
+    status_tx: tokio::sync::watch::Sender<portable::PlayerStatus>,
 ) -> Result<(), String> {
     let peer_id = peer_node_id.to_string();
     let mut reader = BufReader::new(recv);
@@ -238,20 +278,43 @@ async fn handle_stream(
     };
 
     if kind == "subscribe" {
-        // push-subscription session: read-only, no commands dispatched
-        // on this stream — just register presence and wait for close.
-        // TODO(follow-up): actually push `PlayerStatus` updates onto
-        // this stream when something changes (cenotaph's
-        // `statusSubscribers.ts`); for now a subscriber only gets the
-        // initial presence-equivalent registration, matching a
-        // "connected" indicator but not live now-playing push updates.
+        // push-subscription session: read-only (no commands dispatched
+        // on this stream) - registers presence, then pushes a
+        // `PlayerStatusMessage` line every time `run.rs`'s tick loop
+        // broadcasts a new one (`PairingRuntime::broadcast_status`),
+        // for as long as the peer keeps the stream open. mirrors
+        // cenotaph's `statusSubscribers.ts` push behavior.
         mark_connected(&state, connected_info);
+        let mut status_rx = status_tx.subscribe();
+        // send the current status immediately so a fresh subscriber
+        // doesn't wait for the next tick's change to see anything.
+        let initial = serde_json::to_string(&portable::PlayerStatusMessage::new(
+            status_rx.borrow().clone(),
+        ))
+        .unwrap();
+        if write_line(&mut send, &initial).await.is_err() {
+            mark_disconnected(&state, &peer_id);
+            return Ok(());
+        }
+        let mut buf = String::new();
         loop {
-            let mut buf = String::new();
-            match reader.read_line(&mut buf).await {
-                Ok(0) => break,
-                Ok(_) => continue,
-                Err(_) => break,
+            tokio::select! {
+                // detect the peer closing its end (or sending anything -
+                // this stream is read-only from its point of view, any
+                // read completing at all means either eof or a protocol
+                // violation, both mean "stop pushing to this stream").
+                _ = reader.read_line(&mut buf) => break,
+                changed = status_rx.changed() => {
+                    if changed.is_err() {
+                        // sender side dropped (pairing endpoint shutting
+                        // down) - nothing more to push.
+                        break;
+                    }
+                    let msg = portable::PlayerStatusMessage::new(status_rx.borrow_and_update().clone());
+                    if write_line(&mut send, &serde_json::to_string(&msg).unwrap()).await.is_err() {
+                        break;
+                    }
+                }
             }
         }
         mark_disconnected(&state, &peer_id);

@@ -24,45 +24,72 @@ use crate::ratcore::app::{
 };
 use crate::ratcore::transport::PlayerCmd;
 
-/// load and play the entry at `m.queue[idx]`. clears any prior
-/// position state; audio entries resolve + `PlayerCmd::Load` (rodio),
-/// video entries resolve + `VideoCommand::Load` (mpv). on resolve
-/// failure the task emits an error event followed by
-/// `MusicEvent::Ended` so the auto-advance handler skips past the
-/// broken entry, same for both kinds.
+/// max `MusicState::history` length - old entries are dropped once
+/// exceeded so a long-running session doesn't grow this unbounded.
+const HISTORY_CAP: usize = 50;
+
+/// load and play the entry at `m.queue[idx]`, first dropping any
+/// entries before `idx` into `MusicState::history` (most-recently-
+/// finished first) - matches cenotaph/web's queue model, where the
+/// queue only ever holds "currently playing + upcoming", not every
+/// past track. clears any prior position state; audio entries resolve
+/// + `PlayerCmd::Load` (rodio), video entries resolve + `VideoCommand::
+/// Load` (mpv). on resolve failure the task emits an error event
+/// followed by `MusicEvent::Ended` so the auto-advance handler skips
+/// past the broken entry, same for both kinds.
 pub fn play_index(app: &mut App, idx: usize, tx: &mpsc::UnboundedSender<AppAction>) {
     let was_video_active = app.state.ephemeral.music.queue_video_active;
+    let was_audio_fallback_active = app.state.ephemeral.music.audio_fallback_active;
     if idx >= app.state.ephemeral.music.queue.len() {
-        // ran off the end of the queue. mirror what
-        // MusicEvent::Ended would do.
+        // ran off the end of the queue - everything left gets folded
+        // into history (it was played/skipped through in full).
         let m = &mut app.state.ephemeral.music;
+        let played: Vec<QueueEntry> = m.queue.drain(..).collect();
+        push_history(m, played);
         m.current = None;
         m.position_ms = 0;
         m.duration_ms = 0;
         m.player_state = PlayerState::Stopped;
         m.queue_video_active = false;
-        if was_video_active {
+        m.audio_fallback_active = false;
+        m.pending_rodio_song_id = None;
+        app.state.ephemeral.player_pairing.art_paths.clear();
+        if was_video_active || was_audio_fallback_active {
             close_video(app);
         }
         return;
     }
-    app.state.ephemeral.music.current = Some(idx);
+    if idx > 0 {
+        let m = &mut app.state.ephemeral.music;
+        let played: Vec<QueueEntry> = m.queue.drain(0..idx).collect();
+        push_history(m, played);
+    }
+    app.state.ephemeral.music.current = Some(0);
     app.state.ephemeral.music.position_ms = 0;
     app.state.ephemeral.music.duration_ms = 0;
-    let entry = app.state.ephemeral.music.queue[idx].clone();
+    let entry = app.state.ephemeral.music.queue[0].clone();
 
     match entry {
         QueueEntry::Song(row) => {
             app.state.ephemeral.music.player_state = PlayerState::Loading;
             app.state.ephemeral.music.queue_video_active = false;
-            if was_video_active {
+            app.state.ephemeral.music.audio_fallback_active = false;
+            app.state.ephemeral.music.pending_rodio_song_id = Some(row.id.clone());
+            // clear immediately (optimistic) so the previous song's art
+            // doesn't linger until this one's resolves.
+            app.state.ephemeral.player_pairing.art_paths.clear();
+            if was_video_active || was_audio_fallback_active {
                 close_video(app);
             }
+            resolve_song_art(app, &row, tx);
             play_song_entry(app, row, tx);
         }
         QueueEntry::Video(video) => {
             app.state.ephemeral.music.player_state = PlayerState::Stopped;
             app.state.ephemeral.music.queue_video_active = true;
+            app.state.ephemeral.music.audio_fallback_active = false;
+            app.state.ephemeral.music.pending_rodio_song_id = None;
+            app.state.ephemeral.player_pairing.art_paths.clear();
             // stop rodio so audio doesn't keep playing under the video.
             if let Some(player) = app.player.clone() {
                 tokio::task::spawn_local(async move {
@@ -72,6 +99,138 @@ pub fn play_index(app: &mut App, idx: usize, tx: &mpsc::UnboundedSender<AppActio
             play_video_entry(app, video, tx);
         }
     }
+}
+
+/// prepends `played` (in play order) to `history` most-recently-
+/// finished first, then truncates to `HISTORY_CAP`.
+fn push_history(m: &mut crate::ratcore::app::MusicState, mut played: Vec<QueueEntry>) {
+    if played.is_empty() {
+        return;
+    }
+    played.reverse();
+    m.history.splice(0..0, played);
+    m.history.truncate(HISTORY_CAP);
+}
+
+/// rodio couldn't decode the current queue entry's song (e.g. opus-in-
+/// webm, unsupported by rodio's symphonia backend) - try it through mpv
+/// instead (audio-only: mpv was spawned with `--force-window=no` and
+/// this file has no video track, so no window opens). advances to the
+/// next queue entry instead if there's no mpv backend, no current song,
+/// or resolving the path fails again.
+pub fn try_mpv_audio_fallback(app: &mut App, tx: &mpsc::UnboundedSender<AppAction>) {
+    app.state.ephemeral.music.pending_rodio_song_id = None;
+    let Some(row) = app
+        .state
+        .ephemeral
+        .music
+        .currently_playing()
+        .and_then(|e| e.as_song())
+        .cloned()
+    else {
+        play_next(app, tx);
+        return;
+    };
+    let Some(video_player) = app.video_player.clone() else {
+        tracing::warn!(
+            target: "rathole::tty::player",
+            song = %row.title,
+            "rodio couldn't decode this track and no mpv backend is available; skipping"
+        );
+        play_next(app, tx);
+        return;
+    };
+    app.state.ephemeral.music.audio_fallback_active = true;
+    let vp = &mut app.state.ephemeral.video_player;
+    vp.state = VideoPlaybackState::Loading;
+    vp.title = Some(row.title.clone());
+    vp.last_error = None;
+    let title = row.title.clone();
+    let tx = tx.clone();
+    tokio::task::spawn_local(async move {
+        let Some(path) = resolve_playable_path(&row).await else {
+            let _ = tx.send(AppAction::VideoPlayerEvent(VideoEvent::Error {
+                message: format!("mpv fallback: no playable file for {title} (skipping)"),
+            }));
+            return;
+        };
+        if let Err(e) = video_player
+            .send(VideoCommand::Load {
+                path,
+                title: Some(title),
+                start_seconds: None,
+            })
+            .await
+        {
+            let _ = tx.send(AppAction::VideoPlayerEvent(VideoEvent::Error { message: e }));
+        }
+    });
+}
+
+/// resolve `row.art_blob_ids` to local file paths (see
+/// `player::resolve_paths`) in the background and report back via
+/// `AppAction::SongArtResolved` - doesn't gate/slow down playback,
+/// which resolves its own (possibly different) path independently.
+/// logs at each step (target `rathole::tty::art`) so "no art showing"
+/// can be diagnosed from the logs alone: zero blob ids means the song/
+/// album/artist genuinely has no non-waveform image in the library;
+/// zero resolved paths despite nonzero ids means the blob lookup
+/// itself failed (see `player::resolve_paths`'s own per-id warning).
+fn resolve_song_art(_app: &App, row: &SongRow, tx: &mpsc::UnboundedSender<AppAction>) {
+    let song_id = row.id.clone();
+    if !row.art_blob_ids.is_empty() {
+        let art_blob_ids = row.art_blob_ids.clone();
+        let n = art_blob_ids.len();
+        let title = row.title.clone();
+        let tx = tx.clone();
+        tokio::task::spawn_local(async move {
+            let paths = super::player::resolve_paths(&art_blob_ids).await;
+            tracing::info!(
+                target: "rathole::tty::art",
+                song = %title,
+                blob_ids = n,
+                resolved = paths.len(),
+                "resolved song art blob ids to local paths"
+            );
+            let _ = tx.send(AppAction::SongArtResolved { song_id, paths });
+        });
+        return;
+    }
+    if let Some(url) = row.art_url.clone() {
+        let title = row.title.clone();
+        let tx = tx.clone();
+        tokio::task::spawn_local(async move {
+            let paths = match super::art_fetch::resolve_art_url(&url).await {
+                Ok(path) => vec![path],
+                Err(e) => {
+                    tracing::warn!(
+                        target: "rathole::tty::art",
+                        song = %title,
+                        error = %e,
+                        "failed to resolve remote-pushed song's art_url"
+                    );
+                    Vec::new()
+                }
+            };
+            tracing::info!(
+                target: "rathole::tty::art",
+                song = %title,
+                resolved = paths.len(),
+                "resolved remote-pushed song art_url"
+            );
+            let _ = tx.send(AppAction::SongArtResolved { song_id, paths });
+        });
+        return;
+    }
+    tracing::info!(
+        target: "rathole::tty::art",
+        song = %row.title,
+        "no art_blob_ids/art_url for this song (no song/album/artist image in the library, or a remote push with no art)"
+    );
+    let _ = tx.send(AppAction::SongArtResolved {
+        song_id,
+        paths: Vec::new(),
+    });
 }
 
 fn play_song_entry(app: &mut App, row: SongRow, tx: &mpsc::UnboundedSender<AppAction>) {
@@ -159,17 +318,18 @@ pub fn play_next(app: &mut App, tx: &mpsc::UnboundedSender<AppAction>) {
     play_index(app, next, tx);
 }
 
-/// step back one entry in the queue. clamps at 0; if nothing is
-/// playing yet, plays the first entry.
+/// step back to the most recently finished entry in `history`, if any
+/// (re-inserting it at the front of the queue) - otherwise replays the
+/// current entry from the top. queue entries are removed once played
+/// (see `play_index`), so "previous" only has something to go back to
+/// if history has an entry.
 pub fn play_previous(app: &mut App, tx: &mpsc::UnboundedSender<AppAction>) {
-    let prev = app
-        .state
-        .ephemeral
-        .music
-        .current
-        .map(|c| c.saturating_sub(1))
-        .unwrap_or(0);
-    play_index(app, prev, tx);
+    let m = &mut app.state.ephemeral.music;
+    if let Some(prev) = m.history.first().cloned() {
+        m.history.remove(0);
+        m.queue.insert(0, prev);
+    }
+    play_index(app, 0, tx);
 }
 
 /// replace the queue with `songs` (audio-only - local browse/search/
@@ -313,6 +473,49 @@ pub fn send_player(app: &App, cmd: PlayerCmd, tx: &mpsc::UnboundedSender<AppActi
             let _ = tx.send(AppAction::MusicEvent(MusicEvent::Error(e)));
         }
     });
+}
+
+/// true when a real queued video OR an mpv audio-fallback (rodio
+/// couldn't decode the current song - see `try_mpv_audio_fallback`)
+/// means mpv, not rodio, is actually driving the current queue entry
+/// right now.
+pub fn active_playback_is_video(app: &App) -> bool {
+    app.state.ephemeral.music.queue_video_active || app.state.ephemeral.music.audio_fallback_active
+}
+
+/// true if whichever backend is actually active (see
+/// `active_playback_is_video`) reports itself as playing right now.
+pub fn is_currently_playing(app: &App) -> bool {
+    if active_playback_is_video(app) {
+        app.state.ephemeral.video_player.state == VideoPlaybackState::Playing
+    } else {
+        app.state.ephemeral.music.player_state == PlayerState::Playing
+    }
+}
+
+/// sends a generic (kind-less) playback command - pause/resume/seek/
+/// volume - to whichever backend is actually active (see
+/// `active_playback_is_video`). shared by every local key handler
+/// (`on_player_row_key`/`on_player_pairing_key`) so pause etc. behave
+/// the same regardless of whether rodio or an mpv audio-fallback is
+/// currently driving the song - mirrors `tty::pairing::dispatch`'s own
+/// `send_generic` (the wire-command equivalent).
+pub fn send_generic_local(
+    app: &App,
+    tx: &mpsc::UnboundedSender<AppAction>,
+    audio_cmd: PlayerCmd,
+    video_cmd: VideoCommand,
+) {
+    if active_playback_is_video(app) {
+        let Some(video_player) = app.video_player.clone() else {
+            return;
+        };
+        tokio::task::spawn_local(async move {
+            let _ = video_player.send(video_cmd).await;
+        });
+    } else {
+        send_player(app, audio_cmd, tx);
+    }
 }
 
 /// fetch playlist or album songs via transport, then replace the
