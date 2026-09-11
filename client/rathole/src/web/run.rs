@@ -1670,8 +1670,14 @@ fn on_action(app: &mut App, action: AppAction, action_tx: &mpsc::UnboundedSender
             let track_changed = matches!(ev, crate::ratcore::app::MusicEvent::TrackChanged { .. });
             apply_music_event_web(app, ev, action_tx);
             if track_changed {
-                if let Some(cur) = app.state.ephemeral.music.currently_playing() {
-                    let id = cur.id.clone();
+                if let Some(id) = app
+                    .state
+                    .ephemeral
+                    .music
+                    .currently_playing()
+                    .and_then(|e| e.song_id())
+                    .map(str::to_string)
+                {
                     let transport = app.transport.clone();
                     let tx = action_tx.clone();
                     wasm_bindgen_futures::spawn_local(async move {
@@ -1715,7 +1721,7 @@ fn on_action(app: &mut App, action: AppAction, action_tx: &mpsc::UnboundedSender
             Ok(now_favorited) => {
                 if target_type == "song" {
                     if let Some(cur) = app.state.ephemeral.music.currently_playing() {
-                        if cur.id == target_id {
+                        if cur.song_id() == Some(target_id.as_str()) {
                             app.state.ephemeral.music.current_favorited = now_favorited;
                         }
                     }
@@ -1803,7 +1809,12 @@ fn on_action(app: &mut App, action: AppAction, action_tx: &mpsc::UnboundedSender
         | AppAction::ListVideoRenditions { .. }
         | AppAction::VideoRenditionsResult { .. }
         | AppAction::DeleteVideoRendition { .. }
-        | AppAction::VideoRenditionDeleteResult { .. } => {}
+        | AppAction::VideoRenditionDeleteResult { .. }
+        // player-pairing queue pushes: tty-only (web never runs the
+        // `freqhole-player/1` endpoint) - arms exist solely for
+        // exhaustiveness.
+        | AppAction::PairingReplaceQueue { .. }
+        | AppAction::PairingAppendQueue { .. } => {}
     }
 }
 
@@ -1946,7 +1957,22 @@ fn play_index_web(app: &mut App, idx: usize, action_tx: &mpsc::UnboundedSender<A
     m.position_ms = 0;
     m.duration_ms = 0;
     m.player_state = crate::ratcore::app::PlayerState::Loading;
-    let row = m.queue[idx].clone();
+    let entry = m.queue[idx].clone();
+    let Some(row) = entry.as_song().cloned() else {
+        // web has no video backend at all - a video queue entry here
+        // can only come from a future pairing/mixed-queue feature;
+        // skip it like any other unplayable row.
+        let _ = action_tx.unbounded_send(AppAction::MusicEvent(
+            crate::ratcore::app::MusicEvent::Error(format!(
+                "no audio backend for {} (skipping)",
+                entry.title()
+            )),
+        ));
+        let _ = action_tx.unbounded_send(AppAction::MusicEvent(
+            crate::ratcore::app::MusicEvent::Ended,
+        ));
+        return;
+    };
     let Some(blob_id) = row.media_blob_id.clone() else {
         let _ = action_tx.unbounded_send(AppAction::MusicEvent(
             crate::ratcore::app::MusicEvent::Error(format!(
@@ -2023,7 +2049,10 @@ fn play_now_web(
     start: usize,
     action_tx: &mpsc::UnboundedSender<AppAction>,
 ) {
-    app.state.ephemeral.music.queue = songs;
+    app.state.ephemeral.music.queue = songs
+        .into_iter()
+        .map(crate::ratcore::app::QueueEntry::Song)
+        .collect();
     play_index_web(app, start, action_tx);
 }
 
@@ -2040,7 +2069,8 @@ fn enqueue_now_web(
     let m = &mut app.state.ephemeral.music;
     let was_idle = m.current.is_none();
     let start = m.queue.len();
-    m.queue.extend(songs);
+    m.queue
+        .extend(songs.into_iter().map(crate::ratcore::app::QueueEntry::Song));
     if was_idle {
         play_index_web(app, start, action_tx);
     }
@@ -2971,8 +3001,14 @@ fn on_player_row_key_web(
         KeyCode::Tab => prk::tab_or_leave(&mut app.state),
         // 'f' shortcut for favorite, regardless of cursor position.
         KeyCode::Char('f') => {
-            if let Some(cur) = app.state.ephemeral.music.currently_playing() {
-                let id = cur.id.clone();
+            if let Some(id) = app
+                .state
+                .ephemeral
+                .music
+                .currently_playing()
+                .and_then(|e| e.song_id())
+                .map(str::to_string)
+            {
                 let _ = action_tx.unbounded_send(AppAction::ToggleFavorite {
                     target_type: "song".into(),
                     target_id: id,
@@ -3016,8 +3052,14 @@ fn on_player_row_key_web(
                     Some(PlayerCmd::SetVolume(v))
                 }
                 prk::PlayerRowAction::Favorite => {
-                    if let Some(cur) = app.state.ephemeral.music.currently_playing() {
-                        let id = cur.id.clone();
+                    if let Some(id) = app
+                        .state
+                        .ephemeral
+                        .music
+                        .currently_playing()
+                        .and_then(|e| e.song_id())
+                        .map(str::to_string)
+                    {
                         let _ = action_tx.unbounded_send(AppAction::ToggleFavorite {
                             target_type: "song".into(),
                             target_id: id,

@@ -177,10 +177,11 @@ async fn run_inner(
         .as_ref()
         .map(|f| f.enabled)
         .unwrap_or(false);
+    let player_pairing_enabled = grimoire::config::get_config().player_pairing.enabled;
     if opts.player {
         app.state.ephemeral.focus = Focus::PlayerPairing;
     }
-    if opts.player || federation_enabled {
+    if opts.player || federation_enabled || player_pairing_enabled {
         pairing_runtime.ensure_started();
     }
 
@@ -1093,8 +1094,14 @@ fn on_action(app: &mut App, action: AppAction, action_tx: &mpsc::UnboundedSender
             let track_changed = matches!(ev, crate::ratcore::app::MusicEvent::TrackChanged { .. });
             apply_music_event(app, ev, action_tx);
             if track_changed {
-                if let Some(cur) = app.state.ephemeral.music.currently_playing() {
-                    let id = cur.id.clone();
+                if let Some(id) = app
+                    .state
+                    .ephemeral
+                    .music
+                    .currently_playing()
+                    .and_then(|e| e.song_id())
+                    .map(str::to_string)
+                {
                     let transport = app.transport.clone();
                     let tx = action_tx.clone();
                     tokio::task::spawn_local(async move {
@@ -1113,9 +1120,23 @@ fn on_action(app: &mut App, action: AppAction, action_tx: &mpsc::UnboundedSender
         }
         AppAction::VideoPlayerEvent(ev) => {
             // pure state fold, same shape as charnel's `PlayerState::apply` -
-            // no side effects needed here yet (ratatui screen-takeover /
-            // pause-overlay rendering lands in a later phase).
+            let was_queue_driven = app.state.ephemeral.music.queue_video_active;
+            let advance = was_queue_driven
+                && matches!(
+                    ev,
+                    crate::ratcore::app::VideoEvent::Ended
+                        | crate::ratcore::app::VideoEvent::Closed
+                        | crate::ratcore::app::VideoEvent::Error { .. }
+                );
             app.state.ephemeral.video_player.apply(&ev);
+            if advance {
+                // the queue's current entry was a video and it just
+                // finished/errored/closed - advance the SAME unified
+                // queue an audio Ended would, so a mixed audio+video
+                // queue keeps playing through regardless of which
+                // kind is current (see tty::queue's module doc).
+                play_next(app, action_tx);
+            }
         }
         AppAction::QueryVideos {
             query,
@@ -1324,7 +1345,7 @@ fn on_action(app: &mut App, action: AppAction, action_tx: &mpsc::UnboundedSender
             Ok(now_favorited) => {
                 if target_type == "song" {
                     if let Some(cur) = app.state.ephemeral.music.currently_playing() {
-                        if cur.id == target_id {
+                        if cur.song_id() == Some(target_id.as_str()) {
                             app.state.ephemeral.music.current_favorited = now_favorited;
                         }
                     }
@@ -1348,6 +1369,14 @@ fn on_action(app: &mut App, action: AppAction, action_tx: &mpsc::UnboundedSender
         },
         AppAction::PairingDownloadProgress(progress) => {
             app.state.ephemeral.player_pairing.download_progress = progress;
+        }
+        AppAction::PairingReplaceQueue { entries } => {
+            if !entries.is_empty() {
+                set_queue_entries(app, entries, 0, action_tx);
+            }
+        }
+        AppAction::PairingAppendQueue { entries } => {
+            append_queue_entries(app, entries, action_tx);
         }
         // collection loaded: rathole-side queue replace + play. used by
         // play_collection's spawn_local once songs are fetched.
@@ -1547,50 +1576,41 @@ fn handle_pairing_dispatch(
     req: super::pairing::PairingDispatchRequest,
     action_tx: &mpsc::UnboundedSender<AppAction>,
 ) {
-    use crate::ratcore::app::{PlayerState, VideoPlaybackState};
+    use crate::ratcore::app::{MediaKind, PlayerState, VideoPlaybackState};
 
-    let active_backend = match app.state.ephemeral.video_player.state {
-        VideoPlaybackState::Loading | VideoPlaybackState::Playing | VideoPlaybackState::Paused => {
-            super::pairing::ActiveBackend::Video
-        }
+    let m = &app.state.ephemeral.music;
+    let vp = &app.state.ephemeral.video_player;
+    let active_backend = match m.currently_playing().map(|e| e.kind()) {
+        Some(MediaKind::Video) => super::pairing::ActiveBackend::Video,
         _ => super::pairing::ActiveBackend::Audio,
     };
     // real queue/position snapshot for the ack's `PlayerStatus` (see
     // `DispatchContext`'s own doc comment) - built synchronously here
-    // since it's the one place that already holds `&App`.
-    let (queue_snapshot, position_ms, duration_ms, is_playing) = match active_backend {
-        super::pairing::ActiveBackend::Audio => {
-            let m = &app.state.ephemeral.music;
-            let queue = m
-                .current
-                .map(|cur| {
-                    m.queue[cur..]
-                        .iter()
-                        .map(super::pairing::song_row_to_media_ref)
-                        .collect()
-                })
-                .unwrap_or_default();
-            (
-                queue,
-                m.position_ms,
-                m.duration_ms,
-                m.player_state == PlayerState::Playing,
-            )
-        }
-        super::pairing::ActiveBackend::Video => {
-            let vp = &app.state.ephemeral.video_player;
-            let queue = super::pairing::video_state_to_media_ref(vp)
-                .into_iter()
-                .collect();
-            (
-                queue,
-                (vp.position * 1000.0).round() as u64,
-                vp.duration
-                    .map(|d| (d * 1000.0).round() as u64)
-                    .unwrap_or(0),
-                vp.state == VideoPlaybackState::Playing,
-            )
-        }
+    // since it's the one place that already holds `&App`. the unified
+    // queue (`m.queue`) already carries both audio and video entries,
+    // so this no longer needs to branch on which backend is active.
+    let queue_snapshot = m
+        .current
+        .map(|cur| {
+            m.queue[cur..]
+                .iter()
+                .map(super::pairing::queue_entry_to_media_ref)
+                .collect()
+        })
+        .unwrap_or_default();
+    let (position_ms, duration_ms, is_playing) = match active_backend {
+        super::pairing::ActiveBackend::Audio => (
+            m.position_ms,
+            m.duration_ms,
+            m.player_state == PlayerState::Playing,
+        ),
+        super::pairing::ActiveBackend::Video => (
+            (vp.position * 1000.0).round() as u64,
+            vp.duration
+                .map(|d| (d * 1000.0).round() as u64)
+                .unwrap_or(0),
+            vp.state == VideoPlaybackState::Playing,
+        ),
     };
     let ctx = super::pairing::DispatchContext {
         active_backend,
@@ -3006,7 +3026,7 @@ fn on_player_pairing_key(
         }
         (PairingViewMode::Settings, KeyCode::Down) => {
             let v = &mut app.state.ephemeral.player_pairing;
-            v.settings_cursor = (v.settings_cursor + 1).min(3);
+            v.settings_cursor = (v.settings_cursor + 1).min(4);
         }
         (PairingViewMode::Settings, KeyCode::Up) => {
             let v = &mut app.state.ephemeral.player_pairing;
@@ -3034,6 +3054,30 @@ fn on_player_pairing_key(
         (PairingViewMode::Settings, KeyCode::Char('r')) => {
             if let Some(pairing) = &app.pairing {
                 pairing.regenerate_session_pin();
+            }
+        }
+        (PairingViewMode::Settings, KeyCode::Char('p')) => {
+            let enabled = grimoire::config::get_config().player_pairing.enabled;
+            let want = !enabled;
+            match grimoire::config::get_config_path() {
+                None => {
+                    app.state.ephemeral.repl.status = Some(ReplStatus::err(
+                        "player pairing: no config file path known; cannot persist",
+                    ));
+                }
+                Some(path) => match grimoire::config::set_player_pairing_enabled(&path, want) {
+                    Ok(()) => {
+                        app.state.ephemeral.repl.status = Some(ReplStatus::ok(format!(
+                            "auto-start pairing on launch: {} (takes effect on next launch)",
+                            if want { "enabled" } else { "disabled" }
+                        )));
+                    }
+                    Err(e) => {
+                        app.state.ephemeral.repl.status = Some(ReplStatus::err(format!(
+                            "player pairing: failed to update config: {e}"
+                        )));
+                    }
+                },
             }
         }
         (PairingViewMode::Settings, KeyCode::Enter)
@@ -3389,334 +3433,13 @@ fn fire_search(app: &mut App, tx: &mpsc::UnboundedSender<AppAction>) {
     });
 }
 
-// =========================================================================
-// queue manager — rathole owns the queue. rodio is treated as a
-// single-track player: every track switch is a fresh
-// `PlayerCmd::Load(vec![path])` against the row at `m.current`.
-// see docs/architecture-decisions for the rationale; the short
-// version is that rodio's internal queue made remove/reorder/
-// skip-forward operations require multi-thread coordination, and
-// also amplified rodio 0.20's per-file panic blast radius
-// (preloading 184 tracks = 184 chances to hit the m4a init bug).
-// =========================================================================
+// queue management (play_index/play_now/enqueue_now/play_collection/
+// send_player/etc.) lives in `super::queue` now - see that module's
+// doc comment for the rationale. imported wholesale below so the many
+// call sites throughout this file don't all need a `queue::` prefix
+// added individually.
+use super::queue::*;
 
-/// load and play the track at `m.queue[idx]`. clears any prior
-/// position state, sets `current = Some(idx)` and `state = Loading`,
-/// then spawns a path-resolution task that issues a single-element
-/// `PlayerCmd::Load`. on resolve failure the task emits a
-/// `MusicEvent::Error` followed by `MusicEvent::Ended` so the auto-
-/// advance handler will skip past the broken row.
-fn play_index(app: &mut App, idx: usize, tx: &mpsc::UnboundedSender<AppAction>) {
-    let m = &mut app.state.ephemeral.music;
-    if idx >= m.queue.len() {
-        // ran off the end of the queue. mirror what
-        // MusicEvent::Ended would do.
-        m.current = None;
-        m.position_ms = 0;
-        m.duration_ms = 0;
-        m.player_state = crate::ratcore::app::PlayerState::Stopped;
-        return;
-    }
-    m.current = Some(idx);
-    m.position_ms = 0;
-    m.duration_ms = 0;
-    m.player_state = crate::ratcore::app::PlayerState::Loading;
-    let row = m.queue[idx].clone();
-
-    let Some(player) = app.player.clone() else {
-        m.last_event_error = Some("no audio backend in this shell".to_string());
-        return;
-    };
-    let title = row.title.clone();
-    let tx = tx.clone();
-    tokio::task::spawn_local(async move {
-        let Some(path) = resolve_playable_path(&row).await else {
-            let _ = tx.send(AppAction::MusicEvent(
-                crate::ratcore::app::MusicEvent::Error(format!(
-                    "no playable file for {title} (skipping)"
-                )),
-            ));
-            // synthesize Ended so the auto-advance loop steps past
-            // this row instead of stalling on it.
-            let _ = tx.send(AppAction::MusicEvent(
-                crate::ratcore::app::MusicEvent::Ended,
-            ));
-            return;
-        };
-        if let Err(e) = player
-            .send(crate::ratcore::transport::PlayerCmd::Load(vec![path]))
-            .await
-        {
-            let _ = tx.send(AppAction::MusicEvent(
-                crate::ratcore::app::MusicEvent::Error(e),
-            ));
-        }
-    });
-}
-
-/// advance to the next track in the local queue, if any. drives
-/// both the `n` key and the `MusicEvent::Ended` auto-advance path.
-fn play_next(app: &mut App, tx: &mpsc::UnboundedSender<AppAction>) {
-    let next = app
-        .state
-        .ephemeral
-        .music
-        .current
-        .map(|c| c + 1)
-        .unwrap_or(0);
-    play_index(app, next, tx);
-}
-
-/// step back one track in the local queue. clamps at 0; if nothing
-/// is playing yet, plays the first row.
-fn play_previous(app: &mut App, tx: &mpsc::UnboundedSender<AppAction>) {
-    let prev = app
-        .state
-        .ephemeral
-        .music
-        .current
-        .map(|c| c.saturating_sub(1))
-        .unwrap_or(0);
-    play_index(app, prev, tx);
-}
-
-/// replace the queue with `songs` and start playing from `start`.
-fn play_now(
-    app: &mut App,
-    songs: Vec<crate::ratcore::app::SongRow>,
-    start: usize,
-    tx: &mpsc::UnboundedSender<AppAction>,
-) {
-    app.state.ephemeral.music.queue = songs;
-    play_index(app, start, tx);
-}
-
-/// append `songs` to the end of the queue. if nothing is currently
-/// loaded, starts playback at the first appended row.
-fn enqueue_now(
-    app: &mut App,
-    songs: Vec<crate::ratcore::app::SongRow>,
-    tx: &mpsc::UnboundedSender<AppAction>,
-) {
-    if songs.is_empty() {
-        return;
-    }
-    let m = &mut app.state.ephemeral.music;
-    let was_empty_or_idle = m.current.is_none();
-    let start = m.queue.len();
-    m.queue.extend(songs);
-    if was_empty_or_idle {
-        play_index(app, start, tx);
-    }
-}
-
-/// resolve a row's playable file path (local_path or media_blob).
-/// also filters out file extensions known to crash rodio 0.20's
-/// symphonia adapter on init seek (currently `.m4a`).
-async fn resolve_playable_path(s: &crate::ratcore::app::SongRow) -> Option<String> {
-    let candidate = if let Some(p) = s.local_path.clone() {
-        Some(p)
-    } else if let Some(blob_id) = s.media_blob_id.as_deref() {
-        super::player::resolve_paths(&[blob_id.to_string()])
-            .await
-            .into_iter()
-            .next()
-    } else {
-        None
-    };
-    let path = candidate?;
-    if is_known_unplayable(&path) {
-        tracing::warn!(
-            target: "rathole::tty::player",
-            path = %path,
-            "skipping unplayable file (known rodio/symphonia panic on init seek)"
-        );
-        return None;
-    }
-    Some(path)
-}
-
-/// extension-based blocklist. rodio 0.20 + symphonia's m4a demuxer
-/// hits `unreachable!("Seek errors should not occur during init")`
-/// on a meaningful fraction of real-world files; we'd rather skip
-/// them than spam the panic hook.
-fn is_known_unplayable(path: &str) -> bool {
-    let lower = path.to_ascii_lowercase();
-    lower.ends_with(".m4a")
-}
-
-/// play just the row under the cursor. queue is replaced with a
-/// single-element vec so subsequent Next/Previous behave as
-/// expected (no auto-advance into other library rows).
-fn play_one_at_cursor(app: &mut App, tx: &mpsc::UnboundedSender<AppAction>) {
-    let m = &app.state.ephemeral.music;
-    if m.results.is_empty() {
-        return;
-    }
-    let idx = m.results_cursor.min(m.results.len() - 1);
-    let row = m.results[idx].clone();
-    play_now(app, vec![row], 0, tx);
-}
-
-/// play the row under the cursor and queue everything after it.
-/// bound to shift-A in the music view.
-fn play_from_cursor(app: &mut App, tx: &mpsc::UnboundedSender<AppAction>) {
-    let m = &app.state.ephemeral.music;
-    if m.results.is_empty() {
-        return;
-    }
-    let start = m.results_cursor.min(m.results.len() - 1);
-    let queue: Vec<crate::ratcore::app::SongRow> = m.results[start..].to_vec();
-    play_now(app, queue, 0, tx);
-}
-
-fn send_player(
-    app: &App,
-    cmd: crate::ratcore::transport::PlayerCmd,
-    tx: &mpsc::UnboundedSender<AppAction>,
-) {
-    let Some(player) = app.player.clone() else {
-        return;
-    };
-    let tx = tx.clone();
-    tokio::task::spawn_local(async move {
-        if let Err(e) = player.send(cmd).await {
-            let _ = tx.send(AppAction::MusicEvent(
-                crate::ratcore::app::MusicEvent::Error(e),
-            ));
-        }
-    });
-}
-
-/// fetch playlist or album songs via transport, then replace the
-/// queue and start playing from the first track. resolution +
-/// loading happens lazily per-track via `play_index`, so a 200-row
-/// album doesn't preload 200 decoders.
-fn play_collection(
-    app: &mut App,
-    kind: &'static str,
-    id: String,
-    title: String,
-    tx: &mpsc::UnboundedSender<AppAction>,
-) {
-    app.state.ephemeral.repl.status = Some(crate::ratcore::app::ReplStatus::info(format!(
-        "loading {kind} {title}\u{2026}"
-    )));
-    let transport = app.transport.clone();
-    let tx_outer = tx.clone();
-    let title_for_event = title.clone();
-    tokio::task::spawn_local(async move {
-        let songs_result = match kind {
-            "playlist" => transport.playlist_songs(&id).await,
-            "album" => transport.album_songs(&id).await,
-            other => Err(format!("unknown collection kind: {other}")),
-        };
-        let songs = match songs_result {
-            Ok(s) => s,
-            Err(e) => {
-                let _ = tx_outer.send(AppAction::MusicEvent(
-                    crate::ratcore::app::MusicEvent::Error(format!("load {kind} failed: {e}")),
-                ));
-                return;
-            }
-        };
-        if songs.is_empty() {
-            let _ = tx_outer.send(AppAction::MusicEvent(
-                crate::ratcore::app::MusicEvent::Error(format!(
-                    "{kind} {title_for_event} is empty"
-                )),
-            ));
-            return;
-        }
-        let _ = tx_outer.send(AppAction::CollectionLoaded { songs });
-    });
-    // mirror the queue locally so the player row reflects what's
-    // about to play. the actual song rows arrive via the
-    // CollectionLoaded action which calls play_now.
-    let m = &mut app.state.ephemeral.music;
-    m.queue.clear();
-    m.current = None;
-    m.position_ms = 0;
-    m.duration_ms = 0;
-}
-
-/// fetch playlist or album songs and append them to the existing
-/// queue without interrupting the currently-playing track. queue
-/// extension is rathole-side; the audio thread is unaffected.
-fn enqueue_collection(
-    app: &mut App,
-    kind: &'static str,
-    id: String,
-    title: String,
-    tx: &mpsc::UnboundedSender<AppAction>,
-) {
-    app.state.ephemeral.repl.status = Some(crate::ratcore::app::ReplStatus::info(format!(
-        "queueing {kind} {title}\u{2026}"
-    )));
-    let transport = app.transport.clone();
-    let tx_outer = tx.clone();
-    let title_for_event = title.clone();
-    tokio::task::spawn_local(async move {
-        let songs_result = match kind {
-            "playlist" => transport.playlist_songs(&id).await,
-            "album" => transport.album_songs(&id).await,
-            other => Err(format!("unknown collection kind: {other}")),
-        };
-        let songs = match songs_result {
-            Ok(s) => s,
-            Err(e) => {
-                let _ = tx_outer.send(AppAction::MusicEvent(
-                    crate::ratcore::app::MusicEvent::Error(format!("queue {kind} failed: {e}")),
-                ));
-                return;
-            }
-        };
-        if songs.is_empty() {
-            let _ = tx_outer.send(AppAction::MusicEvent(
-                crate::ratcore::app::MusicEvent::Error(format!(
-                    "{kind} {title_for_event} is empty"
-                )),
-            ));
-            return;
-        }
-        let _ = tx_outer.send(AppAction::CollectionEnqueued { songs });
-    });
-}
-
-/// resolve a song row (looked up by title via the search index) and
-/// append it to the queue. used by the per-row "add to queue" action
-/// when the row is a single song. matches `play_song` semantics by
-/// re-searching the title and using the top hit.
-fn enqueue_song_by_title(app: &mut App, title: String, tx: &mpsc::UnboundedSender<AppAction>) {
-    if title.is_empty() {
-        return;
-    }
-    app.state.ephemeral.repl.status = Some(crate::ratcore::app::ReplStatus::info(format!(
-        "queueing {title}\u{2026}"
-    )));
-    let transport = app.transport.clone();
-    let tx_outer = tx.clone();
-    tokio::task::spawn_local(async move {
-        let songs = match transport.search_songs(&title, 1).await {
-            Ok(rows) => rows,
-            Err(e) => {
-                let _ = tx_outer.send(AppAction::MusicEvent(
-                    crate::ratcore::app::MusicEvent::Error(format!("queue search failed: {e}")),
-                ));
-                return;
-            }
-        };
-        let Some(song) = songs.into_iter().next() else {
-            let _ = tx_outer.send(AppAction::MusicEvent(
-                crate::ratcore::app::MusicEvent::Error(format!("no match for {title}")),
-            ));
-            return;
-        };
-        let _ = tx_outer.send(AppAction::CollectionEnqueued { songs: vec![song] });
-    });
-}
-
-/// fire a library_query and route the result through the same
 /// AdminDispatchResult channel the slash repl uses, so the result
 /// panel renders it identically. used by the "go to album" / "go to
 /// artist" row actions to pivot without typing the slash command.
@@ -3975,8 +3698,14 @@ fn on_player_row_key(app: &mut App, code: KeyCode, tx: &mpsc::UnboundedSender<Ap
         // control the cursor is on, so it works the same whether the
         // user navigated to the heart or not.
         KeyCode::Char('f') => {
-            if let Some(cur) = app.state.ephemeral.music.currently_playing() {
-                let id = cur.id.clone();
+            if let Some(id) = app
+                .state
+                .ephemeral
+                .music
+                .currently_playing()
+                .and_then(|e| e.song_id())
+                .map(str::to_string)
+            {
                 let _ = tx.send(AppAction::ToggleFavorite {
                     target_type: "song".into(),
                     target_id: id,
@@ -4017,8 +3746,14 @@ fn on_player_row_key(app: &mut App, code: KeyCode, tx: &mpsc::UnboundedSender<Ap
                     send_player(app, PlayerCmd::SetVolume(v), tx);
                 }
                 prk::PlayerRowAction::Favorite => {
-                    if let Some(cur) = app.state.ephemeral.music.currently_playing() {
-                        let id = cur.id.clone();
+                    if let Some(id) = app
+                        .state
+                        .ephemeral
+                        .music
+                        .currently_playing()
+                        .and_then(|e| e.song_id())
+                        .map(str::to_string)
+                    {
                         let _ = tx.send(AppAction::ToggleFavorite {
                             target_type: "song".into(),
                             target_id: id,

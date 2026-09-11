@@ -738,6 +738,19 @@ pub enum AppAction {
     /// peer. `None` clears the indicator once the batch finishes (or
     /// hasn't started). see `tty::pairing::resolve_queue_items`.
     PairingDownloadProgress(Option<super::PairingDownloadProgress>),
+    /// a `freqhole-player/1` `replace_queue` command resolved its
+    /// items (possibly mixed audio+video) - the ui loop installs
+    /// `entries` as the new unified queue and starts playing index 0
+    /// via `tty::queue::set_queue_entries`. carried as an `AppAction`
+    /// (rather than mutated directly by the dispatch task) because
+    /// dispatch runs without `&mut App` access - see
+    /// `tty::pairing::DispatchContext`'s own doc comment.
+    PairingReplaceQueue { entries: Vec<super::QueueEntry> },
+    /// a `freqhole-player/1` `append_queue` command resolved its
+    /// items - appended to the existing unified queue via
+    /// `tty::queue::append_queue_entries`, starting playback only if
+    /// the queue was empty/idle.
+    PairingAppendQueue { entries: Vec<super::QueueEntry> },
 }
 
 /// most recent dispatch result, kept for the detail pane.

@@ -295,13 +295,17 @@ fn draw_queue_glance(frame: &mut Frame, area: Rect, app: &App) {
     let m = &app.state.ephemeral.music;
     let mut lines: Vec<Line> = Vec::new();
     match m.current.and_then(|i| m.queue.get(i)) {
-        Some(song) => {
+        Some(entry) => {
+            let kind_glyph = match entry.kind() {
+                crate::ratcore::app::MediaKind::Video => "\u{1f3ac} ",
+                crate::ratcore::app::MediaKind::Audio => "",
+            };
             lines.push(Line::from(vec![
                 Span::styled("now playing: ", Style::new().bold()),
-                Span::raw(song.title.clone()),
+                Span::raw(format!("{kind_glyph}{}", entry.title())),
             ]));
-            if let Some(artist) = &song.artist {
-                lines.push(Line::from(artist.clone()).dim());
+            if let Some(artist) = entry.artist() {
+                lines.push(Line::from(artist.to_string()).dim());
             }
         }
         None => lines.push(Line::from("(nothing playing)".dim())),
@@ -313,9 +317,13 @@ fn draw_queue_glance(frame: &mut Frame, area: Rect, app: &App) {
     if m.queue.len() > 1 {
         lines.push(Line::from(""));
         lines.push(Line::from(format!("queue ({} tracks):", m.queue.len())).bold());
-        for (i, song) in m.queue.iter().enumerate().take(6) {
+        for (i, entry) in m.queue.iter().enumerate().take(6) {
             let marker = if Some(i) == m.current { "\u{25b6} " } else { "  " };
-            lines.push(Line::from(format!("{marker}{}", song.title)));
+            let kind_glyph = match entry.kind() {
+                crate::ratcore::app::MediaKind::Video => "\u{1f3ac} ",
+                crate::ratcore::app::MediaKind::Audio => "",
+            };
+            lines.push(Line::from(format!("{marker}{kind_glyph}{}", entry.title())));
         }
     }
     let block = Paragraph::new(lines)
@@ -377,6 +385,11 @@ fn draw_settings(frame: &mut Frame, area: Rect, app: &mut App) {
         .selected_output_device
         .as_deref()
         .unwrap_or("(default)");
+    let autostart_label = if grimoire::config::get_config().player_pairing.enabled {
+        "enabled"
+    } else {
+        "disabled"
+    };
     let items = [
         format!("session mode: {mode_label}   (e: toggle)"),
         "regenerate admin pairing code   (a)".to_string(),
@@ -385,6 +398,7 @@ fn draw_settings(frame: &mut Frame, area: Rect, app: &mut App) {
             "audio output device: {device_label}   ({} known, enter to pick)",
             devices.len()
         ),
+        format!("auto-start pairing on launch: {autostart_label}   (p: toggle)"),
     ];
     let list_items: Vec<ListItem> = items
         .iter()

@@ -75,16 +75,30 @@ pub fn render_queue_panel(state: &mut AppState, cursor_override: Option<usize>) 
         .queue
         .iter()
         .enumerate()
-        .map(|(i, s)| {
+        .map(|(i, entry)| {
+            let (row_type, id, title, artist, album, album_id, artist_id) = match entry {
+                crate::ratcore::app::QueueEntry::Song(s) => (
+                    "song",
+                    s.id.clone(),
+                    s.title.clone(),
+                    s.artist.clone(),
+                    s.album.clone(),
+                    s.album_id.clone(),
+                    s.artist_id.clone(),
+                ),
+                crate::ratcore::app::QueueEntry::Video(v) => {
+                    ("video", v.id.clone(), v.title.clone(), None, None, None, None)
+                }
+            };
             serde_json::json!({
-                "type": "song",
-                "id": s.id.clone(),
-                "title": s.title.clone(),
-                "subtitle": s.artist.clone().unwrap_or_else(|| "\u{2014}".to_string()),
-                "album": s.album.clone(),
-                "artist": s.artist.clone(),
-                "album_id": s.album_id.clone(),
-                "artist_id": s.artist_id.clone(),
+                "type": row_type,
+                "id": id,
+                "title": title,
+                "subtitle": artist.clone().unwrap_or_else(|| "\u{2014}".to_string()),
+                "album": album,
+                "artist": artist,
+                "album_id": album_id,
+                "artist_id": artist_id,
                 "position": i,
                 "now_playing": cur == Some(i),
                 "pending": i >= loaded_through,

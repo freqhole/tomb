@@ -56,10 +56,10 @@ pub fn draw(frame: &mut Frame, area: Rect, app: &App) {
     };
 
     let title = now
-        .map(|s| s.title.clone())
+        .map(|e| e.title().to_string())
         .unwrap_or_else(|| "(nothing loaded)".into());
     let artist = now
-        .and_then(|s| s.artist.clone())
+        .and_then(|e| e.artist().map(str::to_string))
         .unwrap_or_else(|| "—".into());
 
     // line 1: state glyph, title, artist, volume, controls (when
@@ -125,9 +125,9 @@ pub fn draw(frame: &mut Frame, area: Rect, app: &App) {
         let next_label = m
             .queue
             .get(cur + 1)
-            .map(|s| {
-                let title = s.title.clone();
-                let artist = s.artist.clone().unwrap_or_else(|| "—".into());
+            .map(|e| {
+                let title = e.title().to_string();
+                let artist = e.artist().unwrap_or("—").to_string();
                 format!("{title}  ·  {artist}")
             })
             .unwrap_or_else(|| "(end of queue)".into());

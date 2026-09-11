@@ -132,6 +132,17 @@ impl Default for VideoConfig {
 /// `[player_pairing]` section to accept defaults.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct PlayerPairingConfig {
+    /// when `true`, the `freqhole-player/1` pairing endpoint auto-starts
+    /// on launch, same as passing `--player` (in addition to the
+    /// existing `federation.enabled` auto-start trigger) - lets a
+    /// headless player device come back up in pairing mode after a
+    /// reboot without needing the cli flag every time. default `false`
+    /// (unchanged behavior: pairing only starts via `--player`, `/player`,
+    /// or `federation.enabled`). toggleable live from the player
+    /// settings screen (persists to this config file, takes effect on
+    /// the next launch).
+    #[serde(default)]
+    pub enabled: bool,
     /// "terminal" (default): render directly in the ratatui frame as
     /// unicode text - the qr code via a dedicated qr renderer (1:1 with
     /// the qr's modules), now-playing art via `ratatui-image`'s
@@ -1594,6 +1605,13 @@ pub fn set_autostart(
             ("federation.enabled", federation_enabled.into()),
         ],
     )
+}
+
+/// convenience wrapper for rathole's player-pairing settings screen:
+/// persist [`PlayerPairingConfig::enabled`] so pairing mode auto-starts
+/// (or stops auto-starting) on the next launch.
+pub fn set_player_pairing_enabled(config_path: &Path, enabled: bool) -> Result<(), ConfigError> {
+    set_config_values(config_path, &[("player_pairing.enabled", enabled.into())])
 }
 
 /// helper to set a value at a dot-separated path, creating intermediate tables as needed

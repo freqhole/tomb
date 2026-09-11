@@ -8,6 +8,7 @@ mod persist;
 mod player;
 pub mod pairing;
 pub mod qr;
+mod queue;
 mod run;
 pub mod serve_monitor;
 mod transport;
@@ -67,8 +68,19 @@ pub async fn run(opts: LaunchOpts) -> color_eyre::Result<()> {
     // and only suppress the stderr output. color_eyre's hook
     // installed at binary entry is preserved for the main thread.
     install_tui_panic_hook();
-    let terminal = ratatui::init();
+    let mut terminal = ratatui::init();
     let mut stdout = std::io::stdout();
+    // clear the terminal's scrollback (not just the visible screen) before
+    // the tui takes over - `ratatui::init()` enters the alt-screen but
+    // doesn't touch scrollback, so without this, resizing/scrolling while
+    // the tui is running (or some terminals' alt-screen transition itself)
+    // can show whatever was printed before rathole started bleeding
+    // through underneath/around the tui.
+    let _ = crossterm::execute!(
+        stdout,
+        crossterm::terminal::Clear(crossterm::terminal::ClearType::Purge)
+    );
+    let _ = terminal.clear();
     let _ = crossterm::execute!(stdout, crossterm::event::EnableBracketedPaste);
     // request the most useful kitty protocol flags. ignore errors:
     // terminals that don't grok this just continue with the legacy

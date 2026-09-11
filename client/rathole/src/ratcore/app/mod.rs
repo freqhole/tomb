@@ -4,6 +4,7 @@
 pub mod events;
 pub mod music;
 pub mod pairing;
+pub mod queue;
 pub mod repl;
 pub mod state;
 pub mod video;
@@ -21,6 +22,7 @@ pub use pairing::{
     PlayerStatusMessage, PresenceAnnouncement, PresenceQuery, PresenceState, SessionMode,
     StatusCommon, SubscribeRequest, TrustedController,
 };
+pub use queue::{QueueEntry, QueuedVideoRow};
 pub use repl::{ReplState, ReplStatus, ReplStatusLevel};
 pub use state::{
     AppState, EphemeralState, Focus, JobsStatus, LocalRef, PendingRemoteEntry, PersistedState,

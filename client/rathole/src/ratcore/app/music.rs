@@ -9,11 +9,12 @@
 //! the ui has three sub-modes (the `Focus` enum stays simple: just
 //! `Focus::MusicView`, and [`MusicMode`] picks where keystrokes go).
 
+use super::queue::QueueEntry;
 use super::video_player::AudioDeviceInfo;
 
 /// portable subset of `grimoire::music::entities::songs::Song`. only
 /// the fields the tui needs to render + queue + play.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SongRow {
     pub id: String,
     pub title: String,
@@ -96,8 +97,10 @@ pub struct MusicState {
     pub results: Vec<SongRow>,
     pub results_cursor: usize,
     /// play queue. populated when the user picks a result row;
-    /// usually `results[results_cursor..]`.
-    pub queue: Vec<SongRow>,
+    /// usually `results[results_cursor..]`. can mix song + video
+    /// entries (see `QueueEntry`) - only `queue[current]` is ever the
+    /// active thing actually playing.
+    pub queue: Vec<QueueEntry>,
     /// index into `queue` of the currently-playing track.
     pub current: Option<usize>,
     pub player_state: PlayerState,
@@ -127,6 +130,12 @@ pub struct MusicState {
     /// the backend doesn't currently confirm which device ended up
     /// active).
     pub selected_output_device: Option<String>,
+    /// true while the unified queue's current entry is a video that's
+    /// been loaded into mpv via a queue advance (`tty::queue::
+    /// play_index`) - distinguishes that from an unrelated ad-hoc
+    /// video preview started from the video browse view (`p` key),
+    /// which must NOT trigger the queue to auto-advance when it ends.
+    pub queue_video_active: bool,
 }
 
 impl MusicState {
@@ -137,7 +146,7 @@ impl MusicState {
         }
     }
 
-    pub fn currently_playing(&self) -> Option<&SongRow> {
+    pub fn currently_playing(&self) -> Option<&QueueEntry> {
         self.current.and_then(|i| self.queue.get(i))
     }
 }
