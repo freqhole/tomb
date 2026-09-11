@@ -1787,6 +1787,20 @@ fn on_action(app: &mut App, action: AppAction, action_tx: &mpsc::UnboundedSender
         // web shell has no grimoire event loop, so this is unreachable.
         AppAction::DeviceLinked { .. } => {}
         AppAction::KnockAccepted { .. } => {}
+        // video playback (mpv) and video/rendition management are
+        // tty-shell only (per user: not a web-build goal right now) -
+        // arms exist solely for exhaustiveness.
+        AppAction::VideoPlayerEvent(_)
+        | AppAction::QueryVideos { .. }
+        | AppAction::VideoQueryResults { .. }
+        | AppAction::UpdateVideo { .. }
+        | AppAction::VideoUpdateResult { .. }
+        | AppAction::DeleteVideo { .. }
+        | AppAction::VideoDeleteResult { .. }
+        | AppAction::ListVideoRenditions { .. }
+        | AppAction::VideoRenditionsResult { .. }
+        | AppAction::DeleteVideoRendition { .. }
+        | AppAction::VideoRenditionDeleteResult { .. } => {}
     }
 }
 
@@ -3071,6 +3085,9 @@ fn apply_music_event_web(
             play_index_web(app, next, action_tx);
         }
         MusicEvent::Error(e) => app.state.ephemeral.music.last_event_error = Some(e),
+        MusicEvent::OutputDevices { devices } => {
+            app.state.ephemeral.music.output_devices = devices;
+        }
     }
 }
 

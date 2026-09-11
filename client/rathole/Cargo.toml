@@ -22,6 +22,7 @@ tracing = { workspace = true }
 # pin generation for the `--player`/`/player` pairing protocol
 # (ratcore/app/pairing.rs) - pure computation, portable to both shells.
 rand = { workspace = true }
+tui-big-text = "0.8"
 
 # ----------------------------------------------------------------------
 # tty shell deps (anything that's NOT wasm32). cargo unifies these

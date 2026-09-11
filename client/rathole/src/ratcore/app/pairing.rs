@@ -60,27 +60,26 @@ pub struct TrustedController {
 }
 
 // ---------------------------------------------------------------------
-// pairing pin. mirrors `pairing/pin.ts` exactly (6-char lowercase hex,
-// never encoded in the qr — typed in manually as a trust-confirmation
-// step after the phone dials the node id from the qr).
+// pairing pin. mirrors `pairing/pin.ts` exactly (6-digit numeric, never
+// encoded in the qr - typed in manually as a trust-confirmation step
+// after the phone dials the node id from the qr). digits only (not hex)
+// so it can be typed on a phone's numeric keypad and read at couch
+// distance.
 // ---------------------------------------------------------------------
 
 const PIN_LENGTH: usize = 6;
-const HEX_CHARS: &[u8] = b"0123456789abcdef";
+const DIGITS: &[u8] = b"0123456789";
 
 pub fn generate_pin() -> String {
     use rand::Rng;
     let mut rng = rand::thread_rng();
     (0..PIN_LENGTH)
-        .map(|_| HEX_CHARS[rng.gen_range(0..HEX_CHARS.len())] as char)
+        .map(|_| DIGITS[rng.gen_range(0..DIGITS.len())] as char)
         .collect()
 }
 
 pub fn is_valid_pin_format(candidate: &str) -> bool {
-    candidate.len() == PIN_LENGTH
-        && candidate
-            .chars()
-            .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
+    candidate.len() == PIN_LENGTH && candidate.chars().all(|c| c.is_ascii_digit())
 }
 
 // ---------------------------------------------------------------------
@@ -132,15 +131,19 @@ impl PlayerSession {
         }
     }
 
-    /// loads (or creates, or rotates if stale for over an hour) the
-    /// singleton session. mirrors `ensureActiveSession` — the shell
-    /// owns actual persistence, this just decides what the "current"
-    /// session should be given whatever was last persisted.
+    /// loads (or creates, or rotates if stale for over an hour, or the
+    /// persisted pin no longer matches the current format - e.g. an
+    /// old hex pin left over from before the numeric-only switch)
+    /// the singleton session. mirrors `ensureActiveSession` — the
+    /// shell owns actual persistence, this just decides what the
+    /// "current" session should be given whatever was last persisted.
     pub fn ensure_active(existing: Option<PlayerSession>) -> PlayerSession {
         match existing {
             None => Self::fresh(),
             Some(session) => {
-                if now_ms() - session.last_active_at > SESSION_IDLE_MS {
+                let stale = now_ms() - session.last_active_at > SESSION_IDLE_MS;
+                let bad_format = !is_valid_pin_format(&session.pin);
+                if stale || bad_format {
                     PlayerSession {
                         pin: generate_pin(),
                         allowed_node_ids: Vec::new(),
@@ -565,7 +568,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn pin_is_six_lowercase_hex_chars() {
+    fn pin_is_six_digits() {
         for _ in 0..20 {
             let pin = generate_pin();
             assert!(is_valid_pin_format(&pin), "bad pin: {pin}");
@@ -574,10 +577,10 @@ mod tests {
 
     #[test]
     fn rejects_malformed_pins() {
-        assert!(!is_valid_pin_format("ABCDEF")); // uppercase
         assert!(!is_valid_pin_format("12345")); // too short
         assert!(!is_valid_pin_format("1234567")); // too long
-        assert!(!is_valid_pin_format("12345g")); // non-hex
+        assert!(!is_valid_pin_format("12345g")); // non-digit
+        assert!(!is_valid_pin_format("abcdef")); // hex letters no longer valid
     }
 
     #[test]
@@ -605,6 +608,16 @@ mod tests {
         assert_ne!(rotated.pin, stale.pin);
         assert!(rotated.allowed_node_ids.is_empty());
         assert!(!rotated.admin_grant_pending);
+    }
+
+    #[test]
+    fn ensure_active_rotates_a_legacy_hex_pin() {
+        // simulates a session persisted before the hex -> numeric pin switch.
+        let mut legacy = PlayerSession::fresh();
+        legacy.pin = "0b3b50".to_string();
+        let rotated = PlayerSession::ensure_active(Some(legacy.clone()));
+        assert_ne!(rotated.pin, legacy.pin);
+        assert!(is_valid_pin_format(&rotated.pin));
     }
 
     #[test]

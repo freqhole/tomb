@@ -5,19 +5,23 @@
 // via the QR's node id, as a trust-confirmation step (see docs/
 // player-remote-site-plan.md phase 2).
 
+// generates a random 6-digit numeric pairing pin, and basic validation
+// helpers. mirrors lib/cenotaph/ts/src/pairing/pin.ts - digits only so it
+// can be typed on a phone's numeric keypad and read at couch distance.
+
 const PIN_LENGTH = 6;
-const HEX_CHARS = "0123456789abcdef";
+const DIGITS = "0123456789";
 
 export function generatePin(): string {
   const bytes = new Uint8Array(PIN_LENGTH);
   crypto.getRandomValues(bytes);
   let pin = "";
   for (const byte of bytes) {
-    pin += HEX_CHARS[byte % HEX_CHARS.length];
+    pin += DIGITS[byte % DIGITS.length];
   }
   return pin;
 }
 
 export function isValidPinFormat(candidate: string): boolean {
-  return /^[0-9a-f]{6}$/i.test(candidate);
+  return /^[0-9]{6}$/.test(candidate);
 }

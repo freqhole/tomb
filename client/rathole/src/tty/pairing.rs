@@ -72,10 +72,18 @@ pub struct PairingRuntimeState {
 pub type SharedPairingState = Arc<Mutex<PairingRuntimeState>>;
 
 pub fn load_pairing_state(persisted: &PersistedState) -> SharedPairingState {
+    // ensure a session (and its pin) exists up front rather than lazily on
+    // first mutation/pair attempt - otherwise the pairing screen has no pin
+    // to show until someone regenerates one in settings or a client happens
+    // to trigger `ensure_active` first, which is a dead end for a brand new
+    // device (see docs/rathole-headless-player-plan.md phase 4 UI notes).
+    let session = Some(PlayerSession::ensure_active(
+        persisted.player_session.clone(),
+    ));
     Arc::new(Mutex::new(PairingRuntimeState {
         node_id: None,
         trusted_controllers: persisted.trusted_controllers.clone(),
-        session: persisted.player_session.clone(),
+        session,
         connected: Vec::new(),
     }))
 }
@@ -201,7 +209,9 @@ impl PairingRuntime {
                     node_id = %node_id,
                     "freqhole-player/1 endpoint started"
                 ),
-                Err(e) => warn!(target: "player_protocol", error = %e, "failed to start freqhole-player/1 endpoint"),
+                Err(e) => {
+                    warn!(target: "player_protocol", error = %e, "failed to start freqhole-player/1 endpoint")
+                }
             }
         });
     }
@@ -416,8 +426,7 @@ async fn handle_pair_request(
             // first peer ever paired (or a pending one-time admin
             // grant) becomes admin; everyone else defaults to the
             // lowest-privilege role — same as pairingHandler.ts.
-            let grants_admin =
-                guard.trusted_controllers.is_empty() || session.admin_grant_pending;
+            let grants_admin = guard.trusted_controllers.is_empty() || session.admin_grant_pending;
             let role = if grants_admin {
                 PeerRole::Admin
             } else {
@@ -493,8 +502,7 @@ async fn process_command_line(
     let allowed = {
         let mut guard = state.lock().unwrap_or_else(|p| p.into_inner());
         let mut session = PlayerSession::ensure_active(guard.session.take());
-        let ok = is_get_status_line(raw)
-            || session.is_peer_allowed(peer_id, Some(controller.role));
+        let ok = is_get_status_line(raw) || session.is_peer_allowed(peer_id, Some(controller.role));
         if ok {
             session.touch();
         }
@@ -629,11 +637,21 @@ pub async fn dispatch_pairing_command(ctx: DispatchContext, command: PairingComm
             CommandAck::err(CommandAckReason::InvalidCommand)
         }
         PairingCommand::Pause => {
-            send_generic(&ctx, PlayerCmd::Pause, crate::ratcore::app::VideoCommand::Pause).await;
+            send_generic(
+                &ctx,
+                PlayerCmd::Pause,
+                crate::ratcore::app::VideoCommand::Pause,
+            )
+            .await;
             status_ack(&ctx, None)
         }
         PairingCommand::Resume => {
-            send_generic(&ctx, PlayerCmd::Play, crate::ratcore::app::VideoCommand::Play).await;
+            send_generic(
+                &ctx,
+                PlayerCmd::Play,
+                crate::ratcore::app::VideoCommand::Play,
+            )
+            .await;
             status_ack(&ctx, None)
         }
         PairingCommand::Seek { position_ms } => {
@@ -648,7 +666,12 @@ pub async fn dispatch_pairing_command(ctx: DispatchContext, command: PairingComm
             status_ack(&ctx, None)
         }
         PairingCommand::Stop => {
-            send_generic(&ctx, PlayerCmd::Stop, crate::ratcore::app::VideoCommand::Close).await;
+            send_generic(
+                &ctx,
+                PlayerCmd::Stop,
+                crate::ratcore::app::VideoCommand::Close,
+            )
+            .await;
             status_ack(&ctx, None)
         }
         PairingCommand::SetVolume { volume } => {
@@ -791,7 +814,9 @@ mod tests {
         assert!(is_get_status_line(
             r#"{"type":"control","command":"get_status"}"#
         ));
-        assert!(!is_get_status_line(r#"{"type":"control","command":"stop"}"#));
+        assert!(!is_get_status_line(
+            r#"{"type":"control","command":"stop"}"#
+        ));
         assert!(!is_get_status_line("not json"));
     }
 

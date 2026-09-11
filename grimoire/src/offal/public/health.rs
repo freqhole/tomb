@@ -36,14 +36,30 @@ pub async fn server_info() -> GrimoireResponse<JsonValue> {
     let config = get_config();
 
     let Some(server_config) = config.server.as_ref() else {
-        return GrimoireResponse::failure(
-            "server config missing",
-            vec![ErrorDetail::new(
-                "config_error",
-                "configuration error",
-                "server config not found",
-            )],
-        );
+        // no `[server]` section configured - this is a headless/player-only
+        // instance (e.g. rathole's `--player` mode), not a full http-servable
+        // remote. answer with a minimal, degraded hello instead of hard
+        // failing, flagging `player_device: true` so clients (see
+        // AddRemoteModal.tsx's player_device branch) steer the user toward
+        // pairing instead of a dead-end "didn't return valid server info"
+        // error - mirrors spume's own web-side player hello
+        // (spumeHelloRoute.ts).
+        let response = ServerInfoResponse {
+            name: "freqhole player".to_string(),
+            description: Some("headless freqhole player (pairing only)".to_string()),
+            version: env!("CARGO_PKG_VERSION").to_string(),
+            image_url: None,
+            image_blob_id: None,
+            knocking_enabled: Some(false),
+            musicbrainz_enabled: None,
+            lastfm_enabled: None,
+            audiodb_enabled: None,
+            passkey_p2p_enabled: None,
+            fetch_precheck_enabled: None,
+            fetch_video_enabled: None,
+            player_device: Some(true),
+        };
+        return GrimoireResponse::success("ok", serde_json::to_value(response).unwrap());
     };
 
     let name = server_config.name.clone();

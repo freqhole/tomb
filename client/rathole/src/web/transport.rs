@@ -258,11 +258,11 @@ impl Transport for MiddenTransport {
         };
         let resp = match self
             .node
-            .proxy_request(&self.peer_addr, method, route, Some(body_str))
+            .api_request(&self.peer_addr, method, route, Some(body_str))
             .await
         {
             Ok(v) => v,
-            Err(e) => return logged_fail(route, format!("proxy_request: {}", js_err_str(e))),
+            Err(e) => return logged_fail(route, format!("api_request: {}", js_err_str(e))),
         };
 
         // resp is a JS object `{ status: u16, body: Option<String> }`.
