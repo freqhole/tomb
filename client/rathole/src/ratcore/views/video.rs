@@ -140,9 +140,16 @@ fn draw_detail(frame: &mut Frame, area: Rect, app: &mut App) {
         Span::raw(&video.media_blob_id).dim(),
     ]));
 
+    let vp = &app.state.ephemeral.video_player;
+    if vp.state != crate::ratcore::app::VideoPlaybackState::Idle {
+        lines.push(Line::from(""));
+        lines.push(video_status_line(vp));
+    }
+
     lines.push(Line::from(""));
     lines.push(Line::from(
-        "press e to edit, d to delete, r for renditions, esc to return".dim(),
+        "press p to play, s to stop, e to edit, d to delete, r for renditions, esc to return"
+            .dim(),
     ));
 
     if let Some(err) = &v.last_error {
@@ -295,4 +302,33 @@ fn format_duration(seconds: f64) -> String {
     } else {
         format!("{:02}:{:02}", m, s)
     }
+}
+
+/// render a one-line status for the current video/image playback
+/// state (mpv), mirroring the shape of music's player row status.
+fn video_status_line(vp: &crate::ratcore::app::VideoPlayerState) -> Line<'static> {
+    use crate::ratcore::app::VideoPlaybackState;
+    let label = match vp.state {
+        VideoPlaybackState::Idle => return Line::from(""),
+        VideoPlaybackState::Loading => "loading\u{2026}".to_string(),
+        VideoPlaybackState::Playing => match vp.duration {
+            Some(d) => format!(
+                "\u{25b6} playing  {} / {}",
+                format_duration(vp.position),
+                format_duration(d)
+            ),
+            None => format!("\u{25b6} playing  {}", format_duration(vp.position)),
+        },
+        VideoPlaybackState::Paused => "\u{23f8} paused".to_string(),
+        VideoPlaybackState::Ended => "\u{23f9} ended".to_string(),
+        VideoPlaybackState::Error => vp
+            .last_error
+            .clone()
+            .map(|e| format!("error: {e}"))
+            .unwrap_or_else(|| "error".to_string()),
+    };
+    Line::from(vec![Span::styled(
+        label,
+        Style::new().fg(ACCENT).bold(),
+    )])
 }

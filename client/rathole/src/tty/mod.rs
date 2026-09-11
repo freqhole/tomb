@@ -6,9 +6,11 @@
 pub mod pending_remotes;
 mod persist;
 mod player;
+pub mod qr;
 mod run;
 pub mod serve_monitor;
 mod transport;
+mod video_player;
 
 pub use transport::LocalTransport;
 

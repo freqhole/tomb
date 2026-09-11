@@ -6,6 +6,7 @@ pub mod music;
 pub mod repl;
 pub mod state;
 pub mod video;
+pub mod video_player;
 
 pub use events::{
     ActionMenu, ActionMenuOption, AdminCommand, AppAction, ArgKind, ArgSpec, CommandForm,
@@ -18,8 +19,11 @@ pub use state::{
     RemoteEntry, ScanStatus, ServeBadge, ServeMode, UiPrefs,
 };
 pub use video::{RenditionRow, SeriesRow, VideoMode, VideoRow, VideoState};
+pub use video_player::{
+    AudioDeviceInfo, VideoCommand, VideoEvent, VideoPlaybackState, VideoPlayerState,
+};
 
-use super::transport::{MusicPlayer, Transport};
+use super::transport::{MusicPlayer, Transport, VideoPlayer};
 use std::rc::Rc;
 
 /// portable app shell. shells construct this with a transport,
@@ -37,6 +41,11 @@ pub struct App {
     /// support (web today). the music view degrades to read-only
     /// browse mode when this is `None`.
     pub player: Option<Rc<dyn MusicPlayer>>,
+    /// optional video/image backend (mpv, linux tty only). `None` on
+    /// shells without it — video browsing/editing still works, just
+    /// without an in-app way to actually play a video or show a
+    /// still image full screen.
+    pub video_player: Option<Rc<dyn VideoPlayer>>,
     pub exit: bool,
 }
 
@@ -47,12 +56,18 @@ impl App {
             transport,
             commands,
             player: None,
+            video_player: None,
             exit: false,
         }
     }
 
     pub fn with_player(mut self, player: Rc<dyn MusicPlayer>) -> Self {
         self.player = Some(player);
+        self
+    }
+
+    pub fn with_video_player(mut self, video_player: Rc<dyn VideoPlayer>) -> Self {
+        self.video_player = Some(video_player);
         self
     }
 }

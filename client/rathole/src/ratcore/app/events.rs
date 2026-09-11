@@ -7,6 +7,7 @@
 use serde_json::Value as JsonValue;
 
 use super::music::{MusicEvent, SongRow};
+use super::video_player::VideoEvent;
 
 /// portable arg for [`AppAction::ServeStart`]. mirrors
 /// [`crate::ratcore::slash::ServeKindArg`] but lives here so the
@@ -607,6 +608,9 @@ pub enum AppAction {
     /// player backend emitted an event (state change, progress tick,
     /// track-changed, error, etc.).
     MusicEvent(MusicEvent),
+    /// video/image backend (mpv) emitted an event (duration known,
+    /// position tick, playing/paused, ended, error, closed).
+    VideoPlayerEvent(VideoEvent),
     /// query videos (for video view results list).
     QueryVideos {
         query: Option<String>,

@@ -9,6 +9,8 @@
 //! the ui has three sub-modes (the `Focus` enum stays simple: just
 //! `Focus::MusicView`, and [`MusicMode`] picks where keystrokes go).
 
+use super::video_player::AudioDeviceInfo;
+
 /// portable subset of `grimoire::music::entities::songs::Song`. only
 /// the fields the tui needs to render + queue + play.
 #[derive(Debug, Clone)]
@@ -64,6 +66,11 @@ pub enum MusicEvent {
     },
     Ended,
     Error(String),
+    /// reply to a rodio `ListOutputDevices` request (audio output
+    /// devices - e.g. a pi's hdmi vs. 3.5mm jack). shares
+    /// `video_player`'s `AudioDeviceInfo` shape since it's the same
+    /// concept, just from the audio-only backend.
+    OutputDevices { devices: Vec<AudioDeviceInfo> },
 }
 
 /// which sub-area of the music view has focus.
@@ -111,6 +118,10 @@ pub struct MusicState {
     /// refreshes via [`Transport::is_favorited`] on track-change and
     /// flips locally on `f`-keybind toggles.
     pub current_favorited: bool,
+    /// most recently reported rodio output-device list (from
+    /// `MusicEvent::OutputDevices`); empty until a `ListOutputDevices`
+    /// round trip completes at least once.
+    pub output_devices: Vec<AudioDeviceInfo>,
 }
 
 impl MusicState {

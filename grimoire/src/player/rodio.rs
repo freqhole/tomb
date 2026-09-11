@@ -37,7 +37,7 @@ use tokio::sync::broadcast;
 use tracing::{debug, error, info, warn};
 
 use crate::error::ErrorDetail;
-use crate::player::control::{PlayerCommand, PlayerEvent, PlayerState};
+use crate::player::control::{AudioDeviceInfo, PlayerCommand, PlayerEvent, PlayerState};
 
 /// progress emission cadence. rodio's `Sink::get_pos` is cheap; ~4
 /// hz is plenty for ui smoothness without flooding broadcast
@@ -83,7 +83,7 @@ pub(crate) fn spawn(
 fn audio_loop(cmd_rx: CmdRx, events: broadcast::Sender<PlayerEvent>) {
     // open default output device. failure here is terminal for this
     // run of the loop — supervisor decides whether to retry.
-    let stream = match open_device_sink() {
+    let mut stream = match open_device_sink() {
         Ok(s) => {
             info!(
                 target: "player",
@@ -111,7 +111,6 @@ fn audio_loop(cmd_rx: CmdRx, events: broadcast::Sender<PlayerEvent>) {
             return;
         }
     };
-    let mixer = stream.mixer();
 
     let mut sink: Option<Player> = None;
     let mut queue: Vec<String> = Vec::new();
@@ -127,9 +126,24 @@ fn audio_loop(cmd_rx: CmdRx, events: broadcast::Sender<PlayerEvent>) {
         // poll the command channel, but timebox so we can also emit
         // progress and ended events between commands.
         match cmd_rx.recv_timeout(RECV_TIMEOUT) {
+            // handled here rather than in `handle_command`: switching
+            // devices replaces `stream` itself (which owns the cpal
+            // stream/mixer), not just something reachable through a
+            // borrowed `&Mixer`.
+            Ok(PlayerCommand::SetOutputDevice { name }) => switch_output_device(
+                &mut stream,
+                &name,
+                &events,
+                &mut sink,
+                &queue,
+                &mut current_index,
+                &mut total_per_track,
+                volume,
+                &mut last_state,
+            ),
             Ok(cmd) => handle_command(
                 cmd,
-                mixer,
+                stream.mixer(),
                 &events,
                 &mut sink,
                 &mut queue,
@@ -446,6 +460,17 @@ fn handle_command(
             };
             emit(events, PlayerEvent::State { state: st });
         }
+        PlayerCommand::ListOutputDevices => {
+            emit(
+                events,
+                PlayerEvent::OutputDevices {
+                    devices: list_output_devices(),
+                },
+            );
+        }
+        // handled directly in `audio_loop` (needs owning access to the
+        // `MixerDeviceSink`, not just its `&Mixer`) - never reaches here.
+        PlayerCommand::SetOutputDevice { .. } => {}
     }
 }
 
@@ -691,6 +716,182 @@ fn open_device_sink() -> Result<MixerDeviceSink, rodio::stream::DeviceSinkError>
     {
         DeviceSinkBuilder::open_default_sink()
     }
+}
+
+/// enumerate available audio output devices via `cpal`. `name` is
+/// the device's stable [`cpal::DeviceId`] (persists across reboots/
+/// reconnections, per cpal's own guidance over the deprecated
+/// `DeviceTrait::name()`) formatted as a string, since that's what
+/// round-trips through [`PlayerCommand::SetOutputDevice`]; the human
+/// `description` comes from `cpal::Device::description()`, falling
+/// back to the id string if a backend doesn't provide one.
+fn list_output_devices() -> Vec<AudioDeviceInfo> {
+    use cpal::traits::{DeviceTrait, HostTrait};
+    let host = cpal::default_host();
+    match host.output_devices() {
+        Ok(devices) => devices
+            .filter_map(|d| {
+                let id = d.id().ok()?.to_string();
+                let description = d
+                    .description()
+                    .map(|desc| desc.name().to_string())
+                    .unwrap_or_else(|_| id.clone());
+                Some(AudioDeviceInfo {
+                    name: id,
+                    description,
+                })
+            })
+            .collect(),
+        Err(e) => {
+            warn!(target: "player", error = %e, "[player] failed to enumerate output devices");
+            Vec::new()
+        }
+    }
+}
+
+/// open a specific named audio output device (`name` is the
+/// `cpal::DeviceId` string previously reported by
+/// [`list_output_devices`]). same buffer-size handling as
+/// [`open_device_sink`], just against a caller-chosen device instead
+/// of the system default.
+fn open_named_device_sink(name: &str) -> Result<MixerDeviceSink, String> {
+    use cpal::traits::HostTrait;
+    let target_id: cpal::DeviceId = name
+        .parse()
+        .map_err(|e| format!("invalid device id {name:?}: {e:?}"))?;
+    let host = cpal::default_host();
+    let device = host
+        .device_by_id(&target_id)
+        .ok_or_else(|| format!("no output device with id {name:?}"))?;
+
+    #[cfg(target_os = "linux")]
+    {
+        let frames = crate::config::get_config()
+            .audio
+            .linux_buffer_frames
+            .unwrap_or(2048);
+        DeviceSinkBuilder::from_device(device)
+            .map_err(|e| e.to_string())?
+            .with_buffer_size(cpal::BufferSize::Fixed(frames))
+            .open_sink_or_fallback()
+            .map_err(|e| e.to_string())
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        DeviceSinkBuilder::from_device(device)
+            .map_err(|e| e.to_string())?
+            .open_sink_or_fallback()
+            .map_err(|e| e.to_string())
+    }
+}
+
+/// handle [`PlayerCommand::SetOutputDevice`]: reopen `stream` against
+/// the named device, then rebuild the current sink (if any) on the
+/// new mixer, preserving queue position and pause state. anything
+/// queued before `current_index` is not replayed, same as `advance`.
+#[allow(clippy::too_many_arguments)]
+fn switch_output_device(
+    stream: &mut MixerDeviceSink,
+    name: &str,
+    events: &broadcast::Sender<PlayerEvent>,
+    sink: &mut Option<Player>,
+    queue: &[String],
+    current_index: &mut Option<usize>,
+    total_per_track: &mut Vec<Duration>,
+    volume: f32,
+    last_state: &mut PlayerState,
+) {
+    let was_paused = sink.as_ref().map(|s| s.is_paused()).unwrap_or(false);
+    let resume_pos = sink.as_ref().map(|s| s.get_pos());
+
+    let new_stream = match open_named_device_sink(name) {
+        Ok(s) => s,
+        Err(e) => {
+            emit_error(
+                events,
+                "audio_device_switch_failed",
+                "Audio Device Switch Failed",
+                format!("{name}: {e}"),
+            );
+            return;
+        }
+    };
+    *stream = new_stream;
+    info!(target: "player", device = %name, "[player] rodio switched output device");
+
+    let Some(idx) = *current_index else {
+        // nothing was playing — new stream is ready, nothing to rebuild.
+        return;
+    };
+    if queue.is_empty() {
+        return;
+    }
+
+    let mixer = stream.mixer();
+    let new_sink = Player::connect_new(mixer);
+    new_sink.set_volume(volume);
+
+    let mut rebuilt_totals: Vec<Duration> = vec![Duration::ZERO; idx];
+    for p in &queue[idx..] {
+        match load_source(p) {
+            Ok((src, dur)) => {
+                let path_for_panic = p.clone();
+                let sink_ref = &new_sink;
+                let appended = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+                    sink_ref.append(src);
+                }));
+                match appended {
+                    Ok(()) => rebuilt_totals.push(dur),
+                    Err(panic) => {
+                        let msg = panic_msg(&panic);
+                        warn!(
+                            target: "player",
+                            path = %path_for_panic,
+                            panic = %msg,
+                            "[player] rodio Sink::append panicked during device switch; skipping track"
+                        );
+                        rebuilt_totals.push(Duration::ZERO);
+                    }
+                }
+            }
+            Err(detail) => {
+                error!(
+                    target: "player",
+                    error_type = %detail.error_type,
+                    detail = %detail.detail,
+                    "[player] rodio device switch: failed to decode source; skipping"
+                );
+                emit(events, PlayerEvent::Error { detail });
+                rebuilt_totals.push(Duration::ZERO);
+            }
+        }
+    }
+
+    if let Some(pos) = resume_pos {
+        if let Err(e) = new_sink.try_seek(pos) {
+            warn!(
+                target: "player",
+                error = ?e,
+                "[player] rodio device switch: failed to restore playback position"
+            );
+        }
+    }
+    if was_paused {
+        new_sink.pause();
+    } else {
+        new_sink.play();
+    }
+    *sink = Some(new_sink);
+    *total_per_track = rebuilt_totals;
+    emit_state(
+        events,
+        last_state,
+        if was_paused {
+            PlayerState::Paused
+        } else {
+            PlayerState::Playing
+        },
+    );
 }
 
 /// extract a best-effort string message from a `catch_unwind`

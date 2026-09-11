@@ -43,6 +43,12 @@ libc = "0.2"
 arboard = { version = "3", default-features = false }
 open = "5"
 base64 = { workspace = true }
+# qr code rendering for the `--player`/`/player` pairing screen (see
+# docs/rathole-headless-player-plan.md). default-features off: the
+# `image` feature (png/raster output, for the config-selectable
+# "framebuffer" display mode) isn't needed yet - the default "terminal"
+# mode only uses the crate's own unicode half-block renderer.
+qrcode = { version = "0.14", default-features = false }
 
 # ----------------------------------------------------------------------
 # web shell deps (wasm32 only). ratzilla brings its own ratatui

@@ -8,6 +8,8 @@
 use async_trait::async_trait;
 use serde_json::Value as JsonValue;
 
+use super::app::VideoCommand;
+
 use super::app::{DispatchResponse, RenditionRow, SeriesRow, SongRow, VideoRow};
 
 #[async_trait(?Send)]
@@ -248,9 +250,25 @@ pub enum PlayerCmd {
     Seek(u64),
     /// volume, 0.0..=2.0.
     SetVolume(f32),
+    /// ask the backend to report its available audio output devices
+    /// via `MusicEvent::OutputDevices`.
+    ListOutputDevices,
+    /// switch the backend's audio output to a specific device (the
+    /// `name` from a previously-reported `AudioDeviceInfo`).
+    SetOutputDevice(String),
 }
 
 #[async_trait(?Send)]
 pub trait MusicPlayer {
     async fn send(&self, cmd: PlayerCmd) -> Result<(), String>;
+}
+
+/// commands the video view (and, later, the `--player` pairing
+/// dispatcher) sends to a backend video/image player. ratcore holds
+/// an `Option<Rc<dyn VideoPlayer>>`; shells fill it in if they have
+/// one (tty/linux: mpv over its json ipc socket; other shells:
+/// `None`, video playback simply isn't available).
+#[async_trait(?Send)]
+pub trait VideoPlayer {
+    async fn send(&self, cmd: VideoCommand) -> Result<(), String>;
 }

@@ -142,10 +142,19 @@ async fn run_inner(
     if let Some(addr) = load_recent_peer().await {
         state.ephemeral.connected_peer = Some(addr);
     }
+    state.ephemeral.is_ssh_session = detect_ssh_session();
     let transport: Rc<dyn Transport> = Rc::new(LocalTransport::from_first_root().await?);
     let (action_tx, mut action_rx) = mpsc::unbounded_channel::<AppAction>();
     let player = super::player::RodioPlayer::spawn(action_tx.clone());
     let mut app = App::new(state, transport, commands).with_player(player);
+    // best-effort: mpv may not be installed (e.g. a dev machine that
+    // hasn't set it up yet). video playback / still-image display
+    // just stays unavailable in that case, same as the music view
+    // degrading to read-only browse mode when `player` is `None`.
+    match super::video_player::MpvPlayer::spawn(action_tx.clone()).await {
+        Ok(video_player) => app = app.with_video_player(video_player),
+        Err(e) => tracing::warn!("rathole: mpv video player unavailable: {e}"),
+    }
 
     // hydrate the knock indicator from current pending requests so
     // the header is correct on startup even before new events arrive.
@@ -1029,6 +1038,12 @@ fn on_action(app: &mut App, action: AppAction, action_tx: &mpsc::UnboundedSender
                 }
             }
         }
+        AppAction::VideoPlayerEvent(ev) => {
+            // pure state fold, same shape as charnel's `PlayerState::apply` -
+            // no side effects needed here yet (ratatui screen-takeover /
+            // pause-overlay rendering lands in a later phase).
+            app.state.ephemeral.video_player.apply(&ev);
+        }
         AppAction::QueryVideos {
             query,
             series_id,
@@ -1484,6 +1499,9 @@ fn apply_music_event(
             play_index(app, next, tx);
         }
         MusicEvent::Error(e) => app.state.ephemeral.music.last_event_error = Some(e),
+        MusicEvent::OutputDevices { devices } => {
+            app.state.ephemeral.music.output_devices = devices;
+        }
     }
 }
 
@@ -2827,6 +2845,12 @@ fn on_video_key(app: &mut App, code: KeyCode, tx: &mpsc::UnboundedSender<AppActi
             }
         }
         // detail mode: view single video
+        (VideoMode::Detail, KeyCode::Char('p')) => {
+            play_selected_video(app, tx);
+        }
+        (VideoMode::Detail, KeyCode::Char('s')) => {
+            stop_video(app);
+        }
         (VideoMode::Detail, KeyCode::Char('e')) => {
             app.state.ephemeral.video.begin_edit();
             app.state.ephemeral.video.last_error = None;
@@ -2980,6 +3004,73 @@ fn on_video_key(app: &mut App, code: KeyCode, tx: &mpsc::UnboundedSender<AppActi
         }
         _ => {}
     }
+}
+
+/// resolve the selected video's media blob to a local path, then send
+/// `VideoCommand::Load` to the mpv backend. mirrors `play_index`'s
+/// shape for music: optimistic `Loading` state right away, real
+/// path resolved in a spawned task.
+fn play_selected_video(app: &mut App, tx: &mpsc::UnboundedSender<AppAction>) {
+    let Some(video) = app.state.ephemeral.video.selected_video.clone() else {
+        return;
+    };
+    let Some(video_player) = app.video_player.clone() else {
+        app.state.ephemeral.video.last_error = Some("no video backend in this shell".to_string());
+        return;
+    };
+    let vp = &mut app.state.ephemeral.video_player;
+    vp.state = crate::ratcore::app::VideoPlaybackState::Loading;
+    vp.title = Some(video.title.clone());
+    vp.last_error = None;
+
+    let blob_id = video.media_blob_id.clone();
+    let title = video.title.clone();
+    let tx = tx.clone();
+    tokio::task::spawn_local(async move {
+        let Some(path) = super::player::resolve_paths(&[blob_id])
+            .await
+            .into_iter()
+            .next()
+        else {
+            let _ = tx.send(AppAction::VideoPlayerEvent(
+                crate::ratcore::app::VideoEvent::Error {
+                    message: format!("no playable file for {title} (blob not resolved)"),
+                },
+            ));
+            return;
+        };
+        if let Err(e) = video_player
+            .send(crate::ratcore::app::VideoCommand::Load {
+                path,
+                title: Some(title),
+                start_seconds: None,
+            })
+            .await
+        {
+            let _ = tx.send(AppAction::VideoPlayerEvent(
+                crate::ratcore::app::VideoEvent::Error { message: e },
+            ));
+        }
+    });
+}
+
+/// stop/dismiss whatever the mpv backend is currently showing.
+/// applies the `Close` command's optimistic local effect immediately
+/// (back to `Idle`) rather than waiting for mpv's own event, same
+/// reasoning as `VideoPlayerState::apply_command`'s doc comment.
+fn stop_video(app: &mut App) {
+    let Some(video_player) = app.video_player.clone() else {
+        return;
+    };
+    app.state
+        .ephemeral
+        .video_player
+        .apply_command(&crate::ratcore::app::VideoCommand::Close);
+    tokio::task::spawn_local(async move {
+        let _ = video_player
+            .send(crate::ratcore::app::VideoCommand::Close)
+            .await;
+    });
 }
 
 fn fire_search(app: &mut App, tx: &mpsc::UnboundedSender<AppAction>) {
@@ -4235,6 +4326,18 @@ async fn load_recent_peer() -> Option<String> {
         .find(|r| r.is_active)
         .or_else(|| remotes.first())
         .and_then(|r| r.peer_addr.clone())
+}
+
+/// best-effort, informational-only detection of an ssh-driven session
+/// (`SSH_TTY`/`SSH_CONNECTION`/`SSH_CLIENT` are the standard signals sshd
+/// sets in the remote shell's environment). purely surfaces a heads-up
+/// in the header - does not change any playback/console behavior, which
+/// currently assumes a physical console session (see
+/// docs/rathole-headless-player-plan.md's phase 3 notes).
+fn detect_ssh_session() -> bool {
+    ["SSH_TTY", "SSH_CONNECTION", "SSH_CLIENT"]
+        .iter()
+        .any(|var| std::env::var_os(var).is_some())
 }
 
 /// upsert a peer_addr into grimoire's remotez table. fire-and-forget

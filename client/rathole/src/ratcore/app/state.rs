@@ -9,6 +9,7 @@ use super::events::{ActionMenu, CommandForm, LastDispatch};
 use super::music::MusicState;
 use super::repl::ReplState;
 use super::video::VideoState;
+use super::video_player::VideoPlayerState;
 
 /// portable view-layer representation of the serve subprocess state.
 /// shells translate their concrete monitor types into this; views
@@ -232,6 +233,11 @@ pub struct EphemeralState {
     pub action_menu: Option<ActionMenu>,
     /// state for the video browse/detail/edit view.
     pub video: VideoState,
+    /// state for actual video/image playback (mpv, linux tty only) —
+    /// separate from `video` (browse/edit) since playback is a
+    /// distinct concern, mirroring how `music`'s player fields sit
+    /// alongside its own browse state instead of a separate struct.
+    pub video_player: VideoPlayerState,
     /// state for the music search + playback view.
     pub music: MusicState,
     /// state for the bottom `/` slash-command repl.
@@ -271,6 +277,13 @@ pub struct EphemeralState {
     pub scan_status: Option<ScanStatus>,
     /// if set, `/scan abort confirm` must match this session id.
     pub scan_abort_confirm_for: Option<String>,
+    /// detected once at startup (tty shell only, via `SSH_TTY`/
+    /// `SSH_CONNECTION`/`SSH_CLIENT`) - purely informational, shown as a
+    /// small header heads-up. does not change any behavior: rathole's
+    /// video/console-suppression handling currently assumes a physical
+    /// console session (see docs/rathole-headless-player-plan.md); real
+    /// ssh-aware behavior is a deliberately deferred, separate effort.
+    pub is_ssh_session: bool,
 }
 
 /// minimal portable view of an in-flight job session for the
@@ -313,6 +326,7 @@ impl Default for EphemeralState {
             last_dispatch_scroll: 0,
             last_knock_id: None,
             video: VideoState::new(),
+            video_player: VideoPlayerState::new(),
             action_menu: None,
             music: MusicState::new(),
             repl: ReplState::default(),
@@ -327,6 +341,7 @@ impl Default for EphemeralState {
             pending_knock_username: None,
             scan_status: None,
             scan_abort_confirm_for: None,
+            is_ssh_session: false,
         }
     }
 }

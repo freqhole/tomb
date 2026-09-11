@@ -200,6 +200,18 @@ fn header_line(app: &App) -> Line<'static> {
     // when a session is in flight.
     push_jobs_badge(&mut spans, app.state.ephemeral.jobs_status.as_ref());
 
+    // informational-only heads-up: rathole's video/console handling
+    // currently assumes a physical console session, not ssh (see
+    // docs/rathole-headless-player-plan.md) - this doesn't block or
+    // change anything, just flags the mismatch if detected.
+    if app.state.ephemeral.is_ssh_session {
+        spans.push(Span::raw("   "));
+        spans.push(Span::styled(
+            "\u{26a0} ssh session",
+            Style::new().fg(Color::Yellow).bold(),
+        ));
+    }
+
     Line::from(spans)
 }
 
@@ -366,9 +378,12 @@ fn footer_hints(app: &App) -> &'static str {
         Focus::MusicView => {
             "\u{2191}/\u{2193}: move   enter: play   space: pause   n/p: skip   \u{2190}/\u{2192}: seek   -/=: vol   f: favorite   /: repl   esc: home"
         }
-        Focus::VideoView => {
-            "\u{2191}/\u{2193}: move   enter: detail   e: edit   d: delete   /: repl   esc: home"
-        }
+        Focus::VideoView => match app.state.ephemeral.video.mode {
+            crate::ratcore::app::VideoMode::Detail => {
+                "p: play   s: stop   e: edit   d: delete   r: renditions   esc: back"
+            }
+            _ => "\u{2191}/\u{2193}: move   enter: detail   e: edit   d: delete   /: repl   esc: home",
+        },
         Focus::Repl => {
             "type /command   tab: complete   \u{2191}/\u{2193}: history   enter: run   esc: cancel"
         }
