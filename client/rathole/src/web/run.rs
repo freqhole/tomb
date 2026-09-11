@@ -228,6 +228,10 @@ fn on_key(
         Focus::MusicView => on_music_key_web(app, code, tx),
         Focus::Repl => on_repl_key_web(app, code, tx),
         Focus::PlayerRow => on_player_row_key_web(app, code, tx),
+        // no video playback or `--player` pairing support on the web
+        // shell yet (per user: not a goal right now) - no-op rather
+        // than a fake/partial implementation.
+        Focus::VideoView | Focus::PlayerPairing => {}
     }
 }
 

@@ -6,6 +6,7 @@
 pub mod pending_remotes;
 mod persist;
 mod player;
+pub mod pairing;
 pub mod qr;
 mod run;
 pub mod serve_monitor;
@@ -27,6 +28,10 @@ pub struct LaunchOpts {
     /// monitor to reuse `current_exe()` directly instead of searching
     /// for a sibling binary by name.
     pub serve_capable: bool,
+    /// start directly in the `--player` pairing view (see
+    /// docs/rathole-headless-player-plan.md phase 4) instead of the
+    /// normal landing screen.
+    pub player: bool,
 }
 
 /// run the rathole tui. expects grimoire's config + database to be

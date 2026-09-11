@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use super::events::{ActionMenu, CommandForm, LastDispatch};
 use super::music::MusicState;
+use super::pairing::{PairingViewState, PlayerSession, TrustedController};
 use super::repl::ReplState;
 use super::video::VideoState;
 use super::video_player::VideoPlayerState;
@@ -62,6 +63,17 @@ pub struct PersistedState {
     /// pending remote connections (invite + knock requests in progress).
     #[serde(default)]
     pub pending_remotes: Vec<PendingRemoteEntry>,
+    /// `--player`/`/player` pairing: controllers this player has ever
+    /// paired with (persists indefinitely, mirrors cenotaph's trust
+    /// store).
+    #[serde(default)]
+    pub trusted_controllers: Vec<TrustedController>,
+    /// `--player`/`/player` pairing: the current ephemeral "who's
+    /// allowed to send commands right now" session (mirrors cenotaph's
+    /// `PlayerSession`). `None` until first used - a fresh one is
+    /// minted on demand via `PlayerSession::ensure_active`.
+    #[serde(default)]
+    pub player_session: Option<PlayerSession>,
 }
 
 fn default_schema_version() -> u32 {
@@ -76,6 +88,8 @@ impl Default for PersistedState {
             ui: UiPrefs::default(),
             remotes: vec![],
             pending_remotes: vec![],
+            trusted_controllers: vec![],
+            player_session: None,
         }
     }
 }
@@ -194,6 +208,9 @@ pub enum Focus {
     PlayerRow,
     /// video browse, detail, and edit view.
     VideoView,
+    /// `--player`/`/player` cenotaph-compatible pairing view: qr/pin,
+    /// connected controllers, settings sub-focus.
+    PlayerPairing,
 }
 
 /// in-memory slice. rebuilt on every launch.
@@ -284,6 +301,8 @@ pub struct EphemeralState {
     /// console session (see docs/rathole-headless-player-plan.md); real
     /// ssh-aware behavior is a deliberately deferred, separate effort.
     pub is_ssh_session: bool,
+    /// `--player`/`/player` pairing view navigation state.
+    pub player_pairing: PairingViewState,
 }
 
 /// minimal portable view of an in-flight job session for the
@@ -342,6 +361,7 @@ impl Default for EphemeralState {
             scan_status: None,
             scan_abort_confirm_for: None,
             is_ssh_session: false,
+            player_pairing: PairingViewState::new(),
         }
     }
 }

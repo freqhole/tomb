@@ -7,6 +7,7 @@ pub mod flyout;
 pub mod landing;
 pub mod music;
 pub mod peer_input;
+pub mod player_pairing;
 pub mod player_row;
 pub mod remote_list;
 pub mod repl;
@@ -83,6 +84,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         Focus::Landing => landing::draw(frame, body, app),
         Focus::MusicView => music::draw(frame, body, app),
         Focus::VideoView => video::draw(frame, body, app),
+        Focus::PlayerPairing => player_pairing::draw(frame, body, app),
         _ => admin::palette::draw(frame, body, app),
     }
 
@@ -390,6 +392,14 @@ fn footer_hints(app: &App) -> &'static str {
         Focus::PlayerRow => {
             "\u{2190}/\u{2192} h/l: pick control   enter/space: activate   tab: next/exit   esc: leave"
         }
+        Focus::PlayerPairing => match app.state.ephemeral.player_pairing.mode {
+            crate::ratcore::app::PairingViewMode::Overview => {
+                "tab: settings   \u{2191}/\u{2193}: pick controller   d: remove   esc: home"
+            }
+            crate::ratcore::app::PairingViewMode::Settings => {
+                "tab: overview   e: toggle mode   a: regen admin pin   r: regen pin   esc: home"
+            }
+        },
     }
 }
 

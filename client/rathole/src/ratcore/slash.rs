@@ -71,6 +71,11 @@ pub enum SlashAction {
     },
     /// switch focus to the music view (no query change).
     Music,
+    /// switch focus to the `--player` cenotaph-compatible pairing view
+    /// (qr/pin, connected controllers, settings). starts the
+    /// `freqhole-player/1` alpn listener on first use if it isn't
+    /// already running.
+    Player,
     /// list locally-downloaded songs in the music view (recent first).
     Local,
     /// switch focus to the admin palette and reveal the commands
@@ -173,7 +178,11 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ("prev", "/prev              skip to previous track"),
     ("seek", "/seek <m:ss|sec>   seek to position"),
     ("vol", "/vol <0-200>       set volume percent"),
-    ("music", "/music             focus music view"),
+     ("music", "/music             focus music view"),
+    (
+        "player",
+        "/player            cenotaph-compatible pairing view (qr/pin)",
+    ),
     ("local", "/local             list local downloaded songs"),
     (
         "fetch",
@@ -517,6 +526,7 @@ pub fn parse(input: &str) -> SlashAction {
             },
         },
         "music" | "m" => SlashAction::Music,
+        "player" | "pair" | "pairing" => SlashAction::Player,
         "local" | "l" => SlashAction::Local,
         "fetch" | "dl" | "download" | "yt" => match arg.as_deref().map(str::trim) {
             Some(url) if !url.is_empty() => SlashAction::AdminDispatch {

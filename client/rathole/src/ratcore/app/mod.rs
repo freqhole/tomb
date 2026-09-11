@@ -3,6 +3,7 @@
 
 pub mod events;
 pub mod music;
+pub mod pairing;
 pub mod repl;
 pub mod state;
 pub mod video;
@@ -13,6 +14,13 @@ pub use events::{
     CommandKind, DispatchResponse, FieldState, LastDispatch, SelectOption, ServeKindRequest,
 };
 pub use music::{MusicEvent, MusicMode, MusicState, PlayerState, SongRow};
+pub use pairing::{
+    CommandAck, CommandAckReason, ConnectedControllerInfo, MediaKind, MediaRef, PairRequest,
+    PairResponse, PairResponseReason, PairingSnapshot, PairingViewMode, PairingViewState, PeerRole,
+    PlayerCommand as PairingCommand, PlayerSession, PlayerStatus, PlayerStatusMessage,
+    PresenceAnnouncement, PresenceQuery, PresenceState, SessionMode, StatusCommon,
+    SubscribeRequest, TrustedController,
+};
 pub use repl::{ReplState, ReplStatus, ReplStatusLevel};
 pub use state::{
     AppState, EphemeralState, Focus, JobsStatus, LocalRef, PendingRemoteEntry, PersistedState,
@@ -23,7 +31,7 @@ pub use video_player::{
     AudioDeviceInfo, VideoCommand, VideoEvent, VideoPlaybackState, VideoPlayerState,
 };
 
-use super::transport::{MusicPlayer, Transport, VideoPlayer};
+use super::transport::{MusicPlayer, PairingStateReader, Transport, VideoPlayer};
 use std::rc::Rc;
 
 /// portable app shell. shells construct this with a transport,
@@ -46,6 +54,11 @@ pub struct App {
     /// without an in-app way to actually play a video or show a
     /// still image full screen.
     pub video_player: Option<Rc<dyn VideoPlayer>>,
+    /// optional `--player`/`/player` pairing-state reader (tty only,
+    /// and only once pairing mode has been entered at least once -
+    /// see `tty::pairing::PairingRuntime`). `None` means the pairing
+    /// view has nothing live to render yet.
+    pub pairing: Option<Rc<dyn PairingStateReader>>,
     pub exit: bool,
 }
 
@@ -57,6 +70,7 @@ impl App {
             commands,
             player: None,
             video_player: None,
+            pairing: None,
             exit: false,
         }
     }
@@ -68,6 +82,11 @@ impl App {
 
     pub fn with_video_player(mut self, video_player: Rc<dyn VideoPlayer>) -> Self {
         self.video_player = Some(video_player);
+        self
+    }
+
+    pub fn with_pairing(mut self, pairing: Rc<dyn PairingStateReader>) -> Self {
+        self.pairing = Some(pairing);
         self
     }
 }

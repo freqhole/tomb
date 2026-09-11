@@ -156,6 +156,21 @@ async fn run_inner(
         Err(e) => tracing::warn!("rathole: mpv video player unavailable: {e}"),
     }
 
+    // `--player`/`/player` cenotaph-compatible pairing (see
+    // docs/rathole-headless-player-plan.md phase 4). the alpn
+    // endpoint itself is only started on first actual use
+    // (`PairingRuntime::ensure_started`), not unconditionally on
+    // every launch.
+    let pairing_state = super::pairing::load_pairing_state(&app.state.persisted);
+    let (pairing_tx, mut pairing_rx) =
+        mpsc::unbounded_channel::<super::pairing::PairingDispatchRequest>();
+    let pairing_runtime = super::pairing::PairingRuntime::new(pairing_state.clone(), pairing_tx);
+    app = app.with_pairing(Rc::new(super::pairing::PairingStateHandle(pairing_state)));
+    if opts.player {
+        app.state.ephemeral.focus = Focus::PlayerPairing;
+        pairing_runtime.ensure_started();
+    }
+
     // hydrate the knock indicator from current pending requests so
     // the header is correct on startup even before new events arrive.
     sync_pending_knocks(&app, &action_tx);
@@ -382,6 +397,31 @@ async fn run_inner(
                     sync_pending_knocks(&app, &action_tx);
                     last_knock_sync = std::time::Instant::now();
                 }
+                // lazily start the freqhole-player/1 endpoint once the
+                // pairing view is actually visible - idempotent, cheap
+                // to call every tick.
+                if app.state.ephemeral.focus == Focus::PlayerPairing {
+                    pairing_runtime.ensure_started();
+                }
+                // once the pairing endpoint's node id becomes known,
+                // render the qr text exactly once (cheap check, real
+                // work only happens the first time it flips from
+                // None -> Some).
+                if app.state.ephemeral.player_pairing.qr_text.is_none() {
+                    if let Some(pairing) = &app.pairing {
+                        if let Some(node_id) = pairing.snapshot().node_id {
+                            let payload = format!(
+                                r#"{{"node_id":"{node_id}","name":"rathole","role":"player_remote"}}"#
+                            );
+                            match super::qr::render_qr_unicode(&payload) {
+                                Ok(qr) => app.state.ephemeral.player_pairing.qr_text = Some(qr),
+                                Err(e) => {
+                                    app.state.ephemeral.player_pairing.last_error = Some(e)
+                                }
+                            }
+                        }
+                    }
+                }
             }
             Some(action) = action_rx.recv() => {
                 if handle_serve_action(
@@ -394,9 +434,16 @@ async fn run_inner(
                 }
                 on_action(&mut app, action, &action_tx);
             }
+            Some(req) = pairing_rx.recv() => {
+                handle_pairing_dispatch(&app, req);
+            }
         }
     }
 
+    super::pairing::sync_pairing_state_to_persisted(
+        &mut app.state.persisted,
+        &pairing_runtime.state,
+    );
     if let Err(e) = persist::save(&app.state.persisted) {
         tracing::warn!("rathole: statefile save failed: {e}");
     }
@@ -506,6 +553,7 @@ fn on_event(app: &mut App, ev: Event, action_tx: &mpsc::UnboundedSender<AppActio
         Focus::Repl => on_repl_key(app, k.code, k.modifiers, action_tx),
         Focus::PlayerRow => on_player_row_key(app, k.code, action_tx),
         Focus::RemoteList => on_remote_list_key_tty(app, k.code, action_tx),
+        Focus::PlayerPairing => on_player_pairing_key(app, k.code),
     }
 }
 
@@ -1459,6 +1507,31 @@ fn sync_pending_knocks(app: &App, tx: &mpsc::UnboundedSender<AppAction>) {
                 }
             });
         let _ = tx.send(AppAction::PendingKnocksSynced { count, username });
+    });
+}
+
+/// synchronously snapshots whatever `app` state the pairing dispatch
+/// needs, then spawns the actual (possibly slow - remote media fetch)
+/// work on the `LocalSet` so the main event loop never blocks on it.
+/// mirrors `play_index`'s own spawn_local-for-async-resolution shape.
+fn handle_pairing_dispatch(app: &App, req: super::pairing::PairingDispatchRequest) {
+    use crate::ratcore::app::VideoPlaybackState;
+
+    let active_backend = match app.state.ephemeral.video_player.state {
+        VideoPlaybackState::Loading | VideoPlaybackState::Playing | VideoPlaybackState::Paused => {
+            super::pairing::ActiveBackend::Video
+        }
+        _ => super::pairing::ActiveBackend::Audio,
+    };
+    let ctx = super::pairing::DispatchContext {
+        active_backend,
+        player: app.player.clone(),
+        video_player: app.video_player.clone(),
+        volume: app.state.ephemeral.music.volume,
+    };
+    tokio::task::spawn_local(async move {
+        let ack = super::pairing::dispatch_pairing_command(ctx, req.command).await;
+        let _ = req.reply.send(ack);
     });
 }
 
@@ -2755,6 +2828,100 @@ fn on_music_key(app: &mut App, code: KeyCode, tx: &mpsc::UnboundedSender<AppActi
     }
 }
 
+/// key handler for the `--player`/`/player` pairing view. mutation
+/// (mode toggle, regenerate pin, remove peer) goes straight through
+/// `app.pairing`'s synchronous methods - see
+/// `ratcore::transport::PairingStateReader`'s doc comment for why
+/// that's safe without the playback-command channel/oneshot dance.
+fn on_player_pairing_key(app: &mut App, code: KeyCode) {
+    use crate::ratcore::app::{PairingViewMode, SessionMode};
+
+    let mode = app.state.ephemeral.player_pairing.mode;
+    match (mode, code) {
+        (_, KeyCode::Esc) => {
+            app.state.ephemeral.player_pairing.pending_remove_confirm = None;
+            app.state.ephemeral.focus = Focus::Landing;
+        }
+        (_, KeyCode::Tab) => {
+            app.state.ephemeral.player_pairing.mode = match mode {
+                PairingViewMode::Overview => PairingViewMode::Settings,
+                PairingViewMode::Settings => PairingViewMode::Overview,
+            };
+        }
+        (PairingViewMode::Overview, KeyCode::Down) => {
+            if let Some(pairing) = &app.pairing {
+                let snap = pairing.snapshot();
+                if !snap.connected.is_empty() {
+                    let v = &mut app.state.ephemeral.player_pairing;
+                    v.connected_cursor = (v.connected_cursor + 1).min(snap.connected.len() - 1);
+                }
+            }
+        }
+        (PairingViewMode::Overview, KeyCode::Up) => {
+            let v = &mut app.state.ephemeral.player_pairing;
+            v.connected_cursor = v.connected_cursor.saturating_sub(1);
+        }
+        (PairingViewMode::Overview, KeyCode::Char('d')) => {
+            if let Some(pairing) = &app.pairing {
+                let snap = pairing.snapshot();
+                let v = &mut app.state.ephemeral.player_pairing;
+                if let Some(c) = snap.connected.get(v.connected_cursor) {
+                    v.pending_remove_confirm = Some(c.node_id.clone());
+                }
+            }
+        }
+        (PairingViewMode::Overview, KeyCode::Char('y')) => {
+            let node_id = app
+                .state
+                .ephemeral
+                .player_pairing
+                .pending_remove_confirm
+                .take();
+            if let Some(node_id) = node_id {
+                if let Some(pairing) = &app.pairing {
+                    pairing.remove_controller(&node_id);
+                }
+            }
+        }
+        (PairingViewMode::Overview, KeyCode::Char('n')) => {
+            app.state.ephemeral.player_pairing.pending_remove_confirm = None;
+        }
+        (PairingViewMode::Settings, KeyCode::Down) => {
+            let v = &mut app.state.ephemeral.player_pairing;
+            v.settings_cursor = (v.settings_cursor + 1).min(3);
+        }
+        (PairingViewMode::Settings, KeyCode::Up) => {
+            let v = &mut app.state.ephemeral.player_pairing;
+            v.settings_cursor = v.settings_cursor.saturating_sub(1);
+        }
+        (PairingViewMode::Settings, KeyCode::Char('e')) => {
+            if let Some(pairing) = &app.pairing {
+                let current = pairing
+                    .snapshot()
+                    .session
+                    .map(|s| s.mode)
+                    .unwrap_or(SessionMode::Selected);
+                let next = match current {
+                    SessionMode::Everyone => SessionMode::Selected,
+                    SessionMode::Selected => SessionMode::Everyone,
+                };
+                pairing.set_session_mode(next);
+            }
+        }
+        (PairingViewMode::Settings, KeyCode::Char('a')) => {
+            if let Some(pairing) = &app.pairing {
+                pairing.regenerate_admin_pin();
+            }
+        }
+        (PairingViewMode::Settings, KeyCode::Char('r')) => {
+            if let Some(pairing) = &app.pairing {
+                pairing.regenerate_session_pin();
+            }
+        }
+        _ => {}
+    }
+}
+
 fn on_video_key(app: &mut App, code: KeyCode, tx: &mpsc::UnboundedSender<AppAction>) {
     use crate::ratcore::app::VideoMode;
     use crate::ratcore::text_input as ti;
@@ -3960,6 +4127,18 @@ fn execute_slash_with_player(
                     result,
                 });
             });
+        }
+        SlashAction::Player => {
+            // the actual `freqhole-player/1` endpoint is started
+            // lazily by the main loop once it notices this focus is
+            // active (`PairingRuntime::ensure_started` is idempotent)
+            // - see the `tick.tick()` branch in `run_inner`. keeps
+            // this handler free of needing its own reference to the
+            // pairing runtime.
+            app.state.ephemeral.repl.clear_input();
+            rk::leave(&mut app.state);
+            app.state.ephemeral.repl.status = Some(ReplStatus::ok("focus: player pairing"));
+            app.state.ephemeral.focus = Focus::PlayerPairing;
         }
         SlashAction::ServeStart { kind } => {
             use crate::ratcore::app::ServeKindRequest;

@@ -61,6 +61,12 @@ pub struct GrimoireConfig {
     #[serde(default)]
     pub video: VideoConfig,
 
+    /// rathole's `--player`/`/player` pairing-screen image rendering
+    /// (qr code, now-playing album art). all fields optional; omit the
+    /// whole section to accept defaults.
+    #[serde(default)]
+    pub player_pairing: PlayerPairingConfig,
+
     /// new-version update checks (queries github releases). off by default;
     /// opt-in via the setup wizard or by adding `[updates]\nenabled = true`.
     #[serde(default)]
@@ -119,6 +125,35 @@ impl Default for VideoConfig {
             linux_buffer_frames: default_video_linux_buffer_frames(),
         }
     }
+}
+
+/// how rathole's `--player`/`/player` pairing screen renders the QR
+/// code and now-playing album art. all fields optional - omit the
+/// `[player_pairing]` section to accept defaults.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct PlayerPairingConfig {
+    /// "terminal" (default): render directly in the ratatui frame as
+    /// unicode text - the qr code via a dedicated qr renderer (1:1 with
+    /// the qr's modules), now-playing art via `ratatui-image`'s
+    /// halfblocks fallback (works on any console, no protocol
+    /// detection needed). no extra process, no display-region question.
+    /// "framebuffer": show a real raster image instead (qr rendered to a
+    /// png, or the album-art file directly) via the same mpv
+    /// `ShowImage` path already used for video/still-image playback -
+    /// higher fidelity, but whether it can share the physical display
+    /// with ratatui's own text is an open hardware question (see
+    /// docs/rathole-headless-player-plan.md).
+    #[serde(default)]
+    pub image_mode: ImageDisplayMode,
+}
+
+/// see [`PlayerPairingConfig::image_mode`].
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ImageDisplayMode {
+    #[default]
+    Terminal,
+    Framebuffer,
 }
 
 /// new-version update check configuration. when enabled, the app
@@ -1042,6 +1077,7 @@ pub fn init_config_for_tests() {
         jobs: JobsConfig::default(),
         audio: AudioConfig::default(),
         video: VideoConfig::default(),
+        player_pairing: PlayerPairingConfig::default(),
         updates: UpdatesConfig::default(),
         loaded_from: None,
     };
@@ -2013,6 +2049,7 @@ mod tests {
             jobs: JobsConfig::default(),
             audio: AudioConfig::default(),
             video: VideoConfig::default(),
+            player_pairing: PlayerPairingConfig::default(),
             updates: UpdatesConfig::default(),
             loaded_from: None,
         };
@@ -2066,6 +2103,7 @@ mod tests {
             jobs: JobsConfig::default(),
             audio: AudioConfig::default(),
             video: VideoConfig::default(),
+            player_pairing: PlayerPairingConfig::default(),
             updates: UpdatesConfig::default(),
             loaded_from: None,
         };
@@ -2117,6 +2155,7 @@ mod tests {
             jobs: JobsConfig::default(),
             audio: AudioConfig::default(),
             video: VideoConfig::default(),
+            player_pairing: PlayerPairingConfig::default(),
             updates: UpdatesConfig::default(),
             loaded_from: None,
         };

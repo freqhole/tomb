@@ -338,6 +338,12 @@ impl MusicPlayer for HtmlAudioPlayer {
                 inner.volume = clamped;
                 inner.el.set_volume(clamped as f64);
             }
+            // no device concept for a plain <audio> element - the
+            // browser/os picks the output device. per user: web shell
+            // parity for the `--player` pairing feature isn't a goal
+            // right now, so this is a deliberate no-op, not a gap to
+            // silently paper over with fake device data.
+            PlayerCmd::ListOutputDevices | PlayerCmd::SetOutputDevice(_) => {}
         }
         Ok(())
     }

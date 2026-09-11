@@ -272,3 +272,24 @@ pub trait MusicPlayer {
 pub trait VideoPlayer {
     async fn send(&self, cmd: VideoCommand) -> Result<(), String>;
 }
+
+/// read-only access to the `--player`/`/player` pairing state (trust
+/// list, session, connected controllers, this device's node id) for
+/// the pairing view to render. a trait (not a concrete type) so the
+/// real store can live behind whatever the shell needs (tty: an
+/// `Arc<Mutex<...>>`, shared with the `Send`-bound alpn handler tasks)
+/// without ratcore itself depending on threading primitives.
+///
+/// the mutation methods here are all synchronous (lock, mutate,
+/// unlock) - unlike actual playback commands (which need a channel +
+/// oneshot round trip through `!Send` backend handles, see
+/// `tty::pairing::PairingDispatchRequest`), toggling session mode or
+/// regenerating a pin only ever touches this same shared store, so a
+/// direct call from the ui's key handler is safe and simple.
+pub trait PairingStateReader {
+    fn snapshot(&self) -> super::app::PairingSnapshot;
+    fn set_session_mode(&self, mode: super::app::SessionMode);
+    fn regenerate_admin_pin(&self);
+    fn regenerate_session_pin(&self);
+    fn remove_controller(&self, node_id: &str);
+}
