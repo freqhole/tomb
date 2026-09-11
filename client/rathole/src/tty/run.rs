@@ -157,17 +157,30 @@ async fn run_inner(
     }
 
     // `--player`/`/player` cenotaph-compatible pairing (see
-    // docs/rathole-headless-player-plan.md phase 4). the alpn
-    // endpoint itself is only started on first actual use
-    // (`PairingRuntime::ensure_started`), not unconditionally on
-    // every launch.
+    // docs/rathole-headless-player-plan.md phase 4). this in-process
+    // endpoint is the ONE p2p/federation endpoint for the whole rathole
+    // session - `start_router_with` (see start_player_endpoint) registers
+    // freqhole/1 + admin + events + blobs alongside freqhole-player/1, so
+    // it already covers everything the separate `serve` subprocess's p2p
+    // side would - see the autostart block below for why that subprocess
+    // never also runs its own p2p. started whenever `--player` was passed
+    // OR `[federation].enabled = true` (the same flag that used to gate
+    // the subprocess's p2p autostart); `/player` mid-session (typed
+    // without either of those) also starts it on demand via the tick loop.
     let pairing_state = super::pairing::load_pairing_state(&app.state.persisted);
     let (pairing_tx, mut pairing_rx) =
         mpsc::unbounded_channel::<super::pairing::PairingDispatchRequest>();
     let pairing_runtime = super::pairing::PairingRuntime::new(pairing_state.clone(), pairing_tx);
     app = app.with_pairing(Rc::new(super::pairing::PairingStateHandle(pairing_state)));
+    let federation_enabled = grimoire::config::get_config()
+        .federation
+        .as_ref()
+        .map(|f| f.enabled)
+        .unwrap_or(false);
     if opts.player {
         app.state.ephemeral.focus = Focus::PlayerPairing;
+    }
+    if opts.player || federation_enabled {
         pairing_runtime.ensure_started();
     }
 
@@ -204,18 +217,28 @@ async fn run_inner(
 
     // autostart the serve subprocess based on the persisted config
     // flags. set by the setup wizard (or hand-edited in
-    // freqhole-config.toml). `serve` (auto) handles both http and
-    // p2p subject to the same config flags, so we only need to pick
-    // a more specific kind when exactly one is enabled.
+    // freqhole-config.toml).
+    //
+    // the subprocess NEVER autostarts its own p2p side, only http: the
+    // in-process pairing endpoint above (`PairingRuntime::ensure_started`)
+    // is the one true p2p/federation endpoint for this rathole session,
+    // started whenever `--player` was passed or `[federation].enabled` is
+    // true (same flag this used to read for its own p2p decision).
+    // `start_router_with` (see start_player_endpoint) always registers
+    // freqhole/1 + admin + events + blobs alongside freqhole-player/1, so
+    // it's a full replacement for what the subprocess's p2p side would
+    // have done - running both would register the exact same iroh
+    // identity with the relay twice, and the relay only delivers to
+    // whichever connected most recently (the loser silently stops
+    // receiving ANY traffic - general remote or pairing, whichever
+    // process lost the race).
     if let Some(monitor) = serve_monitor.as_mut() {
         let cfg = grimoire::config::get_config();
         let http_on = cfg.server.as_ref().map(|s| s.enabled).unwrap_or(false);
-        let p2p_on = cfg.federation.as_ref().map(|f| f.enabled).unwrap_or(false);
-        let kind = match (http_on, p2p_on) {
-            (true, true) => Some(super::serve_monitor::ServeKind::Auto),
-            (true, false) => Some(super::serve_monitor::ServeKind::Http),
-            (false, true) => Some(super::serve_monitor::ServeKind::P2p),
-            (false, false) => None,
+        let kind = if http_on {
+            Some(super::serve_monitor::ServeKind::Http)
+        } else {
+            None
         };
         if let Some(kind) = kind {
             if let Err(e) = monitor.start(kind) {
@@ -398,8 +421,10 @@ async fn run_inner(
                     last_knock_sync = std::time::Instant::now();
                 }
                 // lazily start the freqhole-player/1 endpoint once the
-                // pairing view is actually visible - idempotent, cheap
-                // to call every tick.
+                // pairing view is actually visible (covers `/player`
+                // mid-session, when neither `--player` nor
+                // `[federation].enabled` started it already) - idempotent,
+                // cheap to call every tick.
                 if app.state.ephemeral.focus == Focus::PlayerPairing {
                     pairing_runtime.ensure_started();
                 }
@@ -435,7 +460,7 @@ async fn run_inner(
                 on_action(&mut app, action, &action_tx);
             }
             Some(req) = pairing_rx.recv() => {
-                handle_pairing_dispatch(&app, req);
+                handle_pairing_dispatch(&app, req, &action_tx);
             }
         }
     }
@@ -553,7 +578,7 @@ fn on_event(app: &mut App, ev: Event, action_tx: &mpsc::UnboundedSender<AppActio
         Focus::Repl => on_repl_key(app, k.code, k.modifiers, action_tx),
         Focus::PlayerRow => on_player_row_key(app, k.code, action_tx),
         Focus::RemoteList => on_remote_list_key_tty(app, k.code, action_tx),
-        Focus::PlayerPairing => on_player_pairing_key(app, k.code),
+        Focus::PlayerPairing => on_player_pairing_key(app, k.code, action_tx),
     }
 }
 
@@ -1321,6 +1346,9 @@ fn on_action(app: &mut App, action: AppAction, action_tx: &mpsc::UnboundedSender
                 }
             }
         },
+        AppAction::PairingDownloadProgress(progress) => {
+            app.state.ephemeral.player_pairing.download_progress = progress;
+        }
         // collection loaded: rathole-side queue replace + play. used by
         // play_collection's spawn_local once songs are fetched.
         AppAction::CollectionLoaded { songs } => {
@@ -1514,8 +1542,12 @@ fn sync_pending_knocks(app: &App, tx: &mpsc::UnboundedSender<AppAction>) {
 /// needs, then spawns the actual (possibly slow - remote media fetch)
 /// work on the `LocalSet` so the main event loop never blocks on it.
 /// mirrors `play_index`'s own spawn_local-for-async-resolution shape.
-fn handle_pairing_dispatch(app: &App, req: super::pairing::PairingDispatchRequest) {
-    use crate::ratcore::app::VideoPlaybackState;
+fn handle_pairing_dispatch(
+    app: &App,
+    req: super::pairing::PairingDispatchRequest,
+    action_tx: &mpsc::UnboundedSender<AppAction>,
+) {
+    use crate::ratcore::app::{PlayerState, VideoPlaybackState};
 
     let active_backend = match app.state.ephemeral.video_player.state {
         VideoPlaybackState::Loading | VideoPlaybackState::Playing | VideoPlaybackState::Paused => {
@@ -1523,11 +1555,53 @@ fn handle_pairing_dispatch(app: &App, req: super::pairing::PairingDispatchReques
         }
         _ => super::pairing::ActiveBackend::Audio,
     };
+    // real queue/position snapshot for the ack's `PlayerStatus` (see
+    // `DispatchContext`'s own doc comment) - built synchronously here
+    // since it's the one place that already holds `&App`.
+    let (queue_snapshot, position_ms, duration_ms, is_playing) = match active_backend {
+        super::pairing::ActiveBackend::Audio => {
+            let m = &app.state.ephemeral.music;
+            let queue = m
+                .current
+                .map(|cur| {
+                    m.queue[cur..]
+                        .iter()
+                        .map(super::pairing::song_row_to_media_ref)
+                        .collect()
+                })
+                .unwrap_or_default();
+            (
+                queue,
+                m.position_ms,
+                m.duration_ms,
+                m.player_state == PlayerState::Playing,
+            )
+        }
+        super::pairing::ActiveBackend::Video => {
+            let vp = &app.state.ephemeral.video_player;
+            let queue = super::pairing::video_state_to_media_ref(vp)
+                .into_iter()
+                .collect();
+            (
+                queue,
+                (vp.position * 1000.0).round() as u64,
+                vp.duration
+                    .map(|d| (d * 1000.0).round() as u64)
+                    .unwrap_or(0),
+                vp.state == VideoPlaybackState::Playing,
+            )
+        }
+    };
     let ctx = super::pairing::DispatchContext {
         active_backend,
         player: app.player.clone(),
         video_player: app.video_player.clone(),
         volume: app.state.ephemeral.music.volume,
+        action_tx: Some(action_tx.clone()),
+        queue_snapshot,
+        position_ms,
+        duration_ms,
+        is_playing,
     };
     tokio::task::spawn_local(async move {
         let ack = super::pairing::dispatch_pairing_command(ctx, req.command).await;
@@ -2833,10 +2907,54 @@ fn on_music_key(app: &mut App, code: KeyCode, tx: &mpsc::UnboundedSender<AppActi
 /// `app.pairing`'s synchronous methods - see
 /// `ratcore::transport::PairingStateReader`'s doc comment for why
 /// that's safe without the playback-command channel/oneshot dance.
-fn on_player_pairing_key(app: &mut App, code: KeyCode) {
+fn on_player_pairing_key(
+    app: &mut App,
+    code: KeyCode,
+    action_tx: &mpsc::UnboundedSender<AppAction>,
+) {
     use crate::ratcore::app::{PairingViewMode, SessionMode};
 
     let mode = app.state.ephemeral.player_pairing.mode;
+    // the device picker is an overlay on top of the settings list, not a
+    // separate `PairingViewMode` - handle its keys first so esc closes
+    // just the picker instead of falling through to "leave settings".
+    if mode == PairingViewMode::Settings && app.state.ephemeral.player_pairing.device_picker_open {
+        let device_count = app.state.ephemeral.music.output_devices.len();
+        match code {
+            KeyCode::Esc => {
+                app.state.ephemeral.player_pairing.device_picker_open = false;
+            }
+            KeyCode::Down if device_count > 0 => {
+                let v = &mut app.state.ephemeral.player_pairing;
+                v.device_picker_cursor = (v.device_picker_cursor + 1).min(device_count - 1);
+            }
+            KeyCode::Up => {
+                let v = &mut app.state.ephemeral.player_pairing;
+                v.device_picker_cursor = v.device_picker_cursor.saturating_sub(1);
+            }
+            KeyCode::Enter => {
+                let v = &app.state.ephemeral.player_pairing;
+                if let Some(device) = app
+                    .state
+                    .ephemeral
+                    .music
+                    .output_devices
+                    .get(v.device_picker_cursor)
+                {
+                    let name = device.name.clone();
+                    app.state.ephemeral.music.selected_output_device = Some(name.clone());
+                    send_player(
+                        app,
+                        crate::ratcore::transport::PlayerCmd::SetOutputDevice(name),
+                        action_tx,
+                    );
+                }
+                app.state.ephemeral.player_pairing.device_picker_open = false;
+            }
+            _ => {}
+        }
+        return;
+    }
     match (mode, code) {
         (_, KeyCode::Esc) => {
             app.state.ephemeral.player_pairing.pending_remove_confirm = None;
@@ -2917,6 +3035,17 @@ fn on_player_pairing_key(app: &mut App, code: KeyCode) {
             if let Some(pairing) = &app.pairing {
                 pairing.regenerate_session_pin();
             }
+        }
+        (PairingViewMode::Settings, KeyCode::Enter)
+            if app.state.ephemeral.player_pairing.settings_cursor == 3 =>
+        {
+            app.state.ephemeral.player_pairing.device_picker_open = true;
+            app.state.ephemeral.player_pairing.device_picker_cursor = 0;
+            send_player(
+                app,
+                crate::ratcore::transport::PlayerCmd::ListOutputDevices,
+                action_tx,
+            );
         }
         _ => {}
     }

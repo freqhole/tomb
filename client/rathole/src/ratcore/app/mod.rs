@@ -16,10 +16,10 @@ pub use events::{
 pub use music::{MusicEvent, MusicMode, MusicState, PlayerState, SongRow};
 pub use pairing::{
     CommandAck, CommandAckReason, ConnectedControllerInfo, MediaKind, MediaRef, PairRequest,
-    PairResponse, PairResponseReason, PairingSnapshot, PairingViewMode, PairingViewState, PeerRole,
-    PlayerCommand as PairingCommand, PlayerSession, PlayerStatus, PlayerStatusMessage,
-    PresenceAnnouncement, PresenceQuery, PresenceState, SessionMode, StatusCommon,
-    SubscribeRequest, TrustedController,
+    PairResponse, PairResponseReason, PairingDownloadProgress, PairingSnapshot, PairingViewMode,
+    PairingViewState, PeerRole, PlayerCommand as PairingCommand, PlayerSession, PlayerStatus,
+    PlayerStatusMessage, PresenceAnnouncement, PresenceQuery, PresenceState, SessionMode,
+    StatusCommon, SubscribeRequest, TrustedController,
 };
 pub use repl::{ReplState, ReplStatus, ReplStatusLevel};
 pub use state::{

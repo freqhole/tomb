@@ -234,6 +234,14 @@ async fn start_player_endpoint(
         let mut guard = state.lock().unwrap_or_else(|p| p.into_inner());
         guard.node_id = Some(node_id.clone());
     }
+    // registers this endpoint (+ initializes the iroh-blobs downloader) with
+    // grimoire's p2p_client global state - without this, `resolve_media_ref`'s
+    // `fetch_blob_verified_to_file` call fails with "blobs downloader not
+    // initialized" for every queued item, since that global is otherwise only
+    // ever set by the server/charnel startup paths (see p2p_client.rs's own
+    // doc comment: "must be initialized via set_federation_endpoint() before
+    // use").
+    grimoire::federation::p2p_client::set_federation_endpoint(endpoint.endpoint());
     let handler = PlayerProtocol::new(state, dispatch_tx);
     endpoint
         .start_router_with(|builder| builder.accept(PLAYER_ALPN, handler))
@@ -573,16 +581,33 @@ fn guess_extension(media: &MediaRef) -> &'static str {
 /// `tomb-grimoire-player-alpn-half-baked.md`'s follow-up #2) - streamed
 /// straight to disk, no full-file memory buffering.
 pub async fn resolve_media_ref(media: &MediaRef) -> Result<String, String> {
+    resolve_media_ref_with_progress(media, None).await
+}
+
+/// `resolve_media_ref` with an optional cumulative-bytes progress
+/// callback, so a caller resolving a whole queue can drive a live
+/// "downloading N/M" indicator instead of the ui just freezing until
+/// each fetch completes. same lifetime bound as grimoire's own
+/// `BlobProgressFn` (implicitly `'static` - a plain `dyn Trait` type
+/// alias used behind a reference doesn't inherit the reference's own
+/// lifetime the way a bare `&dyn Trait` written inline would) so it
+/// can be forwarded straight through to
+/// `fetch_blob_verified_to_file_with_progress` without a mismatch.
+pub async fn resolve_media_ref_with_progress(
+    media: &MediaRef,
+    on_progress: Option<&grimoire::federation::p2p_client::BlobProgressFn>,
+) -> Result<String, String> {
     let cache_dir = player_cache_dir();
     std::fs::create_dir_all(&cache_dir).map_err(|e| format!("player cache dir: {e}"))?;
     let target = cache_dir.join(format!("{}.{}", media.blake3_hash, guess_extension(media)));
     if target.exists() {
         return Ok(target.to_string_lossy().into_owned());
     }
-    grimoire::federation::p2p_client::fetch_blob_verified_to_file(
+    grimoire::federation::p2p_client::fetch_blob_verified_to_file_with_progress(
         &media.source_peer_addr,
         &media.blake3_hash,
         &target,
+        on_progress,
     )
     .await
     .map_err(|e| format!("failed to fetch media from {}: {e}", media.source_peer_addr))?;
@@ -610,6 +635,58 @@ pub struct DispatchContext {
     pub player: Option<std::rc::Rc<dyn crate::ratcore::transport::MusicPlayer>>,
     pub video_player: Option<std::rc::Rc<dyn VideoPlayer>>,
     pub volume: f32,
+    /// channel back to the ui loop, used to report live download
+    /// progress while resolving queued/played media refs
+    /// (`AppAction::PairingDownloadProgress`). `None` in tests, where
+    /// there's no ui loop to report to.
+    pub action_tx: Option<mpsc::UnboundedSender<crate::ratcore::app::AppAction>>,
+    /// real queue for `ctx.active_backend`, current item first -
+    /// matches the wire protocol's "queue[0] = currently playing"
+    /// convention. built synchronously by `run.rs` from
+    /// `app.state.ephemeral.music`/`video_player` before dispatch, so
+    /// a remote controller's `get_status`/command acks actually show
+    /// what's queued instead of always reporting an empty queue.
+    pub queue_snapshot: Vec<MediaRef>,
+    pub position_ms: u64,
+    pub duration_ms: u64,
+    pub is_playing: bool,
+}
+
+/// converts a rodio-queue row into the wire `MediaRef` shape - `blake3_hash`
+/// is stood in for by `media_blob_id` (see the module doc's "known
+/// simplifications").
+pub fn song_row_to_media_ref(song: &crate::ratcore::app::SongRow) -> MediaRef {
+    MediaRef {
+        source_peer_addr: String::new(),
+        blake3_hash: song.media_blob_id.clone().unwrap_or_else(|| song.id.clone()),
+        size_bytes: None,
+        duration_ms: song.duration_ms,
+        mime_type: None,
+        kind: Some(MediaKind::Audio),
+        title: Some(song.title.clone()),
+        artist: song.artist.clone(),
+        artwork_thumb_url: None,
+        artwork_full_url: None,
+    }
+}
+
+/// converts the current mpv-backed video (if any) into the wire
+/// `MediaRef` shape - `blake3_hash` is stood in for by the local file
+/// path, since mpv's playlist isn't otherwise introspectable here.
+pub fn video_state_to_media_ref(vp: &crate::ratcore::app::VideoPlayerState) -> Option<MediaRef> {
+    let path = vp.path.clone()?;
+    Some(MediaRef {
+        source_peer_addr: String::new(),
+        blake3_hash: path,
+        size_bytes: None,
+        duration_ms: vp.duration.map(|d| (d * 1000.0).round() as u64),
+        mime_type: None,
+        kind: Some(MediaKind::Video),
+        title: vp.title.clone(),
+        artist: None,
+        artwork_thumb_url: None,
+        artwork_full_url: None,
+    })
 }
 
 /// dispatch one already-authorized `PairingCommand` against real
@@ -620,22 +697,8 @@ pub struct DispatchContext {
 pub async fn dispatch_pairing_command(ctx: DispatchContext, command: PairingCommand) -> CommandAck {
     match command {
         PairingCommand::Play { item } => play_item(&ctx, item).await,
-        PairingCommand::ReplaceQueue { items } => {
-            // v1: replace = play the first item; the rest aren't
-            // queued yet (rathole's own audio queue is a *local*
-            // rows concept - see queue-manager comment in
-            // `tty/run.rs` - bridging a remote MediaRef queue onto it
-            // is a real follow-up, not attempted here).
-            match items.into_iter().next() {
-                Some(first) => play_item(&ctx, first).await,
-                None => status_ack(&ctx, None),
-            }
-        }
-        PairingCommand::AppendQueue { .. } => {
-            // TODO(follow-up): needs the same local-queue bridging as
-            // ReplaceQueue above.
-            CommandAck::err(CommandAckReason::InvalidCommand)
-        }
+        PairingCommand::ReplaceQueue { items } => replace_queue(&ctx, items).await,
+        PairingCommand::AppendQueue { items } => append_queue(&ctx, items).await,
         PairingCommand::Pause => {
             send_generic(
                 &ctx,
@@ -686,9 +749,7 @@ pub async fn dispatch_pairing_command(ctx: DispatchContext, command: PairingComm
             status_ack(&ctx, None)
         }
         PairingCommand::Skip => {
-            if let Some(player) = &ctx.player {
-                let _ = player.send(PlayerCmd::Next).await;
-            }
+            send_generic(&ctx, PlayerCmd::Next, crate::ratcore::app::VideoCommand::Next).await;
             status_ack(&ctx, None)
         }
         PairingCommand::GetStatus => status_ack(&ctx, None),
@@ -722,19 +783,25 @@ async fn send_generic(
 
 async fn play_item(ctx: &DispatchContext, item: MediaRef) -> CommandAck {
     let kind = item.kind.unwrap_or(MediaKind::Audio);
-    let path = match resolve_media_ref(&item).await {
+    let reporter = queue_progress_reporter(ctx, 0, 1, item.title.clone(), item.size_bytes);
+    let on_progress = reporter
+        .as_ref()
+        .map(|f| f as &grimoire::federation::p2p_client::BlobProgressFn);
+    let path = match resolve_media_ref_with_progress(&item, on_progress).await {
         Ok(p) => p,
         Err(e) => {
+            report_download_progress(ctx, None);
             warn!(target: "player_protocol", error = %e, "failed to resolve media ref");
             return status_ack(
                 ctx,
                 Some(PlayerStatus::Error {
                     message: e,
-                    common: empty_common(ctx),
+                    common: common_from_ctx(ctx),
                 }),
             );
         }
     };
+    report_download_progress(ctx, None);
     match kind {
         MediaKind::Audio => {
             if let Some(player) = &ctx.player {
@@ -756,23 +823,197 @@ async fn play_item(ctx: &DispatchContext, item: MediaRef) -> CommandAck {
     status_ack(ctx, None)
 }
 
-fn empty_common(ctx: &DispatchContext) -> StatusCommon {
+/// pushes (or, with `None`, clears) the pairing view's live
+/// download-progress indicator - a no-op when no action channel was
+/// wired in (e.g. unit tests, which construct `DispatchContext`
+/// without one).
+fn report_download_progress(
+    ctx: &DispatchContext,
+    progress: Option<crate::ratcore::app::PairingDownloadProgress>,
+) {
+    if let Some(tx) = &ctx.action_tx {
+        let _ = tx.send(crate::ratcore::app::AppAction::PairingDownloadProgress(
+            progress,
+        ));
+    }
+}
+
+/// builds a cumulative-bytes progress callback for one item within a
+/// batch of `item_count`, reporting through `ctx.action_tx` tagged
+/// with enough context (`item_index`/`title`/`total_bytes`) for the ui
+/// to render "downloading 2/5: <title> (43%)". `None` when there's no
+/// action channel to report through.
+fn queue_progress_reporter(
+    ctx: &DispatchContext,
+    item_index: usize,
+    item_count: usize,
+    title: Option<String>,
+    total_bytes: Option<u64>,
+) -> Option<impl Fn(u64) + Send + Sync + 'static> {
+    let tx = ctx.action_tx.clone()?;
+    Some(move |bytes: u64| {
+        let _ = tx.send(crate::ratcore::app::AppAction::PairingDownloadProgress(Some(
+            crate::ratcore::app::PairingDownloadProgress {
+                item_index,
+                item_count,
+                bytes,
+                total_bytes,
+                title: title.clone(),
+            },
+        )));
+    })
+}
+
+/// resolves each item to a local file path, split by kind - audio paths
+/// feed rathole's rodio queue (`PlayerCmd::Load`/`Enqueue`), video paths
+/// feed mpv's own playlist (`VideoCommand::LoadQueue`/`Enqueue`). skips
+/// (with a warning) any item that fails to resolve, best-effort rather
+/// than all-or-nothing so one broken/unreachable track doesn't drop an
+/// otherwise-good queue push. reports live byte progress per item via
+/// `ctx.action_tx` for the tui's download indicator.
+async fn resolve_queue_items(
+    ctx: &DispatchContext,
+    items: Vec<MediaRef>,
+) -> (Vec<String>, Vec<String>) {
+    let item_count = items.len();
+    let mut audio_paths = Vec::new();
+    let mut video_paths = Vec::new();
+    for (item_index, item) in items.into_iter().enumerate() {
+        let kind = item.kind.unwrap_or(MediaKind::Audio);
+        let reporter =
+            queue_progress_reporter(ctx, item_index, item_count, item.title.clone(), item.size_bytes);
+        let on_progress = reporter
+            .as_ref()
+            .map(|f| f as &grimoire::federation::p2p_client::BlobProgressFn);
+        match resolve_media_ref_with_progress(&item, on_progress).await {
+            Ok(path) => match kind {
+                MediaKind::Audio => audio_paths.push(path),
+                MediaKind::Video => video_paths.push(path),
+            },
+            Err(e) => {
+                warn!(target: "player_protocol", error = %e, "failed to resolve queued media ref, skipping")
+            }
+        }
+    }
+    report_download_progress(ctx, None);
+    (audio_paths, video_paths)
+}
+
+/// replaces the local queue(s) with `items` and starts playing - real
+/// multi-item bridging onto rathole's own `PlayerCmd::Load` (audio,
+/// rodio) and `VideoCommand::LoadQueue` (video, mpv's native playlist).
+/// a queue can be audio-only, video-only, or a genuine mix of both -
+/// each kind's items go to its own backend/queue independently.
+async fn replace_queue(ctx: &DispatchContext, items: Vec<MediaRef>) -> CommandAck {
+    if items.is_empty() {
+        return status_ack(ctx, None);
+    }
+    let first_kind = items.first().and_then(|i| i.kind).unwrap_or(MediaKind::Audio);
+    let (audio_paths, video_paths) = resolve_queue_items(ctx, items).await;
+    if audio_paths.is_empty() && video_paths.is_empty() {
+        return status_ack(
+            ctx,
+            Some(PlayerStatus::Error {
+                message: "no playable items in queue".to_string(),
+                common: common_from_ctx(ctx),
+            }),
+        );
+    }
+    if !audio_paths.is_empty() {
+        if let Some(player) = &ctx.player {
+            let _ = player.send(PlayerCmd::Load(audio_paths)).await;
+        }
+    }
+    if !video_paths.is_empty() {
+        if let Some(vp) = &ctx.video_player {
+            let _ = vp
+                .send(crate::ratcore::app::VideoCommand::LoadQueue { paths: video_paths })
+                .await;
+        }
+    }
+    // a genuinely mixed replace (both kinds present) would otherwise play
+    // concurrently - rodio's `Load` and mpv's `loadfile ... replace` both
+    // autoplay their own first item regardless of the other backend. only
+    // `first_kind` (the item that's actually supposed to be "now playing")
+    // stays audible; the other backend is loaded (ready for a future skip/
+    // kind-switch) but paused immediately.
+    match first_kind {
+        MediaKind::Audio => {
+            if let Some(vp) = &ctx.video_player {
+                let _ = vp.send(crate::ratcore::app::VideoCommand::Pause).await;
+            }
+        }
+        MediaKind::Video => {
+            if let Some(player) = &ctx.player {
+                let _ = player.send(PlayerCmd::Pause).await;
+            }
+        }
+    }
+    status_ack(ctx, None)
+}
+
+/// appends `items` to the local queue(s) without disturbing what's
+/// currently playing - see `replace_queue`'s doc comment for the
+/// audio/video split.
+async fn append_queue(ctx: &DispatchContext, items: Vec<MediaRef>) -> CommandAck {
+    if items.is_empty() {
+        return status_ack(ctx, None);
+    }
+    let (audio_paths, video_paths) = resolve_queue_items(ctx, items).await;
+    if audio_paths.is_empty() && video_paths.is_empty() {
+        return status_ack(
+            ctx,
+            Some(PlayerStatus::Error {
+                message: "no playable items to append".to_string(),
+                common: common_from_ctx(ctx),
+            }),
+        );
+    }
+    if !audio_paths.is_empty() {
+        if let Some(player) = &ctx.player {
+            let _ = player.send(PlayerCmd::Enqueue(audio_paths)).await;
+        }
+    }
+    if !video_paths.is_empty() {
+        if let Some(vp) = &ctx.video_player {
+            let _ = vp
+                .send(crate::ratcore::app::VideoCommand::Enqueue { paths: video_paths })
+                .await;
+        }
+    }
+    status_ack(ctx, None)
+}
+
+fn common_from_ctx(ctx: &DispatchContext) -> StatusCommon {
     StatusCommon {
-        queue: vec![],
+        queue: ctx.queue_snapshot.clone(),
         auto_download_enabled: false,
         volume: ctx.volume as f64,
         recently_played: vec![],
     }
 }
 
-/// best-effort immediate ack. real position/duration/queue state
-/// still arrives the normal way (`MusicEvent`/`VideoPlayerEvent` ->
-/// `EphemeralState`) for THIS device's own ui; a remote controller
-/// only gets this one-shot ack today (no live push subscription yet -
-/// see the module doc's "known simplifications").
+/// default status when a command didn't produce a more specific one
+/// (e.g. an error) - built from the real queue/position/playing
+/// snapshot `run.rs` assembled into `ctx` before dispatch, so
+/// `get_status`/every command ack reflects actual playback state
+/// instead of always claiming an empty queue stuck `Buffering`.
 fn status_ack(ctx: &DispatchContext, explicit: Option<PlayerStatus>) -> CommandAck {
-    let status = explicit.unwrap_or(PlayerStatus::Buffering {
-        common: empty_common(ctx),
+    let status = explicit.unwrap_or_else(|| {
+        let common = common_from_ctx(ctx);
+        match ctx.queue_snapshot.first() {
+            None => PlayerStatus::Stopped { common },
+            Some(item) if ctx.is_playing => PlayerStatus::NowPlaying {
+                item: item.clone(),
+                position_ms: ctx.position_ms,
+                server_time_ms: now_ms().max(0) as u64,
+                common,
+            },
+            Some(_) => PlayerStatus::Paused {
+                position_ms: ctx.position_ms,
+                common,
+            },
+        }
     });
     CommandAck::ok(status)
 }
@@ -827,6 +1068,11 @@ mod tests {
             player: None,
             video_player: None,
             volume: 1.0,
+            action_tx: None,
+            queue_snapshot: vec![],
+            position_ms: 0,
+            duration_ms: 0,
+            is_playing: false,
         };
         let ack = dispatch_pairing_command(ctx, PairingCommand::GetStatus).await;
         assert!(ack.ok);
@@ -839,6 +1085,11 @@ mod tests {
             player: None,
             video_player: None,
             volume: 1.0,
+            action_tx: None,
+            queue_snapshot: vec![],
+            position_ms: 0,
+            duration_ms: 0,
+            is_playing: false,
         };
         let ack = dispatch_pairing_command(
             ctx,
@@ -850,5 +1101,67 @@ mod tests {
         .await;
         assert!(!ack.ok);
         assert_eq!(ack.reason, Some(CommandAckReason::InvalidCommand));
+    }
+
+    #[tokio::test]
+    async fn append_queue_with_no_items_is_a_no_op_ok_ack() {
+        let ctx = DispatchContext {
+            active_backend: ActiveBackend::Audio,
+            player: None,
+            video_player: None,
+            volume: 1.0,
+            action_tx: None,
+            queue_snapshot: vec![],
+            position_ms: 0,
+            duration_ms: 0,
+            is_playing: false,
+        };
+        let ack = dispatch_pairing_command(ctx, PairingCommand::AppendQueue { items: vec![] }).await;
+        assert!(ack.ok);
+    }
+
+    #[tokio::test]
+    async fn append_queue_with_no_backends_acks_error_status_not_invalid() {
+        grimoire::config::init_config_for_tests();
+        let ctx = DispatchContext {
+            active_backend: ActiveBackend::Audio,
+            player: None,
+            video_player: None,
+            volume: 1.0,
+            action_tx: None,
+            queue_snapshot: vec![],
+            position_ms: 0,
+            duration_ms: 0,
+            is_playing: false,
+        };
+        // video queueing IS supported now (mpv playlist) - no backend
+        // attached in this test just means resolution has nowhere to
+        // land, not that the command itself is invalid.
+        let ack = dispatch_pairing_command(
+            ctx,
+            PairingCommand::AppendQueue {
+                items: vec![ref_with_kind(MediaKind::Video)],
+            },
+        )
+        .await;
+        assert!(ack.ok, "resolve failure (no network in test) still acks ok/error status, not invalid_command");
+    }
+
+    #[tokio::test]
+    async fn replace_queue_with_no_items_is_a_no_op_ok_ack() {
+        let ctx = DispatchContext {
+            active_backend: ActiveBackend::Audio,
+            player: None,
+            video_player: None,
+            volume: 1.0,
+            action_tx: None,
+            queue_snapshot: vec![],
+            position_ms: 0,
+            duration_ms: 0,
+            is_playing: false,
+        };
+        let ack =
+            dispatch_pairing_command(ctx, PairingCommand::ReplaceQueue { items: vec![] }).await;
+        assert!(ack.ok);
     }
 }

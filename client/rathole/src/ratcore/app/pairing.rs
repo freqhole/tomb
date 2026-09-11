@@ -542,6 +542,20 @@ pub enum PairingViewMode {
     Settings,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct PairingDownloadProgress {
+    /// 0-based index of the item currently downloading within the
+    /// batch this progress belongs to.
+    pub item_index: usize,
+    /// total number of items in the batch (queue push, or 1 for a
+    /// single `play` command).
+    pub item_count: usize,
+    pub bytes: u64,
+    /// from the `MediaRef`'s own `size_bytes` - not always known.
+    pub total_bytes: Option<u64>,
+    pub title: Option<String>,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct PairingViewState {
     pub mode: PairingViewMode,
@@ -555,6 +569,16 @@ pub struct PairingViewState {
     /// connected-controllers list.
     pub pending_remove_confirm: Option<String>,
     pub last_error: Option<String>,
+    /// live progress for a queue push / play command currently
+    /// fetching media from the controller's source peer - `None` when
+    /// nothing is downloading. pushed by `tty::pairing`'s dispatch via
+    /// `AppAction::PairingDownloadProgress`.
+    pub download_progress: Option<PairingDownloadProgress>,
+    /// true while the audio-output-device picker overlay (opened from
+    /// the "audio output device" settings row) is showing.
+    pub device_picker_open: bool,
+    /// cursor into `MusicState::output_devices` while the picker is open.
+    pub device_picker_cursor: usize,
 }
 
 impl PairingViewState {

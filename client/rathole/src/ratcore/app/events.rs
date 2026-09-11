@@ -733,6 +733,11 @@ pub enum AppAction {
         #[allow(dead_code)]
         silent: bool,
     },
+    /// live byte-progress for a `freqhole-player/1` queue push / play
+    /// command currently fetching media from the controller's source
+    /// peer. `None` clears the indicator once the batch finishes (or
+    /// hasn't started). see `tty::pairing::resolve_queue_items`.
+    PairingDownloadProgress(Option<super::PairingDownloadProgress>),
 }
 
 /// most recent dispatch result, kept for the detail pane.

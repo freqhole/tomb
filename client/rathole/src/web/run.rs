@@ -1737,6 +1737,9 @@ fn on_action(app: &mut App, action: AppAction, action_tx: &mpsc::UnboundedSender
                 }
             }
         },
+        AppAction::PairingDownloadProgress(progress) => {
+            app.state.ephemeral.player_pairing.download_progress = progress;
+        }
         AppAction::CollectionLoaded { songs } => {
             // promote the loaded collection into the queue + start
             // playing the first row. blob resolution is lazy (per

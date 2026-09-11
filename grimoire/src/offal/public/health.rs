@@ -35,26 +35,43 @@ pub const ROUTES: &[RouteInfo] = &[
 pub async fn server_info() -> GrimoireResponse<JsonValue> {
     let config = get_config();
 
+    // knocking + passkey-over-p2p only depend on `[federation]`, not
+    // `[server]` - computed up front so a `[server]`-less p2p peer (e.g.
+    // rathole) reports its REAL capabilities instead of hardcoded
+    // false/None, letting clients offer knock/passkey access to it same
+    // as any other remote (see the `player_device` branch below).
+    let knocking_enabled = config
+        .federation
+        .as_ref()
+        .filter(|f| f.enabled)
+        .map(|f| f.knocking_enabled);
+    #[cfg(feature = "webauthn")]
+    let passkey_p2p_enabled = Some(config.federation.as_ref().is_some_and(|f| f.enabled));
+    #[cfg(not(feature = "webauthn"))]
+    let passkey_p2p_enabled: Option<bool> = None;
+
     let Some(server_config) = config.server.as_ref() else {
-        // no `[server]` section configured - this is a headless/player-only
-        // instance (e.g. rathole's `--player` mode), not a full http-servable
-        // remote. answer with a minimal, degraded hello instead of hard
-        // failing, flagging `player_device: true` so clients (see
-        // AddRemoteModal.tsx's player_device branch) steer the user toward
-        // pairing instead of a dead-end "didn't return valid server info"
-        // error - mirrors spume's own web-side player hello
+        // no `[server]` section configured - this is a headless p2p-only
+        // instance (e.g. rathole), not a full http-servable remote. answer
+        // with a minimal, degraded hello instead of hard failing, flagging
+        // `player_device: true` so clients (see AddRemoteModal.tsx's
+        // player_device branch) ALSO offer pairing - in addition to, not
+        // instead of, normal knock/passkey remote access, since a peer like
+        // rathole is genuinely both at once (unlike a pure web/cenotaph
+        // player, which can only ever pair - a browser can't run a full
+        // remote). mirrors spume's own web-side player hello
         // (spumeHelloRoute.ts).
         let response = ServerInfoResponse {
             name: "freqhole player".to_string(),
-            description: Some("headless freqhole player (pairing only)".to_string()),
+            description: Some("headless freqhole player (pairing + remote access)".to_string()),
             version: env!("CARGO_PKG_VERSION").to_string(),
             image_url: None,
             image_blob_id: None,
-            knocking_enabled: Some(false),
+            knocking_enabled,
             musicbrainz_enabled: None,
             lastfm_enabled: None,
             audiodb_enabled: None,
-            passkey_p2p_enabled: None,
+            passkey_p2p_enabled,
             fetch_precheck_enabled: None,
             fetch_video_enabled: None,
             player_device: Some(true),
@@ -79,24 +96,11 @@ pub async fn server_info() -> GrimoireResponse<JsonValue> {
             None => "/api/hello/image".to_string(),
         });
 
-    // knocking enabled from federation config
-    let knocking_enabled = config
-        .federation
-        .as_ref()
-        .filter(|f| f.enabled)
-        .map(|f| f.knocking_enabled);
-
     // enrichment service flags (exposed so clients can hide ui for
     // sources the server doesn't have configured).
     let musicbrainz_enabled = Some(config.musicbrainz.enabled);
     let lastfm_enabled = Some(config.lastfm.enabled && !config.lastfm.api_key.is_empty());
     let audiodb_enabled = Some(config.audiodb.enabled && !config.audiodb.api_key.is_empty());
-
-    // webauthn over p2p is available when the feature is compiled in and federation is enabled
-    #[cfg(feature = "webauthn")]
-    let passkey_p2p_enabled = Some(config.federation.as_ref().is_some_and(|f| f.enabled));
-    #[cfg(not(feature = "webauthn"))]
-    let passkey_p2p_enabled: Option<bool> = None;
 
     let fetch_precheck_enabled = Some(
         config

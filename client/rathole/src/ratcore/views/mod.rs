@@ -198,6 +198,14 @@ fn header_line(app: &App) -> Line<'static> {
     // mode is selected.
     push_serve_badges(&mut spans, &app.state.ephemeral.serve);
 
+    // the freqhole-player/1 pairing endpoint is a SEPARATE p2p
+    // endpoint from the serve subprocess above (see
+    // tty::pairing::start_player_endpoint) - the subprocess never
+    // autostarts p2p anymore (identity-collision fix), so this is
+    // the only signal that p2p is actually up when running as
+    // `--player`/after `/player`.
+    push_player_pairing_badge(&mut spans, app);
+
     // jobs progress badge (scan / fetch / etc.) — only renders
     // when a session is in flight.
     push_jobs_badge(&mut spans, app.state.ephemeral.jobs_status.as_ref());
@@ -257,6 +265,21 @@ fn push_serve_badges(spans: &mut Vec<Span<'static>>, badge: &crate::ratcore::app
         spans.push(Span::raw("   "));
         spans.push(Span::styled(format!(" {label} "), style));
     }
+}
+
+fn push_player_pairing_badge(spans: &mut Vec<Span<'static>>, app: &App) {
+    let running = app
+        .pairing
+        .as_ref()
+        .is_some_and(|p| p.snapshot().node_id.is_some());
+    if !running {
+        return;
+    }
+    spans.push(Span::raw("   "));
+    spans.push(Span::styled(
+        " p2p ",
+        Style::new().bg(Color::Green).fg(Color::Black).bold(),
+    ));
 }
 
 fn push_jobs_badge(spans: &mut Vec<Span<'static>>, jobs: Option<&crate::ratcore::app::JobsStatus>) {

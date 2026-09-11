@@ -100,7 +100,16 @@ export function FederationSettingsView() {
         const existing = await getP2PIdentity();
         setIdentity(existing);
         const relaySettings = await getMiddenRelaySettings();
-        setRelayUrlsInput(relaySettings.relay_urls.join(", "));
+        // first-run (nothing saved yet): midden itself now falls back to
+        // these same dot-free n0 relays when relay_urls is empty (see
+        // lib/midden's effective_relay_urls) - show them here so the user
+        // can see what's actually in use, rather than a misleadingly blank
+        // field, and can clear or replace them if they want.
+        const urls =
+          relaySettings.relay_urls.length > 0
+            ? relaySettings.relay_urls
+            : DEFAULT_PUBLIC_RELAY_URLS;
+        setRelayUrlsInput(urls.join(", "));
       }
     } catch (err) {
       console.error("failed to load P2P identity:", err);
@@ -417,9 +426,9 @@ export function FederationSettingsView() {
               custom relay servers
             </h2>
             <p class="text-xs text-[var(--color-text-muted)] mb-4">
-              by default, this browser uses the public n0/iroh relay servers. enter one or more of
-              your own relay urls (comma-separated) to use instead. changes take effect after
-              reloading the page.
+              these are the relay servers currently in use (the public n0/iroh relays by default).
+              edit, remove, or add your own (comma-separated) - once saved, only the urls listed
+              here are used, with no fallback. changes take effect after reloading the page.
             </p>
             <textarea
               class="w-full font-mono text-xs bg-[var(--color-bg-tertiary)] text-[var(--color-text-primary)] border border-[var(--color-border-default)] rounded-lg p-3 mb-3 resize-y"
@@ -428,14 +437,13 @@ export function FederationSettingsView() {
               value={relayUrlsInput()}
               onInput={(e) => setRelayUrlsInput(e.currentTarget.value)}
             />
-            <label class="flex items-center gap-2 text-sm text-[var(--color-text-secondary)] mb-1 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={relayCustomOnly()}
-                onChange={(e) => setRelayCustomOnly(e.currentTarget.checked)}
-              />
-              use only these relays (no public relay fallback)
-            </label>
+            <Show when={invalidRelayUrls().length > 0}>
+              <p class="text-xs text-red-400 mb-3">
+                these entries aren&apos;t valid urls and won&apos;t be used:{" "}
+                {invalidRelayUrls().join(", ")}
+              </p>
+            </Show>
+
             <div class="flex items-center gap-3 flex-wrap">
               <button
                 class="px-4 py-2 text-sm font-medium rounded-lg border border-[var(--color-border-default)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"

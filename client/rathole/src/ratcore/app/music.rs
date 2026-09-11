@@ -122,6 +122,11 @@ pub struct MusicState {
     /// `MusicEvent::OutputDevices`); empty until a `ListOutputDevices`
     /// round trip completes at least once.
     pub output_devices: Vec<AudioDeviceInfo>,
+    /// name of the device we last asked rodio to switch to
+    /// (optimistic - mirrors `VideoPlayerState::selected_audio_device`;
+    /// the backend doesn't currently confirm which device ended up
+    /// active).
+    pub selected_output_device: Option<String>,
 }
 
 impl MusicState {

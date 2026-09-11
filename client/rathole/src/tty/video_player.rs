@@ -300,6 +300,34 @@ impl VideoPlayer for MpvPlayer {
                 }
                 self.send_ipc(json!({ "command": args })).await
             }
+            VideoCommand::LoadQueue { paths } => {
+                // mpv's own playlist: `replace` for the first entry (clears
+                // whatever was loaded and starts playing it), `append` for
+                // the rest - a real multi-item queue, not just one file.
+                for (i, path) in paths.into_iter().enumerate() {
+                    let mode = if i == 0 { "replace" } else { "append" };
+                    self.send_ipc(json!({"command": ["loadfile", path, mode]}))
+                        .await?;
+                }
+                Ok(())
+            }
+            VideoCommand::Enqueue { paths } => {
+                // plain `append` (never `append-play`): mpv's own "was the
+                // playlist empty" idle check has no idea rathole's rodio
+                // backend might already be playing audio concurrently -
+                // `append-play` would start this video immediately even
+                // while a song is actively playing. whether a genuinely
+                // idle player should auto-start the first appended item is
+                // decided explicitly by `tty::pairing::append_queue`, not
+                // by mpv's own local idle heuristic.
+                for path in paths {
+                    self.send_ipc(json!({"command": ["loadfile", path, "append"]}))
+                        .await?;
+                }
+                Ok(())
+            }
+            VideoCommand::Next => self.send_ipc(json!({"command": ["playlist-next"]})).await,
+            VideoCommand::Previous => self.send_ipc(json!({"command": ["playlist-prev"]})).await,
             VideoCommand::ShowImage { path } => {
                 // keep showing the image until explicitly replaced/
                 // closed, rather than mpv's default single-frame
@@ -319,9 +347,7 @@ impl VideoPlayer for MpvPlayer {
                 self.send_ipc(json!({"command": ["set_property", "pause", true]}))
                     .await
             }
-            VideoCommand::TogglePlay => {
-                self.send_ipc(json!({"command": ["cycle", "pause"]})).await
-            }
+            VideoCommand::TogglePlay => self.send_ipc(json!({"command": ["cycle", "pause"]})).await,
             VideoCommand::Seek { seconds } => {
                 self.send_ipc(json!({"command": ["set_property", "time-pos", seconds]}))
                     .await
@@ -374,10 +400,18 @@ mod tests {
 
     #[test]
     fn translate_time_pos_and_duration() {
-        let msg = json!({"event":"property-change","id":OBS_TIME_POS,"name":"time-pos","data":12.5});
-        assert_eq!(translate(&msg), vec![VideoEvent::Position { seconds: 12.5 }]);
-        let msg = json!({"event":"property-change","id":OBS_DURATION,"name":"duration","data":100.0});
-        assert_eq!(translate(&msg), vec![VideoEvent::Duration { seconds: 100.0 }]);
+        let msg =
+            json!({"event":"property-change","id":OBS_TIME_POS,"name":"time-pos","data":12.5});
+        assert_eq!(
+            translate(&msg),
+            vec![VideoEvent::Position { seconds: 12.5 }]
+        );
+        let msg =
+            json!({"event":"property-change","id":OBS_DURATION,"name":"duration","data":100.0});
+        assert_eq!(
+            translate(&msg),
+            vec![VideoEvent::Duration { seconds: 100.0 }]
+        );
     }
 
     #[test]

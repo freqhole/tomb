@@ -376,8 +376,20 @@ pub async fn fetch_blob_verified_to_file(
     blake3_hash: &str,
     target: &std::path::Path,
 ) -> GrimoireResult<u64> {
+    fetch_blob_verified_to_file_with_progress(peer_addr, blake3_hash, target, None).await
+}
+
+/// `fetch_blob_verified_to_file` with an optional cumulative-bytes progress
+/// callback, for callers (e.g. rathole's player tui) that want to render a
+/// download progress indicator while a large file streams to disk.
+pub async fn fetch_blob_verified_to_file_with_progress(
+    peer_addr: &str,
+    blake3_hash: &str,
+    target: &std::path::Path,
+    on_progress: Option<&BlobProgressFn>,
+) -> GrimoireResult<u64> {
     let (store, hash, hash_short, node_id_short) =
-        download_blob_to_store(peer_addr, blake3_hash, None).await?;
+        download_blob_to_store(peer_addr, blake3_hash, on_progress).await?;
 
     // export from store directly to target file (no memory buffering)
     store

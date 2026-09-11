@@ -306,6 +306,10 @@ fn draw_queue_glance(frame: &mut Frame, area: Rect, app: &App) {
         }
         None => lines.push(Line::from("(nothing playing)".dim())),
     }
+    if let Some(progress) = &app.state.ephemeral.player_pairing.download_progress {
+        lines.push(Line::from(""));
+        lines.push(download_progress_line(progress));
+    }
     if m.queue.len() > 1 {
         lines.push(Line::from(""));
         lines.push(Line::from(format!("queue ({} tracks):", m.queue.len())).bold());
@@ -320,6 +324,30 @@ fn draw_queue_glance(frame: &mut Frame, area: Rect, app: &App) {
     frame.render_widget(block, area);
 }
 
+/// renders "downloading 2/5: <title> [####------] 43%" (or a
+/// byte-count instead of a percent when the item's size isn't known
+/// yet - e.g. a controller that didn't set `size_bytes` on the
+/// `MediaRef`).
+fn download_progress_line(progress: &crate::ratcore::app::PairingDownloadProgress) -> Line<'static> {
+    let position = format!("{}/{}", progress.item_index + 1, progress.item_count);
+    let title = progress.title.clone().unwrap_or_else(|| "(untitled)".into());
+    let amount = match progress.total_bytes {
+        Some(total) if total > 0 => {
+            let pct = ((progress.bytes as f64 / total as f64) * 100.0).clamp(0.0, 100.0) as u32;
+            let bar_width = 10usize;
+            let filled = ((pct as usize * bar_width) / 100).min(bar_width);
+            let bar = format!("[{}{}]", "#".repeat(filled), "-".repeat(bar_width - filled));
+            format!("{bar} {pct}%")
+        }
+        _ => format!("{} KB", progress.bytes / 1024),
+    };
+    Line::from(vec![
+        Span::styled("downloading ", Style::new().fg(ACCENT)),
+        Span::raw(format!("{position}: {title}  ")).dim(),
+        Span::styled(amount, Style::new().fg(ACCENT)),
+    ])
+}
+
 fn draw_settings(frame: &mut Frame, area: Rect, app: &mut App) {
     let snapshot = app.pairing.as_ref().map(|p| p.snapshot());
     let session = snapshot.as_ref().and_then(|s| s.session.as_ref());
@@ -329,13 +357,32 @@ fn draw_settings(frame: &mut Frame, area: Rect, app: &mut App) {
         Some(SessionMode::Selected) | None => "selected peers only",
     };
 
+    // full node id up top (not `short_id()`'d, unlike the connected-
+    // controllers list) - this is the id a remote controller needs to
+    // paste in to dial/add this device, so it must be copyable in full
+    // (select-and-copy in the terminal).
+    let node_id_line = match snapshot.as_ref().and_then(|s| s.node_id.as_deref()) {
+        Some(id) => Line::from(vec![
+            Span::styled("node id: ", Style::new().bold()),
+            Span::styled(id.to_string(), Style::new().fg(ACCENT)),
+        ]),
+        None => Line::from("node id: (starting endpoint\u{2026})".dim()),
+    };
+
     let devices = &app.state.ephemeral.music.output_devices;
+    let device_label = app
+        .state
+        .ephemeral
+        .music
+        .selected_output_device
+        .as_deref()
+        .unwrap_or("(default)");
     let items = [
         format!("session mode: {mode_label}   (e: toggle)"),
         "regenerate admin pairing code   (a)".to_string(),
         "regenerate session pin          (r)".to_string(),
         format!(
-            "audio output device: {} known (picker not built yet)",
+            "audio output device: {device_label}   ({} known, enter to pick)",
             devices.len()
         ),
     ];
@@ -357,7 +404,50 @@ fn draw_settings(frame: &mut Frame, area: Rect, app: &mut App) {
             Style::new().fg(ACCENT).bold(),
         )),
     );
-    frame.render_widget(list, area);
+    let [node_area, list_area] = Layout::vertical([Length(1), Min(0)]).areas(area);
+    frame.render_widget(Paragraph::new(node_id_line), node_area);
+    frame.render_widget(list, list_area);
+
+    if app.state.ephemeral.player_pairing.device_picker_open {
+        draw_device_picker(frame, area, app);
+    }
+}
+
+/// centered overlay listing rodio's known output devices - opened from
+/// the "audio output device" settings row (enter), closed with esc or
+/// by picking a device (enter).
+fn draw_device_picker(frame: &mut Frame, area: Rect, app: &App) {
+    let popup_w = (area.width.saturating_sub(4)).min(50);
+    let popup_h = (area.height.saturating_sub(4)).min(12).max(3);
+    let x = area.x + (area.width.saturating_sub(popup_w)) / 2;
+    let y = area.y + (area.height.saturating_sub(popup_h)) / 2;
+    let popup = Rect::new(x, y, popup_w, popup_h);
+
+    let devices = &app.state.ephemeral.music.output_devices;
+    let cursor = app.state.ephemeral.player_pairing.device_picker_cursor;
+    let items: Vec<ListItem> = if devices.is_empty() {
+        vec![ListItem::new(Line::from(
+            "(no output devices reported yet\u{2026})".dim(),
+        ))]
+    } else {
+        devices
+            .iter()
+            .map(|d| ListItem::new(Line::from(d.description.clone())))
+            .collect()
+    };
+    let mut list_state = ListState::default();
+    if !devices.is_empty() {
+        list_state.select(Some(cursor.min(devices.len() - 1)));
+    }
+    frame.render_widget(ratatui::widgets::Clear, popup);
+    let list = List::new(items)
+        .block(Block::bordered().title(Span::styled(
+            "audio output device (enter: pick, esc: cancel)",
+            Style::new().fg(ACCENT).bold(),
+        )))
+        .highlight_style(Style::new().fg(ACCENT).bold().reversed())
+        .highlight_symbol("> ");
+    frame.render_stateful_widget(list, popup, &mut list_state);
 }
 
 fn short_id(s: &str) -> String {

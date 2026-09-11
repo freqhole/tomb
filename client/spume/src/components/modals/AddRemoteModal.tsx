@@ -925,157 +925,162 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
                         </div>
                       </Show>
 
-                      <Show
-                        when={s.serverInfo?.player_device}
-                        fallback={
-                          <>
-                            <AuthForm
-                              initialMode={s.peerAddr ? "register" : "login"}
-                              onSubmit={handleAuth}
-                              onPasskeyClick={handlePasskeyAuth}
-                              error={s.error || undefined}
-                              showModeToggle={!s.peerAddr}
-                              hidePasskeyInfo={!!s.peerAddr || isCharnelAvailable()}
-                              hidePasskeyButton={!s.peerAddr && isCharnelAvailable()}
-                            />
+                      {/* normal remote auth/knock flow - shown even for a
+                          player_device peer like rathole, which is both a
+                          real remote AND a pairable player (unlike a pure
+                          web/cenotaph player, which can only ever pair -
+                          see server_info()'s doc comment in grimoire). */}
+                      <AuthForm
+                        initialMode={s.peerAddr ? "register" : "login"}
+                        onSubmit={handleAuth}
+                        onPasskeyClick={handlePasskeyAuth}
+                        error={s.error || undefined}
+                        showModeToggle={!s.peerAddr}
+                        hidePasskeyInfo={!!s.peerAddr || isCharnelAvailable()}
+                        hidePasskeyButton={!s.peerAddr && isCharnelAvailable()}
+                      />
 
-                            {/* request access option for P2P when knocking is enabled */}
-                            <Show
-                              when={
-                                s.peerAddr &&
-                                (s.serverInfo?.knocking_enabled ||
-                                  s.serverInfo?.passkey_p2p_enabled)
-                              }
+                      {/* request access option for P2P when knocking is enabled */}
+                      <Show
+                        when={
+                          s.peerAddr &&
+                          (s.serverInfo?.knocking_enabled || s.serverInfo?.passkey_p2p_enabled)
+                        }
+                      >
+                        <div class="text-center pt-4 border-t border-[var(--color-border-default)]">
+                          <Show when={s.serverInfo?.knocking_enabled}>
+                            <p class="text-sm text-[var(--color-text-secondary)] mb-2">
+                              don't have an invite code?
+                            </p>
+                            <button
+                              type="button"
+                              class="text-sm text-[var(--color-accent-primary)] hover:underline"
+                              onClick={() => void dispatch({ type: "BACK" })}
                             >
-                              <div class="text-center pt-4 border-t border-[var(--color-border-default)]">
-                                <Show when={s.serverInfo?.knocking_enabled}>
-                                  <p class="text-sm text-[var(--color-text-secondary)] mb-2">
-                                    don't have an invite code?
-                                  </p>
+                              request access from the admin
+                            </button>
+                          </Show>
+                          <Show when={s.serverInfo?.passkey_p2p_enabled}>
+                            <Show when={isCharnelAvailable() && showCharnelLink()}>
+                              <div class="space-y-2 mt-2">
+                                <div class="flex gap-2">
+                                  <input
+                                    type="text"
+                                    readOnly
+                                    value={charnelSpumeLink() ?? ""}
+                                    class="flex-1 px-3 py-2 text-xs rounded-md border border-[var(--color-border-default)] bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)] select-all cursor-text"
+                                    onClick={(e) => (e.target as HTMLInputElement).select()}
+                                  />
+                                </div>
+                                <div class="flex gap-2">
                                   <button
                                     type="button"
-                                    class="text-sm text-[var(--color-accent-primary)] hover:underline"
-                                    onClick={() => void dispatch({ type: "BACK" })}
+                                    class="flex-1 py-2 text-sm font-medium rounded-lg border border-[var(--color-border-default)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] transition-colors"
+                                    onClick={handleCharnelLinkCopy}
                                   >
-                                    request access from the admin
+                                    {charnelLinkCopied() ? "copied!" : "copy link"}
                                   </button>
-                                </Show>
-                                <Show when={s.serverInfo?.passkey_p2p_enabled}>
-                                  <Show when={isCharnelAvailable() && showCharnelLink()}>
-                                    <div class="space-y-2 mt-2">
-                                      <div class="flex gap-2">
-                                        <input
-                                          type="text"
-                                          readOnly
-                                          value={charnelSpumeLink() ?? ""}
-                                          class="flex-1 px-3 py-2 text-xs rounded-md border border-[var(--color-border-default)] bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)] select-all cursor-text"
-                                          onClick={(e) => (e.target as HTMLInputElement).select()}
-                                        />
-                                      </div>
-                                      <div class="flex gap-2">
-                                        <button
-                                          type="button"
-                                          class="flex-1 py-2 text-sm font-medium rounded-lg border border-[var(--color-border-default)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] transition-colors"
-                                          onClick={handleCharnelLinkCopy}
-                                        >
-                                          {charnelLinkCopied() ? "copied!" : "copy link"}
-                                        </button>
-                                        <button
-                                          type="button"
-                                          class="flex-1 py-2 text-sm font-medium rounded-lg bg-[var(--color-accent-primary)] text-white hover:opacity-90 transition-opacity"
-                                          onClick={handleCharnelLinkOpen}
-                                        >
-                                          open in browser
-                                        </button>
-                                      </div>
-                                    </div>
-                                  </Show>
+                                  <button
+                                    type="button"
+                                    class="flex-1 py-2 text-sm font-medium rounded-lg bg-[var(--color-accent-primary)] text-white hover:opacity-90 transition-opacity"
+                                    onClick={handleCharnelLinkOpen}
+                                  >
+                                    open in browser
+                                  </button>
+                                </div>
+                              </div>
+                            </Show>
+                          </Show>
+                        </div>
+                      </Show>
+
+                      {/* freqhole-player device: pairing is available IN ADDITION to
+                          the normal remote flow above, not instead of it. */}
+                      <Show when={s.serverInfo?.player_device}>
+                        <div class="pt-4 mt-4 border-t border-[var(--color-border-default)]">
+                          <p class="text-sm text-[var(--color-text-secondary)] mb-4 text-center">
+                            this device also supports pairing as a player
+                          </p>
+                          <div class="space-y-4">
+                            <div>
+                              <label class="block text-sm font-medium text-[var(--color-text-primary)] mb-2">
+                                pin (shown on the player's screen)
+                              </label>
+                              <input
+                                type="text"
+                                inputmode="numeric"
+                                value={playerPin()}
+                                onInput={(e) => setPlayerPin(e.currentTarget.value)}
+                                placeholder="123456"
+                                class="w-full px-3 py-2 bg-[var(--color-bg-secondary)] border border-[var(--color-border-default)] rounded-md text-[var(--color-text-primary)] font-mono text-lg tracking-widest"
+                                disabled={playerPairStatus() === "pairing"}
+                              />
+                            </div>
+                            <div>
+                              <label class="block text-sm font-medium text-[var(--color-text-primary)] mb-2">
+                                your name (shown on the player)
+                              </label>
+                              <input
+                                type="text"
+                                value={playerControllerName()}
+                                onInput={(e) => setPlayerControllerName(e.currentTarget.value)}
+                                class="w-full px-3 py-2 bg-[var(--color-bg-secondary)] border border-[var(--color-border-default)] rounded-md text-[var(--color-text-primary)] text-sm"
+                                disabled={playerPairStatus() === "pairing"}
+                              />
+                            </div>
+                            <Show when={playerPairStatus() === "error"}>
+                              <div class="p-3 bg-[var(--color-status-error)]/10 border border-[var(--color-status-error)] rounded-md">
+                                <p class="text-sm text-[var(--color-status-error)]">
+                                  {playerPairError()}
+                                </p>
+                              </div>
+                            </Show>
+                            <Show when={isCharnelAvailable()}>
+                              <div class="flex flex-col gap-2">
+                                <label class="flex items-center gap-2 text-sm text-[var(--color-text-primary)]">
+                                  <input
+                                    type="checkbox"
+                                    checked={setUpLocalUser()}
+                                    onChange={(e) =>
+                                      void handleToggleLocalUser(e.currentTarget.checked)
+                                    }
+                                    disabled={playerPairStatus() === "pairing"}
+                                  />
+                                  set up a local user for this node id
+                                </label>
+                                <Show when={setUpLocalUser()}>
+                                  <select
+                                    value={localUserRole()}
+                                    onChange={(e) =>
+                                      setLocalUserRole(
+                                        e.currentTarget.value as "admin" | "member" | "viewer"
+                                      )
+                                    }
+                                    class="w-full px-3 py-2 bg-[var(--color-bg-secondary)] border border-[var(--color-border-default)] rounded-md text-[var(--color-text-primary)] text-sm"
+                                    disabled={playerPairStatus() === "pairing"}
+                                  >
+                                    <option value="viewer">viewer</option>
+                                    <option value="member">member</option>
+                                    <option value="admin">admin</option>
+                                  </select>
                                 </Show>
                               </div>
                             </Show>
-                          </>
-                        }
-                      >
-                        {/* freqhole-player device: pin pairing instead of grimoire auth */}
-                        <div class="space-y-4">
-                          <div>
-                            <label class="block text-sm font-medium text-[var(--color-text-primary)] mb-2">
-                              pin (shown on the player's screen)
-                            </label>
-                            <input
-                              type="text"
-                              inputmode="numeric"
-                              value={playerPin()}
-                              onInput={(e) => setPlayerPin(e.currentTarget.value)}
-                              placeholder="123456"
-                              class="w-full px-3 py-2 bg-[var(--color-bg-secondary)] border border-[var(--color-border-default)] rounded-md text-[var(--color-text-primary)] font-mono text-lg tracking-widest"
-                              disabled={playerPairStatus() === "pairing"}
-                            />
+                            <Button
+                              type="button"
+                              disabled={playerPairStatus() === "pairing" || !playerPin().trim()}
+                              class="w-full"
+                              onClick={() =>
+                                s.peerAddr &&
+                                void handlePairPlayer(
+                                  s.peerAddr,
+                                  s.serverInfo?.name ?? `player ${s.peerAddr.slice(0, 8)}`
+                                )
+                              }
+                            >
+                              {playerPairStatus() === "pairing" ? "pairing..." : "pair"}
+                            </Button>
                           </div>
-                          <div>
-                            <label class="block text-sm font-medium text-[var(--color-text-primary)] mb-2">
-                              your name (shown on the player)
-                            </label>
-                            <input
-                              type="text"
-                              value={playerControllerName()}
-                              onInput={(e) => setPlayerControllerName(e.currentTarget.value)}
-                              class="w-full px-3 py-2 bg-[var(--color-bg-secondary)] border border-[var(--color-border-default)] rounded-md text-[var(--color-text-primary)] text-sm"
-                              disabled={playerPairStatus() === "pairing"}
-                            />
-                          </div>
-                          <Show when={playerPairStatus() === "error"}>
-                            <div class="p-3 bg-[var(--color-status-error)]/10 border border-[var(--color-status-error)] rounded-md">
-                              <p class="text-sm text-[var(--color-status-error)]">
-                                {playerPairError()}
-                              </p>
-                            </div>
-                          </Show>
-                          <Show when={isCharnelAvailable()}>
-                            <div class="flex flex-col gap-2">
-                              <label class="flex items-center gap-2 text-sm text-[var(--color-text-primary)]">
-                                <input
-                                  type="checkbox"
-                                  checked={setUpLocalUser()}
-                                  onChange={(e) =>
-                                    void handleToggleLocalUser(e.currentTarget.checked)
-                                  }
-                                  disabled={playerPairStatus() === "pairing"}
-                                />
-                                set up a local user for this node id
-                              </label>
-                              <Show when={setUpLocalUser()}>
-                                <select
-                                  value={localUserRole()}
-                                  onChange={(e) =>
-                                    setLocalUserRole(
-                                      e.currentTarget.value as "admin" | "member" | "viewer"
-                                    )
-                                  }
-                                  class="w-full px-3 py-2 bg-[var(--color-bg-secondary)] border border-[var(--color-border-default)] rounded-md text-[var(--color-text-primary)] text-sm"
-                                  disabled={playerPairStatus() === "pairing"}
-                                >
-                                  <option value="viewer">viewer</option>
-                                  <option value="member">member</option>
-                                  <option value="admin">admin</option>
-                                </select>
-                              </Show>
-                            </div>
-                          </Show>
-                          <Button
-                            type="button"
-                            disabled={playerPairStatus() === "pairing" || !playerPin().trim()}
-                            class="w-full"
-                            onClick={() =>
-                              s.peerAddr &&
-                              void handlePairPlayer(
-                                s.peerAddr,
-                                s.serverInfo?.name ?? `player ${s.peerAddr.slice(0, 8)}`
-                              )
-                            }
-                          >
-                            {playerPairStatus() === "pairing" ? "pairing..." : "pair"}
-                          </Button>
                         </div>
                       </Show>
                     </div>

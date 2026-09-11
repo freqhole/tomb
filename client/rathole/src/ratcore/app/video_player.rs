@@ -26,6 +26,22 @@ pub enum VideoCommand {
         title: Option<String>,
         start_seconds: Option<f64>,
     },
+    /// replace the backend's whole playlist with `paths` and start
+    /// playing from the first one - the multi-item counterpart to
+    /// `Load`, for real queue support (not just single-file playback).
+    LoadQueue {
+        paths: Vec<String>,
+    },
+    /// append `paths` to the end of the backend's current playlist
+    /// without disturbing what's playing now (starts playback if
+    /// nothing was loaded yet).
+    Enqueue {
+        paths: Vec<String>,
+    },
+    /// advance to the next playlist entry (no-op if there is none).
+    Next,
+    /// go back to the previous playlist entry (no-op if there is none).
+    Previous,
     /// display a still image (pairing qr, album/poster art) full
     /// screen — shares this same command channel rather than a
     /// separate image-display subsystem.
@@ -192,6 +208,18 @@ impl VideoPlayerState {
                     ..Default::default()
                 };
             }
+            VideoCommand::LoadQueue { paths } => {
+                *self = VideoPlayerState {
+                    state: VideoPlaybackState::Loading,
+                    volume: self.volume,
+                    path: paths.first().cloned(),
+                    ..Default::default()
+                };
+            }
+            // appending/skipping don't change what's currently loaded from
+            // this layer's point of view - the real transition (if any)
+            // arrives the normal way via a `VideoEvent` off the ipc socket.
+            VideoCommand::Enqueue { .. } | VideoCommand::Next | VideoCommand::Previous => {}
             VideoCommand::ShowImage { path } => {
                 *self = VideoPlayerState {
                     state: VideoPlaybackState::Playing,
