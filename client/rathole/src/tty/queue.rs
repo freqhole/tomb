@@ -78,11 +78,23 @@ pub fn play_index(app: &mut App, idx: usize, tx: &mpsc::UnboundedSender<AppActio
             // clear immediately (optimistic) so the previous song's art
             // doesn't linger until this one's resolves.
             app.state.ephemeral.player_pairing.art_paths.clear();
-            if was_video_active || was_audio_fallback_active {
-                close_video(app);
-            }
+            // close the previous video backend (if one was active) and
+            // load the new song as ONE ordered task - previously these
+            // were two independent fire-and-forget spawns with no
+            // ordering guarantee between them, so under adverse
+            // scheduling the old video/mpv backend could still be
+            // playing when rodio started ("multiple things playing").
+            let close_first = if was_video_active || was_audio_fallback_active {
+                app.state
+                    .ephemeral
+                    .video_player
+                    .apply_command(&VideoCommand::Close);
+                app.video_player.clone()
+            } else {
+                None
+            };
             resolve_song_art(app, &row, tx);
-            play_song_entry(app, row, tx);
+            play_song_entry(app, row, close_first, tx);
         }
         QueueEntry::Video(video) => {
             app.state.ephemeral.music.player_state = PlayerState::Stopped;
@@ -90,13 +102,12 @@ pub fn play_index(app: &mut App, idx: usize, tx: &mpsc::UnboundedSender<AppActio
             app.state.ephemeral.music.audio_fallback_active = false;
             app.state.ephemeral.music.pending_rodio_song_id = None;
             app.state.ephemeral.player_pairing.art_paths.clear();
-            // stop rodio so audio doesn't keep playing under the video.
-            if let Some(player) = app.player.clone() {
-                tokio::task::spawn_local(async move {
-                    let _ = player.send(PlayerCmd::Stop).await;
-                });
-            }
-            play_video_entry(app, video, tx);
+            // stop rodio (if it was the active backend) and load the
+            // video as ONE ordered task - see the song-entry branch
+            // above for why this must be sequenced rather than two
+            // independent fire-and-forget spawns.
+            let stop_first = app.player.clone();
+            play_video_entry(app, video, stop_first, tx);
         }
     }
 }
@@ -234,7 +245,12 @@ fn resolve_song_art(_app: &App, row: &SongRow, tx: &mpsc::UnboundedSender<AppAct
     });
 }
 
-fn play_song_entry(app: &mut App, row: SongRow, tx: &mpsc::UnboundedSender<AppAction>) {
+fn play_song_entry(
+    app: &mut App,
+    row: SongRow,
+    close_first: Option<std::rc::Rc<dyn crate::ratcore::transport::VideoPlayer>>,
+    tx: &mpsc::UnboundedSender<AppAction>,
+) {
     let Some(player) = app.player.clone() else {
         app.state.ephemeral.music.last_event_error =
             Some("no audio backend in this shell".to_string());
@@ -243,6 +259,11 @@ fn play_song_entry(app: &mut App, row: SongRow, tx: &mpsc::UnboundedSender<AppAc
     let title = row.title.clone();
     let tx = tx.clone();
     tokio::task::spawn_local(async move {
+        // await the old video/mpv backend's close BEFORE loading the
+        // new song into rodio, so the two are never both active.
+        if let Some(video_player) = close_first {
+            let _ = video_player.send(VideoCommand::Close).await;
+        }
         let Some(path) = resolve_playable_path(&row).await else {
             let _ = tx.send(AppAction::MusicEvent(MusicEvent::Error(format!(
                 "no playable file for {title} (skipping)"
@@ -256,7 +277,12 @@ fn play_song_entry(app: &mut App, row: SongRow, tx: &mpsc::UnboundedSender<AppAc
     });
 }
 
-fn play_video_entry(app: &mut App, video: QueuedVideoRow, tx: &mpsc::UnboundedSender<AppAction>) {
+fn play_video_entry(
+    app: &mut App,
+    video: QueuedVideoRow,
+    stop_first: Option<std::rc::Rc<dyn crate::ratcore::transport::MusicPlayer>>,
+    tx: &mpsc::UnboundedSender<AppAction>,
+) {
     let Some(video_player) = app.video_player.clone() else {
         app.state.ephemeral.music.last_event_error =
             Some("no video backend in this shell".to_string());
@@ -269,6 +295,12 @@ fn play_video_entry(app: &mut App, video: QueuedVideoRow, tx: &mpsc::UnboundedSe
     let title = video.title.clone();
     let tx = tx.clone();
     tokio::task::spawn_local(async move {
+        // await rodio's stop BEFORE loading the video into mpv, so the
+        // two are never both active (audio wouldn't visibly overlap a
+        // video, but it WOULD keep playing under it otherwise).
+        if let Some(player) = stop_first {
+            let _ = player.send(PlayerCmd::Stop).await;
+        }
         let Some(path) = resolve_video_path(&video).await else {
             let _ = tx.send(AppAction::VideoPlayerEvent(VideoEvent::Error {
                 message: format!("no playable file for {title} (skipping)"),

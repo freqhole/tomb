@@ -33,11 +33,22 @@ pub fn draw(frame: &mut Frame, area: Rect, app: &mut App) {
 /// mirrors `tui_big_text::PixelSize::pixels_per_cell` (private upstream).
 /// picked dynamically so the pin shrinks just enough to fit instead of an
 /// all-or-nothing fall back to plain small text.
+///
+/// deliberately excludes `PixelSize::Sextant`/`Octant`: those render using
+/// sextant/octant block-drawing glyphs from unicode's "Symbols for Legacy
+/// Computing" block, added in unicode 13.0/16.0 respectively - very recent
+/// additions most terminal fonts don't have yet, especially a bare linux
+/// console (no GUI terminal emulator) on something like a raspberry pi,
+/// where they render as tofu/garbled boxes instead of text. `Quadrant`
+/// (2x2, from the original 1.1-era Block Elements range) and everything
+/// above it are safe on effectively any terminal. found via a real report:
+/// the pin (always short - 6 ascii digits, fits at `Full`/`HalfWidth`)
+/// rendered fine on a pi console, but the "now playing" title/artist
+/// (longer, falling through to `Octant` to fit) rendered as garbage.
 const PIN_SIZE_CANDIDATES: &[(PixelSize, u16, u16)] = &[
     (PixelSize::Full, 8, 8),
     (PixelSize::HalfWidth, 4, 8),
     (PixelSize::Quadrant, 4, 4),
-    (PixelSize::Octant, 4, 2),
 ];
 
 struct PinLayout {
@@ -95,9 +106,7 @@ fn draw_overview(frame: &mut Frame, area: Rect, app: &mut App) {
 
     let session = snapshot.as_ref().and_then(|s| s.session.as_ref()).cloned();
     let qr_text = match &snapshot {
-        Some(snap) if snap.node_id.is_some() => {
-            app.state.ephemeral.player_pairing.qr_text.clone()
-        }
+        Some(snap) if snap.node_id.is_some() => app.state.ephemeral.player_pairing.qr_text.clone(),
         _ => None,
     };
 
@@ -128,11 +137,17 @@ fn draw_overview(frame: &mut Frame, area: Rect, app: &mut App) {
         }
     }
     if !showed_art {
-        draw_qr_and_pin(frame, inner, app, &snapshot, qr_text.as_deref(), session.as_ref());
+        draw_qr_and_pin(
+            frame,
+            inner,
+            app,
+            &snapshot,
+            qr_text.as_deref(),
+            session.as_ref(),
+        );
     }
 
-    let [connected_area, queue_area] =
-        Layout::vertical([Length(7), Min(0)]).areas(right);
+    let [connected_area, queue_area] = Layout::vertical([Length(7), Min(0)]).areas(right);
     draw_connected(frame, connected_area, app, snapshot.as_ref());
     draw_queue_glance(frame, queue_area, app);
 }
@@ -151,7 +166,12 @@ fn draw_qr_and_pin(
 ) {
     let qr_size = qr_text.map(|t| {
         let height = t.lines().count() as u16;
-        let width = t.lines().map(str::chars).map(Iterator::count).max().unwrap_or(0) as u16;
+        let width = t
+            .lines()
+            .map(str::chars)
+            .map(Iterator::count)
+            .max()
+            .unwrap_or(0) as u16;
         (width, height)
     });
 
@@ -173,9 +193,11 @@ fn draw_qr_and_pin(
         // vertical space rather than pinning it to the top.
         let [_pad_top, content, _pad_bottom] =
             Layout::vertical([Min(0), Length(needed_height), Min(0)]).areas(inner);
-        let [qr_area, pin_area] =
-            Layout::vertical([Length(needed_height.saturating_sub(pin_rows)), Length(pin_rows)])
-                .areas(content);
+        let [qr_area, pin_area] = Layout::vertical([
+            Length(needed_height.saturating_sub(pin_rows)),
+            Length(pin_rows),
+        ])
+        .areas(content);
 
         draw_qr(frame, qr_area, snapshot, qr_text);
         if let (Some(session), Some(layout)) = (session, pin_layout) {
@@ -303,7 +325,9 @@ fn draw_connected(
         items.push(ListItem::new(Line::from(label.dim())));
     }
     if connected.is_empty() {
-        items.push(ListItem::new(Line::from("(no controllers connected)".dim())));
+        items.push(ListItem::new(Line::from(
+            "(no controllers connected)".dim(),
+        )));
     } else {
         items.extend(connected.iter().map(|c| {
             let label = format!("{}  ({})", c.display_name, short_id(&c.node_id));
@@ -325,10 +349,7 @@ fn draw_connected(
         list_state.select(Some(offset + v.connected_cursor.min(connected.len() - 1)));
     }
     let list = List::new(items)
-        .block(
-            Block::bordered()
-                .title(Span::styled("connected", Style::new().fg(ACCENT).bold())),
-        )
+        .block(Block::bordered().title(Span::styled("connected", Style::new().fg(ACCENT).bold())))
         .highlight_style(Style::new().fg(ACCENT).bold().reversed())
         .highlight_symbol("> ");
     frame.render_stateful_widget(list, area, &mut list_state);
@@ -361,8 +382,18 @@ fn draw_queue_glance(frame: &mut Frame, area: Rect, app: &App) {
         (None, Some(_)) => 1,
         (None, None) => 0,
     };
-    let album_rows = if current.and_then(|e| e.album()).is_some() { 1 } else { 0 };
-    let progress_rows = if app.state.ephemeral.player_pairing.download_progress.is_some() {
+    let album_rows = if current.and_then(|e| e.album()).is_some() {
+        1
+    } else {
+        0
+    };
+    let progress_rows = if app
+        .state
+        .ephemeral
+        .player_pairing
+        .download_progress
+        .is_some()
+    {
         2
     } else {
         0
@@ -435,7 +466,10 @@ fn draw_queue_glance(frame: &mut Frame, area: Rect, app: &App) {
                 );
             }
             if let Some(progress) = &app.state.ephemeral.player_pairing.download_progress {
-                frame.render_widget(Paragraph::new(download_progress_line(progress)), progress_area);
+                frame.render_widget(
+                    Paragraph::new(download_progress_line(progress)),
+                    progress_area,
+                );
             }
         }
         None => {
@@ -446,8 +480,18 @@ fn draw_queue_glance(frame: &mut Frame, area: Rect, app: &App) {
     if m.queue.len() > 1 {
         let mut lines: Vec<Line> =
             vec![Line::from(format!("queue ({} tracks):", m.queue.len() - 1)).bold()];
-        for (i, entry) in m.queue.iter().enumerate().skip(1).take(rest.height.saturating_sub(1) as usize) {
-            let marker = if Some(i) == m.current { "\u{25b6} " } else { "  " };
+        for (i, entry) in m
+            .queue
+            .iter()
+            .enumerate()
+            .skip(1)
+            .take(rest.height.saturating_sub(1) as usize)
+        {
+            let marker = if Some(i) == m.current {
+                "\u{25b6} "
+            } else {
+                "  "
+            };
             let kind_glyph = match entry.kind() {
                 crate::ratcore::app::MediaKind::Video => "[video] ",
                 crate::ratcore::app::MediaKind::Audio => "",
@@ -518,9 +562,14 @@ fn fit_text_layout(text: &str, avail_w: u16, avail_h: u16) -> Option<PinLayout> 
 /// byte-count instead of a percent when the item's size isn't known
 /// yet - e.g. a controller that didn't set `size_bytes` on the
 /// `MediaRef`).
-fn download_progress_line(progress: &crate::ratcore::app::PairingDownloadProgress) -> Line<'static> {
+fn download_progress_line(
+    progress: &crate::ratcore::app::PairingDownloadProgress,
+) -> Line<'static> {
     let position = format!("{}/{}", progress.item_index + 1, progress.item_count);
-    let title = progress.title.clone().unwrap_or_else(|| "(untitled)".into());
+    let title = progress
+        .title
+        .clone()
+        .unwrap_or_else(|| "(untitled)".into());
     let amount = match progress.total_bytes {
         Some(total) if total > 0 => {
             let pct = ((progress.bytes as f64 / total as f64) * 100.0).clamp(0.0, 100.0) as u32;
@@ -605,12 +654,10 @@ fn draw_settings(frame: &mut Frame, area: Rect, app: &mut App) {
             }
         })
         .collect();
-    let list = List::new(list_items).block(
-        Block::bordered().title(Span::styled(
-            "player settings",
-            Style::new().fg(ACCENT).bold(),
-        )),
-    );
+    let list = List::new(list_items).block(Block::bordered().title(Span::styled(
+        "player settings",
+        Style::new().fg(ACCENT).bold(),
+    )));
     let [node_area, list_area] = Layout::vertical([Length(1), Min(0)]).areas(area);
     frame.render_widget(Paragraph::new(node_id_line), node_area);
     frame.render_widget(list, list_area);

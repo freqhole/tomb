@@ -49,6 +49,18 @@ fn find_in_path(name: &str) -> Option<std::path::PathBuf> {
         .find(|p| p.exists())
 }
 
+/// the name a connecting controller (e.g. spume) sees for this device
+/// during pairing - the configured `[server].name` display name, not a
+/// hardcoded "rathole" (previously baked into the qr payload regardless
+/// of `freqhole-config.toml`'s actual server name).
+fn player_display_name() -> String {
+    grimoire::config::get_config()
+        .server
+        .map(|s| s.name)
+        .filter(|n| !n.trim().is_empty())
+        .unwrap_or_else(|| "rathole".to_string())
+}
+
 fn resolve_from_path() -> Option<(std::path::PathBuf, super::serve_monitor::ServeLaunchMode)> {
     use super::serve_monitor::ServeLaunchMode;
 
@@ -451,8 +463,9 @@ async fn run_inner(
                 if app.state.ephemeral.player_pairing.qr_text.is_none() {
                     if let Some(pairing) = &app.pairing {
                         if let Some(node_id) = pairing.snapshot().node_id {
+                            let name = player_display_name();
                             let payload = format!(
-                                r#"{{"node_id":"{node_id}","name":"rathole","role":"player_remote"}}"#
+                                r#"{{"node_id":"{node_id}","name":"{name}","role":"player_remote"}}"#
                             );
                             match super::qr::render_qr_unicode(&payload) {
                                 Ok(qr) => app.state.ephemeral.player_pairing.qr_text = Some(qr),
@@ -3635,8 +3648,9 @@ fn sync_pairing_framebuffer_image(app: &mut App) {
         let snapshot = app.pairing.as_ref()?.snapshot();
         let node_id = snapshot.node_id?;
         let pin = snapshot.session?.pin;
+        let name = player_display_name();
         let payload =
-            format!(r#"{{"node_id":"{node_id}","name":"rathole","role":"player_remote"}}"#);
+            format!(r#"{{"node_id":"{node_id}","name":"{name}","role":"player_remote"}}"#);
         super::qr::render_qr_pin_png(&payload, &pin)
             .ok()
             .map(|p| p.to_string_lossy().into_owned())
@@ -4540,6 +4554,17 @@ fn execute_slash_with_player(
             rk::leave(&mut app.state);
             app.state.ephemeral.repl.status = Some(ReplStatus::ok("focus: player pairing"));
             app.state.ephemeral.focus = Focus::PlayerPairing;
+        }
+        SlashAction::PlayerSettings => {
+            // same as `Player` above, just landing directly on the
+            // settings sub-view instead of the qr/pin overview.
+            app.state.ephemeral.repl.clear_input();
+            rk::leave(&mut app.state);
+            app.state.ephemeral.repl.status =
+                Some(ReplStatus::ok("focus: player pairing settings"));
+            app.state.ephemeral.focus = Focus::PlayerPairing;
+            app.state.ephemeral.player_pairing.mode =
+                crate::ratcore::app::PairingViewMode::Settings;
         }
         SlashAction::ServeStart { kind } => {
             use crate::ratcore::app::ServeKindRequest;

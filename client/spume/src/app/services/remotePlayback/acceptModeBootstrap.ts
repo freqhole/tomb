@@ -30,6 +30,9 @@ import { spumeSessionStore } from "./playerSessionAdapter";
 import { getSpumeHelloInfo } from "./spumeHelloRoute";
 import { isRemotePlaybackEnabled } from "./remoteModeSettings";
 import { registerBrowserApiRoutes } from "../../../lib/api/router";
+import { isCharnelMode } from "../charnel/mode";
+import { isRodioEnabled } from "../../../music/services/audio/select";
+import { charnelPlaybackAdapter } from "./charnelPlaybackAdapter";
 
 /** the node shape this module's two accept-loop handlers actually need.
  * `getMiddenNode()`'s declared return type (`MiddenNodeLike`, from
@@ -86,7 +89,12 @@ export function initRemotePlaybackAcceptMode(node: MiddenNodeLike): void {
   void initSessionSignal(spumeSessionStore);
 
   const playerHandler = createPlayerConnectionHandler<AcceptModeNode>({
-    backend: mediaPlaybackBackend,
+    // charnel/linux with the rodio+gst opt-in on: drive spume's real
+    // player instead of cenotaph's own DOM <video>/<audio> engine (see
+    // docs/cenotaph-linux-experimental-player-plan.md). plain browser/
+    // wasm mode (or charnel with rodio off) keeps cenotaph's own backend,
+    // unchanged.
+    backend: isCharnelMode() && isRodioEnabled() ? charnelPlaybackAdapter : mediaPlaybackBackend,
     trustStore: spumeTrustStore,
     sessionStore: spumeSessionStore,
     // only actually accept playback commands while this tab is showing

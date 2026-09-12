@@ -76,6 +76,10 @@ pub enum SlashAction {
     /// `freqhole-player/1` alpn listener on first use if it isn't
     /// already running.
     Player,
+    /// same as `Player`, but opens directly to the settings sub-view
+    /// (session mode, regenerate pin, audio device, autostart, image
+    /// mode, control socket) instead of the qr/pin overview.
+    PlayerSettings,
     /// list locally-downloaded songs in the music view (recent first).
     Local,
     /// switch focus to the admin palette and reveal the commands
@@ -178,10 +182,14 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ("prev", "/prev              skip to previous track"),
     ("seek", "/seek <m:ss|sec>   seek to position"),
     ("vol", "/vol <0-200>       set volume percent"),
-     ("music", "/music             focus music view"),
+    ("music", "/music             focus music view"),
     (
         "player",
         "/player            cenotaph-compatible pairing view (qr/pin)",
+    ),
+    (
+        "player-settings",
+        "/player-settings   pairing view, opened to settings",
     ),
     ("local", "/local             list local downloaded songs"),
     (
@@ -527,6 +535,7 @@ pub fn parse(input: &str) -> SlashAction {
         },
         "music" | "m" => SlashAction::Music,
         "player" | "pair" | "pairing" => SlashAction::Player,
+        "player-settings" | "playersettings" | "pairsettings" => SlashAction::PlayerSettings,
         "local" | "l" => SlashAction::Local,
         "fetch" | "dl" | "download" | "yt" => match arg.as_deref().map(str::trim) {
             Some(url) if !url.is_empty() => SlashAction::AdminDispatch {
