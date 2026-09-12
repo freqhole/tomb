@@ -21,7 +21,6 @@ use crate::ratcore::app::{
 };
 use crate::ratcore::transport::{PlayerCmd, VideoPlayer};
 
-use super::media::resolve_media_ref_with_progress;
 use super::now_ms;
 
 /// which backend a generic (kind-less) command like pause/resume/seek
@@ -72,7 +71,10 @@ pub fn queue_entry_to_media_ref(entry: &QueueEntry) -> MediaRef {
     match entry {
         QueueEntry::Song(song) => MediaRef {
             source_peer_addr: String::new(),
-            blake3_hash: song.media_blob_id.clone().unwrap_or_else(|| song.id.clone()),
+            blake3_hash: song
+                .media_blob_id
+                .clone()
+                .unwrap_or_else(|| song.id.clone()),
             size_bytes: None,
             duration_ms: song.duration_ms,
             mime_type: None,
@@ -84,7 +86,10 @@ pub fn queue_entry_to_media_ref(entry: &QueueEntry) -> MediaRef {
         },
         QueueEntry::Video(video) => MediaRef {
             source_peer_addr: String::new(),
-            blake3_hash: video.media_blob_id.clone().unwrap_or_else(|| video.id.clone()),
+            blake3_hash: video
+                .media_blob_id
+                .clone()
+                .unwrap_or_else(|| video.id.clone()),
             size_bytes: None,
             duration_ms: video.duration_ms,
             mime_type: None,
@@ -97,27 +102,37 @@ pub fn queue_entry_to_media_ref(entry: &QueueEntry) -> MediaRef {
     }
 }
 
-/// converts an already-resolved (local file path in hand) wire
-/// `MediaRef` into a unified queue entry - the reverse of
-/// `queue_entry_to_media_ref`.
-fn media_ref_to_queue_entry(media: &MediaRef, resolved_path: String) -> QueueEntry {
-    let title = media.title.clone().unwrap_or_else(|| "untitled".to_string());
+/// converts a freshly-imported (real library song/video, not a
+/// throwaway cache file) wire `MediaRef` into a unified queue entry -
+/// see `super::import::import_pushed_media`'s module doc for why this
+/// replaced the old cache-only resolve+wrap approach.
+fn media_ref_to_queue_entry(
+    media: &MediaRef,
+    imported: super::import::ImportedMedia,
+) -> QueueEntry {
+    let title = media
+        .title
+        .clone()
+        .unwrap_or_else(|| "untitled".to_string());
     match media.kind.unwrap_or(MediaKind::Audio) {
         MediaKind::Audio => QueueEntry::Song(SongRow {
-            id: media.blake3_hash.clone(),
+            id: imported.entity_id,
             title,
             artist: media.artist.clone(),
             album: None,
             album_id: None,
             artist_id: None,
             duration_ms: media.duration_ms,
-            media_blob_id: None,
-            local_path: Some(resolved_path),
-            // remote-pushed entries have no locally-resolvable art
-            // blob id - the source peer's MediaRef carries thumb/full
-            // art *urls* instead (usually a `data:` url with embedded
-            // bytes - see `art_url`'s own doc comment), resolved
-            // separately by `tty::queue::resolve_song_art`.
+            media_blob_id: Some(imported.media_blob_id),
+            local_path: Some(imported.local_path),
+            // a freshly-imported song's own thumbnail/waveform
+            // extraction may not have finished synchronously yet (or
+            // may be job-based, which rathole doesn't run a processor
+            // for) - `art_url` (the source peer's thumb/full art,
+            // usually a `data:` url) covers art for THIS playback
+            // regardless; browsing this song normally later (now a
+            // real library entry) will pick up `art_blob_ids` the
+            // usual way once/if extraction has landed.
             art_blob_ids: Vec::new(),
             art_url: media
                 .artwork_full_url
@@ -125,11 +140,11 @@ fn media_ref_to_queue_entry(media: &MediaRef, resolved_path: String) -> QueueEnt
                 .or_else(|| media.artwork_thumb_url.clone()),
         }),
         MediaKind::Video => QueueEntry::Video(QueuedVideoRow {
-            id: media.blake3_hash.clone(),
+            id: imported.entity_id,
             title,
             duration_ms: media.duration_ms,
-            media_blob_id: None,
-            local_path: Some(resolved_path),
+            media_blob_id: Some(imported.media_blob_id),
+            local_path: Some(imported.local_path),
         }),
     }
 }
@@ -148,11 +163,21 @@ pub async fn dispatch_pairing_command(ctx: DispatchContext, command: PairingComm
         PairingCommand::ReplaceQueue { items } => replace_queue(&ctx, items).await,
         PairingCommand::AppendQueue { items } => append_queue(&ctx, items).await,
         PairingCommand::Pause => {
-            send_generic(&ctx, PlayerCmd::Pause, crate::ratcore::app::VideoCommand::Pause).await;
+            send_generic(
+                &ctx,
+                PlayerCmd::Pause,
+                crate::ratcore::app::VideoCommand::Pause,
+            )
+            .await;
             status_ack(&ctx, None)
         }
         PairingCommand::Resume => {
-            send_generic(&ctx, PlayerCmd::Play, crate::ratcore::app::VideoCommand::Play).await;
+            send_generic(
+                &ctx,
+                PlayerCmd::Play,
+                crate::ratcore::app::VideoCommand::Play,
+            )
+            .await;
             status_ack(&ctx, None)
         }
         PairingCommand::Seek { position_ms } => {
@@ -167,7 +192,12 @@ pub async fn dispatch_pairing_command(ctx: DispatchContext, command: PairingComm
             status_ack(&ctx, None)
         }
         PairingCommand::Stop => {
-            send_generic(&ctx, PlayerCmd::Stop, crate::ratcore::app::VideoCommand::Close).await;
+            send_generic(
+                &ctx,
+                PlayerCmd::Stop,
+                crate::ratcore::app::VideoCommand::Close,
+            )
+            .await;
             status_ack(&ctx, None)
         }
         PairingCommand::SetVolume { volume } => {
@@ -260,25 +290,85 @@ fn queue_progress_reporter(
     })
 }
 
-/// resolves each item to a local file path and a unified queue entry
-/// (audio or video - see `QueueEntry`), in original order. skips (with
-/// a warning) any item that fails to resolve, best-effort rather than
-/// all-or-nothing so one broken/unreachable track doesn't drop an
-/// otherwise-good queue push. reports live byte progress per item via
+/// which unified-queue action `resolve_queue_items` should send for
+/// each item as it finishes resolving (see the function's own doc).
+#[derive(Clone, Copy)]
+enum DeliveryMode {
+    /// the first resolved item replaces the queue (and starts
+    /// playback); every item after that appends.
+    ReplaceFirstThenAppend,
+    /// every resolved item appends, never replaces.
+    AlwaysAppend,
+}
+
+/// resolves each item to a real local library entry and a unified
+/// queue entry (audio or video - see `QueueEntry`), in original order
+/// - see `super::import::import_pushed_media`. skips (with a warning)
+/// any item that fails to import, best-effort rather than all-or-
+/// nothing so one broken/unreachable track doesn't drop an otherwise-
+/// good queue push. reports live byte progress per item via
 /// `ctx.action_tx` for the tui's download indicator.
-async fn resolve_queue_items(ctx: &DispatchContext, items: Vec<MediaRef>) -> Vec<QueueEntry> {
+///
+/// delivers each item to the unified queue AS SOON AS IT RESOLVES
+/// (via `mode`), rather than waiting for the whole batch - a queue
+/// push with several large/slow files could otherwise leave the tui's
+/// queue view completely empty (and playback not started) for a
+/// minute or more. the returned `Vec` is still the full resolved set,
+/// used by the caller only to build the wire ack's status snapshot.
+async fn resolve_queue_items(
+    ctx: &DispatchContext,
+    items: Vec<MediaRef>,
+    mode: DeliveryMode,
+) -> Vec<QueueEntry> {
     let item_count = items.len();
     let mut entries = Vec::with_capacity(item_count);
+    let mut sent_first = false;
     for (item_index, item) in items.into_iter().enumerate() {
-        let reporter =
-            queue_progress_reporter(ctx, item_index, item_count, item.title.clone(), item.size_bytes);
+        let reporter = queue_progress_reporter(
+            ctx,
+            item_index,
+            item_count,
+            item.title.clone(),
+            item.size_bytes,
+        );
         let on_progress = reporter
             .as_ref()
             .map(|f| f as &grimoire::federation::p2p_client::BlobProgressFn);
-        match resolve_media_ref_with_progress(&item, on_progress).await {
-            Ok(path) => entries.push(media_ref_to_queue_entry(&item, path)),
+        let kind = item.kind.unwrap_or(MediaKind::Audio);
+        let filename = item
+            .title
+            .clone()
+            .unwrap_or_else(|| item.blake3_hash.clone());
+        match super::import::import_pushed_media(
+            &item.source_peer_addr,
+            &item.blake3_hash,
+            &filename,
+            item.size_bytes,
+            kind,
+            on_progress,
+        )
+        .await
+        {
+            Ok(imported) => {
+                let entry = media_ref_to_queue_entry(&item, imported);
+                if let Some(tx) = &ctx.action_tx {
+                    let action = match (mode, sent_first) {
+                        (DeliveryMode::ReplaceFirstThenAppend, false) => {
+                            AppAction::PairingReplaceQueue {
+                                entries: vec![entry.clone()],
+                            }
+                        }
+                        _ => AppAction::PairingAppendQueue {
+                            entries: vec![entry.clone()],
+                        },
+                    };
+                    let _ = tx.send(action);
+                }
+                sent_first = true;
+                entries.push(entry);
+            }
             Err(e) => {
-                warn!(target: "player_protocol", error = %e, "failed to resolve queued media ref, skipping")
+                warn!(target: "player_protocol", error = %e, "failed to import queued media ref, skipping")
             }
         }
     }
@@ -286,16 +376,17 @@ async fn resolve_queue_items(ctx: &DispatchContext, items: Vec<MediaRef>) -> Vec
     entries
 }
 
-/// replaces rathole's unified play queue with `items` and starts
-/// playing from the first one - via `AppAction::PairingReplaceQueue`,
-/// so this goes through the exact same `tty::queue::set_queue_entries`
-/// path a local queue replace does. a queue can be audio-only,
-/// video-only, or a genuine mix of both.
+/// replaces rathole's unified play queue with `items`, starting
+/// playback from the first item as soon as IT resolves (not waiting
+/// for the whole batch - see `resolve_queue_items`'s doc comment).
+/// goes through the exact same `tty::queue::set_queue_entries`/
+/// `append_queue_entries` path a local queue replace/append does. a
+/// queue can be audio-only, video-only, or a genuine mix of both.
 async fn replace_queue(ctx: &DispatchContext, items: Vec<MediaRef>) -> CommandAck {
     if items.is_empty() {
         return status_ack(ctx, None);
     }
-    let entries = resolve_queue_items(ctx, items).await;
+    let entries = resolve_queue_items(ctx, items, DeliveryMode::ReplaceFirstThenAppend).await;
     if entries.is_empty() {
         return status_ack(
             ctx,
@@ -306,9 +397,6 @@ async fn replace_queue(ctx: &DispatchContext, items: Vec<MediaRef>) -> CommandAc
         );
     }
     let fresh_queue: Vec<MediaRef> = entries.iter().map(queue_entry_to_media_ref).collect();
-    if let Some(tx) = &ctx.action_tx {
-        let _ = tx.send(AppAction::PairingReplaceQueue { entries });
-    }
     // built directly from what was just resolved (not `ctx.
     // queue_snapshot`, a stale pre-dispatch snapshot) so the
     // controller sees the new queue immediately rather than waiting
@@ -326,13 +414,15 @@ async fn replace_queue(ctx: &DispatchContext, items: Vec<MediaRef>) -> CommandAc
 }
 
 /// appends `items` to rathole's unified play queue without disturbing
-/// what's currently playing - via `AppAction::PairingAppendQueue`, the
-/// same path a local queue append uses.
+/// what's currently playing, each item appended as soon as IT resolves
+/// (not waiting for the whole batch - see `resolve_queue_items`'s doc
+/// comment) - the same `tty::queue::append_queue_entries` path a local
+/// queue append uses.
 async fn append_queue(ctx: &DispatchContext, items: Vec<MediaRef>) -> CommandAck {
     if items.is_empty() {
         return status_ack(ctx, None);
     }
-    let entries = resolve_queue_items(ctx, items).await;
+    let entries = resolve_queue_items(ctx, items, DeliveryMode::AlwaysAppend).await;
     if entries.is_empty() {
         return status_ack(
             ctx,
@@ -344,9 +434,6 @@ async fn append_queue(ctx: &DispatchContext, items: Vec<MediaRef>) -> CommandAck
     }
     let mut combined_queue = ctx.queue_snapshot.clone();
     combined_queue.extend(entries.iter().map(queue_entry_to_media_ref));
-    if let Some(tx) = &ctx.action_tx {
-        let _ = tx.send(AppAction::PairingAppendQueue { entries });
-    }
     status_with_common(
         ctx,
         StatusCommon {
@@ -485,11 +572,9 @@ mod tests {
 
     #[tokio::test]
     async fn replace_queue_with_no_items_is_a_no_op_ok_ack() {
-        let ack = dispatch_pairing_command(
-            empty_ctx(),
-            PairingCommand::ReplaceQueue { items: vec![] },
-        )
-        .await;
+        let ack =
+            dispatch_pairing_command(empty_ctx(), PairingCommand::ReplaceQueue { items: vec![] })
+                .await;
         assert!(ack.ok);
     }
 }

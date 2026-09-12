@@ -6,7 +6,8 @@
 //! - overview: tab: player-row controls   s: settings   d/↑/↓: pick connected controller
 //!   y/n: confirm/cancel removing the picked controller   esc: home
 //! - settings: tab: player-row controls   s: overview   e: toggle everyone/selected mode
-//!   a: regenerate admin pin   r: regenerate session pin   esc: home
+//!   a: regenerate admin pin   r: regenerate session pin   p: toggle autostart
+//!   i: toggle qr/art display mode   u: toggle unix control socket   esc: home
 
 use ratatui::{
     layout::{Alignment, Constraint::*, Layout, Rect},
@@ -18,7 +19,7 @@ use ratatui::{
 use tui_big_text::{BigText, PixelSize};
 
 use crate::ratcore::app::{App, PairingViewMode, SessionMode};
-use crate::ratcore::theme::ACCENT;
+use crate::ratcore::theme::{ACCENT, ACCENT_SECONDARY};
 
 pub fn draw(frame: &mut Frame, area: Rect, app: &mut App) {
     match app.state.ephemeral.player_pairing.mode {
@@ -83,7 +84,7 @@ fn spaced_pin(pin: &str) -> String {
 
 fn draw_overview(frame: &mut Frame, area: Rect, app: &mut App) {
     let snapshot = app.pairing.as_ref().map(|p| p.snapshot());
-    let [left, right] = Layout::horizontal([Percentage(38), Percentage(62)]).areas(area);
+    let [left, right] = Layout::horizontal([Percentage(48), Percentage(52)]).areas(area);
 
     let outer_block = Block::bordered().title(Span::styled(
         "pair a device",
@@ -411,7 +412,7 @@ fn draw_queue_glance(frame: &mut Frame, area: Rect, app: &App) {
                     Some(layout) => {
                         let big = BigText::builder()
                             .pixel_size(layout.pixel_size)
-                            .style(Style::new().fg(ACCENT))
+                            .style(Style::new().fg(ACCENT_SECONDARY))
                             .alignment(Alignment::Center)
                             .lines(vec![Line::from(artist.to_string())])
                             .build();
@@ -419,7 +420,7 @@ fn draw_queue_glance(frame: &mut Frame, area: Rect, app: &App) {
                     }
                     None => {
                         frame.render_widget(
-                            Paragraph::new(Line::from(artist.to_string()).dim())
+                            Paragraph::new(Line::from(artist.to_string()).fg(ACCENT_SECONDARY))
                                 .alignment(Alignment::Center),
                             artist_area,
                         );
@@ -428,7 +429,8 @@ fn draw_queue_glance(frame: &mut Frame, area: Rect, app: &App) {
             }
             if let Some(album) = entry.album() {
                 frame.render_widget(
-                    Paragraph::new(Line::from(album.to_string()).dim()).alignment(Alignment::Center),
+                    Paragraph::new(Line::from(album.to_string()).fg(ACCENT_SECONDARY).dim())
+                        .alignment(Alignment::Center),
                     album_area,
                 );
             }
@@ -574,6 +576,11 @@ fn draw_settings(frame: &mut Frame, area: Rect, app: &mut App) {
         crate::ratcore::app::ImageMode::Terminal => "terminal (unicode)",
         crate::ratcore::app::ImageMode::Framebuffer => "framebuffer (mpv, raster)",
     };
+    let control_socket_label = if app.state.ephemeral.player_pairing.control_socket_enabled {
+        "enabled"
+    } else {
+        "disabled"
+    };
     let items = [
         format!("session mode: {mode_label}   (e: toggle)"),
         "regenerate admin pairing code   (a)".to_string(),
@@ -584,6 +591,7 @@ fn draw_settings(frame: &mut Frame, area: Rect, app: &mut App) {
         ),
         format!("auto-start pairing on launch: {autostart_label}   (p: toggle)"),
         format!("qr/art display: {image_mode_label}   (i: toggle)"),
+        format!("unix control socket: {control_socket_label}   (u: toggle, next launch)"),
     ];
     let list_items: Vec<ListItem> = items
         .iter()

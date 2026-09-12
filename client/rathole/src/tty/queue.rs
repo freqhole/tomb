@@ -113,11 +113,12 @@ fn push_history(m: &mut crate::ratcore::app::MusicState, mut played: Vec<QueueEn
 }
 
 /// rodio couldn't decode the current queue entry's song (e.g. opus-in-
-/// webm, unsupported by rodio's symphonia backend) - try it through mpv
-/// instead (audio-only: mpv was spawned with `--force-window=no` and
-/// this file has no video track, so no window opens). advances to the
-/// next queue entry instead if there's no mpv backend, no current song,
-/// or resolving the path fails again.
+/// webm, or `.m4a` - blocked outright for rodio, see
+/// `is_known_unplayable` - unsupported by rodio's symphonia backend)
+/// - try it through mpv instead (audio-only: mpv was spawned with
+/// `--force-window=no` and this file has no video track, so no window
+/// opens). advances to the next queue entry instead if there's no mpv
+/// backend, no current song, or resolving the path fails again.
 pub fn try_mpv_audio_fallback(app: &mut App, tx: &mpsc::UnboundedSender<AppAction>) {
     app.state.ephemeral.music.pending_rodio_song_id = None;
     let Some(row) = app
@@ -148,7 +149,7 @@ pub fn try_mpv_audio_fallback(app: &mut App, tx: &mpsc::UnboundedSender<AppActio
     let title = row.title.clone();
     let tx = tx.clone();
     tokio::task::spawn_local(async move {
-        let Some(path) = resolve_playable_path(&row).await else {
+        let Some(path) = resolve_song_path(&row).await else {
             let _ = tx.send(AppAction::VideoPlayerEvent(VideoEvent::Error {
                 message: format!("mpv fallback: no playable file for {title} (skipping)"),
             }));
@@ -388,21 +389,29 @@ pub fn append_queue_entries(
     }
 }
 
+/// resolve a row's playable file path (local_path or media_blob),
+/// with no rodio-specific filtering - shared by `resolve_playable_path`
+/// (rodio path, applies the blocklist below) and the mpv fallback
+/// (mpv doesn't have rodio's m4a bug, so it must NOT apply that
+/// blocklist too - `try_mpv_audio_fallback` calling the blocklisted
+/// version here was a real bug: it made an m4a track un-fallback-able,
+/// blocked twice in a row instead of once).
+async fn resolve_song_path(s: &SongRow) -> Option<String> {
+    if let Some(p) = s.local_path.clone() {
+        return Some(p);
+    }
+    let blob_id = s.media_blob_id.as_deref()?;
+    super::player::resolve_paths(&[blob_id.to_string()])
+        .await
+        .into_iter()
+        .next()
+}
+
 /// resolve a row's playable file path (local_path or media_blob).
 /// also filters out file extensions known to crash rodio 0.20's
 /// symphonia adapter on init seek (currently `.m4a`).
 async fn resolve_playable_path(s: &SongRow) -> Option<String> {
-    let candidate = if let Some(p) = s.local_path.clone() {
-        Some(p)
-    } else if let Some(blob_id) = s.media_blob_id.as_deref() {
-        super::player::resolve_paths(&[blob_id.to_string()])
-            .await
-            .into_iter()
-            .next()
-    } else {
-        None
-    };
-    let path = candidate?;
+    let path = resolve_song_path(s).await?;
     if is_known_unplayable(&path) {
         tracing::warn!(
             target: "rathole::tty::player",
@@ -490,6 +499,24 @@ pub fn is_currently_playing(app: &App) -> bool {
         app.state.ephemeral.video_player.state == VideoPlaybackState::Playing
     } else {
         app.state.ephemeral.music.player_state == PlayerState::Playing
+    }
+}
+
+/// current playback position/duration in ms from whichever backend is
+/// actually active (see `active_playback_is_video`) - mpv reports its
+/// own position/duration separately from rodio's `MusicState` fields,
+/// which otherwise sit frozen at whatever they last held while a
+/// video (or an mpv audio-fallback) is playing.
+pub fn current_position_and_duration_ms(app: &App) -> (u64, u64) {
+    if active_playback_is_video(app) {
+        let vp = &app.state.ephemeral.video_player;
+        (
+            (vp.position * 1000.0).round() as u64,
+            vp.duration.map(|d| (d * 1000.0).round() as u64).unwrap_or(0),
+        )
+    } else {
+        let m = &app.state.ephemeral.music;
+        (m.position_ms, m.duration_ms)
     }
 }
 

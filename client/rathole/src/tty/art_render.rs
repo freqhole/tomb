@@ -63,10 +63,30 @@ pub fn draw_art(frame: &mut Frame, area: Rect, path: &str) -> bool {
     }
     CACHE.with(|c| {
         if let Some(cached) = c.borrow().as_ref() {
-            frame.render_widget(Image::new(&cached.protocol), area);
+            // `Resize::Fit` preserves aspect ratio, so the built
+            // protocol is often smaller than `area` in one dimension -
+            // the `Image` widget itself always draws from `area`'s
+            // top-left corner, so without this the art visibly hugs
+            // one edge instead of sitting centered in its panel.
+            let render_area = center_in(area, cached.protocol.size());
+            frame.render_widget(Image::new(&cached.protocol), render_area);
         }
     });
     true
+}
+
+/// centers a `size`-shaped rect within `area`, clamping to `area`'s
+/// bounds if `size` is somehow larger (shouldn't happen - the
+/// protocol was built to fit `area` in the first place).
+fn center_in(area: Rect, size: Size) -> Rect {
+    let width = size.width.min(area.width);
+    let height = size.height.min(area.height);
+    Rect {
+        x: area.x + (area.width.saturating_sub(width)) / 2,
+        y: area.y + (area.height.saturating_sub(height)) / 2,
+        width,
+        height,
+    }
 }
 
 fn build_protocol(path: &str, area: Rect) -> Option<Protocol> {

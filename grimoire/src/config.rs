@@ -67,6 +67,15 @@ pub struct GrimoireConfig {
     #[serde(default)]
     pub player_pairing: PlayerPairingConfig,
 
+    /// rathole-only: listens on a local unix domain socket for simple
+    /// newline-delimited media-control commands (e.g. physical buttons
+    /// wired to a raspberry pi, forwarded by a small script that writes
+    /// to the socket). off by default - opt in by adding
+    /// `[control_socket]\nenabled = true` to the config. no network
+    /// exposure risk (filesystem-permission-gated, local machine only).
+    #[serde(default)]
+    pub control_socket: ControlSocketConfig,
+
     /// new-version update checks (queries github releases). off by default;
     /// opt-in via the setup wizard or by adding `[updates]\nenabled = true`.
     #[serde(default)]
@@ -165,6 +174,17 @@ pub enum ImageDisplayMode {
     #[default]
     Terminal,
     Framebuffer,
+}
+
+/// see [`GrimoireConfig::control_socket`].
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ControlSocketConfig {
+    /// enable the unix domain socket media-control listener (default `false`).
+    #[serde(default)]
+    pub enabled: bool,
+    /// socket path - defaults to `{data_dir}/rathole/control.sock` when unset.
+    #[serde(default)]
+    pub socket_path: Option<String>,
 }
 
 /// new-version update check configuration. when enabled, the app
@@ -1089,6 +1109,7 @@ pub fn init_config_for_tests() {
         audio: AudioConfig::default(),
         video: VideoConfig::default(),
         player_pairing: PlayerPairingConfig::default(),
+        control_socket: ControlSocketConfig::default(),
         updates: UpdatesConfig::default(),
         loaded_from: None,
     };
@@ -1615,6 +1636,13 @@ pub fn set_player_pairing_enabled(config_path: &Path, enabled: bool) -> Result<(
 }
 
 /// convenience wrapper for rathole's player-pairing settings screen:
+/// persist [`ControlSocketConfig::enabled`] - takes effect on the next
+/// launch (the listener isn't live start/stop-able mid-session today).
+pub fn set_control_socket_enabled(config_path: &Path, enabled: bool) -> Result<(), ConfigError> {
+    set_config_values(config_path, &[("control_socket.enabled", enabled.into())])
+}
+
+/// convenience wrapper for rathole's player-pairing settings screen:
 /// persist [`PlayerPairingConfig::image_mode`] ("terminal" or
 /// "framebuffer") - takes effect immediately (no restart needed), since
 /// the pairing view reads `get_config()` fresh on every render.
@@ -2083,6 +2111,7 @@ mod tests {
             audio: AudioConfig::default(),
             video: VideoConfig::default(),
             player_pairing: PlayerPairingConfig::default(),
+            control_socket: ControlSocketConfig::default(),
             updates: UpdatesConfig::default(),
             loaded_from: None,
         };
@@ -2137,6 +2166,7 @@ mod tests {
             audio: AudioConfig::default(),
             video: VideoConfig::default(),
             player_pairing: PlayerPairingConfig::default(),
+            control_socket: ControlSocketConfig::default(),
             updates: UpdatesConfig::default(),
             loaded_from: None,
         };
@@ -2189,6 +2219,7 @@ mod tests {
             audio: AudioConfig::default(),
             video: VideoConfig::default(),
             player_pairing: PlayerPairingConfig::default(),
+            control_socket: ControlSocketConfig::default(),
             updates: UpdatesConfig::default(),
             loaded_from: None,
         };

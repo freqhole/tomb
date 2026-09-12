@@ -199,6 +199,10 @@ impl PullAudioBlobError {
 ///   8. `create_media_blob` (with sha256 dedupe)
 ///   9. rename temp file → `{output_dir}/{year}/{month}/{blob_id}.{ext}`
 ///
+/// `on_progress`, if given, receives cumulative downloaded byte counts during
+/// step 3 - for callers (e.g. rathole's player tui) rendering a live download
+/// indicator.
+///
 /// caller is responsible for: role checks, transport node_id extraction,
 /// follow-up work (importmusic job creation, song stub creation, etc).
 pub async fn pull_audio_blob_to_local_storage(
@@ -209,6 +213,32 @@ pub async fn pull_audio_blob_to_local_storage(
     filename: &str,
     caller: &Caller,
     domain: MediaDomain,
+) -> Result<PullAudioBlobResult, PullAudioBlobError> {
+    pull_audio_blob_to_local_storage_with_progress(
+        source_node_id,
+        blake3,
+        expected_sha256,
+        expected_size,
+        filename,
+        caller,
+        domain,
+        None,
+    )
+    .await
+}
+
+/// `pull_audio_blob_to_local_storage` with an optional cumulative-bytes
+/// progress callback forwarded to the underlying p2p fetch (step 3).
+#[allow(clippy::too_many_arguments)]
+pub async fn pull_audio_blob_to_local_storage_with_progress(
+    source_node_id: &str,
+    blake3: &str,
+    expected_sha256: Option<&str>,
+    expected_size: Option<u64>,
+    filename: &str,
+    caller: &Caller,
+    domain: MediaDomain,
+    on_progress: Option<&crate::federation::p2p_client::BlobProgressFn>,
 ) -> Result<PullAudioBlobResult, PullAudioBlobError> {
     // 1. validate blake3 hash format (64 hex chars)
     if blake3.len() != 64 || !blake3.chars().all(|c| c.is_ascii_hexdigit()) {
@@ -291,8 +321,12 @@ pub async fn pull_audio_blob_to_local_storage(
         }
     }
 
-    let fetch_future =
-        p2p_client::fetch_blob_verified_to_file_with_ensure(source_node_id, blake3, &temp_path);
+    let fetch_future = p2p_client::fetch_blob_verified_to_file_with_ensure_and_progress(
+        source_node_id,
+        blake3,
+        &temp_path,
+        on_progress,
+    );
     let file_size = match tokio::time::timeout(Duration::from_secs(120), fetch_future).await {
         Ok(Ok(size)) => {
             tracing::info!(

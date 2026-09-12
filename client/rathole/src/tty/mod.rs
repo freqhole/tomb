@@ -5,6 +5,7 @@
 
 pub mod art_fetch;
 pub mod art_render;
+mod control_socket;
 pub mod pairing;
 pub mod pending_remotes;
 mod persist;

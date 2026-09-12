@@ -13,7 +13,10 @@
 //! - [`endpoint`] — the iroh endpoint/router startup + the alpn
 //!   protocol handler (pairing handshake, presence, subscribe, control
 //!   command loop framing).
-//! - [`media`] — resolving a `MediaRef` to a local playable file path.
+//! - [`import`] — pulling a `MediaRef` from its source peer and
+//!   importing it into the local grimoire library (real song/video +
+//!   media_blob rows), reusing the same pull/import primitives a
+//!   normal upload or file scan uses.
 //! - [`dispatch`] — mapping an authorized `PairingCommand` onto
 //!   rathole's real `PlayerCmd`/`VideoCommand` backends, and the
 //!   `MediaRef` <-> `ratcore::app::QueueEntry` conversions that keep
@@ -48,14 +51,13 @@
 
 mod dispatch;
 mod endpoint;
-mod media;
+mod import;
 mod state;
 
 pub use dispatch::{dispatch_pairing_command, queue_entry_to_media_ref, ActiveBackend, DispatchContext};
 pub use endpoint::{
     PairingDispatchRequest, PairingDispatchRx, PairingDispatchTx, PairingRuntime, PlayerProtocol,
 };
-pub use media::{resolve_media_ref, resolve_media_ref_with_progress};
 pub use state::{
     load_pairing_state, sync_pairing_state_to_persisted, PairingRuntimeState, PairingStateHandle,
     SharedPairingState,

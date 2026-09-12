@@ -600,6 +600,12 @@ pub struct PairingViewState {
     /// mirrors `grimoire::config::PlayerPairingConfig::image_mode` -
     /// same portable-mirror reasoning as `autostart_enabled`.
     pub image_mode: ImageMode,
+    /// mirrors `grimoire::config::ControlSocketConfig::enabled` - same
+    /// portable-mirror reasoning as `autostart_enabled`. toggling this
+    /// only persists the config (takes effect on next launch, see
+    /// `grimoire::config::set_control_socket_enabled`'s doc comment) -
+    /// it does not live start/stop the listener.
+    pub control_socket_enabled: bool,
 }
 
 /// portable mirror of `grimoire::config::ImageDisplayMode` - see

@@ -48,11 +48,36 @@ pub fn draw(frame: &mut Frame, area: Rect, app: &App) {
     let m = &app.state.ephemeral.music;
     let now = m.currently_playing();
 
-    let state_glyph = match m.player_state {
-        PlayerState::Stopped => "■",
-        PlayerState::Loading => "…",
-        PlayerState::Playing => "▶",
-        PlayerState::Paused => "⏸",
+    // mpv (real video, or an audio-fallback for a song rodio couldn't
+    // decode - see `tty::queue::try_mpv_audio_fallback`) reports its
+    // own state/position/duration separately from rodio's `MusicState`
+    // fields, which otherwise sit frozen at whatever they last held.
+    let video_active = m.queue_video_active || m.audio_fallback_active;
+    let vp = &app.state.ephemeral.video_player;
+    let state_glyph = if video_active {
+        match vp.state {
+            crate::ratcore::app::VideoPlaybackState::Idle
+            | crate::ratcore::app::VideoPlaybackState::Ended => "■",
+            crate::ratcore::app::VideoPlaybackState::Loading => "…",
+            crate::ratcore::app::VideoPlaybackState::Playing => "▶",
+            crate::ratcore::app::VideoPlaybackState::Paused => "⏸",
+            crate::ratcore::app::VideoPlaybackState::Error => "✕",
+        }
+    } else {
+        match m.player_state {
+            PlayerState::Stopped => "■",
+            PlayerState::Loading => "…",
+            PlayerState::Playing => "▶",
+            PlayerState::Paused => "⏸",
+        }
+    };
+    let (position_ms, duration_ms) = if video_active {
+        (
+            (vp.position * 1000.0).round() as u64,
+            vp.duration.map(|d| (d * 1000.0).round() as u64).unwrap_or(0),
+        )
+    } else {
+        (m.position_ms, m.duration_ms)
     };
 
     let title = now
@@ -104,15 +129,15 @@ pub fn draw(frame: &mut Frame, area: Rect, app: &App) {
     let line1 = Line::from(spans);
 
     // line 2: position, progress bar, total.
-    let pos = fmt_ms(m.position_ms);
-    let total = if m.duration_ms > 0 {
-        fmt_ms(m.duration_ms)
+    let pos = fmt_ms(position_ms);
+    let total = if duration_ms > 0 {
+        fmt_ms(duration_ms)
     } else {
         "--:--".into()
     };
     // bar width = full area - " 00:00 " (7) - " 00:00 " (7) - 2 padding.
     let bar_width = (area.width as usize).saturating_sub(16);
-    let bar = progress_bar(m.position_ms, m.duration_ms, bar_width);
+    let bar = progress_bar(position_ms, duration_ms, bar_width);
     let line2 = Line::from(vec![
         Span::raw(format!(" {pos} ")).dim(),
         Span::styled(bar, Style::new().fg(ACCENT)),

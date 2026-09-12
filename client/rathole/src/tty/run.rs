@@ -172,6 +172,8 @@ async fn run_inner(
         mpsc::unbounded_channel::<super::pairing::PairingDispatchRequest>();
     let pairing_runtime = super::pairing::PairingRuntime::new(pairing_state.clone(), pairing_tx);
     app = app.with_pairing(Rc::new(super::pairing::PairingStateHandle(pairing_state)));
+    let (control_tx, mut control_rx) =
+        mpsc::unbounded_channel::<super::control_socket::ControlSocketRequest>();
     let federation_enabled = grimoire::config::get_config()
         .federation
         .as_ref()
@@ -179,6 +181,8 @@ async fn run_inner(
         .unwrap_or(false);
     let player_pairing_enabled = grimoire::config::get_config().player_pairing.enabled;
     app.state.ephemeral.player_pairing.autostart_enabled = player_pairing_enabled;
+    app.state.ephemeral.player_pairing.control_socket_enabled =
+        grimoire::config::get_config().control_socket.enabled;
     app.state.ephemeral.player_pairing.image_mode = match grimoire::config::get_config()
         .player_pairing
         .image_mode
@@ -188,6 +192,7 @@ async fn run_inner(
             crate::ratcore::app::ImageMode::Framebuffer
         }
     };
+    super::control_socket::maybe_spawn(control_tx);
     if opts.player {
         app.state.ephemeral.focus = Focus::PlayerPairing;
     }
@@ -489,6 +494,9 @@ async fn run_inner(
             }
             Some(req) = pairing_rx.recv() => {
                 handle_pairing_dispatch(&app, req, &action_tx);
+            }
+            Some(req) = control_rx.recv() => {
+                handle_control_socket_request(&mut app, req, &action_tx);
             }
         }
     }
@@ -3177,7 +3185,7 @@ fn on_player_pairing_key(
         }
         (PairingViewMode::Settings, KeyCode::Down) => {
             let v = &mut app.state.ephemeral.player_pairing;
-            v.settings_cursor = (v.settings_cursor + 1).min(5);
+            v.settings_cursor = (v.settings_cursor + 1).min(6);
         }
         (PairingViewMode::Settings, KeyCode::Up) => {
             let v = &mut app.state.ephemeral.player_pairing;
@@ -3227,6 +3235,31 @@ fn on_player_pairing_key(
                     Err(e) => {
                         app.state.ephemeral.repl.status = Some(ReplStatus::err(format!(
                             "player pairing: failed to update config: {e}"
+                        )));
+                    }
+                },
+            }
+        }
+        (PairingViewMode::Settings, KeyCode::Char('u')) => {
+            let enabled = grimoire::config::get_config().control_socket.enabled;
+            let want = !enabled;
+            match grimoire::config::get_config_path() {
+                None => {
+                    app.state.ephemeral.repl.status = Some(ReplStatus::err(
+                        "control socket: no config file path known; cannot persist",
+                    ));
+                }
+                Some(path) => match grimoire::config::set_control_socket_enabled(&path, want) {
+                    Ok(()) => {
+                        app.state.ephemeral.player_pairing.control_socket_enabled = want;
+                        app.state.ephemeral.repl.status = Some(ReplStatus::ok(format!(
+                            "unix control socket: {} (takes effect on next launch)",
+                            if want { "enabled" } else { "disabled" }
+                        )));
+                    }
+                    Err(e) => {
+                        app.state.ephemeral.repl.status = Some(ReplStatus::err(format!(
+                            "control socket: failed to update config: {e}"
                         )));
                     }
                 },
@@ -3955,6 +3988,195 @@ fn adjust_volume(app: &mut App, delta: f32, tx: &mpsc::UnboundedSender<AppAction
     );
 }
 
+/// applies one command received over the unix control socket (see
+/// `tty::control_socket`) - reuses the exact same helpers the local
+/// player-row key handler does, so a physical button behaves
+/// identically to its keyboard equivalent regardless of whether rodio
+/// or mpv is actually driving playback right now.
+fn apply_control_socket_command(
+    app: &mut App,
+    cmd: super::control_socket::ControlSocketCommand,
+    tx: &mpsc::UnboundedSender<AppAction>,
+) {
+    use super::control_socket::ControlSocketCommand;
+    use crate::ratcore::app::PairingViewMode;
+    use crate::ratcore::transport::PlayerCmd;
+    match cmd {
+        ControlSocketCommand::PlayPause => {
+            if is_currently_playing(app) {
+                send_generic_local(
+                    app,
+                    tx,
+                    PlayerCmd::Pause,
+                    crate::ratcore::app::VideoCommand::Pause,
+                );
+            } else {
+                send_generic_local(
+                    app,
+                    tx,
+                    PlayerCmd::Play,
+                    crate::ratcore::app::VideoCommand::Play,
+                );
+            }
+        }
+        ControlSocketCommand::Next => play_next(app, tx),
+        ControlSocketCommand::Previous => play_previous(app, tx),
+        ControlSocketCommand::VolumeUp => {
+            let v = (app.state.ephemeral.music.volume + 0.05).clamp(0.0, 2.0);
+            app.state.ephemeral.music.volume = v;
+            send_generic_local(
+                app,
+                tx,
+                PlayerCmd::SetVolume(v),
+                crate::ratcore::app::VideoCommand::SetVolume { volume: v as f64 },
+            );
+        }
+        ControlSocketCommand::VolumeDown => {
+            let v = (app.state.ephemeral.music.volume - 0.05).clamp(0.0, 2.0);
+            app.state.ephemeral.music.volume = v;
+            send_generic_local(
+                app,
+                tx,
+                PlayerCmd::SetVolume(v),
+                crate::ratcore::app::VideoCommand::SetVolume { volume: v as f64 },
+            );
+        }
+        ControlSocketCommand::Stop => {
+            send_generic_local(
+                app,
+                tx,
+                PlayerCmd::Stop,
+                crate::ratcore::app::VideoCommand::Close,
+            );
+        }
+        ControlSocketCommand::ShowAdminPin => {
+            if let Some(pairing) = &app.pairing {
+                pairing.regenerate_admin_pin();
+            }
+            app.state.ephemeral.focus = Focus::PlayerPairing;
+            app.state.ephemeral.player_pairing.mode = PairingViewMode::Overview;
+        }
+        ControlSocketCommand::RotatePin => {
+            if let Some(pairing) = &app.pairing {
+                pairing.regenerate_session_pin();
+            }
+            app.state.ephemeral.focus = Focus::PlayerPairing;
+            app.state.ephemeral.player_pairing.mode = PairingViewMode::Overview;
+        }
+        ControlSocketCommand::ShowPlayer => {
+            app.state.ephemeral.focus = Focus::PlayerPairing;
+            app.state.ephemeral.player_pairing.mode = PairingViewMode::Overview;
+        }
+        // handled by `handle_control_socket_request` (needs to build
+        // and send a reply string back over the socket) - nothing
+        // left to apply to `app` here.
+        ControlSocketCommand::GetState => {}
+        ControlSocketCommand::ListAudioDevices => {
+            // best-effort refresh of both backends' device lists - the
+            // reply itself (built by `control_socket_devices_json`)
+            // uses whatever's already cached, which may be empty/stale
+            // on a cold first call; a caller that wants fresh names
+            // should query again shortly after.
+            send_player(app, PlayerCmd::ListOutputDevices, tx);
+            if let Some(video_player) = app.video_player.clone() {
+                tokio::task::spawn_local(async move {
+                    let _ = video_player
+                        .send(crate::ratcore::app::VideoCommand::ListAudioDevices)
+                        .await;
+                });
+            }
+        }
+        ControlSocketCommand::SetAudioDevice(name) => {
+            if active_playback_is_video(app) {
+                app.state.ephemeral.video_player.apply_command(
+                    &crate::ratcore::app::VideoCommand::SetAudioDevice { name: name.clone() },
+                );
+            } else {
+                app.state.ephemeral.music.selected_output_device = Some(name.clone());
+            }
+            send_generic_local(
+                app,
+                tx,
+                PlayerCmd::SetOutputDevice(name.clone()),
+                crate::ratcore::app::VideoCommand::SetAudioDevice { name },
+            );
+        }
+    }
+}
+
+/// handles one request from the unix control socket - applies its
+/// side effect (if any - see `apply_control_socket_command`) and, for
+/// query commands (`get_state`/`list_audio_devices`), builds a JSON
+/// reply and sends it back over the request's oneshot channel so
+/// `tty::control_socket`'s connection task can write it to the client.
+fn handle_control_socket_request(
+    app: &mut App,
+    req: super::control_socket::ControlSocketRequest,
+    tx: &mpsc::UnboundedSender<AppAction>,
+) {
+    use super::control_socket::ControlSocketCommand;
+    let reply_json = match &req.command {
+        ControlSocketCommand::GetState => Some(control_socket_state_json(app)),
+        ControlSocketCommand::ListAudioDevices => Some(control_socket_devices_json(app)),
+        _ => None,
+    };
+    apply_control_socket_command(app, req.command, tx);
+    if let (Some(reply), Some(json)) = (req.reply, reply_json) {
+        let _ = reply.send(json);
+    }
+}
+
+/// builds the `get_state` reply: `{"kind":"idle","volume":...}` when
+/// nothing's loaded, otherwise `{"kind":"song"|"video","title":...,
+/// "artist":...,"album":...,"is_playing":...,"position_ms":...,
+/// "duration_ms":...,"volume":...}`.
+fn control_socket_state_json(app: &App) -> String {
+    use crate::ratcore::app::MediaKind;
+    let m = &app.state.ephemeral.music;
+    let now = m.currently_playing();
+    let (position_ms, duration_ms) = current_position_and_duration_ms(app);
+    let value = match now {
+        None => serde_json::json!({
+            "kind": "idle",
+            "volume": m.volume,
+        }),
+        Some(entry) => {
+            let kind = match entry.kind() {
+                MediaKind::Audio => "song",
+                MediaKind::Video => "video",
+            };
+            serde_json::json!({
+                "kind": kind,
+                "title": entry.title(),
+                "artist": entry.artist(),
+                "album": entry.album(),
+                "is_playing": is_currently_playing(app),
+                "position_ms": position_ms,
+                "duration_ms": duration_ms,
+                "volume": m.volume,
+            })
+        }
+    };
+    value.to_string()
+}
+
+/// builds the `list_audio_devices` reply for whichever backend is
+/// actually active (rodio, or mpv for video/audio-fallback) -
+/// `{"backend":"audio"|"video","devices":[{"name":...,"description":...}]}`.
+fn control_socket_devices_json(app: &App) -> String {
+    let (backend, devices): (&str, &[crate::ratcore::app::AudioDeviceInfo]) =
+        if active_playback_is_video(app) {
+            ("video", &app.state.ephemeral.video_player.audio_devices)
+        } else {
+            ("audio", &app.state.ephemeral.music.output_devices)
+        };
+    let devices: Vec<_> = devices
+        .iter()
+        .map(|d| serde_json::json!({"name": d.name, "description": d.description}))
+        .collect();
+    serde_json::json!({"backend": backend, "devices": devices}).to_string()
+}
+
 fn on_player_row_key(app: &mut App, code: KeyCode, tx: &mpsc::UnboundedSender<AppAction>) {
     use crate::ratcore::player_row_keys as prk;
     use crate::ratcore::transport::PlayerCmd;
@@ -4008,7 +4230,7 @@ fn on_player_row_key(app: &mut App, code: KeyCode, tx: &mpsc::UnboundedSender<Ap
                 }
                 prk::PlayerRowAction::Next => play_next(app, tx),
                 prk::PlayerRowAction::SeekBack => {
-                    let pos = app.state.ephemeral.music.position_ms;
+                    let (pos, _total) = current_position_and_duration_ms(app);
                     let target = pos.saturating_sub(15_000);
                     send_generic_local(
                         app,
@@ -4020,8 +4242,7 @@ fn on_player_row_key(app: &mut App, code: KeyCode, tx: &mpsc::UnboundedSender<Ap
                     );
                 }
                 prk::PlayerRowAction::SeekForward => {
-                    let pos = app.state.ephemeral.music.position_ms;
-                    let total = app.state.ephemeral.music.duration_ms;
+                    let (pos, total) = current_position_and_duration_ms(app);
                     let target = (pos + 15_000).min(total.max(pos));
                     send_generic_local(
                         app,
