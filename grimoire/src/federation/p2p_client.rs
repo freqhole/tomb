@@ -805,7 +805,8 @@ pub async fn fetch_blob_verified_to_file_with_ensure_and_progress(
     );
 
     // first attempt
-    match fetch_blob_verified_to_file_with_progress(peer_addr, blake3_hash, target, on_progress).await
+    match fetch_blob_verified_to_file_with_progress(peer_addr, blake3_hash, target, on_progress)
+        .await
     {
         Ok(size) => return Ok(size),
         Err(e) => {
@@ -866,8 +867,9 @@ pub async fn fetch_blob_verified_to_file_with_ensure_and_progress(
         &blake3_hash[..16.min(blake3_hash.len())],
     );
 
-    let result = fetch_blob_verified_to_file_with_progress(peer_addr, blake3_hash, target, on_progress)
-        .await;
+    let result =
+        fetch_blob_verified_to_file_with_progress(peer_addr, blake3_hash, target, on_progress)
+            .await;
     if let Err(ref e) = result {
         error!(
             hash = %&blake3_hash[..16.min(blake3_hash.len())],

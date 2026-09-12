@@ -178,7 +178,9 @@ pub fn try_mpv_audio_fallback(app: &mut App, tx: &mpsc::UnboundedSender<AppActio
             })
             .await
         {
-            let _ = tx.send(AppAction::VideoPlayerEvent(VideoEvent::Error { message: e }));
+            let _ = tx.send(AppAction::VideoPlayerEvent(VideoEvent::Error {
+                message: e,
+            }));
         }
     });
 }
@@ -320,7 +322,9 @@ fn play_video_entry(
             })
             .await
         {
-            let _ = tx.send(AppAction::VideoPlayerEvent(VideoEvent::Error { message: e }));
+            let _ = tx.send(AppAction::VideoPlayerEvent(VideoEvent::Error {
+                message: e,
+            }));
         }
     });
 }
@@ -332,7 +336,8 @@ fn play_video_entry(
 /// `play_index`, which is a queue transition and folds the current
 /// entry into history).
 pub fn stop_for_radio(app: &mut App) {
-    if app.state.ephemeral.music.queue_video_active || app.state.ephemeral.music.audio_fallback_active
+    if app.state.ephemeral.music.queue_video_active
+        || app.state.ephemeral.music.audio_fallback_active
     {
         close_video(app);
     } else if let Some(player) = app.player.clone() {
@@ -435,7 +440,12 @@ pub fn play_now(
     start: usize,
     tx: &mpsc::UnboundedSender<AppAction>,
 ) {
-    set_queue_entries(app, songs.into_iter().map(QueueEntry::Song).collect(), start, tx);
+    set_queue_entries(
+        app,
+        songs.into_iter().map(QueueEntry::Song).collect(),
+        start,
+        tx,
+    );
 }
 
 /// append `songs` to the end of the queue. if nothing is currently
@@ -608,7 +618,9 @@ pub fn current_position_and_duration_ms(app: &App) -> (u64, u64) {
         let vp = &app.state.ephemeral.video_player;
         (
             (vp.position * 1000.0).round() as u64,
-            vp.duration.map(|d| (d * 1000.0).round() as u64).unwrap_or(0),
+            vp.duration
+                .map(|d| (d * 1000.0).round() as u64)
+                .unwrap_or(0),
         )
     } else {
         let m = &app.state.ephemeral.music;

@@ -33,7 +33,9 @@ use tokio::sync::mpsc;
 
 use grimoire::federation::p2p_client::{get_endpoint_arc, parse_peer_address};
 use grimoire::radio::messages::{ControlMessage, TuneMessage};
-use grimoire::radio::protocol::{read_chunk, read_control_message, write_control_message, RADIO_ALPN};
+use grimoire::radio::protocol::{
+    read_chunk, read_control_message, write_control_message, RADIO_ALPN,
+};
 
 use crate::ratcore::app::{App, AppAction, RadioPlaybackState, VideoCommand};
 use crate::ratcore::transport::VideoPlayer;

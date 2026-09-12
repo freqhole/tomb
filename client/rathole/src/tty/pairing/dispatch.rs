@@ -245,18 +245,30 @@ pub async fn dispatch_pairing_command(ctx: DispatchContext, command: PairingComm
             }
             status_ack(&ctx, None)
         }
-        PairingCommand::ReorderQueue { from_index, to_index } => {
+        PairingCommand::ReorderQueue {
+            from_index,
+            to_index,
+        } => {
             if let Some(tx) = &ctx.action_tx {
-                let _ = tx.send(AppAction::PairingReorderQueue { from_index, to_index });
+                let _ = tx.send(AppAction::PairingReorderQueue {
+                    from_index,
+                    to_index,
+                });
             }
             status_ack(&ctx, None)
         }
-        PairingCommand::TuneRadio { peer_addr, station_id } => {
+        PairingCommand::TuneRadio {
+            peer_addr,
+            station_id,
+        } => {
             // same "no &mut App here" reasoning as PairingSkip - routed
             // through an AppAction so `run.rs`'s loop (which does have
             // `&mut App`) can call `tty::radio::start` directly.
             if let Some(tx) = &ctx.action_tx {
-                let _ = tx.send(AppAction::PairingTuneRadio { peer_addr, station_id });
+                let _ = tx.send(AppAction::PairingTuneRadio {
+                    peer_addr,
+                    station_id,
+                });
             }
             status_ack(&ctx, None)
         }
@@ -267,7 +279,9 @@ pub async fn dispatch_pairing_command(ctx: DispatchContext, command: PairingComm
             status_ack(&ctx, None)
         }
         // not yet supported - see module doc / plan doc follow-ups.
-        PairingCommand::SetAutoDownloadEnabled { .. } => CommandAck::err(CommandAckReason::InvalidCommand),
+        PairingCommand::SetAutoDownloadEnabled { .. } => {
+            CommandAck::err(CommandAckReason::InvalidCommand)
+        }
     }
 }
 

@@ -214,10 +214,22 @@ mod tests {
 
     #[test]
     fn parses_known_commands() {
-        assert_eq!(parse_command("play_pause"), Some(ControlSocketCommand::PlayPause));
-        assert_eq!(parse_command("rotate_pin"), Some(ControlSocketCommand::RotatePin));
-        assert_eq!(parse_command("show_player"), Some(ControlSocketCommand::ShowPlayer));
-        assert_eq!(parse_command("get_state"), Some(ControlSocketCommand::GetState));
+        assert_eq!(
+            parse_command("play_pause"),
+            Some(ControlSocketCommand::PlayPause)
+        );
+        assert_eq!(
+            parse_command("rotate_pin"),
+            Some(ControlSocketCommand::RotatePin)
+        );
+        assert_eq!(
+            parse_command("show_player"),
+            Some(ControlSocketCommand::ShowPlayer)
+        );
+        assert_eq!(
+            parse_command("get_state"),
+            Some(ControlSocketCommand::GetState)
+        );
         assert_eq!(
             parse_command("list_audio_devices"),
             Some(ControlSocketCommand::ListAudioDevices)
@@ -228,7 +240,9 @@ mod tests {
     fn parses_set_audio_device_with_argument() {
         assert_eq!(
             parse_command("set_audio_device alsa/hw:1,0"),
-            Some(ControlSocketCommand::SetAudioDevice("alsa/hw:1,0".to_string()))
+            Some(ControlSocketCommand::SetAudioDevice(
+                "alsa/hw:1,0".to_string()
+            ))
         );
     }
 

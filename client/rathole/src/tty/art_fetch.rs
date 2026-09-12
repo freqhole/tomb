@@ -52,7 +52,8 @@ fn decode_data_url(rest: &str) -> Result<String, String> {
     std::fs::create_dir_all(&dir).map_err(|e| format!("art cache dir: {e}"))?;
     let path = dir.join(format!("{hash:016x}.{ext}"));
     if !path.exists() {
-        std::fs::write(&path, &bytes).map_err(|e| format!("failed to write art cache file: {e}"))?;
+        std::fs::write(&path, &bytes)
+            .map_err(|e| format!("failed to write art cache file: {e}"))?;
     }
     Ok(path.to_string_lossy().into_owned())
 }
@@ -93,7 +94,9 @@ mod tests {
 
     #[tokio::test]
     async fn rejects_a_real_http_url_with_a_clear_error() {
-        let err = resolve_art_url("https://example.com/art.png").await.unwrap_err();
+        let err = resolve_art_url("https://example.com/art.png")
+            .await
+            .unwrap_err();
         assert!(err.contains("http client"));
     }
 

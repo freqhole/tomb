@@ -54,7 +54,9 @@ mod endpoint;
 mod import;
 mod state;
 
-pub use dispatch::{dispatch_pairing_command, queue_entry_to_media_ref, ActiveBackend, DispatchContext};
+pub use dispatch::{
+    dispatch_pairing_command, queue_entry_to_media_ref, ActiveBackend, DispatchContext,
+};
 pub use endpoint::{
     PairingDispatchRequest, PairingDispatchRx, PairingDispatchTx, PairingRuntime, PlayerProtocol,
 };

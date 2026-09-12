@@ -74,7 +74,9 @@ pub fn draw(frame: &mut Frame, area: Rect, app: &App) {
     let (position_ms, duration_ms) = if video_active {
         (
             (vp.position * 1000.0).round() as u64,
-            vp.duration.map(|d| (d * 1000.0).round() as u64).unwrap_or(0),
+            vp.duration
+                .map(|d| (d * 1000.0).round() as u64)
+                .unwrap_or(0),
         )
     } else {
         (m.position_ms, m.duration_ms)

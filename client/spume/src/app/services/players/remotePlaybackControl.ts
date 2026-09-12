@@ -483,6 +483,23 @@ const POLL_INTERVAL_MS = 30_000;
 let pollHandle: ReturnType<typeof setInterval> | null = null;
 let unsubscribeStatus: (() => void) | null = null;
 
+/** the push-subscription line handler, shared by `setRemoteStatusPolling`
+ * and `forceResyncRemoteStatus` (which needs to reopen the exact same
+ * subscription, not just start polling). */
+function handlePushLine(line: unknown): void {
+  const parsed = line as { type?: string; state?: string };
+  if (parsed.type === "presence") {
+    // pushed unprompted whenever the player's own presence changes (see
+    // `@freqhole/cenotaph`'s `broadcastPresence`) - a "stopped" push means
+    // the player just announced it's no longer reachable/accepting
+    // commands, well before OFFLINE_TIMEOUT_MS would otherwise notice via
+    // silence alone.
+    if (parsed.state === "stopped") markRemoteAnnouncedOffline();
+    return;
+  }
+  applyRemoteStatus(line as RemoteStatus);
+}
+
 /** start/stop polling get_status + the push subscription while a remote
  * target is active - call once (e.g. from an effect watching
  * isRemoteTargetActive()). */
@@ -505,19 +522,7 @@ export function setRemoteStatusPolling(enabled: boolean): void {
 
     const nodeId = activeTargetNodeId();
     if (nodeId) {
-      unsubscribeStatus = subscribeToPlayerStatus(nodeId, (line) => {
-        const parsed = line as { type?: string; state?: string };
-        if (parsed.type === "presence") {
-          // pushed unprompted whenever the player's own presence changes
-          // (see `@freqhole/cenotaph`'s `broadcastPresence`) - a "stopped"
-          // push means the player just announced it's no longer
-          // reachable/accepting commands, well before OFFLINE_TIMEOUT_MS
-          // would otherwise notice via silence alone.
-          if (parsed.state === "stopped") markRemoteAnnouncedOffline();
-          return;
-        }
-        applyRemoteStatus(line as RemoteStatus);
-      });
+      unsubscribeStatus = subscribeToPlayerStatus(nodeId, handlePushLine);
     }
   } else if (!enabled && pollHandle) {
     clearInterval(pollHandle);
@@ -529,5 +534,30 @@ export function setRemoteStatusPolling(enabled: boolean): void {
       clearInterval(tickHandle);
       tickHandle = null;
     }
+  }
+}
+
+/** forces an immediate resync with the active remote target - call when
+ * the tab/window regains focus/visibility after being backgrounded. an
+ * OS-suspended background tab can leave the 30s poll interval and the
+ * push subscription both quiet for a while (the poll timer picks back up
+ * on its own schedule, which can be a long wait; the push subscription's
+ * own read loop may not notice a half-dead connection promptly, or at
+ * all, if the underlying transport doesn't surface it as a clean read
+ * failure) - found via a real report of the play/pause button and
+ * position going stale/wrong for a while after reconnecting. re-fetches
+ * status immediately AND tears down + reopens the push subscription
+ * rather than trusting either one's own retry timing. no-op if no remote
+ * target is active. */
+export function forceResyncRemoteStatus(): void {
+  if (!isRemoteTargetActive()) return;
+  setRemoteAnnouncedOffline(false);
+  setTickNow(Date.now());
+  void remoteGetStatus().catch(() => {});
+  unsubscribeStatus?.();
+  unsubscribeStatus = null;
+  const nodeId = activeTargetNodeId();
+  if (nodeId) {
+    unsubscribeStatus = subscribeToPlayerStatus(nodeId, handlePushLine);
   }
 }

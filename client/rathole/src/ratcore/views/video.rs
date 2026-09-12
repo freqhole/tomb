@@ -148,8 +148,7 @@ fn draw_detail(frame: &mut Frame, area: Rect, app: &mut App) {
 
     lines.push(Line::from(""));
     lines.push(Line::from(
-        "press p to play, s to stop, e to edit, d to delete, r for renditions, esc to return"
-            .dim(),
+        "press p to play, s to stop, e to edit, d to delete, r for renditions, esc to return".dim(),
     ));
 
     if let Some(err) = &v.last_error {
@@ -327,8 +326,5 @@ fn video_status_line(vp: &crate::ratcore::app::VideoPlayerState) -> Line<'static
             .map(|e| format!("error: {e}"))
             .unwrap_or_else(|| "error".to_string()),
     };
-    Line::from(vec![Span::styled(
-        label,
-        Style::new().fg(ACCENT).bold(),
-    )])
+    Line::from(vec![Span::styled(label, Style::new().fg(ACCENT).bold())])
 }

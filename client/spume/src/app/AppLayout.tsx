@@ -65,6 +65,7 @@ import {
   remoteCurrentItem,
   remoteTargetOffline,
   setRemoteStatusPolling,
+  forceResyncRemoteStatus,
 } from "./services/players/remotePlaybackControl";
 import { getCurrentRemote, getCurrentUser, getDataSource } from "../music/data";
 import { syncArtistImagesForRemotePlay } from "../music/services/sync/syncArtistImagesOnPlay";
@@ -525,9 +526,16 @@ export function AppLayout(props: AppLayoutProps) {
 
     // re-probe when the tab/window becomes visible again — covers the
     // "laptop woke from sleep / switched back to tab" case where
-    // stale-offline flags are common.
+    // stale-offline flags are common. also forces an immediate resync
+    // with the active remote player (if any) - its own poll/push timers
+    // can both sit quiet for a while after an OS-suspended background
+    // tab wakes, which otherwise showed up as a stuck play/pause button
+    // and frozen progress bar for a while after reconnecting.
     const onVisibility = () => {
-      if (document.visibilityState === "visible") wakeAllRemotes();
+      if (document.visibilityState === "visible") {
+        wakeAllRemotes();
+        forceResyncRemoteStatus();
+      }
     };
     document.addEventListener("visibilitychange", onVisibility);
     window.addEventListener("focus", onVisibility);

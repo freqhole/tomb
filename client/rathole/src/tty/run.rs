@@ -1822,16 +1822,18 @@ fn handle_pairing_dispatch(
     // radio has no real queue entry (see `radio_now_playing_ref`) -
     // substitute a synthesized one so a command ack during radio still
     // reports something sensible instead of an empty queue.
-    let queue_snapshot = radio_now_playing_ref(app).map(|item| vec![item]).unwrap_or_else(|| {
-        m.current
-            .map(|cur| {
-                m.queue[cur..]
-                    .iter()
-                    .map(super::pairing::queue_entry_to_media_ref)
-                    .collect()
-            })
-            .unwrap_or_default()
-    });
+    let queue_snapshot = radio_now_playing_ref(app)
+        .map(|item| vec![item])
+        .unwrap_or_else(|| {
+            m.current
+                .map(|cur| {
+                    m.queue[cur..]
+                        .iter()
+                        .map(super::pairing::queue_entry_to_media_ref)
+                        .collect()
+                })
+                .unwrap_or_default()
+        });
     let is_playing = is_currently_playing(app);
     let (position_ms, duration_ms) = match active_backend {
         super::pairing::ActiveBackend::Audio => (m.position_ms, m.duration_ms),

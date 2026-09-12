@@ -73,7 +73,9 @@ pub fn render_qr_pin_png(payload: &str, pin: &str) -> Result<std::path::PathBuf,
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
-    canvas.save(&path).map_err(|e| format!("failed to save qr+pin png: {e}"))?;
+    canvas
+        .save(&path)
+        .map_err(|e| format!("failed to save qr+pin png: {e}"))?;
     LAST_RENDERED_HASH.set(Some(hash));
     Ok(path)
 }
@@ -119,7 +121,11 @@ fn draw_pin_digits(canvas: &mut RgbImage, pin: &str, band_top: u32) {
     const GLYPH_H: u32 = 5 * SCALE;
     const GAP: u32 = SCALE * 2;
 
-    let digits: Vec<usize> = pin.chars().filter_map(|c| c.to_digit(10)).map(|d| d as usize).collect();
+    let digits: Vec<usize> = pin
+        .chars()
+        .filter_map(|c| c.to_digit(10))
+        .map(|d| d as usize)
+        .collect();
     if digits.is_empty() {
         return;
     }

@@ -12,8 +12,8 @@ use tracing::{info, warn};
 
 use crate::ratcore::app::{
     pairing as portable, CommandAck, CommandAckReason, ConnectedControllerInfo, PairRequest,
-    PairResponse, PairResponseReason, PairingCommand, PeerRole, PlayerSession, PresenceAnnouncement,
-    PresenceState, TrustedController,
+    PairResponse, PairResponseReason, PairingCommand, PeerRole, PlayerSession,
+    PresenceAnnouncement, PresenceState, TrustedController,
 };
 
 use super::state::{mark_connected, mark_disconnected, SharedPairingState};

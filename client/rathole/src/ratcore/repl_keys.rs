@@ -86,9 +86,15 @@ pub fn render_queue_panel(state: &mut AppState, cursor_override: Option<usize>) 
                     s.album_id.clone(),
                     s.artist_id.clone(),
                 ),
-                crate::ratcore::app::QueueEntry::Video(v) => {
-                    ("video", v.id.clone(), v.title.clone(), None, None, None, None)
-                }
+                crate::ratcore::app::QueueEntry::Video(v) => (
+                    "video",
+                    v.id.clone(),
+                    v.title.clone(),
+                    None,
+                    None,
+                    None,
+                    None,
+                ),
             };
             serde_json::json!({
                 "type": row_type,
