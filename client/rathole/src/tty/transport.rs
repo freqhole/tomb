@@ -430,6 +430,7 @@ fn song_query_to_row(item: &grimoire::music::crud::SongQueryResult) -> SongRow {
         local_path,
         art_blob_ids,
         art_url: None,
+        source_blake3: None,
     }
 }
 

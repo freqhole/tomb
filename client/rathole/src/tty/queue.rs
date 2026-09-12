@@ -333,6 +333,45 @@ pub fn play_previous(app: &mut App, tx: &mpsc::UnboundedSender<AppAction>) {
     play_index(app, 0, tx);
 }
 
+/// removes the queue entry at `index` (wire convention: index 0 =
+/// currently playing, matching `m.queue`'s own layout - see the
+/// module doc). removing index 0 stops whatever's actively loaded and
+/// advances to whatever now sits at index 0 (or clears playback state
+/// if nothing's left) via `play_index` - reused as-is rather than
+/// duplicated, since it already handles both cases correctly. NOT
+/// counted as "played" (unlike a normal skip/advance): the entry is
+/// already gone from `m.queue` by the time `play_index` runs, so
+/// there's nothing left for it to drain into history. removing any
+/// other index just drops it from the upcoming list, no playback
+/// impact.
+pub fn remove_from_queue(app: &mut App, index: usize, tx: &mpsc::UnboundedSender<AppAction>) {
+    let m = &mut app.state.ephemeral.music;
+    if index >= m.queue.len() {
+        return;
+    }
+    m.queue.remove(index);
+    if index == 0 {
+        play_index(app, 0, tx);
+    }
+}
+
+/// moves the entry at `from_index` to `to_index` (wire convention:
+/// index 0 = currently playing). refuses to touch index 0 as either
+/// source or destination - reordering can only rearrange the UPCOMING
+/// part of the queue, never swap out what's actually loaded into the
+/// active backend right now.
+pub fn reorder_queue(app: &mut App, from_index: usize, to_index: usize) {
+    let m = &mut app.state.ephemeral.music;
+    if from_index == 0 || to_index == 0 || from_index == to_index {
+        return;
+    }
+    if from_index >= m.queue.len() || to_index >= m.queue.len() {
+        return;
+    }
+    let entry = m.queue.remove(from_index);
+    m.queue.insert(to_index, entry);
+}
+
 /// replace the queue with `songs` (audio-only - local browse/search/
 /// collection loads never produce video entries) and start playing
 /// from `start`.

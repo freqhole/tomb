@@ -123,6 +123,7 @@ fn decode_song(v: &JsValue) -> Option<SongRow> {
         // web/wasm shell has no mpv/ratatui-image art rendering yet.
         art_blob_ids: Vec::new(),
         art_url: None,
+        source_blake3: None,
     })
 }
 

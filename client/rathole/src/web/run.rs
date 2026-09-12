@@ -1819,7 +1819,10 @@ fn on_action(app: &mut App, action: AppAction, action_tx: &mpsc::UnboundedSender
         | AppAction::SongArtResolved { .. }
         // queue-advance from a remote skip command: tty-only (see
         // AppAction::PairingSkip's doc comment).
-        | AppAction::PairingSkip => {}
+        | AppAction::PairingSkip
+        // remote queue remove/reorder commands: tty-only, same reasoning.
+        | AppAction::PairingRemoveFromQueue { .. }
+        | AppAction::PairingReorderQueue { .. } => {}
     }
 }
 

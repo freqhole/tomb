@@ -24,6 +24,8 @@ pub struct QueuedVideoRow {
     pub duration_ms: Option<u64>,
     pub media_blob_id: Option<String>,
     pub local_path: Option<String>,
+    /// see `SongRow::source_blake3`'s doc comment.
+    pub source_blake3: Option<String>,
 }
 
 /// one entry in the unified play queue.

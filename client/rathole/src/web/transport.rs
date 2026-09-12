@@ -769,6 +769,7 @@ fn song_query_json_to_row(item: &JsonValue) -> crate::ratcore::app::SongRow {
         // web/wasm shell has no mpv/ratatui-image art rendering yet.
         art_blob_ids: Vec::new(),
         art_url: None,
+        source_blake3: None,
     }
 }
 

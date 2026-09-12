@@ -767,6 +767,13 @@ pub enum AppAction {
     /// can't call `play_next` directly (no `&mut App` there - see
     /// `DispatchContext`'s doc comment), hence routing through here.
     PairingSkip,
+    /// a `freqhole-player/1` `remove_from_queue` command - see
+    /// `tty::queue::remove_from_queue`'s doc comment (index 0 =
+    /// currently playing, matching the wire convention).
+    PairingRemoveFromQueue { index: usize },
+    /// a `freqhole-player/1` `reorder_queue` command - see
+    /// `tty::queue::reorder_queue`'s doc comment.
+    PairingReorderQueue { from_index: usize, to_index: usize },
 }
 
 /// most recent dispatch result, kept for the detail pane.

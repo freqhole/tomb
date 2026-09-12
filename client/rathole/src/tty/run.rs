@@ -1439,6 +1439,15 @@ fn on_action(app: &mut App, action: AppAction, action_tx: &mpsc::UnboundedSender
         AppAction::PairingSkip => {
             play_next(app, action_tx);
         }
+        AppAction::PairingRemoveFromQueue { index } => {
+            remove_from_queue(app, index, action_tx);
+        }
+        AppAction::PairingReorderQueue {
+            from_index,
+            to_index,
+        } => {
+            reorder_queue(app, from_index, to_index);
+        }
         // collection loaded: rathole-side queue replace + play. used by
         // play_collection's spawn_local once songs are fetched.
         AppAction::CollectionLoaded { songs } => {

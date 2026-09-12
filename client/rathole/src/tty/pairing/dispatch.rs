@@ -65,15 +65,24 @@ pub struct DispatchContext {
 }
 
 /// converts a unified queue entry into the wire `MediaRef` shape -
-/// `blake3_hash` is stood in for by the entry's synthesized id (see
-/// the module doc's "known simplifications").
+/// `blake3_hash` is the entry's real content hash (`source_blake3`)
+/// when known (remote-pushed items), falling back to the entry's
+/// synthesized id (media_blob_id/id) for locally-queued songs, which
+/// have no wire-provided hash. reporting the real hash here matters:
+/// a remote controller's own dedup (e.g. spume's
+/// `selectPlaybackTarget.ts` comparing this against a local song's
+/// own `blake3`) can only actually recognize "this is already
+/// queued" if the value it's comparing against is the real hash, not
+/// an arbitrary internal id - see `SongRow::source_blake3`'s doc
+/// comment.
 pub fn queue_entry_to_media_ref(entry: &QueueEntry) -> MediaRef {
     match entry {
         QueueEntry::Song(song) => MediaRef {
             source_peer_addr: String::new(),
             blake3_hash: song
-                .media_blob_id
+                .source_blake3
                 .clone()
+                .or_else(|| song.media_blob_id.clone())
                 .unwrap_or_else(|| song.id.clone()),
             size_bytes: None,
             duration_ms: song.duration_ms,
@@ -87,8 +96,9 @@ pub fn queue_entry_to_media_ref(entry: &QueueEntry) -> MediaRef {
         QueueEntry::Video(video) => MediaRef {
             source_peer_addr: String::new(),
             blake3_hash: video
-                .media_blob_id
+                .source_blake3
                 .clone()
+                .or_else(|| video.media_blob_id.clone())
                 .unwrap_or_else(|| video.id.clone()),
             size_bytes: None,
             duration_ms: video.duration_ms,
@@ -138,6 +148,7 @@ fn media_ref_to_queue_entry(
                 .artwork_full_url
                 .clone()
                 .or_else(|| media.artwork_thumb_url.clone()),
+            source_blake3: Some(media.blake3_hash.clone()),
         }),
         MediaKind::Video => QueueEntry::Video(QueuedVideoRow {
             id: imported.entity_id,
@@ -145,6 +156,7 @@ fn media_ref_to_queue_entry(
             duration_ms: media.duration_ms,
             media_blob_id: Some(imported.media_blob_id),
             local_path: Some(imported.local_path),
+            source_blake3: Some(media.blake3_hash.clone()),
         }),
     }
 }
@@ -223,10 +235,24 @@ pub async fn dispatch_pairing_command(ctx: DispatchContext, command: PairingComm
             status_ack(&ctx, None)
         }
         PairingCommand::GetStatus => status_ack(&ctx, None),
+        PairingCommand::RemoveFromQueue { index } => {
+            // same "no &mut App here" reasoning as PairingSkip -
+            // routed through an AppAction so `run.rs`'s loop (which
+            // does have `&mut App`) can call `tty::queue::
+            // remove_from_queue` directly.
+            if let Some(tx) = &ctx.action_tx {
+                let _ = tx.send(AppAction::PairingRemoveFromQueue { index });
+            }
+            status_ack(&ctx, None)
+        }
+        PairingCommand::ReorderQueue { from_index, to_index } => {
+            if let Some(tx) = &ctx.action_tx {
+                let _ = tx.send(AppAction::PairingReorderQueue { from_index, to_index });
+            }
+            status_ack(&ctx, None)
+        }
         // not yet supported - see module doc / plan doc follow-ups.
-        PairingCommand::RemoveFromQueue { .. }
-        | PairingCommand::ReorderQueue { .. }
-        | PairingCommand::SetAutoDownloadEnabled { .. }
+        PairingCommand::SetAutoDownloadEnabled { .. }
         | PairingCommand::TuneRadio { .. }
         | PairingCommand::StopRadio => CommandAck::err(CommandAckReason::InvalidCommand),
     }
@@ -323,7 +349,30 @@ async fn resolve_queue_items(
     let item_count = items.len();
     let mut entries = Vec::with_capacity(item_count);
     let mut sent_first = false;
+    // defensive dedup: a flaky controller reconnect (or a client-side
+    // bug) can resend item(s) it already successfully queued - skip
+    // anything whose real content hash is already live in the queue,
+    // rather than trusting every caller to get its own dedup right.
+    // seeded from `ctx.queue_snapshot` (which now reports each entry's
+    // real `source_blake3` - see `queue_entry_to_media_ref`'s doc
+    // comment - not an internal id, so this actually matches), then
+    // grown as this same batch resolves so a push repeating itself
+    // doesn't double up either. `replace_queue` starts from an empty
+    // set - the old queue is being thrown away anyway, so there's
+    // nothing to compare against yet.
+    let mut queued_hashes: std::collections::HashSet<String> = match mode {
+        DeliveryMode::AlwaysAppend => ctx
+            .queue_snapshot
+            .iter()
+            .map(|m| m.blake3_hash.clone())
+            .collect(),
+        DeliveryMode::ReplaceFirstThenAppend => std::collections::HashSet::new(),
+    };
     for (item_index, item) in items.into_iter().enumerate() {
+        if !queued_hashes.insert(item.blake3_hash.clone()) {
+            warn!(target: "player_protocol", blake3 = %item.blake3_hash, "skipping already-queued duplicate item");
+            continue;
+        }
         let reporter = queue_progress_reporter(
             ctx,
             item_index,

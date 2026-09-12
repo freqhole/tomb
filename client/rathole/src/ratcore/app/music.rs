@@ -48,6 +48,16 @@ pub struct SongRow {
     /// http(s) url. `None` for locally-queued songs, which always use
     /// `art_blob_ids` instead.
     pub art_url: Option<String>,
+    /// the real content-addressed blake3 hash this entry was pushed
+    /// with (see `MediaRef::blake3_hash`), when known - `None` for
+    /// locally-queued songs. distinct from `media_blob_id` (grimoire's
+    /// own internal id): a remote controller's own dedup/diffing (e.g.
+    /// spume's `selectPlaybackTarget.ts` comparing against a local
+    /// song's own `blake3`) needs the REAL hash reported back in
+    /// `queue_entry_to_media_ref`'s wire `MediaRef.blake3_hash` - a
+    /// media_blob_id there could never match, which was the root cause
+    /// of a controller re-queueing songs it had already sent.
+    pub source_blake3: Option<String>,
 }
 
 /// portable mirror of `grimoire::player::PlayerState`.
