@@ -48,7 +48,7 @@ pub fn play_index(app: &mut App, idx: usize, tx: &mpsc::UnboundedSender<AppActio
         // ran off the end of the queue - everything left gets folded
         // into history (it was played/skipped through in full).
         let m = &mut app.state.ephemeral.music;
-        let played: Vec<QueueEntry> = m.queue.drain(..).collect();
+        let played: Vec<QueueEntry> = std::mem::take(&mut m.queue);
         push_history(m, played);
         m.current = None;
         m.position_ms = 0;
