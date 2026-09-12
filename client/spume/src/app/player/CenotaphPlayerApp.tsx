@@ -70,6 +70,9 @@ import {
   playNext as realPlayNext,
 } from "../../music/services/audio/player";
 import { mediaItemKey, mediaItemSubtitle, mediaItemTitle } from "../services/storage/mediaItem";
+import { getSongDisplayImages } from "../../utils/images";
+import MediaImage from "../../components/media/MediaImage";
+import type { ImageMetadata } from "../../music/services/storage/types";
 
 function formatTime(seconds: number): string {
   if (!Number.isFinite(seconds) || seconds < 0) seconds = 0;
@@ -212,8 +215,10 @@ export function CenotaphPlayerApp() {
    * hides the now-playing section entirely (nothing queued, a command is
    * in flight, or - real player only - the current item is a video, whose
    * display the gst window itself takes over, see this section's own doc
-   * comment further down). artwork is not resolved for the real-player
-   * case in this pass (known follow-up) - always shows the fallback icon. */
+   * comment further down). `artworkImages`/`artworkUrl` are both passed
+   * straight to `MediaImage` below, which resolves whichever is present
+   * (real player: the song's own images array; cenotaph engine: the
+   * already-resolved `artwork_full_url`). */
   const nowPlayingView = () => {
     if (usingRealPlayer()) {
       const state = appState();
@@ -225,6 +230,7 @@ export function CenotaphPlayerApp() {
       const current = ordered[0];
       if (!current || current.kind !== "song") return null;
       return {
+        artworkImages: getSongDisplayImages(current.song),
         artworkUrl: undefined as string | undefined,
         title: mediaItemTitle(current),
         artist: mediaItemSubtitle(current) ?? "",
@@ -246,6 +252,7 @@ export function CenotaphPlayerApp() {
     const item = nowPlaying();
     if (!item) return null;
     return {
+      artworkImages: undefined as ImageMetadata[] | undefined,
       artworkUrl: item.artwork_full_url,
       title: item.title ?? "unknown title",
       artist: item.artist ?? "",
@@ -375,7 +382,7 @@ export function CenotaphPlayerApp() {
         {(view) => (
           <div class="flex w-full max-w-md flex-col items-center gap-4" data-testid="now-playing">
             <Show
-              when={view().artworkUrl}
+              when={(view().artworkImages?.length ?? 0) > 0 || view().artworkUrl}
               fallback={
                 <div
                   class="flex h-64 w-64 items-center justify-center rounded-lg bg-neutral-800"
@@ -398,9 +405,14 @@ export function CenotaphPlayerApp() {
                 </div>
               }
             >
-              {(url) => (
-                <img src={url()} alt="" class="h-64 w-64 rounded-lg object-cover shadow-lg" />
-              )}
+              <MediaImage
+                images={view().artworkImages}
+                imageUrl={view().artworkUrl}
+                alt=""
+                domainType="song"
+                showFallback={false}
+                class="h-64 w-64 rounded-lg object-cover shadow-lg"
+              />
             </Show>
 
             <p class="text-xl font-semibold" data-testid="now-playing-title">

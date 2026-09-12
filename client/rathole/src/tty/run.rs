@@ -1461,6 +1461,36 @@ fn on_action(app: &mut App, action: AppAction, action_tx: &mpsc::UnboundedSender
         } => {
             reorder_queue(app, from_index, to_index);
         }
+        AppAction::PairingTuneRadio {
+            peer_addr,
+            station_id,
+        } => {
+            super::radio::start(app, peer_addr, station_id, action_tx.clone());
+        }
+        AppAction::PairingStopRadio => {
+            super::radio::stop(app);
+        }
+        AppAction::RadioStatusUpdate {
+            station_name,
+            track_title,
+            track_artist,
+        } => {
+            let radio = &mut app.state.ephemeral.radio;
+            if radio.active {
+                if station_name.is_some() {
+                    radio.station_name = station_name;
+                }
+                radio.track_title = track_title;
+                radio.track_artist = track_artist;
+            }
+        }
+        AppAction::RadioEnded { error } => {
+            app.state.ephemeral.radio = crate::ratcore::app::RadioPlaybackState::default();
+            if let Some(e) = error {
+                app.state.ephemeral.repl.status =
+                    Some(ReplStatus::err(format!("radio stopped: {e}")));
+            }
+        }
         // collection loaded: rathole-side queue replace + play. used by
         // play_collection's spawn_local once songs are fetched.
         AppAction::CollectionLoaded { songs } => {
@@ -1650,6 +1680,33 @@ fn sync_pending_knocks(app: &App, tx: &mpsc::UnboundedSender<AppAction>) {
     });
 }
 
+/// synthesizes a `MediaRef` representing the current radio track for
+/// remote-status reporting - radio has no real queue entry (it's not
+/// a library item, just a live mpv-fed stream), so this stands in for
+/// `queue.first()` while a session is active. `None` when radio isn't
+/// running, so callers fall back to the regular queue-based status.
+fn radio_now_playing_ref(app: &App) -> Option<crate::ratcore::app::MediaRef> {
+    let radio = &app.state.ephemeral.radio;
+    if !radio.active {
+        return None;
+    }
+    Some(crate::ratcore::app::MediaRef {
+        source_peer_addr: String::new(),
+        blake3_hash: format!("radio:{}", radio.station_id.clone().unwrap_or_default()),
+        size_bytes: None,
+        duration_ms: None,
+        mime_type: None,
+        kind: Some(crate::ratcore::app::MediaKind::Audio),
+        title: radio
+            .track_title
+            .clone()
+            .or_else(|| radio.station_name.clone()),
+        artist: radio.track_artist.clone(),
+        artwork_thumb_url: None,
+        artwork_full_url: None,
+    })
+}
+
 /// builds the current `PlayerStatus` snapshot directly from `&App` -
 /// used by the tick loop to broadcast live state to every subscribed
 /// controller (see `PairingRuntime::broadcast_status`). a separate,
@@ -1658,6 +1715,34 @@ fn sync_pending_knocks(app: &App, tx: &mpsc::UnboundedSender<AppAction>) {
 /// stays usable from a spawned task without `&App` access.
 fn build_player_status(app: &App) -> crate::ratcore::app::PlayerStatus {
     use crate::ratcore::app::{PlayerStatus, StatusCommon};
+
+    if let Some(item) = radio_now_playing_ref(app) {
+        let vp = &app.state.ephemeral.video_player;
+        let common = StatusCommon {
+            queue: vec![item.clone()],
+            auto_download_enabled: false,
+            volume: app.state.ephemeral.music.volume as f64,
+            recently_played: Vec::new(),
+        };
+        let position_ms = (vp.position * 1000.0).round() as u64;
+        let server_time_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        return if vp.state == crate::ratcore::app::VideoPlaybackState::Playing {
+            PlayerStatus::NowPlaying {
+                item,
+                position_ms,
+                server_time_ms,
+                common,
+            }
+        } else {
+            PlayerStatus::Paused {
+                position_ms,
+                common,
+            }
+        };
+    }
 
     let m = &app.state.ephemeral.music;
     let vp = &app.state.ephemeral.video_player;
@@ -1734,15 +1819,19 @@ fn handle_pairing_dispatch(
     // since it's the one place that already holds `&App`. the unified
     // queue (`m.queue`) already carries both audio and video entries,
     // so this no longer needs to branch on which backend is active.
-    let queue_snapshot = m
-        .current
-        .map(|cur| {
-            m.queue[cur..]
-                .iter()
-                .map(super::pairing::queue_entry_to_media_ref)
-                .collect()
-        })
-        .unwrap_or_default();
+    // radio has no real queue entry (see `radio_now_playing_ref`) -
+    // substitute a synthesized one so a command ack during radio still
+    // reports something sensible instead of an empty queue.
+    let queue_snapshot = radio_now_playing_ref(app).map(|item| vec![item]).unwrap_or_else(|| {
+        m.current
+            .map(|cur| {
+                m.queue[cur..]
+                    .iter()
+                    .map(super::pairing::queue_entry_to_media_ref)
+                    .collect()
+            })
+            .unwrap_or_default()
+    });
     let is_playing = is_currently_playing(app);
     let (position_ms, duration_ms) = match active_backend {
         super::pairing::ActiveBackend::Audio => (m.position_ms, m.duration_ms),

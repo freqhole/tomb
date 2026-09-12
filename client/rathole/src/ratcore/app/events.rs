@@ -774,6 +774,36 @@ pub enum AppAction {
     /// a `freqhole-player/1` `reorder_queue` command - see
     /// `tty::queue::reorder_queue`'s doc comment.
     PairingReorderQueue { from_index: usize, to_index: usize },
+    /// a `freqhole-player/1` `tune_radio` command - see `tty::radio`'s
+    /// module doc. routed through here for the same "no `&mut App` in
+    /// dispatch" reason as `PairingSkip`; `tty::radio::start` needs it
+    /// to stop any regular queue playback + store session state.
+    PairingTuneRadio {
+        peer_addr: String,
+        station_id: Option<String>,
+    },
+    /// a `freqhole-player/1` `stop_radio` command - see
+    /// `tty::radio::stop`'s doc comment.
+    PairingStopRadio,
+    /// pushed by the running radio session (`tty::radio`) whenever the
+    /// station/track meta changes (initial `Hello`, or a later `Meta`
+    /// control message) - drives `EphemeralState::radio`'s display
+    /// fields. `station_name` is `None` for a `Meta`-driven update
+    /// (only `Hello` carries it) so the ui loop only overwrites what
+    /// actually changed.
+    RadioStatusUpdate {
+        station_name: Option<String>,
+        track_title: Option<String>,
+        track_artist: Option<String>,
+    },
+    /// the running radio session ended - cleanly (`error: None`, e.g.
+    /// the broadcaster closed the connection) or with a real failure
+    /// (connect error, protocol error, mpv error). a stale session
+    /// (superseded by a newer tune or an explicit stop) sending this
+    /// is filtered out by `tty::radio` itself before it ever reaches
+    /// here (see its generation-counter doc comment), so the ui loop
+    /// can just clear `EphemeralState::radio` unconditionally.
+    RadioEnded { error: Option<String> },
 }
 
 /// most recent dispatch result, kept for the detail pane.

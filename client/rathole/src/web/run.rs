@@ -1822,7 +1822,13 @@ fn on_action(app: &mut App, action: AppAction, action_tx: &mpsc::UnboundedSender
         | AppAction::PairingSkip
         // remote queue remove/reorder commands: tty-only, same reasoning.
         | AppAction::PairingRemoveFromQueue { .. }
-        | AppAction::PairingReorderQueue { .. } => {}
+        | AppAction::PairingReorderQueue { .. }
+        // radio tune/stop + its status updates: tty-only (mpv/iroh
+        // native client - see tty::radio's module doc).
+        | AppAction::PairingTuneRadio { .. }
+        | AppAction::PairingStopRadio
+        | AppAction::RadioStatusUpdate { .. }
+        | AppAction::RadioEnded { .. } => {}
     }
 }
 

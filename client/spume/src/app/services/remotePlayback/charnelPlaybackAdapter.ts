@@ -16,6 +16,7 @@
 // there).
 
 import type { MediaRef, PlaybackBackend, PlayerStatus } from "@freqhole/cenotaph";
+import { createEffect, createRoot, on } from "solid-js";
 import {
   addToQueue,
   clearQueue,
@@ -104,16 +105,82 @@ function buildQueueRefs(): MediaRef[] {
   return ordered.map(mediaItemToRef);
 }
 
+/** the real content hash for a `MediaItem` - what `mediaItemToRef`
+ * reports as `blake3_hash` (preferring `blake3` over `sha256`/`id`).
+ * used to build `recentlyPlayed` entries from items looked up by
+ * `mediaItemKey` (which is `sha256`/`id`, NOT necessarily the same
+ * value - see `mediaItemKey`'s own doc comment). */
+function itemBlake3(item: MediaItem): string {
+  return item.kind === "song"
+    ? (item.song.blake3 ?? item.song.sha256)
+    : ((item.video as QueuedVideo & { blake3?: string | null }).blake3 ?? item.video.id);
+}
+
+/** finds the current queue item's index within the FULL `appState().queue`
+ * array (not the current-onward slice `buildQueueRefs()` reports) - the
+ * `removeFromQueue`/`reorderQueue` wire commands carry an index relative
+ * to current (0 = currently playing, matching `buildQueueRefs()`'s own
+ * convention - see `remoteQueueMirror.ts`'s `mirrorRemoveFromQueue`,
+ * which computes the mirror image of this same offset), but `queue.ts`'s
+ * `removeFromQueue`/`reorderQueue` expect a full-array index. `-1` when
+ * nothing's playing (queue.ts's functions no-op on an invalid index). */
+function currentFullIndex(): number {
+  const state = appState();
+  if (!state?.queue || !state.current_sha256) return -1;
+  return state.queue.findIndex((i) => mediaItemKey(i) === state.current_sha256);
+}
+
+/** blake3 hashes this player is done with this session (played through,
+ * explicitly skipped, or explicitly removed) - most-recent-last, capped.
+ * mirrors cenotaph's own engine's `recordRecentlyPlayed()`/`recentlyPlayed`
+ * (playbackEngine.ts), which this adapter otherwise has no equivalent of:
+ * a reconnecting controller diffs its own queue push against this (see
+ * spume's own `selectPlaybackTarget.ts`-adjacent dedup logic) to avoid
+ * re-queueing songs this player already dealt with. cleared once the
+ * queue fully empties (see the effect below) - same "session boundary"
+ * cenotaph's own engine uses. */
+const RECENTLY_PLAYED_LIMIT = 50;
+let recentlyPlayed: string[] = [];
+function recordRecentlyPlayed(hash: string | null | undefined): void {
+  if (!hash) return;
+  recentlyPlayed = recentlyPlayed.filter((h) => h !== hash);
+  recentlyPlayed.push(hash);
+  if (recentlyPlayed.length > RECENTLY_PLAYED_LIMIT) recentlyPlayed.shift();
+}
+
+// watches appState()'s current_sha256 for transitions so ANYTHING that
+// moves playback off an item (natural end, skip, explicit next/prev,
+// admin dispatch...) marks it "dealt with" via recordRecentlyPlayed()
+// above - spume's own queue/player services have no such tracking on
+// their own (unlike cenotaph's own engine, which calls this from a
+// single `skip()` chokepoint). runs once at module load, for the
+// lifetime of the app (this adapter is only ever active in charnel/
+// rodio mode - see this module's header comment).
+let previousCurrentKey: string | null = null;
+createRoot(() => {
+  createEffect(
+    on(
+      () => appState()?.current_sha256 ?? null,
+      (newKey) => {
+        const state = appState();
+        if (previousCurrentKey && previousCurrentKey !== newKey) {
+          const prevItem = state?.queue.find((i) => mediaItemKey(i) === previousCurrentKey);
+          recordRecentlyPlayed(prevItem ? itemBlake3(prevItem) : previousCurrentKey);
+        }
+        if (!newKey && (!state?.queue || state.queue.length === 0)) {
+          recentlyPlayed = [];
+        }
+        previousCurrentKey = newKey;
+      }
+    )
+  );
+});
+
 function currentStatus(): PlayerStatus {
   const queue = buildQueueRefs();
   const common = {
     queue,
-    // spume doesn't track a "recently played this session" list the way
-    // cenotaph's own engine does (`recordRecentlyPlayed`/`recentlyPlayed`)
-    // - a reconnecting controller diffing against this to avoid
-    // re-queueing already-finished items won't have anything to diff
-    // against yet. known gap, not fixed in this pass.
-    recently_played: [] as string[],
+    recently_played: [...recentlyPlayed],
     auto_download_enabled: getAutoDownloadEnabled(),
     volume: volume(),
   };
@@ -183,10 +250,18 @@ export const charnelPlaybackAdapter: PlaybackBackend<unknown> = {
     await playNext();
   },
   async removeFromQueue(_node, index) {
-    await queueRemoveFromQueue(index);
+    // wire index is relative to current (0 = currently playing) - see
+    // `currentFullIndex()`'s doc comment for why this needs an offset.
+    const currentIdx = currentFullIndex();
+    const fullIndex = currentIdx >= 0 ? currentIdx + index : index;
+    const removed = appState()?.queue[fullIndex];
+    if (removed) recordRecentlyPlayed(itemBlake3(removed));
+    await queueRemoveFromQueue(fullIndex);
   },
   reorderQueue(fromIndex, toIndex) {
-    void queueReorderQueue(fromIndex, toIndex);
+    const currentIdx = currentFullIndex();
+    const offset = currentIdx >= 0 ? currentIdx : 0;
+    void queueReorderQueue(offset + fromIndex, offset + toIndex);
   },
   setVolume(vol) {
     setPlayerVolume(vol);

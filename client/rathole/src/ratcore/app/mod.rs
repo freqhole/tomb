@@ -26,7 +26,7 @@ pub use queue::{QueueEntry, QueuedVideoRow};
 pub use repl::{ReplState, ReplStatus, ReplStatusLevel};
 pub use state::{
     AppState, EphemeralState, Focus, JobsStatus, LocalRef, PendingRemoteEntry, PersistedState,
-    RemoteEntry, ScanStatus, ServeBadge, ServeMode, UiPrefs,
+    RadioPlaybackState, RemoteEntry, ScanStatus, ServeBadge, ServeMode, UiPrefs,
 };
 pub use video::{RenditionRow, SeriesRow, VideoMode, VideoRow, VideoState};
 pub use video_player::{

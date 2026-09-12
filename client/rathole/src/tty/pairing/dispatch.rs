@@ -251,10 +251,23 @@ pub async fn dispatch_pairing_command(ctx: DispatchContext, command: PairingComm
             }
             status_ack(&ctx, None)
         }
+        PairingCommand::TuneRadio { peer_addr, station_id } => {
+            // same "no &mut App here" reasoning as PairingSkip - routed
+            // through an AppAction so `run.rs`'s loop (which does have
+            // `&mut App`) can call `tty::radio::start` directly.
+            if let Some(tx) = &ctx.action_tx {
+                let _ = tx.send(AppAction::PairingTuneRadio { peer_addr, station_id });
+            }
+            status_ack(&ctx, None)
+        }
+        PairingCommand::StopRadio => {
+            if let Some(tx) = &ctx.action_tx {
+                let _ = tx.send(AppAction::PairingStopRadio);
+            }
+            status_ack(&ctx, None)
+        }
         // not yet supported - see module doc / plan doc follow-ups.
-        PairingCommand::SetAutoDownloadEnabled { .. }
-        | PairingCommand::TuneRadio { .. }
-        | PairingCommand::StopRadio => CommandAck::err(CommandAckReason::InvalidCommand),
+        PairingCommand::SetAutoDownloadEnabled { .. } => CommandAck::err(CommandAckReason::InvalidCommand),
     }
 }
 
@@ -582,14 +595,30 @@ mod tests {
     async fn unsupported_commands_ack_with_invalid_command() {
         let ack = dispatch_pairing_command(
             empty_ctx(),
+            PairingCommand::SetAutoDownloadEnabled { enabled: true },
+        )
+        .await;
+        assert!(!ack.ok);
+        assert_eq!(ack.reason, Some(CommandAckReason::InvalidCommand));
+    }
+
+    #[tokio::test]
+    async fn tune_radio_acks_ok_even_without_an_action_channel() {
+        // dispatch has no `&mut App` (see `DispatchContext`'s doc
+        // comment) - it just forwards to `AppAction::PairingTuneRadio`/
+        // `PairingStopRadio` when an action channel is wired, and acks
+        // ok regardless (mirrors `PairingSkip`/`PairingRemoveFromQueue`).
+        let ack = dispatch_pairing_command(
+            empty_ctx(),
             PairingCommand::TuneRadio {
                 peer_addr: "x".into(),
                 station_id: None,
             },
         )
         .await;
-        assert!(!ack.ok);
-        assert_eq!(ack.reason, Some(CommandAckReason::InvalidCommand));
+        assert!(ack.ok);
+        let ack = dispatch_pairing_command(empty_ctx(), PairingCommand::StopRadio).await;
+        assert!(ack.ok);
     }
 
     #[tokio::test]

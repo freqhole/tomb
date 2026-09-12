@@ -12,6 +12,7 @@ mod persist;
 mod player;
 pub mod qr;
 mod queue;
+mod radio;
 mod run;
 pub mod serve_monitor;
 mod transport;

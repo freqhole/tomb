@@ -303,6 +303,24 @@ pub struct EphemeralState {
     pub is_ssh_session: bool,
     /// `--player`/`/player` pairing view navigation state.
     pub player_pairing: PairingViewState,
+    /// active radio session status (`tty::radio`, tty shell only) -
+    /// `active: false` means no radio session is running (the default,
+    /// unstarted state).
+    pub radio: RadioPlaybackState,
+}
+
+/// display/status snapshot of the running radio session, if any -
+/// updated by `AppAction::RadioStatusUpdate`/`RadioEnded` (see those
+/// variants' doc comments). purely portable display data; the actual
+/// iroh connection + mpv/fifo plumbing lives in `tty::radio`, not here.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RadioPlaybackState {
+    pub active: bool,
+    pub station_id: Option<String>,
+    pub station_name: Option<String>,
+    pub track_title: Option<String>,
+    pub track_artist: Option<String>,
+    pub last_error: Option<String>,
 }
 
 /// minimal portable view of an in-flight job session for the
@@ -362,6 +380,7 @@ impl Default for EphemeralState {
             scan_abort_confirm_for: None,
             is_ssh_session: false,
             player_pairing: PairingViewState::new(),
+            radio: RadioPlaybackState::default(),
         }
     }
 }

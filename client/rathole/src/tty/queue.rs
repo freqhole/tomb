@@ -38,6 +38,10 @@ const HISTORY_CAP: usize = 50;
 /// followed by `MusicEvent::Ended` so the auto-advance handler skips
 /// past the broken entry, same for both kinds.
 pub fn play_index(app: &mut App, idx: usize, tx: &mpsc::UnboundedSender<AppAction>) {
+    // mutually exclusive with radio - see `stop_for_radio`'s doc comment.
+    if app.state.ephemeral.radio.active {
+        super::radio::stop(app);
+    }
     let was_video_active = app.state.ephemeral.music.queue_video_active;
     let was_audio_fallback_active = app.state.ephemeral.music.audio_fallback_active;
     if idx >= app.state.ephemeral.music.queue.len() {
@@ -321,6 +325,24 @@ fn play_video_entry(
     });
 }
 
+/// stops whichever regular queue-playback backend (rodio or mpv) was
+/// active, without touching the queue itself - used when radio starts
+/// (see `tty::radio::start`), which is mutually exclusive with regular
+/// queue playback but must leave the queue's contents alone (unlike
+/// `play_index`, which is a queue transition and folds the current
+/// entry into history).
+pub fn stop_for_radio(app: &mut App) {
+    if app.state.ephemeral.music.queue_video_active || app.state.ephemeral.music.audio_fallback_active
+    {
+        close_video(app);
+    } else if let Some(player) = app.player.clone() {
+        tokio::task::spawn_local(async move {
+            let _ = player.send(PlayerCmd::Stop).await;
+        });
+    }
+    app.state.ephemeral.music.player_state = PlayerState::Stopped;
+}
+
 /// stop/dismiss mpv - used when the queue advances away from a
 /// video entry (to a song, or off the end of the queue) so it
 /// doesn't keep showing/playing under the next thing.
@@ -555,12 +577,15 @@ pub fn send_player(app: &App, cmd: PlayerCmd, tx: &mpsc::UnboundedSender<AppActi
     });
 }
 
-/// true when a real queued video OR an mpv audio-fallback (rodio
-/// couldn't decode the current song - see `try_mpv_audio_fallback`)
-/// means mpv, not rodio, is actually driving the current queue entry
+/// true when a real queued video, an mpv audio-fallback (rodio
+/// couldn't decode the current song - see `try_mpv_audio_fallback`),
+/// or an active radio session (`tty::radio`, also mpv-driven - see its
+/// module doc) means mpv, not rodio, is actually driving playback
 /// right now.
 pub fn active_playback_is_video(app: &App) -> bool {
-    app.state.ephemeral.music.queue_video_active || app.state.ephemeral.music.audio_fallback_active
+    app.state.ephemeral.music.queue_video_active
+        || app.state.ephemeral.music.audio_fallback_active
+        || app.state.ephemeral.radio.active
 }
 
 /// true if whichever backend is actually active (see
