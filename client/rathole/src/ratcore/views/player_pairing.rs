@@ -177,7 +177,7 @@ fn draw_qr_and_pin(
 
     // qr must fit outright (its own module count is fixed, can't shrink);
     // one row is always reserved below it for an admin-grant/error message.
-    let qr_fits = qr_size.is_none_or(|(w, h)| w <= inner.width && h + 1 <= inner.height);
+    let qr_fits = qr_size.is_none_or(|(w, h)| w <= inner.width && h < inner.height);
     let pin_layout = session.and_then(|s| {
         let qr_h = qr_size.map(|(_, h)| h).unwrap_or(0);
         let avail_h = inner.height.saturating_sub(qr_h).saturating_sub(1);
@@ -672,7 +672,7 @@ fn draw_settings(frame: &mut Frame, area: Rect, app: &mut App) {
 /// by picking a device (enter).
 fn draw_device_picker(frame: &mut Frame, area: Rect, app: &App) {
     let popup_w = (area.width.saturating_sub(4)).min(50);
-    let popup_h = (area.height.saturating_sub(4)).min(12).max(3);
+    let popup_h = (area.height.saturating_sub(4)).clamp(3, 12);
     let x = area.x + (area.width.saturating_sub(popup_w)) / 2;
     let y = area.y + (area.height.saturating_sub(popup_h)) / 2;
     let popup = Rect::new(x, y, popup_w, popup_h);

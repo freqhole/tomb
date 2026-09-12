@@ -355,8 +355,8 @@ enum DeliveryMode {
 }
 
 /// resolves each item to a real local library entry and a unified
-/// queue entry (audio or video - see `QueueEntry`), in original order
-/// - see `super::import::import_pushed_media`. skips (with a warning)
+/// queue entry (audio or video - see `QueueEntry`), in original order,
+/// via `super::import::import_pushed_media`. skips (with a warning)
 /// any item that fails to import, best-effort rather than all-or-
 /// nothing so one broken/unreachable track doesn't drop an otherwise-
 /// good queue push. reports live byte progress per item via

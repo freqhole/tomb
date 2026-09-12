@@ -8,8 +8,8 @@
 //! hit rodio 0.20's m4a init-seek panic).
 //!
 //! the queue can mix audio and video entries (a controller's
-//! `replace_queue`/`append_queue` push isn't required to be one kind)
-//! - exactly one entry is ever the active, loaded-into-a-backend thing
+//! `replace_queue`/`append_queue` push isn't required to be one kind),
+//! but exactly one entry is ever the active, loaded-into-a-backend thing
 //! (mirrors cenotaph's single-active-item queue model: one `<video>`
 //! element, only `queue[0]` ever loaded). switching from one kind to
 //! the other stops/closes whichever backend was driving the previous
@@ -30,13 +30,13 @@ const HISTORY_CAP: usize = 50;
 
 /// load and play the entry at `m.queue[idx]`, first dropping any
 /// entries before `idx` into `MusicState::history` (most-recently-
-/// finished first) - matches cenotaph/web's queue model, where the
+/// finished first), matching cenotaph/web's queue model, where the
 /// queue only ever holds "currently playing + upcoming", not every
 /// past track. clears any prior position state; audio entries resolve
-/// + `PlayerCmd::Load` (rodio), video entries resolve + `VideoCommand::
-/// Load` (mpv). on resolve failure the task emits an error event
-/// followed by `MusicEvent::Ended` so the auto-advance handler skips
-/// past the broken entry, same for both kinds.
+/// then `PlayerCmd::Load` (rodio), video entries resolve then
+/// `VideoCommand::Load` (mpv). on resolve failure the task emits an
+/// error event followed by `MusicEvent::Ended` so the auto-advance
+/// handler skips past the broken entry, same for both kinds.
 pub fn play_index(app: &mut App, idx: usize, tx: &mpsc::UnboundedSender<AppAction>) {
     // mutually exclusive with radio - see `stop_for_radio`'s doc comment.
     if app.state.ephemeral.radio.active {
@@ -129,8 +129,8 @@ fn push_history(m: &mut crate::ratcore::app::MusicState, mut played: Vec<QueueEn
 
 /// rodio couldn't decode the current queue entry's song (e.g. opus-in-
 /// webm, or `.m4a` - blocked outright for rodio, see
-/// `is_known_unplayable` - unsupported by rodio's symphonia backend)
-/// - try it through mpv instead (audio-only: mpv was spawned with
+/// `is_known_unplayable` - unsupported by rodio's symphonia backend),
+/// so try it through mpv instead (audio-only: mpv was spawned with
 /// `--force-window=no` and this file has no video track, so no window
 /// opens). advances to the next queue entry instead if there's no mpv
 /// backend, no current song, or resolving the path fails again.
