@@ -5,6 +5,7 @@
 use serde_json::{json, Value as JsonValue};
 use sha2::{Digest, Sha256};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::time::Duration;
 
 use crate::config::get_config;
@@ -302,8 +303,26 @@ pub async fn pull_audio_blob_to_local_storage_with_progress(
     let year = now.year();
     let month = now.month() as u8;
 
-    // use a temp filename based on blake3 hash (will rename after blob record creation)
-    let temp_filename = format!("{}.{}", &blake3[..16], ext);
+    // use a temp filename based on blake3 hash plus a per-call disambiguator
+    // (will rename after blob record creation). two overlapping pulls of the
+    // SAME blake3 (e.g. a duplicate/retried queue push arriving on a second
+    // connection before the first pull finishes) previously shared this exact
+    // path - whichever finished first renamed it away out from under the
+    // other, which was still trying to open it for the sha256/mime read,
+    // surfacing as a spurious `ReadFailed`/"failed to read downloaded file"
+    // even though the pull itself was working fine. the final path (below,
+    // keyed by the deduped blob id) is still shared and that's fine - a
+    // second concurrent pull's rename onto it is a harmless same-content
+    // overwrite, since `create_media_blob` already dedupes by sha256.
+    static TEMP_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
+    let disambiguator = TEMP_FILE_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let temp_filename = format!(
+        "{}-{}-{}.{}",
+        &blake3[..16],
+        std::process::id(),
+        disambiguator,
+        ext
+    );
     // join each segment separately - a single format!() string with embedded
     // "/" produces a mixed \ and / path on windows once joined onto output_dir.
     let temp_path = output_dir

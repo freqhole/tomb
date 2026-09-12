@@ -86,9 +86,7 @@ export async function selectPlayerPlaybackTarget(player: {
 
   // flips the playerbar into remote-driven mode (shows the connecting/
   // loading state until the first status arrives - see
-  // remoteStatusKnown()/barIsLoading() in AppLayout.tsx) but does NOT stop
-  // this device's own audio yet - playback keeps going right up until the
-  // player has actually taken over, handed off below. player.ts's
+  // remoteStatusKnown()/barIsLoading() in AppLayout.tsx). player.ts's
   // playSong/playVideo already guard against *new* local plays once a
   // remote target is active, so nothing else can start in the meantime.
   setActiveTargetToPlayer(player);
@@ -96,6 +94,16 @@ export async function selectPlayerPlaybackTarget(player: {
   // from one player to another) show through while we're connecting to
   // this one - see resetRemoteStatus()'s doc comment.
   resetRemoteStatus();
+  // stop this device's own audio RIGHT NOW rather than waiting for the
+  // push/append/seek round-trip below to finish (previously done at the
+  // very end of this function, after those awaits) - a slow handoff
+  // (blob import + artwork resize over the wire, esp. for video) could
+  // take several seconds, during which the remote might already be
+  // audibly playing while this device's audio kept going too. a real
+  // report of exactly that ("didn't stop playing its local audio once
+  // the remote player started playing") - a brief instant of silence
+  // during handoff is far less jarring than both playing at once.
+  pause();
 
   if (items.length === 0) {
     // nothing local to hand off (nothing was playing locally either, so
@@ -147,10 +155,6 @@ export async function selectPlayerPlaybackTarget(player: {
       await remoteTrackPending(pushMediaToPlayer(player.node_id, items));
       if (handoffPositionMs !== undefined) await remoteSeek(handoffPositionMs);
     }
-    // the player has now taken over (either as the new now-playing session,
-    // handed off at the captured position, or as an addition to its
-    // existing one) - safe to stop this device's own audio.
-    pause();
   } catch (e) {
     toast.error(e instanceof Error ? e.message : "failed to send queue to player", {
       title: "remote-player-connection-error",

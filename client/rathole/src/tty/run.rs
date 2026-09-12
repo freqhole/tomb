@@ -195,6 +195,8 @@ async fn run_inner(
     app.state.ephemeral.player_pairing.autostart_enabled = player_pairing_enabled;
     app.state.ephemeral.player_pairing.control_socket_enabled =
         grimoire::config::get_config().control_socket.enabled;
+    app.state.ephemeral.player_pairing.transcode_video_enabled =
+        grimoire::config::get_config().media.transcode_video_enabled;
     app.state.ephemeral.player_pairing.image_mode = match grimoire::config::get_config()
         .player_pairing
         .image_mode
@@ -3298,7 +3300,7 @@ fn on_player_pairing_key(
         }
         (PairingViewMode::Settings, KeyCode::Down) => {
             let v = &mut app.state.ephemeral.player_pairing;
-            v.settings_cursor = (v.settings_cursor + 1).min(6);
+            v.settings_cursor = (v.settings_cursor + 1).min(7);
         }
         (PairingViewMode::Settings, KeyCode::Up) => {
             let v = &mut app.state.ephemeral.player_pairing;
@@ -3373,6 +3375,31 @@ fn on_player_pairing_key(
                     Err(e) => {
                         app.state.ephemeral.repl.status = Some(ReplStatus::err(format!(
                             "control socket: failed to update config: {e}"
+                        )));
+                    }
+                },
+            }
+        }
+        (PairingViewMode::Settings, KeyCode::Char('t')) => {
+            let enabled = grimoire::config::get_config().media.transcode_video_enabled;
+            let want = !enabled;
+            match grimoire::config::get_config_path() {
+                None => {
+                    app.state.ephemeral.repl.status = Some(ReplStatus::err(
+                        "transcode video: no config file path known; cannot persist",
+                    ));
+                }
+                Some(path) => match grimoire::config::set_transcode_video_enabled(&path, want) {
+                    Ok(()) => {
+                        app.state.ephemeral.player_pairing.transcode_video_enabled = want;
+                        app.state.ephemeral.repl.status = Some(ReplStatus::ok(format!(
+                            "transcode video renditions: {} (takes effect on next import)",
+                            if want { "enabled" } else { "disabled" }
+                        )));
+                    }
+                    Err(e) => {
+                        app.state.ephemeral.repl.status = Some(ReplStatus::err(format!(
+                            "transcode video: failed to update config: {e}"
                         )));
                     }
                 },

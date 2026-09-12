@@ -630,6 +630,11 @@ fn draw_settings(frame: &mut Frame, area: Rect, app: &mut App) {
     } else {
         "disabled"
     };
+    let transcode_video_label = if app.state.ephemeral.player_pairing.transcode_video_enabled {
+        "enabled"
+    } else {
+        "disabled"
+    };
     let items = [
         format!("session mode: {mode_label}   (e: toggle)"),
         "regenerate admin pairing code   (a)".to_string(),
@@ -641,6 +646,7 @@ fn draw_settings(frame: &mut Frame, area: Rect, app: &mut App) {
         format!("auto-start pairing on launch: {autostart_label}   (p: toggle)"),
         format!("qr/art display: {image_mode_label}   (i: toggle)"),
         format!("unix control socket: {control_socket_label}   (u: toggle, next launch)"),
+        format!("transcode video renditions: {transcode_video_label}   (t: toggle)"),
     ];
     let list_items: Vec<ListItem> = items
         .iter()

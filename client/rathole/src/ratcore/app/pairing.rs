@@ -606,6 +606,16 @@ pub struct PairingViewState {
     /// `grimoire::config::set_control_socket_enabled`'s doc comment) -
     /// it does not live start/stop the listener.
     pub control_socket_enabled: bool,
+    /// mirrors `grimoire::config::MediaConfig::transcode_video_enabled` -
+    /// same portable-mirror reasoning as `autostart_enabled`. mpv (the
+    /// only thing that ever plays a video here) always plays the
+    /// original imported file directly, never a rendition - this only
+    /// controls whether background `TranscodeVideo` jobs run at all,
+    /// which exist purely to serve OTHER clients (e.g. a browser's
+    /// html5 `<video>`) that can't handle the source codec/container.
+    /// off is a good default on modest hardware (raspberry pi) where
+    /// that background ffmpeg work can audibly compete with playback.
+    pub transcode_video_enabled: bool,
 }
 
 /// portable mirror of `grimoire::config::ImageDisplayMode` - see

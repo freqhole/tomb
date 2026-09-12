@@ -1657,6 +1657,20 @@ pub fn set_player_pairing_image_mode(
     set_config_values(config_path, &[("player_pairing.image_mode", value.into())])
 }
 
+/// convenience wrapper for rathole's player-pairing settings screen:
+/// persist [`MediaConfig::transcode_video_enabled`] - takes effect on the
+/// next import (already-running/queued jobs aren't cancelled). useful on
+/// modest hardware (e.g. a raspberry pi `--player`) whose mpv playback
+/// never needs a rendition in the first place (it always plays the
+/// original imported file directly) - background transcoding there is
+/// pure wasted cpu that can audibly compete with playback.
+pub fn set_transcode_video_enabled(config_path: &Path, enabled: bool) -> Result<(), ConfigError> {
+    set_config_values(
+        config_path,
+        &[("media.transcode_video_enabled", enabled.into())],
+    )
+}
+
 /// helper to set a value at a dot-separated path, creating intermediate tables as needed
 fn set_nested_value(
     doc: &mut DocumentMut,
