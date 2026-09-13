@@ -7,6 +7,7 @@ pub mod flyout;
 pub mod landing;
 pub mod music;
 pub mod peer_input;
+pub mod player_pairing;
 pub mod player_row;
 pub mod remote_list;
 pub mod repl;
@@ -83,6 +84,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         Focus::Landing => landing::draw(frame, body, app),
         Focus::MusicView => music::draw(frame, body, app),
         Focus::VideoView => video::draw(frame, body, app),
+        Focus::PlayerPairing => player_pairing::draw(frame, body, app),
         _ => admin::palette::draw(frame, body, app),
     }
 
@@ -196,9 +198,29 @@ fn header_line(app: &App) -> Line<'static> {
     // mode is selected.
     push_serve_badges(&mut spans, &app.state.ephemeral.serve);
 
+    // the freqhole-player/1 pairing endpoint is a SEPARATE p2p
+    // endpoint from the serve subprocess above (see
+    // tty::pairing::start_player_endpoint) - the subprocess never
+    // autostarts p2p anymore (identity-collision fix), so this is
+    // the only signal that p2p is actually up when running as
+    // `--player`/after `/player`.
+    push_player_pairing_badge(&mut spans, app);
+
     // jobs progress badge (scan / fetch / etc.) — only renders
     // when a session is in flight.
     push_jobs_badge(&mut spans, app.state.ephemeral.jobs_status.as_ref());
+
+    // informational-only heads-up: rathole's video/console handling
+    // currently assumes a physical console session, not ssh (see
+    // docs/rathole-headless-player-plan.md) - this doesn't block or
+    // change anything, just flags the mismatch if detected.
+    if app.state.ephemeral.is_ssh_session {
+        spans.push(Span::raw("   "));
+        spans.push(Span::styled(
+            "ssh session",
+            Style::new().fg(Color::Yellow).bold(),
+        ));
+    }
 
     Line::from(spans)
 }
@@ -243,6 +265,21 @@ fn push_serve_badges(spans: &mut Vec<Span<'static>>, badge: &crate::ratcore::app
         spans.push(Span::raw("   "));
         spans.push(Span::styled(format!(" {label} "), style));
     }
+}
+
+fn push_player_pairing_badge(spans: &mut Vec<Span<'static>>, app: &App) {
+    let running = app
+        .pairing
+        .as_ref()
+        .is_some_and(|p| p.snapshot().node_id.is_some());
+    if !running {
+        return;
+    }
+    spans.push(Span::raw("   "));
+    spans.push(Span::styled(
+        " p2p ",
+        Style::new().bg(Color::Green).fg(Color::Black).bold(),
+    ));
 }
 
 fn push_jobs_badge(spans: &mut Vec<Span<'static>>, jobs: Option<&crate::ratcore::app::JobsStatus>) {
@@ -366,15 +403,26 @@ fn footer_hints(app: &App) -> &'static str {
         Focus::MusicView => {
             "\u{2191}/\u{2193}: move   enter: play   space: pause   n/p: skip   \u{2190}/\u{2192}: seek   -/=: vol   f: favorite   /: repl   esc: home"
         }
-        Focus::VideoView => {
-            "\u{2191}/\u{2193}: move   enter: detail   e: edit   d: delete   /: repl   esc: home"
-        }
+        Focus::VideoView => match app.state.ephemeral.video.mode {
+            crate::ratcore::app::VideoMode::Detail => {
+                "p: play   s: stop   e: edit   d: delete   r: renditions   esc: back"
+            }
+            _ => "\u{2191}/\u{2193}: move   enter: detail   e: edit   d: delete   /: repl   esc: home",
+        },
         Focus::Repl => {
             "type /command   tab: complete   \u{2191}/\u{2193}: history   enter: run   esc: cancel"
         }
         Focus::PlayerRow => {
             "\u{2190}/\u{2192} h/l: pick control   enter/space: activate   tab: next/exit   esc: leave"
         }
+        Focus::PlayerPairing => match app.state.ephemeral.player_pairing.mode {
+            crate::ratcore::app::PairingViewMode::Overview => {
+                "tab: player controls   s: settings   \u{2191}/\u{2193}: pick controller   d: remove   esc: home"
+            }
+            crate::ratcore::app::PairingViewMode::Settings => {
+                "tab: player controls   s: overview   e: toggle mode   a: regen admin pin   r: regen pin   esc: home"
+            }
+        },
     }
 }
 

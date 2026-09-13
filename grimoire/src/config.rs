@@ -61,6 +61,21 @@ pub struct GrimoireConfig {
     #[serde(default)]
     pub video: VideoConfig,
 
+    /// rathole's `--player`/`/player` pairing-screen image rendering
+    /// (qr code, now-playing album art). all fields optional; omit the
+    /// whole section to accept defaults.
+    #[serde(default)]
+    pub player_pairing: PlayerPairingConfig,
+
+    /// rathole-only: listens on a local unix domain socket for simple
+    /// newline-delimited media-control commands (e.g. physical buttons
+    /// wired to a raspberry pi, forwarded by a small script that writes
+    /// to the socket). off by default - opt in by adding
+    /// `[control_socket]\nenabled = true` to the config. no network
+    /// exposure risk (filesystem-permission-gated, local machine only).
+    #[serde(default)]
+    pub control_socket: ControlSocketConfig,
+
     /// new-version update checks (queries github releases). off by default;
     /// opt-in via the setup wizard or by adding `[updates]\nenabled = true`.
     #[serde(default)]
@@ -119,6 +134,57 @@ impl Default for VideoConfig {
             linux_buffer_frames: default_video_linux_buffer_frames(),
         }
     }
+}
+
+/// how rathole's `--player`/`/player` pairing screen renders the QR
+/// code and now-playing album art. all fields optional - omit the
+/// `[player_pairing]` section to accept defaults.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct PlayerPairingConfig {
+    /// when `true`, the `freqhole-player/1` pairing endpoint auto-starts
+    /// on launch, same as passing `--player` (in addition to the
+    /// existing `federation.enabled` auto-start trigger) - lets a
+    /// headless player device come back up in pairing mode after a
+    /// reboot without needing the cli flag every time. default `false`
+    /// (unchanged behavior: pairing only starts via `--player`, `/player`,
+    /// or `federation.enabled`). toggleable live from the player
+    /// settings screen (persists to this config file, takes effect on
+    /// the next launch).
+    #[serde(default)]
+    pub enabled: bool,
+    /// "terminal" (default): render directly in the ratatui frame as
+    /// unicode text - the qr code via a dedicated qr renderer (1:1 with
+    /// the qr's modules), now-playing art via `ratatui-image`'s
+    /// halfblocks fallback (works on any console, no protocol
+    /// detection needed). no extra process, no display-region question.
+    /// "framebuffer": show a real raster image instead (qr rendered to a
+    /// png, or the album-art file directly) via the same mpv
+    /// `ShowImage` path already used for video/still-image playback -
+    /// higher fidelity, but whether it can share the physical display
+    /// with ratatui's own text is an open hardware question (see
+    /// docs/rathole-headless-player-plan.md).
+    #[serde(default)]
+    pub image_mode: ImageDisplayMode,
+}
+
+/// see [`PlayerPairingConfig::image_mode`].
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ImageDisplayMode {
+    #[default]
+    Terminal,
+    Framebuffer,
+}
+
+/// see [`GrimoireConfig::control_socket`].
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ControlSocketConfig {
+    /// enable the unix domain socket media-control listener (default `false`).
+    #[serde(default)]
+    pub enabled: bool,
+    /// socket path - defaults to `{data_dir}/rathole/control.sock` when unset.
+    #[serde(default)]
+    pub socket_path: Option<String>,
 }
 
 /// new-version update check configuration. when enabled, the app
@@ -1042,6 +1108,8 @@ pub fn init_config_for_tests() {
         jobs: JobsConfig::default(),
         audio: AudioConfig::default(),
         video: VideoConfig::default(),
+        player_pairing: PlayerPairingConfig::default(),
+        control_socket: ControlSocketConfig::default(),
         updates: UpdatesConfig::default(),
         loaded_from: None,
     };
@@ -1560,6 +1628,49 @@ pub fn set_autostart(
     )
 }
 
+/// convenience wrapper for rathole's player-pairing settings screen:
+/// persist [`PlayerPairingConfig::enabled`] so pairing mode auto-starts
+/// (or stops auto-starting) on the next launch.
+pub fn set_player_pairing_enabled(config_path: &Path, enabled: bool) -> Result<(), ConfigError> {
+    set_config_values(config_path, &[("player_pairing.enabled", enabled.into())])
+}
+
+/// convenience wrapper for rathole's player-pairing settings screen:
+/// persist [`ControlSocketConfig::enabled`] - takes effect on the next
+/// launch (the listener isn't live start/stop-able mid-session today).
+pub fn set_control_socket_enabled(config_path: &Path, enabled: bool) -> Result<(), ConfigError> {
+    set_config_values(config_path, &[("control_socket.enabled", enabled.into())])
+}
+
+/// convenience wrapper for rathole's player-pairing settings screen:
+/// persist [`PlayerPairingConfig::image_mode`] ("terminal" or
+/// "framebuffer") - takes effect immediately (no restart needed), since
+/// the pairing view reads `get_config()` fresh on every render.
+pub fn set_player_pairing_image_mode(
+    config_path: &Path,
+    mode: ImageDisplayMode,
+) -> Result<(), ConfigError> {
+    let value = match mode {
+        ImageDisplayMode::Terminal => "terminal",
+        ImageDisplayMode::Framebuffer => "framebuffer",
+    };
+    set_config_values(config_path, &[("player_pairing.image_mode", value.into())])
+}
+
+/// convenience wrapper for rathole's player-pairing settings screen:
+/// persist [`MediaConfig::transcode_video_enabled`] - takes effect on the
+/// next import (already-running/queued jobs aren't cancelled). useful on
+/// modest hardware (e.g. a raspberry pi `--player`) whose mpv playback
+/// never needs a rendition in the first place (it always plays the
+/// original imported file directly) - background transcoding there is
+/// pure wasted cpu that can audibly compete with playback.
+pub fn set_transcode_video_enabled(config_path: &Path, enabled: bool) -> Result<(), ConfigError> {
+    set_config_values(
+        config_path,
+        &[("media.transcode_video_enabled", enabled.into())],
+    )
+}
+
 /// helper to set a value at a dot-separated path, creating intermediate tables as needed
 fn set_nested_value(
     doc: &mut DocumentMut,
@@ -2013,6 +2124,8 @@ mod tests {
             jobs: JobsConfig::default(),
             audio: AudioConfig::default(),
             video: VideoConfig::default(),
+            player_pairing: PlayerPairingConfig::default(),
+            control_socket: ControlSocketConfig::default(),
             updates: UpdatesConfig::default(),
             loaded_from: None,
         };
@@ -2066,6 +2179,8 @@ mod tests {
             jobs: JobsConfig::default(),
             audio: AudioConfig::default(),
             video: VideoConfig::default(),
+            player_pairing: PlayerPairingConfig::default(),
+            control_socket: ControlSocketConfig::default(),
             updates: UpdatesConfig::default(),
             loaded_from: None,
         };
@@ -2117,6 +2232,8 @@ mod tests {
             jobs: JobsConfig::default(),
             audio: AudioConfig::default(),
             video: VideoConfig::default(),
+            player_pairing: PlayerPairingConfig::default(),
+            control_socket: ControlSocketConfig::default(),
             updates: UpdatesConfig::default(),
             loaded_from: None,
         };

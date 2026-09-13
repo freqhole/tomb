@@ -24,6 +24,13 @@ pub struct Cli {
     #[arg(long, global = true)]
     pub json_output: bool,
 
+    /// shorthand for `rathole --player` with no other subcommand given -
+    /// lets `rathole --player` work directly instead of requiring the
+    /// (confusingly doubled, since the binary itself is also named
+    /// `rathole`) `rathole rathole --player`.
+    #[arg(long)]
+    pub player: bool,
+
     #[command(subcommand)]
     pub command: Option<Commands>,
 }
@@ -163,6 +170,10 @@ pub enum Commands {
     Rathole {
         #[command(subcommand)]
         action: Option<plumbing::RatholeRemoteAction>,
+        /// start directly in the `--player` cenotaph-compatible
+        /// pairing view (see docs/rathole-headless-player-plan.md).
+        #[arg(long)]
+        player: bool,
     },
 }
 
@@ -178,10 +189,15 @@ pub async fn run() -> Result<()> {
 /// custom argv vector — useful for the tauri passthrough where the
 /// host process may want to munge args before dispatch).
 pub async fn run_with(mut cli: Cli) -> Result<()> {
-    // no subcommand → default to launching rathole (the tui client).
-    // this lets users just type `rathole` with no args.
+    // no subcommand → default to launching rathole (the tui client),
+    // honoring the top-level `--player` shorthand.
+    // this lets users just type `rathole` (or `rathole --player`) with no
+    // subcommand.
     if cli.command.is_none() {
-        cli.command = Some(Commands::Rathole { action: None });
+        cli.command = Some(Commands::Rathole {
+            action: None,
+            player: cli.player,
+        });
     }
     let command = cli.command.expect("command set above");
     // rebuild a local view so the rest of this function can use a
@@ -202,7 +218,7 @@ pub async fn run_with(mut cli: Cli) -> Result<()> {
     // doing anything else. on success the wizard creates the config
     // + db + admin user, and we fall through to the normal init
     // path which just attaches to the freshly-created install.
-    if matches!(cli.command, Commands::Rathole { action: None }) {
+    if matches!(cli.command, Commands::Rathole { action: None, .. }) {
         let cfg_path = cli
             .config
             .clone()
@@ -289,7 +305,7 @@ pub async fn run_with(mut cli: Cli) -> Result<()> {
 
     // tui commands (rathole) take over the terminal, so logging to stdout
     // would corrupt the rendered ui. write to <data_dir>/rathole.log instead.
-    let is_tui_command = matches!(cli.command, Commands::Rathole { action: None });
+    let is_tui_command = matches!(cli.command, Commands::Rathole { action: None, .. });
     if is_tui_command && needs_init {
         let log_path = grimoire::config::get_config().data_dir.join("rathole.log");
         if let Some(parent) = log_path.parent() {
@@ -406,16 +422,21 @@ pub async fn run_with(mut cli: Cli) -> Result<()> {
             // handled above with early return
             unreachable!()
         }
-        Commands::Rathole { action: None } => {
+        Commands::Rathole {
+            action: None,
+            player,
+        } => {
             rathole::run(rathole::LaunchOpts {
                 config: cli.config.clone(),
                 serve_capable: true,
+                player,
             })
             .await
             .map_err(|e| anyhow::anyhow!("rathole exited with error: {e}"))?;
         }
         Commands::Rathole {
             action: Some(action),
+            ..
         } => {
             plumbing::handle_rathole_remote(action, json_output).await?;
         }

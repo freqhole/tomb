@@ -7,6 +7,7 @@
 use serde_json::Value as JsonValue;
 
 use super::music::{MusicEvent, SongRow};
+use super::video_player::VideoEvent;
 
 /// portable arg for [`AppAction::ServeStart`]. mirrors
 /// [`crate::ratcore::slash::ServeKindArg`] but lives here so the
@@ -607,6 +608,9 @@ pub enum AppAction {
     /// player backend emitted an event (state change, progress tick,
     /// track-changed, error, etc.).
     MusicEvent(MusicEvent),
+    /// video/image backend (mpv) emitted an event (duration known,
+    /// position tick, playing/paused, ended, error, closed).
+    VideoPlayerEvent(VideoEvent),
     /// query videos (for video view results list).
     QueryVideos {
         query: Option<String>,
@@ -729,6 +733,92 @@ pub enum AppAction {
         #[allow(dead_code)]
         silent: bool,
     },
+    /// live byte-progress for a `freqhole-player/1` queue push / play
+    /// command currently fetching media from the controller's source
+    /// peer. `None` clears the indicator once the batch finishes (or
+    /// hasn't started). see `tty::pairing::resolve_queue_items`.
+    PairingDownloadProgress(Option<super::PairingDownloadProgress>),
+    /// a `freqhole-player/1` `replace_queue` command resolved its
+    /// items (possibly mixed audio+video) - the ui loop installs
+    /// `entries` as the new unified queue and starts playing index 0
+    /// via `tty::queue::set_queue_entries`. carried as an `AppAction`
+    /// (rather than mutated directly by the dispatch task) because
+    /// dispatch runs without `&mut App` access - see
+    /// `tty::pairing::DispatchContext`'s own doc comment.
+    PairingReplaceQueue { entries: Vec<super::QueueEntry> },
+    /// a `freqhole-player/1` `append_queue` command resolved its
+    /// items - appended to the existing unified queue via
+    /// `tty::queue::append_queue_entries`, starting playback only if
+    /// the queue was empty/idle.
+    PairingAppendQueue { entries: Vec<super::QueueEntry> },
+    /// a `replace_queue`/`append_queue` wire push just arrived - shown
+    /// immediately as placeholder rows (`MusicState::pending_previews`)
+    /// before any of them have been pulled/imported, so the tui isn't
+    /// blank/unresponsive-looking while that (possibly slow, e.g. on a
+    /// raspberry pi) work happens. see `tty::pairing::
+    /// resolve_queue_items`'s doc comment.
+    PairingQueuePending { items: Vec<super::MediaRef> },
+    /// one item from a `PairingQueuePending` batch finished resolving,
+    /// successfully or not - removes it from `MusicState::
+    /// pending_previews` (the real queue itself is already updated
+    /// separately via `PairingReplaceQueue`/`PairingAppendQueue` on
+    /// success; a failure just drops the placeholder with nothing to
+    /// replace it, mirroring `resolve_queue_items`'s existing
+    /// skip-and-warn behavior).
+    PairingQueuePreviewSettled { blake3_hash: String },
+    /// a song's artwork blob(s) resolved to local file path(s) (see
+    /// `SongRow::art_blob_ids`) - the ui loop installs `paths` into
+    /// `PairingViewState::art_paths` if `song_id` still matches
+    /// whatever's currently playing (a fast skip could otherwise make
+    /// a stale resolution apply to the wrong song). `paths` is empty
+    /// when the song has no art or resolution failed.
+    SongArtResolved { song_id: String, paths: Vec<String> },
+    /// a `freqhole-player/1` `skip` command - advances the SAME
+    /// unified queue the local `n` key does (`tty::queue::play_next`),
+    /// never a backend-native "next" primitive: both rodio and mpv are
+    /// only ever loaded with a single track at a time (see
+    /// `tty::queue`'s module doc), so their own internal Next/skip is
+    /// a no-op regardless of which one is currently active. dispatch
+    /// can't call `play_next` directly (no `&mut App` there - see
+    /// `DispatchContext`'s doc comment), hence routing through here.
+    PairingSkip,
+    /// a `freqhole-player/1` `remove_from_queue` command - see
+    /// `tty::queue::remove_from_queue`'s doc comment (index 0 =
+    /// currently playing, matching the wire convention).
+    PairingRemoveFromQueue { index: usize },
+    /// a `freqhole-player/1` `reorder_queue` command - see
+    /// `tty::queue::reorder_queue`'s doc comment.
+    PairingReorderQueue { from_index: usize, to_index: usize },
+    /// a `freqhole-player/1` `tune_radio` command - see `tty::radio`'s
+    /// module doc. routed through here for the same "no `&mut App` in
+    /// dispatch" reason as `PairingSkip`; `tty::radio::start` needs it
+    /// to stop any regular queue playback + store session state.
+    PairingTuneRadio {
+        peer_addr: String,
+        station_id: Option<String>,
+    },
+    /// a `freqhole-player/1` `stop_radio` command - see
+    /// `tty::radio::stop`'s doc comment.
+    PairingStopRadio,
+    /// pushed by the running radio session (`tty::radio`) whenever the
+    /// station/track meta changes (initial `Hello`, or a later `Meta`
+    /// control message) - drives `EphemeralState::radio`'s display
+    /// fields. `station_name` is `None` for a `Meta`-driven update
+    /// (only `Hello` carries it) so the ui loop only overwrites what
+    /// actually changed.
+    RadioStatusUpdate {
+        station_name: Option<String>,
+        track_title: Option<String>,
+        track_artist: Option<String>,
+    },
+    /// the running radio session ended - cleanly (`error: None`, e.g.
+    /// the broadcaster closed the connection) or with a real failure
+    /// (connect error, protocol error, mpv error). a stale session
+    /// (superseded by a newer tune or an explicit stop) sending this
+    /// is filtered out by `tty::radio` itself before it ever reaches
+    /// here (see its generation-counter doc comment), so the ui loop
+    /// can just clear `EphemeralState::radio` unconditionally.
+    RadioEnded { error: Option<String> },
 }
 
 /// most recent dispatch result, kept for the detail pane.

@@ -616,15 +616,16 @@ export class MiddenNodeOptions {
     get opfs_store_dir(): string | undefined;
     set opfs_store_dir(value: string | null | undefined);
     /**
-     * when true, route only through `relay_urls` (no public n0 fallback).
-     * when false (default), use `relay_urls` alongside the public n0
-     * relay(s). ignored when `relay_urls` is empty/unset.
+     * deprecated / no longer changes behavior: `relay_urls` (once set) are
+     * always used exclusively now, regardless of this flag - kept only so
+     * existing callers setting it don't break. see `resolve_relay_mode`.
      */
     relay_custom_only: boolean;
     /**
      * custom iroh relay server url(s), e.g. ["https://relay.example.com"].
      * omit (or pass null/undefined/empty) to use only the public n0 relay
-     * preset. combined with the n0 preset unless `relay_custom_only` is set.
+     * preset. once set, these are used exclusively - the public n0 relay is
+     * never merged in as a fallback (see `resolve_relay_mode`'s doc comment).
      */
     get relay_urls(): string[] | undefined;
     set relay_urls(value: string[] | null | undefined);

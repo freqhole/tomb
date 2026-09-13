@@ -144,16 +144,39 @@ class PlayerControlSession {
 
   private async sendNow(line: string): Promise<string | null> {
     for (let attempt = 0; ; attempt++) {
+      let stream: BiStreamLike;
       try {
-        const stream = await this.getStream();
-        await stream.write_line(line);
-        return (await stream.read_line()) as string | null;
+        stream = await this.getStream();
       } catch (err) {
-        // the stream (or the dial itself) is broken - drop it so the next
-        // attempt redials from scratch, same backoff dialLine() already uses.
+        // never got a stream at all - nothing was sent, safe to redial
+        // and retry from scratch.
         this.stream = null;
         if (attempt >= DIAL_RETRY_DELAYS_MS.length) throw err;
         await new Promise((resolve) => setTimeout(resolve, DIAL_RETRY_DELAYS_MS[attempt]));
+        continue;
+      }
+      try {
+        await stream.write_line(line);
+      } catch (err) {
+        // failed before the command reached the wire - safe to redial
+        // and resend from scratch, same as a dial failure above.
+        this.stream = null;
+        if (attempt >= DIAL_RETRY_DELAYS_MS.length) throw err;
+        await new Promise((resolve) => setTimeout(resolve, DIAL_RETRY_DELAYS_MS[attempt]));
+        continue;
+      }
+      try {
+        return (await stream.read_line()) as string | null;
+      } catch (err) {
+        // the write DID succeed - rathole may already have applied this
+        // command (e.g. append_queue). resending it here would risk a
+        // duplicate, since rathole has no per-command idempotency
+        // tracking - drop the stream so the NEXT command redials
+        // cleanly, but don't blindly retry (and re-apply) THIS one.
+        // a real disconnect/blip (e.g. the phone waking from sleep
+        // mid-read) previously duplicated whatever was just sent.
+        this.stream = null;
+        throw err;
       }
     }
   }

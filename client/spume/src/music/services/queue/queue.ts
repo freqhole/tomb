@@ -270,8 +270,12 @@ export async function playQueue(
 
   // if queue is empty, just set and play
   if (currentQueue.length === 0) {
-    await setQueue(finalItems);
+    // fire the remote push (and its own instant optimistic overlay) before
+    // awaiting the local persistence write below - the two are independent
+    // and shouldn't be serialized just because they happen to be written
+    // next to each other.
     mirrorReplaceQueue(finalSongs);
+    await setQueue(finalItems);
     const startItem = finalItems[startIndex];
     await playMediaItem(startItem, { userInitiated: true });
     triggerImmediatePreCache(finalItems, mediaItemKey(startItem));
@@ -322,8 +326,9 @@ export async function playQueue(
     clearAllQueueProgress();
     clearPendingUpNext();
 
-    await setQueue(finalItems);
+    // see the empty-queue branch above for why the mirror call goes first.
     mirrorReplaceQueue(finalSongs);
+    await setQueue(finalItems);
     const startItem = finalItems[startIndex];
     await playMediaItem(startItem, { userInitiated: true });
     triggerImmediatePreCache(finalItems, mediaItemKey(startItem));
@@ -621,12 +626,14 @@ async function addToQueueInternal(
     newQueue = [...currentQueue, ...items];
   }
 
-  await setQueue(newQueue);
-
   // an already-active remote target keeps playing what it has - newly
   // added songs just extend its queue, they don't take over playback (a
   // fresh replaceQueue only happens via the "play on" handoff itself).
+  // fired before awaiting local persistence below - see playQueue's
+  // empty-queue branch for why the two shouldn't be serialized.
   mirrorAppendToQueue(songsOnly(items));
+
+  await setQueue(newQueue);
 
   // autoplay if: explicitly requested, nothing is currently playing, or playback ended
   const willAutoPlay = startPlaying || !currentId || hasPlaybackEnded();

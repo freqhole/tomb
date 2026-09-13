@@ -251,7 +251,9 @@ pub mod type_registry {
     // player control types (rodio plan phase 1 — no http route consumes
     // these yet, but the typescript codegen needs them so the spume
     // PlayerBackend interface can import generated zod schemas.)
-    use crate::player::{PlayerCommand, PlayerEvent, PlayerSnapshot, PlayerState, RestartPolicy};
+    use crate::player::{
+        AudioDeviceInfo, PlayerCommand, PlayerEvent, PlayerSnapshot, PlayerState, RestartPolicy,
+    };
 
     // search types
     use crate::search::{
@@ -416,6 +418,11 @@ pub mod type_registry {
         registered.insert("RestartPolicy".to_string());
         gen.add_schema::<PlayerCommand>("PlayerCommand");
         registered.insert("PlayerCommand".to_string());
+        // leaf type referenced by PlayerEvent's manual zod schema string
+        // (OutputDevices { devices: Vec<AudioDeviceInfo> }) - must
+        // register before PlayerEvent itself.
+        gen.add_schema::<AudioDeviceInfo>("AudioDeviceInfo");
+        registered.insert("AudioDeviceInfo".to_string());
         gen.add_schema::<PlayerEvent>("PlayerEvent");
         registered.insert("PlayerEvent".to_string());
 

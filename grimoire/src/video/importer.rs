@@ -493,7 +493,32 @@ pub async fn import_video_file(
         }
     }
 
-    // enqueue the deferred transcode step
+    // enqueue the deferred transcode step - mpv (rathole's own player, and
+    // charnel's gst video window) always plays the ORIGINAL imported file
+    // directly (see e.g. rathole's `tty::queue::play_video_entry`'s
+    // `VideoCommand::Load` against the import's `local_path`, never a
+    // rendition) - renditions only exist to serve OTHER clients that can't
+    // handle the source codec/container directly (e.g. a browser's html5
+    // `<video>`). skip enqueueing entirely (not just no-op inside the job
+    // processor - see `should_skip_transcode`/`process_transcode_video_job`)
+    // when disabled, so a device that never serves such clients (e.g. a
+    // headless rathole `--player` on modest hardware) doesn't pay for a
+    // pointless queued job + background ffmpeg run at all. found via a
+    // real report: unconditional transcoding was pegging cpu hard enough
+    // on a raspberry pi to cause audible audio dropout during playback.
+    if !config.media.transcode_video_enabled {
+        info!(
+            "transcode_video_enabled is false, skipping TranscodeVideo job for video {}",
+            video.id
+        );
+        return Ok(VideoImportResult {
+            video_id: video.id,
+            poster_blob_id,
+            subtitle_blob_ids,
+            is_duplicate: false,
+        });
+    }
+
     let transcode_params = TranscodeVideoParams {
         media_blob_id: media_blob_id.to_string(),
         video_id: video.id.clone(),

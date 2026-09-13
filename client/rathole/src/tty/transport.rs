@@ -58,30 +58,7 @@ impl Transport for LocalTransport {
         let Some(result) = resp.data else {
             return Ok(vec![]);
         };
-        let mut out = Vec::with_capacity(result.items.len());
-        for item in result.items {
-            let artist = if !item.song.track_artist.as_deref().unwrap_or("").is_empty() {
-                item.song.track_artist.clone()
-            } else {
-                item.artist.as_ref().map(|a| a.name.clone())
-            };
-            let album = item.album.as_ref().map(|a| a.title.clone());
-            let album_id = item.album.as_ref().map(|a| a.id.clone());
-            let artist_id = item.artist.as_ref().map(|a| a.id.clone());
-            let local_path = item.media_blob.as_ref().and_then(|b| b.local_path.clone());
-            out.push(SongRow {
-                id: item.song.id.clone(),
-                title: item.song.title.clone(),
-                artist,
-                album,
-                album_id,
-                artist_id,
-                duration_ms: item.song.duration.map(|d| d as u64),
-                media_blob_id: Some(item.song.media_blob_id.clone()),
-                local_path,
-            });
-        }
-        Ok(out)
+        Ok(result.items.iter().map(song_query_to_row).collect())
     }
 
     async fn list_local_songs(&self, limit: u32) -> Result<Vec<SongRow>, String> {
@@ -92,30 +69,7 @@ impl Transport for LocalTransport {
         let Some(result) = resp.data else {
             return Ok(vec![]);
         };
-        let mut out = Vec::with_capacity(result.items.len());
-        for item in result.items {
-            let artist = if !item.song.track_artist.as_deref().unwrap_or("").is_empty() {
-                item.song.track_artist.clone()
-            } else {
-                item.artist.as_ref().map(|a| a.name.clone())
-            };
-            let album = item.album.as_ref().map(|a| a.title.clone());
-            let album_id = item.album.as_ref().map(|a| a.id.clone());
-            let artist_id = item.artist.as_ref().map(|a| a.id.clone());
-            let local_path = item.media_blob.as_ref().and_then(|b| b.local_path.clone());
-            out.push(SongRow {
-                id: item.song.id.clone(),
-                title: item.song.title.clone(),
-                artist,
-                album,
-                album_id,
-                artist_id,
-                duration_ms: item.song.duration.map(|d| d as u64),
-                media_blob_id: Some(item.song.media_blob_id.clone()),
-                local_path,
-            });
-        }
-        Ok(out)
+        Ok(result.items.iter().map(song_query_to_row).collect())
     }
 
     async fn toggle_favorite(&self, target_type: &str, target_id: &str) -> Result<bool, String> {
@@ -441,7 +395,7 @@ fn rendition_blob_to_row(blob: grimoire::media_blobz::MediaBlob) -> RenditionRow
 }
 
 /// shared SongQueryResult → SongRow conversion for music transport
-/// methods (search, playlist_songs, album_songs).
+/// methods (search, playlist_songs, album_songs, list_local_songs).
 fn song_query_to_row(item: &grimoire::music::crud::SongQueryResult) -> SongRow {
     let artist = if !item.song.track_artist.as_deref().unwrap_or("").is_empty() {
         item.song.track_artist.clone()
@@ -452,6 +406,18 @@ fn song_query_to_row(item: &grimoire::music::crud::SongQueryResult) -> SongRow {
     let album_id = item.album.as_ref().map(|a| a.id.clone());
     let artist_id = item.artist.as_ref().map(|a| a.id.clone());
     let local_path = item.media_blob.as_ref().and_then(|b| b.local_path.clone());
+    let art_blob_ids = song_art_blob_ids(item);
+    tracing::info!(
+        target: "rathole::tty::art",
+        song = %item.song.title,
+        song_images = item.images.as_ref().map(|v| v.len()),
+        has_album = item.album.is_some(),
+        album_images = item.album.as_ref().and_then(|a| a.images.as_ref()).map(|v| v.len()),
+        has_artist = item.artist.is_some(),
+        artist_images = item.artist.as_ref().and_then(|a| a.images.as_ref()).map(|v| v.len()),
+        resolved_art_blob_ids = art_blob_ids.len(),
+        "song_query_to_row: raw image field shapes vs resolved art_blob_ids"
+    );
     SongRow {
         id: item.song.id.clone(),
         title: item.song.title.clone(),
@@ -462,7 +428,39 @@ fn song_query_to_row(item: &grimoire::music::crud::SongQueryResult) -> SongRow {
         duration_ms: item.song.duration.map(|d| d as u64),
         media_blob_id: Some(item.song.media_blob_id.clone()),
         local_path,
+        art_blob_ids,
+        art_url: None,
+        source_blake3: None,
     }
+}
+
+/// priority-ordered art blob ids: song's own images (primary first),
+/// then album images, then artist images - waveform blobs excluded
+/// (a waveform plot isn't "art" in the now-playing/carousel sense).
+fn song_art_blob_ids(item: &grimoire::music::crud::SongQueryResult) -> Vec<String> {
+    use grimoire::media_blobz::BlobType;
+    use grimoire::music::crud::ImageMetadata;
+
+    fn extend_sorted(ids: &mut Vec<String>, images: &[ImageMetadata]) {
+        let mut sorted: Vec<&ImageMetadata> = images
+            .iter()
+            .filter(|i| i.blob_type != BlobType::Waveform)
+            .collect();
+        sorted.sort_by_key(|i| if i.is_primary != 0 { 0 } else { 1 });
+        ids.extend(sorted.into_iter().map(|i| i.blob_id.clone()));
+    }
+
+    let mut ids = Vec::new();
+    if let Some(images) = &item.images {
+        extend_sorted(&mut ids, images);
+    }
+    if let Some(images) = item.album.as_ref().and_then(|a| a.images.as_ref()) {
+        extend_sorted(&mut ids, images);
+    }
+    if let Some(images) = item.artist.as_ref().and_then(|a| a.images.as_ref()) {
+        extend_sorted(&mut ids, images);
+    }
+    ids
 }
 
 async fn library_query_impl(

@@ -105,6 +105,13 @@ export class VideoBackend implements PlayerBackend {
       case "status":
         this.emit({ kind: "state", state: this.snap.state ?? "stopped" });
         return;
+      case "list_output_devices":
+        // browser video elements have no output-device concept to
+        // enumerate - empty list, not an error.
+        this.emit({ kind: "output_devices", devices: [] });
+        return;
+      case "set_output_device":
+        return;
       case "next":
       case "previous":
       case "load":

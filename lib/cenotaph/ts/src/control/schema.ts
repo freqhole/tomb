@@ -7,6 +7,28 @@
 
 import { z } from "zod";
 
+/** a pre-transcoded, already-compatible alternate encoding of a video's
+ * source media, so a receiving player can pull THIS smaller/leaner file
+ * by hash instead of the (possibly much larger, or already-compatible-
+ * anyway) original - e.g. a raspberry pi `--player` pulling a 480p
+ * rendition of a 4k source. no equivalent exists for audio (rathole's
+ * mpv/rodio backends already handle virtually any audio codec/container
+ * directly - there's nothing to gain from a lower-bitrate rendition the
+ * way there is for video's much heavier decode cost). */
+const RenditionRefSchema = z.object({
+  /** blake3 hash of THIS rendition's own bytes (distinct from the
+   * source video's `blake3_hash` above) - pull this hash instead of the
+   * original's to fetch the rendition directly. */
+  blake3_hash: z.string(),
+  /** rendition label (e.g. "480p", matches `video_transcode_renditions`
+   * config on the source device - purely informational on the wire). */
+  label: z.string(),
+  mime_type: z.string().optional(),
+  width: z.number().optional(),
+  height: z.number().optional(),
+});
+export type RenditionRef = z.infer<typeof RenditionRefSchema>;
+
 const MediaRefSchema = z.object({
   /** peer address (or node id) of the remote the media lives on. */
   source_peer_addr: z.string(),
@@ -26,6 +48,11 @@ const MediaRefSchema = z.object({
   artwork_thumb_url: z.string().optional(),
   /** full-size art (this player's own now-playing view). */
   artwork_full_url: z.string().optional(),
+  /** already-transcoded alternates of this video, smallest-first, if the
+   * pushing device already has any on hand - lets a receiving player
+   * pull one of these instead of the (possibly much larger) original.
+   * omitted/empty for audio, or when the source has no renditions. */
+  available_renditions: z.array(RenditionRefSchema).optional(),
 });
 export type MediaRef = z.infer<typeof MediaRefSchema>;
 

@@ -39,7 +39,6 @@ import {
   pause as pausePlayback,
   playbackDuration,
   playbackPosition,
-  queueItemStatus,
   resume as resumePlayback,
   retryPlayback,
   setDevelMode,
@@ -50,7 +49,7 @@ import {
 import { spumeTrustStore } from "../services/remotePlayback/trustStoreAdapter";
 import { getMiddenNode } from "../api/client";
 
-import { getLocalLibraryName } from "../services/storage/db";
+import { appState, getLocalLibraryName } from "../services/storage/db";
 import {
   remotePlaybackEnabled,
   setRemotePlaybackEnabled,
@@ -58,12 +57,40 @@ import {
 import { PlayerDebugOverlay } from "./PlayerDebugOverlay";
 import { PlayerSettingsPanel } from "./PlayerSettingsPanel";
 import { renderPlayerQr } from "./renderPairingQr";
+import { isCharnelMode } from "../services/charnel/mode";
+import { isRodioEnabled } from "../../music/services/audio/select";
+import {
+  currentTime as realCurrentTime,
+  duration as realDuration,
+  isPlaying as realIsPlaying,
+} from "../../music/services/audio/playerState";
+import {
+  pause as realPause,
+  play as realPlay,
+  playNext as realPlayNext,
+} from "../../music/services/audio/player";
+import { mediaItemKey, mediaItemSubtitle, mediaItemTitle } from "../services/storage/mediaItem";
+import { getSongDisplayImages } from "../../utils/images";
+import MediaImage from "../../components/media/MediaImage";
+import type { ImageMetadata } from "../../music/services/storage/types";
 
 function formatTime(seconds: number): string {
   if (!Number.isFinite(seconds) || seconds < 0) seconds = 0;
   const mins = Math.floor(seconds / 60);
   const secs = Math.floor(seconds % 60);
   return `${mins}:${secs.toString().padStart(2, "0")}`;
+}
+
+/** true when this device is a charnel/linux build with the rodio+gst opt-
+ * in on - see docs/cenotaph-linux-experimental-player-plan.md. in that
+ * case, `acceptModeBootstrap.ts` drives spume's real player
+ * (`charnelPlaybackAdapter.ts`) instead of cenotaph's own `<video>`/
+ * `<audio>` engine, so this component reads spume's own reactive state
+ * (queue/now-playing/position/playing) rather than cenotaph's
+ * `engineState`/`nowPlaying`/etc., which would otherwise sit stale (never
+ * updated - nothing drives cenotaph's internal signals in this mode). */
+function usingRealPlayer(): boolean {
+  return isCharnelMode() && isRodioEnabled();
 }
 
 export function CenotaphPlayerApp() {
@@ -173,9 +200,75 @@ export function CenotaphPlayerApp() {
   // session ever starts. stop() (playbackEngine.ts) leaves engineState()
   // at "stopped" (not "idle") once the queue drains, so checking only for
   // "idle" here left the pairing screen permanently hidden after the
-  // first-ever session ended.
+  // first-ever session ended. when the real (rodio/gst) player is
+  // driving playback instead, cenotaph's own engineState()/nowPlaying()
+  // never change (nothing feeds them in that mode) - read spume's own
+  // queue state instead.
   const showPairingScreen = () =>
-    (engineState() === "idle" || engineState() === "stopped") && nowPlaying() === null;
+    usingRealPlayer()
+      ? (appState()?.queue.length ?? 0) === 0
+      : (engineState() === "idle" || engineState() === "stopped") && nowPlaying() === null;
+
+  /** unifies cenotaph's own now-playing state with spume's real player
+   * state (when `usingRealPlayer()`) into one shape the JSX below reads
+   * from, so it doesn't need two parallel copies of the same markup. `null`
+   * hides the now-playing section entirely (nothing queued, a command is
+   * in flight, or - real player only - the current item is a video, whose
+   * display the gst window itself takes over, see this section's own doc
+   * comment further down). `artworkImages`/`artworkUrl` are both passed
+   * straight to `MediaImage` below, which resolves whichever is present
+   * (real player: the song's own images array; cenotaph engine: the
+   * already-resolved `artwork_full_url`). */
+  const nowPlayingView = () => {
+    if (usingRealPlayer()) {
+      const state = appState();
+      if (!state || state.queue.length === 0) return null;
+      const idx = state.current_sha256
+        ? state.queue.findIndex((i) => mediaItemKey(i) === state.current_sha256)
+        : 0;
+      const ordered = idx >= 0 ? state.queue.slice(idx) : state.queue;
+      const current = ordered[0];
+      if (!current || current.kind !== "song") return null;
+      return {
+        artworkImages: getSongDisplayImages(current.song),
+        artworkUrl: undefined as string | undefined,
+        title: mediaItemTitle(current),
+        artist: mediaItemSubtitle(current) ?? "",
+        positionSeconds: realCurrentTime(),
+        durationSeconds: realDuration(),
+        isPlaying: realIsPlaying(),
+        queueRest: ordered.slice(1).map((i) => ({
+          key: mediaItemKey(i),
+          title: mediaItemTitle(i),
+          artist: mediaItemSubtitle(i) ?? undefined,
+          durationSeconds:
+            i.kind === "song"
+              ? (i.song.duration_seconds ?? undefined)
+              : (i.video.duration_seconds ?? undefined),
+        })),
+      };
+    }
+    if (mediaKind() !== "audio" || commandInFlight()) return null;
+    const item = nowPlaying();
+    if (!item) return null;
+    return {
+      artworkImages: undefined as ImageMetadata[] | undefined,
+      artworkUrl: item.artwork_full_url,
+      title: item.title ?? "unknown title",
+      artist: item.artist ?? "",
+      positionSeconds: playbackPosition(),
+      durationSeconds: item.duration_ms ? item.duration_ms / 1000 : playbackDuration(),
+      isPlaying: engineState() === "playing",
+      queueRest: upcomingQueue()
+        .slice(1)
+        .map((q) => ({
+          key: q.blake3_hash,
+          title: q.title ?? q.blake3_hash.slice(0, 12),
+          artist: q.artist,
+          durationSeconds: q.duration_ms ? q.duration_ms / 1000 : undefined,
+        })),
+    };
+  };
 
   return (
     <div class="flex h-screen flex-col items-center justify-center gap-6 overflow-y-auto bg-black p-6 text-center text-white">
@@ -275,12 +368,21 @@ export function CenotaphPlayerApp() {
           App.tsx now-playing view (see this file's header comment). hidden
           while a command is in flight (see playbackEngine.ts's own
           showPairingView note in the prior prototype) so it doesn't flash
-          stale info between queue replace/append commands. */}
-      <Show when={mediaKind() === "audio" && !commandInFlight() ? nowPlaying() : null}>
-        {(item) => (
+          stale info between queue replace/append commands.
+          when `usingRealPlayer()`, everything below reads spume's own
+          queue/playback state instead of cenotaph's engineState()/
+          nowPlaying()/etc. (which never change in that mode - nothing
+          feeds them, see charnelPlaybackAdapter.ts) - see `nowPlayingView()`
+          just above. video items render nothing here either way: the
+          gst window pops out as its own OS-level surface and takes over
+          as the actual display (docs/linux-video-window-plan.md), so this
+          tab's content is moot for video regardless of which player is
+          driving playback. */}
+      <Show when={nowPlayingView()}>
+        {(view) => (
           <div class="flex w-full max-w-md flex-col items-center gap-4" data-testid="now-playing">
             <Show
-              when={item().artwork_full_url}
+              when={(view().artworkImages?.length ?? 0) > 0 || view().artworkUrl}
               fallback={
                 <div
                   class="flex h-64 w-64 items-center justify-center rounded-lg bg-neutral-800"
@@ -303,75 +405,71 @@ export function CenotaphPlayerApp() {
                 </div>
               }
             >
-              {(url) => (
-                <img src={url()} alt="" class="h-64 w-64 rounded-lg object-cover shadow-lg" />
-              )}
+              <MediaImage
+                images={view().artworkImages}
+                imageUrl={view().artworkUrl}
+                alt=""
+                domainType="song"
+                showFallback={false}
+                class="h-64 w-64 rounded-lg object-cover shadow-lg"
+              />
             </Show>
 
             <p class="text-xl font-semibold" data-testid="now-playing-title">
-              {item().title ?? "unknown title"}
+              {view().title}
             </p>
             <p class="text-sm text-neutral-400" data-testid="now-playing-artist">
-              {item().artist ?? ""}
+              {view().artist}
             </p>
             <p class="font-mono text-xs text-neutral-500" data-testid="now-playing-time">
-              {formatTime(playbackPosition())} /{" "}
-              {formatTime(item().duration_ms ? item().duration_ms! / 1000 : playbackDuration())}
+              {formatTime(view().positionSeconds)} / {formatTime(view().durationSeconds)}
             </p>
 
             <div class="flex items-center gap-8" data-testid="playback-controls">
               <button
                 type="button"
                 class="text-3xl leading-none"
-                onClick={() => (engineState() === "playing" ? pausePlayback() : resumePlayback())}
+                onClick={() =>
+                  usingRealPlayer()
+                    ? view().isPlaying
+                      ? realPause()
+                      : void realPlay()
+                    : engineState() === "playing"
+                      ? pausePlayback()
+                      : resumePlayback()
+                }
                 data-testid="play-pause-button"
               >
-                {engineState() === "playing" ? "⏸" : "▶"}
+                {view().isPlaying ? "⏸" : "▶"}
               </button>
               <button
                 type="button"
                 class="text-3xl leading-none"
-                onClick={() => middenNode() && void skipTrack(middenNode()!)}
+                onClick={() =>
+                  usingRealPlayer()
+                    ? void realPlayNext()
+                    : middenNode() && void skipTrack(middenNode()!)
+                }
                 data-testid="skip-button"
               >
                 ⏭
               </button>
             </div>
 
-            <Show when={upcomingQueue().length > 1}>
+            <Show when={view().queueRest.length > 0}>
               <ul
                 class="mt-4 w-full max-w-md text-left text-sm text-neutral-400"
                 data-testid="queue-list"
               >
-                <For each={upcomingQueue().slice(1)}>
+                <For each={view().queueRest}>
                   {(queued) => (
                     <li class="flex items-center justify-between gap-2 truncate border-b border-neutral-800 py-1">
                       <span class="truncate">
-                        {queued.title ?? queued.blake3_hash.slice(0, 12)}
+                        {queued.title}
                         <Show when={queued.artist}> — {queued.artist}</Show>
                       </span>
-                      <Show when={queued.duration_ms}>
-                        {(ms) => {
-                          const status = () => queueItemStatus().get(queued.blake3_hash);
-                          return (
-                            <span class="flex shrink-0 flex-col items-end gap-0.5">
-                              <span
-                                class="font-mono text-xs"
-                                classList={{ underline: status() === "ready" }}
-                              >
-                                {formatTime(ms() / 1000)}
-                              </span>
-                              {/* mirrors spume's queue-sidebar "loading underline" indicator -
-                                  see QueueSongRow.tsx - while a queued item is being prefetched
-                                  in the background. */}
-                              <Show when={status() === "loading"}>
-                                <span class="h-0.5 w-8 overflow-hidden rounded-full bg-neutral-700">
-                                  <span class="block h-full w-full animate-[bounce-bar_2s_ease-in-out_infinite] bg-neutral-400" />
-                                </span>
-                              </Show>
-                            </span>
-                          );
-                        }}
+                      <Show when={queued.durationSeconds !== undefined}>
+                        <span class="font-mono text-xs">{formatTime(queued.durationSeconds!)}</span>
                       </Show>
                     </li>
                   )}
@@ -386,7 +484,7 @@ export function CenotaphPlayerApp() {
           tab (common right after loading /player/ fresh, before anyone's
           clicked/tapped anything here) - mirrors player.freqhole.net's
           former App.tsx "tap to start playback" overlay. */}
-      <Show when={engineState() === "blocked"}>
+      <Show when={!usingRealPlayer() && engineState() === "blocked"}>
         <div
           class="fixed inset-0 z-[60] flex flex-col items-center justify-center gap-4 bg-black/90 p-6 text-center"
           data-testid="playback-blocked"
@@ -409,7 +507,7 @@ export function CenotaphPlayerApp() {
           palette as QueuePlayerTargetRow's "connecting" ring) + a big,
           easy-to-read-from-across-the-room percentage, rather than the
           small always-there corner text this used to be. */}
-      <Show when={engineState() === "buffering"}>
+      <Show when={!usingRealPlayer() && engineState() === "buffering"}>
         <div
           class="pointer-events-none fixed inset-0 z-20 flex flex-col items-center justify-center gap-6 bg-black/60"
           data-testid="buffering-indicator"
@@ -435,7 +533,7 @@ export function CenotaphPlayerApp() {
         </div>
       </Show>
 
-      <Show when={engineError()}>
+      <Show when={!usingRealPlayer() && engineError()}>
         <div class="pointer-events-none fixed bottom-4 left-4 z-10 text-sm text-red-400">
           {engineError()}
         </div>

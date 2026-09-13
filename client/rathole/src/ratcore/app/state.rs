@@ -7,8 +7,10 @@ use serde::{Deserialize, Serialize};
 
 use super::events::{ActionMenu, CommandForm, LastDispatch};
 use super::music::MusicState;
+use super::pairing::{PairingViewState, PlayerSession, TrustedController};
 use super::repl::ReplState;
 use super::video::VideoState;
+use super::video_player::VideoPlayerState;
 
 /// portable view-layer representation of the serve subprocess state.
 /// shells translate their concrete monitor types into this; views
@@ -61,6 +63,17 @@ pub struct PersistedState {
     /// pending remote connections (invite + knock requests in progress).
     #[serde(default)]
     pub pending_remotes: Vec<PendingRemoteEntry>,
+    /// `--player`/`/player` pairing: controllers this player has ever
+    /// paired with (persists indefinitely, mirrors cenotaph's trust
+    /// store).
+    #[serde(default)]
+    pub trusted_controllers: Vec<TrustedController>,
+    /// `--player`/`/player` pairing: the current ephemeral "who's
+    /// allowed to send commands right now" session (mirrors cenotaph's
+    /// `PlayerSession`). `None` until first used - a fresh one is
+    /// minted on demand via `PlayerSession::ensure_active`.
+    #[serde(default)]
+    pub player_session: Option<PlayerSession>,
 }
 
 fn default_schema_version() -> u32 {
@@ -75,6 +88,8 @@ impl Default for PersistedState {
             ui: UiPrefs::default(),
             remotes: vec![],
             pending_remotes: vec![],
+            trusted_controllers: vec![],
+            player_session: None,
         }
     }
 }
@@ -193,6 +208,9 @@ pub enum Focus {
     PlayerRow,
     /// video browse, detail, and edit view.
     VideoView,
+    /// `--player`/`/player` cenotaph-compatible pairing view: qr/pin,
+    /// connected controllers, settings sub-focus.
+    PlayerPairing,
 }
 
 /// in-memory slice. rebuilt on every launch.
@@ -232,6 +250,11 @@ pub struct EphemeralState {
     pub action_menu: Option<ActionMenu>,
     /// state for the video browse/detail/edit view.
     pub video: VideoState,
+    /// state for actual video/image playback (mpv, linux tty only) —
+    /// separate from `video` (browse/edit) since playback is a
+    /// distinct concern, mirroring how `music`'s player fields sit
+    /// alongside its own browse state instead of a separate struct.
+    pub video_player: VideoPlayerState,
     /// state for the music search + playback view.
     pub music: MusicState,
     /// state for the bottom `/` slash-command repl.
@@ -271,6 +294,33 @@ pub struct EphemeralState {
     pub scan_status: Option<ScanStatus>,
     /// if set, `/scan abort confirm` must match this session id.
     pub scan_abort_confirm_for: Option<String>,
+    /// detected once at startup (tty shell only, via `SSH_TTY`/
+    /// `SSH_CONNECTION`/`SSH_CLIENT`) - purely informational, shown as a
+    /// small header heads-up. does not change any behavior: rathole's
+    /// video/console-suppression handling currently assumes a physical
+    /// console session (see docs/rathole-headless-player-plan.md); real
+    /// ssh-aware behavior is a deliberately deferred, separate effort.
+    pub is_ssh_session: bool,
+    /// `--player`/`/player` pairing view navigation state.
+    pub player_pairing: PairingViewState,
+    /// active radio session status (`tty::radio`, tty shell only) -
+    /// `active: false` means no radio session is running (the default,
+    /// unstarted state).
+    pub radio: RadioPlaybackState,
+}
+
+/// display/status snapshot of the running radio session, if any -
+/// updated by `AppAction::RadioStatusUpdate`/`RadioEnded` (see those
+/// variants' doc comments). purely portable display data; the actual
+/// iroh connection + mpv/fifo plumbing lives in `tty::radio`, not here.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RadioPlaybackState {
+    pub active: bool,
+    pub station_id: Option<String>,
+    pub station_name: Option<String>,
+    pub track_title: Option<String>,
+    pub track_artist: Option<String>,
+    pub last_error: Option<String>,
 }
 
 /// minimal portable view of an in-flight job session for the
@@ -313,6 +363,7 @@ impl Default for EphemeralState {
             last_dispatch_scroll: 0,
             last_knock_id: None,
             video: VideoState::new(),
+            video_player: VideoPlayerState::new(),
             action_menu: None,
             music: MusicState::new(),
             repl: ReplState::default(),
@@ -327,6 +378,9 @@ impl Default for EphemeralState {
             pending_knock_username: None,
             scan_status: None,
             scan_abort_confirm_for: None,
+            is_ssh_session: false,
+            player_pairing: PairingViewState::new(),
+            radio: RadioPlaybackState::default(),
         }
     }
 }

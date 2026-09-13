@@ -5,6 +5,7 @@
 use serde_json::{json, Value as JsonValue};
 use sha2::{Digest, Sha256};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::time::Duration;
 
 use crate::config::get_config;
@@ -199,6 +200,10 @@ impl PullAudioBlobError {
 ///   8. `create_media_blob` (with sha256 dedupe)
 ///   9. rename temp file → `{output_dir}/{year}/{month}/{blob_id}.{ext}`
 ///
+/// `on_progress`, if given, receives cumulative downloaded byte counts during
+/// step 3 - for callers (e.g. rathole's player tui) rendering a live download
+/// indicator.
+///
 /// caller is responsible for: role checks, transport node_id extraction,
 /// follow-up work (importmusic job creation, song stub creation, etc).
 pub async fn pull_audio_blob_to_local_storage(
@@ -209,6 +214,32 @@ pub async fn pull_audio_blob_to_local_storage(
     filename: &str,
     caller: &Caller,
     domain: MediaDomain,
+) -> Result<PullAudioBlobResult, PullAudioBlobError> {
+    pull_audio_blob_to_local_storage_with_progress(
+        source_node_id,
+        blake3,
+        expected_sha256,
+        expected_size,
+        filename,
+        caller,
+        domain,
+        None,
+    )
+    .await
+}
+
+/// `pull_audio_blob_to_local_storage` with an optional cumulative-bytes
+/// progress callback forwarded to the underlying p2p fetch (step 3).
+#[allow(clippy::too_many_arguments)]
+pub async fn pull_audio_blob_to_local_storage_with_progress(
+    source_node_id: &str,
+    blake3: &str,
+    expected_sha256: Option<&str>,
+    expected_size: Option<u64>,
+    filename: &str,
+    caller: &Caller,
+    domain: MediaDomain,
+    on_progress: Option<&crate::federation::p2p_client::BlobProgressFn>,
 ) -> Result<PullAudioBlobResult, PullAudioBlobError> {
     // 1. validate blake3 hash format (64 hex chars)
     if blake3.len() != 64 || !blake3.chars().all(|c| c.is_ascii_hexdigit()) {
@@ -272,8 +303,26 @@ pub async fn pull_audio_blob_to_local_storage(
     let year = now.year();
     let month = now.month() as u8;
 
-    // use a temp filename based on blake3 hash (will rename after blob record creation)
-    let temp_filename = format!("{}.{}", &blake3[..16], ext);
+    // use a temp filename based on blake3 hash plus a per-call disambiguator
+    // (will rename after blob record creation). two overlapping pulls of the
+    // SAME blake3 (e.g. a duplicate/retried queue push arriving on a second
+    // connection before the first pull finishes) previously shared this exact
+    // path - whichever finished first renamed it away out from under the
+    // other, which was still trying to open it for the sha256/mime read,
+    // surfacing as a spurious `ReadFailed`/"failed to read downloaded file"
+    // even though the pull itself was working fine. the final path (below,
+    // keyed by the deduped blob id) is still shared and that's fine - a
+    // second concurrent pull's rename onto it is a harmless same-content
+    // overwrite, since `create_media_blob` already dedupes by sha256.
+    static TEMP_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
+    let disambiguator = TEMP_FILE_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let temp_filename = format!(
+        "{}-{}-{}.{}",
+        &blake3[..16],
+        std::process::id(),
+        disambiguator,
+        ext
+    );
     // join each segment separately - a single format!() string with embedded
     // "/" produces a mixed \ and / path on windows once joined onto output_dir.
     let temp_path = output_dir
@@ -291,8 +340,12 @@ pub async fn pull_audio_blob_to_local_storage(
         }
     }
 
-    let fetch_future =
-        p2p_client::fetch_blob_verified_to_file_with_ensure(source_node_id, blake3, &temp_path);
+    let fetch_future = p2p_client::fetch_blob_verified_to_file_with_ensure_and_progress(
+        source_node_id,
+        blake3,
+        &temp_path,
+        on_progress,
+    );
     let file_size = match tokio::time::timeout(Duration::from_secs(120), fetch_future).await {
         Ok(Ok(size)) => {
             tracing::info!(

@@ -72,6 +72,15 @@ fn map_event(ev: PlayerEvent) -> Option<MusicEvent> {
         },
         PlayerEvent::Ended => MusicEvent::Ended,
         PlayerEvent::Error { detail } => MusicEvent::Error(detail.detail),
+        PlayerEvent::OutputDevices { devices } => MusicEvent::OutputDevices {
+            devices: devices
+                .into_iter()
+                .map(|d| crate::ratcore::app::AudioDeviceInfo {
+                    name: d.name,
+                    description: d.description,
+                })
+                .collect(),
+        },
         // backend lifecycle events are noisy; surface as state-ish.
         PlayerEvent::BackendDown { .. } | PlayerEvent::BackendUp => return None,
     })
@@ -90,6 +99,8 @@ impl MusicPlayer for RodioPlayer {
             PlayerCmd::Previous => PlayerCommand::Previous,
             PlayerCmd::Seek(ms) => PlayerCommand::Seek { ms },
             PlayerCmd::SetVolume(v) => PlayerCommand::SetVolume { v },
+            PlayerCmd::ListOutputDevices => PlayerCommand::ListOutputDevices,
+            PlayerCmd::SetOutputDevice(name) => PlayerCommand::SetOutputDevice { name },
         };
         self.controller
             .send(mapped)

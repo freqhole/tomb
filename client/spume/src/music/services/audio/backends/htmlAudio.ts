@@ -166,6 +166,16 @@ export class HtmlAudioBackend implements PlayerBackend {
         // caller observes a fresh state event.
         this.emit({ kind: "state", state: this.snap.state ?? "stopped" });
         return;
+      case "list_output_devices":
+        // browsers have no rodio/cpal-style output-device concept for
+        // this backend to enumerate - empty list, not an error (a
+        // caller asking "what can I pick from" gets a real, if empty,
+        // answer instead of a scary error toast).
+        this.emit({ kind: "output_devices", devices: [] });
+        return;
+      case "set_output_device":
+        // nothing to switch to - see list_output_devices above.
+        return;
       case "load":
         // paths-vs-Song mismatch — see file header. emit a structured
         // error event rather than silently dropping.

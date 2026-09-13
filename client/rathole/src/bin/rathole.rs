@@ -4,8 +4,10 @@
 //! initialises grimoire config + database here so the binary works
 //! when invoked directly (not via `freqhole rathole`).
 //!
-//! config path: first positional arg, then `$FREQHOLE_CONFIG`, then
-//! the cli's own defaults.
+//! args: `--player` starts directly in the cenotaph-compatible pairing
+//! view (see docs/rathole-headless-player-plan.md phase 4). the first
+//! remaining (non-flag) arg is the config path, then `$FREQHOLE_CONFIG`,
+//! then the cli's own defaults.
 
 use std::path::PathBuf;
 
@@ -13,8 +15,11 @@ use std::path::PathBuf;
 async fn main() -> color_eyre::Result<()> {
     color_eyre::install()?;
 
-    let config: Option<PathBuf> = std::env::args()
-        .nth(1)
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let player = args.iter().any(|a| a == "--player");
+    let config: Option<PathBuf> = args
+        .iter()
+        .find(|a| !a.starts_with("--"))
         .map(PathBuf::from)
         .or_else(|| std::env::var("FREQHOLE_CONFIG").ok().map(PathBuf::from));
 
@@ -39,6 +44,7 @@ async fn main() -> color_eyre::Result<()> {
     rathole::run(rathole::LaunchOpts {
         config,
         serve_capable: false,
+        player,
     })
     .await
 }

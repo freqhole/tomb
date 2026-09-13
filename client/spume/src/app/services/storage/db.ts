@@ -219,8 +219,12 @@ async function updateAppState(updates: Partial<Omit<AppState, "id">>): Promise<A
     last_updated: Date.now(),
   };
 
-  await db.put(STORE_APP_STATE, updated);
+  // update the reactive signal FIRST - every ui read (queue sidebar,
+  // now-playing, etc.) must reflect the change immediately, not only once
+  // the indexeddb write below (can take a noticeable amount of time for a
+  // large queue, especially on a slower device) has committed.
   setAppState(updated);
+  await db.put(STORE_APP_STATE, updated);
 
   return updated;
 }

@@ -376,8 +376,20 @@ pub async fn fetch_blob_verified_to_file(
     blake3_hash: &str,
     target: &std::path::Path,
 ) -> GrimoireResult<u64> {
+    fetch_blob_verified_to_file_with_progress(peer_addr, blake3_hash, target, None).await
+}
+
+/// `fetch_blob_verified_to_file` with an optional cumulative-bytes progress
+/// callback, for callers (e.g. rathole's player tui) that want to render a
+/// download progress indicator while a large file streams to disk.
+pub async fn fetch_blob_verified_to_file_with_progress(
+    peer_addr: &str,
+    blake3_hash: &str,
+    target: &std::path::Path,
+    on_progress: Option<&BlobProgressFn>,
+) -> GrimoireResult<u64> {
     let (store, hash, hash_short, node_id_short) =
-        download_blob_to_store(peer_addr, blake3_hash, None).await?;
+        download_blob_to_store(peer_addr, blake3_hash, on_progress).await?;
 
     // export from store directly to target file (no memory buffering)
     store
@@ -774,6 +786,18 @@ pub async fn fetch_blob_verified_to_file_with_ensure(
     blake3_hash: &str,
     target: &std::path::Path,
 ) -> GrimoireResult<u64> {
+    fetch_blob_verified_to_file_with_ensure_and_progress(peer_addr, blake3_hash, target, None).await
+}
+
+/// `fetch_blob_verified_to_file_with_ensure` with an optional cumulative-bytes
+/// progress callback, forwarded to both the initial attempt and the
+/// post-ensure retry.
+pub async fn fetch_blob_verified_to_file_with_ensure_and_progress(
+    peer_addr: &str,
+    blake3_hash: &str,
+    target: &std::path::Path,
+    on_progress: Option<&BlobProgressFn>,
+) -> GrimoireResult<u64> {
     info!(
         "fetch_blob_verified_to_file_with_ensure: starting for {} from {}",
         &blake3_hash[..16.min(blake3_hash.len())],
@@ -781,7 +805,9 @@ pub async fn fetch_blob_verified_to_file_with_ensure(
     );
 
     // first attempt
-    match fetch_blob_verified_to_file(peer_addr, blake3_hash, target).await {
+    match fetch_blob_verified_to_file_with_progress(peer_addr, blake3_hash, target, on_progress)
+        .await
+    {
         Ok(size) => return Ok(size),
         Err(e) => {
             let hash_short = &blake3_hash[..16.min(blake3_hash.len())];
@@ -841,7 +867,9 @@ pub async fn fetch_blob_verified_to_file_with_ensure(
         &blake3_hash[..16.min(blake3_hash.len())],
     );
 
-    let result = fetch_blob_verified_to_file(peer_addr, blake3_hash, target).await;
+    let result =
+        fetch_blob_verified_to_file_with_progress(peer_addr, blake3_hash, target, on_progress)
+            .await;
     if let Err(ref e) = result {
         error!(
             hash = %&blake3_hash[..16.min(blake3_hash.len())],

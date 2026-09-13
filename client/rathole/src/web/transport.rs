@@ -258,11 +258,11 @@ impl Transport for MiddenTransport {
         };
         let resp = match self
             .node
-            .proxy_request(&self.peer_addr, method, route, Some(body_str))
+            .api_request(&self.peer_addr, method, route, Some(body_str))
             .await
         {
             Ok(v) => v,
-            Err(e) => return logged_fail(route, format!("proxy_request: {}", js_err_str(e))),
+            Err(e) => return logged_fail(route, format!("api_request: {}", js_err_str(e))),
         };
 
         // resp is a JS object `{ status: u16, body: Option<String> }`.
@@ -766,6 +766,10 @@ fn song_query_json_to_row(item: &JsonValue) -> crate::ratcore::app::SongRow {
             .and_then(|v| v.as_str())
             .map(|s| s.to_string()),
         local_path,
+        // web/wasm shell has no mpv/ratatui-image art rendering yet.
+        art_blob_ids: Vec::new(),
+        art_url: None,
+        source_blake3: None,
     }
 }
 

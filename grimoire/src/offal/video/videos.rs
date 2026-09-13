@@ -90,6 +90,17 @@ pub struct VideoRendition {
     pub mime: Option<String>,
     #[serde(default)]
     pub skipped: bool,
+    /// content-addressed hash of this rendition's own bytes - lets a
+    /// remote peer (e.g. a `--player`'s `freqhole-player/1` queue-push
+    /// receiver) pull THIS smaller/pre-transcoded file directly by hash
+    /// instead of the (possibly much larger) original. `None` for a
+    /// `skipped` entry (no blob, nothing to pull).
+    #[serde(default)]
+    pub blake3: Option<String>,
+    #[serde(default)]
+    pub width: Option<i64>,
+    #[serde(default)]
+    pub height: Option<i64>,
 }
 
 /// request for querying videos, optionally scoped to a series/season or to
@@ -524,6 +535,9 @@ pub async fn get_renditions(_caller: &Caller, body: JsonValue) -> GrimoireRespon
                 extension,
                 mime: blob.mime,
                 skipped: false,
+                blake3: blob.blake3,
+                width: blob.width,
+                height: blob.height,
             }
         })
         .collect();
@@ -547,6 +561,9 @@ pub async fn get_renditions(_caller: &Caller, body: JsonValue) -> GrimoireRespon
                         extension: rendition.extension.clone(),
                         mime: None,
                         skipped: true,
+                        blake3: None,
+                        width: None,
+                        height: None,
                     });
                 }
             }

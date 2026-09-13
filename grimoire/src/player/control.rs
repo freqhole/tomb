@@ -63,6 +63,17 @@ pub enum PlayerCommand {
     /// request a one-shot [`PlayerEvent::State`] emission.
     /// useful for new subscribers to bootstrap their view.
     Status,
+
+    /// request a one-shot [`PlayerEvent::OutputDevices`] emission
+    /// listing currently-available audio output devices (e.g. a pi's
+    /// hdmi vs. 3.5mm jack vs. a usb dac).
+    ListOutputDevices,
+
+    /// switch audio output to a specific device (the `name` from a
+    /// previously-reported [`AudioDeviceInfo`]). the current queue
+    /// keeps playing (position + pause state are preserved across
+    /// the switch); output briefly restarts on the new device.
+    SetOutputDevice { name: String },
 }
 
 /// the high-level state the backend can be in.
@@ -112,6 +123,23 @@ pub enum PlayerEvent {
 
     /// the backend task is alive (or has just been restarted).
     BackendUp,
+
+    /// reply to [`PlayerCommand::ListOutputDevices`].
+    OutputDevices { devices: Vec<AudioDeviceInfo> },
+}
+
+/// one audio output device, as reported by the backend (`cpal`'s
+/// device list). `name` is the identifier to send back in
+/// [`PlayerCommand::SetOutputDevice`]; `description` is a
+/// human-readable label for a controller's ui. on most platforms
+/// `cpal` only exposes one string per device, so the two are
+/// currently identical - kept as separate fields so a richer
+/// backend (or a future non-cpal one) can differentiate them
+/// without a wire-format change.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ZodSchema)]
+pub struct AudioDeviceInfo {
+    pub name: String,
+    pub description: String,
 }
 
 // ---- manual zod schema impls ----------------------------------------
@@ -139,7 +167,9 @@ z.object({ kind: z.literal("next") }),
 z.object({ kind: z.literal("previous") }),
 z.object({ kind: z.literal("seek"), ms: z.number() }),
 z.object({ kind: z.literal("set_volume"), v: z.number() }),
-z.object({ kind: z.literal("status") })
+z.object({ kind: z.literal("status") }),
+z.object({ kind: z.literal("list_output_devices") }),
+z.object({ kind: z.literal("set_output_device"), name: z.string() })
 ])"#
         .to_string()
     }
@@ -156,7 +186,8 @@ z.object({ kind: z.literal("track_changed"), index: z.number(), path: z.string()
 z.object({ kind: z.literal("ended") }),
 z.object({ kind: z.literal("error"), detail: ErrorDetailSchema }),
 z.object({ kind: z.literal("backend_down"), restart_count: z.number() }),
-z.object({ kind: z.literal("backend_up") })
+z.object({ kind: z.literal("backend_up") }),
+z.object({ kind: z.literal("output_devices"), devices: z.array(AudioDeviceInfoSchema) })
 ])"#
         .to_string()
     }
@@ -206,7 +237,8 @@ impl PlayerSnapshot {
             }
             PlayerEvent::Error { .. }
             | PlayerEvent::BackendDown { .. }
-            | PlayerEvent::BackendUp => false,
+            | PlayerEvent::BackendUp
+            | PlayerEvent::OutputDevices { .. } => false,
         }
     }
 }

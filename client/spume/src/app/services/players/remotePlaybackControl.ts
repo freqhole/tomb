@@ -21,6 +21,14 @@ import { appState, setQueue } from "../storage/db";
 import { isSongItem } from "../storage/mediaItem";
 import { toast } from "../../../components/feedback/Toast";
 
+export interface RenditionRef {
+  blake3_hash: string;
+  label: string;
+  mime_type?: string;
+  width?: number;
+  height?: number;
+}
+
 export interface RemoteMediaRef {
   source_peer_addr: string;
   blake3_hash: string;
@@ -34,6 +42,10 @@ export interface RemoteMediaRef {
   artwork_thumb_url?: string;
   /** full-size art (player's own now-playing view). */
   artwork_full_url?: string;
+  /** already-transcoded alternates of this video, if known - lets a
+   * receiving player pull one instead of the (possibly much larger)
+   * original. see `playerQueuePush.ts`'s `videoToMediaRef`. */
+  available_renditions?: RenditionRef[];
 }
 
 export type RemoteStatus =
@@ -165,7 +177,47 @@ export function reportCommandAckFailure(
   });
 }
 
-const [remoteStatus, setRemoteStatus] = createSignal<RemoteStatus | null>(null);
+/// rathole/cenotaph now pushes a fresh status every ~250ms (so the
+/// position/playing-state stays live) - most of those pushes only
+/// differ in `position_ms`/`server_time_ms` advancing in step with real
+/// elapsed time, which `remotePositionMs()` already extrapolates
+/// locally between updates via its own `tickNow()` ticker. without a
+/// custom `equals`, solid's default signal equality is reference-based,
+/// so a brand-new status OBJECT every tick made every consumer of
+/// `remoteStatus()` (queue rows, now-playing card, etc.) re-render
+/// every ~250ms even when nothing user-visible actually changed - the
+/// "flashing"/unstable-render symptom.
+///
+/// can't just strip position_ms/server_time_ms unconditionally though -
+/// a real seek needs to be reflected immediately (jumping the visible
+/// position bar), not silently swallowed until some unrelated field
+/// happens to change. so: only treat two statuses as equal if position
+/// moved roughly in step with the real time elapsed between them
+/// (natural playback progression, within a couple seconds of slack for
+/// tick jitter) - a bigger mismatch means a real seek/jump and is
+/// treated as a genuine change.
+function statusEqualsIgnoringClock(a: RemoteStatus | null, b: RemoteStatus | null): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  if ("position_ms" in a && "position_ms" in b && "server_time_ms" in a && "server_time_ms" in b) {
+    const expectedDrift = b.server_time_ms - a.server_time_ms;
+    const actualDrift = b.position_ms - a.position_ms;
+    if (Math.abs(actualDrift - expectedDrift) > 2_000) {
+      return false; // a real seek/jump, not just natural progression.
+    }
+  }
+  const strip = (s: RemoteStatus): unknown => {
+    const clone: Record<string, unknown> = { ...s };
+    delete clone.position_ms;
+    delete clone.server_time_ms;
+    return clone;
+  };
+  return JSON.stringify(strip(a)) === JSON.stringify(strip(b));
+}
+
+const [remoteStatus, setRemoteStatus] = createSignal<RemoteStatus | null>(null, {
+  equals: statusEqualsIgnoringClock,
+});
 export { remoteStatus };
 
 // client-side offline detection: `Date.now()` of the last time a REAL
@@ -443,6 +495,23 @@ const POLL_INTERVAL_MS = 30_000;
 let pollHandle: ReturnType<typeof setInterval> | null = null;
 let unsubscribeStatus: (() => void) | null = null;
 
+/** the push-subscription line handler, shared by `setRemoteStatusPolling`
+ * and `forceResyncRemoteStatus` (which needs to reopen the exact same
+ * subscription, not just start polling). */
+function handlePushLine(line: unknown): void {
+  const parsed = line as { type?: string; state?: string };
+  if (parsed.type === "presence") {
+    // pushed unprompted whenever the player's own presence changes (see
+    // `@freqhole/cenotaph`'s `broadcastPresence`) - a "stopped" push means
+    // the player just announced it's no longer reachable/accepting
+    // commands, well before OFFLINE_TIMEOUT_MS would otherwise notice via
+    // silence alone.
+    if (parsed.state === "stopped") markRemoteAnnouncedOffline();
+    return;
+  }
+  applyRemoteStatus(line as RemoteStatus);
+}
+
 /** start/stop polling get_status + the push subscription while a remote
  * target is active - call once (e.g. from an effect watching
  * isRemoteTargetActive()). */
@@ -465,19 +534,7 @@ export function setRemoteStatusPolling(enabled: boolean): void {
 
     const nodeId = activeTargetNodeId();
     if (nodeId) {
-      unsubscribeStatus = subscribeToPlayerStatus(nodeId, (line) => {
-        const parsed = line as { type?: string; state?: string };
-        if (parsed.type === "presence") {
-          // pushed unprompted whenever the player's own presence changes
-          // (see `@freqhole/cenotaph`'s `broadcastPresence`) - a "stopped"
-          // push means the player just announced it's no longer
-          // reachable/accepting commands, well before OFFLINE_TIMEOUT_MS
-          // would otherwise notice via silence alone.
-          if (parsed.state === "stopped") markRemoteAnnouncedOffline();
-          return;
-        }
-        applyRemoteStatus(line as RemoteStatus);
-      });
+      unsubscribeStatus = subscribeToPlayerStatus(nodeId, handlePushLine);
     }
   } else if (!enabled && pollHandle) {
     clearInterval(pollHandle);
@@ -489,5 +546,41 @@ export function setRemoteStatusPolling(enabled: boolean): void {
       clearInterval(tickHandle);
       tickHandle = null;
     }
+  }
+}
+
+/** forces an immediate resync with the active remote target - call when
+ * the tab/window regains focus/visibility after being backgrounded. an
+ * OS-suspended background tab can leave the 30s poll interval and the
+ * push subscription both quiet for a while (the poll timer picks back up
+ * on its own schedule, which can be a long wait; the push subscription's
+ * own read loop may not notice a half-dead connection promptly, or at
+ * all, if the underlying transport doesn't surface it as a clean read
+ * failure) - found via a real report of the play/pause button and
+ * position going stale/wrong for a while after reconnecting. re-fetches
+ * status immediately AND tears down + reopens the push subscription
+ * rather than trusting either one's own retry timing. no-op if no remote
+ * target is active. */
+export function forceResyncRemoteStatus(): void {
+  if (!isRemoteTargetActive()) return;
+  setRemoteAnnouncedOffline(false);
+  setTickNow(Date.now());
+  // optimistically treat "we just kicked off a fresh probe" as "heard
+  // from it just now" - without this, `lastStatusAt` is still whatever
+  // it was before the tab/device went to sleep, so `remoteTargetOffline()`
+  // (comparing against the freshly-reset `tickNow` above) sees the ENTIRE
+  // sleep duration as silence and fires an immediate false-positive
+  // "lost connection" toast + falls back to local, even though the
+  // player was never actually unreachable - it just hadn't had a chance
+  // to answer yet. a genuine failure (this get_status call never
+  // getting a response) still re-triggers the real timeout naturally
+  // from this new baseline.
+  lastStatusAt = Date.now();
+  void remoteGetStatus().catch(() => {});
+  unsubscribeStatus?.();
+  unsubscribeStatus = null;
+  const nodeId = activeTargetNodeId();
+  if (nodeId) {
+    unsubscribeStatus = subscribeToPlayerStatus(nodeId, handlePushLine);
   }
 }

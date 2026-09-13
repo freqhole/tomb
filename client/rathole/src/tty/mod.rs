@@ -3,12 +3,20 @@
 //! owns: ratatui terminal lifecycle, crossterm event loop, the
 //! grimoire-backed `LocalTransport`, and the toml statefile.
 
+pub mod art_fetch;
+pub mod art_render;
+mod control_socket;
+pub mod pairing;
 pub mod pending_remotes;
 mod persist;
 mod player;
+pub mod qr;
+mod queue;
+mod radio;
 mod run;
 pub mod serve_monitor;
 mod transport;
+mod video_player;
 
 pub use transport::LocalTransport;
 
@@ -25,6 +33,10 @@ pub struct LaunchOpts {
     /// monitor to reuse `current_exe()` directly instead of searching
     /// for a sibling binary by name.
     pub serve_capable: bool,
+    /// start directly in the `--player` pairing view (see
+    /// docs/rathole-headless-player-plan.md phase 4) instead of the
+    /// normal landing screen.
+    pub player: bool,
 }
 
 /// run the rathole tui. expects grimoire's config + database to be
@@ -60,8 +72,19 @@ pub async fn run(opts: LaunchOpts) -> color_eyre::Result<()> {
     // and only suppress the stderr output. color_eyre's hook
     // installed at binary entry is preserved for the main thread.
     install_tui_panic_hook();
-    let terminal = ratatui::init();
+    let mut terminal = ratatui::init();
     let mut stdout = std::io::stdout();
+    // clear the terminal's scrollback (not just the visible screen) before
+    // the tui takes over - `ratatui::init()` enters the alt-screen but
+    // doesn't touch scrollback, so without this, resizing/scrolling while
+    // the tui is running (or some terminals' alt-screen transition itself)
+    // can show whatever was printed before rathole started bleeding
+    // through underneath/around the tui.
+    let _ = crossterm::execute!(
+        stdout,
+        crossterm::terminal::Clear(crossterm::terminal::ClearType::Purge)
+    );
+    let _ = terminal.clear();
     let _ = crossterm::execute!(stdout, crossterm::event::EnableBracketedPaste);
     // request the most useful kitty protocol flags. ignore errors:
     // terminals that don't grok this just continue with the legacy

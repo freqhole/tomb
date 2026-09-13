@@ -76,6 +76,18 @@ pub(super) fn detect_audio_mime_type(filename: &str, data: &[u8]) -> String {
         if data.len() >= 12 && &data[4..8] == b"ftyp" {
             return "audio/mp4".to_string();
         }
+        // webm/mkv (EBML header) - opus/vorbis-in-webm is a legitimate
+        // audio-only format, but shares its top-level magic bytes with
+        // video webm/mkv; header bytes alone can't tell them apart.
+        // optimistically treat it as audio here (an audio-domain
+        // caller, e.g. `pull_audio_blob_to_local_storage`, already
+        // expressed audio intent) rather than reject outright - a
+        // genuinely video-content webm pushed through the music path
+        // would still get through, but that's a narrower risk than
+        // rejecting every legitimate audio-only webm/opus file.
+        if data.starts_with(&[0x1A, 0x45, 0xDF, 0xA3]) {
+            return "audio/webm".to_string();
+        }
     }
 
     "application/octet-stream".to_string()
@@ -134,6 +146,7 @@ pub fn detect_extension(mime_type: &str, filename: &str) -> String {
         "audio/wav" | "audio/wave" => "wav",
         "audio/aac" => "aac",
         "audio/m4a" | "audio/mp4" => "m4a",
+        "audio/webm" => "webm",
         // images
         "image/webp" => "webp",
         "image/jpeg" | "image/jpg" => "jpg",

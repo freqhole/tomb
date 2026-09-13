@@ -200,14 +200,12 @@ type TauriDialogOpenFn = (options: {
 type TauriFsReadFileFn = (path: string) => Promise<Uint8Array>;
 
 async function loadDialog(): Promise<{ open: TauriDialogOpenFn }> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any, no-restricted-syntax -- tauri-only api, avoid bundling into web builds
   return (await import("@tauri-apps/plugin-dialog" as any)) as { open: TauriDialogOpenFn };
 }
 
 async function loadFs(): Promise<{ readFile: TauriFsReadFileFn }> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any, no-restricted-syntax -- tauri-only api, avoid bundling into web builds
   return (await import("@tauri-apps/plugin-fs" as any)) as { readFile: TauriFsReadFileFn };
 }
 
@@ -227,6 +225,7 @@ async function loadFs(): Promise<{ readFile: TauriFsReadFileFn }> {
  */
 async function resolveTauriPath(path: string): Promise<string> {
   try {
+    // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
     const { invoke } = await import("@tauri-apps/api/core");
     return await invoke<string>("resolve_path", { path });
   } catch {

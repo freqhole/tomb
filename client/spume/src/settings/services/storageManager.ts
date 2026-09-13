@@ -13,6 +13,7 @@ import {
 } from "../../music/services/cache/blobCache";
 import { clearAllP2PCache } from "../../music/services/storage/blobResolver";
 import { debug } from "../../utils/logger";
+import { getVideoOPFSUsage, purgeAllVideosFromOPFS } from "../../video/services/opfs/helpers";
 
 const CACHE_METADATA_DB_NAME = "freqhole_cache_metadata";
 
@@ -219,10 +220,9 @@ export async function getStorageBreakdown(): Promise<StorageBreakdown> {
     totalSize: 0,
   };
   try {
-    const { getVideoOPFSUsage } = await import("../../video/services/opfs/helpers");
     videoOpfsStats = await getVideoOPFSUsage();
   } catch (error) {
-    // video module might not be available in all contexts, fail gracefully
+    // opfs may be unsupported/unavailable in this runtime, fail gracefully
     console.warn("failed to get video opfs stats:", error);
   }
 
@@ -350,7 +350,6 @@ export async function clearOPFSData(): Promise<void> {
 // delete all video opfs data
 export async function clearVideoOPFSData(): Promise<void> {
   try {
-    const { purgeAllVideosFromOPFS } = await import("../../video/services/opfs/helpers");
     await purgeAllVideosFromOPFS();
     debug("storageManager", "cleared video opfs data");
   } catch (error) {
