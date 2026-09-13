@@ -37,11 +37,13 @@ export async function playVideoQueue(
 ): Promise<void> {
   if (videos.length === 0) return;
   const items = videos.map((v) => videoToMediaItem({ ...v, queue_entry_id: undefined }));
-  await setQueue(items);
   // playVideoQueue always fully replaces the local queue (no insert-after-
   // current merge logic like queue.ts's playQueue) - mirror that as a
   // replace on the remote target too, same as queue.ts's mirrorReplaceQueue.
+  // fired before awaiting local persistence below so the remote push (and
+  // its own instant optimistic overlay) isn't serialized behind it.
   mirrorReplaceVideosToQueue(videosOnly(items));
+  await setQueue(items);
   await playMediaItem(items[startIndex], { userInitiated: true });
   void preCacheNextVideos(videosOnly(items), 30, startIndex + 1);
 

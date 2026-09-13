@@ -10,7 +10,7 @@
 // silently skipped.
 import { createEffect, createRoot, createSignal, on } from "solid-js";
 import type { Song } from "../../../music/services/storage/types";
-import type { QueuedVideo } from "../storage/mediaItem";
+import type { MediaItem, QueuedVideo } from "../storage/mediaItem";
 import { activeTargetNodeId, isRemoteTargetActive } from "./activeTarget";
 import {
   remoteQueue,
@@ -69,6 +69,22 @@ function provisionalVideoRef(video: QueuedVideo): RemoteMediaRef {
     kind: "video",
     title: video.title,
   };
+}
+
+function provisionalMediaItemRef(item: MediaItem): RemoteMediaRef {
+  return item.kind === "song" ? provisionalSongRef(item.song) : provisionalVideoRef(item.video);
+}
+
+/** same instant-overlay mechanism as mirrorAppendToQueue/mirrorReplaceQueue
+ * below, exported directly for a caller (selectPlaybackTarget.ts's initial
+ * hand-off to a freshly-picked player) that needs to register the
+ * placeholder itself before it knows whether the real network call will
+ * end up being an append or a replace - that's only decided once the
+ * player's current status comes back, but the queue view must show
+ * *something* well before then. */
+export function registerPendingMediaOp(mode: "append" | "replace", items: MediaItem[]): () => void {
+  if (items.length === 0) return () => {};
+  return pushPendingOp({ mode, items: items.map(provisionalMediaItemRef) });
 }
 
 /** `remoteQueue()` plus this device's own not-yet-confirmed edits layered

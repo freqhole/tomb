@@ -18,6 +18,7 @@ import {
   setActiveTargetToPlayer,
 } from "./activeTarget";
 import { appendMediaToPlayer, pushMediaToPlayer } from "./playerQueuePush";
+import { registerPendingMediaOp } from "./remoteQueueMirror";
 import {
   fetchRemoteStatus,
   remoteQueue,
@@ -128,32 +129,42 @@ export async function selectPlayerPlaybackTarget(player: {
   }
 
   try {
-    // don't clobber a session someone else already started on this
-    // player - if it's already playing/paused/buffering (anything but
-    // "stopped", i.e. nothing loaded), add our items to the end of its
-    // queue instead of replacing it, and don't touch its current playback.
-    const status = await fetchRemoteStatus();
-    if (status && status.state !== "stopped") {
-      // this device may have been away for a while (played locally, then
-      // picked this player again) - don't blindly re-append songs the
-      // player already dealt with this session (played/skipped/removed,
-      // see playbackEngine.ts's recentlyPlayed) or already has queued from
-      // another client in the meantime. videos have no pre-upload hash to
-      // check against, so they're always re-sent here - no cheap way to
-      // tell if this exact video is already remotely queued.
-      const alreadyKnown = new Set([
-        ...status.queue.map((ref) => ref.blake3_hash),
-        ...status.recently_played,
-      ]);
-      const newItems = items.filter(
-        (i) => i.kind === "video" || !i.song.blake3 || !alreadyKnown.has(i.song.blake3)
-      );
-      if (newItems.length > 0) {
-        await remoteTrackPending(appendMediaToPlayer(player.node_id, newItems));
+    // show the whole intended hand-off in the queue view immediately -
+    // resetRemoteStatus() above already cleared remoteQueue() to empty, so
+    // without this the queue view would sit empty for the entire
+    // fetchRemoteStatus + push/append + rathole download/import round
+    // trip below (can be several seconds for more than a song or two).
+    const clearPending = registerPendingMediaOp("replace", items);
+    try {
+      // don't clobber a session someone else already started on this
+      // player - if it's already playing/paused/buffering (anything but
+      // "stopped", i.e. nothing loaded), add our items to the end of its
+      // queue instead of replacing it, and don't touch its current playback.
+      const status = await fetchRemoteStatus();
+      if (status && status.state !== "stopped") {
+        // this device may have been away for a while (played locally, then
+        // picked this player again) - don't blindly re-append songs the
+        // player already dealt with this session (played/skipped/removed,
+        // see playbackEngine.ts's recentlyPlayed) or already has queued from
+        // another client in the meantime. videos have no pre-upload hash to
+        // check against, so they're always re-sent here - no cheap way to
+        // tell if this exact video is already remotely queued.
+        const alreadyKnown = new Set([
+          ...status.queue.map((ref) => ref.blake3_hash),
+          ...status.recently_played,
+        ]);
+        const newItems = items.filter(
+          (i) => i.kind === "video" || !i.song.blake3 || !alreadyKnown.has(i.song.blake3)
+        );
+        if (newItems.length > 0) {
+          await remoteTrackPending(appendMediaToPlayer(player.node_id, newItems));
+        }
+      } else {
+        await remoteTrackPending(pushMediaToPlayer(player.node_id, items));
+        if (handoffPositionMs !== undefined) await remoteSeek(handoffPositionMs);
       }
-    } else {
-      await remoteTrackPending(pushMediaToPlayer(player.node_id, items));
-      if (handoffPositionMs !== undefined) await remoteSeek(handoffPositionMs);
+    } finally {
+      clearPending();
     }
   } catch (e) {
     toast.error(e instanceof Error ? e.message : "failed to send queue to player", {
