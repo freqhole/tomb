@@ -240,8 +240,10 @@ async fn handle_stream(
     let first_line = line.trim_end().to_string();
 
     let Some(kind) = portable::peek_line_type(&first_line) else {
+        warn!(target: "player_protocol", peer = %peer_id, line = %first_line, "received unparseable first line on stream, closing");
         return Ok(());
     };
+    info!(target: "player_protocol", peer = %peer_id, kind = %kind, "handle_stream: dispatching on first-line kind");
 
     if kind == "pair_request" {
         handle_pair_request(&peer_id, &first_line, &state, &mut send).await?;
@@ -303,15 +305,20 @@ async fn handle_stream(
                 // this stream is read-only from its point of view, any
                 // read completing at all means either eof or a protocol
                 // violation, both mean "stop pushing to this stream").
-                _ = reader.read_line(&mut buf) => break,
+                _ = reader.read_line(&mut buf) => {
+                    info!(target: "player_protocol", peer = %peer_id, "subscribe stream: peer read completed (eof/closed), stopping push loop");
+                    break;
+                }
                 changed = status_rx.changed() => {
                     if changed.is_err() {
                         // sender side dropped (pairing endpoint shutting
                         // down) - nothing more to push.
+                        info!(target: "player_protocol", peer = %peer_id, "subscribe stream: status broadcaster dropped, stopping push loop");
                         break;
                     }
                     let msg = portable::PlayerStatusMessage::new(status_rx.borrow_and_update().clone());
                     if write_line(&mut send, &serde_json::to_string(&msg).unwrap()).await.is_err() {
+                        info!(target: "player_protocol", peer = %peer_id, "subscribe stream: write_line failed, stopping push loop");
                         break;
                     }
                 }
@@ -457,6 +464,7 @@ async fn process_command_line(
     };
 
     let (reply_tx, reply_rx) = oneshot::channel();
+    let command_debug = super::dispatch::command_summary(&command);
     if dispatch_tx
         .send(PairingDispatchRequest {
             command,
@@ -464,11 +472,22 @@ async fn process_command_line(
         })
         .is_err()
     {
+        warn!(target: "player_protocol", peer = %peer_id, command = %command_debug, "dispatch channel closed (app loop not receiving) - returning error ack immediately");
         return CommandAck::err(CommandAckReason::InvalidCommand);
     }
-    reply_rx
+    let started = std::time::Instant::now();
+    info!(target: "player_protocol", peer = %peer_id, command = %command_debug, "process_command_line: sent to dispatch_tx, awaiting reply");
+    let ack = reply_rx
         .await
-        .unwrap_or_else(|_| CommandAck::err(CommandAckReason::InvalidCommand))
+        .unwrap_or_else(|_| CommandAck::err(CommandAckReason::InvalidCommand));
+    info!(
+        target: "player_protocol",
+        peer = %peer_id,
+        command = %command_debug,
+        elapsed_ms = started.elapsed().as_millis(),
+        "process_command_line: got reply"
+    );
+    ack
 }
 
 #[cfg(test)]

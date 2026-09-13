@@ -83,6 +83,11 @@ pub enum VideoEvent {
     },
     Playing,
     Paused,
+    /// playback (re)started rendering after a load/seek - fires even
+    /// when seeking while genuinely paused (mpv's own semantics), so
+    /// unlike `Playing` this must NOT unconditionally flip the state -
+    /// see `VideoPlayerState::apply`'s handling.
+    PlaybackRestarted,
     Ended,
     /// the backend process exited or was closed other than via a
     /// `Close` command we issued (e.g. it crashed).
@@ -162,6 +167,17 @@ impl VideoPlayerState {
             VideoEvent::Duration { seconds } => self.duration = Some(*seconds),
             VideoEvent::Position { seconds } => self.position = *seconds,
             VideoEvent::Playing => self.state = VideoPlaybackState::Playing,
+            VideoEvent::PlaybackRestarted => {
+                // a restart alone doesn't mean "now playing" - mpv also
+                // fires it on a seek while genuinely paused. `pause`
+                // property-changes (the `Playing`/`Paused` arms above)
+                // are the authoritative source for play/pause intent;
+                // only treat a restart as "now playing" when we're not
+                // already deliberately paused.
+                if self.state != VideoPlaybackState::Paused {
+                    self.state = VideoPlaybackState::Playing;
+                }
+            }
             VideoEvent::Paused => {
                 // an ended stream that reports paused stays ended: mpv
                 // pauses itself at eof and we must not present that as
@@ -264,6 +280,37 @@ mod tests {
         assert!(s.apply(&VideoEvent::Duration { seconds: 100.0 }));
         assert!(s.apply(&VideoEvent::Playing));
         assert_eq!(s.state, VideoPlaybackState::Playing);
+    }
+
+    /// the actual fix for "remote-pushed video never reports playing":
+    /// mpv's `pause` property never toggles on a normal load-then-play
+    /// (see `tty::video_player::translate`'s doc comment), so
+    /// `playback-restart` is the only signal that ever arrives -
+    /// confirmed against a real mpv instance.
+    #[test]
+    fn load_then_playback_restarted_transitions_to_playing() {
+        let mut s = VideoPlayerState::new();
+        s.apply_command(&VideoCommand::Load {
+            path: "movie.mp4".into(),
+            title: Some("a movie".into()),
+            start_seconds: None,
+        });
+        assert_eq!(s.state, VideoPlaybackState::Loading);
+        assert!(s.apply(&VideoEvent::PlaybackRestarted));
+        assert_eq!(s.state, VideoPlaybackState::Playing);
+    }
+
+    /// mpv also fires `playback-restart` on a seek while genuinely
+    /// paused (confirmed against a real mpv instance) - it must NOT
+    /// override a deliberate pause.
+    #[test]
+    fn playback_restarted_does_not_override_a_genuine_pause() {
+        let mut s = VideoPlayerState::new();
+        s.apply(&VideoEvent::Playing);
+        s.apply(&VideoEvent::Paused);
+        assert_eq!(s.state, VideoPlaybackState::Paused);
+        s.apply(&VideoEvent::PlaybackRestarted);
+        assert_eq!(s.state, VideoPlaybackState::Paused);
     }
 
     #[test]

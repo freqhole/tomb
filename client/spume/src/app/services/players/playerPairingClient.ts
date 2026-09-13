@@ -258,6 +258,7 @@ export function subscribeToPlayerStatus(
       try {
         const node = await getMiddenNode();
         if (!node.open_bi) return;
+        console.info(`[subscribeToPlayerStatus] dialing ${peerAddr}...`);
         const s = await node.open_bi(peerAddr, PLAYER_ALPN);
         if (closed) {
           s.close();
@@ -265,18 +266,28 @@ export function subscribeToPlayerStatus(
         }
         stream = s;
         await s.write_line(JSON.stringify({ type: "subscribe" }));
+        console.info(`[subscribeToPlayerStatus] subscribed to ${peerAddr}, awaiting pushes`);
         for (;;) {
           const line = (await s.read_line()) as string | null;
-          if (line === null) break;
+          if (line === null) {
+            console.warn(
+              `[subscribeToPlayerStatus] stream to ${peerAddr} closed (read_line returned null/eof), reconnecting in ${RECONNECT_DELAY_MS}ms`
+            );
+            break;
+          }
           try {
             onStatus(JSON.parse(line));
           } catch {
             // malformed push line - ignore, next push will arrive fine
           }
         }
-      } catch {
+      } catch (err) {
         // dial/stream failed - fall through to the reconnect delay below
         // (poll fallback still covers status in the meantime)
+        console.warn(
+          `[subscribeToPlayerStatus] dial/stream to ${peerAddr} failed, reconnecting in ${RECONNECT_DELAY_MS}ms:`,
+          err
+        );
       } finally {
         stream?.close();
         stream = null;

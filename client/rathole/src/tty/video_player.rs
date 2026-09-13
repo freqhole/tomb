@@ -276,6 +276,26 @@ fn translate(msg: &JsonValue) -> Vec<VideoEvent> {
             }
             _ => vec![VideoEvent::Ended],
         },
+        // fires once actual playback (re)starts after a load/seek -
+        // the only reliable "now genuinely playing" signal for a
+        // freshly loaded file. relying on the `pause` property-change
+        // above alone misses this transition entirely: mpv only
+        // reports a property CHANGE, and `pause` never actually
+        // toggles on a normal load-then-play (it's already `false`
+        // from mpv's very first idle-mode observe_property reply, long
+        // before this file was ever loaded) - so without this, a
+        // freshly loaded video's state stayed stuck wherever
+        // `apply_command`'s optimistic `Loading` left it, forever,
+        // unless the user happened to pause/resume at least once.
+        // confirmed by hand against a real mpv 0.41 instance (same
+        // flags rathole spawns with): the sequence for a fresh load is
+        // file-loaded -> video-reconfig -> playback-restart, with NO
+        // further `pause` property-change at all. NOT mapped straight
+        // to `VideoEvent::Playing`: mpv ALSO fires this on a seek
+        // while genuinely paused (also confirmed by hand) - see
+        // `VideoPlayerState::apply`'s `PlaybackRestarted` handling for
+        // why that distinction matters.
+        "playback-restart" => vec![VideoEvent::PlaybackRestarted],
         "shutdown" => vec![VideoEvent::Closed],
         _ => Vec::new(),
     }
@@ -396,6 +416,12 @@ mod tests {
         assert_eq!(translate(&msg), vec![VideoEvent::Paused]);
         let msg = json!({"event":"property-change","id":OBS_PAUSE,"name":"pause","data":false});
         assert_eq!(translate(&msg), vec![VideoEvent::Playing]);
+    }
+
+    #[test]
+    fn translate_playback_restart() {
+        let msg = json!({"event":"playback-restart"});
+        assert_eq!(translate(&msg), vec![VideoEvent::PlaybackRestarted]);
     }
 
     #[test]

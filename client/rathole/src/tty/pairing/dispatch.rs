@@ -13,7 +13,7 @@
 //! `tty::queue::set_queue_entries`/`append_queue_entries` path.
 
 use tokio::sync::mpsc;
-use tracing::warn;
+use tracing::{info, warn};
 
 use crate::ratcore::app::{
     AppAction, CommandAck, CommandAckReason, MediaKind, MediaRef, PairingCommand, PlayerStatus,
@@ -163,12 +163,68 @@ fn media_ref_to_queue_entry(
     }
 }
 
+/// short, log-safe summary of a command - `{:?}` on the real value would
+/// print every `MediaRef`'s `artwork_thumb_url`/`artwork_full_url` in
+/// full, which is routinely a multi-KB (or larger) base64 `data:` url -
+/// unreadable noise that can blow up a single log line to megabytes for
+/// even one queued item.
+pub(crate) fn command_summary(command: &PairingCommand) -> String {
+    match command {
+        PairingCommand::Play { item } => format!("Play {{ title: {:?} }}", item.title),
+        PairingCommand::ReplaceQueue { items } => {
+            format!("ReplaceQueue {{ count: {} }}", items.len())
+        }
+        PairingCommand::AppendQueue { items } => {
+            format!("AppendQueue {{ count: {} }}", items.len())
+        }
+        PairingCommand::Pause => "Pause".to_string(),
+        PairingCommand::Resume => "Resume".to_string(),
+        PairingCommand::Seek { position_ms } => format!("Seek {{ position_ms: {position_ms} }}"),
+        PairingCommand::Skip => "Skip".to_string(),
+        PairingCommand::RemoveFromQueue { index } => {
+            format!("RemoveFromQueue {{ index: {index} }}")
+        }
+        PairingCommand::ReorderQueue {
+            from_index,
+            to_index,
+        } => format!("ReorderQueue {{ from_index: {from_index}, to_index: {to_index} }}"),
+        PairingCommand::SetVolume { volume } => format!("SetVolume {{ volume: {volume} }}"),
+        PairingCommand::Stop => "Stop".to_string(),
+        PairingCommand::GetStatus => "GetStatus".to_string(),
+        PairingCommand::SetAutoDownloadEnabled { enabled } => {
+            format!("SetAutoDownloadEnabled {{ enabled: {enabled} }}")
+        }
+        PairingCommand::TuneRadio {
+            peer_addr,
+            station_id,
+        } => format!("TuneRadio {{ peer_addr: {peer_addr}, station_id: {station_id:?} }}"),
+        PairingCommand::StopRadio => "StopRadio".to_string(),
+    }
+}
+
 /// dispatch one already-authorized `PairingCommand` against real
 /// playback state, returning the `CommandAck` to send back on the
 /// wire. lives here (not `tty::run`) so the mapping from wire command
 /// to concrete `PlayerCmd`/`VideoCommand` calls is unit-testable in
 /// isolation from the rest of the event loop.
 pub async fn dispatch_pairing_command(ctx: DispatchContext, command: PairingCommand) -> CommandAck {
+    let started = std::time::Instant::now();
+    let command_debug = command_summary(&command);
+    info!(target: "player_protocol", command = %command_debug, "dispatch_pairing_command: starting");
+    let ack = dispatch_pairing_command_inner(ctx, command).await;
+    info!(
+        target: "player_protocol",
+        command = %command_debug,
+        elapsed_ms = started.elapsed().as_millis(),
+        "dispatch_pairing_command: finished"
+    );
+    ack
+}
+
+async fn dispatch_pairing_command_inner(
+    ctx: DispatchContext,
+    command: PairingCommand,
+) -> CommandAck {
     match command {
         // a single ad-hoc `play` is just a one-item `replace_queue` -
         // keeping it on the same path means it also correctly updates
@@ -459,7 +515,17 @@ async fn resolve_queue_items(
             .title
             .clone()
             .unwrap_or_else(|| item.blake3_hash.clone());
-        match super::import::import_pushed_media(
+        info!(
+            target: "player_protocol",
+            item_index,
+            item_count,
+            title = %filename,
+            pull_hash = %pull_hash,
+            used_rendition = preferred_rendition.is_some(),
+            "resolve_queue_items: starting import_pushed_media"
+        );
+        let started = std::time::Instant::now();
+        let import_result = super::import::import_pushed_media(
             &item.source_peer_addr,
             pull_hash,
             &filename,
@@ -467,8 +533,16 @@ async fn resolve_queue_items(
             kind,
             on_progress,
         )
-        .await
-        {
+        .await;
+        info!(
+            target: "player_protocol",
+            item_index,
+            title = %filename,
+            elapsed_ms = started.elapsed().as_millis(),
+            ok = import_result.is_ok(),
+            "resolve_queue_items: import_pushed_media finished"
+        );
+        match import_result {
             Ok(imported) => {
                 let entry = media_ref_to_queue_entry(&item, imported);
                 if let Some(tx) = &ctx.action_tx {

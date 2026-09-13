@@ -508,6 +508,7 @@ async fn run_inner(
                 on_action(&mut app, action, &action_tx);
             }
             Some(req) = pairing_rx.recv() => {
+                tracing::info!(target: "player_protocol", "main loop: pairing_rx.recv() fired");
                 handle_pairing_dispatch(&app, req, &action_tx);
             }
             Some(req) = control_rx.recv() => {
@@ -1887,7 +1888,9 @@ fn handle_pairing_dispatch(
         recently_played,
     };
     tokio::task::spawn_local(async move {
+        tracing::info!(target: "player_protocol", "handle_pairing_dispatch: request received from pairing_rx, dispatching");
         let ack = super::pairing::dispatch_pairing_command(ctx, req.command).await;
+        tracing::info!(target: "player_protocol", "handle_pairing_dispatch: got ack, sending reply");
         let _ = req.reply.send(ack);
     });
 }
