@@ -38,6 +38,12 @@ const RemoteCommonSchema = z.object({
   // when true, this remote is excluded from all graph visualizations
   // (treated as offline for coloring, drawn with a diagonal slash)
   graph_disabled: z.boolean().optional(),
+  // when true, this remote is a freqhole-player/1 pairing target (rathole,
+  // or another spume instance acting as /player) rather than (or in
+  // addition to) a normal browsable server - see
+  // app/services/players/pairedPlayers.ts, which folds the old separate
+  // paired-player bookkeeping into this same Remote record.
+  is_player_device: z.boolean().optional(),
 });
 
 // ============================================================================
@@ -85,12 +91,9 @@ const LegacyRemoteSchema = RemoteCommonSchema.extend({
  * - if peer_addr is set and transport_type is wasm/app, it's P2P
  * - otherwise default to HTTP
  */
-function inferTransport(
-  legacy: z.infer<typeof LegacyRemoteSchema>
-): HttpRemote | P2PRemote {
+function inferTransport(legacy: z.infer<typeof LegacyRemoteSchema>): HttpRemote | P2PRemote {
   const isP2P =
-    legacy.peer_addr &&
-    (legacy.transport_type === "wasm" || legacy.transport_type === "app");
+    legacy.peer_addr && (legacy.transport_type === "wasm" || legacy.transport_type === "app");
 
   if (isP2P) {
     return {
@@ -160,9 +163,7 @@ export function safeParseRemote(raw: unknown): Remote | undefined {
  * filters out any that fail to parse.
  */
 export function parseRemotes(rawList: unknown[]): Remote[] {
-  return rawList
-    .map((r) => safeParseRemote(r))
-    .filter((r): r is Remote => r !== undefined);
+  return rawList.map((r) => safeParseRemote(r)).filter((r): r is Remote => r !== undefined);
 }
 
 // ============================================================================

@@ -7,8 +7,8 @@ import {
   listPairedPlayers,
   pairedPlayersVersion,
   renamePairedPlayer,
+  type PairedPlayer,
 } from "../../app/services/players/pairedPlayers";
-import type { PeerNodeWithUser } from "../../app/services/storage/types";
 import { PairPlayerModal } from "../../components/modals/PairPlayerModal";
 import { Button } from "../../components/buttons/Button";
 import { formatDate } from "../../utils/dateTime";
@@ -19,7 +19,7 @@ export function PairedPlayersView() {
   const [renamingId, setRenamingId] = createSignal<string | null>(null);
   const [renameValue, setRenameValue] = createSignal("");
 
-  const startRename = (player: PeerNodeWithUser) => {
+  const startRename = (player: PairedPlayer) => {
     setRenamingId(player.node_id);
     setRenameValue(player.username);
   };
@@ -30,7 +30,7 @@ export function PairedPlayersView() {
     await refetch();
   };
 
-  const handleForget = async (player: PeerNodeWithUser) => {
+  const handleForget = async (player: PairedPlayer) => {
     if (!confirm(`forget "${player.username}"? you'll need to pair again to use it.`)) return;
     await forgetPairedPlayer(player.node_id);
     await refetch();

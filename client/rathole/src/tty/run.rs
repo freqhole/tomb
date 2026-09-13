@@ -180,6 +180,18 @@ async fn run_inner(
     // the subprocess's p2p autostart); `/player` mid-session (typed
     // without either of those) also starts it on demand via the tick loop.
     let pairing_state = super::pairing::load_pairing_state(&app.state.persisted);
+    {
+        // populate the initial pairing code (reusing whatever was last
+        // persisted, if grimoire still considers it valid) up front,
+        // rather than lazily on first pairing-screen render - mirrors
+        // `load_pairing_state`'s own reasoning for eagerly ensuring a
+        // session.
+        let state_for_init = pairing_state.clone();
+        let hint = app.state.persisted.current_pairing_code_hint.clone();
+        tokio::task::spawn_local(async move {
+            super::pairing::ensure_current_pairing_code(&state_for_init, hint).await;
+        });
+    }
     let (pairing_tx, mut pairing_rx) =
         mpsc::unbounded_channel::<super::pairing::PairingDispatchRequest>();
     let pairing_runtime = super::pairing::PairingRuntime::new(pairing_state.clone(), pairing_tx);
@@ -3799,7 +3811,7 @@ fn sync_pairing_framebuffer_image(app: &mut App) {
     .or_else(|| {
         let snapshot = app.pairing.as_ref()?.snapshot();
         let node_id = snapshot.node_id?;
-        let pin = snapshot.session?.pin;
+        let pin = snapshot.current_code?.code;
         let name = player_display_name();
         let payload =
             format!(r#"{{"node_id":"{node_id}","name":"{name}","role":"player_remote"}}"#);

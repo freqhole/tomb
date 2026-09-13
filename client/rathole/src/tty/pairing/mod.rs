@@ -61,8 +61,8 @@ pub use endpoint::{
     PairingDispatchRequest, PairingDispatchRx, PairingDispatchTx, PairingRuntime, PlayerProtocol,
 };
 pub use state::{
-    load_pairing_state, sync_pairing_state_to_persisted, PairingRuntimeState, PairingStateHandle,
-    SharedPairingState,
+    ensure_current_pairing_code, load_pairing_state, sync_pairing_state_to_persisted,
+    PairingRuntimeState, PairingStateHandle, SharedPairingState,
 };
 
 /// ALPN identifier. see the "naming disambiguation" note in

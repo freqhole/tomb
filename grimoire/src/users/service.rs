@@ -7,7 +7,8 @@ use crate::response::GrimoireResponse;
 use crate::users::models::*;
 use crate::users::repository::UserRepository;
 use crate::wordlist::{
-    generate_word_code, initialize_wordlist, is_initialized, ManagementWordlistConfig,
+    generate_numeric_code, generate_word_code, initialize_wordlist, is_initialized,
+    ManagementWordlistConfig,
 };
 
 /// Service for user-related business operations
@@ -572,6 +573,49 @@ impl UserService {
         )
     }
 
+    /// generate a real grimoire invite code for player pairing (rathole's
+    /// tty player, and eventually cenotaph's browser player), deliberately
+    /// bypassing the `is_admin()` gate `generate_invite_codes` enforces -
+    /// the pairing flow itself (physical/network access to the player's
+    /// displayed pin/QR) is the authorization boundary here, the same local
+    /// trust model CLI's `allow_peer` already relies on (a native process
+    /// acting on its own behalf, not a remote `Caller` needing an
+    /// admin_dispatch permission check). uses a short numeric code (phone
+    /// keypad friendly) instead of the word-based generator, and does not
+    /// require the global wordlist to be initialized.
+    ///
+    /// `max_uses`: `<= 0` means unlimited redemptions while the code stays
+    /// active; `1` (or any positive n) caps total redemptions at that count.
+    pub async fn create_player_pairing_code(
+        &self,
+        grants_role: UserRole,
+        max_uses: i64,
+        digits: usize,
+    ) -> GrimoireResponse<InviteCode> {
+        if grants_role == UserRole::Root {
+            return GrimoireResponse::failure(
+                "cannot create player-pairing codes that grant root role",
+                vec![AuthError::InsufficientPermissions.into()],
+            );
+        }
+
+        let code = generate_numeric_code(digits);
+        let request = CreateInviteCodeRequest {
+            code_type: Some(InviteCodeType::Invite),
+            link_for_user_id: None,
+            expires_hours: None,
+            grants_role: Some(grants_role),
+            max_uses: Some(max_uses),
+        };
+
+        match self.repository.create_invite_code(&code, &request).await {
+            Ok(invite) => GrimoireResponse::success("player pairing code generated", invite),
+            Err(err) => {
+                GrimoireResponse::failure("failed to create player pairing code", vec![err.into()])
+            }
+        }
+    }
+
     /// update the current user's own username
     ///
     /// validates uniqueness and format. any authenticated user can call this for themselves.
@@ -662,6 +706,7 @@ impl UserService {
             link_for_user_id: Some(user_id.to_string()),
             expires_hours: Some(1),
             grants_role: None,
+            max_uses: None,
         };
 
         match self.repository.create_invite_code(&code, &create_req).await {
@@ -715,11 +760,11 @@ impl UserService {
             })?;
 
         if !invite_code.is_valid_for_use() {
-            if invite_code.used_at.is_some() {
-                return Err(AuthError::InviteCodeAlreadyUsed);
-            }
             if invite_code.is_expired() {
                 return Err(AuthError::InviteCodeExpired);
+            }
+            if invite_code.max_uses > 0 && invite_code.use_count >= invite_code.max_uses {
+                return Err(AuthError::InviteCodeAlreadyUsed);
             }
             return Err(AuthError::InvalidInviteCode);
         }
@@ -786,6 +831,7 @@ impl UserService {
             link_for_user_id: Some(user_id.to_string()),
             expires_hours: Some(1), // 1 hour expiry (should be used immediately)
             grants_role: None,
+            max_uses: None,
         };
 
         match self.repository.create_invite_code(&code, &request).await {

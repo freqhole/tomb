@@ -72,9 +72,21 @@ pub struct InviteCode {
     /// their own - `deactivate` is how an admin retires one early.
     pub link_expires_at: Option<i64>,
     pub created_at: i64,
+    /// first redemption's timestamp, kept for back-compat reads - no
+    /// longer the sole record of usage, see `max_uses`/`use_count`.
     pub used_at: Option<i64>,
+    /// first redemption's identity, kept for back-compat reads - see
+    /// `used_at`.
     pub used_by: Option<Uuid>,
     pub is_active: bool,
+    /// `<= 0` means unlimited redemptions while otherwise valid; `>= 1`
+    /// caps total redemptions at that count. every code issued before
+    /// this field existed defaults to `1` (preserves the original
+    /// single-use behavior exactly - see the migration that added this).
+    pub max_uses: i64,
+    /// how many times this code has actually been redeemed so far -
+    /// compared against `max_uses` by `is_valid_for_use`.
+    pub use_count: i64,
 }
 
 impl InviteCode {
@@ -87,10 +99,13 @@ impl InviteCode {
             .is_some_and(|expires_at| now > expires_at)
     }
 
-    /// active, unused, and not expired - the redeem-time check every
-    /// `InviteStore` consumer runs before accepting a code.
+    /// active, not expired, and under its redemption quota - the
+    /// redeem-time check every `InviteStore` consumer runs before
+    /// accepting a code.
     pub fn is_valid_for_use(&self, now: i64) -> bool {
-        self.is_active && self.used_at.is_none() && !self.is_expired(now)
+        self.is_active
+            && !self.is_expired(now)
+            && (self.max_uses <= 0 || self.use_count < self.max_uses)
     }
 }
 
@@ -101,27 +116,33 @@ impl InviteCode {
 pub trait InviteStore: Send + Sync {
     async fn create_invite(&self, invite: InviteCode) -> Result<InviteCode, StoreError>;
     async fn find_by_code(&self, code: &str) -> Result<Option<InviteCode>, StoreError>;
-    /// mark a code as used. callers are expected to have already checked
-    /// `InviteCode::is_valid_for_use`; this just stamps `used_at`/`used_by`.
+    /// records one redemption: inserts a row into the redemption log and
+    /// bumps `use_count`, additionally stamping the legacy singular
+    /// `used_at`/`used_by` columns on the code's very first redemption
+    /// only (back-compat). callers are expected to have already checked
+    /// `InviteCode::is_valid_for_use` (this does not itself re-check the
+    /// quota - same crud-only contract as before).
     async fn mark_used(
         &self,
         code: &str,
         used_by: Uuid,
         used_at: i64,
     ) -> Result<InviteCode, StoreError>;
-    /// deactivate a code so it can no longer be redeemed, even if unused.
+    /// deactivate a code so it can no longer be redeemed, even if it still
+    /// has redemptions left under its quota.
     async fn deactivate(&self, code: &str) -> Result<(), StoreError>;
     async fn list_active(&self) -> Result<Vec<InviteCode>, StoreError>;
     /// all invite codes regardless of active/used status, ordered by
     /// `created_at` desc.
     async fn list_all(&self) -> Result<Vec<InviteCode>, StoreError>;
-    /// deactivate every code that is still active and has not been used.
-    /// used codes are left untouched. returns the number of codes affected.
+    /// deactivate every code that is still active and has never been
+    /// redeemed (`use_count = 0`). codes with at least one redemption are
+    /// left untouched. returns the number of codes affected.
     async fn deactivate_all_unused(&self) -> Result<u64, StoreError>;
     /// update the role a code grants on redemption. only applies when the
-    /// code is still active and unused - an already-used or deactivated code
-    /// is silently left unchanged (the caller can check the returned code to
-    /// detect this if needed).
+    /// code is still active and has never been redeemed - an already-used,
+    /// deactivated, or quota-exhausted code is silently left unchanged (the
+    /// caller can check the returned code to detect this if needed).
     async fn update_grants_role(&self, code: &str, role: Role) -> Result<InviteCode, StoreError>;
 }
 
@@ -159,6 +180,8 @@ mod tests {
             used_at: None,
             used_by: None,
             is_active: true,
+            max_uses: 1,
+            use_count: 0,
         })
     }
 
@@ -196,9 +219,40 @@ mod tests {
         let c = code(|c| InviteCode {
             used_at: Some(500),
             used_by: Some(Uuid::new_v4()),
+            use_count: 1,
             ..c
         });
         assert!(!c.is_valid_for_use(1000));
+    }
+
+    #[test]
+    fn multi_use_invite_stays_valid_under_quota() {
+        let c = code(|c| InviteCode {
+            max_uses: 3,
+            use_count: 2,
+            ..c
+        });
+        assert!(c.is_valid_for_use(1000));
+    }
+
+    #[test]
+    fn multi_use_invite_is_invalid_once_quota_reached() {
+        let c = code(|c| InviteCode {
+            max_uses: 3,
+            use_count: 3,
+            ..c
+        });
+        assert!(!c.is_valid_for_use(1000));
+    }
+
+    #[test]
+    fn non_positive_max_uses_means_unlimited() {
+        let c = code(|c| InviteCode {
+            max_uses: 0,
+            use_count: 1000,
+            ..c
+        });
+        assert!(c.is_valid_for_use(1000));
     }
 
     #[test]

@@ -427,6 +427,7 @@ pub async fn handle_command(action: UserAction) -> CommandOutput<serde_json::Val
                 link_for_user_id,
                 expires_hours: expires_hours.map(|h| h as u32),
                 grants_role: Some(grants_role),
+                max_uses: None,
             };
 
             let admin_user = match get_root_user(&service).await {

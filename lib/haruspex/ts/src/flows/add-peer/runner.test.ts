@@ -111,24 +111,60 @@ describe("createAddPeerFlow (bundled runner)", () => {
     timers[0].fire();
     await Promise.resolve();
     expect(onClose).toHaveBeenCalled();
-    expect(onSuccess).toHaveBeenCalledWith(
-      expect.objectContaining({ peer_addr: NODE_ID })
-    );
+    expect(onSuccess).toHaveBeenCalledWith(expect.objectContaining({ peer_addr: NODE_ID }));
     expect(flow.state().step).toBe("url");
   });
 
-  it("rejects a duplicate before persisting anything", async () => {
+  it("an http duplicate is rejected before persisting anything", async () => {
     const { deps, pendingStore } = makeDeps({
-      getAllRemotes: async () => [{ remote_id: "r0", name: "old hub", peer_addr: NODE_ID }],
+      getAllRemotes: async () => [
+        { remote_id: "r0", name: "old hub", base_url: "https://music.example.com" },
+      ],
+    });
+    const flow = createAddPeerFlow(deps);
+
+    await flow.dispatch({ type: "SUBMIT_URL", input: "https://music.example.com" });
+
+    const state = flow.state();
+    expect(state.step).toBe("url");
+    expect(state.step === "url" && state.error).toContain('already added as "old hub"');
+    expect(pendingStore.size).toBe(0);
+  });
+
+  it("a p2p duplicate that probes as a non-player gracefully completes against the existing remote", async () => {
+    const existing = { remote_id: "r0", name: "old player", peer_addr: NODE_ID };
+    const { deps, pendingStore } = makeDeps({
+      getAllRemotes: async () => [existing],
     });
     const flow = createAddPeerFlow(deps);
 
     await flow.dispatch({ type: "SUBMIT_URL", input: NODE_ID });
 
     const state = flow.state();
-    expect(state.step).toBe("url");
-    expect(state.step === "url" && state.error).toContain('already added as "old hub"');
+    expect(state.step).toBe("complete");
+    expect(state.step === "complete" && state.remote).toEqual(existing);
+    // no new remote was created, no pending record left behind
     expect(pendingStore.size).toBe(0);
+  });
+
+  it("a p2p duplicate that probes as a player re-opens the pairing ui instead", async () => {
+    const existing = {
+      remote_id: "r0",
+      name: "old player",
+      peer_addr: NODE_ID,
+      is_player_device: true,
+    };
+    const { deps } = makeDeps({
+      getAllRemotes: async () => [existing],
+      getServerInfo: async () => ({ ...INFO, player_device: true }),
+    });
+    const flow = createAddPeerFlow(deps);
+
+    await flow.dispatch({ type: "SUBMIT_URL", input: NODE_ID });
+
+    const state = flow.state();
+    expect(state.step).toBe("auth");
+    expect(state.step === "auth" && state.serverInfo?.player_device).toBe(true);
   });
 
   it("marks the pending record failed with a mapped error when the probe throws", async () => {
@@ -183,7 +219,7 @@ describe("createAddPeerFlow (bundled runner)", () => {
     // submit -> knock form (knocking enabled, not authed)
     await flow.dispatch({ type: "SUBMIT_URL", input: NODE_ID });
     expect(flow.state().step === "url" && (flow.state() as { subStep: string }).subStep).toBe(
-      "knock_form"
+      "knock_form",
     );
 
     // send the knock

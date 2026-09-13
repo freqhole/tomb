@@ -60,6 +60,11 @@ export interface SavedRemote {
   name: string;
   base_url?: string;
   peer_addr?: string;
+  /** true when this remote is a freqhole-player/1 pairing target - see
+   *  `PeerServerInfo.player_device`. used to decide whether re-scanning
+   *  an already-saved p2p peer's qr should re-open the pairing ui
+   *  (player) or gracefully no-op (already added, not a player). */
+  is_player_device?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -89,7 +94,7 @@ export type AddPeerState =
       url: string;
     }
   | { step: "knock_sent" }
-  | { step: "complete"; remote: SavedRemote };
+  | { step: "complete"; remote: SavedRemote; alreadyExisted: boolean };
 
 // ---------------------------------------------------------------------------
 // events (ui events + async effect outcomes)
@@ -138,7 +143,7 @@ export type AddPeerEvent =
   | { type: "DELETE_PENDING"; pending: PendingRemote }
   // async effect outcomes (fed back by the adapter)
   | { type: "PENDING_LOADED"; records: PendingRemote[] }
-  | { type: "DUPLICATE_RESULT"; duplicateName: string | null }
+  | { type: "DUPLICATE_RESULT"; duplicate: SavedRemote | null }
   | { type: "CONNECTION_RESULT"; outcome: ConnectionOutcome }
   | { type: "KNOCK_SENT_RESULT"; ok: boolean; error?: string }
   | { type: "KNOCK_STATUS_RESULT"; outcome: KnockStatusOutcome }

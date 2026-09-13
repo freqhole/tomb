@@ -40,7 +40,10 @@ function pendingRecord(overrides: Partial<PendingRemote> = {}): PendingRemote {
 
 /** run a sequence of events, returning the final ctx and the effects of
  *  the LAST event. */
-function run(events: AddPeerEvent[], start?: AddPeerContext): {
+function run(
+  events: AddPeerEvent[],
+  start?: AddPeerContext,
+): {
   ctx: AddPeerContext;
   effects: AddPeerEffect[];
 } {
@@ -93,10 +96,10 @@ describe("SUBMIT_URL classification", () => {
 });
 
 describe("duplicate rejection", () => {
-  it("returns to url/input with a specific error on a duplicate", () => {
+  it("an http duplicate returns to url/input with a specific error", () => {
     const { ctx, effects } = run([
-      { type: "SUBMIT_URL", input: NODE_ID },
-      { type: "DUPLICATE_RESULT", duplicateName: "my server" },
+      { type: "SUBMIT_URL", input: "https://music.example.com" },
+      { type: "DUPLICATE_RESULT", duplicate: { remote_id: "r0", name: "my server" } },
     ]);
     expect(ctx.step).toBe("url");
     expect(ctx.subStep).toBe("input");
@@ -104,10 +107,27 @@ describe("duplicate rejection", () => {
     expect(effects).toEqual([]);
   });
 
+  it("a p2p duplicate does NOT block outright - it proceeds to a connection probe", () => {
+    const { ctx, effects } = run([
+      { type: "SUBMIT_URL", input: NODE_ID },
+      {
+        type: "DUPLICATE_RESULT",
+        duplicate: { remote_id: "r0", name: "old player", peer_addr: NODE_ID },
+      },
+    ]);
+    expect(ctx.step).toBe("testing");
+    expect(ctx.existingRemote).toEqual({ remote_id: "r0", name: "old player", peer_addr: NODE_ID });
+    expect(effectTypes(effects)).toEqual([
+      "UPSERT_PENDING",
+      "CLEAR_QUERY_PARAM",
+      "CHECK_CONNECTION",
+    ]);
+  });
+
   it("persists the pending record (stage testing) BEFORE probing", () => {
     const { effects } = run([
       { type: "SUBMIT_URL", input: NODE_ID },
-      { type: "DUPLICATE_RESULT", duplicateName: null },
+      { type: "DUPLICATE_RESULT", duplicate: null },
     ]);
     // order is load-bearing: persist, clear query param, then probe
     expect(effectTypes(effects)).toEqual([
@@ -122,10 +142,59 @@ describe("duplicate rejection", () => {
   });
 });
 
+describe("re-scanning an already-saved p2p peer", () => {
+  const existingPlayer = {
+    remote_id: "r0",
+    name: "old player",
+    peer_addr: NODE_ID,
+    is_player_device: true,
+  };
+  const toReprobe: AddPeerEvent[] = [
+    { type: "SUBMIT_URL", input: NODE_ID },
+    { type: "DUPLICATE_RESULT", duplicate: existingPlayer },
+  ];
+
+  it("a live player_device probe re-opens the pairing ui, even though it's already saved", () => {
+    const { ctx } = run([
+      ...toReprobe,
+      {
+        type: "CONNECTION_RESULT",
+        outcome: { kind: "needs_auth", serverInfo: { ...INFO, player_device: true } },
+      },
+    ]);
+    expect(ctx.step).toBe("auth");
+    expect(ctx.serverInfo?.player_device).toBe(true);
+  });
+
+  it("a live probe that ISN'T a player gracefully completes against the existing remote", () => {
+    const { ctx, effects } = run([
+      ...toReprobe,
+      { type: "CONNECTION_RESULT", outcome: { kind: "needs_auth", serverInfo: INFO } },
+    ]);
+    expect(projectState(ctx)).toEqual({
+      step: "complete",
+      remote: existingPlayer,
+      alreadyExisted: true,
+    });
+    expect(effects).toEqual([
+      { type: "DELETE_PENDING_BY_ADDR", peerAddr: NODE_ID },
+      { type: "SCHEDULE_TIMER", id: DISMISS_TIMER_ID, ms: COMPLETE_DISMISS_MS },
+    ]);
+  });
+
+  it("already_authed against an existing, non-player remote also gracefully completes", () => {
+    const { ctx } = run([
+      ...toReprobe,
+      { type: "CONNECTION_RESULT", outcome: { kind: "already_authed", serverInfo: INFO } },
+    ]);
+    expect(ctx.step).toBe("complete");
+  });
+});
+
 describe("connection outcomes", () => {
   const toProbe: AddPeerEvent[] = [
     { type: "SUBMIT_URL", input: NODE_ID },
-    { type: "DUPLICATE_RESULT", duplicateName: null },
+    { type: "DUPLICATE_RESULT", duplicate: null },
   ];
 
   it("already_authed short-circuits to CREATE_REMOTE", () => {
@@ -180,7 +249,7 @@ describe("connection outcomes", () => {
 describe("knock flow", () => {
   const toKnockForm: AddPeerEvent[] = [
     { type: "SUBMIT_URL", input: NODE_ID },
-    { type: "DUPLICATE_RESULT", duplicateName: null },
+    { type: "DUPLICATE_RESULT", duplicate: null },
     {
       type: "CONNECTION_RESULT",
       outcome: { kind: "needs_knock", serverInfo: { ...INFO, knocking_enabled: true } },
@@ -291,12 +360,12 @@ describe("knock-status re-check (RETRY_PENDING resume)", () => {
 describe("auth step", () => {
   const toP2pAuth: AddPeerEvent[] = [
     { type: "SUBMIT_URL", input: NODE_ID },
-    { type: "DUPLICATE_RESULT", duplicateName: null },
+    { type: "DUPLICATE_RESULT", duplicate: null },
     { type: "CONNECTION_RESULT", outcome: { kind: "needs_auth", serverInfo: INFO } },
   ];
   const toHttpAuth: AddPeerEvent[] = [
     { type: "SUBMIT_URL", input: "https://music.example.com" },
-    { type: "DUPLICATE_RESULT", duplicateName: null },
+    { type: "DUPLICATE_RESULT", duplicate: null },
     { type: "CONNECTION_RESULT", outcome: { kind: "needs_auth", serverInfo: INFO } },
   ];
 
@@ -329,7 +398,10 @@ describe("auth step", () => {
   });
 
   it("http auth emits AUTH_HTTP", () => {
-    const { effects } = run([...toHttpAuth, { type: "SUBMIT_AUTH", mode: "login", username: "ed" }]);
+    const { effects } = run([
+      ...toHttpAuth,
+      { type: "SUBMIT_AUTH", mode: "login", username: "ed" },
+    ]);
     expect(effects).toEqual([
       {
         type: "AUTH_HTTP",
@@ -368,13 +440,13 @@ describe("completion", () => {
   const remote = { remote_id: "r1", name: "test peer", peer_addr: NODE_ID };
   const toCreate: AddPeerEvent[] = [
     { type: "SUBMIT_URL", input: NODE_ID },
-    { type: "DUPLICATE_RESULT", duplicateName: null },
+    { type: "DUPLICATE_RESULT", duplicate: null },
     { type: "CONNECTION_RESULT", outcome: { kind: "already_authed", serverInfo: INFO } },
   ];
 
   it("REMOTE_CREATED enters complete, deletes the pending record, and schedules the dismiss timer", () => {
     const { ctx, effects } = run([...toCreate, { type: "REMOTE_CREATED", ok: true, remote }]);
-    expect(projectState(ctx)).toEqual({ step: "complete", remote });
+    expect(projectState(ctx)).toEqual({ step: "complete", remote, alreadyExisted: false });
     expect(effects).toEqual([
       { type: "DELETE_PENDING_BY_ADDR", peerAddr: NODE_ID },
       { type: "SCHEDULE_TIMER", id: DISMISS_TIMER_ID, ms: COMPLETE_DISMISS_MS },
@@ -406,7 +478,7 @@ describe("COMPLETE_PEER_ADDR external push", () => {
   it("completes from mid-knock when the address matches the staged peer", () => {
     const { ctx, effects } = run([
       { type: "SUBMIT_URL", input: NODE_ID },
-      { type: "DUPLICATE_RESULT", duplicateName: null },
+      { type: "DUPLICATE_RESULT", duplicate: null },
       {
         type: "CONNECTION_RESULT",
         outcome: { kind: "needs_knock", serverInfo: { ...INFO, knocking_enabled: true } },
@@ -450,7 +522,7 @@ describe("back / cancel / lifecycle", () => {
   it("BACK from auth returns to url/input without effects", () => {
     const { ctx, effects } = run([
       { type: "SUBMIT_URL", input: NODE_ID },
-      { type: "DUPLICATE_RESULT", duplicateName: null },
+      { type: "DUPLICATE_RESULT", duplicate: null },
       { type: "CONNECTION_RESULT", outcome: { kind: "needs_auth", serverInfo: INFO } },
       { type: "BACK" },
     ]);

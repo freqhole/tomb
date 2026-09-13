@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use super::events::{ActionMenu, CommandForm, LastDispatch};
 use super::music::MusicState;
-use super::pairing::{PairingViewState, PlayerSession, TrustedController};
+use super::pairing::{PairingViewState, PlayerSession};
 use super::repl::ReplState;
 use super::video::VideoState;
 use super::video_player::VideoPlayerState;
@@ -63,11 +63,18 @@ pub struct PersistedState {
     /// pending remote connections (invite + knock requests in progress).
     #[serde(default)]
     pub pending_remotes: Vec<PendingRemoteEntry>,
-    /// `--player`/`/player` pairing: controllers this player has ever
-    /// paired with (persists indefinitely, mirrors cenotaph's trust
-    /// store).
+    /// `--player`/`/player` pairing: trust itself lives entirely in
+    /// grimoire now (`UserPeerNode`/`InviteCode`, see
+    /// docs/rathole-pairing-invite-code-plan.md) - this is just a hint
+    /// remembering the code string this device most recently generated
+    /// for pairing, so it can look itself back up (and keep displaying
+    /// the same code/qr) across restarts instead of minting a fresh one
+    /// every time. not the source of truth for validity: if grimoire
+    /// reports this code is no longer valid (expired/deactivated/quota
+    /// exhausted), a fresh one is generated exactly as if this were
+    /// `None`.
     #[serde(default)]
-    pub trusted_controllers: Vec<TrustedController>,
+    pub current_pairing_code_hint: Option<String>,
     /// `--player`/`/player` pairing: the current ephemeral "who's
     /// allowed to send commands right now" session (mirrors cenotaph's
     /// `PlayerSession`). `None` until first used - a fresh one is
@@ -88,7 +95,7 @@ impl Default for PersistedState {
             ui: UiPrefs::default(),
             remotes: vec![],
             pending_remotes: vec![],
-            trusted_controllers: vec![],
+            current_pairing_code_hint: None,
             player_session: None,
         }
     }

@@ -1143,7 +1143,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
                       </div>
                       <div class="text-center">
                         <h3 class="text-lg font-semibold text-[var(--color-text-primary)] mb-1">
-                          remote added!
+                          {s.alreadyExisted ? "already connected" : "remote added!"}
                         </h3>
                         <p class="text-sm text-[var(--color-text-secondary)]">
                           {s.remote.peer_addr

@@ -9,7 +9,7 @@ import { z } from "zod";
 
 export const PairRequestSchema = z.object({
   type: z.literal("pair_request"),
-  pin: z.string(),
+  code: z.string(),
   display_name: z.string().min(1).max(64),
 });
 export type PairRequest = z.infer<typeof PairRequestSchema>;

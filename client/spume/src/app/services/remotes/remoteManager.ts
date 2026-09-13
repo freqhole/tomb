@@ -8,11 +8,7 @@
 // business logic: slug generation, server-info fetch, image url handling,
 // status listeners, etc.
 
-import {
-  getClientForRemote,
-  httpRemote,
-  isCharnelAvailable,
-} from "../../api/client";
+import { getClientForRemote, httpRemote, isCharnelAvailable } from "../../api/client";
 import {
   type Remote,
   type HttpRemote,
@@ -50,9 +46,7 @@ export function triggerSwitchToLocal(): void {
 
 // register a listener for remote status changes
 // returns unsubscribe function
-export function onRemoteStatusChange(
-  listener: RemoteStatusChangeListener,
-): () => void {
+export function onRemoteStatusChange(listener: RemoteStatusChangeListener): () => void {
   statusChangeListeners.add(listener);
   return () => statusChangeListeners.delete(listener);
 }
@@ -75,9 +69,7 @@ function notifyStatusChange(remoteId: string, isOffline: boolean): void {
 // tauri convertFileSrc - dynamically loaded for asset:// url conversion
 let convertFileSrc: ((path: string) => string) | null = null;
 
-async function ensureConvertFileSrc(): Promise<
-  ((path: string) => string) | null
-> {
+async function ensureConvertFileSrc(): Promise<((path: string) => string) | null> {
   if (convertFileSrc) return convertFileSrc;
   if (!isCharnelAvailable()) return null;
   try {
@@ -130,9 +122,7 @@ export async function getTauriManagedRemote(): Promise<Remote | null> {
 }
 
 // get remote by id
-export async function getRemoteById(
-  remoteId: string,
-): Promise<Remote | undefined> {
+export async function getRemoteById(remoteId: string): Promise<Remote | undefined> {
   const now = Date.now();
   const cached = remoteByIdCache.get(remoteId);
   if (cached && cached.expiresAt > now) {
@@ -160,16 +150,12 @@ export async function getRemoteById(
 
 // find a P2P remote by its peer address (node_id or endpoint JSON containing node_id)
 // used to map peer-offline events to the correct remote.
-export async function getRemoteByPeerAddr(
-  peerAddr: string,
-): Promise<Remote | undefined> {
+export async function getRemoteByPeerAddr(peerAddr: string): Promise<Remote | undefined> {
   return getBackend().getByPeerAddr(peerAddr);
 }
 
 // get remote by url
-export async function getRemoteByUrl(
-  url: string,
-): Promise<Remote | undefined> {
+export async function getRemoteByUrl(url: string): Promise<Remote | undefined> {
   const remotes = await getBackend().list();
   return remotes.find((r) => isHttpRemote(r) && r.base_url === url);
 }
@@ -244,10 +230,7 @@ export async function upsertTauriRemote(config: {
     const convert = await ensureConvertFileSrc();
     if (convert) {
       imageUrl = convert(config.server_image_path);
-      console.log(
-        "[upsertTauriRemote] converted server_image_path to asset URL:",
-        imageUrl,
-      );
+      console.log("[upsertTauriRemote] converted server_image_path to asset URL:", imageUrl);
     } else {
       console.log("[upsertTauriRemote] convertFileSrc not available");
     }
@@ -328,6 +311,7 @@ export async function createRemote(data: {
   base_url?: string; // required for HTTP remotes
   peer_addr?: string; // node_id or JSON endpoint for P2P remotes
   api_key?: string; // optional - for api key authentication
+  is_player_device?: boolean; // freqhole-player/1 pairing target, see schemas/remote.ts
 }): Promise<Remote> {
   const isP2P = !!data.peer_addr;
   const baseUrl = data.base_url?.replace(/\/$/, "") ?? "";
@@ -340,22 +324,23 @@ export async function createRemote(data: {
   if (baseUrl) {
     const existingByUrl = await getRemoteByUrl(baseUrl);
     if (existingByUrl) {
-      throw new Error(
-        `remote already exists for this url: ${existingByUrl.name}`,
-      );
+      throw new Error(`remote already exists for this url: ${existingByUrl.name}`);
     }
   }
 
   if (isP2P && data.peer_addr) {
     const existingByPeer = await getRemoteByPeerAddr(data.peer_addr);
     if (existingByPeer) {
-      throw new Error(
-        `remote already exists for this peer: ${existingByPeer.name}`,
-      );
+      throw new Error(`remote already exists for this peer: ${existingByPeer.name}`);
     }
   }
 
-  // fetch server info - use async client for P2P remotes
+  // fetch server info - use async client for P2P remotes. a player-device
+  // pairing already proved this peer reachable via the pairing handshake
+  // itself moments ago, so a failed/absent hello probe here is treated as
+  // a soft failure (proceed with serverInfo = null) rather than aborting
+  // the whole "remember this pairing" step over what's essentially a
+  // cosmetic metadata fetch (description/image/version).
   let serverInfo = null;
   try {
     if (isP2P) {
@@ -375,22 +360,20 @@ export async function createRemote(data: {
       }
     }
   } catch (error) {
-    errorLog(`failed to fetch server info:`, error);
-    throw new Error(
-      "failed to connect to server - could not fetch server info",
-    );
+    if (!data.is_player_device) {
+      errorLog(`failed to fetch server info:`, error);
+      throw new Error("failed to connect to server - could not fetch server info");
+    }
+    debug(`player-device remote: hello probe failed, proceeding without server info:`, error);
   }
 
-  if (!serverInfo) {
+  if (!serverInfo && !data.is_player_device) {
     throw new Error("server did not return valid info");
   }
 
   // use server name from /api/hello if no name provided
   const baseName =
-    data.name ||
-    serverInfo.name ||
-    baseUrl ||
-    `p2p-${(data.peer_addr ?? "").slice(0, 8)}`;
+    data.name || serverInfo?.name || baseUrl || `p2p-${(data.peer_addr ?? "").slice(0, 8)}`;
 
   // disambiguate against any existing remote with the same display name.
   // the unique-id check above only protects against duplicate base_url /
@@ -407,9 +390,7 @@ export async function createRemote(data: {
       counter++;
     }
     remoteName = `${baseName} (${counter})`;
-    debug(
-      `remote name "${baseName}" already in use; using "${remoteName}" instead`,
-    );
+    debug(`remote name "${baseName}" already in use; using "${remoteName}" instead`);
   }
 
   const remoteId = await generateUniqueRemoteId(remoteName);
@@ -421,12 +402,13 @@ export async function createRemote(data: {
     last_connected_at: null,
     created_at: Date.now(),
     updated_at: Date.now(),
-    description: serverInfo.description ?? null,
-    image_url: serverInfo.image_url ?? null,
-    image_blob_id: serverInfo.image_blob_id ?? null,
-    version: serverInfo.version,
+    description: serverInfo?.description ?? null,
+    image_url: serverInfo?.image_url ?? null,
+    image_blob_id: serverInfo?.image_blob_id ?? null,
+    version: serverInfo?.version ?? null,
     last_info_check: Date.now(),
     api_key: data.api_key,
+    is_player_device: data.is_player_device,
   };
 
   const remote: Remote = isP2P
@@ -445,7 +427,7 @@ export async function createRemote(data: {
   await getBackend().put(remote);
   invalidateRemoteCache(remote.remote_id);
   debug(
-    `created remote: ${remote.name} (${isHttpRemote(remote) ? remote.base_url : remote.peer_addr})`,
+    `created remote: ${remote.name} (${isHttpRemote(remote) ? remote.base_url : remote.peer_addr})`
   );
   // notify AppLayout (and any other listener) so the remotes list in the
   // top nav refreshes without requiring a page reload.
@@ -457,7 +439,7 @@ export async function createRemote(data: {
 // update an existing remote
 export async function updateRemote(
   remoteId: string,
-  updates: Partial<Pick<Remote, "name" | "base_url" | "api_key" | "graph_disabled">>,
+  updates: Partial<Pick<Remote, "name" | "base_url" | "api_key" | "graph_disabled">>
 ): Promise<Remote> {
   const existing = await getBackend().get(remoteId);
   if (!existing) {
@@ -525,9 +507,7 @@ export async function deactivateAllRemotes(): Promise<void> {
 }
 
 // update last_connected_at timestamp for a remote
-export async function updateRemoteConnectionTime(
-  remoteId: string,
-): Promise<void> {
+export async function updateRemoteConnectionTime(remoteId: string): Promise<void> {
   const backend = getBackend();
   const remote = await backend.get(remoteId);
   if (!remote) return;
@@ -559,12 +539,9 @@ export async function refreshServerInfo(remoteId: string): Promise<void> {
       const isCharnelManaged = !!remote.is_charnel_managed;
       await backend.put({
         ...remote,
-        name:
-          !isCharnelManaged && serverInfo.name ? serverInfo.name : remote.name,
+        name: !isCharnelManaged && serverInfo.name ? serverInfo.name : remote.name,
         description: serverInfo.description ?? remote.description,
-        image_url: isCharnelManaged
-          ? remote.image_url
-          : (serverInfo.image_url ?? remote.image_url),
+        image_url: isCharnelManaged ? remote.image_url : (serverInfo.image_url ?? remote.image_url),
         image_blob_id: serverInfo.image_blob_id ?? remote.image_blob_id,
         version: serverInfo.version ?? remote.version,
         last_info_check: Date.now(),
@@ -626,8 +603,7 @@ export async function checkRemoteHealth(remote: Remote): Promise<boolean> {
             updated.name = result.data.name;
           }
         }
-        updated.image_blob_id =
-          result.data.image_blob_id ?? updated.image_blob_id;
+        updated.image_blob_id = result.data.image_blob_id ?? updated.image_blob_id;
         updated.version = result.data.version ?? updated.version;
         updated.last_info_check = now;
       }
@@ -637,9 +613,7 @@ export async function checkRemoteHealth(remote: Remote): Promise<boolean> {
 
     await backend.put(updated);
     invalidateRemoteCache(updated.remote_id);
-    debug(
-      `health check for ${fresh.name}: ${isOnline ? "online" : "offline"}`,
-    );
+    debug(`health check for ${fresh.name}: ${isOnline ? "online" : "offline"}`);
     return isOnline;
   } catch (error) {
     // network error = offline - re-read before updating
@@ -699,9 +673,7 @@ export async function markRemoteOnline(remoteId: string): Promise<void> {
 }
 
 // find the first online remote from a list
-export async function findFirstOnlineRemote(
-  remotes: Remote[],
-): Promise<Remote | null> {
+export async function findFirstOnlineRemote(remotes: Remote[]): Promise<Remote | null> {
   for (const remote of remotes) {
     const isOnline = await checkRemoteHealth(remote);
     if (isOnline) {

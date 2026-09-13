@@ -12,11 +12,22 @@ use tracing::{info, warn};
 
 use crate::ratcore::app::{
     pairing as portable, CommandAck, CommandAckReason, ConnectedControllerInfo, PairRequest,
-    PairResponse, PairResponseReason, PairingCommand, PeerRole, PlayerSession,
-    PresenceAnnouncement, PresenceState, TrustedController,
+    PairResponse, PairResponseReason, PairingCommand, PeerRole, PresenceAnnouncement,
+    PresenceState,
 };
 
 use super::state::{mark_connected, mark_disconnected, SharedPairingState};
+
+/// maps grimoire's 4-level role onto rathole's 3-level `PeerRole` -
+/// `Root` has no direct equivalent here, so it's treated as `Admin`
+/// (the closest/highest rathole-native level).
+fn user_role_to_peer_role(role: grimoire::users::UserRole) -> PeerRole {
+    match role {
+        grimoire::users::UserRole::Root | grimoire::users::UserRole::Admin => PeerRole::Admin,
+        grimoire::users::UserRole::Member => PeerRole::Member,
+        grimoire::users::UserRole::Viewer => PeerRole::Viewer,
+    }
+}
 
 // -------------------------------------------------------------------
 // pairing dispatch request — the alpn handler's bridge onto rathole's
@@ -255,18 +266,26 @@ async fn handle_stream(
         return Ok(());
     }
 
-    // anything else requires already being trusted.
-    let trusted = {
-        let guard = state.lock().unwrap_or_else(|p| p.into_inner());
-        guard
-            .trusted_controllers
-            .iter()
-            .find(|c| c.node_id == peer_id)
-            .cloned()
-    };
-    let Some(controller) = trusted else {
+    // anything else requires already being trusted - a live grimoire
+    // query every time (matches `federation::resolver::is_known_peer`'s
+    // own "fresh query every connection, no cache" precedent), instead
+    // of the in-process `trusted_controllers` cache this used to keep
+    // (the very thing that made pairings vanish on a non-graceful
+    // restart - see docs/rathole-pairing-invite-code-plan.md).
+    let user_resp = grimoire::users::UserService::new()
+        .get_user_by_peer_node_id(&peer_id)
+        .await;
+    let Some(user) = user_resp.data.filter(|_| user_resp.success) else {
+        warn!(
+            target: "player_protocol",
+            peer = %peer_id,
+            kind = %kind,
+            "peer not found in grimoire's peer nodes - ignoring stream (needs to pair again?)"
+        );
         return Ok(());
     };
+    let role = user_role_to_peer_role(user.role);
+    let display_name = user.username.clone();
 
     if kind == "presence_query" {
         let msg = PresenceAnnouncement::new(PresenceState::Active);
@@ -276,7 +295,7 @@ async fn handle_stream(
 
     let connected_info = ConnectedControllerInfo {
         node_id: peer_id.clone(),
-        display_name: controller.display_name.clone(),
+        display_name: display_name.clone(),
     };
 
     if kind == "subscribe" {
@@ -294,10 +313,12 @@ async fn handle_stream(
             status_rx.borrow().clone(),
         ))
         .unwrap();
-        if write_line(&mut send, &initial).await.is_err() {
+        if let Err(e) = write_line(&mut send, &initial).await {
+            warn!(target: "player_protocol", peer = %peer_id, error = %e, "subscribe stream: failed to write initial status, closing");
             mark_disconnected(&state, &peer_id);
             return Ok(());
         }
+        info!(target: "player_protocol", peer = %peer_id, "subscribe stream: initial status sent, entering push loop");
         let mut buf = String::new();
         loop {
             tokio::select! {
@@ -332,7 +353,7 @@ async fn handle_stream(
     mark_connected(&state, connected_info);
     let result = command_loop(
         &peer_id,
-        &controller,
+        role,
         first_line,
         &mut reader,
         &mut send,
@@ -344,6 +365,11 @@ async fn handle_stream(
     result
 }
 
+/// validates `raw` as a real grimoire invite code (mirrors
+/// `server/src/auth/handlers.rs`'s `redeem_invite` regular-invite
+/// branch almost exactly: check the code, register/find the user,
+/// link the peer's node_id) instead of matching against a locally
+/// generated pin - see docs/rathole-pairing-invite-code-plan.md.
 async fn handle_pair_request(
     peer_id: &str,
     raw: &str,
@@ -353,53 +379,52 @@ async fn handle_pair_request(
     let req: PairRequest = match serde_json::from_str(raw) {
         Ok(r) => r,
         Err(_) => {
-            let resp = PairResponse::err(PairResponseReason::InvalidPin);
+            let resp = PairResponse::err(PairResponseReason::InvalidCode);
             return write_line(send, &serde_json::to_string(&resp).unwrap()).await;
         }
     };
 
-    let response = {
-        let mut guard = state.lock().unwrap_or_else(|p| p.into_inner());
-        let mut session = PlayerSession::ensure_active(guard.session.take());
-        if req.pin != session.pin {
-            guard.session = Some(session);
-            PairResponse::err(PairResponseReason::InvalidPin)
-        } else {
-            // first peer ever paired (or a pending one-time admin
-            // grant) becomes admin; everyone else defaults to the
-            // lowest-privilege role — same as pairingHandler.ts.
-            let grants_admin = guard.trusted_controllers.is_empty() || session.admin_grant_pending;
-            let role = if grants_admin {
-                PeerRole::Admin
-            } else {
-                PeerRole::Viewer
-            };
-            if let Some(existing) = guard
-                .trusted_controllers
-                .iter_mut()
-                .find(|c| c.node_id == peer_id)
-            {
-                existing.display_name = req.display_name.clone();
-                existing.role = role;
-            } else {
-                guard.trusted_controllers.push(TrustedController {
-                    node_id: peer_id.to_string(),
-                    display_name: req.display_name.clone(),
-                    role,
-                    paired_at: super::now_ms(),
-                });
-            }
-            session.join(peer_id);
-            if grants_admin {
-                // the admin-bootstrap pin is a one-time registration
-                // code - mint a fresh, non-admin pin so regular users
-                // get a distinct code to join with.
-                session.regenerate_session_pin();
-            }
-            guard.session = Some(session);
-            PairResponse::ok()
+    let service = grimoire::users::UserService::new();
+    let code_resp = service.check_invite_code(&req.code).await;
+    let invite = match code_resp.data.filter(|_| code_resp.success) {
+        Some(invite) if invite.code_type == grimoire::users::InviteCodeType::Invite => invite,
+        _ => {
+            let resp = PairResponse::err(PairResponseReason::InvalidCode);
+            return write_line(send, &serde_json::to_string(&resp).unwrap()).await;
         }
     };
+
+    let create_request = grimoire::users::CreateUserRequest {
+        username: req.display_name.clone(),
+        role: None, // let the invite code's grants_role apply
+        invite_code: Some(req.code.clone()),
+    };
+    let user_resp = service.register_user(&create_request).await;
+    let user = match user_resp.data.filter(|_| user_resp.success) {
+        Some(user) => user,
+        None => {
+            let resp = PairResponse::err(PairResponseReason::UsernameTaken);
+            return write_line(send, &serde_json::to_string(&resp).unwrap()).await;
+        }
+    };
+
+    let _ = service.add_peer_node(&user.id, peer_id, None).await;
+
+    {
+        let mut guard = state.lock().unwrap_or_else(|p| p.into_inner());
+        let mut session = portable::PlayerSession::ensure_active(guard.session.take());
+        session.join(peer_id);
+        guard.session = Some(session);
+    }
+
+    // the code that was just redeemed may have been the one-time admin
+    // bootstrap code (max_uses=1) - if so it's now exhausted, so line up
+    // a fresh member-granting code for the next device to pair with.
+    if invite.grants_role == grimoire::users::UserRole::Admin && invite.max_uses == 1 {
+        super::state::ensure_current_pairing_code(state, None).await;
+    }
+
+    let response = PairResponse::ok();
     write_line(send, &serde_json::to_string(&response).unwrap()).await
 }
 
@@ -412,7 +437,7 @@ pub(super) fn is_get_status_line(raw: &str) -> bool {
 
 async fn command_loop(
     peer_id: &str,
-    controller: &TrustedController,
+    role: PeerRole,
     first_line: String,
     reader: &mut BufReader<iroh::endpoint::RecvStream>,
     send: &mut iroh::endpoint::SendStream,
@@ -421,7 +446,7 @@ async fn command_loop(
 ) -> Result<(), String> {
     let mut current = Some(first_line);
     while let Some(raw) = current.take() {
-        let ack = process_command_line(peer_id, controller, &raw, state, dispatch_tx).await;
+        let ack = process_command_line(peer_id, role, &raw, state, dispatch_tx).await;
         write_line(send, &serde_json::to_string(&ack).unwrap()).await?;
 
         let mut buf = String::new();
@@ -436,15 +461,15 @@ async fn command_loop(
 
 async fn process_command_line(
     peer_id: &str,
-    controller: &TrustedController,
+    role: PeerRole,
     raw: &str,
     state: &SharedPairingState,
     dispatch_tx: &PairingDispatchTx,
 ) -> CommandAck {
     let allowed = {
         let mut guard = state.lock().unwrap_or_else(|p| p.into_inner());
-        let mut session = PlayerSession::ensure_active(guard.session.take());
-        let ok = is_get_status_line(raw) || session.is_peer_allowed(peer_id, Some(controller.role));
+        let mut session = portable::PlayerSession::ensure_active(guard.session.take());
+        let ok = is_get_status_line(raw) || session.is_peer_allowed(peer_id, Some(role));
         if ok {
             session.touch();
         }

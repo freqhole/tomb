@@ -225,6 +225,13 @@ pub struct InviteCode {
     pub link_expires_at: Option<i64>,
     /// role granted to users who register with this code
     pub grants_role: UserRole,
+    /// `<= 0` means unlimited redemptions while otherwise valid; `>= 1`
+    /// caps total redemptions at that count. codes created before this
+    /// field existed default to `1` (single-use, matching the original
+    /// behavior exactly).
+    pub max_uses: i64,
+    /// how many times this code has actually been redeemed so far.
+    pub use_count: i64,
 }
 
 impl InviteCode {
@@ -247,9 +254,11 @@ impl InviteCode {
         }
     }
 
-    /// Check if the code is valid for use (active, not used, not expired)
+    /// Check if the code is valid for use (active, not expired, under its redemption quota)
     pub fn is_valid_for_use(&self) -> bool {
-        self.is_active && self.used_at.is_none() && !self.is_expired()
+        self.is_active
+            && !self.is_expired()
+            && (self.max_uses <= 0 || self.use_count < self.max_uses)
     }
 
     /// Get the target user ID for account link codes
@@ -342,6 +351,11 @@ pub struct CreateInviteCodeRequest {
     pub expires_hours: Option<u32>,
     /// role granted to users who register with this code (default: Member)
     pub grants_role: Option<UserRole>,
+    /// redemption quota: `None`/`Some(1)` is the original single-use
+    /// behavior; `Some(n)` for `n > 1` allows `n` redemptions; `Some(0)` or
+    /// negative means unlimited redemptions while the code is otherwise
+    /// valid (active, not expired).
+    pub max_uses: Option<i64>,
 }
 
 // favorites/ratings request types (SetFavoriteRequest, SetRatingRequest) live

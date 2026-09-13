@@ -56,6 +56,11 @@ export interface AddPeerContext {
   /** the pending record a knock-status re-check is running for. */
   retryPending: PendingRemote | null;
   remote: SavedRemote | null;
+  /** an already-saved remote matching the current attempt's target
+   *  (set at DUPLICATE_RESULT, consulted at CONNECTION_RESULT - see its
+   *  handling below for why this doesn't block outright the way an http
+   *  duplicate still does). */
+  existingRemote: SavedRemote | null;
 }
 
 export function initialContext(): AddPeerContext {
@@ -73,6 +78,7 @@ export function initialContext(): AddPeerContext {
     knockDraft: null,
     retryPending: null,
     remote: null,
+    existingRemote: null,
   };
 }
 
@@ -100,8 +106,8 @@ export function projectState(ctx: AddPeerContext): AddPeerState {
     case "knock_sent":
       return { step: "knock_sent" };
     case "complete":
-      // remote is always set by the REMOTE_CREATED transition that enters this step
-      return { step: "complete", remote: ctx.remote! };
+      // remote is always set by the transition that enters this step
+      return { step: "complete", remote: ctx.remote!, alreadyExisted: ctx.existingRemote !== null };
   }
 }
 
@@ -125,7 +131,9 @@ function toUrlInput(ctx: AddPeerContext, error: string | null): AddPeerContext {
 }
 
 /** patch fields recording a probe's server info onto a pending record. */
-function serverInfoPatch(info: PeerServerInfo | null): Partial<Omit<PendingRemote, "id" | "peer_addr">> {
+function serverInfoPatch(
+  info: PeerServerInfo | null,
+): Partial<Omit<PendingRemote, "id" | "peer_addr">> {
   if (!info) return {};
   return {
     server_name: info.name,
@@ -182,23 +190,32 @@ export function transition(ctx: AddPeerContext, event: AddPeerEvent): Transition
         progress: null,
         serverInfo: null,
         retryPending: null,
+        existingRemote: null,
       };
       return { ctx: next, effects: [{ type: "CHECK_DUPLICATE", target }] };
     }
 
     case "DUPLICATE_RESULT": {
       if (ctx.step !== "testing") return noop(ctx);
-      if (event.duplicateName) {
+      // an http duplicate always blocks outright - there's no "maybe it's
+      // a player now" reprobe scenario for a plain web remote, and this
+      // preserves the tested "each server can only be added once" rule.
+      if (event.duplicate && ctx.target?.type === "http") {
         return noop(
           toUrlInput(
             ctx,
-            `this server is already added as "${event.duplicateName}". each server can only be added once.`
-          )
+            `this server is already added as "${event.duplicate.name}". each server can only be added once.`,
+          ),
         );
       }
-      // persist the attempt BEFORE probing, so a closed tab can resume it
+      // a p2p duplicate does NOT block here - it might be an already-
+      // paired player whose trust was revoked (or never marked
+      // `is_player_device` in the first place - see CONNECTION_RESULT
+      // below, which decides for real off the freshly-probed
+      // `player_device` flag, not this possibly-stale stored one).
+      // persist the attempt BEFORE probing, so a closed tab can resume it.
       return {
-        ctx,
+        ctx: { ...ctx, existingRemote: event.duplicate },
         effects: [
           {
             type: "UPSERT_PENDING",
@@ -214,6 +231,26 @@ export function transition(ctx: AddPeerContext, event: AddPeerEvent): Transition
     case "CONNECTION_RESULT": {
       if (ctx.step !== "testing") return noop(ctx);
       const { outcome } = event;
+      // already have this peer saved, and it didn't just prove itself a
+      // player device on this fresh probe - nothing new to do. gracefully
+      // land on "complete" against the existing remote instead of
+      // re-running knock/auth (or erroring on a duplicate-peer_addr
+      // create) for something the user already has.
+      if (ctx.existingRemote && outcome.kind !== "failed" && !outcome.serverInfo.player_device) {
+        return {
+          ctx: {
+            ...ctx,
+            step: "complete",
+            remote: ctx.existingRemote,
+            error: null,
+            progress: null,
+          },
+          effects: [
+            { type: "DELETE_PENDING_BY_ADDR", peerAddr: addrKey(ctx) },
+            { type: "SCHEDULE_TIMER", id: DISMISS_TIMER_ID, ms: COMPLETE_DISMISS_MS },
+          ],
+        };
+      }
       switch (outcome.kind) {
         case "already_authed":
           return {
@@ -276,7 +313,11 @@ export function transition(ctx: AddPeerContext, event: AddPeerEvent): Transition
         return noop({ ...ctx, error: "no peer address available" });
       }
       return {
-        ctx: { ...ctx, knockDraft: { username: event.username, message: event.message }, error: null },
+        ctx: {
+          ...ctx,
+          knockDraft: { username: event.username, message: event.message },
+          error: null,
+        },
         effects: [
           {
             type: "SEND_KNOCK",
@@ -442,7 +483,7 @@ export function transition(ctx: AddPeerContext, event: AddPeerEvent): Transition
         // not a knock: re-run the normal connection flow for its address
         return transition(
           { ...ctx, subStep: "input" },
-          { type: "SUBMIT_URL", input: pending.peer_addr }
+          { type: "SUBMIT_URL", input: pending.peer_addr },
         );
       }
       const target = parsePeerAddress(pending.peer_addr) ?? {
@@ -497,7 +538,10 @@ export function transition(ctx: AddPeerContext, event: AddPeerEvent): Transition
           };
         case "denied":
           return {
-            ctx: { ...toUrlInput(ctx, "your access request was rejected by the server admin"), retryPending: null },
+            ctx: {
+              ...toUrlInput(ctx, "your access request was rejected by the server admin"),
+              retryPending: null,
+            },
             effects: pending
               ? [
                   {
@@ -512,7 +556,7 @@ export function transition(ctx: AddPeerContext, event: AddPeerEvent): Transition
           return noop({
             ...toUrlInput(
               ctx,
-              "access request is still pending - the server admin has not yet responded"
+              "access request is still pending - the server admin has not yet responded",
             ),
             retryPending: null,
           });

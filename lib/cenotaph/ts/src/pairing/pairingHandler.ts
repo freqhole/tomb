@@ -32,8 +32,8 @@ export async function handlePairRequest(
     return { type: "pair_response", ok: false, reason: "invalid_pin" };
   }
 
-  const { pin, display_name } = parsed.data;
-  if (pin !== session.pin) {
+  const { code, display_name } = parsed.data;
+  if (code !== session.pin) {
     recordPairingFailure(peerNodeId);
     return { type: "pair_response", ok: false, reason: "invalid_pin" };
   }

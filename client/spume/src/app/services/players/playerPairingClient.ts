@@ -69,12 +69,12 @@ async function dialLine(peerAddr: string, line: string): Promise<string | null> 
 
 export async function pairWithPlayer(
   peerAddr: string,
-  pin: string,
+  code: string,
   displayName: string
 ): Promise<PairResult> {
   const line = await dialLine(
     peerAddr,
-    JSON.stringify({ type: "pair_request", pin, display_name: displayName })
+    JSON.stringify({ type: "pair_request", code, display_name: displayName })
   );
   if (!line) return { ok: false, reason: "no_response" };
   const parsed = JSON.parse(line) as { ok?: boolean; reason?: string };

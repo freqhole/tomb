@@ -104,7 +104,6 @@ fn draw_overview(frame: &mut Frame, area: Rect, app: &mut App) {
     let inner = outer_block.inner(left);
     frame.render_widget(outer_block, left);
 
-    let session = snapshot.as_ref().and_then(|s| s.session.as_ref()).cloned();
     let qr_text = match &snapshot {
         Some(snap) if snap.node_id.is_some() => app.state.ephemeral.player_pairing.qr_text.clone(),
         _ => None,
@@ -137,14 +136,7 @@ fn draw_overview(frame: &mut Frame, area: Rect, app: &mut App) {
         }
     }
     if !showed_art {
-        draw_qr_and_pin(
-            frame,
-            inner,
-            app,
-            &snapshot,
-            qr_text.as_deref(),
-            session.as_ref(),
-        );
+        draw_qr_and_pin(frame, inner, app, &snapshot, qr_text.as_deref());
     }
 
     let [connected_area, queue_area] = Layout::vertical([Length(7), Min(0)]).areas(right);
@@ -162,7 +154,6 @@ fn draw_qr_and_pin(
     app: &mut App,
     snapshot: &Option<crate::ratcore::app::PairingSnapshot>,
     qr_text: Option<&str>,
-    session: Option<&crate::ratcore::app::PlayerSession>,
 ) {
     let qr_size = qr_text.map(|t| {
         let height = t.lines().count() as u16;
@@ -178,14 +169,15 @@ fn draw_qr_and_pin(
     // qr must fit outright (its own module count is fixed, can't shrink);
     // one row is always reserved below it for an admin-grant/error message.
     let qr_fits = qr_size.is_none_or(|(w, h)| w <= inner.width && h < inner.height);
-    let pin_layout = session.and_then(|s| {
+    let code = snapshot.as_ref().and_then(|s| s.current_code.as_ref());
+    let pin_layout = code.and_then(|c| {
         let qr_h = qr_size.map(|(_, h)| h).unwrap_or(0);
         let avail_h = inner.height.saturating_sub(qr_h).saturating_sub(1);
-        fit_pin_layout(&s.pin, inner.width, avail_h)
+        fit_pin_layout(&c.code, inner.width, avail_h)
     });
 
-    if !qr_fits || (session.is_some() && pin_layout.is_none()) {
-        draw_too_small_fallback(frame, inner, app, snapshot.as_ref(), qr_text, session);
+    if !qr_fits || (code.is_some() && pin_layout.is_none()) {
+        draw_too_small_fallback(frame, inner, app, snapshot.as_ref(), qr_text, code);
     } else {
         let pin_rows = pin_layout.as_ref().map(|p| p.rows + 1).unwrap_or(0);
         let needed_height = qr_size.map(|(_, h)| h).unwrap_or(1) + pin_rows;
@@ -200,8 +192,8 @@ fn draw_qr_and_pin(
         .areas(content);
 
         draw_qr(frame, qr_area, snapshot, qr_text);
-        if let (Some(session), Some(layout)) = (session, pin_layout) {
-            draw_big_pin(frame, pin_area, app, session, layout);
+        if let (Some(code), Some(layout)) = (code, pin_layout) {
+            draw_big_pin(frame, pin_area, app, code, layout);
         }
     }
 }
@@ -235,7 +227,7 @@ fn draw_big_pin(
     frame: &mut Frame,
     area: Rect,
     app: &App,
-    session: &crate::ratcore::app::PlayerSession,
+    code: &crate::ratcore::app::PairingCode,
     layout: PinLayout,
 ) {
     let [big_area, footer_area] = Layout::vertical([Length(layout.rows), Min(0)]).areas(area);
@@ -248,8 +240,8 @@ fn draw_big_pin(
     frame.render_widget(big_pin, big_area);
 
     let mut footer_lines: Vec<Line> = Vec::new();
-    if session.admin_grant_pending {
-        footer_lines.push(Line::from("(next redemption grants admin)".yellow()));
+    if code.is_admin_bootstrap() {
+        footer_lines.push(Line::from("(this code grants admin)".yellow()));
     }
     if let Some(err) = &app.state.ephemeral.player_pairing.last_error {
         footer_lines.push(Line::from(vec![Span::styled(
@@ -274,7 +266,7 @@ fn draw_too_small_fallback(
     app: &App,
     snapshot: Option<&crate::ratcore::app::PairingSnapshot>,
     qr_text: Option<&str>,
-    session: Option<&crate::ratcore::app::PlayerSession>,
+    code: Option<&crate::ratcore::app::PairingCode>,
 ) {
     let mut lines: Vec<Line> = vec![Line::from(
         "(terminal too small for the full qr+pin display - resize for a bigger view)".yellow(),
@@ -289,13 +281,13 @@ fn draw_too_small_fallback(
             },
         },
     }
-    if let Some(session) = session {
+    if let Some(code) = code {
         lines.push(Line::from(vec![
-            Span::styled("pin: ", Style::new().bold()),
-            Span::styled(session.pin.clone(), Style::new().fg(ACCENT).bold()),
+            Span::styled("code: ", Style::new().bold()),
+            Span::styled(code.code.clone(), Style::new().fg(ACCENT).bold()),
         ]));
-        if session.admin_grant_pending {
-            lines.push(Line::from("(next redemption grants admin)".yellow()));
+        if code.is_admin_bootstrap() {
+            lines.push(Line::from("(this code grants admin)".yellow()));
         }
     }
     if let Some(err) = &app.state.ephemeral.player_pairing.last_error {

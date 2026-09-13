@@ -47,44 +47,41 @@ impl PeerRole {
     }
 }
 
-/// a controller this player has paired with at some point. persisted
-/// indefinitely (unlike `PlayerSession`'s ephemeral membership) — the
-/// shell owns actual storage (see `tty::pairing::TrustStore`).
+// ---------------------------------------------------------------------
+// trust + pairing codes themselves now live entirely in grimoire
+// (`UserPeerNode`/`InviteCode`, backed by haruspex's durable sqlite
+// storage) - the same mechanism CLI's `allow_peer` and every other
+// "is this node_id trusted" check in the codebase already uses. this
+// module previously reinvented its own separate, non-durable trust
+// list (`TrustedController`) and its own locally-generated pairing pin
+// (`generate_pin`/`is_valid_pin_format`) - both removed. see
+// docs/rathole-pairing-invite-code-plan.md for the full writeup.
+//
+// `PairingCode` below is just a thin, portable mirror of grimoire's
+// `InviteCode` (code string + granted role) for rendering the
+// qr/pin - `tty::pairing` is what actually creates/validates codes via
+// `grimoire::users::UserService`.
+// ---------------------------------------------------------------------
+
+/// the invite code this player is currently displaying for pairing -
+/// mirrors just enough of grimoire's real `InviteCode` (the durable
+/// source of truth) to render the qr/pin and an admin-grant hint.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct TrustedController {
-    pub node_id: String,
-    pub display_name: String,
-    pub role: PeerRole,
-    /// unix milliseconds.
-    pub paired_at: i64,
+pub struct PairingCode {
+    pub code: String,
+    pub grants_role: PeerRole,
 }
 
-// ---------------------------------------------------------------------
-// pairing pin. mirrors `pairing/pin.ts` exactly (6-digit numeric, never
-// encoded in the qr - typed in manually as a trust-confirmation step
-// after the phone dials the node id from the qr). digits only (not hex)
-// so it can be typed on a phone's numeric keypad and read at couch
-// distance.
-// ---------------------------------------------------------------------
-
-const PIN_LENGTH: usize = 6;
-const DIGITS: &[u8] = b"0123456789";
-
-pub fn generate_pin() -> String {
-    use rand::Rng;
-    let mut rng = rand::thread_rng();
-    (0..PIN_LENGTH)
-        .map(|_| DIGITS[rng.gen_range(0..DIGITS.len())] as char)
-        .collect()
-}
-
-pub fn is_valid_pin_format(candidate: &str) -> bool {
-    candidate.len() == PIN_LENGTH && candidate.chars().all(|c| c.is_ascii_digit())
+impl PairingCode {
+    pub fn is_admin_bootstrap(&self) -> bool {
+        self.grants_role == PeerRole::Admin
+    }
 }
 
 // ---------------------------------------------------------------------
 // player session: the singleton, ephemeral "who's allowed to send
-// commands right now" session. mirrors `pairing/playerSession.ts`.
+// commands right now" session. mirrors `pairing/playerSession.ts`,
+// minus the pin/admin-grant concepts (now grimoire's job - see above).
 // ---------------------------------------------------------------------
 
 /// `"everyone"`: any currently-trusted peer may send commands, no pin
@@ -102,13 +99,8 @@ const SESSION_IDLE_MS: i64 = 60 * 60 * 1000;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PlayerSession {
-    pub pin: String,
     pub mode: SessionMode,
     pub allowed_node_ids: Vec<String>,
-    /// one-shot: the next successful pin redemption grants the
-    /// `Admin` role regardless of the trust store already having
-    /// members — set by "regenerate admin pairing code".
-    pub admin_grant_pending: bool,
     /// unix milliseconds.
     pub last_active_at: i64,
 }
@@ -123,31 +115,24 @@ fn now_ms() -> i64 {
 impl PlayerSession {
     pub fn fresh() -> Self {
         Self {
-            pin: generate_pin(),
             mode: SessionMode::Selected,
             allowed_node_ids: Vec::new(),
-            admin_grant_pending: false,
             last_active_at: now_ms(),
         }
     }
 
-    /// loads (or creates, or rotates if stale for over an hour, or the
-    /// persisted pin no longer matches the current format - e.g. an
-    /// old hex pin left over from before the numeric-only switch)
-    /// the singleton session. mirrors `ensureActiveSession` — the
-    /// shell owns actual persistence, this just decides what the
-    /// "current" session should be given whatever was last persisted.
+    /// loads (or creates, or rotates if stale for over an hour) the
+    /// singleton session. mirrors `ensureActiveSession` — the shell
+    /// owns actual persistence, this just decides what the "current"
+    /// session should be given whatever was last persisted.
     pub fn ensure_active(existing: Option<PlayerSession>) -> PlayerSession {
         match existing {
             None => Self::fresh(),
             Some(session) => {
                 let stale = now_ms() - session.last_active_at > SESSION_IDLE_MS;
-                let bad_format = !is_valid_pin_format(&session.pin);
-                if stale || bad_format {
+                if stale {
                     PlayerSession {
-                        pin: generate_pin(),
                         allowed_node_ids: Vec::new(),
-                        admin_grant_pending: false,
                         last_active_at: now_ms(),
                         ..session
                     }
@@ -179,7 +164,6 @@ impl PlayerSession {
         if !self.allowed_node_ids.iter().any(|id| id == node_id) {
             self.allowed_node_ids.push(node_id.to_string());
         }
-        self.admin_grant_pending = false;
         self.touch();
     }
 
@@ -195,22 +179,6 @@ impl PlayerSession {
         self.mode = mode;
         self.touch();
     }
-
-    /// mint a fresh one-time pin that grants `Admin` on its next
-    /// redemption — for bootstrapping a first (or additional) admin
-    /// without an existing one.
-    pub fn regenerate_admin_pin(&mut self) {
-        self.pin = generate_pin();
-        self.admin_grant_pending = true;
-        self.touch();
-    }
-
-    /// rotate the pin without granting admin — a plain "new code"
-    /// button, distinct from the admin-bootstrap one above.
-    pub fn regenerate_session_pin(&mut self) {
-        self.pin = generate_pin();
-        self.touch();
-    }
 }
 
 // ---------------------------------------------------------------------
@@ -218,17 +186,23 @@ impl PlayerSession {
 // ---------------------------------------------------------------------
 
 /// the connecting node's identity comes from the iroh handshake itself
-/// (never trust a node id supplied inside the message body).
+/// (never trust a node id supplied inside the message body). `code` is
+/// a real grimoire invite code (see `tty::pairing::endpoint`'s
+/// `handle_pair_request`), not a locally-generated pin.
 #[derive(Debug, Clone, Deserialize)]
 pub struct PairRequest {
-    pub pin: String,
+    pub code: String,
     pub display_name: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PairResponseReason {
-    InvalidPin,
+    InvalidCode,
+    /// the redeemed code was valid, but the requested `display_name`
+    /// is already registered as a different user - the peer should
+    /// retry with a different name.
+    UsernameTaken,
     RateLimited,
 }
 
@@ -529,9 +503,10 @@ pub fn peek_line_type(line: &str) -> Option<String> {
 
 /// a controller currently connected on a live stream (paired +
 /// actively holding a command/subscribe stream open) - distinct from
-/// `TrustedController` (paired at some point, may not be connected
-/// right now) and from `PlayerSession.allowed_node_ids` (in the
-/// current session, may not be connected right now either).
+/// grimoire's durable trust (paired at some point, may not be
+/// connected right now, see `grimoire::users::UserPeerNode`) and from
+/// `PlayerSession.allowed_node_ids` (in the current session, may not
+/// be connected right now either).
 #[derive(Debug, Clone, PartialEq)]
 pub struct ConnectedControllerInfo {
     pub node_id: String,
@@ -544,7 +519,7 @@ pub struct PairingSnapshot {
     /// endpoint has started (`None` before `ensure_started()` / while
     /// it's still starting up).
     pub node_id: Option<String>,
-    pub trusted_controllers: Vec<TrustedController>,
+    pub current_code: Option<PairingCode>,
     pub session: Option<PlayerSession>,
     pub connected: Vec<ConnectedControllerInfo>,
 }
@@ -660,25 +635,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn pin_is_six_digits() {
-        for _ in 0..20 {
-            let pin = generate_pin();
-            assert!(is_valid_pin_format(&pin), "bad pin: {pin}");
-        }
-    }
-
-    #[test]
-    fn rejects_malformed_pins() {
-        assert!(!is_valid_pin_format("12345")); // too short
-        assert!(!is_valid_pin_format("1234567")); // too long
-        assert!(!is_valid_pin_format("12345g")); // non-digit
-        assert!(!is_valid_pin_format("abcdef")); // hex letters no longer valid
-    }
-
-    #[test]
     fn ensure_active_creates_a_fresh_session_when_none_exists() {
         let session = PlayerSession::ensure_active(None);
-        assert!(is_valid_pin_format(&session.pin));
         assert!(session.allowed_node_ids.is_empty());
         assert_eq!(session.mode, SessionMode::Selected);
     }
@@ -697,19 +655,7 @@ mod tests {
         stale.join("peer-a");
         stale.last_active_at = now_ms() - SESSION_IDLE_MS - 1;
         let rotated = PlayerSession::ensure_active(Some(stale.clone()));
-        assert_ne!(rotated.pin, stale.pin);
         assert!(rotated.allowed_node_ids.is_empty());
-        assert!(!rotated.admin_grant_pending);
-    }
-
-    #[test]
-    fn ensure_active_rotates_a_legacy_hex_pin() {
-        // simulates a session persisted before the hex -> numeric pin switch.
-        let mut legacy = PlayerSession::fresh();
-        legacy.pin = "0b3b50".to_string();
-        let rotated = PlayerSession::ensure_active(Some(legacy.clone()));
-        assert_ne!(rotated.pin, legacy.pin);
-        assert!(is_valid_pin_format(&rotated.pin));
     }
 
     #[test]
@@ -743,23 +689,6 @@ mod tests {
         let mut session = PlayerSession::fresh();
         session.set_mode(SessionMode::Everyone);
         assert!(session.is_peer_allowed("anyone", None));
-    }
-
-    #[test]
-    fn regenerate_admin_pin_sets_pending_grant_and_rotates_pin() {
-        let mut session = PlayerSession::fresh();
-        let old_pin = session.pin.clone();
-        session.regenerate_admin_pin();
-        assert_ne!(session.pin, old_pin);
-        assert!(session.admin_grant_pending);
-    }
-
-    #[test]
-    fn join_consumes_pending_admin_grant() {
-        let mut session = PlayerSession::fresh();
-        session.regenerate_admin_pin();
-        session.join("peer-a");
-        assert!(!session.admin_grant_pending);
     }
 
     #[test]
@@ -840,15 +769,15 @@ mod tests {
         assert_eq!(ok["ok"], true);
         assert!(ok.get("reason").is_none());
 
-        let err = serde_json::to_value(PairResponse::err(PairResponseReason::InvalidPin)).unwrap();
-        assert_eq!(err["reason"], "invalid_pin");
+        let err = serde_json::to_value(PairResponse::err(PairResponseReason::InvalidCode)).unwrap();
+        assert_eq!(err["reason"], "invalid_code");
     }
 
     #[test]
     fn pair_request_deserializes_ignoring_the_type_field() {
-        let line = r#"{"type":"pair_request","pin":"abc123","display_name":"phone"}"#;
+        let line = r#"{"type":"pair_request","code":"123456","display_name":"phone"}"#;
         let req: PairRequest = serde_json::from_str(line).expect("should parse");
-        assert_eq!(req.pin, "abc123");
+        assert_eq!(req.code, "123456");
         assert_eq!(req.display_name, "phone");
     }
 }

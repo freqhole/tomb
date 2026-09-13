@@ -456,6 +456,7 @@ impl SetupService {
             link_for_user_id: None,
             expires_hours: None,
             grants_role: Some(UserRole::Admin), // CLI setup generates admin invites
+            max_uses: None,
         };
 
         let response = service.generate_invite_codes(&request, 1, 3, user).await;

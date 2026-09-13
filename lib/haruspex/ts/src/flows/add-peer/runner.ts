@@ -15,12 +15,7 @@
 // event is discarded instead of being fed to the machine.
 
 import { parsePeerAddress } from "../../share/peer-addr.js";
-import {
-  initialContext,
-  projectState,
-  transition,
-  type AddPeerContext,
-} from "./machine.js";
+import { initialContext, projectState, transition, type AddPeerContext } from "./machine.js";
 import type {
   AddPeerEffect,
   AddPeerEvent,
@@ -186,7 +181,7 @@ export function createAddPeerFlow(deps: AddPeerFlowDeps): AddPeerFlow {
 
   async function upsertPending(
     peerAddr: string,
-    patch: Partial<Omit<PendingRemote, "id" | "peer_addr">>
+    patch: Partial<Omit<PendingRemote, "id" | "peer_addr">>,
   ): Promise<void> {
     const existing = await deps.getPendingRemoteByPeerAddr(peerAddr);
     if (existing) {
@@ -228,7 +223,7 @@ export function createAddPeerFlow(deps: AddPeerFlowDeps): AddPeerFlow {
           target.type === "http"
             ? remotes.find((r) => r.base_url === target.url)
             : remotes.find((r) => r.peer_addr === target.peerAddr);
-        await feed({ type: "DUPLICATE_RESULT", duplicateName: duplicate?.name ?? null });
+        await feed({ type: "DUPLICATE_RESULT", duplicate: duplicate ?? null });
         return;
       }
 
