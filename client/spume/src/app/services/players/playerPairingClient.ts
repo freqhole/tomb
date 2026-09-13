@@ -83,24 +83,49 @@ export async function pairWithPlayer(
 
 export type PlayerPresence = "active" | "stopped";
 
-/** one-shot "is this paired player currently accepting connections?" probe
- * (see `@freqhole/cenotaph`'s `PresenceQuery`/`PresenceAnnouncement`) -
- * used to populate the "play on" picker with live online/offline status
- * without committing to a full `subscribeToPlayerStatus()` stream. a
- * single dial attempt, deliberately NOT `dialLine()`'s multi-second retry
- * ladder (built for a first cold pairing dial) - a picker showing several
- * players at once needs a quick, best-effort answer per entry, not a ~3s
- * wait on each unreachable one. any failure (dial error, no response,
- * malformed response) is just "stopped" - there's no separate
- * "unreachable" state surfaced to callers. */
-export async function queryPlayerPresence(peerAddr: string): Promise<PlayerPresence> {
+/** answers "would a real command from THIS caller be accepted right now" -
+ * mirrors rathole's `AccessStatus`/cenotaph's `AccessStatusSchema`. only
+ * ever present when `presence` is `"active"` (the peer answered at all,
+ * see `PresenceProbeResult` below) - a peer that's unreachable, or that
+ * has never paired with this identity, has no notion of "this caller's
+ * access" to report. */
+export type PlayerAccessStatus = "admin" | "in_session" | "not_in_session";
+
+export interface PresenceProbeResult {
+  presence: PlayerPresence;
+  access?: PlayerAccessStatus;
+}
+
+/** one-shot "is this paired player currently accepting connections, and
+ * would a command from ME be accepted right now?" probe (see
+ * `@freqhole/cenotaph`'s `PresenceQuery`/`PresenceAnnouncement`) - used to
+ * populate the "play on" picker with live online/offline status without
+ * committing to a full `subscribeToPlayerStatus()` stream, and (via
+ * `access`) to decide whether an already-paired remote needs its session
+ * pin re-entered before the Add Remote modal can "kick into player mode"
+ * for it. a single dial attempt, deliberately NOT `dialLine()`'s
+ * multi-second retry ladder (built for a first cold pairing dial) - a
+ * picker showing several players at once needs a quick, best-effort
+ * answer per entry, not a ~3s wait on each unreachable one. any failure
+ * (dial error, no response, malformed response, or an untrusted peer -
+ * see `handleConnection`'s "no response for anything but pair_request
+ * from an untrusted peer" behavior) is just `{presence: "stopped"}` -
+ * there's no separate "unreachable"/"untrusted" state surfaced here. */
+export async function queryPlayerPresence(peerAddr: string): Promise<PresenceProbeResult> {
   try {
     const line = await dialLineOnce(peerAddr, JSON.stringify({ type: "presence_query" }));
-    if (!line) return "stopped";
-    const parsed = JSON.parse(line) as { type?: string; state?: string };
-    return parsed.type === "presence" && parsed.state === "active" ? "active" : "stopped";
+    if (!line) return { presence: "stopped" };
+    const parsed = JSON.parse(line) as { type?: string; state?: string; access?: string };
+    if (parsed.type !== "presence" || parsed.state !== "active") return { presence: "stopped" };
+    const access =
+      parsed.access === "admin" ||
+      parsed.access === "in_session" ||
+      parsed.access === "not_in_session"
+        ? parsed.access
+        : undefined;
+    return { presence: "active", access };
   } catch {
-    return "stopped";
+    return { presence: "stopped" };
   }
 }
 

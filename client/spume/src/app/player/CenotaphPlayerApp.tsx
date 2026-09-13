@@ -52,6 +52,7 @@ import { getMiddenNode } from "../api/client";
 import { appState, getLocalLibraryName } from "../services/storage/db";
 import {
   remotePlaybackEnabled,
+  setPlayerRouteMounted,
   setRemotePlaybackEnabled,
 } from "../services/remotePlayback/remoteModeSettings";
 import { PlayerDebugOverlay } from "./PlayerDebugOverlay";
@@ -142,7 +143,11 @@ export function CenotaphPlayerApp() {
         state: remotePlaybackEnabled() ? "active" : "stopped",
       });
     });
-    onCleanup(() => broadcastPresence({ type: "presence", state: "stopped" }));
+    setPlayerRouteMounted(true);
+    onCleanup(() => {
+      broadcastPresence({ type: "presence", state: "stopped" });
+      setPlayerRouteMounted(false);
+    });
 
     const onPageHide = () => broadcastPresence({ type: "presence", state: "stopped" });
     window.addEventListener("pagehide", onPageHide);

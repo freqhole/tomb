@@ -38,12 +38,18 @@ const RemoteCommonSchema = z.object({
   // when true, this remote is excluded from all graph visualizations
   // (treated as offline for coloring, drawn with a diagonal slash)
   graph_disabled: z.boolean().optional(),
-  // when true, this remote is a freqhole-player/1 pairing target (rathole,
-  // or another spume instance acting as /player) rather than (or in
-  // addition to) a normal browsable server - see
-  // app/services/players/pairedPlayers.ts, which folds the old separate
-  // paired-player bookkeeping into this same Remote record.
-  is_player_device: z.boolean().optional(),
+  // set once, at creation, when this remote was added via the player
+  // pairing pin flow (see playerPairingClient.ts) rather than the normal
+  // add-remote flow - a permanent, historical fact about HOW this remote
+  // was onboarded, never updated afterward by a live probe. deliberately
+  // NOT the same thing as "is this remote a player right now" (that's
+  // always a live fact, see remoteHealth.ts's `isPlayerNow` - see
+  // docs/cenotaph-migration-plan.md phase 11 for why a live-status flag
+  // was rejected). used only to populate the settings "players" list
+  // (PairedPlayersView.tsx) so an offline/session-expired player remote
+  // stays manageable (rename/forget/re-enter pin) instead of vanishing
+  // the moment it stops live-reporting as a player.
+  paired_as_player: z.boolean().optional(),
 });
 
 // ============================================================================

@@ -135,9 +135,22 @@ export type PresenceQuery = z.infer<typeof PresenceQuerySchema>;
 // control/playerConnectionHandler.ts's `isEnabled` gate) - it says nothing
 // about whether anything is actually playing right now, that's what
 // `PlayerStatus` is for.
+// per-caller authorization status for the CURRENT session (see
+// pairing/playerSession.ts's `isPeerAllowedInSession`) - only ever present on
+// a direct `PresenceQuery` reply below, never on the unprompted broadcast
+// pushed to `subscribe` streams (no single caller to compute it for there).
+// "admin": always allowed, regardless of session membership. "in_session":
+// trusted and already joined into the current session (or the session is in
+// "everyone" mode). "not_in_session": trusted, but hasn't joined the current
+// session yet - needs to redeem the session pin before commands will be
+// accepted.
+export const AccessStatusSchema = z.enum(["admin", "in_session", "not_in_session"]);
+export type AccessStatus = z.infer<typeof AccessStatusSchema>;
+
 export const PresenceAnnouncementSchema = z.object({
   type: z.literal("presence"),
   state: z.enum(["active", "stopped"]),
+  access: AccessStatusSchema.optional(),
 });
 export type PresenceAnnouncement = z.infer<typeof PresenceAnnouncementSchema>;
 

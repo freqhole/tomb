@@ -54,17 +54,15 @@ export interface PeerServerInfo {
   player_device?: boolean | null;
 }
 
-/** a saved remote, as returned by the app's remote store. */
+/** a saved remote, as returned by the app's remote store. "is this a
+ *  player" is deliberately NOT one of these fields - it's a live,
+ *  point-in-time fact (see `ConnectionOutcome`'s `serverInfo.player_device`),
+ *  never a persisted property of the remote itself. */
 export interface SavedRemote {
   remote_id: string;
   name: string;
   base_url?: string;
   peer_addr?: string;
-  /** true when this remote is a freqhole-player/1 pairing target - see
-   *  `PeerServerInfo.player_device`. used to decide whether re-scanning
-   *  an already-saved p2p peer's qr should re-open the pairing ui
-   *  (player) or gracefully no-op (already added, not a player). */
-  is_player_device?: boolean;
 }
 
 // ---------------------------------------------------------------------------

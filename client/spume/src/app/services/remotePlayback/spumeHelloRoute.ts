@@ -7,7 +7,7 @@
 
 import type { HelloInfo } from "@freqhole/cenotaph";
 import { getLocalLibraryName } from "../storage/db";
-import { isRemotePlaybackEnabled } from "./remoteModeSettings";
+import { isActivePlayer, isRemotePlaybackEnabled } from "./remoteModeSettings";
 
 export function getSpumeHelloInfo(): HelloInfo {
   const info: HelloInfo = {
@@ -17,7 +17,9 @@ export function getSpumeHelloInfo(): HelloInfo {
     image_url: null,
     image_blob_id: null,
     knocking_enabled: false,
-    player_device: true,
+    // reflects whether /player is actually mounted right now, not just
+    // whether the user has opted in (see remoteModeSettings.ts).
+    player_device: isActivePlayer(),
     supports_remote_playback: isRemotePlaybackEnabled(),
   };
   // TEMP DEBUG - remove once the first-pair-attempt-fails bug is found

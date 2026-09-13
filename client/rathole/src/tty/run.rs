@@ -221,6 +221,9 @@ async fn run_inner(
     super::control_socket::maybe_spawn(control_tx);
     if opts.player {
         app.state.ephemeral.focus = Focus::PlayerPairing;
+        // permanent for the life of this process - never toggled off by
+        // the tick loop's focus-mirroring below (see its own guard).
+        grimoire::player_session::set_active(true);
     }
     if opts.player || federation_enabled || player_pairing_enabled {
         pairing_runtime.ensure_started();
@@ -469,6 +472,18 @@ async fn run_inner(
                 // cheap to call every tick.
                 if app.state.ephemeral.focus == Focus::PlayerPairing {
                     pairing_runtime.ensure_started();
+                }
+                // mirror "is this rathole currently a player" into
+                // grimoire's process-global (read by `server_info()`'s
+                // `player_device` hello field) - a direct, no-timeout
+                // reflection of current focus, not a touch/decay. skipped
+                // when launched with `--player`, which set this
+                // permanently true once at startup and should never be
+                // toggled off just because the tty navigated elsewhere.
+                if !opts.player {
+                    grimoire::player_session::set_active(
+                        app.state.ephemeral.focus == Focus::PlayerPairing,
+                    );
                 }
                 // once the pairing endpoint's node id becomes known,
                 // render the qr text exactly once (cheap check, real

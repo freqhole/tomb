@@ -16,8 +16,8 @@ pub use events::{
 };
 pub use music::{MusicEvent, MusicMode, MusicState, PlayerState, SongRow};
 pub use pairing::{
-    CommandAck, CommandAckReason, ConnectedControllerInfo, ImageMode, MediaKind, MediaRef,
-    PairRequest, PairResponse, PairResponseReason, PairingCode, PairingDownloadProgress,
+    AccessStatus, CommandAck, CommandAckReason, ConnectedControllerInfo, ImageMode, MediaKind,
+    MediaRef, PairRequest, PairResponse, PairResponseReason, PairingCode, PairingDownloadProgress,
     PairingSnapshot, PairingViewMode, PairingViewState, PeerRole, PlayerCommand as PairingCommand,
     PlayerSession, PlayerStatus, PlayerStatusMessage, PresenceAnnouncement, PresenceQuery,
     PresenceState, RenditionRef, SessionMode, StatusCommon, SubscribeRequest,

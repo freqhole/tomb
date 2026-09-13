@@ -288,7 +288,14 @@ async fn handle_stream(
     let display_name = user.username.clone();
 
     if kind == "presence_query" {
-        let msg = PresenceAnnouncement::new(PresenceState::Active);
+        let access = {
+            let mut guard = state.lock().unwrap_or_else(|p| p.into_inner());
+            let session = portable::PlayerSession::ensure_active(guard.session.take());
+            let access = session.access_status(&peer_id, role);
+            guard.session = Some(session);
+            access
+        };
+        let msg = PresenceAnnouncement::for_caller(PresenceState::Active, access);
         write_line(&mut send, &serde_json::to_string(&msg).unwrap()).await?;
         return Ok(());
     }

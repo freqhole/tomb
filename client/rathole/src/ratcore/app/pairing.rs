@@ -157,6 +157,25 @@ impl PlayerSession {
             || self.allowed_node_ids.iter().any(|id| id == node_id)
     }
 
+    /// same decision as `is_peer_allowed`, but as a reason-carrying
+    /// status a client can act on BEFORE ever attempting a real
+    /// command — e.g. deciding whether to show a "enter pairing pin"
+    /// form for an already-trusted peer that hasn't joined this
+    /// gathering yet. `role` is always a real, known role here (unlike
+    /// `is_peer_allowed`'s `Option`) since this is only ever computed
+    /// for a peer that already passed the trust check in
+    /// `handle_stream` — an untrusted peer gets no presence response
+    /// at all, so "untrusted" never needs a variant here.
+    pub fn access_status(&self, node_id: &str, role: PeerRole) -> AccessStatus {
+        if role == PeerRole::Admin {
+            AccessStatus::Admin
+        } else if self.is_peer_allowed(node_id, Some(role)) {
+            AccessStatus::InSession
+        } else {
+            AccessStatus::NotInSession
+        }
+    }
+
     /// records that `node_id` redeemed the session pin (or was
     /// hand-picked in settings) — adds it to the allowlist and
     /// consumes any pending one-time admin grant.
@@ -354,11 +373,38 @@ pub enum PresenceState {
     Stopped,
 }
 
+/// answers "would a real command from this specific caller be
+/// accepted right now" — computed via `PlayerSession::access_status`,
+/// the exact same logic real command dispatch uses (see
+/// `tty::pairing::endpoint::process_command_line`), just surfaced
+/// ahead of time so a client (e.g. spume's Add Remote modal) can
+/// decide whether to show a pairing-pin form for an already-trusted
+/// remote without first firing off a real command and reading its
+/// rejection reason.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AccessStatus {
+    /// always allowed, regardless of session membership.
+    Admin,
+    /// trusted and already joined into the current session (or the
+    /// session is in `Everyone` mode) — allowed.
+    InSession,
+    /// trusted, but hasn't joined the current session yet — needs to
+    /// redeem the session pin before commands will be accepted.
+    NotInSession,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct PresenceAnnouncement {
     #[serde(rename = "type")]
     pub kind: &'static str,
     pub state: PresenceState,
+    /// only ever set on a direct `PresenceQuery` reply (per-caller) —
+    /// always `None` on the unprompted broadcast pushed to `subscribe`
+    /// streams, since that push has no single caller to compute it
+    /// for.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub access: Option<AccessStatus>,
 }
 
 impl PresenceAnnouncement {
@@ -366,6 +412,17 @@ impl PresenceAnnouncement {
         Self {
             kind: "presence",
             state,
+            access: None,
+        }
+    }
+
+    /// the direct, per-caller reply to a `PresenceQuery` — same as
+    /// `new`, plus the caller's own `AccessStatus`.
+    pub fn for_caller(state: PresenceState, access: AccessStatus) -> Self {
+        Self {
+            kind: "presence",
+            state,
+            access: Some(access),
         }
     }
 }
@@ -695,6 +752,44 @@ mod tests {
     fn role_levels_match_grimoire_convention() {
         assert!(PeerRole::Admin.level() < PeerRole::Member.level());
         assert!(PeerRole::Member.level() < PeerRole::Viewer.level());
+    }
+
+    #[test]
+    fn access_status_admin_always_in_regardless_of_session_membership() {
+        let session = PlayerSession::fresh();
+        assert_eq!(
+            session.access_status("stranger", PeerRole::Admin),
+            AccessStatus::Admin
+        );
+    }
+
+    #[test]
+    fn access_status_trusted_member_not_yet_joined() {
+        let session = PlayerSession::fresh();
+        assert_eq!(
+            session.access_status("peer-a", PeerRole::Member),
+            AccessStatus::NotInSession
+        );
+    }
+
+    #[test]
+    fn access_status_trusted_member_after_joining() {
+        let mut session = PlayerSession::fresh();
+        session.join("peer-a");
+        assert_eq!(
+            session.access_status("peer-a", PeerRole::Member),
+            AccessStatus::InSession
+        );
+    }
+
+    #[test]
+    fn access_status_everyone_mode_treats_any_member_as_in_session() {
+        let mut session = PlayerSession::fresh();
+        session.set_mode(SessionMode::Everyone);
+        assert_eq!(
+            session.access_status("anyone", PeerRole::Viewer),
+            AccessStatus::InSession
+        );
     }
 
     #[test]

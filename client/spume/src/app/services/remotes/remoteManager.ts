@@ -26,6 +26,15 @@ import { getBackend } from "./backends";
 type RemoteStatusChangeListener = (remoteId: string, isOffline: boolean) => void;
 const statusChangeListeners = new Set<RemoteStatusChangeListener>();
 
+// separate from online/offline - "is this remote currently in player
+// mode" (hello's live `player_device` flag, see remoteHealth.ts's
+// ephemeral isPlayerNow map). kept as its own listener set rather than
+// overloading notifyStatusChange, since the two facts are logically
+// independent (a remote going offline implies not-a-player-right-now,
+// but online doesn't imply player, and this keeps that explicit).
+type PlayerStatusChangeListener = (remoteId: string, isPlayerNow: boolean) => void;
+const playerStatusChangeListeners = new Set<PlayerStatusChangeListener>();
+
 type SwitchToLocalListener = () => void;
 let switchToLocalListener: SwitchToLocalListener | null = null;
 
@@ -49,6 +58,23 @@ export function triggerSwitchToLocal(): void {
 export function onRemoteStatusChange(listener: RemoteStatusChangeListener): () => void {
   statusChangeListeners.add(listener);
   return () => statusChangeListeners.delete(listener);
+}
+
+// register a listener for player-status changes ("is this remote
+// currently in player mode"). returns an unsubscribe function.
+export function onPlayerStatusChange(listener: PlayerStatusChangeListener): () => void {
+  playerStatusChangeListeners.add(listener);
+  return () => playerStatusChangeListeners.delete(listener);
+}
+
+function notifyPlayerStatusChange(remoteId: string, isPlayerNow: boolean): void {
+  for (const listener of playerStatusChangeListeners) {
+    try {
+      listener(remoteId, isPlayerNow);
+    } catch (e) {
+      errorLog("error in player status change listener:", e);
+    }
+  }
 }
 
 // notify all listeners of a status change
@@ -311,7 +337,16 @@ export async function createRemote(data: {
   base_url?: string; // required for HTTP remotes
   peer_addr?: string; // node_id or JSON endpoint for P2P remotes
   api_key?: string; // optional - for api key authentication
-  is_player_device?: boolean; // freqhole-player/1 pairing target, see schemas/remote.ts
+  // skip requiring a successful hello probe - used for player pairing,
+  // where the handshake itself (moments earlier) already proved the
+  // peer reachable, so a flaky/absent hello response for cosmetic
+  // metadata (description/image/version) shouldn't fail the whole
+  // "remember this pairing" step.
+  allowMissingServerInfo?: boolean;
+  // this remote is being created via the player pairing pin flow - see
+  // `RemoteCommonSchema`'s `paired_as_player` doc comment for why this is
+  // a permanent, write-once-at-creation categorization, not a live status.
+  pairedAsPlayer?: boolean;
 }): Promise<Remote> {
   const isP2P = !!data.peer_addr;
   const baseUrl = data.base_url?.replace(/\/$/, "") ?? "";
@@ -335,12 +370,9 @@ export async function createRemote(data: {
     }
   }
 
-  // fetch server info - use async client for P2P remotes. a player-device
-  // pairing already proved this peer reachable via the pairing handshake
-  // itself moments ago, so a failed/absent hello probe here is treated as
-  // a soft failure (proceed with serverInfo = null) rather than aborting
-  // the whole "remember this pairing" step over what's essentially a
-  // cosmetic metadata fetch (description/image/version).
+  // fetch server info - use async client for P2P remotes. `allowMissingServerInfo`
+  // treats a failed/absent hello probe as a soft failure (proceed with
+  // serverInfo = null) instead of aborting - see its own doc comment above.
   let serverInfo = null;
   try {
     if (isP2P) {
@@ -360,14 +392,14 @@ export async function createRemote(data: {
       }
     }
   } catch (error) {
-    if (!data.is_player_device) {
+    if (!data.allowMissingServerInfo) {
       errorLog(`failed to fetch server info:`, error);
       throw new Error("failed to connect to server - could not fetch server info");
     }
-    debug(`player-device remote: hello probe failed, proceeding without server info:`, error);
+    debug(`hello probe failed, proceeding without server info:`, error);
   }
 
-  if (!serverInfo && !data.is_player_device) {
+  if (!serverInfo && !data.allowMissingServerInfo) {
     throw new Error("server did not return valid info");
   }
 
@@ -408,7 +440,7 @@ export async function createRemote(data: {
     version: serverInfo?.version ?? null,
     last_info_check: Date.now(),
     api_key: data.api_key,
-    is_player_device: data.is_player_device,
+    paired_as_player: data.pairedAsPlayer || undefined,
   };
 
   const remote: Remote = isP2P
@@ -439,7 +471,9 @@ export async function createRemote(data: {
 // update an existing remote
 export async function updateRemote(
   remoteId: string,
-  updates: Partial<Pick<Remote, "name" | "base_url" | "api_key" | "graph_disabled">>
+  updates: Partial<
+    Pick<Remote, "name" | "base_url" | "api_key" | "graph_disabled" | "paired_as_player">
+  >
 ): Promise<Remote> {
   const existing = await getBackend().get(remoteId);
   if (!existing) {
@@ -614,6 +648,9 @@ export async function checkRemoteHealth(remote: Remote): Promise<boolean> {
     await backend.put(updated);
     invalidateRemoteCache(updated.remote_id);
     debug(`health check for ${fresh.name}: ${isOnline ? "online" : "offline"}`);
+    // player-mode status is never persisted (see remoteHealth.ts's
+    // isPlayerNow) - only broadcast, straight from this fresh probe.
+    notifyPlayerStatusChange(updated.remote_id, isOnline && result.data?.player_device === true);
     return isOnline;
   } catch (error) {
     // network error = offline - re-read before updating
@@ -629,6 +666,7 @@ export async function checkRemoteHealth(remote: Remote): Promise<boolean> {
       invalidateRemoteCache(fresh.remote_id);
     }
     errorLog(`health check failed for ${remote.name}:`, error);
+    notifyPlayerStatusChange(remote.remote_id, false);
     return false;
   }
 }

@@ -129,7 +129,6 @@ import {
   onSwitchToLocal,
 } from "./services/remotes/remoteManager";
 import { seedOnlineMap, wakeAllRemotes } from "./services/remotes/remoteHealth";
-import { wakeAllPlayers } from "./services/players/playerPresenceStore";
 import type { ImageMetadata, Song } from "../music/services/storage/types";
 import {
   mediaItemKey,
@@ -610,15 +609,11 @@ export function AppLayout(props: AppLayoutProps) {
 
       // seed the reactive `isOnline(id)` map and fire a background wake-up
       // probe for every offline remote. dedupe + backoff lives in
-      // remoteHealth so it's safe to call this freely.
+      // remoteHealth so it's safe to call this freely - the same probe
+      // also seeds the live `isPlayerNow` map (remoteHealth.ts), so there's
+      // no separate player-presence sweep to run here anymore.
       void seedOnlineMap();
       wakeAllRemotes();
-
-      // same idea for paired players (playerPresenceStore.ts) - a
-      // fire-and-forget sweep, never awaited, so this never delays
-      // initial load/render. QueuePlayerTargetRow's flyout re-triggers
-      // this itself on open for a fresher read.
-      wakeAllPlayers();
 
       // listen for remote status changes (offline/online) and refresh remotes list
       unsubscribeStatusChange = onRemoteStatusChange(async (_remoteId, _isOffline) => {

@@ -152,7 +152,6 @@ describe("createAddPeerFlow (bundled runner)", () => {
       remote_id: "r0",
       name: "old player",
       peer_addr: NODE_ID,
-      is_player_device: true,
     };
     const { deps } = makeDeps({
       getAllRemotes: async () => [existing],

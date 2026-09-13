@@ -209,10 +209,10 @@ export function transition(ctx: AddPeerContext, event: AddPeerEvent): Transition
         );
       }
       // a p2p duplicate does NOT block here - it might be an already-
-      // paired player whose trust was revoked (or never marked
-      // `is_player_device` in the first place - see CONNECTION_RESULT
-      // below, which decides for real off the freshly-probed
-      // `player_device` flag, not this possibly-stale stored one).
+      // paired player whose trust was revoked, or one that's simply in
+      // player mode again right now - CONNECTION_RESULT below decides
+      // for real off the freshly-probed `player_device` flag, never a
+      // stored one (there isn't one - see `SavedRemote`'s doc comment).
       // persist the attempt BEFORE probing, so a closed tab can resume it.
       return {
         ctx: { ...ctx, existingRemote: event.duplicate },

@@ -7,7 +7,12 @@ import { createSignal, Show } from "solid-js";
 import { isCharnelAvailable } from "../../app/api/client";
 import { getCurrentUser } from "../../music/data/currentState";
 import { pairWithPlayer } from "../../app/services/players/playerPairingClient";
-import { savePairedPlayer } from "../../app/services/players/pairedPlayers";
+import { selectPlayerPlaybackTarget } from "../../app/services/players/selectPlaybackTarget";
+import {
+  createRemote,
+  getRemoteByPeerAddr,
+  updateRemote,
+} from "../../app/services/remotes/remoteManager";
 import { adminLocalRawDispatch, getLocalAdminClient } from "../../app/api/adminClient";
 import { toast } from "../feedback/Toast";
 import { QrScanner } from "../inputs/QrScanner";
@@ -104,7 +109,18 @@ export function PairPlayerModal(props: PairPlayerModalProps) {
         return;
       }
       const displayName = playerNameHint() ?? `player ${trimmedNodeId.slice(0, 8)}`;
-      const player = await savePairedPlayer(trimmedNodeId, displayName);
+      // find-or-create: re-pairing an already-added remote just refreshes
+      // its name rather than creating a duplicate row.
+      const existing = await getRemoteByPeerAddr(trimmedNodeId);
+      const remote = existing
+        ? await updateRemote(existing.remote_id, { name: displayName, paired_as_player: true })
+        : await createRemote({
+            name: displayName,
+            peer_addr: trimmedNodeId,
+            allowMissingServerInfo: true,
+            pairedAsPlayer: true,
+          });
+      const player = { node_id: trimmedNodeId, username: remote.name };
       if (setUpLocalUser()) {
         try {
           const client = getLocalAdminClient();
@@ -122,6 +138,7 @@ export function PairPlayerModal(props: PairPlayerModalProps) {
         }
       }
       toast.success(`paired with ${displayName}`);
+      await selectPlayerPlaybackTarget(player);
       reset();
       props.onClose();
       props.onSuccess?.(player);

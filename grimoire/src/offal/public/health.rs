@@ -53,14 +53,11 @@ pub async fn server_info() -> GrimoireResponse<JsonValue> {
     let Some(server_config) = config.server.as_ref() else {
         // no `[server]` section configured - this is a headless p2p-only
         // instance (e.g. rathole), not a full http-servable remote. answer
-        // with a minimal, degraded hello instead of hard failing, flagging
-        // `player_device: true` so clients (see AddRemoteModal.tsx's
-        // player_device branch) ALSO offer pairing - in addition to, not
-        // instead of, normal knock/passkey remote access, since a peer like
-        // rathole is genuinely both at once (unlike a pure web/cenotaph
-        // player, which can only ever pair - a browser can't run a full
-        // remote). mirrors spume's own web-side player hello
-        // (spumeHelloRoute.ts).
+        // with a minimal, degraded hello instead of hard failing.
+        // `player_device` reflects whether THIS process currently counts
+        // as an active player (see `crate::player_session`) - not merely
+        // whether `[server]` is absent, since a headless instance might
+        // not have player-pairing mode entered right now either.
         let response = ServerInfoResponse {
             name: "freqhole player".to_string(),
             description: Some("headless freqhole player (pairing + remote access)".to_string()),
@@ -74,7 +71,7 @@ pub async fn server_info() -> GrimoireResponse<JsonValue> {
             passkey_p2p_enabled,
             fetch_precheck_enabled: None,
             fetch_video_enabled: None,
-            player_device: Some(true),
+            player_device: Some(crate::player_session::is_active()),
         };
         return GrimoireResponse::success("ok", serde_json::to_value(response).unwrap());
     };
@@ -131,7 +128,11 @@ pub async fn server_info() -> GrimoireResponse<JsonValue> {
         passkey_p2p_enabled,
         fetch_precheck_enabled,
         fetch_video_enabled,
-        player_device: None,
+        // a full `[server]`-having remote can ALSO be a currently-active
+        // player at the same time (e.g. a raspi running both `server` and
+        // rathole `--player` against the same grimoire db) - see
+        // `crate::player_session`.
+        player_device: Some(crate::player_session::is_active()),
     };
 
     GrimoireResponse::success("ok", serde_json::to_value(response).unwrap())

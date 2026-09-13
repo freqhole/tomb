@@ -9,7 +9,10 @@
 // modal split by player count, since that added an extra component +
 // counting threshold for no real benefit.
 import { createResource, Show } from "solid-js";
-import { pairedPlayersVersion, listPairedPlayers } from "../../app/services/players/pairedPlayers";
+import {
+  currentPlayersVersion,
+  listCurrentPlayers,
+} from "../../app/services/players/pairedPlayers";
 import { activeTarget } from "../../app/services/players/activeTarget";
 import {
   selectLocalPlaybackTarget,
@@ -19,19 +22,19 @@ import {
   remoteStatusKnown,
   remoteCommandPending,
 } from "../../app/services/players/remotePlaybackControl";
-import { playerPresence, wakeAllPlayers } from "../../app/services/players/playerPresenceStore";
+import { isOnline, refreshPlayerStatus } from "../../app/services/remotes/remoteHealth";
 import { Icon } from "../icons/registry";
 import { ClickDropdownMenu, type MenuAction } from "../overlays/ContextMenu";
 import { CometBorderRing } from "../feedback";
 
 export function QueuePlayerTargetRow() {
-  const [pairedPlayers] = createResource(pairedPlayersVersion, listPairedPlayers);
+  const [pairedPlayers] = createResource(currentPlayersVersion, listCurrentPlayers);
 
-  // shared presence map (playerPresenceStore.ts) - seeded by a
-  // non-blocking sweep at app boot, refreshed again here each time the
-  // flyout opens. keyed by node_id; undefined means "not probed yet this
-  // session" (shown as neither online nor offline).
-  const presence = playerPresence;
+  // shared reactive online map (remoteHealth.ts) - seeded by the app's
+  // existing boot-time + periodic health sweep, refreshed again here
+  // each time the flyout opens (see refreshPlayerStatus below). keyed
+  // by remote_id; undefined means "not probed yet this session" (shown
+  // as neither online nor offline).
 
   const isActivePlayer = (nodeId: string) => {
     const t = activeTarget();
@@ -60,14 +63,14 @@ export function QueuePlayerTargetRow() {
       onClick: () => selectLocalPlaybackTarget(),
     },
     ...(pairedPlayers() ?? []).map((player): MenuAction => {
-      const state = presence()[player.node_id];
+      const online = isOnline(player.remote_id)();
       return {
         label: player.username,
-        // presence is a one-shot probe from when the flyout last opened,
-        // not a live/continuous check - stale info is possible, so this
-        // is purely informational (an "offline" badge) and never disables
-        // the click, since the player might actually be reachable again.
-        badge: state === "stopped" ? "offline" : undefined,
+        // reflects the last health-check result, not a live/continuous
+        // check - stale info is possible, so this is purely informational
+        // (an "offline" badge) and never disables the click, since the
+        // player might actually be reachable again.
+        badge: online === false ? "offline" : undefined,
         icon: isActivePlayer(player.node_id) ? "check" : "remotePlayer",
         onClick: () => void selectPlayerPlaybackTarget(player),
       };
@@ -90,7 +93,7 @@ export function QueuePlayerTargetRow() {
               </button>
             }
             actions={actions()}
-            onOpen={wakeAllPlayers}
+            onOpen={refreshPlayerStatus}
           />
         </CometBorderRing>
       </div>

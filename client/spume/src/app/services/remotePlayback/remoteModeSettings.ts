@@ -44,3 +44,22 @@ export function isRemotePlaybackEnabled(): boolean {
   console.log("[debug/remoteModeSettings] isRemotePlaybackEnabled() ->", value);
   return value;
 }
+
+// ephemeral (never persisted, unlike the toggle above) - true only
+// while the /player route is actually mounted right now. set directly
+// by CenotaphPlayerApp.tsx's onMount/onCleanup, mirroring its own
+// presence-broadcast "active" definition exactly.
+let playerRouteMounted = false;
+
+export function setPlayerRouteMounted(mounted: boolean): void {
+  playerRouteMounted = mounted;
+}
+
+/** true only while this instance currently counts as an active player -
+ * the /player route is mounted right now AND the user has opted in.
+ * this is what hello's `player_device` field reports (see
+ * spumeHelloRoute.ts) - the persisted toggle alone isn't enough, since
+ * being opted in doesn't mean anyone's actually on /player right now. */
+export function isActivePlayer(): boolean {
+  return playerRouteMounted && isRemotePlaybackEnabled();
+}

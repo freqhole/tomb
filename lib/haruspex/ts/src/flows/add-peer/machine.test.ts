@@ -147,7 +147,6 @@ describe("re-scanning an already-saved p2p peer", () => {
     remote_id: "r0",
     name: "old player",
     peer_addr: NODE_ID,
-    is_player_device: true,
   };
   const toReprobe: AddPeerEvent[] = [
     { type: "SUBMIT_URL", input: NODE_ID },

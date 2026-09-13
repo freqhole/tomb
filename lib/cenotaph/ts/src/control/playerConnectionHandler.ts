@@ -107,17 +107,27 @@ export function createPlayerConnectionHandler<TNode = unknown>(
           node_id: peerNodeId,
           display_name: controller?.display_name ?? peerNodeId.slice(0, 8),
         };
+        // hoisted above the presence/command branches below - both need it,
+        // and ensureActiveSession is an idempotent load-or-create.
+        let session = await ensureActiveSession(sessionStore);
 
         if (isPresenceQuery(firstLine)) {
-          // one-shot: answer with the current presence and close - no
-          // persistent registration, unlike subscribe below (see schema.ts's
-          // `PresenceQuery` doc comment). reaching this point already means
-          // isEnabled() was true (checked at the very top of this function),
-          // so the answer is always "active" here - a peer that dials while
-          // presence is off gets no response at all (connection rejected
-          // before ever reading a line), which callers should treat the same
-          // as "stopped"/unreachable.
-          await stream.write_line(JSON.stringify({ type: "presence", state: "active" }));
+          // one-shot: answer with the current presence (+ this specific
+          // caller's access status, see schema.ts's `AccessStatusSchema` doc
+          // comment) and close - no persistent registration, unlike
+          // subscribe below (see schema.ts's `PresenceQuery` doc comment).
+          // reaching this point already means isEnabled() was true (checked
+          // at the very top of this function), so state is always "active"
+          // here - a peer that dials while presence is off gets no response
+          // at all (connection rejected before ever reading a line), which
+          // callers should treat the same as "stopped"/unreachable.
+          const access =
+            controller?.role === "admin"
+              ? "admin"
+              : isPeerAllowedInSession(session, peerNodeId, controller?.role)
+                ? "in_session"
+                : "not_in_session";
+          await stream.write_line(JSON.stringify({ type: "presence", state: "active", access }));
           return;
         }
 
@@ -151,7 +161,6 @@ export function createPlayerConnectionHandler<TNode = unknown>(
         // `QR_HIDING_COMMANDS` comment) and rejecting it just because a
         // peer isn't in-session breaks reconciliation polling for no
         // security benefit.
-        let session = await ensureActiveSession(sessionStore);
 
         // control session: keep the stream open and dispatch every
         // command line sent on it, until the controller closes its side.
