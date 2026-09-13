@@ -167,6 +167,19 @@ describe("createAddPeerFlow (bundled runner)", () => {
     expect(state.step === "auth" && state.serverInfo?.player_device).toBe(true);
   });
 
+  it("routes to auth (not the knock form) for a player_device peer, even when knocking is also enabled", async () => {
+    const { deps } = makeDeps({
+      getServerInfo: async () => ({ ...INFO, player_device: true, knocking_enabled: true }),
+    });
+    const flow = createAddPeerFlow(deps);
+
+    await flow.dispatch({ type: "SUBMIT_URL", input: NODE_ID });
+
+    const state = flow.state();
+    expect(state.step).toBe("auth");
+    expect(state.step === "auth" && state.serverInfo?.player_device).toBe(true);
+  });
+
   it("marks the pending record failed with a mapped error when the probe throws", async () => {
     const { deps, pendingStore } = makeDeps({
       getServerInfo: async () => {
