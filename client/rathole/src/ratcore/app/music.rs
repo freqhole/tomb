@@ -9,6 +9,7 @@
 //! the ui has three sub-modes (the `Focus` enum stays simple: just
 //! `Focus::MusicView`, and [`MusicMode`] picks where keystrokes go).
 
+use super::pairing::MediaRef;
 use super::queue::QueueEntry;
 use super::video_player::AudioDeviceInfo;
 
@@ -188,6 +189,19 @@ pub struct MusicState {
     /// capped at a small size (see `tty::queue::HISTORY_CAP`);
     /// `play_previous` pulls from the front of this to go back.
     pub history: Vec<QueueEntry>,
+    /// remote-pushed queue items whose pull+import is still in flight -
+    /// shown as placeholder rows (see `ratcore::views::player_pairing`'s
+    /// queue rendering) the INSTANT a `replace_queue`/`append_queue`
+    /// wire push arrives, before any downloading/ffprobe/import work
+    /// even starts. each entry is removed once `tty::pairing::dispatch`
+    /// reports that item settled, successfully or not
+    /// (`AppAction::PairingQueuePreviewSettled`), matched by
+    /// `blake3_hash`. purely a display aid (the real queue, `queue`
+    /// above, is unaffected) - found via a real report that a pushed
+    /// queue could look completely stalled/unresponsive for a long
+    /// time on a slow (raspberry pi) device, since nothing appeared in
+    /// the tui until each item's full pull+import finished.
+    pub pending_previews: Vec<MediaRef>,
 }
 
 impl MusicState {

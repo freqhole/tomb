@@ -1815,6 +1815,10 @@ fn on_action(app: &mut App, action: AppAction, action_tx: &mpsc::UnboundedSender
         // exhaustiveness.
         | AppAction::PairingReplaceQueue { .. }
         | AppAction::PairingAppendQueue { .. }
+        // queue placeholder rows for in-flight pulls: tty-only, same
+        // reasoning as the queue-push arms just above.
+        | AppAction::PairingQueuePending { .. }
+        | AppAction::PairingQueuePreviewSettled { .. }
         // song art resolution + mpv framebuffer display: tty-only.
         | AppAction::SongArtResolved { .. }
         // queue-advance from a remote skip command: tty-only (see

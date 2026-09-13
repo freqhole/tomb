@@ -284,6 +284,27 @@ pub struct MediaRef {
     pub artwork_thumb_url: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub artwork_full_url: Option<String>,
+    /// already-transcoded alternates of this video, if the pushing
+    /// device already has any on hand - lets rathole pull one of these
+    /// instead of the (possibly much larger) original, and skip its own
+    /// redundant transcode of an already-compatible file. omitted/empty
+    /// for audio, or when the source has no renditions.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub available_renditions: Vec<RenditionRef>,
+}
+
+/// see [`MediaRef::available_renditions`]'s doc comment - mirrors
+/// cenotaph's `RenditionRefSchema` (`control/schema.ts`) field-for-field.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RenditionRef {
+    pub blake3_hash: String,
+    pub label: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mime_type: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub width: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub height: Option<u32>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -395,7 +416,7 @@ pub struct StatusCommon {
 #[serde(tag = "state", rename_all = "snake_case")]
 pub enum PlayerStatus {
     NowPlaying {
-        item: MediaRef,
+        item: Box<MediaRef>,
         position_ms: u64,
         server_time_ms: u64,
         #[serde(flatten)]

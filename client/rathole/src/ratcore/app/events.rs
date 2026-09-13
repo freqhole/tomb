@@ -751,6 +751,21 @@ pub enum AppAction {
     /// `tty::queue::append_queue_entries`, starting playback only if
     /// the queue was empty/idle.
     PairingAppendQueue { entries: Vec<super::QueueEntry> },
+    /// a `replace_queue`/`append_queue` wire push just arrived - shown
+    /// immediately as placeholder rows (`MusicState::pending_previews`)
+    /// before any of them have been pulled/imported, so the tui isn't
+    /// blank/unresponsive-looking while that (possibly slow, e.g. on a
+    /// raspberry pi) work happens. see `tty::pairing::
+    /// resolve_queue_items`'s doc comment.
+    PairingQueuePending { items: Vec<super::MediaRef> },
+    /// one item from a `PairingQueuePending` batch finished resolving,
+    /// successfully or not - removes it from `MusicState::
+    /// pending_previews` (the real queue itself is already updated
+    /// separately via `PairingReplaceQueue`/`PairingAppendQueue` on
+    /// success; a failure just drops the placeholder with nothing to
+    /// replace it, mirroring `resolve_queue_items`'s existing
+    /// skip-and-warn behavior).
+    PairingQueuePreviewSettled { blake3_hash: String },
     /// a song's artwork blob(s) resolved to local file path(s) (see
     /// `SongRow::art_blob_ids`) - the ui loop installs `paths` into
     /// `PairingViewState::art_paths` if `song_id` still matches

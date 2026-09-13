@@ -92,6 +92,7 @@ pub fn queue_entry_to_media_ref(entry: &QueueEntry) -> MediaRef {
             artist: song.artist.clone(),
             artwork_thumb_url: None,
             artwork_full_url: None,
+            available_renditions: Vec::new(),
         },
         QueueEntry::Video(video) => MediaRef {
             source_peer_addr: String::new(),
@@ -108,6 +109,7 @@ pub fn queue_entry_to_media_ref(entry: &QueueEntry) -> MediaRef {
             artist: None,
             artwork_thumb_url: None,
             artwork_full_url: None,
+            available_renditions: Vec::new(),
         },
     }
 }
@@ -395,31 +397,73 @@ async fn resolve_queue_items(
             .collect(),
         DeliveryMode::ReplaceFirstThenAppend => std::collections::HashSet::new(),
     };
+    // show every incoming item as a placeholder row immediately (see
+    // `AppAction::PairingQueuePending`'s doc comment) - before any of
+    // them have actually been pulled/imported. a duplicate skipped
+    // below just gets "settled" (removed) quickly with nothing to
+    // show for it, same as a genuine resolve failure.
+    if let Some(tx) = &ctx.action_tx {
+        let _ = tx.send(AppAction::PairingQueuePending {
+            items: items.clone(),
+        });
+    }
     for (item_index, item) in items.into_iter().enumerate() {
         if !queued_hashes.insert(item.blake3_hash.clone()) {
             warn!(target: "player_protocol", blake3 = %item.blake3_hash, "skipping already-queued duplicate item");
+            if let Some(tx) = &ctx.action_tx {
+                let _ = tx.send(AppAction::PairingQueuePreviewSettled {
+                    blake3_hash: item.blake3_hash.clone(),
+                });
+            }
             continue;
         }
+        let kind = item.kind.unwrap_or(MediaKind::Audio);
+        // prefer an already-transcoded rendition over the original for
+        // videos, if the pushing device advertised one (smallest
+        // first) - less to transfer, and rathole's own transcode job
+        // (if enabled at all) is more likely to no-op on an already-
+        // compatible file anyway (see should_skip_transcode upstream).
+        // no equivalent for audio - rathole's backends already handle
+        // virtually any audio codec/container directly.
+        let preferred_rendition = if kind == MediaKind::Video {
+            item.available_renditions
+                .iter()
+                .min_by_key(|r| r.width.unwrap_or(u32::MAX))
+        } else {
+            None
+        };
+        let pull_hash = preferred_rendition
+            .map(|r| r.blake3_hash.as_str())
+            .unwrap_or(item.blake3_hash.as_str());
+        // a rendition's exact size isn't advertised on the wire (only
+        // the original's is) - the download-progress indicator falls
+        // back to a cumulative-bytes-only display (no percentage) in
+        // that case rather than showing progress against the wrong
+        // (much larger) total.
+        let pull_size_hint = if preferred_rendition.is_some() {
+            None
+        } else {
+            item.size_bytes
+        };
         let reporter = queue_progress_reporter(
             ctx,
             item_index,
             item_count,
             item.title.clone(),
-            item.size_bytes,
+            pull_size_hint,
         );
         let on_progress = reporter
             .as_ref()
             .map(|f| f as &grimoire::federation::p2p_client::BlobProgressFn);
-        let kind = item.kind.unwrap_or(MediaKind::Audio);
         let filename = item
             .title
             .clone()
             .unwrap_or_else(|| item.blake3_hash.clone());
         match super::import::import_pushed_media(
             &item.source_peer_addr,
-            &item.blake3_hash,
+            pull_hash,
             &filename,
-            item.size_bytes,
+            pull_size_hint,
             kind,
             on_progress,
         )
@@ -439,12 +483,20 @@ async fn resolve_queue_items(
                         },
                     };
                     let _ = tx.send(action);
+                    let _ = tx.send(AppAction::PairingQueuePreviewSettled {
+                        blake3_hash: item.blake3_hash.clone(),
+                    });
                 }
                 sent_first = true;
                 entries.push(entry);
             }
             Err(e) => {
-                warn!(target: "player_protocol", error = %e, "failed to import queued media ref, skipping")
+                warn!(target: "player_protocol", error = %e, "failed to import queued media ref, skipping");
+                if let Some(tx) = &ctx.action_tx {
+                    let _ = tx.send(AppAction::PairingQueuePreviewSettled {
+                        blake3_hash: item.blake3_hash.clone(),
+                    });
+                }
             }
         }
     }
@@ -539,7 +591,7 @@ fn status_with_common(ctx: &DispatchContext, common: StatusCommon) -> CommandAck
     let status = match common.queue.first() {
         None => PlayerStatus::Stopped { common },
         Some(item) if ctx.is_playing => PlayerStatus::NowPlaying {
-            item: item.clone(),
+            item: Box::new(item.clone()),
             position_ms: ctx.position_ms,
             server_time_ms: now_ms().max(0) as u64,
             common,
@@ -581,6 +633,7 @@ mod tests {
             artist: None,
             artwork_thumb_url: None,
             artwork_full_url: None,
+            available_renditions: Vec::new(),
         }
     }
 

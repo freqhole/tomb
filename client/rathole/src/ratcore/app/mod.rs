@@ -20,7 +20,7 @@ pub use pairing::{
     PairRequest, PairResponse, PairResponseReason, PairingDownloadProgress, PairingSnapshot,
     PairingViewMode, PairingViewState, PeerRole, PlayerCommand as PairingCommand, PlayerSession,
     PlayerStatus, PlayerStatusMessage, PresenceAnnouncement, PresenceQuery, PresenceState,
-    SessionMode, StatusCommon, SubscribeRequest, TrustedController,
+    RenditionRef, SessionMode, StatusCommon, SubscribeRequest, TrustedController,
 };
 pub use queue::{QueueEntry, QueuedVideoRow};
 pub use repl::{ReplState, ReplStatus, ReplStatusLevel};

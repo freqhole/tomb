@@ -1285,6 +1285,12 @@ export const AudioDbAlbumDetailResultSchema = z.object({
 });
 export type AudioDbAlbumDetailResult = z.infer<typeof AudioDbAlbumDetailResultSchema>;
 
+export const AudioDeviceInfoSchema = z.object({
+  name: z.string(),
+  description: z.string()
+});
+export type AudioDeviceInfo = z.infer<typeof AudioDeviceInfoSchema>;
+
 export const AutoConfirmMbMatchesRequestSchema = z.object({
   album_ids: z.array(z.string()),
   min_confidence: z.number(),
@@ -4604,7 +4610,9 @@ z.object({ kind: z.literal("next") }),
 z.object({ kind: z.literal("previous") }),
 z.object({ kind: z.literal("seek"), ms: z.number() }),
 z.object({ kind: z.literal("set_volume"), v: z.number() }),
-z.object({ kind: z.literal("status") })
+z.object({ kind: z.literal("status") }),
+z.object({ kind: z.literal("list_output_devices") }),
+z.object({ kind: z.literal("set_output_device"), name: z.string() })
 ]);
 export type PlayerCommand = z.infer<typeof PlayerCommandSchema>;
 
@@ -4615,7 +4623,8 @@ z.object({ kind: z.literal("track_changed"), index: z.number(), path: z.string()
 z.object({ kind: z.literal("ended") }),
 z.object({ kind: z.literal("error"), detail: ErrorDetailSchema }),
 z.object({ kind: z.literal("backend_down"), restart_count: z.number() }),
-z.object({ kind: z.literal("backend_up") })
+z.object({ kind: z.literal("backend_up") }),
+z.object({ kind: z.literal("output_devices"), devices: z.array(AudioDeviceInfoSchema) })
 ]);
 export type PlayerEvent = z.infer<typeof PlayerEventSchema>;
 
@@ -7774,7 +7783,10 @@ export const VideoRenditionSchema = z.object({
   label: z.string(),
   extension: z.string(),
   mime: z.string().nullish(),
-  skipped: z.boolean()
+  skipped: z.boolean(),
+  blake3: z.string().nullish(),
+  width: z.number().nullish(),
+  height: z.number().nullish()
 });
 export type VideoRendition = z.infer<typeof VideoRenditionSchema>;
 

@@ -21,6 +21,14 @@ import { appState, setQueue } from "../storage/db";
 import { isSongItem } from "../storage/mediaItem";
 import { toast } from "../../../components/feedback/Toast";
 
+export interface RenditionRef {
+  blake3_hash: string;
+  label: string;
+  mime_type?: string;
+  width?: number;
+  height?: number;
+}
+
 export interface RemoteMediaRef {
   source_peer_addr: string;
   blake3_hash: string;
@@ -34,6 +42,10 @@ export interface RemoteMediaRef {
   artwork_thumb_url?: string;
   /** full-size art (player's own now-playing view). */
   artwork_full_url?: string;
+  /** already-transcoded alternates of this video, if known - lets a
+   * receiving player pull one instead of the (possibly much larger)
+   * original. see `playerQueuePush.ts`'s `videoToMediaRef`. */
+  available_renditions?: RenditionRef[];
 }
 
 export type RemoteStatus =
@@ -553,6 +565,17 @@ export function forceResyncRemoteStatus(): void {
   if (!isRemoteTargetActive()) return;
   setRemoteAnnouncedOffline(false);
   setTickNow(Date.now());
+  // optimistically treat "we just kicked off a fresh probe" as "heard
+  // from it just now" - without this, `lastStatusAt` is still whatever
+  // it was before the tab/device went to sleep, so `remoteTargetOffline()`
+  // (comparing against the freshly-reset `tickNow` above) sees the ENTIRE
+  // sleep duration as silence and fires an immediate false-positive
+  // "lost connection" toast + falls back to local, even though the
+  // player was never actually unreachable - it just hadn't had a chance
+  // to answer yet. a genuine failure (this get_status call never
+  // getting a response) still re-triggers the real timeout naturally
+  // from this new baseline.
+  lastStatusAt = Date.now();
   void remoteGetStatus().catch(() => {});
   unsubscribeStatus?.();
   unsubscribeStatus = null;

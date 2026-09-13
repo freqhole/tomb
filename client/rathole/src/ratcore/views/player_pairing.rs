@@ -372,11 +372,20 @@ fn draw_queue_glance(frame: &mut Frame, area: Rect, app: &App) {
     // names will often land here - that's fine, still an upgrade for
     // the ones short enough to benefit). album stays regular text
     // (centered too), no need for it to compete for the same space.
-    let title_layout = current.and_then(|e| fit_text_layout(e.title(), inner.width, 2));
+    //
+    // available height of 4 (not 2): `PIN_SIZE_CANDIDATES`' smallest
+    // remaining entry (`Quadrant`) needs 4 terminal rows per glyph -
+    // `Octant` (2 rows) used to cover the 2-row budget this used to
+    // pass, but was removed (see that array's doc comment - garbled on
+    // consoles without unicode 16.0 glyph support), so passing 2 here
+    // silently produced `None` (plain text) for EVERY now-playing
+    // title/artist, not just long ones - a real regression found via a
+    // "why did big text disappear entirely" report.
+    let title_layout = current.and_then(|e| fit_text_layout(e.title(), inner.width, 4));
     let title_rows = title_layout.as_ref().map(|l| l.rows).unwrap_or(1);
     let artist_layout = current
         .and_then(|e| e.artist())
-        .and_then(|a| fit_text_layout(a, inner.width, 2));
+        .and_then(|a| fit_text_layout(a, inner.width, 4));
     let artist_rows = match (&artist_layout, current.and_then(|e| e.artist())) {
         (Some(l), _) => l.rows,
         (None, Some(_)) => 1,
@@ -477,38 +486,98 @@ fn draw_queue_glance(frame: &mut Frame, area: Rect, app: &App) {
         }
     }
 
-    if m.queue.len() > 1 {
-        let mut lines: Vec<Line> =
-            vec![Line::from(format!("queue ({} tracks):", m.queue.len() - 1)).bold()];
-        for (i, entry) in m
-            .queue
-            .iter()
-            .enumerate()
-            .skip(1)
-            .take(rest.height.saturating_sub(1) as usize)
-        {
+    let has_previews = !m.pending_previews.is_empty();
+    if m.queue.len() > 1 || has_previews {
+        let real_count = m.queue.len().saturating_sub(1);
+        let header = if has_previews {
+            format!(
+                "queue ({real_count} tracks, {} resolving\u{2026}):",
+                m.pending_previews.len()
+            )
+        } else {
+            format!("queue ({real_count} tracks):")
+        };
+        let [header_area, list_area] = Layout::vertical([Length(1), Min(0)]).areas(rest);
+        frame.render_widget(Paragraph::new(Line::from(header).bold()), header_area);
+
+        // each upcoming entry (real or still-resolving) gets its own
+        // big-text title line (same shrink-to-fit approach as the
+        // now-playing title above) instead of one small plain-text
+        // line each - the user wants the whole queue readable from
+        // "couch distance", not just now-playing. artist/album are
+        // dropped here (unlike the now-playing section's separate
+        // line) - there's rarely room for a second big-text line per
+        // row once several are visible; the title alone is enough to
+        // identify each entry. rows that don't fit ANY big-text size
+        // (long titles, or we've run out of vertical space) fall back
+        // to a plain truncated line, same graceful-degradation
+        // pattern `fit_text_layout` already has.
+        //
+        // pending previews (still being pulled/imported - see
+        // `MusicState::pending_previews`'s doc comment) render AFTER
+        // the real queue, dimmed with a "..." suffix, so a fresh push
+        // is visible INSTANTLY instead of looking stalled/unresponsive
+        // until each item's download+import finishes.
+        let mut y = list_area.y;
+        let mut remaining_height = list_area.height;
+        let real_rows = m.queue.iter().enumerate().skip(1).map(|(i, entry)| {
             let marker = if Some(i) == m.current {
                 "\u{25b6} "
             } else {
-                "  "
+                ""
             };
             let kind_glyph = match entry.kind() {
                 crate::ratcore::app::MediaKind::Video => "[video] ",
                 crate::ratcore::app::MediaKind::Audio => "",
             };
-            let meta = match (entry.artist(), entry.album()) {
-                (Some(artist), Some(album)) => format!("  \u{2014} {artist} \u{2014} {album}"),
-                (Some(artist), None) => format!("  \u{2014} {artist}"),
-                (None, Some(album)) => format!("  \u{2014} {album}"),
-                (None, None) => String::new(),
+            (format!("{marker}{kind_glyph}{}", entry.title()), false)
+        });
+        let preview_rows = m.pending_previews.iter().map(|item| {
+            let kind_glyph = match item.kind {
+                Some(crate::ratcore::app::MediaKind::Video) => "[video] ",
+                _ => "",
             };
-            let raw = format!("{marker}{kind_glyph}{}{meta}", entry.title());
-            lines.push(Line::from(truncate_to_width(&raw, rest.width)));
+            let title = item.title.as_deref().unwrap_or("(untitled)");
+            (
+                format!("{kind_glyph}{title} \u{2026}"),
+                true, // dim
+            )
+        });
+        for (text, dim) in real_rows.chain(preview_rows) {
+            if remaining_height == 0 {
+                break;
+            }
+            let layout = fit_text_layout(&text, list_area.width, remaining_height.min(4));
+            let row_h = layout
+                .as_ref()
+                .map(|l| l.rows)
+                .unwrap_or(1)
+                .min(remaining_height);
+            let row_area = Rect::new(list_area.x, y, list_area.width, row_h);
+            let style = if dim {
+                Style::new().dim()
+            } else {
+                Style::new()
+            };
+            match layout {
+                Some(l) => {
+                    let big = BigText::builder()
+                        .pixel_size(l.pixel_size)
+                        .style(style)
+                        .lines(vec![Line::from(text)])
+                        .build();
+                    frame.render_widget(big, row_area);
+                }
+                None => {
+                    frame.render_widget(
+                        Paragraph::new(truncate_to_width(&text, list_area.width)).style(style),
+                        row_area,
+                    );
+                }
+            }
+            y += row_h;
+            remaining_height = remaining_height.saturating_sub(row_h);
         }
-        // no `.wrap(...)` - each line is already truncated to fit, and
-        // an un-wrapped Paragraph clips rather than spilling onto a
-        // second row, keeping every queue row on exactly one line.
-        frame.render_widget(Paragraph::new(lines), rest);
     }
 }
 

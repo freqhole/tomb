@@ -44,6 +44,7 @@ import {
   reportCommandAckFailure,
   type RemoteMediaRef,
   type RemoteStatus,
+  type RenditionRef,
 } from "./remotePlaybackControl";
 import { getVideoURL } from "../../../video/services/videoBlobAccess";
 import type { MediaItem, QueuedVideo } from "../storage/mediaItem";
@@ -307,6 +308,36 @@ async function songToMediaRef(
   return ref;
 }
 
+/** looks up already-transcoded renditions for a video's source media blob
+ * (via the existing `get_video_renditions` route) so the receiving player
+ * can pull a smaller/already-compatible file instead of the original -
+ * see `RemoteMediaRef.available_renditions`'s doc comment. best-effort:
+ * returns `[]` on any failure (unreachable remote, no renditions
+ * configured, etc.) rather than failing the whole queue push over what's
+ * purely a bandwidth optimization. sorted smallest-width-first so the
+ * receiver's own "prefer the smallest" choice is a plain array scan. */
+async function fetchAvailableRenditions(
+  client: Awaited<ReturnType<typeof getClientForRemote>>,
+  mediaBlobId: string
+): Promise<RenditionRef[]> {
+  try {
+    const result = await client.video.getVideoRenditions({ media_blob_id: mediaBlobId });
+    if (!result.success || !result.data) return [];
+    return result.data
+      .filter((r) => !r.skipped && r.blake3)
+      .map((r) => ({
+        blake3_hash: r.blake3 as string,
+        label: r.label,
+        mime_type: r.mime ?? undefined,
+        width: r.width ?? undefined,
+        height: r.height ?? undefined,
+      }))
+      .sort((a, b) => (a.width ?? Infinity) - (b.width ?? Infinity));
+  } catch {
+    return [];
+  }
+}
+
 /** video equivalent of songToMediaRef() above. `QueuedVideo` (the generated
  * `Video` type) has no stable mime-type field of its own (unlike `Song`) -
  * `res.blob().type`, read off the actual fetched bytes, is what
@@ -331,6 +362,7 @@ async function videoToMediaRef(
         const metadata = await client.music.blobMetadata({ id: video.media_blob_id });
         if (metadata.success && metadata.data?.blake3) {
           const { thumbUrl, fullUrl } = await resolveVideoArtwork(video);
+          const available_renditions = await fetchAvailableRenditions(client, video.media_blob_id);
           return {
             source_peer_addr: bridged.peer_addr,
             blake3_hash: metadata.data.blake3,
@@ -343,6 +375,8 @@ async function videoToMediaRef(
             title: video.title,
             artwork_thumb_url: thumbUrl,
             artwork_full_url: fullUrl,
+            available_renditions:
+              available_renditions.length > 0 ? available_renditions : undefined,
           };
         }
       } catch {

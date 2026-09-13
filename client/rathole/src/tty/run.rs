@@ -1172,6 +1172,7 @@ fn on_action(app: &mut App, action: AppAction, action_tx: &mpsc::UnboundedSender
             // pure state fold, same shape as charnel's `PlayerState::apply` -
             let was_queue_driven = app.state.ephemeral.music.queue_video_active;
             let was_audio_fallback = app.state.ephemeral.music.audio_fallback_active;
+            let is_failure = matches!(ev, crate::ratcore::app::VideoEvent::Error { .. });
             let advance = (was_queue_driven || was_audio_fallback)
                 && matches!(
                     ev,
@@ -1179,6 +1180,17 @@ fn on_action(app: &mut App, action: AppAction, action_tx: &mpsc::UnboundedSender
                         | crate::ratcore::app::VideoEvent::Closed
                         | crate::ratcore::app::VideoEvent::Error { .. }
                 );
+            if is_failure {
+                if let crate::ratcore::app::VideoEvent::Error { message } = &ev {
+                    tracing::warn!(
+                        target: "video_player",
+                        error = %message,
+                        queue_driven = was_queue_driven,
+                        audio_fallback = was_audio_fallback,
+                        "video/mpv playback error"
+                    );
+                }
+            }
             app.state.ephemeral.video_player.apply(&ev);
             if advance {
                 if was_audio_fallback {
@@ -1432,6 +1444,16 @@ fn on_action(app: &mut App, action: AppAction, action_tx: &mpsc::UnboundedSender
         }
         AppAction::PairingAppendQueue { entries } => {
             append_queue_entries(app, entries, action_tx);
+        }
+        AppAction::PairingQueuePending { items } => {
+            app.state.ephemeral.music.pending_previews.extend(items);
+        }
+        AppAction::PairingQueuePreviewSettled { blake3_hash } => {
+            app.state
+                .ephemeral
+                .music
+                .pending_previews
+                .retain(|item| item.blake3_hash != blake3_hash);
         }
         AppAction::SongArtResolved { song_id, paths } => {
             let still_current = app
@@ -1706,6 +1728,7 @@ fn radio_now_playing_ref(app: &App) -> Option<crate::ratcore::app::MediaRef> {
         artist: radio.track_artist.clone(),
         artwork_thumb_url: None,
         artwork_full_url: None,
+        available_renditions: Vec::new(),
     })
 }
 
@@ -1733,7 +1756,7 @@ fn build_player_status(app: &App) -> crate::ratcore::app::PlayerStatus {
             .unwrap_or(0);
         return if vp.state == crate::ratcore::app::VideoPlaybackState::Playing {
             PlayerStatus::NowPlaying {
-                item,
+                item: Box::new(item),
                 position_ms,
                 server_time_ms,
                 common,
@@ -1781,7 +1804,7 @@ fn build_player_status(app: &App) -> crate::ratcore::app::PlayerStatus {
     match common.queue.first() {
         None => PlayerStatus::Stopped { common },
         Some(item) if is_playing => PlayerStatus::NowPlaying {
-            item: item.clone(),
+            item: Box::new(item.clone()),
             position_ms,
             server_time_ms,
             common,
@@ -1917,6 +1940,11 @@ fn apply_music_event(
             let rodio_failed = app.state.ephemeral.music.pending_rodio_song_id.is_some()
                 && app.state.ephemeral.music.pending_rodio_song_id == current_song_id;
             if rodio_failed {
+                tracing::warn!(
+                    target: "rathole::tty::player",
+                    song = current_song_id.as_deref().unwrap_or("?"),
+                    "rodio failed to decode/play this track; falling back to mpv"
+                );
                 try_mpv_audio_fallback(app, tx);
             } else {
                 let next = app
@@ -1929,7 +1957,10 @@ fn apply_music_event(
                 play_index(app, next, tx);
             }
         }
-        MusicEvent::Error(e) => app.state.ephemeral.music.last_event_error = Some(e),
+        MusicEvent::Error(e) => {
+            tracing::warn!(target: "rathole::tty::player", error = %e, "music playback error");
+            app.state.ephemeral.music.last_event_error = Some(e);
+        }
         MusicEvent::OutputDevices { devices } => {
             app.state.ephemeral.music.output_devices = devices;
         }

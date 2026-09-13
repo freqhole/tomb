@@ -279,6 +279,10 @@ fn play_song_entry(
         };
         if let Err(e) = player.send(PlayerCmd::Load(vec![path])).await {
             let _ = tx.send(AppAction::MusicEvent(MusicEvent::Error(e)));
+            // without this, the queue would hang forever on this entry -
+            // no further Ended/State(Playing) event is ever coming for a
+            // command that failed to even send.
+            let _ = tx.send(AppAction::MusicEvent(MusicEvent::Ended));
         }
     });
 }
