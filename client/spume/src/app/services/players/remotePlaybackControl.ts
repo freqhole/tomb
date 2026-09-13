@@ -220,15 +220,24 @@ const [remoteStatus, setRemoteStatus] = createSignal<RemoteStatus | null>(null, 
 });
 export { remoteStatus };
 
-// client-side offline detection: `Date.now()` of the last time a REAL
-// status (poll response, push, or command ack) actually landed for the
-// currently-active target - distinct from `remoteStatusKnown()` (which
-// only asks "have we EVER heard from this target", not "recently").
-let lastStatusAt = 0;
-
+// client-side offline detection: counts CONSECUTIVE failed exchanges with
+// the active target (see `OFFLINE_FAILURE_THRESHOLD` below) - distinct
+// from `remoteStatusKnown()` (which only asks "have we EVER heard from
+// this target", not "recently"). deliberately NOT a wall-clock "haven't
+// heard from it in N seconds" timeout (an earlier version of this was) -
+// a wall-clock check comparing against a local `setInterval`-driven clock
+// breaks the moment that clock itself gets suspended (backgrounded tab,
+// phone screen locked): the interval simply doesn't fire while asleep, so
+// the NEXT tick sees the entire sleep duration as "silence" and instantly
+// declares the target offline even though nothing ever actually failed to
+// respond. a failure counter has no such failure mode by construction - it
+// can only grow from a request that was actually sent and actually didn't
+// get a response; a suspended tab sends zero requests, so it accumulates
+// zero failures, and correctly stays "not obviously offline" the moment it
+// wakes and starts trying again.
 function applyRemoteStatus(status: RemoteStatus | null): void {
   if (status) {
-    lastStatusAt = Date.now();
+    setConsecutiveFailures(0);
     setRemoteAnnouncedOffline(false);
     const prevRecentlyPlayed = remoteStatus()?.recently_played ?? [];
     const newlyFinished = status.recently_played.filter((h) => !prevRecentlyPlayed.includes(h));
@@ -285,6 +294,7 @@ export function applyRemoteStatusFromAck(status: RemoteStatus): void {
 export function resetRemoteStatus(): void {
   applyRemoteStatus(null);
   setRemoteAnnouncedOffline(false);
+  setConsecutiveFailures(0);
 }
 export const remoteIsPlaying = () => remoteStatus()?.state === "now_playing";
 
@@ -334,26 +344,28 @@ export const remoteOptimisticCurrentIndex = (): number => {
  * paused) right after connecting or after a subscription drop/reconnect. */
 export const remoteStatusKnown = () => remoteStatus() !== null;
 
-// client-side "haven't heard from this player in N seconds" timeout -
-// user explicitly asked for this ("good for clients to have some timeout
-// mechanism in case the player goes offline - shouldn't be too aggressive,
-// but also not too lax and slow"). tuned the same way as the player-side
-// DISCONNECT_GRACE_MS (connectedControllers.ts): comfortably above the
-// 30s heartbeat/poll interval (so one slow/delayed tick doesn't falsely
-// flag offline) while still resolving a genuine outage well under a
-// minute. re-derives every tick of the existing `tickNow` clock (250ms,
-// already running whenever a remote target is active), so no extra timer
-// is needed - it simply stops ticking (and this signal stops updating)
-// once polling is disabled, same as remotePositionMs() above.
-const OFFLINE_TIMEOUT_MS = 45_000;
+// client-side "the last couple of exchanges with this player have all
+// failed" detection - user explicitly asked for this ("good for clients
+// to have some timeout mechanism in case the player goes offline -
+// shouldn't be too aggressive, but also not too lax and slow"), but tuned
+// as a count of REAL failed attempts rather than elapsed wall-clock time
+// (see `applyRemoteStatus`'s doc comment for why - the previous wall-clock
+// version false-triggered whenever a backgrounded tab/sleeping phone woke
+// back up). each failed poll increments this (see `sendControl`'s catch
+// below); any successful status resets it to 0. threshold of 2 means a
+// genuine outage still resolves within roughly two poll intervals (see
+// `POLL_INTERVAL_MS`) - comfortably fast, but not tripped by one single
+// flaky request.
+const OFFLINE_FAILURE_THRESHOLD = 2;
+const [consecutiveFailures, setConsecutiveFailures] = createSignal(0);
 
 // set on receiving a live `{type:"presence", state:"stopped"}` push (see
 // setRemoteStatusPolling's onStatus handler below) - the player announcing
 // it just stopped accepting connections (remote-playback toggle turned
 // off, or its tab navigated away from /player) reported this immediately,
-// well before OFFLINE_TIMEOUT_MS would otherwise notice via silence alone.
-// reset on every real status (applyRemoteStatus) and on resetRemoteStatus()
-// (switching target).
+// well before the failure-count threshold would otherwise notice via
+// repeated silence alone. reset on every real status (applyRemoteStatus)
+// and on resetRemoteStatus() (switching target).
 const [remoteAnnouncedOffline, setRemoteAnnouncedOffline] = createSignal(false);
 
 /** call from a push-subscription's raw line handler - kept as a plain
@@ -363,17 +375,18 @@ function markRemoteAnnouncedOffline(): void {
   setRemoteAnnouncedOffline(true);
 }
 
-/** true once we've gone suspiciously long (`OFFLINE_TIMEOUT_MS`) without a
- * real status landing for the active target - covers both a dead poll
- * (dial/fetch throwing, e.g. player unreachable) and a silently-dropped
- * push subscription. gated on `remoteStatusKnown()` first so a
- * still-connecting target (never heard from at all yet) shows the
- * existing "syncing" state instead of a premature "offline". also true
- * immediately (no need to wait out the timeout) once the player has
- * explicitly announced it stopped, via `remoteAnnouncedOffline` above. */
+/** true once the last `OFFLINE_FAILURE_THRESHOLD` exchanges with the
+ * active target have all failed - covers both a dead poll (dial/fetch
+ * throwing, e.g. player unreachable) and a silently-dropped push
+ * subscription (the poll fallback picks up the resulting silence). gated
+ * on `remoteStatusKnown()` first so a still-connecting target (never
+ * heard from at all yet) shows the existing "syncing" state instead of a
+ * premature "offline". also true immediately (no need to accumulate
+ * failures first) once the player has explicitly announced it stopped,
+ * via `remoteAnnouncedOffline` above. */
 export const remoteTargetOffline = (): boolean =>
   remoteStatusKnown() &&
-  (remoteAnnouncedOffline() || tickNow() - lastStatusAt > OFFLINE_TIMEOUT_MS);
+  (remoteAnnouncedOffline() || consecutiveFailures() >= OFFLINE_FAILURE_THRESHOLD);
 
 // command-pending feedback (phase 13): sendControl callers below opt in via
 // `trackPending: true` for the handful of playerbar-driven commands (play/
@@ -412,6 +425,13 @@ async function sendControl(
     if (command.command !== "get_status") reportCommandAckFailure(ack);
     if (ack?.status) applyRemoteStatus(ack.status);
     return ack;
+  } catch (err) {
+    // a real, actually-attempted, actually-failed exchange - the only
+    // thing `remoteTargetOffline()`'s failure counter should ever grow
+    // from (see its own doc comment for why this replaced a wall-clock
+    // timeout).
+    setConsecutiveFailures((n) => n + 1);
+    throw err;
   } finally {
     if (opts?.trackPending) setPendingCount((n) => Math.max(0, n - 1));
   }
@@ -504,8 +524,8 @@ function handlePushLine(line: unknown): void {
     // pushed unprompted whenever the player's own presence changes (see
     // `@freqhole/cenotaph`'s `broadcastPresence`) - a "stopped" push means
     // the player just announced it's no longer reachable/accepting
-    // commands, well before OFFLINE_TIMEOUT_MS would otherwise notice via
-    // silence alone.
+    // commands, well before the failure-count threshold would otherwise
+    // notice via repeated silence alone.
     if (parsed.state === "stopped") markRemoteAnnouncedOffline();
     return;
   }
@@ -518,12 +538,13 @@ function handlePushLine(line: unknown): void {
 export function setRemoteStatusPolling(enabled: boolean): void {
   if (enabled && !pollHandle) {
     setRemoteAnnouncedOffline(false);
+    setConsecutiveFailures(0);
     void remoteGetStatus();
     pollHandle = setInterval(() => {
       // swallow dial/fetch failures here (e.g. player unreachable) rather
-      // than letting them surface as unhandled rejections - a run of
-      // these failing silently is exactly what remoteTargetOffline() above
-      // is watching for (lastStatusAt just stops advancing).
+      // than letting them surface as unhandled rejections - sendControl()
+      // already recorded the failure in `consecutiveFailures`, which is
+      // what remoteTargetOffline() above is actually watching.
       if (isRemoteTargetActive()) void remoteGetStatus().catch(() => {});
     }, POLL_INTERVAL_MS);
 
@@ -560,22 +581,17 @@ export function setRemoteStatusPolling(enabled: boolean): void {
  * position going stale/wrong for a while after reconnecting. re-fetches
  * status immediately AND tears down + reopens the push subscription
  * rather than trusting either one's own retry timing. no-op if no remote
- * target is active. */
+ * target is active.
+ *
+ * also resets `consecutiveFailures` defensively - not strictly required
+ * for correctness (the failure counter, unlike the wall-clock timeout it
+ * replaced, can't have grown from sleep alone), but avoids carrying over
+ * a couple of pre-sleep failures into the fresh reconnect attempt below. */
 export function forceResyncRemoteStatus(): void {
   if (!isRemoteTargetActive()) return;
   setRemoteAnnouncedOffline(false);
+  setConsecutiveFailures(0);
   setTickNow(Date.now());
-  // optimistically treat "we just kicked off a fresh probe" as "heard
-  // from it just now" - without this, `lastStatusAt` is still whatever
-  // it was before the tab/device went to sleep, so `remoteTargetOffline()`
-  // (comparing against the freshly-reset `tickNow` above) sees the ENTIRE
-  // sleep duration as silence and fires an immediate false-positive
-  // "lost connection" toast + falls back to local, even though the
-  // player was never actually unreachable - it just hadn't had a chance
-  // to answer yet. a genuine failure (this get_status call never
-  // getting a response) still re-triggers the real timeout naturally
-  // from this new baseline.
-  lastStatusAt = Date.now();
   void remoteGetStatus().catch(() => {});
   unsubscribeStatus?.();
   unsubscribeStatus = null;

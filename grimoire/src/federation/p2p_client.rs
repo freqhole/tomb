@@ -153,6 +153,27 @@ pub fn parse_peer_address(peer_addr: &str) -> GrimoireResult<EndpointAddr> {
     }
 }
 
+/// true when `peer_addr` resolves to our OWN node id - iroh's `connect()`
+/// flatly refuses ("Connecting to ourself is not supported"), so callers
+/// about to dial a peer for a blob/API request should check this first
+/// rather than let that connect fail. can legitimately happen when a
+/// client queues/pushes a `MediaRef` whose `source_peer_addr` is this
+/// same instance (e.g. queueing a video browsed from this player's own
+/// library straight back to itself as the active playback target) - see
+/// `offal::upload::pull`'s self-pull short-circuit. returns `false`
+/// (rather than propagating a parse/uninitialized-endpoint error) for any
+/// unparseable address or if the local endpoint isn't up yet - the
+/// caller's normal connect attempt will surface the real error either way.
+pub fn is_self_peer(peer_addr: &str) -> bool {
+    let Ok(endpoint) = get_endpoint() else {
+        return false;
+    };
+    let Ok(addr) = parse_peer_address(peer_addr) else {
+        return false;
+    };
+    addr.id == endpoint.secret_key().public()
+}
+
 /// connect to a peer
 ///
 /// iroh handles connection caching/reuse internally, so we just call connect()

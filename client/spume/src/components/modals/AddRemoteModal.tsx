@@ -43,6 +43,7 @@ import {
   getRemoteByPeerAddr,
   updateRemote,
 } from "../../app/services/remotes/remoteManager";
+import { refreshPlayerStatus } from "../../app/services/remotes/remoteHealth";
 import { adminLocalRawDispatch, getLocalAdminClient } from "../../app/api/adminClient";
 import { resolveBlobUrl } from "../../music/services/storage/blobResolver";
 import { debug } from "../../utils/logger";
@@ -221,6 +222,11 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
       // finish the job by actually selecting it as the active playback
       // target, rather than leaving that as a separate manual step.
       await selectPlayerPlaybackTarget(player);
+      // confirm player status right away rather than waiting for the next
+      // passive health sweep - otherwise the "play on" flyout (which only
+      // lists health-probe-confirmed players) has nothing to show yet and
+      // hides itself entirely, with no way back to "this device".
+      refreshPlayerStatus();
       toast.success(`paired with ${displayNameHint}`);
       props.onClose();
       props.onPlayerPaired?.(player);
@@ -274,6 +280,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
         void (async () => {
           await deletePendingRemoteByPeerAddr(peerAddr).catch(() => {});
           await selectPlayerPlaybackTarget(player);
+          refreshPlayerStatus();
           toast.success(`connected as player: ${player.username}`);
           props.onClose();
           props.onPlayerPaired?.(player);

@@ -78,7 +78,12 @@ export function QueuePlayerTargetRow() {
   ];
 
   return (
-    <Show when={(pairedPlayers()?.length ?? 0) > 0}>
+    // also shown whenever the active target is already a player, even if
+    // it hasn't been health-probed as one yet (e.g. right after pairing,
+    // before the first refreshPlayerStatus/checkRemoteHealth call lands) -
+    // otherwise a brand-new pairing hides this row entirely, with no way
+    // back to "this device".
+    <Show when={(pairedPlayers()?.length ?? 0) > 0 || activeTarget().kind === "player"}>
       <div class="flex justify-end px-3 py-2">
         <CometBorderRing active={showSyncRing()}>
           <ClickDropdownMenu

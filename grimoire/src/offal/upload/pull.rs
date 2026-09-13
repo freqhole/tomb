@@ -263,6 +263,59 @@ pub async fn pull_audio_blob_to_local_storage_with_progress(
         }
     }
 
+    // already-local short-circuit: this exact blake3 may already be sitting
+    // in our own library - either because we're genuinely the origin (a
+    // client queueing a video browsed from this same player's own library
+    // straight back to itself as the active playback target - iroh flatly
+    // refuses to "connect to ourself" in that case) or because we already
+    // pulled/imported this same content before, from this peer or a
+    // different one (media_blob dedup keys on content, not source). either
+    // way there's no reason to re-transfer bytes we already have - reuse
+    // the existing media_blob directly instead of dialing out.
+    match crate::media_blobz::get_media_blob_by_blake3(blake3).await {
+        Ok(existing) if existing.local_path.is_some() => {
+            let local_path = existing.local_path.clone().unwrap();
+            if tokio::fs::metadata(&local_path).await.is_ok() {
+                tracing::info!(
+                    "pull_audio_blob_to_local_storage: {} already local - reusing existing media_blob {} at {} (skipping network fetch)",
+                    &blake3[..16], existing.id, local_path
+                );
+                let sha256 = existing.sha256.clone();
+                let mime = existing.mime.clone().unwrap_or_default();
+                let size = existing.size.unwrap_or(0);
+                return Ok(PullAudioBlobResult {
+                    blob: existing,
+                    local_path: PathBuf::from(local_path),
+                    mime,
+                    sha256,
+                    size,
+                    existing: true,
+                });
+            }
+            tracing::warn!(
+                "pull_audio_blob_to_local_storage: media_blob for {} exists but its local_path is missing on disk ({}) - falling through to a normal peer fetch",
+                &blake3[..16], local_path
+            );
+        }
+        Ok(_) => tracing::debug!(
+            "pull_audio_blob_to_local_storage: media_blob for {} exists but has no local_path - falling through to a normal peer fetch",
+            &blake3[..16]
+        ),
+        Err(_) => {} // not seen locally before - normal peer fetch below.
+    }
+
+    if p2p_client::is_self_peer(source_node_id) {
+        // no local copy was found above, so this self-pull can only fail -
+        // iroh refuses to connect to ourself, and there's nothing else to
+        // try. fail fast with a clear message instead of paying for a
+        // doomed connect attempt first.
+        return Err(PullAudioBlobError::FetchFailed(format!(
+            "{} is this instance's own node id, but no local copy of blob {} was found - nothing to pull",
+            &source_node_id[..16.min(source_node_id.len())],
+            &blake3[..16]
+        )));
+    }
+
     // pull the blob from the source peer via iroh-blobs verified streaming.
     // streams directly to disk via FsStore export — no full-file memory buffering.
     // timeout after 120 seconds to prevent indefinite hangs.

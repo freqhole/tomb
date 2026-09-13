@@ -293,11 +293,16 @@ fn play_video_entry(
     stop_first: Option<std::rc::Rc<dyn crate::ratcore::transport::MusicPlayer>>,
     tx: &mpsc::UnboundedSender<AppAction>,
 ) {
-    let Some(video_player) = app.video_player.clone() else {
-        app.state.ephemeral.music.last_event_error =
-            Some("no video backend in this shell".to_string());
-        return;
-    };
+    // deliberately NOT bailing out here when there's no video backend -
+    // that used to `return` before ever spawning the task below, which
+    // skipped `stop_first`'s stop entirely (the previous song kept
+    // playing forever) AND never advanced the queue (no `Ended`/`Error`
+    // event ever sent) - a queue stuck on an unplayable video item
+    // permanently ate every future Skip/Pause/Resume with no visible
+    // effect. the no-backend case is now handled inside the async task
+    // below, after `stop_first` runs, exactly like the "no playable
+    // file" case just below it.
+    let video_player = app.video_player.clone();
     let vp = &mut app.state.ephemeral.video_player;
     vp.state = VideoPlaybackState::Loading;
     vp.title = Some(video.title.clone());
@@ -311,6 +316,13 @@ fn play_video_entry(
         if let Some(player) = stop_first {
             let _ = player.send(PlayerCmd::Stop).await;
         }
+        let Some(video_player) = video_player else {
+            let _ = tx.send(AppAction::VideoPlayerEvent(VideoEvent::Error {
+                message: format!("no video backend in this shell - can't play {title} (skipping)"),
+            }));
+            let _ = tx.send(AppAction::MusicEvent(MusicEvent::Ended));
+            return;
+        };
         let Some(path) = resolve_video_path(&video).await else {
             let _ = tx.send(AppAction::VideoPlayerEvent(VideoEvent::Error {
                 message: format!("no playable file for {title} (skipping)"),
