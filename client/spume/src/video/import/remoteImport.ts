@@ -62,6 +62,11 @@ export function clearCompletedVideoJobs() {
   setVideoUploadJobs((jobs) => jobs.filter((j) => j.status !== "completed"));
 }
 
+/** remove a single job (e.g. dismissing a failed row) */
+export function removeVideoJob(id: string) {
+  setVideoUploadJobs((jobs) => jobs.filter((j) => j.id !== id));
+}
+
 /** clear all jobs */
 export function clearAllVideoJobs() {
   setVideoUploadJobs([]);

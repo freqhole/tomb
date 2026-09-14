@@ -17,7 +17,9 @@ import { Icon } from "../icons/registry";
 import { Tab, TabList, TabPanel, Tabs } from "../navigation/Tabs";
 import type { UploadJob } from "../../music/import";
 import type { LocalImportProgress } from "../../music/import";
+import { clearAllJobs, removeJob } from "../../music/import";
 import type { VideoUploadJob } from "../../video/import/remoteImport";
+import { clearAllVideoJobs, removeVideoJob } from "../../video/import/remoteImport";
 import { pushModal, popModal } from "../../music/hooks/modals";
 import { pickDirectory, pickFiles, classifyFile, classifyFileName } from "../../utils/filePicker";
 import { getLocalLibraryName } from "../../app/services/storage/db";
@@ -893,32 +895,52 @@ export function AddMediaModal(props: AddMediaModalProps) {
 
                 <div class="py-6">
                   <TabPanel id="files">
-                    <div class="border-2 border-dashed border-[var(--color-border-default)] rounded-lg p-12 flex flex-col items-center justify-center text-center">
-                      <div class="mb-4">
-                        <Icon name="upload" size={48} color="var(--color-text-muted)" />
-                      </div>
-                      <h3 class="heading-6 text-[var(--color-text-primary)] mb-2">add media</h3>
-                      <p class="body-small text-[var(--color-text-secondary)] mb-2">
-                        {props.useCharnelDialog
-                          ? "select files or an entire folder"
-                          : props.remoteName
-                            ? `files will be uploaded to ${props.remoteName}`
-                            : "drag audio or video files here or click to select"}
-                      </p>
-                      <p class="body-xs text-[var(--color-text-tertiary)] mb-4">
-                        supports mp3, flac, wav, m4a, ogg, mp4, mkv, webm, mov, avi
-                      </p>
-                      <div class="flex gap-2">
-                        <Button variant="primary" onClick={handleSelectFiles}>
-                          select files
-                        </Button>
-                        <Show when={useNativeDialog()}>
-                          <Button variant="secondary" onClick={handleSelectDirectory}>
-                            select folder
+                    <Show
+                      when={
+                        !hasJobs() &&
+                        !isLocalImporting(props.localImportProgress) &&
+                        !isLocalImporting(props.videoLocalImportProgress)
+                      }
+                      fallback={
+                        <div class="flex justify-center gap-2">
+                          <Button variant="secondary" onClick={handleSelectFiles}>
+                            add more files
                           </Button>
-                        </Show>
+                          <Show when={useNativeDialog()}>
+                            <Button variant="secondary" onClick={handleSelectDirectory}>
+                              add folder
+                            </Button>
+                          </Show>
+                        </div>
+                      }
+                    >
+                      <div class="border-2 border-dashed border-[var(--color-border-default)] rounded-lg p-12 flex flex-col items-center justify-center text-center">
+                        <div class="mb-4">
+                          <Icon name="upload" size={48} color="var(--color-text-muted)" />
+                        </div>
+                        <h3 class="heading-6 text-[var(--color-text-primary)] mb-2">add media</h3>
+                        <p class="body-small text-[var(--color-text-secondary)] mb-2">
+                          {props.useCharnelDialog
+                            ? "select files or an entire folder"
+                            : props.remoteName
+                              ? `files will be uploaded to ${props.remoteName}`
+                              : "drag audio or video files here or click to select"}
+                        </p>
+                        <p class="body-xs text-[var(--color-text-tertiary)] mb-4">
+                          supports mp3, flac, wav, m4a, ogg, mp4, mkv, webm, mov, avi
+                        </p>
+                        <div class="flex gap-2">
+                          <Button variant="primary" onClick={handleSelectFiles}>
+                            select files
+                          </Button>
+                          <Show when={useNativeDialog()}>
+                            <Button variant="secondary" onClick={handleSelectDirectory}>
+                              select folder
+                            </Button>
+                          </Show>
+                        </div>
                       </div>
-                    </div>
+                    </Show>
                   </TabPanel>
 
                   <TabPanel id="urls">
@@ -1337,35 +1359,49 @@ export function AddMediaModal(props: AddMediaModalProps) {
               <Show when={hasJobs()}>
                 <div class="border-t border-[var(--color-border-default)] px-4 py-3">
                   {/* status summary */}
-                  <div class="flex items-center gap-2 mb-2">
-                    <Show when={transferringJobs().length > 0}>
-                      <div class="flex items-center gap-1.5">
-                        <div class="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
-                        <span class="body-xs text-[var(--color-text-secondary)]">
-                          transferring {transferringJobs().length} file
-                          {transferringJobs().length !== 1 ? "s" : ""}
+                  <div class="flex items-center justify-between gap-2 mb-2">
+                    <div class="flex items-center gap-2 flex-wrap">
+                      <Show when={transferringJobs().length > 0}>
+                        <div class="flex items-center gap-1.5">
+                          <div class="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
+                          <span class="body-xs text-[var(--color-text-secondary)]">
+                            transferring {transferringJobs().length} file
+                            {transferringJobs().length !== 1 ? "s" : ""}
+                          </span>
+                        </div>
+                      </Show>
+                      <Show when={transferringJobs().length === 0 && processingJobs().length > 0}>
+                        <div class="flex items-center gap-1.5">
+                          <div class="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
+                          <span class="body-xs text-[var(--color-text-secondary)]">
+                            processing {processingJobs().length} on{" "}
+                            {props.remoteName || getLocalLibraryName()}
+                          </span>
+                        </div>
+                      </Show>
+                      <Show when={completedJobs().length > 0}>
+                        <span class="body-xs text-[var(--color-text-tertiary)]">
+                          {completedJobs().length} done
                         </span>
-                      </div>
-                    </Show>
-                    <Show when={transferringJobs().length === 0 && processingJobs().length > 0}>
-                      <div class="flex items-center gap-1.5">
-                        <div class="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
-                        <span class="body-xs text-[var(--color-text-secondary)]">
-                          processing {processingJobs().length} on{" "}
-                          {props.remoteName || getLocalLibraryName()}
-                        </span>
-                      </div>
-                    </Show>
-                    <Show when={completedJobs().length > 0}>
-                      <span class="body-xs text-[var(--color-text-tertiary)]">
-                        {completedJobs().length} done
-                      </span>
-                    </Show>
-                    <Show when={failedJobs().length > 0}>
-                      <span class="body-xs text-red-400">{failedJobs().length} failed</span>
-                    </Show>
-                    <Show when={timedOutJobs().length > 0}>
-                      <span class="body-xs text-amber-400">{timedOutJobs().length} queued</span>
+                      </Show>
+                      <Show when={failedJobs().length > 0}>
+                        <span class="body-xs text-red-400">{failedJobs().length} failed</span>
+                      </Show>
+                      <Show when={timedOutJobs().length > 0}>
+                        <span class="body-xs text-amber-400">{timedOutJobs().length} queued</span>
+                      </Show>
+                    </div>
+                    <Show when={transferringJobs().length === 0 && processingJobs().length === 0}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          clearAllJobs();
+                          clearAllVideoJobs();
+                        }}
+                        class="body-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] hover:underline flex-shrink-0"
+                      >
+                        clear all
+                      </button>
                     </Show>
                   </div>
 
@@ -1386,7 +1422,7 @@ export function AddMediaModal(props: AddMediaModalProps) {
                   </Show>
 
                   {/* job list */}
-                  <div class="max-h-32 overflow-y-auto space-y-1">
+                  <div class="max-h-64 overflow-y-auto space-y-1">
                     <For each={allJobs()}>
                       {(entry) => {
                         const job = entry.job;
@@ -1411,7 +1447,19 @@ export function AddMediaModal(props: AddMediaModalProps) {
                                     color="var(--color-warning, #f59e0b)"
                                   />
                                 ) : job.status === "completed" ? (
-                                  <Icon name="check" size={14} color="var(--color-success)" />
+                                  <button
+                                    type="button"
+                                    title="dismiss this upload"
+                                    aria-label="dismiss this upload"
+                                    onClick={() =>
+                                      entry.domain === "video"
+                                        ? removeVideoJob(job.id)
+                                        : removeJob(job.id)
+                                    }
+                                    class="hover:opacity-70 transition-opacity"
+                                  >
+                                    <Icon name="check" size={14} color="var(--color-success)" />
+                                  </button>
                                 ) : job.status === "timeout" ? (
                                   <Icon
                                     name="recent"
@@ -1419,7 +1467,19 @@ export function AddMediaModal(props: AddMediaModalProps) {
                                     color="var(--color-warning, #f59e0b)"
                                   />
                                 ) : (
-                                  <Icon name="close" size={14} color="var(--color-error)" />
+                                  <button
+                                    type="button"
+                                    title="dismiss this failed upload"
+                                    aria-label="dismiss this failed upload"
+                                    onClick={() =>
+                                      entry.domain === "video"
+                                        ? removeVideoJob(job.id)
+                                        : removeJob(job.id)
+                                    }
+                                    class="hover:opacity-70 transition-opacity"
+                                  >
+                                    <Icon name="close" size={14} color="var(--color-error)" />
+                                  </button>
                                 )}
                               </div>
                               {/* label */}
