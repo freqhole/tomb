@@ -43,8 +43,10 @@ const REQ_LIST_AUDIO_DEVICES: u64 = 1000;
 
 /// how long to keep retrying the ipc socket connect after spawning
 /// mpv (it creates the socket file asynchronously, shortly after
-/// start).
-const CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
+/// start). generous on purpose: on a loaded pi (iroh/sqlite etc all
+/// competing for cpu) mpv's own startup can take noticeably longer
+/// than it does in a quiet manual shell test.
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const CONNECT_RETRY_INTERVAL: Duration = Duration::from_millis(25);
 
 pub struct MpvPlayer {
@@ -79,24 +81,39 @@ impl MpvPlayer {
         let socket_path =
             std::env::temp_dir().join(format!("rathole-mpv-{}.sock", ulid::Ulid::new()));
 
-        let child = Command::new("mpv")
+        tracing::info!(target: "video_player", %video_output, socket = %socket_path.display(), "spawning mpv");
+
+        let mut child = Command::new("mpv")
             .arg("--idle=yes")
             .arg("--force-window=no")
             .arg(format!("--vo={video_output}"))
             .arg("--no-terminal")
-            .arg("--really-quiet")
+            // was `--really-quiet` (silences everything, including
+            // warnings/errors) — `warn` keeps real failures visible
+            // in our piped/logged stdout+stderr below without the
+            // firehose of normal status-line chatter.
+            .arg("--msg-level=all=warn")
             .arg(format!(
                 "--input-ipc-server={}",
                 socket_path.to_string_lossy()
             ))
             .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
             .kill_on_drop(true)
             .spawn()
             .map_err(|e| format!("failed to spawn mpv: {e}"))?;
 
+        if let Some(stdout) = child.stdout.take() {
+            tokio::task::spawn_local(log_mpv_output(stdout, "stdout"));
+        }
+        if let Some(stderr) = child.stderr.take() {
+            tokio::task::spawn_local(log_mpv_output(stderr, "stderr"));
+        }
+
+        let connect_started = tokio::time::Instant::now();
         let stream = connect_with_retry(&socket_path).await?;
+        tracing::info!(target: "video_player", elapsed_ms = connect_started.elapsed().as_millis(), "mpv ipc socket connected");
         let (read_half, write_half) = stream.into_split();
 
         // observe the three properties the ui cares about; mpv
@@ -115,6 +132,14 @@ impl MpvPlayer {
         send_ipc_locked(
             &write_half,
             json!({"command": ["observe_property", OBS_DURATION, "duration"]}),
+        )
+        .await?;
+        // real per-file demux/decode failure detail only ever shows up
+        // here, not on mpv's own stdout/stderr - in `--idle`/ipc mode
+        // that stream stays quiet even at `--msg-level=all=warn`.
+        send_ipc_locked(
+            &write_half,
+            json!({"command": ["request_log_messages", "v"]}),
         )
         .await?;
 
@@ -156,6 +181,26 @@ async fn connect_with_retry(socket_path: &std::path::Path) -> Result<UnixStream,
                     ));
                 }
                 tokio::time::sleep(CONNECT_RETRY_INTERVAL).await;
+            }
+        }
+    }
+}
+
+/// forwards mpv's own stdout/stderr into our logs, since we no
+/// longer silence it with `--really-quiet` — this is what actually
+/// reveals *why* mpv failed to start (drm busy, missing driver,
+/// etc.) instead of just "socket never appeared".
+async fn log_mpv_output(stream: impl tokio::io::AsyncRead + Unpin, stream_name: &'static str) {
+    let mut lines = BufReader::new(stream).lines();
+    loop {
+        match lines.next_line().await {
+            Ok(Some(line)) => {
+                tracing::warn!(target: "video_player", mpv_stream = stream_name, %line, "mpv output")
+            }
+            Ok(None) => break,
+            Err(e) => {
+                tracing::warn!(target: "video_player", mpv_stream = stream_name, error = %e, "mpv output stream read error");
+                break;
             }
         }
     }
@@ -245,6 +290,13 @@ fn translate(msg: &JsonValue) -> Vec<VideoEvent> {
         return Vec::new();
     };
     match event {
+        "log-message" => {
+            let level = msg.get("level").and_then(JsonValue::as_str).unwrap_or("?");
+            let prefix = msg.get("prefix").and_then(JsonValue::as_str).unwrap_or("?");
+            let text = msg.get("text").and_then(JsonValue::as_str).unwrap_or("");
+            tracing::warn!(target: "video_player", %level, %prefix, text = text.trim_end(), "mpv log");
+            Vec::new()
+        }
         "property-change" => {
             let id = msg.get("id").and_then(JsonValue::as_u64);
             let data = msg.get("data");
@@ -310,6 +362,13 @@ impl VideoPlayer for MpvPlayer {
                 title: _,
                 start_seconds,
             } => {
+                tracing::info!(
+                    target: "video_player",
+                    %path,
+                    exists = std::path::Path::new(&path).exists(),
+                    ext = %std::path::Path::new(&path).extension().and_then(|e| e.to_str()).unwrap_or("<none>"),
+                    "mpv loadfile"
+                );
                 let mut args = vec![
                     JsonValue::String("loadfile".into()),
                     JsonValue::String(path),

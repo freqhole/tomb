@@ -613,3 +613,7 @@ test-cli-coverage: db-prepare
 	@echo ""
 	@echo "note: this covers CLI integration testz (not unit testz)!"
 	@echo ""
+
+.PHONY: db-reset db-migrate db-prepare
+rathole-dev:
+	cargo run -p cli --bin rathole

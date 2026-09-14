@@ -495,118 +495,6 @@ export function AlbumDetailView() {
                       </div>
                     </Show>
                   </div>
-
-                  {/* play button, edit button, and favorite toggle */}
-                  <div class="mt-0 wide:mt-4 flex items-center wide:justify-start gap-2 wide:gap-3">
-                    <Button
-                      variant="primary"
-                      loading={albumActionPending() === "play"}
-                      disabled={albumActionPending() !== null}
-                      onClick={handlePlayAlbum}
-                    >
-                      <span class="hidden wide:inline">play album</span>
-                      <span class="wide:hidden">play</span>
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      loading={albumActionPending() === "queue"}
-                      disabled={albumActionPending() !== null}
-                      onClick={handleQueueAlbum}
-                      title="add album to queue"
-                      aria-label="add album to queue"
-                    >
-                      <span class="hidden wide:inline">+queue</span>
-                      <span class="wide:hidden inline-flex items-center">
-                        <Icon name={IconNames.queue} />
-                      </span>
-                    </Button>
-                    <Show when={isCharnelMode() || !!getCurrentRemote()}>
-                      <Button
-                        variant="ghost"
-                        onClick={() =>
-                          void showStationSelector(
-                            {
-                              kind: "album",
-                              albumId: albumInfo()?.album_id ?? params.id,
-                              albumTitle: albumInfo()?.title ?? "",
-                            },
-                            getCurrentRemote()?.remote_id
-                          )
-                        }
-                        title="start radio from album"
-                        aria-label="start radio from album"
-                      >
-                        <span class="hidden wide:inline">+radio</span>
-                        <span class="wide:hidden inline-flex items-center">
-                          <Icon name={IconNames.radioTower} />
-                        </span>
-                      </Button>
-                    </Show>
-                    <Button
-                      variant="ghost"
-                      onClick={() => {
-                        const remoteId = getCurrentRemote()?.remote_id ?? "local";
-                        const info = albumInfo();
-                        const bareId = info?.album_id ?? params.id;
-                        const title = info?.title ?? "";
-                        const artistName = songs()[0]?.artist_name ?? "";
-                        const artistId = info?.artist_id ?? "";
-                        const qs = new URLSearchParams({
-                          graph: albumNodeId(remoteId, bareId),
-                        });
-                        if (title) qs.set("name", title);
-                        if (artistName) qs.set("artist", artistName);
-                        if (artistId) qs.set("artistId", artistId);
-                        navigate(`/explore?${qs.toString()}`);
-                      }}
-                      title="explore album in graph"
-                      aria-label="explore album in graph"
-                    >
-                      <span class="hidden wide:inline">explore</span>
-                      <span class="wide:hidden inline-flex items-center">
-                        <Icon name={IconNames.library} />
-                      </span>
-                    </Button>
-                    <Show when={canUpdateAlbum()}>
-                      <button
-                        onClick={() =>
-                          showAlbumEditor({
-                            albumId: info().album_id || params.id,
-                            onMergeNavigate: (newAlbumId) => navigate(`/albums/${newAlbumId}`),
-                            onDeleted: () => navigate(-1),
-                          })
-                        }
-                        class="p-2 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded transition-colors"
-                        title="edit album info"
-                      >
-                        <Icon name={IconNames.edit} />
-                      </button>
-                    </Show>
-                    <FavoriteHeart
-                      isFavorite={albumQuery.data?.is_favorite ?? false}
-                      onToggle={handleAlbumFavoriteToggle}
-                    />
-                    <ShareButton
-                      target={{
-                        kind: "album",
-                        id: albumInfo()?.album_id ?? params.id,
-                        displayTitle: albumInfo()?.title ?? "",
-                      }}
-                      source={() => currentRemoteFull()}
-                      buildSendPayload={buildSendPayload}
-                    />
-                    <Rating
-                      rating={albumQuery.data?.user_rating ?? 0}
-                      size="md"
-                      onRatingChange={(rating) => {
-                        setRatingMutation.mutate({
-                          targetType: "album",
-                          targetId: info().album_id || params.id,
-                          rating,
-                        });
-                      }}
-                    />
-                  </div>
                 </div>
 
                 {/* album artwork */}
@@ -650,6 +538,121 @@ export function AlbumDetailView() {
                     </div>
                   </div>
                 </ContextMenu>
+              </div>
+
+              {/* play button, edit button, and favorite toggle - a full-width
+                  row below the header (not squeezed into the title column
+                  alongside the fixed-size artwork square) so all the buttons
+                  fit on one line instead of overflowing under the artwork. */}
+              <div class="mt-3 px-1 wide:px-6 flex flex-wrap items-center gap-2 wide:gap-3">
+                <Button
+                  variant="primary"
+                  loading={albumActionPending() === "play"}
+                  disabled={albumActionPending() !== null}
+                  onClick={handlePlayAlbum}
+                >
+                  <span class="hidden wide:inline">play album</span>
+                  <span class="wide:hidden">play</span>
+                </Button>
+                <Button
+                  variant="ghost"
+                  loading={albumActionPending() === "queue"}
+                  disabled={albumActionPending() !== null}
+                  onClick={handleQueueAlbum}
+                  title="add album to queue"
+                  aria-label="add album to queue"
+                >
+                  <span class="hidden wide:inline">+queue</span>
+                  <span class="wide:hidden inline-flex items-center">
+                    <Icon name={IconNames.queue} />
+                  </span>
+                </Button>
+                <Show when={isCharnelMode() || !!getCurrentRemote()}>
+                  <Button
+                    variant="ghost"
+                    onClick={() =>
+                      void showStationSelector(
+                        {
+                          kind: "album",
+                          albumId: albumInfo()?.album_id ?? params.id,
+                          albumTitle: albumInfo()?.title ?? "",
+                        },
+                        getCurrentRemote()?.remote_id
+                      )
+                    }
+                    title="start radio from album"
+                    aria-label="start radio from album"
+                  >
+                    <span class="hidden wide:inline">+radio</span>
+                    <span class="wide:hidden inline-flex items-center">
+                      <Icon name={IconNames.radioTower} />
+                    </span>
+                  </Button>
+                </Show>
+                <Button
+                  variant="ghost"
+                  onClick={() => {
+                    const remoteId = getCurrentRemote()?.remote_id ?? "local";
+                    const info = albumInfo();
+                    const bareId = info?.album_id ?? params.id;
+                    const title = info?.title ?? "";
+                    const artistName = songs()[0]?.artist_name ?? "";
+                    const artistId = info?.artist_id ?? "";
+                    const qs = new URLSearchParams({
+                      graph: albumNodeId(remoteId, bareId),
+                    });
+                    if (title) qs.set("name", title);
+                    if (artistName) qs.set("artist", artistName);
+                    if (artistId) qs.set("artistId", artistId);
+                    navigate(`/explore?${qs.toString()}`);
+                  }}
+                  title="explore album in graph"
+                  aria-label="explore album in graph"
+                >
+                  <span class="hidden wide:inline">explore</span>
+                  <span class="wide:hidden inline-flex items-center">
+                    <Icon name={IconNames.library} />
+                  </span>
+                </Button>
+                <Show when={canUpdateAlbum()}>
+                  <button
+                    onClick={() =>
+                      showAlbumEditor({
+                        albumId: info().album_id || params.id,
+                        onMergeNavigate: (newAlbumId) => navigate(`/albums/${newAlbumId}`),
+                        onDeleted: () => navigate(-1),
+                      })
+                    }
+                    class="p-2 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded transition-colors"
+                    title="edit album info"
+                  >
+                    <Icon name={IconNames.edit} />
+                  </button>
+                </Show>
+                <FavoriteHeart
+                  isFavorite={albumQuery.data?.is_favorite ?? false}
+                  onToggle={handleAlbumFavoriteToggle}
+                />
+                <ShareButton
+                  target={{
+                    kind: "album",
+                    id: albumInfo()?.album_id ?? params.id,
+                    displayTitle: albumInfo()?.title ?? "",
+                  }}
+                  source={() => currentRemoteFull()}
+                  buildSendPayload={buildSendPayload}
+                />
+                <Rating
+                  rating={albumQuery.data?.user_rating ?? 0}
+                  size="md"
+                  onRatingChange={(rating) => {
+                    setRatingMutation.mutate({
+                      targetType: "album",
+                      targetId: info().album_id || params.id,
+                      rating,
+                    });
+                  }}
+                />
               </div>
 
               {/* songs list */}
