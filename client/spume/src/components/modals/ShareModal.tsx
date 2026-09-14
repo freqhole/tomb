@@ -1,8 +1,10 @@
 // share modal — single entry point for everything sharing-related.
 //
 // composes two child sections:
-//   - <PermalinkSection /> — always shown; renders the https://spume.freqhole.net
-//     share url with a copy button.
+//   - <PermalinkSection /> — renders the https://spume.freqhole.net share url
+//     with a copy button. hidden for a local-library source on android/web
+//     (see `canPermalinkLocalLibrary` below) since neither platform keeps its
+//     local iroh endpoint reliably reachable for an inbound connection.
 //   - <SendToRemoteSection /> — hidden when no eligible destinations or source
 //     is not p2p.
 //
@@ -16,6 +18,16 @@ import { SendToRemoteSection } from "../share/SendToRemoteSection";
 import type { ShareTarget } from "../share/types";
 import type { Remote } from "../../app/services/storage/schemas/remote";
 import type { SendPayload } from "../../music/services/send/sendToRemote";
+import { isCharnelMode, isAndroidTauri } from "../../app/services/charnel";
+
+/** true only for desktop charnel, the one platform whose local-library
+ * iroh endpoint stays reliably reachable for an inbound connection —
+ * android tauri (backgrounded often) and plain web (tab/process not
+ * long-lived) can't honor a permalink pointing at their own local
+ * library, so those get send-to-remote only. */
+function canPermalinkLocalLibrary(): boolean {
+  return isCharnelMode() && !isAndroidTauri();
+}
 
 export interface ShareModalProps {
   isOpen: boolean;
@@ -54,7 +66,9 @@ export const ShareModal: Component<ShareModalProps> = (props) => {
         >
           {(src) => (
             <>
-              <PermalinkSection target={props.target} source={src()} webHost={props.webHost} />
+              <Show when={!src().is_charnel_managed || canPermalinkLocalLibrary()}>
+                <PermalinkSection target={props.target} source={src()} webHost={props.webHost} />
+              </Show>
               <Show when={props.buildSendPayload}>
                 <div class="border-t border-[var(--color-border-default)] pt-6">
                   <SendToRemoteSection source={src()} buildPayload={props.buildSendPayload!} />

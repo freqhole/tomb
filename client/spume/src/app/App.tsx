@@ -105,6 +105,8 @@ import {
   takePendingDeepLinks,
   fetchLocalNodeId,
   setLocalNodeIdValue,
+  getTargetOs,
+  setTargetOsValue,
   type TauriEvent,
 } from "./services/charnel";
 import {
@@ -406,6 +408,18 @@ export function App() {
       const id = await fetchLocalNodeId();
       setLocalNodeIdValue(id);
       if (id) debug("App", `local node id: ${id.slice(0, 16)}...`);
+    })();
+  });
+
+  // tauri: cache the build's target OS ("macos"/"android"/...) so android
+  // can be told apart from desktop reliably — `get_build_info` reports what
+  // the binary was actually built for, unlike sniffing `navigator.userAgent`.
+  onMount(() => {
+    if (!isCharnelMode()) return;
+    void (async () => {
+      const os = await getTargetOs();
+      setTargetOsValue(os);
+      if (os) debug("App", `target os: ${os}`);
     })();
   });
 
