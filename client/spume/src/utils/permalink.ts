@@ -24,7 +24,6 @@
 // at least one of `s.n` (source iroh node id, 64 hex) or `s.h` (source http
 // origin) must be present so a recipient can resolve the entity.
 
-
 import type { ShareTargetKind } from "../components/share/types";
 import { isCharnelMode } from "../app/services/charnel/mode";
 import {

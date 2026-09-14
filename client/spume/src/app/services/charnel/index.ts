@@ -53,7 +53,6 @@ export { getLocalNodeId, setLocalNodeIdValue, localNodeIdSignal } from "./localN
 // re-export target-os accessor (synchronous; populated by charnel host on startup)
 export { getTargetOsValue, setTargetOsValue, targetOsSignal, isAndroidTauri } from "./targetOs";
 
-
 // re-export the global "is a removable-storage sync running" signal (shared
 // between StorageOverviewView and the always-mounted playerbar icon), plus
 // the shared per-song progress signal (set once, globally, in AppLayout.tsx
