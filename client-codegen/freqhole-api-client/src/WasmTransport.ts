@@ -3,7 +3,13 @@
 // uses midden's MiddenNode to make API requests to peer nodes.
 // blobs are cached in Cache API for audio playback.
 
-import type { BlobData, BlobFetchOptions, Transport, TransportResponse } from "./transport.js";
+import type {
+  BlobData,
+  BlobFetchOptions,
+  Transport,
+  TransportResponse,
+  UploadMetadata,
+} from "./transport.js";
 import { snapshotJobEventsViaRequest } from "./transport.js";
 import type { CloseReason, EventFilter, JobEvent, JobStateSnapshot } from "./codegen/schema.js";
 import { JobEventsStreamClosed } from "./CharnelLocalTransport.js";
@@ -347,6 +353,7 @@ export class WasmTransport implements Transport {
     path: string,
     formData: FormData,
     _onProgress?: (loaded: number, total: number) => void,
+    metadata?: UploadMetadata,
   ): Promise<TransportResponse> {
     // no byte-level progress possible here - unlike CharnelTransport's tauri
     // IPC path (which self-chunks and can report per-chunk progress), the
@@ -375,11 +382,11 @@ export class WasmTransport implements Transport {
     // available - chunked/verified streaming, no base64/raw-bytes framing.
     const blobPullPaths = ["/api/upload/music", "/api/upload/video"];
     if (blobPullPaths.includes(path) && this.node.import_blob) {
-      return this.uploadViaIrohBlobs(path, file, formData);
+      return this.uploadViaIrohBlobs(path, file, metadata);
     }
 
     // fallback: base64 encode and send via api_request (works for image uploads)
-    return this.uploadViaBase64(path, file, formData);
+    return this.uploadViaBase64(path, file, metadata);
   }
 
   /**
@@ -392,7 +399,7 @@ export class WasmTransport implements Transport {
   private async uploadViaIrohBlobs(
     path: string,
     file: File,
-    formData: FormData,
+    metadata?: UploadMetadata,
   ): Promise<TransportResponse> {
     try {
       const fileBytes = new Uint8Array(await file.arrayBuffer());
@@ -403,27 +410,8 @@ export class WasmTransport implements Transport {
           blake3: hash,
           filename: file.name,
           size: fileBytes.length,
+          ...metadata,
         };
-
-        // include metadata if present (parsed as JSON)
-        const metadataStr = formData.get("metadata") as string | null;
-        if (metadataStr) {
-          try {
-            body.metadata = JSON.parse(metadataStr);
-          } catch {
-            // ignore parse errors
-          }
-        }
-
-        // include associate_with if present
-        const associateWithStr = formData.get("associate_with") as string | null;
-        if (associateWithStr) {
-          try {
-            body.associate_with = JSON.parse(associateWithStr);
-          } catch {
-            // ignore parse errors
-          }
-        }
 
         const response = await this.request("POST", `${path}-by-blake3`, JSON.stringify(body));
         return response;
@@ -449,7 +437,7 @@ export class WasmTransport implements Transport {
   private async uploadViaBase64(
     path: string,
     file: File,
-    formData: FormData,
+    metadata?: UploadMetadata,
   ): Promise<TransportResponse> {
     if (path === "/api/upload/music" || path === "/api/upload/video") {
       console.warn(
@@ -469,17 +457,8 @@ export class WasmTransport implements Transport {
     const body: Record<string, unknown> = {
       data: base64,
       filename: file.name,
+      ...metadata,
     };
-
-    // include associate_with if present
-    const associateWithStr = formData.get("associate_with") as string | null;
-    if (associateWithStr) {
-      try {
-        body.associate_with = JSON.parse(associateWithStr);
-      } catch {
-        // ignore parse errors
-      }
-    }
 
     // send via api_request — routes through offal dispatch on the remote peer
     return this.request("POST", path, JSON.stringify(body));

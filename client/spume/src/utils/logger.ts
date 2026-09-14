@@ -17,7 +17,7 @@ declare global {
 // default config
 const getConfig = (): LoggerConfig => {
   return (
-    window.__LOGGER_CONFIG || {
+    (typeof window !== "undefined" ? window.__LOGGER_CONFIG : undefined) || {
       level: "error",
       enabled: true,
     }
@@ -77,17 +77,15 @@ export function log(level: LogLevel, tag: string, ...args: any[]): void {
     resetStyle,
     tagStyle,
     resetStyle,
-    ...args,
+    ...args
   );
 }
 
 // convenience functions for each level
-export const debug = (tag: string, ...args: any[]) =>
-  log("debug", tag, ...args);
+export const debug = (tag: string, ...args: any[]) => log("debug", tag, ...args);
 export const info = (tag: string, ...args: any[]) => log("info", tag, ...args);
 export const warn = (tag: string, ...args: any[]) => log("warn", tag, ...args);
-export const error = (tag: string, ...args: any[]) =>
-  log("error", tag, ...args);
+export const error = (tag: string, ...args: any[]) => log("error", tag, ...args);
 
 // helper to enable/disable logging
 export function setLogLevel(level: LogLevel): void {

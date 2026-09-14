@@ -4,7 +4,32 @@
 // FreqholeClient uses a transport to make requests, then handles
 // Zod validation on top.
 
-import type { CloseReason, EventFilter, JobEvent, JobStateSnapshot } from "./codegen/schema.js";
+import type {
+  AssociationHint,
+  CloseReason,
+  EventFilter,
+  JobEvent,
+  JobStateSnapshot,
+} from "./codegen/schema.js";
+
+/**
+ * typed metadata for an upload, passed as `Transport.upload()`'s 4th
+ * argument. P2P/IPC transports (CharnelLocalTransport, CharnelTransport,
+ * WasmTransport) consume this object directly - no FormData string
+ * parsing involved. `HttpTransport` is the only implementation that has
+ * to fold it back into real multipart form fields, since that's what its
+ * wire format actually is. see docs/add-media-review-refactor-plan.md §6
+ * for why this replaced the previous FormData-only design.
+ */
+export interface UploadMetadata {
+  /** associate the uploaded blob with an existing entity (album/song/etc). */
+  associate_with?: AssociationHint;
+  /** "review before send" annotation - see grimoire's
+   * import_session_send_targetz - tags the resulting session as destined
+   * for this remote once reviewed. */
+  target_remote_id?: string;
+  target_remote_name?: string;
+}
 
 /**
  * response from a transport request
@@ -59,12 +84,16 @@ export interface Transport {
    *   progress event - plain fetch has no cross-browser upload progress
    *   API); P2P/tauri transports accept but ignore it since their upload
    *   path doesn't stream raw bytes over a trackable request body.
+   * @param metadata - typed upload metadata (association hint, review-before-
+   *   send target). non-HTTP transports use this directly; HttpTransport
+   *   folds it into real form fields internally.
    * @returns response with status code and body string
    */
   upload(
     path: string,
     formData: FormData,
     onProgress?: (loaded: number, total: number) => void,
+    metadata?: UploadMetadata,
   ): Promise<TransportResponse>;
 
   /**
@@ -196,7 +225,20 @@ export class HttpTransport implements Transport {
     path: string,
     formData: FormData,
     onProgress?: (loaded: number, total: number) => void,
+    metadata?: UploadMetadata,
   ): Promise<TransportResponse> {
+    // this is the one transport whose wire format actually is multipart
+    // form fields - fold the typed metadata back into FormData here so
+    // every other transport (and every caller) can deal with a plain
+    // object instead.
+    if (metadata?.associate_with) {
+      formData.append("associate_with", JSON.stringify(metadata.associate_with));
+    }
+    if (metadata?.target_remote_id) formData.append("target_remote_id", metadata.target_remote_id);
+    if (metadata?.target_remote_name) {
+      formData.append("target_remote_name", metadata.target_remote_name);
+    }
+
     const url = this.baseUrl + path;
 
     // plain fetch has no cross-browser upload-progress event, so only

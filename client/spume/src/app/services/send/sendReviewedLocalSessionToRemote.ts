@@ -21,22 +21,8 @@ import {
   updateJobProgress,
 } from "../../../music/import/remoteImport";
 import { getRemoteById } from "../remotes/remoteManager";
-import type { SendReviewProgress } from "./sendReviewedSessionToRemote";
+import { emptyProgress, type SendReviewProgress } from "./sendReviewProgress";
 import { error as logError } from "../../../utils/logger";
-
-function emptyProgress(targetName: string, totalAlbums: number): SendReviewProgress {
-  return {
-    targetName,
-    totalAlbums,
-    completedAlbums: 0,
-    failedAlbums: 0,
-    currentAlbumTitle: null,
-    currentSongsDone: 0,
-    currentSongsTotal: 0,
-    done: false,
-    errors: [],
-  };
-}
 
 /**
  * send every album in `albumIds` (already imported into this browser's own

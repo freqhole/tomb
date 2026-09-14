@@ -4,10 +4,9 @@
 // calls grimoire::api::dispatch directly via the api_call IPC command.
 // uses Tauri's asset protocol for blob/audio file access (no HTTP streaming).
 
-import type { Transport, TransportResponse, BlobData } from "./transport.js";
+import type { Transport, TransportResponse, BlobData, UploadMetadata } from "./transport.js";
 import type { CloseReason, EventFilter, JobEvent, JobStateSnapshot } from "./codegen/schema.js";
 import { bytesToBase64 } from "./base64.js";
-import { readImportSendTarget } from "./importSendTarget.js";
 
 // tauri invoke function type
 type InvokeFn = (cmd: string, args?: unknown) => Promise<unknown>;
@@ -199,6 +198,7 @@ export class CharnelLocalTransport implements Transport {
     path: string,
     formData: FormData,
     onProgress?: (loaded: number, total: number) => void,
+    metadata?: UploadMetadata,
   ): Promise<TransportResponse> {
     const file = formData.get("file") as File | null;
     if (!file) {
@@ -213,23 +213,10 @@ export class CharnelLocalTransport implements Transport {
     }
 
     if (path === "/api/upload/music" || path === "/api/upload/video") {
-      let metadata: Record<string, unknown> | undefined;
-      const associationStr = formData.get("associate_with");
-      if (associationStr && typeof associationStr === "string") {
-        try {
-          metadata = { associate_with: JSON.parse(associationStr) };
-        } catch {
-          // ignore parse errors
-        }
-      }
-      // "review before send" annotation (see ImportSendTargetOptions in
-      // domains/upload.ts) - passed straight through as top-level body
-      // fields so grimoire's upload_music handler can tag the session.
-      metadata = { ...metadata, ...readImportSendTarget(formData) };
       return this.uploadChunked(path, file, metadata, onProgress);
     }
 
-    return this.uploadLegacyBase64(path, file, formData);
+    return this.uploadLegacyBase64(path, file, metadata);
   }
 
   /**
@@ -247,7 +234,7 @@ export class CharnelLocalTransport implements Transport {
   private async uploadChunked(
     path: string,
     file: File,
-    metadata: Record<string, unknown> | undefined,
+    metadata: UploadMetadata | undefined,
     onProgress?: (loaded: number, total: number) => void,
   ): Promise<TransportResponse> {
     const inv = await ensureInvoke();
@@ -304,7 +291,7 @@ export class CharnelLocalTransport implements Transport {
   private async uploadLegacyBase64(
     path: string,
     file: File,
-    formData: FormData,
+    metadata?: UploadMetadata,
   ): Promise<TransportResponse> {
     // read file as base64
     const arrayBuffer = await file.arrayBuffer();
@@ -319,17 +306,8 @@ export class CharnelLocalTransport implements Transport {
       // tauri-local optimization: wait for job to complete instead of returning job_id
       // this eliminates the need for client-side polling
       wait_for_completion: true,
+      ...metadata,
     };
-
-    // include associate_with if present
-    const associationStr = formData.get("associate_with");
-    if (associationStr && typeof associationStr === "string") {
-      try {
-        body.associate_with = JSON.parse(associationStr);
-      } catch {
-        // ignore parse errors
-      }
-    }
 
     // call through normal request path
     return this.request("POST", path, JSON.stringify(body));

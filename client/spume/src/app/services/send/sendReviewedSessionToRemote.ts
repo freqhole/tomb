@@ -20,34 +20,14 @@ import type { Remote } from "../storage/schemas/remote";
 import { getRemoteById } from "../remotes/remoteManager";
 import { clearPendingSendTarget } from "./pendingSendTargets";
 import { error as logError } from "../../../utils/logger";
+import { emptyProgress, type SendReviewProgress } from "./sendReviewProgress";
 
-/** structural progress snapshot for rendering inline (no toasts). */
-export interface SendReviewProgress {
-  targetName: string;
-  totalAlbums: number;
-  /** includes both successful and failed albums. */
-  completedAlbums: number;
-  failedAlbums: number;
-  currentAlbumTitle: string | null;
-  currentSongsDone: number;
-  currentSongsTotal: number;
-  done: boolean;
-  errors: string[];
-}
-
-function emptyProgress(targetName: string, totalAlbums: number): SendReviewProgress {
-  return {
-    targetName,
-    totalAlbums,
-    completedAlbums: 0,
-    failedAlbums: 0,
-    currentAlbumTitle: null,
-    currentSongsDone: 0,
-    currentSongsTotal: 0,
-    done: false,
-    errors: [],
-  };
-}
+/** re-exported for existing importers (App.tsx, ImportReviewModal.tsx) -
+ * the actual definitions live in sendReviewProgress.ts, a dependency-free
+ * module `importSessionReducer.ts` can also import without dragging in
+ * this file's live api-client/remote-sync machinery. */
+export type { SendReviewProgress };
+export { emptyProgress };
 
 /**
  * send every album in `albumIds` (already imported into `localRemote`) to

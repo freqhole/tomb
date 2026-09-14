@@ -9,10 +9,9 @@ import {
   MusicUploadResponseSchema,
   VideoUploadResponseSchema,
 } from "../codegen/schema.js";
-import type { Transport } from "../transport.js";
+import type { Transport, UploadMetadata } from "../transport.js";
 import type { SafeParseResult } from "./types.js";
 import { toZodError } from "../errors.js";
-import { appendImportSendTarget, type ImportSendTarget } from "../importSendTarget.js";
 
 // helper to parse response and validate with schema
 function parseResponse<T>(
@@ -55,8 +54,21 @@ export type UploadImageOptions = {
 /** "review before send" annotation - see grimoire's
  * import_session_send_targetz. when set, the session this upload lands
  * in gets tagged so any client (any device, any restart) can see it
- * should ultimately be sent to this remote once reviewed. */
-export type ImportSendTargetOptions = ImportSendTarget;
+ * should ultimately be sent to this remote once reviewed. ergonomic
+ * camelCase call-site shape - converted to `UploadMetadata`'s snake_case
+ * wire fields at the `transport.upload()` boundary below. */
+export interface ImportSendTargetOptions {
+  targetRemoteId?: string;
+  targetRemoteName?: string;
+}
+
+function toUploadMetadata(options?: ImportSendTargetOptions): UploadMetadata | undefined {
+  if (!options?.targetRemoteId && !options?.targetRemoteName) return undefined;
+  return {
+    target_remote_id: options.targetRemoteId,
+    target_remote_name: options.targetRemoteName,
+  };
+}
 
 export function createUploadMethods(transport: Transport) {
   return {
@@ -72,9 +84,13 @@ export function createUploadMethods(transport: Transport) {
     ): Promise<SafeParseResult<s.MusicUploadResponse>> => {
       const formData = new FormData();
       formData.append("file", file);
-      appendImportSendTarget(formData, options);
 
-      const response = await transport.upload("/api/upload/music", formData, onProgress);
+      const response = await transport.upload(
+        "/api/upload/music",
+        formData,
+        onProgress,
+        toUploadMetadata(options),
+      );
       return parseResponse(response.body, response.status, MusicUploadResponseSchema);
     },
 
@@ -153,11 +169,11 @@ export function createUploadMethods(transport: Transport) {
       const formData = new FormData();
       formData.append("file", file);
 
-      if (options?.associate) {
-        formData.append("associate_with", JSON.stringify(options.associate));
-      }
+      const metadata: UploadMetadata | undefined = options?.associate
+        ? { associate_with: options.associate }
+        : undefined;
 
-      const response = await transport.upload("/api/upload/image", formData);
+      const response = await transport.upload("/api/upload/image", formData, undefined, metadata);
       return parseResponse(response.body, response.status, ImageUploadResponseSchema);
     },
 

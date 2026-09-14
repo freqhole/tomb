@@ -323,3 +323,159 @@ pub async fn album_pending(
         }),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    async fn init_test_env(data_dir: &std::path::Path) {
+        let config_toml = format!(
+            r#"data_dir = "{data_dir}"
+
+[database]
+filename = "grimoire.db"
+
+[media]
+max_fs_file_size = 104857600
+supported_audio_formats = ["mp3", "flac"]
+
+[musicbrainz]
+enabled = false
+
+[logging]
+level = "warn"
+"#,
+            data_dir = data_dir.display()
+        );
+        let config_path = data_dir.join("freqhole-config.toml");
+        std::fs::write(&config_path, config_toml).expect("write config");
+        std::fs::write(data_dir.join("grimoire.db"), b"").expect("touch grimoire.db");
+
+        crate::config::init_config(Some(config_path)).expect("init config");
+        database::run_migrations().await.expect("run migrations");
+    }
+
+    /// regression test for the exact bug that motivated `import_session_send_targetz`
+    /// (§1/finding in docs/add-media-review-refactor-plan.md, tomb repo): once every
+    /// blob in a session is marked reviewed, `list_pending_sessions` stops returning
+    /// that session entirely (its query filters `WHERE ib.reviewed_at IS NULL`) - the
+    /// send target must still be readable directly via `get_session_send_target`,
+    /// independent of review completion.
+    ///
+    /// cargo test -p grimoire --lib -- --ignored --exact music::entities::import_review::repository::tests::test_session_send_target_survives_review_completion
+    #[tokio::test]
+    #[ignore = "needs its own process: touches the real db pool singletons"]
+    async fn test_session_send_target_survives_review_completion() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        init_test_env(tmp.path()).await;
+        let pool = database::connect().await.expect("connect");
+
+        // seed: uploader, one album+song backed by one media blob, all part of
+        // one import session.
+        sqlx::query(
+            "INSERT INTO user_accountz (id, username, role) VALUES ('user1', 'uploader', 'member')",
+        )
+        .execute(&pool)
+        .await
+        .expect("insert user");
+
+        sqlx::query(
+            "INSERT INTO job_sessionz (id, job_type, created_by) VALUES ('sess1', 'music_import', 'user1')",
+        )
+        .execute(&pool)
+        .await
+        .expect("insert session");
+
+        sqlx::query(
+            "INSERT INTO media_blobz (id, sha256, blob_type, created_by) VALUES ('blob0001', ?, 'original', 'user1')",
+        )
+        .bind("a".repeat(64))
+        .execute(&pool)
+        .await
+        .expect("insert media blob");
+
+        sqlx::query(
+            "INSERT INTO import_blobz (media_blob_id, session_id) VALUES ('blob0001', 'sess1')",
+        )
+        .execute(&pool)
+        .await
+        .expect("insert import_blobz row");
+
+        sqlx::query("INSERT INTO albumz (id, title) VALUES ('album1', 'test album')")
+            .execute(&pool)
+            .await
+            .expect("insert album");
+
+        sqlx::query(
+            "INSERT INTO songz (id, media_blob_id, title) VALUES ('song1', 'blob0001', 'test song')",
+        )
+        .execute(&pool)
+        .await
+        .expect("insert song");
+
+        sqlx::query("INSERT INTO album_songz (album_id, song_id) VALUES ('album1', 'song1')")
+            .execute(&pool)
+            .await
+            .expect("insert album_songz link");
+
+        // tag the session with a send target, as offal/upload/music.rs does at
+        // session-creation time.
+        set_session_send_target("sess1", "remote-1", "my remote")
+            .await
+            .expect("set send target");
+
+        // sanity check: the session is visible while still pending.
+        let pending_before = list_pending_sessions("user1", true, None)
+            .await
+            .expect("list pending sessions before review");
+        assert_eq!(
+            pending_before.len(),
+            1,
+            "session should be pending before review"
+        );
+        assert_eq!(
+            pending_before[0].target_remote_id.as_deref(),
+            Some("remote-1")
+        );
+
+        // mark the only album in the session reviewed - this drains every
+        // pending blob, so list_pending_sessions' join stops matching it.
+        mark_album_reviewed("album1", "sess1", "user1")
+            .await
+            .expect("mark album reviewed");
+
+        let pending_after = list_pending_sessions("user1", true, None)
+            .await
+            .expect("list pending sessions after review");
+        assert_eq!(
+            pending_after.len(),
+            0,
+            "session must no longer appear as pending once fully reviewed"
+        );
+
+        // the actual regression check: the send target must still be readable
+        // directly, independent of the (now empty) pending-sessions view.
+        let target = get_session_send_target("sess1")
+            .await
+            .expect("get session send target");
+        assert_eq!(target.target_remote_id.as_deref(), Some("remote-1"));
+        assert_eq!(target.target_remote_name.as_deref(), Some("my remote"));
+    }
+
+    /// a session with no send target ever set (a purely local import) must
+    /// report both fields as `None`, not an error or empty strings.
+    ///
+    /// cargo test -p grimoire --lib -- --ignored --exact music::entities::import_review::repository::tests::test_session_send_target_absent_when_never_set
+    #[tokio::test]
+    #[ignore = "needs its own process: touches the real db pool singletons"]
+    async fn test_session_send_target_absent_when_never_set() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        init_test_env(tmp.path()).await;
+
+        let target = get_session_send_target("no-such-session")
+            .await
+            .expect("get session send target");
+        assert_eq!(target.target_remote_id, None);
+        assert_eq!(target.target_remote_name, None);
+    }
+}

@@ -64,6 +64,7 @@
     "d3-quadtree": "^3.0.1",
     "eslint": "^9.0.0",
     "eslint-plugin-solid": "^0.14.5",
+    "fake-indexeddb": "^6.2.5",
     "idb": "^8.0.3",
     "jsdom": "^29.1.1",
     "music-metadata": "^11.12.1",
