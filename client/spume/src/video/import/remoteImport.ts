@@ -40,6 +40,10 @@ export interface VideoUploadJob {
   remoteId?: string;
   /** job session id - set after completion; used to open import review */
   sessionId?: string;
+  /** resolved video id for this job's file, once known - used by
+   * checkAutoSendForCompletedVideoSessions to send a session that never
+   * needed interactive review (mirrors music's `songId`/`albumId`). */
+  videoId?: string;
   /** short human-readable outcome for a directory (batch) import, e.g.
    * "6 added, 2 already in library" - set when the resolved job result
    * carries per-file counts (ProcessDirectory jobs) rather than a single
@@ -110,30 +114,40 @@ export function updateJobStatus(
   );
 }
 
-// resolve a completed job's session_id (used to open import review) - a
-// trimmed version of music/import/remoteImport.ts's `resolveJobEntities`
-// (video review only needs the session id, not entity ids).
-async function resolveVideoJobSessionId(
-  client: FreqholeClient,
-  jobId: string
-): Promise<string | undefined> {
+// resolve a completed job's session_id/video_id/duplicate flag from its
+// server-side result - mirrors music/import/remoteImport.ts's
+// `parseJobResult`/`resolveJobEntities`, trimmed to what video needs.
+function parseVideoJobResult(raw: string | null | undefined): {
+  videoId?: string;
+  isDuplicate?: boolean;
+} {
+  if (!raw) return {};
   try {
-    const statusResp = await client.music.getJobStatus({ job_ids: [jobId] });
-    if (!statusResp.success || !statusResp.data) return undefined;
-    return statusResp.data.jobs[jobId]?.session_id ?? undefined;
+    const v = JSON.parse(raw) as Record<string, unknown>;
+    return {
+      videoId: typeof v["video_id"] === "string" ? (v["video_id"] as string) : undefined,
+      isDuplicate:
+        typeof v["is_duplicate"] === "boolean" ? (v["is_duplicate"] as boolean) : undefined,
+    };
   } catch {
-    return undefined;
+    return {};
   }
 }
 
-function updateJobSessionId(id: string, sessionId: string | undefined) {
-  if (!sessionId) return;
-  setVideoUploadJobs(
-    (j) => j.id === id,
-    produce((j) => {
-      j.sessionId = sessionId;
-    })
-  );
+async function resolveVideoJobEntities(
+  client: FreqholeClient,
+  jobId: string
+): Promise<{ sessionId?: string; videoId?: string; isDuplicate?: boolean }> {
+  try {
+    const statusResp = await client.music.getJobStatus({ job_ids: [jobId] });
+    if (!statusResp.success || !statusResp.data) return {};
+    const row = statusResp.data.jobs[jobId];
+    if (!row) return {};
+    const fromResult = parseVideoJobResult(row.result ?? null);
+    return { ...fromResult, sessionId: row.session_id ?? undefined };
+  } catch {
+    return {};
+  }
 }
 
 // merge entity ids/summary onto a tracked job once resolved from the
@@ -141,13 +155,14 @@ function updateJobSessionId(id: string, sessionId: string | undefined) {
 // `updateJobEntities`.
 function updateJobEntities(
   id: string,
-  ids: { remoteId?: string; sessionId?: string; resultSummary?: string }
+  ids: { remoteId?: string; sessionId?: string; videoId?: string; resultSummary?: string }
 ) {
   setVideoUploadJobs(
     (j) => j.id === id,
     produce((j) => {
       if (ids.remoteId) j.remoteId = ids.remoteId;
       if (ids.sessionId) j.sessionId = ids.sessionId;
+      if (ids.videoId) j.videoId = ids.videoId;
       if (ids.resultSummary) j.resultSummary = ids.resultSummary;
     })
   );
@@ -240,8 +255,8 @@ export async function uploadVideoFilesToRemote(
         });
         if (pollResult.status === "completed") {
           updateJobStatus(trackId, "completed");
-          void resolveVideoJobSessionId(client, jobId).then((sid) =>
-            updateJobSessionId(trackId, sid)
+          void resolveVideoJobEntities(client, jobId).then((ids) =>
+            updateJobEntities(trackId, ids)
           );
           onJobComplete?.();
         } else if (pollResult.status === "timeout") {
@@ -322,9 +337,9 @@ export async function uploadVideoPathsToRemote(
         });
         if (pollResult.status === "completed") {
           updateJobStatus(trackId, "completed");
-          void resolveVideoJobSessionId(client, jobId).then((sid) => {
-            updateJobSessionId(trackId, sid);
-            if (sid) onSessionResolved?.(sid);
+          void resolveVideoJobEntities(client, jobId).then((ids) => {
+            updateJobEntities(trackId, ids);
+            if (ids.sessionId) onSessionResolved?.(ids.sessionId);
           });
           onJobComplete?.();
         } else if (pollResult.status === "timeout") {
@@ -507,7 +522,8 @@ export async function importVideoPathsToLocal(
                   : updateJobStage(trackId, message),
             });
             if (pollResult.status === "completed") {
-              updateJobEntities(trackId, { sessionId });
+              const ids = await resolveVideoJobEntities(client, job.id);
+              updateJobEntities(trackId, { ...ids, sessionId });
               updateJobStatus(trackId, "completed");
               onJobComplete?.();
             } else if (pollResult.status === "timeout") {
@@ -612,8 +628,8 @@ export async function fetchVideoUrlsOnRemote(
         });
         if (pollResult.status === "completed") {
           updateJobStatus(trackId, "completed");
-          void resolveVideoJobSessionId(client, jobId).then((sid) =>
-            updateJobSessionId(trackId, sid)
+          void resolveVideoJobEntities(client, jobId).then((ids) =>
+            updateJobEntities(trackId, ids)
           );
           onJobComplete?.();
         } else if (pollResult.status === "timeout") {

@@ -31,50 +31,12 @@ import {
   getReviewBackend,
   resolveActiveReviewRemote,
 } from "../../music/services/review/reviewBackend";
-import { JobPoller } from "../../app/services/jobs/jobService";
-import type {
-  PreCheckFetchResponse,
-  PendingReviewSession,
-  PendingVideoReviewSession,
-} from "@freqhole/api-client";
+import type { PendingReviewSession, PendingVideoReviewSession } from "@freqhole/api-client";
 import { ImportPendingReviewCard } from "../import/ImportPendingReviewCard";
 import { ImportVideoPendingReviewCard } from "../import/ImportVideoPendingReviewCard";
+import { useUrlPrecheck } from "../import/useUrlPrecheck";
 import { debug } from "../../utils/logger";
 import { toast } from "../feedback/Toast";
-
-// ---------------------------------------------------------------------------
-// module-level precheck state so it survives the modal being closed/reopened
-// while a job is still running (mirrors the old AddMusicModal/AddVideoModal's
-// identical pattern - merged here since both used the exact same
-// client.music.createPrecheckFetchJob/getJobStatus/cancelJob calls anyway).
-// ---------------------------------------------------------------------------
-
-type UrlPrecheckState = "idle" | "checking" | "confirm" | "error";
-type MediaDomain = "music" | "video" | "both";
-
-const [_urlPrecheckState, _setUrlPrecheckState] = createSignal<UrlPrecheckState>("idle");
-const [_precheckResult, _setPrecheckResult] = createSignal<PreCheckFetchResponse | null>(null);
-const [_precheckError, _setPrecheckError] = createSignal<string | null>(null);
-const [_precheckUrls, _setPrecheckUrls] = createSignal<string[]>([]);
-const [_precheckJobId, _setPrecheckJobId] = createSignal<string | null>(null);
-// running count emitted by precheck_progress stage events
-const [_precheckLiveCount, _setPrecheckLiveCount] = createSignal<number | null>(null);
-// 1-based index of the url currently being prechecked, out of
-// _precheckUrls().length - each pasted url gets its own precheck job (the
-// backend only ever prechecks one url per job), run sequentially and
-// merged into one combined result for the confirm screen.
-const [_precheckUrlIndex, _setPrecheckUrlIndex] = createSignal(0);
-// set by handlePrecheckCancel to stop the sequential precheck loop between
-// (or mid-) url iterations - not a signal since it's only read synchronously
-// inside the loop, never rendered.
-let _precheckAbortRequested = false;
-// bulk domain choice for the currently in-flight (or about to be
-// submitted) url batch. lives at module level for the same reopen-survival
-// reason as the rest of the precheck state.
-const [_urlDomain, _setUrlDomain] = createSignal<MediaDomain>("music");
-
-// active poller instance - stopped when cancel is called
-let _activePoller: JobPoller | null = null;
 
 export interface AddMediaModalProps {
   /** whether modal is open */
@@ -301,15 +263,9 @@ export function AddMediaModal(props: AddMediaModalProps) {
     }
   };
 
-  // aliases to module-level signals so the rest of the component reads normally
-  const urlPrecheckState = _urlPrecheckState;
-  const precheckResult = _precheckResult;
-  const precheckError = _precheckError;
-  const precheckUrls = _precheckUrls;
-  const precheckLiveCount = _precheckLiveCount;
-  const precheckUrlIndex = _precheckUrlIndex;
-  const urlDomain = _urlDomain;
-  const setUrlDomain = _setUrlDomain;
+  // url-precheck (yt-dlp) state + orchestration - see useUrlPrecheck.ts's
+  // doc comment for why it's module-level state behind a hook.
+  const precheck = useUrlPrecheck();
 
   const useNativeDialog = () => !!props.useCharnelDialog;
 
@@ -432,7 +388,7 @@ export function AddMediaModal(props: AddMediaModalProps) {
   };
 
   const submitUrls = (urls: string[]) => {
-    const domain = urlDomain();
+    const domain = precheck.domain();
     if (domain === "music" || domain === "both") props.onMusicUrlsSubmitted?.(urls);
     if (domain === "video" || domain === "both") props.onVideoUrlsSubmitted?.(urls);
   };
@@ -446,174 +402,18 @@ export function AddMediaModal(props: AddMediaModalProps) {
   };
 
   const handlePrecheckUrls = async () => {
-    const urls = parseUrls();
-    if (urls.length === 0) return;
-
-    const remote = getCurrentRemote();
-    if (!remote) return;
-
-    _setPrecheckUrls(urls);
-    _setPrecheckError(null);
-    _setPrecheckResult(null);
-    _setPrecheckLiveCount(null);
-    _setPrecheckJobId(null);
-    _setPrecheckUrlIndex(0);
-    setShowFullItemList(false);
-    _setUrlPrecheckState("checking");
-    _precheckAbortRequested = false;
-
-    const client = await getClientForRemote(remote);
-    // each pasted url gets its own precheck job (the backend only ever
-    // prechecks one url per job) - run them sequentially and merge the
-    // results below into one combined response for the confirm screen.
-    const results: PreCheckFetchResponse[] = [];
-    const failedUrls: string[] = [];
-    let itemsSoFar = 0;
-
-    for (let i = 0; i < urls.length; i++) {
-      if (_precheckAbortRequested) return;
-      _setPrecheckUrlIndex(i + 1);
-      const url = urls[i];
-
-      try {
-        const result = await client.music.createPrecheckFetchJob({ url });
-        if (!result.success) {
-          failedUrls.push(url);
-          continue;
-        }
-
-        const jobId = result.data.id;
-        _setPrecheckJobId(jobId);
-
-        const poller = new JobPoller(remote, 3000);
-        _activePoller = poller;
-        const baseCount = itemsSoFar;
-        const pollResult = await poller.waitForJob(jobId, 600_000, {
-          onStage: (stage, message) => {
-            if (stage === "precheck_progress" && message) {
-              // parse "found N item(s)..." to show a running count
-              const m = message.match(/(\d+)/);
-              if (m) _setPrecheckLiveCount(baseCount + parseInt(m[1], 10));
-            }
-          },
-        });
-        _activePoller = null;
-        if (_precheckAbortRequested) return;
-
-        let parsed: PreCheckFetchResponse | null = null;
-        if (pollResult.status === "completed") {
-          const jobResp = await client.music.getJobStatus({ job_ids: [jobId] });
-          const jobData = jobResp.success
-            ? (jobResp.data as { jobs: Record<string, { result?: string | null }> })
-            : null;
-          const job = jobData?.jobs?.[jobId];
-          if (job?.result) parsed = JSON.parse(job.result) as PreCheckFetchResponse;
-        } else if (pollResult.status === "timeout") {
-          // if it timed out while the modal is closed and then reopened,
-          // we still want to recover the result - check job status once
-          const snap = await client.music.getJobStatus({ job_ids: [jobId] });
-          const snapData = snap.success
-            ? (snap.data as { jobs: Record<string, { status?: string; result?: string | null }> })
-            : null;
-          const snapJob = snapData?.jobs?.[jobId];
-          if (snapJob?.status === "Completed" && snapJob.result) {
-            parsed = JSON.parse(snapJob.result) as PreCheckFetchResponse;
-          }
-        }
-
-        if (parsed) {
-          results.push(parsed);
-          itemsSoFar += parsed.item_count;
-          _setPrecheckLiveCount(itemsSoFar);
-        } else {
-          failedUrls.push(url);
-        }
-      } catch {
-        failedUrls.push(url);
-      }
-    }
-
-    _activePoller = null;
-    _setPrecheckJobId(null);
-
-    if (results.length === 0) {
-      _setPrecheckError(
-        urls.length === 1 ? "precheck failed" : `precheck failed for all ${urls.length} urls`
-      );
-      _setUrlPrecheckState("error");
-      return;
-    }
-
-    // merge per-url responses into one combined preview - playlist_title/
-    // platform only make sense to surface when every url agreed on them
-    // (or there's just the one url, the common case).
-    const merged: PreCheckFetchResponse = {
-      item_count: results.reduce((n, r) => n + r.item_count, 0),
-      playlist_title: results.length === 1 ? results[0].playlist_title : null,
-      platform: results.every((r) => r.platform === results[0].platform)
-        ? results[0].platform
-        : null,
-      total_duration_seconds: results.some((r) => r.total_duration_seconds != null)
-        ? results.reduce((n, r) => n + (r.total_duration_seconds ?? 0), 0)
-        : null,
-      items: results.flatMap((r) => r.items ?? []),
-      duplicate_count: results.reduce((n, r) => n + r.duplicate_count, 0),
-    };
-
-    _setPrecheckResult(merged);
-    _setUrlPrecheckState("confirm");
-
-    if (failedUrls.length > 0) {
-      toast.warning(
-        `couldn't preview ${failedUrls.length} of ${urls.length} url${urls.length !== 1 ? "s" : ""} - they'll still be downloaded if you continue`,
-        { title: "partial precheck" }
-      );
-    }
+    await precheck.start(parseUrls(), () => setShowFullItemList(false));
   };
 
   const handlePrecheckConfirm = () => {
-    const urls = precheckUrls();
-    if (urls.length > 0) {
+    precheck.confirm((urls) => {
       submitUrls(urls);
       setUrlText("");
-    }
-    _setUrlPrecheckState("idle");
-    _setPrecheckResult(null);
-    _setPrecheckUrls([]);
-    _setPrecheckJobId(null);
-    _setPrecheckLiveCount(null);
-    _setPrecheckUrlIndex(0);
+    });
   };
 
   const handlePrecheckCancel = async () => {
-    // stop the sequential precheck loop between/mid url iterations, and
-    // stop the local poller subscription immediately
-    _precheckAbortRequested = true;
-    _activePoller?.stop();
-    _activePoller = null;
-
-    // tell the server to cancel so it kills the yt-dlp process
-    const jobId = _precheckJobId();
-    if (jobId) {
-      const remote = getCurrentRemote();
-      if (remote) {
-        try {
-          const client = await getClientForRemote(remote);
-          await client.music.cancelJob({ job_id: jobId });
-        } catch {
-          // best-effort, don't block the UI
-        }
-      }
-    }
-
-    _setUrlPrecheckState("idle");
-    _setPrecheckResult(null);
-    _setPrecheckError(null);
-    _setPrecheckUrls([]);
-    _setPrecheckJobId(null);
-    _setPrecheckLiveCount(null);
-    _setPrecheckUrlIndex(0);
-    setShowFullItemList(false);
+    await precheck.cancel(() => setShowFullItemList(false));
   };
 
   const formatDuration = (seconds: number | null | undefined): string => {
@@ -853,10 +653,10 @@ export function AddMediaModal(props: AddMediaModalProps) {
         class="px-3 py-1 text-xs rounded-l border border-[var(--color-border-default)] transition-colors"
         classList={{
           "bg-[var(--color-accent-500)] text-white border-[var(--color-accent-500)]":
-            urlDomain() === "music",
-          "text-[var(--color-text-secondary)]": urlDomain() !== "music",
+            precheck.domain() === "music",
+          "text-[var(--color-text-secondary)]": precheck.domain() !== "music",
         }}
-        onClick={() => setUrlDomain("music")}
+        onClick={() => precheck.setDomain("music")}
       >
         music
       </button>
@@ -865,10 +665,10 @@ export function AddMediaModal(props: AddMediaModalProps) {
         class="px-3 py-1 text-xs border-t border-b border-l-0 border-[var(--color-border-default)] transition-colors"
         classList={{
           "bg-[var(--color-accent-500)] text-white border-[var(--color-accent-500)]":
-            urlDomain() === "video",
-          "text-[var(--color-text-secondary)]": urlDomain() !== "video",
+            precheck.domain() === "video",
+          "text-[var(--color-text-secondary)]": precheck.domain() !== "video",
         }}
-        onClick={() => setUrlDomain("video")}
+        onClick={() => precheck.setDomain("video")}
       >
         video
       </button>
@@ -877,10 +677,10 @@ export function AddMediaModal(props: AddMediaModalProps) {
         class="px-3 py-1 text-xs rounded-r border border-l-0 border-[var(--color-border-default)] transition-colors"
         classList={{
           "bg-[var(--color-accent-500)] text-white border-[var(--color-accent-500)]":
-            urlDomain() === "both",
-          "text-[var(--color-text-secondary)]": urlDomain() !== "both",
+            precheck.domain() === "both",
+          "text-[var(--color-text-secondary)]": precheck.domain() !== "both",
         }}
-        onClick={() => setUrlDomain("both")}
+        onClick={() => precheck.setDomain("both")}
       >
         both
       </button>
@@ -998,9 +798,9 @@ export function AddMediaModal(props: AddMediaModalProps) {
 
                   <TabPanel id="urls">
                     {/* precheck confirm screen */}
-                    <Show when={urlPrecheckState() === "confirm" && precheckResult() !== null}>
+                    <Show when={precheck.state() === "confirm" && precheck.result() !== null}>
                       {(_) => {
-                        const r = precheckResult()!;
+                        const r = precheck.result()!;
                         const PREVIEW_COUNT = 5;
                         const previewItems = r.items?.slice(0, PREVIEW_COUNT) ?? [];
                         const remainingCount = (r.items?.length ?? 0) - PREVIEW_COUNT;
@@ -1120,23 +920,23 @@ export function AddMediaModal(props: AddMediaModalProps) {
                     </Show>
 
                     {/* precheck running */}
-                    <Show when={urlPrecheckState() === "checking"}>
+                    <Show when={precheck.state() === "checking"}>
                       <div class="flex flex-col items-center justify-center py-12 gap-3">
                         <div class="w-2 h-2 rounded-full bg-[var(--color-accent-500)] animate-pulse" />
                         <Show
-                          when={precheckLiveCount() !== null}
+                          when={precheck.liveCount() !== null}
                           fallback={
                             <p class="body-small text-[var(--color-text-secondary)]">
-                              {precheckUrls().length > 1
-                                ? `checking url ${precheckUrlIndex()} of ${precheckUrls().length}...`
+                              {precheck.urls().length > 1
+                                ? `checking url ${precheck.urlIndex()} of ${precheck.urls().length}...`
                                 : "checking url..."}
                             </p>
                           }
                         >
                           <p class="body-small text-[var(--color-text-secondary)]">
-                            found {precheckLiveCount()} item{precheckLiveCount() !== 1 ? "s" : ""}
-                            {precheckUrls().length > 1
-                              ? ` (url ${precheckUrlIndex()} of ${precheckUrls().length})`
+                            found {precheck.liveCount()} item{precheck.liveCount() !== 1 ? "s" : ""}
+                            {precheck.urls().length > 1
+                              ? ` (url ${precheck.urlIndex()} of ${precheck.urls().length})`
                               : ""}
                             ...
                           </p>
@@ -1148,11 +948,13 @@ export function AddMediaModal(props: AddMediaModalProps) {
                     </Show>
 
                     {/* precheck error */}
-                    <Show when={urlPrecheckState() === "error"}>
+                    <Show when={precheck.state() === "error"}>
                       <div class="space-y-4">
                         <div class="text-center">
                           <p class="body-small text-red-400 mb-1">precheck failed</p>
-                          <p class="body-xs text-[var(--color-text-tertiary)]">{precheckError()}</p>
+                          <p class="body-xs text-[var(--color-text-tertiary)]">
+                            {precheck.error()}
+                          </p>
                         </div>
                         <div class="flex gap-2 justify-center">
                           <Button variant="secondary" onClick={() => void handlePrecheckCancel()}>
@@ -1166,7 +968,7 @@ export function AddMediaModal(props: AddMediaModalProps) {
                     </Show>
 
                     {/* url input (idle state) */}
-                    <Show when={urlPrecheckState() === "idle"}>
+                    <Show when={precheck.state() === "idle"}>
                       <div class="space-y-4">
                         <div class="text-center mb-4">
                           <h3 class="heading-6 text-[var(--color-text-primary)] mb-2">

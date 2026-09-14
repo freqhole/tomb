@@ -183,10 +183,10 @@ export function App() {
       // for this target - see importSessionReducer.ts's doc comment for why
       // this makes the stale-progress-on-reopen bug structurally impossible
       // rather than something that has to be remembered to reset by hand.
-      dispatchImportSession(reviewTargetKey(remote as unknown as CurrentRemoteInfo | null), {
-        type: "opened",
-        sessionId: sid,
-      });
+      dispatchImportSession(
+        reviewTargetKey(remote as unknown as CurrentRemoteInfo | null, "music"),
+        { type: "opened", sessionId: sid }
+      );
     });
   }
   // incremented when the review modal closes - triggers AddMediaModal to refetch pending sessions
@@ -196,14 +196,16 @@ export function App() {
   // target-registry key for whichever remote a review session is against -
   // "local" sentinel for the browser-local/charnel-managed backend, so
   // switching targets in the future (§11) never blends two sessions' state.
-  const reviewTargetKey = (remote: CurrentRemoteInfo | null) =>
-    remote?.remote_id ?? LOCAL_TARGET_KEY;
+  // prefixed by domain so a music session and a video session both destined
+  // for the same remote never share (and blend) one registry entry.
+  const reviewTargetKey = (remote: CurrentRemoteInfo | null, domain: "music" | "video") =>
+    `${domain}:${remote?.remote_id ?? LOCAL_TARGET_KEY}`;
   // non-null while a send is running or has just finished for the
   // currently-displayed review session - derived from the registry (not its
   // own signal) so a freshly-opened session can never inherit a previous
   // session's stale progress (finding A).
   const reviewSendProgress = (): SendReviewProgress | null => {
-    const state = importSessionState(reviewTargetKey(reviewRemote()));
+    const state = importSessionState(reviewTargetKey(reviewRemote(), "music"));
     return state.kind === "sending" || state.kind === "done" ? state.progress : null;
   };
 
@@ -222,18 +224,13 @@ export function App() {
     batch(() => {
       setReviewVideoRemote(remote);
       setReviewVideoSessionId(sid);
+      dispatchImportSession(reviewTargetKey(remote, "video"), { type: "opened", sessionId: sid });
     });
   }
   // last video session id that completed review - triggers AddMediaModal to auto-dismiss its card
   const [completedVideoReviewSessionId, setCompletedVideoReviewSessionId] = createSignal<
     string | null
   >(null);
-  // last non-empty set of video ids seen for the current video review
-  // session - captured so the drain-to-zero effect below still has
-  // something to send once groups() reports empty (mirrors music's
-  // albumsSeen tracking in the registry, kept as a plain signal here since
-  // video isn't wired onto useImportSessionFlow yet).
-  const [reviewVideoIds, setReviewVideoIds] = createSignal<string[]>([]);
   // signals the AddRemoteModal to auto-complete setup for a peer (device-linked / knock-accepted)
   const [autoCompletePeerAddr, setAutoCompletePeerAddr] = createSignal<string | null>(null);
   const [shareToken, setShareToken] = createSignal<string | null>(null);
@@ -284,14 +281,17 @@ export function App() {
     if (!sid) return;
     const ids = importReview.albums().map((a) => a.id);
     if (ids.length === 0) return;
-    dispatchImportSession(reviewTargetKey(reviewRemote()), { type: "albumsSeen", albumIds: ids });
+    dispatchImportSession(reviewTargetKey(reviewRemote(), "music"), {
+      type: "albumsSeen",
+      albumIds: ids,
+    });
   });
 
   createEffect(() => {
     if (reviewSessionId() && !importReview.loading() && importReview.albums().length === 0) {
       const sid = reviewSessionId()!;
       const localRemote = reviewRemote();
-      const key = reviewTargetKey(localRemote);
+      const key = reviewTargetKey(localRemote, "music");
 
       // guard against this effect re-firing for a session that's already
       // moved past "reviewing" (e.g. a second, spurious zero-albums read
@@ -353,7 +353,10 @@ export function App() {
     if (!sid) return;
     const ids = videoImportReview.groups().flatMap((g) => g.videos.map((v) => v.id));
     if (ids.length === 0) return;
-    setReviewVideoIds(ids);
+    dispatchImportSession(reviewTargetKey(reviewVideoRemote(), "video"), {
+      type: "albumsSeen",
+      albumIds: ids,
+    });
   });
 
   createEffect(() => {
@@ -364,29 +367,48 @@ export function App() {
     ) {
       const sid = reviewVideoSessionId();
       const localRemote = reviewVideoRemote();
-      const videoIds = reviewVideoIds();
+      const key = reviewTargetKey(localRemote, "video");
+
+      // guard against this effect re-firing for a session that's already
+      // moved past "reviewing" - mirrors music's identical guard above.
+      const state = importSessionState(key);
+      if (!sid || state.kind !== "reviewing" || state.sessionId !== sid) return;
+      const videoIds = state.albumIds;
+
       if (sid) setCompletedVideoReviewSessionId(sid);
       setReviewVideoSessionId(null);
       setReviewVideoRemote(null);
-      setReviewVideoIds([]);
       setReviewRefetchKey((k) => k + 1);
       openAddMedia();
 
       // durable send target set at import time (see useVideoImportReview's
       // targetRemoteId/targetRemoteName) - mirrors the equivalent music
-      // effect above, sans inline modal progress (video isn't on the
-      // registry yet - progress is still visible via the video upload-job
-      // list sendReviewedVideosToRemote reports into).
+      // effect above, sans inline modal progress (video's review modal has
+      // no send-progress UI yet - see the refactor plan doc's phase-5
+      // scoping note - progress is still visible via the video upload-job
+      // list sendReviewedVideosToRemote reports into). unlike music, video
+      // closes the modal immediately regardless of whether a send target
+      // exists (no "stay open showing progress" UX to preserve here).
       const targetId = videoImportReview.targetRemoteId();
       const targetName = videoImportReview.targetRemoteName();
-      if (sid && localRemote && targetId && targetName && videoIds.length > 0) {
+      const target = targetId && targetName ? { id: targetId, name: targetName } : null;
+      dispatchImportSession(key, { type: "albumsDrained", target });
+
+      if (target && localRemote && videoIds.length > 0) {
+        const onProgress = (progress: SendReviewProgress) =>
+          dispatchImportSession(key, { type: "sendProgress", progress });
         void sendReviewedVideosToRemote(
           sid,
-          targetId,
-          targetName,
+          target.id,
+          target.name,
           localRemote as unknown as Remote,
-          videoIds
-        );
+          videoIds,
+          onProgress
+        ).then(() => {
+          dispatchImportSession(key, { type: "sendFinished" });
+        });
+      } else {
+        dispatchImportSession(key, { type: "closed" });
       }
     }
   });
@@ -1185,6 +1207,65 @@ export function App() {
     }
   }
 
+  // sessions dispatched (or currently being checked) by
+  // checkAutoSendForCompletedVideoSessions - same reasoning as
+  // autoSendClaimedSessions above, kept separate since video sessions and
+  // music sessions never share an id.
+  const autoSendClaimedVideoSessions = new Set<string>();
+
+  // video counterpart of checkAutoSendForCompletedSessions above - same bug
+  // shape: a locally-imported video session where every file resolved as an
+  // exact duplicate never gets a "review now" card (no pending groups), so
+  // the interactive review-drain effect never runs and a registered
+  // pendingSendTarget would otherwise never get acted on.
+  async function checkAutoSendForCompletedVideoSessions() {
+    const bySession = new Map<string, { videoIds: Set<string>; allSettled: boolean }>();
+    for (const j of getVideoUploadJobs()) {
+      if (!j.sessionId || !getPendingSendTarget(j.sessionId)) continue;
+      if (autoSendClaimedVideoSessions.has(j.sessionId)) continue;
+      let entry = bySession.get(j.sessionId);
+      if (!entry) {
+        entry = { videoIds: new Set(), allSettled: true };
+        bySession.set(j.sessionId, entry);
+      }
+      if (j.videoId) entry.videoIds.add(j.videoId);
+      if (j.status !== "completed" && j.status !== "failed") entry.allSettled = false;
+    }
+
+    for (const [sid, entry] of bySession) {
+      if (!entry.allSettled || entry.videoIds.size === 0) continue;
+      const target = getPendingSendTarget(sid);
+      if (!target) continue;
+
+      autoSendClaimedVideoSessions.add(sid);
+      try {
+        const localRemote = await getTauriManagedRemote();
+        if (!localRemote) continue;
+        const client = await getClientForRemote(localRemote as unknown as CurrentRemoteInfo);
+        const pendingResp = await client.video.listPendingVideoImportReview({ session_id: sid });
+        const needsReview =
+          pendingResp.success && (pendingResp.data?.some((s) => s.groups.length > 0) ?? false);
+        // real, unreviewed groups exist - let the interactive review flow
+        // (and its own completion effect) handle this session instead.
+        if (needsReview) {
+          autoSendClaimedVideoSessions.delete(sid);
+          continue;
+        }
+        await sendReviewedVideosToRemote(
+          sid,
+          target.remoteId,
+          target.remoteName,
+          localRemote as unknown as Remote,
+          [...entry.videoIds]
+        );
+        setReviewRefetchKey((k) => k + 1);
+      } catch (e) {
+        autoSendClaimedVideoSessions.delete(sid);
+        debug("app", `video auto-send for session ${sid} failed: ${String(e)}`);
+      }
+    }
+  }
+
   // callback for when any remote job completes — invalidate queries for new music
   const onRemoteJobComplete = () => {
     setHasSongs(true);
@@ -1234,9 +1315,6 @@ export function App() {
       }
       const targetId = remote.remote_id;
       const targetName = remote.name ?? "remote";
-      toast.info(`added to your library - review before sending to ${targetName}`, {
-        title: "add media",
-      });
       await uploadFilesToRemote(
         files,
         onRemoteJobComplete,
@@ -1258,11 +1336,6 @@ export function App() {
       const target = remote
         ? { remoteId: remote.remote_id, remoteName: remote.name ?? "remote" }
         : undefined;
-      if (target) {
-        toast.info(`added to your library - review before sending to ${target.remoteName}`, {
-          title: "add media",
-        });
-      }
       const result = await importMusicFiles(files, target);
       if (result.addedCount > 0) {
         setHasSongs(true);
@@ -1349,9 +1422,6 @@ export function App() {
       }
       const targetId = remote.remote_id;
       const targetName = remote.name ?? "remote";
-      toast.info(`added to your library - review before sending to ${targetName}`, {
-        title: "add media",
-      });
       await importPathsToLocal(
         audioFilePaths,
         onRemoteJobComplete,
@@ -1394,6 +1464,7 @@ export function App() {
   // callback for when any remote video job completes — invalidate video queries
   const onRemoteVideoJobComplete = () => {
     setHasVideos(true);
+    void checkAutoSendForCompletedVideoSessions();
     queryClient.invalidateQueries({
       predicate: (query) => {
         const key = query.queryKey[0];
@@ -1493,9 +1564,6 @@ export function App() {
       }
       const targetId = remote.remote_id;
       const targetName = remote.name ?? "remote";
-      toast.info(`added to your library - review before sending to ${targetName}`, {
-        title: "add media",
-      });
       await importVideoPathsToLocal(
         videoFilePaths,
         onRemoteVideoJobComplete,
@@ -1660,7 +1728,7 @@ export function App() {
           // rendering its own progress would be confusing to reopen into.
           const sending = reviewSendProgress();
           if (sending && !sending.done) return;
-          const key = reviewTargetKey(reviewRemote());
+          const key = reviewTargetKey(reviewRemote(), "music");
           setReviewSessionId(null);
           setReviewRemote(null);
           dispatchImportSession(key, { type: "closed" });
@@ -1720,6 +1788,9 @@ export function App() {
         isOpen={reviewVideoSessionId() !== null}
         loading={videoImportReview.loading()}
         onClose={() => {
+          dispatchImportSession(reviewTargetKey(reviewVideoRemote(), "video"), {
+            type: "closed",
+          });
           setReviewVideoSessionId(null);
           setReviewVideoRemote(null);
           setReviewRefetchKey((k) => k + 1);
