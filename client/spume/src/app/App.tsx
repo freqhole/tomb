@@ -1,7 +1,7 @@
 // main app entry point with routing
 import { HashRouter } from "@solidjs/router";
 import { useQueryClient } from "@tanstack/solid-query";
-import { createEffect, createSignal, on, onCleanup, onMount, Show } from "solid-js";
+import { createEffect, createSignal, on, onCleanup, onMount, Show, batch } from "solid-js";
 import { EmptyState } from "../components/EmptyState";
 import { ConfigChangedToast } from "../components/feedback/ConfigChangedToast";
 import { toast } from "../components/feedback/Toast";
@@ -52,7 +52,6 @@ import {
   importMusicFiles,
   importPathsToLocal,
   uploadFilesToRemote,
-  uploadPathsToRemote,
 } from "../music/import";
 import {
   hideBulkEditVideos,
@@ -96,7 +95,7 @@ import { debug } from "../utils/logger";
 import { extractShareTokenFromHash, SHARE_HASH_PARAM } from "../utils/permalink";
 import { addRemoteRequest } from "./services/remotes/addRemoteRequest";
 import { AUDIO_EXTS, VIDEO_EXTS } from "../utils/filePicker";
-import { onMiddenReady } from "./api/client";
+import { onMiddenReady, getClientForRemote } from "./api/client";
 import { routes } from "./routes";
 import {
   getConfig,
@@ -113,12 +112,19 @@ import {
   createRemote,
   getAllRemotes,
   getRemoteByPeerAddr,
+  getTauriManagedRemote,
   markRemoteOffline,
   onRemoteStatusChange,
   refreshTauriRemoteTimestamp,
   upsertTauriRemote,
 } from "./services/remotes/remoteManager";
 import { drainIdbRemotesToSqlite } from "./services/remotes/drainIdbToSqlite";
+import { setPendingSendTarget, getPendingSendTarget } from "./services/send/pendingSendTargets";
+import {
+  sendReviewedAlbumsToRemote,
+  type SendReviewProgress,
+} from "./services/send/sendReviewedSessionToRemote";
+import type { Remote } from "./services/storage/schemas/remote";
 import { checkPendingKnockApprovals } from "./services/remotes/pendingKnockChecker";
 import {
   applyServiceWorkerUpdate,
@@ -151,15 +157,30 @@ export function App() {
   // stable even if the user navigates to a different remote while reviewing
   const [reviewRemote, setReviewRemote] = createSignal<CurrentRemoteInfo | null>(null);
 
-  // open a review session, capturing the active remote at this moment
-  function openReviewSession(sid: string) {
-    setReviewRemote(getCurrentRemote() ?? null);
-    setReviewSessionId(sid);
+  // open a review session, capturing the active remote at this moment.
+  // in charnel mode this is always the local instance (path-based imports
+  // redirect through local-first import - see handlePathsSelected), not
+  // whatever remote happens to be selected in the UI.
+  async function openReviewSession(sid: string) {
+    const remote = isCharnelMode() ? await getTauriManagedRemote() : getCurrentRemote();
+    batch(() => {
+      setReviewRemote((remote as unknown as CurrentRemoteInfo) ?? null);
+      setReviewSessionId(sid);
+      setReviewSessionAlbumIds([]);
+    });
   }
   // incremented when the review modal closes - triggers AddMediaModal to refetch pending sessions
   const [reviewRefetchKey, setReviewRefetchKey] = createSignal(0);
+  // non-null while sendReviewedAlbumsToRemote is running for the current
+  // review session - rendered inline in ImportReviewModal instead of toasts.
+  const [reviewSendProgress, setReviewSendProgress] = createSignal<SendReviewProgress | null>(null);
   // last session id that completed review - triggers AddMediaModal to auto-dismiss its card
   const [completedReviewSessionId, setCompletedReviewSessionId] = createSignal<string | null>(null);
+  // every album id seen in this review session so far - albums disappear from
+  // importReview.albums() as soon as they're marked reviewed, so this is the
+  // only way to know the session's full album set once it drains to zero
+  // (needed to send them all to the pending remote target, if any).
+  const [reviewSessionAlbumIds, setReviewSessionAlbumIds] = createSignal<string[]>([]);
 
   // session id for the video import review modal - set when user clicks "review now"
   const [reviewVideoSessionId, setReviewVideoSessionId] = createSignal<string | null>(null);
@@ -168,8 +189,10 @@ export function App() {
 
   // open a video review session, capturing the active remote at this moment
   function openReviewVideoSession(sid: string) {
-    setReviewVideoRemote(getCurrentRemote() ?? null);
-    setReviewVideoSessionId(sid);
+    batch(() => {
+      setReviewVideoRemote(getCurrentRemote() ?? null);
+      setReviewVideoSessionId(sid);
+    });
   }
   // last video session id that completed review - triggers AddMediaModal to auto-dismiss its card
   const [completedVideoReviewSessionId, setCompletedVideoReviewSessionId] = createSignal<
@@ -221,9 +244,56 @@ export function App() {
   // marks everything reviewed server-side), treat it as a completion so the
   // add-media modal re-opens for the next pending session.
   createEffect(() => {
+    const sid = reviewSessionId();
+    if (!sid) return;
+    const ids = importReview.albums().map((a) => a.id);
+    if (ids.length === 0) return;
+    setReviewSessionAlbumIds((prev) => Array.from(new Set([...prev, ...ids])));
+  });
+
+  createEffect(() => {
     if (reviewSessionId() && !importReview.loading() && importReview.albums().length === 0) {
-      const sid = reviewSessionId();
-      if (sid) setCompletedReviewSessionId(sid);
+      const sid = reviewSessionId()!;
+      const localRemote = reviewRemote();
+      const albumIds = reviewSessionAlbumIds();
+      const target = getPendingSendTarget(sid);
+
+      // destined for a real remote: keep the review modal open and render
+      // send progress inline in it instead of closing immediately - actual
+      // close/cleanup happens once sendReviewedAlbumsToRemote resolves.
+      if (target && localRemote && albumIds.length > 0) {
+        if (reviewSendProgress() !== null) return; // already sending
+        setReviewSendProgress({
+          targetName: target.remoteName,
+          totalAlbums: albumIds.length,
+          completedAlbums: 0,
+          failedAlbums: 0,
+          currentAlbumTitle: null,
+          currentSongsDone: 0,
+          currentSongsTotal: 0,
+          done: false,
+          errors: [],
+        });
+        void sendReviewedAlbumsToRemote(
+          sid,
+          target.remoteId,
+          target.remoteName,
+          localRemote as unknown as Remote,
+          albumIds,
+          setReviewSendProgress
+        ).then(() => {
+          setCompletedReviewSessionId(sid);
+          setReviewSessionId(null);
+          setReviewRemote(null);
+          setReviewSendProgress(null);
+          setReviewRefetchKey((k) => k + 1);
+          openAddMedia();
+        });
+        return;
+      }
+
+      // no pending send target - close immediately, same as before.
+      setCompletedReviewSessionId(sid);
       setReviewSessionId(null);
       setReviewRemote(null);
       setReviewRefetchKey((k) => k + 1);
@@ -966,10 +1036,74 @@ export function App() {
     tauriUnlisteners = [];
   });
 
+  // sessions dispatched (or currently being checked) by
+  // checkAutoSendForCompletedSessions - prevents re-entrant/duplicate sends.
+  const autoSendClaimedSessions = new Set<string>();
+
+  // a locally-imported session that needed NO review at all (e.g. every
+  // file resolved as an exact duplicate already in the local library, or
+  // matched existing metadata outright) never gets a "review now" card -
+  // reviewableSessions() only shows sessions with pending review albums -
+  // so the user never opens it, and the normal "drained to zero while the
+  // review modal is open" completion effect never runs for it either. that
+  // left such sessions permanently stuck in the local library with a
+  // registered pendingSendTarget nobody ever acted on. this checks
+  // pendingSendTargets directly against completed upload jobs and sends
+  // review-free sessions immediately, instead of requiring the interactive
+  // review flow to have run at all.
+  async function checkAutoSendForCompletedSessions() {
+    const bySession = new Map<string, { albumIds: Set<string>; allSettled: boolean }>();
+    for (const j of getUploadJobs()) {
+      if (!j.sessionId || !getPendingSendTarget(j.sessionId)) continue;
+      if (autoSendClaimedSessions.has(j.sessionId)) continue;
+      let entry = bySession.get(j.sessionId);
+      if (!entry) {
+        entry = { albumIds: new Set(), allSettled: true };
+        bySession.set(j.sessionId, entry);
+      }
+      if (j.albumId) entry.albumIds.add(j.albumId);
+      if (j.status !== "completed" && j.status !== "failed") entry.allSettled = false;
+    }
+
+    for (const [sid, entry] of bySession) {
+      if (!entry.allSettled || entry.albumIds.size === 0) continue;
+      const target = getPendingSendTarget(sid);
+      if (!target) continue;
+
+      autoSendClaimedSessions.add(sid);
+      try {
+        const localRemote = await getTauriManagedRemote();
+        if (!localRemote) continue;
+        const client = await getClientForRemote(localRemote as unknown as CurrentRemoteInfo);
+        const pendingResp = await client.music.listPendingImportReview({ session_id: sid });
+        const needsReview =
+          pendingResp.success && (pendingResp.data?.some((s) => s.albums.length > 0) ?? false);
+        // real, unreviewed albums exist - let the interactive review flow
+        // (and its own completion effect) handle this session instead.
+        if (needsReview) {
+          autoSendClaimedSessions.delete(sid);
+          continue;
+        }
+        await sendReviewedAlbumsToRemote(
+          sid,
+          target.remoteId,
+          target.remoteName,
+          localRemote as unknown as Remote,
+          [...entry.albumIds]
+        );
+        setReviewRefetchKey((k) => k + 1);
+      } catch (e) {
+        autoSendClaimedSessions.delete(sid);
+        debug("app", `auto-send for session ${sid} failed: ${String(e)}`);
+      }
+    }
+  }
+
   // callback for when any remote job completes — invalidate queries for new music
   const onRemoteJobComplete = () => {
     setHasSongs(true);
     setReviewRefetchKey((k) => k + 1);
+    void checkAutoSendForCompletedSessions();
     queryClient.invalidateQueries({
       predicate: (query) => {
         const key = query.queryKey[0];
@@ -998,8 +1132,28 @@ export function App() {
     const remote = getCurrentRemote();
 
     if (remote) {
-      // remote upload: fire-and-forget, jobs are tracked reactively
-      await uploadFilesToRemote(files, onRemoteJobComplete);
+      // android (and any platform that can only produce `File` objects,
+      // never real paths - see filePicker.ts) lands here instead of
+      // handlePathsSelected, so it needs the same local-first redirect:
+      // import into the local library, tag the session(s) with this
+      // remote, and let the "review before send" flow send it once
+      // reviewed. this used to OOM-crash the android webview because
+      // CharnelLocalTransport buffered the whole file into one base64 IPC
+      // payload - it now streams in bounded chunks instead (see
+      // CharnelLocalTransport.uploadChunked), so this redirect is safe.
+      const localRemote = await getTauriManagedRemote();
+      if (!localRemote) {
+        toast.error("local library isn't set up yet", { title: "import error" });
+        return;
+      }
+      const targetId = remote.remote_id;
+      const targetName = remote.name ?? "remote";
+      toast.info(`added to your library - review before sending to ${targetName}`, {
+        title: "add media",
+      });
+      await uploadFilesToRemote(files, onRemoteJobComplete, localRemote, (sessionId) =>
+        setPendingSendTarget(sessionId, { remoteId: targetId, remoteName: targetName })
+      );
     } else {
       // local import: process files into IndexedDB/OPFS
       // progress is tracked reactively via getLocalImportProgress()
@@ -1094,11 +1248,29 @@ export function App() {
       return;
     }
 
-    // P2P remote: upload each file via iroh-blobs pull model
+    // P2P remote: import into the local library first (so metadata can be
+    // reviewed/fixed), tag the session with this remote, and send it once
+    // review completes - see the "review before send" add-media flow.
     // (import into local blobs store, then remote peer pulls via verified streaming)
     if (remote.peer_addr) {
       const audioFilePaths = await expandPathsToAudioFiles(paths);
-      await uploadPathsToRemote(audioFilePaths, onRemoteJobComplete);
+      const localRemote = await getTauriManagedRemote();
+      if (!localRemote) {
+        toast.error("local library isn't set up yet", { title: "import error" });
+        return;
+      }
+      const targetId = remote.remote_id;
+      const targetName = remote.name ?? "remote";
+      toast.info(`added to your library - review before sending to ${targetName}`, {
+        title: "add media",
+      });
+      await importPathsToLocal(
+        audioFilePaths,
+        onRemoteJobComplete,
+        (sessionId) =>
+          setPendingSendTarget(sessionId, { remoteId: targetId, remoteName: targetName }),
+        localRemote
+      );
       return;
     }
 
@@ -1237,7 +1409,14 @@ export function App() {
       return;
     }
 
-    // P2P remote: upload each file via iroh-blobs pull model
+    // P2P remote: upload each file via iroh-blobs pull model.
+    // TODO(review-before-send, video): music's equivalent branch redirects
+    // through local import + review before sending (see handlePathsSelected
+    // above) - video can't do that yet because there's no "push an
+    // already-local video to a remote" mechanism at all (unlike music's
+    // sendToRemote.ts, syncVideoViaLocalGrimoire.ts only pulls INTO local).
+    // that needs to be built first; redirecting here without it would stem
+    // videos in local review with no way to actually reach the remote.
     if (remote.peer_addr) {
       const videoFilePaths = await expandPathsToVideoFiles(paths);
       await uploadVideoPathsToRemote(videoFilePaths, onRemoteVideoJobComplete);
@@ -1391,7 +1570,14 @@ export function App() {
       <ImportReviewModal
         isOpen={reviewSessionId() !== null}
         loading={importReview.loading()}
+        sendTargetName={getPendingSendTarget(reviewSessionId())?.remoteName}
+        sendProgress={reviewSendProgress()}
         onClose={() => {
+          // don't abandon an in-flight send - it keeps running in the
+          // background regardless, but closing mid-send while still
+          // rendering its own progress would be confusing to reopen into.
+          const sending = reviewSendProgress();
+          if (sending && !sending.done) return;
           setReviewSessionId(null);
           setReviewRemote(null);
           setReviewRefetchKey((k) => k + 1);
@@ -1401,13 +1587,11 @@ export function App() {
         }}
         albums={importReview.albums()}
         onComplete={() => {
-          const sid = reviewSessionId();
-          if (sid) setCompletedReviewSessionId(sid);
-          setReviewSessionId(null);
-          setReviewRemote(null);
-          setReviewRefetchKey((k) => k + 1);
-          // re-open to let the user pick the next pending review
-          openAddMedia();
+          // no-op: the createEffect watching albums().length === 0 (above)
+          // is what actually completes the session and (if there's a
+          // pending send target) drives the inline send progress - it fires
+          // reliably once the server-side mark-reviewed call lands, whereas
+          // this callback fires synchronously on click, before that.
         }}
         onMergeAlbums={(sourceIds: string[], targetId: string) =>
           void importReview.mergeAlbums(sourceIds, targetId)

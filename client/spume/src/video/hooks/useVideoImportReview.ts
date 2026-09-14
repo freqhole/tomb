@@ -13,7 +13,7 @@
 //   review.markReviewed(groupKey)
 //   review.refetch()
 
-import { createSignal, createResource, createMemo } from "solid-js";
+import { createSignal, createResource, createMemo, createEffect } from "solid-js";
 import { getClientForRemote } from "../../app/api/client";
 import { getRemoteMediaUrl } from "../../utils/urls";
 import type { CurrentRemoteInfo } from "../../music/data/currentState";
@@ -147,6 +147,18 @@ export function useVideoImportReview(
     );
   });
 
+  // data.latest keeps returning the PREVIOUS session's (already-empty)
+  // group list while a new session's fetch is in flight - see
+  // useImportReview.ts's identical resolvedForSid for the full reasoning.
+  const [resolvedForSid, setResolvedForSid] = createSignal<string | null>(null);
+  createEffect(() => {
+    const k = key();
+    if (!k) return;
+    if (data.state === "ready" || data.state === "errored") {
+      setResolvedForSid(k[0]);
+    }
+  });
+
   function refetch() {
     setReloadKey((n) => n + 1);
   }
@@ -247,7 +259,11 @@ export function useVideoImportReview(
     // data.latest keeps the previous value during a source-change refetch,
     // same reasoning as useImportReview.ts
     groups: () => data.latest ?? data() ?? [],
-    loading: () => (data.loading && !data.latest) || data.state === "unresolved",
+    loading: () => {
+      const sid = sessionId();
+      if (sid !== resolvedForSid()) return true;
+      return (data.loading && !data.latest) || data.state === "unresolved";
+    },
     error,
     clearError: () => setError(null),
     patchGroup,

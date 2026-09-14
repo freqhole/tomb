@@ -1,12 +1,10 @@
 // local import service - handles adding music files to the local IndexedDB/OPFS library
 import { createSignal } from "solid-js";
 import { processMusicFiles } from "./fileProcessor";
-import {
-  createSong,
-  getSongBySha256,
-} from "../services/storage/db";
+import { createSong, getSongBySha256 } from "../services/storage/db";
 import { computeSHA256 } from "../../utils/hash";
 import { debug, warn } from "../../utils/logger";
+import { errorMessageFrom } from "../../utils/humanizeJobError";
 
 export interface ImportResult {
   addedCount: number;
@@ -36,7 +34,8 @@ const IDLE_PROGRESS: LocalImportProgress = {
 };
 
 // reactive signal for local import progress
-const [localImportProgress, setLocalImportProgress] = createSignal<LocalImportProgress>(IDLE_PROGRESS);
+const [localImportProgress, setLocalImportProgress] =
+  createSignal<LocalImportProgress>(IDLE_PROGRESS);
 
 /** get reactive local import progress */
 export function getLocalImportProgress() {
@@ -106,7 +105,7 @@ export async function importMusicFiles(files: FileList): Promise<ImportResult> {
     if (existingSong) {
       debug(
         "localImport",
-        `skipping duplicate (sha256 match): ${songData.file_name} - already exists as song id ${existingSong.id}`,
+        `skipping duplicate (sha256 match): ${songData.file_name} - already exists as song id ${existingSong.id}`
       );
       skippedCount++;
       continue;
@@ -116,22 +115,28 @@ export async function importMusicFiles(files: FileList): Promise<ImportResult> {
     try {
       await createSong(songData);
       addedCount++;
-      debug("localImport", `added: ${songData.file_name} (sha256: ${songData.sha256.slice(0, 8)}...)`);
+      debug(
+        "localImport",
+        `added: ${songData.file_name} (sha256: ${songData.sha256.slice(0, 8)}...)`
+      );
     } catch (error) {
       // handle constraint error (duplicate sha256 from race condition or stale index)
-      if (error instanceof Error && error.name === 'ConstraintError') {
+      if (error instanceof Error && error.name === "ConstraintError") {
         warn(
           "localImport",
-          `skipping duplicate (constraint error): ${songData.file_name} - sha256 ${songData.sha256.slice(0, 8)}... already exists in database`,
+          `skipping duplicate (constraint error): ${songData.file_name} - sha256 ${songData.sha256.slice(0, 8)}... already exists in database`
         );
-        warn("localImport", 'this suggests getSongBySha256 did not find the existing song - possible stale index');
+        warn(
+          "localImport",
+          "this suggests getSongBySha256 did not find the existing song - possible stale index"
+        );
         skippedCount++;
       } else {
         // re-throw unexpected errors
         setLocalImportProgress((prev) => ({
           ...prev,
           phase: "error",
-          errorMessage: error instanceof Error ? error.message : "unknown error",
+          errorMessage: errorMessageFrom(error),
         }));
         throw error;
       }

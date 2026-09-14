@@ -15,6 +15,7 @@ pub use iroh_blobs::protocol::ALPN as BLOBS_ALPN;
 
 use crate::error::{GrimoireError, GrimoireResult};
 use iroh_blobs::Hash;
+use std::path::PathBuf;
 
 /// begin a chunked upload. creates an empty temp file and returns an
 /// upload_id the caller passes to `append_chunk` / `finish_chunked_import`.
@@ -77,5 +78,40 @@ pub async fn abort_chunked_import(upload_id: &str) -> GrimoireResult<()> {
         .await
         .abort(upload_id)
         .await;
+    Ok(())
+}
+
+/// finish a chunked upload WITHOUT adopting it into the iroh-blobs store -
+/// just returns the accumulated temp file's path, clearing the upload
+/// session. for local (same-device, non-P2P) uploads that hand the path to
+/// an existing file-path upload route (e.g. `upload_music`/`upload_video`)
+/// instead of registering a new p2p-servable blob. the caller must delete
+/// the returned path once done with it via `delete_chunked_import_temp_file`.
+pub async fn finish_chunked_import_to_path(upload_id: &str) -> GrimoireResult<PathBuf> {
+    crate::database::chunked_import()
+        .await
+        .finish_to_path(upload_id)
+        .await
+        .map_err(|e| GrimoireError::ProcessingFailed {
+            message: format!("failed to finish chunked import to path: {}", e),
+        })
+}
+
+/// delete a file produced by `finish_chunked_import_to_path`, once the
+/// caller has consumed it. refuses to delete anything outside the
+/// chunked-import temp directory, so this can't be pointed at an arbitrary
+/// path even if a caller passed one back incorrectly.
+pub async fn delete_chunked_import_temp_file(path: &std::path::Path) -> GrimoireResult<()> {
+    let temp_dir = crate::database::chunked_import().await.dir().to_path_buf();
+    if !path.starts_with(&temp_dir) {
+        return Err(GrimoireError::ProcessingFailed {
+            message: format!(
+                "refusing to delete path outside chunked-import temp dir: {}",
+                path.display()
+            ),
+        });
+    }
+    // best-effort - the file may already be gone, that's fine.
+    let _ = tokio::fs::remove_file(path).await;
     Ok(())
 }

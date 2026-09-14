@@ -458,13 +458,19 @@ pub async fn p2p_import_blob_bytes(data: String) -> Result<String, String> {
     Ok(blake3)
 }
 
-/// begin a chunked blob import for P2P serving
+/// begin a chunked blob import.
 ///
 /// used on Android where the file picker returns File objects (no filesystem
 /// path) and tauri IPC is JSON-only, so a large file can't be sent in one
 /// payload. the client streams the file in bounded chunks; the receiver
 /// accumulates them in a temp file on disk so neither side holds the whole
 /// file in memory. returns an upload_id to pass to the chunk/finish commands.
+///
+/// shared by both P2P uploads (finished via `p2p_import_finish`, which
+/// adopts the file into the p2p-servable blobs store) and local, same-device
+/// uploads (finished via `local_import_finish`, which just hands back the
+/// temp file path for an existing `file_path`-based upload route) - the
+/// begin/chunk/abort steps are identical either way.
 #[tauri::command]
 pub async fn p2p_import_begin() -> Result<String, String> {
     grimoire::blobz::begin_chunked_import()
@@ -505,4 +511,28 @@ pub async fn p2p_import_abort(upload_id: String) -> Result<(), String> {
     grimoire::blobz::abort_chunked_import(&upload_id)
         .await
         .map_err(|e| format!("{}: failed to abort chunked import: {}", e.error_type(), e))
+}
+
+/// finish a chunked import for a LOCAL (same-device, non-P2P) upload:
+/// unlike `p2p_import_finish`, this does not adopt the file into the
+/// p2p-servable blobs store - it just returns the accumulated temp file's
+/// path, for handing to an existing `file_path`-based upload route (e.g.
+/// `/api/upload/music`, `/api/upload/video`). the caller must clean up the
+/// returned path afterward via `local_import_cleanup`.
+#[tauri::command]
+pub async fn local_import_finish(upload_id: String) -> Result<String, String> {
+    let path = grimoire::blobz::finish_chunked_import_to_path(&upload_id)
+        .await
+        .map_err(|e| format!("{}: failed to finish chunked import: {}", e.error_type(), e))?;
+    Ok(path.to_string_lossy().to_string())
+}
+
+/// delete a temp file produced by `local_import_finish`, once the caller
+/// has handed its path to an upload route and no longer needs it. refuses
+/// to delete anything outside the chunked-import temp directory.
+#[tauri::command]
+pub async fn local_import_cleanup(file_path: String) -> Result<(), String> {
+    grimoire::blobz::delete_chunked_import_temp_file(std::path::Path::new(&file_path))
+        .await
+        .map_err(|e| format!("{}: failed to clean up temp file: {}", e.error_type(), e))
 }

@@ -90,6 +90,8 @@ commands.allow = [
     "p2p_import_chunk",
     "p2p_import_finish",
     "p2p_import_abort",
+    "local_import_finish",
+    "local_import_cleanup",
     "p2p_close_connection",
     "p2p_close_all_connections",
     "radio_tune",

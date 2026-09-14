@@ -7,13 +7,13 @@
 // union is reused rather than redefined.
 import { createStore, produce } from "solid-js/store";
 import type { FreqholeClient } from "@freqhole/api-client";
-import { getClientForRemote } from "../../app/api/client";
+import { getClientForRemote, type RemoteLike } from "../../app/api/client";
 import { JobPoller } from "../../app/services/jobs/jobService";
 import { toast } from "../../components/feedback/Toast";
 import { getCurrentRemote, getCurrentUser } from "../../music/data";
 import type { UploadJobStatus } from "../../music/import";
 import { humanizeJobError as humanizeJobErrorShared } from "../../utils/humanizeJobError";
-import { extractTransportErrorType } from "../../utils/humanizeJobError";
+import { extractTransportErrorType, errorMessageFrom } from "../../utils/humanizeJobError";
 
 export interface VideoUploadJob {
   /** unique client-side id */
@@ -241,7 +241,7 @@ export async function uploadVideoFilesToRemote(
           onJobComplete?.();
         }
       } catch (error) {
-        const msg = error instanceof Error ? error.message : "unknown error";
+        const msg = errorMessageFrom(error);
         const friendly = humanizeJobError(msg, extractTransportErrorType(error));
         updateJobStatus(trackId, "failed", { error: friendly.short, errorFull: friendly.full });
       }
@@ -256,16 +256,24 @@ export async function uploadVideoFilesToRemote(
  */
 export async function uploadVideoPathsToRemote(
   paths: string[],
-  onJobComplete?: () => void
+  onJobComplete?: () => void,
+  /** import against this remote instead of whatever's currently selected -
+   * used to force local-first import (see the add-media "review before
+   * sending" flow). */
+  targetRemote?: RemoteLike,
+  /** fired once a file's session_id is known - video has no batch-by-paths
+   * endpoint, so each path resolves its session independently rather than
+   * sharing one session_id like music's importPathsToLocal does. */
+  onSessionResolved?: (sessionId: string) => void
 ): Promise<void> {
-  const remote = getCurrentRemote();
+  const remote = targetRemote ?? getCurrentRemote();
   if (!remote) throw new Error("no active remote");
 
   const poller = new JobPoller(remote, 3000);
 
   for (const filePath of paths) {
     const filename = filePath.split("/").pop() || filePath.split("\\").pop() || filePath;
-    const trackId = addTrackedJob(filename, remote.remote_id);
+    const trackId = addTrackedJob(filename, remote.remote_id ?? "");
 
     (async () => {
       try {
@@ -288,9 +296,10 @@ export async function uploadVideoPathsToRemote(
         });
         if (pollResult.status === "completed") {
           updateJobStatus(trackId, "completed");
-          void resolveVideoJobSessionId(client, jobId).then((sid) =>
-            updateJobSessionId(trackId, sid)
-          );
+          void resolveVideoJobSessionId(client, jobId).then((sid) => {
+            updateJobSessionId(trackId, sid);
+            if (sid) onSessionResolved?.(sid);
+          });
           onJobComplete?.();
         } else if (pollResult.status === "timeout") {
           updateJobStatus(trackId, "timeout", {
@@ -312,7 +321,7 @@ export async function uploadVideoPathsToRemote(
           onJobComplete?.();
         }
       } catch (error) {
-        const msg = error instanceof Error ? error.message : "unknown error";
+        const msg = errorMessageFrom(error);
         const friendly = humanizeJobError(msg, extractTransportErrorType(error));
         updateJobStatus(trackId, "failed", { error: friendly.short, errorFull: friendly.full });
       }
@@ -417,7 +426,7 @@ export async function fetchVideoUrlsOnRemote(
           onJobComplete?.();
         }
       } catch (error) {
-        const msg = error instanceof Error ? error.message : "unknown error";
+        const msg = errorMessageFrom(error);
         const friendly = humanizeJobError(msg, undefined);
         updateJobStatus(trackId, "failed", { error: friendly.short, errorFull: friendly.full });
       }

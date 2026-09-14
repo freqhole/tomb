@@ -24,6 +24,7 @@ import { pushModal, popModal } from "../../music/hooks/modals";
 import { pickDirectory, pickFiles, classifyFile, classifyFileName } from "../../utils/filePicker";
 import { getLocalLibraryName } from "../../app/services/storage/db";
 import { getCurrentRemote } from "../../music/data";
+import { getTauriManagedRemote } from "../../app/services/remotes/remoteManager";
 import { getClientForRemote } from "../../app/api/client";
 import { JobPoller } from "../../app/services/jobs/jobService";
 import type {
@@ -147,6 +148,15 @@ export function AddMediaModal(props: AddMediaModalProps) {
     onCleanup(() => popModal(id));
   });
 
+  // in charnel mode, music's path-based imports always redirect through the
+  // local library first (review-before-send flow) - so "review" always means
+  // reviewing local sessions there, regardless of which remote is active.
+  // web/wasm clients still upload directly to whatever remote is current.
+  // video isn't on this flow yet (see the TODO in App.tsx), so its own
+  // pending-sessions query below still uses getCurrentRemote() directly.
+  const resolveReviewRemote = async () =>
+    props.useCharnelDialog ? await getTauriManagedRemote() : getCurrentRemote();
+
   // pending review sessions (music only) - fetched whenever the modal is open.
   // re-fetches when refetchReviewKey changes (e.g. after a review modal closes).
   const [pendingSessions, { refetch: refetchPendingSessions }] = createResource<
@@ -155,7 +165,7 @@ export function AddMediaModal(props: AddMediaModalProps) {
   >(
     () => (props.isOpen ? (props.refetchReviewKey ?? 0) : null),
     async (_key: number | null) => {
-      const remote = getCurrentRemote();
+      const remote = await resolveReviewRemote();
       if (!remote) return [];
       try {
         const client = await getClientForRemote(remote);
@@ -176,6 +186,9 @@ export function AddMediaModal(props: AddMediaModalProps) {
   >(
     () => (props.isOpen ? (props.refetchReviewKey ?? 0) : null),
     async (_key: number | null) => {
+      // video isn't redirected through local-first import yet (see the TODO
+      // in App.tsx's handleVideoPathsSelected), so its review sessions still
+      // live on whatever remote is currently active - unlike music's below.
       const remote = getCurrentRemote();
       if (!remote) return [];
       try {
@@ -197,7 +210,7 @@ export function AddMediaModal(props: AddMediaModalProps) {
   );
 
   const handleMarkSessionReviewed = async (session: PendingReviewSession) => {
-    const remote = getCurrentRemote();
+    const remote = await resolveReviewRemote();
     if (!remote) return;
     setMarkingSessionReviewed(session.session_id);
     try {

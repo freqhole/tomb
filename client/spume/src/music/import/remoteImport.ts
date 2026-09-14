@@ -2,7 +2,7 @@
 // tracks upload/fetch jobs reactively so the UI can show progress
 import { createStore, produce } from "solid-js/store";
 import type { FreqholeClient } from "@freqhole/api-client";
-import { getClientForRemote } from "../../app/api/client";
+import { getClientForRemote, type RemoteLike } from "../../app/api/client";
 import { JobPoller } from "../../app/services/jobs/jobService";
 import { toast } from "../../components/feedback/Toast";
 import { getCurrentRemote, getCurrentUser } from "../data";
@@ -10,6 +10,7 @@ import { warn as logWarn } from "../../utils/logger";
 import {
   humanizeJobError as humanizeJobErrorShared,
   extractTransportErrorType,
+  errorMessageFrom,
   type FriendlyError,
 } from "../../utils/humanizeJobError";
 export type { FriendlyError };
@@ -93,8 +94,10 @@ export function clearAllJobs() {
   setUploadJobs([]);
 }
 
-// add a new tracked job and return its client-side id
-function addTrackedJob(label: string, type: UploadJobType): string {
+// add a new tracked job and return its client-side id - exported so
+// sendReviewedSessionToRemote.ts can show "sending to remote" in the same
+// job list instead of running invisibly (see docs on that call site).
+export function addTrackedJob(label: string, type: UploadJobType): string {
   const id = `upload-${nextJobId++}`;
   const job: UploadJob = {
     id,
@@ -108,7 +111,7 @@ function addTrackedJob(label: string, type: UploadJobType): string {
 }
 
 // update a tracked job's status
-function updateJobStatus(
+export function updateJobStatus(
   id: string,
   status: UploadJobStatus,
   extra?: { jobId?: string; error?: string; errorFull?: string }
@@ -125,7 +128,7 @@ function updateJobStatus(
 }
 
 // update a tracked job's stage label (concise human-readable line).
-function updateJobStage(id: string, stage: string | undefined) {
+export function updateJobStage(id: string, stage: string | undefined) {
   setUploadJobs(
     (j) => j.id === id,
     produce((j) => {
@@ -135,7 +138,7 @@ function updateJobStage(id: string, stage: string | undefined) {
 }
 
 // update a tracked job's upload transfer progress (0..1).
-function updateJobProgress(id: string, progress: number) {
+export function updateJobProgress(id: string, progress: number) {
   setUploadJobs(
     (j) => j.id === id,
     produce((j) => {
@@ -229,7 +232,12 @@ async function resolveJobEntities(
         logWarn("remoteImport", `list_jobs for session ${row.session_id} failed: ${String(e)}`);
       }
     }
-    return null;
+    // this job's own result had no entity ids (e.g. a track merged into a
+    // sibling job's album, with the interesting result living there instead)
+    // and no fallback match was found - still return the session id if we
+    // have one, so callers can track/send-to-remote the review session
+    // rather than silently losing it.
+    return sessionId ? { sessionId } : null;
   } catch (e) {
     logWarn("remoteImport", `resolveJobEntities(${jobId}) failed: ${String(e)}`);
     return null;
@@ -323,12 +331,22 @@ export interface RemoteUploadResult {
  * after all files have been submitted (not after jobs complete).
  * uses batched polling to reduce HTTP overhead when uploading multiple files.
  * @param onJobComplete optional callback when any job finishes (for query invalidation)
+ * @param targetRemote import against this remote instead of whatever's
+ *   currently selected - used to force local-first import on platforms
+ *   (android) that can only ever produce `File` objects, never real paths,
+ *   so can't use `importPathsToLocal`'s batch endpoint (see the "review
+ *   before send" add-media flow).
+ * @param onSessionResolved fired once a file's session_id is known - each
+ *   file uploads (and gets its own job/session) independently, there's no
+ *   shared batch session like `importPathsToLocal`'s musicByPaths call.
  */
 export async function uploadFilesToRemote(
   files: FileList,
-  onJobComplete?: () => void
+  onJobComplete?: () => void,
+  targetRemote?: RemoteLike,
+  onSessionResolved?: (sessionId: string) => void
 ): Promise<void> {
-  const remote = getCurrentRemote();
+  const remote = targetRemote ?? getCurrentRemote();
   if (!remote) throw new Error("no active remote");
 
   const fileArray = Array.from(files);
@@ -364,6 +382,7 @@ export async function uploadFilesToRemote(
         if (pollResult.status === "completed") {
           const ids = await resolveJobEntities(client, jobId);
           if (ids) updateJobEntities(trackId, ids);
+          if (ids?.sessionId) onSessionResolved?.(ids.sessionId);
           updateJobStatus(trackId, "completed");
           onJobComplete?.();
         } else if (pollResult.status === "timeout") {
@@ -391,7 +410,7 @@ export async function uploadFilesToRemote(
           onJobComplete?.();
         }
       } catch (error) {
-        const msg = error instanceof Error ? error.message : "unknown error";
+        const msg = errorMessageFrom(error);
         const friendly = humanizeJobError(msg, extractTransportErrorType(error));
         updateJobStatus(trackId, "failed", { error: friendly.short, errorFull: friendly.full });
       }
@@ -466,7 +485,7 @@ export async function uploadPathsToRemote(
           onJobComplete?.();
         }
       } catch (error) {
-        const msg = error instanceof Error ? error.message : "unknown error";
+        const msg = errorMessageFrom(error);
         const friendly = humanizeJobError(msg, extractTransportErrorType(error));
         updateJobStatus(trackId, "failed", { error: friendly.short, errorFull: friendly.full });
       }
@@ -488,10 +507,14 @@ export async function uploadPathsToRemote(
 export async function importPathsToLocal(
   paths: string[],
   onJobComplete?: () => void,
-  onSessionComplete?: (sessionId: string) => void
+  onSessionComplete?: (sessionId: string) => void,
+  /** import against this remote instead of whatever's currently selected -
+   * used to force local-first import when the active target is a real
+   * remote (see the add-media "review before sending" flow). */
+  targetRemote?: RemoteLike
 ): Promise<void> {
   if (paths.length === 0) return;
-  const remote = getCurrentRemote();
+  const remote = targetRemote ?? getCurrentRemote();
   if (!remote) throw new Error("no active remote");
 
   const client = await getClientForRemote(remote);
@@ -620,7 +643,7 @@ export async function importPathsToLocal(
               onJobComplete?.();
             }
           } catch (err) {
-            const msg = err instanceof Error ? err.message : "unknown error";
+            const msg = errorMessageFrom(err);
             const friendly = humanizeJobError(msg, extractTransportErrorType(err));
             updateJobStatus(trackId, "failed", { error: friendly.short, errorFull: friendly.full });
           } finally {
@@ -733,7 +756,7 @@ export async function fetchUrlsOnRemote(urls: string[], onJobComplete?: () => vo
           onJobComplete?.();
         }
       } catch (error) {
-        const msg = error instanceof Error ? error.message : "unknown error";
+        const msg = errorMessageFrom(error);
         const friendly = humanizeJobError(msg, extractTransportErrorType(error));
         updateJobStatus(trackId, "failed", { error: friendly.short, errorFull: friendly.full });
       }

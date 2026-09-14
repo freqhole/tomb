@@ -32,6 +32,27 @@ export function extractTransportErrorType(error: unknown): string | undefined {
   return undefined;
 }
 
+/**
+ * pull a usable message out of any thrown/rejected value. tauri's
+ * `invoke()` rejects with the raw `String` from a `Result<T, String>`
+ * command - not an `Error` instance - so a plain `error instanceof Error
+ * ? error.message : "unknown error"` check silently discards that string
+ * and reports "unknown error" for every failed tauri command. this also
+ * covers plain objects with a `.message` field, and falls back to
+ * `String(error)` before giving up.
+ */
+export function errorMessageFrom(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error === "string" && error.trim()) return error;
+  if (error && typeof error === "object" && "message" in error) {
+    const message = (error as { message?: unknown }).message;
+    if (typeof message === "string" && message.trim()) return message;
+  }
+  if (error === undefined || error === null) return "unknown error";
+  const stringified = String(error);
+  return stringified && stringified !== "[object Object]" ? stringified : "unknown error";
+}
+
 export function humanizeJobError(
   message: string | undefined,
   errorType: string | undefined,

@@ -8,6 +8,7 @@ import type { BlobProgressCallback } from "./WasmTransport.js";
 import { isTauriRuntime } from "./tauriRuntime.js";
 import type { CloseReason, EventFilter, JobEvent, JobStateSnapshot } from "./codegen/schema.js";
 import { JobEventsStreamClosed } from "./CharnelLocalTransport.js";
+import { bytesToBase64 } from "./base64.js";
 
 // tauri invoke function type
 type InvokeFn = (cmd: string, args?: unknown) => Promise<unknown>;
@@ -184,17 +185,6 @@ function base64ToBytes(base64: string): Uint8Array {
     bytes[i] = binaryString.charCodeAt(i);
   }
   return bytes;
-}
-
-/**
- * encode Uint8Array to base64 string
- */
-function bytesToBase64(bytes: Uint8Array): string {
-  let binary = "";
-  for (let i = 0; i < bytes.length; i++) {
-    binary += String.fromCharCode(bytes[i]);
-  }
-  return btoa(binary);
 }
 
 /**

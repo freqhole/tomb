@@ -14,7 +14,7 @@
 //   review.markReviewed(albumId)
 //   review.refetch()
 
-import { createSignal, createResource, createMemo } from "solid-js";
+import { createSignal, createResource, createMemo, createEffect } from "solid-js";
 import { getClientForRemote } from "../../app/api/client";
 import { getRemoteMediaUrl } from "../../utils/urls";
 import { toast } from "../../components/feedback/Toast";
@@ -204,6 +204,19 @@ export function useImportReview(
     return results;
   });
 
+  // data.latest keeps returning the PREVIOUS session's (already-empty) album
+  // list while a new session's fetch is in flight, which used to make a
+  // brand-new review session look instantly "complete" (0 albums, not
+  // loading) before it ever loaded - see resolvedForSid below.
+  const [resolvedForSid, setResolvedForSid] = createSignal<string | null>(null);
+  createEffect(() => {
+    const k = key();
+    if (!k) return;
+    if (data.state === "ready" || data.state === "errored") {
+      setResolvedForSid(k[0]);
+    }
+  });
+
   function refetch() {
     setReloadKey((n) => n + 1);
   }
@@ -317,8 +330,16 @@ export function useImportReview(
     // treat "unresolved" (key just became non-null, fetch hasn't started) as
     // loading is only true on the initial fetch (no previous data).
     // during a source-change refetch, data.latest keeps the previous value
-    // so we can keep showing the editor without a loading spinner.
-    loading: () => (data.loading && !data.latest) || data.state === "unresolved",
+    // so we can keep showing the editor without a loading spinner. but if
+    // this exact session id hasn't resolved even once yet, always report
+    // loading - otherwise a new session starting from a stale, already-empty
+    // data.latest (from the PREVIOUS session) reads as "done, zero albums"
+    // before its own fetch has even run.
+    loading: () => {
+      const sid = sessionId();
+      if (sid !== resolvedForSid()) return true;
+      return (data.loading && !data.latest) || data.state === "unresolved";
+    },
     patchAlbum,
     mergeAlbums,
     moveSong,

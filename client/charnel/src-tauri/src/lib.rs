@@ -922,6 +922,8 @@ pub fn run() {
             p2p_commands::p2p_import_chunk,
             p2p_commands::p2p_import_finish,
             p2p_commands::p2p_import_abort,
+            p2p_commands::local_import_finish,
+            p2p_commands::local_import_cleanup,
             p2p_commands::p2p_close_connection,
             p2p_commands::p2p_close_all_connections,
             // radio listener (freqhole-radio/1)

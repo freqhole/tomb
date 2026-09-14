@@ -13,6 +13,7 @@ import { addLocalVideo } from "../services/storage/db/videos";
 import { isCharnelMode } from "../../app/services/charnel";
 import { hashBlake3Streaming } from "@freqhole/reliquary/worker";
 import { debug, warn } from "../../utils/logger";
+import { errorMessageFrom } from "../../utils/humanizeJobError";
 import type { LocalImportProgress } from "../../music/import";
 
 export interface VideoImportResult {
@@ -228,9 +229,7 @@ export async function importVideoFiles(files: File[]): Promise<VideoImportResult
       const msg =
         error instanceof DOMException && error.name === "QuotaExceededError"
           ? "not enough storage space in this browser - try clearing browser storage/cache and try again"
-          : error instanceof Error
-            ? error.message
-            : "unknown error";
+          : errorMessageFrom(error);
       warn("video/localImport", `failed to import ${file.name}:`, error);
       errors.push(`${file.name}: ${msg}`);
     }
