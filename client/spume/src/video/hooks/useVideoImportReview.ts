@@ -59,6 +59,11 @@ export interface ImportReviewVideoGroup {
 export interface VideoImportReviewHandle {
   groups: () => ImportReviewVideoGroup[];
   loading: () => boolean;
+  /** durable send target set at import time (see grimoire's
+   * import_session_send_targetz, shared with music's session tracking) -
+   * `undefined` means this session has no target (purely local import). */
+  targetRemoteId: () => string | undefined;
+  targetRemoteName: () => string | undefined;
   /** last failure from patchGroup/moveVideo/markReviewed, for inline
    * display - never shown as a toast (see ImportVideoReviewEditor.tsx). */
   error: () => string | null;
@@ -101,6 +106,8 @@ export function useVideoImportReview(
 ): VideoImportReviewHandle {
   const [reloadKey, setReloadKey] = createSignal(0);
   const [error, setError] = createSignal<string | null>(null);
+  const [targetRemoteId, setTargetRemoteId] = createSignal<string | undefined>(undefined);
+  const [targetRemoteName, setTargetRemoteName] = createSignal<string | undefined>(undefined);
 
   const key = createMemo<[string, CurrentRemoteInfo, number] | null>(() => {
     const id = sessionId();
@@ -119,6 +126,22 @@ export function useVideoImportReview(
     } catch (err) {
       setError(`failed to reach remote: ${(err as Error).message}`);
       return [];
+    }
+
+    // durable send target, set at import time (see ImportSessionSendTarget
+    // repository - the route itself is domain-agnostic despite living
+    // under `client.music`; sessions aren't scoped to a domain).
+    try {
+      const targetResp = await client.music.getImportSessionTarget({ session_id: sid });
+      setTargetRemoteId(
+        targetResp.success ? (targetResp.data?.target_remote_id ?? undefined) : undefined
+      );
+      setTargetRemoteName(
+        targetResp.success ? (targetResp.data?.target_remote_name ?? undefined) : undefined
+      );
+    } catch {
+      setTargetRemoteId(undefined);
+      setTargetRemoteName(undefined);
     }
 
     const resp = await client.video.listPendingVideoImportReview({ session_id: sid });
@@ -264,6 +287,8 @@ export function useVideoImportReview(
       if (sid !== resolvedForSid()) return true;
       return (data.loading && !data.latest) || data.state === "unresolved";
     },
+    targetRemoteId,
+    targetRemoteName,
     error,
     clearError: () => setError(null),
     patchGroup,

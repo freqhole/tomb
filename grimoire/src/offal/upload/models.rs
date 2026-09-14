@@ -93,6 +93,24 @@ pub struct ImportMusicPathsRequest {
     pub target_remote_name: Option<String>,
 }
 
+/// request for video import by paths (tauri-local optimization) - mirrors
+/// `ImportMusicPathsRequest`.
+#[derive(Debug, Deserialize)]
+pub struct ImportVideoPathsRequest {
+    /// list of file or directory paths to import
+    pub paths: Vec<String>,
+    /// if true, wait for all jobs to complete before returning
+    #[serde(default)]
+    pub wait_for_completion: bool,
+    /// see UploadMusicRequest::target_remote_id - same "review before send"
+    /// annotation, for the batch-paths import route.
+    #[serde(default)]
+    pub target_remote_id: Option<String>,
+    /// snapshot of the target remote's display name at import time.
+    #[serde(default)]
+    pub target_remote_name: Option<String>,
+}
+
 /// request for music upload via iroh-blobs pull model
 ///
 /// the client imports the file into their local iroh-blobs store (gets blake3 hash),

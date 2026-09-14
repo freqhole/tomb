@@ -7766,6 +7766,15 @@ export const VideoSchema = z.object({
 });
 export type Video = z.infer<typeof VideoSchema>;
 
+export const VideoImportResponseSchema = z.object({
+  session_id: z.string(),
+  jobs_created: z.number(),
+  directories_scanned: z.number(),
+  files_skipped: z.number(),
+  message: z.string()
+});
+export type VideoImportResponse = z.infer<typeof VideoImportResponseSchema>;
+
 export const VideoImportReviewOkSchema = z.object({
   ok: z.boolean()
 });

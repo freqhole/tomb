@@ -155,3 +155,19 @@ pub struct MusicImportResponse {
     /// success message
     pub message: String,
 }
+
+/// response for video import by paths (tauri-local) - mirrors
+/// `MusicImportResponse`.
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct VideoImportResponse {
+    /// job session ID for tracking batch progress
+    pub session_id: String,
+    /// number of jobs created (files to process)
+    pub jobs_created: i32,
+    /// number of paths that were directories (scanned recursively)
+    pub directories_scanned: i32,
+    /// number of files skipped (not video or already processed)
+    pub files_skipped: i32,
+    /// success message
+    pub message: String,
+}

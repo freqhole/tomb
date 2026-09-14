@@ -204,6 +204,22 @@ export function AddMediaModal(props: AddMediaModalProps) {
     return sessions.filter((s) => (s.target_remote_id ?? localId) === currentId);
   });
 
+  // session ids (any target, not just the currently-viewed one) that still
+  // have at least one album pending review - cheap cross-reference against
+  // the same pendingSessions fetch above, no extra api calls. lets a
+  // "completed" job row distinguish "actually done" from "imported, but
+  // still needs review" (§9 in the refactor plan) instead of showing a
+  // plain checkmark for both.
+  const sessionsNeedingReviewIds = createMemo(() => {
+    const ids = new Set<string>();
+    for (const s of pendingSessions() ?? []) {
+      if (s.albums.length > 0) ids.add(s.session_id);
+    }
+    return ids;
+  });
+  const jobNeedsReview = (job: UploadJob) =>
+    job.status === "completed" && !!job.sessionId && sessionsNeedingReviewIds().has(job.sessionId);
+
   // pending video review sessions - fetched whenever the modal is open.
   const [videoPendingSessions, { refetch: refetchVideoPendingSessions }] = createResource<
     PendingVideoReviewSession[],
@@ -1469,6 +1485,13 @@ export function AddMediaModal(props: AddMediaModalProps) {
                               <div class="flex-shrink-0 w-4 h-4 flex items-center justify-center">
                                 {job.status === "uploading" || job.status === "polling" ? (
                                   <div class="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
+                                ) : job.status === "completed" &&
+                                  entry.domain === "music" &&
+                                  jobNeedsReview(job as UploadJob) ? (
+                                  <div
+                                    class="w-2 h-2 rounded-full bg-[var(--color-accent-500)]"
+                                    title="needs review"
+                                  />
                                 ) : job.status === "completed" && warning ? (
                                   <Icon
                                     name="recent"
@@ -1518,7 +1541,11 @@ export function AddMediaModal(props: AddMediaModalProps) {
                                   "text-[var(--color-text-secondary)]":
                                     job.status === "uploading" || job.status === "polling",
                                   "text-[var(--color-text-tertiary)]":
-                                    job.status === "completed" && !warning,
+                                    job.status === "completed" &&
+                                    !warning &&
+                                    !(entry.domain === "music" && jobNeedsReview(job as UploadJob)),
+                                  "text-[var(--color-accent-500)]":
+                                    entry.domain === "music" && jobNeedsReview(job as UploadJob),
                                   "text-amber-400":
                                     job.status === "timeout" ||
                                     (job.status === "completed" && !!warning),
@@ -1532,6 +1559,8 @@ export function AddMediaModal(props: AddMediaModalProps) {
                                 class="body-xs flex-shrink-0 text-[var(--color-text-tertiary)] max-w-[60%] truncate"
                                 classList={{
                                   "cursor-pointer hover:underline": job.status === "failed",
+                                  "text-[var(--color-accent-500)]":
+                                    entry.domain === "music" && jobNeedsReview(job as UploadJob),
                                 }}
                                 title={
                                   job.status === "failed"
@@ -1560,7 +1589,9 @@ export function AddMediaModal(props: AddMediaModalProps) {
                                         ? ((job as UploadJob).resultSummary ??
                                           ((job as UploadJob).isDuplicate
                                             ? "already in your library"
-                                            : "done"))
+                                            : jobNeedsReview(job as UploadJob)
+                                              ? "ready to review"
+                                              : "done"))
                                         : warning
                                           ? `done - ${warning}`
                                           : "done"

@@ -40,6 +40,11 @@ export interface VideoUploadJob {
   remoteId?: string;
   /** job session id - set after completion; used to open import review */
   sessionId?: string;
+  /** short human-readable outcome for a directory (batch) import, e.g.
+   * "6 added, 2 already in library" - set when the resolved job result
+   * carries per-file counts (ProcessDirectory jobs) rather than a single
+   * video outcome. */
+  resultSummary?: string;
   /** upload transfer progress (0..1) while status is "uploading" - only
    * populated on transports that can report real byte-level progress
    * (HttpTransport via XHR); stays undefined (indeterminate) on P2P/tauri
@@ -72,7 +77,11 @@ export function clearAllVideoJobs() {
   setVideoUploadJobs([]);
 }
 
-function addTrackedJob(label: string, remoteId: string): string {
+// add a new tracked job and return its client-side id - exported so
+// sendReviewedVideoSessionToRemote.ts can show "sending to remote" in the
+// same job list instead of running invisibly (mirrors music's identical
+// export for the same reason).
+export function addTrackedJob(label: string, remoteId: string): string {
   const id = `video-upload-${nextVideoJobId++}`;
   const job: VideoUploadJob = {
     id,
@@ -85,7 +94,7 @@ function addTrackedJob(label: string, remoteId: string): string {
   return id;
 }
 
-function updateJobStatus(
+export function updateJobStatus(
   id: string,
   status: UploadJobStatus,
   extra?: { jobId?: string; error?: string; errorFull?: string }
@@ -127,7 +136,24 @@ function updateJobSessionId(id: string, sessionId: string | undefined) {
   );
 }
 
-function updateJobStage(id: string, stage: string | undefined) {
+// merge entity ids/summary onto a tracked job once resolved from the
+// server-side job result - mirrors music/import/remoteImport.ts's
+// `updateJobEntities`.
+function updateJobEntities(
+  id: string,
+  ids: { remoteId?: string; sessionId?: string; resultSummary?: string }
+) {
+  setVideoUploadJobs(
+    (j) => j.id === id,
+    produce((j) => {
+      if (ids.remoteId) j.remoteId = ids.remoteId;
+      if (ids.sessionId) j.sessionId = ids.sessionId;
+      if (ids.resultSummary) j.resultSummary = ids.resultSummary;
+    })
+  );
+}
+
+export function updateJobStage(id: string, stage: string | undefined) {
   setVideoUploadJobs(
     (j) => j.id === id,
     produce((j) => {
@@ -137,7 +163,7 @@ function updateJobStage(id: string, stage: string | undefined) {
 }
 
 // update a tracked job's upload transfer progress (0..1).
-function updateJobProgress(id: string, progress: number) {
+export function updateJobProgress(id: string, progress: number) {
   setVideoUploadJobs(
     (j) => j.id === id,
     produce((j) => {
@@ -347,6 +373,187 @@ function formatStage(stage: string, message: string | undefined): string | undef
     default:
       return message;
   }
+}
+
+/**
+ * import video files/folders from filesystem paths against a single batch
+ * session - mirrors music/import/remoteImport.ts's `importPathsToLocal`,
+ * now that video has its own batch-paths route
+ * (`import_video_paths`/`client.upload.videoByPaths`, see grimoire's
+ * `offal/upload/video.rs`) instead of uploading each path individually
+ * with no shared session (what `uploadVideoPathsToRemote` above still does
+ * for the P2P-pull case, where files aren't local to the destination).
+ */
+export async function importVideoPathsToLocal(
+  paths: string[],
+  onJobComplete?: () => void,
+  onSessionComplete?: (sessionId: string) => void,
+  /** import against this remote instead of whatever's currently selected -
+   * used to force local-first import (see the add-media "review before
+   * sending" flow). */
+  targetRemote?: RemoteLike,
+  /** when set, tags the created session (server-side) as destined for
+   * this remote once reviewed - see uploadVideoFilesToRemote's matching param. */
+  sendTarget?: { remoteId: string; remoteName: string }
+): Promise<void> {
+  if (paths.length === 0) return;
+  const remote = targetRemote ?? getCurrentRemote();
+  if (!remote) throw new Error("no active remote");
+
+  const client = await getClientForRemote(remote);
+
+  // submit all paths in one request - server creates a single session for the
+  // batch so all files end up reviewable together
+  const batchResult = await client.upload.videoByPaths(paths, {
+    targetRemoteId: sendTarget?.remoteId,
+    targetRemoteName: sendTarget?.remoteName,
+  });
+  if (!batchResult.success) {
+    const errMsg = batchResult.error?.issues?.[0]?.message || "batch import request failed";
+    throw new Error(errMsg);
+  }
+
+  const sessionId = batchResult.data.session_id;
+
+  // add one tracked progress row per path so the upload panel shows granular feedback
+  const trackIds: string[] = paths.map((filePath) => {
+    const filename = filePath.split("/").pop() || filePath.split("\\").pop() || filePath;
+    const trackId = addTrackedJob(filename, remote.remote_id ?? "");
+    updateJobEntities(trackId, { remoteId: remote.remote_id, sessionId });
+    updateJobStatus(trackId, "polling");
+    return trackId;
+  });
+
+  // the server already knows up front whether any jobs were actually
+  // created (a directory scan can discover files and still create zero
+  // jobs if everything's already imported and unchanged) - when that's
+  // the case there's nothing to poll for, so finish immediately with an
+  // honest summary instead of waiting on child jobs that will never exist.
+  if (batchResult.data.jobs_created === 0) {
+    for (const trackId of trackIds) {
+      updateJobEntities(trackId, { resultSummary: batchResult.data.message, sessionId });
+      updateJobStatus(trackId, "completed");
+    }
+    onSessionComplete?.(sessionId);
+    return;
+  }
+
+  // poll child jobs from the session to update per-file progress
+  const poller = new JobPoller(remote, 3000);
+  let remaining = paths.length;
+
+  (async () => {
+    // give the server a moment to spawn child jobs before polling
+    await new Promise((res) => setTimeout(res, 800));
+
+    try {
+      const listResp = await client.music.listJobs({ session_id: sessionId });
+      const childJobs = listResp.success && listResp.data ? listResp.data : [];
+
+      if (childJobs.length === 0) {
+        // no child jobs found - mark all as completed and open review
+        for (const trackId of trackIds) updateJobStatus(trackId, "completed");
+        onSessionComplete?.(sessionId);
+        return;
+      }
+
+      remaining = childJobs.length;
+
+      // match child jobs to tracked rows deterministically by the file
+      // path each ProcessFile job was given (parameters.file_path) -
+      // see importPathsToLocal's matching identical logic/reasoning.
+      const pathToTrackId = new Map(paths.map((p, i) => [p, trackIds[i]]));
+      const jobToTrackId = new Map<string, string>();
+      const usedTrackIds = new Set<string>();
+      const unmatchedJobs: typeof childJobs = [];
+      for (const job of childJobs) {
+        let matchedPath: string | undefined;
+        try {
+          const params = JSON.parse(job.parameters) as Record<string, unknown>;
+          if (typeof params.file_path === "string") matchedPath = params.file_path;
+        } catch {
+          // leave matchedPath undefined - falls through to index fallback
+        }
+        const trackId = matchedPath ? pathToTrackId.get(matchedPath) : undefined;
+        if (trackId && !usedTrackIds.has(trackId)) {
+          jobToTrackId.set(job.id, trackId);
+          usedTrackIds.add(trackId);
+        } else {
+          unmatchedJobs.push(job);
+        }
+      }
+      const leftoverTrackIds = trackIds.filter((id) => !usedTrackIds.has(id));
+      unmatchedJobs.forEach((job, i) => {
+        const trackId =
+          leftoverTrackIds[i] ??
+          leftoverTrackIds[leftoverTrackIds.length - 1] ??
+          trackIds[trackIds.length - 1];
+        jobToTrackId.set(job.id, trackId);
+      });
+
+      childJobs.forEach((job) => {
+        const trackId = jobToTrackId.get(job.id) ?? trackIds[trackIds.length - 1];
+        updateJobStatus(trackId, "polling", { jobId: job.id });
+      });
+
+      await Promise.all(
+        childJobs.map(async (job) => {
+          const trackId = jobToTrackId.get(job.id) ?? trackIds[trackIds.length - 1];
+          try {
+            const pollResult = await poller.waitForJob(job.id, 180_000, {
+              onStage: (stage, message) =>
+                isWarningStage(stage)
+                  ? updateJobWarning(trackId, message)
+                  : updateJobStage(trackId, message),
+            });
+            if (pollResult.status === "completed") {
+              updateJobEntities(trackId, { sessionId });
+              updateJobStatus(trackId, "completed");
+              onJobComplete?.();
+            } else if (pollResult.status === "timeout") {
+              updateJobStatus(trackId, "timeout", {
+                error: "lost connection while tracking this job",
+              });
+              onJobComplete?.();
+            } else {
+              const friendly = humanizeJobError(
+                pollResult.errorMessage,
+                pollResult.errors?.[0]?.error_type
+              );
+              updateJobStatus(trackId, "failed", {
+                error: friendly.short,
+                errorFull: friendly.full,
+              });
+              onJobComplete?.();
+            }
+          } catch (err) {
+            const msg = errorMessageFrom(err);
+            const friendly = humanizeJobError(msg, extractTransportErrorType(err));
+            updateJobStatus(trackId, "failed", { error: friendly.short, errorFull: friendly.full });
+          } finally {
+            remaining -= 1;
+            if (remaining === 0) onSessionComplete?.(sessionId);
+          }
+        })
+      );
+
+      // ensure any rows that never got a matching child job (or whose poll
+      // threw before reaching a terminal status) don't stay stuck in
+      // "polling" forever - see importPathsToLocal's identical reasoning.
+      for (const trackId of trackIds) {
+        const j = videoUploadJobs.find((j) => j.id === trackId);
+        if (!j) continue;
+        if (j.status !== "completed" && j.status !== "failed" && j.status !== "timeout") {
+          updateJobStatus(trackId, "completed");
+          onJobComplete?.();
+        }
+      }
+    } catch (err) {
+      console.warn(`importVideoPathsToLocal session poll failed: ${String(err)}`);
+      for (const trackId of trackIds) updateJobStatus(trackId, "completed");
+      onSessionComplete?.(sessionId);
+    }
+  })();
 }
 
 /**

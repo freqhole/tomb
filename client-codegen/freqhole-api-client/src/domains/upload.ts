@@ -7,6 +7,7 @@ import {
   ImageUploadResponseSchema,
   MusicImportResponseSchema,
   MusicUploadResponseSchema,
+  VideoImportResponseSchema,
   VideoUploadResponseSchema,
 } from "../codegen/schema.js";
 import type { Transport, UploadMetadata } from "../transport.js";
@@ -235,6 +236,34 @@ export function createUploadMethods(transport: Transport) {
         JSON.stringify(body),
       );
       return parseResponse(response.body, response.status, MusicImportResponseSchema);
+    },
+
+    /**
+     * import video files by filesystem paths (tauri-local only)
+     * accepts file paths or directory paths (directories are scanned recursively)
+     * bypasses file transfer since files are already local - mirrors musicByPaths
+     *
+     * @param paths - array of file or directory paths to import
+     * @param options - optional settings
+     * @param options.waitForCompletion - if true, wait for all jobs to complete (up to 5 min)
+     */
+    videoByPaths: async (
+      paths: string[],
+      options?: { waitForCompletion?: boolean } & ImportSendTargetOptions,
+    ): Promise<SafeParseResult<s.VideoImportResponse>> => {
+      const body = {
+        paths,
+        wait_for_completion: options?.waitForCompletion ?? false,
+        target_remote_id: options?.targetRemoteId,
+        target_remote_name: options?.targetRemoteName,
+      };
+
+      const response = await transport.request(
+        "POST",
+        "/api/upload/video-paths",
+        JSON.stringify(body),
+      );
+      return parseResponse(response.body, response.status, VideoImportResponseSchema);
     },
   };
 }

@@ -469,6 +469,22 @@ export function createVideoMethods(call: CallFn) {
         params,
       );
     },
+
+    // sync a video by blake3 hash from a remote peer - reused for both
+    // pull-into-local (syncVideoViaLocalGrimoire.ts) and push-to-remote
+    // (sendVideoToRemote.ts): the caller decides direction purely by which
+    // instance it POSTs to and what it puts in `source_node_id`.
+    syncVideoByBlake3: (params: s.SyncVideoByBlake3Request) => {
+      return call(
+        "video",
+        "sync_video_by_blake3",
+        routes.video.sync_video_by_blake3.resp,
+        routes.video.sync_video_by_blake3.req,
+        routes.video.sync_video_by_blake3.method,
+        routes.video.sync_video_by_blake3.path,
+        params,
+      );
+    },
   };
 }
 

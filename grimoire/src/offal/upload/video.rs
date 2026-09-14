@@ -8,21 +8,25 @@ use std::path::{Path, PathBuf};
 use tokio::time::sleep;
 
 use crate::config::get_config;
+use crate::database;
 use crate::error::ErrorDetail;
 use crate::jobs::{
-    create_job, create_job_session, get_job, CreateJobRequest, CreateJobSessionRequest, JobType,
+    create_job, create_job_session, get_job, list_jobs, CreateJobRequest, CreateJobSessionRequest,
+    JobType, ProcessFileParams,
 };
 use crate::media_blobz::{
     create_media_blob, get_media_blob_by_sha256, BlobType, CreateMediaBlobRequest,
 };
 use crate::media_domain::MediaDomain;
+use crate::music::entities::import_review::repository as import_review_repository;
+use crate::music::scanner::{check_existing_blob_for_path, is_audio_file, ExistingPathCheck};
 use crate::offal::caller::Caller;
 use crate::response::GrimoireResponse;
-use crate::upload::VideoUploadResponse;
+use crate::upload::{VideoImportResponse, VideoUploadResponse};
 use crate::users::UserRole;
 
 use super::mime::{detect_extension, detect_video_mime_type};
-use super::models::{UploadVideoByBlake3Request, UploadVideoRequest};
+use super::models::{ImportVideoPathsRequest, UploadVideoByBlake3Request, UploadVideoRequest};
 use super::pull::pull_audio_blob_to_local_storage;
 use super::{MAX_WAIT_DURATION, POLL_INTERVAL};
 
@@ -474,4 +478,282 @@ pub async fn upload_video_by_blake3(
         "video upload complete",
         serde_json::to_value(response).unwrap(),
     )
+}
+
+/// import video from filesystem paths
+///
+/// paths can be:
+/// - individual video files: creates ProcessFile jobs
+/// - directories: scans recursively for video files (reuses the same
+///   generic walker `import_music_paths` uses, defaulting to video
+///   extensions - see `video::scanner::scan_directory`)
+///
+/// this is optimized for tauri-local transport where files are already on disk.
+/// files are not copied - the local_path is stored in the blob record.
+///
+/// mirrors `import_music_paths` - see that function for the shared shape.
+///
+/// path: POST /api/upload/video-paths
+pub async fn import_video_paths(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
+    if !matches!(caller.role, UserRole::Admin | UserRole::Member) {
+        return GrimoireResponse::failure(
+            "forbidden",
+            vec![ErrorDetail::new(
+                "forbidden",
+                "forbidden",
+                "only members can import video",
+            )],
+        );
+    }
+
+    let req: ImportVideoPathsRequest = match serde_json::from_value(body) {
+        Ok(r) => r,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "bad request",
+                vec![ErrorDetail::new(
+                    "bad_request",
+                    "bad request",
+                    e.to_string(),
+                )],
+            )
+        }
+    };
+
+    if req.paths.is_empty() {
+        return GrimoireResponse::failure(
+            "no paths provided",
+            vec![ErrorDetail::new(
+                "bad_request",
+                "no paths",
+                "must provide at least one path",
+            )],
+        );
+    }
+
+    tracing::info!(
+        "import_video_paths: received {} path(s): {:?}",
+        req.paths.len(),
+        req.paths
+    );
+
+    // create a job session for this import batch
+    let session_request = CreateJobSessionRequest {
+        job_type: JobType::ProcessFile,
+        batch_size: Some(req.paths.len()),
+        created_by: Some(caller.user_id.clone()),
+    };
+
+    let session_response = create_job_session(session_request).await;
+    let session = match session_response.data {
+        Some(s) => s,
+        None => {
+            return GrimoireResponse::failure(
+                "failed to create job session",
+                session_response.errors.into_iter().collect(),
+            )
+        }
+    };
+
+    let session_id = session.id.clone();
+
+    // record where this session's reviewed output should ultimately go, if
+    // the caller flagged one - see import_session_send_targetz. shared with
+    // music's session tracking (same table, keyed by session_id - see
+    // import_review_repository::set_session_send_target's doc comment).
+    if let (Some(remote_id), Some(remote_name)) = (&req.target_remote_id, &req.target_remote_name) {
+        if let Err(e) =
+            import_review_repository::set_session_send_target(&session_id, remote_id, remote_name)
+                .await
+        {
+            tracing::warn!(
+                "failed to record send target for session {}: {}",
+                session_id,
+                e
+            );
+        }
+    }
+
+    let mut jobs_created = 0i32;
+    let mut directories_scanned = 0i32;
+    let mut files_skipped = 0i32;
+    let mut files_queued = 0i32;
+    let mut files_already_in_library = 0i32;
+
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "failed to connect to database",
+                vec![ErrorDetail::new(
+                    "internal_error",
+                    "database error",
+                    e.to_string(),
+                )],
+            )
+        }
+    };
+
+    let video_extensions = get_config().media.supported_video_formats.clone();
+
+    for path_str in &req.paths {
+        let path = Path::new(path_str);
+
+        if !path.exists() {
+            tracing::info!(
+                "import_video_paths: path does not exist, skipping: {}",
+                path_str
+            );
+            files_skipped += 1;
+            continue;
+        }
+
+        if path.is_dir() {
+            tracing::info!("import_video_paths: scanning directory: {}", path_str);
+            let scan_result = crate::video::scanner::scan_directory(
+                path_str,
+                &session_id,
+                true,  // recursive
+                None,  // no max depth
+                None,  // default (video) extensions
+                false, // don't skip tracked subdirs
+            )
+            .await;
+
+            tracing::info!(
+                "import_video_paths: scan_directory({}) -> success={} data={:?} message={}",
+                path_str,
+                scan_result.success,
+                scan_result.data,
+                scan_result.message
+            );
+
+            if let Some(outcome) = scan_result.data {
+                jobs_created += outcome.jobs_created as i32;
+                files_queued += outcome.files_queued as i32;
+                files_already_in_library += outcome.files_skipped as i32;
+                directories_scanned += 1;
+            }
+        } else if path.is_file() {
+            if !is_audio_file(path, &video_extensions) {
+                files_skipped += 1;
+                continue;
+            }
+
+            // cheap (no-hash) check: was this exact path already imported
+            // and is it still unchanged? mirrors import_music_paths's same
+            // check (see check_existing_blob_for_path's doc comment).
+            let existing_blob_id = match check_existing_blob_for_path(&pool, path_str).await {
+                ExistingPathCheck::UnchangedSkip => {
+                    files_already_in_library += 1;
+                    continue;
+                }
+                ExistingPathCheck::ChangedNeedsRescan { blob_id } => Some(blob_id),
+                ExistingPathCheck::New => None,
+            };
+
+            let params = ProcessFileParams {
+                file_path: path_str.clone(),
+                extract_metadata: true,
+                generate_thumbnail: true,
+                generate_waveform: true,
+                source_url: None,
+                existing_blob_id,
+                serialization_group: None,
+                domain: Some(MediaDomain::Video),
+            };
+
+            let job_request = CreateJobRequest {
+                job_type: JobType::ProcessFile,
+                session_id: Some(session_id.clone()),
+                parameters: serde_json::to_value(&params).unwrap_or_default(),
+                max_retries: Some(3),
+                scheduled_at: None,
+                created_by: Some(caller.user_id.clone()),
+                priority: None,
+            };
+
+            let job_response = create_job(job_request).await;
+            if job_response.success {
+                jobs_created += 1;
+                files_queued += 1;
+            }
+        } else {
+            files_skipped += 1;
+        }
+    }
+
+    let message = if files_queued == 0 && files_already_in_library > 0 {
+        format!(
+            "nothing new to import: {} file(s) already in your library ({} directories scanned, {} files skipped)",
+            files_already_in_library, directories_scanned, files_skipped
+        )
+    } else {
+        format!(
+            "queued {} file(s) across {} job(s) ({} directories scanned, {} already in library, {} files skipped)",
+            files_queued, jobs_created, directories_scanned, files_already_in_library, files_skipped
+        )
+    };
+    tracing::info!(
+        "import_video_paths: {} (session_id={})",
+        message,
+        session_id
+    );
+
+    if req.wait_for_completion && jobs_created > 0 {
+        let start = std::time::Instant::now();
+        let max_wait = tokio::time::Duration::from_secs(300); // 5 minute timeout for batch imports
+
+        loop {
+            if start.elapsed() > max_wait {
+                return GrimoireResponse::failure(
+                    "import timed out",
+                    vec![ErrorDetail::new(
+                        "timeout",
+                        "import timed out",
+                        "import jobs did not complete within 5 minutes",
+                    )],
+                );
+            }
+
+            let jobs_response = list_jobs(Some(&session_id), None, Some(1000), None).await;
+            if let Some(jobs) = jobs_response.data {
+                let pending = jobs
+                    .iter()
+                    .filter(|j| j.status == "Pending" || j.status == "Running")
+                    .count();
+                let failed = jobs.iter().filter(|j| j.status == "Failed").count();
+                let completed = jobs.iter().filter(|j| j.status == "Completed").count();
+
+                if pending == 0 {
+                    let response = VideoImportResponse {
+                        session_id,
+                        jobs_created,
+                        directories_scanned,
+                        files_skipped,
+                        message: format!(
+                            "import complete: {} completed, {} failed",
+                            completed, failed
+                        ),
+                    };
+                    return GrimoireResponse::success(
+                        "import complete",
+                        serde_json::to_value(response).unwrap(),
+                    );
+                }
+            }
+
+            sleep(tokio::time::Duration::from_millis(500)).await;
+        }
+    }
+
+    let response = VideoImportResponse {
+        session_id,
+        jobs_created,
+        directories_scanned,
+        files_skipped,
+        message,
+    };
+
+    GrimoireResponse::success("import started", serde_json::to_value(response).unwrap())
 }
