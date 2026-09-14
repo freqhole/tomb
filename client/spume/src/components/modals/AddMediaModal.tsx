@@ -28,10 +28,9 @@ import { getTauriManagedRemote } from "../../app/services/remotes/remoteManager"
 import { getClientForRemote } from "../../app/api/client";
 import { isCharnelMode } from "../../app/services/charnel";
 import {
-  listLocalPendingSessions,
-  getLocalSessionAlbums,
-  markLocalAlbumReviewed,
-} from "../../music/services/storage/db/importReview";
+  getReviewBackend,
+  resolveActiveReviewRemote,
+} from "../../music/services/review/reviewBackend";
 import { JobPoller } from "../../app/services/jobs/jobService";
 import type {
   PreCheckFetchResponse,
@@ -159,11 +158,11 @@ export function AddMediaModal(props: AddMediaModalProps) {
   // reviewing local (grimoire) sessions there, regardless of which remote is
   // active. outside charnel, review sessions live in the browser's own
   // IndexedDB library instead (see music/services/storage/db/importReview.ts) -
-  // there's no Remote to speak of, so pendingSessions below branches on
-  // isCharnelMode() directly rather than resolving one.
+  // there's no Remote to speak of, so pendingSessions below resolves through
+  // resolveActiveReviewRemote()/getReviewBackend() (see reviewBackend.ts) -
+  // the same resolver App.tsx's openReviewSession uses.
   // video isn't on this flow yet (see the TODO in App.tsx), so its own
   // pending-sessions query below still uses getCurrentRemote() directly.
-  const resolveReviewRemote = async () => (isCharnelMode() ? await getTauriManagedRemote() : null);
 
   // local backend's own "remote id" for filtering purposes: the
   // charnel-managed pseudo-remote's id under charnel (browsing local IS
@@ -183,37 +182,9 @@ export function AddMediaModal(props: AddMediaModalProps) {
   >(
     () => (props.isOpen ? (props.refetchReviewKey ?? 0) : null),
     async (_key: number | null) => {
-      if (!isCharnelMode()) {
-        const sessions = await listLocalPendingSessions();
-        return Promise.all(
-          sessions.map(async (s): Promise<PendingReviewSession> => {
-            const albums = await getLocalSessionAlbums(s.session_id);
-            return {
-              session_id: s.session_id,
-              created_at: Math.floor(s.created_at / 1000),
-              uploader_username: null,
-              albums: albums.map((a) => ({
-                album_id: a.id,
-                title: a.title,
-                artist_id: a.artistId ?? null,
-                artist_name: a.artist ?? null,
-                artwork_blob_id: a.artworkBlobId ?? null,
-                song_count: a.songs.length,
-                pending_blob_count: a.songs.length,
-              })),
-              target_remote_id: s.target_remote_id,
-              target_remote_name: s.target_remote_name,
-            };
-          })
-        );
-      }
-      const remote = await resolveReviewRemote();
-      if (!remote) return [];
+      const remote = await resolveActiveReviewRemote();
       try {
-        const client = await getClientForRemote(remote);
-        const resp = await client.music.listPendingImportReview({ session_id: null });
-        if (!resp.success) return [];
-        return resp.data ?? [];
+        return await getReviewBackend(remote).listPendingSessions();
       } catch {
         return [];
       }
@@ -266,28 +237,8 @@ export function AddMediaModal(props: AddMediaModalProps) {
   const handleMarkSessionReviewed = async (session: PendingReviewSession) => {
     setMarkingSessionReviewed(session.session_id);
     try {
-      if (!isCharnelMode()) {
-        for (const album of session.albums) {
-          await markLocalAlbumReviewed(session.session_id, album.album_id);
-        }
-        void refetchPendingSessions();
-        return;
-      }
-      const remote = await resolveReviewRemote();
-      if (!remote) return;
-      const client = await getClientForRemote(remote);
-      for (const album of session.albums) {
-        const resp = await client.music.markAlbumReviewed({
-          album_id: album.album_id,
-          session_id: session.session_id,
-        });
-        if (!resp.success) {
-          toast.error(
-            `mark reviewed failed: ${resp.error?.issues?.[0]?.message ?? "unknown error"}`
-          );
-          return;
-        }
-      }
+      const remote = await resolveActiveReviewRemote();
+      await getReviewBackend(remote).markSessionReviewed(session);
       void refetchPendingSessions();
     } catch (err) {
       toast.error(`mark reviewed failed: ${(err as Error).message}`);

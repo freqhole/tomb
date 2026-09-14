@@ -2,6 +2,7 @@
 //! bulk import of already-on-disk paths.
 
 use crate::config::get_config;
+use crate::database;
 use crate::error::ErrorDetail;
 use crate::jobs::{
     create_job, create_job_session, get_job, list_jobs, CreateJobRequest, CreateJobSessionRequest,
@@ -12,7 +13,9 @@ use crate::media_blobz::{
 };
 use crate::media_domain::MediaDomain;
 use crate::music::entities::import_review::repository as import_review_repository;
-use crate::music::scanner::{is_supported_audio_file, scan_directory};
+use crate::music::scanner::{
+    check_existing_blob_for_path, is_supported_audio_file, scan_directory, ExistingPathCheck,
+};
 use crate::offal::caller::Caller;
 use crate::response::GrimoireResponse;
 use crate::upload::{MusicImportResponse, MusicUploadResponse};
@@ -608,6 +611,20 @@ pub async fn import_music_paths(caller: &Caller, body: JsonValue) -> GrimoireRes
     let mut files_queued = 0i32;
     let mut files_already_in_library = 0i32;
 
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "failed to connect to database",
+                vec![ErrorDetail::new(
+                    "internal_error",
+                    "database error",
+                    e.to_string(),
+                )],
+            )
+        }
+    };
+
     for path_str in &req.paths {
         let path = Path::new(path_str);
 
@@ -651,6 +668,27 @@ pub async fn import_music_paths(caller: &Caller, body: JsonValue) -> GrimoireRes
                 continue;
             }
 
+            // cheap (no-hash) check: was this exact path already imported
+            // and is it still unchanged? mirrors scan_directory's own
+            // per-file dedup so individual "add files" gets the same
+            // cheap-skip a folder scan already has, instead of always
+            // queuing a job that just re-hashes an unchanged file. a
+            // moved/renamed duplicate (different path, same content) isn't
+            // caught here - that's only detectable by hashing, and is
+            // already handled once the job runs (see
+            // media_blobz::service::maybe_relocate_existing_blob, which
+            // repoints local_path once the content's rediscovered by hash,
+            // including repairing a path that no longer resolves to a
+            // real file).
+            let existing_blob_id = match check_existing_blob_for_path(&pool, path_str).await {
+                ExistingPathCheck::UnchangedSkip => {
+                    files_already_in_library += 1;
+                    continue;
+                }
+                ExistingPathCheck::ChangedNeedsRescan { blob_id } => Some(blob_id),
+                ExistingPathCheck::New => None,
+            };
+
             // create a ProcessFile job for this file. leave
             // serialization_group unset so the runner falls back to
             // parent-dir grouping (siblings of one album dir serialize).
@@ -660,7 +698,7 @@ pub async fn import_music_paths(caller: &Caller, body: JsonValue) -> GrimoireRes
                 generate_thumbnail: true,
                 generate_waveform: true,
                 source_url: None,
-                existing_blob_id: None,
+                existing_blob_id,
                 serialization_group: None,
                 domain: None,
             };

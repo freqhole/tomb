@@ -143,6 +143,7 @@ import { checkPendingKnocks, showKnockCreatedToast } from "./services/toastNotic
 import { useFetchPrecheckEnabledQuery } from "../music/hooks/useFetchPrecheckEnabled";
 import { useFetchVideoEnabledQuery } from "../music/hooks/useFetchVideoEnabled";
 import { useImportReview } from "../music/hooks/useImportReview";
+import { resolveActiveReviewRemote } from "../music/services/review/reviewBackend";
 import { ImportReviewModal } from "../components/modals/ImportReviewModal";
 import { ImportReviewEditor } from "../components/import/ImportReviewEditor";
 import { useVideoImportReview } from "../video/hooks/useVideoImportReview";
@@ -166,9 +167,11 @@ export function App() {
   // whatever remote happens to be selected in the UI. outside charnel,
   // review sessions live entirely in the browser's own IndexedDB library -
   // there's no Remote at all for useImportReview to resolve, so it's
-  // signalled with null (see useImportReview.ts's backend-selection doc).
+  // signalled with null (see reviewBackend.ts's resolveActiveReviewRemote,
+  // the one place this decision is made - AddMediaModal.tsx uses the same
+  // resolver for its pending-sessions listing).
   async function openReviewSession(sid: string) {
-    const remote = isCharnelMode() ? await getTauriManagedRemote() : null;
+    const remote = await resolveActiveReviewRemote();
     batch(() => {
       setReviewRemote((remote as unknown as CurrentRemoteInfo) ?? null);
       setReviewSessionId(sid);
@@ -1246,48 +1249,31 @@ export function App() {
     const remote = getCurrentRemote();
 
     if (!remote) {
-      // local import from file paths: read files via tauri-plugin-fs and import locally
+      // no remote selected yet (default "local library" state) - this
+      // branch only ever runs in charnel/tauri (pickFiles only returns
+      // real paths under Tauri; plain web always produces File objects and
+      // goes through handleFilesSelected instead). previously this read
+      // every file's full bytes via tauri-plugin-fs and rerouted through
+      // handleFilesSelected's browser/OPFS importer - which actually
+      // COPIED the file into OPFS storage instead of leaving it in place
+      // on disk, and pointlessly buffered the bytes into the webview to
+      // do it. hand the paths straight to grimoire's own path-based
+      // import instead (server reads the file from its own path in place,
+      // see import_music_paths / media_blobz.local_path) - exactly what
+      // the "charnel-managed local remote" branch below already does once
+      // a remote is explicitly selected; this is that same case before
+      // any remote's been picked yet.
       try {
-        // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
-        const fsModule = (await import("@tauri-apps/plugin-fs" as any)) as {
-          readFile: (path: string) => Promise<Uint8Array>;
-        };
-
         const audioFilePaths = await expandPathsToAudioFiles(paths);
-
-        const files: File[] = [];
-        for (const filePath of audioFilePaths) {
-          try {
-            const data = await fsModule.readFile(filePath);
-            const filename = filePath.split("/").pop() || filePath.split("\\").pop() || "audio.mp3";
-            // guess mime from extension
-            const ext = filename.split(".").pop()?.toLowerCase() || "";
-            const mimeMap: Record<string, string> = {
-              mp3: "audio/mpeg",
-              flac: "audio/flac",
-              wav: "audio/wav",
-              m4a: "audio/mp4",
-              ogg: "audio/ogg",
-              aac: "audio/aac",
-              alac: "audio/alac",
-              wma: "audio/x-ms-wma",
-            };
-            files.push(
-              new File([data as BlobPart], filename, { type: mimeMap[ext] || "audio/mpeg" })
-            );
-          } catch (err) {
-            console.error("failed to read file:", filePath, err);
-          }
+        const localRemote = await getTauriManagedRemote();
+        if (!localRemote) {
+          toast.error("local library isn't set up yet", { title: "import error" });
+          return;
         }
-
-        if (files.length > 0) {
-          const dt = new DataTransfer();
-          files.forEach((f) => dt.items.add(f));
-          await handleFilesSelected(dt.files);
-        }
+        await importPathsToLocal(audioFilePaths, onRemoteJobComplete, undefined, localRemote);
       } catch (error) {
-        console.error("failed to import local paths:", error);
-        toast.error("failed to read files", { title: "import error" });
+        console.error("failed to import paths:", error);
+        toast.error("failed to start import", { title: "import error" });
       }
       return;
     }
@@ -1410,46 +1396,23 @@ export function App() {
     const remote = getCurrentRemote();
 
     if (!remote) {
-      // local import from file paths: read files via tauri-plugin-fs and import locally
+      // no remote selected yet - same reasoning as handlePathsSelected's
+      // matching branch above: this only runs in charnel/tauri, so hand
+      // the paths straight to grimoire instead of reading bytes via
+      // tauri-plugin-fs and rerouting through a browser-side importer.
+      // videoByPath (used by uploadVideoPathsToRemote) already sends the
+      // path directly - no bytes involved.
       try {
-        // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
-        const fsModule = (await import("@tauri-apps/plugin-fs" as any)) as {
-          readFile: (path: string) => Promise<Uint8Array>;
-        };
-
         const videoFilePaths = await expandPathsToVideoFiles(paths);
-
-        const files: File[] = [];
-        for (const filePath of videoFilePaths) {
-          try {
-            const data = await fsModule.readFile(filePath);
-            const filename = filePath.split("/").pop() || filePath.split("\\").pop() || "video.mp4";
-            const ext = filename.split(".").pop()?.toLowerCase() || "";
-            const mimeMap: Record<string, string> = {
-              mp4: "video/mp4",
-              mkv: "video/x-matroska",
-              webm: "video/webm",
-              mov: "video/quicktime",
-              avi: "video/x-msvideo",
-            };
-            files.push(
-              new File([data as BlobPart], filename, { type: mimeMap[ext] || "video/mp4" })
-            );
-          } catch (err) {
-            console.error("failed to read file:", filePath, err);
-          }
+        const localRemote = await getTauriManagedRemote();
+        if (!localRemote) {
+          toast.error("local library isn't set up yet", { title: "import error" });
+          return;
         }
-
-        if (files.length > 0) {
-          const result = await importVideoFiles(files);
-          if (result.errors.length > 0) {
-            console.error("failed to import some video files:", result.errors);
-          }
-          if (result.imported > 0) onRemoteVideoJobComplete();
-        }
+        await uploadVideoPathsToRemote(videoFilePaths, onRemoteVideoJobComplete, localRemote);
       } catch (error) {
         console.error("failed to import local video paths:", error);
-        toast.error("failed to read files", { title: "import error" });
+        toast.error("failed to start import", { title: "import error" });
       }
       return;
     }
