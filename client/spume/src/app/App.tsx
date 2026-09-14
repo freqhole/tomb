@@ -212,10 +212,15 @@ export function App() {
   // the remote that owns the video review session - captured at start time, same reasoning as reviewRemote
   const [reviewVideoRemote, setReviewVideoRemote] = createSignal<CurrentRemoteInfo | null>(null);
 
-  // open a video review session, capturing the active remote at this moment
-  function openReviewVideoSession(sid: string) {
+  // open a video review session, capturing the active remote at this
+  // moment - resolves through resolveActiveReviewRemote() (not
+  // getCurrentRemote()), same reasoning as openReviewSession above: video's
+  // local-first import always redirects to the local grimoire instance
+  // regardless of which remote is currently being browsed.
+  async function openReviewVideoSession(sid: string) {
+    const remote = await resolveActiveReviewRemote();
     batch(() => {
-      setReviewVideoRemote(getCurrentRemote() ?? null);
+      setReviewVideoRemote(remote);
       setReviewVideoSessionId(sid);
     });
   }

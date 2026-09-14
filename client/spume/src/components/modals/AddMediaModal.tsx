@@ -160,9 +160,11 @@ export function AddMediaModal(props: AddMediaModalProps) {
   // IndexedDB library instead (see music/services/storage/db/importReview.ts) -
   // there's no Remote to speak of, so pendingSessions below resolves through
   // resolveActiveReviewRemote()/getReviewBackend() (see reviewBackend.ts) -
-  // the same resolver App.tsx's openReviewSession uses.
-  // video isn't on this flow yet (see the TODO in App.tsx), so its own
-  // pending-sessions query below still uses getCurrentRemote() directly.
+  // the same resolver App.tsx's openReviewSession uses. video's own
+  // pending-sessions query below now resolves through the same function,
+  // since video's local-first import (handleVideoPathsSelected) also
+  // redirects through the local grimoire instance regardless of which
+  // remote is currently being browsed.
 
   // local backend's own "remote id" for filtering purposes: the
   // charnel-managed pseudo-remote's id under charnel (browsing local IS
@@ -204,6 +206,15 @@ export function AddMediaModal(props: AddMediaModalProps) {
     return sessions.filter((s) => (s.target_remote_id ?? localId) === currentId);
   });
 
+  // same as filteredPendingSessions above, for video sessions.
+  const videoFilteredPendingSessions = createMemo(() => {
+    const sessions = videoPendingSessions() ?? [];
+    const localId = localBackendId();
+    if (localId === undefined) return []; // still resolving
+    const currentId = getCurrentRemote()?.remote_id ?? localId;
+    return sessions.filter((s) => (s.target_remote_id ?? localId) === currentId);
+  });
+
   // session ids (any target, not just the currently-viewed one) that still
   // have at least one album pending review - cheap cross-reference against
   // the same pendingSessions fetch above, no extra api calls. lets a
@@ -227,10 +238,11 @@ export function AddMediaModal(props: AddMediaModalProps) {
   >(
     () => (props.isOpen ? (props.refetchReviewKey ?? 0) : null),
     async (_key: number | null) => {
-      // video isn't redirected through local-first import yet (see the TODO
-      // in App.tsx's handleVideoPathsSelected), so its review sessions still
-      // live on whatever remote is currently active - unlike music's below.
-      const remote = getCurrentRemote();
+      // same resolver music's pendingSessions above uses - video's
+      // local-first import also always redirects to the local grimoire
+      // instance (see App.tsx's handleVideoPathsSelected), so review
+      // sessions live there regardless of which remote is currently browsed.
+      const remote = await resolveActiveReviewRemote();
       if (!remote) return [];
       try {
         const client = await getClientForRemote(remote);
@@ -264,7 +276,7 @@ export function AddMediaModal(props: AddMediaModalProps) {
   };
 
   const handleMarkVideoSessionReviewed = async (session: PendingVideoReviewSession) => {
-    const remote = getCurrentRemote();
+    const remote = await resolveActiveReviewRemote();
     if (!remote) return;
     setMarkingVideoSessionReviewed(session.session_id);
     try {
@@ -928,8 +940,8 @@ export function AddMediaModal(props: AddMediaModalProps) {
                     label="review"
                     badge={
                       (filteredPendingSessions()?.reduce((n, s) => n + s.albums.length, 0) ?? 0) +
-                        (videoPendingSessions()?.reduce((n, s) => n + s.groups.length, 0) ?? 0) ||
-                      undefined
+                        (videoFilteredPendingSessions()?.reduce((n, s) => n + s.groups.length, 0) ??
+                          0) || undefined
                     }
                   />
                 </TabList>
@@ -1234,7 +1246,10 @@ export function AddMediaModal(props: AddMediaModalProps) {
                     </div>
                     <Show
                       when={
-                        !pendingSessions.loading && (filteredPendingSessions() ?? []).length === 0
+                        !pendingSessions.loading &&
+                        !videoPendingSessions.loading &&
+                        (filteredPendingSessions() ?? []).length === 0 &&
+                        (videoFilteredPendingSessions() ?? []).length === 0
                       }
                     >
                       <div class="flex flex-col items-center justify-center py-12 gap-2 text-[var(--color-text-muted)]">
@@ -1319,10 +1334,10 @@ export function AddMediaModal(props: AddMediaModalProps) {
 
                     {/* video review sessions - same layout as music above, but
                         grouped by detected series (group_key) instead of album_id. */}
-                    <Show when={(videoPendingSessions() ?? []).length > 0}>
+                    <Show when={(videoFilteredPendingSessions() ?? []).length > 0}>
                       <div class="flex flex-col gap-3 mt-4 pt-4 border-t border-[var(--color-border-subtle)]">
                         <p class="body-xs text-[var(--color-text-muted)]">video</p>
-                        <For each={videoPendingSessions() ?? []}>
+                        <For each={videoFilteredPendingSessions() ?? []}>
                           {(session) => (
                             <div class="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-secondary)] p-4">
                               <div class="flex items-start justify-between gap-3">

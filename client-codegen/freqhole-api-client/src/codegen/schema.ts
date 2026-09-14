@@ -4551,7 +4551,9 @@ export const PendingVideoReviewSessionSchema = z.object({
   episode_number: z.number().nullish()
 })),
   pending_blob_count: z.number()
-}))
+})),
+  target_remote_id: z.string().nullish(),
+  target_remote_name: z.string().nullish()
 });
 export type PendingVideoReviewSession = z.infer<typeof PendingVideoReviewSessionSchema>;
 

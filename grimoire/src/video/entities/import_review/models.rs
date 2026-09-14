@@ -15,6 +15,13 @@ pub struct PendingVideoReviewSession {
     pub uploader_username: Option<String>,
     /// groups in this session that have at least one unreviewed blob
     pub groups: Vec<PendingVideoReviewGroup>,
+    /// remote this session's reviewed output should be sent to once review
+    /// completes, if any - see import_session_send_targetz (shared with
+    /// music's session tracking - see `PendingReviewSession::target_remote_id`).
+    /// `None` means a purely local import with nowhere else to send it.
+    pub target_remote_id: Option<String>,
+    /// snapshot of the target remote's name at session-creation time.
+    pub target_remote_name: Option<String>,
 }
 
 /// a group of pending videos sharing a detected series, or a single
