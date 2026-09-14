@@ -589,9 +589,7 @@ pub async fn import_music_paths(caller: &Caller, body: JsonValue) -> GrimoireRes
 
     // record where this session's reviewed output should ultimately go, if
     // the caller flagged one - see import_session_send_targetz.
-    if let (Some(remote_id), Some(remote_name)) =
-        (&req.target_remote_id, &req.target_remote_name)
-    {
+    if let (Some(remote_id), Some(remote_name)) = (&req.target_remote_id, &req.target_remote_name) {
         if let Err(e) =
             import_review_repository::set_session_send_target(&session_id, remote_id, remote_name)
                 .await

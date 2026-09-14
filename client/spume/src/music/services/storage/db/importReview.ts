@@ -17,7 +17,10 @@ import {
   type LocalImportReviewBlob,
   type LocalImportReviewSession,
 } from "../types";
-import type { ImportReviewAlbum, ImportReviewSong } from "../../../../components/import/ImportGroupingView";
+import type {
+  ImportReviewAlbum,
+  ImportReviewSong,
+} from "../../../../components/import/ImportGroupingView";
 
 export interface LocalImportReviewSendTarget {
   remoteId: string;
@@ -113,7 +116,7 @@ export async function getLocalSessionAlbums(sessionId: string): Promise<ImportRe
   for (const [albumId, albumSongs] of byAlbum) {
     const album = await getAlbumById(albumId);
     const reviewSongs: ImportReviewSong[] = albumSongs
-      .sort((a, b) => (a.disc_number - b.disc_number) || (a.track_number - b.track_number))
+      .sort((a, b) => a.disc_number - b.disc_number || a.track_number - b.track_number)
       .map((s) => ({
         id: s.id,
         title: s.title,
@@ -265,7 +268,8 @@ export async function patchLocalAlbum(albumId: string, req: LocalAlbumReviewPatc
   if (req.artistId) {
     artistId = req.artistId;
   } else if (req.artistName) {
-    const artist = (await findArtistByName(req.artistName)) ?? (await getOrCreateArtist(req.artistName));
+    const artist =
+      (await findArtistByName(req.artistName)) ?? (await getOrCreateArtist(req.artistName));
     artistId = artist.artist_id;
     artistName = artist.name;
   }

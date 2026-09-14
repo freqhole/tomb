@@ -1180,7 +1180,8 @@ export function App() {
         files,
         onRemoteJobComplete,
         localRemote,
-        (sessionId) => setPendingSendTarget(sessionId, { remoteId: targetId, remoteName: targetName }),
+        (sessionId) =>
+          setPendingSendTarget(sessionId, { remoteId: targetId, remoteName: targetName }),
         { remoteId: targetId, remoteName: targetName }
       );
       return;
@@ -1193,7 +1194,9 @@ export function App() {
     // currently selected, tag the session so review finishes by sending
     // it there; otherwise it's a purely local import, same as before.
     try {
-      const target = remote ? { remoteId: remote.remote_id, remoteName: remote.name ?? "remote" } : undefined;
+      const target = remote
+        ? { remoteId: remote.remote_id, remoteName: remote.name ?? "remote" }
+        : undefined;
       if (target) {
         toast.info(`added to your library - review before sending to ${target.remoteName}`, {
           title: "add media",
@@ -1222,7 +1225,6 @@ export function App() {
       toast.error("failed to import files", { title: "import error" });
     }
   };
-
 
   const handleUrlsSubmitted = async (urls: string[]) => {
     const remote = getCurrentRemote();

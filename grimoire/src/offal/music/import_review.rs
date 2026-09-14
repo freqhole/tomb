@@ -532,8 +532,7 @@ pub async fn album_pending(caller: &Caller, body: JsonValue) -> GrimoireResponse
 /// GetImportSessionTargetRequest doc comment for why that distinction
 /// matters).
 pub async fn get_session_target(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
-    if let Err(resp) = crate::acl_bridge::require_scope(caller, "get_import_session_target").await
-    {
+    if let Err(resp) = crate::acl_bridge::require_scope(caller, "get_import_session_target").await {
         return resp;
     }
 
@@ -566,4 +565,3 @@ pub async fn get_session_target(caller: &Caller, body: JsonValue) -> GrimoireRes
         Err(e) => GrimoireResponse::failure("failed to look up session target", vec![e.into()]),
     }
 }
-

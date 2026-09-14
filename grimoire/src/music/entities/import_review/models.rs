@@ -62,7 +62,6 @@ pub struct ImportSessionSendTarget {
     pub target_remote_name: Option<String>,
 }
 
-
 /// request to mark all pending blobs in an album (within a session) as reviewed
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct MarkAlbumReviewedRequest {

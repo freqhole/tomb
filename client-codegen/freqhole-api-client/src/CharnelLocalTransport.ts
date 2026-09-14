@@ -232,7 +232,6 @@ export class CharnelLocalTransport implements Transport {
     return this.uploadLegacyBase64(path, file, formData);
   }
 
-
   /**
    * stream a music/video file to this local grimoire instance in bounded
    * chunks via the local_import_* tauri commands (shared with

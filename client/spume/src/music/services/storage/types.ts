@@ -322,7 +322,6 @@ export const STORE_TAXON_KINDS = "taxon_kinds";
 export const STORE_IMPORT_REVIEW_SESSIONZ = "import_review_sessionz";
 export const STORE_IMPORT_REVIEW_BLOBZ = "import_review_blobz";
 
-
 // sentinel `remote_id` used in `taxons` / `album_taxons` rows to mark
 // entries that belong to the local indexeddb library. matches
 // `LOCAL_REMOTE_ID` in `library/views/graph/CrossRemoteTopNavSearch.tsx`
@@ -423,4 +422,3 @@ export interface LocalImportReviewBlob {
   reviewed_at: number | null;
   created_at: number;
 }
-

@@ -1,10 +1,6 @@
 // file processing service - extract metadata from audio files
 import { parseBlob } from "music-metadata";
-import {
-  getFileExtension,
-  isOPFSSupported,
-  writeAudioToOPFS,
-} from "../services/opfs/helpers";
+import { getFileExtension, isOPFSSupported, writeAudioToOPFS } from "../services/opfs/helpers";
 import {
   getOrCreateAlbum,
   getOrCreateArtist,
@@ -53,10 +49,7 @@ export interface AudioMetadata {
 
 // extract metadata from audio file
 export async function extractMetadata(file: File): Promise<AudioMetadata> {
-  const [tags, duration] = await Promise.all([
-    readID3Tags(file),
-    getAudioDuration(file),
-  ]);
+  const [tags, duration] = await Promise.all([readID3Tags(file), getAudioDuration(file)]);
 
   return {
     title: tags.title || file.name.replace(/\.[^/.]+$/, ""), // fallback to filename without extension
@@ -125,10 +118,7 @@ async function getAudioDuration(file: File): Promise<number> {
 }
 
 // create song object from file (with normalized schema)
-export async function processMusicFile(
-  file: File,
-  songId: string,
-): Promise<NewSong> {
+export async function processMusicFile(file: File, songId: string): Promise<NewSong> {
   const metadata = await extractMetadata(file);
 
   // check opfs support
@@ -218,7 +208,7 @@ export async function processMusicFile(
 // batch process multiple files
 export async function processMusicFiles(
   files: FileList | File[],
-  songIds: string[],
+  songIds: string[]
 ): Promise<NewSong[]> {
   const fileArray = Array.from(files);
 
@@ -227,7 +217,7 @@ export async function processMusicFiles(
   }
 
   const results = await Promise.all(
-    fileArray.map((file, index) => processMusicFile(file, songIds[index])),
+    fileArray.map((file, index) => processMusicFile(file, songIds[index]))
   );
   return results;
 }

@@ -31,7 +31,10 @@ export interface ImportSendTarget {
 
 /** appends `target`'s fields onto `formData`, if set. no-op for an
  * absent/empty target. */
-export function appendImportSendTarget(formData: FormData, target: ImportSendTarget | undefined): void {
+export function appendImportSendTarget(
+  formData: FormData,
+  target: ImportSendTarget | undefined,
+): void {
   if (target?.targetRemoteId) formData.append(TARGET_REMOTE_ID_FIELD, target.targetRemoteId);
   if (target?.targetRemoteName) formData.append(TARGET_REMOTE_NAME_FIELD, target.targetRemoteName);
 }
@@ -40,9 +43,10 @@ export function appendImportSendTarget(formData: FormData, target: ImportSendTar
  * snake_case body fields grimoire's upload_music/import_music_paths
  * handlers expect. returns an empty object (not undefined) when absent,
  * so callers can always spread it directly into a request body. */
-export function readImportSendTarget(
-  formData: FormData
-): { target_remote_id?: string; target_remote_name?: string } {
+export function readImportSendTarget(formData: FormData): {
+  target_remote_id?: string;
+  target_remote_name?: string;
+} {
   const out: { target_remote_id?: string; target_remote_name?: string } = {};
   const id = formData.get(TARGET_REMOTE_ID_FIELD);
   if (typeof id === "string" && id) out.target_remote_id = id;

@@ -163,8 +163,7 @@ export function AddMediaModal(props: AddMediaModalProps) {
   // isCharnelMode() directly rather than resolving one.
   // video isn't on this flow yet (see the TODO in App.tsx), so its own
   // pending-sessions query below still uses getCurrentRemote() directly.
-  const resolveReviewRemote = async () =>
-    isCharnelMode() ? await getTauriManagedRemote() : null;
+  const resolveReviewRemote = async () => (isCharnelMode() ? await getTauriManagedRemote() : null);
 
   // local backend's own "remote id" for filtering purposes: the
   // charnel-managed pseudo-remote's id under charnel (browsing local IS
@@ -1266,7 +1265,11 @@ export function AddMediaModal(props: AddMediaModalProps) {
                         </Show>
                       </Button>
                     </div>
-                    <Show when={!pendingSessions.loading && (filteredPendingSessions() ?? []).length === 0}>
+                    <Show
+                      when={
+                        !pendingSessions.loading && (filteredPendingSessions() ?? []).length === 0
+                      }
+                    >
                       <div class="flex flex-col items-center justify-center py-12 gap-2 text-[var(--color-text-muted)]">
                         <Icon name="check" size={32} color="currentColor" />
                         <p class="body-small">no pending reviews</p>

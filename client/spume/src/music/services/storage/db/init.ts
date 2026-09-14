@@ -247,7 +247,6 @@ export async function initMusicDB(): Promise<IDBPDatabase> {
         importBlobzStore.createIndex("by_session_id", "session_id");
       }
 
-
       // v11 -> v12: migrate cached songs from `album_genres` (GenreRef[]) to
       // `album_taxons` (TaxonRef[]). preserves any existing `album_taxons`,
       // backfilling only the genre kind from the legacy field. uses the
