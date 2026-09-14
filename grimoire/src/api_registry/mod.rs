@@ -185,9 +185,10 @@ pub mod type_registry {
         UpdateArtistMetadataResponse, UpdateArtistRequest,
     };
     use crate::music::entities::import_review::models::{
-        AlbumPendingRequest, AlbumPendingResponse, ImportReviewOk, ListPendingReviewRequest,
-        MarkAlbumReviewedRequest, MergeAlbumsReviewRequest, MoveSongReviewRequest,
-        PatchAlbumReviewRequest, PendingReviewAlbum, PendingReviewSession, SongReviewPatch,
+        AlbumPendingRequest, AlbumPendingResponse, GetImportSessionTargetRequest, ImportReviewOk,
+        ImportSessionSendTarget, ListPendingReviewRequest, MarkAlbumReviewedRequest,
+        MergeAlbumsReviewRequest, MoveSongReviewRequest, PatchAlbumReviewRequest,
+        PendingReviewAlbum, PendingReviewSession, SongReviewPatch,
     };
     use crate::music::entities::playlists::{
         AddSongsToPlaylistRequest, CreatePlaylistRequest, DeletePlaylistRequest,
@@ -1749,6 +1750,10 @@ pub mod type_registry {
         registered.insert("AlbumPendingRequest".to_string());
         gen.add_schema::<AlbumPendingResponse>("AlbumPendingResponse");
         registered.insert("AlbumPendingResponse".to_string());
+        gen.add_schema::<GetImportSessionTargetRequest>("GetImportSessionTargetRequest");
+        registered.insert("GetImportSessionTargetRequest".to_string());
+        gen.add_schema::<ImportSessionSendTarget>("ImportSessionSendTarget");
+        registered.insert("ImportSessionSendTarget".to_string());
 
         // video import review types (grouped by detected series)
         gen.add_schema::<ListPendingVideoReviewRequest>("ListPendingVideoReviewRequest");

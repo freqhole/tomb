@@ -142,6 +142,7 @@ export const routes = {
     get_blob_thumbnail: { method: 'GET', path: '/api/blobs/{id}/thumb/{size}', req: null, resp: null, auth: { type: 'authenticated' } as const },
     get_enrichment_progress: { method: 'POST', path: '/api/music/albums/enrichment/progress', req: s.GetEnrichmentProgressRequestSchema, resp: s.GetEnrichmentProgressResponseSchema, auth: { type: 'role', role: 'admin' } as const },
     get_fetch_job: { method: 'POST', path: '/api/music/fetch/status', req: s.GetJobRequestSchema, resp: s.JobResponseSchema, auth: { type: 'authenticated' } as const },
+    get_import_session_target: { method: 'POST', path: '/api/music/import/session-target', req: s.GetImportSessionTargetRequestSchema, resp: s.ImportSessionSendTargetSchema, auth: { type: 'authenticated' } as const },
     get_job_status: { method: 'POST', path: '/api/jobs/status', req: s.GetJobsStatusRequestSchema, resp: s.GetJobsStatusResponseSchema, auth: { type: 'authenticated' } as const },
     get_musicbrainz_release: { method: 'POST', path: '/api/musicbrainz/release', req: s.GetReleaseRequestSchema, resp: s.MbReleaseDetailSchema, auth: { type: 'role', role: 'admin' } as const },
     get_playback_session: { method: 'POST', path: '/api/analytics/sessions/get', req: s.GetPlaybackSessionRequestSchema, resp: s.PlaybackSessionSchema, auth: { type: 'authenticated' } as const },

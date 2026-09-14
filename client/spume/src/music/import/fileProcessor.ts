@@ -12,7 +12,31 @@ import {
   getSongsByAlbumId,
 } from "../services/storage/db";
 import type { NewSong } from "../services/storage/types";
-import { debug } from "../../utils/logger";
+import { debug, warn } from "../../utils/logger";
+import { getMiddenNode } from "../../app/api/client";
+import { isCharnelMode } from "../../app/services/charnel";
+
+/** best-effort: register `file`'s bytes with this browser's own midden
+ * node, returning the blake3 hash on success. this is what makes a
+ * purely-local (never-uploaded) song servable to a remote's iroh-blobs
+ * pull later on (see "send to remote" after review) - without it,
+ * `blake3` stays null and the song can only ever live in this browser.
+ * never called under charnel (its own local grimoire instance handles
+ * blake3 registration itself - see grimoire's blobz/blake3.rs), and any
+ * failure here (relay unavailable, node not ready yet) just leaves the
+ * song without a blake3 rather than failing the import. */
+async function registerBlake3(file: File): Promise<string | null> {
+  if (isCharnelMode()) return null;
+  try {
+    const node = await getMiddenNode();
+    if (!node.import_blob) return null;
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    return await node.import_blob(bytes);
+  } catch (err) {
+    warn("fileProcessor", `failed to register blake3 for ${file.name}:`, err);
+    return null;
+  }
+}
 
 export interface AudioMetadata {
   title: string;
@@ -117,6 +141,10 @@ export async function processMusicFile(
   const extension = getFileExtension(metadata.mime_type, file.name);
   const opfsPath = await writeAudioToOPFS(file, songId, extension);
 
+  // best-effort - lets this song be sent to a remote later without
+  // re-reading the file (see registerBlake3 doc comment above).
+  const blake3 = await registerBlake3(file);
+
   // create or get artist
   const artist = await getOrCreateArtist(metadata.artist);
 
@@ -179,7 +207,7 @@ export async function processMusicFile(
     downloaded_at: null,
     remote_server_id: null,
     remote_song_id: null,
-    blake3: null, // not available for local files
+    blake3,
 
     added_at: now,
   };

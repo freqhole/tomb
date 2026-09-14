@@ -126,6 +126,7 @@ import {
   sendReviewedAlbumsToRemote,
   type SendReviewProgress,
 } from "./services/send/sendReviewedSessionToRemote";
+import { sendReviewedLocalAlbumsToRemote } from "./services/send/sendReviewedLocalSessionToRemote";
 import type { Remote } from "./services/storage/schemas/remote";
 import { checkPendingKnockApprovals } from "./services/remotes/pendingKnockChecker";
 import {
@@ -162,9 +163,12 @@ export function App() {
   // open a review session, capturing the active remote at this moment.
   // in charnel mode this is always the local instance (path-based imports
   // redirect through local-first import - see handlePathsSelected), not
-  // whatever remote happens to be selected in the UI.
+  // whatever remote happens to be selected in the UI. outside charnel,
+  // review sessions live entirely in the browser's own IndexedDB library -
+  // there's no Remote at all for useImportReview to resolve, so it's
+  // signalled with null (see useImportReview.ts's backend-selection doc).
   async function openReviewSession(sid: string) {
-    const remote = isCharnelMode() ? await getTauriManagedRemote() : getCurrentRemote();
+    const remote = isCharnelMode() ? await getTauriManagedRemote() : null;
     batch(() => {
       setReviewRemote((remote as unknown as CurrentRemoteInfo) ?? null);
       setReviewSessionId(sid);
@@ -258,15 +262,23 @@ export function App() {
       const sid = reviewSessionId()!;
       const localRemote = reviewRemote();
       const albumIds = reviewSessionAlbumIds();
-      const target = getPendingSendTarget(sid);
+      // durable, server-side (grimoire) or local-idb backed - not the
+      // same-session-only pendingSendTargets store (still used below by
+      // checkAutoSendForCompletedSessions, which only ever needs to know
+      // about jobs from this same app run anyway).
+      const targetId = importReview.targetRemoteId();
+      const targetName = importReview.targetRemoteName();
 
       // destined for a real remote: keep the review modal open and render
-      // send progress inline in it instead of closing immediately - actual
-      // close/cleanup happens once sendReviewedAlbumsToRemote resolves.
-      if (target && localRemote && albumIds.length > 0) {
+      // send progress inline in it instead of closing immediately - once
+      // the send resolves, the modal stays open showing the final tally
+      // (see ImportReviewModal's footer: disabled "sending..." until
+      // sendProgress.done, then an enabled "close") - the user's own close
+      // click (below) is what actually tears the session down, not this.
+      if (targetId && targetName && albumIds.length > 0) {
         if (reviewSendProgress() !== null) return; // already sending
         setReviewSendProgress({
-          targetName: target.remoteName,
+          targetName,
           totalAlbums: albumIds.length,
           completedAlbums: 0,
           failedAlbums: 0,
@@ -276,20 +288,19 @@ export function App() {
           done: false,
           errors: [],
         });
-        void sendReviewedAlbumsToRemote(
-          sid,
-          target.remoteId,
-          target.remoteName,
-          localRemote as unknown as Remote,
-          albumIds,
-          setReviewSendProgress
-        ).then(() => {
+        const sendPromise = localRemote
+          ? sendReviewedAlbumsToRemote(
+              sid,
+              targetId,
+              targetName,
+              localRemote as unknown as Remote,
+              albumIds,
+              setReviewSendProgress
+            )
+          : sendReviewedLocalAlbumsToRemote(targetId, targetName, albumIds, setReviewSendProgress);
+        void sendPromise.then(() => {
           setCompletedReviewSessionId(sid);
-          setReviewSessionId(null);
-          setReviewRemote(null);
-          setReviewSendProgress(null);
           setReviewRefetchKey((k) => k + 1);
-          openAddMedia();
         });
         return;
       }
@@ -1145,7 +1156,7 @@ export function App() {
   const handleFilesSelected = async (files: FileList) => {
     const remote = getCurrentRemote();
 
-    if (remote) {
+    if (remote && isCharnelMode()) {
       // android (and any platform that can only produce `File` objects,
       // never real paths - see filePicker.ts) lands here instead of
       // handlePathsSelected, so it needs the same local-first redirect:
@@ -1165,36 +1176,53 @@ export function App() {
       toast.info(`added to your library - review before sending to ${targetName}`, {
         title: "add media",
       });
-      await uploadFilesToRemote(files, onRemoteJobComplete, localRemote, (sessionId) =>
-        setPendingSendTarget(sessionId, { remoteId: targetId, remoteName: targetName })
+      await uploadFilesToRemote(
+        files,
+        onRemoteJobComplete,
+        localRemote,
+        (sessionId) => setPendingSendTarget(sessionId, { remoteId: targetId, remoteName: targetName }),
+        { remoteId: targetId, remoteName: targetName }
       );
-    } else {
-      // local import: process files into IndexedDB/OPFS
-      // progress is tracked reactively via getLocalImportProgress()
-      try {
-        const result = await importMusicFiles(files);
-        if (result.addedCount > 0) {
-          setHasSongs(true);
-          queryClient.invalidateQueries({
-            predicate: (query) => {
-              const key = query.queryKey[0];
-              return (
-                key === "songs" ||
-                key === "albums" ||
-                key === "library-albums" ||
-                key === "artists" ||
-                key === "genres" ||
-                key === "feed"
-              );
-            },
-          });
-        }
-      } catch (error) {
-        console.error("failed to process files:", error);
-        toast.error("failed to import files", { title: "import error" });
+      return;
+    }
+
+    // plain web (no charnel): every import - local-only or destined for a
+    // remote - lands in the browser's own IndexedDB library first and goes
+    // through the same review flow desktop/android get via grimoire (see
+    // music/services/storage/db/importReview.ts). when a remote is
+    // currently selected, tag the session so review finishes by sending
+    // it there; otherwise it's a purely local import, same as before.
+    try {
+      const target = remote ? { remoteId: remote.remote_id, remoteName: remote.name ?? "remote" } : undefined;
+      if (target) {
+        toast.info(`added to your library - review before sending to ${target.remoteName}`, {
+          title: "add media",
+        });
       }
+      const result = await importMusicFiles(files, target);
+      if (result.addedCount > 0) {
+        setHasSongs(true);
+        setReviewRefetchKey((k) => k + 1);
+        queryClient.invalidateQueries({
+          predicate: (query) => {
+            const key = query.queryKey[0];
+            return (
+              key === "songs" ||
+              key === "albums" ||
+              key === "library-albums" ||
+              key === "artists" ||
+              key === "genres" ||
+              key === "feed"
+            );
+          },
+        });
+      }
+    } catch (error) {
+      console.error("failed to process files:", error);
+      toast.error("failed to import files", { title: "import error" });
     }
   };
+
 
   const handleUrlsSubmitted = async (urls: string[]) => {
     const remote = getCurrentRemote();
@@ -1283,7 +1311,8 @@ export function App() {
         onRemoteJobComplete,
         (sessionId) =>
           setPendingSendTarget(sessionId, { remoteId: targetId, remoteName: targetName }),
-        localRemote
+        localRemote,
+        { remoteId: targetId, remoteName: targetName }
       );
       return;
     }
@@ -1584,7 +1613,7 @@ export function App() {
       <ImportReviewModal
         isOpen={reviewSessionId() !== null}
         loading={importReview.loading()}
-        sendTargetName={getPendingSendTarget(reviewSessionId())?.remoteName}
+        sendTargetName={importReview.targetRemoteName()}
         sendProgress={reviewSendProgress()}
         onClose={() => {
           // don't abandon an in-flight send - it keeps running in the
@@ -1594,6 +1623,7 @@ export function App() {
           if (sending && !sending.done) return;
           setReviewSessionId(null);
           setReviewRemote(null);
+          setReviewSendProgress(null);
           setReviewRefetchKey((k) => k + 1);
           // re-open the add media modal so the user can pick the next
           // pending review without having to open it manually

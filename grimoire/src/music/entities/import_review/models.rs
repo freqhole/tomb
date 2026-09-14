@@ -12,6 +12,12 @@ pub struct PendingReviewSession {
     pub uploader_username: Option<String>,
     /// albums in this session that have at least one unreviewed blob
     pub albums: Vec<PendingReviewAlbum>,
+    /// remote this session's reviewed output should be sent to once review
+    /// completes, if any - see import_session_send_targetz. `None` means a
+    /// purely local import with nowhere else to send it.
+    pub target_remote_id: Option<String>,
+    /// snapshot of the target remote's name at session-creation time.
+    pub target_remote_name: Option<String>,
 }
 
 /// summary of an album that has pending review blobs
@@ -35,6 +41,27 @@ pub struct ListPendingReviewRequest {
     /// optional session_id filter - returns data for a single session only
     pub session_id: Option<String>,
 }
+
+/// request to look up a session's send target directly, independent of
+/// review state. `list_pending_sessions`' query only ever returns sessions
+/// that still have at least one unreviewed blob - once the last album in a
+/// session is marked reviewed, the session (and its target) vanishes from
+/// that response entirely, even though the review UI still needs to know
+/// where to send it (see ImportSessionSendTarget).
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct GetImportSessionTargetRequest {
+    pub session_id: String,
+}
+
+/// a session's send target, if any - see import_session_send_targetz.
+/// both fields `None` means a purely local import with nowhere else to
+/// send it (not an error - a valid, expected shape).
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct ImportSessionSendTarget {
+    pub target_remote_id: Option<String>,
+    pub target_remote_name: Option<String>,
+}
+
 
 /// request to mark all pending blobs in an album (within a session) as reviewed
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]

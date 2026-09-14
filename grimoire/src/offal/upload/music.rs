@@ -11,6 +11,7 @@ use crate::media_blobz::{
     create_media_blob, get_media_blob_by_sha256, BlobType, CreateMediaBlobRequest,
 };
 use crate::media_domain::MediaDomain;
+use crate::music::entities::import_review::repository as import_review_repository;
 use crate::music::scanner::{is_supported_audio_file, scan_directory};
 use crate::offal::caller::Caller;
 use crate::response::GrimoireResponse;
@@ -249,6 +250,20 @@ pub async fn upload_music(caller: &Caller, body: JsonValue) -> GrimoireResponse<
             None
         }
     };
+
+    // record where this session's reviewed output should ultimately go, if
+    // the caller flagged one - see import_session_send_targetz.
+    if let (Some(sid), Some(remote_id), Some(remote_name)) = (
+        &upload_session_id,
+        &req.target_remote_id,
+        &req.target_remote_name,
+    ) {
+        if let Err(e) =
+            import_review_repository::set_session_send_target(sid, remote_id, remote_name).await
+        {
+            tracing::warn!("failed to record send target for session {}: {}", sid, e);
+        }
+    }
 
     // create import job
     let job_payload = json!({
@@ -571,6 +586,24 @@ pub async fn import_music_paths(caller: &Caller, body: JsonValue) -> GrimoireRes
     };
 
     let session_id = session.id.clone();
+
+    // record where this session's reviewed output should ultimately go, if
+    // the caller flagged one - see import_session_send_targetz.
+    if let (Some(remote_id), Some(remote_name)) =
+        (&req.target_remote_id, &req.target_remote_name)
+    {
+        if let Err(e) =
+            import_review_repository::set_session_send_target(&session_id, remote_id, remote_name)
+                .await
+        {
+            tracing::warn!(
+                "failed to record send target for session {}: {}",
+                session_id,
+                e
+            );
+        }
+    }
+
     let mut jobs_created = 0i32;
     let mut directories_scanned = 0i32;
     let mut files_skipped = 0i32;

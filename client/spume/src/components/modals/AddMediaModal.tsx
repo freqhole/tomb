@@ -26,6 +26,12 @@ import { getLocalLibraryName } from "../../app/services/storage/db";
 import { getCurrentRemote } from "../../music/data";
 import { getTauriManagedRemote } from "../../app/services/remotes/remoteManager";
 import { getClientForRemote } from "../../app/api/client";
+import { isCharnelMode } from "../../app/services/charnel";
+import {
+  listLocalPendingSessions,
+  getLocalSessionAlbums,
+  markLocalAlbumReviewed,
+} from "../../music/services/storage/db/importReview";
 import { JobPoller } from "../../app/services/jobs/jobService";
 import type {
   PreCheckFetchResponse,
@@ -150,12 +156,25 @@ export function AddMediaModal(props: AddMediaModalProps) {
 
   // in charnel mode, music's path-based imports always redirect through the
   // local library first (review-before-send flow) - so "review" always means
-  // reviewing local sessions there, regardless of which remote is active.
-  // web/wasm clients still upload directly to whatever remote is current.
+  // reviewing local (grimoire) sessions there, regardless of which remote is
+  // active. outside charnel, review sessions live in the browser's own
+  // IndexedDB library instead (see music/services/storage/db/importReview.ts) -
+  // there's no Remote to speak of, so pendingSessions below branches on
+  // isCharnelMode() directly rather than resolving one.
   // video isn't on this flow yet (see the TODO in App.tsx), so its own
   // pending-sessions query below still uses getCurrentRemote() directly.
   const resolveReviewRemote = async () =>
-    props.useCharnelDialog ? await getTauriManagedRemote() : getCurrentRemote();
+    isCharnelMode() ? await getTauriManagedRemote() : null;
+
+  // local backend's own "remote id" for filtering purposes: the
+  // charnel-managed pseudo-remote's id under charnel (browsing local IS
+  // browsing that remote), or null for plain web (no Remote at all for a
+  // purely local IndexedDB session). a session with no target_remote_id
+  // is normalized to this value below so it lines up with "currently
+  // viewing local" on either backend.
+  const [localBackendId] = createResource(async () =>
+    isCharnelMode() ? ((await getTauriManagedRemote())?.remote_id ?? null) : null
+  );
 
   // pending review sessions (music only) - fetched whenever the modal is open.
   // re-fetches when refetchReviewKey changes (e.g. after a review modal closes).
@@ -165,6 +184,30 @@ export function AddMediaModal(props: AddMediaModalProps) {
   >(
     () => (props.isOpen ? (props.refetchReviewKey ?? 0) : null),
     async (_key: number | null) => {
+      if (!isCharnelMode()) {
+        const sessions = await listLocalPendingSessions();
+        return Promise.all(
+          sessions.map(async (s): Promise<PendingReviewSession> => {
+            const albums = await getLocalSessionAlbums(s.session_id);
+            return {
+              session_id: s.session_id,
+              created_at: Math.floor(s.created_at / 1000),
+              uploader_username: null,
+              albums: albums.map((a) => ({
+                album_id: a.id,
+                title: a.title,
+                artist_id: a.artistId ?? null,
+                artist_name: a.artist ?? null,
+                artwork_blob_id: a.artworkBlobId ?? null,
+                song_count: a.songs.length,
+                pending_blob_count: a.songs.length,
+              })),
+              target_remote_id: s.target_remote_id,
+              target_remote_name: s.target_remote_name,
+            };
+          })
+        );
+      }
       const remote = await resolveReviewRemote();
       if (!remote) return [];
       try {
@@ -178,6 +221,18 @@ export function AddMediaModal(props: AddMediaModalProps) {
     },
     { initialValue: [] }
   );
+
+  // review tab shows only sessions destined for wherever you're currently
+  // looking (or local-only sessions while browsing local) - a "show
+  // everything" toggle can widen this later without needing to refetch
+  // differently, since the raw list is still fetched in full above.
+  const filteredPendingSessions = createMemo(() => {
+    const sessions = pendingSessions() ?? [];
+    const localId = localBackendId();
+    if (localId === undefined) return []; // still resolving
+    const currentId = getCurrentRemote()?.remote_id ?? localId;
+    return sessions.filter((s) => (s.target_remote_id ?? localId) === currentId);
+  });
 
   // pending video review sessions - fetched whenever the modal is open.
   const [videoPendingSessions, { refetch: refetchVideoPendingSessions }] = createResource<
@@ -210,10 +265,17 @@ export function AddMediaModal(props: AddMediaModalProps) {
   );
 
   const handleMarkSessionReviewed = async (session: PendingReviewSession) => {
-    const remote = await resolveReviewRemote();
-    if (!remote) return;
     setMarkingSessionReviewed(session.session_id);
     try {
+      if (!isCharnelMode()) {
+        for (const album of session.albums) {
+          await markLocalAlbumReviewed(session.session_id, album.album_id);
+        }
+        void refetchPendingSessions();
+        return;
+      }
+      const remote = await resolveReviewRemote();
+      if (!remote) return;
       const client = await getClientForRemote(remote);
       for (const album of session.albums) {
         const resp = await client.music.markAlbumReviewed({
@@ -899,7 +961,7 @@ export function AddMediaModal(props: AddMediaModalProps) {
                     id="review"
                     label="review"
                     badge={
-                      (pendingSessions()?.reduce((n, s) => n + s.albums.length, 0) ?? 0) +
+                      (filteredPendingSessions()?.reduce((n, s) => n + s.albums.length, 0) ?? 0) +
                         (videoPendingSessions()?.reduce((n, s) => n + s.groups.length, 0) ?? 0) ||
                       undefined
                     }
@@ -1204,15 +1266,15 @@ export function AddMediaModal(props: AddMediaModalProps) {
                         </Show>
                       </Button>
                     </div>
-                    <Show when={!pendingSessions.loading && (pendingSessions() ?? []).length === 0}>
+                    <Show when={!pendingSessions.loading && (filteredPendingSessions() ?? []).length === 0}>
                       <div class="flex flex-col items-center justify-center py-12 gap-2 text-[var(--color-text-muted)]">
                         <Icon name="check" size={32} color="currentColor" />
                         <p class="body-small">no pending reviews</p>
                       </div>
                     </Show>
-                    <Show when={(pendingSessions() ?? []).length > 0}>
+                    <Show when={(filteredPendingSessions() ?? []).length > 0}>
                       <div class="flex flex-col gap-3">
-                        <For each={pendingSessions() ?? []}>
+                        <For each={filteredPendingSessions() ?? []}>
                           {(session) => (
                             <div class="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-secondary)] p-4">
                               <div class="flex items-start justify-between gap-3">

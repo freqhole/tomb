@@ -339,12 +339,17 @@ export interface RemoteUploadResult {
  * @param onSessionResolved fired once a file's session_id is known - each
  *   file uploads (and gets its own job/session) independently, there's no
  *   shared batch session like `importPathsToLocal`'s musicByPaths call.
+ * @param sendTarget when set, tags each resulting session (server-side,
+ *   in import_session_send_targetz) as destined for this remote once
+ *   reviewed - durable across app restarts/devices, unlike the old
+ *   client-only pendingSendTargets bookkeeping this replaces.
  */
 export async function uploadFilesToRemote(
   files: FileList,
   onJobComplete?: () => void,
   targetRemote?: RemoteLike,
-  onSessionResolved?: (sessionId: string) => void
+  onSessionResolved?: (sessionId: string) => void,
+  sendTarget?: { remoteId: string; remoteName: string }
 ): Promise<void> {
   const remote = targetRemote ?? getCurrentRemote();
   if (!remote) throw new Error("no active remote");
@@ -362,9 +367,15 @@ export async function uploadFilesToRemote(
     (async () => {
       try {
         const client = await getClientForRemote(remote);
-        const result = await client.upload.music(file, (loaded, total) => {
-          if (total > 0) updateJobProgress(trackId, loaded / total);
-        });
+        const result = await client.upload.music(
+          file,
+          (loaded, total) => {
+            if (total > 0) updateJobProgress(trackId, loaded / total);
+          },
+          sendTarget
+            ? { targetRemoteId: sendTarget.remoteId, targetRemoteName: sendTarget.remoteName }
+            : undefined
+        );
         if (!result.success) {
           // extract error message from the ZodError
           const errMsg = result.error?.issues?.[0]?.message || "upload request failed";
@@ -511,7 +522,10 @@ export async function importPathsToLocal(
   /** import against this remote instead of whatever's currently selected -
    * used to force local-first import when the active target is a real
    * remote (see the add-media "review before sending" flow). */
-  targetRemote?: RemoteLike
+  targetRemote?: RemoteLike,
+  /** when set, tags the created session (server-side) as destined for
+   * this remote once reviewed - see uploadFilesToRemote's matching param. */
+  sendTarget?: { remoteId: string; remoteName: string }
 ): Promise<void> {
   if (paths.length === 0) return;
   const remote = targetRemote ?? getCurrentRemote();
@@ -521,7 +535,10 @@ export async function importPathsToLocal(
 
   // submit all paths in one request - server creates a single session for the
   // batch so all files end up reviewable together
-  const batchResult = await client.upload.musicByPaths(paths);
+  const batchResult = await client.upload.musicByPaths(paths, {
+    targetRemoteId: sendTarget?.remoteId,
+    targetRemoteName: sendTarget?.remoteName,
+  });
   if (!batchResult.success) {
     const errMsg = batchResult.error?.issues?.[0]?.message || "batch import request failed";
     throw new Error(errMsg);

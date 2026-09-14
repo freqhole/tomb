@@ -308,6 +308,9 @@ pub async fn dispatch(
         "/api/music/import/album-pending" => {
             Some(import_review::album_pending(caller, body.clone()).await)
         }
+        "/api/music/import/session-target" => {
+            Some(import_review::get_session_target(caller, body.clone()).await)
+        }
 
         // musicbrainz
         "/api/musicbrainz/search/releases" => {

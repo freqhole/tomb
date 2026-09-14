@@ -4,10 +4,19 @@
 // its full song list via query_songs, and exposes the mutation fns
 // (patch, merge, move, mark-reviewed) that wire back to the api.
 //
+// works against either backend a session can live in:
+//   - grimoire (desktop/android charnel's embedded local instance) - the
+//     original behavior below, driven by `remote()`.
+//   - the browser's own IndexedDB (plain web, no charnel) - driven by
+//     music/services/storage/db/importReview.ts. selected by passing
+//     `remote() === null` while `sessionId()` is set (there's no `Remote`
+//     to speak of for a purely local-idb session).
+//
 // usage:
 //   const review = useImportReview(() => sessionId(), remote);
 //   review.albums()      // ImportReviewAlbum[]
 //   review.loading()     // boolean
+//   review.targetRemoteName() // string | undefined - "send to X" label
 //   review.patchAlbum(albumId, req)
 //   review.mergeAlbums(sourceIds, targetId)
 //   review.moveSong(songId, toAlbumId)
@@ -24,6 +33,14 @@ import type {
   ImportReviewSong,
 } from "../../components/import/ImportGroupingView";
 import type { PatchAlbumReviewRequest, PendingReviewAlbum } from "@freqhole/api-client";
+import {
+  getLocalImportSession,
+  getLocalSessionAlbums,
+  markLocalAlbumReviewed,
+  mergeLocalAlbums,
+  moveLocalSong,
+  patchLocalAlbum,
+} from "../services/storage/db/importReview";
 
 // ----------------------------------------------------------------------------
 // helpers
@@ -47,6 +64,10 @@ function artworkUrlFromBlob(
 export interface ImportReviewHandle {
   albums: () => ImportReviewAlbum[];
   loading: () => boolean;
+  /** remote this session's reviewed output is destined for, if any -
+   *  undefined for a purely local (nowhere-else-to-send) session. */
+  targetRemoteId: () => string | undefined;
+  targetRemoteName: () => string | undefined;
   patchAlbum: (
     albumId: string,
     req: Omit<PatchAlbumReviewRequest, "album_id" | "session_id">
@@ -64,21 +85,34 @@ export interface ImportReviewHandle {
 
 export function useImportReview(
   sessionId: () => string | null,
+  /** `null`/`undefined` while resolving; `null` once resolved means "no
+   *  grimoire remote for this session" - i.e. it lives in the browser's
+   *  own IndexedDB library instead. */
   remote: () => CurrentRemoteInfo | null | undefined
 ): ImportReviewHandle {
   // reload key: increment to trigger refetch
   const [reloadKey, setReloadKey] = createSignal(0);
+  const [targetRemoteId, setTargetRemoteId] = createSignal<string | undefined>(undefined);
+  const [targetRemoteName, setTargetRemoteName] = createSignal<string | undefined>(undefined);
 
-  const key = createMemo<[string, CurrentRemoteInfo, number] | null>(() => {
+  const key = createMemo<[string, CurrentRemoteInfo | null | undefined, number] | null>(() => {
     const id = sessionId();
-    const r = remote();
-    if (!id || !r) return null;
-    return [id, r, reloadKey()];
+    if (!id) return null;
+    return [id, remote(), reloadKey()];
   });
 
   const [data] = createResource(key, async (k): Promise<ImportReviewAlbum[]> => {
     if (!k) return [];
     const [sid, r] = k;
+
+    if (!r) {
+      // local IndexedDB backend - no api round trip, already shaped as
+      // ImportReviewAlbum[].
+      const session = await getLocalImportSession(sid);
+      setTargetRemoteId(session?.target_remote_id ?? undefined);
+      setTargetRemoteName(session?.target_remote_name ?? undefined);
+      return getLocalSessionAlbums(sid);
+    }
 
     let client;
     try {
@@ -88,8 +122,20 @@ export function useImportReview(
       return [];
     }
 
-    // fetch pending review sessions for this session_id
-    const pendingResp = await client.music.listPendingImportReview({ session_id: sid });
+    // fetch pending review sessions for this session_id, and its send
+    // target (a dedicated lookup, not derived from the pending-sessions
+    // response above - that query only ever returns sessions with at
+    // least one still-unreviewed blob, so it goes empty the instant the
+    // last album here gets marked reviewed, right when the finalize step
+    // needs to read the target to actually kick off the send).
+    const [pendingResp, targetResp] = await Promise.all([
+      client.music.listPendingImportReview({ session_id: sid }),
+      client.music.getImportSessionTarget({ session_id: sid }),
+    ]);
+    if (targetResp.success) {
+      setTargetRemoteId(targetResp.data.target_remote_id ?? undefined);
+      setTargetRemoteName(targetResp.data.target_remote_name ?? undefined);
+    }
     if (!pendingResp.success || !pendingResp.data) return [];
 
     // flatten albums across sessions (should be just one session matching sid)
@@ -226,8 +272,27 @@ export function useImportReview(
     req: Omit<PatchAlbumReviewRequest, "album_id" | "session_id">
   ) {
     const sid = sessionId();
+    if (!sid) return;
     const r = remote();
-    if (!sid || !r) return;
+    if (!r) {
+      await patchLocalAlbum(albumId, {
+        title: req.title,
+        artistId: req.artist_id,
+        artistName: req.artist_name,
+        albumType: req.album_type,
+        releaseDate: req.release_date,
+        label: req.label,
+        songs: req.songs?.map((s) => ({
+          songId: s.song_id,
+          title: s.title,
+          trackNumber: s.track_number,
+          discNumber: s.disc_number,
+          trackArtist: s.track_artist,
+        })),
+      });
+      refetch();
+      return;
+    }
     let client;
     try {
       client = await getClientForRemote(r);
@@ -249,8 +314,18 @@ export function useImportReview(
 
   async function mergeAlbums(sourceIds: string[], targetId: string) {
     const sid = sessionId();
+    if (!sid) return;
     const r = remote();
-    if (!sid || !r) return;
+    if (!r) {
+      try {
+        await mergeLocalAlbums(sourceIds, targetId);
+      } catch (err) {
+        toast.error(`merge failed: ${(err as Error).message}`);
+        return;
+      }
+      refetch();
+      return;
+    }
     let client;
     try {
       client = await getClientForRemote(r);
@@ -277,8 +352,18 @@ export function useImportReview(
     newAlbumArtistName: string | null = null
   ) {
     const sid = sessionId();
+    if (!sid) return;
     const r = remote();
-    if (!sid || !r) return;
+    if (!r) {
+      try {
+        await moveLocalSong(songId, toAlbumId, newAlbumTitle, newAlbumArtistName);
+      } catch (err) {
+        toast.error(`move failed: ${(err as Error).message}`);
+        return;
+      }
+      refetch();
+      return;
+    }
     let client;
     try {
       client = await getClientForRemote(r);
@@ -302,8 +387,18 @@ export function useImportReview(
 
   async function markReviewed(albumId: string) {
     const sid = sessionId();
+    if (!sid) return;
     const r = remote();
-    if (!sid || !r) return;
+    if (!r) {
+      try {
+        await markLocalAlbumReviewed(sid, albumId);
+      } catch (err) {
+        toast.error(`mark reviewed failed: ${(err as Error).message}`);
+        return;
+      }
+      refetch();
+      return;
+    }
     let client;
     try {
       client = await getClientForRemote(r);
@@ -340,6 +435,8 @@ export function useImportReview(
       if (sid !== resolvedForSid()) return true;
       return (data.loading && !data.latest) || data.state === "unresolved";
     },
+    targetRemoteId,
+    targetRemoteName,
     patchAlbum,
     mergeAlbums,
     moveSong,

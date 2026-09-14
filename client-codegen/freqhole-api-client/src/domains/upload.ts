@@ -12,6 +12,7 @@ import {
 import type { Transport } from "../transport.js";
 import type { SafeParseResult } from "./types.js";
 import { toZodError } from "../errors.js";
+import { appendImportSendTarget, type ImportSendTarget } from "../importSendTarget.js";
 
 // helper to parse response and validate with schema
 function parseResponse<T>(
@@ -51,6 +52,12 @@ export type UploadImageOptions = {
   associate?: s.AssociationHint;
 };
 
+/** "review before send" annotation - see grimoire's
+ * import_session_send_targetz. when set, the session this upload lands
+ * in gets tagged so any client (any device, any restart) can see it
+ * should ultimately be sent to this remote once reviewed. */
+export type ImportSendTargetOptions = ImportSendTarget;
+
 export function createUploadMethods(transport: Transport) {
   return {
     /**
@@ -61,9 +68,11 @@ export function createUploadMethods(transport: Transport) {
     music: async (
       file: File | Blob,
       onProgress?: (loaded: number, total: number) => void,
+      options?: ImportSendTargetOptions,
     ): Promise<SafeParseResult<s.MusicUploadResponse>> => {
       const formData = new FormData();
       formData.append("file", file);
+      appendImportSendTarget(formData, options);
 
       const response = await transport.upload("/api/upload/music", formData, onProgress);
       return parseResponse(response.body, response.status, MusicUploadResponseSchema);
@@ -195,11 +204,13 @@ export function createUploadMethods(transport: Transport) {
      */
     musicByPaths: async (
       paths: string[],
-      options?: { waitForCompletion?: boolean },
+      options?: { waitForCompletion?: boolean } & ImportSendTargetOptions,
     ): Promise<SafeParseResult<s.MusicImportResponse>> => {
       const body = {
         paths,
         wait_for_completion: options?.waitForCompletion ?? false,
+        target_remote_id: options?.targetRemoteId,
+        target_remote_name: options?.targetRemoteName,
       };
 
       const response = await transport.request(

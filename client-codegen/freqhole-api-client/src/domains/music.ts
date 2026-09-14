@@ -1818,6 +1818,21 @@ export function createMusicMethods(call: CallFn) {
       );
     },
 
+    // look up a session's send target directly - unlike
+    // listPendingImportReview, still resolves after the session's last
+    // album has been marked reviewed (see GetImportSessionTargetRequest).
+    getImportSessionTarget: (params: s.GetImportSessionTargetRequest) => {
+      return call(
+        "music",
+        "get_import_session_target",
+        routes.music.get_import_session_target.resp,
+        routes.music.get_import_session_target.req,
+        routes.music.get_import_session_target.method,
+        routes.music.get_import_session_target.path,
+        params,
+      );
+    },
+
     markAlbumReviewed: (params: s.MarkAlbumReviewedRequest) => {
       return call(
         "music",

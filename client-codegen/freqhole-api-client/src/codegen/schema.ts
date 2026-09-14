@@ -2959,6 +2959,11 @@ export const GetFavoriteStatusBulkRequestSchema = z.object({
 });
 export type GetFavoriteStatusBulkRequest = z.infer<typeof GetFavoriteStatusBulkRequestSchema>;
 
+export const GetImportSessionTargetRequestSchema = z.object({
+  session_id: z.string()
+});
+export type GetImportSessionTargetRequest = z.infer<typeof GetImportSessionTargetRequestSchema>;
+
 export const GetJobRequestSchema = z.object({
   job_id: z.string()
 });
@@ -3121,6 +3126,12 @@ export const ImportReviewOkSchema = z.object({
   ok: z.boolean()
 });
 export type ImportReviewOk = z.infer<typeof ImportReviewOkSchema>;
+
+export const ImportSessionSendTargetSchema = z.object({
+  target_remote_id: z.string().nullish(),
+  target_remote_name: z.string().nullish()
+});
+export type ImportSessionSendTarget = z.infer<typeof ImportSessionSendTargetSchema>;
 
 export const IngestRemoteImageRequestSchema = z.object({
   remote_url: z.string(),
@@ -4486,7 +4497,9 @@ export const PendingReviewSessionSchema = z.object({
   artwork_blob_id: z.string().nullish(),
   song_count: z.number(),
   pending_blob_count: z.number()
-}))
+})),
+  target_remote_id: z.string().nullish(),
+  target_remote_name: z.string().nullish()
 });
 export type PendingReviewSession = z.infer<typeof PendingReviewSessionSchema>;
 

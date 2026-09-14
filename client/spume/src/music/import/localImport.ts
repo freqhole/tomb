@@ -2,6 +2,11 @@
 import { createSignal } from "solid-js";
 import { processMusicFiles } from "./fileProcessor";
 import { createSong, getSongBySha256 } from "../services/storage/db";
+import {
+  createLocalImportSession,
+  recordLocalImportBlob,
+  type LocalImportReviewSendTarget,
+} from "../services/storage/db/importReview";
 import { computeSHA256 } from "../../utils/hash";
 import { debug, warn } from "../../utils/logger";
 import { errorMessageFrom } from "../../utils/humanizeJobError";
@@ -9,6 +14,10 @@ import { errorMessageFrom } from "../../utils/humanizeJobError";
 export interface ImportResult {
   addedCount: number;
   skippedCount: number;
+  /** local review session this batch landed in - see importReview.ts.
+   * always created, even for a batch that turns out to be all duplicates
+   * (mirrors grimoire's import_music_paths, which does the same). */
+  sessionId: string;
 }
 
 // local import progress — tracks the current phase and file-level progress
@@ -47,11 +56,19 @@ export function clearLocalImportProgress() {
   setLocalImportProgress(IDLE_PROGRESS);
 }
 
-// import music files from file picker into local library
-export async function importMusicFiles(files: FileList): Promise<ImportResult> {
+// import music files from file picker into local library. every batch is
+// tracked as a review session (see importReview.ts) so web/browser clients
+// get the same "review before send" flow desktop/android already have via
+// grimoire - `target`, when set, tags the session to be sent to that
+// remote once reviewed (see AddMediaModal's local-review wiring).
+export async function importMusicFiles(
+  files: FileList,
+  target?: LocalImportReviewSendTarget
+): Promise<ImportResult> {
   const fileArray = Array.from(files);
   let addedCount = 0;
   let skippedCount = 0;
+  const sessionId = await createLocalImportSession(target);
 
   // phase 1: hashing
   setLocalImportProgress({
@@ -113,7 +130,8 @@ export async function importMusicFiles(files: FileList): Promise<ImportResult> {
 
     // no duplicate found, add the song
     try {
-      await createSong(songData);
+      const song = await createSong(songData);
+      await recordLocalImportBlob(sessionId, song.id);
       addedCount++;
       debug(
         "localImport",
@@ -154,5 +172,5 @@ export async function importMusicFiles(files: FileList): Promise<ImportResult> {
   });
 
   debug("localImport", `added ${addedCount} songs, skipped ${skippedCount} duplicates`);
-  return { addedCount, skippedCount };
+  return { addedCount, skippedCount, sessionId };
 }

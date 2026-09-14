@@ -7,6 +7,7 @@
 import type { Transport, TransportResponse, BlobData } from "./transport.js";
 import type { CloseReason, EventFilter, JobEvent, JobStateSnapshot } from "./codegen/schema.js";
 import { bytesToBase64 } from "./base64.js";
+import { readImportSendTarget } from "./importSendTarget.js";
 
 // tauri invoke function type
 type InvokeFn = (cmd: string, args?: unknown) => Promise<unknown>;
@@ -221,11 +222,16 @@ export class CharnelLocalTransport implements Transport {
           // ignore parse errors
         }
       }
+      // "review before send" annotation (see ImportSendTargetOptions in
+      // domains/upload.ts) - passed straight through as top-level body
+      // fields so grimoire's upload_music handler can tag the session.
+      metadata = { ...metadata, ...readImportSendTarget(formData) };
       return this.uploadChunked(path, file, metadata, onProgress);
     }
 
     return this.uploadLegacyBase64(path, file, formData);
   }
+
 
   /**
    * stream a music/video file to this local grimoire instance in bounded
