@@ -28,7 +28,7 @@ import {
 import { spumeTrustStore } from "./trustStoreAdapter";
 import { spumeSessionStore } from "./playerSessionAdapter";
 import { getSpumeHelloInfo } from "./spumeHelloRoute";
-import { isRemotePlaybackEnabled } from "./remoteModeSettings";
+import { isActivePlayer } from "./remoteModeSettings";
 import { registerBrowserApiRoutes } from "../../lib/api/router";
 import { isCharnelMode } from "../../app/services/charnel/mode";
 import { isRodioEnabled } from "../../music/services/audio/select";
@@ -97,11 +97,15 @@ export function initRemotePlaybackAcceptMode(node: MiddenNodeLike): void {
     backend: isCharnelMode() && isRodioEnabled() ? charnelPlaybackAdapter : mediaPlaybackBackend,
     trustStore: spumeTrustStore,
     sessionStore: spumeSessionStore,
-    // only actually accept playback commands while this tab is showing
-    // /player/ - otherwise mediaPlaybackBackend (and its own <video>
-    // element) would get driven silently, with no UI observing it at all
-    // (only CenotaphPlayerApp renders this backend's state).
-    isEnabled: () => isRemotePlaybackEnabled() && window.location.pathname.startsWith("/player"),
+    // only actually accept playback commands while the #/player route is
+    // mounted right now - otherwise mediaPlaybackBackend (and its own
+    // <video> element) would get driven silently, with no UI observing it
+    // at all (only CenotaphPlayerApp renders this backend's state).
+    // `isActivePlayer()` is set directly by CenotaphPlayerApp's own
+    // onMount/onCleanup (see remoteModeSettings.ts), so it stays correct
+    // regardless of how that component got mounted (router vs. anything
+    // else) - no pathname check needed here.
+    isEnabled: () => isActivePlayer(),
   });
 
   startAcceptLoop<AcceptModeNode>(acceptNode, {

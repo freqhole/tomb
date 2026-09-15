@@ -75,6 +75,7 @@ mod media_session {
     }
 }
 mod jobs_events_commands;
+mod player_pairing_accept;
 mod radio_commands;
 mod remotez_commands;
 mod server_controls;
@@ -437,6 +438,10 @@ pub fn run() {
     let builder = builder
         .setup(move |app| {
             tracing::info!(elapsed_ms = %boot_start.elapsed().as_millis(), "boot: setup() entered");
+            // needed by player_pairing_accept's dispatch bridge, which runs
+            // from a spawned task with no AppHandle of its own to emit
+            // events through.
+            player_pairing_accept::set_app_handle(app.handle().clone());
             // ---- deep-link plugin -----------------------------------------
             // register `freqhole://` handler. on_open_url fires for runtime
             // url opens; cold-start urls are drained from the pending queue
@@ -708,12 +713,18 @@ pub fn run() {
                     .as_ref()
                     .map(|f| f.enabled)
                     .unwrap_or(false);
+                // player pairing (experimental native accept-side, see
+                // player_pairing_accept.rs) also needs the p2p endpoint up,
+                // independent of federation - same as radio's own
+                // config-driven trigger below in init_p2p_client itself.
+                let player_pairing_enabled_for_p2p =
+                    grimoire::config::get_config().player_pairing.enabled;
 
                 // initialize P2P client endpoint for outbound connections (only if federation enabled)
                 let app_handle = app.handle().clone();
                 let shutdown_token = app.state::<ShutdownToken>().inner().clone();
 
-                if federation_enabled_for_p2p {
+                if federation_enabled_for_p2p || player_pairing_enabled_for_p2p {
                     let config_path_for_p2p = config_path.clone();
                     let p2p_state_clone = app.state::<Arc<P2pState>>().inner().clone();
                     p2p_state_clone.set_config_path(config_path_for_p2p.clone());
@@ -967,6 +978,16 @@ pub fn run() {
             media_session::media_session_clear_track,
             // native transport for player.freqhole.net pairing/control
             player_pairing_commands::player_pairing_dial,
+            // native accept-side for freqhole-player/1 (charnel as the
+            // player being paired-with/controlled, not the controller)
+            player_pairing_accept::player_pairing_is_started,
+            player_pairing_accept::player_pairing_get_snapshot,
+            player_pairing_accept::player_pairing_set_session_mode,
+            player_pairing_accept::player_pairing_regenerate_admin_pin,
+            player_pairing_accept::player_pairing_regenerate_session_pin,
+            player_pairing_accept::player_pairing_remove_controller,
+            player_pairing_accept::player_pairing_command_reply,
+            player_pairing_accept::player_pairing_broadcast_status,
             // ephemeral blob fetch + cleanup (sync_queue_to_local OFF path)
             ephemeral_blob_commands::fetch_ephemeral_blob,
             ephemeral_blob_commands::delete_ephemeral_blob,

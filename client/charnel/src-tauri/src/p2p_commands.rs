@@ -153,15 +153,19 @@ pub async fn init_p2p_client(config_path: &Path) -> Result<(), String> {
     // + the RADIO_ALPN protocol handler. operators can run a radio
     // broadcaster without federation enabled.
     let radio_enabled = grimoire::radio::config::effective().enabled;
+    // same config flag rathole's `--player`/`/player` uses to auto-start
+    // its own accept endpoint - see grimoire::config::PlayerPairingConfig.
+    let player_pairing_enabled = config.player_pairing.enabled;
 
-    if !federation_enabled && !radio_enabled {
-        // tracing::debug!("federation + radio both disabled, skipping P2P init");
+    if !federation_enabled && !radio_enabled && !player_pairing_enabled {
+        // tracing::debug!("federation + radio + player pairing all disabled, skipping P2P init");
         return Ok(());
     }
 
     tracing::info!(
         federation = federation_enabled,
         radio = radio_enabled,
+        player_pairing = player_pairing_enabled,
         "initializing P2P endpoint..."
     );
 
@@ -171,6 +175,18 @@ pub async fn init_p2p_client(config_path: &Path) -> Result<(), String> {
 
     let node_id = endpoint.node_id();
     tracing::info!(node_id = %node_id, "P2P endpoint ready");
+
+    // build the freqhole-player/1 accept-side handler up front (before
+    // start_router_with) so it can be chained into the same router/
+    // endpoint as everything else - a second iroh endpoint would
+    // double-register this device's identity with the relay, and the
+    // relay only delivers to whichever connected most recently (see
+    // rathole's own `run.rs` comment on this exact hazard).
+    let player_protocol =
+        player_pairing_enabled.then(crate::player_pairing_accept::build_player_protocol);
+    if player_pairing_enabled {
+        crate::player_pairing_accept::set_node_id(node_id.to_string());
+    }
 
     // when radio is enabled at startup, spawn one broadcaster per
     // enabled station. when disabled, the registry stays empty and
@@ -199,10 +215,14 @@ pub async fn init_p2p_client(config_path: &Path) -> Result<(), String> {
     tracing::info!("starting router for blob serving + radio");
     endpoint
         .start_router_with(|builder| {
-            builder.accept(
+            let builder = builder.accept(
                 grimoire::radio::RADIO_ALPN,
                 grimoire::radio::RadioProtocol::new(),
-            )
+            );
+            match player_protocol {
+                Some(handler) => builder.accept(grimoire::cenotaph::PLAYER_ALPN, handler),
+                None => builder,
+            }
         })
         .await
         .map_err(|e| format!("failed to start P2P router: {}", e))?;

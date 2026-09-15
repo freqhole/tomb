@@ -1,11 +1,11 @@
-// spume's `/player/` route (phase 6): turns this browser tab into a
+// spume's `#/player` route (phase 6): turns this browser tab into a
 // remote-controllable playback target. NOT a separate build/deploy - just
-// a pathname branch inside spume's normal `index.tsx` bootstrap (see that
-// file). renders a full-screen pairing QR until a controller pairs, then
-// hands the screen over to cenotaph's own `mediaPlaybackBackend` (its
-// dedicated `<video>` element, reused verbatim - same instance the accept
-// loop's command dispatcher already drives via
-// `acceptModeBootstrap.ts`/`createPlayerConnectionHandler`).
+// a normal route inside spume's hash router, rendered by AppLayout with
+// its own chrome (TopNav/PlayerBar/sidebar) hidden. renders a full-screen
+// pairing QR until a controller pairs, then hands the screen over to
+// cenotaph's own `mediaPlaybackBackend` (its dedicated `<video>` element,
+// reused verbatim - same instance the accept loop's command dispatcher
+// already drives via `acceptModeBootstrap.ts`/`createPlayerConnectionHandler`).
 //
 // visual design mirrors player.freqhole.net's own former App.tsx pairing
 // screen pixel-for-pixel (now abandoned, no rewire - see
@@ -48,6 +48,7 @@ import {
 } from "../index";
 import { spumeTrustStore } from "../adapters/trustStoreAdapter";
 import { getMiddenNode } from "../../app/api/client";
+import { getCharnelNodeId, initCharnelPlaybackAcceptMode } from "../adapters/charnelAcceptBridge";
 
 import { appState, getLocalLibraryName } from "../../app/services/storage/db";
 import {
@@ -185,6 +186,29 @@ export function CenotaphPlayerApp() {
 
     void (async () => {
       try {
+        if (isCharnelMode()) {
+          // the rust-side accept loop only drives spume's real player
+          // (charnelPlaybackAdapter.ts) - without rodio there's no
+          // native playback backend for it to command (see
+          // usingRealPlayer's doc comment), so surface that plainly
+          // instead of attempting a broken wasm-node bootstrap.
+          if (!isRodioEnabled()) {
+            setError(
+              "player pairing on this device needs the experimental native player (rodio) enabled in settings."
+            );
+            return;
+          }
+          await initCharnelPlaybackAcceptMode();
+          const id = await getCharnelNodeId();
+          setNodeId(id);
+          const dataUrl = await renderPlayerQr({
+            node_id: id,
+            name: getLocalLibraryName(),
+            role: "player_remote",
+          });
+          setQrDataUrl(dataUrl);
+          return;
+        }
         const node = await getMiddenNode();
         setNodeId(node.node_id());
         // getMiddenNode()'s declared type marks playback methods optional (it

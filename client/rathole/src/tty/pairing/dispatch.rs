@@ -15,10 +15,12 @@
 use tokio::sync::mpsc;
 use tracing::{info, warn};
 
-use crate::ratcore::app::{
-    AppAction, CommandAck, CommandAckReason, MediaKind, MediaRef, PairingCommand, PlayerStatus,
-    QueueEntry, QueuedVideoRow, SongRow, StatusCommon,
+use grimoire::cenotaph::{
+    CommandAck, CommandAckReason, MediaKind, MediaRef, PlayerCommand as PairingCommand,
+    PlayerStatus, StatusCommon,
 };
+
+use crate::ratcore::app::{AppAction, QueueEntry, QueuedVideoRow, SongRow};
 use crate::ratcore::transport::{PlayerCmd, VideoPlayer};
 
 use super::now_ms;
@@ -114,13 +116,49 @@ pub fn queue_entry_to_media_ref(entry: &QueueEntry) -> MediaRef {
     }
 }
 
+/// converts a wire (`grimoire::cenotaph`) `MediaRef` into ratcore's own
+/// portable mirror `MediaRef` - needed only where a value crosses into
+/// `AppAction`/UI state (e.g. `AppAction::PairingQueuePending`), which is
+/// typed against `ratcore::app::pairing`'s types since that's what the
+/// wasm shell's `EphemeralState` uses too (see
+/// `grimoire::cenotaph::wire`'s module doc for why the two types can't
+/// just be the same one).
+fn to_portable_media_ref(m: &MediaRef) -> crate::ratcore::app::MediaRef {
+    crate::ratcore::app::MediaRef {
+        source_peer_addr: m.source_peer_addr.clone(),
+        blake3_hash: m.blake3_hash.clone(),
+        size_bytes: m.size_bytes,
+        duration_ms: m.duration_ms,
+        mime_type: m.mime_type.clone(),
+        kind: m.kind.map(|k| match k {
+            MediaKind::Audio => crate::ratcore::app::MediaKind::Audio,
+            MediaKind::Video => crate::ratcore::app::MediaKind::Video,
+        }),
+        title: m.title.clone(),
+        artist: m.artist.clone(),
+        artwork_thumb_url: m.artwork_thumb_url.clone(),
+        artwork_full_url: m.artwork_full_url.clone(),
+        available_renditions: m
+            .available_renditions
+            .iter()
+            .map(|r| crate::ratcore::app::RenditionRef {
+                blake3_hash: r.blake3_hash.clone(),
+                label: r.label.clone(),
+                mime_type: r.mime_type.clone(),
+                width: r.width,
+                height: r.height,
+            })
+            .collect(),
+    }
+}
+
 /// converts a freshly-imported (real library song/video, not a
 /// throwaway cache file) wire `MediaRef` into a unified queue entry -
-/// see `super::import::import_pushed_media`'s module doc for why this
-/// replaced the old cache-only resolve+wrap approach.
+/// see `grimoire::cenotaph::import_pushed_media`'s module doc for why
+/// this replaced the old cache-only resolve+wrap approach.
 fn media_ref_to_queue_entry(
     media: &MediaRef,
-    imported: super::import::ImportedMedia,
+    imported: grimoire::cenotaph::ImportedMedia,
 ) -> QueueEntry {
     let title = media
         .title
@@ -414,7 +452,7 @@ enum DeliveryMode {
 
 /// resolves each item to a real local library entry and a unified
 /// queue entry (audio or video - see `QueueEntry`), in original order,
-/// via `super::import::import_pushed_media`. skips (with a warning)
+/// via `grimoire::cenotaph::import_pushed_media`. skips (with a warning)
 /// any item that fails to import, best-effort rather than all-or-
 /// nothing so one broken/unreachable track doesn't drop an otherwise-
 /// good queue push. reports live byte progress per item via
@@ -460,7 +498,7 @@ async fn resolve_queue_items(
     // show for it, same as a genuine resolve failure.
     if let Some(tx) = &ctx.action_tx {
         let _ = tx.send(AppAction::PairingQueuePending {
-            items: items.clone(),
+            items: items.iter().map(to_portable_media_ref).collect(),
         });
     }
     for (item_index, item) in items.into_iter().enumerate() {
@@ -525,7 +563,7 @@ async fn resolve_queue_items(
             "resolve_queue_items: starting import_pushed_media"
         );
         let started = std::time::Instant::now();
-        let import_result = super::import::import_pushed_media(
+        let import_result = grimoire::cenotaph::import_pushed_media(
             &item.source_peer_addr,
             pull_hash,
             &filename,
@@ -693,7 +731,6 @@ fn status_ack(ctx: &DispatchContext, explicit: Option<PlayerStatus>) -> CommandA
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ratcore::app::MediaKind;
 
     fn ref_with_kind(kind: MediaKind) -> MediaRef {
         MediaRef {

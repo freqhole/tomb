@@ -13,7 +13,9 @@
 
 import { getMiddenNode, onMiddenReady } from "../../app/api/client";
 import { initRemotePlaybackAcceptMode } from "./acceptModeBootstrap";
+import { initCharnelPlaybackAcceptMode } from "./charnelAcceptBridge";
 import { initLocalLibraryHooks } from "./localLibraryHooks";
+import { isCharnelMode } from "../../app/services/charnel/mode";
 import type { MiddenNodeLike } from "@freqhole/api-client";
 
 let registered = false;
@@ -21,6 +23,14 @@ let registered = false;
 export function initRemotePlaybackBootstrap(): void {
   if (registered) return;
   registered = true;
+
+  // charnel has no midden/wasm node at all - its accept loop is native
+  // (grimoire::cenotaph, registered on charnel's own p2p endpoint) and
+  // just needs its tauri-event bridge started, not onMiddenReady.
+  if (isCharnelMode()) {
+    void initCharnelPlaybackAcceptMode();
+    return;
+  }
 
   onMiddenReady(() => {
     void getMiddenNode().then((node: MiddenNodeLike) => {

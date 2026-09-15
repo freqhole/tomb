@@ -1737,18 +1737,18 @@ fn sync_pending_knocks(app: &App, tx: &mpsc::UnboundedSender<AppAction>) {
 /// a library item, just a live mpv-fed stream), so this stands in for
 /// `queue.first()` while a session is active. `None` when radio isn't
 /// running, so callers fall back to the regular queue-based status.
-fn radio_now_playing_ref(app: &App) -> Option<crate::ratcore::app::MediaRef> {
+fn radio_now_playing_ref(app: &App) -> Option<grimoire::cenotaph::MediaRef> {
     let radio = &app.state.ephemeral.radio;
     if !radio.active {
         return None;
     }
-    Some(crate::ratcore::app::MediaRef {
+    Some(grimoire::cenotaph::MediaRef {
         source_peer_addr: String::new(),
         blake3_hash: format!("radio:{}", radio.station_id.clone().unwrap_or_default()),
         size_bytes: None,
         duration_ms: None,
         mime_type: None,
-        kind: Some(crate::ratcore::app::MediaKind::Audio),
+        kind: Some(grimoire::cenotaph::MediaKind::Audio),
         title: radio
             .track_title
             .clone()
@@ -1766,8 +1766,8 @@ fn radio_now_playing_ref(app: &App) -> Option<crate::ratcore::app::MediaRef> {
 /// slightly duplicated snapshot from `handle_pairing_dispatch`'s own
 /// (ctx-based, `&App`-decoupled) version, since that one deliberately
 /// stays usable from a spawned task without `&App` access.
-fn build_player_status(app: &App) -> crate::ratcore::app::PlayerStatus {
-    use crate::ratcore::app::{PlayerStatus, StatusCommon};
+fn build_player_status(app: &App) -> grimoire::cenotaph::PlayerStatus {
+    use grimoire::cenotaph::{PlayerStatus, StatusCommon};
 
     if let Some(item) = radio_now_playing_ref(app) {
         let vp = &app.state.ephemeral.video_player;

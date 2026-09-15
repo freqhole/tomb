@@ -1,27 +1,27 @@
 //! `freqhole-player/1` ALPN handler: pairing handshake + command
-//! dispatch, bridging the portable protocol/session types in
-//! `ratcore::app::pairing` to a real iroh transport and rathole's real
-//! playback backends (rodio via `PlayerCmd`, mpv via `VideoCommand`).
+//! dispatch, bridging `grimoire::cenotaph`'s shared native accept-loop
+//! (protocol/session/import) to rathole's real playback backends (rodio
+//! via `PlayerCmd`, mpv via `VideoCommand`).
 //!
 //! mirrors (wire-compatible, not code-shared) cenotaph's
 //! `control/playerConnectionHandler.ts` + `control/dispatcher.ts` — see
-//! docs/rathole-headless-player-plan.md phase 4.
+//! docs/rathole-headless-player-plan.md phase 4 and
+//! docs/cenotaph-migration-plan.md's "front 3" section (this module used
+//! to own the full accept-loop + import logic itself; both now live in
+//! `grimoire::cenotaph`, shared with charnel's own accept-side).
 //!
-//! split into submodules (was one large file):
-//! - [`state`] — the shared trust/session/connected state + its
-//!   `PairingStateReader` impl.
-//! - [`endpoint`] — the iroh endpoint/router startup + the alpn
-//!   protocol handler (pairing handshake, presence, subscribe, control
-//!   command loop framing).
-//! - [`import`] — pulling a `MediaRef` from its source peer and
-//!   importing it into the local grimoire library (real song/video +
-//!   media_blob rows), reusing the same pull/import primitives a
-//!   normal upload or file scan uses.
+//! split into submodules:
+//! - [`state`] — translation shim between `ratcore::app::pairing`'s
+//!   portable wire-mirror types (also used by rathole's wasm32 web
+//!   shell) and `grimoire::cenotaph`'s own copy of the same shapes, plus
+//!   the `PairingStateReader` impl the ratatui ui reads from.
 //! - [`dispatch`] — mapping an authorized `PairingCommand` onto
 //!   rathole's real `PlayerCmd`/`VideoCommand` backends, and the
 //!   `MediaRef` <-> `ratcore::app::QueueEntry` conversions that keep
 //!   rathole's own unified play queue (`tty::queue`) as the single
-//!   source of truth for what a remote controller sees too.
+//!   source of truth for what a remote controller sees too. this is the
+//!   one piece that's genuinely NOT shareable with charnel (different
+//!   playback backends), so it stays here.
 //!
 //! **known simplifications, tracked as follow-ups, not silently
 //! skipped:**
@@ -50,25 +50,18 @@
 //!   process, near-instant), but worth knowing about.
 
 mod dispatch;
-mod endpoint;
-mod import;
 mod state;
 
 pub use dispatch::{
     dispatch_pairing_command, queue_entry_to_media_ref, ActiveBackend, DispatchContext,
 };
-pub use endpoint::{
-    PairingDispatchRequest, PairingDispatchRx, PairingDispatchTx, PairingRuntime, PlayerProtocol,
+pub use grimoire::cenotaph::{
+    ensure_current_pairing_code, PairingDispatchRequest, PairingDispatchRx, PairingDispatchTx,
+    PairingRuntime, PlayerProtocol, PLAYER_ALPN,
 };
 pub use state::{
-    ensure_current_pairing_code, load_pairing_state, sync_pairing_state_to_persisted,
-    PairingRuntimeState, PairingStateHandle, SharedPairingState,
+    load_pairing_state, sync_pairing_state_to_persisted, PairingStateHandle, SharedPairingState,
 };
-
-/// ALPN identifier. see the "naming disambiguation" note in
-/// docs/rathole-headless-player-plan.md — unrelated to grimoire's own,
-/// removed, differently-shaped `freqhole-player/1` protocol.
-pub const PLAYER_ALPN: &[u8] = b"freqhole-player/1";
 
 fn now_ms() -> i64 {
     use std::time::{SystemTime, UNIX_EPOCH};

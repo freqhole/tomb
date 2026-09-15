@@ -1,29 +1,27 @@
 //! imports a remote-pushed queue item (from `freqhole-player/1`'s
-//! `replace_queue`/`append_queue`) into rathole's OWN local grimoire
-//! library - real `songz`/`videoz` + `media_blobz` rows, same as any
-//! other import - instead of a throwaway, non-library-integrated file
-//! cache. mirrors exactly what charnel's "sync queue to local library"
-//! feature does, reusing the same grimoire primitives rather than a
-//! rathole-specific reinvention:
+//! `replace_queue`/`append_queue`) into the LOCAL grimoire library - real
+//! `songz`/`videoz` + `media_blobz` rows, same as any other import -
+//! instead of a throwaway, non-library-integrated file cache. mirrors
+//! exactly what charnel's "sync queue to local library" feature does,
+//! reusing the same grimoire primitives rather than a reinvention:
 //!
-//! - `grimoire::offal::upload::pull_audio_blob_to_local_storage` (the
-//!   shared pull-from-peer-and-land-in-media_blobz primitive behind
-//!   the `*-by-blake3` upload routes and every `offal::sync` handler)
-//!   fetches + hashes + dedupes + moves the file into permanent
-//!   library storage.
-//! - `grimoire::music::scanner::extract_and_import`/`grimoire::video::
+//! - `crate::offal::upload::pull_audio_blob_to_local_storage` (the
+//!   shared pull-from-peer-and-land-in-media_blobz primitive behind the
+//!   `*-by-blake3` upload routes and every `offal::sync` handler) fetches
+//!   + hashes + dedupes + moves the file into permanent library storage.
+//! - `crate::music::scanner::extract_and_import`/`crate::video::
 //!   importer::import_video_file` (the same functions a normal file
 //!   scan/upload uses) then create the actual song/video row.
 //!
 //! download progress (step 3 of the pull) is reported via an optional
-//! cumulative-bytes callback, same as the old cache-only path used.
+//! cumulative-bytes callback.
 
-use grimoire::federation::p2p_client::BlobProgressFn;
-use grimoire::media_domain::MediaDomain;
-use grimoire::offal::upload::pull_audio_blob_to_local_storage_with_progress;
-use grimoire::offal::Caller;
+use crate::federation::p2p_client::BlobProgressFn;
+use crate::media_domain::MediaDomain;
+use crate::offal::upload::pull_audio_blob_to_local_storage_with_progress;
+use crate::offal::Caller;
 
-use crate::ratcore::app::MediaKind;
+use super::wire::MediaKind;
 
 /// the result of importing a remote-pushed item into the local library.
 pub struct ImportedMedia {
@@ -35,10 +33,10 @@ pub struct ImportedMedia {
 
 /// same "first root user" bootstrap pattern `LocalTransport::from_
 /// first_root` uses - fetched fresh each import rather than threaded
-/// through `DispatchContext`, since this is a rare (per queue-push),
-/// not per-frame, operation and avoids widening that struct.
+/// through the caller, since this is a rare (per queue-push), not
+/// per-frame, operation.
 async fn system_caller() -> Result<Caller, String> {
-    let service = grimoire::users::UserService::new();
+    let service = crate::users::UserService::new();
     let resp = service.get_first_root_user().await;
     resp.data
         .map(|u| Caller::new(&u.id, &u.username, u.role))
@@ -47,9 +45,9 @@ async fn system_caller() -> Result<Caller, String> {
 
 /// pulls `blake3_hash` from `source_peer_addr` and imports it into the
 /// local library as a real song or video (per `kind`), returning the
-/// resulting entity/media_blob ids for building a `QueueEntry` that
+/// resulting entity/media_blob ids for building a queue entry that
 /// behaves identically to a locally-queued one (art lookup, favorites,
-/// search, etc. all work normally - no more special-casing needed).
+/// search, etc. all work normally - no special-casing needed).
 pub async fn import_pushed_media(
     source_peer_addr: &str,
     blake3_hash: &str,
@@ -82,7 +80,7 @@ pub async fn import_pushed_media(
 
     let entity_id = match kind {
         MediaKind::Audio => {
-            grimoire::music::scanner::extract_and_import(
+            crate::music::scanner::extract_and_import(
                 &media_blob_id,
                 &pull.local_path,
                 Some(caller.user_id.clone()),
@@ -93,7 +91,7 @@ pub async fn import_pushed_media(
             .song_id
         }
         MediaKind::Video => {
-            grimoire::video::importer::import_video_file(
+            crate::video::importer::import_video_file(
                 &media_blob_id,
                 &pull.local_path,
                 Some(filename),
