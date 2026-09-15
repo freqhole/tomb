@@ -1,6 +1,6 @@
 // album detail view - shows album info and songs list
 import { useNavigate, useParams, useSearchParams } from "@solidjs/router";
-import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { useQueryClient } from "@tanstack/solid-query";
 import { appState } from "../../app/services/storage/db";
 import { playQueue, addToQueue } from "../services/queue/queue";
@@ -378,10 +378,42 @@ export function AlbumDetailView() {
   // (and so a second click can't queue the same songs twice).
   const [albumActionPending, setAlbumActionPending] = createSignal<"play" | "queue" | null>(null);
 
+  // when the header (art/title/tags/buttons) leaves too little room for
+  // the song list, the split layout below (fixed header, song list
+  // scrolls in its own box) can shrink the song list to near-zero height
+  // - technically still scrollable, but unusably cramped, looking like
+  // "the songs never show up". below MIN_SONGLIST_HEIGHT (~2 song rows,
+  // see SongRow.tsx's own padding/line-height), fall back to one plain
+  // scrollable column for the whole view instead (mirrors RadioView.tsx's
+  // `useStickyDetailLayout` pattern).
+  const MIN_SONGLIST_HEIGHT = 100;
+  const [useSplitLayout, setUseSplitLayout] = createSignal(true);
+  let viewportRef: HTMLDivElement | undefined;
+  let headerRef: HTMLDivElement | undefined;
+  const recomputeLayout = () => {
+    window.requestAnimationFrame(() => {
+      if (!viewportRef || !headerRef) return;
+      const remainingHeight = viewportRef.clientHeight - headerRef.offsetHeight;
+      setUseSplitLayout(remainingHeight >= MIN_SONGLIST_HEIGHT);
+    });
+  };
+
+  onMount(() => {
+    window.addEventListener("resize", recomputeLayout);
+    onCleanup(() => window.removeEventListener("resize", recomputeLayout));
+    // the header's own height can change independent of the window
+    // (tags expanding, title wrapping, marquee mount) - a plain resize
+    // listener wouldn't catch that.
+    const obs = new ResizeObserver(recomputeLayout);
+    if (headerRef) obs.observe(headerRef);
+    onCleanup(() => obs.disconnect());
+  });
+
   // reset when album changes
   createEffect(() => {
     params.id;
     setTagsExpanded(false);
+    recomputeLayout();
   });
 
   return (
@@ -391,12 +423,17 @@ export function AlbumDetailView() {
       documentTitle={albumInfo()?.title}
       onBack={buildRoute("/albums")}
     >
-      <div class="flex flex-col h-full">
+      <div
+        ref={viewportRef}
+        class="flex flex-col h-full"
+        classList={{ "overflow-y-auto": !useSplitLayout() }}
+      >
         <Show when={albumInfo()} fallback={<LoadingState class="flex-1" />}>
           {(info) => (
             <>
-              {/* header with album info - responsive layout */}
-              <div class="flex justify-between px-1 wide:gap-6 wide:p-6">
+              <div ref={headerRef} class="flex-shrink-0">
+                {/* header with album info - responsive layout */}
+                <div class="flex justify-between px-1 wide:gap-6 wide:p-6">
                 {/* album info */}
                 <div class="flex flex-col justify-center min-w-0 wide:mt-20 wide:gap-2 wide:text-left">
                   {/* everything above the action-buttons row gets a min-h
@@ -654,9 +691,10 @@ export function AlbumDetailView() {
                   }}
                 />
               </div>
+              </div>
 
               {/* songs list */}
-              <div class="flex-1 overflow-auto">
+              <div classList={{ "flex-1 min-h-0 overflow-auto": useSplitLayout() }}>
                 <div class="px-4 wide:px-6 py-2 wide:py-4 space-y-1">
                   <For each={songs()}>
                     {(song) => {
