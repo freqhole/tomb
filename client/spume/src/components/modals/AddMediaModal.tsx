@@ -125,6 +125,7 @@ export function AddMediaModal(props: AddMediaModalProps) {
   createEffect(() => {
     if (!props.isOpen) return;
     const id = "add-media-modal";
+    // eslint-disable-next-line solid/reactivity -- deferred props read is correct here: pushModal invokes this later, and props.onClose is read at call time, not now
     pushModal(id, () => props.onClose());
     onCleanup(() => popModal(id));
   });
@@ -451,6 +452,7 @@ export function AddMediaModal(props: AddMediaModalProps) {
   };
 
   const handlePrecheckConfirm = () => {
+    // eslint-disable-next-line solid/reactivity -- submitUrls reads props.onMusicUrlsSubmitted/onVideoUrlsSubmitted, but this callback fires synchronously on click, not stored for later - no stale-props risk
     precheck.confirm((urls) => {
       submitUrls(urls);
       setUrlText("");
@@ -492,19 +494,66 @@ export function AddMediaModal(props: AddMediaModalProps) {
   const completedJobs = createMemo(() => allJobs().filter((e) => e.job.status === "completed"));
   const timedOutJobs = createMemo(() => allJobs().filter((e) => e.job.status === "timeout"));
 
+  // jobs whose "does this need review" classification hasn't been confirmed
+  // by a fresh pendingSessions fetch yet - rendered as "checking..." rather
+  // than a flat "done" checkmark, since a job that flips to "completed"
+  // doesn't yet know whether its session has anything pending review (that
+  // requires the separate pendingSessions round-trip below to resolve
+  // first). cleared once the refetch THIS job's own completion triggered
+  // actually resolves - not on a fixed timer - so the row only ever shows
+  // "checking" for as long as we're genuinely still waiting on the server.
+  const [checkingReviewJobIds, setCheckingReviewJobIds] = createSignal<Set<string>>(new Set());
+  const isCheckingReview = (job: UploadJob) => checkingReviewJobIds().has(job.id);
+
   // reviewableSessions (music only) cross-checks completed sessions against
   // pendingSessions (fetched only on modal open/refetchReviewKey), which
   // would otherwise be stale for a session that finishes while the modal is
   // already open - refetch whenever the completed-job count grows so a
   // freshly-finished session's real album count shows up promptly instead
-  // of only on reopen.
+  // of only on reopen. a single immediate refetch can still race a session
+  // whose review-eligible state settles a moment after the job itself
+  // flips to "completed" (e.g. a batch's last sibling file finishing just
+  // after this one) - one delayed follow-up refetch closes that window
+  // instead of leaving the row stuck showing a plain "done" checkmark
+  // until some LATER unrelated job happens to complete and retrigger this.
   let lastCompletedJobCount = 0;
+  const seenCompletedMusicJobIds = new Set<string>();
   createEffect(() => {
     const count = completedJobs().length;
     if (count > lastCompletedJobCount) {
       lastCompletedJobCount = count;
-      void refetchPendingSessions();
+
+      // only the music jobs that JUST completed (not ones already resolved
+      // as "done"/"needs review" earlier) go into "checking" - re-marking
+      // every completed job on every unrelated completion would flicker
+      // already-settled rows back to "checking" for no reason.
+      const newlyCompletedIds = (props.musicUploadJobs ?? [])
+        .filter(
+          (j) => j.status === "completed" && j.sessionId && !seenCompletedMusicJobIds.has(j.id)
+        )
+        .map((j) => j.id);
+      for (const j of props.musicUploadJobs ?? []) {
+        if (j.status === "completed") seenCompletedMusicJobIds.add(j.id);
+      }
+      if (newlyCompletedIds.length > 0) {
+        setCheckingReviewJobIds((prev) => new Set([...prev, ...newlyCompletedIds]));
+      }
+      const clearChecking = () => {
+        if (newlyCompletedIds.length === 0) return;
+        setCheckingReviewJobIds((prev) => {
+          const next = new Set(prev);
+          for (const id of newlyCompletedIds) next.delete(id);
+          return next;
+        });
+      };
+
+      void Promise.resolve(refetchPendingSessions()).then(clearChecking);
       void refetchVideoPendingSessions();
+      const settleTimer = setTimeout(() => {
+        void Promise.resolve(refetchPendingSessions()).then(clearChecking);
+        void refetchVideoPendingSessions();
+      }, 2000);
+      onCleanup(() => clearTimeout(settleTimer));
     }
   });
 
@@ -1416,6 +1465,15 @@ export function AddMediaModal(props: AddMediaModalProps) {
                                   <div class="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
                                 ) : job.status === "completed" &&
                                   entry.domain === "music" &&
+                                  isCheckingReview(job as UploadJob) ? (
+                                  <Icon
+                                    name="loader"
+                                    size={14}
+                                    className="animate-spin"
+                                    color="var(--color-text-muted)"
+                                  />
+                                ) : job.status === "completed" &&
+                                  entry.domain === "music" &&
                                   jobNeedsReview(job as UploadJob) ? (
                                   <div
                                     class="w-2 h-2 rounded-full bg-[var(--color-accent-500)]"
@@ -1483,11 +1541,17 @@ export function AddMediaModal(props: AddMediaModalProps) {
                               >
                                 {job.label}
                               </span>
-                              {/* status text */}
+                              {/* status text - failed/completed rows can carry an
+                                  arbitrarily long message (full error detail, or a
+                                  batch import summary like "nothing new to import:
+                                  N file(s) already in your library") - click to
+                                  reveal the full text below the row instead of only
+                                  ever showing the truncated preview. */}
                               <span
                                 class="body-xs flex-shrink-0 text-[var(--color-text-tertiary)] max-w-[60%] truncate"
                                 classList={{
-                                  "cursor-pointer hover:underline": job.status === "failed",
+                                  "cursor-pointer hover:underline":
+                                    job.status === "failed" || job.status === "completed",
                                   "text-[var(--color-accent-500)]":
                                     entry.domain === "music" && jobNeedsReview(job as UploadJob),
                                 }}
@@ -1504,7 +1568,9 @@ export function AddMediaModal(props: AddMediaModalProps) {
                                         : undefined
                                 }
                                 onClick={() => {
-                                  if (job.status === "failed") toggleErrorExpanded(job.id);
+                                  if (job.status === "failed" || job.status === "completed") {
+                                    toggleErrorExpanded(job.id);
+                                  }
                                 }}
                               >
                                 {job.status === "uploading"
@@ -1514,16 +1580,19 @@ export function AddMediaModal(props: AddMediaModalProps) {
                                   : job.status === "polling"
                                     ? (job.stage ?? "processing...")
                                     : job.status === "completed"
-                                      ? entry.domain === "music"
-                                        ? ((job as UploadJob).resultSummary ??
-                                          ((job as UploadJob).isDuplicate
-                                            ? "already in your library"
-                                            : jobNeedsReview(job as UploadJob)
-                                              ? "ready to review"
-                                              : "done"))
-                                        : warning
-                                          ? `done - ${warning}`
-                                          : "done"
+                                      ? entry.domain === "music" &&
+                                        isCheckingReview(job as UploadJob)
+                                        ? "checking..."
+                                        : entry.domain === "music"
+                                          ? ((job as UploadJob).resultSummary ??
+                                            ((job as UploadJob).isDuplicate
+                                              ? "already in your library"
+                                              : jobNeedsReview(job as UploadJob)
+                                                ? "ready to review"
+                                                : "done"))
+                                          : warning
+                                            ? `done - ${warning}`
+                                            : "done"
                                       : job.status === "timeout"
                                         ? "queued, check back later"
                                         : (job.error ?? "failed")}
@@ -1572,6 +1641,18 @@ export function AddMediaModal(props: AddMediaModalProps) {
                             >
                               <p class="body-xs text-red-400/80 pl-6 pr-1 whitespace-pre-wrap break-words">
                                 {job.errorFull ?? job.error ?? "failed"}
+                              </p>
+                            </Show>
+                            <Show
+                              when={
+                                job.status === "completed" &&
+                                entry.domain === "music" &&
+                                !!(job as UploadJob).resultSummary &&
+                                expandedErrorJobIds().has(job.id)
+                              }
+                            >
+                              <p class="body-xs text-[var(--color-text-tertiary)] pl-6 pr-1 whitespace-pre-wrap break-words">
+                                {(job as UploadJob).resultSummary}
                               </p>
                             </Show>
                           </div>

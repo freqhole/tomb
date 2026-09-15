@@ -430,6 +430,14 @@ export async function importVideoPathsToLocal(
 
   const sessionId = batchResult.data.session_id;
 
+  // see music/import/remoteImport.ts's importPathsToLocal identical
+  // reasoning: cheap-skipped paths never get a job, so this is the only
+  // way to resolve their existing entity and still forward them to a
+  // remote send target.
+  const existingByPath = new Map(
+    (batchResult.data.existing_files ?? []).map((f) => [f.file_path, f])
+  );
+
   // add one tracked progress row per path so the upload panel shows granular feedback
   const trackIds: string[] = paths.map((filePath) => {
     const filename = filePath.split("/").pop() || filePath.split("\\").pop() || filePath;
@@ -445,11 +453,20 @@ export async function importVideoPathsToLocal(
   // the case there's nothing to poll for, so finish immediately with an
   // honest summary instead of waiting on child jobs that will never exist.
   if (batchResult.data.jobs_created === 0) {
-    for (const trackId of trackIds) {
-      updateJobEntities(trackId, { resultSummary: batchResult.data.message, sessionId });
+    for (let i = 0; i < trackIds.length; i++) {
+      const trackId = trackIds[i];
+      const existing = existingByPath.get(paths[i]);
+      updateJobEntities(trackId, {
+        resultSummary: batchResult.data.message,
+        sessionId,
+        videoId: existing?.video_id ?? undefined,
+      });
       updateJobStatus(trackId, "completed");
     }
+    // register the send target BEFORE checking for auto-send - see
+    // music's importPathsToLocal identical fix/reasoning.
     onSessionComplete?.(sessionId);
+    onJobComplete?.();
     return;
   }
 
@@ -556,10 +573,18 @@ export async function importVideoPathsToLocal(
       // ensure any rows that never got a matching child job (or whose poll
       // threw before reaching a terminal status) don't stay stuck in
       // "polling" forever - see importPathsToLocal's identical reasoning.
-      for (const trackId of trackIds) {
+      for (let i = 0; i < trackIds.length; i++) {
+        const trackId = trackIds[i];
         const j = videoUploadJobs.find((j) => j.id === trackId);
         if (!j) continue;
         if (j.status !== "completed" && j.status !== "failed" && j.status !== "timeout") {
+          const existing = existingByPath.get(paths[i]);
+          if (existing) {
+            updateJobEntities(trackId, {
+              resultSummary: batchResult.data.message,
+              videoId: existing.video_id ?? undefined,
+            });
+          }
           updateJobStatus(trackId, "completed");
           onJobComplete?.();
         }

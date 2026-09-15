@@ -1937,6 +1937,14 @@ export const EventFilterSchema = z.object({
 });
 export type EventFilter = z.infer<typeof EventFilterSchema>;
 
+export const ExistingImportedFileSchema = z.object({
+  file_path: z.string(),
+  song_id: z.string().nullish(),
+  album_id: z.string().nullish(),
+  video_id: z.string().nullish()
+});
+export type ExistingImportedFile = z.infer<typeof ExistingImportedFileSchema>;
+
 export const ExternalUrlSchema = z.object({
   name: z.string(),
   url: z.string()
@@ -4390,7 +4398,13 @@ export const MusicImportResponseSchema = z.object({
   jobs_created: z.number(),
   directories_scanned: z.number(),
   files_skipped: z.number(),
-  message: z.string()
+  message: z.string(),
+  existing_files: z.array(z.object({
+  file_path: z.string(),
+  song_id: z.string().nullish(),
+  album_id: z.string().nullish(),
+  video_id: z.string().nullish()
+}))
 });
 export type MusicImportResponse = z.infer<typeof MusicImportResponseSchema>;
 
@@ -7773,7 +7787,13 @@ export const VideoImportResponseSchema = z.object({
   jobs_created: z.number(),
   directories_scanned: z.number(),
   files_skipped: z.number(),
-  message: z.string()
+  message: z.string(),
+  existing_files: z.array(z.object({
+  file_path: z.string(),
+  song_id: z.string().nullish(),
+  album_id: z.string().nullish(),
+  video_id: z.string().nullish()
+}))
 });
 export type VideoImportResponse = z.infer<typeof VideoImportResponseSchema>;
 

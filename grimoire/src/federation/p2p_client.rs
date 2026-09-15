@@ -504,12 +504,28 @@ async fn download_blob_to_store(
     let mut had_error = false;
     let mut last_error_text: Option<String> = None;
     let mut failure_kind: Option<DownloadFailureKind> = None;
+    // last cumulative byte count reported before any failure - lets the
+    // final error message distinguish "never got any bytes" (peer
+    // unreachable/connection never established) from "connection dropped
+    // mid-transfer", which iroh-blobs' own opaque error text doesn't say.
+    let mut bytes_before_failure: u64 = 0;
 
     while let Some(event) = stream.next().await {
         match event {
             DownloadProgressItem::Error(e) => {
                 had_error = true;
-                last_error_text = Some(format!("{:?}", e));
+                // alternate/pretty debug prints the full cause chain for
+                // most error crates (plain `{:?}` often collapses to one
+                // opaque line, e.g. just "Unable to download <hash>" with
+                // no indication of why) - fall back to plain debug if the
+                // alternate form isn't actually more informative.
+                let pretty = format!("{:#?}", e);
+                let plain = format!("{:?}", e);
+                last_error_text = Some(if pretty.len() > plain.len() {
+                    pretty
+                } else {
+                    plain
+                });
                 tracing::error!("iroh-blobs: download error for {}: {:?}", hash_short, e);
 
                 // `e`'s concrete type is `n0_error::AnyError` (not a direct
@@ -554,6 +570,7 @@ async fn download_blob_to_store(
                 debug!("iroh-blobs: part complete for {}", hash_short);
             }
             DownloadProgressItem::Progress(bytes) => {
+                bytes_before_failure = bytes;
                 if let Some(cb) = on_progress {
                     cb(bytes);
                 }
@@ -602,11 +619,24 @@ async fn download_blob_to_store(
                 error!(
                     hash = %hash_short,
                     peer = %node_id_short,
+                    bytes_before_failure,
                     error = %msg,
                     "[p2p] iroh-blobs verified download failed"
                 );
+                let progress_note = if bytes_before_failure > 0 {
+                    format!(
+                        "{} bytes transferred before the connection dropped",
+                        bytes_before_failure
+                    )
+                } else {
+                    "no bytes were transferred (never connected, or peer refused/timed out)"
+                        .to_string()
+                };
                 return Err(GrimoireError::FederationApiError {
-                    message: format!("verified download failed: {}", msg),
+                    message: format!(
+                        "verified download of blob {} from peer {} failed: {} ({})",
+                        hash_short, node_id_short, msg, progress_note
+                    ),
                 });
             }
         }
@@ -721,6 +751,12 @@ pub async fn compute_blake3(peer_addr: &str, blob_id: &str) -> GrimoireResult<Op
     Ok(blake3)
 }
 
+/// pause before a post-ensure retry (see fetch_blob_verified_with_ensure_progress
+/// / fetch_blob_verified_to_file_with_ensure_and_progress) - long enough to let
+/// a connection dropped by a transient blip (e.g. an idle-timeout teardown)
+/// actually re-establish, short enough not to be noticeable for a real transfer.
+const RETRY_BACKOFF: std::time::Duration = std::time::Duration::from_millis(750);
+
 /// fetch a blob using verified streaming with on-demand loading
 ///
 /// tries iroh-blobs first. if blob not in FsStore, calls ensure_blob
@@ -787,7 +823,11 @@ pub async fn fetch_blob_verified_with_ensure_progress(
         }
     }
 
-    // retry verified download
+    // retry verified download - a brief pause first gives a connection that
+    // just dropped (e.g. an idle-timeout teardown) a moment to actually
+    // reconnect, instead of immediately retrying against the same still-bad
+    // connection.
+    tokio::time::sleep(RETRY_BACKOFF).await;
     info!(
         "fetch_blob_verified_with_ensure: retrying verified download for {}",
         &blake3_hash[..16.min(blake3_hash.len())],
@@ -882,7 +922,9 @@ pub async fn fetch_blob_verified_to_file_with_ensure_and_progress(
         }
     }
 
-    // retry
+    // retry - see fetch_blob_verified_with_ensure_progress's identical
+    // backoff reasoning.
+    tokio::time::sleep(RETRY_BACKOFF).await;
     info!(
         "fetch_blob_verified_to_file_with_ensure: retrying for {}",
         &blake3_hash[..16.min(blake3_hash.len())],

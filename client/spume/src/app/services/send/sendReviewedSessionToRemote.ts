@@ -33,6 +33,11 @@ export { emptyProgress };
  * send every album in `albumIds` (already imported into `localRemote`) to
  * `targetRemoteId`, reporting progress via `onProgress`. best-effort per
  * album - one failing album doesn't stop the rest from being attempted.
+ *
+ * `keepPendingTarget`: set when `albumIds` is deliberately a SUBSET of the
+ * session's full album list (e.g. only the albums that don't need review
+ * yet) - skips clearing the session's pendingSendTarget registration so
+ * whatever's left can still be sent later once it's actually reviewed.
  */
 export async function sendReviewedAlbumsToRemote(
   sessionId: string,
@@ -40,7 +45,8 @@ export async function sendReviewedAlbumsToRemote(
   targetRemoteName: string,
   localRemote: Remote,
   albumIds: string[],
-  onProgress?: (progress: SendReviewProgress) => void
+  onProgress?: (progress: SendReviewProgress) => void,
+  keepPendingTarget = false
 ): Promise<void> {
   const progress = emptyProgress(targetRemoteName, albumIds.length);
   const emit = () => onProgress?.({ ...progress });
@@ -48,7 +54,7 @@ export async function sendReviewedAlbumsToRemote(
   if (albumIds.length === 0) {
     progress.done = true;
     emit();
-    clearPendingSendTarget(sessionId);
+    if (!keepPendingTarget) clearPendingSendTarget(sessionId);
     return;
   }
 
@@ -57,7 +63,7 @@ export async function sendReviewedAlbumsToRemote(
     progress.errors.push(`couldn't find ${targetRemoteName} to send to`);
     progress.done = true;
     emit();
-    clearPendingSendTarget(sessionId);
+    if (!keepPendingTarget) clearPendingSendTarget(sessionId);
     return;
   }
   emit();
@@ -132,5 +138,5 @@ export async function sendReviewedAlbumsToRemote(
   progress.currentAlbumTitle = null;
   progress.done = true;
   emit();
-  clearPendingSendTarget(sessionId);
+  if (!keepPendingTarget) clearPendingSendTarget(sessionId);
 }

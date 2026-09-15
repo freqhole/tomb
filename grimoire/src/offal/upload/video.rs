@@ -22,7 +22,7 @@ use crate::music::entities::import_review::repository as import_review_repositor
 use crate::music::scanner::{check_existing_blob_for_path, is_audio_file, ExistingPathCheck};
 use crate::offal::caller::Caller;
 use crate::response::GrimoireResponse;
-use crate::upload::{VideoImportResponse, VideoUploadResponse};
+use crate::upload::{ExistingImportedFile, VideoImportResponse, VideoUploadResponse};
 use crate::users::UserRole;
 
 use super::mime::{detect_extension, detect_video_mime_type};
@@ -579,6 +579,7 @@ pub async fn import_video_paths(caller: &Caller, body: JsonValue) -> GrimoireRes
     let mut files_skipped = 0i32;
     let mut files_queued = 0i32;
     let mut files_already_in_library = 0i32;
+    let mut existing_files: Vec<ExistingImportedFile> = Vec::new();
 
     let pool = match database::connect().await {
         Ok(p) => p,
@@ -644,8 +645,15 @@ pub async fn import_video_paths(caller: &Caller, body: JsonValue) -> GrimoireRes
             // and is it still unchanged? mirrors import_music_paths's same
             // check (see check_existing_blob_for_path's doc comment).
             let existing_blob_id = match check_existing_blob_for_path(&pool, path_str).await {
-                ExistingPathCheck::UnchangedSkip => {
+                ExistingPathCheck::UnchangedSkip { blob_id } => {
                     files_already_in_library += 1;
+                    let video_id = resolve_existing_video_for_blob(&pool, &blob_id).await;
+                    existing_files.push(ExistingImportedFile {
+                        file_path: path_str.clone(),
+                        song_id: None,
+                        album_id: None,
+                        video_id,
+                    });
                     continue;
                 }
                 ExistingPathCheck::ChangedNeedsRescan { blob_id } => Some(blob_id),
@@ -685,13 +693,23 @@ pub async fn import_video_paths(caller: &Caller, body: JsonValue) -> GrimoireRes
 
     let message = if files_queued == 0 && files_already_in_library > 0 {
         format!(
-            "nothing new to import: {} file(s) already in your library ({} directories scanned, {} files skipped)",
-            files_already_in_library, directories_scanned, files_skipped
+            "nothing new to import: {} file(s) already in your library{}",
+            files_already_in_library,
+            format_nonzero_counts(&[
+                ("directories scanned", directories_scanned),
+                ("files skipped", files_skipped),
+            ])
         )
     } else {
         format!(
-            "queued {} file(s) across {} job(s) ({} directories scanned, {} already in library, {} files skipped)",
-            files_queued, jobs_created, directories_scanned, files_already_in_library, files_skipped
+            "queued {} file(s) across {} job(s){}",
+            files_queued,
+            jobs_created,
+            format_nonzero_counts(&[
+                ("directories scanned", directories_scanned),
+                ("already in library", files_already_in_library),
+                ("files skipped", files_skipped),
+            ])
         )
     };
     tracing::info!(
@@ -735,6 +753,7 @@ pub async fn import_video_paths(caller: &Caller, body: JsonValue) -> GrimoireRes
                             "import complete: {} completed, {} failed",
                             completed, failed
                         ),
+                        existing_files,
                     };
                     return GrimoireResponse::success(
                         "import complete",
@@ -753,7 +772,36 @@ pub async fn import_video_paths(caller: &Caller, body: JsonValue) -> GrimoireRes
         directories_scanned,
         files_skipped,
         message,
+        existing_files,
     };
 
     GrimoireResponse::success("import started", serde_json::to_value(response).unwrap())
+}
+
+/// see `crate::offal::upload::music::format_nonzero_counts`'s doc comment.
+fn format_nonzero_counts(parts: &[(&str, i32)]) -> String {
+    let joined: Vec<String> = parts
+        .iter()
+        .filter(|(_, n)| *n > 0)
+        .map(|(label, n)| format!("{} {}", n, label))
+        .collect();
+    if joined.is_empty() {
+        String::new()
+    } else {
+        format!(" ({})", joined.join(", "))
+    }
+}
+
+/// resolve the video already linked to a media blob - see
+/// `crate::offal::upload::music::resolve_existing_song_for_blob`'s doc
+/// comment for why this exists (mirrors it for the video domain).
+async fn resolve_existing_video_for_blob(pool: &sqlx::SqlitePool, blob_id: &str) -> Option<String> {
+    sqlx::query_scalar!(
+        "SELECT id as \"id!\" FROM videoz WHERE media_blob_id = ? AND deleted_at IS NULL LIMIT 1",
+        blob_id
+    )
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten()
 }

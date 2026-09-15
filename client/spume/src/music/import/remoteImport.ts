@@ -546,6 +546,19 @@ export async function importPathsToLocal(
 
   const sessionId = batchResult.data.session_id;
 
+  // paths that were cheap-skipped server-side (exact, unchanged re-import
+  // of something already in the library) never get a ProcessFile job, so
+  // they'd otherwise never resolve an albumId/songId at all - which used
+  // to mean a batch that's entirely already-known content silently never
+  // got sent to a remote target, even with a pendingSendTarget registered
+  // (see grimoire's ExistingImportedFile / `existing_files` on the
+  // response). build a path -> existing-entity lookup up front so both
+  // branches below (zero jobs created, and any per-row fallback) can use
+  // it identically.
+  const existingByPath = new Map(
+    (batchResult.data.existing_files ?? []).map((f) => [f.file_path, f])
+  );
+
   // add one tracked progress row per path so the upload panel shows granular feedback
   const trackIds: string[] = paths.map((filePath) => {
     const filename = filePath.split("/").pop() || filePath.split("\\").pop() || filePath;
@@ -561,11 +574,25 @@ export async function importPathsToLocal(
   // the case there's nothing to poll for, so finish immediately with an
   // honest summary instead of waiting on child jobs that will never exist.
   if (batchResult.data.jobs_created === 0) {
-    for (const trackId of trackIds) {
-      updateJobEntities(trackId, { resultSummary: batchResult.data.message, sessionId });
+    for (let i = 0; i < trackIds.length; i++) {
+      const trackId = trackIds[i];
+      const existing = existingByPath.get(paths[i]);
+      updateJobEntities(trackId, {
+        resultSummary: batchResult.data.message,
+        sessionId,
+        albumId: existing?.album_id ?? undefined,
+        songId: existing?.song_id ?? undefined,
+        isDuplicate: existing ? true : undefined,
+      });
       updateJobStatus(trackId, "completed");
     }
+    // register the send target BEFORE checking for auto-send, so a batch
+    // that's entirely already-known-locally content still gets forwarded
+    // to its remote target instead of silently never being sent (this is
+    // the actual fix - onJobComplete used to never fire on this branch at
+    // all, so checkAutoSendForCompletedSessions never even ran for it).
     onSessionComplete?.(sessionId);
+    onJobComplete?.();
     return;
   }
 
@@ -672,15 +699,26 @@ export async function importPathsToLocal(
 
       // ensure any rows that never got a matching child job (or whose poll
       // threw before reaching a terminal status) don't stay stuck in
-      // "polling" forever. deliberately does NOT borrow another row's
-      // albumId here - each row's "view album" link must only ever reflect
-      // that row's own resolved job, never a sibling's, or multi-file/
-      // multi-folder batches would show the wrong album for files that
-      // legitimately have none (or whose own job hasn't resolved yet).
-      for (const trackId of trackIds) {
+      // "polling" forever. these rows are files the server cheap-skipped
+      // (already in the library, unchanged) rather than "still pending" -
+      // resolve their existing entity via `existingByPath` (each row's own
+      // path only - never borrows a sibling's, or multi-file/multi-folder
+      // batches would show the wrong album for files that legitimately
+      // have none, or whose own job hasn't resolved yet).
+      for (let i = 0; i < trackIds.length; i++) {
+        const trackId = trackIds[i];
         const j = uploadJobs.find((j) => j.id === trackId);
         if (!j) continue;
         if (j.status !== "completed" && j.status !== "failed" && j.status !== "timeout") {
+          const existing = existingByPath.get(paths[i]);
+          if (existing) {
+            updateJobEntities(trackId, {
+              resultSummary: batchResult.data.message,
+              albumId: existing.album_id ?? undefined,
+              songId: existing.song_id ?? undefined,
+              isDuplicate: true,
+            });
+          }
           updateJobStatus(trackId, "completed");
           onJobComplete?.();
         }

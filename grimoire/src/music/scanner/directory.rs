@@ -54,7 +54,10 @@ pub enum ExistingPathCheck {
     New,
     /// a row exists at this exact path and its recorded size/mtime still
     /// match what's on disk right now - nothing to do, skip entirely.
-    UnchangedSkip,
+    /// carries the existing blob id so a caller that short-circuits before
+    /// ever running a job (no `ProcessFileResult` will ever exist for this
+    /// file) can still resolve the song/album already linked to it.
+    UnchangedSkip { blob_id: String },
     /// a row exists at this exact path but size/mtime differ from what's
     /// recorded - the file changed in place. carries the existing blob id
     /// so the caller can take the rescan-update path (preserves song id,
@@ -95,6 +98,7 @@ pub async fn check_existing_blob_for_path(
     let Some(blob) = existing_blob else {
         return ExistingPathCheck::New;
     };
+    let blob_id = blob.id.clone().unwrap_or_default();
 
     let mut stored_modified_at: Option<i64> = None;
     let mut stored_size: Option<i64> = None;
@@ -113,10 +117,9 @@ pub async fn check_existing_blob_for_path(
         None => mtime_match,
     };
     if mtime_match && size_match {
-        return ExistingPathCheck::UnchangedSkip;
+        return ExistingPathCheck::UnchangedSkip { blob_id };
     }
 
-    let blob_id = blob.id.unwrap_or_default();
     if blob_id.is_empty() {
         ExistingPathCheck::New
     } else {
@@ -270,7 +273,7 @@ pub async fn scan_directory_and_create_jobs(
         // when an existing blob is found, decide between cheap-skip and rescan-update
         let existing_blob_id_for_update =
             match check_existing_blob_for_path(&pool, &file_path).await {
-                ExistingPathCheck::UnchangedSkip => {
+                ExistingPathCheck::UnchangedSkip { .. } => {
                     debug!("skipping unchanged file: {}", file_path);
                     files_skipped += 1;
                     continue;
@@ -459,7 +462,7 @@ level = "warn"
         // recorded mtime/size match what's on disk - unchanged, cheap-skip.
         assert!(matches!(
             check_existing_blob_for_path(&pool, &file_path_str).await,
-            ExistingPathCheck::UnchangedSkip
+            ExistingPathCheck::UnchangedSkip { .. }
         ));
 
         // file changed on disk (different size/mtime than recorded) -

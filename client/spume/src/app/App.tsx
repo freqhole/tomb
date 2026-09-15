@@ -1172,9 +1172,14 @@ export function App() {
     tauriUnlisteners = [];
   });
 
-  // sessions dispatched (or currently being checked) by
-  // checkAutoSendForCompletedSessions - prevents re-entrant/duplicate sends.
-  const autoSendClaimedSessions = new Set<string>();
+  // album ids already auto-sent by checkAutoSendForCompletedSessions -
+  // prevents re-sending the same album on a later tick. tracked per-album
+  // (not per-session) so a session that's PARTIALLY reviewed - some albums
+  // are exact re-imports of already-known content, others are genuinely
+  // new and still need interactive review - can still have its
+  // already-known albums sent right away instead of the whole session
+  // waiting on the slowest album to be manually reviewed.
+  const autoSentAlbumIds = new Set<string>();
 
   // a locally-imported session that needed NO review at all (e.g. every
   // file resolved as an exact duplicate already in the local library, or
@@ -1185,13 +1190,14 @@ export function App() {
   // left such sessions permanently stuck in the local library with a
   // registered pendingSendTarget nobody ever acted on. this checks
   // pendingSendTargets directly against completed upload jobs and sends
-  // review-free sessions immediately, instead of requiring the interactive
-  // review flow to have run at all.
+  // review-free albums immediately, instead of requiring the interactive
+  // review flow to have run at all - per-album, not per-session (see
+  // autoSentAlbumIds above), so an exact duplicate isn't held hostage by a
+  // sibling album in the same batch that genuinely needs review.
   async function checkAutoSendForCompletedSessions() {
     const bySession = new Map<string, { albumIds: Set<string>; allSettled: boolean }>();
     for (const j of getUploadJobs()) {
       if (!j.sessionId || !getPendingSendTarget(j.sessionId)) continue;
-      if (autoSendClaimedSessions.has(j.sessionId)) continue;
       let entry = bySession.get(j.sessionId);
       if (!entry) {
         entry = { albumIds: new Set(), allSettled: true };
@@ -1206,40 +1212,52 @@ export function App() {
       const target = getPendingSendTarget(sid);
       if (!target) continue;
 
-      autoSendClaimedSessions.add(sid);
+      const candidateAlbumIds = [...entry.albumIds].filter((id) => !autoSentAlbumIds.has(id));
+      if (candidateAlbumIds.length === 0) continue;
+
       try {
         const localRemote = await getTauriManagedRemote();
         if (!localRemote) continue;
         const client = await getClientForRemote(localRemote as unknown as CurrentRemoteInfo);
         const pendingResp = await client.music.listPendingImportReview({ session_id: sid });
-        const needsReview =
-          pendingResp.success && (pendingResp.data?.some((s) => s.albums.length > 0) ?? false);
-        // real, unreviewed albums exist - let the interactive review flow
-        // (and its own completion effect) handle this session instead.
-        if (needsReview) {
-          autoSendClaimedSessions.delete(sid);
+        if (!pendingResp.success) {
+          // couldn't confirm review status - try again next tick rather
+          // than risk sending something that actually still needs review.
           continue;
         }
+        const pendingAlbumIds = new Set(
+          (pendingResp.data ?? []).flatMap((s) => s.albums.map((a) => a.album_id))
+        );
+        // only the albums that don't need review (exact re-imports of
+        // already-known content, or metadata that resolved outright) get
+        // auto-sent now - anything still pending stays untouched here and
+        // gets picked up by the interactive review flow's own completion
+        // effect once the user actually reviews it.
+        const sendableAlbumIds = candidateAlbumIds.filter((id) => !pendingAlbumIds.has(id));
+        if (sendableAlbumIds.length === 0) continue;
+
+        const stillPendingAfterThis = [...entry.albumIds].some((id) => pendingAlbumIds.has(id));
+        for (const id of sendableAlbumIds) autoSentAlbumIds.add(id);
         await sendReviewedAlbumsToRemote(
           sid,
           target.remoteId,
           target.remoteName,
           localRemote as unknown as Remote,
-          [...entry.albumIds]
+          sendableAlbumIds,
+          undefined,
+          stillPendingAfterThis
         );
         setReviewRefetchKey((k) => k + 1);
       } catch (e) {
-        autoSendClaimedSessions.delete(sid);
+        for (const id of candidateAlbumIds) autoSentAlbumIds.delete(id);
         debug("app", `auto-send for session ${sid} failed: ${String(e)}`);
       }
     }
   }
 
-  // sessions dispatched (or currently being checked) by
-  // checkAutoSendForCompletedVideoSessions - same reasoning as
-  // autoSendClaimedSessions above, kept separate since video sessions and
-  // music sessions never share an id.
-  const autoSendClaimedVideoSessions = new Set<string>();
+  // video ids already auto-sent by checkAutoSendForCompletedVideoSessions -
+  // see autoSentAlbumIds above for why this is per-entity, not per-session.
+  const autoSentVideoIds = new Set<string>();
 
   // video counterpart of checkAutoSendForCompletedSessions above - same bug
   // shape: a locally-imported video session where every file resolved as an
@@ -1250,7 +1268,6 @@ export function App() {
     const bySession = new Map<string, { videoIds: Set<string>; allSettled: boolean }>();
     for (const j of getVideoUploadJobs()) {
       if (!j.sessionId || !getPendingSendTarget(j.sessionId)) continue;
-      if (autoSendClaimedVideoSessions.has(j.sessionId)) continue;
       let entry = bySession.get(j.sessionId);
       if (!entry) {
         entry = { videoIds: new Set(), allSettled: true };
@@ -1265,30 +1282,44 @@ export function App() {
       const target = getPendingSendTarget(sid);
       if (!target) continue;
 
-      autoSendClaimedVideoSessions.add(sid);
+      const candidateVideoIds = [...entry.videoIds].filter((id) => !autoSentVideoIds.has(id));
+      if (candidateVideoIds.length === 0) continue;
+
       try {
         const localRemote = await getTauriManagedRemote();
         if (!localRemote) continue;
         const client = await getClientForRemote(localRemote as unknown as CurrentRemoteInfo);
         const pendingResp = await client.video.listPendingVideoImportReview({ session_id: sid });
-        const needsReview =
-          pendingResp.success && (pendingResp.data?.some((s) => s.groups.length > 0) ?? false);
-        // real, unreviewed groups exist - let the interactive review flow
-        // (and its own completion effect) handle this session instead.
-        if (needsReview) {
-          autoSendClaimedVideoSessions.delete(sid);
+        if (!pendingResp.success) {
+          // couldn't confirm review status - try again next tick rather
+          // than risk sending something that actually still needs review.
           continue;
         }
+        const pendingVideoIds = new Set(
+          (pendingResp.data ?? []).flatMap((s) =>
+            s.groups.flatMap((g) => g.videos.map((v) => v.video_id))
+          )
+        );
+        // only videos that don't need review get auto-sent now - anything
+        // still pending stays untouched and gets picked up by the
+        // interactive review flow's own completion effect once reviewed.
+        const sendableVideoIds = candidateVideoIds.filter((id) => !pendingVideoIds.has(id));
+        if (sendableVideoIds.length === 0) continue;
+
+        const stillPendingAfterThis = [...entry.videoIds].some((id) => pendingVideoIds.has(id));
+        for (const id of sendableVideoIds) autoSentVideoIds.add(id);
         await sendReviewedVideosToRemote(
           sid,
           target.remoteId,
           target.remoteName,
           localRemote as unknown as Remote,
-          [...entry.videoIds]
+          sendableVideoIds,
+          undefined,
+          stillPendingAfterThis
         );
         setReviewRefetchKey((k) => k + 1);
       } catch (e) {
-        autoSendClaimedVideoSessions.delete(sid);
+        for (const id of candidateVideoIds) autoSentVideoIds.delete(id);
         debug("app", `video auto-send for session ${sid} failed: ${String(e)}`);
       }
     }

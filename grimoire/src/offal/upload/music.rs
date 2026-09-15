@@ -18,7 +18,7 @@ use crate::music::scanner::{
 };
 use crate::offal::caller::Caller;
 use crate::response::GrimoireResponse;
-use crate::upload::{MusicImportResponse, MusicUploadResponse};
+use crate::upload::{ExistingImportedFile, MusicImportResponse, MusicUploadResponse};
 use crate::users::UserRole;
 use base64::Engine;
 use serde_json::{json, Value as JsonValue};
@@ -610,6 +610,7 @@ pub async fn import_music_paths(caller: &Caller, body: JsonValue) -> GrimoireRes
     let mut files_skipped = 0i32;
     let mut files_queued = 0i32;
     let mut files_already_in_library = 0i32;
+    let mut existing_files: Vec<ExistingImportedFile> = Vec::new();
 
     let pool = match database::connect().await {
         Ok(p) => p,
@@ -681,8 +682,15 @@ pub async fn import_music_paths(caller: &Caller, body: JsonValue) -> GrimoireRes
             // including repairing a path that no longer resolves to a
             // real file).
             let existing_blob_id = match check_existing_blob_for_path(&pool, path_str).await {
-                ExistingPathCheck::UnchangedSkip => {
+                ExistingPathCheck::UnchangedSkip { blob_id } => {
                     files_already_in_library += 1;
+                    let (song_id, album_id) = resolve_existing_song_for_blob(&pool, &blob_id).await;
+                    existing_files.push(ExistingImportedFile {
+                        file_path: path_str.clone(),
+                        song_id,
+                        album_id,
+                        video_id: None,
+                    });
                     continue;
                 }
                 ExistingPathCheck::ChangedNeedsRescan { blob_id } => Some(blob_id),
@@ -725,13 +733,23 @@ pub async fn import_music_paths(caller: &Caller, body: JsonValue) -> GrimoireRes
 
     let message = if files_queued == 0 && files_already_in_library > 0 {
         format!(
-            "nothing new to import: {} file(s) already in your library ({} directories scanned, {} files skipped)",
-            files_already_in_library, directories_scanned, files_skipped
+            "nothing new to import: {} file(s) already in your library{}",
+            files_already_in_library,
+            format_nonzero_counts(&[
+                ("directories scanned", directories_scanned),
+                ("files skipped", files_skipped),
+            ])
         )
     } else {
         format!(
-            "queued {} file(s) across {} job(s) ({} directories scanned, {} already in library, {} files skipped)",
-            files_queued, jobs_created, directories_scanned, files_already_in_library, files_skipped
+            "queued {} file(s) across {} job(s){}",
+            files_queued,
+            jobs_created,
+            format_nonzero_counts(&[
+                ("directories scanned", directories_scanned),
+                ("already in library", files_already_in_library),
+                ("files skipped", files_skipped),
+            ])
         )
     };
     info!(
@@ -777,6 +795,7 @@ pub async fn import_music_paths(caller: &Caller, body: JsonValue) -> GrimoireRes
                             "import complete: {} completed, {} failed",
                             completed, failed
                         ),
+                        existing_files,
                     };
                     return GrimoireResponse::success(
                         "import complete",
@@ -795,7 +814,58 @@ pub async fn import_music_paths(caller: &Caller, body: JsonValue) -> GrimoireRes
         directories_scanned,
         files_skipped,
         message,
+        existing_files,
     };
 
     GrimoireResponse::success("import started", serde_json::to_value(response).unwrap())
+}
+
+/// build a "(N thing, M other thing)" suffix from labeled counts, omitting
+/// any that are zero - nobody needs to be told "0 directories scanned".
+/// returns an empty string (not even a leading space) when every count is
+/// zero, so callers can just append it directly to their message.
+fn format_nonzero_counts(parts: &[(&str, i32)]) -> String {
+    let joined: Vec<String> = parts
+        .iter()
+        .filter(|(_, n)| *n > 0)
+        .map(|(label, n)| format!("{} {}", n, label))
+        .collect();
+    if joined.is_empty() {
+        String::new()
+    } else {
+        format!(" ({})", joined.join(", "))
+    }
+}
+
+/// resolve the song (and its album, if any) already linked to a media
+/// blob - used when `check_existing_blob_for_path` cheap-skips a path
+/// before any job runs, so a batch-import caller can still report an
+/// actionable existing entity instead of the file silently vanishing from
+/// the result just because nothing new needed to happen.
+async fn resolve_existing_song_for_blob(
+    pool: &sqlx::SqlitePool,
+    blob_id: &str,
+) -> (Option<String>, Option<String>) {
+    let song_id: Option<String> = sqlx::query_scalar!(
+        "SELECT id as \"id!\" FROM songz WHERE media_blob_id = ? AND deleted_at IS NULL LIMIT 1",
+        blob_id
+    )
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten();
+
+    let album_id = match &song_id {
+        Some(sid) => sqlx::query_scalar!(
+            "SELECT album_id as \"album_id!\" FROM album_songz WHERE song_id = ?",
+            sid
+        )
+        .fetch_optional(pool)
+        .await
+        .ok()
+        .flatten(),
+        None => None,
+    };
+
+    (song_id, album_id)
 }

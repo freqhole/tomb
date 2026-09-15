@@ -261,13 +261,23 @@ pub async fn import_video_file(
     // sites (same shared `import_blobz` table, keyed on media_blob_id).
     if let Some(session_id) = job.and_then(|j| j.session_id.as_deref()) {
         if let Ok(pool) = crate::database::connect().await {
-            let _ = sqlx::query!(
+            if let Err(e) = sqlx::query!(
                 "INSERT OR IGNORE INTO import_blobz (media_blob_id, session_id) VALUES (?, ?)",
                 media_blob_id,
                 session_id
             )
             .execute(&pool)
-            .await;
+            .await
+            {
+                // was silently swallowed before - see file_processor.rs's
+                // identical fix for why this needs to be visible.
+                tracing::warn!(
+                    "failed to insert import_blobz row for blob {} session {}: {}",
+                    media_blob_id,
+                    session_id,
+                    e
+                );
+            }
         }
     }
 

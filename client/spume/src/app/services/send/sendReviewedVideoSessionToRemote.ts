@@ -38,6 +38,9 @@ export { emptyProgress };
  * send every video in `videoIds` (already imported into `localRemote`) to
  * `targetRemoteId`, reporting progress via `onProgress`. best-effort per
  * video - one failing video doesn't stop the rest from being attempted.
+ *
+ * `keepPendingTarget`: see `sendReviewedAlbumsToRemote`'s identical param -
+ * set when `videoIds` is deliberately a subset of the session's full list.
  */
 export async function sendReviewedVideosToRemote(
   sessionId: string,
@@ -45,7 +48,8 @@ export async function sendReviewedVideosToRemote(
   targetRemoteName: string,
   localRemote: Remote,
   videoIds: string[],
-  onProgress?: (progress: SendReviewProgress) => void
+  onProgress?: (progress: SendReviewProgress) => void,
+  keepPendingTarget = false
 ): Promise<void> {
   const progress = emptyProgress(targetRemoteName, videoIds.length);
   const emit = () => onProgress?.({ ...progress });
@@ -53,7 +57,7 @@ export async function sendReviewedVideosToRemote(
   if (videoIds.length === 0) {
     progress.done = true;
     emit();
-    clearPendingSendTarget(sessionId);
+    if (!keepPendingTarget) clearPendingSendTarget(sessionId);
     return;
   }
 
@@ -62,7 +66,7 @@ export async function sendReviewedVideosToRemote(
     progress.errors.push(`couldn't find ${targetRemoteName} to send to`);
     progress.done = true;
     emit();
-    clearPendingSendTarget(sessionId);
+    if (!keepPendingTarget) clearPendingSendTarget(sessionId);
     return;
   }
   emit();
@@ -136,5 +140,5 @@ export async function sendReviewedVideosToRemote(
   progress.currentAlbumTitle = null;
   progress.done = true;
   emit();
-  clearPendingSendTarget(sessionId);
+  if (!keepPendingTarget) clearPendingSendTarget(sessionId);
 }
