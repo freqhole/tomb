@@ -99,17 +99,6 @@ export function VideoMiniPlayer(props: VideoMiniPlayerProps) {
 
   const requestFullscreen = () => {
     const el = props.videoElement;
-    // console.info (not debug()) - debug() is gated behind a log level
-    // that defaults to "error" (see utils/logger.ts's getConfig()), so it
-    // silently drops unless window.__LOGGER_CONFIG has been raised - this
-    // needs to always be visible in adb logcat while diagnosing Android
-    // fullscreen, same as the ungated console.info calls elsewhere (e.g.
-    // videoBackend.ts's "[video-window]" logs).
-    console.info("[fullscreen] requestFullscreen() called", {
-      hasStandardApi: !!el.requestFullscreen,
-      hasWebkitApi: "webkitEnterFullscreen" in el,
-      alreadyFullscreen: document.fullscreenElement === el,
-    });
     if (el.requestFullscreen) {
       el.requestFullscreen().catch((err: unknown) => {
         console.error("[fullscreen] requestFullscreen() rejected", err);

@@ -1,7 +1,6 @@
 package net.freqhole.charnel
 
 import android.net.Uri
-import android.util.Log
 import android.view.View
 import android.view.ViewGroup
 import android.webkit.GeolocationPermissions
@@ -28,15 +27,10 @@ class FullscreenWebChromeClient(
     private val activity: MainActivity,
     private val delegate: RustWebChromeClient
 ) : WebChromeClient() {
-    companion object {
-        private const val TAG = "FullscreenWebChrome"
-    }
-
     private var customView: View? = null
     private var customViewCallback: CustomViewCallback? = null
 
     override fun onShowCustomView(view: View, callback: CustomViewCallback) {
-        Log.d(TAG, "onShowCustomView called (already showing: ${customView != null})")
         if (customView != null) {
             callback.onCustomViewHidden()
             return
@@ -49,11 +43,9 @@ class FullscreenWebChromeClient(
             ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
         )
         SystemBars.hide(activity)
-        Log.d(TAG, "system bars hide requested")
     }
 
     override fun onHideCustomView() {
-        Log.d(TAG, "onHideCustomView called (had view: ${customView != null})")
         val view = customView ?: return
         val decor = activity.window.decorView as ViewGroup
         decor.removeView(view)
