@@ -189,7 +189,7 @@ describe("re-scanning an already-saved p2p peer", () => {
     expect(ctx.step).toBe("complete");
   });
 
-  it("already_authed against an existing PLAYER remote also gracefully completes, instead of erroring 'remote already exists' (regression: whoami-based already_authed used to be checked before player_device, unconditionally firing CREATE_REMOTE)", () => {
+  it("already_authed against an existing PLAYER remote routes to auth (not complete, not create) - regression: whoami only proves base peer trust, not current player-session membership, so it can't be trusted to skip the pin/session-access check (queryPlayerPresence, done by the host ui in the auth step) the way it safely can for a plain remote", () => {
     const { ctx, effects } = run([
       ...toReprobe,
       {
@@ -197,15 +197,12 @@ describe("re-scanning an already-saved p2p peer", () => {
         outcome: { kind: "already_authed", serverInfo: { ...INFO, player_device: true } },
       },
     ]);
-    expect(projectState(ctx)).toEqual({
-      step: "complete",
-      remote: existingPlayer,
-      alreadyExisted: true,
-    });
-    expect(effects).toEqual([
-      { type: "DELETE_PENDING_BY_ADDR", peerAddr: NODE_ID },
-      { type: "SCHEDULE_TIMER", id: DISMISS_TIMER_ID, ms: COMPLETE_DISMISS_MS },
-    ]);
+    expect(ctx.step).toBe("auth");
+    expect(ctx.serverInfo?.player_device).toBe(true);
+    expect(ctx.existingRemote).toEqual(existingPlayer);
+    const upsert = effects[0] as Extract<AddPeerEffect, { type: "UPSERT_PENDING" }>;
+    expect(upsert.type).toBe("UPSERT_PENDING");
+    expect(upsert.patch.stage).toBe("connected");
   });
 });
 

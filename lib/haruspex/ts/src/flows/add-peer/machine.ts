@@ -231,33 +231,54 @@ export function transition(ctx: AddPeerContext, event: AddPeerEvent): Transition
     case "CONNECTION_RESULT": {
       if (ctx.step !== "testing") return noop(ctx);
       const { outcome } = event;
-      // already have this peer saved, and either (a) it didn't just prove
-      // itself a player device on this fresh probe, or (b) it DID, but
-      // `whoami` already succeeds against it (an admin, or a still-joined
-      // player session) - either way there's nothing new to do. gracefully
-      // land on "complete" against the existing remote instead of
-      // re-running knock/auth (or erroring on a duplicate-peer_addr create)
-      // for something the user already has access to. a player_device peer
-      // that's NOT already_authed (session/pin expired, or never joined)
-      // deliberately falls through to the switch below instead, which
-      // routes to "auth" and shows the pin form again - re-pairing, not
-      // re-creating.
-      if (
-        ctx.existingRemote &&
-        outcome.kind !== "failed" &&
-        (outcome.kind === "already_authed" || !outcome.serverInfo.player_device)
-      ) {
+      if (ctx.existingRemote && outcome.kind !== "failed") {
+        if (!outcome.serverInfo.player_device) {
+          // already have this (non-player) remote saved, and whoami
+          // already succeeds against it - nothing new to do. gracefully
+          // land on "complete" instead of re-running knock/auth (or
+          // erroring on a duplicate-peer_addr create) for something the
+          // user already has access to.
+          return {
+            ctx: {
+              ...ctx,
+              step: "complete",
+              remote: ctx.existingRemote,
+              error: null,
+              progress: null,
+            },
+            effects: [
+              { type: "DELETE_PENDING_BY_ADDR", peerAddr: addrKey(ctx) },
+              { type: "SCHEDULE_TIMER", id: DISMISS_TIMER_ID, ms: COMPLETE_DISMISS_MS },
+            ],
+          };
+        }
+        // a player device is different: `whoami` succeeding just means
+        // this peer redeemed a pairing code at SOME point in the past
+        // (it shares the same underlying peer trust as the general api)
+        // - it says nothing about whether the player's own ephemeral
+        // SESSION (separate, live-only state - can expire/rotate/get
+        // this peer removed) still includes this peer right now. that
+        // live check is `queryPlayerPresence`'s access status, done by
+        // the host UI once here in "auth" (see AddRemoteModal.tsx's
+        // `playerAccess` resource) - so an existing player remote always
+        // routes there, on ANY non-failed outcome, letting that check
+        // decide whether to auto-skip the pin (already in session) or
+        // show it again (session/pin expired, or never joined) - never
+        // re-creating the remote from here either way.
         return {
           ctx: {
             ...ctx,
-            step: "complete",
-            remote: ctx.existingRemote,
+            step: "auth",
+            serverInfo: outcome.serverInfo,
             error: null,
             progress: null,
           },
           effects: [
-            { type: "DELETE_PENDING_BY_ADDR", peerAddr: addrKey(ctx) },
-            { type: "SCHEDULE_TIMER", id: DISMISS_TIMER_ID, ms: COMPLETE_DISMISS_MS },
+            {
+              type: "UPSERT_PENDING",
+              peerAddr: addrKey(ctx),
+              patch: { stage: "connected", ...serverInfoPatch(outcome.serverInfo) },
+            },
           ],
         };
       }

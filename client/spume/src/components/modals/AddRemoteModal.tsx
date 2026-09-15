@@ -138,6 +138,13 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
     "idle"
   );
   const [playerPairError, setPlayerPairError] = createSignal<string | null>(null);
+  // set whenever the in-progress attempt was identified as a player device
+  // via its qr's own `role: "player_remote"` marker (not just discovered
+  // as player_device by the later server-info probe) - lets the "auth"
+  // step hide the generic remote login/knock ui and show only the pin
+  // form, since scanning a player qr unambiguously means "pair with this
+  // player", not "add it as a general remote too".
+  const [scannedPlayerQr, setScannedPlayerQr] = createSignal(false);
   createEffect(
     on(
       () => props.isOpen,
@@ -149,6 +156,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
         setSetUpLocalUser(false);
         setLocalUserRole("viewer");
         setRoleLoaded(false);
+        setScannedPlayerQr(false);
       }
     )
   );
@@ -455,6 +463,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
     // runs against the real peer_addr rather than trying to fetch the
     // wrapper as an http remote.
     const playerQr = parsePlayerPairingQr(input);
+    setScannedPlayerQr(!!playerQr);
     const resolved = playerQr?.node_id ?? input;
     // keep the "url" step's input box in sync with whatever's actually
     // being submitted, so a QR scan (or the origin hint) is visible/
@@ -1016,79 +1025,96 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
                         </div>
                       </Show>
 
-                      {/* normal remote auth/knock flow - shown even for a
-                          player_device peer like rathole, which is both a
-                          real remote AND a pairable player (unlike a pure
-                          web/cenotaph player, which can only ever pair -
-                          see server_info()'s doc comment in grimoire). */}
-                      <AuthForm
-                        initialMode={s.peerAddr ? "register" : "login"}
-                        onSubmit={handleAuth}
-                        onPasskeyClick={handlePasskeyAuth}
-                        error={s.error || undefined}
-                        showModeToggle={!s.peerAddr}
-                        hidePasskeyInfo={!!s.peerAddr || isCharnelAvailable()}
-                        hidePasskeyButton={!s.peerAddr && isCharnelAvailable()}
-                      />
+                      {/* normal remote auth/knock flow - shown for a
+                          player_device peer like rathole too (it's both a
+                          real remote AND a pairable player, unlike a pure
+                          web/cenotaph player - see server_info()'s doc
+                          comment in grimoire), UNLESS this attempt started
+                          from scanning the player's own qr code, which
+                          unambiguously means "pair with this player", not
+                          "add it as a general remote too" - the pin form
+                          below should be front and center, not buried
+                          under an unrelated login/knock form. */}
+                      <Show when={!scannedPlayerQr() || !s.serverInfo?.player_device}>
+                        <AuthForm
+                          initialMode={s.peerAddr ? "register" : "login"}
+                          onSubmit={handleAuth}
+                          onPasskeyClick={handlePasskeyAuth}
+                          error={s.error || undefined}
+                          showModeToggle={!s.peerAddr}
+                          hidePasskeyInfo={!!s.peerAddr || isCharnelAvailable()}
+                          hidePasskeyButton={!s.peerAddr && isCharnelAvailable()}
+                        />
 
-                      {/* request access option for P2P when knocking is enabled */}
-                      <Show
-                        when={
-                          s.peerAddr &&
-                          (s.serverInfo?.knocking_enabled || s.serverInfo?.passkey_p2p_enabled)
-                        }
-                      >
-                        <div class="text-center pt-4 border-t border-[var(--color-border-default)]">
-                          <Show when={s.serverInfo?.knocking_enabled}>
-                            <p class="text-sm text-[var(--color-text-secondary)] mb-2">
-                              don't have an invite code?
-                            </p>
-                            <button
-                              type="button"
-                              class="text-sm text-[var(--color-accent-primary)] hover:underline"
-                              onClick={() => void dispatch({ type: "BACK" })}
-                            >
-                              request access from the admin
-                            </button>
-                          </Show>
-                          <Show when={s.serverInfo?.passkey_p2p_enabled}>
-                            <Show when={isCharnelAvailable() && showCharnelLink()}>
-                              <div class="space-y-2 mt-2">
-                                <div class="flex gap-2">
-                                  <input
-                                    type="text"
-                                    readOnly
-                                    value={charnelSpumeLink() ?? ""}
-                                    class="flex-1 px-3 py-2 text-xs rounded-md border border-[var(--color-border-default)] bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)] select-all cursor-text"
-                                    onClick={(e) => (e.target as HTMLInputElement).select()}
-                                  />
-                                </div>
-                                <div class="flex gap-2">
-                                  <button
-                                    type="button"
-                                    class="flex-1 py-2 text-sm font-medium rounded-lg border border-[var(--color-border-default)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] transition-colors"
-                                    onClick={handleCharnelLinkCopy}
-                                  >
-                                    {charnelLinkCopied() ? "copied!" : "copy link"}
-                                  </button>
-                                  <button
-                                    type="button"
-                                    class="flex-1 py-2 text-sm font-medium rounded-lg bg-[var(--color-accent-primary)] text-white hover:opacity-90 transition-opacity"
-                                    onClick={handleCharnelLinkOpen}
-                                  >
-                                    open in browser
-                                  </button>
-                                </div>
-                              </div>
+                        {/* request access option for P2P when knocking is enabled */}
+                        <Show
+                          when={
+                            s.peerAddr &&
+                            (s.serverInfo?.knocking_enabled || s.serverInfo?.passkey_p2p_enabled)
+                          }
+                        >
+                          <div class="text-center pt-4 border-t border-[var(--color-border-default)]">
+                            <Show when={s.serverInfo?.knocking_enabled}>
+                              <p class="text-sm text-[var(--color-text-secondary)] mb-2">
+                                don't have an invite code?
+                              </p>
+                              <button
+                                type="button"
+                                class="text-sm text-[var(--color-accent-primary)] hover:underline"
+                                onClick={() => void dispatch({ type: "BACK" })}
+                              >
+                                request access from the admin
+                              </button>
                             </Show>
-                          </Show>
-                        </div>
+                            <Show when={s.serverInfo?.passkey_p2p_enabled}>
+                              <Show when={isCharnelAvailable() && showCharnelLink()}>
+                                <div class="space-y-2 mt-2">
+                                  <div class="flex gap-2">
+                                    <input
+                                      type="text"
+                                      readOnly
+                                      value={charnelSpumeLink() ?? ""}
+                                      class="flex-1 px-3 py-2 text-xs rounded-md border border-[var(--color-border-default)] bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)] select-all cursor-text"
+                                      onClick={(e) => (e.target as HTMLInputElement).select()}
+                                    />
+                                  </div>
+                                  <div class="flex gap-2">
+                                    <button
+                                      type="button"
+                                      class="flex-1 py-2 text-sm font-medium rounded-lg border border-[var(--color-border-default)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] transition-colors"
+                                      onClick={handleCharnelLinkCopy}
+                                    >
+                                      {charnelLinkCopied() ? "copied!" : "copy link"}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      class="flex-1 py-2 text-sm font-medium rounded-lg bg-[var(--color-accent-primary)] text-white hover:opacity-90 transition-opacity"
+                                      onClick={handleCharnelLinkOpen}
+                                    >
+                                      open in browser
+                                    </button>
+                                  </div>
+                                </div>
+                              </Show>
+                            </Show>
+                          </div>
+                        </Show>
                       </Show>
 
                       {/* freqhole-player device: pairing is available IN ADDITION to
-                          the normal remote flow above, not instead of it. */}
+                          the normal remote flow above, not instead of it -
+                          unless it's the ONLY thing shown (scannedPlayerQr,
+                          see above), in which case the divider/spacing above
+                          it would be a floating rule with nothing above to
+                          separate from. */}
                       <Show when={s.serverInfo?.player_device}>
-                        <div class="pt-4 mt-4 border-t border-[var(--color-border-default)]">
+                        <div
+                          class={
+                            scannedPlayerQr()
+                              ? ""
+                              : "pt-4 mt-4 border-t border-[var(--color-border-default)]"
+                          }
+                        >
                           <Show
                             when={!playerAccess.loading && !playerAccess()?.authorized}
                             fallback={
