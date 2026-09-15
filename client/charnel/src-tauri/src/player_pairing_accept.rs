@@ -259,5 +259,7 @@ pub fn player_pairing_is_started() -> bool {
 /// toggle) changes.
 #[tauri::command]
 pub fn set_player_session_active(active: bool) {
+    // TEMP DEBUG - remove once the charnel player_device bug is found
+    eprintln!("\u{1F7E0}\u{1F7E0}\u{1F7E0} [player_session_debug] tauri command set_player_session_active({active}) invoked");
     grimoire::player_session::set_active(active);
 }

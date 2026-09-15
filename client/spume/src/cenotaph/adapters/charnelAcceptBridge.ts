@@ -85,5 +85,19 @@ export async function setCharnelPlayerSessionActive(active: boolean): Promise<vo
   if (!isCharnelMode()) return;
   // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
   const { invoke } = await import("@tauri-apps/api/core");
-  await invoke("set_player_session_active", { active });
+  // TEMP DEBUG - remove once the charnel player_device bug is found
+  console.log(
+    `\u{1F7E0}\u{1F7E0}\u{1F7E0} [player_session_debug] invoking set_player_session_active(${active})`
+  );
+  try {
+    await invoke("set_player_session_active", { active });
+    console.log(
+      `\u{1F7E0}\u{1F7E0}\u{1F7E0} [player_session_debug] set_player_session_active(${active}) succeeded`
+    );
+  } catch (err) {
+    console.error(
+      `\u{1F7E0}\u{1F7E0}\u{1F7E0} [player_session_debug] set_player_session_active(${active}) FAILED:`,
+      err
+    );
+  }
 }

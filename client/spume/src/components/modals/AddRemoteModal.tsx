@@ -263,9 +263,15 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
   // real presence_query probe (see playerPairingClient.ts's
   // `queryPlayerPresence`) rather than assumed from anything persisted (see
   // docs/cenotaph-migration-plan.md phase 11: "is this a player"/"do i have
-  // access" are both deliberately live, never-stored facts). a brand-new
-  // (not yet saved) remote always needs the pin form - there's no prior
-  // pairing to check access for.
+  // access" are both deliberately live, never-stored facts). that live
+  // check runs REGARDLESS of whether this browser/device has a local
+  // remote row for the peer yet - admin/session access lives entirely on
+  // the player's side (grimoire's user table), not in this client's own
+  // storage, so a fresh browser/private window/cleared-storage device
+  // that's nonetheless already an admin of this player must still auto-
+  // skip the pin. `existing` only affects `alreadyPaired`/`remoteId` (used
+  // to persist `paired_as_player` below) - it used to gate the whole probe,
+  // which incorrectly forced the pin form for exactly this case.
   interface PlayerAccessCheck {
     alreadyPaired: boolean;
     authorized: boolean;
@@ -279,15 +285,24 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
     },
     async (peerAddr): Promise<PlayerAccessCheck> => {
       const existing = await getRemoteByPeerAddr(peerAddr);
-      if (!existing) return { alreadyPaired: false, authorized: false };
+      // TEMP DEBUG - remove once the charnel player_device bug is found
+      console.log(
+        `\u{1F535}\u{1F535}\u{1F535} [presence_debug] playerAccess: getRemoteByPeerAddr(${peerAddr}) ->`,
+        existing
+      );
       const probe = await queryPlayerPresence(peerAddr);
+      // TEMP DEBUG - remove once the charnel player_device bug is found
+      console.log(
+        `\u{1F535}\u{1F535}\u{1F535} [presence_debug] playerAccess: queryPlayerPresence(${peerAddr}) ->`,
+        probe
+      );
       const authorized =
         probe.presence === "active" && (probe.access === "admin" || probe.access === "in_session");
       return {
-        alreadyPaired: true,
+        alreadyPaired: !!existing,
         authorized,
-        remoteId: existing.remote_id,
-        remoteName: existing.name,
+        remoteId: existing?.remote_id,
+        remoteName: existing?.name,
       };
     }
   );
@@ -295,13 +310,15 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
   // already have access (no pin needed) - just "kick into player mode" and
   // close, per the user's described flow: scanning/re-adding a player qr
   // for an already-trusted, already-in-session peer should need nothing
-  // more from the user. this remote may have been added long before it
-  // was ever paired as a player (e.g. a normal http/p2p remote that later
-  // turned on player pairing), so `paired_as_player` still needs setting
-  // here too - otherwise it plays fine once but never shows up in the
-  // "play on" selector afterwards (that list is filtered on this flag,
-  // see pairedPlayers.ts), since `handlePairPlayer`'s own
-  // create/updateRemote call is never reached on this auto-skip path.
+  // more from the user. covers two cases now that the live check above
+  // runs regardless of local state: an existing (possibly non-player)
+  // remote just needs `paired_as_player` set (`handlePairPlayer`'s own
+  // create/updateRemote call is never reached on this auto-skip path,
+  // see pairedPlayers.ts's filter), and a peer with NO local remote row at
+  // all (already admin/in-session on the player's side, but never added
+  // here before) needs one created from scratch - otherwise it connects
+  // once but leaves nothing behind to show up in the "play on" selector
+  // or to reconnect to next time.
   createEffect(
     on(
       () => playerAccess(),
@@ -310,10 +327,19 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
         const s = state();
         if (s.step !== "auth" || !s.peerAddr) return;
         const peerAddr = s.peerAddr;
-        const player = { node_id: peerAddr, username: result.remoteName ?? peerAddr };
+        const displayName =
+          result.remoteName ?? s.serverInfo?.name ?? `player ${peerAddr.slice(0, 8)}`;
+        const player = { node_id: peerAddr, username: displayName };
         void (async () => {
           if (result.remoteId) {
             await updateRemote(result.remoteId, { paired_as_player: true }).catch(() => {});
+          } else {
+            await createRemote({
+              name: displayName,
+              peer_addr: peerAddr,
+              allowMissingServerInfo: true,
+              pairedAsPlayer: true,
+            }).catch(() => {});
           }
           await deletePendingRemoteByPeerAddr(peerAddr).catch(() => {});
           await selectPlayerPlaybackTarget(player);

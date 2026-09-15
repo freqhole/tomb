@@ -114,6 +114,11 @@ export interface PresenceProbeResult {
 export async function queryPlayerPresence(peerAddr: string): Promise<PresenceProbeResult> {
   try {
     const line = await dialLineOnce(peerAddr, JSON.stringify({ type: "presence_query" }));
+    // TEMP DEBUG - remove once the charnel player_device bug is found
+    console.log(
+      `\u{1F535}\u{1F535}\u{1F535} [presence_debug] queryPlayerPresence(${peerAddr}) raw line:`,
+      line
+    );
     if (!line) return { presence: "stopped" };
     const parsed = JSON.parse(line) as { type?: string; state?: string; access?: string };
     if (parsed.type !== "presence" || parsed.state !== "active") return { presence: "stopped" };
@@ -123,8 +128,18 @@ export async function queryPlayerPresence(peerAddr: string): Promise<PresencePro
       parsed.access === "not_in_session"
         ? parsed.access
         : undefined;
+    // TEMP DEBUG - remove once the charnel player_device bug is found
+    console.log(
+      `\u{1F535}\u{1F535}\u{1F535} [presence_debug] queryPlayerPresence(${peerAddr}) parsed access:`,
+      access
+    );
     return { presence: "active", access };
-  } catch {
+  } catch (err) {
+    // TEMP DEBUG - remove once the charnel player_device bug is found
+    console.error(
+      `\u{1F535}\u{1F535}\u{1F535} [presence_debug] queryPlayerPresence(${peerAddr}) threw:`,
+      err
+    );
     return { presence: "stopped" };
   }
 }

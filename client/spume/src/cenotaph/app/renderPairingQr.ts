@@ -20,11 +20,15 @@ function base64UrlEncode(bytes: Uint8Array): string {
 
 /** base64url json blob wrapped in a spume url - scanning with any camera
  * app opens spume and offers to pair (spume's existing `?p=` paste/scan
- * handling already decodes this, no changes needed there). */
+ * handling already decodes this, no changes needed there). always the
+ * real public host, never `window.location.origin` - in charnel that's
+ * the tauri dev-server localhost origin (or its production scheme),
+ * neither of which is reachable from whatever device scans the qr code
+ * (mirrors rathole's own `repl_keys.rs` invite-url helper, same reason). */
 export function encodePlayerQrPayload(payload: PlayerQrPayload): string {
   const json = JSON.stringify(payload);
   const b64 = base64UrlEncode(new TextEncoder().encode(json));
-  return `${window.location.origin}/?p=${b64}`;
+  return `https://spume.freqhole.net/?p=${b64}`;
 }
 
 const QR_DARK = "#ff00c8"; // magenta

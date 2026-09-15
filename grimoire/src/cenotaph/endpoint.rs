@@ -247,6 +247,10 @@ async fn handle_stream(
         return Ok(());
     };
     info!(target: "cenotaph", peer = %peer_id, kind = %kind, "handle_stream: dispatching on first-line kind");
+    // TEMP DEBUG - remove once the charnel player_device bug is found
+    eprintln!(
+        "\u{1F535}\u{1F535}\u{1F535} [presence_debug] handle_stream: peer={peer_id} kind={kind}"
+    );
 
     if kind == "pair_request" {
         handle_pair_request(&peer_id, &first_line, &state, &mut send).await?;
@@ -263,6 +267,12 @@ async fn handle_stream(
     let user_resp = crate::users::UserService::new()
         .get_user_by_peer_node_id(&peer_id)
         .await;
+    // TEMP DEBUG - remove once the charnel player_device bug is found
+    eprintln!(
+        "\u{1F535}\u{1F535}\u{1F535} [presence_debug] kind={kind} peer={peer_id} get_user_by_peer_node_id success={} data={:?}",
+        user_resp.success,
+        user_resp.data.as_ref().map(|u| (&u.id, &u.username, &u.role))
+    );
     let Some(user) = user_resp.data.filter(|_| user_resp.success) else {
         warn!(
             target: "cenotaph",
@@ -283,6 +293,10 @@ async fn handle_stream(
             guard.session = Some(session);
             access
         };
+        // TEMP DEBUG - remove once the charnel player_device bug is found
+        eprintln!(
+            "\u{1F535}\u{1F535}\u{1F535} [presence_debug] peer={peer_id} role={role:?} access={access:?}"
+        );
         let msg = PresenceAnnouncement::for_caller(PresenceState::Active, access);
         write_line(&mut send, &serde_json::to_string(&msg).unwrap()).await?;
         return Ok(());

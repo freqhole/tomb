@@ -24,12 +24,17 @@ static ACTIVE: AtomicBool = AtomicBool::new(false);
 /// every tick with `focus == PlayerPairing`, or once at startup for a
 /// permanent `--player` launch) - there's no decay/timeout to manage.
 pub fn set_active(active: bool) {
+    // TEMP DEBUG - remove once the charnel player_device bug is found
+    eprintln!("\u{1F534}\u{1F534}\u{1F534} [player_session_debug] set_active({active}) called");
     ACTIVE.store(active, Ordering::Relaxed);
 }
 
 /// true if this process currently counts as an active player.
 pub fn is_active() -> bool {
-    ACTIVE.load(Ordering::Relaxed)
+    let value = ACTIVE.load(Ordering::Relaxed);
+    // TEMP DEBUG - remove once the charnel player_device bug is found
+    eprintln!("\u{1F534}\u{1F534}\u{1F534} [player_session_debug] is_active() -> {value}");
+    value
 }
 
 #[cfg(test)]

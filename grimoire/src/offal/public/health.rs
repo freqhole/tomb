@@ -73,6 +73,11 @@ pub async fn server_info() -> GrimoireResponse<JsonValue> {
             fetch_video_enabled: None,
             player_device: Some(crate::player_session::is_active()),
         };
+        // TEMP DEBUG - remove once the charnel player_device bug is found
+        eprintln!(
+            "\u{1F7E2}\u{1F7E2}\u{1F7E2} [hello_debug] server_info() (no [server] section) returning player_device={:?}",
+            response.player_device
+        );
         return GrimoireResponse::success("ok", serde_json::to_value(response).unwrap());
     };
 
@@ -134,6 +139,12 @@ pub async fn server_info() -> GrimoireResponse<JsonValue> {
         // `crate::player_session`.
         player_device: Some(crate::player_session::is_active()),
     };
+
+    // TEMP DEBUG - remove once the charnel player_device bug is found
+    eprintln!(
+        "\u{1F7E2}\u{1F7E2}\u{1F7E2} [hello_debug] server_info() returning name={:?} player_device={:?}",
+        response.name, response.player_device
+    );
 
     GrimoireResponse::success("ok", serde_json::to_value(response).unwrap())
 }
