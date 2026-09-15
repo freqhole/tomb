@@ -13,44 +13,14 @@
 import { isCharnelMode } from "../../../app/services/charnel";
 import { getTauriManagedRemote } from "../../../app/services/remotes/remoteManager";
 import type { CurrentRemoteInfo } from "../../data/currentState";
-import type { PatchAlbumReviewRequest, PendingReviewSession } from "@freqhole/api-client";
-import type { ImportReviewAlbum } from "../../../components/import/ImportGroupingView";
 import { createGrimoireReviewBackend } from "./grimoireReviewBackend";
 import { createLocalIdbReviewBackend } from "./localIdbReviewBackend";
+import type { ReviewBackend, ReviewSendTarget } from "./reviewBackendTypes";
 
-/** the remote a reviewed session's albums should ultimately be sent to,
- * once review completes - `null` for a purely local import. */
-export interface ReviewSendTarget {
-  id: string;
-  name: string;
-}
-
-export interface ReviewBackend {
-  kind: "grimoire" | "local-idb";
-  /** the resolved remote backing this instance - `null` for "local-idb"
-   *  (there's no `Remote` to speak of for a purely local session). */
-  remote: CurrentRemoteInfo | null;
-  listPendingSessions(): Promise<PendingReviewSession[]>;
-  getSessionAlbums(sessionId: string): Promise<ImportReviewAlbum[]>;
-  getSessionTarget(sessionId: string): Promise<ReviewSendTarget | null>;
-  patchAlbum(
-    sessionId: string,
-    albumId: string,
-    req: Omit<PatchAlbumReviewRequest, "album_id" | "session_id">
-  ): Promise<void>;
-  mergeAlbums(sessionId: string, sourceIds: string[], targetId: string): Promise<void>;
-  moveSong(
-    sessionId: string,
-    songId: string,
-    toAlbumId: string | null,
-    newAlbumTitle?: string | null,
-    newAlbumArtistName?: string | null
-  ): Promise<void>;
-  markAlbumReviewed(sessionId: string, albumId: string): Promise<void>;
-  /** mark every album in `session` reviewed in one shot - used by
-   *  AddMediaModal's review-tab "mark reviewed" bulk action. */
-  markSessionReviewed(session: PendingReviewSession): Promise<void>;
-}
+// re-exported so existing call sites don't need to change their import
+// path - canonical definitions now live in reviewBackendTypes.ts (see that
+// file's doc comment for why).
+export type { ReviewBackend, ReviewSendTarget };
 
 /**
  * the one place that decides "which remote (if any) is this review session

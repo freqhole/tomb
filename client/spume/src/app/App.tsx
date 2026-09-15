@@ -27,6 +27,7 @@ import { ReplaceQueueConfirmModal } from "../music/components/ReplaceQueueConfir
 import { getCurrentRemote, getDataSource, useLocalSource, useRemoteSource } from "../music/data";
 import type { CurrentRemoteInfo } from "../music/data/currentState";
 import { isAdmin } from "../music/data/permissions";
+import { createCandidateDestinations } from "../music/services/send/destinationCandidates";
 import {
   hideAlbumEditor,
   hideArtistEditor,
@@ -231,6 +232,29 @@ export function App() {
   const [completedVideoReviewSessionId, setCompletedVideoReviewSessionId] = createSignal<
     string | null
   >(null);
+
+  // explicit override of which remote new add-media uploads/imports should
+  // target - null means "no override yet, follow whatever's currently
+  // browsed" (getCurrentRemote()), matching the exact default behavior from
+  // before this switcher existed. once the user picks a destination via
+  // AddMediaModal's header picker, this pins to that choice regardless of
+  // what the user browses to elsewhere - see docs/add-media-review-refactor-
+  // plan.md §11: switching targets must never lose in-flight review/send
+  // state, which is why this is purely "which registry entry is displayed"
+  // rather than anything that touches session data itself.
+  const [addMediaTargetId, setAddMediaTargetId] = createSignal<string | null>(null);
+  // candidate destinations for the picker - same eligibility (p2p remotes +
+  // the charnel-managed local remote) the share flow's SendToRemoteSection
+  // already uses, so a destination that can't actually receive a sync/
+  // upload is never offered here either.
+  const addMediaCandidates = createCandidateDestinations({ sourceRemoteId: () => undefined });
+  const addMediaTargetRemote = (): CurrentRemoteInfo | null => {
+    const id = addMediaTargetId();
+    if (id === null) return getCurrentRemote();
+    const candidate = addMediaCandidates().find((c) => c.remote.remote_id === id);
+    return candidate ? (candidate.remote as unknown as CurrentRemoteInfo) : getCurrentRemote();
+  };
+
   // signals the AddRemoteModal to auto-complete setup for a peer (device-linked / knock-accepted)
   const [autoCompletePeerAddr, setAutoCompletePeerAddr] = createSignal<string | null>(null);
   const [shareToken, setShareToken] = createSignal<string | null>(null);
@@ -249,13 +273,17 @@ export function App() {
   const [currentHash, setCurrentHash] = createSignal(window.location.hash);
   const isSettingsRoute = () => currentHash().startsWith("#/settings");
 
-  // query whether the current remote has url precheck (yt-dlp) configured
+  // query whether the add-media target remote has url precheck (yt-dlp)
+  // configured - keyed to the switcher's effective target, not whatever's
+  // currently being browsed (see addMediaTargetRemote's doc comment).
   const fetchPrecheckEnabledQuery = useFetchPrecheckEnabledQuery(
-    () => getCurrentRemote() ?? undefined
+    () => addMediaTargetRemote() ?? undefined
   );
 
-  // query whether the current remote has video url fetching (fetch_video) configured
-  const fetchVideoEnabledQuery = useFetchVideoEnabledQuery(() => getCurrentRemote() ?? undefined);
+  // query whether the add-media target remote has video url fetching (fetch_video) configured
+  const fetchVideoEnabledQuery = useFetchVideoEnabledQuery(
+    () => addMediaTargetRemote() ?? undefined
+  );
 
   // import review - keyed to the captured remote for the session, not getCurrentRemote()
   const importReview = useImportReview(
@@ -1296,7 +1324,7 @@ export function App() {
   };
 
   const handleFilesSelected = async (files: FileList) => {
-    const remote = getCurrentRemote();
+    const remote = addMediaTargetRemote();
 
     if (remote && isCharnelMode()) {
       // android (and any platform that can only produce `File` objects,
@@ -1361,7 +1389,7 @@ export function App() {
   };
 
   const handleUrlsSubmitted = async (urls: string[]) => {
-    const remote = getCurrentRemote();
+    const remote = addMediaTargetRemote();
 
     if (!remote) {
       toast.warning("url downloads are only supported with a remote server", {
@@ -1377,7 +1405,7 @@ export function App() {
   // handle paths selected via tauri dialog (desktop only, Android uses file input)
   // supports local import (no remote), charnel-managed local remotes, and P2P remotes
   const handlePathsSelected = async (paths: string[]) => {
-    const remote = getCurrentRemote();
+    const remote = addMediaTargetRemote();
 
     if (!remote) {
       // no remote selected yet (default "local library" state) - this
@@ -1481,7 +1509,7 @@ export function App() {
   };
 
   const handleVideoUrlsSubmitted = async (urls: string[]) => {
-    const remote = getCurrentRemote();
+    const remote = addMediaTargetRemote();
 
     if (!remote) {
       toast.warning("url downloads are only supported with a remote server", {
@@ -1495,7 +1523,7 @@ export function App() {
   };
 
   const handleVideoFilesSelected = async (files: FileList) => {
-    const remote = getCurrentRemote();
+    const remote = addMediaTargetRemote();
 
     if (remote) {
       // remote upload: fire-and-forget, jobs are tracked reactively
@@ -1522,7 +1550,7 @@ export function App() {
   // handle video paths selected via tauri dialog (desktop only, Android uses file input)
   // supports local import (no remote), charnel-managed local remotes, and P2P remotes
   const handleVideoPathsSelected = async (paths: string[]) => {
-    const remote = getCurrentRemote();
+    const remote = addMediaTargetRemote();
 
     if (!remote) {
       // no remote selected yet - same reasoning as handlePathsSelected's
@@ -1653,7 +1681,10 @@ export function App() {
         onVideoFilesSelected={handleVideoFilesSelected}
         onVideoPathsSelected={handleVideoPathsSelected}
         onVideoUrlsSubmitted={handleVideoUrlsSubmitted}
-        remoteName={getCurrentRemote()?.name}
+        remoteName={addMediaTargetRemote()?.name}
+        targetRemote={addMediaTargetRemote()}
+        targetCandidates={addMediaCandidates().map((c) => c.remote)}
+        onTargetChange={(remoteId) => setAddMediaTargetId(remoteId)}
         useCharnelDialog={isCharnelMode()}
         musicUploadJobs={getUploadJobs()}
         videoUploadJobs={getVideoUploadJobs()}

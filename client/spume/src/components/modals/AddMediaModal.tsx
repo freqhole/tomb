@@ -24,9 +24,13 @@ import { pushModal, popModal } from "../../music/hooks/modals";
 import { pickDirectory, pickFiles, classifyFile, classifyFileName } from "../../utils/filePicker";
 import { getLocalLibraryName } from "../../app/services/storage/db";
 import { getCurrentRemote } from "../../music/data";
+import type { CurrentRemoteInfo } from "../../music/data/currentState";
 import { getTauriManagedRemote } from "../../app/services/remotes/remoteManager";
 import { getClientForRemote } from "../../app/api/client";
 import { isCharnelMode } from "../../app/services/charnel";
+import { RemotePicker } from "../forms/RemotePicker";
+import type { Remote } from "../../app/services/storage/schemas/remote";
+import { isOnline, isProbing, probeRemote } from "../../app/services/remotes/remoteHealth";
 import {
   getReviewBackend,
   resolveActiveReviewRemote,
@@ -57,6 +61,16 @@ export interface AddMediaModalProps {
   onVideoUrlsSubmitted?: (urls: string[]) => void;
   /** name of the remote server (shows in header when set) */
   remoteName?: string;
+  /** the resolved target new uploads/imports go to - null means local
+   *  library. drives the header's remote-picker switcher and the
+   *  url-precheck flow (which needs a concrete remote to call). */
+  targetRemote?: CurrentRemoteInfo | null;
+  /** candidate destinations for the target switcher - same eligibility
+   *  filtering the share flow's SendToRemoteSection uses (p2p remotes +
+   *  the charnel-managed local remote). omit/empty hides the switcher. */
+  targetCandidates?: Remote[];
+  /** fires when the user picks a different target via the switcher. */
+  onTargetChange?: (remoteId: string) => void;
   /** whether to use tauri dialog (for tauri-managed remotes) */
   useCharnelDialog?: boolean;
   /** tracked music upload/fetch jobs to display */
@@ -115,6 +129,28 @@ export function AddMediaModal(props: AddMediaModalProps) {
     onCleanup(() => popModal(id));
   });
 
+  // health of the current add-media target - drives whether the tabs/upload
+  // UI show at all (§ user request: never let the user try to upload against
+  // a remote we haven't verified is reachable). reads the same central
+  // online/checking store the top nav and RemotePicker use
+  // (app/services/remotes/remoteHealth.ts) rather than a one-off probe here.
+  // local (charnel-managed) is always "online" - no network involved.
+  // non-forced: probeRemote's own backoff means reopening the modal
+  // repeatedly against the same still-offline remote doesn't re-hammer it.
+  createEffect(() => {
+    const target = props.targetRemote;
+    if (!props.isOpen || !target || target.is_charnel_managed) return;
+    void probeRemote(target as unknown as Remote);
+  });
+  const targetStatus = (): "online" | "offline" | "checking" => {
+    const target = props.targetRemote;
+    if (!target || target.is_charnel_managed) return "online";
+    if (isProbing(target.remote_id)()) return "checking";
+    const online = isOnline(target.remote_id)();
+    if (online === undefined) return "checking"; // probe kicked off above, not resolved yet
+    return online ? "online" : "offline";
+  };
+
   // in charnel mode, music's path-based imports always redirect through the
   // local library first (review-before-send flow) - so "review" always means
   // reviewing local (grimoire) sessions there, regardless of which remote is
@@ -160,22 +196,22 @@ export function AddMediaModal(props: AddMediaModalProps) {
   // looking (or local-only sessions while browsing local) - a "show
   // everything" toggle can widen this later without needing to refetch
   // differently, since the raw list is still fetched in full above.
+  // keyed to props.targetRemote (the header switcher's selection, which
+  // falls back to getCurrentRemote() itself when no override is set - see
+  // App.tsx's addMediaTargetRemote) rather than getCurrentRemote() directly,
+  // so switching targets in the modal actually changes what's shown here.
   const filteredPendingSessions = createMemo(() => {
     const sessions = pendingSessions() ?? [];
     const localId = localBackendId();
     if (localId === undefined) return []; // still resolving
-    const currentId = getCurrentRemote()?.remote_id ?? localId;
+    const currentId = props.targetRemote?.remote_id ?? localId;
     return sessions.filter((s) => (s.target_remote_id ?? localId) === currentId);
   });
 
-  // same as filteredPendingSessions above, for video sessions.
-  const videoFilteredPendingSessions = createMemo(() => {
-    const sessions = videoPendingSessions() ?? [];
-    const localId = localBackendId();
-    if (localId === undefined) return []; // still resolving
-    const currentId = getCurrentRemote()?.remote_id ?? localId;
-    return sessions.filter((s) => (s.target_remote_id ?? localId) === currentId);
-  });
+  // same as filteredPendingSessions above, for video sessions - declared
+  // after videoPendingSessions below (createMemo runs its callback eagerly
+  // at creation, so referencing videoPendingSessions here before its own
+  // declaration throws a TDZ ReferenceError).
 
   // session ids (any target, not just the currently-viewed one) that still
   // have at least one album pending review - cheap cross-reference against
@@ -217,6 +253,15 @@ export function AddMediaModal(props: AddMediaModalProps) {
     },
     { initialValue: [] }
   );
+
+  // same as filteredPendingSessions above, for video sessions.
+  const videoFilteredPendingSessions = createMemo(() => {
+    const sessions = videoPendingSessions() ?? [];
+    const localId = localBackendId();
+    if (localId === undefined) return []; // still resolving
+    const currentId = props.targetRemote?.remote_id ?? localId;
+    return sessions.filter((s) => (s.target_remote_id ?? localId) === currentId);
+  });
 
   // session_id of a bulk "mark reviewed" currently in flight, if any
   const [markingSessionReviewed, setMarkingSessionReviewed] = createSignal<string | null>(null);
@@ -402,7 +447,7 @@ export function AddMediaModal(props: AddMediaModalProps) {
   };
 
   const handlePrecheckUrls = async () => {
-    await precheck.start(parseUrls(), () => setShowFullItemList(false));
+    await precheck.start(parseUrls(), props.targetRemote ?? null, () => setShowFullItemList(false));
   };
 
   const handlePrecheckConfirm = () => {
@@ -413,7 +458,7 @@ export function AddMediaModal(props: AddMediaModalProps) {
   };
 
   const handlePrecheckCancel = async () => {
-    await precheck.cancel(() => setShowFullItemList(false));
+    await precheck.cancel(props.targetRemote ?? null, () => setShowFullItemList(false));
   };
 
   const formatDuration = (seconds: number | null | undefined): string => {
@@ -709,12 +754,39 @@ export function AddMediaModal(props: AddMediaModalProps) {
           >
             {/* modal header */}
             <div class="flex items-center justify-between p-4 border-b border-[var(--color-border-default)] gap-2">
-              <h2
-                class="heading-5 text-[var(--color-text-primary)] truncate"
-                style={{ "min-width": "0" }}
-              >
-                add media to {props.remoteName || getLocalLibraryName()}
-              </h2>
+              <div class="flex items-center gap-2 min-w-0 flex-1">
+                <h2
+                  class="heading-5 text-[var(--color-text-primary)] truncate flex-shrink-0"
+                  style={{ "min-width": "0" }}
+                >
+                  add media to
+                </h2>
+                {/* target switcher - only offered in charnel/tauri mode (the
+                    only mode where "local library" is itself a real Remote,
+                    so no synthetic entry is needed in the picker's list) and
+                    only when there's actually something to switch between.
+                    the picker's own chip already shows the selected name, so
+                    no separate name label is printed alongside it. */}
+                <Show
+                  when={isCharnelMode() && (props.targetCandidates?.length ?? 0) > 0}
+                  fallback={
+                    <span class="heading-5 text-[var(--color-text-primary)] truncate">
+                      {props.remoteName || getLocalLibraryName()}
+                    </span>
+                  }
+                >
+                  <RemotePicker
+                    remotes={props.targetCandidates!}
+                    value={new Set(props.targetRemote ? [props.targetRemote.remote_id] : [])}
+                    onChange={(next) => {
+                      const id = next.values().next().value;
+                      if (id) props.onTargetChange?.(id);
+                    }}
+                    mode="single"
+                    layout="inline"
+                  />
+                </Show>
+              </div>
               <IconButton
                 icon="close"
                 variant="ghost"
@@ -726,110 +798,144 @@ export function AddMediaModal(props: AddMediaModalProps) {
 
             {/* tabs - scrollable area */}
             <div class="px-4 pt-4 overflow-y-auto flex-1 min-h-0">
-              <Tabs
-                activeTab={uploadMode()}
-                onTabChange={(tab) => {
-                  setUploadMode(tab);
-                }}
-              >
-                <TabList class="justify-center">
-                  <Tab id="files" label="upload files" />
-                  <Tab id="urls" label="download urls" />
-                  <Tab
-                    id="review"
-                    label="review"
-                    badge={
-                      (filteredPendingSessions()?.reduce((n, s) => n + s.albums.length, 0) ?? 0) +
-                        (videoFilteredPendingSessions()?.reduce((n, s) => n + s.groups.length, 0) ??
-                          0) || undefined
-                    }
-                  />
-                </TabList>
-
-                <div class="py-6">
-                  <TabPanel id="files">
+              <Show
+                when={targetStatus() === "online"}
+                fallback={
+                  <div class="flex flex-col items-center justify-center py-16 gap-3 text-center">
                     <Show
-                      when={
-                        !hasJobs() &&
-                        !isLocalImporting(props.localImportProgress) &&
-                        !isLocalImporting(props.videoLocalImportProgress)
-                      }
+                      when={targetStatus() === "checking"}
                       fallback={
-                        <div class="flex justify-center gap-2">
-                          <Button variant="secondary" onClick={handleSelectFiles}>
-                            add more files
-                          </Button>
-                          <Show when={useNativeDialog()}>
-                            <Button variant="secondary" onClick={handleSelectDirectory}>
-                              add folder
-                            </Button>
-                          </Show>
-                        </div>
+                        <>
+                          <Icon name="alertTriangle" size={28} color="var(--color-text-muted)" />
+                          <p class="body-small text-[var(--color-text-secondary)]">
+                            {props.remoteName || "this remote"} appears to be offline
+                          </p>
+                          <p class="body-xs text-[var(--color-text-tertiary)] max-w-xs">
+                            pick a different remote above to continue, or wait for it to come back
+                            online
+                          </p>
+                        </>
                       }
                     >
-                      <div class="border-2 border-dashed border-[var(--color-border-default)] rounded-lg p-12 flex flex-col items-center justify-center text-center">
-                        <div class="mb-4">
-                          <Icon name="upload" size={48} color="var(--color-text-muted)" />
-                        </div>
-                        <h3 class="heading-6 text-[var(--color-text-primary)] mb-2">add media</h3>
-                        <p class="body-small text-[var(--color-text-secondary)] mb-2">
-                          {props.useCharnelDialog
-                            ? "select files or an entire folder"
-                            : props.remoteName
-                              ? `files will be uploaded to ${props.remoteName}`
-                              : "drag audio or video files here or click to select"}
-                        </p>
-                        <p class="body-xs text-[var(--color-text-tertiary)] mb-4">
-                          supports mp3, flac, wav, m4a, ogg, mp4, mkv, webm, mov, avi
-                        </p>
-                        <div class="flex gap-2">
-                          <Button variant="primary" onClick={handleSelectFiles}>
-                            select files
-                          </Button>
-                          <Show when={useNativeDialog()}>
-                            <Button variant="secondary" onClick={handleSelectDirectory}>
-                              select folder
-                            </Button>
-                          </Show>
-                        </div>
-                      </div>
+                      <Icon
+                        name="loader"
+                        size={24}
+                        className="animate-spin"
+                        color="var(--color-text-muted)"
+                      />
+                      <p class="body-small text-[var(--color-text-secondary)]">
+                        checking connection to {props.remoteName || "remote"}...
+                      </p>
                     </Show>
-                  </TabPanel>
+                  </div>
+                }
+              >
+                <Tabs
+                  activeTab={uploadMode()}
+                  onTabChange={(tab) => {
+                    setUploadMode(tab);
+                  }}
+                >
+                  <TabList class="justify-center">
+                    <Tab id="files" label="upload files" />
+                    <Tab id="urls" label="download urls" />
+                    <Tab
+                      id="review"
+                      label="review"
+                      badge={
+                        (filteredPendingSessions()?.reduce((n, s) => n + s.albums.length, 0) ?? 0) +
+                          (videoFilteredPendingSessions()?.reduce(
+                            (n, s) => n + s.groups.length,
+                            0
+                          ) ?? 0) || undefined
+                      }
+                    />
+                  </TabList>
 
-                  <TabPanel id="urls">
-                    {/* precheck confirm screen */}
-                    <Show when={precheck.state() === "confirm" && precheck.result() !== null}>
-                      {(_) => {
-                        const r = precheck.result()!;
-                        const PREVIEW_COUNT = 5;
-                        const previewItems = r.items?.slice(0, PREVIEW_COUNT) ?? [];
-                        const remainingCount = (r.items?.length ?? 0) - PREVIEW_COUNT;
-                        const duplicateCount = r.duplicate_count ?? 0;
-                        return (
-                          <div class="space-y-4">
-                            <div>
-                              <h3 class="heading-6 text-[var(--color-text-primary)] mb-1">
-                                {r.item_count === 1
-                                  ? (r.items?.[0]?.title ?? "1 item")
-                                  : `${r.item_count} items`}
-                                {r.playlist_title ? ` from "${r.playlist_title}"` : ""}
-                              </h3>
-                              <div class="flex flex-wrap gap-x-3 gap-y-1 body-small text-[var(--color-text-secondary)]">
-                                <Show when={r.platform}>
-                                  <span class="capitalize">{r.platform}</span>
-                                </Show>
-                                <Show when={r.total_duration_seconds}>
-                                  <span>{formatDuration(r.total_duration_seconds)}</span>
-                                </Show>
-                                <Show when={duplicateCount > 0}>
-                                  <span class="text-amber-400">
-                                    {duplicateCount} already in library
-                                  </span>
-                                </Show>
+                  <div class="py-6">
+                    <TabPanel id="files">
+                      <Show
+                        when={
+                          !hasJobs() &&
+                          !isLocalImporting(props.localImportProgress) &&
+                          !isLocalImporting(props.videoLocalImportProgress)
+                        }
+                        fallback={
+                          <div class="flex justify-center gap-2">
+                            <Button variant="secondary" onClick={handleSelectFiles}>
+                              add more files
+                            </Button>
+                            <Show when={useNativeDialog()}>
+                              <Button variant="secondary" onClick={handleSelectDirectory}>
+                                add folder
+                              </Button>
+                            </Show>
+                          </div>
+                        }
+                      >
+                        <div class="border-2 border-dashed border-[var(--color-border-default)] rounded-lg p-12 flex flex-col items-center justify-center text-center">
+                          <div class="mb-4">
+                            <Icon name="upload" size={48} color="var(--color-text-muted)" />
+                          </div>
+                          <h3 class="heading-6 text-[var(--color-text-primary)] mb-2">add media</h3>
+                          <p class="body-small text-[var(--color-text-secondary)] mb-2">
+                            {props.useCharnelDialog
+                              ? "select files or an entire folder"
+                              : props.remoteName
+                                ? `files will be uploaded to ${props.remoteName}`
+                                : "drag audio or video files here or click to select"}
+                          </p>
+                          <p class="body-xs text-[var(--color-text-tertiary)] mb-4">
+                            supports mp3, flac, wav, m4a, ogg, mp4, mkv, webm, mov, avi
+                          </p>
+                          <div class="flex gap-2">
+                            <Button variant="primary" onClick={handleSelectFiles}>
+                              select files
+                            </Button>
+                            <Show when={useNativeDialog()}>
+                              <Button variant="secondary" onClick={handleSelectDirectory}>
+                                select folder
+                              </Button>
+                            </Show>
+                          </div>
+                        </div>
+                      </Show>
+                    </TabPanel>
+
+                    <TabPanel id="urls">
+                      {/* precheck confirm screen */}
+                      <Show when={precheck.state() === "confirm" && precheck.result() !== null}>
+                        {(_) => {
+                          const r = precheck.result()!;
+                          const PREVIEW_COUNT = 5;
+                          const previewItems = r.items?.slice(0, PREVIEW_COUNT) ?? [];
+                          const remainingCount = (r.items?.length ?? 0) - PREVIEW_COUNT;
+                          const duplicateCount = r.duplicate_count ?? 0;
+                          return (
+                            <div class="space-y-4">
+                              <div>
+                                <h3 class="heading-6 text-[var(--color-text-primary)] mb-1">
+                                  {r.item_count === 1
+                                    ? (r.items?.[0]?.title ?? "1 item")
+                                    : `${r.item_count} items`}
+                                  {r.playlist_title ? ` from "${r.playlist_title}"` : ""}
+                                </h3>
+                                <div class="flex flex-wrap gap-x-3 gap-y-1 body-small text-[var(--color-text-secondary)]">
+                                  <Show when={r.platform}>
+                                    <span class="capitalize">{r.platform}</span>
+                                  </Show>
+                                  <Show when={r.total_duration_seconds}>
+                                    <span>{formatDuration(r.total_duration_seconds)}</span>
+                                  </Show>
+                                  <Show when={duplicateCount > 0}>
+                                    <span class="text-amber-400">
+                                      {duplicateCount} already in library
+                                    </span>
+                                  </Show>
+                                </div>
                               </div>
-                            </div>
 
-                            {/* domain toggle - only shown when the remote supports
+                              {/* domain toggle - only shown when the remote supports
                                 video url fetching. applies to the whole batch: a
                                 fetch job's `domain` is one value for the entire
                                 job (confirmed via FetchMediaParamsSchema), so
@@ -838,375 +944,381 @@ export function AddMediaModal(props: AddMediaModalProps) {
                                 change - "both" works around this by submitting
                                 the same url list twice, once per domain, rather
                                 than trying to split by item. */}
-                            <Show when={props.fetchVideoEnabled}>
-                              <div>
-                                <p class="body-xs text-[var(--color-text-tertiary)] text-center mb-1">
-                                  download as
-                                </p>
-                                <DomainToggle />
-                              </div>
-                            </Show>
+                              <Show when={props.fetchVideoEnabled}>
+                                <div>
+                                  <p class="body-xs text-[var(--color-text-tertiary)] text-center mb-1">
+                                    download as
+                                  </p>
+                                  <DomainToggle />
+                                </div>
+                              </Show>
 
-                            {/* item preview list */}
-                            <Show when={previewItems.length > 0}>
-                              <div class="space-y-1">
-                                <For each={previewItems}>
-                                  {(item) => (
-                                    <div class="flex items-center gap-2 py-0.5">
-                                      <Show when={item.is_duplicate}>
-                                        <span class="body-xs text-amber-400 flex-shrink-0">
-                                          dup
+                              {/* item preview list */}
+                              <Show when={previewItems.length > 0}>
+                                <div class="space-y-1">
+                                  <For each={previewItems}>
+                                    {(item) => (
+                                      <div class="flex items-center gap-2 py-0.5">
+                                        <Show when={item.is_duplicate}>
+                                          <span class="body-xs text-amber-400 flex-shrink-0">
+                                            dup
+                                          </span>
+                                        </Show>
+                                        <span class="body-xs text-[var(--color-text-primary)] truncate flex-1">
+                                          {item.title ?? item.content_id}
                                         </span>
-                                      </Show>
-                                      <span class="body-xs text-[var(--color-text-primary)] truncate flex-1">
-                                        {item.title ?? item.content_id}
-                                      </span>
-                                      <Show when={item.duration_seconds}>
-                                        <span class="body-xs text-[var(--color-text-tertiary)] flex-shrink-0">
-                                          {formatDuration(item.duration_seconds)}
+                                        <Show when={item.duration_seconds}>
+                                          <span class="body-xs text-[var(--color-text-tertiary)] flex-shrink-0">
+                                            {formatDuration(item.duration_seconds)}
+                                          </span>
+                                        </Show>
+                                      </div>
+                                    )}
+                                  </For>
+                                  <Show when={remainingCount > 0 && !showFullItemList()}>
+                                    <button
+                                      class="body-xs text-[var(--color-link)] hover:underline mt-1"
+                                      onClick={() => setShowFullItemList(true)}
+                                    >
+                                      and {remainingCount} more
+                                    </button>
+                                  </Show>
+                                  <Show when={showFullItemList()}>
+                                    <div class="max-h-40 overflow-y-auto space-y-1 mt-1 border border-[var(--color-border-default)] rounded p-2">
+                                      <For each={r.items?.slice(PREVIEW_COUNT) ?? []}>
+                                        {(item) => (
+                                          <div class="flex items-center gap-2 py-0.5">
+                                            <Show when={item.is_duplicate}>
+                                              <span class="body-xs text-amber-400 flex-shrink-0">
+                                                dup
+                                              </span>
+                                            </Show>
+                                            <span class="body-xs text-[var(--color-text-primary)] truncate flex-1">
+                                              {item.title ?? item.content_id}
+                                            </span>
+                                            <Show when={item.duration_seconds}>
+                                              <span class="body-xs text-[var(--color-text-tertiary)] flex-shrink-0">
+                                                {formatDuration(item.duration_seconds)}
+                                              </span>
+                                            </Show>
+                                          </div>
+                                        )}
+                                      </For>
+                                    </div>
+                                  </Show>
+                                </div>
+                              </Show>
+
+                              <div class="flex gap-2 justify-end">
+                                <Button
+                                  variant="secondary"
+                                  onClick={() => void handlePrecheckCancel()}
+                                >
+                                  cancel
+                                </Button>
+                                <Button variant="primary" onClick={handlePrecheckConfirm}>
+                                  download all
+                                </Button>
+                              </div>
+                            </div>
+                          );
+                        }}
+                      </Show>
+
+                      {/* precheck running */}
+                      <Show when={precheck.state() === "checking"}>
+                        <div class="flex flex-col items-center justify-center py-12 gap-3">
+                          <div class="w-2 h-2 rounded-full bg-[var(--color-accent-500)] animate-pulse" />
+                          <Show
+                            when={precheck.liveCount() !== null}
+                            fallback={
+                              <p class="body-small text-[var(--color-text-secondary)]">
+                                {precheck.urls().length > 1
+                                  ? `checking url ${precheck.urlIndex()} of ${precheck.urls().length}...`
+                                  : "checking url..."}
+                              </p>
+                            }
+                          >
+                            <p class="body-small text-[var(--color-text-secondary)]">
+                              found {precheck.liveCount()} item
+                              {precheck.liveCount() !== 1 ? "s" : ""}
+                              {precheck.urls().length > 1
+                                ? ` (url ${precheck.urlIndex()} of ${precheck.urls().length})`
+                                : ""}
+                              ...
+                            </p>
+                          </Show>
+                          <Button variant="ghost" onClick={() => void handlePrecheckCancel()}>
+                            cancel
+                          </Button>
+                        </div>
+                      </Show>
+
+                      {/* precheck error */}
+                      <Show when={precheck.state() === "error"}>
+                        <div class="space-y-4">
+                          <div class="text-center">
+                            <p class="body-small text-red-400 mb-1">precheck failed</p>
+                            <p class="body-xs text-[var(--color-text-tertiary)]">
+                              {precheck.error()}
+                            </p>
+                          </div>
+                          <div class="flex gap-2 justify-center">
+                            <Button variant="secondary" onClick={() => void handlePrecheckCancel()}>
+                              back
+                            </Button>
+                            <Button variant="primary" onClick={handlePrecheckConfirm}>
+                              download anyway
+                            </Button>
+                          </div>
+                        </div>
+                      </Show>
+
+                      {/* url input (idle state) */}
+                      <Show when={precheck.state() === "idle"}>
+                        <div class="space-y-4">
+                          <div class="text-center mb-4">
+                            <h3 class="heading-6 text-[var(--color-text-primary)] mb-2">
+                              download from urls
+                            </h3>
+                            <p class="body-small text-[var(--color-text-secondary)]">
+                              paste media urls (one per line)
+                            </p>
+                          </div>
+
+                          {/* when precheck is unavailable but video fetching is,
+                            there's no confirm screen to host the domain toggle -
+                            show it here instead so video urls are still reachable */}
+                          <Show when={props.fetchVideoEnabled && !props.fetchPrecheckEnabled}>
+                            <DomainToggle />
+                          </Show>
+
+                          <TextArea
+                            value={urlText()}
+                            onInput={(e) => setUrlText(e.currentTarget.value)}
+                            placeholder="https://example.com/song.mp3"
+                            rows={6}
+                            variant="filled"
+                          />
+
+                          {/* youtube playlist / radio warning */}
+                          <Show when={youtubeListWarning()}>
+                            <p class="body-xs text-amber-400 mt-1">{youtubeListWarning()}</p>
+                          </Show>
+
+                          <Show when={props.remoteName}>
+                            <p class="body-xs text-[var(--color-text-tertiary)] mt-1">
+                              urls will be fetched by {props.remoteName}
+                            </p>
+                          </Show>
+
+                          <div class="flex justify-center">
+                            <Show
+                              when={props.fetchPrecheckEnabled}
+                              fallback={
+                                <Button
+                                  variant="primary"
+                                  onClick={handleDownloadUrls}
+                                  disabled={!urlText().trim()}
+                                >
+                                  download
+                                </Button>
+                              }
+                            >
+                              <Button
+                                variant="primary"
+                                onClick={() => void handlePrecheckUrls()}
+                                disabled={!urlText().trim()}
+                              >
+                                check url
+                              </Button>
+                            </Show>
+                          </div>
+                        </div>
+                      </Show>
+                    </TabPanel>
+
+                    <TabPanel id="review">
+                      {/* toolbar: refetch button */}
+                      <div class="flex justify-center mb-4">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => void refetchPendingSessions()}
+                          disabled={pendingSessions.loading}
+                        >
+                          <Show when={pendingSessions.loading} fallback={<span>refresh</span>}>
+                            <Icon name="loader" size={14} color="currentColor" />
+                            <span class="ml-1">loading...</span>
+                          </Show>
+                        </Button>
+                      </div>
+                      <Show
+                        when={
+                          !pendingSessions.loading &&
+                          !videoPendingSessions.loading &&
+                          (filteredPendingSessions() ?? []).length === 0 &&
+                          (videoFilteredPendingSessions() ?? []).length === 0
+                        }
+                      >
+                        <div class="flex flex-col items-center justify-center py-12 gap-2 text-[var(--color-text-muted)]">
+                          <Icon name="check" size={32} color="currentColor" />
+                          <p class="body-small">no pending reviews</p>
+                        </div>
+                      </Show>
+                      <Show when={(filteredPendingSessions() ?? []).length > 0}>
+                        <div class="flex flex-col gap-3">
+                          <For each={filteredPendingSessions() ?? []}>
+                            {(session) => (
+                              <div class="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-secondary)] p-4">
+                                <div class="flex items-start justify-between gap-3">
+                                  <div class="flex flex-col gap-1 min-w-0">
+                                    <div class="flex items-center gap-2 flex-wrap">
+                                      <p class="body-small font-medium text-[var(--color-text-primary)]">
+                                        {session.albums.length} album
+                                        {session.albums.length !== 1 ? "s" : ""}
+                                        {" · "}
+                                        {session.albums.reduce(
+                                          (n, a) => n + a.pending_blob_count,
+                                          0
+                                        )}{" "}
+                                        unreviewed
+                                      </p>
+                                      <Show when={props.isAdmin && session.uploader_username}>
+                                        <span class="body-xs px-1.5 py-0.5 rounded bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)]">
+                                          {session.uploader_username}
                                         </span>
                                       </Show>
                                     </div>
-                                  )}
-                                </For>
-                                <Show when={remainingCount > 0 && !showFullItemList()}>
-                                  <button
-                                    class="body-xs text-[var(--color-link)] hover:underline mt-1"
-                                    onClick={() => setShowFullItemList(true)}
-                                  >
-                                    and {remainingCount} more
-                                  </button>
-                                </Show>
-                                <Show when={showFullItemList()}>
-                                  <div class="max-h-40 overflow-y-auto space-y-1 mt-1 border border-[var(--color-border-default)] rounded p-2">
-                                    <For each={r.items?.slice(PREVIEW_COUNT) ?? []}>
-                                      {(item) => (
-                                        <div class="flex items-center gap-2 py-0.5">
-                                          <Show when={item.is_duplicate}>
-                                            <span class="body-xs text-amber-400 flex-shrink-0">
-                                              dup
-                                            </span>
-                                          </Show>
-                                          <span class="body-xs text-[var(--color-text-primary)] truncate flex-1">
-                                            {item.title ?? item.content_id}
-                                          </span>
-                                          <Show when={item.duration_seconds}>
-                                            <span class="body-xs text-[var(--color-text-tertiary)] flex-shrink-0">
-                                              {formatDuration(item.duration_seconds)}
-                                            </span>
-                                          </Show>
-                                        </div>
-                                      )}
-                                    </For>
-                                  </div>
-                                </Show>
-                              </div>
-                            </Show>
-
-                            <div class="flex gap-2 justify-end">
-                              <Button
-                                variant="secondary"
-                                onClick={() => void handlePrecheckCancel()}
-                              >
-                                cancel
-                              </Button>
-                              <Button variant="primary" onClick={handlePrecheckConfirm}>
-                                download all
-                              </Button>
-                            </div>
-                          </div>
-                        );
-                      }}
-                    </Show>
-
-                    {/* precheck running */}
-                    <Show when={precheck.state() === "checking"}>
-                      <div class="flex flex-col items-center justify-center py-12 gap-3">
-                        <div class="w-2 h-2 rounded-full bg-[var(--color-accent-500)] animate-pulse" />
-                        <Show
-                          when={precheck.liveCount() !== null}
-                          fallback={
-                            <p class="body-small text-[var(--color-text-secondary)]">
-                              {precheck.urls().length > 1
-                                ? `checking url ${precheck.urlIndex()} of ${precheck.urls().length}...`
-                                : "checking url..."}
-                            </p>
-                          }
-                        >
-                          <p class="body-small text-[var(--color-text-secondary)]">
-                            found {precheck.liveCount()} item{precheck.liveCount() !== 1 ? "s" : ""}
-                            {precheck.urls().length > 1
-                              ? ` (url ${precheck.urlIndex()} of ${precheck.urls().length})`
-                              : ""}
-                            ...
-                          </p>
-                        </Show>
-                        <Button variant="ghost" onClick={() => void handlePrecheckCancel()}>
-                          cancel
-                        </Button>
-                      </div>
-                    </Show>
-
-                    {/* precheck error */}
-                    <Show when={precheck.state() === "error"}>
-                      <div class="space-y-4">
-                        <div class="text-center">
-                          <p class="body-small text-red-400 mb-1">precheck failed</p>
-                          <p class="body-xs text-[var(--color-text-tertiary)]">
-                            {precheck.error()}
-                          </p>
-                        </div>
-                        <div class="flex gap-2 justify-center">
-                          <Button variant="secondary" onClick={() => void handlePrecheckCancel()}>
-                            back
-                          </Button>
-                          <Button variant="primary" onClick={handlePrecheckConfirm}>
-                            download anyway
-                          </Button>
-                        </div>
-                      </div>
-                    </Show>
-
-                    {/* url input (idle state) */}
-                    <Show when={precheck.state() === "idle"}>
-                      <div class="space-y-4">
-                        <div class="text-center mb-4">
-                          <h3 class="heading-6 text-[var(--color-text-primary)] mb-2">
-                            download from urls
-                          </h3>
-                          <p class="body-small text-[var(--color-text-secondary)]">
-                            paste media urls (one per line)
-                          </p>
-                        </div>
-
-                        {/* when precheck is unavailable but video fetching is,
-                            there's no confirm screen to host the domain toggle -
-                            show it here instead so video urls are still reachable */}
-                        <Show when={props.fetchVideoEnabled && !props.fetchPrecheckEnabled}>
-                          <DomainToggle />
-                        </Show>
-
-                        <TextArea
-                          value={urlText()}
-                          onInput={(e) => setUrlText(e.currentTarget.value)}
-                          placeholder="https://example.com/song.mp3"
-                          rows={6}
-                          variant="filled"
-                        />
-
-                        {/* youtube playlist / radio warning */}
-                        <Show when={youtubeListWarning()}>
-                          <p class="body-xs text-amber-400 mt-1">{youtubeListWarning()}</p>
-                        </Show>
-
-                        <Show when={props.remoteName}>
-                          <p class="body-xs text-[var(--color-text-tertiary)] mt-1">
-                            urls will be fetched by {props.remoteName}
-                          </p>
-                        </Show>
-
-                        <div class="flex justify-center">
-                          <Show
-                            when={props.fetchPrecheckEnabled}
-                            fallback={
-                              <Button
-                                variant="primary"
-                                onClick={handleDownloadUrls}
-                                disabled={!urlText().trim()}
-                              >
-                                download
-                              </Button>
-                            }
-                          >
-                            <Button
-                              variant="primary"
-                              onClick={() => void handlePrecheckUrls()}
-                              disabled={!urlText().trim()}
-                            >
-                              check url
-                            </Button>
-                          </Show>
-                        </div>
-                      </div>
-                    </Show>
-                  </TabPanel>
-
-                  <TabPanel id="review">
-                    {/* toolbar: refetch button */}
-                    <div class="flex justify-center mb-4">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => void refetchPendingSessions()}
-                        disabled={pendingSessions.loading}
-                      >
-                        <Show when={pendingSessions.loading} fallback={<span>refresh</span>}>
-                          <Icon name="loader" size={14} color="currentColor" />
-                          <span class="ml-1">loading...</span>
-                        </Show>
-                      </Button>
-                    </div>
-                    <Show
-                      when={
-                        !pendingSessions.loading &&
-                        !videoPendingSessions.loading &&
-                        (filteredPendingSessions() ?? []).length === 0 &&
-                        (videoFilteredPendingSessions() ?? []).length === 0
-                      }
-                    >
-                      <div class="flex flex-col items-center justify-center py-12 gap-2 text-[var(--color-text-muted)]">
-                        <Icon name="check" size={32} color="currentColor" />
-                        <p class="body-small">no pending reviews</p>
-                      </div>
-                    </Show>
-                    <Show when={(filteredPendingSessions() ?? []).length > 0}>
-                      <div class="flex flex-col gap-3">
-                        <For each={filteredPendingSessions() ?? []}>
-                          {(session) => (
-                            <div class="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-secondary)] p-4">
-                              <div class="flex items-start justify-between gap-3">
-                                <div class="flex flex-col gap-1 min-w-0">
-                                  <div class="flex items-center gap-2 flex-wrap">
-                                    <p class="body-small font-medium text-[var(--color-text-primary)]">
-                                      {session.albums.length} album
-                                      {session.albums.length !== 1 ? "s" : ""}
-                                      {" · "}
-                                      {session.albums.reduce(
-                                        (n, a) => n + a.pending_blob_count,
-                                        0
-                                      )}{" "}
-                                      unreviewed
+                                    <p class="body-xs text-[var(--color-text-muted)]">
+                                      {new Date(session.created_at * 1000).toLocaleString()}
                                     </p>
-                                    <Show when={props.isAdmin && session.uploader_username}>
-                                      <span class="body-xs px-1.5 py-0.5 rounded bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)]">
-                                        {session.uploader_username}
-                                      </span>
-                                    </Show>
-                                  </div>
-                                  <p class="body-xs text-[var(--color-text-muted)]">
-                                    {new Date(session.created_at * 1000).toLocaleString()}
-                                  </p>
-                                  <div class="flex flex-wrap gap-1 mt-1">
-                                    <For each={session.albums.slice(0, 3)}>
-                                      {(album) => {
-                                        const remoteId = getCurrentRemote()?.remote_id;
-                                        const href = remoteId
-                                          ? `#/${remoteId}/albums/${encodeURIComponent(album.album_id)}`
-                                          : undefined;
-                                        return (
-                                          <a
-                                            href={href}
-                                            class="body-xs px-1.5 py-0.5 rounded bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)] truncate max-w-[160px] hover:text-[var(--color-accent-500)] hover:bg-[var(--color-bg-secondary)] transition-colors"
-                                          >
-                                            {album.title}
-                                          </a>
-                                        );
-                                      }}
-                                    </For>
-                                    <Show when={session.albums.length > 3}>
-                                      <span class="body-xs text-[var(--color-text-muted)]">
-                                        +{session.albums.length - 3} more
-                                      </span>
-                                    </Show>
-                                  </div>
-                                </div>
-                                <div class="flex flex-col items-end gap-6 shrink-0">
-                                  <Button
-                                    variant="primary"
-                                    onClick={() => props.onReviewSession?.(session.session_id)}
-                                  >
-                                    review
-                                  </Button>
-                                  <button
-                                    onClick={() => void handleMarkSessionReviewed(session)}
-                                    disabled={markingSessionReviewed() === session.session_id}
-                                    class="px-2 py-1 text-xs rounded bg-yellow-500/20 text-yellow-300 hover:bg-yellow-500/30 border border-yellow-500/30 transition-colors disabled:opacity-50"
-                                  >
-                                    {markingSessionReviewed() === session.session_id
-                                      ? "marking..."
-                                      : "mark reviewed"}
-                                  </button>
-                                </div>
-                              </div>
-                            </div>
-                          )}
-                        </For>
-                      </div>
-                    </Show>
-
-                    {/* video review sessions - same layout as music above, but
-                        grouped by detected series (group_key) instead of album_id. */}
-                    <Show when={(videoFilteredPendingSessions() ?? []).length > 0}>
-                      <div class="flex flex-col gap-3 mt-4 pt-4 border-t border-[var(--color-border-subtle)]">
-                        <p class="body-xs text-[var(--color-text-muted)]">video</p>
-                        <For each={videoFilteredPendingSessions() ?? []}>
-                          {(session) => (
-                            <div class="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-secondary)] p-4">
-                              <div class="flex items-start justify-between gap-3">
-                                <div class="flex flex-col gap-1 min-w-0">
-                                  <div class="flex items-center gap-2 flex-wrap">
-                                    <p class="body-small font-medium text-[var(--color-text-primary)]">
-                                      {session.groups.length} group
-                                      {session.groups.length !== 1 ? "s" : ""}
-                                      {" · "}
-                                      {session.groups.reduce(
-                                        (n, g) => n + g.pending_blob_count,
-                                        0
-                                      )}{" "}
-                                      unreviewed
-                                    </p>
-                                    <Show when={props.isAdmin && session.uploader_username}>
-                                      <span class="body-xs px-1.5 py-0.5 rounded bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)]">
-                                        {session.uploader_username}
-                                      </span>
-                                    </Show>
-                                  </div>
-                                  <p class="body-xs text-[var(--color-text-muted)]">
-                                    {new Date(session.created_at * 1000).toLocaleString()}
-                                  </p>
-                                  <div class="flex flex-wrap gap-1 mt-1">
-                                    <For each={session.groups.slice(0, 3)}>
-                                      {(group) => (
-                                        <span class="body-xs px-1.5 py-0.5 rounded bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)] truncate max-w-[160px]">
-                                          {group.series_title ??
-                                            group.videos[0]?.title ??
-                                            "untitled"}
+                                    <div class="flex flex-wrap gap-1 mt-1">
+                                      <For each={session.albums.slice(0, 3)}>
+                                        {(album) => {
+                                          const remoteId = getCurrentRemote()?.remote_id;
+                                          const href = remoteId
+                                            ? `#/${remoteId}/albums/${encodeURIComponent(album.album_id)}`
+                                            : undefined;
+                                          return (
+                                            <a
+                                              href={href}
+                                              class="body-xs px-1.5 py-0.5 rounded bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)] truncate max-w-[160px] hover:text-[var(--color-accent-500)] hover:bg-[var(--color-bg-secondary)] transition-colors"
+                                            >
+                                              {album.title}
+                                            </a>
+                                          );
+                                        }}
+                                      </For>
+                                      <Show when={session.albums.length > 3}>
+                                        <span class="body-xs text-[var(--color-text-muted)]">
+                                          +{session.albums.length - 3} more
                                         </span>
-                                      )}
-                                    </For>
-                                    <Show when={session.groups.length > 3}>
-                                      <span class="body-xs text-[var(--color-text-muted)]">
-                                        +{session.groups.length - 3} more
-                                      </span>
-                                    </Show>
+                                      </Show>
+                                    </div>
+                                  </div>
+                                  <div class="flex flex-col items-end gap-6 shrink-0">
+                                    <Button
+                                      variant="primary"
+                                      onClick={() => props.onReviewSession?.(session.session_id)}
+                                    >
+                                      review
+                                    </Button>
+                                    <button
+                                      onClick={() => void handleMarkSessionReviewed(session)}
+                                      disabled={markingSessionReviewed() === session.session_id}
+                                      class="px-2 py-1 text-xs rounded bg-yellow-500/20 text-yellow-300 hover:bg-yellow-500/30 border border-yellow-500/30 transition-colors disabled:opacity-50"
+                                    >
+                                      {markingSessionReviewed() === session.session_id
+                                        ? "marking..."
+                                        : "mark reviewed"}
+                                    </button>
                                   </div>
                                 </div>
-                                <div class="flex flex-col items-end gap-6 shrink-0">
-                                  <Button
-                                    variant="primary"
-                                    onClick={() => props.onReviewVideoSession?.(session.session_id)}
-                                  >
-                                    review
-                                  </Button>
-                                  <button
-                                    onClick={() => void handleMarkVideoSessionReviewed(session)}
-                                    disabled={markingVideoSessionReviewed() === session.session_id}
-                                    class="px-2 py-1 text-xs rounded bg-yellow-500/20 text-yellow-300 hover:bg-yellow-500/30 border border-yellow-500/30 transition-colors disabled:opacity-50"
-                                  >
-                                    {markingVideoSessionReviewed() === session.session_id
-                                      ? "marking..."
-                                      : "mark reviewed"}
-                                  </button>
+                              </div>
+                            )}
+                          </For>
+                        </div>
+                      </Show>
+
+                      {/* video review sessions - same layout as music above, but
+                        grouped by detected series (group_key) instead of album_id. */}
+                      <Show when={(videoFilteredPendingSessions() ?? []).length > 0}>
+                        <div class="flex flex-col gap-3 mt-4 pt-4 border-t border-[var(--color-border-subtle)]">
+                          <p class="body-xs text-[var(--color-text-muted)]">video</p>
+                          <For each={videoFilteredPendingSessions() ?? []}>
+                            {(session) => (
+                              <div class="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-secondary)] p-4">
+                                <div class="flex items-start justify-between gap-3">
+                                  <div class="flex flex-col gap-1 min-w-0">
+                                    <div class="flex items-center gap-2 flex-wrap">
+                                      <p class="body-small font-medium text-[var(--color-text-primary)]">
+                                        {session.groups.length} group
+                                        {session.groups.length !== 1 ? "s" : ""}
+                                        {" · "}
+                                        {session.groups.reduce(
+                                          (n, g) => n + g.pending_blob_count,
+                                          0
+                                        )}{" "}
+                                        unreviewed
+                                      </p>
+                                      <Show when={props.isAdmin && session.uploader_username}>
+                                        <span class="body-xs px-1.5 py-0.5 rounded bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)]">
+                                          {session.uploader_username}
+                                        </span>
+                                      </Show>
+                                    </div>
+                                    <p class="body-xs text-[var(--color-text-muted)]">
+                                      {new Date(session.created_at * 1000).toLocaleString()}
+                                    </p>
+                                    <div class="flex flex-wrap gap-1 mt-1">
+                                      <For each={session.groups.slice(0, 3)}>
+                                        {(group) => (
+                                          <span class="body-xs px-1.5 py-0.5 rounded bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)] truncate max-w-[160px]">
+                                            {group.series_title ??
+                                              group.videos[0]?.title ??
+                                              "untitled"}
+                                          </span>
+                                        )}
+                                      </For>
+                                      <Show when={session.groups.length > 3}>
+                                        <span class="body-xs text-[var(--color-text-muted)]">
+                                          +{session.groups.length - 3} more
+                                        </span>
+                                      </Show>
+                                    </div>
+                                  </div>
+                                  <div class="flex flex-col items-end gap-6 shrink-0">
+                                    <Button
+                                      variant="primary"
+                                      onClick={() =>
+                                        props.onReviewVideoSession?.(session.session_id)
+                                      }
+                                    >
+                                      review
+                                    </Button>
+                                    <button
+                                      onClick={() => void handleMarkVideoSessionReviewed(session)}
+                                      disabled={
+                                        markingVideoSessionReviewed() === session.session_id
+                                      }
+                                      class="px-2 py-1 text-xs rounded bg-yellow-500/20 text-yellow-300 hover:bg-yellow-500/30 border border-yellow-500/30 transition-colors disabled:opacity-50"
+                                    >
+                                      {markingVideoSessionReviewed() === session.session_id
+                                        ? "marking..."
+                                        : "mark reviewed"}
+                                    </button>
+                                  </div>
                                 </div>
                               </div>
-                            </div>
-                          )}
-                        </For>
-                      </div>
-                    </Show>
-                  </TabPanel>
-                </div>
-              </Tabs>
+                            )}
+                          </For>
+                        </div>
+                      </Show>
+                    </TabPanel>
+                  </div>
+                </Tabs>
+              </Show>
             </div>
 
             {/* progress regions — pinned below tabs, can scroll internally if they

@@ -26,7 +26,7 @@
 import { createSignal, createResource, createMemo, createEffect } from "solid-js";
 import { toast } from "../../components/feedback/Toast";
 import type { CurrentRemoteInfo } from "../data/currentState";
-import type { ImportReviewAlbum } from "../../components/import/ImportGroupingView";
+import type { ImportReviewAlbum } from "../services/review/importReviewTypes";
 import type { PatchAlbumReviewRequest } from "@freqhole/api-client";
 import { getReviewBackend } from "../services/review/reviewBackend";
 

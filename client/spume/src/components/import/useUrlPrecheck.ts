@@ -10,8 +10,8 @@
 // component props) stay in AddMediaModal.tsx and are passed in as plain
 // values/callbacks where needed.
 import { createSignal } from "solid-js";
-import { getCurrentRemote } from "../../music/data";
 import { getClientForRemote } from "../../app/api/client";
+import type { CurrentRemoteInfo } from "../../music/data/currentState";
 import { JobPoller } from "../../app/services/jobs/jobService";
 import type { PreCheckFetchResponse } from "@freqhole/api-client";
 import { toast } from "../feedback/Toast";
@@ -52,21 +52,24 @@ export interface UrlPrecheckHandle {
   urlIndex: () => number;
   domain: () => MediaDomain;
   setDomain: (d: MediaDomain) => void;
-  /** kick off sequential precheck for `urls` against the currently active
-   * remote - no-op if there's no active remote. `onReset` fires once at
-   * the start (e.g. to collapse an expanded item list from a prior run). */
-  start: (urls: string[], onReset?: () => void) => Promise<void>;
+  /** kick off sequential precheck for `urls` against `remote` - no-op if
+   * `remote` is null. `onReset` fires once at the start (e.g. to collapse
+   * an expanded item list from a prior run). */
+  start: (urls: string[], remote: CurrentRemoteInfo | null, onReset?: () => void) => Promise<void>;
   /** submit the prechecked urls via `onSubmit`, then reset back to idle. */
   confirm: (onSubmit: (urls: string[]) => void) => void;
-  /** cancel an in-flight precheck (best-effort server-side job cancel too)
-   * and reset back to idle. `onReset` mirrors `start`'s param. */
-  cancel: (onReset?: () => void) => Promise<void>;
+  /** cancel an in-flight precheck against `remote` (best-effort server-side
+   * job cancel too) and reset back to idle. `onReset` mirrors `start`'s param. */
+  cancel: (remote: CurrentRemoteInfo | null, onReset?: () => void) => Promise<void>;
 }
 
 export function useUrlPrecheck(): UrlPrecheckHandle {
-  async function start(urls: string[], onReset?: () => void): Promise<void> {
+  async function start(
+    urls: string[],
+    remote: CurrentRemoteInfo | null,
+    onReset?: () => void
+  ): Promise<void> {
     if (urls.length === 0) return;
-    const remote = getCurrentRemote();
     if (!remote) return;
 
     setPrecheckUrls(urls);
@@ -199,7 +202,7 @@ export function useUrlPrecheck(): UrlPrecheckHandle {
     setPrecheckUrlIndex(0);
   }
 
-  async function cancel(onReset?: () => void): Promise<void> {
+  async function cancel(remote: CurrentRemoteInfo | null, onReset?: () => void): Promise<void> {
     // stop the sequential precheck loop between/mid url iterations, and
     // stop the local poller subscription immediately
     precheckAbortRequested = true;
@@ -209,7 +212,6 @@ export function useUrlPrecheck(): UrlPrecheckHandle {
     // tell the server to cancel so it kills the yt-dlp process
     const jobId = precheckJobId();
     if (jobId) {
-      const remote = getCurrentRemote();
       if (remote) {
         try {
           const client = await getClientForRemote(remote);

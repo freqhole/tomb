@@ -4,40 +4,16 @@ import { For, Show, createSignal, createMemo } from "solid-js";
 import { Button } from "../buttons/Button";
 import { MediaImage } from "../media/MediaImage";
 import { formatDuration } from "../../utils/formatDuration";
-import type { ImageMetadata } from "../../music/services/storage/types";
+import type {
+  ImportReviewAlbum,
+  ImportReviewSong,
+} from "../../music/services/review/importReviewTypes";
 
-// -------------------------------------------------------------------------
-// types
-// -------------------------------------------------------------------------
-
-export interface ImportReviewSong {
-  id: string;
-  title: string;
-  trackNumber?: number | null;
-  discNumber?: number | null;
-  durationSeconds?: number | null;
-}
-
-export interface ImportReviewAlbum {
-  id: string;
-  title: string;
-  artist?: string | null;
-  artistId?: string | null;
-  artworkUrl?: string | null;
-  /** local or remote blob id for the primary artwork - used by MediaImage */
-  artworkBlobId?: string | null;
-  /** remote server id (peer_addr for P2P, remote_id for HTTP) - used by MediaImage */
-  remoteServerId?: string | null;
-  /** entity URLs fetched from the album record */
-  entityUrls?: { id?: string; name?: string | null; url: string }[];
-  /** all images from the album record - used for image management in the editor */
-  images?: ImageMetadata[];
-  releaseDate?: string | null;
-  label?: string | null;
-  genres?: string[];
-  albumType?: string | null;
-  songs: ImportReviewSong[];
-}
+// re-exported for existing call sites (ImportReviewModal.tsx,
+// ImportReviewEditor.tsx, useImportReview.ts) - the canonical definitions
+// now live in music/services/review/importReviewTypes.ts, see that file's
+// doc comment for why.
+export type { ImportReviewAlbum, ImportReviewSong };
 
 export interface ImportGroupingViewProps {
   albums: ImportReviewAlbum[];

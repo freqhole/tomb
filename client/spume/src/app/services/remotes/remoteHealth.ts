@@ -96,6 +96,33 @@ export function isOnlineNow(remoteId: string): boolean | undefined {
   return onlineMap().get(remoteId);
 }
 
+// ---- reactive "is a probe currently in flight" map --------------------------
+// lets any consumer (RemotePicker, AddMediaModal's target-health gate, etc.)
+// show the same "checking..." state instead of each hand-rolling its own.
+
+const [probingIds, setProbingIds] = createSignal<Set<string>>(new Set());
+
+function markProbing(remoteId: string, probing: boolean): void {
+  setProbingIds((prev) => {
+    const has = prev.has(remoteId);
+    if (probing === has) return prev;
+    const next = new Set(prev);
+    if (probing) next.add(remoteId);
+    else next.delete(remoteId);
+    return next;
+  });
+}
+
+/** reactive accessor: true while a health check for this remote is in flight. */
+export function isProbing(remoteId: string): () => boolean {
+  return () => probingIds().has(remoteId);
+}
+
+/** non-reactive snapshot. */
+export function isProbingNow(remoteId: string): boolean {
+  return probingIds().has(remoteId);
+}
+
 // ---- reactive "is this remote currently a player" map -----------------------
 // deliberately NOT persisted anywhere (see docs/rathole-pairing-invite-code-
 // plan.md) - "is a player" is a live, point-in-time fact learned from the
@@ -176,6 +203,7 @@ export async function probeRemote(
   }
 
   const p = (async () => {
+    markProbing(id, true);
     try {
       const online = await checkRemoteHealth(remote);
       if (online) recordSuccess(id);
@@ -186,6 +214,7 @@ export async function probeRemote(
       return false;
     } finally {
       inFlight.delete(id);
+      markProbing(id, false);
     }
   })();
   inFlight.set(id, p);

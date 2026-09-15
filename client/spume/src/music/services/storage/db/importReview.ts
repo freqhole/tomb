@@ -17,10 +17,7 @@ import {
   type LocalImportReviewBlob,
   type LocalImportReviewSession,
 } from "../types";
-import type {
-  ImportReviewAlbum,
-  ImportReviewSong,
-} from "../../../../components/import/ImportGroupingView";
+import type { ImportReviewAlbum, ImportReviewSong } from "../../review/importReviewTypes";
 
 export interface LocalImportReviewSendTarget {
   remoteId: string;

@@ -7,13 +7,10 @@
 import { getClientForRemote } from "../../../app/api/client";
 import { getRemoteMediaUrl } from "../../../utils/urls";
 import type { CurrentRemoteInfo } from "../../data/currentState";
-import type {
-  ImportReviewAlbum,
-  ImportReviewSong,
-} from "../../../components/import/ImportGroupingView";
+import type { ImportReviewAlbum, ImportReviewSong } from "./importReviewTypes";
 import type { ImageMetadata } from "../../services/storage/types";
 import type { PendingReviewAlbum, PendingReviewSession } from "@freqhole/api-client";
-import type { ReviewBackend, ReviewSendTarget } from "./reviewBackend";
+import type { ReviewBackend, ReviewSendTarget } from "./reviewBackendTypes";
 
 // build an http artwork url from a blob id and the remote's base url.
 // used for plain-http remotes; charnel-managed and P2P remotes resolve via

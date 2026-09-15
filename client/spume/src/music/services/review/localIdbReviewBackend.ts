@@ -13,7 +13,7 @@ import {
   moveLocalSong,
   patchLocalAlbum,
 } from "../storage/db/importReview";
-import type { ReviewBackend, ReviewSendTarget } from "./reviewBackend";
+import type { ReviewBackend, ReviewSendTarget } from "./reviewBackendTypes";
 
 export function createLocalIdbReviewBackend(): ReviewBackend {
   return {
