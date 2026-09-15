@@ -188,6 +188,25 @@ describe("re-scanning an already-saved p2p peer", () => {
     ]);
     expect(ctx.step).toBe("complete");
   });
+
+  it("already_authed against an existing PLAYER remote also gracefully completes, instead of erroring 'remote already exists' (regression: whoami-based already_authed used to be checked before player_device, unconditionally firing CREATE_REMOTE)", () => {
+    const { ctx, effects } = run([
+      ...toReprobe,
+      {
+        type: "CONNECTION_RESULT",
+        outcome: { kind: "already_authed", serverInfo: { ...INFO, player_device: true } },
+      },
+    ]);
+    expect(projectState(ctx)).toEqual({
+      step: "complete",
+      remote: existingPlayer,
+      alreadyExisted: true,
+    });
+    expect(effects).toEqual([
+      { type: "DELETE_PENDING_BY_ADDR", peerAddr: NODE_ID },
+      { type: "SCHEDULE_TIMER", id: DISMISS_TIMER_ID, ms: COMPLETE_DISMISS_MS },
+    ]);
+  });
 });
 
 describe("connection outcomes", () => {

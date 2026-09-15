@@ -231,12 +231,22 @@ export function transition(ctx: AddPeerContext, event: AddPeerEvent): Transition
     case "CONNECTION_RESULT": {
       if (ctx.step !== "testing") return noop(ctx);
       const { outcome } = event;
-      // already have this peer saved, and it didn't just prove itself a
-      // player device on this fresh probe - nothing new to do. gracefully
+      // already have this peer saved, and either (a) it didn't just prove
+      // itself a player device on this fresh probe, or (b) it DID, but
+      // `whoami` already succeeds against it (an admin, or a still-joined
+      // player session) - either way there's nothing new to do. gracefully
       // land on "complete" against the existing remote instead of
-      // re-running knock/auth (or erroring on a duplicate-peer_addr
-      // create) for something the user already has.
-      if (ctx.existingRemote && outcome.kind !== "failed" && !outcome.serverInfo.player_device) {
+      // re-running knock/auth (or erroring on a duplicate-peer_addr create)
+      // for something the user already has access to. a player_device peer
+      // that's NOT already_authed (session/pin expired, or never joined)
+      // deliberately falls through to the switch below instead, which
+      // routes to "auth" and shows the pin form again - re-pairing, not
+      // re-creating.
+      if (
+        ctx.existingRemote &&
+        outcome.kind !== "failed" &&
+        (outcome.kind === "already_authed" || !outcome.serverInfo.player_device)
+      ) {
         return {
           ctx: {
             ...ctx,

@@ -20,6 +20,7 @@ import { activeTargetNodeId, isRemoteTargetActive } from "./activeTarget";
 import { appState, setQueue } from "../storage/db";
 import { isSongItem } from "../storage/mediaItem";
 import { toast } from "../../../components/feedback/Toast";
+import { requestAddRemote } from "../remotes/addRemoteRequest";
 
 export interface RenditionRef {
   blake3_hash: string;
@@ -167,13 +168,23 @@ function describeCommandAckFailure(reason?: string): string {
  * through sendControl, so they need to report failures themselves). before
  * this existed, an `ok:false` ack (e.g. `not_in_session`) was silently
  * swallowed: no toast, no thrown error, just the pending/loading indicator
- * clearing as if the command had actually gone through. */
+ * clearing as if the command had actually gone through.
+ *
+ * warning (not error) severity - this is a recoverable, expected-ish state
+ * (session/pin expired, not a real failure) - and carries a "reconnect"
+ * action button (when `peerAddr` is known) that opens the Add Remote modal
+ * pre-filled for that peer, reusing the same auto-skip-pin-if-authorized/
+ * re-enter-pin QR-driven flow AddRemoteModal.tsx already implements. */
 export function reportCommandAckFailure(
-  ack: { ok?: boolean; reason?: string } | null | undefined
+  ack: { ok?: boolean; reason?: string } | null | undefined,
+  peerAddr?: string
 ): void {
   if (!ack || ack.ok !== false) return;
-  toast.error(describeCommandAckFailure(ack.reason), {
+  toast.warning(describeCommandAckFailure(ack.reason), {
     title: "remote-player-command-rejected",
+    action: peerAddr
+      ? { label: "reconnect", onClick: () => requestAddRemote(peerAddr) }
+      : undefined,
   });
 }
 
@@ -422,7 +433,7 @@ async function sendControl(
   if (opts?.trackPending) setPendingCount((n) => n + 1);
   try {
     const ack = (await sendPlayerCommand(nodeId, { type: "control", ...command })) as CommandAck;
-    if (command.command !== "get_status") reportCommandAckFailure(ack);
+    if (command.command !== "get_status") reportCommandAckFailure(ack, nodeId);
     if (ack?.status) applyRemoteStatus(ack.status);
     return ack;
   } catch (err) {
