@@ -64,6 +64,13 @@ export interface AddRemoteModalProps {
   onPlayerPaired?: (player: { node_id: string; username: string }) => void;
   /** initial value to pre-fill the input (e.g., from ?r= query param) */
   initialValue?: string;
+  /** "player" when the caller already knows this is a player-pairing
+   *  flow (a reconnect toast action, or the paired-players settings
+   *  view's "reconnect"/"pair a player" buttons - see addRemoteRequest.ts)
+   *  rather than a generic "might be a remote server" address. combined
+   *  with `scannedPlayerQr` (see below) to decide whether to show only
+   *  the pin form in the "auth" step, same as an actual qr scan. */
+  initialIntent?: "player";
   /**
    * when set to a peer_addr, the modal will auto-complete the setup for that
    * peer. used by App.tsx to drive completion from device-linked / knock-accepted
@@ -145,6 +152,13 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
   // form, since scanning a player qr unambiguously means "pair with this
   // player", not "add it as a general remote too".
   const [scannedPlayerQr, setScannedPlayerQr] = createSignal(false);
+  // true when the "auth" step should show ONLY the pin form - either a
+  // real qr scan was detected this session, or the caller already told us
+  // this is a player-pairing flow via `initialIntent` (reconnect toast,
+  // paired-players settings view). `handleTestConnection` only ever sets
+  // `scannedPlayerQr` based on what it actually parses, so it can't
+  // clobber an intent that came in via props.
+  const playerOnly = () => scannedPlayerQr() || props.initialIntent === "player";
   createEffect(
     on(
       () => props.isOpen,
@@ -1035,7 +1049,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
                           "add it as a general remote too" - the pin form
                           below should be front and center, not buried
                           under an unrelated login/knock form. */}
-                      <Show when={!scannedPlayerQr() || !s.serverInfo?.player_device}>
+                      <Show when={!playerOnly() || !s.serverInfo?.player_device}>
                         <AuthForm
                           initialMode={s.peerAddr ? "register" : "login"}
                           onSubmit={handleAuth}
@@ -1110,7 +1124,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
                       <Show when={s.serverInfo?.player_device}>
                         <div
                           class={
-                            scannedPlayerQr()
+                            playerOnly()
                               ? ""
                               : "pt-4 mt-4 border-t border-[var(--color-border-default)]"
                           }

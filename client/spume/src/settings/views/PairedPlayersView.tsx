@@ -44,7 +44,7 @@ export function PairedPlayersView() {
     <div class="max-w-2xl mx-auto p-6 space-y-6">
       <div class="flex items-center justify-between">
         <h1 class="text-xl font-bold text-[var(--color-text-primary)]">players</h1>
-        <Button onClick={() => requestAddRemote("")}>pair a player</Button>
+        <Button onClick={() => requestAddRemote("", { intent: "player" })}>pair a player</Button>
       </div>
 
       <p class="text-sm text-[var(--color-text-secondary)]">
@@ -108,7 +108,7 @@ export function PairedPlayersView() {
                   type="button"
                   class="text-xs text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
                   title="re-enter this player's pairing pin (e.g. if a session expired or trust was revoked)"
-                  onClick={() => requestAddRemote(player.node_id)}
+                  onClick={() => requestAddRemote(player.node_id, { intent: "player" })}
                 >
                   reconnect
                 </button>

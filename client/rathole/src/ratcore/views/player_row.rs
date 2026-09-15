@@ -6,7 +6,11 @@
 //! visibility rule: hidden (0 lines) when the player has never had
 //! anything loaded — i.e. `PlayerState::Stopped` and no
 //! `currently_playing()`. otherwise renders 2 lines: title/artist
-//! + state, and a progress bar with times + volume.
+//! + state, and a progress bar with times + volume. a third "up
+//! next:" line is added when there's a queue tail to preview - EXCEPT
+//! while the cenotaph pairing view (`Focus::PlayerPairing`) is
+//! focused, since that view already has its own, much bigger queue
+//! glance and showing "up next" twice at once is just noise there.
 
 use ratatui::{
     layout::Rect,
@@ -18,19 +22,23 @@ use ratatui::{
 
 use crate::ratcore::{
     app::{App, Focus, PlayerState},
-    player_row_keys::CONTROLS,
-    theme::ACCENT,
+    player_row_keys::{PlayerRowAction, CONTROLS},
+    theme::{use_ascii_glyphs, ACCENT},
 };
 
 /// returns the number of vertical lines the player row needs in the
 /// global chrome layout. 0 when hidden, 2 when active, 3 when there
-/// is a queue tail to preview ("up next:" line).
+/// is a queue tail to preview ("up next:" line) - never 3 while the
+/// cenotaph pairing view is focused (see module doc).
 pub fn height(app: &App) -> u16 {
     let m = &app.state.ephemeral.music;
     let has_track = m.currently_playing().is_some();
     let active = !matches!(m.player_state, PlayerState::Stopped) || has_track;
     if !active {
         return 0;
+    }
+    if app.state.ephemeral.focus == Focus::PlayerPairing {
+        return 2;
     }
     let cur = m.current.unwrap_or(0);
     let queue_tail = m.queue.len().saturating_sub(cur + 1);
@@ -54,21 +62,23 @@ pub fn draw(frame: &mut Frame, area: Rect, app: &App) {
     // fields, which otherwise sit frozen at whatever they last held.
     let video_active = m.queue_video_active || m.audio_fallback_active;
     let vp = &app.state.ephemeral.video_player;
+    let ascii = use_ascii_glyphs();
+    let pause_glyph = if ascii { "||" } else { "\u{23f8}" };
     let state_glyph = if video_active {
         match vp.state {
             crate::ratcore::app::VideoPlaybackState::Idle
-            | crate::ratcore::app::VideoPlaybackState::Ended => "■",
-            crate::ratcore::app::VideoPlaybackState::Loading => "…",
-            crate::ratcore::app::VideoPlaybackState::Playing => "▶",
-            crate::ratcore::app::VideoPlaybackState::Paused => "⏸",
-            crate::ratcore::app::VideoPlaybackState::Error => "✕",
+            | crate::ratcore::app::VideoPlaybackState::Ended => "\u{25a0}",
+            crate::ratcore::app::VideoPlaybackState::Loading => "\u{2026}",
+            crate::ratcore::app::VideoPlaybackState::Playing => "\u{25b6}",
+            crate::ratcore::app::VideoPlaybackState::Paused => pause_glyph,
+            crate::ratcore::app::VideoPlaybackState::Error => "\u{2715}",
         }
     } else {
         match m.player_state {
-            PlayerState::Stopped => "■",
-            PlayerState::Loading => "…",
-            PlayerState::Playing => "▶",
-            PlayerState::Paused => "⏸",
+            PlayerState::Stopped => "\u{25a0}",
+            PlayerState::Loading => "\u{2026}",
+            PlayerState::Playing => "\u{25b6}",
+            PlayerState::Paused => pause_glyph,
         }
     };
     let (position_ms, duration_ms) = if video_active {
@@ -112,19 +122,18 @@ pub fn draw(frame: &mut Frame, area: Rect, app: &App) {
         } else {
             Style::new().dim()
         };
-        // swap the heart glyph based on current_favorited; everything
-        // else uses its static label.
-        let display: &str = if matches!(
-            action,
-            crate::ratcore::player_row_keys::PlayerRowAction::Favorite,
-        ) {
-            if m.current_favorited {
-                "♥"
-            } else {
-                "♡"
-            }
-        } else {
-            label
+        // swap the heart glyph based on current_favorited, and (on a
+        // terminal likely missing these glyphs - see `use_ascii_glyphs`)
+        // fall back to plain-text labels for every control.
+        let display: String = match (ascii, action) {
+            (false, PlayerRowAction::Favorite) if m.current_favorited => "\u{2665}".to_string(),
+            (false, PlayerRowAction::Favorite) => "\u{2661}".to_string(),
+            (true, PlayerRowAction::Previous) => "prev".to_string(),
+            (true, PlayerRowAction::PlayPause) => "play/pause".to_string(),
+            (true, PlayerRowAction::Next) => "next".to_string(),
+            (true, PlayerRowAction::Favorite) if m.current_favorited => "FAV".to_string(),
+            (true, PlayerRowAction::Favorite) => "fav".to_string(),
+            _ => label.to_string(),
         };
         spans.push(Span::styled(format!(" {display} "), style));
     }

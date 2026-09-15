@@ -183,7 +183,7 @@ export function reportCommandAckFailure(
   toast.warning(describeCommandAckFailure(ack.reason), {
     title: "remote-player-command-rejected",
     action: peerAddr
-      ? { label: "reconnect", onClick: () => requestAddRemote(peerAddr) }
+      ? { label: "reconnect", onClick: () => requestAddRemote(peerAddr, { intent: "player" }) }
       : undefined,
   });
 }

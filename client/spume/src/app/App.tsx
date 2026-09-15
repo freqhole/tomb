@@ -164,6 +164,7 @@ export function App() {
   const isAddMediaOpen = useAddMediaState();
   const [isAddRemoteOpen, setIsAddRemoteOpen] = createSignal(false);
   const [addRemoteInitialValue, setAddRemoteInitialValue] = createSignal<string | undefined>();
+  const [addRemoteInitialIntent, setAddRemoteInitialIntent] = createSignal<"player" | undefined>();
   // session id for the import review modal - set when user clicks "review now"
   const [reviewSessionId, setReviewSessionId] = createSignal<string | null>(null);
   // the remote that owns the review session - captured at start time so it stays
@@ -497,6 +498,7 @@ export function App() {
       if (!req) return;
       debug("App", `add-remote request: ${req.value.slice(0, 16)}...`);
       setAddRemoteInitialValue(req.value);
+      setAddRemoteInitialIntent(req.intent);
       setIsAddRemoteOpen(true);
     })
   );
@@ -1922,6 +1924,7 @@ export function App() {
         onClose={() => {
           setIsAddRemoteOpen(false);
           setAddRemoteInitialValue(undefined);
+          setAddRemoteInitialIntent(undefined);
         }}
         completePeerAddr={autoCompletePeerAddr}
         onSuccess={(remote) => {
@@ -1945,6 +1948,7 @@ export function App() {
           })();
         }}
         initialValue={addRemoteInitialValue()}
+        initialIntent={addRemoteInitialIntent()}
       />
 
       <ResolveShareModal

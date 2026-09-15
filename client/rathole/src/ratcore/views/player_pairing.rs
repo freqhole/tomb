@@ -65,6 +65,17 @@ pub fn draw(frame: &mut Frame, area: Rect, app: &mut App) {
 /// terminal.
 const PIN_SIZE_CANDIDATES: &[(PixelSize, u16, u16)] = &[(PixelSize::HalfHeight, 8, 4)];
 
+/// candidates for `fit_text_layout` (now-playing title/artist, queue
+/// rows) - unlike the fixed 6-digit pin, these strings are often long
+/// (song/video titles), so `HalfHeight` (8 cols/char) alone gives up to
+/// plain text far too readily. `Quadrant` is tried next (4 cols/char -
+/// half the width cost, same 4-row height) so longer titles still
+/// render big instead of shrinking to tiny text; its per-cell aspect
+/// squish (see `PIN_SIZE_CANDIDATES`'s doc comment) is an acceptable
+/// trade for readability at couch distance in a scrolling queue list.
+const TEXT_SIZE_CANDIDATES: &[(PixelSize, u16, u16)] =
+    &[(PixelSize::HalfHeight, 8, 4), (PixelSize::Quadrant, 4, 4)];
+
 struct PinLayout {
     pixel_size: PixelSize,
     text: String,
@@ -109,7 +120,10 @@ fn spaced_pin(pin: &str) -> String {
 
 fn draw_overview(frame: &mut Frame, area: Rect, app: &mut App) {
     let snapshot = app.pairing.as_ref().map(|p| p.snapshot());
-    let [left, right] = Layout::horizontal([Percentage(48), Percentage(52)]).areas(area);
+    // "pair a device" only needs enough room for the qr+pin (fixed
+    // size, doesn't benefit from extra width) - give the rest to
+    // connected/queue, which does.
+    let [left, right] = Layout::horizontal([Percentage(38), Percentage(62)]).areas(area);
 
     let outer_block = Block::bordered().title(Span::styled(
         "pair a device",
@@ -364,11 +378,30 @@ fn draw_connected(
 /// reuses the existing music now-playing/queue state rather than a
 /// second queue representation - see phase-4 plan doc.
 fn draw_queue_glance(frame: &mut Frame, area: Rect, app: &App) {
-    let outer = Block::bordered().title(Span::styled("queue", Style::new().fg(ACCENT).bold()));
+    let m = &app.state.ephemeral.music;
+
+    // track count lives in the block title ("queue (N)") instead of a
+    // separate header line inside the panel - frees up a full row for
+    // more big-text queue entries, and there's no need to say the word
+    // "queue" twice (the panel border already says it).
+    let has_previews = !m.pending_previews.is_empty();
+    let real_count = m.queue.len().saturating_sub(1);
+    let title = if m.queue.len() > 1 || has_previews {
+        if has_previews {
+            format!(
+                "queue ({real_count}, {} resolving\u{2026})",
+                m.pending_previews.len()
+            )
+        } else {
+            format!("queue ({real_count})")
+        }
+    } else {
+        "queue".to_string()
+    };
+    let outer = Block::bordered().title(Span::styled(title, Style::new().fg(ACCENT).bold()));
     let inner = outer.inner(area);
     frame.render_widget(outer, area);
 
-    let m = &app.state.ephemeral.music;
     let current = m.current.and_then(|i| m.queue.get(i));
 
     // "now playing" title + artist each get a dynamically-sized,
@@ -413,8 +446,10 @@ fn draw_queue_glance(frame: &mut Frame, area: Rect, app: &App) {
     } else {
         0
     };
-    let [now_playing_area, rest] = Layout::vertical([
+    let show_queue = m.queue.len() > 1 || has_previews;
+    let [now_playing_area, sep_area, rest] = Layout::vertical([
         Length(title_rows + artist_rows + album_rows + progress_rows),
+        Length(if show_queue { 1 } else { 0 }),
         Min(0),
     ])
     .areas(inner);
@@ -492,19 +527,15 @@ fn draw_queue_glance(frame: &mut Frame, area: Rect, app: &App) {
         }
     }
 
-    let has_previews = !m.pending_previews.is_empty();
-    if m.queue.len() > 1 || has_previews {
-        let real_count = m.queue.len().saturating_sub(1);
-        let header = if has_previews {
-            format!(
-                "queue ({real_count} tracks, {} resolving\u{2026}):",
-                m.pending_previews.len()
-            )
-        } else {
-            format!("queue ({real_count} tracks):")
-        };
-        let [header_area, list_area] = Layout::vertical([Length(1), Min(0)]).areas(rest);
-        frame.render_widget(Paragraph::new(Line::from(header).bold()), header_area);
+    if show_queue {
+        frame.render_widget(
+            Paragraph::new(Line::from("\u{2500}".repeat(sep_area.width as usize)).dim()),
+            sep_area,
+        );
+    }
+
+    if show_queue {
+        let list_area = rest;
 
         // each upcoming entry (real or still-resolving) gets its own
         // big-text title line (same shrink-to-fit approach as the
@@ -549,76 +580,69 @@ fn draw_queue_glance(frame: &mut Frame, area: Rect, app: &App) {
                 true, // dim
             )
         });
+        // a dim horizontal rule is drawn between rows (not before the
+        // first one) so a dense queue doesn't visually run together.
+        // entries that don't fit as big text are skipped entirely
+        // (not shrunk to tiny plain text) - couch-distance readability
+        // is the whole point of this glance, so a long queue simply
+        // stops rendering once it runs out of room rather than
+        // degrading; a too-long title alone is skipped in favor of
+        // shorter ones still to come.
+        let mut drew_row = false;
         for (text, dim) in real_rows.chain(preview_rows) {
-            if remaining_height == 0 {
+            let sep_cost = u16::from(drew_row);
+            if remaining_height <= sep_cost {
                 break;
             }
-            let layout = fit_text_layout(&text, list_area.width, remaining_height.min(4));
-            let row_h = layout
-                .as_ref()
-                .map(|l| l.rows)
-                .unwrap_or(1)
-                .min(remaining_height);
+            let avail_after_sep = remaining_height - sep_cost;
+            let Some(layout) = fit_text_layout(&text, list_area.width, avail_after_sep.min(4))
+            else {
+                if avail_after_sep < 4 {
+                    break;
+                }
+                continue;
+            };
+            if drew_row {
+                let sep = "\u{2500}".repeat(list_area.width as usize);
+                frame.render_widget(
+                    Paragraph::new(Line::from(sep).dim()),
+                    Rect::new(list_area.x, y, list_area.width, 1),
+                );
+                y += 1;
+                remaining_height -= 1;
+            }
+            let row_h = layout.rows.min(remaining_height);
             let row_area = Rect::new(list_area.x, y, list_area.width, row_h);
             let style = if dim {
                 Style::new().dim()
             } else {
                 Style::new()
             };
-            match layout {
-                Some(l) => {
-                    let big = BigText::builder()
-                        .pixel_size(l.pixel_size)
-                        .style(style)
-                        .lines(vec![Line::from(text)])
-                        .build();
-                    frame.render_widget(big, row_area);
-                }
-                None => {
-                    frame.render_widget(
-                        Paragraph::new(truncate_to_width(&text, list_area.width)).style(style),
-                        row_area,
-                    );
-                }
-            }
+            let big = BigText::builder()
+                .pixel_size(layout.pixel_size)
+                .style(style)
+                .lines(vec![Line::from(text)])
+                .build();
+            frame.render_widget(big, row_area);
             y += row_h;
             remaining_height = remaining_height.saturating_sub(row_h);
+            drew_row = true;
         }
     }
 }
 
-/// truncates `s` to at most `width` terminal columns (approximated by
-/// char count - good enough for the ascii-heavy titles/artist names
-/// here), appending an ellipsis when cut short.
-fn truncate_to_width(s: &str, width: u16) -> String {
-    let width = width as usize;
-    if width == 0 {
-        return String::new();
-    }
-    let chars: Vec<char> = s.chars().collect();
-    if chars.len() <= width {
-        return s.to_string();
-    }
-    if width <= 1 {
-        return "\u{2026}".to_string();
-    }
-    let mut truncated: String = chars[..width - 1].iter().collect();
-    truncated.push('\u{2026}');
-    truncated
-}
-
 /// like `fit_pin_layout`, but for an arbitrary title string rather than
-/// a fixed 6-digit pin - uses the same fixed `PixelSize::HalfHeight` size
-/// (see `PIN_SIZE_CANDIDATES`) if it fits within `avail_w` columns. most
-/// titles will simply be too long for big-text and fall back to `None`
-/// (plain text) - that's fine, it's an upgrade only for titles short
-/// enough to benefit.
+/// a fixed 6-digit pin - tries `TEXT_SIZE_CANDIDATES` in order, falling
+/// back further whenever a wider size doesn't fit `avail_w`/`avail_h`.
+/// long titles that don't fit even the narrowest candidate fall back to
+/// `None` (plain text) - still an upgrade for the ones short enough to
+/// benefit.
 fn fit_text_layout(text: &str, avail_w: u16, avail_h: u16) -> Option<PinLayout> {
     let n = text.chars().count() as u16;
     if n == 0 {
         return None;
     }
-    for &(pixel_size, cols, rows) in PIN_SIZE_CANDIDATES {
+    for &(pixel_size, cols, rows) in TEXT_SIZE_CANDIDATES {
         if rows > avail_h {
             continue;
         }
