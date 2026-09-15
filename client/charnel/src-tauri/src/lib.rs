@@ -981,6 +981,7 @@ pub fn run() {
             // native accept-side for freqhole-player/1 (charnel as the
             // player being paired-with/controlled, not the controller)
             player_pairing_accept::player_pairing_is_started,
+            player_pairing_accept::set_player_session_active,
             player_pairing_accept::player_pairing_get_snapshot,
             player_pairing_accept::player_pairing_set_session_mode,
             player_pairing_accept::player_pairing_regenerate_admin_pin,

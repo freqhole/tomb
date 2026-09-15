@@ -231,40 +231,18 @@ export function transition(ctx: AddPeerContext, event: AddPeerEvent): Transition
     case "CONNECTION_RESULT": {
       if (ctx.step !== "testing") return noop(ctx);
       const { outcome } = event;
-      if (ctx.existingRemote && outcome.kind !== "failed") {
-        if (!outcome.serverInfo.player_device) {
-          // already have this (non-player) remote saved, and whoami
-          // already succeeds against it - nothing new to do. gracefully
-          // land on "complete" instead of re-running knock/auth (or
-          // erroring on a duplicate-peer_addr create) for something the
-          // user already has access to.
-          return {
-            ctx: {
-              ...ctx,
-              step: "complete",
-              remote: ctx.existingRemote,
-              error: null,
-              progress: null,
-            },
-            effects: [
-              { type: "DELETE_PENDING_BY_ADDR", peerAddr: addrKey(ctx) },
-              { type: "SCHEDULE_TIMER", id: DISMISS_TIMER_ID, ms: COMPLETE_DISMISS_MS },
-            ],
-          };
-        }
-        // a player device is different: `whoami` succeeding just means
-        // this peer redeemed a pairing code at SOME point in the past
-        // (it shares the same underlying peer trust as the general api)
-        // - it says nothing about whether the player's own ephemeral
-        // SESSION (separate, live-only state - can expire/rotate/get
-        // this peer removed) still includes this peer right now. that
-        // live check is `queryPlayerPresence`'s access status, done by
-        // the host UI once here in "auth" (see AddRemoteModal.tsx's
-        // `playerAccess` resource) - so an existing player remote always
-        // routes there, on ANY non-failed outcome, letting that check
-        // decide whether to auto-skip the pin (already in session) or
-        // show it again (session/pin expired, or never joined) - never
-        // re-creating the remote from here either way.
+      // a player device is handled identically regardless of `outcome.kind`
+      // or whether it's brand-new or already saved: pin-pairing (or, for an
+      // already-saved remote, the host UI's live `queryPlayerPresence`
+      // check - see AddRemoteModal.tsx's `playerAccess` resource) is the
+      // ONLY way in - never the generic knock-request form (`needs_knock`),
+      // and never auto-`CREATE_REMOTE`d from a bare `already_authed` (that
+      // only proves this peer redeemed SOME pairing code in the past, not
+      // that it's currently in the player's live, ephemeral session - see
+      // this file's own history for that exact regression). always routes
+      // to "auth", on any non-failed outcome, never re-creating the remote
+      // from here either way.
+      if (outcome.kind !== "failed" && outcome.serverInfo.player_device) {
         return {
           ctx: {
             ...ctx,
@@ -279,6 +257,26 @@ export function transition(ctx: AddPeerContext, event: AddPeerEvent): Transition
               peerAddr: addrKey(ctx),
               patch: { stage: "connected", ...serverInfoPatch(outcome.serverInfo) },
             },
+          ],
+        };
+      }
+      if (ctx.existingRemote && outcome.kind !== "failed") {
+        // already have this (non-player) remote saved, and whoami
+        // already succeeds against it - nothing new to do. gracefully
+        // land on "complete" instead of re-running knock/auth (or
+        // erroring on a duplicate-peer_addr create) for something the
+        // user already has access to.
+        return {
+          ctx: {
+            ...ctx,
+            step: "complete",
+            remote: ctx.existingRemote,
+            error: null,
+            progress: null,
+          },
+          effects: [
+            { type: "DELETE_PENDING_BY_ADDR", peerAddr: addrKey(ctx) },
+            { type: "SCHEDULE_TIMER", id: DISMISS_TIMER_ID, ms: COMPLETE_DISMISS_MS },
           ],
         };
       }

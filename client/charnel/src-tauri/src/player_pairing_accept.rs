@@ -245,3 +245,19 @@ pub async fn player_pairing_remove_controller(node_id: String) -> Result<(), Str
 pub fn player_pairing_is_started() -> bool {
     STATE.get().is_some()
 }
+
+/// mirrors rathole's own `grimoire::player_session::set_active()` call
+/// (see `tty/run.rs`) - charnel never called this at all, so `server_info`/
+/// `/api/hello`'s `player_device` field (health.rs) stayed permanently
+/// `false` here, even while `/player` was open and actively accepting
+/// commands. a controller's "add remote" flow reads that field to decide
+/// whether to show the pin-pairing UI at all - without it, scanning this
+/// device's pairing qr just looked like a normal already-added remote
+/// ("already connected"), never registering it as a player. called from
+/// spume's `CenotaphPlayerApp.tsx` whenever its own "am I an active
+/// player right now" state (route mounted AND the accept-connections
+/// toggle) changes.
+#[tauri::command]
+pub fn set_player_session_active(active: bool) {
+    grimoire::player_session::set_active(active);
+}

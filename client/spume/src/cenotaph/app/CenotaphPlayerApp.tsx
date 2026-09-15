@@ -48,7 +48,11 @@ import {
 } from "../index";
 import { spumeTrustStore } from "../adapters/trustStoreAdapter";
 import { getMiddenNode } from "../../app/api/client";
-import { getCharnelNodeId, initCharnelPlaybackAcceptMode } from "../adapters/charnelAcceptBridge";
+import {
+  getCharnelNodeId,
+  initCharnelPlaybackAcceptMode,
+  setCharnelPlayerSessionActive,
+} from "../adapters/charnelAcceptBridge";
 
 import { appState, getLocalLibraryName } from "../../app/services/storage/db";
 import {
@@ -146,16 +150,25 @@ export function CenotaphPlayerApp() {
     // elsewhere, so this is just a fire-and-forget write to already-open
     // subscribe streams during unload, not a guaranteed flush - a crash or
     // force-quit still falls back to remoteTargetOffline()'s timeout).
+    // charnel also needs the SAME "active" boolean mirrored into grimoire's
+    // `player_session` global (a no-op outside charnel mode) - that's what
+    // `server_info`/`/api/hello`'s `player_device` field actually reads on
+    // that side (health.rs), and nothing previously called it, so a
+    // controller scanning this device's pairing qr always saw a plain,
+    // already-added remote instead of a player to pair with.
     createEffect(() => {
+      const active = remotePlaybackEnabled();
       broadcastPresence({
         type: "presence",
-        state: remotePlaybackEnabled() ? "active" : "stopped",
+        state: active ? "active" : "stopped",
       });
+      void setCharnelPlayerSessionActive(active);
     });
     setPlayerRouteMounted(true);
     onCleanup(() => {
       broadcastPresence({ type: "presence", state: "stopped" });
       setPlayerRouteMounted(false);
+      void setCharnelPlayerSessionActive(false);
     });
 
     const onPageHide = () => broadcastPresence({ type: "presence", state: "stopped" });

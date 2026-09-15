@@ -74,3 +74,16 @@ export async function isCharnelAcceptModeStarted(): Promise<boolean> {
   const { invoke } = await import("@tauri-apps/api/core");
   return invoke<boolean>("player_pairing_is_started");
 }
+
+/** mirrors rathole's own `grimoire::player_session::set_active()` call -
+ * charnel never made this call at all, so a controller probing this
+ * device's `server_info`/`/api/hello` always saw `player_device: false`,
+ * even with `/player` open and actively accepting commands (see
+ * `set_player_session_active`'s own doc comment in
+ * `player_pairing_accept.rs`). no-op outside charnel mode. */
+export async function setCharnelPlayerSessionActive(active: boolean): Promise<void> {
+  if (!isCharnelMode()) return;
+  // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
+  const { invoke } = await import("@tauri-apps/api/core");
+  await invoke("set_player_session_active", { active });
+}
