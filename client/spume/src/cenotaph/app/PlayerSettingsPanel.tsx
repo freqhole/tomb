@@ -5,7 +5,7 @@
 // `settings/SettingsPanel.tsx` pixel-for-pixel, adapted to spume's own
 // trust store and library-name concept instead of cenotaph's defaults.
 
-import { createEffect, createResource, createSignal, For, Show } from "solid-js";
+import { createEffect, createResource, createSignal, onMount, For, Show } from "solid-js";
 import {
   connectedControllers,
   currentPin,
@@ -24,11 +24,13 @@ import {
   type TrustedController,
 } from "../index";
 import {
+  appState,
   getLocalLibraryName,
   getSyncQueueToLocal,
   setLocalLibraryName,
   setSyncQueueToLocal,
 } from "../../app/services/storage/db";
+import { isCharnelMode, getConfig } from "../../app/services/charnel";
 import { remotePlaybackEnabled, setRemotePlaybackEnabled } from "../adapters/remoteModeSettings";
 import { spumeTrustStore } from "../adapters/trustStoreAdapter";
 import { spumeSessionStore } from "../adapters/playerSessionAdapter";
@@ -40,6 +42,23 @@ export function PlayerSettingsPanel(props: { onClose: () => void; nodeId?: strin
   );
   const [usage] = createResource(getStorageUsage);
   const [copied, setCopied] = createSignal(false);
+
+  // the device name defaults to "local library" until explicitly renamed
+  // (here or via the topnav rename action, same persisted field) - in
+  // charnel mode, prefer this device's real configured name
+  // (freqhole-config.toml's `[server] name`) over that generic default,
+  // since that's the name the user actually gave this library/device.
+  onMount(() => {
+    if (!isCharnelMode() || appState()?.local_library_name) return;
+    void (async () => {
+      const config = await getConfig();
+      const name = config?.server_name?.trim();
+      if (name && !appState()?.local_library_name) {
+        setNameInput(name);
+        await setLocalLibraryName(name);
+      }
+    })();
+  });
 
   // playerConnectionHandler.ts pushes a fresh session on every pairing
   // event (including admin-bootstrap redemptions, which also rotate the
@@ -100,7 +119,7 @@ export function PlayerSettingsPanel(props: { onClose: () => void; nodeId?: strin
 
   return (
     <div
-      class="fixed inset-0 z-[100] flex items-center justify-center overflow-y-auto bg-black/90 p-6"
+      class="fixed inset-0 z-[1700] flex items-center justify-center overflow-y-auto bg-black/90 p-6"
       data-testid="settings-panel"
     >
       <div class="flex max-h-full w-full max-w-md flex-col gap-6 overflow-y-auto text-left">

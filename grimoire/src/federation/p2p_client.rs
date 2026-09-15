@@ -270,7 +270,7 @@ pub async fn api_request(
 /// it doesn't know or care what json shape the line carries. mirrors
 /// `@freqhole/midden`'s `BiStream::write_line`/`read_line`/`close` byte
 /// for byte, so it interoperates with any peer speaking that same
-/// framing (currently: charnel's native player-pairing transport talking
+/// framing (currently: charnel's player-pairing transport talking
 /// to a player.freqhole.net device's `freqhole-player/1` ALPN).
 ///
 /// returns `Ok(None)` on a clean EOF before any bytes were read

@@ -269,6 +269,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
   interface PlayerAccessCheck {
     alreadyPaired: boolean;
     authorized: boolean;
+    remoteId?: string;
     remoteName?: string;
   }
   const [playerAccess] = createResource(
@@ -282,14 +283,25 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
       const probe = await queryPlayerPresence(peerAddr);
       const authorized =
         probe.presence === "active" && (probe.access === "admin" || probe.access === "in_session");
-      return { alreadyPaired: true, authorized, remoteName: existing.name };
+      return {
+        alreadyPaired: true,
+        authorized,
+        remoteId: existing.remote_id,
+        remoteName: existing.name,
+      };
     }
   );
 
   // already have access (no pin needed) - just "kick into player mode" and
   // close, per the user's described flow: scanning/re-adding a player qr
   // for an already-trusted, already-in-session peer should need nothing
-  // more from the user.
+  // more from the user. this remote may have been added long before it
+  // was ever paired as a player (e.g. a normal http/p2p remote that later
+  // turned on player pairing), so `paired_as_player` still needs setting
+  // here too - otherwise it plays fine once but never shows up in the
+  // "play on" selector afterwards (that list is filtered on this flag,
+  // see pairedPlayers.ts), since `handlePairPlayer`'s own
+  // create/updateRemote call is never reached on this auto-skip path.
   createEffect(
     on(
       () => playerAccess(),
@@ -300,6 +312,9 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
         const peerAddr = s.peerAddr;
         const player = { node_id: peerAddr, username: result.remoteName ?? peerAddr };
         void (async () => {
+          if (result.remoteId) {
+            await updateRemote(result.remoteId, { paired_as_player: true }).catch(() => {});
+          }
           await deletePendingRemoteByPeerAddr(peerAddr).catch(() => {});
           await selectPlayerPlaybackTarget(player);
           refreshPlayerStatus();

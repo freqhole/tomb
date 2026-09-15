@@ -60,7 +60,6 @@ import { PlayerDebugOverlay } from "./PlayerDebugOverlay";
 import { PlayerSettingsPanel } from "./PlayerSettingsPanel";
 import { renderPlayerQr } from "./renderPairingQr";
 import { isCharnelMode } from "../../app/services/charnel/mode";
-import { isRodioEnabled } from "../../music/services/audio/select";
 import {
   currentTime as realCurrentTime,
   duration as realDuration,
@@ -70,6 +69,8 @@ import {
   pause as realPause,
   play as realPlay,
   playNext as realPlayNext,
+  getVideoElement,
+  isVideoWindowActive,
 } from "../../music/services/audio/player";
 import {
   mediaItemKey,
@@ -78,6 +79,7 @@ import {
 } from "../../app/services/storage/mediaItem";
 import { getSongDisplayImages } from "../../utils/images";
 import MediaImage from "../../components/media/MediaImage";
+import { VideoMiniPlayer } from "../../components/player/VideoMiniPlayer";
 import type { ImageMetadata } from "../../music/services/storage/types";
 
 function formatTime(seconds: number): string {
@@ -87,16 +89,18 @@ function formatTime(seconds: number): string {
   return `${mins}:${secs.toString().padStart(2, "0")}`;
 }
 
-/** true when this device is a charnel/linux build with the rodio+gst opt-
- * in on - see docs/cenotaph-linux-experimental-player-plan.md. in that
- * case, `acceptModeBootstrap.ts` drives spume's real player
- * (`charnelPlaybackAdapter.ts`) instead of cenotaph's own `<video>`/
- * `<audio>` engine, so this component reads spume's own reactive state
- * (queue/now-playing/position/playing) rather than cenotaph's
- * `engineState`/`nowPlaying`/etc., which would otherwise sit stale (never
- * updated - nothing drives cenotaph's internal signals in this mode). */
+/** true when this device is a charnel build - in that case,
+ * `initCharnelPlaybackAcceptMode()` drives spume's real player
+ * (`charnelPlaybackAdapter.ts`, delegating to spume's own
+ * `player.ts`/`select.ts`, which already picks rodio vs html5 `<audio>`
+ * on its own) instead of cenotaph's own `<video>`/`<audio>` engine, so
+ * this component reads spume's own reactive state (queue/now-playing/
+ * position/playing) rather than cenotaph's `engineState`/`nowPlaying`/
+ * etc., which would otherwise sit stale (never updated - nothing drives
+ * cenotaph's internal signals in this mode). not gated on rodio - the
+ * adapter works with either playback backend. */
 function usingRealPlayer(): boolean {
-  return isCharnelMode() && isRodioEnabled();
+  return isCharnelMode();
 }
 
 export function CenotaphPlayerApp() {
@@ -187,17 +191,6 @@ export function CenotaphPlayerApp() {
     void (async () => {
       try {
         if (isCharnelMode()) {
-          // the rust-side accept loop only drives spume's real player
-          // (charnelPlaybackAdapter.ts) - without rodio there's no
-          // native playback backend for it to command (see
-          // usingRealPlayer's doc comment), so surface that plainly
-          // instead of attempting a broken wasm-node bootstrap.
-          if (!isRodioEnabled()) {
-            setError(
-              "player pairing on this device needs the experimental native player (rodio) enabled in settings."
-            );
-            return;
-          }
           await initCharnelPlaybackAcceptMode();
           const id = await getCharnelNodeId();
           setNodeId(id);
@@ -245,13 +238,17 @@ export function CenotaphPlayerApp() {
   /** unifies cenotaph's own now-playing state with spume's real player
    * state (when `usingRealPlayer()`) into one shape the JSX below reads
    * from, so it doesn't need two parallel copies of the same markup. `null`
-   * hides the now-playing section entirely (nothing queued, a command is
-   * in flight, or - real player only - the current item is a video, whose
-   * display the gst window itself takes over, see this section's own doc
-   * comment further down). `artworkImages`/`artworkUrl` are both passed
-   * straight to `MediaImage` below, which resolves whichever is present
-   * (real player: the song's own images array; cenotaph engine: the
-   * already-resolved `artwork_full_url`). */
+   * hides the now-playing section entirely (nothing queued, or a command is
+   * in flight). `isVideo` tells the JSX to swap the artwork slot for the
+   * shared `<video>` element (via `VideoMiniPlayer`'s inline variant)
+   * instead - unless the gst window is showing it instead (linux + rodio),
+   * in which case that OS-level window is the actual display and this
+   * slot stays empty, matching how the mini player skips its own inline
+   * video too (see AppLayout.tsx's `isVideoWindowActive()` check).
+   * `artworkImages`/`artworkUrl` are both passed straight to `MediaImage`
+   * below, which resolves whichever is present (real player: the song's
+   * own images array; cenotaph engine: the already-resolved
+   * `artwork_full_url`). */
   const nowPlayingView = () => {
     if (usingRealPlayer()) {
       const state = appState();
@@ -261,9 +258,10 @@ export function CenotaphPlayerApp() {
         : 0;
       const ordered = idx >= 0 ? state.queue.slice(idx) : state.queue;
       const current = ordered[0];
-      if (!current || current.kind !== "song") return null;
+      if (!current) return null;
       return {
-        artworkImages: getSongDisplayImages(current.song),
+        isVideo: current.kind === "video",
+        artworkImages: current.kind === "song" ? getSongDisplayImages(current.song) : undefined,
         artworkUrl: undefined as string | undefined,
         title: mediaItemTitle(current),
         artist: mediaItemSubtitle(current) ?? "",
@@ -285,6 +283,7 @@ export function CenotaphPlayerApp() {
     const item = nowPlaying();
     if (!item) return null;
     return {
+      isVideo: false,
       artworkImages: undefined as ImageMetadata[] | undefined,
       artworkUrl: item.artwork_full_url,
       title: item.title ?? "unknown title",
@@ -311,7 +310,7 @@ export function CenotaphPlayerApp() {
 
       <button
         type="button"
-        class="fixed top-4 right-4 z-30 text-xs text-neutral-500"
+        class="fixed top-4 right-4 z-[1700] text-xs text-neutral-500"
         onClick={() => setSettingsOpen(true)}
         data-testid="settings-toggle"
       >
@@ -396,56 +395,69 @@ export function CenotaphPlayerApp() {
         </Show>
       </Show>
 
-      {/* now playing: album art, title/artist, time, transport controls,
-          and the rest of the queue - mirrors player.freqhole.net's former
-          App.tsx now-playing view (see this file's header comment). hidden
-          while a command is in flight (see playbackEngine.ts's own
-          showPairingView note in the prior prototype) so it doesn't flash
-          stale info between queue replace/append commands.
+      {/* now playing: album art (or inline video), title/artist, time,
+          transport controls, and the rest of the queue - mirrors
+          player.freqhole.net's former App.tsx now-playing view (see this
+          file's header comment). hidden while a command is in flight (see
+          playbackEngine.ts's own showPairingView note in the prior
+          prototype) so it doesn't flash stale info between queue replace/
+          append commands.
           when `usingRealPlayer()`, everything below reads spume's own
           queue/playback state instead of cenotaph's engineState()/
           nowPlaying()/etc. (which never change in that mode - nothing
           feeds them, see charnelPlaybackAdapter.ts) - see `nowPlayingView()`
-          just above. video items render nothing here either way: the
-          gst window pops out as its own OS-level surface and takes over
-          as the actual display (docs/linux-video-window-plan.md), so this
-          tab's content is moot for video regardless of which player is
-          driving playback. */}
+          just above. a playing video renders inline here (the same shared
+          `<video>` element normal spume playback uses, via
+          `VideoMiniPlayer`'s inline variant) UNLESS the gst window is
+          showing it instead (linux + rodio) - that's its own OS-level
+          surface and already the actual display, so this slot stays empty
+          then (docs/linux-video-window-plan.md). */}
       <Show when={nowPlayingView()}>
         {(view) => (
           <div class="flex w-full max-w-md flex-col items-center gap-4" data-testid="now-playing">
             <Show
-              when={(view().artworkImages?.length ?? 0) > 0 || view().artworkUrl}
+              when={view().isVideo}
               fallback={
-                <div
-                  class="flex h-64 w-64 items-center justify-center rounded-lg bg-neutral-800"
-                  data-testid="artwork-fallback"
+                <Show
+                  when={(view().artworkImages?.length ?? 0) > 0 || view().artworkUrl}
+                  fallback={
+                    <div
+                      class="flex h-64 w-64 items-center justify-center rounded-lg bg-neutral-800"
+                      data-testid="artwork-fallback"
+                    >
+                      <svg
+                        viewBox="0 0 24 24"
+                        class="h-20 w-20 text-neutral-600"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        aria-hidden="true"
+                      >
+                        <path d="M9 18V5l12-2v13" />
+                        <circle cx="6" cy="18" r="3" />
+                        <circle cx="18" cy="16" r="3" />
+                      </svg>
+                    </div>
+                  }
                 >
-                  <svg
-                    viewBox="0 0 24 24"
-                    class="h-20 w-20 text-neutral-600"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    aria-hidden="true"
-                  >
-                    <path d="M9 18V5l12-2v13" />
-                    <circle cx="6" cy="18" r="3" />
-                    <circle cx="18" cy="16" r="3" />
-                  </svg>
-                </div>
+                  <MediaImage
+                    images={view().artworkImages}
+                    imageUrl={view().artworkUrl}
+                    alt=""
+                    domainType="song"
+                    showFallback={false}
+                    class="h-64 w-64 rounded-lg object-cover shadow-lg"
+                  />
+                </Show>
               }
             >
-              <MediaImage
-                images={view().artworkImages}
-                imageUrl={view().artworkUrl}
-                alt=""
-                domainType="song"
-                showFallback={false}
-                class="h-64 w-64 rounded-lg object-cover shadow-lg"
-              />
+              <Show when={!isVideoWindowActive()}>
+                <div class="h-64 w-64 rounded-lg" data-testid="inline-video">
+                  <VideoMiniPlayer videoElement={getVideoElement()} variant="inline" />
+                </div>
+              </Show>
             </Show>
 
             <p class="text-xl font-semibold" data-testid="now-playing-title">
