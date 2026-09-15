@@ -5,7 +5,7 @@
 // purely presentational - no api calls. the caller (ImportReviewModal) owns state
 // and passes onChange callbacks. designed to be plugged into the renderAlbumEditor
 // render prop.
-import { For, Show, createEffect, createMemo, createSignal, on, type JSX } from "solid-js";
+import { For, Index, Show, createEffect, createMemo, createSignal, on, type JSX } from "solid-js";
 import type { ImageMetadata, Song } from "../../music/services/storage/types";
 import { formatDuration } from "../../utils/formatDuration";
 import { EntityUrlz, type EntityUrlFormItem } from "../forms/EntityUrlz";
@@ -455,15 +455,15 @@ export function ImportAlbumEditorPanel(props: ImportAlbumEditorPanelProps) {
         </div>
 
         <div class="rounded-lg border border-[var(--color-border-default)] overflow-hidden">
-          <For each={props.value.songs}>
+          <Index each={props.value.songs}>
             {(song) => (
               <SongRowEditor
-                song={song}
+                song={song()}
                 isCompilation={isCompilation()}
-                onChange={(next) => updateSong(song.id, next)}
+                onChange={(next) => updateSong(song().id, next)}
               />
             )}
-          </For>
+          </Index>
 
           <Show when={props.value.songs.length === 0}>
             <div class="px-3 py-4 text-center">
@@ -507,10 +507,7 @@ export function ImportAlbumEditorPanel(props: ImportAlbumEditorPanelProps) {
       <TabPanel id="metadata">{metadataContent}</TabPanel>
       <TabPanel id="taxons">
         <div class="py-2">
-          <AlbumTaxonsEditor
-            albumId={props.albumId}
-            apiClient={props.apiClient}
-          />
+          <AlbumTaxonsEditor albumId={props.albumId} apiClient={props.apiClient} />
         </div>
       </TabPanel>
       <TabPanel id="musicbrainz">

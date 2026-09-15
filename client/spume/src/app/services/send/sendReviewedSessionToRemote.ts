@@ -15,6 +15,7 @@ import {
   updateJobStatus,
   updateJobStage,
   updateJobProgress,
+  updateJobEntities,
 } from "../../../music/import/remoteImport";
 import type { Remote } from "../storage/schemas/remote";
 import { getRemoteById } from "../remotes/remoteManager";
@@ -88,6 +89,7 @@ export async function sendReviewedAlbumsToRemote(
 
       trackId = addTrackedJob(`${albumTitle} \u2192 ${targetRemoteName}`, "file");
       updateJobStatus(trackId, "uploading");
+      updateJobEntities(trackId, { remoteId: targetRemoteId, albumId, sessionId });
       const payload: SendAlbumPayload = {
         kind: "album",
         albumId,
@@ -124,6 +126,7 @@ export async function sendReviewedAlbumsToRemote(
           ? { error: `${result.failedSongs} song(s) failed`, errorFull: result.errors.join("; ") }
           : undefined
       );
+      updateJobEntities(trackId, { retryFailedBlake3s: result.failedBlake3s });
     } catch (e) {
       progress.completedAlbums += 1;
       progress.failedAlbums += 1;
@@ -139,4 +142,71 @@ export async function sendReviewedAlbumsToRemote(
   progress.done = true;
   emit();
   if (!keepPendingTarget) clearPendingSendTarget(sessionId);
+}
+
+/**
+ * retry a previously-failed "send to remote" job for one album, in place -
+ * resends only the specific blake3 hashes that failed last time (see
+ * `SendOptions.retryBlake3s`) rather than starting the whole album over,
+ * and updates the SAME tracked job row instead of creating a new one.
+ */
+export async function retryFailedAlbumSend(
+  trackId: string,
+  albumId: string,
+  targetRemoteId: string,
+  targetRemoteName: string,
+  localRemote: Remote,
+  failedBlake3s: string[]
+): Promise<void> {
+  const dest = await getRemoteById(targetRemoteId);
+  if (!dest) {
+    updateJobStatus(trackId, "failed", { error: `couldn't find ${targetRemoteName} to send to` });
+    return;
+  }
+
+  updateJobStatus(trackId, "uploading");
+  try {
+    const localSource = new RemoteMusicDataSource(localRemote);
+    const { items: songs } = await localSource.getSongs({ album_id: albumId, limit: 1000 });
+    if (songs.length === 0) {
+      updateJobStatus(trackId, "completed");
+      updateJobEntities(trackId, { retryFailedBlake3s: [] });
+      return;
+    }
+    const first = songs[0];
+    const payload: SendAlbumPayload = {
+      kind: "album",
+      albumId,
+      title: first.album_title ?? "unknown album",
+      artistName: first.artist_name ?? "unknown artist",
+      albumType: first.album_type ?? null,
+      releaseDate: null,
+      label: null,
+      genres: [],
+      images: first.album_images ?? [],
+      songs,
+    };
+    const result = await sendToRemote(payload, localRemote, dest, {
+      retryBlake3s: failedBlake3s,
+      onProgress: (p) => {
+        const done = p.syncedSongs + p.skippedSongs + p.failedSongs;
+        if (p.totalSongs > 0) updateJobProgress(trackId, done / p.totalSongs);
+        updateJobStage(trackId, `retrying ${done}/${p.totalSongs} songs`);
+      },
+    });
+    updateJobStatus(
+      trackId,
+      result.failedSongs > 0 ? "failed" : "completed",
+      result.failedSongs > 0
+        ? { error: `${result.failedSongs} song(s) failed`, errorFull: result.errors.join("; ") }
+        : undefined
+    );
+    updateJobEntities(trackId, {
+      retryFailedBlake3s: result.failedSongs > 0 ? result.failedBlake3s : [],
+    });
+  } catch (e) {
+    const msg = String(e);
+    updateJobStatus(trackId, "failed", { error: msg });
+    logError("retryFailedAlbumSend", `album ${albumId} retry failed: ${msg}`);
+  }
 }

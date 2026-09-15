@@ -10,7 +10,7 @@
 // in one shot server-side). edit state here is kept live so patchAlbum always
 // sends the current user-visible state.
 
-import { createSignal, createEffect, createMemo, createResource, onCleanup } from "solid-js";
+import { createSignal, createEffect, createMemo, createResource, on, onCleanup } from "solid-js";
 import {
   ImportAlbumEditorPanel,
   type ImportAlbumEdit,
@@ -19,6 +19,7 @@ import {
 import type { AlbumEditorRenderProps } from "../modals/ImportReviewModal";
 import { mbBrowserClient } from "../../lib/musicbrainzBrowserClient";
 import { getClientForRemote } from "../../app/api/client";
+import { localDataSource } from "../../music/data/local/localSource";
 import { toast } from "../feedback/Toast";
 import type { CurrentRemoteInfo } from "../../music/data/currentState";
 import type { ImportReviewHandle } from "../../music/hooks/useImportReview";
@@ -64,7 +65,10 @@ function albumToEdit(album: ImportReviewAlbum): ImportAlbumEdit {
 // -------------------------------------------------------------------------
 
 export interface ImportReviewEditorProps extends AlbumEditorRenderProps {
-  remote: CurrentRemoteInfo;
+  /** null selects the local-idb backend - see reviewBackend.ts's
+   *  resolveActiveReviewRemote(), which is always null outside charnel
+   *  mode regardless of whether the session has a send target. */
+  remote: CurrentRemoteInfo | null;
   reviewHandle: ImportReviewHandle;
   sessionId: string;
   /**
@@ -85,10 +89,16 @@ export function ImportReviewEditor(props: ImportReviewEditorProps) {
     (remote) => getClientForRemote(remote)
   );
 
-  // reset edit state when the album changes
-  createEffect(() => {
-    setEdit(albumToEdit(props.album));
-  });
+  // reset edit state only when navigating to a different album - keyed on
+  // album id (not props.album itself), since a refetch (e.g. leaving the
+  // musicbrainz tab calls onAlbumUpdated -> reviewHandle.refetch()) hands
+  // back a brand-new ImportReviewAlbum object for the SAME album id. without
+  // this guard, tracking props.album directly meant every refetch reset
+  // edit() back to server state, silently discarding any in-progress,
+  // unsaved typing (title/artist/track edits) - see ImportAlbumEditorPanel's
+  // albumIdMemo comment for the identical pattern.
+  const albumId = createMemo(() => props.album.id);
+  createEffect(on(albumId, () => setEdit(albumToEdit(props.album)), { defer: true }));
 
   // register a save fn keyed by albumId so App.tsx can flush before marking reviewed
   createEffect(() => {
@@ -116,21 +126,32 @@ export function ImportReviewEditor(props: ImportReviewEditorProps) {
 
   async function handleArtworkFilePicked(file: File) {
     try {
-      const client = await getClientForRemote(props.remote);
-      const result = await client.upload.image(file, {
-        associate: {
-          entity_type: "album",
-          entity_id: props.album.id,
-          is_primary: true,
-        },
-      });
-      if (!result.success) {
-        toast.error("artwork upload failed");
-        return;
+      let blobId: string;
+      if (!props.remote) {
+        ({ blob_id: blobId } = await localDataSource.uploadImage({
+          file,
+          entityType: "album",
+          entityId: props.album.id,
+          isPrimary: true,
+        }));
+      } else {
+        const client = await getClientForRemote(props.remote);
+        const result = await client.upload.image(file, {
+          associate: {
+            entity_type: "album",
+            entity_id: props.album.id,
+            is_primary: true,
+          },
+        });
+        if (!result.success) {
+          toast.error("artwork upload failed");
+          return;
+        }
+        blobId = result.data.blob_id;
       }
       setEdit((prev) => ({
         ...prev,
-        artworkBlobId: result.data.blob_id,
+        artworkBlobId: blobId,
       }));
       // refetch to get updated images list
       props.reviewHandle.refetch();
@@ -141,17 +162,27 @@ export function ImportReviewEditor(props: ImportReviewEditorProps) {
 
   async function handleImageUpload(file: File) {
     try {
-      const client = await getClientForRemote(props.remote);
-      const result = await client.upload.image(file, {
-        associate: {
-          entity_type: "album",
-          entity_id: props.album.id,
-          is_primary: (edit().images ?? []).length === 0,
-        },
-      });
-      if (!result.success) {
-        toast.error("image upload failed");
-        return;
+      const isPrimary = (edit().images ?? []).length === 0;
+      if (!props.remote) {
+        await localDataSource.uploadImage({
+          file,
+          entityType: "album",
+          entityId: props.album.id,
+          isPrimary,
+        });
+      } else {
+        const client = await getClientForRemote(props.remote);
+        const result = await client.upload.image(file, {
+          associate: {
+            entity_type: "album",
+            entity_id: props.album.id,
+            is_primary: isPrimary,
+          },
+        });
+        if (!result.success) {
+          toast.error("image upload failed");
+          return;
+        }
       }
       props.reviewHandle.refetch();
     } catch (err) {
@@ -165,12 +196,20 @@ export function ImportReviewEditor(props: ImportReviewEditorProps) {
     const blobId = img?.remote_blob_id ?? img?.local_blob_id;
     if (!blobId) return;
     try {
-      const client = await getClientForRemote(props.remote);
-      await client.music.deleteImage({
-        entity_type: "album",
-        entity_id: props.album.id,
-        blob_id: blobId,
-      });
+      if (!props.remote) {
+        await localDataSource.removeImage({
+          entityType: "album",
+          entityId: props.album.id,
+          blobId,
+        });
+      } else {
+        const client = await getClientForRemote(props.remote);
+        await client.music.deleteImage({
+          entity_type: "album",
+          entity_id: props.album.id,
+          blob_id: blobId,
+        });
+      }
       props.reviewHandle.refetch();
     } catch (err) {
       toast.error(`failed to remove image: ${(err as Error).message}`);
@@ -183,12 +222,20 @@ export function ImportReviewEditor(props: ImportReviewEditorProps) {
     const blobId = img?.remote_blob_id ?? img?.local_blob_id;
     if (!blobId) return;
     try {
-      const client = await getClientForRemote(props.remote);
-      await client.music.setPrimaryImage({
-        entity_type: "album",
-        entity_id: props.album.id,
-        blob_id: blobId,
-      });
+      if (!props.remote) {
+        await localDataSource.setPrimaryImage({
+          entityType: "album",
+          entityId: props.album.id,
+          blobId,
+        });
+      } else {
+        const client = await getClientForRemote(props.remote);
+        await client.music.setPrimaryImage({
+          entity_type: "album",
+          entity_id: props.album.id,
+          blob_id: blobId,
+        });
+      }
       props.reviewHandle.refetch();
     } catch (err) {
       toast.error(`failed to set primary image: ${(err as Error).message}`);

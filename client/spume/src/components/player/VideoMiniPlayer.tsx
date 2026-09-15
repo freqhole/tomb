@@ -58,6 +58,29 @@ export function VideoMiniPlayer(props: VideoMiniPlayerProps) {
     }
   });
 
+  // android charnel: Element.requestFullscreen() on this WebView is
+  // handled entirely as in-page CSS fullscreen - WebChromeClient.
+  // onShowCustomView never fires for it, so the system status/gesture-nav
+  // bars are never hidden natively. MainActivity.onWebViewCreate installs
+  // a JS-callable bridge (SystemBarsBridge) for exactly this case; a no-op
+  // everywhere else (desktop/iOS/plain web all leave window.AndroidSystemBars
+  // undefined).
+  onMount(() => {
+    const androidSystemBars = (
+      window as unknown as {
+        AndroidSystemBars?: { hide: () => void; show: () => void };
+      }
+    ).AndroidSystemBars;
+    if (!androidSystemBars) return;
+
+    const handleFullscreenChange = () => {
+      if (document.fullscreenElement) androidSystemBars.hide();
+      else androidSystemBars.show();
+    };
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    onCleanup(() => document.removeEventListener("fullscreenchange", handleFullscreenChange));
+  });
+
   // esc collapses the expanded view - a private listener, not the shared
   // global modal stack (pushing onto that stack would itself flip
   // `isAnyModalOpenReactive()` in AppLayout, which auto-dismisses this
@@ -76,9 +99,25 @@ export function VideoMiniPlayer(props: VideoMiniPlayerProps) {
 
   const requestFullscreen = () => {
     const el = props.videoElement;
-    if (el.requestFullscreen) void el.requestFullscreen();
-    else if ("webkitEnterFullscreen" in el) {
+    // console.info (not debug()) - debug() is gated behind a log level
+    // that defaults to "error" (see utils/logger.ts's getConfig()), so it
+    // silently drops unless window.__LOGGER_CONFIG has been raised - this
+    // needs to always be visible in adb logcat while diagnosing Android
+    // fullscreen, same as the ungated console.info calls elsewhere (e.g.
+    // videoBackend.ts's "[video-window]" logs).
+    console.info("[fullscreen] requestFullscreen() called", {
+      hasStandardApi: !!el.requestFullscreen,
+      hasWebkitApi: "webkitEnterFullscreen" in el,
+      alreadyFullscreen: document.fullscreenElement === el,
+    });
+    if (el.requestFullscreen) {
+      el.requestFullscreen().catch((err: unknown) => {
+        console.error("[fullscreen] requestFullscreen() rejected", err);
+      });
+    } else if ("webkitEnterFullscreen" in el) {
       (el as unknown as { webkitEnterFullscreen: () => void }).webkitEnterFullscreen();
+    } else {
+      console.error("[fullscreen] no fullscreen API available on this element");
     }
   };
 

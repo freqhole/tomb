@@ -101,6 +101,7 @@ describe("importSessionReducer", () => {
         currentAlbumTitle: null,
         currentSongsDone: 0,
         currentSongsTotal: 0,
+        itemLabel: "songs",
         done: false,
         errors: [],
       },

@@ -17,6 +17,7 @@ import { EditVideoSeriesModal } from "../components/modals/EditVideoSeriesModal"
 import { ImageCarouselModal } from "../components/modals/ImageCarouselModal";
 import { ResolveShareModal } from "../components/modals/ResolveShareModal";
 import { RemotePickerModal } from "../components/modals/RemotePickerModal";
+import { LOCAL_WEB_TARGET_ID } from "../components/forms/LocalTargetPicker";
 import { ShareModal } from "../components/modals/ShareModal";
 import { SongEditorModal } from "../components/modals/SongEditorModal";
 import { TagSelectorModal } from "../components/modals/TagSelectorModal";
@@ -27,7 +28,10 @@ import { ReplaceQueueConfirmModal } from "../music/components/ReplaceQueueConfir
 import { getCurrentRemote, getDataSource, useLocalSource, useRemoteSource } from "../music/data";
 import type { CurrentRemoteInfo } from "../music/data/currentState";
 import { isAdmin } from "../music/data/permissions";
-import { createCandidateDestinations } from "../music/services/send/destinationCandidates";
+import {
+  createCandidateDestinations,
+  refreshCandidateDestinations,
+} from "../music/services/send/destinationCandidates";
 import {
   hideAlbumEditor,
   hideArtistEditor,
@@ -210,6 +214,12 @@ export function App() {
     return state.kind === "sending" || state.kind === "done" ? state.progress : null;
   };
 
+  // video counterpart of reviewSendProgress above.
+  const reviewVideoSendProgress = (): SendReviewProgress | null => {
+    const state = importSessionState(reviewTargetKey(reviewVideoRemote(), "video"));
+    return state.kind === "sending" || state.kind === "done" ? state.progress : null;
+  };
+
   // session id for the video import review modal - set when user clicks "review now"
   const [reviewVideoSessionId, setReviewVideoSessionId] = createSignal<string | null>(null);
   // the remote that owns the video review session - captured at start time, same reasoning as reviewRemote
@@ -251,6 +261,10 @@ export function App() {
   const addMediaTargetRemote = (): CurrentRemoteInfo | null => {
     const id = addMediaTargetId();
     if (id === null) return getCurrentRemote();
+    // explicit "local (this browser)" pick from plain web's LocalTargetPicker
+    // (see that file's doc comment) - distinct from `id === null`'s "no
+    // override yet, follow whatever remote is currently browsed" default.
+    if (id === LOCAL_WEB_TARGET_ID) return null;
     const candidate = addMediaCandidates().find((c) => c.remote.remote_id === id);
     return candidate ? (candidate.remote as unknown as CurrentRemoteInfo) : getCurrentRemote();
   };
@@ -403,41 +417,44 @@ export function App() {
       if (!sid || state.kind !== "reviewing" || state.sessionId !== sid) return;
       const videoIds = state.albumIds;
 
-      if (sid) setCompletedVideoReviewSessionId(sid);
-      setReviewVideoSessionId(null);
-      setReviewVideoRemote(null);
-      setReviewRefetchKey((k) => k + 1);
-      openAddMedia();
-
       // durable send target set at import time (see useVideoImportReview's
       // targetRemoteId/targetRemoteName) - mirrors the equivalent music
-      // effect above, sans inline modal progress (video's review modal has
-      // no send-progress UI yet - see the refactor plan doc's phase-5
-      // scoping note - progress is still visible via the video upload-job
-      // list sendReviewedVideosToRemote reports into). unlike music, video
-      // closes the modal immediately regardless of whether a send target
-      // exists (no "stay open showing progress" UX to preserve here).
+      // effect above.
       const targetId = videoImportReview.targetRemoteId();
       const targetName = videoImportReview.targetRemoteName();
       const target = targetId && targetName ? { id: targetId, name: targetName } : null;
-      dispatchImportSession(key, { type: "albumsDrained", target });
 
-      if (target && localRemote && videoIds.length > 0) {
+      dispatchImportSession(key, { type: "albumsDrained", target });
+      const nextState = importSessionState(key);
+
+      // destined for a real remote: keep the review modal open and render
+      // send progress inline in it instead of closing immediately - mirrors
+      // music's identical reasoning (see the comment right above the music
+      // effect's own `if (nextState.kind === "sending")` branch).
+      if (nextState.kind === "sending") {
         const onProgress = (progress: SendReviewProgress) =>
           dispatchImportSession(key, { type: "sendProgress", progress });
         void sendReviewedVideosToRemote(
           sid,
-          target.id,
-          target.name,
+          target!.id,
+          target!.name,
           localRemote as unknown as Remote,
           videoIds,
           onProgress
         ).then(() => {
           dispatchImportSession(key, { type: "sendFinished" });
+          setCompletedVideoReviewSessionId(sid);
+          setReviewRefetchKey((k) => k + 1);
         });
-      } else {
-        dispatchImportSession(key, { type: "closed" });
+        return;
       }
+
+      // no pending send target - close immediately, same as before.
+      setCompletedVideoReviewSessionId(sid);
+      setReviewVideoSessionId(null);
+      setReviewVideoRemote(null);
+      setReviewRefetchKey((k) => k + 1);
+      openAddMedia();
     }
   });
   // radio works with zero remotes (anyone with a node id can listen)
@@ -1430,7 +1447,7 @@ export function App() {
     }
 
     // fire-and-forget, jobs are tracked reactively
-    await fetchUrlsOnRemote(urls, onRemoteJobComplete);
+    await fetchUrlsOnRemote(urls, onRemoteJobComplete, remote);
   };
 
   // handle paths selected via tauri dialog (desktop only, Android uses file input)
@@ -1505,7 +1522,7 @@ export function App() {
     // the user clicks it to open the review modal rather than auto-opening.
     try {
       const audioFilePaths = await expandPathsToAudioFiles(paths);
-      await importPathsToLocal(audioFilePaths, onRemoteJobComplete);
+      await importPathsToLocal(audioFilePaths, onRemoteJobComplete, undefined, remote);
     } catch (error) {
       console.error("failed to import paths:", error);
       toast.error("failed to start import", { title: "import error" });
@@ -1550,7 +1567,7 @@ export function App() {
     }
 
     // fire-and-forget, jobs are tracked reactively
-    await fetchVideoUrlsOnRemote(urls, onRemoteVideoJobComplete);
+    await fetchVideoUrlsOnRemote(urls, onRemoteVideoJobComplete, remote);
   };
 
   const handleVideoFilesSelected = async (files: FileList) => {
@@ -1558,7 +1575,7 @@ export function App() {
 
     if (remote) {
       // remote upload: fire-and-forget, jobs are tracked reactively
-      await uploadVideoFilesToRemote(Array.from(files), onRemoteVideoJobComplete);
+      await uploadVideoFilesToRemote(Array.from(files), onRemoteVideoJobComplete, remote);
     } else {
       // local import: process files into OPFS/IndexedDB
       try {
@@ -1644,7 +1661,7 @@ export function App() {
 
     try {
       const videoFilePaths = await expandPathsToVideoFiles(paths);
-      await importVideoPathsToLocal(videoFilePaths, onRemoteVideoJobComplete);
+      await importVideoPathsToLocal(videoFilePaths, onRemoteVideoJobComplete, undefined, remote);
     } catch (error) {
       console.error("failed to import video paths:", error);
       toast.error("failed to start import", { title: "import error" });
@@ -1831,12 +1848,11 @@ export function App() {
           }
         }}
         renderAlbumEditor={(editorProps) => {
-          const remote = reviewRemote();
-          if (!remote || !reviewSessionId()) return <></>;
+          if (!reviewSessionId()) return <></>;
           return (
             <ImportReviewEditor
               {...editorProps}
-              remote={remote}
+              remote={reviewRemote()}
               reviewHandle={importReview}
               sessionId={reviewSessionId()!}
               onRegisterSave={(id, fn) => editorSaveFns.set(id, fn)}
@@ -1849,7 +1865,13 @@ export function App() {
       <ImportVideoReviewModal
         isOpen={reviewVideoSessionId() !== null}
         loading={videoImportReview.loading()}
+        sendTargetName={videoImportReview.targetRemoteName()}
+        sendProgress={reviewVideoSendProgress()}
         onClose={() => {
+          // don't abandon an in-flight send - mirrors ImportReviewModal's
+          // identical guard (music's equivalent).
+          const sending = reviewVideoSendProgress();
+          if (sending && !sending.done) return;
           dispatchImportSession(reviewTargetKey(reviewVideoRemote(), "video"), {
             type: "closed",
           });
@@ -1862,13 +1884,10 @@ export function App() {
         }}
         groups={videoImportReview.groups()}
         onComplete={() => {
-          const sid = reviewVideoSessionId();
-          if (sid) setCompletedVideoReviewSessionId(sid);
-          setReviewVideoSessionId(null);
-          setReviewVideoRemote(null);
-          setReviewRefetchKey((k) => k + 1);
-          // re-open to let the user pick the next pending review
-          openAddMedia();
+          // no-op: the createEffect watching groups().length === 0 (above)
+          // is what actually completes the session and (if there's a
+          // pending send target) drives the inline send progress - mirrors
+          // ImportReviewModal's identical onComplete no-op/reasoning.
         }}
         onMoveVideo={(videoId: string, toSeriesId: string | null) =>
           void videoImportReview.moveVideo(videoId, toSeriesId)
@@ -1886,7 +1905,7 @@ export function App() {
           }
         }}
         renderGroupEditor={(editorProps) => {
-          if (!reviewVideoRemote() || !reviewVideoSessionId()) return <></>;
+          if (!reviewVideoSessionId()) return <></>;
           return (
             <ImportVideoReviewEditor
               {...editorProps}
@@ -1911,6 +1930,9 @@ export function App() {
           toast.success(`connected to ${remote.name}`, {
             title: "remote added",
           });
+          // add-media modal's target picker builds its list once at mount -
+          // refresh it so the just-added remote shows up without a reload
+          refreshCandidateDestinations(addMediaCandidates);
           // activate and switch to the newly added remote
           void (async () => {
             await useRemoteSource(remote);

@@ -754,8 +754,8 @@ pub async fn compute_blake3(peer_addr: &str, blob_id: &str) -> GrimoireResult<Op
 /// pause before a post-ensure retry (see fetch_blob_verified_with_ensure_progress
 /// / fetch_blob_verified_to_file_with_ensure_and_progress) - long enough to let
 /// a connection dropped by a transient blip (e.g. an idle-timeout teardown)
-/// actually re-establish, short enough not to be noticeable for a real transfer.
-const RETRY_BACKOFF: std::time::Duration = std::time::Duration::from_millis(750);
+/// actually re-establish, short enough not to make a real failure feel stuck.
+const RETRY_BACKOFF: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// fetch a blob using verified streaming with on-demand loading
 ///

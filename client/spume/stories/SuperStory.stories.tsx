@@ -24,6 +24,7 @@ import { DraggableRow, DraggableRowSongContent } from "../src/components/lists/D
 import { AlphabetNav } from "../src/components/navigation/AlphabetNav";
 import { TopNav } from "../src/components/navigation/TopNav";
 import { TopNavSearch } from "../src/components/navigation/TopNavSearch";
+import { AddMediaModal } from "../src/components/modals/AddMediaModal";
 import { PlayerBar } from "../src/components/player/PlayerBar";
 import { QueueSidebar } from "../src/components/player/QueueSidebar";
 import { VirtualAlbumGrid } from "../src/components/virtualized/VirtualAlbumGrid";
@@ -34,6 +35,7 @@ import { createWalkerDriver } from "../src/components/graph/drivers/GraphDriver"
 import { MOCK_GRAPH } from "../src/components/graph/mockData";
 import type { Song as DomainSong } from "../src/music/data/types";
 import type { ImageMetadata } from "../src/music/services/storage/types";
+import type { Remote } from "../src/app/services/storage/schemas/remote";
 import { isNarrowViewport } from "../src/config/breakpoints";
 import { QueryClient, QueryClientProvider } from "@tanstack/solid-query";
 import {
@@ -1790,9 +1792,9 @@ export function FullAppDemoBody() {
               type="button"
               data-coach-anchor="addMusicButton"
               class="px-4 py-2 text-sm rounded-md bg-[var(--color-bg-secondary)] text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] border border-[var(--color-border-default)]"
-              onClick={() => runFakeLibraryScan({ durationMs: 1500 })}
+              onClick={() => setActiveModal("add-media")}
             >
-              add music
+              add media
             </button>
             <button
               type="button"
@@ -2170,6 +2172,43 @@ export function FullAppDemoBody() {
         </For>
       </div>
     </div>
+  );
+
+  // ===== ADD MEDIA MODAL (real component - not a stub) =====
+  // unlike the other demo modals above, this renders the actual
+  // AddMediaModal component (not a hand-drawn stand-in) so the real
+  // music+video tabs, url/file flows, and remote-target switcher are all
+  // visible in the marketing demo - triggered by the "add music" button on
+  // the welcome screen (see addMusicButton below).
+  const addMediaTargetCandidates = mockRemotes.map(
+    (r) =>
+      ({
+        remote_id: r.id,
+        name: r.name,
+        is_active: true,
+        last_connected_at: Date.now(),
+        created_at: Date.now(),
+        updated_at: Date.now(),
+        description: null,
+        image_url: null,
+        image_blob_id: null,
+        version: null,
+        last_info_check: null,
+        transport: "http",
+        base_url: `https://${r.id}.example.com`,
+      }) as unknown as Remote
+  );
+  const addMediaModal = () => (
+    <AddMediaModal
+      isOpen={activeModal() === "add-media"}
+      onClose={() => setActiveModal(null)}
+      fetchVideoEnabled
+      targetCandidates={addMediaTargetCandidates}
+      onMusicFilesSelected={() => setActiveModal(null)}
+      onMusicUrlsSubmitted={() => setActiveModal(null)}
+      onVideoFilesSelected={() => setActiveModal(null)}
+      onVideoUrlsSubmitted={() => setActiveModal(null)}
+    />
   );
 
   // ===== ALBUM EDIT MODAL (stub) =====
@@ -2837,6 +2876,7 @@ export function FullAppDemoBody() {
           )}
         </Show>
         {addRemoteModal()}
+        {addMediaModal()}
         {albumEditModal()}
         {shareModal()}
         {resolveShareModal()}

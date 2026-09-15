@@ -9,6 +9,8 @@ import {
 import type { ImportReviewAlbum } from "../src/components/import/ImportGroupingView";
 import { Modal } from "../src/components/modals/Modal";
 import { Tab, TabList, TabPanel, Tabs } from "../src/components/navigation/Tabs";
+import type { CurrentRemoteInfo } from "../src/music/data/currentState";
+import type { Remote } from "../src/app/services/storage/schemas/remote";
 
 const meta = {
   title: "Components/Overlays/AddMediaModal",
@@ -282,7 +284,9 @@ export const WithReviewTab: Story = {
           albums={pendingSessions()}
           onMergeAlbums={(src, tgt) => console.log("merge", src, "->", tgt)}
           onMoveSong={(sid, aid) => console.log("move", sid, "->", aid)}
-          onCreateAlbumForSong={(sid, title, artist) => console.log("create album", title, artist, "for", sid)}
+          onCreateAlbumForSong={(sid, title, artist) =>
+            console.log("create album", title, artist, "for", sid)
+          }
           onMarkReviewed={(id) => console.log("reviewed:", id)}
           onComplete={() => setShowReviewModal(false)}
           renderAlbumEditor={(editorProps) => {
@@ -309,6 +313,118 @@ export const WithPendingReviewCard: Story = {
           isOpen={isOpen()}
           onClose={() => setIsOpen(false)}
           onMusicUrlsSubmitted={(urls) => console.log("urls:", urls)}
+        />
+      </div>
+    );
+  },
+};
+
+// -------------------------------------------------------------------------
+// mock remotes for the target-switcher stories below. storybook always
+// runs in a plain browser (isCharnelMode() is false), so the header
+// renders the plain-web LocalTargetPicker rather than RemotePicker - see
+// RemotePicker.stories.tsx for the charnel-mode chip-strip/flyout instead.
+// -------------------------------------------------------------------------
+
+function mockCandidateRemote(id: string, name: string): Remote {
+  return {
+    remote_id: id,
+    name,
+    is_active: true,
+    last_connected_at: Date.now(),
+    created_at: Date.now(),
+    updated_at: Date.now(),
+    description: null,
+    image_url: null,
+    image_blob_id: null,
+    version: null,
+    last_info_check: null,
+    transport: "http",
+    base_url: `https://${id}.example.com`,
+  } as unknown as Remote;
+}
+
+const targetCandidates = [
+  mockCandidateRemote("carps-basement", "carp's basement"),
+  mockCandidateRemote("vinyl-rips", "vinyl rips"),
+];
+
+export const TargetSwitcherPlainWeb: Story = {
+  name: "target switcher (plain web)",
+  render: () => {
+    const [isOpen, setIsOpen] = createSignal(true);
+    const [targetId, setTargetId] = createSignal<string | null>(null);
+    const target = (): CurrentRemoteInfo | null =>
+      (targetCandidates.find((c) => c.remote_id === targetId()) as unknown as CurrentRemoteInfo) ??
+      null;
+
+    return (
+      <div class="min-h-screen bg-[var(--color-bg-primary)]">
+        <AddMediaModal
+          isOpen={isOpen()}
+          onClose={() => setIsOpen(false)}
+          targetRemote={target()}
+          targetCandidates={targetCandidates}
+          onTargetChange={(id) => setTargetId(id === "__local_web__" ? null : id)}
+          remoteName={target()?.name}
+          onMusicFilesSelected={(files) =>
+            console.log(
+              "music files:",
+              Array.from(files).map((f) => f.name)
+            )
+          }
+        />
+      </div>
+    );
+  },
+};
+
+// -------------------------------------------------------------------------
+// story: a failed "send to remote" job with recorded failed blake3s -
+// shows the "retry" button added alongside "view album"/"view video"
+// (clicking it is safe in storybook - no charnel-managed local remote
+// exists here, so it just shows a "local library isn't set up yet" toast
+// instead of attempting a real network call).
+// -------------------------------------------------------------------------
+
+export const WithFailedSendRetry: Story = {
+  name: "failed send - retry button",
+  render: () => {
+    const [isOpen, setIsOpen] = createSignal(true);
+
+    return (
+      <div class="min-h-screen bg-[var(--color-bg-primary)]">
+        <AddMediaModal
+          isOpen={isOpen()}
+          onClose={() => setIsOpen(false)}
+          remoteName="carp's basement"
+          musicUploadJobs={[
+            {
+              id: "job-1",
+              label: "loveless \u2192 carp's basement",
+              type: "file",
+              status: "failed",
+              createdAt: Date.now(),
+              remoteId: "carps-basement",
+              albumId: "album-1",
+              error: "2 song(s) failed",
+              errorFull: "verified download of blob ... failed: connection lost",
+              retryFailedBlake3s: ["a".repeat(64), "b".repeat(64)],
+            },
+          ]}
+          videoUploadJobs={[
+            {
+              id: "vjob-1",
+              label: "conference talk \u2192 carp's basement",
+              status: "failed",
+              createdAt: Date.now(),
+              remoteId: "carps-basement",
+              videoId: "video-1",
+              isRemoteSend: true,
+              error: "send failed",
+              errorFull: "verified download of blob ... failed: connection lost",
+            },
+          ]}
         />
       </div>
     );

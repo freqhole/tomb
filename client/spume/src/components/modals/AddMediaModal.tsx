@@ -15,7 +15,7 @@ import { IconButton } from "../buttons/IconButton";
 import { TextArea } from "../forms/TextArea";
 import { Icon } from "../icons/registry";
 import { Tab, TabList, TabPanel, Tabs } from "../navigation/Tabs";
-import type { UploadJob } from "../../music/import";
+import type { UploadJob, UploadJobStatus } from "../../music/import";
 import type { LocalImportProgress } from "../../music/import";
 import { clearAllJobs, removeJob } from "../../music/import";
 import type { VideoUploadJob } from "../../video/import/remoteImport";
@@ -28,7 +28,10 @@ import type { CurrentRemoteInfo } from "../../music/data/currentState";
 import { getTauriManagedRemote } from "../../app/services/remotes/remoteManager";
 import { getClientForRemote } from "../../app/api/client";
 import { isCharnelMode } from "../../app/services/charnel";
+import { retryFailedAlbumSend } from "../../app/services/send/sendReviewedSessionToRemote";
+import { retryFailedVideoSend } from "../../app/services/send/sendReviewedVideoSessionToRemote";
 import { RemotePicker } from "../forms/RemotePicker";
+import { LocalTargetPicker, LOCAL_WEB_TARGET_ID } from "../forms/LocalTargetPicker";
 import type { Remote } from "../../app/services/storage/schemas/remote";
 import { isOnline, isProbing, probeRemote } from "../../app/services/remotes/remoteHealth";
 import {
@@ -214,22 +217,6 @@ export function AddMediaModal(props: AddMediaModalProps) {
   // at creation, so referencing videoPendingSessions here before its own
   // declaration throws a TDZ ReferenceError).
 
-  // session ids (any target, not just the currently-viewed one) that still
-  // have at least one album pending review - cheap cross-reference against
-  // the same pendingSessions fetch above, no extra api calls. lets a
-  // "completed" job row distinguish "actually done" from "imported, but
-  // still needs review" (§9 in the refactor plan) instead of showing a
-  // plain checkmark for both.
-  const sessionsNeedingReviewIds = createMemo(() => {
-    const ids = new Set<string>();
-    for (const s of pendingSessions() ?? []) {
-      if (s.albums.length > 0) ids.add(s.session_id);
-    }
-    return ids;
-  });
-  const jobNeedsReview = (job: UploadJob) =>
-    job.status === "completed" && !!job.sessionId && sessionsNeedingReviewIds().has(job.sessionId);
-
   // pending video review sessions - fetched whenever the modal is open.
   const [videoPendingSessions, { refetch: refetchVideoPendingSessions }] = createResource<
     PendingVideoReviewSession[],
@@ -264,11 +251,65 @@ export function AddMediaModal(props: AddMediaModalProps) {
     return sessions.filter((s) => (s.target_remote_id ?? localId) === currentId);
   });
 
+  // session ids (any target, not just the currently-viewed one, either
+  // domain) that still have at least one entity pending review - cheap
+  // cross-reference against the pendingSessions/videoPendingSessions
+  // fetches above, no extra api calls. lets a "completed" job row
+  // distinguish "actually done" from "imported, but still needs review"
+  // (§9 in the refactor plan) instead of showing a plain checkmark for
+  // both - one set shared by music and video rather than two parallel ones.
+  const sessionsNeedingReviewIds = createMemo(() => {
+    const ids = new Set<string>();
+    for (const s of pendingSessions() ?? []) {
+      if (s.albums.length > 0) ids.add(s.session_id);
+    }
+    for (const s of videoPendingSessions() ?? []) {
+      if (s.groups.length > 0) ids.add(s.session_id);
+    }
+    return ids;
+  });
+  const jobNeedsReview = (job: { status: UploadJobStatus; sessionId?: string }) =>
+    job.status === "completed" && !!job.sessionId && sessionsNeedingReviewIds().has(job.sessionId);
+
   // session_id of a bulk "mark reviewed" currently in flight, if any
   const [markingSessionReviewed, setMarkingSessionReviewed] = createSignal<string | null>(null);
   const [markingVideoSessionReviewed, setMarkingVideoSessionReviewed] = createSignal<string | null>(
     null
   );
+
+  const handleRetryFailedSend = async (job: UploadJob) => {
+    const failed = job.retryFailedBlake3s;
+    if (!job.albumId || !job.remoteId || !failed || failed.length === 0) return;
+    const localRemote = await getTauriManagedRemote();
+    if (!localRemote) {
+      toast.error("local library isn't set up yet");
+      return;
+    }
+    await retryFailedAlbumSend(
+      job.id,
+      job.albumId,
+      job.remoteId,
+      job.label.split(" \u2192 ").pop() ?? "remote",
+      localRemote as unknown as Remote,
+      failed
+    );
+  };
+
+  const handleRetryFailedVideoSend = async (job: VideoUploadJob) => {
+    if (!job.isRemoteSend || !job.videoId || !job.remoteId) return;
+    const localRemote = await getTauriManagedRemote();
+    if (!localRemote) {
+      toast.error("local library isn't set up yet");
+      return;
+    }
+    await retryFailedVideoSend(
+      job.id,
+      job.videoId,
+      job.remoteId,
+      job.label.split(" \u2192 ").pop() ?? "remote",
+      localRemote as unknown as Remote
+    );
+  };
 
   const handleMarkSessionReviewed = async (session: PendingReviewSession) => {
     setMarkingSessionReviewed(session.session_id);
@@ -502,39 +543,41 @@ export function AddMediaModal(props: AddMediaModalProps) {
   // first). cleared once the refetch THIS job's own completion triggered
   // actually resolves - not on a fixed timer - so the row only ever shows
   // "checking" for as long as we're genuinely still waiting on the server.
+  // one shared set for both domains - see the completion-tracking effect below.
   const [checkingReviewJobIds, setCheckingReviewJobIds] = createSignal<Set<string>>(new Set());
-  const isCheckingReview = (job: UploadJob) => checkingReviewJobIds().has(job.id);
+  const isCheckingReview = (job: { id: string }) => checkingReviewJobIds().has(job.id);
 
-  // reviewableSessions (music only) cross-checks completed sessions against
-  // pendingSessions (fetched only on modal open/refetchReviewKey), which
-  // would otherwise be stale for a session that finishes while the modal is
-  // already open - refetch whenever the completed-job count grows so a
-  // freshly-finished session's real album count shows up promptly instead
-  // of only on reopen. a single immediate refetch can still race a session
-  // whose review-eligible state settles a moment after the job itself
-  // flips to "completed" (e.g. a batch's last sibling file finishing just
-  // after this one) - one delayed follow-up refetch closes that window
-  // instead of leaving the row stuck showing a plain "done" checkmark
-  // until some LATER unrelated job happens to complete and retrigger this.
+  // cross-checks completed jobs (either domain) against pendingSessions/
+  // videoPendingSessions (fetched only on modal open/refetchReviewKey),
+  // which would otherwise be stale for a session that finishes while the
+  // modal is already open - refetch whenever the completed-job count grows
+  // so a freshly-finished session's real review-pending state shows up
+  // promptly instead of only on reopen. a single immediate refetch can
+  // still race a session whose review-eligible state settles a moment
+  // after the job itself flips to "completed" (e.g. a batch's last
+  // sibling file finishing just after this one) - one delayed follow-up
+  // refetch closes that window instead of leaving the row stuck showing a
+  // plain "done" checkmark until some LATER unrelated job happens to
+  // complete and retrigger this. shared across music + video (previously
+  // two near-identical copies, one of which - video's - was never wired
+  // up at all, so a completed video job always showed a bare "done" even
+  // when it still needed review/hadn't been sent to the remote yet).
   let lastCompletedJobCount = 0;
-  const seenCompletedMusicJobIds = new Set<string>();
+  const seenCompletedJobIds = new Set<string>();
   createEffect(() => {
-    const count = completedJobs().length;
+    const entries = completedJobs();
+    const count = entries.length;
     if (count > lastCompletedJobCount) {
       lastCompletedJobCount = count;
 
-      // only the music jobs that JUST completed (not ones already resolved
-      // as "done"/"needs review" earlier) go into "checking" - re-marking
+      // only jobs that JUST completed (not ones already resolved as
+      // "done"/"needs review" earlier) go into "checking" - re-marking
       // every completed job on every unrelated completion would flicker
       // already-settled rows back to "checking" for no reason.
-      const newlyCompletedIds = (props.musicUploadJobs ?? [])
-        .filter(
-          (j) => j.status === "completed" && j.sessionId && !seenCompletedMusicJobIds.has(j.id)
-        )
-        .map((j) => j.id);
-      for (const j of props.musicUploadJobs ?? []) {
-        if (j.status === "completed") seenCompletedMusicJobIds.add(j.id);
-      }
+      const newlyCompletedIds = entries
+        .filter((e) => e.job.sessionId && !seenCompletedJobIds.has(e.job.id))
+        .map((e) => e.job.id);
+      for (const e of entries) seenCompletedJobIds.add(e.job.id);
       if (newlyCompletedIds.length > 0) {
         setCheckingReviewJobIds((prev) => new Set([...prev, ...newlyCompletedIds]));
       }
@@ -548,10 +591,10 @@ export function AddMediaModal(props: AddMediaModalProps) {
       };
 
       void Promise.resolve(refetchPendingSessions()).then(clearChecking);
-      void refetchVideoPendingSessions();
+      void Promise.resolve(refetchVideoPendingSessions()).then(clearChecking);
       const settleTimer = setTimeout(() => {
         void Promise.resolve(refetchPendingSessions()).then(clearChecking);
-        void refetchVideoPendingSessions();
+        void Promise.resolve(refetchVideoPendingSessions()).then(clearChecking);
       }, 2000);
       onCleanup(() => clearTimeout(settleTimer));
     }
@@ -810,18 +853,32 @@ export function AddMediaModal(props: AddMediaModalProps) {
                 >
                   add media to
                 </h2>
-                {/* target switcher - only offered in charnel/tauri mode (the
-                    only mode where "local library" is itself a real Remote,
-                    so no synthetic entry is needed in the picker's list) and
-                    only when there's actually something to switch between.
-                    the picker's own chip already shows the selected name, so
-                    no separate name label is printed alongside it. */}
+                {/* target switcher header: charnel/tauri mode uses RemotePicker
+                    (local library is already a real Remote there, so it's
+                    just another candidate in the list); plain web has no
+                    Remote row for "local", so it gets its own small
+                    LocalTargetPicker instead (see that file's doc comment
+                    for why this isn't just fed into RemotePicker). the
+                    picker's own chip already shows the selected name, so no
+                    separate name label is printed alongside it either way. */}
                 <Show
                   when={isCharnelMode() && (props.targetCandidates?.length ?? 0) > 0}
                   fallback={
-                    <span class="heading-5 text-[var(--color-text-primary)] truncate">
-                      {props.remoteName || getLocalLibraryName()}
-                    </span>
+                    <Show
+                      when={(props.targetCandidates?.length ?? 0) > 0}
+                      fallback={
+                        <span class="heading-5 text-[var(--color-text-primary)] truncate">
+                          {props.remoteName || getLocalLibraryName()}
+                        </span>
+                      }
+                    >
+                      <LocalTargetPicker
+                        remotes={props.targetCandidates!}
+                        value={props.targetRemote?.remote_id ?? LOCAL_WEB_TARGET_ID}
+                        onChange={(id) => props.onTargetChange?.(id)}
+                        localLabel={getLocalLibraryName()}
+                      />
+                    </Show>
                   }
                 >
                   <RemotePicker
@@ -1450,6 +1507,8 @@ export function AddMediaModal(props: AddMediaModalProps) {
                       {(entry) => {
                         const job = entry.job;
                         const warning = entry.domain === "video" ? entry.job.warning : undefined;
+                        const isDuplicate =
+                          entry.domain === "music" ? (entry.job as UploadJob).isDuplicate : false;
                         return (
                           <div class="py-0.5">
                             <div class="flex items-center gap-2">
@@ -1528,11 +1587,8 @@ export function AddMediaModal(props: AddMediaModalProps) {
                                   "text-[var(--color-text-secondary)]":
                                     job.status === "uploading" || job.status === "polling",
                                   "text-[var(--color-text-tertiary)]":
-                                    job.status === "completed" &&
-                                    !warning &&
-                                    !(entry.domain === "music" && jobNeedsReview(job as UploadJob)),
-                                  "text-[var(--color-accent-500)]":
-                                    entry.domain === "music" && jobNeedsReview(job as UploadJob),
+                                    job.status === "completed" && !warning && !jobNeedsReview(job),
+                                  "text-[var(--color-accent-500)]": jobNeedsReview(job),
                                   "text-amber-400":
                                     job.status === "timeout" ||
                                     (job.status === "completed" && !!warning),
@@ -1552,8 +1608,7 @@ export function AddMediaModal(props: AddMediaModalProps) {
                                 classList={{
                                   "cursor-pointer hover:underline":
                                     job.status === "failed" || job.status === "completed",
-                                  "text-[var(--color-accent-500)]":
-                                    entry.domain === "music" && jobNeedsReview(job as UploadJob),
+                                  "text-[var(--color-accent-500)]": jobNeedsReview(job),
                                 }}
                                 title={
                                   job.status === "failed"
@@ -1580,19 +1635,16 @@ export function AddMediaModal(props: AddMediaModalProps) {
                                   : job.status === "polling"
                                     ? (job.stage ?? "processing...")
                                     : job.status === "completed"
-                                      ? entry.domain === "music" &&
-                                        isCheckingReview(job as UploadJob)
+                                      ? isCheckingReview(job)
                                         ? "checking..."
-                                        : entry.domain === "music"
-                                          ? ((job as UploadJob).resultSummary ??
-                                            ((job as UploadJob).isDuplicate
-                                              ? "already in your library"
-                                              : jobNeedsReview(job as UploadJob)
-                                                ? "ready to review"
+                                        : (job.resultSummary ??
+                                          (isDuplicate
+                                            ? "already in your library"
+                                            : jobNeedsReview(job)
+                                              ? "ready to review"
+                                              : warning
+                                                ? `done - ${warning}`
                                                 : "done"))
-                                          : warning
-                                            ? `done - ${warning}`
-                                            : "done"
                                       : job.status === "timeout"
                                         ? "queued, check back later"
                                         : (job.error ?? "failed")}
@@ -1623,6 +1675,47 @@ export function AddMediaModal(props: AddMediaModalProps) {
                                 >
                                   view album
                                 </a>
+                              </Show>
+                              {/* retry failed - music send-to-remote jobs only, shown
+                                  when we recorded specific blake3s that failed to sync
+                                  (see retryFailedAlbumSend's doc comment) */}
+                              <Show
+                                when={
+                                  entry.domain === "music" &&
+                                  job.status === "failed" &&
+                                  (job as UploadJob).albumId &&
+                                  (job as UploadJob).remoteId &&
+                                  ((job as UploadJob).retryFailedBlake3s?.length ?? 0) > 0
+                                }
+                              >
+                                <button
+                                  type="button"
+                                  class="body-xs flex-shrink-0 text-[var(--color-link)] hover:underline"
+                                  onClick={() => void handleRetryFailedSend(job as UploadJob)}
+                                >
+                                  retry
+                                </button>
+                              </Show>
+                              {/* retry failed - video send-to-remote jobs only (see
+                                  VideoUploadJob.isRemoteSend's doc comment) */}
+                              <Show
+                                when={
+                                  entry.domain === "video" &&
+                                  job.status === "failed" &&
+                                  (job as VideoUploadJob).isRemoteSend &&
+                                  (job as VideoUploadJob).videoId &&
+                                  (job as VideoUploadJob).remoteId
+                                }
+                              >
+                                <button
+                                  type="button"
+                                  class="body-xs flex-shrink-0 text-[var(--color-link)] hover:underline"
+                                  onClick={() =>
+                                    void handleRetryFailedVideoSend(job as VideoUploadJob)
+                                  }
+                                >
+                                  retry
+                                </button>
                               </Show>
                             </div>
                             {/* progress bar - shown while uploading with a known ratio */}

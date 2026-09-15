@@ -23,5 +23,10 @@ class MainActivity : TauriActivity() {
   // implements fullscreen video - see FullscreenWebChromeClient's doc comment.
   override fun onWebViewCreate(webView: WebView) {
     webView.webChromeClient = FullscreenWebChromeClient(this, rustWebChromeClient)
+    // requestFullscreen() on this WebView is handled as in-page CSS
+    // fullscreen (confirmed: onShowCustomView never fires for it) - so JS
+    // calls this bridge directly on fullscreenchange instead. see
+    // SystemBarsBridge's doc comment.
+    webView.addJavascriptInterface(SystemBarsBridge(this), "AndroidSystemBars")
   }
 }

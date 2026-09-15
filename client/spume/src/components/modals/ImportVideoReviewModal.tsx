@@ -10,7 +10,9 @@ import { Button } from "../buttons/Button";
 import { MediaImage } from "../media/MediaImage";
 import { Icon } from "../icons/registry";
 import { ImportVideoGroupingView } from "../import/ImportVideoGroupingView";
+import { SendProgressPanel } from "../import/SendProgressPanel";
 import type { ImportReviewVideoGroup } from "../../video/hooks/useVideoImportReview";
+import type { SendReviewProgress } from "../../app/services/send/sendReviewProgress";
 
 export type ImportVideoReviewStage = "grouping" | "metadata";
 
@@ -23,6 +25,14 @@ export interface ImportVideoReviewModalProps {
   onMoveVideo: (videoId: string, toSeriesId: string | null) => void;
   onMarkReviewed: (groupKey: string) => void | Promise<void>;
   renderGroupEditor?: (editorProps: VideoGroupEditorRenderProps) => JSX.Element;
+  /** when set, this session's reviewed groups will be sent to this remote
+   *  once review completes - relabels the finalize button accordingly.
+   *  mirrors ImportReviewModal.tsx's identical prop (music's equivalent). */
+  sendTargetName?: string;
+  /** non-null while the post-review send to a remote is in flight - see
+   *  ImportReviewModal.tsx's identical prop (music's equivalent). rendered
+   *  as an inline panel instead of the normal grouping/metadata content. */
+  sendProgress?: SendReviewProgress | null;
 }
 
 export interface VideoGroupEditorRenderProps {
@@ -170,10 +180,11 @@ function MetadataFooter(props: {
   reviewedKeys: Set<string>;
   onSelect: (i: number) => void;
   onLooksGood: () => void;
+  sendTargetName?: string;
 }) {
   const hasNext = () => props.groupIndex < props.groups.length - 1;
   return (
-    <div class="flex flex-col gap-3 pt-3 border-t border-[var(--color-border-subtle)]">
+    <div class="flex flex-col gap-3 py-3 border-t border-[var(--color-border-subtle)]">
       <Show when={props.groups.length > 1}>
         <GroupDots
           groups={props.groups}
@@ -184,7 +195,7 @@ function MetadataFooter(props: {
       </Show>
       <div class="flex items-center gap-2 justify-center">
         <Button variant="primary" onClick={props.onLooksGood}>
-          looks good
+          {props.sendTargetName ? `send to ${props.sendTargetName}` : "looks good"}
           <Show when={hasNext()}>
             <svg
               class="inline ml-1"
@@ -267,62 +278,83 @@ export function ImportVideoReviewModal(props: ImportVideoReviewModalProps) {
       zIndex={1200}
       disableBackdropClose
       footer={
-        <Show when={stage() === "metadata"}>
-          <MetadataFooter
-            groups={props.groups}
-            groupIndex={groupIndex()}
-            reviewedKeys={reviewedKeys()}
-            onSelect={setGroupIndex}
-            onLooksGood={handleLooksGood}
-          />
+        <Show
+          when={!props.sendProgress}
+          fallback={
+            <div class="flex justify-center py-3">
+              <Button
+                variant="primary"
+                disabled={!props.sendProgress?.done}
+                onClick={props.onClose}
+              >
+                {props.sendProgress?.done ? "close" : "sending\u2026"}
+              </Button>
+            </div>
+          }
+        >
+          <Show when={stage() === "metadata"}>
+            <MetadataFooter
+              groups={props.groups}
+              groupIndex={groupIndex()}
+              reviewedKeys={reviewedKeys()}
+              onSelect={setGroupIndex}
+              onLooksGood={handleLooksGood}
+              sendTargetName={props.sendTargetName}
+            />
+          </Show>
         </Show>
       }
     >
-      <div class="flex flex-col p-4">
-        <Show when={!props.loading}>
-          <StepIndicator current={stage()} />
-        </Show>
+      <div class="flex-1 flex flex-col p-4">
+        <Show
+          when={!props.sendProgress}
+          fallback={<SendProgressPanel progress={props.sendProgress!} />}
+        >
+          <Show when={!props.loading}>
+            <StepIndicator current={stage()} />
+          </Show>
 
-        <Show when={props.loading}>
-          <div class="flex flex-col items-center justify-center py-16 gap-3 text-[var(--color-text-muted)]">
-            <Icon name="loader" size={28} color="currentColor" />
-            <p class="body-small">loading videos...</p>
-          </div>
-        </Show>
+          <Show when={props.loading}>
+            <div class="flex flex-col items-center justify-center py-16 gap-3 text-[var(--color-text-muted)]">
+              <Icon name="loader" size={28} color="currentColor" />
+              <p class="body-small">loading videos...</p>
+            </div>
+          </Show>
 
-        <Show when={!props.loading && stage() === "grouping"}>
-          <ImportVideoGroupingView
-            groups={props.groups}
-            onMoveVideo={props.onMoveVideo}
-            onConfirm={() => {
-              setStage("metadata");
-              setGroupIndex(0);
-            }}
-          />
-        </Show>
+          <Show when={!props.loading && stage() === "grouping"}>
+            <ImportVideoGroupingView
+              groups={props.groups}
+              onMoveVideo={props.onMoveVideo}
+              onConfirm={() => {
+                setStage("metadata");
+                setGroupIndex(0);
+              }}
+            />
+          </Show>
 
-        {/* function-children pattern - see ImportReviewModal.tsx's identical
+          {/* function-children pattern - see ImportReviewModal.tsx's identical
             comment for why this avoids remounting the editor on refetch. */}
-        <Show when={stage() === "metadata" && currentGroup()}>
-          {(_) =>
-            renderEditor({
-              get group() {
-                return currentGroup()!;
-              },
-              get groupIndex() {
-                return groupIndex();
-              },
-              get groupTotal() {
-                return props.groups.length;
-              },
-              get isReviewed() {
-                return reviewedKeys().has(currentGroup()!.groupKey);
-              },
-              onPrev: () => setGroupIndex((i) => Math.max(0, i - 1)),
-              onNext: () => setGroupIndex((i) => Math.min(props.groups.length - 1, i + 1)),
-              onLooksGood: handleLooksGood,
-            })
-          }
+          <Show when={stage() === "metadata" && currentGroup()}>
+            {(_) =>
+              renderEditor({
+                get group() {
+                  return currentGroup()!;
+                },
+                get groupIndex() {
+                  return groupIndex();
+                },
+                get groupTotal() {
+                  return props.groups.length;
+                },
+                get isReviewed() {
+                  return reviewedKeys().has(currentGroup()!.groupKey);
+                },
+                onPrev: () => setGroupIndex((i) => Math.max(0, i - 1)),
+                onNext: () => setGroupIndex((i) => Math.min(props.groups.length - 1, i + 1)),
+                onLooksGood: handleLooksGood,
+              })
+            }
+          </Show>
         </Show>
       </div>
     </Modal>

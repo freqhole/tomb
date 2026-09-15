@@ -66,6 +66,11 @@ export interface UploadJob {
    * (HttpTransport via XHR); stays undefined (indeterminate) on P2P/tauri
    * uploads, which don't stream a trackable request body. */
   progress?: number;
+  /** for a "send to remote" job (see sendReviewedSessionToRemote.ts): the
+   * specific blake3 hashes that failed to sync - lets a "retry failed"
+   * action resend just those instead of the whole album again. undefined
+   * for import jobs, or a send with no failures. */
+  retryFailedBlake3s?: string[];
 }
 
 // reactive store for all tracked upload jobs
@@ -148,8 +153,11 @@ export function updateJobProgress(id: string, progress: number) {
 }
 
 // merge entity ids onto a tracked job once we've resolved them from the
-// server-side job result.
-function updateJobEntities(
+// server-side job result - also used by sendReviewedSessionToRemote.ts to
+// attach a send job's target/album/retry info (not resolved from a server
+// job result, but the same "patch known fields onto this tracked row"
+// shape applies).
+export function updateJobEntities(
   id: string,
   ids: {
     albumId?: string;
@@ -159,6 +167,7 @@ function updateJobEntities(
     sessionId?: string;
     isDuplicate?: boolean;
     resultSummary?: string;
+    retryFailedBlake3s?: string[];
   }
 ) {
   setUploadJobs(
@@ -171,6 +180,7 @@ function updateJobEntities(
       if (ids.sessionId) j.sessionId = ids.sessionId;
       if (ids.isDuplicate !== undefined) j.isDuplicate = ids.isDuplicate;
       if (ids.resultSummary) j.resultSummary = ids.resultSummary;
+      if (ids.retryFailedBlake3s) j.retryFailedBlake3s = ids.retryFailedBlake3s;
     })
   );
 }
@@ -740,9 +750,15 @@ export async function importPathsToLocal(
  * fires off fetch jobs and polls in the background — returns immediately.
  * uses batched polling to reduce HTTP overhead when fetching multiple urls.
  * @param onJobComplete optional callback when any job finishes
+ * @param targetRemote import against this remote instead of whatever's
+ *   currently selected - see uploadFilesToRemote's identical param.
  */
-export async function fetchUrlsOnRemote(urls: string[], onJobComplete?: () => void): Promise<void> {
-  const remote = getCurrentRemote();
+export async function fetchUrlsOnRemote(
+  urls: string[],
+  onJobComplete?: () => void,
+  targetRemote?: RemoteLike
+): Promise<void> {
+  const remote = targetRemote ?? getCurrentRemote();
   if (!remote) throw new Error("no active remote");
 
   const userId = getCurrentUser()?.userId;

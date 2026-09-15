@@ -15,11 +15,19 @@ export interface SendReviewProgress {
   currentAlbumTitle: string | null;
   currentSongsDone: number;
   currentSongsTotal: number;
+  /** noun for the currentSongsDone/currentSongsTotal line - "songs" for
+   *  music, "videos" for video (see sendReviewedVideoSessionToRemote.ts's
+   *  doc comment on why it reuses this album/song-shaped type). */
+  itemLabel?: string;
   done: boolean;
   errors: string[];
 }
 
-export function emptyProgress(targetName: string, totalAlbums: number): SendReviewProgress {
+export function emptyProgress(
+  targetName: string,
+  totalAlbums: number,
+  itemLabel = "songs"
+): SendReviewProgress {
   return {
     targetName,
     totalAlbums,
@@ -28,6 +36,7 @@ export function emptyProgress(targetName: string, totalAlbums: number): SendRevi
     currentAlbumTitle: null,
     currentSongsDone: 0,
     currentSongsTotal: 0,
+    itemLabel,
     done: false,
     errors: [],
   };

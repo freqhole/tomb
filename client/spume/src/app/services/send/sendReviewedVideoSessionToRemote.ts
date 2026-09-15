@@ -23,6 +23,7 @@ import {
   addTrackedJob,
   updateJobStatus,
   updateJobProgress,
+  updateJobEntities,
 } from "../../../video/import/remoteImport";
 import type { Remote } from "../storage/schemas/remote";
 import { getRemoteById } from "../remotes/remoteManager";
@@ -51,7 +52,7 @@ export async function sendReviewedVideosToRemote(
   onProgress?: (progress: SendReviewProgress) => void,
   keepPendingTarget = false
 ): Promise<void> {
-  const progress = emptyProgress(targetRemoteName, videoIds.length);
+  const progress = emptyProgress(targetRemoteName, videoIds.length, "videos");
   const emit = () => onProgress?.({ ...progress });
 
   if (videoIds.length === 0) {
@@ -87,8 +88,9 @@ export async function sendReviewedVideosToRemote(
       progress.currentSongsTotal = 1;
       emit();
 
-      trackId = addTrackedJob(`${video.title} \u2192 ${targetRemoteName}`, localRemote.remote_id);
+      trackId = addTrackedJob(`${video.title} \u2192 ${targetRemoteName}`, targetRemoteId);
       updateJobStatus(trackId, "uploading");
+      updateJobEntities(trackId, { videoId, sessionId, isRemoteSend: true });
 
       // blake3/sha256/size live on the media blob, not denormalized onto
       // the video row - same lookup syncVideoToLocal.ts's fetchBlobMetadata
@@ -141,4 +143,65 @@ export async function sendReviewedVideosToRemote(
   progress.done = true;
   emit();
   if (!keepPendingTarget) clearPendingSendTarget(sessionId);
+}
+
+/**
+ * retry a previously-failed "send to remote" job for one video, in place -
+ * mirrors music's `retryFailedAlbumSend`, but simpler: video sends are
+ * already one-item-at-a-time (`sendVideosToRemote([item], ...)`), so
+ * "retry" just means re-running that same single-item send rather than
+ * needing a `retryBlake3s` subset.
+ */
+export async function retryFailedVideoSend(
+  trackId: string,
+  videoId: string,
+  targetRemoteId: string,
+  targetRemoteName: string,
+  localRemote: Remote
+): Promise<void> {
+  const dest = await getRemoteById(targetRemoteId);
+  if (!dest) {
+    updateJobStatus(trackId, "failed", { error: `couldn't find ${targetRemoteName} to send to` });
+    return;
+  }
+
+  updateJobStatus(trackId, "uploading");
+  try {
+    const localSource = new RemoteVideoDataSource(localRemote);
+    const video = await localSource.getVideoById(videoId);
+    if (!video) {
+      updateJobStatus(trackId, "failed", { error: "video no longer found locally" });
+      return;
+    }
+
+    const client = await getClientForRemote(localRemote);
+    const metaResp = await client.music.blobMetadata({ id: video.media_blob_id });
+    const meta = metaResp.success ? metaResp.data : undefined;
+    const item: SendVideoItem = {
+      video,
+      blobId: video.media_blob_id,
+      blake3: meta?.blake3 ?? null,
+      sha256: meta?.sha256 ?? null,
+      size: meta?.size ?? null,
+      mime: meta?.mime ?? null,
+    };
+
+    const result = await sendVideosToRemote([item], localRemote, dest, {
+      onProgress: (p) => {
+        const done = p.syncedVideos + p.skippedVideos + p.failedVideos;
+        updateJobProgress(trackId, done > 0 ? 1 : 0);
+      },
+    });
+    updateJobStatus(
+      trackId,
+      result.failedVideos > 0 ? "failed" : "completed",
+      result.failedVideos > 0
+        ? { error: result.errors[0] ?? "send failed", errorFull: result.errors.join("; ") }
+        : undefined
+    );
+  } catch (e) {
+    const msg = String(e);
+    updateJobStatus(trackId, "failed", { error: msg });
+    logError("retryFailedVideoSend", `video ${videoId} retry failed: ${msg}`);
+  }
 }

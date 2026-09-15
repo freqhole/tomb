@@ -54,6 +54,11 @@ export interface VideoUploadJob {
    * (HttpTransport via XHR); stays undefined (indeterminate) on P2P/tauri
    * uploads, which don't stream a trackable request body. */
   progress?: number;
+  /** true only for a "send to remote" job (sendReviewedVideoSessionToRemote.ts)
+   * - discriminates it from a regular import job, since both set
+   * `videoId`/`remoteId` but only a send job is retryable via
+   * `retryFailedVideoSend`. */
+  isRemoteSend?: boolean;
 }
 
 // reactive store for all tracked video upload jobs (own instance — see module note above)
@@ -152,10 +157,17 @@ async function resolveVideoJobEntities(
 
 // merge entity ids/summary onto a tracked job once resolved from the
 // server-side job result - mirrors music/import/remoteImport.ts's
-// `updateJobEntities`.
-function updateJobEntities(
+// `updateJobEntities`. exported so sendReviewedVideoSessionToRemote.ts can
+// attach a send job's target/video info too.
+export function updateJobEntities(
   id: string,
-  ids: { remoteId?: string; sessionId?: string; videoId?: string; resultSummary?: string }
+  ids: {
+    remoteId?: string;
+    sessionId?: string;
+    videoId?: string;
+    resultSummary?: string;
+    isRemoteSend?: boolean;
+  }
 ) {
   setVideoUploadJobs(
     (j) => j.id === id,
@@ -164,6 +176,7 @@ function updateJobEntities(
       if (ids.sessionId) j.sessionId = ids.sessionId;
       if (ids.videoId) j.videoId = ids.videoId;
       if (ids.resultSummary) j.resultSummary = ids.resultSummary;
+      if (ids.isRemoteSend !== undefined) j.isRemoteSend = ids.isRemoteSend;
     })
   );
 }
@@ -219,18 +232,21 @@ function humanizeJobError(
  * upload video files to the active remote server.
  * fires off uploads and polls jobs in the background — returns immediately
  * after all files have been submitted (not after jobs complete).
+ * @param targetRemote import against this remote instead of whatever's
+ *   currently selected - see music's uploadFilesToRemote's identical param.
  */
 export async function uploadVideoFilesToRemote(
   files: File[],
-  onJobComplete?: () => void
+  onJobComplete?: () => void,
+  targetRemote?: RemoteLike
 ): Promise<void> {
-  const remote = getCurrentRemote();
+  const remote = targetRemote ?? getCurrentRemote();
   if (!remote) throw new Error("no active remote");
 
   const poller = new JobPoller(remote, 3000);
 
   for (const file of files) {
-    const trackId = addTrackedJob(file.name, remote.remote_id);
+    const trackId = addTrackedJob(file.name, remote.remote_id ?? "");
 
     (async () => {
       try {
@@ -609,9 +625,10 @@ export async function importVideoPathsToLocal(
  */
 export async function fetchVideoUrlsOnRemote(
   urls: string[],
-  onJobComplete?: () => void
+  onJobComplete?: () => void,
+  targetRemote?: RemoteLike
 ): Promise<void> {
-  const remote = getCurrentRemote();
+  const remote = targetRemote ?? getCurrentRemote();
   if (!remote) throw new Error("no active remote");
 
   const userId = getCurrentUser()?.userId;
@@ -628,7 +645,7 @@ export async function fetchVideoUrlsOnRemote(
       label = url.length > 50 ? url.slice(0, 47) + "..." : url;
     }
 
-    const trackId = addTrackedJob(label, remote.remote_id);
+    const trackId = addTrackedJob(label, remote.remote_id ?? "");
 
     (async () => {
       try {
