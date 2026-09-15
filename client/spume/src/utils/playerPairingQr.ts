@@ -1,5 +1,5 @@
 // detects freqhole-player pairing QR payloads (the `?p=<base64url json>`
-// scheme - see app/player/renderPairingQr.ts's encodePlayerQrPayload).
+// scheme - see cenotaph/app/renderPairingQr.ts's encodePlayerQrPayload).
 // used by AddRemoteModal.tsx (THE pairing entry point - see its own doc
 // comment) to recognize a scanned/pasted player qr and hand off the
 // embedded node_id to its player_device pairing step, instead of trying

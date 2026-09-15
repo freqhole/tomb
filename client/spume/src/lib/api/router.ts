@@ -4,7 +4,7 @@
 // own modules are (music/, media_blobz/, video/, ...) - onto a cenotaph
 // `ApiRouter`. see docs/cenotaph-migration-plan.md phase 3, tier 2.
 
-import type { ApiRouter } from "@freqhole/cenotaph";
+import type { ApiRouter } from "../../cenotaph";
 import { query as querySongs } from "./music/songs";
 import { getMetadata as blobMetadata } from "./media_blobz";
 import { query as queryVideos } from "./video/videos";

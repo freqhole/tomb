@@ -9,7 +9,7 @@ installLogCapture();
 import { QueryClientProvider } from "@tanstack/solid-query";
 import { render } from "solid-js/web";
 import { App } from "./app/App";
-import { CenotaphPlayerApp } from "./app/player/CenotaphPlayerApp";
+import { CenotaphPlayerApp } from "./cenotaph/app/CenotaphPlayerApp";
 import { isCharnelMode } from "./app/services/charnel";
 import { queryClient } from "./queryClient";
 

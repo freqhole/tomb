@@ -24,14 +24,14 @@ import {
   type CenotaphAcceptableNode,
   type CenotaphBiStream,
   type MediaPlaybackNode,
-} from "@freqhole/cenotaph";
+} from "../index";
 import { spumeTrustStore } from "./trustStoreAdapter";
 import { spumeSessionStore } from "./playerSessionAdapter";
 import { getSpumeHelloInfo } from "./spumeHelloRoute";
 import { isRemotePlaybackEnabled } from "./remoteModeSettings";
-import { registerBrowserApiRoutes } from "../../../lib/api/router";
-import { isCharnelMode } from "../charnel/mode";
-import { isRodioEnabled } from "../../../music/services/audio/select";
+import { registerBrowserApiRoutes } from "../../lib/api/router";
+import { isCharnelMode } from "../../app/services/charnel/mode";
+import { isRodioEnabled } from "../../music/services/audio/select";
 import { charnelPlaybackAdapter } from "./charnelPlaybackAdapter";
 
 /** the node shape this module's two accept-loop handlers actually need.

@@ -1,7 +1,7 @@
 // synthetic "source" Remote representing this browser's own midden node -
 // used as sendToRemote()'s `source` param when sending a purely local
 // (never-uploaded, imported straight into IndexedDB) song to an external
-// remote after review. mirrors app/services/remotePlayback/
+// remote after review. mirrors cenotaph/adapters/
 // mediaRefResolve.ts's ephemeralPeerRemote() pattern for the same reason:
 // a one-off identity reference shouldn't leave a permanent, user-visible
 // row in the remotes table just because a send happened.

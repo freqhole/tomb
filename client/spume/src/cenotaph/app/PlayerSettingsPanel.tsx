@@ -22,19 +22,16 @@ import {
   setSessionMode,
   setSessionSignal,
   type TrustedController,
-} from "@freqhole/cenotaph";
+} from "../index";
 import {
   getLocalLibraryName,
   getSyncQueueToLocal,
   setLocalLibraryName,
   setSyncQueueToLocal,
-} from "../services/storage/db";
-import {
-  remotePlaybackEnabled,
-  setRemotePlaybackEnabled,
-} from "../services/remotePlayback/remoteModeSettings";
-import { spumeTrustStore } from "../services/remotePlayback/trustStoreAdapter";
-import { spumeSessionStore } from "../services/remotePlayback/playerSessionAdapter";
+} from "../../app/services/storage/db";
+import { remotePlaybackEnabled, setRemotePlaybackEnabled } from "../adapters/remoteModeSettings";
+import { spumeTrustStore } from "../adapters/trustStoreAdapter";
+import { spumeSessionStore } from "../adapters/playerSessionAdapter";
 
 export function PlayerSettingsPanel(props: { onClose: () => void; nodeId?: string }) {
   const [nameInput, setNameInput] = createSignal(getLocalLibraryName());

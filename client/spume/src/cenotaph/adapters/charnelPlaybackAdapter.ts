@@ -15,7 +15,7 @@
 // for different reasons (a queueable domain object here vs. raw bytes
 // there).
 
-import type { MediaRef, PlaybackBackend, PlayerStatus } from "@freqhole/cenotaph";
+import type { MediaRef, PlaybackBackend, PlayerStatus } from "../index";
 import { createEffect, createRoot, on } from "solid-js";
 import {
   addToQueue,
@@ -23,28 +23,31 @@ import {
   playQueue,
   removeFromQueue as queueRemoveFromQueue,
   reorderQueue as queueReorderQueue,
-} from "../../../music/services/queue/queue";
+} from "../../music/services/queue/queue";
 import {
   pause as pausePlayback,
   play as resumePlayback,
   playNext,
   seek as seekPlayback,
   setPlayerVolume,
-} from "../../../music/services/audio/player";
-import { currentTime, isPlaying, volume } from "../../../music/services/audio/playerState";
-import { appState, setAutoDownloadEnabled as persistAutoDownloadEnabled } from "../storage/db";
-import { getAutoDownloadEnabled } from "../storage/db";
+} from "../../music/services/audio/player";
+import { currentTime, isPlaying, volume } from "../../music/services/audio/playerState";
+import {
+  appState,
+  setAutoDownloadEnabled as persistAutoDownloadEnabled,
+} from "../../app/services/storage/db";
+import { getAutoDownloadEnabled } from "../../app/services/storage/db";
 import {
   mediaItemKey,
   songToMediaItem,
   videoToMediaItem,
   type MediaItem,
-} from "../storage/mediaItem";
-import type { Song } from "../../../music/services/storage/types";
-import type { QueuedVideo } from "../storage/mediaItem";
+} from "../../app/services/storage/mediaItem";
+import type { Song } from "../../music/services/storage/types";
+import type { QueuedVideo } from "../../app/services/storage/mediaItem";
 import { resolveMediaRefToSong, resolveMediaRefToVideo } from "./mediaRefResolve";
-import { leaveRadio, tuneIntoRadio } from "../radio/radioService";
-import { warn } from "../../../utils/logger";
+import { leaveRadio, tuneIntoRadio } from "../../app/services/radio/radioService";
+import { warn } from "../../utils/logger";
 
 /** resolves one wire `MediaRef` to a queueable `MediaItem`, promoting it
  * into the local library first if needed (see `mediaRefResolve.ts`).

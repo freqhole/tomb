@@ -2,7 +2,7 @@
 // route-level glue around service.ts's getMediaBlob(), the actual
 // business logic.
 
-import type { ApiRouteHandler } from "@freqhole/cenotaph";
+import type { ApiRouteHandler } from "../../../cenotaph";
 import { getMediaBlob } from "./service";
 
 export const getMetadata: ApiRouteHandler = async (body) => {

@@ -225,7 +225,7 @@ export type UserRole = "admin" | "member" | "viewer";
 // closely as idb allows - a single, shared record of "a known peer
 // identity", used for BOTH outbound player pairing (see
 // services/players/pairedPlayers.ts) and inbound controller trust (see
-// services/remotePlayback/trustStoreAdapter.ts). kept as its own store
+// cenotaph/adapters/trustStoreAdapter.ts). kept as its own store
 // rather than flattened into `UserPeerNode` below, and kept structurally
 // identical to grimoire's own `User` (not renamed/reshaped for browser
 // convenience), so a future real grimoire-backed multi-device user is a

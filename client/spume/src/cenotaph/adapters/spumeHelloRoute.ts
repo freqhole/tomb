@@ -5,8 +5,8 @@
 // instance sees `supports_remote_playback` reflect the user's current
 // opt-in toggle (see remoteModeSettings.ts).
 
-import type { HelloInfo } from "@freqhole/cenotaph";
-import { getLocalLibraryName } from "../storage/db";
+import type { HelloInfo } from "../index";
+import { getLocalLibraryName } from "../../app/services/storage/db";
 import { isActivePlayer, isRemotePlaybackEnabled } from "./remoteModeSettings";
 
 export function getSpumeHelloInfo(): HelloInfo {

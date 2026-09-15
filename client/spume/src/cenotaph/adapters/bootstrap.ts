@@ -11,9 +11,10 @@
 //
 // call once from App.tsx's boot sequence (mirrors initRodioPreference()).
 
-import { getMiddenNode, onMiddenReady } from "../../api/client";
+import { getMiddenNode, onMiddenReady } from "../../app/api/client";
 import { initRemotePlaybackAcceptMode } from "./acceptModeBootstrap";
 import { initLocalLibraryHooks } from "./localLibraryHooks";
+import type { MiddenNodeLike } from "@freqhole/api-client";
 
 let registered = false;
 
@@ -22,7 +23,7 @@ export function initRemotePlaybackBootstrap(): void {
   registered = true;
 
   onMiddenReady(() => {
-    void getMiddenNode().then((node) => {
+    void getMiddenNode().then((node: MiddenNodeLike) => {
       initRemotePlaybackAcceptMode(node);
       initLocalLibraryHooks();
     });

@@ -19,16 +19,16 @@
 // rathole-pairing-invite-code-plan.md and cenotaph-migration-plan.md
 // phase 7), not this store.
 
-import type { PeerRole, TrustedController, TrustStore } from "@freqhole/cenotaph";
-import { adminLocalRawDispatch } from "../../api/adminClient";
-import { isCharnelMode } from "../charnel/mode";
+import type { PeerRole, TrustedController, TrustStore } from "../index";
+import { adminLocalRawDispatch } from "../../app/api/adminClient";
+import { isCharnelMode } from "../../app/services/charnel/mode";
 import {
   allowPeer,
   findUserByNodeId,
   listPeerNodesWithUsers,
   removePeerNode,
-} from "../users/usersStore";
-import type { PeerNodeWithUser } from "../storage/types";
+} from "../../app/services/users/usersStore";
+import type { PeerNodeWithUser } from "../../app/services/storage/types";
 
 function toTrustedController(joined: PeerNodeWithUser): TrustedController {
   return {

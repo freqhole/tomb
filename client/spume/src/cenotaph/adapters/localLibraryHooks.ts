@@ -11,14 +11,14 @@
 // `/player/`) share the exact same `mediaPlaybackBackend` singleton, so
 // hooks need to be set regardless of which side ends up actually playing.
 
-import { setLocalLibraryHooks, type LocalLibraryHooks, type MediaRef } from "@freqhole/cenotaph";
-import { getSyncQueueToLocal } from "../storage/db";
-import { getSongByBlake3 } from "../../../music/services/storage/db/songs";
-import { readAudioFromOPFS } from "../../../music/services/opfs/helpers";
-import { getVideoByBlake3 } from "../../../video/services/storage/db/videos";
-import { readVideoFromOPFS } from "../../../video/services/opfs/helpers";
+import { setLocalLibraryHooks, type LocalLibraryHooks, type MediaRef } from "../index";
+import { getSyncQueueToLocal } from "../../app/services/storage/db";
+import { getSongByBlake3 } from "../../music/services/storage/db/songs";
+import { readAudioFromOPFS } from "../../music/services/opfs/helpers";
+import { getVideoByBlake3 } from "../../video/services/storage/db/videos";
+import { readVideoFromOPFS } from "../../video/services/opfs/helpers";
 import { resolveMediaRefToSong, resolveMediaRefToVideo } from "./mediaRefResolve";
-import { warn } from "../../../utils/logger";
+import { warn } from "../../utils/logger";
 
 async function getLocalBlob(blake3Hash: string): Promise<Blob | null> {
   const song = await getSongByBlake3(blake3Hash);

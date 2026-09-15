@@ -45,20 +45,20 @@ import {
   skip as skipTrack,
   upcomingQueue,
   type MediaPlaybackNode,
-} from "@freqhole/cenotaph";
-import { spumeTrustStore } from "../services/remotePlayback/trustStoreAdapter";
-import { getMiddenNode } from "../api/client";
+} from "../index";
+import { spumeTrustStore } from "../adapters/trustStoreAdapter";
+import { getMiddenNode } from "../../app/api/client";
 
-import { appState, getLocalLibraryName } from "../services/storage/db";
+import { appState, getLocalLibraryName } from "../../app/services/storage/db";
 import {
   remotePlaybackEnabled,
   setPlayerRouteMounted,
   setRemotePlaybackEnabled,
-} from "../services/remotePlayback/remoteModeSettings";
+} from "../adapters/remoteModeSettings";
 import { PlayerDebugOverlay } from "./PlayerDebugOverlay";
 import { PlayerSettingsPanel } from "./PlayerSettingsPanel";
 import { renderPlayerQr } from "./renderPairingQr";
-import { isCharnelMode } from "../services/charnel/mode";
+import { isCharnelMode } from "../../app/services/charnel/mode";
 import { isRodioEnabled } from "../../music/services/audio/select";
 import {
   currentTime as realCurrentTime,
@@ -70,7 +70,11 @@ import {
   play as realPlay,
   playNext as realPlayNext,
 } from "../../music/services/audio/player";
-import { mediaItemKey, mediaItemSubtitle, mediaItemTitle } from "../services/storage/mediaItem";
+import {
+  mediaItemKey,
+  mediaItemSubtitle,
+  mediaItemTitle,
+} from "../../app/services/storage/mediaItem";
 import { getSongDisplayImages } from "../../utils/images";
 import MediaImage from "../../components/media/MediaImage";
 import type { ImageMetadata } from "../../music/services/storage/types";

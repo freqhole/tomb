@@ -83,7 +83,7 @@ import {
 import { togglePlayback } from "../music/services/audio/player";
 import { initRodioPreference } from "../music/services/audio/select";
 import { initVideoWindowPreference } from "../music/services/audio/selectVideo";
-import { initRemotePlaybackBootstrap } from "./services/remotePlayback/bootstrap";
+import { initRemotePlaybackBootstrap } from "../cenotaph/adapters/bootstrap";
 import { swapPlayerBackend } from "../music/services/audio/player";
 import { initQueueSizeLimit } from "../music/services/queue/queueLimit";
 import {

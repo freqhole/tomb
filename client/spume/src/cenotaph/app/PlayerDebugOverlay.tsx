@@ -5,7 +5,7 @@
 // is on. mirrors player.freqhole.net's now-abandoned `debug/DebugOverlay.tsx`.
 
 import { createEffect, For } from "solid-js";
-import { capturedLogLines, type CapturedLogLine } from "@freqhole/cenotaph";
+import { capturedLogLines, type CapturedLogLine } from "../index";
 
 const LEVEL_COLOR: Record<CapturedLogLine["level"], string> = {
   log: "text-neutral-300",

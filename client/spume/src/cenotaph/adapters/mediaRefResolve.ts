@@ -7,21 +7,21 @@
 // extracted so both stay in sync instead of reimplementing the same
 // "check local library, else sync in from source peer" resolution twice.
 
-import type { MediaRef } from "@freqhole/cenotaph";
-import { getClientForRemote } from "../../api/client";
-import { getRemoteByPeerAddr } from "../remotes/remoteManager";
-import type { P2PRemote, Remote } from "../storage/schemas/remote";
-import { getSongByBlake3 } from "../../../music/services/storage/db/songs";
-import { syncSongToLocal } from "../../../music/services/sync/syncSongToLocal";
-import { adaptSongFromAPI, type ApiSongQueryItem } from "../../../music/data/remote/adapters";
-import { getVideoByBlake3 } from "../../../video/services/storage/db/videos";
-import { syncVideoToLocal } from "../../../video/services/sync/syncVideoToLocal";
-import type { Song } from "../../../music/services/storage/types";
-import type { QueuedVideo } from "../storage/mediaItem";
-import { queryClient } from "../../../queryClient";
-import { queryKeys } from "../../../music/queries/queryKeys";
-import { videoQueryKeys } from "../../../video/queries/queryKeys";
-import { debug, warn } from "../../../utils/logger";
+import type { MediaRef } from "../index";
+import { getClientForRemote } from "../../app/api/client";
+import { getRemoteByPeerAddr } from "../../app/services/remotes/remoteManager";
+import type { P2PRemote, Remote } from "../../app/services/storage/schemas/remote";
+import { getSongByBlake3 } from "../../music/services/storage/db/songs";
+import { syncSongToLocal } from "../../music/services/sync/syncSongToLocal";
+import { adaptSongFromAPI, type ApiSongQueryItem } from "../../music/data/remote/adapters";
+import { getVideoByBlake3 } from "../../video/services/storage/db/videos";
+import { syncVideoToLocal } from "../../video/services/sync/syncVideoToLocal";
+import type { Song } from "../../music/services/storage/types";
+import type { QueuedVideo } from "../../app/services/storage/mediaItem";
+import { queryClient } from "../../queryClient";
+import { queryKeys } from "../../music/queries/queryKeys";
+import { videoQueryKeys } from "../../video/queries/queryKeys";
+import { debug, warn } from "../../utils/logger";
 
 /** synthesize a `RemoteLike`-shaped peer reference for `item.source_peer_addr`
  * without persisting anything - mirrors `blobResolver.ts`'s

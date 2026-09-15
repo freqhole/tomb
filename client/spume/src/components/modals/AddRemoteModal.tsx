@@ -447,7 +447,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
 
   const handleTestConnection = (input: string) => {
     // a scanned/pasted freqhole-player pairing qr (`?p=<base64url json>` -
-    // see app/player/renderPairingQr.ts) wraps its node_id in a url whose
+    // see cenotaph/app/renderPairingQr.ts) wraps its node_id in a url whose
     // host is meaningless (often the player's own dev-server localhost
     // origin, unreachable from another device) - decode it and hand off
     // the bare node_id instead of the wrapper url, so the flow's existing
