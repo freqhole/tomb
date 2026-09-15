@@ -28,11 +28,12 @@ pub fn draw(frame: &mut Frame, area: Rect, app: &mut App) {
     }
 }
 
-/// candidate big-text sizes for the pin, largest first, as (pixel_size,
-/// terminal cols per glyph, terminal rows per glyph) for an 8x8 font -
-/// mirrors `tui_big_text::PixelSize::pixels_per_cell` (private upstream).
-/// picked dynamically so the pin shrinks just enough to fit instead of an
-/// all-or-nothing fall back to plain small text.
+/// big-text size used for the pin, now-playing title/artist, and queue
+/// rows - fixed at `Quadrant` everywhere for visual consistency (previously
+/// picked dynamically from `Full`/`HalfWidth`/`Quadrant` based on available
+/// space, which meant the pin and now-playing text could render at
+/// different sizes depending on terminal width). still falls back to plain
+/// text (`None`) when even `Quadrant` doesn't fit `avail_w`/`avail_h`.
 ///
 /// deliberately excludes `PixelSize::Sextant`/`Octant`: those render using
 /// sextant/octant block-drawing glyphs from unicode's "Symbols for Legacy
@@ -40,16 +41,12 @@ pub fn draw(frame: &mut Frame, area: Rect, app: &mut App) {
 /// additions most terminal fonts don't have yet, especially a bare linux
 /// console (no GUI terminal emulator) on something like a raspberry pi,
 /// where they render as tofu/garbled boxes instead of text. `Quadrant`
-/// (2x2, from the original 1.1-era Block Elements range) and everything
-/// above it are safe on effectively any terminal. found via a real report:
-/// the pin (always short - 6 ascii digits, fits at `Full`/`HalfWidth`)
-/// rendered fine on a pi console, but the "now playing" title/artist
-/// (longer, falling through to `Octant` to fit) rendered as garbage.
-const PIN_SIZE_CANDIDATES: &[(PixelSize, u16, u16)] = &[
-    (PixelSize::Full, 8, 8),
-    (PixelSize::HalfWidth, 4, 8),
-    (PixelSize::Quadrant, 4, 4),
-];
+/// (2x2, from the original 1.1-era Block Elements range) is safe on
+/// effectively any terminal. found via a real report: the pin (always
+/// short - 6 ascii digits, fit fine at larger sizes) rendered fine on a pi
+/// console, but the "now playing" title/artist (longer, previously falling
+/// through to `Octant` to fit) rendered as garbage.
+const PIN_SIZE_CANDIDATES: &[(PixelSize, u16, u16)] = &[(PixelSize::Quadrant, 4, 4)];
 
 struct PinLayout {
     pixel_size: PixelSize,
@@ -57,9 +54,9 @@ struct PinLayout {
     rows: u16,
 }
 
-/// picks the largest pin size (trying digit-spaced first, then tight) that
-/// fits within `avail_w` x `avail_h`. returns `None` if even the smallest
-/// candidate, tightly packed, doesn't fit.
+/// picks the pin's big-text layout (always `PixelSize::Quadrant` - see
+/// `PIN_SIZE_CANDIDATES`) if it fits within `avail_w` x `avail_h`, `None`
+/// otherwise.
 fn fit_pin_layout(pin: &str, avail_w: u16, avail_h: u16) -> Option<PinLayout> {
     let digits: Vec<char> = pin.chars().collect();
     let n = digits.len() as u16;
@@ -594,11 +591,11 @@ fn truncate_to_width(s: &str, width: u16) -> String {
 }
 
 /// like `fit_pin_layout`, but for an arbitrary title string rather than
-/// a fixed 6-digit pin - picks the largest big-text size (from the same
-/// candidate list) whose glyphs, one per character, fit within
-/// `avail_w` columns. most titles will simply be too long for any
-/// big-text size and fall back to `None` (plain text) - that's fine,
-/// it's an upgrade only for titles short enough to benefit.
+/// a fixed 6-digit pin - uses the same fixed `PixelSize::Quadrant` size
+/// (see `PIN_SIZE_CANDIDATES`) if it fits within `avail_w` columns. most
+/// titles will simply be too long for big-text and fall back to `None`
+/// (plain text) - that's fine, it's an upgrade only for titles short
+/// enough to benefit.
 fn fit_text_layout(text: &str, avail_w: u16, avail_h: u16) -> Option<PinLayout> {
     let n = text.chars().count() as u16;
     if n == 0 {
