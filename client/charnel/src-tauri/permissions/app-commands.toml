@@ -122,6 +122,8 @@ commands.allow = [
     "media_session_clear_track",
     "player_pairing_dial",
     "player_pairing_is_started",
+    "player_pairing_get_enabled",
+    "player_pairing_set_enabled",
     "player_pairing_get_snapshot",
     "player_pairing_set_session_mode",
     "player_pairing_regenerate_admin_pin",

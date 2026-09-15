@@ -178,6 +178,15 @@ impl PlayerProtocol {
 
 impl ProtocolHandler for PlayerProtocol {
     async fn accept(&self, conn: Connection) -> std::result::Result<(), AcceptError> {
+        // the ALPN handler is now always attached (see charnel's
+        // p2p_commands.rs) - checking the live config value here, per
+        // connection, is what actually lets `[player_pairing].enabled`
+        // be toggled on/off without a router rebuild/app restart. reject
+        // outright (no handshake at all) when disabled, same as the
+        // browser cenotaph accept loop's `isEnabled()` gate.
+        if !crate::config::get_config().player_pairing.enabled {
+            return Ok(());
+        }
         let peer_id = conn.remote_id();
         info!(target: "cenotaph", peer = %peer_id, "accepted freqhole-player/1 connection");
         let state = self.state.clone();

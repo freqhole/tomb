@@ -116,9 +116,20 @@ fn spawn_dispatch_bridge(mut rx: PairingDispatchRx) {
                     .send(CommandAck::err(CommandAckReason::InvalidCommand));
                 continue;
             };
-            let command_json = match serde_json::to_string(&req.command) {
-                Ok(s) => s,
-                Err(_) => {
+            // `PlayerCommand`'s own serde tag is just `"command"` (see
+            // wire.rs's doc comment) - the ts-side zod schema additionally
+            // requires a constant `"type":"control"` envelope field on
+            // every variant, which isn't part of the rust type at all, so
+            // it has to be added here before forwarding to the webview
+            // (without this, every command failed zod parsing with
+            // "expected \"control\"" and never reached the playback
+            // backend at all).
+            let command_json = match serde_json::to_value(&req.command) {
+                Ok(serde_json::Value::Object(mut map)) => {
+                    map.insert("type".to_string(), serde_json::Value::from("control"));
+                    serde_json::to_string(&serde_json::Value::Object(map)).unwrap()
+                }
+                _ => {
                     let _ = req
                         .reply
                         .send(CommandAck::err(CommandAckReason::InvalidCommand));
@@ -244,6 +255,28 @@ pub async fn player_pairing_remove_controller(node_id: String) -> Result<(), Str
 #[tauri::command]
 pub fn player_pairing_is_started() -> bool {
     STATE.get().is_some()
+}
+
+/// the persisted `[player_pairing].enabled` config flag - distinct from
+/// `player_pairing_is_started` (whether the accept-loop happened to get
+/// wired up at THIS launch, now unconditional - see p2p_commands.rs).
+/// read by `CenotaphPlayerApp.tsx` to decide whether to show the
+/// qr/pin pairing ui at all, or a "turn on player pairing first" gate.
+#[tauri::command]
+pub fn player_pairing_get_enabled() -> bool {
+    grimoire::config::get_config().player_pairing.enabled
+}
+
+/// persists `[player_pairing].enabled` and refreshes grimoire's in-memory
+/// config immediately (see `set_config_values`'s own doc comment) - takes
+/// effect on the very next incoming connection, no app restart needed,
+/// since `PlayerProtocol::accept()` (grimoire's `cenotaph/endpoint.rs`)
+/// checks this same live value per connection rather than once at boot.
+#[tauri::command]
+pub fn player_pairing_set_enabled(enabled: bool) -> Result<(), String> {
+    let path = grimoire::config::get_config_path()
+        .ok_or_else(|| "no config file path known; cannot persist".to_string())?;
+    grimoire::config::set_player_pairing_enabled(&path, enabled).map_err(|e| e.to_string())
 }
 
 /// mirrors rathole's own `grimoire::player_session::set_active()` call

@@ -181,12 +181,15 @@ pub async fn init_p2p_client(config_path: &Path) -> Result<(), String> {
     // endpoint as everything else - a second iroh endpoint would
     // double-register this device's identity with the relay, and the
     // relay only delivers to whichever connected most recently (see
-    // rathole's own `run.rs` comment on this exact hazard).
-    let player_protocol =
-        player_pairing_enabled.then(crate::player_pairing_accept::build_player_protocol);
-    if player_pairing_enabled {
-        crate::player_pairing_accept::set_node_id(node_id.to_string());
-    }
+    // rathole's own `run.rs` comment on this exact hazard). always built
+    // and attached, regardless of `player_pairing_enabled` right now -
+    // mirrors the RADIO_ALPN handler below: `PlayerProtocol::accept()`
+    // checks the live config value itself per connection, so toggling
+    // `[player_pairing].enabled` later takes effect immediately, with no
+    // router rebuild/app restart (iroh's Router has no runtime add/remove
+    // protocol API, so the ALPN itself must always be present).
+    let player_protocol = crate::player_pairing_accept::build_player_protocol();
+    crate::player_pairing_accept::set_node_id(node_id.to_string());
 
     // when radio is enabled at startup, spawn one broadcaster per
     // enabled station. when disabled, the registry stays empty and
@@ -210,19 +213,17 @@ pub async fn init_p2p_client(config_path: &Path) -> Result<(), String> {
     // or all stations stopped) it returns "no broadcaster" to the
     // listener; this lets us toggle radio on/off at runtime without a
     // router rebuild (iroh's Router has no runtime add/remove protocol
-    // API as of 0.98).
+    // API as of 0.98). PLAYER_ALPN follows the identical pattern now.
 
     tracing::info!("starting router for blob serving + radio");
     endpoint
         .start_router_with(|builder| {
-            let builder = builder.accept(
-                grimoire::radio::RADIO_ALPN,
-                grimoire::radio::RadioProtocol::new(),
-            );
-            match player_protocol {
-                Some(handler) => builder.accept(grimoire::cenotaph::PLAYER_ALPN, handler),
-                None => builder,
-            }
+            builder
+                .accept(
+                    grimoire::radio::RADIO_ALPN,
+                    grimoire::radio::RadioProtocol::new(),
+                )
+                .accept(grimoire::cenotaph::PLAYER_ALPN, player_protocol)
         })
         .await
         .map_err(|e| format!("failed to start P2P router: {}", e))?;

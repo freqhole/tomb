@@ -50,7 +50,9 @@ import { spumeTrustStore } from "../adapters/trustStoreAdapter";
 import { getMiddenNode } from "../../app/api/client";
 import {
   getCharnelNodeId,
+  getCharnelPlayerPairingEnabled,
   initCharnelPlaybackAcceptMode,
+  setCharnelPlayerPairingEnabled,
   setCharnelPlayerSessionActive,
 } from "../adapters/charnelAcceptBridge";
 
@@ -112,6 +114,20 @@ export function CenotaphPlayerApp() {
   const [error, setError] = createSignal<string | null>(null);
   const [settingsOpen, setSettingsOpen] = createSignal(false);
   const [nodeId, setNodeId] = createSignal<string | undefined>(undefined);
+  // the qr overlay's spinning logo - speed is driven via this element's
+  // live Animation.playbackRate (see the effect below), not via inline
+  // `animation-duration` (see that effect's own doc comment for why).
+  let spinLogoRef: HTMLImageElement | undefined;
+  // `undefined` while still checking (charnel only - always `true`
+  // elsewhere, see the effect below). `false` means `[player_pairing].
+  // enabled` is off in charnel-config.toml - no other peer can pair with
+  // this device at all yet, so the qr/pin ui below is replaced with a
+  // "turn this on first" gate instead of rendering a pairing code nobody
+  // can actually use.
+  const [pairingConfigEnabled, setPairingConfigEnabled] = createSignal<boolean | undefined>(
+    isCharnelMode() ? undefined : true
+  );
+  const [enablingPairing, setEnablingPairing] = createSignal(false);
   // kept (not just its id) so the skip button can drive the next download.
   const [middenNode, setMiddenNode] = createSignal<MediaPlaybackNode | null>(null);
   // no trusted controllers yet => the pin currently shown is this
@@ -130,6 +146,19 @@ export function CenotaphPlayerApp() {
   createEffect(() => {
     currentSession();
     void refetchControllers();
+  });
+
+  // drives the qr overlay's spin speed via the Web Animations API rather
+  // than rewriting the css `animation-duration` inline on every tick -
+  // mutating that property resets a running css animation back to its
+  // start, and this recalculates on every activityRamp() tick (every
+  // 100ms while ramping down), which looked "wonky"/stuttery instead of
+  // a smooth spin. `playbackRate` scales the SAME running animation
+  // without touching its current position.
+  createEffect(() => {
+    const duration = 0.6 + 2.4 * (commandInFlight() ? 0 : (activityRamp() ?? 1));
+    const anim = spinLogoRef?.getAnimations()[0];
+    if (anim) anim.playbackRate = 1 / duration;
   });
 
   onMount(() => {
@@ -204,15 +233,10 @@ export function CenotaphPlayerApp() {
     void (async () => {
       try {
         if (isCharnelMode()) {
-          await initCharnelPlaybackAcceptMode();
-          const id = await getCharnelNodeId();
-          setNodeId(id);
-          const dataUrl = await renderPlayerQr({
-            node_id: id,
-            name: getLocalLibraryName(),
-            role: "player_remote",
-          });
-          setQrDataUrl(dataUrl);
+          const enabled = await getCharnelPlayerPairingEnabled();
+          setPairingConfigEnabled(enabled);
+          if (!enabled) return;
+          await loadCharnelPairingUi();
           return;
         }
         const node = await getMiddenNode();
@@ -233,6 +257,40 @@ export function CenotaphPlayerApp() {
     })();
   });
 
+  /** starts the native accept loop and renders the qr - charnel only,
+   * split out of the mount effect so `handleEnablePlayerPairing` below
+   * can also call it right after flipping the config on, without needing
+   * a route remount. */
+  async function loadCharnelPairingUi(): Promise<void> {
+    await initCharnelPlaybackAcceptMode();
+    const id = await getCharnelNodeId();
+    setNodeId(id);
+    const dataUrl = await renderPlayerQr({
+      node_id: id,
+      name: getLocalLibraryName(),
+      role: "player_remote",
+    });
+    setQrDataUrl(dataUrl);
+  }
+
+  /** flips `[player_pairing].enabled` on live (no app restart - see
+   * `player_pairing_set_enabled`'s doc comment) and immediately proceeds
+   * to load the qr/pin ui, so the "turn this on" button feels instant
+   * rather than needing the user to navigate away and back. */
+  async function handleEnablePlayerPairing(): Promise<void> {
+    if (enablingPairing()) return;
+    setEnablingPairing(true);
+    try {
+      await setCharnelPlayerPairingEnabled(true);
+      setPairingConfigEnabled(true);
+      await loadCharnelPairingUi();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setEnablingPairing(false);
+    }
+  }
+
   // the qr+pin pairing screen is the only ui a brand-new (not-yet-trusted)
   // device has to discover this player at all - it must reappear once a
   // session's queue empties back out, not just before the very first
@@ -243,10 +301,12 @@ export function CenotaphPlayerApp() {
   // driving playback instead, cenotaph's own engineState()/nowPlaying()
   // never change (nothing feeds them in that mode) - read spume's own
   // queue state instead.
-  const showPairingScreen = () =>
-    usingRealPlayer()
+  const showPairingScreen = () => {
+    if (isCharnelMode() && pairingConfigEnabled() === false) return false;
+    return usingRealPlayer()
       ? (appState()?.queue.length ?? 0) === 0
       : (engineState() === "idle" || engineState() === "stopped") && nowPlaying() === null;
+  };
 
   /** unifies cenotaph's own now-playing state with spume's real player
    * state (when `usingRealPlayer()`) into one shape the JSX below reads
@@ -334,6 +394,32 @@ export function CenotaphPlayerApp() {
         <PlayerSettingsPanel onClose={() => setSettingsOpen(false)} nodeId={nodeId()} />
       </Show>
 
+      {/* charnel-only: `[player_pairing].enabled` is off in
+          charnel-config.toml - no other peer can pair with this device
+          at all, so there's nothing useful to show (a qr/pin nobody could
+          ever redeem). offer to turn it on right here instead of sending
+          the user off to hunt through a config file - takes effect
+          immediately, no app restart (see `handleEnablePlayerPairing`). */}
+      <Show when={pairingConfigEnabled() === false}>
+        <div
+          class="relative z-[1700] flex max-w-2xl flex-col items-center gap-10"
+          data-testid="player-pairing-disabled"
+        >
+          <p class="text-[clamp(1.25rem,4vmin,2rem)] text-neutral-400">
+            you need to turn on player pairing before other peers can connect.
+          </p>
+          <button
+            type="button"
+            class="rounded-lg bg-white px-8 py-5 text-[clamp(1.25rem,4vmin,2rem)] font-semibold text-black disabled:opacity-60"
+            disabled={enablingPairing()}
+            onClick={() => void handleEnablePlayerPairing()}
+            data-testid="enable-player-pairing-button"
+          >
+            {enablingPairing() ? "turning on\u2026" : "turn on player pairing"}
+          </button>
+        </div>
+      </Show>
+
       <Show when={showPairingScreen()}>
         <Show
           when={remotePlaybackEnabled()}
@@ -369,7 +455,12 @@ export function CenotaphPlayerApp() {
                 {/* animatable overlay on top of the baked-in static logo -
                   spins while a command is in flight or briefly after (see
                   cenotaph's activityIndicator.ts), otherwise hidden,
-                  revealing the static logo underneath. */}
+                  revealing the static logo underneath. speed is driven via
+                  `playbackRate` (see the effect below), not by rewriting
+                  `animation-duration` inline every tick - that resets the
+                  css animation back to 0deg on every change, which made the
+                  spin look "wonky"/stuttery given how often the ramp
+                  recalculates (every 100ms, see activityIndicator.ts). */}
                 <Show when={commandInFlight() || activityRamp() !== null}>
                   <div
                     class="absolute top-1/2 left-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center justify-center bg-black"
@@ -377,14 +468,11 @@ export function CenotaphPlayerApp() {
                     data-testid="pairing-qr-loading"
                   >
                     <img
+                      ref={(el) => (spinLogoRef = el)}
                       src="/freqhole.svg"
                       alt=""
                       class="spin-ramp"
-                      style={{
-                        width: "77%",
-                        height: "77%",
-                        "animation-duration": `${0.6 + 2.4 * (commandInFlight() ? 0 : (activityRamp() ?? 1))}s`,
-                      }}
+                      style={{ width: "77%", height: "77%" }}
                     />
                   </div>
                 </Show>

@@ -8,7 +8,7 @@
 // "check local library, else sync in from source peer" resolution twice.
 
 import type { MediaRef } from "../index";
-import { getClientForRemote } from "../../app/api/client";
+import { getClientForRemote, isCharnelAvailable } from "../../app/api/client";
 import { getRemoteByPeerAddr } from "../../app/services/remotes/remoteManager";
 import type { P2PRemote, Remote } from "../../app/services/storage/schemas/remote";
 import { getSongByBlake3 } from "../../music/services/storage/db/songs";
@@ -43,7 +43,7 @@ function ephemeralPeerRemote(peerAddr: string): P2PRemote {
     image_blob_id: null,
     version: null,
     last_info_check: null,
-    transport: "wasm",
+    transport: isCharnelAvailable() ? "app" : "wasm",
     peer_addr: peerAddr,
   };
 }
