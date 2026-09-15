@@ -29,24 +29,41 @@ pub fn draw(frame: &mut Frame, area: Rect, app: &mut App) {
 }
 
 /// big-text size used for the pin, now-playing title/artist, and queue
-/// rows - fixed at `Quadrant` everywhere for visual consistency (previously
-/// picked dynamically from `Full`/`HalfWidth`/`Quadrant` based on available
-/// space, which meant the pin and now-playing text could render at
-/// different sizes depending on terminal width). still falls back to plain
-/// text (`None`) when even `Quadrant` doesn't fit `avail_w`/`avail_h`.
+/// rows - fixed at `HalfHeight` everywhere for visual consistency
+/// (previously picked dynamically from `Full`/`HalfWidth`/`Quadrant` based
+/// on available space). still falls back to plain text (`None`) when even
+/// `HalfHeight` doesn't fit `avail_w`/`avail_h`.
+///
+/// **why `HalfHeight` and not `Quadrant`**: `tui_big_text` renders from a
+/// fixed 8x8 source bitmap per glyph, and each `PixelSize` variant just
+/// picks how many of those 8x8 source pixels get packed into one
+/// terminal character cell (see `PixelSize::pixels_per_cell`). `Quadrant`
+/// packs 2x2 source pixels per cell - i.e. it shrinks width and height by
+/// the SAME factor, so it exactly preserves whatever aspect ratio the
+/// console's own character cell already has. most console/tty bitmap
+/// fonts (including this project's tested `Unifont-APL8x16`) use an 8-
+/// wide by 16-tall cell - a 1:2 (width:height) ratio - so `Quadrant`
+/// glyphs come out looking vertically squished/"wonky", and the qr code
+/// (rendered separately, via `qrcode`'s own `Dense1x2` half-block
+/// renderer in `tty::qr` - ALSO a 1:2-correcting technique) ends up on a
+/// different visual scale than the pin/text right next to it. `HalfHeight`
+/// packs 1x2 source pixels per cell instead - halving only the VERTICAL
+/// resolution - which is exactly what turns a 1:2 (8x16-ish) cell into
+/// genuinely square glyph pixels, and matches the qr renderer's own
+/// convention. found via a real report: pin/now-playing text and the qr
+/// code looked inconsistently stretched/close together on a raspberry pi
+/// console using an 8x16 font.
 ///
 /// deliberately excludes `PixelSize::Sextant`/`Octant`: those render using
 /// sextant/octant block-drawing glyphs from unicode's "Symbols for Legacy
 /// Computing" block, added in unicode 13.0/16.0 respectively - very recent
 /// additions most terminal fonts don't have yet, especially a bare linux
 /// console (no GUI terminal emulator) on something like a raspberry pi,
-/// where they render as tofu/garbled boxes instead of text. `Quadrant`
-/// (2x2, from the original 1.1-era Block Elements range) is safe on
-/// effectively any terminal. found via a real report: the pin (always
-/// short - 6 ascii digits, fit fine at larger sizes) rendered fine on a pi
-/// console, but the "now playing" title/artist (longer, previously falling
-/// through to `Octant` to fit) rendered as garbage.
-const PIN_SIZE_CANDIDATES: &[(PixelSize, u16, u16)] = &[(PixelSize::Quadrant, 4, 4)];
+/// where they render as tofu/garbled boxes instead of text. `HalfHeight`
+/// (using ▀/▄, from the original 1.1-era Block Elements range - the same
+/// range `Quadrant`'s own glyphs come from) is safe on effectively any
+/// terminal.
+const PIN_SIZE_CANDIDATES: &[(PixelSize, u16, u16)] = &[(PixelSize::HalfHeight, 8, 4)];
 
 struct PinLayout {
     pixel_size: PixelSize,
@@ -54,7 +71,7 @@ struct PinLayout {
     rows: u16,
 }
 
-/// picks the pin's big-text layout (always `PixelSize::Quadrant` - see
+/// picks the pin's big-text layout (always `PixelSize::HalfHeight` - see
 /// `PIN_SIZE_CANDIDATES`) if it fits within `avail_w` x `avail_h`, `None`
 /// otherwise.
 fn fit_pin_layout(pin: &str, avail_w: u16, avail_h: u16) -> Option<PinLayout> {
@@ -362,8 +379,8 @@ fn draw_queue_glance(frame: &mut Frame, area: Rect, app: &App) {
     // the ones short enough to benefit). album stays regular text
     // (centered too), no need for it to compete for the same space.
     //
-    // available height of 4 (not 2): `PIN_SIZE_CANDIDATES`' smallest
-    // remaining entry (`Quadrant`) needs 4 terminal rows per glyph -
+    // available height of 4 (not 2): `PIN_SIZE_CANDIDATES`' only
+    // remaining entry (`HalfHeight`) needs 4 terminal rows per glyph -
     // `Octant` (2 rows) used to cover the 2-row budget this used to
     // pass, but was removed (see that array's doc comment - garbled on
     // consoles without unicode 16.0 glyph support), so passing 2 here
@@ -591,7 +608,7 @@ fn truncate_to_width(s: &str, width: u16) -> String {
 }
 
 /// like `fit_pin_layout`, but for an arbitrary title string rather than
-/// a fixed 6-digit pin - uses the same fixed `PixelSize::Quadrant` size
+/// a fixed 6-digit pin - uses the same fixed `PixelSize::HalfHeight` size
 /// (see `PIN_SIZE_CANDIDATES`) if it fits within `avail_w` columns. most
 /// titles will simply be too long for big-text and fall back to `None`
 /// (plain text) - that's fine, it's an upgrade only for titles short
