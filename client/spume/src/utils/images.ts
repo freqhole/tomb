@@ -32,6 +32,34 @@ export function imagesAreStale(
 }
 
 /**
+ * carries forward a locally-set "primary image" choice across a re-sync,
+ * instead of always trusting the remote's own `is_primary` flag - a user
+ * can pick a different primary image for an album/artist/series/season
+ * they only have a local, synced copy of (see e.g. `AlbumEditorModal.tsx`'s
+ * `setPrimaryImage`), and that choice should survive the remote later
+ * adding/reordering unrelated images (which makes `imagesAreStale` true and
+ * triggers a full `images` array replacement).
+ *
+ * matched by `remote_blob_id` (the one id stable across a re-fetch - local
+ * ids are freshly re-derived content hashes/blob ids each time). if the
+ * previously-primary image is no longer present in `newImages` (the remote
+ * removed it), falls back to whatever `newImages` itself already marked
+ * primary - nothing to preserve in that case.
+ */
+export function preservePrimarySelection(
+  existing: ImageMetadata[] | undefined,
+  newImages: ImageMetadata[]
+): ImageMetadata[] {
+  const previousPrimaryRemoteId = existing?.find((i) => i.is_primary)?.remote_blob_id;
+  if (!previousPrimaryRemoteId) return newImages;
+  if (!newImages.some((i) => i.remote_blob_id === previousPrimaryRemoteId)) return newImages;
+  return newImages.map((i) => ({
+    ...i,
+    is_primary: i.remote_blob_id === previousPrimaryRemoteId,
+  }));
+}
+
+/**
  * pick the best single image from an array of images.
  * handles both ImageMetadata (blob_type) and raw IDB data (type).
  *

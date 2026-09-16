@@ -28,7 +28,7 @@ import type { LocalVideoSeriesRow } from "../storage/db/series";
 import { getOrCreateLocalVideoSeason, updateLocalVideoSeason } from "../storage/db/seasons";
 import type { LocalVideoSeasonRow } from "../storage/db/seasons";
 import { downloadAndStoreImages } from "../../../music/services/sync/syncSongToLocal";
-import { pickBestImage, imagesAreStale } from "../../../utils/images";
+import { pickBestImage, imagesAreStale, preservePrimarySelection } from "../../../utils/images";
 import type { ImageMetadata } from "../../../music/services/storage/types";
 import { invalidateVideoLibraryQueries } from "../../queries/cacheUpdates";
 import { markVideoSynced } from "../syncState";
@@ -151,7 +151,7 @@ async function resolveLocalSeriesContext(
         } as ImageMetadata,
       ]);
       if (images.length > 0) {
-        seriesUpdates.images = images;
+        seriesUpdates.images = preservePrimarySelection(existingSeries.images, images);
         // grid tiles and detail panels read poster_blob_id, not the images
         // gallery - for a local row it holds the *local* blob id (same
         // convention as localSource.ts's uploadImage).
@@ -192,7 +192,7 @@ async function resolveLocalSeriesContext(
         ]);
         if (seasonImages.length > 0) {
           await updateLocalVideoSeason(localSeason.id, {
-            images: seasonImages,
+            images: preservePrimarySelection(existingSeason.images, seasonImages),
             poster_blob_id: pickBestImage(seasonImages)?.local_blob_id ?? null,
           });
           invalidateVideoLibraryQueries();

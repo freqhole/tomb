@@ -5,20 +5,32 @@
 // task 2), which needs the actual domain object to hand to
 // playQueue()/addToQueue().
 //
-// browser and charnel share the exact same shape here (build a sync input
-// directly from the wire MediaRef's own fields, then sync via the real
-// syncSongToLocal()/syncVideoToLocal() - both already branch internally on
-// isCharnelMode()) - see docs/cenotaph-player-queue-unification-plan.md
-// task 3. an earlier version of this function queried the source peer for
-// full metadata via `filters: { blake3 }` first - removed, since grimoire's
-// query_songs/query_videos have no such filter (that patch was proposed
-// and rejected) and the query silently returned arbitrary/no results,
-// breaking every remote-controller queue push. this supersedes the older,
-// thinner "no sync, defer to play-time" charnel design recorded in
-// docs/cenotaph-charnel-native-playback-rewire-plan.md's phase 1 - per
-// explicit user direction this session, a queued item should always be
-// persisted into the real local library right away, not carry placeholder
-// metadata (`artist_name: "unknown artist"`, etc.) indefinitely.
+// browser and charnel share the exact same shape here: query the source
+// peer for the FULL song/video (`fetchFullSongFromSource`/
+// `fetchFullVideoFromSource` below - the exact same `adaptSongFromAPI`/
+// `client.video.queryVideos` pipeline every other remote-browsing path
+// already uses, now reachable by content hash via grimoire's
+// `media_blob_blake3`/`media_blob_ids` query filters), then sync via the
+// real syncSongToLocal()/syncVideoToLocal() - both already branch
+// internally on isCharnelMode(). this is what makes cenotaph's own
+// artist/album/series image handling "just work" for free: those already
+// live inside syncSongToLocal()/syncVideoToLocal() (see
+// syncArtistImagesOnPlay.ts's sibling `downloadAndStoreImages`/
+// `imagesAreStale` machinery) and only need a real, fully-populated
+// object to act on - no cenotaph-specific image logic exists or is
+// needed here. an earlier version of this function queried by `filters:
+// { blake3 }`, which silently no-op'd because grimoire had no such
+// filter at the time - fixed for real this round (see
+// docs/cenotaph-player-queue-unification-plan.md task 15) by adding
+// `media_blob_blake3` (songs) / `media_blob_ids` (videos, via
+// `blob_metadata_by_blake3` first) filters server-side, instead of
+// papering over the gap with a thinner client-side object. falls back to
+// a thin, MediaRef-only object (title/artist strings, single artwork
+// url) only when the full fetch fails (source peer offline, etc.) - this
+// supersedes the older, thinner "no sync, defer to play-time" charnel
+// design recorded in docs/cenotaph-charnel-native-playback-rewire-plan.md's
+// phase 1 - per explicit user direction this session, a queued item
+// should always be persisted into the real local library right away.
 
 import type { MediaRef } from "../index";
 import { getClientForRemote, isCharnelAvailable } from "../../app/api/client";
@@ -30,7 +42,11 @@ import {
 import type { Remote } from "../../app/services/storage/schemas/remote";
 import { getSongByBlake3 } from "../../music/services/storage/db/songs";
 import { syncSongToLocal, type SyncableSong } from "../../music/services/sync/syncSongToLocal";
-import { adaptSongFromAPI, type ApiSongQueryItem } from "../../music/data/remote/adapters";
+import {
+  adaptSongFromAPI,
+  type ApiSongQueryItem,
+  type RemoteSong,
+} from "../../music/data/remote/adapters";
 import { getVideoByBlake3 } from "../../video/services/storage/db/videos";
 import { syncVideoToLocal } from "../../video/services/sync/syncVideoToLocal";
 import type { Song } from "../../music/services/storage/types";
@@ -64,10 +80,93 @@ async function ensureRemoteForPeer(peerAddr: string): Promise<Remote> {
   }
 }
 
+/** queries `remote` (the item's own source peer) for the full song behind
+ * `blake3` via grimoire's `media_blob_blake3` filter - the SAME
+ * `adaptSongFromAPI` result shape (real `artist_id`/`album_id`, and real
+ * `images`/`album_images`/`artist_images` collections) every other
+ * remote-browsing/sync path already gets from `client.music.querySongs`.
+ * `null` when the source has nothing for this hash, or is unreachable -
+ * callers fall back to a thinner, MediaRef-only object in that case. */
+async function fetchFullSongFromSource(remote: Remote, blake3: string): Promise<RemoteSong | null> {
+  try {
+    const client = await getClientForRemote(remote);
+    const result = await client.music.querySongs({
+      q: null,
+      search_fields: null,
+      filters: { media_blob_blake3: [blake3] },
+      sort_by: null,
+      sort_direction: null,
+      limit: 1,
+      offset: null,
+      user_id: null,
+      favorites_only: null,
+      min_rating: null,
+    });
+    if (!result.success || result.data.items.length === 0) return null;
+    return adaptSongFromAPI(
+      result.data.items[0] as unknown as ApiSongQueryItem,
+      remote.base_url ?? "",
+      remote.remote_id
+    );
+  } catch (err) {
+    warn("mediaRefResolve", `full song fetch failed for ${blake3.slice(0, 8)}...:`, err);
+    return null;
+  }
+}
+
+/** video counterpart of `fetchFullSongFromSource()` above. `videoz` has no
+ * denormalized blake3 column the way `song_query_view` does, so this is a
+ * two-step lookup: resolve `blake3` to a `media_blob_id` via the existing
+ * `blob_metadata_by_blake3` route, then filter `query_videos` by it - same
+ * full `Video` shape (series/season ids, `images`) `RemoteVideoDataSource`
+ * already returns for every other video-browsing path. */
+async function fetchFullVideoFromSource(
+  remote: Remote,
+  blake3: string
+): Promise<QueuedVideo | null> {
+  try {
+    const client = await getClientForRemote(remote);
+    const metaResult = await client.music.blobMetadataByBlake3({ blake3 });
+    if (!metaResult.success) return null;
+    const result = await client.video.queryVideos({
+      params: {
+        q: null,
+        search_fields: null,
+        filters: { media_blob_ids: [metaResult.data.id] },
+        sort_by: null,
+        sort_direction: null,
+        limit: 1,
+        offset: null,
+        user_id: null,
+        favorites_only: null,
+        min_rating: null,
+        mb_lookup_status: null,
+        pending_review: null,
+        caller_is_admin: null,
+      },
+      series_id: null,
+      season_id: null,
+      unassigned: false,
+    });
+    if (!result.success || result.data.items.length === 0) return null;
+    return {
+      ...result.data.items[0],
+      source_type: "remote",
+      remote_server_id: remote.remote_id,
+      opfs_path: null,
+      poster_opfs_path: null,
+    } as unknown as QueuedVideo;
+  } catch (err) {
+    warn("mediaRefResolve", `full video fetch failed for ${blake3.slice(0, 8)}...:`, err);
+    return null;
+  }
+}
+
 /** reads back a just-synced song from charnel's own local grimoire, via
- * the ALREADY-WORKING `song_ids` filter (not a new `blake3` one - grimoire
- * has no such filter, see the unification plan doc's task 1/3 notes) using
- * the id `syncSongToLocal`'s charnel branch just returned. */
+ * the `song_ids` filter - the id `syncSongToLocal`'s charnel branch just
+ * returned is grimoire's own real db row id, so this is a plain id lookup
+ * (not the new `media_blob_blake3` filter `fetchFullSongFromSource` above
+ * uses - that's for the SOURCE peer, before anything local exists yet). */
 async function getLocalSongById(songId: string): Promise<Song | null> {
   const local = await getTauriManagedRemote();
   if (!local) return null;
@@ -132,12 +231,7 @@ export async function resolveMediaRefToSong(item: MediaRef): Promise<Song | null
 
   // browser-only local-library short-circuit: a real IDB lookup by blake3
   // (already indexed, no new grimoire plumbing needed here - see
-  // docs/cenotaph-migration-plan.md phase 3's "step 0"). charnel mode has
-  // no client-side equivalent worth adding (that would just re-derive a
-  // worse copy of the idempotent check the sync route below already does
-  // server-side) - it always re-syncs (idempotent/cheap if already there),
-  // even for content it already has. not worth a second lookup mechanism
-  // to avoid it.
+  // docs/cenotaph-migration-plan.md phase 3's "step 0").
   if (!isCharnelAvailable()) {
     const existing = await getSongByBlake3(item.blake3_hash);
     if (existing) {
@@ -147,24 +241,43 @@ export async function resolveMediaRefToSong(item: MediaRef): Promise<Song | null
       );
       return existing;
     }
+  } else {
+    // charnel counterpart of the browser short-circuit above: the same
+    // `media_blob_blake3` query filter `fetchFullSongFromSource` uses for
+    // the SOURCE peer, pointed at the local tauri-managed grimoire instead
+    // - avoids the source-peer round trip, the per-image inline-base64
+    // fetch, and the sync IPC call entirely for a song already synced, so
+    // a repeatedly-requeued already-synced song costs nothing over the
+    // network on every replay.
+    const local = await getTauriManagedRemote();
+    if (local) {
+      const existing = await fetchFullSongFromSource(local, item.blake3_hash);
+      if (existing) {
+        debug(
+          "mediaRefResolve",
+          `song ${hashPrefix}...: already synced locally (charnel), using it directly`
+        );
+        return existing;
+      }
+    }
   }
 
   try {
     const remote = await ensureRemoteForPeer(item.source_peer_addr);
-    // grimoire's query_songs has NO `blake3` filter (confirmed - the patch
-    // that would have added one was proposed and rejected this session,
-    // see docs/cenotaph-player-queue-unification-plan.md task 1/3) - an
-    // earlier version of this function queried the source peer via
-    // `filters: { blake3 }` for full metadata before syncing, which
-    // silently returned arbitrary/no results since that filter is a
-    // no-op server-side. this was a real bug (broke every remote-
-    // controller queue push, not just a missed optimization) - fixed by
-    // building the sync input directly from the wire `MediaRef`'s own
-    // fields instead of an unreliable query. thinner than a normal
-    // remote-browse sync (no album/track-number/images - a MediaRef
-    // doesn't carry them), but honest, correct data instead of a broken
-    // query result.
-    const syncableSong: SyncableSong = {
+    // prefer the FULL song from the source peer (real artist_name/
+    // album_title/images/album_images/artist_images - the exact same
+    // `adaptSongFromAPI` result every other remote-browsing/sync path
+    // already uses) - falls back to a thin, MediaRef-only object (title/
+    // artist strings, single artwork url) only when the source is
+    // unreachable or has nothing for this hash, so a queue push still
+    // isn't blocked entirely by a flaky/offline peer.
+    const full = await fetchFullSongFromSource(remote, item.blake3_hash);
+    const artworkUrl = item.artwork_full_url ?? item.artwork_thumb_url;
+    // `RemoteSong.remote_server_id` is typed `string | null` (inherited
+    // from `Song`'s broader local-or-remote union) even though
+    // `adaptSongFromAPI` always sets it to a real string - safe to assert
+    // here rather than widen `SyncableSong`'s own (correctly strict) type.
+    const syncableSong: SyncableSong = (full as SyncableSong | null) ?? {
       // MediaRef has no sha256 of its own - reused as a placeholder, same
       // convention flagged in this file's header comment (sha256/blake3
       // conflation, tracked separately per the sha256-deprecation effort).
@@ -178,6 +291,15 @@ export async function resolveMediaRefToSong(item: MediaRef): Promise<Song | null
       duration_seconds: item.duration_ms ? item.duration_ms / 1000 : 0,
       remote_server_id: remote.remote_id,
       blake3: item.blake3_hash,
+      // artwork IS carried on the wire even in this thin fallback
+      // (already resolved by the controller via the same
+      // `getSongDisplayImages()`/`pickBestImage()` priority chain every
+      // other song image uses - see `playerQueuePush.ts`'s
+      // `resolveArtwork`) - `syncSongToLocal.ts`'s `inlineRawUrlForSync`
+      // handles a plain url/data-url with no blob id.
+      images: artworkUrl
+        ? [{ remote_url: artworkUrl, is_primary: true, blob_type: "thumbnail" }]
+        : undefined,
     };
 
     const syncResult = await syncSongToLocal(syncableSong, undefined, remote);
@@ -216,26 +338,50 @@ export async function resolveMediaRefToVideo(item: MediaRef): Promise<QueuedVide
       );
       return existing as unknown as QueuedVideo;
     }
+  } else {
+    // charnel counterpart of the browser short-circuit above - see
+    // resolveMediaRefToSong()'s identical short-circuit for why.
+    const local = await getTauriManagedRemote();
+    if (local) {
+      const existing = await fetchFullVideoFromSource(local, item.blake3_hash);
+      if (existing) {
+        debug(
+          "mediaRefResolve",
+          `video ${hashPrefix}...: already synced locally (charnel), using it directly`
+        );
+        return { ...existing, blake3: item.blake3_hash };
+      }
+    }
   }
 
   try {
     const remote = await ensureRemoteForPeer(item.source_peer_addr);
-    // same fix as resolveMediaRefToSong above - no query against a
-    // nonexistent `blake3` filter, build straight from the wire MediaRef.
-    const queuedVideo: QueuedVideo = {
-      id: item.blake3_hash,
-      content_type: "movie",
-      title: item.title ?? "untitled",
-      media_blob_id: item.blake3_hash,
-      duration_seconds: item.duration_ms ? item.duration_ms / 1000 : null,
-      created_at: Date.now(),
-      updated_at: Date.now(),
-      source_type: "remote",
-      remote_server_id: remote.remote_id,
-      opfs_path: null,
-      poster_opfs_path: null,
-      blake3: item.blake3_hash,
-    };
+    // prefer the FULL video from the source peer (real series_id/
+    // season_id/images/description - the same shape `RemoteVideoDataSource`
+    // already returns for every other video-browsing path) - falls back to
+    // a thin, MediaRef-only object only when the source is unreachable or
+    // has nothing for this hash.
+    const full = await fetchFullVideoFromSource(remote, item.blake3_hash);
+    const queuedVideo: QueuedVideo = full
+      ? // grimoire's wire `Video` type has no `blake3` field at all (see
+        // the charnel-branch comment below) - re-attach the hash we
+        // already know from the wire `MediaRef` so `syncVideoViaCharnel`'s
+        // "prefer an already-known hash" optimization applies here too.
+        { ...full, blake3: item.blake3_hash }
+      : {
+          id: item.blake3_hash,
+          content_type: "movie",
+          title: item.title ?? "untitled",
+          media_blob_id: item.blake3_hash,
+          duration_seconds: item.duration_ms ? item.duration_ms / 1000 : null,
+          created_at: Date.now(),
+          updated_at: Date.now(),
+          source_type: "remote",
+          remote_server_id: remote.remote_id,
+          opfs_path: null,
+          poster_opfs_path: null,
+          blake3: item.blake3_hash,
+        };
 
     const syncResult = await syncVideoToLocal(queuedVideo, remote);
     if (!syncResult.success) {

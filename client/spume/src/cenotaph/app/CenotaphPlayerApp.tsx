@@ -418,8 +418,18 @@ export function CenotaphPlayerApp() {
     void realRemoveFromQueue(index);
   };
 
+  // true once there's an actual queue list to show below the now-playing
+  // card - shifts the whole layout up (see the root container's
+  // classList/style below) so more of it fits on screen instead of
+  // staying centered (which pushes rows further down as the queue grows).
+  const hasQueueRest = () => realQueueRowsMemo().length > 0 || pendingQueueRowsMemo().length > 0;
+
   return (
-    <div class="flex h-screen flex-col items-center justify-center gap-6 overflow-y-auto bg-black p-6 text-center text-white">
+    <div
+      class="flex h-screen flex-col items-center gap-6 overflow-y-auto bg-black px-6 pb-6 text-center text-white"
+      classList={{ "justify-center": !hasQueueRest(), "justify-start": hasQueueRest() }}
+      style={{ "padding-top": hasQueueRest() ? "38px" : "24px" }}
+    >
       <Show when={develMode()}>
         <PlayerDebugOverlay />
       </Show>
@@ -570,7 +580,7 @@ export function CenotaphPlayerApp() {
       <Show when={nowPlayingView()}>
         {(view) => (
           <div
-            class="relative z-[1700] flex w-full max-w-md flex-col items-center gap-4"
+            class="group relative z-[1700] flex w-full max-w-md flex-col items-center gap-4"
             data-testid="now-playing"
           >
             <Show
@@ -638,7 +648,14 @@ export function CenotaphPlayerApp() {
               </p>
             </Show>
 
-            <div class="flex items-center gap-8" data-testid="playback-controls">
+            <div
+              class="flex items-center gap-8 py-2 transition-opacity"
+              classList={{
+                "opacity-100": isTouchDevice(),
+                "opacity-0 group-hover:opacity-100": !isTouchDevice(),
+              }}
+              data-testid="playback-controls"
+            >
               <button
                 type="button"
                 class="text-3xl leading-none"
@@ -677,7 +694,7 @@ export function CenotaphPlayerApp() {
               </button>
             </div>
 
-            <Show when={realQueueRowsMemo().length > 0 || pendingQueueRowsMemo().length > 0}>
+            <Show when={hasQueueRest()}>
               {/* real (resolved) rows reuse spume's own QueueSongRow/
                   VideoQueueRow - same waveform-fill/download-progress/
                   synced-locally-underline markup QueueSidebar.tsx uses for

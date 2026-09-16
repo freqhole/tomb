@@ -12,7 +12,7 @@
 import type { Song } from "../storage/types";
 import type { ImageMetadata } from "../storage/types";
 import { findArtistByName, updateArtist } from "../storage/db/artists";
-import { imagesAreStale } from "../../../utils/images";
+import { imagesAreStale, preservePrimarySelection } from "../../../utils/images";
 import { downloadAndStoreImages } from "./syncSongToLocal";
 import { getRemoteById } from "../../../app/services/remotes/remoteManager";
 import { warn } from "../../../utils/logger";
@@ -42,8 +42,9 @@ export async function syncArtistImagesForRemotePlay(
 
     const images = await downloadAndStoreImages(remote, song.artist_images);
     if (images.length > 0) {
-      await updateArtist(existing.artist_id, { images });
-      return images;
+      const merged = preservePrimarySelection(existing.images, images);
+      await updateArtist(existing.artist_id, { images: merged });
+      return merged;
     }
     return null;
   } catch (err) {

@@ -57,6 +57,8 @@ enum SongView {
     UserRating,
     #[iden = "song_play_count"]
     SongPlayCount,
+    #[iden = "media_blob_blake3"]
+    MediaBlobBlake3,
 }
 
 #[derive(Iden)]
@@ -956,6 +958,29 @@ pub async fn query_songs(params: QueryParams) -> GrimoireResponse<QueryResult<So
             .collect();
         if !ids.is_empty() {
             query.and_where(Expr::col(SongView::SongId).is_in(ids));
+        }
+    }
+
+    // Handle media_blob_blake3 filter - looks a song up by its audio
+    // blob's content hash rather than its own id. the view already
+    // denormalizes this column onto every song row (see
+    // song_query_view.sql's `s.media_blob_blake3`), so no join is
+    // needed. lets a peer holding only a blake3 hash (e.g. cenotaph's
+    // `freqhole-player/1` queue-push protocol, which has no song id to
+    // give - see mediaRefResolve.ts) fetch the SAME full song+artist+
+    // album+images payload every other remote-browsing path gets via
+    // `adaptSongFromAPI`, instead of syncing a thin placeholder record.
+    if let Some(hashes) = params
+        .filters
+        .get("media_blob_blake3")
+        .and_then(|v| v.as_array())
+    {
+        let hashes: Vec<String> = hashes
+            .iter()
+            .filter_map(|v| v.as_str().map(|s| s.to_string()))
+            .collect();
+        if !hashes.is_empty() {
+            query.and_where(Expr::col(SongView::MediaBlobBlake3).is_in(hashes));
         }
     }
 

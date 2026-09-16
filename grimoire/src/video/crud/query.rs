@@ -115,6 +115,8 @@ enum VideozCol {
     ContentType,
     #[iden = "deleted_at"]
     DeletedAt,
+    #[iden = "media_blob_id"]
+    MediaBlobId,
 }
 
 /// bind a sea_query value list onto a sqlx query in declaration order
@@ -382,6 +384,27 @@ pub async fn query_videos(
                 .collect();
             if !types.is_empty() {
                 q.and_where(Expr::col(VideozCol::ContentType).is_in(types));
+            }
+        }
+
+        // media_blob_ids: look a video up by its own media blob id rather
+        // than its own row id - lets a peer holding only a blake3 hash
+        // (resolved to a media_blob_id via `/api/blob_metadata_by_blake3`
+        // first, since videoz has no denormalized blake3 column the way
+        // song_query_view does) fetch the full video+series+season payload
+        // the same way `client.video.queryVideos` always has, instead of a
+        // thin placeholder record - see cenotaph's mediaRefResolve.ts.
+        if let Some(ids) = params
+            .filters
+            .get("media_blob_ids")
+            .and_then(|v| v.as_array())
+        {
+            let ids: Vec<String> = ids
+                .iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect();
+            if !ids.is_empty() {
+                q.and_where(Expr::col(VideozCol::MediaBlobId).is_in(ids));
             }
         }
     };
