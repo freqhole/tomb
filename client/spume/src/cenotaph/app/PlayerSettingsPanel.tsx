@@ -6,6 +6,7 @@
 // trust store and library-name concept instead of cenotaph's defaults.
 
 import { createEffect, createResource, createSignal, onMount, For, Show } from "solid-js";
+import { useNavigate } from "@solidjs/router";
 import {
   connectedControllers,
   currentPin,
@@ -36,6 +37,7 @@ import { spumeTrustStore } from "../adapters/trustStoreAdapter";
 import { spumeSessionStore } from "../adapters/playerSessionAdapter";
 
 export function PlayerSettingsPanel(props: { onClose: () => void; nodeId?: string }) {
+  const navigate = useNavigate();
   const [nameInput, setNameInput] = createSignal(getLocalLibraryName());
   const [controllers, { refetch: refetchControllers }] = createResource(
     spumeTrustStore.listTrustedControllers
@@ -133,14 +135,15 @@ export function PlayerSettingsPanel(props: { onClose: () => void; nodeId?: strin
       <div class="m-auto flex w-full max-w-md flex-col gap-6 text-left">
         <div class="flex items-center justify-between">
           <div class="flex items-center gap-3">
-            <a
-              href="/"
+            <button
+              type="button"
               class="text-neutral-400"
               title="back to spume"
+              onClick={() => navigate(-1)}
               data-testid="back-to-spume-link"
             >
               &#8592;
-            </a>
+            </button>
             <h2 class="text-xl font-semibold">player settings</h2>
           </div>
           <button

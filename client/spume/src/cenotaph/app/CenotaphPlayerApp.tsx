@@ -22,6 +22,7 @@ import {
   onCleanup,
   onMount,
 } from "solid-js";
+import { useNavigate } from "@solidjs/router";
 import {
   activityRamp,
   broadcastPresence,
@@ -108,6 +109,7 @@ function formatTime(seconds: number): string {
 }
 
 export function CenotaphPlayerApp() {
+  const navigate = useNavigate();
   const [qrDataUrl, setQrDataUrl] = createSignal<string | null>(null);
   const [error, setError] = createSignal<string | null>(null);
   const [settingsOpen, setSettingsOpen] = createSignal(false);
@@ -200,8 +202,11 @@ export function CenotaphPlayerApp() {
     onCleanup(() => window.removeEventListener("pagehide", onPageHide));
 
     // "s" toggles settings, "d" toggles devel mode (console-log debug
-    // overlay), escape closes settings - "s"/"d" ignored while typing in a
-    // form field (e.g. the device name input inside settings itself).
+    // overlay), escape closes settings if open, otherwise goes back to
+    // spume (same in-app back navigation as the settings panel's own back
+    // link - `navigate(-1)`, not a hard `location.href` reload) - "s"/"d"
+    // ignored while typing in a form field (e.g. the device name input
+    // inside settings itself).
     const onKeyDown = (e: KeyboardEvent) => {
       // while the "not accepting connections" fallback is up, a tv remote
       // has no pointer to click the enable button with - any key (not just
@@ -211,7 +216,11 @@ export function CenotaphPlayerApp() {
         return;
       }
       if (e.key === "Escape") {
-        if (settingsOpen()) setSettingsOpen(false);
+        if (settingsOpen()) {
+          setSettingsOpen(false);
+        } else {
+          navigate(-1);
+        }
         return;
       }
       const target = e.target as HTMLElement | null;
