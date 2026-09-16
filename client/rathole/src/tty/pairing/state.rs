@@ -121,7 +121,7 @@ impl PairingStateReader for PairingStateHandle {
     fn regenerate_admin_pin(&self) {
         let state = self.0.clone();
         tokio::task::spawn_local(async move {
-            grimoire::cenotaph::state::regenerate_admin_pin(&state).await;
+            let _ = grimoire::cenotaph::state::regenerate_admin_pin(&state).await;
         });
     }
 
@@ -131,7 +131,7 @@ impl PairingStateReader for PairingStateHandle {
     fn regenerate_session_pin(&self) {
         let state = self.0.clone();
         tokio::task::spawn_local(async move {
-            grimoire::cenotaph::state::regenerate_session_pin(&state).await;
+            let _ = grimoire::cenotaph::state::regenerate_session_pin(&state).await;
         });
     }
 

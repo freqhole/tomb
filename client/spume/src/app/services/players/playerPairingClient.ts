@@ -21,6 +21,32 @@ export interface PairResult {
   reason?: string;
 }
 
+// maps `PairResult.reason` wire codes (see grimoire/src/cenotaph/wire.rs's
+// `PairResponseReason` / spume's own pairing/protocol.ts) to a message
+// that actually explains what to do, instead of showing the raw
+// snake_case wire string to the user. lives next to `PairResult` (rather
+// than the generic http/ipc error-string table in
+// `@freqhole/api-client`'s errors.ts) since these codes belong to this
+// module's own ndjson pairing protocol, not a `GrimoireResponse`/
+// `ApiError` shape.
+export function describePairError(reason: string | undefined): string {
+  switch (reason) {
+    case "invalid_code":
+    case "invalid_pin":
+      return "that pin was rejected - it may have rotated since this qr was shown, or was mistyped. check the player's current pin and try again";
+    case "rate_limited":
+      return "too many failed attempts - wait a moment and try again";
+    case "username_taken":
+      return "that display name is already in use on this player - pick a different one";
+    case "no_response":
+      return "no response from the player - check it's online and reachable";
+    case undefined:
+      return "pairing failed (no reason given)";
+    default:
+      return `pairing failed: ${reason}`;
+  }
+}
+
 // a cold peer connection (no prior direct/relay path established yet) can
 // fail its first dial while iroh is still warming up addressing - mirrors
 // connectionProgress.ts's bounded retry for the same underlying reason on

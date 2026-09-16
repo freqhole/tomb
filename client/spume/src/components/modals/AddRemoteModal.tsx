@@ -36,6 +36,7 @@ import { getCurrentUser } from "../../music/data/currentState";
 import {
   pairWithPlayer,
   queryPlayerPresence,
+  describePairError,
 } from "../../app/services/players/playerPairingClient";
 import { selectPlayerPlaybackTarget } from "../../app/services/players/selectPlaybackTarget";
 import {
@@ -46,7 +47,7 @@ import {
 import { refreshPlayerStatus } from "../../app/services/remotes/remoteHealth";
 import { adminLocalRawDispatch, getLocalAdminClient } from "../../app/api/adminClient";
 import { resolveBlobUrl } from "../../music/services/storage/blobResolver";
-import { debug } from "../../utils/logger";
+import { debug, error } from "../../utils/logger";
 import { parsePlayerPairingQr } from "../../utils/playerPairingQr";
 import { pushModal, popModal } from "../../music/hooks/modals";
 import { AuthForm } from "../auth/AuthForm";
@@ -209,8 +210,12 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
     try {
       const result = await pairWithPlayer(peerAddr, pin, playerControllerName().trim() || "spume");
       if (!result.ok) {
+        error(
+          "AddRemoteModal",
+          `pairWithPlayer rejected: peerAddr=${peerAddr} reason=${result.reason ?? "(none)"}`
+        );
         setPlayerPairStatus("error");
-        setPlayerPairError(result.reason ?? "pairing failed");
+        setPlayerPairError(describePairError(result.reason));
         return;
       }
       const existing = await getRemoteByPeerAddr(peerAddr);
@@ -253,6 +258,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
       props.onClose();
       props.onPlayerPaired?.(player);
     } catch (err) {
+      error("AddRemoteModal", `pairWithPlayer threw: peerAddr=${peerAddr}`, err);
       setPlayerPairStatus("error");
       setPlayerPairError(err instanceof Error ? err.message : String(err));
     }

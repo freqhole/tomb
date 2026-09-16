@@ -393,7 +393,13 @@ async fn handle_pair_request(
 ) -> Result<(), String> {
     let req: PairRequest = match serde_json::from_str(raw) {
         Ok(r) => r,
-        Err(_) => {
+        Err(e) => {
+            warn!(
+                target: "cenotaph",
+                peer_id = %peer_id,
+                error = %e,
+                "pair_request: malformed json, rejecting as invalid_code"
+            );
             let resp = PairResponse::err(PairResponseReason::InvalidCode);
             return write_line(send, &serde_json::to_string(&resp).unwrap()).await;
         }
@@ -404,6 +410,16 @@ async fn handle_pair_request(
     let invite = match code_resp.data.filter(|_| code_resp.success) {
         Some(invite) if invite.code_type == crate::users::InviteCodeType::Invite => invite,
         _ => {
+            warn!(
+                target: "cenotaph",
+                peer_id = %peer_id,
+                submitted_code = %req.code,
+                check_message = %code_resp.message,
+                "pair_request: code did not match a live invite code, rejecting as invalid_code - \
+                 the pin shown to the pairing device must match this player's CURRENT code \
+                 (see player_pairing_get_snapshot/current_code); a stale/rotated/mistyped pin \
+                 lands here"
+            );
             let resp = PairResponse::err(PairResponseReason::InvalidCode);
             return write_line(send, &serde_json::to_string(&resp).unwrap()).await;
         }
@@ -418,6 +434,13 @@ async fn handle_pair_request(
     let user = match user_resp.data.filter(|_| user_resp.success) {
         Some(user) => user,
         None => {
+            warn!(
+                target: "cenotaph",
+                peer_id = %peer_id,
+                display_name = %req.display_name,
+                message = %user_resp.message,
+                "pair_request: valid code, but register_user failed (username_taken)"
+            );
             let resp = PairResponse::err(PairResponseReason::UsernameTaken);
             return write_line(send, &serde_json::to_string(&resp).unwrap()).await;
         }
@@ -431,6 +454,14 @@ async fn handle_pair_request(
         session.join(peer_id);
         guard.session = Some(session);
     }
+
+    info!(
+        target: "cenotaph",
+        peer_id = %peer_id,
+        display_name = %req.display_name,
+        grants_role = ?invite.grants_role,
+        "pair_request: accepted, peer joined session"
+    );
 
     // the code that was just redeemed may have been the one-time admin
     // bootstrap code (max_uses=1) - if so it's now exhausted, so line up

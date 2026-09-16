@@ -226,8 +226,7 @@ pub async fn player_pairing_regenerate_admin_pin() -> Result<(), String> {
         .get()
         .ok_or_else(|| "player pairing not started".to_string())?
         .clone();
-    grimoire::cenotaph::state::regenerate_admin_pin(&state).await;
-    Ok(())
+    grimoire::cenotaph::state::regenerate_admin_pin(&state).await
 }
 
 #[tauri::command]
@@ -236,8 +235,7 @@ pub async fn player_pairing_regenerate_session_pin() -> Result<(), String> {
         .get()
         .ok_or_else(|| "player pairing not started".to_string())?
         .clone();
-    grimoire::cenotaph::state::regenerate_session_pin(&state).await;
-    Ok(())
+    grimoire::cenotaph::state::regenerate_session_pin(&state).await
 }
 
 #[tauri::command]

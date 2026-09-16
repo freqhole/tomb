@@ -23,7 +23,10 @@ import {
   markControllerDisconnected,
 } from "../control/connectedControllers";
 import { spumeTrustStore } from "./trustStoreAdapter";
+import { setSessionSignal } from "../pairing/pinStore";
+import type { PlayerSession, SessionMode } from "../pairing/playerSession";
 import { debug, error } from "../../utils/logger";
+import { toast } from "../../components/feedback/Toast";
 
 interface CenotaphCommandEventPayload {
   request_id: string;
@@ -50,7 +53,21 @@ let connectedPollTimer: ReturnType<typeof setInterval> | null = null;
 // to finish before the next command's handler starts.
 let commandChain: Promise<void> = Promise.resolve();
 
+interface PairingCodeDto {
+  code: string;
+  grants_role: "admin" | "member" | "viewer";
+}
+
+interface PlayerSessionDto {
+  mode: SessionMode;
+  allowed_node_ids: string[];
+  last_active_at: number;
+}
+
 interface PairingSnapshotDto {
+  node_id: string | null;
+  current_code: PairingCodeDto | null;
+  session: PlayerSessionDto | null;
   connected: { node_id: string; display_name: string }[];
 }
 
@@ -63,27 +80,133 @@ interface PairingSnapshotDto {
 // see its own doc comment) is the only way to see those too.
 const CONNECTED_POLL_INTERVAL_MS = 5000;
 
+// grimoire's `current_code`/`session` (real, redeemable grimoire invite
+// codes, validated natively by `grimoire::cenotaph::endpoint.rs`) is the
+// ONLY pairing pin that will ever actually be accepted in charnel mode -
+// `pinStore.ts`'s `PlayerSession.pin` is a purely local, independently-
+// generated value with no relationship to it whatsoever. previously
+// nothing ever pushed grimoire's real code into that signal in charnel
+// mode (only the browser/wasm accept path's `acceptModeBootstrap.ts` did,
+// via `initSessionSignal` - never called under charnel, see
+// `initRemotePlaybackBootstrap`'s charnel branch), so charnel's settings
+// panel/qr overlay displayed a pin that could never match what grimoire
+// actually validated - every real pairing attempt failed with
+// `invalid_code`, and no pin showed at all until "rotate pin" was
+// clicked (which lazily created a - still wrong - local session on
+// first use). mapping grimoire's snapshot into the SAME `PlayerSession`-
+// shaped signal `pinStore.ts` already exposes means `CenotaphPlayerApp`/
+// `PlayerSettingsPanel`'s existing `currentPin()`/`currentSession()`
+// reads need no changes at all - only what feeds the signal changes.
+function mapSnapshotToSession(snap: PairingSnapshotDto): PlayerSession | null {
+  if (!snap.current_code || !snap.session) return null;
+  return {
+    pin: snap.current_code.code,
+    mode: snap.session.mode,
+    allowed_node_ids: snap.session.allowed_node_ids,
+    admin_grant_pending: snap.current_code.grants_role === "admin",
+    last_active_at: snap.session.last_active_at,
+  };
+}
+
+/** re-fetches grimoire's real pairing snapshot and pushes the mapped pin/
+ * session into the same reactive signal `pinStore.ts` exposes, plus
+ * updates the connected-controllers list. called on an interval (see
+ * `startCharnelConnectedControllersSync`) and immediately after any
+ * mutating action below, so the ui never has to wait a full poll tick to
+ * see its own rotate/regenerate/toggle take effect. no-op outside charnel
+ * mode. */
+export async function refreshCharnelPairingSnapshot(): Promise<void> {
+  if (!isCharnelMode()) return;
+  try {
+    // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
+    const { invoke } = await import("@tauri-apps/api/core");
+    const snap = await invoke<PairingSnapshotDto>("player_pairing_get_snapshot");
+    const seen = new Set<string>();
+    for (const c of snap.connected) {
+      seen.add(c.node_id);
+      markControllerConnected({ node_id: c.node_id, display_name: c.display_name });
+    }
+    for (const c of connectedControllers()) {
+      if (!seen.has(c.node_id)) markControllerDisconnected(c.node_id);
+    }
+    const session = mapSnapshotToSession(snap);
+    if (session) {
+      setSessionSignal(session);
+    } else {
+      // expected right after startup / while `[player_pairing].enabled`
+      // is off - not logged above debug level to avoid spamming every
+      // poll tick in that (common, non-actionable) state.
+      debug(
+        "charnelAcceptBridge",
+        "player_pairing_get_snapshot returned no current_code/session yet - pairing may not have finished starting"
+      );
+    }
+  } catch (err) {
+    debug("charnelAcceptBridge", "pairing snapshot poll failed:", err);
+  }
+}
+
 function startCharnelConnectedControllersSync(): void {
   if (connectedPollTimer) return;
-  const poll = async () => {
-    try {
-      // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
-      const { invoke } = await import("@tauri-apps/api/core");
-      const snap = await invoke<PairingSnapshotDto>("player_pairing_get_snapshot");
-      const seen = new Set<string>();
-      for (const c of snap.connected) {
-        seen.add(c.node_id);
-        markControllerConnected({ node_id: c.node_id, display_name: c.display_name });
-      }
-      for (const c of connectedControllers()) {
-        if (!seen.has(c.node_id)) markControllerDisconnected(c.node_id);
-      }
-    } catch (err) {
-      debug("charnelAcceptBridge", "connected-controllers snapshot poll failed:", err);
-    }
-  };
-  void poll();
-  connectedPollTimer = setInterval(() => void poll(), CONNECTED_POLL_INTERVAL_MS);
+  void refreshCharnelPairingSnapshot();
+  connectedPollTimer = setInterval(
+    () => void refreshCharnelPairingSnapshot(),
+    CONNECTED_POLL_INTERVAL_MS
+  );
+}
+
+/** rotate the plain (non-admin-granting) session pin - charnel's real
+ * counterpart to `pairing/playerSession.ts`'s `regenerateSessionPin`,
+ * calling grimoire's actual invite-code minting instead of generating an
+ * unrelated local value. no-op outside charnel mode. */
+export async function charnelRegeneratePin(): Promise<void> {
+  if (!isCharnelMode()) return;
+  try {
+    // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
+    const { invoke } = await import("@tauri-apps/api/core");
+    await invoke("player_pairing_regenerate_session_pin");
+    await refreshCharnelPairingSnapshot();
+  } catch (err) {
+    error("charnelAcceptBridge", "charnelRegeneratePin failed", err);
+    toast.error(
+      `failed to rotate pairing pin: ${err instanceof Error ? err.message : String(err)}`
+    );
+  }
+}
+
+/** mint a fresh one-time admin-bootstrap pin - charnel's real counterpart
+ * to `playerSession.ts`'s `regenerateAdminPin`. no-op outside charnel
+ * mode. */
+export async function charnelRegenerateAdminPin(): Promise<void> {
+  if (!isCharnelMode()) return;
+  try {
+    // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
+    const { invoke } = await import("@tauri-apps/api/core");
+    await invoke("player_pairing_regenerate_admin_pin");
+    await refreshCharnelPairingSnapshot();
+  } catch (err) {
+    error("charnelAcceptBridge", "charnelRegenerateAdminPin failed", err);
+    toast.error(
+      `failed to generate admin pairing code: ${err instanceof Error ? err.message : String(err)}`
+    );
+  }
+}
+
+/** toggle "everyone"/"selected devices" mode - charnel's real counterpart
+ * to `playerSession.ts`'s `setSessionMode`. no-op outside charnel mode. */
+export async function charnelSetSessionMode(mode: SessionMode): Promise<void> {
+  if (!isCharnelMode()) return;
+  try {
+    // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
+    const { invoke } = await import("@tauri-apps/api/core");
+    await invoke("player_pairing_set_session_mode", { mode });
+    await refreshCharnelPairingSnapshot();
+  } catch (err) {
+    error("charnelAcceptBridge", `charnelSetSessionMode(${mode}) failed`, err);
+    toast.error(
+      `failed to change session mode: ${err instanceof Error ? err.message : String(err)}`
+    );
+  }
 }
 
 /** starts listening for the rust side's `cenotaph-command` events and

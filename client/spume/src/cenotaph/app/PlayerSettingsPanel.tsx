@@ -35,6 +35,11 @@ import { isCharnelMode, getConfig } from "../../app/services/charnel";
 import { remotePlaybackEnabled, setRemotePlaybackEnabled } from "../adapters/remoteModeSettings";
 import { spumeTrustStore } from "../adapters/trustStoreAdapter";
 import { spumeSessionStore } from "../adapters/playerSessionAdapter";
+import {
+  charnelRegenerateAdminPin,
+  charnelRegeneratePin,
+  charnelSetSessionMode,
+} from "../adapters/charnelAcceptBridge";
 
 export function PlayerSettingsPanel(props: { onClose: () => void; nodeId?: string }) {
   const navigate = useNavigate();
@@ -96,17 +101,29 @@ export function PlayerSettingsPanel(props: { onClose: () => void; nodeId?: strin
   const toggleSessionMode = async () => {
     const session = currentSession();
     if (!session) return;
-    const next = await setSessionMode(
-      spumeSessionStore,
-      session,
-      session.mode === "everyone" ? "selected" : "everyone"
-    );
+    const nextMode = session.mode === "everyone" ? "selected" : "everyone";
+    // in charnel mode the pin/session shown here is sourced from
+    // grimoire's real state (see charnelAcceptBridge.ts's
+    // refreshCharnelPairingSnapshot) - mutating it must go through the
+    // matching tauri command, not the local-only playerSession.ts store,
+    // which charnel's accept path never reads at all.
+    if (isCharnelMode()) {
+      await charnelSetSessionMode(nextMode);
+      return;
+    }
+    const next = await setSessionMode(spumeSessionStore, session, nextMode);
     setSessionSignal(next);
   };
 
+  // charnel has no tauri command for manually adding/removing a single
+  // controller from the session independent of full trust revocation
+  // (grimoire's session only grows via a real pin redemption - see
+  // grimoire/src/cenotaph/endpoint.rs's handle_pair_request) - the
+  // button rendered below is a read-only status badge instead of this
+  // handler in charnel mode (see the render site).
   const toggleSessionMember = async (nodeId: string) => {
     const session = currentSession();
-    if (!session) return;
+    if (!session || isCharnelMode()) return;
     const next = isPeerAllowedInSession(session, nodeId)
       ? await leaveSession(spumeSessionStore, session, nodeId)
       : await joinSession(spumeSessionStore, session, nodeId);
@@ -114,6 +131,10 @@ export function PlayerSettingsPanel(props: { onClose: () => void; nodeId?: strin
   };
 
   const requestAdminPin = async () => {
+    if (isCharnelMode()) {
+      await charnelRegenerateAdminPin();
+      return;
+    }
     const session = currentSession();
     if (!session) return;
     setSessionSignal(await regenerateAdminPin(spumeSessionStore, session));
@@ -248,7 +269,9 @@ export function PlayerSettingsPanel(props: { onClose: () => void; nodeId?: strin
             <button
               type="button"
               class="rounded bg-neutral-700 px-3 py-1 text-base"
-              onClick={() => void regeneratePin(spumeSessionStore)}
+              onClick={() =>
+                void (isCharnelMode() ? charnelRegeneratePin() : regeneratePin(spumeSessionStore))
+              }
               data-testid="rotate-pin-button"
             >
               rotate pin
@@ -322,7 +345,11 @@ export function PlayerSettingsPanel(props: { onClose: () => void; nodeId?: strin
                   </span>
                   <span class="flex items-center gap-2">
                     <Show
-                      when={currentSession()?.mode !== "everyone" && controller.role !== "admin"}
+                      when={
+                        currentSession()?.mode !== "everyone" &&
+                        controller.role !== "admin" &&
+                        !isCharnelMode()
+                      }
                     >
                       <button
                         type="button"
@@ -340,6 +367,20 @@ export function PlayerSettingsPanel(props: { onClose: () => void; nodeId?: strin
                           ? "in session"
                           : "not in session"}
                       </button>
+                    </Show>
+                    <Show
+                      when={
+                        currentSession()?.mode !== "everyone" &&
+                        controller.role !== "admin" &&
+                        isCharnelMode()
+                      }
+                    >
+                      <span class="text-neutral-500" data-testid="session-member-status-badge">
+                        {currentSession() &&
+                        isPeerAllowedInSession(currentSession()!, controller.node_id)
+                          ? "in session"
+                          : "not in session (redeem pin to join)"}
+                      </span>
                     </Show>
                     <Show
                       when={currentSession()?.mode !== "everyone" && controller.role === "admin"}

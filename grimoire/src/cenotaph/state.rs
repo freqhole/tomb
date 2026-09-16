@@ -123,8 +123,12 @@ pub fn set_session_mode(state: &SharedPairingState, mode: SessionMode) {
 }
 
 /// mints a fresh, single-use, `Admin`-granting grimoire invite code, for
-/// bootstrapping a first (or additional) admin.
-pub async fn regenerate_admin_pin(state: &SharedPairingState) {
+/// bootstrapping a first (or additional) admin. returns the grimoire
+/// failure message on error so callers (tauri commands, rathole's tty)
+/// can surface *why* the pin didn't change instead of silently keeping
+/// the stale one - see the `warn!` below for the server-side log, which
+/// alone isn't enough for a UI to explain itself to the user.
+pub async fn regenerate_admin_pin(state: &SharedPairingState) -> Result<(), String> {
     let service = UserService::new();
     let resp = service
         .create_player_pairing_code(UserRole::Admin, 1, 6)
@@ -136,17 +140,20 @@ pub async fn regenerate_admin_pin(state: &SharedPairingState) {
                 code: invite.code,
                 grants_role: PeerRole::Admin,
             });
+            Ok(())
         }
         None => {
-            warn!(target: "cenotaph", message = %resp.message, "failed to generate admin pairing code")
+            warn!(target: "cenotaph", message = %resp.message, "failed to generate admin pairing code");
+            Err(resp.message)
         }
     }
 }
 
 /// mints a fresh, unlimited-while-active, `Member`-granting grimoire
 /// invite code - the plain "new code" button, distinct from the
-/// admin-bootstrap one above.
-pub async fn regenerate_session_pin(state: &SharedPairingState) {
+/// admin-bootstrap one above. see `regenerate_admin_pin`'s doc comment
+/// for why this returns `Result` instead of swallowing failures.
+pub async fn regenerate_session_pin(state: &SharedPairingState) -> Result<(), String> {
     let service = UserService::new();
     let resp = service
         .create_player_pairing_code(UserRole::Member, 0, 6)
@@ -158,9 +165,11 @@ pub async fn regenerate_session_pin(state: &SharedPairingState) {
                 code: invite.code,
                 grants_role: PeerRole::Member,
             });
+            Ok(())
         }
         None => {
-            warn!(target: "cenotaph", message = %resp.message, "failed to generate session pairing code")
+            warn!(target: "cenotaph", message = %resp.message, "failed to generate session pairing code");
+            Err(resp.message)
         }
     }
 }
