@@ -54,6 +54,36 @@ fn friendly_title(command: &str, row_count: usize) -> String {
 }
 
 fn draw_result_box(frame: &mut Frame, result_area: Rect, app: &App) {
+    // "view row" overlay: an enter on a row whose only action is
+    // `__view_row__` shows that row's pretty json here, without
+    // touching `last_dispatch` underneath - esc/tab (see
+    // `on_result_panel_key`) just clears this and the original row
+    // list reappears untouched, instead of the previous behavior of
+    // replacing the whole dispatch (which left nothing to go back to).
+    if let Some(pretty) = &app.state.ephemeral.row_detail_view {
+        let title_style = title_style(app);
+        let mut lines: Vec<Line> = vec![Line::from("")];
+        for l in pretty.lines() {
+            lines.push(Line::from(l.to_string()));
+        }
+        let viewport = result_area.height.saturating_sub(2);
+        let max_scroll = (lines.len() as u16).saturating_sub(viewport);
+        let scroll = app.state.ephemeral.last_dispatch_scroll.min(max_scroll);
+        let title = if max_scroll > 0 {
+            format!("row detail  [{}/{}]", scroll, max_scroll)
+        } else {
+            "row detail".to_string()
+        };
+        frame.render_widget(
+            Paragraph::new(lines)
+                .block(Block::bordered().title(Span::styled(title, title_style)))
+                .wrap(Wrap { trim: false })
+                .scroll((scroll, 0)),
+            result_area,
+        );
+        return;
+    }
+
     let Some(d) = &app.state.ephemeral.last_dispatch else {
         let title_style = title_style(app);
         let para = Paragraph::new(vec![
@@ -147,9 +177,10 @@ fn draw_result_box(frame: &mut Frame, result_area: Rect, app: &App) {
     // pane on the right showing pretty-printed json of the focused
     // row — gives users at-a-glance detail while navigating.
     let cursor = d.cursor.min(d.rows.len() - 1);
-    // /help rows are self-explanatory (title + blurb); skip the
-    // info pane to give the row list the full width.
-    let show_info = d.command != "help";
+    // /help and /info rows are self-explanatory (title + subtitle already
+    // show the value) - the json info pane would just repeat it, so skip
+    // it and give the row list the full width.
+    let show_info = d.command != "help" && d.command != "info";
     let (rows_area, info_area) = if show_info && result_area.width >= 80 {
         let [a, b] = Layout::horizontal([Min(0), Length(result_area.width / 2)]).areas(result_area);
         (a, Some(b))

@@ -152,6 +152,10 @@ fn draw_quit_confirm(frame: &mut Frame) {
 fn header_line(app: &App) -> Line<'static> {
     let mut spans: Vec<Span<'static>> = vec![
         Span::styled("rathole", Style::new().fg(Color::Black).bold()),
+        Span::styled(
+            format!(" v{} ({})", env!("CARGO_PKG_VERSION"), env!("FREQHOLE_GIT_SHA")),
+            Style::new().fg(Color::Black),
+        ),
         Span::raw("   "),
     ];
 
@@ -390,7 +394,7 @@ fn view_label(app: &App) -> Span<'static> {
 fn footer_hints(app: &App) -> &'static str {
     match app.state.ephemeral.focus {
         Focus::Landing => {
-            "/ slash repl"
+            ""
         }
         Focus::AdminPalette => {
             "\u{2191}/\u{2193}: move   enter: dispatch/form   tab: focus resultz   /: repl"

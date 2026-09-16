@@ -613,6 +613,15 @@ pub fn apply_navigation(
                     "(no [server] section in config)".to_string(),
                 );
             }
+            // rathole binary's own build info - independent of [server]
+            // config, so shown either way.
+            push(
+                &mut rows,
+                &mut idx,
+                "rathole",
+                "git_sha",
+                env!("FREQHOLE_GIT_SHA").to_string(),
+            );
             // --- p2p / federation section ---
             let identity = grimoire::federation::get_identity_info();
             push(

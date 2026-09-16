@@ -3,6 +3,7 @@ name = "rathole"
 version.workspace = true
 edition = "2021"
 description = "ratatui-based client for freqhole (terminal + browser)"
+build = "build.rs"
 
 # wasm-pack invokes `wasm-opt` after rustc. its bundled wasm-opt
 # is too old for the bulk-memory ops modern rustc emits, so the

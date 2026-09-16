@@ -248,6 +248,14 @@ pub struct EphemeralState {
     /// vertical scroll offset (in lines) for the last-dispatch panel.
     /// 0 = top. clamped at render time so it never overflows.
     pub last_dispatch_scroll: u16,
+    /// pretty-printed json for the row currently being "viewed" (enter
+    /// on a row whose only action is `__view_row__`) - an overlay on
+    /// top of `last_dispatch`, not a replacement for it, so esc/tab
+    /// dismisses back to the original row list instead of losing it
+    /// (previously this replaced `last_dispatch` outright, which meant
+    /// e.g. `/info` -> enter -> esc/tab had nothing to go back to and
+    /// fell all the way through to the admin palette/landing).
+    pub row_detail_view: Option<String>,
     /// knock id returned by the most recent successful `knock`
     /// dispatch. shown in the header so the user can paste it into
     /// an admin's `freqhole federation accept-knock` command.
@@ -368,6 +376,7 @@ impl Default for EphemeralState {
             peer_error: None,
             form: None,
             last_dispatch_scroll: 0,
+            row_detail_view: None,
             last_knock_id: None,
             video: VideoState::new(),
             video_player: VideoPlayerState::new(),

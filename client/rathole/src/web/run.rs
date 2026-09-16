@@ -473,6 +473,14 @@ fn on_peer_input_key(
 fn on_result_panel_key(app: &mut App, code: KeyCode, shift: bool) {
     let eph = &mut app.state.ephemeral;
     let step: u16 = if shift { 10 } else { 1 };
+    // esc/tab dismiss the row-detail overlay (back to the row list)
+    // before falling through to their normal panel-level meaning -
+    // see `row_detail_view`'s own doc comment for why this exists.
+    if eph.row_detail_view.is_some() && matches!(code, KeyCode::Esc | KeyCode::Tab) {
+        eph.row_detail_view = None;
+        eph.last_dispatch_scroll = 0;
+        return;
+    }
     let has_rows = eph
         .last_dispatch
         .as_ref()
@@ -528,21 +536,14 @@ fn on_result_panel_key(app: &mut App, code: KeyCode, shift: bool) {
                     }
                     let actions =
                         crate::ratcore::catalog::result_actions_for_row(&ld.command, Some(row));
-                    // single "view full row" action — skip the menu
-                    // and render the json detail inline.
+                    // single "view full row" action — show the json
+                    // detail as an overlay (see `row_detail_view`'s doc
+                    // comment) rather than replacing `last_dispatch`,
+                    // so esc/tab goes back to this same row list.
                     if actions.len() == 1 && actions[0].target_command == "__view_row__" {
                         let pretty =
                             serde_json::to_string_pretty(row).unwrap_or_else(|_| row.to_string());
-                        eph.last_dispatch = Some(crate::ratcore::app::LastDispatch {
-                            command: "(view row)".to_string(),
-                            success: true,
-                            message: "row detail".to_string(),
-                            data_pretty: Some(pretty),
-                            rows: vec![],
-                            cursor: 0,
-                            pending: false,
-                            progress: vec![],
-                        });
+                        eph.row_detail_view = Some(pretty);
                         eph.last_dispatch_scroll = 0;
                         return;
                     }
@@ -939,16 +940,7 @@ fn on_action_menu_key(app: &mut App, code: KeyCode, tx: &mpsc::UnboundedSender<A
             eph.action_menu = None;
             if opt.target_command == "__view_row__" {
                 let pretty = serde_json::to_string_pretty(&row).unwrap_or_else(|_| row.to_string());
-                eph.last_dispatch = Some(crate::ratcore::app::LastDispatch {
-                    command: format!("(view row)"),
-                    success: true,
-                    message: "row detail".to_string(),
-                    data_pretty: Some(pretty),
-                    rows: vec![],
-                    cursor: 0,
-                    pending: false,
-                    progress: vec![],
-                });
+                eph.row_detail_view = Some(pretty);
                 eph.last_dispatch_scroll = 0;
                 eph.focus = Focus::ResultPanel;
                 return;
@@ -1025,6 +1017,20 @@ fn on_action_menu_key(app: &mut App, code: KeyCode, tx: &mpsc::UnboundedSender<A
                             Some(ReplStatus::err(format!("no {label} id on this row")));
                     }
                 }
+                return;
+            }
+            // the video view has no key handling on the web shell
+            // (`Focus::VideoView | Focus::PlayerPairing => {}` in this
+            // file's key dispatch - video is a tty-only feature for
+            // now), so navigating there would strand the user with no
+            // way back. surface a friendly message instead, matching
+            // the same "not supported here" pattern used elsewhere on
+            // web rather than a silent no-op or a dead-end view.
+            if opt.target_command == "__goto_video__" || opt.target_command == "__goto_series_videos__" {
+                eph.focus = Focus::ResultPanel;
+                eph.repl.status = Some(ReplStatus::err(
+                    "video browsing needs the tty shell (coming soon on web)".to_string(),
+                ));
                 return;
             }
             if opt.target_command.starts_with("__queue_") {

@@ -1296,14 +1296,15 @@ fn on_action(app: &mut App, action: AppAction, action_tx: &mpsc::UnboundedSender
             let v = &mut app.state.ephemeral.video;
             match result {
                 Ok(updated) => {
-                    // update the selected_video and the results list
-                    if let Some(selected) = &mut v.selected_video {
-                        *selected = updated.clone();
-                    }
-                    // also update in results list if present
+                    // also update in results list if present, then
+                    // show it - used both by the edit-save flow (where
+                    // selected_video is already set) and by search's
+                    // "open video" pivot (fetched fresh via get_video,
+                    // so selected_video may still be None here).
                     if let Some(idx) = v.results.iter().position(|r| r.id == updated.id) {
-                        v.results[idx] = updated;
+                        v.results[idx] = updated.clone();
                     }
+                    v.selected_video = Some(updated);
                     v.mode = VideoMode::Detail;
                     v.last_error = None;
                 }
@@ -2044,6 +2045,14 @@ fn spawn_admin_dispatch(
 fn on_result_panel_key(app: &mut App, code: KeyCode, mods: KeyModifiers) {
     let eph = &mut app.state.ephemeral;
     let big = mods.contains(KeyModifiers::SHIFT);
+    // esc/tab dismiss the row-detail overlay (back to the row list)
+    // before falling through to their normal panel-level meaning -
+    // see `row_detail_view`'s own doc comment for why this exists.
+    if eph.row_detail_view.is_some() && matches!(code, KeyCode::Esc | KeyCode::Tab) {
+        eph.row_detail_view = None;
+        eph.last_dispatch_scroll = 0;
+        return;
+    }
     let has_rows = eph
         .last_dispatch
         .as_ref()
@@ -2103,21 +2112,14 @@ fn on_result_panel_key(app: &mut App, code: KeyCode, mods: KeyModifiers) {
                     }
                     let actions =
                         crate::ratcore::catalog::result_actions_for_row(&ld.command, Some(row));
-                    // single "view full row" action — skip the menu
-                    // and render the json detail inline.
+                    // single "view full row" action — show the json
+                    // detail as an overlay (see `row_detail_view`'s doc
+                    // comment) rather than replacing `last_dispatch`,
+                    // so esc/tab goes back to this same row list.
                     if actions.len() == 1 && actions[0].target_command == "__view_row__" {
                         let pretty =
                             serde_json::to_string_pretty(row).unwrap_or_else(|_| row.to_string());
-                        eph.last_dispatch = Some(crate::ratcore::app::LastDispatch {
-                            command: "(view row)".to_string(),
-                            success: true,
-                            message: "row detail".to_string(),
-                            data_pretty: Some(pretty),
-                            rows: vec![],
-                            cursor: 0,
-                            pending: false,
-                            progress: vec![],
-                        });
+                        eph.row_detail_view = Some(pretty);
                         eph.last_dispatch_scroll = 0;
                         return;
                     }
@@ -2704,16 +2706,7 @@ fn on_action_menu_key(app: &mut App, code: KeyCode, tx: &mpsc::UnboundedSender<A
             // page through it without leaving the result panel.
             if opt.target_command == "__view_row__" {
                 let pretty = serde_json::to_string_pretty(&row).unwrap_or_else(|_| row.to_string());
-                eph.last_dispatch = Some(crate::ratcore::app::LastDispatch {
-                    command: "(view row)".to_string(),
-                    success: true,
-                    message: "row detail".to_string(),
-                    data_pretty: Some(pretty),
-                    rows: vec![],
-                    cursor: 0,
-                    pending: false,
-                    progress: vec![],
-                });
+                eph.row_detail_view = Some(pretty);
                 eph.last_dispatch_scroll = 0;
                 eph.focus = Focus::ResultPanel;
                 return;
@@ -2800,6 +2793,44 @@ fn on_action_menu_key(app: &mut App, code: KeyCode, tx: &mpsc::UnboundedSender<A
                             Some(ReplStatus::err(format!("no {label} id on this row")));
                     }
                 }
+                return;
+            }
+            // pivot from a unified-search video/video-series row into
+            // the video view: fetch the single video (shows detail
+            // directly) or list a series' episodes (shows results).
+            if opt.target_command == "__goto_video__" {
+                let Some(id) = row.get("id").and_then(|v| v.as_str()).map(str::to_string) else {
+                    eph.focus = Focus::ResultPanel;
+                    return;
+                };
+                eph.focus = Focus::VideoView;
+                let transport = app.transport.clone();
+                let tx_clone = tx.clone();
+                tokio::task::spawn_local(async move {
+                    let result = transport.get_video(&id).await;
+                    let _ = tx_clone.send(AppAction::VideoUpdateResult { result });
+                });
+                return;
+            }
+            if opt.target_command == "__goto_series_videos__" {
+                let Some(id) = row.get("id").and_then(|v| v.as_str()).map(str::to_string) else {
+                    eph.focus = Focus::ResultPanel;
+                    return;
+                };
+                eph.focus = Focus::VideoView;
+                eph.video.mode = VideoMode::Results;
+                eph.video.query.clear();
+                eph.video.searching = true;
+                eph.video.search_error = None;
+                let transport = app.transport.clone();
+                let tx_clone = tx.clone();
+                tokio::task::spawn_local(async move {
+                    let result = transport.query_videos(None, Some(&id), None, 200).await;
+                    let _ = tx_clone.send(AppAction::VideoQueryResults {
+                        query: None,
+                        result,
+                    });
+                });
                 return;
             }
             // queue management sentinels: only valid when the source
@@ -3595,6 +3626,17 @@ fn on_video_key(app: &mut App, code: KeyCode, tx: &mpsc::UnboundedSender<AppActi
                 v.last_error = None;
                 // optionally load series context here if needed
             }
+        }
+        (VideoMode::Results, KeyCode::Char('p')) => {
+            // play directly from the browse list without going
+            // through detail mode first - mirrors detail mode's own
+            // 'p' binding via the same `play_selected_video` helper.
+            let v = &mut app.state.ephemeral.video;
+            if let Some(row) = v.results.get(v.results_cursor).cloned() {
+                v.selected_video = Some(row);
+                v.last_error = None;
+            }
+            play_selected_video(app, tx);
         }
         (VideoMode::Results, KeyCode::Char('d')) => {
             let v = &mut app.state.ephemeral.video;
@@ -4719,6 +4761,84 @@ fn execute_slash_with_player(
                 let _ = tx_clone.send(AppAction::MusicSearchResults {
                     query: String::new(),
                     result,
+                });
+            });
+        }
+        SlashAction::Videos { query } => {
+            app.state.ephemeral.repl.clear_input();
+            rk::leave(&mut app.state);
+            app.state.ephemeral.focus = Focus::VideoView;
+            let v = &mut app.state.ephemeral.video;
+            v.query = query.clone().unwrap_or_default();
+            v.searching = true;
+            v.search_error = None;
+            app.state.ephemeral.repl.status = Some(ReplStatus::info(match &query {
+                Some(q) => format!("searching videos for \u{201c}{q}\u{201d}\u{2026}"),
+                None => "loading videos\u{2026}".to_string(),
+            }));
+            let transport = app.transport.clone();
+            let tx_clone = tx.clone();
+            let q = query.clone();
+            tokio::task::spawn_local(async move {
+                let result = transport.query_videos(q.as_deref(), None, None, 100).await;
+                let _ = tx_clone.send(AppAction::VideoQueryResults { query: q, result });
+            });
+        }
+        SlashAction::Series { query } => {
+            // read-only listing in the shared result panel (no
+            // dedicated browse view yet - see
+            // docs/rathole-video-domain-plan.md phase 2). selecting a
+            // row has no pivot action yet either; `/videos` today is
+            // the only way to actually browse+play a series' episodes.
+            app.state.ephemeral.repl.clear_input();
+            rk::leave(&mut app.state);
+            app.state.ephemeral.repl.status =
+                Some(ReplStatus::info("loading series\u{2026}".to_string()));
+            app.state.ephemeral.focus = Focus::ResultPanel;
+            let transport = app.transport.clone();
+            let tx_clone = tx.clone();
+            let q = query.clone();
+            tokio::task::spawn_local(async move {
+                let result = transport.list_video_series(200).await;
+                let (rows, success, message) = match result {
+                    Ok(series) => {
+                        // `list_video_series` has no server-side query
+                        // param, so filter client-side on title/description.
+                        let needle = q.as_deref().map(str::to_lowercase);
+                        let rows = series
+                            .into_iter()
+                            .filter(|s| match &needle {
+                                None => true,
+                                Some(n) => {
+                                    s.title.to_lowercase().contains(n)
+                                        || s.description
+                                            .as_deref()
+                                            .is_some_and(|d| d.to_lowercase().contains(n))
+                                }
+                            })
+                            .enumerate()
+                            .map(|(i, s)| {
+                                serde_json::json!({
+                                    "type": "video_series",
+                                    "id": s.id,
+                                    "title": s.title,
+                                    "subtitle": s.description.unwrap_or_default(),
+                                    "position": i,
+                                })
+                            })
+                            .collect::<Vec<_>>();
+                        let count = rows.len();
+                        (rows, true, format!("{count} series"))
+                    }
+                    Err(e) => (vec![], false, e),
+                };
+                let _ = tx_clone.send(AppAction::AdminDispatchResult {
+                    command: "series".to_string(),
+                    response: DispatchResponse {
+                        success,
+                        message,
+                        data: Some(serde_json::Value::Array(rows)),
+                    },
                 });
             });
         }

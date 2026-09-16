@@ -643,6 +643,37 @@ async fn unified_search_impl(t: &LocalTransport, query: &str) -> DispatchRespons
             }),
         ));
     }
+    for v in body.videos.iter().flatten() {
+        let subtitle = match (&v.series_name, v.episode_number) {
+            (Some(series), Some(ep)) => format!("{series} #{ep}"),
+            (Some(series), None) => series.clone(),
+            (None, _) => "video".to_string(),
+        };
+        rows.push((
+            v.search_rank,
+            serde_json::json!({
+                "type": "video",
+                "id": v.id,
+                "title": v.title,
+                "subtitle": subtitle,
+                "series_id": v.series_id,
+                "score": v.search_rank,
+                "is_favorite": v.is_favorite,
+            }),
+        ));
+    }
+    for vs in body.video_series.iter().flatten() {
+        rows.push((
+            vs.search_rank,
+            serde_json::json!({
+                "type": "video_series",
+                "id": vs.id,
+                "title": vs.title,
+                "subtitle": format!("{} videos", vs.video_count),
+                "score": vs.search_rank,
+            }),
+        ));
+    }
     for g in body.genres.iter().flatten() {
         rows.push((
             g.search_rank,

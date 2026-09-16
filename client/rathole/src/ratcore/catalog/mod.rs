@@ -244,6 +244,12 @@ pub fn result_actions_for_row(
             push(&mut out, "go to artist", "__goto_artist__");
             push(&mut out, "toggle favorite", "__toggle_favorite_artist__");
         }
+        Some("video") => {
+            push(&mut out, "open video", "__goto_video__");
+        }
+        Some("video_series") => {
+            push(&mut out, "browse series videos", "__goto_series_videos__");
+        }
         _ => {}
     }
 
