@@ -248,5 +248,25 @@ describe("resolveMediaRefToVideo", () => {
       expect(client.video.getVideo).toHaveBeenCalledWith({ id: "row-1" });
       expect(result).toMatchObject({ id: "row-1", source_type: "remote" });
     });
+
+    it("attaches the original wire blake3_hash onto the resolved video - grimoire's own Video read-back has no blake3 field at all", async () => {
+      // real shape of grimoire's client.video.getVideo() response - it has
+      // no `blake3` field whatsoever (unlike Song, which does carry one on
+      // the wire - see QueuedVideo.blake3's own doc comment). without this
+      // fix the resolved video's blake3 is silently undefined, which broke
+      // both controller-side queue drain and this player's own
+      // already-queued dedup (`currentQueueHashes()` in
+      // charnelPlaybackAdapter.ts) for every video queued in charnel mode.
+      const client = {
+        video: {
+          getVideo: vi.fn(async () => ({ success: true, data: { id: "row-1", title: "a video" } })),
+        },
+      };
+      getClientForRemote.mockResolvedValue(client);
+
+      const result = await resolveMediaRefToVideo(videoRef());
+
+      expect(result?.blake3).toBe("b3-video-1");
+    });
   });
 });

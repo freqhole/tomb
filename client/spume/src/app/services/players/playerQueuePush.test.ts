@@ -12,7 +12,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Song } from "../../../music/services/storage/types";
 import type { AppState } from "../storage/types";
-import type { MediaItem } from "../storage/mediaItem";
+import type { MediaItem, QueuedVideo } from "../storage/mediaItem";
 
 let state: Partial<AppState> | null = null;
 const setQueueMock = vi.fn(async (items: MediaItem[]) => {
@@ -59,7 +59,12 @@ vi.mock("../../../video/services/videoBlobAccess", () => ({
   getVideoURL: vi.fn(async () => "https://example.test/video.mp4"),
 }));
 
-import { pushSongsToPlayer, appendSongsToPlayer } from "./playerQueuePush";
+import {
+  pushSongsToPlayer,
+  appendSongsToPlayer,
+  pushVideosToPlayer,
+  appendVideosToPlayer,
+} from "./playerQueuePush";
 import { resetRemoteStatus } from "./remotePlaybackControl";
 
 function song(over: Partial<Song> = {}): Song {
@@ -77,6 +82,20 @@ function song(over: Partial<Song> = {}): Song {
   } as unknown as Song;
 }
 
+function video(over: Partial<QueuedVideo> = {}): QueuedVideo {
+  return {
+    id: "vid-1",
+    title: "a video",
+    duration_seconds: 300,
+    content_type: "movie",
+    source_type: "local",
+    // deliberately no `blake3` - a locally-imported/never-synced video
+    // commonly has none set at all (see QueuedVideo.blake3's own doc
+    // comment) - this is the exact shape that exposed the drain bug.
+    ...over,
+  } as unknown as QueuedVideo;
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   // remoteStatus is module-level state in remotePlaybackControl.ts - reset
@@ -87,7 +106,16 @@ beforeEach(() => {
   state = { queue: [{ kind: "song", song: song() }], current_sha256: "hash-1" } as AppState;
   vi.stubGlobal(
     "fetch",
-    vi.fn(async () => ({ arrayBuffer: async () => new ArrayBuffer(4) }) as unknown as Response)
+    vi.fn(
+      async () =>
+        ({
+          arrayBuffer: async () => new ArrayBuffer(4),
+          blob: async () => ({
+            arrayBuffer: async () => new ArrayBuffer(4),
+            type: "video/mp4",
+          }),
+        }) as unknown as Response
+    )
   );
   getMiddenNode.mockResolvedValue({
     node_id: () => "this-device",
@@ -226,5 +254,71 @@ describe("appendSongsToPlayer drain-on-ack", () => {
     await appendSongsToPlayer("player-peer", [song()]);
 
     expect(setQueueMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("video queueing (drain-on-ack for videos)", () => {
+  // the live bug: "i can't queue videos" - a video with no local blake3
+  // (common for a locally-imported/never-synced video - see
+  // QueuedVideo.blake3's own doc comment) never drains from the local
+  // queue after a successful push/append, because the old drain path
+  // recomputed a hash from the STALE local video object
+  // (`mediaItemBlake3`, which has no id fallback for video, unlike song's
+  // `?? sha256`) instead of using the hash that was ACTUALLY sent on the
+  // wire (freshly computed by `importMediaBytes`/`videoToMediaRef`).
+  it("appendVideosToPlayer drains a video with no local blake3 after a successful ack", async () => {
+    const v = video({ blake3: undefined });
+    state = { queue: [{ kind: "video", video: v }], current_sha256: "vid-1" } as AppState;
+    sendPlayerCommand.mockResolvedValue({ type: "command_ack", ok: true });
+
+    await appendVideosToPlayer("player-peer", [v]);
+
+    expect(setQueueMock).toHaveBeenCalledTimes(1);
+    expect(setQueueMock.mock.calls[0][0]).toEqual([]);
+  });
+
+  it("pushVideosToPlayer drains a video with no local blake3 once the ack confirms the handoff", async () => {
+    const v = video({ blake3: undefined });
+    state = { queue: [{ kind: "video", video: v }], current_sha256: "vid-1" } as AppState;
+    sendPlayerCommand.mockResolvedValue({
+      type: "command_ack",
+      ok: true,
+      status: {
+        type: "status",
+        state: "now_playing",
+        // the wire hash the mocked import always returns - see
+        // getMiddenNode.mockResolvedValue's import_blob in beforeEach.
+        item: { source_peer_addr: "player-peer", blake3_hash: "b3-1" },
+        position_ms: 0,
+        server_time_ms: Date.now(),
+        queue: [],
+        auto_download_enabled: false,
+        volume: 1,
+        recently_played: [],
+      },
+    });
+
+    await pushVideosToPlayer("player-peer", [v]);
+
+    expect(setQueueMock).toHaveBeenCalledTimes(1);
+    expect(setQueueMock.mock.calls[0][0]).toEqual([]);
+  });
+
+  it("does not drain an unrelated video still sitting in the local queue", async () => {
+    const pushed = video({ blake3: undefined });
+    const other = video({ id: "vid-2", blake3: undefined, title: "unrelated" });
+    state = {
+      queue: [
+        { kind: "video", video: pushed },
+        { kind: "video", video: other },
+      ],
+      current_sha256: "vid-1",
+    } as AppState;
+    sendPlayerCommand.mockResolvedValue({ type: "command_ack", ok: true });
+
+    await appendVideosToPlayer("player-peer", [pushed]);
+
+    const kept = setQueueMock.mock.calls[0][0] as MediaItem[];
+    expect(kept.map((i) => (i.kind === "song" ? i.song.sha256 : i.video.id))).toEqual(["vid-2"]);
   });
 });

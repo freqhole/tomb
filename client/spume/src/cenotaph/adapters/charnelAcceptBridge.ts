@@ -128,16 +128,18 @@ async function handleCenotaphCommand(
   // its `node` argument (see the adapter's own file) - this accept
   // path has no midden/wasm node to hand it, unlike the browser path.
   //
-  // dispatchCommand itself is well-guarded, but a reply must go back
-  // no matter what - an uncaught throw here previously left the
-  // controller waiting forever with no ack and no error surfaced.
+  // dispatchCommand now catches its own backend errors and always
+  // resolves to a real ack - this remains as defense in depth (e.g. a
+  // malformed command_json JSON.parse throw) so a reply always goes
+  // back no matter what, rather than leaving the controller waiting
+  // forever with no ack and no error surfaced.
   let ack: unknown;
   try {
     debug("charnelAcceptBridge", `dispatchCommand starting, request_id=${request_id}`);
     ack = await dispatchCommand(charnelPlaybackAdapter, undefined, command_json);
     debug("charnelAcceptBridge", `dispatchCommand resolved, request_id=${request_id}`, ack);
   } catch (err) {
-    console.error("[cenotaph-charnel] dispatchCommand threw:", err);
+    error("charnelAcceptBridge", `dispatchCommand threw for request_id=${request_id}:`, err);
     ack = { type: "command_ack", ok: false, reason: "invalid_command" };
   }
   try {

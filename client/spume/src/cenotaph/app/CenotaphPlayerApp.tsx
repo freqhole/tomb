@@ -63,9 +63,8 @@ import {
 } from "../../music/services/audio/playerState";
 import { isUpNextRow } from "./upNextRow";
 import {
-  pause as realPause,
-  play as realPlay,
   playNext as realPlayNext,
+  togglePlayback as realTogglePlayback,
   getVideoElement,
   isVideoWindowActive,
 } from "../../music/services/audio/player";
@@ -634,7 +633,7 @@ export function CenotaphPlayerApp() {
               <button
                 type="button"
                 class="text-3xl leading-none"
-                onClick={() => (view().isPlaying ? realPause() : void realPlay())}
+                onClick={() => void realTogglePlayback()}
                 data-testid="play-pause-button"
               >
                 {view().isPlaying ? "⏸" : "▶"}

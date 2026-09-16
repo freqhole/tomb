@@ -247,7 +247,17 @@ export async function resolveMediaRefToVideo(item: MediaRef): Promise<QueuedVide
     }
 
     if (isCharnelAvailable()) {
-      return syncResult.videoId ? await getLocalVideoById(syncResult.videoId) : null;
+      if (!syncResult.videoId) return null;
+      const local = await getLocalVideoById(syncResult.videoId);
+      // grimoire's wire `Video` type has no `blake3` field at all (unlike
+      // `Song`, which does carry one) - `getLocalVideoById`'s read-back
+      // can never recover it, so it must be re-attached here from the
+      // wire `MediaRef`'s own value. without this, every charnel-resolved
+      // video silently lost its content hash, breaking both
+      // controller-side queue drain and this player's own already-queued
+      // dedup (`currentQueueHashes()` in `charnelPlaybackAdapter.ts`),
+      // since both match by `mediaItemBlake3()`.
+      return local ? { ...local, blake3: item.blake3_hash } : null;
     }
 
     void queryClient.invalidateQueries({ queryKey: videoQueryKeys.videos.all() });

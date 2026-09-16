@@ -47,6 +47,7 @@ import {
   setPendingUpNextSha256,
 } from "./playerState";
 import { debug, warn } from "../../../utils/logger";
+import { decidePlayAction } from "./decidePlayAction";
 import { appState, setCurrentSong, setQueue } from "../../../app/services/storage/db";
 import { toast } from "../../../components/feedback/Toast";
 import {
@@ -597,48 +598,18 @@ export async function playMediaItem(
   await playVideo(item.video, options);
 }
 
-export async function togglePlayback(source: "ui" | "mediaSession" = "ui"): Promise<void> {
-  void source;
-
-  // pause path: short-circuit, set the gate, send pause through the
-  // wire interface. backend-agnostic.
-  if (isPlayingSignal()) {
-    userExplicitlyPaused = true;
-    await activeBackend.send({ kind: "pause" });
-    return;
-  }
-
-  // play path: silence radio + clear gate up-front so any pending
-  // up-next loads honor the user's intent. `stopRadioForMusic()` is a
-  // no-op when radio isn't active (see leaveRadio's guard) - it used to
-  // unconditionally rewrite appState on every resume even when radio was
-  // never involved.
-  await stopRadioForMusic();
-  userExplicitlyPaused = false;
-
-  const snap = activeBackend.snapshot();
-
-  // a track is loaded and paused — bare play resumes it. backends
-  // handle their own quirks (the html backend re-creates iOS-revoked
-  // blob URLs inside its play() handler before throwing).
-  if (snap.state === "paused") {
-    try {
-      await activeBackend.send({ kind: "play" });
-      return;
-    } catch (e) {
-      warn(
-        "player",
-        "resume failed, falling back to full load:",
-        e instanceof Error ? e.message : e
-      );
-    }
-  }
-
-  // nothing playable loaded — pull current_sha256 (page-reload case)
-  // or queue head, and route through `playSong` which handles loading.
+/** the active backend has nothing loaded (fresh page load / cenotaph
+ * player mount against an already-populated persisted queue, or a
+ * "resume" command arriving before anything was ever explicitly played
+ * this session) - pulls `current_sha256` (page-reload case) or the queue
+ * head and routes through `playMediaItem`/`playSong`, which handle
+ * loading. shared by `togglePlayback()` and `play()` below, which both
+ * hit this same "backend snapshot says nothing resumable is loaded"
+ * case. */
+async function loadCurrentQueueItemAndPlay(caller: string): Promise<void> {
   const state = appState();
   if (!state) {
-    warn("player", "togglePlayback: no app state");
+    warn("player", `${caller}: no app state`);
     return;
   }
   const { queue, current_sha256 } = state;
@@ -670,7 +641,49 @@ export async function togglePlayback(source: "ui" | "mediaSession" = "ui"): Prom
     await playMediaItem(queue[0], { userInitiated: true });
     return;
   }
-  warn("player", "togglePlayback: nothing to play (queue empty)");
+  warn("player", `${caller}: nothing to play (queue empty)`);
+}
+
+export async function togglePlayback(source: "ui" | "mediaSession" = "ui"): Promise<void> {
+  void source;
+
+  // pause path: short-circuit, set the gate, send pause through the
+  // wire interface. backend-agnostic.
+  if (isPlayingSignal()) {
+    userExplicitlyPaused = true;
+    await activeBackend.send({ kind: "pause" });
+    return;
+  }
+
+  // play path: silence radio + clear gate up-front so any pending
+  // up-next loads honor the user's intent. `stopRadioForMusic()` is a
+  // no-op when radio isn't active (see leaveRadio's guard) - it used to
+  // unconditionally rewrite appState on every resume even when radio was
+  // never involved.
+  await stopRadioForMusic();
+  userExplicitlyPaused = false;
+
+  const snap = activeBackend.snapshot();
+
+  // a track is loaded and paused — bare play resumes it. backends
+  // handle their own quirks (the html backend re-creates iOS-revoked
+  // blob URLs inside its play() handler before throwing).
+  if (decidePlayAction(snap.state) === "resume") {
+    try {
+      await activeBackend.send({ kind: "play" });
+      return;
+    } catch (e) {
+      warn(
+        "player",
+        "resume failed, falling back to full load:",
+        e instanceof Error ? e.message : e
+      );
+    }
+  }
+
+  // nothing playable loaded — pull current_sha256 (page-reload case)
+  // or queue head, and route through `playSong` which handles loading.
+  await loadCurrentQueueItemAndPlay("togglePlayback");
 }
 
 export function pause(): void {
@@ -708,6 +721,26 @@ export async function play(): Promise<void> {
       await playMediaItem(state.queue[0], { userInitiated: true });
     }
     return;
+  }
+
+  // nothing was ever loaded into this backend THIS session (e.g. the
+  // cenotaph player mounted fresh against an already-populated persisted
+  // queue, or a remote "resume" command arrived before anything was ever
+  // explicitly played here) - blindly resending `play` below would be a
+  // no-op against an empty backend. shares `togglePlayback()`'s exact
+  // decision (`decidePlayAction`) rather than a separate hand-rolled
+  // condition - a prior version of this fix checked `state === "stopped"`,
+  // which never matches a truly fresh backend's real default (`null`, see
+  // `decidePlayAction`'s own doc comment), so it silently never fired.
+  switch (decidePlayAction(activeBackend.snapshot().state)) {
+    case "noop":
+      // already playing - a redundant resume must not restart it.
+      return;
+    case "load":
+      await loadCurrentQueueItemAndPlay("play");
+      return;
+    case "resume":
+      break;
   }
 
   await activeBackend.send({ kind: "play" });

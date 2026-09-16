@@ -272,16 +272,13 @@ function pruneLocalQueueForFinishedItems(finishedHashes: string[]): void {
   pruneLocalQueueByBlake3(finishedHashes);
 }
 
-/** shared queue-array mutation behind both `pruneLocalQueueForFinishedItems`
- * (above - items the remote reports as done with) and
- * `pruneLocalQueueAfterSuccessfulPush` (below - items the remote just
- * ACK'd as queued, whether played yet or not). drops any local queue entry
- * (song OR video - see `mediaItemBlake3`) whose content hash is in
- * `hashes`, except `keepKey` (a `mediaItemKey()`, e.g. the currently-
- * playing item, held back until its handoff is separately confirmed - see
- * the doc comment on `pruneLocalQueueAfterSuccessfulPush`). a no-op if
- * nothing actually matches, so callers can call this unconditionally
- * without checking first. */
+/** shared queue-array mutation behind `pruneLocalQueueForFinishedItems`
+ * (below - items the remote reports as done with, matched by blake3 since
+ * that's the only identity a remote-reported `recently_played` hash can
+ * carry). drops any local queue entry (song OR video - see
+ * `mediaItemBlake3`) whose content hash is in `hashes`, except `keepKey`
+ * (a `mediaItemKey()`) - a no-op if nothing actually matches, so callers
+ * can call this unconditionally without checking first. */
 function pruneLocalQueueByBlake3(hashes: string[], keepKey?: string | null): void {
   const state = appState();
   if (!state || hashes.length === 0) return;
@@ -295,8 +292,48 @@ function pruneLocalQueueByBlake3(hashes: string[], keepKey?: string | null): voi
   void setQueue(kept);
 }
 
-/** drops queue entries (by blake3) once they've been successfully handed
- * to the active remote target - called right after a successful
+/** counterpart to `pruneLocalQueueByBlake3` above, used by
+ * `pruneLocalQueueAfterSuccessfulPush` - matches by `mediaItemKey()`
+ * (`Song.sha256`/`Video.id`, always non-null) rather than blake3.
+ * required for video: `mediaItemBlake3()` has no fallback for a video
+ * with no locally-known blake3 (common - see `QueuedVideo.blake3`'s own
+ * doc comment), so matching by content hash there silently never matched
+ * anything and the video sat in the local queue forever (a real bug found
+ * live: "i can't queue videos" - the drain step was the part that never
+ * fired). `pruneLocalQueueAfterSuccessfulPush` always operates on the
+ * SAME local queue items that were just pushed, so their stable local key
+ * is always known up front - unlike `pruneLocalQueueByBlake3` above,
+ * which only ever receives hashes the REMOTE reported, with no local
+ * object to derive a key from. */
+function pruneLocalQueueByKey(keys: Set<string>, keepKey?: string | null): void {
+  const state = appState();
+  if (!state || keys.size === 0) return;
+  const kept = state.queue.filter((item) => {
+    const key = mediaItemKey(item);
+    if (keepKey && key === keepKey) return true;
+    return !keys.has(key);
+  });
+  if (kept.length === state.queue.length) return;
+  void setQueue(kept);
+}
+
+/** identifies one local queue item that was just pushed to a remote
+ * target - `key` (`mediaItemKey()`) is what `pruneLocalQueueByKey` matches
+ * the local queue against; `blake3Hash` is the REAL hash that ended up on
+ * the wire for this item (from the `RemoteMediaRef` actually sent, e.g.
+ * freshly computed by `importMediaBytes()` for a relayed item) - NOT
+ * necessarily the same as the local object's own `blake3` field (which
+ * may be stale or entirely absent, especially for video). only the
+ * confirmation check below (comparing against `remoteCurrentItem()`,
+ * which the remote reports purely by wire hash) needs `blake3Hash` at
+ * all - the actual prune/drain decision uses `key`. */
+export interface PushedQueueItem {
+  key: string;
+  blake3Hash: string;
+}
+
+/** drops queue entries once they've been successfully handed to the
+ * active remote target - called right after a successful
  * `replace_queue`/`append_queue` ack (see `playerQueuePush.ts`'s 6 push/
  * append functions), not only once the remote later reports them
  * "finished" (`pruneLocalQueueForFinishedItems` above) - a duplicate
@@ -305,7 +342,7 @@ function pruneLocalQueueByBlake3(hashes: string[], keepKey?: string | null): voi
  * was reselected. per user direction: for a REPLACE (`isReplace: true` -
  * the pushed item at index 0 is meant to become the remote's new "now
  * playing"), the CURRENTLY-PLAYING local item (if it's among
- * `pushedHashes`) is held back unless the remote's own just-applied
+ * `pushedItems`) is held back unless the remote's own just-applied
  * status (`remoteCurrentItem()` - call this AFTER `applyRemoteStatusFromAck`,
  * not before) confirms it's already the remote's current item too - "it's
  * like a handoff", avoiding a moment where nothing appears to be playing
@@ -320,26 +357,33 @@ function pruneLocalQueueByBlake3(hashes: string[], keepKey?: string | null): voi
  * something that was only just appended to its tail). append always
  * drains immediately on a successful ack, no confirmation needed. */
 export function pruneLocalQueueAfterSuccessfulPush(
-  pushedHashes: string[],
+  pushedItems: PushedQueueItem[],
   isReplace: boolean
 ): void {
   const state = appState();
-  if (!state || pushedHashes.length === 0) return;
+  if (!state || pushedItems.length === 0) return;
+  const pushedKeys = new Set(pushedItems.map((p) => p.key));
   if (!isReplace) {
-    pruneLocalQueueByBlake3(pushedHashes);
+    pruneLocalQueueByKey(pushedKeys);
     return;
   }
   const currentItem = state.current_sha256
     ? state.queue.find((i) => mediaItemKey(i) === state.current_sha256)
     : undefined;
-  const currentHash = currentItem ? mediaItemBlake3(currentItem) : null;
-  const currentWasPushed = !!currentHash && pushedHashes.includes(currentHash);
+  const currentKey = currentItem ? mediaItemKey(currentItem) : null;
+  const currentWasPushed = !!currentKey && pushedKeys.has(currentKey);
   if (!currentWasPushed) {
-    pruneLocalQueueByBlake3(pushedHashes);
+    pruneLocalQueueByKey(pushedKeys);
     return;
   }
-  const remoteConfirmedCurrent = remoteCurrentItem()?.blake3_hash === currentHash;
-  pruneLocalQueueByBlake3(pushedHashes, remoteConfirmedCurrent ? null : mediaItemKey(currentItem!));
+  // the wire hash actually sent for the current item - NOT
+  // `mediaItemBlake3(currentItem)`, which may be stale/absent (video) and
+  // wouldn't match what the remote actually reports back as its current
+  // item's hash.
+  const currentPushedHash = pushedItems.find((p) => p.key === currentKey)?.blake3Hash ?? null;
+  const remoteConfirmedCurrent =
+    !!currentPushedHash && remoteCurrentItem()?.blake3_hash === currentPushedHash;
+  pruneLocalQueueByKey(pushedKeys, remoteConfirmedCurrent ? null : currentKey);
 }
 
 /** applies a status carried on a raw sendPlayerCommand ack - used by

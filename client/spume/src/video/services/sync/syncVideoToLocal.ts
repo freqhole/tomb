@@ -243,6 +243,18 @@ async function syncVideoViaCharnel(
 
   const blobId = await resolvePlaybackBlobId(video, remoteId);
   const meta = await fetchBlobMetadata(remoteId, blobId, remoteOverride);
+  // prefer a blake3 the caller already knows (e.g. cenotaph's
+  // mediaRefResolve.ts sets `video.blake3` directly from the wire
+  // MediaRef's own hash, computed once by the peer that imported the
+  // bytes) over re-deriving one from this metadata fetch - which is
+  // explicitly best-effort and swallows ANY failure (unreachable peer,
+  // timeout, etc.) into an empty `{}`. blindly trusting `meta.blake3`
+  // meant a flaky/slow metadata round trip could throw away a perfectly
+  // good, already-known hash and fail the whole sync with "video blob
+  // has no blake3" even though one was known the entire time - the
+  // actual root cause of "queue a video from a remote controller" never
+  // resolving in charnel mode.
+  const blake3 = video.blake3 ?? meta.blake3 ?? null;
 
   addToLoadingSet(video.id);
   updateLoadingProgress(video.id, null); // grimoire's pull reports no progress back
@@ -251,7 +263,7 @@ async function syncVideoViaCharnel(
       video,
       remote,
       blobId,
-      meta.blake3 ?? null,
+      blake3,
       meta.size,
       meta.mime
     );

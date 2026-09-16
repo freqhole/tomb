@@ -48,7 +48,7 @@ import type { Song } from "../../music/services/storage/types";
 import type { QueuedVideo } from "../../app/services/storage/mediaItem";
 import { resolveMediaRefToSong, resolveMediaRefToVideo } from "./mediaRefResolve";
 import { leaveRadio, tuneIntoRadio } from "../../app/services/radio/radioService";
-import { debug, warn } from "../../utils/logger";
+import { debug, error, warn } from "../../utils/logger";
 
 /** one item from a queue push that hasn't resolved to a real queueable
  * `MediaItem` yet - shown by `CenotaphPlayerApp.tsx` immediately (title/
@@ -132,16 +132,32 @@ async function resolveAndDeliverQueueItems(
 
   let resolvedCount = 0;
   for (const item of toResolve) {
+    const label = `${item.kind} "${item.title ?? item.blake3_hash.slice(0, 8)}" (${item.blake3_hash.slice(0, 8)}...)`;
     try {
       const mediaItem = await resolveMediaItem(item);
-      if (mediaItem) {
+      if (!mediaItem) {
+        // resolveMediaItem's own resolve/sync functions already log the
+        // specific reason (unreachable peer, sync failure, etc.) - this
+        // just marks which item in the batch it was, for a queue push of
+        // more than one item.
+        warn("charnelPlaybackAdapter", `failed to resolve queued item ${label}, skipping`);
+        continue;
+      }
+      try {
         await onResolved(mediaItem, resolvedCount === 0);
         resolvedCount++;
-      } else {
-        warn(
-          "charnelPlaybackAdapter",
-          `failed to resolve queued item ${item.blake3_hash.slice(0, 8)}..., skipping`
-        );
+      } catch (err) {
+        // a resolve can succeed but the actual queue-add (playQueue/
+        // addToQueue) can still throw (e.g. a malformed item tripping
+        // queue.ts's own validation) - previously uncaught here, this
+        // silently aborted the ENTIRE batch (every item still queued
+        // behind the failing one was dropped too) and propagated all the
+        // way up through dispatchCommand with no indication of which
+        // item or why. logging it here and continuing to the next item
+        // is what actually answers "why wasn't this queued", and matches
+        // this function's own stated "one broken item shouldn't hold up
+        // the rest" design intent.
+        error("charnelPlaybackAdapter", `queueing resolved item ${label} failed:`, err);
       }
     } finally {
       settlePendingPreview(item.blake3_hash);

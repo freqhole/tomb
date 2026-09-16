@@ -44,12 +44,13 @@ import {
   applyRemoteStatusFromAck,
   pruneLocalQueueAfterSuccessfulPush,
   reportCommandAckFailure,
+  type PushedQueueItem,
   type RemoteMediaRef,
   type RemoteStatus,
   type RenditionRef,
 } from "./remotePlaybackControl";
 import { getVideoURL } from "../../../video/services/videoBlobAccess";
-import { mediaItemBlake3, songToMediaItem, videoToMediaItem } from "../storage/mediaItem";
+import { mediaItemKey, songToMediaItem, videoToMediaItem } from "../storage/mediaItem";
 import type { MediaItem, QueuedVideo } from "../storage/mediaItem";
 
 function bytesToBase64(bytes: Uint8Array): string {
@@ -426,11 +427,29 @@ interface CommandAckLike {
  * the remote is currently playing, so there's no handoff to confirm and
  * gating on one would hold the item back forever (found live: appending
  * a song to an already-playing remote left it stuck in the local queue
- * permanently). */
-function drainAfterAck(ack: CommandAckLike, hashes: (string | null)[], isReplace: boolean): void {
+ * permanently). `pushed`'s `blake3Hash` must be the REAL hash that ended
+ * up on the wire for each item (i.e. read off the `RemoteMediaRef` that
+ * was actually sent), never re-derived from the local song/video object
+ * afterward - a video commonly has no local `blake3` at all (see
+ * `QueuedVideo.blake3`'s own doc comment), and re-deriving from it instead
+ * of using the real sent hash silently produced a `null` that never
+ * matched anything, so the video just never drained (a real bug found
+ * live: "i can't queue videos" - the push itself worked, only the local
+ * drain step silently never fired). */
+function drainAfterAck(ack: CommandAckLike, pushed: PushedQueueItem[], isReplace: boolean): void {
   if (!ack?.ok) return;
-  const nonNull = hashes.filter((h): h is string => !!h);
-  if (nonNull.length > 0) pruneLocalQueueAfterSuccessfulPush(nonNull, isReplace);
+  if (pushed.length > 0) pruneLocalQueueAfterSuccessfulPush(pushed, isReplace);
+}
+
+/** zips local `MediaItem`s with the `RemoteMediaRef`s that were actually
+ * built for them (same order, from the same `Promise.all` call) into the
+ * `{key, blake3Hash}` pairs `drainAfterAck` needs - see its own doc
+ * comment for why the wire hash (not a locally re-derived one) matters. */
+function toPushedQueueItems(mediaItems: MediaItem[], refs: RemoteMediaRef[]): PushedQueueItem[] {
+  return mediaItems.map((item, i) => ({
+    key: mediaItemKey(item),
+    blake3Hash: refs[i].blake3_hash,
+  }));
 }
 
 /** push a full queue of songs to a paired player, replacing whatever it
@@ -447,11 +466,7 @@ export async function pushSongsToPlayer(peerAddr: string, songs: Song[]): Promis
   debug("playerQueuePush", `pushSongsToPlayer(${peerAddr}) ack:`, ack);
   reportCommandAckFailure(ack, peerAddr);
   if (ack?.status) applyRemoteStatusFromAck(ack.status);
-  drainAfterAck(
-    ack,
-    songs.map((s) => mediaItemBlake3(songToMediaItem(s))),
-    true
-  );
+  drainAfterAck(ack, toPushedQueueItems(songs.map(songToMediaItem), items), true);
 }
 
 /** append songs to a paired player's existing queue, without disturbing
@@ -468,11 +483,7 @@ export async function appendSongsToPlayer(peerAddr: string, songs: Song[]): Prom
   debug("playerQueuePush", `appendSongsToPlayer(${peerAddr}) ack:`, ack);
   reportCommandAckFailure(ack, peerAddr);
   if (ack?.status) applyRemoteStatusFromAck(ack.status);
-  drainAfterAck(
-    ack,
-    songs.map((s) => mediaItemBlake3(songToMediaItem(s))),
-    false
-  );
+  drainAfterAck(ack, toPushedQueueItems(songs.map(songToMediaItem), items), false);
 }
 
 /** push a full queue of videos to a paired player, replacing whatever it
@@ -491,11 +502,7 @@ export async function pushVideosToPlayer(peerAddr: string, videos: QueuedVideo[]
   debug("playerQueuePush", `pushVideosToPlayer(${peerAddr}) ack:`, ack);
   reportCommandAckFailure(ack, peerAddr);
   if (ack?.status) applyRemoteStatusFromAck(ack.status);
-  drainAfterAck(
-    ack,
-    videos.map((v) => mediaItemBlake3(videoToMediaItem(v))),
-    true
-  );
+  drainAfterAck(ack, toPushedQueueItems(videos.map(videoToMediaItem), items), true);
 }
 
 /** append videos to a paired player's existing queue, without disturbing
@@ -514,11 +521,7 @@ export async function appendVideosToPlayer(peerAddr: string, videos: QueuedVideo
   debug("playerQueuePush", `appendVideosToPlayer(${peerAddr}) ack:`, ack);
   reportCommandAckFailure(ack, peerAddr);
   if (ack?.status) applyRemoteStatusFromAck(ack.status);
-  drainAfterAck(
-    ack,
-    videos.map((v) => mediaItemBlake3(videoToMediaItem(v))),
-    false
-  );
+  drainAfterAck(ack, toPushedQueueItems(videos.map(videoToMediaItem), items), false);
 }
 
 /** kind-agnostic equivalent of songToMediaRef()/videoToMediaRef() above -
@@ -551,11 +554,7 @@ export async function pushMediaToPlayer(peerAddr: string, items: MediaItem[]): P
   debug("playerQueuePush", `pushMediaToPlayer(${peerAddr}) ack:`, ack);
   reportCommandAckFailure(ack, peerAddr);
   if (ack?.status) applyRemoteStatusFromAck(ack.status);
-  drainAfterAck(
-    ack,
-    items.map((i) => mediaItemBlake3(i)),
-    true
-  );
+  drainAfterAck(ack, toPushedQueueItems(items, refs), true);
 }
 
 /** append equivalent of pushMediaToPlayer() above. */
@@ -571,9 +570,5 @@ export async function appendMediaToPlayer(peerAddr: string, items: MediaItem[]):
   debug("playerQueuePush", `appendMediaToPlayer(${peerAddr}) ack:`, ack);
   reportCommandAckFailure(ack, peerAddr);
   if (ack?.status) applyRemoteStatusFromAck(ack.status);
-  drainAfterAck(
-    ack,
-    items.map((i) => mediaItemBlake3(i)),
-    false
-  );
+  drainAfterAck(ack, toPushedQueueItems(items, refs), false);
 }

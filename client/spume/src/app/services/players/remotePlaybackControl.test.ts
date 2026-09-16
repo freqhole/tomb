@@ -41,8 +41,16 @@ function song(sha256: string, blake3: string): MediaItem {
   return { kind: "song", song: { sha256, blake3, title: sha256 } } as unknown as MediaItem;
 }
 
-function video(id: string, blake3: string): MediaItem {
+function video(id: string, blake3: string | null = null): MediaItem {
   return { kind: "video", video: { id, blake3, title: id } } as unknown as MediaItem;
+}
+
+/** builds a `PushedQueueItem` - `key` is the local `mediaItemKey()`
+ * (sha256/id), `blake3Hash` is whatever hash actually ended up on the
+ * wire for it (may have nothing to do with the local item's own `blake3`
+ * field - see `pruneLocalQueueAfterSuccessfulPush`'s own doc comment). */
+function pushed(key: string, blake3Hash: string): { key: string; blake3Hash: string } {
+  return { key, blake3Hash };
 }
 
 function statusFor(blake3Hash: string, positionMs = 0): RemoteStatus {
@@ -70,28 +78,45 @@ beforeEach(() => {
 
 describe("pruneLocalQueueAfterSuccessfulPush (isReplace: true - a real handoff)", () => {
   it("drains non-current pushed items immediately, keeping items that weren't pushed", async () => {
-    pruneLocalQueueAfterSuccessfulPush(["b2"], true);
+    pruneLocalQueueAfterSuccessfulPush([pushed("s2", "b2")], true);
     expect(setQueueMock).toHaveBeenCalledTimes(1);
     const kept = setQueueMock.mock.calls[0][0] as MediaItem[];
     expect(kept.map((i) => (i.kind === "song" ? i.song.sha256 : i.video.id))).toEqual(["s1", "v1"]);
   });
 
   it("drains video items too (not just songs - a real pre-existing gap this fixed)", async () => {
-    pruneLocalQueueAfterSuccessfulPush(["b3"], true);
+    pruneLocalQueueAfterSuccessfulPush([pushed("v1", "b3")], true);
     const kept = setQueueMock.mock.calls[0][0] as MediaItem[];
     expect(kept.some((i) => i.kind === "video")).toBe(false);
   });
 
+  it("drains a video even when its LOCAL blake3 is null/absent, matching by key instead of content hash", async () => {
+    // the real bug: a locally-imported/never-synced video commonly has no
+    // `blake3` field at all - the actual wire hash sent at push time (e.g.
+    // freshly computed from imported bytes) has nothing to do with that
+    // local field, so matching by content hash silently never matched
+    // anything and the video sat in the local queue forever ("i can't
+    // queue videos"). matching by `mediaItemKey()` (always non-null) fixes
+    // this regardless of whether/what the wire hash was.
+    state = {
+      queue: [song("s1", "b1"), video("v-no-hash", null)],
+      current_sha256: "s1",
+    } as AppState;
+    pruneLocalQueueAfterSuccessfulPush([pushed("v-no-hash", "freshly-computed-hash")], true);
+    const kept = setQueueMock.mock.calls[0][0] as MediaItem[];
+    expect(kept.map((i) => (i.kind === "song" ? i.song.sha256 : i.video.id))).toEqual(["s1"]);
+  });
+
   it("holds back the currently-playing item until the remote confirms it's playing the same one", async () => {
     // remote hasn't reported anything yet - current item must be kept.
-    pruneLocalQueueAfterSuccessfulPush(["b1", "b2"], true);
+    pruneLocalQueueAfterSuccessfulPush([pushed("s1", "b1"), pushed("s2", "b2")], true);
     let kept = setQueueMock.mock.calls[0][0] as MediaItem[];
     expect(kept.map((i) => (i.kind === "song" ? i.song.sha256 : i.video.id))).toEqual(["s1", "v1"]);
 
     // remote now confirms it's on b1 too - safe to drain it now.
     applyRemoteStatusFromAck(statusFor("b1"));
     setQueueMock.mockClear();
-    pruneLocalQueueAfterSuccessfulPush(["b1"], true);
+    pruneLocalQueueAfterSuccessfulPush([pushed("s1", "b1")], true);
     kept = setQueueMock.mock.calls[0][0] as MediaItem[];
     expect(kept.map((i) => (i.kind === "song" ? i.song.sha256 : i.video.id))).toEqual(["v1"]);
   });
@@ -100,12 +125,12 @@ describe("pruneLocalQueueAfterSuccessfulPush (isReplace: true - a real handoff)"
     applyRemoteStatusFromAck(statusFor("some-other-hash"));
     // only the (held-back) current item was pushed - nothing actually
     // changes, so this is correctly a no-op (no setQueue call at all).
-    pruneLocalQueueAfterSuccessfulPush(["b1"], true);
+    pruneLocalQueueAfterSuccessfulPush([pushed("s1", "b1")], true);
     expect(setQueueMock).not.toHaveBeenCalled();
   });
 
-  it("is a no-op when nothing in the queue matches the pushed hashes", async () => {
-    pruneLocalQueueAfterSuccessfulPush(["not-in-queue"], true);
+  it("is a no-op when nothing in the queue matches the pushed keys", async () => {
+    pruneLocalQueueAfterSuccessfulPush([pushed("not-in-queue", "not-in-queue")], true);
     expect(setQueueMock).not.toHaveBeenCalled();
   });
 
@@ -125,7 +150,7 @@ describe("pruneLocalQueueAfterSuccessfulPush (isReplace: false - append, no hand
   it("drains the current item immediately on a successful append ack, with NO remote confirmation needed", async () => {
     // no applyRemoteStatusFromAck call at all - remote is playing
     // something completely different, exactly like a real append.
-    pruneLocalQueueAfterSuccessfulPush(["b1"], false);
+    pruneLocalQueueAfterSuccessfulPush([pushed("s1", "b1")], false);
     expect(setQueueMock).toHaveBeenCalledTimes(1);
     const kept = setQueueMock.mock.calls[0][0] as MediaItem[];
     expect(kept.map((i) => (i.kind === "song" ? i.song.sha256 : i.video.id))).toEqual(["s2", "v1"]);
@@ -133,8 +158,18 @@ describe("pruneLocalQueueAfterSuccessfulPush (isReplace: false - append, no hand
 
   it("still drains even when the remote reports a totally different current item", async () => {
     applyRemoteStatusFromAck(statusFor("some-other-hash"));
-    pruneLocalQueueAfterSuccessfulPush(["b1"], false);
+    pruneLocalQueueAfterSuccessfulPush([pushed("s1", "b1")], false);
     const kept = setQueueMock.mock.calls[0][0] as MediaItem[];
     expect(kept.map((i) => (i.kind === "song" ? i.song.sha256 : i.video.id))).toEqual(["s2", "v1"]);
+  });
+
+  it("drains an appended video with no local blake3, matching by key", async () => {
+    state = {
+      queue: [song("s1", "b1"), video("v-no-hash", null)],
+      current_sha256: "s1",
+    } as AppState;
+    pruneLocalQueueAfterSuccessfulPush([pushed("v-no-hash", "freshly-computed-hash")], false);
+    const kept = setQueueMock.mock.calls[0][0] as MediaItem[];
+    expect(kept.map((i) => (i.kind === "song" ? i.song.sha256 : i.video.id))).toEqual(["s1"]);
   });
 });

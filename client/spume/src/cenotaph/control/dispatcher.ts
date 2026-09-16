@@ -8,7 +8,7 @@ import { PlayerCommandSchema, type CommandAck } from "./schema";
 import { broadcastStatus } from "./statusSubscribers";
 import { markActivity } from "./activityIndicator";
 import type { PlaybackBackend } from "./playbackBackend";
-import { debug, warn } from "../../utils/logger";
+import { debug, error, warn } from "../../utils/logger";
 
 // only the handful of commands that can take the player from idle (no
 // now-playing item, qr code showing) to actually playing something count
@@ -97,6 +97,20 @@ export async function dispatchCommand<TNode = unknown>(
     // stays in sync without everyone polling.
     broadcastStatus(status);
     return { type: "command_ack", ok: true, status };
+  } catch (err) {
+    // a thrown backend method (e.g. queue.ts's addToQueue/playQueue
+    // rejecting for a resolved video/song item) previously propagated
+    // uncaught all the way to the accept-loop connection handler -
+    // browser/wasm mode then silently closed the WHOLE connection with no
+    // ack at all (killing every other command queued behind it too), and
+    // charnel-native mode only logged a bare "dispatchCommand threw" with
+    // no indication of which command or item was involved. logging the
+    // command here (not just the raw error) is what actually answers "why
+    // wasn't this queued" - the deeper resolve/sync functions already log
+    // their own failures, but a throw from the QUEUE-ADD step itself
+    // (after a successful resolve) had no logging anywhere before this.
+    error("dispatcher", `command "${command.command}" threw:`, err);
+    return { type: "command_ack", ok: false, reason: "invalid_command" };
   } finally {
     if (tracksLoading) setCommandInFlight(false);
   }
