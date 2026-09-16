@@ -5,6 +5,39 @@ description: running rathole headless on a raspberry pi, as a systemd service, w
 
 [`rathole`](https://github.com/freqhole/tomb) is freqhole's terminal (ratatui) client — a full music + video player you can ssh into, or run directly on a pi's console as a dedicated player. `--player` starts it straight in a QR/pin pairing screen, so it can be paired with and controlled from spume/cenotaph on your phone (see [cenotaph](/guides/cenotaph/) for the full pairing/player picture). grab an arm64/armv7 binary from the [download page](/getting-started/download/).
 
+## terminal fonts
+
+the best font i found to work well is `Uni2-VGA14` so this should be located at `/usr/share/consolefonts/Uni2-VGA14.psf.gz` (so the qr code, big tui text, and some other stuff use utf8 block chars and not all of the kernel fonts support all the glyphs!)
+
+if you don't have this try installing like:
+
+```sh
+sudo apt install unifont
+sudo apt install psf-unifont
+```
+
+then edit the config file like:
+
+```sh
+sudo vim /etc/default/console-setup
+```
+
+add a new line to set `FONT` or if it's already there comment out or change it (note `FONT` will override any `FONTFACE=` or `FONTSIZE=` config) like:
+
+```sh
+FONT="Uni2-VGA14.psf.gz"
+```
+
+then reload:
+
+```sh
+sudo setupcon
+```
+
+## system volume
+
+if the volume is too low, you can use run either `alsamixer` to turn the volume up, or run a one-show `amixer sset Master 100%` command to set volume; you might want to run this with any systemd or autostart scripts you have.
+
 ## running as a systemd service
 
 running `rathole` as a service means it starts automatically on boot and takes over the console (tty1) as a dedicated player, instead of a login prompt.
