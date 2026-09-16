@@ -1,20 +1,18 @@
-// wires up cenotaph's inbound accept-loop + local library hooks once the
-// midden node is ready.
+// wires up cenotaph's inbound accept-loop once the midden node is ready.
 //
-// pulled out of client.ts's getMiddenNode() (which used to call these two
-// inline) because both acceptModeBootstrap.ts and localLibraryHooks.ts
-// need to call back into client.ts (getClientForRemote et al) - having
-// client.ts import them directly closed a static import cycle. this
-// module sits on the other side of that edge: it imports client.ts (for
-// getMiddenNode/onMiddenReady) and the two remotePlayback modules, but
-// nothing imports THIS module except App.tsx, so no cycle.
+// pulled out of client.ts's getMiddenNode() (which used to call this
+// inline) because acceptModeBootstrap.ts needs to call back into
+// client.ts (getClientForRemote et al) - having client.ts import it
+// directly closed a static import cycle. this module sits on the other
+// side of that edge: it imports client.ts (for getMiddenNode/onMiddenReady)
+// and the remotePlayback module, but nothing imports THIS module except
+// App.tsx, so no cycle.
 //
 // call once from App.tsx's boot sequence (mirrors initRodioPreference()).
 
 import { getMiddenNode, onMiddenReady } from "../../app/api/client";
 import { initRemotePlaybackAcceptMode } from "./acceptModeBootstrap";
 import { initCharnelPlaybackAcceptMode } from "./charnelAcceptBridge";
-import { initLocalLibraryHooks } from "./localLibraryHooks";
 import { isCharnelMode } from "../../app/services/charnel/mode";
 import type { MiddenNodeLike } from "@freqhole/api-client";
 
@@ -35,7 +33,6 @@ export function initRemotePlaybackBootstrap(): void {
   onMiddenReady(() => {
     void getMiddenNode().then((node: MiddenNodeLike) => {
       initRemotePlaybackAcceptMode(node);
-      initLocalLibraryHooks();
     });
   });
 }

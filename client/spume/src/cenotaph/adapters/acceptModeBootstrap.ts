@@ -1,12 +1,13 @@
 // wires cenotaph's generalized accept loop into spume's single existing
 // midden node: `freqhole/1` gets spume's own hello route (server-info
 // probes advertising `supports_remote_playback`), `freqhole-player/1` gets
-// cenotaph's pairing + playback-command handler using cenotaph's own
-// default `mediaPlaybackBackend` (see lib/cenotaph/ts/src/playback/
-// playbackEngine.ts) - spume's `/player/` route reuses this SAME backend
-// directly (imports it from `@freqhole/cenotaph` too), so there's exactly
-// one playback implementation shared by both the accept-loop side (this
-// file) and the render side (CenotaphPlayerApp.tsx).
+// cenotaph's pairing + playback-command handler using `charnelPlaybackAdapter`
+// (spume's real queue/player services, browser AND charnel alike - see
+// docs/cenotaph-player-queue-unification-plan.md task 2. cenotaph's own
+// self-contained `mediaPlaybackBackend` is no longer used inside spume at
+// all - it has none of spume's media-session integration, download retry/
+// resume tracking, or real listen history, and this is a genuinely
+// duplicate second player, not a platform-specific need).
 //
 // called once from client.ts's getMiddenNode(), right after the node is
 // created - see docs/cenotaph-migration-plan.md phase 1.
@@ -19,19 +20,15 @@ import {
   createHelloRouteHandler,
   createPlayerConnectionHandler,
   initSessionSignal,
-  mediaPlaybackBackend,
   startAcceptLoop,
   type CenotaphAcceptableNode,
   type CenotaphBiStream,
-  type MediaPlaybackNode,
 } from "../index";
 import { spumeTrustStore } from "./trustStoreAdapter";
 import { spumeSessionStore } from "./playerSessionAdapter";
 import { getSpumeHelloInfo } from "./spumeHelloRoute";
 import { isActivePlayer } from "./remoteModeSettings";
 import { registerBrowserApiRoutes } from "../../lib/api/router";
-import { isCharnelMode } from "../../app/services/charnel/mode";
-import { isRodioEnabled } from "../../music/services/audio/select";
 import { charnelPlaybackAdapter } from "./charnelPlaybackAdapter";
 
 /** the node shape this module's two accept-loop handlers actually need.
@@ -40,8 +37,12 @@ import { charnelPlaybackAdapter } from "./charnelPlaybackAdapter";
  * models Tauri's much smaller `CharnelTransport` surface - but this
  * function is only ever called from `client.ts`'s non-charnel branch, on
  * the real wasm-backed node `getMiddenNode()` returns in that case, so
- * every member below is genuinely always present at runtime. */
-type AcceptModeNode = CenotaphAcceptableNode & MediaPlaybackNode;
+ * every member below is genuinely always present at runtime.
+ * `charnelPlaybackAdapter`'s `PlaybackBackend<unknown>` never reads its
+ * node argument at all, so no playback-specific node shape is needed here
+ * anymore (unlike the deleted `mediaPlaybackBackend`, which required
+ * `MediaPlaybackNode`). */
+type AcceptModeNode = CenotaphAcceptableNode;
 
 let started = false;
 
@@ -89,22 +90,18 @@ export function initRemotePlaybackAcceptMode(node: MiddenNodeLike): void {
   void initSessionSignal(spumeSessionStore);
 
   const playerHandler = createPlayerConnectionHandler<AcceptModeNode>({
-    // charnel/linux with the rodio+gst opt-in on: drive spume's real
-    // player instead of cenotaph's own DOM <video>/<audio> engine (see
-    // docs/cenotaph-linux-experimental-player-plan.md). plain browser/
-    // wasm mode (or charnel with rodio off) keeps cenotaph's own backend,
-    // unchanged.
-    backend: isCharnelMode() && isRodioEnabled() ? charnelPlaybackAdapter : mediaPlaybackBackend,
+    // the ONE playback backend, browser and charnel alike - see this
+    // file's header comment.
+    backend: charnelPlaybackAdapter,
     trustStore: spumeTrustStore,
     sessionStore: spumeSessionStore,
     // only actually accept playback commands while the #/player route is
-    // mounted right now - otherwise mediaPlaybackBackend (and its own
-    // <video> element) would get driven silently, with no UI observing it
-    // at all (only CenotaphPlayerApp renders this backend's state).
-    // `isActivePlayer()` is set directly by CenotaphPlayerApp's own
-    // onMount/onCleanup (see remoteModeSettings.ts), so it stays correct
-    // regardless of how that component got mounted (router vs. anything
-    // else) - no pathname check needed here.
+    // mounted right now - otherwise the backend would get driven silently,
+    // with no UI observing it at all (only CenotaphPlayerApp renders this
+    // backend's state). `isActivePlayer()` is set directly by
+    // CenotaphPlayerApp's own onMount/onCleanup (see remoteModeSettings.ts),
+    // so it stays correct regardless of how that component got mounted
+    // (router vs. anything else) - no pathname check needed here.
     isEnabled: () => isActivePlayer(),
   });
 

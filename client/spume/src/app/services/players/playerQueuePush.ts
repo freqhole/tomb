@@ -42,12 +42,14 @@ import { sendPlayerCommand } from "./playerPairingClient";
 import { debug } from "../../../utils/logger";
 import {
   applyRemoteStatusFromAck,
+  pruneLocalQueueAfterSuccessfulPush,
   reportCommandAckFailure,
   type RemoteMediaRef,
   type RemoteStatus,
   type RenditionRef,
 } from "./remotePlaybackControl";
 import { getVideoURL } from "../../../video/services/videoBlobAccess";
+import { mediaItemBlake3, songToMediaItem, videoToMediaItem } from "../storage/mediaItem";
 import type { MediaItem, QueuedVideo } from "../storage/mediaItem";
 
 function bytesToBase64(bytes: Uint8Array): string {
@@ -411,6 +413,20 @@ interface CommandAckLike {
   status?: RemoteStatus;
 }
 
+/** once an item has been successfully handed to the active remote target,
+ * the controller shouldn't keep a shadow copy of it in its own local
+ * queue - see `pruneLocalQueueAfterSuccessfulPush`'s own doc comment for
+ * the full rationale (this is what fixes "switching back to local then
+ * back to a player re-queues everything"). called from every push/append
+ * function below, gated on a genuinely successful ack - never on
+ * `ok: false`/a thrown command, since the items are still only locally
+ * known in that case. */
+function drainAfterAck(ack: CommandAckLike, hashes: (string | null)[]): void {
+  if (!ack?.ok) return;
+  const nonNull = hashes.filter((h): h is string => !!h);
+  if (nonNull.length > 0) pruneLocalQueueAfterSuccessfulPush(nonNull);
+}
+
 /** push a full queue of songs to a paired player, replacing whatever it
  * was playing. the first song starts playing immediately. */
 export async function pushSongsToPlayer(peerAddr: string, songs: Song[]): Promise<void> {
@@ -425,6 +441,10 @@ export async function pushSongsToPlayer(peerAddr: string, songs: Song[]): Promis
   debug("playerQueuePush", `pushSongsToPlayer(${peerAddr}) ack:`, ack);
   reportCommandAckFailure(ack, peerAddr);
   if (ack?.status) applyRemoteStatusFromAck(ack.status);
+  drainAfterAck(
+    ack,
+    songs.map((s) => mediaItemBlake3(songToMediaItem(s)))
+  );
 }
 
 /** append songs to a paired player's existing queue, without disturbing
@@ -441,6 +461,10 @@ export async function appendSongsToPlayer(peerAddr: string, songs: Song[]): Prom
   debug("playerQueuePush", `appendSongsToPlayer(${peerAddr}) ack:`, ack);
   reportCommandAckFailure(ack, peerAddr);
   if (ack?.status) applyRemoteStatusFromAck(ack.status);
+  drainAfterAck(
+    ack,
+    songs.map((s) => mediaItemBlake3(songToMediaItem(s)))
+  );
 }
 
 /** push a full queue of videos to a paired player, replacing whatever it
@@ -459,6 +483,10 @@ export async function pushVideosToPlayer(peerAddr: string, videos: QueuedVideo[]
   debug("playerQueuePush", `pushVideosToPlayer(${peerAddr}) ack:`, ack);
   reportCommandAckFailure(ack, peerAddr);
   if (ack?.status) applyRemoteStatusFromAck(ack.status);
+  drainAfterAck(
+    ack,
+    videos.map((v) => mediaItemBlake3(videoToMediaItem(v)))
+  );
 }
 
 /** append videos to a paired player's existing queue, without disturbing
@@ -477,6 +505,10 @@ export async function appendVideosToPlayer(peerAddr: string, videos: QueuedVideo
   debug("playerQueuePush", `appendVideosToPlayer(${peerAddr}) ack:`, ack);
   reportCommandAckFailure(ack, peerAddr);
   if (ack?.status) applyRemoteStatusFromAck(ack.status);
+  drainAfterAck(
+    ack,
+    videos.map((v) => mediaItemBlake3(videoToMediaItem(v)))
+  );
 }
 
 /** kind-agnostic equivalent of songToMediaRef()/videoToMediaRef() above -
@@ -509,6 +541,10 @@ export async function pushMediaToPlayer(peerAddr: string, items: MediaItem[]): P
   debug("playerQueuePush", `pushMediaToPlayer(${peerAddr}) ack:`, ack);
   reportCommandAckFailure(ack, peerAddr);
   if (ack?.status) applyRemoteStatusFromAck(ack.status);
+  drainAfterAck(
+    ack,
+    items.map((i) => mediaItemBlake3(i))
+  );
 }
 
 /** append equivalent of pushMediaToPlayer() above. */
@@ -524,4 +560,8 @@ export async function appendMediaToPlayer(peerAddr: string, items: MediaItem[]):
   debug("playerQueuePush", `appendMediaToPlayer(${peerAddr}) ack:`, ack);
   reportCommandAckFailure(ack, peerAddr);
   if (ack?.status) applyRemoteStatusFromAck(ack.status);
+  drainAfterAck(
+    ack,
+    items.map((i) => mediaItemBlake3(i))
+  );
 }

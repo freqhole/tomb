@@ -3,9 +3,9 @@
 // a normal route inside spume's hash router, rendered by AppLayout with
 // its own chrome (TopNav/PlayerBar/sidebar) hidden. renders a full-screen
 // pairing QR until a controller pairs, then hands the screen over to
-// cenotaph's own `mediaPlaybackBackend` (its dedicated `<video>` element,
-// reused verbatim - same instance the accept loop's command dispatcher
-// already drives via `acceptModeBootstrap.ts`/`createPlayerConnectionHandler`).
+// spume's OWN real queue/player (`charnelPlaybackAdapter.ts`, the only
+// playback backend spume uses for this route now, browser and charnel
+// alike - see docs/cenotaph-player-queue-unification-plan.md task 2).
 //
 // visual design mirrors player.freqhole.net's own former App.tsx pairing
 // screen pixel-for-pixel (now abandoned, no rewire - see
@@ -29,25 +29,9 @@ import {
   currentPin,
   currentSession,
   develMode,
-  downloadProgress,
-  engineError,
-  engineState,
   installConsoleCapture,
   loadDevelMode,
-  mediaElement,
-  mediaKind,
-  nowPlaying,
-  pause as pausePlayback,
-  playbackDuration,
-  playbackPosition,
-  removeFromQueue as engineRemoveFromQueue,
-  resume as resumePlayback,
-  retryPlayback,
   setDevelMode,
-  skip as skipTrack,
-  stop as stopPlayback,
-  upcomingQueue,
-  type MediaPlaybackNode,
 } from "../index";
 import { spumeTrustStore } from "../adapters/trustStoreAdapter";
 import { getMiddenNode } from "../../app/api/client";
@@ -90,32 +74,35 @@ import {
   mediaItemKey,
   mediaItemSubtitle,
   mediaItemTitle,
+  type MediaItem,
 } from "../../app/services/storage/mediaItem";
 import { getSongDisplayImages } from "../../utils/images";
 import { isTouchDevice } from "../../utils/isMobile";
 import MediaImage from "../../components/media/MediaImage";
 import { VideoMiniPlayer } from "../../components/player/VideoMiniPlayer";
+import { QueueSongRow } from "../../components/player/QueueSongRow";
+import { VideoQueueRow } from "../../components/player/VideoQueueRow";
+import { getQueueItemProgress } from "../../music/services/queue/queueProgress";
+import { getVisibleLoadingIds } from "../../music/services/download";
 import type { ImageMetadata } from "../../music/services/storage/types";
+
+// matches QueueSidebar.tsx's own row height, so a queue looks the same
+// whether it's rendered there or here.
+const ROW_HEIGHT = 68;
+// full drag-and-drop reordering (QueueSidebar.tsx's pointer/HTML5 drag
+// state machine) is deliberately NOT duplicated here yet - reusing
+// QueueSongRow/VideoQueueRow for their waveform/progress/underline
+// markup is this pass's scope (per user request). reorder support should
+// be added by EXTRACTING QueueSidebar's drag logic into something both
+// call, not by copy-pasting it a second time - tracked as a follow-up in
+// docs/cenotaph-player-queue-unification-plan.md.
+const noDrag = () => {};
 
 function formatTime(seconds: number): string {
   if (!Number.isFinite(seconds) || seconds < 0) seconds = 0;
   const mins = Math.floor(seconds / 60);
   const secs = Math.floor(seconds % 60);
   return `${mins}:${secs.toString().padStart(2, "0")}`;
-}
-
-/** true when this device is a charnel build - in that case,
- * `initCharnelPlaybackAcceptMode()` drives spume's real player
- * (`charnelPlaybackAdapter.ts`, delegating to spume's own
- * `player.ts`/`select.ts`, which already picks rodio vs html5 `<audio>`
- * on its own) instead of cenotaph's own `<video>`/`<audio>` engine, so
- * this component reads spume's own reactive state (queue/now-playing/
- * position/playing) rather than cenotaph's `engineState`/`nowPlaying`/
- * etc., which would otherwise sit stale (never updated - nothing drives
- * cenotaph's internal signals in this mode). not gated on rodio - the
- * adapter works with either playback backend. */
-function usingRealPlayer(): boolean {
-  return isCharnelMode();
 }
 
 export function CenotaphPlayerApp() {
@@ -137,8 +124,6 @@ export function CenotaphPlayerApp() {
     isCharnelMode() ? undefined : true
   );
   const [enablingPairing, setEnablingPairing] = createSignal(false);
-  // kept (not just its id) so the skip button can drive the next download.
-  const [middenNode, setMiddenNode] = createSignal<MediaPlaybackNode | null>(null);
   // no trusted controllers yet => the pin currently shown is this
   // player's admin-bootstrap invite (see docs/player-peer-trust-bridge-plan.md).
   const [controllers, { refetch: refetchControllers }] = createResource(
@@ -171,7 +156,6 @@ export function CenotaphPlayerApp() {
   });
 
   onMount(() => {
-    document.body.appendChild(mediaElement);
     installConsoleCapture();
     void loadDevelMode();
 
@@ -250,10 +234,6 @@ export function CenotaphPlayerApp() {
         }
         const node = await getMiddenNode();
         setNodeId(node.node_id());
-        // getMiddenNode()'s declared type marks playback methods optional (it
-        // also models tauri's smaller charnel surface) but this branch only
-        // ever runs against the real wasm node, where they're always present.
-        setMiddenNode(node as unknown as MediaPlaybackNode);
         const dataUrl = await renderPlayerQr({
           node_id: node.node_id(),
           name: getLocalLibraryName(),
@@ -303,143 +283,102 @@ export function CenotaphPlayerApp() {
   // the qr+pin pairing screen is the only ui a brand-new (not-yet-trusted)
   // device has to discover this player at all - it must reappear once a
   // session's queue empties back out, not just before the very first
-  // session ever starts. stop() (playbackEngine.ts) leaves engineState()
-  // at "stopped" (not "idle") once the queue drains, so checking only for
-  // "idle" here left the pairing screen permanently hidden after the
-  // first-ever session ended. when the real (rodio/gst) player is
-  // driving playback instead, cenotaph's own engineState()/nowPlaying()
-  // never change (nothing feeds them in that mode) - read spume's own
-  // queue state instead.
+  // session ever starts.
   const showPairingScreen = () => {
     if (isCharnelMode() && pairingConfigEnabled() === false) return false;
-    return usingRealPlayer()
-      ? (appState()?.queue.length ?? 0) === 0
-      : (engineState() === "idle" || engineState() === "stopped") && nowPlaying() === null;
+    return (appState()?.queue.length ?? 0) === 0;
   };
 
-  /** unifies cenotaph's own now-playing state with spume's real player
-   * state (when `usingRealPlayer()`) into one shape the JSX below reads
-   * from, so it doesn't need two parallel copies of the same markup. `null`
-   * hides the now-playing section entirely (nothing queued, or a command is
-   * in flight). `isVideo` tells the JSX to swap the artwork slot for the
-   * shared `<video>` element (via `VideoMiniPlayer`'s inline variant)
-   * instead - unless the gst window is showing it instead (linux + rodio),
-   * in which case that OS-level window is the actual display and this
-   * slot stays empty, matching how the mini player skips its own inline
-   * video too (see AppLayout.tsx's `isVideoWindowActive()` check).
-   * `artworkImages`/`artworkUrl` are both passed straight to `MediaImage`
-   * below, which resolves whichever is present (real player: the song's
-   * own images array; cenotaph engine: the already-resolved
-   * `artwork_full_url`). */
+  /** builds the one shape the now-playing JSX below reads from, off
+   * spume's own real queue/playback state. `null` hides the now-playing
+   * section entirely (nothing queued). `isVideo` tells the JSX to swap
+   * the artwork slot for the shared `<video>` element (via
+   * `VideoMiniPlayer`'s inline variant) instead - unless the gst window
+   * is showing it instead (linux + rodio), in which case that OS-level
+   * window is the actual display and this slot stays empty, matching how
+   * the mini player skips its own inline video too (see AppLayout.tsx's
+   * `isVideoWindowActive()` check). `queueRest` entries carry the raw
+   * `MediaItem` (when resolved) so the JSX can render real
+   * `QueueSongRow`/`VideoQueueRow` components - `item` is absent only for
+   * a still-resolving pending preview, which has no real song/video
+   * object yet. */
   const nowPlayingView = () => {
-    if (usingRealPlayer()) {
-      const state = appState();
-      const pending = pendingQueuePreviews();
-      if ((!state || state.queue.length === 0) && pending.length === 0) return null;
+    const state = appState();
+    const pending = pendingQueuePreviews();
+    if ((!state || state.queue.length === 0) && pending.length === 0) return null;
 
-      // pending previews (see charnelPlaybackAdapter.ts's own doc comment)
-      // show up immediately, before their network/db resolve finishes - a
-      // replace_queue push starts from an empty real queue, so its first
-      // pending item stands in for "now playing" (loading) until it
-      // resolves; an append_queue push (queue already has a real current
-      // item) just tacks its pending items onto queueRest instead.
-      const pendingAsQueueRest = pending.map((p) => ({
-        key: p.key,
-        title: p.title,
-        artist: p.artist,
-        durationSeconds: p.durationSeconds,
-        removeIndex: undefined as number | undefined,
-        pending: true as const,
-      }));
+    // pending previews (see charnelPlaybackAdapter.ts's own doc comment)
+    // show up immediately, before their network/db resolve finishes - a
+    // replace_queue push starts from an empty real queue, so its first
+    // pending item stands in for "now playing" (loading) until it
+    // resolves; an append_queue push (queue already has a real current
+    // item) just tacks its pending items onto queueRest instead.
+    const pendingAsQueueRest = pending.map((p) => ({
+      key: p.key,
+      item: undefined as MediaItem | undefined,
+      title: p.title,
+      artist: p.artist,
+      durationSeconds: p.durationSeconds,
+      removeIndex: undefined as number | undefined,
+      pending: true as const,
+    }));
 
-      if (!state || state.queue.length === 0) {
-        const [first, ...rest] = pendingAsQueueRest;
-        return {
-          isVideo: false,
-          artworkImages: undefined as ImageMetadata[] | undefined,
-          artworkUrl: undefined as string | undefined,
-          title: first?.title ?? "resolving\u2026",
-          artist: first?.artist ?? "",
-          positionSeconds: 0,
-          durationSeconds: first?.durationSeconds ?? 0,
-          isPlaying: false,
-          loading: true,
-          queueRest: rest,
-        };
-      }
-
-      const idx = state.current_sha256
-        ? state.queue.findIndex((i) => mediaItemKey(i) === state.current_sha256)
-        : 0;
-      const ordered = idx >= 0 ? state.queue.slice(idx) : state.queue;
-      const current = ordered[0];
-      if (!current) return null;
+    if (!state || state.queue.length === 0) {
+      const [first, ...rest] = pendingAsQueueRest;
       return {
-        isVideo: current.kind === "video",
-        artworkImages: current.kind === "song" ? getSongDisplayImages(current.song) : undefined,
+        isVideo: false,
+        artworkImages: undefined as ImageMetadata[] | undefined,
         artworkUrl: undefined as string | undefined,
-        title: mediaItemTitle(current),
-        artist: mediaItemSubtitle(current) ?? "",
-        positionSeconds: realCurrentTime(),
-        durationSeconds: realDuration(),
-        isPlaying: realIsPlaying(),
-        loading: false,
-        queueRest: [
-          ...ordered.slice(1).map((i, restIdx) => ({
-            key: mediaItemKey(i),
-            title: mediaItemTitle(i),
-            artist: mediaItemSubtitle(i) ?? undefined,
-            durationSeconds:
-              i.kind === "song"
-                ? (i.song.duration_seconds ?? undefined)
-                : (i.video.duration_seconds ?? undefined),
-            // full-array index (0 = currently playing) - matches
-            // queue.ts's removeFromQueue(index) convention.
-            removeIndex: (idx >= 0 ? idx : 0) + 1 + restIdx,
-            pending: false as const,
-          })),
-          ...pendingAsQueueRest,
-        ],
+        title: first?.title ?? "resolving\u2026",
+        artist: first?.artist ?? "",
+        positionSeconds: 0,
+        durationSeconds: first?.durationSeconds ?? 0,
+        isPlaying: false,
+        loading: true,
+        queueRest: rest,
       };
     }
-    if (mediaKind() !== "audio" || commandInFlight()) return null;
-    const item = nowPlaying();
-    if (!item) return null;
+
+    const idx = state.current_sha256
+      ? state.queue.findIndex((i) => mediaItemKey(i) === state.current_sha256)
+      : 0;
+    const ordered = idx >= 0 ? state.queue.slice(idx) : state.queue;
+    const current = ordered[0];
+    if (!current) return null;
     return {
-      isVideo: false,
-      artworkImages: undefined as ImageMetadata[] | undefined,
-      artworkUrl: item.artwork_full_url,
-      title: item.title ?? "unknown title",
-      artist: item.artist ?? "",
-      positionSeconds: playbackPosition(),
-      durationSeconds: item.duration_ms ? item.duration_ms / 1000 : playbackDuration(),
-      isPlaying: engineState() === "playing",
+      isVideo: current.kind === "video",
+      artworkImages: current.kind === "song" ? getSongDisplayImages(current.song) : undefined,
+      artworkUrl: undefined as string | undefined,
+      title: mediaItemTitle(current),
+      artist: mediaItemSubtitle(current) ?? "",
+      positionSeconds: realCurrentTime(),
+      durationSeconds: realDuration(),
+      isPlaying: realIsPlaying(),
       loading: false,
-      queueRest: upcomingQueue()
-        .slice(1)
-        .map((q, restIdx) => ({
-          key: q.blake3_hash,
-          title: q.title ?? q.blake3_hash.slice(0, 12),
-          artist: q.artist,
-          durationSeconds: q.duration_ms ? q.duration_ms / 1000 : undefined,
+      queueRest: [
+        ...ordered.slice(1).map((i, restIdx) => ({
+          key: mediaItemKey(i),
+          item: i as MediaItem | undefined,
+          title: mediaItemTitle(i),
+          artist: mediaItemSubtitle(i) ?? undefined,
+          durationSeconds:
+            i.kind === "song"
+              ? (i.song.duration_seconds ?? undefined)
+              : (i.video.duration_seconds ?? undefined),
           // full-array index (0 = currently playing) - matches
-          // playbackEngine.ts's removeFromQueue(node, index) convention.
-          removeIndex: 1 + restIdx,
+          // queue.ts's removeFromQueue(index) convention.
+          removeIndex: (idx >= 0 ? idx : 0) + 1 + restIdx,
           pending: false as const,
         })),
+        ...pendingAsQueueRest,
+      ],
     };
   };
 
-  /** removes one queue entry by its full-array/engine index (see
-   * `nowPlayingView()`'s `removeIndex` field) - routes to spume's real
-   * queue for `usingRealPlayer()`, cenotaph's own engine otherwise. */
+  /** removes one queue entry by its full-array index (see
+   * `nowPlayingView()`'s `removeIndex` field). */
   const handleRemoveQueueItem = (index: number) => {
-    if (usingRealPlayer()) {
-      void realRemoveFromQueue(index);
-      return;
-    }
-    const node = middenNode();
-    if (node) void engineRemoveFromQueue(node, index);
+    void realRemoveFromQueue(index);
   };
 
   return (
@@ -582,20 +521,15 @@ export function CenotaphPlayerApp() {
       {/* now playing: album art (or inline video), title/artist, time,
           transport controls, and the rest of the queue - mirrors
           player.freqhole.net's former App.tsx now-playing view (see this
-          file's header comment). hidden while a command is in flight (see
-          playbackEngine.ts's own showPairingView note in the prior
-          prototype) so it doesn't flash stale info between queue replace/
-          append commands.
-          when `usingRealPlayer()`, everything below reads spume's own
-          queue/playback state instead of cenotaph's engineState()/
-          nowPlaying()/etc. (which never change in that mode - nothing
-          feeds them, see charnelPlaybackAdapter.ts) - see `nowPlayingView()`
-          just above. a playing video renders inline here (the same shared
-          `<video>` element normal spume playback uses, via
-          `VideoMiniPlayer`'s inline variant) UNLESS the gst window is
-          showing it instead (linux + rodio) - that's its own OS-level
-          surface and already the actual display, so this slot stays empty
-          then (docs/linux-video-window-plan.md). */}
+          file's header comment).
+          everything below reads spume's own real queue/playback state (see
+          `nowPlayingView()` just above) - `charnelPlaybackAdapter.ts` is the
+          only playback backend now, browser and charnel alike. a playing
+          video renders inline here (the same shared `<video>` element
+          normal spume playback uses, via `VideoMiniPlayer`'s inline
+          variant) UNLESS the gst window is showing it instead (linux +
+          rodio) - that's its own OS-level surface and already the actual
+          display, so this slot stays empty then (docs/linux-video-window-plan.md). */}
       <Show when={nowPlayingView()}>
         {(view) => (
           <div
@@ -671,15 +605,7 @@ export function CenotaphPlayerApp() {
               <button
                 type="button"
                 class="text-3xl leading-none"
-                onClick={() =>
-                  usingRealPlayer()
-                    ? view().isPlaying
-                      ? realPause()
-                      : void realPlay()
-                    : engineState() === "playing"
-                      ? pausePlayback()
-                      : resumePlayback()
-                }
+                onClick={() => (view().isPlaying ? realPause() : void realPlay())}
                 data-testid="play-pause-button"
               >
                 {view().isPlaying ? "⏸" : "▶"}
@@ -687,11 +613,7 @@ export function CenotaphPlayerApp() {
               <button
                 type="button"
                 class="text-3xl leading-none"
-                onClick={() =>
-                  usingRealPlayer()
-                    ? void realPlayNext()
-                    : middenNode() && void skipTrack(middenNode()!)
-                }
+                onClick={() => void realPlayNext()}
                 data-testid="skip-button"
               >
                 ⏭
@@ -711,7 +633,7 @@ export function CenotaphPlayerApp() {
                   "opacity-100": isTouchDevice(),
                   "opacity-0 group-hover:opacity-100": !isTouchDevice(),
                 }}
-                onClick={() => (usingRealPlayer() ? void clearRealQueue() : stopPlayback())}
+                onClick={() => void clearRealQueue()}
                 data-testid="clear-queue-button"
               >
                 clear queue
@@ -719,112 +641,82 @@ export function CenotaphPlayerApp() {
             </div>
 
             <Show when={view().queueRest.length > 0}>
-              <ul
-                class="mt-4 w-full max-w-md text-left text-sm text-neutral-400"
-                data-testid="queue-list"
-              >
-                <For each={view().queueRest}>
-                  {(queued) => (
-                    <li
-                      class="group flex items-center justify-between gap-2 truncate border-b border-neutral-800 py-1"
-                      classList={{ "opacity-60 italic": queued.pending }}
-                      data-testid={queued.pending ? "queue-item-pending" : "queue-item"}
-                    >
-                      <span class="truncate">
-                        {queued.title}
-                        <Show when={queued.artist}> — {queued.artist}</Show>
-                      </span>
-                      <span class="flex shrink-0 items-center gap-2">
-                        <Show
-                          when={!queued.pending}
-                          fallback={<span class="font-mono text-xs">resolving…</span>}
-                        >
-                          <Show when={queued.durationSeconds !== undefined}>
-                            <span class="font-mono text-xs">
-                              {formatTime(queued.durationSeconds!)}
-                            </span>
-                          </Show>
-                          <button
-                            type="button"
-                            class="text-neutral-500 transition-opacity hover:text-neutral-300"
-                            classList={{
-                              "opacity-100": isTouchDevice(),
-                              "opacity-0 group-hover:opacity-100": !isTouchDevice(),
-                            }}
-                            onClick={() => handleRemoveQueueItem(queued.removeIndex!)}
-                            aria-label={`remove ${queued.title} from queue`}
-                            data-testid="queue-item-remove"
-                          >
-                            ✕
-                          </button>
-                        </Show>
-                      </span>
-                    </li>
-                  )}
-                </For>
-              </ul>
+              {/* real (resolved) rows reuse spume's own QueueSongRow/
+                  VideoQueueRow - same waveform-fill/download-progress/
+                  synced-locally-underline markup QueueSidebar.tsx uses for
+                  its local queue, so a queue looks and behaves the same
+                  whether you're looking at it from the player itself or
+                  from a controller's own /music view. drag-to-reorder is
+                  not wired yet - see this file's `noDrag` doc comment. */}
+              {(() => {
+                const realRows = view().queueRest.filter((q) => !q.pending);
+                const pendingRows = view().queueRest.filter((q) => q.pending);
+                return (
+                  <>
+                    <Show when={realRows.length > 0}>
+                      <div
+                        class="relative mt-4 w-full max-w-md"
+                        style={{ height: `${realRows.length * ROW_HEIGHT}px` }}
+                        data-testid="queue-list"
+                      >
+                        <For each={realRows}>
+                          {(queued, i) => {
+                            const item = queued.item!;
+                            const shared = {
+                              index: i(),
+                              isCurrentlyPlaying: false,
+                              isUpNext: i() === 0,
+                              isDragging: false,
+                              isDropTarget: false,
+                              top: i() * ROW_HEIGHT,
+                              progress: getQueueItemProgress(mediaItemKey(item)),
+                              loadingIds: getVisibleLoadingIds(),
+                              onClick: () => {},
+                              onDoubleClick: () => {},
+                              onRemove: () => handleRemoveQueueItem(queued.removeIndex!),
+                              onDragStart: noDrag,
+                              onDragOver: noDrag,
+                              onDragLeave: noDrag,
+                              onDragEnd: noDrag,
+                              onDrop: noDrag,
+                              onPointerDown: noDrag,
+                            };
+                            return item.kind === "song" ? (
+                              <QueueSongRow song={item.song} {...shared} />
+                            ) : (
+                              <VideoQueueRow video={item.video} {...shared} />
+                            );
+                          }}
+                        </For>
+                      </div>
+                    </Show>
+                    <Show when={pendingRows.length > 0}>
+                      <ul
+                        class="mt-2 w-full max-w-md text-left text-sm text-neutral-400"
+                        data-testid="queue-list-pending"
+                      >
+                        <For each={pendingRows}>
+                          {(queued) => (
+                            <li
+                              class="flex items-center justify-between gap-2 truncate border-b border-neutral-800 py-1 opacity-60 italic"
+                              data-testid="queue-item-pending"
+                            >
+                              <span class="truncate">
+                                {queued.title}
+                                <Show when={queued.artist}> — {queued.artist}</Show>
+                              </span>
+                              <span class="font-mono text-xs shrink-0">resolving…</span>
+                            </li>
+                          )}
+                        </For>
+                      </ul>
+                    </Show>
+                  </>
+                );
+              })()}
             </Show>
           </div>
         )}
-      </Show>
-
-      {/* browser blocked play() from starting without a user gesture on this
-          tab (common right after loading /player/ fresh, before anyone's
-          clicked/tapped anything here) - mirrors player.freqhole.net's
-          former App.tsx "tap to start playback" overlay. */}
-      <Show when={!usingRealPlayer() && engineState() === "blocked"}>
-        <div
-          class="fixed inset-0 z-[60] flex flex-col items-center justify-center gap-4 bg-black/90 p-6 text-center"
-          data-testid="playback-blocked"
-        >
-          <p class="text-lg">
-            playback is ready, but the browser blocked it from starting on its own
-          </p>
-          <button
-            type="button"
-            class="rounded-lg bg-white px-6 py-3 text-lg font-semibold text-black"
-            onClick={() => void retryPlayback()}
-            data-testid="resume-playback"
-          >
-            tap to start playback
-          </button>
-        </div>
-      </Show>
-
-      {/* buffering: a large centered comet-tail ring (same conic-gradient
-          palette as QueuePlayerTargetRow's "connecting" ring) + a big,
-          easy-to-read-from-across-the-room percentage, rather than the
-          small always-there corner text this used to be. */}
-      <Show when={!usingRealPlayer() && engineState() === "buffering"}>
-        <div
-          class="pointer-events-none fixed inset-0 z-20 flex flex-col items-center justify-center gap-6 bg-black/60"
-          data-testid="buffering-indicator"
-        >
-          <div class="relative h-40 w-40 rounded-full">
-            <div
-              class="absolute inset-0 rounded-full"
-              style={{
-                background:
-                  "conic-gradient(from 0deg, transparent 0%, #ec489920 6%, #ec489940 12%, #ec489980 20%, #ec4899cc 28%, #ec4899 38%, #c026d3 55%, #a855f7 70%, #a855f7 86%, transparent 88%)",
-                mask: "radial-gradient(farthest-side, transparent calc(100% - 8px), black calc(100% - 8px))",
-                "-webkit-mask":
-                  "radial-gradient(farthest-side, transparent calc(100% - 8px), black calc(100% - 8px))",
-                animation: "spin 1.5s linear infinite",
-              }}
-            />
-          </div>
-          <Show when={downloadProgress() !== null}>
-            <p class="font-mono text-[clamp(3rem,10vmin,7rem)] font-bold tabular-nums">
-              {Math.round((downloadProgress() ?? 0) * 100)}%
-            </p>
-          </Show>
-        </div>
-      </Show>
-
-      <Show when={!usingRealPlayer() && engineError()}>
-        <div class="pointer-events-none fixed bottom-4 left-4 z-10 text-sm text-red-400">
-          {engineError()}
-        </div>
       </Show>
     </div>
   );

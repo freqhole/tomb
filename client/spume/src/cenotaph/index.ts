@@ -113,40 +113,10 @@ export {
   type CapturedLogLine,
 } from "./debug/consoleCapture";
 
-export { hasMSE, choosePlaybackMode, type PlaybackMode } from "./playback/mseSupport";
-export { fetchMediaBlob } from "./playback/mediaFetch";
-export type { MediaPlaybackNode } from "./playback/types";
-export {
-  startRadio,
-  stopRadio,
-  radioState,
-  radioNowPlaying,
-  radioStationId,
-  radioListenerCount,
-  radioError,
-  radioElement,
-  type RadioState,
-  type RadioNowPlaying,
-} from "./playback/radioClient";
-export {
-  mediaPlaybackBackend,
-  retryPlayback,
-  engineState,
-  nowPlaying,
-  engineError,
-  upcomingQueue,
-  mediaElement,
-  mediaKind,
-  downloadProgress,
-  playbackPosition,
-  playbackDuration,
-  queueItemStatus,
-  pause,
-  resume,
-  skip,
-  stop,
-  removeFromQueue,
-  setLocalLibraryHooks,
-  type EngineState,
-  type LocalLibraryHooks,
-} from "./playback/playbackEngine";
+// cenotaph's own self-contained DOM playback engine (playback/playbackEngine.ts)
+// and everything that only existed to feed it (mseSupport.ts, mediaFetch.ts,
+// radioClient.ts, persistentBlobCache.ts, playback/types.ts) were all deleted
+// - confirmed via exhaustive repo-wide grep, zero remaining consumers.
+// `charnelPlaybackAdapter.ts` (spume's real queue/player) is the only
+// playback backend spume uses now, browser and charnel alike - see
+// docs/cenotaph-player-queue-unification-plan.md tasks 2/5.

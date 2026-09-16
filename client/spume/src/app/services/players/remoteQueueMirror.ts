@@ -4,6 +4,13 @@
 // too - see queue.ts's removeFromQueue/reorderQueue/addToQueueInternal
 // call sites. no-ops entirely when no remote target is active.
 //
+// once a mirrored append/replace is ACK'd, `playerQueuePush.ts`'s
+// `pruneLocalQueueAfterSuccessfulPush()` drops the corresponding entries
+// from the LOCAL queue too - the remote becomes the source of truth for
+// them from that point on, so this device doesn't keep a stale shadow
+// copy that gets re-sent wholesale the next time a remote target is
+// (re)selected. see docs/cenotaph-player-queue-unification-plan.md task 3b.
+//
 // the remote player's queue always starts at "now playing" (index 0) -
 // it has no concept of history - so an edit to a local queue entry
 // before the currently-playing index has no remote equivalent and is

@@ -173,16 +173,6 @@ export async function getCharnelNodeId(): Promise<string> {
   return invoke<string>("p2p_get_node_id");
 }
 
-/** whether `[player_pairing].enabled` actually resulted in the rust-side
- * accept loop being wired up on this launch. outside charnel mode this
- * always resolves `false`. */
-export async function isCharnelAcceptModeStarted(): Promise<boolean> {
-  if (!isCharnelMode()) return false;
-  // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
-  const { invoke } = await import("@tauri-apps/api/core");
-  return invoke<boolean>("player_pairing_is_started");
-}
-
 /** the persisted `[player_pairing].enabled` config flag - whether other
  * peers can even attempt to pair with this device at all (distinct from
  * `remotePlaybackEnabled`/`setCharnelPlayerSessionActive`, which only

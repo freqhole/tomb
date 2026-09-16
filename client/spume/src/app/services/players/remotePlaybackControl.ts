@@ -18,7 +18,7 @@ import { createSignal } from "solid-js";
 import { sendPlayerCommand, subscribeToPlayerStatus } from "./playerPairingClient";
 import { activeTargetNodeId, isRemoteTargetActive } from "./activeTarget";
 import { appState, setQueue } from "../storage/db";
-import { isSongItem } from "../storage/mediaItem";
+import { mediaItemBlake3, mediaItemKey } from "../storage/mediaItem";
 import { toast } from "../../../components/feedback/Toast";
 import { requestAddRemote } from "../remotes/addRemoteRequest";
 
@@ -269,15 +269,60 @@ function applyRemoteStatus(status: RemoteStatus | null): void {
  * isn't worth surfacing to the user, and syncLocalQueueFromRemote acts as
  * a final catch-all at switch-back time regardless. */
 function pruneLocalQueueForFinishedItems(finishedHashes: string[]): void {
+  pruneLocalQueueByBlake3(finishedHashes);
+}
+
+/** shared queue-array mutation behind both `pruneLocalQueueForFinishedItems`
+ * (above - items the remote reports as done with) and
+ * `pruneLocalQueueAfterSuccessfulPush` (below - items the remote just
+ * ACK'd as queued, whether played yet or not). drops any local queue entry
+ * (song OR video - see `mediaItemBlake3`) whose content hash is in
+ * `hashes`, except `keepKey` (a `mediaItemKey()`, e.g. the currently-
+ * playing item, held back until its handoff is separately confirmed - see
+ * the doc comment on `pruneLocalQueueAfterSuccessfulPush`). a no-op if
+ * nothing actually matches, so callers can call this unconditionally
+ * without checking first. */
+function pruneLocalQueueByBlake3(hashes: string[], keepKey?: string | null): void {
   const state = appState();
-  if (!state) return;
-  const finished = new Set(finishedHashes);
+  if (!state || hashes.length === 0) return;
+  const targets = new Set(hashes);
   const kept = state.queue.filter((item) => {
-    if (!isSongItem(item)) return true;
-    return !item.song.blake3 || !finished.has(item.song.blake3);
+    if (keepKey && mediaItemKey(item) === keepKey) return true;
+    const hash = mediaItemBlake3(item);
+    return !hash || !targets.has(hash);
   });
   if (kept.length === state.queue.length) return;
   void setQueue(kept);
+}
+
+/** drops queue entries (by blake3) once they've been successfully handed
+ * to the active remote target - called right after a successful
+ * `replace_queue`/`append_queue` ack (see `playerQueuePush.ts`'s 6 push/
+ * append functions), not only once the remote later reports them
+ * "finished" (`pruneLocalQueueForFinishedItems` above) - a duplicate
+ * shadow copy sitting in the local queue the whole time a remote target is
+ * active is exactly what caused a full re-queue the next time "play on"
+ * was reselected. per user direction: the CURRENTLY-PLAYING local item
+ * (if it's among `pushedHashes`) is held back unless the remote's own
+ * just-applied status (`remoteCurrentItem()` - call this AFTER
+ * `applyRemoteStatusFromAck`, not before) confirms it's already the
+ * remote's current item too - "it's like a handoff", avoiding a moment
+ * where nothing appears to be playing anywhere on this device while the
+ * remote hasn't confirmed it picked up playback yet. */
+export function pruneLocalQueueAfterSuccessfulPush(pushedHashes: string[]): void {
+  const state = appState();
+  if (!state || pushedHashes.length === 0) return;
+  const currentItem = state.current_sha256
+    ? state.queue.find((i) => mediaItemKey(i) === state.current_sha256)
+    : undefined;
+  const currentHash = currentItem ? mediaItemBlake3(currentItem) : null;
+  const currentWasPushed = !!currentHash && pushedHashes.includes(currentHash);
+  if (!currentWasPushed) {
+    pruneLocalQueueByBlake3(pushedHashes);
+    return;
+  }
+  const remoteConfirmedCurrent = remoteCurrentItem()?.blake3_hash === currentHash;
+  pruneLocalQueueByBlake3(pushedHashes, remoteConfirmedCurrent ? null : mediaItemKey(currentItem!));
 }
 
 /** applies a status carried on a raw sendPlayerCommand ack - used by

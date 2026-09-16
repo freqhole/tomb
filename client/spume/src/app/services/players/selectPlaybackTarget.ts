@@ -2,28 +2,15 @@
 // flyout menu, so the actual pause/handoff/push behavior lives in exactly
 // one place.
 
-import { appState, setQueue, updateAppState } from "../storage/db";
-import {
-  mediaItemKey,
-  songToMediaItem,
-  songsOnly,
-  videoToMediaItem,
-  videosOnly,
-  type MediaItem,
-} from "../storage/mediaItem";
+import { appState } from "../storage/db";
+import { mediaItemKey, type MediaItem } from "../storage/mediaItem";
 import { currentTime, isPlaying, pause } from "../../../music/services/audio/player";
-import {
-  isRemoteTargetActive,
-  setActiveTargetToLocal,
-  setActiveTargetToPlayer,
-} from "./activeTarget";
+import { setActiveTargetToLocal, setActiveTargetToPlayer } from "./activeTarget";
 import { appendMediaToPlayer, pushMediaToPlayer } from "./playerQueuePush";
 import { registerPendingMediaOp } from "./remoteQueueMirror";
 import {
   fetchRemoteStatus,
-  remoteQueue,
   remoteSeek,
-  remoteStatusKnown,
   remoteTrackPending,
   resetRemoteStatus,
 } from "./remotePlaybackControl";
@@ -40,37 +27,7 @@ function mediaToHandOff(): MediaItem[] {
   return idx >= 0 ? state.queue.slice(idx) : state.queue;
 }
 
-/** on switching back to local playback, trims the local queue's SONGS down
- * to whatever the remote target still actually has queued (by blake3 hash,
- * remote order preserved) - so a later reconnect to the same/another
- * player doesn't re-hand-off songs it already played through while this
- * device was showing its own, now-stale, full queue. a no-op if no remote
- * target was active/known, or if nothing local matches the remote queue at
- * all (leaves the local queue untouched rather than blanking it - better
- * to keep something than silently wipe a queue over a fluke mismatch).
- * videos are left untouched (appended back after the resynced songs) -
- * the remote's blake3-keyed queue has no pre-upload hash to match a local
- * video against, so there's nothing to resync them from; the previous
- * version of this function dropped them entirely by reassigning the whole
- * queue to `kept` songs only. */
-async function syncLocalQueueFromRemote(): Promise<void> {
-  if (!isRemoteTargetActive() || !remoteStatusKnown()) return;
-  const remoteOrder = new Map(remoteQueue().map((ref, i) => [ref.blake3_hash, i]));
-  if (remoteOrder.size === 0) return;
-  const state = appState();
-  if (!state) return;
-  const localSongs = songsOnly(state.queue);
-  const keptSongs = localSongs
-    .filter((s) => s.blake3 && remoteOrder.has(s.blake3))
-    .sort((a, b) => remoteOrder.get(a.blake3 as string)! - remoteOrder.get(b.blake3 as string)!);
-  if (keptSongs.length === 0) return;
-  const videos = videosOnly(state.queue);
-  await setQueue([...keptSongs.map(songToMediaItem), ...videos.map(videoToMediaItem)]);
-  await updateAppState({ current_sha256: keptSongs[0].sha256 });
-}
-
 export async function selectLocalPlaybackTarget(): Promise<void> {
-  await syncLocalQueueFromRemote();
   setActiveTargetToLocal();
 }
 

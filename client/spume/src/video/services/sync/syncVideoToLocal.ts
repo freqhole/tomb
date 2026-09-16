@@ -217,6 +217,11 @@ export function canSyncVideo(video: QueuedVideo): boolean {
  * fire-and-forget callers; the play path uses it to build a url. */
 export interface VideoSyncOutcome {
   success: boolean;
+  /** charnel only — the real grimoire db row id of the synced video (NOT
+   * a content hash - see /memories/repo/tomb-sha256-vs-blake3-vs-id.md).
+   * lets a caller with no local IDB (cenotaph's charnel resolve path) read
+   * the persisted row back via `client.video.getVideo({ id })`. */
+  videoId?: string;
   /** charnel only — absolute fs path of the local copy. */
   localPath?: string;
   error?: string;
@@ -260,7 +265,7 @@ async function syncVideoViaCharnel(
       `synced video "${video.title}" (${video.id}) into the local library via grimoire (existing=${result.skipped})`
     );
     invalidateVideoLibraryQueries();
-    return { success: true, localPath: result.localPath };
+    return { success: true, videoId: result.videoId, localPath: result.localPath };
   } finally {
     removeFromLoadingSet(video.id);
   }
@@ -285,15 +290,22 @@ export async function syncVideoToLocal(
   if (!video.remote_server_id || !video.media_blob_id) {
     return { success: false, error: "video missing remote or blob id" };
   }
-  if (!getSyncQueueToLocal()) return { success: false, error: "sync-to-local is off" };
   // tauri's webview (WKWebView on macOS) supports OPFS getFileHandle/
   // getDirectoryHandle but not the async createWritable() writable-stream
   // api, so writeVideoToOPFS below would throw. charnel-mode syncs instead go
   // through the local grimoire, which pulls the bytes natively by blake3 -
-  // same split music's syncSongToLocal.ts uses.
+  // same split music's syncSongToLocal.ts uses. charnel has no "stream
+  // without persisting" alternative at all (see docs/
+  // cenotaph-charnel-native-playback-rewire-plan.md's gst-window gap) and
+  // must always persist (cenotaph queue pushes rely on this) - so the
+  // `sync_queue_to_local` toggle check below is skipped for this branch,
+  // matching syncSongToLocal.ts's convention (no internal gate at all -
+  // the toggle is enforced at call sites instead, see videoBlobAccess.ts's
+  // own `getSyncQueueToLocal() && canSyncVideo(video)` check).
   if (isCharnelMode()) {
     return syncVideoViaCharnel(video, remoteOverride);
   }
+  if (!getSyncQueueToLocal()) return { success: false, error: "sync-to-local is off" };
 
   try {
     const existing = await getLocalVideoById(video.id);

@@ -17,6 +17,9 @@
     "lint:full:fix": "ESLINT_FULL=true eslint src --ext .ts,.tsx --fix",
     "lint:circular": "npx madge --circular --extensions ts,tsx src/",
     "ts-prune": "ts-prune",
+    "lint:quiet": "eslint src --ext .ts,.tsx --quiet",
+    "check": "npm run typecheck && npm run lint:quiet && echo CHECK_OK",
+    "verify": "npm run check && npm run test && echo VERIFY_OK",
     "build:coach:wc": "vite build --config vite.coach-demo.config.ts --mode wc",
     "build:coach:html": "vite build --config vite.coach-demo.config.ts --mode html",
     "dev:coach": "vite --config vite.coach-demo.config.ts --mode html stories/coach"
