@@ -302,16 +302,33 @@ function pruneLocalQueueByBlake3(hashes: string[], keepKey?: string | null): voi
  * "finished" (`pruneLocalQueueForFinishedItems` above) - a duplicate
  * shadow copy sitting in the local queue the whole time a remote target is
  * active is exactly what caused a full re-queue the next time "play on"
- * was reselected. per user direction: the CURRENTLY-PLAYING local item
- * (if it's among `pushedHashes`) is held back unless the remote's own
- * just-applied status (`remoteCurrentItem()` - call this AFTER
- * `applyRemoteStatusFromAck`, not before) confirms it's already the
- * remote's current item too - "it's like a handoff", avoiding a moment
- * where nothing appears to be playing anywhere on this device while the
- * remote hasn't confirmed it picked up playback yet. */
-export function pruneLocalQueueAfterSuccessfulPush(pushedHashes: string[]): void {
+ * was reselected. per user direction: for a REPLACE (`isReplace: true` -
+ * the pushed item at index 0 is meant to become the remote's new "now
+ * playing"), the CURRENTLY-PLAYING local item (if it's among
+ * `pushedHashes`) is held back unless the remote's own just-applied
+ * status (`remoteCurrentItem()` - call this AFTER `applyRemoteStatusFromAck`,
+ * not before) confirms it's already the remote's current item too - "it's
+ * like a handoff", avoiding a moment where nothing appears to be playing
+ * anywhere on this device while the remote hasn't confirmed it picked up
+ * playback yet. **for an APPEND (`isReplace: false`), there is no handoff
+ * happening at all** - the local current item keeps playing locally
+ * exactly as before, it's merely being queued up on the remote for later,
+ * so the remote's own current item will never match it and the
+ * confirmation gate would hold it back forever (a real bug found live:
+ * appending a song to an already-playing remote left it stuck in the
+ * local queue permanently, since the remote never reports playing
+ * something that was only just appended to its tail). append always
+ * drains immediately on a successful ack, no confirmation needed. */
+export function pruneLocalQueueAfterSuccessfulPush(
+  pushedHashes: string[],
+  isReplace: boolean
+): void {
   const state = appState();
   if (!state || pushedHashes.length === 0) return;
+  if (!isReplace) {
+    pruneLocalQueueByBlake3(pushedHashes);
+    return;
+  }
   const currentItem = state.current_sha256
     ? state.queue.find((i) => mediaItemKey(i) === state.current_sha256)
     : undefined;

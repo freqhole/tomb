@@ -16,6 +16,7 @@ import {
   For,
   Show,
   createEffect,
+  createMemo,
   createResource,
   createSignal,
   onCleanup,
@@ -58,7 +59,9 @@ import {
   currentTime as realCurrentTime,
   duration as realDuration,
   isPlaying as realIsPlaying,
+  pendingUpNextSha256 as realPendingUpNextKey,
 } from "../../music/services/audio/playerState";
+import { isUpNextRow } from "./upNextRow";
 import {
   pause as realPause,
   play as realPlay,
@@ -289,30 +292,21 @@ export function CenotaphPlayerApp() {
     return (appState()?.queue.length ?? 0) === 0;
   };
 
-  /** builds the one shape the now-playing JSX below reads from, off
-   * spume's own real queue/playback state. `null` hides the now-playing
-   * section entirely (nothing queued). `isVideo` tells the JSX to swap
-   * the artwork slot for the shared `<video>` element (via
-   * `VideoMiniPlayer`'s inline variant) instead - unless the gst window
-   * is showing it instead (linux + rodio), in which case that OS-level
-   * window is the actual display and this slot stays empty, matching how
-   * the mini player skips its own inline video too (see AppLayout.tsx's
-   * `isVideoWindowActive()` check). `queueRest` entries carry the raw
-   * `MediaItem` (when resolved) so the JSX can render real
-   * `QueueSongRow`/`VideoQueueRow` components - `item` is absent only for
-   * a still-resolving pending preview, which has no real song/video
-   * object yet. */
-  const nowPlayingView = () => {
+  /** the queue rows below the current "now playing" item - deliberately a
+   * SEPARATE memo from `nowPlayingView()`, which also depends on
+   * `realCurrentTime()`/`realDuration()`/`realIsPlaying()` and therefore
+   * recomputes many times per second while something is playing. if this
+   * array were built inline inside `nowPlayingView()` (as it used to be),
+   * every position tick would allocate a brand-new `queueRest` array, and
+   * `<For>` would then treat every row as newly-added on every tick -
+   * remounting `QueueSongRow`/`VideoQueueRow` constantly, which is what
+   * caused the reported "flickering play/loading overlay that never
+   * clears" on the upcoming rows (their own mount-time fade-in/loading
+   * transitions kept replaying). this memo only recomputes when the
+   * queue/pending-preview state actually changes. */
+  const queueRestMemo = createMemo(() => {
     const state = appState();
     const pending = pendingQueuePreviews();
-    if ((!state || state.queue.length === 0) && pending.length === 0) return null;
-
-    // pending previews (see charnelPlaybackAdapter.ts's own doc comment)
-    // show up immediately, before their network/db resolve finishes - a
-    // replace_queue push starts from an empty real queue, so its first
-    // pending item stands in for "now playing" (loading) until it
-    // resolves; an append_queue push (queue already has a real current
-    // item) just tacks its pending items onto queueRest instead.
     const pendingAsQueueRest = pending.map((p) => ({
       key: p.key,
       item: undefined as MediaItem | undefined,
@@ -324,7 +318,60 @@ export function CenotaphPlayerApp() {
     }));
 
     if (!state || state.queue.length === 0) {
-      const [first, ...rest] = pendingAsQueueRest;
+      // first pending item (if any) stands in for "now playing" instead -
+      // see nowPlayingView()'s own doc comment.
+      return pendingAsQueueRest.slice(1);
+    }
+
+    const idx = state.current_sha256
+      ? state.queue.findIndex((i) => mediaItemKey(i) === state.current_sha256)
+      : 0;
+    const ordered = idx >= 0 ? state.queue.slice(idx) : state.queue;
+    return [
+      ...ordered.slice(1).map((i, restIdx) => ({
+        key: mediaItemKey(i),
+        item: i as MediaItem | undefined,
+        title: mediaItemTitle(i),
+        artist: mediaItemSubtitle(i) ?? undefined,
+        durationSeconds:
+          i.kind === "song"
+            ? (i.song.duration_seconds ?? undefined)
+            : (i.video.duration_seconds ?? undefined),
+        // full-array index (0 = currently playing) - matches
+        // queue.ts's removeFromQueue(index) convention.
+        removeIndex: (idx >= 0 ? idx : 0) + 1 + restIdx,
+        pending: false as const,
+      })),
+      ...pendingAsQueueRest,
+    ];
+  });
+  // cheap derived memos, not recomputed unless queueRestMemo() itself
+  // changes reference - keeps `<For>` in the JSX below stable across
+  // position ticks (see queueRestMemo's own doc comment).
+  const realQueueRowsMemo = createMemo(() => queueRestMemo().filter((q) => !q.pending));
+  const pendingQueueRowsMemo = createMemo(() => queueRestMemo().filter((q) => q.pending));
+
+  /** builds the one shape the now-playing JSX below reads from, off
+   * spume's own real queue/playback state. `null` hides the now-playing
+   * section entirely (nothing queued). `isVideo` tells the JSX to swap
+   * the artwork slot for the shared `<video>` element (via
+   * `VideoMiniPlayer`'s inline variant) instead - unless the gst window
+   * is showing it instead (linux + rodio), in which case that OS-level
+   * window is the actual display and this slot stays empty, matching how
+   * the mini player skips its own inline video too (see AppLayout.tsx's
+   * `isVideoWindowActive()` check). */
+  const nowPlayingView = () => {
+    const state = appState();
+    const pending = pendingQueuePreviews();
+    if ((!state || state.queue.length === 0) && pending.length === 0) return null;
+
+    if (!state || state.queue.length === 0) {
+      // pending previews (see charnelPlaybackAdapter.ts's own doc comment)
+      // show up immediately, before their network/db resolve finishes - a
+      // replace_queue push starts from an empty real queue, so its first
+      // pending item stands in for "now playing" (loading) until it
+      // resolves.
+      const first = pending[0];
       return {
         isVideo: false,
         artworkImages: undefined as ImageMetadata[] | undefined,
@@ -335,7 +382,6 @@ export function CenotaphPlayerApp() {
         durationSeconds: first?.durationSeconds ?? 0,
         isPlaying: false,
         loading: true,
-        queueRest: rest,
       };
     }
 
@@ -355,23 +401,6 @@ export function CenotaphPlayerApp() {
       durationSeconds: realDuration(),
       isPlaying: realIsPlaying(),
       loading: false,
-      queueRest: [
-        ...ordered.slice(1).map((i, restIdx) => ({
-          key: mediaItemKey(i),
-          item: i as MediaItem | undefined,
-          title: mediaItemTitle(i),
-          artist: mediaItemSubtitle(i) ?? undefined,
-          durationSeconds:
-            i.kind === "song"
-              ? (i.song.duration_seconds ?? undefined)
-              : (i.video.duration_seconds ?? undefined),
-          // full-array index (0 = currently playing) - matches
-          // queue.ts's removeFromQueue(index) convention.
-          removeIndex: (idx >= 0 ? idx : 0) + 1 + restIdx,
-          pending: false as const,
-        })),
-        ...pendingAsQueueRest,
-      ],
     };
   };
 
@@ -640,80 +669,78 @@ export function CenotaphPlayerApp() {
               </button>
             </div>
 
-            <Show when={view().queueRest.length > 0}>
+            <Show when={realQueueRowsMemo().length > 0 || pendingQueueRowsMemo().length > 0}>
               {/* real (resolved) rows reuse spume's own QueueSongRow/
                   VideoQueueRow - same waveform-fill/download-progress/
                   synced-locally-underline markup QueueSidebar.tsx uses for
                   its local queue, so a queue looks and behaves the same
                   whether you're looking at it from the player itself or
                   from a controller's own /music view. drag-to-reorder is
-                  not wired yet - see this file's `noDrag` doc comment. */}
-              {(() => {
-                const realRows = view().queueRest.filter((q) => !q.pending);
-                const pendingRows = view().queueRest.filter((q) => q.pending);
-                return (
-                  <>
-                    <Show when={realRows.length > 0}>
-                      <div
-                        class="relative mt-4 w-full max-w-md"
-                        style={{ height: `${realRows.length * ROW_HEIGHT}px` }}
-                        data-testid="queue-list"
-                      >
-                        <For each={realRows}>
-                          {(queued, i) => {
-                            const item = queued.item!;
-                            const shared = {
-                              index: i(),
-                              isCurrentlyPlaying: false,
-                              isUpNext: i() === 0,
-                              isDragging: false,
-                              isDropTarget: false,
-                              top: i() * ROW_HEIGHT,
-                              progress: getQueueItemProgress(mediaItemKey(item)),
-                              loadingIds: getVisibleLoadingIds(),
-                              onClick: () => {},
-                              onDoubleClick: () => {},
-                              onRemove: () => handleRemoveQueueItem(queued.removeIndex!),
-                              onDragStart: noDrag,
-                              onDragOver: noDrag,
-                              onDragLeave: noDrag,
-                              onDragEnd: noDrag,
-                              onDrop: noDrag,
-                              onPointerDown: noDrag,
-                            };
-                            return item.kind === "song" ? (
-                              <QueueSongRow song={item.song} {...shared} />
-                            ) : (
-                              <VideoQueueRow video={item.video} {...shared} />
-                            );
-                          }}
-                        </For>
-                      </div>
-                    </Show>
-                    <Show when={pendingRows.length > 0}>
-                      <ul
-                        class="mt-2 w-full max-w-md text-left text-sm text-neutral-400"
-                        data-testid="queue-list-pending"
-                      >
-                        <For each={pendingRows}>
-                          {(queued) => (
-                            <li
-                              class="flex items-center justify-between gap-2 truncate border-b border-neutral-800 py-1 opacity-60 italic"
-                              data-testid="queue-item-pending"
-                            >
-                              <span class="truncate">
-                                {queued.title}
-                                <Show when={queued.artist}> — {queued.artist}</Show>
-                              </span>
-                              <span class="font-mono text-xs shrink-0">resolving…</span>
-                            </li>
-                          )}
-                        </For>
-                      </ul>
-                    </Show>
-                  </>
-                );
-              })()}
+                  not wired yet - see this file's `noDrag` doc comment.
+                  reads the stable `realQueueRowsMemo()`/`pendingQueueRowsMemo()`
+                  (not `view().queueRest` inline) so `<For>` doesn't see a
+                  new array on every position tick - see `queueRestMemo`'s
+                  own doc comment for why that mattered. */}
+              <>
+                <Show when={realQueueRowsMemo().length > 0}>
+                  <div
+                    class="relative mt-4 w-full max-w-md"
+                    style={{ height: `${realQueueRowsMemo().length * ROW_HEIGHT}px` }}
+                    data-testid="queue-list"
+                  >
+                    <For each={realQueueRowsMemo()}>
+                      {(queued, i) => {
+                        const item = queued.item!;
+                        const shared = {
+                          index: i(),
+                          isCurrentlyPlaying: false,
+                          isUpNext: isUpNextRow(mediaItemKey(item), realPendingUpNextKey()),
+                          isDragging: false,
+                          isDropTarget: false,
+                          top: i() * ROW_HEIGHT,
+                          progress: getQueueItemProgress(mediaItemKey(item)),
+                          loadingIds: getVisibleLoadingIds(),
+                          onClick: () => {},
+                          onDoubleClick: () => {},
+                          onRemove: () => handleRemoveQueueItem(queued.removeIndex!),
+                          onDragStart: noDrag,
+                          onDragOver: noDrag,
+                          onDragLeave: noDrag,
+                          onDragEnd: noDrag,
+                          onDrop: noDrag,
+                          onPointerDown: noDrag,
+                        };
+                        return item.kind === "song" ? (
+                          <QueueSongRow song={item.song} {...shared} />
+                        ) : (
+                          <VideoQueueRow video={item.video} {...shared} />
+                        );
+                      }}
+                    </For>
+                  </div>
+                </Show>
+                <Show when={pendingQueueRowsMemo().length > 0}>
+                  <ul
+                    class="mt-2 w-full max-w-md text-left text-sm text-neutral-400"
+                    data-testid="queue-list-pending"
+                  >
+                    <For each={pendingQueueRowsMemo()}>
+                      {(queued) => (
+                        <li
+                          class="flex items-center justify-between gap-2 truncate border-b border-neutral-800 py-1 opacity-60 italic"
+                          data-testid="queue-item-pending"
+                        >
+                          <span class="truncate">
+                            {queued.title}
+                            <Show when={queued.artist}> — {queued.artist}</Show>
+                          </span>
+                          <span class="font-mono text-xs shrink-0">resolving…</span>
+                        </li>
+                      )}
+                    </For>
+                  </ul>
+                </Show>
+              </>
             </Show>
           </div>
         )}

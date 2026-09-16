@@ -420,11 +420,17 @@ interface CommandAckLike {
  * back to a player re-queues everything"). called from every push/append
  * function below, gated on a genuinely successful ack - never on
  * `ok: false`/a thrown command, since the items are still only locally
- * known in that case. */
-function drainAfterAck(ack: CommandAckLike, hashes: (string | null)[]): void {
+ * known in that case. `isReplace` must be `true` only for the 3
+ * `replace_queue` senders (a real handoff of "now playing") - the 3
+ * `append_queue` senders pass `false`, since appending never changes what
+ * the remote is currently playing, so there's no handoff to confirm and
+ * gating on one would hold the item back forever (found live: appending
+ * a song to an already-playing remote left it stuck in the local queue
+ * permanently). */
+function drainAfterAck(ack: CommandAckLike, hashes: (string | null)[], isReplace: boolean): void {
   if (!ack?.ok) return;
   const nonNull = hashes.filter((h): h is string => !!h);
-  if (nonNull.length > 0) pruneLocalQueueAfterSuccessfulPush(nonNull);
+  if (nonNull.length > 0) pruneLocalQueueAfterSuccessfulPush(nonNull, isReplace);
 }
 
 /** push a full queue of songs to a paired player, replacing whatever it
@@ -443,7 +449,8 @@ export async function pushSongsToPlayer(peerAddr: string, songs: Song[]): Promis
   if (ack?.status) applyRemoteStatusFromAck(ack.status);
   drainAfterAck(
     ack,
-    songs.map((s) => mediaItemBlake3(songToMediaItem(s)))
+    songs.map((s) => mediaItemBlake3(songToMediaItem(s))),
+    true
   );
 }
 
@@ -463,7 +470,8 @@ export async function appendSongsToPlayer(peerAddr: string, songs: Song[]): Prom
   if (ack?.status) applyRemoteStatusFromAck(ack.status);
   drainAfterAck(
     ack,
-    songs.map((s) => mediaItemBlake3(songToMediaItem(s)))
+    songs.map((s) => mediaItemBlake3(songToMediaItem(s))),
+    false
   );
 }
 
@@ -485,7 +493,8 @@ export async function pushVideosToPlayer(peerAddr: string, videos: QueuedVideo[]
   if (ack?.status) applyRemoteStatusFromAck(ack.status);
   drainAfterAck(
     ack,
-    videos.map((v) => mediaItemBlake3(videoToMediaItem(v)))
+    videos.map((v) => mediaItemBlake3(videoToMediaItem(v))),
+    true
   );
 }
 
@@ -507,7 +516,8 @@ export async function appendVideosToPlayer(peerAddr: string, videos: QueuedVideo
   if (ack?.status) applyRemoteStatusFromAck(ack.status);
   drainAfterAck(
     ack,
-    videos.map((v) => mediaItemBlake3(videoToMediaItem(v)))
+    videos.map((v) => mediaItemBlake3(videoToMediaItem(v))),
+    false
   );
 }
 
@@ -543,7 +553,8 @@ export async function pushMediaToPlayer(peerAddr: string, items: MediaItem[]): P
   if (ack?.status) applyRemoteStatusFromAck(ack.status);
   drainAfterAck(
     ack,
-    items.map((i) => mediaItemBlake3(i))
+    items.map((i) => mediaItemBlake3(i)),
+    true
   );
 }
 
@@ -562,6 +573,7 @@ export async function appendMediaToPlayer(peerAddr: string, items: MediaItem[]):
   if (ack?.status) applyRemoteStatusFromAck(ack.status);
   drainAfterAck(
     ack,
-    items.map((i) => mediaItemBlake3(i))
+    items.map((i) => mediaItemBlake3(i)),
+    false
   );
 }
