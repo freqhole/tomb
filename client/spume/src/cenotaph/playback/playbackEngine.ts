@@ -18,6 +18,7 @@
 import { createSignal } from "solid-js";
 import type { MediaRef, PlayerStatus } from "../control/schema";
 import type { PlaybackBackend } from "../control/playbackBackend";
+import { debug } from "../../utils/logger";
 import { fetchMediaBlob } from "./mediaFetch";
 import { cacheMediaBlob, evictCachedMediaBlob, getCachedMediaBlob } from "./persistentBlobCache";
 import type { MediaPlaybackNode } from "./types";
@@ -65,6 +66,18 @@ media.style.position = "fixed";
 media.style.top = "0";
 media.style.left = "0";
 media.style.objectFit = "contain";
+// this element is a pure visual surface (all playback controls are
+// separate solid-rendered buttons, never gestures on the element itself)
+// but it's sized to the full viewport and appended directly to
+// document.body, outside solid's own dom tree/stacking context - without
+// this, it silently swallows every wheel/click event landing outside
+// whatever currently happens to have a higher z-index, in BOTH charnel
+// mode (where it's entirely unused - real video goes through
+// videoBackend.ts's own element) and browser/audio-only mode (where
+// there's no video frame to show yet). this was the actual root cause of
+// this view's whole history of "button in the margin doesn't respond"
+// bugs, not any individual component's z-index.
+media.style.pointerEvents = "none";
 
 function applyViewportSize(): void {
   // visualViewport (not universally supported - e.g. older webviews) tracks
@@ -191,24 +204,18 @@ function pruneStaleCacheEntries(): void {
 async function resolveBlob(item: MediaRef): Promise<Blob | null> {
   const local = await localLibraryHooks?.getLocalBlob(item.blake3_hash);
   if (local) {
-    // TEMP DEBUG - remove once sync-to-local wiring bug is found
-    console.log(
-      `[debug/resolveBlob] ${item.blake3_hash.slice(0, 8)}... resolved from real local library`,
-    );
+    debug("resolveBlob", `${item.blake3_hash.slice(0, 8)}... resolved from real local library`);
     return local;
   }
   const inMemory = blobCache.get(item.blake3_hash);
   if (inMemory) {
-    // TEMP DEBUG - remove once sync-to-local wiring bug is found
-    console.log(
-      `[debug/resolveBlob] ${item.blake3_hash.slice(0, 8)}... resolved from in-memory blobCache`,
-    );
+    debug("resolveBlob", `${item.blake3_hash.slice(0, 8)}... resolved from in-memory blobCache`);
     return inMemory;
   }
   if (localLibraryHooks) {
-    // TEMP DEBUG - remove once sync-to-local wiring bug is found
-    console.log(
-      `[debug/resolveBlob] ${item.blake3_hash.slice(0, 8)}... not in real library or memory - host has its own storage, skipping persistent cache, will fetchAndCache/syncToLocal`,
+    debug(
+      "resolveBlob",
+      `${item.blake3_hash.slice(0, 8)}... not in real library or memory - host has its own storage, skipping persistent cache, will fetchAndCache/syncToLocal`
     );
     return null;
   }
@@ -218,24 +225,20 @@ async function resolveBlob(item: MediaRef): Promise<Blob | null> {
 async function fetchAndCache(
   node: MediaPlaybackNode,
   item: MediaRef,
-  onProgress?: (fraction: number) => void,
+  onProgress?: (fraction: number) => void
 ): Promise<Blob> {
   if (localLibraryHooks?.isSyncEnabled()) {
     try {
       const synced = await localLibraryHooks.syncToLocal(item);
-      // TEMP DEBUG - remove once sync-to-local wiring bug is found
-      console.log(
-        `[debug/fetchAndCache] ${item.blake3_hash.slice(0, 8)}... syncToLocal returned ${synced ? "a blob (promoted to real library)" : "null"}`,
+      debug(
+        "fetchAndCache",
+        `${item.blake3_hash.slice(0, 8)}... syncToLocal returned ${synced ? "a blob (promoted to real library)" : "null"}`
       );
       // now part of the real library - no need to also persist into the
       // ephemeral cache below.
       if (synced) return synced;
     } catch (err) {
-      // TEMP DEBUG - remove once sync-to-local wiring bug is found
-      console.log(
-        `[debug/fetchAndCache] ${item.blake3_hash.slice(0, 8)}... syncToLocal threw:`,
-        err,
-      );
+      debug("fetchAndCache", `${item.blake3_hash.slice(0, 8)}... syncToLocal threw:`, err);
       // best-effort upgrade only - fall through to the ephemeral cache.
     }
   }

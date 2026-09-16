@@ -9,6 +9,7 @@
 // acceptModeBootstrap.ts's `isEnabled` callback), not app data.
 
 import { createSignal } from "solid-js";
+import { debug } from "../../utils/logger";
 
 const STORAGE_KEY = "spume.remotePlaybackEnabled";
 
@@ -25,8 +26,7 @@ const [remotePlaybackEnabled, setRemotePlaybackEnabledSignal] = createSignal(rea
 export { remotePlaybackEnabled };
 
 export function setRemotePlaybackEnabled(enabled: boolean): void {
-  // TEMP DEBUG - remove once the first-pair-attempt-fails bug is found
-  console.log("[debug/remoteModeSettings] setRemotePlaybackEnabled:", enabled);
+  debug("remoteModeSettings", "setRemotePlaybackEnabled:", enabled);
   setRemotePlaybackEnabledSignal(enabled);
   try {
     localStorage.setItem(STORAGE_KEY, enabled ? "true" : "false");
@@ -40,8 +40,7 @@ export function setRemotePlaybackEnabled(enabled: boolean): void {
  * callbacks that run once per inbound connection attempt). */
 export function isRemotePlaybackEnabled(): boolean {
   const value = remotePlaybackEnabled();
-  // TEMP DEBUG - remove once the first-pair-attempt-fails bug is found
-  console.log("[debug/remoteModeSettings] isRemotePlaybackEnabled() ->", value);
+  debug("remoteModeSettings", "isRemotePlaybackEnabled() ->", value);
   return value;
 }
 

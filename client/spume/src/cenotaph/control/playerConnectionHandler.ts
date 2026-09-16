@@ -20,6 +20,7 @@ import { registerSubscriber, unregisterSubscriber } from "./statusSubscribers";
 import { markControllerConnected, markControllerDisconnected } from "./connectedControllers";
 import type { PlaybackBackend } from "./playbackBackend";
 import { setSessionSignal } from "../pairing/pinStore";
+import { debug, error } from "../../utils/logger";
 
 export interface PlayerConnectionHandlerOptions<TNode = unknown> {
   backend: PlaybackBackend<TNode>;
@@ -40,14 +41,13 @@ export interface PlayerConnectionHandlerOptions<TNode = unknown> {
 /** builds a per-connection handler for `midden/acceptLoop.ts`'s
  * `startAcceptLoop`, registered against `PLAYER_ALPN`. */
 export function createPlayerConnectionHandler<TNode = unknown>(
-  options: PlayerConnectionHandlerOptions<TNode>,
+  options: PlayerConnectionHandlerOptions<TNode>
 ): (node: TNode, stream: CenotaphBiStream) => Promise<void> {
   const { backend, trustStore, sessionStore, isEnabled } = options;
 
   return async function handleConnection(node: TNode, stream: CenotaphBiStream): Promise<void> {
     if (isEnabled && !isEnabled()) {
-      // TEMP DEBUG - remove once the first-pair-attempt-fails bug is found
-      console.log("[debug/playerConn] rejected: isEnabled() returned false");
+      debug("playerConnectionHandler", "rejected: isEnabled() returned false");
       stream.close();
       return;
     }
@@ -55,9 +55,9 @@ export function createPlayerConnectionHandler<TNode = unknown>(
     try {
       const peerNodeId = stream.peer_node_id();
       const trusted = await trustStore.isTrustedController(peerNodeId);
-      // TEMP DEBUG - remove once the first-pair-attempt-fails bug is found
-      console.log(
-        `[debug/playerConn] connection from ${peerNodeId.slice(0, 12)}, trusted=${trusted}`,
+      debug(
+        "playerConnectionHandler",
+        `connection from ${peerNodeId.slice(0, 12)}, trusted=${trusted}`
       );
 
       const firstLine = (await stream.read_line()) as string | null;
@@ -79,10 +79,9 @@ export function createPlayerConnectionHandler<TNode = unknown>(
           sessionStore,
           session,
           peerNodeId,
-          firstLine,
+          firstLine
         );
-        // TEMP DEBUG - remove once the first-pair-attempt-fails bug is found
-        console.log("[debug/playerConn] pair response:", response);
+        debug("playerConnectionHandler", "pair response:", response);
         await stream.write_line(JSON.stringify(response));
 
         // handlePairRequest may have rotated the pin/cleared the admin
@@ -173,7 +172,7 @@ export function createPlayerConnectionHandler<TNode = unknown>(
               !isPeerAllowedInSession(session, peerNodeId, controller?.role)
             ) {
               await stream.write_line(
-                JSON.stringify({ type: "command_ack", ok: false, reason: "not_in_session" }),
+                JSON.stringify({ type: "command_ack", ok: false, reason: "not_in_session" })
               );
             } else {
               const ack = await dispatchCommand(backend, node, line);
@@ -190,13 +189,12 @@ export function createPlayerConnectionHandler<TNode = unknown>(
 
       // untrusted peer sent something other than a pair_request - reject
       // rather than dispatching it as a command.
-      // TEMP DEBUG - remove once the first-pair-attempt-fails bug is found
-      console.log("[debug/playerConn] untrusted peer sent non-pair-request:", firstLine);
+      debug("playerConnectionHandler", "untrusted peer sent non-pair-request:", firstLine);
       await stream.write_line(
-        JSON.stringify({ type: "pair_response", ok: false, reason: "invalid_pin" }),
+        JSON.stringify({ type: "pair_response", ok: false, reason: "invalid_pin" })
       );
     } catch (err) {
-      // console.error("[cenotaph] player connection handling failed:", err);
+      error("playerConnectionHandler", "player connection handling failed:", err);
     } finally {
       stream.close();
     }

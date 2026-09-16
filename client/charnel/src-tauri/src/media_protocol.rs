@@ -13,12 +13,12 @@
 //! always advertises `Accept-Ranges: bytes` (the built-in one only does so
 //! when the incoming request already had a `Range` header).
 //!
-//! registered for every platform (harmless no-op unless something actually
-//! requests via this scheme), but only actually USED client-side on
-//! android for now - see `client/spume/src/music/services/storage/
-//! localAudio.ts` / `localVideo.ts` and `CharnelLocalTransport.ts`'s
-//! `resolveCharnelMediaSrc`. other platforms keep using tauri's built-in
-//! `asset://`/`http://asset.localhost` protocol unchanged.
+//! registered for every platform and now actually USED on every platform
+//! too (previously android-only) - see `client/spume/src/music/services/
+//! storage/localAudio.ts` / `localVideo.ts` and `CharnelLocalTransport.ts`'s
+//! `resolveCharnelMediaSrc`. tauri's built-in `asset://`/`http://
+//! asset.localhost` protocol is no longer used by this app's own media
+//! playback at all.
 
 use http_range::HttpRange;
 use std::borrow::Cow;
@@ -72,7 +72,8 @@ fn get_response(request: Request<Vec<u8>>) -> Result<Response<Cow<'static, [u8]>
 
     let mut resp = Response::builder()
         .header(CONTENT_TYPE, mime_type)
-        .header(ACCEPT_RANGES, "bytes");
+        .header(ACCEPT_RANGES, "bytes")
+        .header(ACCESS_CONTROL_ALLOW_ORIGIN, "*");
 
     let range_header = request.headers().get("range").and_then(|r| r.to_str().ok());
 
@@ -93,6 +94,7 @@ fn get_response(request: Request<Vec<u8>>) -> Result<Response<Cow<'static, [u8]>
         Response::builder()
             .status(StatusCode::RANGE_NOT_SATISFIABLE)
             .header(CONTENT_RANGE, format!("bytes */{len}"))
+            .header(ACCESS_CONTROL_ALLOW_ORIGIN, "*")
             .body(Cow::Borrowed(&[][..]))
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
     };

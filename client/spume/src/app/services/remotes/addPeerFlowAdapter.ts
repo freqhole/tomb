@@ -23,6 +23,7 @@ import {
 } from "./authService";
 import { formatErrorMessage } from "./formatErrorMessage";
 import { createRemote, getAllRemotes } from "./remoteManager";
+import { debug } from "../../../utils/logger";
 import {
   createPendingRemote,
   deletePendingRemote,
@@ -54,8 +55,7 @@ export const addPeerFlowDeps: AddPeerFlowDeps = {
   getServerInfo: async (target) => {
     const client = await getClientForRemote(remoteLikeFor(target));
     const result = await client.app.serverInfo();
-    // TEMP DEBUG - remove once the first-pair-attempt-fails bug is found
-    console.log("[debug/addPeer] getServerInfo target:", target, "result:", result);
+    debug("addPeerFlowAdapter", "getServerInfo target:", target, "result:", result);
     return result.success && result.data ? (result.data as PeerServerInfo) : null;
   },
 

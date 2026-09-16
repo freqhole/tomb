@@ -20,6 +20,7 @@
 
 import type { CenotaphBiStream } from "../midden/node";
 import { ROLE_LEVEL, type PeerRole } from "../pairing/trustStore";
+import { debug } from "../../utils/logger";
 
 export interface ApiRouteHandler {
   (body: unknown): Promise<{ status: number; body: unknown }> | { status: number; body: unknown };
@@ -57,7 +58,7 @@ async function writeApiResponse(
   stream: CenotaphBiStream,
   id: number,
   status: number,
-  body: unknown,
+  body: unknown
 ): Promise<void> {
   const message = { type: "api_response", id, status, body: JSON.stringify(body) };
   await stream.write_raw_and_finish(new TextEncoder().encode(JSON.stringify(message)));
@@ -74,7 +75,7 @@ export interface ApiRouterOptions {
    * route is rejected outright (fail closed) - a host app must actively
    * wire this to open anything beyond its `"public"` routes up. */
   resolvePeerRole?: (
-    nodeId: string,
+    nodeId: string
   ) => Promise<ApiPeerRole | null | undefined> | ApiPeerRole | null | undefined;
 }
 
@@ -94,7 +95,7 @@ export function createApiRouter(options: ApiRouterOptions = {}): ApiRouter {
     // mirrors grimoire's `RouteAuth::default()` ("safe default, routes
     // should explicitly set Public if needed") - "viewer" is the lowest
     // privilege level, i.e. any recognized peer at all.
-    auth: ApiRouteAuth = "viewer",
+    auth: ApiRouteAuth = "viewer"
   ): void {
     routes.set(routeKey(method, path), { handler, auth });
   }
@@ -106,22 +107,18 @@ export function createApiRouter(options: ApiRouterOptions = {}): ApiRouter {
     let requestId: number | undefined;
     try {
       const bytes = await stream.read_to_end(64 * 1024);
-      // TEMP DEBUG - remove once the first-pair-attempt-fails bug is found
-      console.log("[debug/apiRouter] dispatch read bytes:", bytes?.length ?? null);
+      debug("apiRouter", "dispatch read bytes:", bytes?.length ?? null);
       if (bytes === null) return;
 
       const parsed: unknown = JSON.parse(new TextDecoder().decode(bytes));
       if (!isApiRequestMessage(parsed)) {
-        console.log("[debug/apiRouter] not an api_request message:", parsed);
+        debug("apiRouter", "not an api_request message:", parsed);
         return;
       }
       requestId = parsed.id;
 
       const route = routes.get(routeKey(parsed.method, parsed.path));
-      // TEMP DEBUG - remove once the first-pair-attempt-fails bug is found
-      console.log(
-        `[debug/apiRouter] dispatching ${parsed.method} ${parsed.path}, handler found: ${!!route}`,
-      );
+      debug("apiRouter", `dispatching ${parsed.method} ${parsed.path}, handler found: ${!!route}`);
       if (!route) {
         await writeApiResponse(stream, parsed.id, 404, { error: "not found" });
         return;
@@ -130,8 +127,9 @@ export function createApiRouter(options: ApiRouterOptions = {}): ApiRouter {
       if (route.auth !== "public") {
         const peerNodeId = stream.peer_node_id();
         const role = options.resolvePeerRole ? await options.resolvePeerRole(peerNodeId) : null;
-        console.log(
-          `[debug/apiRouter] ${parsed.method} ${parsed.path} role check for ${peerNodeId}: ${role ?? "none"} (needs >= ${route.auth})`,
+        debug(
+          "apiRouter",
+          `${parsed.method} ${parsed.path} role check for ${peerNodeId}: ${role ?? "none"} (needs >= ${route.auth})`
         );
         if (!role) {
           await writeApiResponse(stream, parsed.id, 401, {
@@ -148,19 +146,13 @@ export function createApiRouter(options: ApiRouterOptions = {}): ApiRouter {
       }
 
       const parsedBody: unknown = parsed.body ? JSON.parse(parsed.body) : null;
-      // TEMP DEBUG - remove once sync-to-local wiring bug is found
-      console.log(`[debug/apiRouter] ${parsed.method} ${parsed.path} body:`, parsedBody);
+      debug("apiRouter", `${parsed.method} ${parsed.path} body:`, parsedBody);
       const result = await route.handler(parsedBody);
-      // TEMP DEBUG - remove once the first-pair-attempt-fails bug is found
-      console.log(`[debug/apiRouter] handler result status=${result.status}`, result.body);
+      debug("apiRouter", `handler result status=${result.status}`, result.body);
       await writeApiResponse(stream, parsed.id, result.status, result.body);
     } catch (err) {
       console.error("[cenotaph] api request handling failed:", err);
-      // TEMP DEBUG - remove once sync-to-local wiring bug is found
-      console.log(
-        `[debug/apiRouter] handler threw, sending 500 instead of dropping the stream:`,
-        err,
-      );
+      debug("apiRouter", "handler threw, sending 500 instead of dropping the stream:", err);
       // previously this just fell through to `finally`'s `stream.close()`
       // with no response ever written - the caller saw a bare "connection
       // lost" with no way to tell a thrown exception from a real network

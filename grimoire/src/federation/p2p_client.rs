@@ -174,6 +174,26 @@ pub fn is_self_peer(peer_addr: &str) -> bool {
     addr.id == endpoint.secret_key().public()
 }
 
+/// export a blob straight from this device's own iroh-blobs store, no
+/// network involved - `None` if it isn't present locally (the hash is
+/// unparseable, the store isn't up, or this device genuinely never had
+/// the bytes). used to serve a self-peer request (see `is_self_peer`)
+/// without a doomed connect attempt.
+async fn try_export_local_blob(blake3_hash: &str, target: &std::path::Path) -> Option<u64> {
+    let store = crate::database::storage_node().await.ok()?.fs_store;
+    let hash: Hash = blake3_hash.parse().ok()?;
+    store.blobs().export(hash, target).await.ok()?;
+    tokio::fs::metadata(target).await.ok().map(|m| m.len())
+}
+
+/// same as `try_export_local_blob`, but reads the bytes into memory
+/// instead of exporting to a file - used by the in-memory fetch variants.
+async fn try_read_local_blob(blake3_hash: &str) -> Option<Vec<u8>> {
+    let store = crate::database::storage_node().await.ok()?.fs_store;
+    let hash: Hash = blake3_hash.parse().ok()?;
+    store.blobs().get_bytes(hash).await.ok().map(|b| b.to_vec())
+}
+
 /// connect to a peer
 ///
 /// iroh handles connection caching/reuse internally, so we just call connect()
@@ -777,6 +797,26 @@ pub async fn fetch_blob_verified_with_ensure_progress(
     blake3_hash: &str,
     on_progress: Option<&BlobProgressFn>,
 ) -> GrimoireResult<Vec<u8>> {
+    // see fetch_blob_verified_to_file_with_ensure_and_progress's identical
+    // self-peer short-circuit for why this must never attempt to connect.
+    if is_self_peer(peer_addr) {
+        if let Some(data) = try_read_local_blob(blake3_hash).await {
+            info!(
+                hash = %&blake3_hash[..16.min(blake3_hash.len())],
+                bytes = data.len(),
+                "fetch_blob_verified_with_ensure: self-peer, read from local store"
+            );
+            return Ok(data);
+        }
+        return Err(GrimoireError::FederationApiError {
+            message: format!(
+                "{} is this instance's own node id, but no local copy of blob {} was found - nothing to fetch",
+                &peer_addr[..16.min(peer_addr.len())],
+                &blake3_hash[..16.min(blake3_hash.len())],
+            ),
+        });
+    }
+
     info!(
         "fetch_blob_verified_with_ensure: starting for {} from {}",
         &blake3_hash[..16.min(blake3_hash.len())],
@@ -859,6 +899,31 @@ pub async fn fetch_blob_verified_to_file_with_ensure_and_progress(
     target: &std::path::Path,
     on_progress: Option<&BlobProgressFn>,
 ) -> GrimoireResult<u64> {
+    // a queued MediaRef can legitimately name this same instance as its
+    // own source (e.g. content browsed from this player's own library and
+    // queued straight back to it - see `is_self_peer`'s doc comment).
+    // iroh refuses a self-connect outright, so there's no point ever
+    // dialing here - export directly from this device's own iroh-blobs
+    // store instead, which already has the bytes whenever the caller-side
+    // import (e.g. `p2p_import_blob_bytes`) ran on this same instance.
+    if is_self_peer(peer_addr) {
+        if let Some(size) = try_export_local_blob(blake3_hash, target).await {
+            info!(
+                hash = %&blake3_hash[..16.min(blake3_hash.len())],
+                bytes = size,
+                "fetch_blob_verified_to_file_with_ensure: self-peer, exported from local store"
+            );
+            return Ok(size);
+        }
+        return Err(GrimoireError::FederationApiError {
+            message: format!(
+                "{} is this instance's own node id, but no local copy of blob {} was found - nothing to fetch",
+                &peer_addr[..16.min(peer_addr.len())],
+                &blake3_hash[..16.min(blake3_hash.len())],
+            ),
+        });
+    }
+
     info!(
         "fetch_blob_verified_to_file_with_ensure: starting for {} from {}",
         &blake3_hash[..16.min(blake3_hash.len())],

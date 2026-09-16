@@ -144,6 +144,8 @@ export {
   pause,
   resume,
   skip,
+  stop,
+  removeFromQueue,
   setLocalLibraryHooks,
   type EngineState,
   type LocalLibraryHooks,

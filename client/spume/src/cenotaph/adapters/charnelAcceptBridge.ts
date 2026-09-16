@@ -17,13 +17,74 @@
 import { dispatchCommand } from "../control/dispatcher";
 import { charnelPlaybackAdapter } from "./charnelPlaybackAdapter";
 import { isCharnelMode } from "../../app/services/charnel/mode";
+import {
+  connectedControllers,
+  markControllerConnected,
+  markControllerDisconnected,
+} from "../control/connectedControllers";
+import { spumeTrustStore } from "./trustStoreAdapter";
+import { debug, error } from "../../utils/logger";
 
 interface CenotaphCommandEventPayload {
   request_id: string;
   command_json: string;
+  peer_id: string;
 }
 
 let started = false;
+let unlisten: (() => void) | null = null;
+let connectedPollTimer: ReturnType<typeof setInterval> | null = null;
+// rust's dispatch_tx consumer loop (player_pairing_accept.rs's
+// spawn_dispatch_bridge) emits a `cenotaph-command` event per queued
+// command and moves straight on to the next one in its channel - it does
+// NOT wait for this side's reply before emitting the next event. without
+// serializing here, two commands arriving close together (a flaky
+// controller's append_queue retry, a queue-push landing right as a
+// get_status poll fires, etc.) run their handlers concurrently, racing on
+// the same appState()/queue reads+writes - e.g. two overlapping
+// appendQueue calls both compute currentQueueHashes() from the same
+// pre-mutation snapshot and both decide an item isn't a duplicate yet,
+// or a stop()/clearQueue() lands in the middle of an in-flight
+// playMediaItem() that then finishes and resumes audio right after.
+// chaining onto this promise forces one full dispatchCommand+reply cycle
+// to finish before the next command's handler starts.
+let commandChain: Promise<void> = Promise.resolve();
+
+interface PairingSnapshotDto {
+  connected: { node_id: string; display_name: string }[];
+}
+
+// grimoire's rust endpoint (grimoire/src/cenotaph/endpoint.rs) tracks
+// connected controllers natively via state::mark_connected/mark_disconnected
+// for BOTH command-dispatching streams and read-only `subscribe` status-
+// watcher streams - the latter never dispatch a command at all, so they're
+// invisible to the per-command markControllerConnected call below. polling
+// `player_pairing_get_snapshot` (already exposed for exactly this purpose,
+// see its own doc comment) is the only way to see those too.
+const CONNECTED_POLL_INTERVAL_MS = 5000;
+
+function startCharnelConnectedControllersSync(): void {
+  if (connectedPollTimer) return;
+  const poll = async () => {
+    try {
+      // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
+      const { invoke } = await import("@tauri-apps/api/core");
+      const snap = await invoke<PairingSnapshotDto>("player_pairing_get_snapshot");
+      const seen = new Set<string>();
+      for (const c of snap.connected) {
+        seen.add(c.node_id);
+        markControllerConnected({ node_id: c.node_id, display_name: c.display_name });
+      }
+      for (const c of connectedControllers()) {
+        if (!seen.has(c.node_id)) markControllerDisconnected(c.node_id);
+      }
+    } catch (err) {
+      debug("charnelAcceptBridge", "connected-controllers snapshot poll failed:", err);
+    }
+  };
+  void poll();
+  connectedPollTimer = setInterval(() => void poll(), CONNECTED_POLL_INTERVAL_MS);
+}
 
 /** starts listening for the rust side's `cenotaph-command` events and
  * replies with the resulting ack once `charnelPlaybackAdapter` handles
@@ -31,28 +92,75 @@ let started = false;
 export async function initCharnelPlaybackAcceptMode(): Promise<void> {
   if (!isCharnelMode() || started) return;
   started = true;
+  startCharnelConnectedControllersSync();
 
   // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
   const { listen } = await import("@tauri-apps/api/event");
   // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
   const { invoke } = await import("@tauri-apps/api/core");
 
-  await listen<CenotaphCommandEventPayload>("cenotaph-command", (event) => {
-    void (async () => {
-      const { request_id, command_json } = event.payload;
-      // `charnelPlaybackAdapter`'s `PlaybackBackend<unknown>` never reads
-      // its `node` argument (see the adapter's own file) - this accept
-      // path has no midden/wasm node to hand it, unlike the browser path.
-      const ack = await dispatchCommand(charnelPlaybackAdapter, undefined, command_json);
-      try {
-        await invoke("player_pairing_command_reply", {
-          requestId: request_id,
-          ackJson: JSON.stringify(ack),
-        });
-      } catch (err) {
-        console.warn("[cenotaph-charnel] failed to send command reply:", err);
-      }
-    })();
+  unlisten = await listen<CenotaphCommandEventPayload>("cenotaph-command", (event) => {
+    // chain onto the running command queue instead of spawning a
+    // parallel handler - see commandChain's own doc comment.
+    commandChain = commandChain.then(() => handleCenotaphCommand(event.payload, invoke));
+  });
+}
+
+async function handleCenotaphCommand(
+  payload: CenotaphCommandEventPayload,
+  invoke: <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>
+): Promise<void> {
+  const { request_id, command_json, peer_id } = payload;
+  // rust dials a brand new stream per command rather than holding one
+  // open (see player_pairing_accept.rs), so - same as the wasm/browser
+  // accept path's per-stream markControllerConnected calls in
+  // playerConnectionHandler.ts - every dispatched command doubles as a
+  // liveness signal here; connectedControllers.ts's grace period turns
+  // that into a stable "currently connected" indicator instead of a
+  // flicker. no matching "disconnected" call is needed for this path -
+  // the grace period timeout handles it once commands stop arriving.
+  const controller = await spumeTrustStore.getTrustedController(peer_id);
+  markControllerConnected({
+    node_id: peer_id,
+    display_name: controller?.display_name ?? peer_id.slice(0, 8),
+  });
+  // `charnelPlaybackAdapter`'s `PlaybackBackend<unknown>` never reads
+  // its `node` argument (see the adapter's own file) - this accept
+  // path has no midden/wasm node to hand it, unlike the browser path.
+  //
+  // dispatchCommand itself is well-guarded, but a reply must go back
+  // no matter what - an uncaught throw here previously left the
+  // controller waiting forever with no ack and no error surfaced.
+  let ack: unknown;
+  try {
+    debug("charnelAcceptBridge", `dispatchCommand starting, request_id=${request_id}`);
+    ack = await dispatchCommand(charnelPlaybackAdapter, undefined, command_json);
+    debug("charnelAcceptBridge", `dispatchCommand resolved, request_id=${request_id}`, ack);
+  } catch (err) {
+    console.error("[cenotaph-charnel] dispatchCommand threw:", err);
+    ack = { type: "command_ack", ok: false, reason: "invalid_command" };
+  }
+  try {
+    await invoke("player_pairing_command_reply", {
+      requestId: request_id,
+      ackJson: JSON.stringify(ack),
+    });
+  } catch (err) {
+    console.warn("[cenotaph-charnel] failed to send command reply:", err);
+  }
+}
+
+// vite HMR replaces this module's instance on every edit without ever
+// re-running app boot, so the module-level `started` guard above can't
+// prevent a NEW listener stacking on top of the OLD (still-registered,
+// never-torn-down) one from the previous instance - every real event then
+// fires once per surviving instance. tearing down the old listener here
+// keeps dev-mode reloads at exactly one live listener; no-op in prod
+// (`import.meta.hot` is undefined there, and the module is never replaced).
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => {
+    unlisten?.();
+    if (connectedPollTimer) clearInterval(connectedPollTimer);
   });
 }
 
@@ -110,19 +218,11 @@ export async function setCharnelPlayerSessionActive(active: boolean): Promise<vo
   if (!isCharnelMode()) return;
   // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
   const { invoke } = await import("@tauri-apps/api/core");
-  // TEMP DEBUG - remove once the charnel player_device bug is found
-  console.log(
-    `\u{1F7E0}\u{1F7E0}\u{1F7E0} [player_session_debug] invoking set_player_session_active(${active})`
-  );
+  debug("charnelAcceptBridge", `invoking set_player_session_active(${active})`);
   try {
     await invoke("set_player_session_active", { active });
-    console.log(
-      `\u{1F7E0}\u{1F7E0}\u{1F7E0} [player_session_debug] set_player_session_active(${active}) succeeded`
-    );
+    debug("charnelAcceptBridge", `set_player_session_active(${active}) succeeded`);
   } catch (err) {
-    console.error(
-      `\u{1F7E0}\u{1F7E0}\u{1F7E0} [player_session_debug] set_player_session_active(${active}) FAILED:`,
-      err
-    );
+    error("charnelAcceptBridge", `set_player_session_active(${active}) FAILED:`, err);
   }
 }

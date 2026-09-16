@@ -16,7 +16,7 @@ use iroh::protocol::{AcceptError, ProtocolHandler};
 use iroh::PublicKey;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::sync::{mpsc, oneshot};
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 use super::state::{self, SharedPairingState};
 use super::wire::{
@@ -38,6 +38,12 @@ pub const PLAYER_ALPN: &[u8] = b"freqhole-player/1";
 // -------------------------------------------------------------------
 
 pub struct PairingDispatchRequest {
+    /// iroh node id of the peer that sent `command` - lets a consumer
+    /// (e.g. charnel's accept bridge) mark that controller as currently
+    /// connected, same as the wasm/browser accept path already does per
+    /// stream (see `connectedControllers.ts`'s doc comment for why a
+    /// dial-per-command transport still works fine with a grace period).
+    pub peer_id: String,
     pub command: PlayerCommand,
     pub reply: oneshot::Sender<CommandAck>,
 }
@@ -256,10 +262,6 @@ async fn handle_stream(
         return Ok(());
     };
     info!(target: "cenotaph", peer = %peer_id, kind = %kind, "handle_stream: dispatching on first-line kind");
-    // TEMP DEBUG - remove once the charnel player_device bug is found
-    eprintln!(
-        "\u{1F535}\u{1F535}\u{1F535} [presence_debug] handle_stream: peer={peer_id} kind={kind}"
-    );
 
     if kind == "pair_request" {
         handle_pair_request(&peer_id, &first_line, &state, &mut send).await?;
@@ -276,11 +278,13 @@ async fn handle_stream(
     let user_resp = crate::users::UserService::new()
         .get_user_by_peer_node_id(&peer_id)
         .await;
-    // TEMP DEBUG - remove once the charnel player_device bug is found
-    eprintln!(
-        "\u{1F535}\u{1F535}\u{1F535} [presence_debug] kind={kind} peer={peer_id} get_user_by_peer_node_id success={} data={:?}",
-        user_resp.success,
-        user_resp.data.as_ref().map(|u| (&u.id, &u.username, &u.role))
+    debug!(
+        target: "cenotaph",
+        peer = %peer_id,
+        kind = %kind,
+        success = user_resp.success,
+        user = ?user_resp.data.as_ref().map(|u| (&u.id, &u.username, &u.role)),
+        "get_user_by_peer_node_id"
     );
     let Some(user) = user_resp.data.filter(|_| user_resp.success) else {
         warn!(
@@ -302,10 +306,7 @@ async fn handle_stream(
             guard.session = Some(session);
             access
         };
-        // TEMP DEBUG - remove once the charnel player_device bug is found
-        eprintln!(
-            "\u{1F535}\u{1F535}\u{1F535} [presence_debug] peer={peer_id} role={role:?} access={access:?}"
-        );
+        debug!(target: "cenotaph", peer = %peer_id, role = ?role, access = ?access, "presence_query access");
         let msg = PresenceAnnouncement::for_caller(PresenceState::Active, access);
         write_line(&mut send, &serde_json::to_string(&msg).unwrap()).await?;
         return Ok(());
@@ -506,6 +507,7 @@ async fn process_command_line(
     let command_debug = command_summary(&command);
     if dispatch_tx
         .send(PairingDispatchRequest {
+            peer_id: peer_id.to_string(),
             command,
             reply: reply_tx,
         })

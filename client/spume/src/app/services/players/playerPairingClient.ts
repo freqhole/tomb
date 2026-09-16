@@ -12,6 +12,7 @@
 import { getMiddenNode } from "../../api/client";
 import { isCharnelMode } from "../charnel/mode";
 import type { BiStreamLike } from "@freqhole/api-client";
+import { debug } from "../../../utils/logger";
 
 export const PLAYER_ALPN = "freqhole-player/1";
 
@@ -52,15 +53,13 @@ async function dialLine(peerAddr: string, line: string): Promise<string | null> 
   for (let attempt = 0; ; attempt++) {
     try {
       const response = await dialLineOnce(peerAddr, line);
-      // TEMP DEBUG - remove once the first-pair-attempt-fails bug is found
-      console.log(`[debug/dial] attempt ${attempt + 1} succeeded, peerAddr=${peerAddr}`, {
+      debug("playerPairingClient", `dial attempt ${attempt + 1} succeeded, peerAddr=${peerAddr}`, {
         line,
         response,
       });
       return response;
     } catch (err) {
-      // TEMP DEBUG - remove once the first-pair-attempt-fails bug is found
-      console.log(`[debug/dial] attempt ${attempt + 1} failed, peerAddr=${peerAddr}`, err);
+      debug("playerPairingClient", `dial attempt ${attempt + 1} failed, peerAddr=${peerAddr}`, err);
       if (attempt >= DIAL_RETRY_DELAYS_MS.length) throw err;
       await new Promise((resolve) => setTimeout(resolve, DIAL_RETRY_DELAYS_MS[attempt]));
     }
@@ -114,11 +113,7 @@ export interface PresenceProbeResult {
 export async function queryPlayerPresence(peerAddr: string): Promise<PresenceProbeResult> {
   try {
     const line = await dialLineOnce(peerAddr, JSON.stringify({ type: "presence_query" }));
-    // TEMP DEBUG - remove once the charnel player_device bug is found
-    console.log(
-      `\u{1F535}\u{1F535}\u{1F535} [presence_debug] queryPlayerPresence(${peerAddr}) raw line:`,
-      line
-    );
+    debug("playerPairingClient", `queryPlayerPresence(${peerAddr}) raw line:`, line);
     if (!line) return { presence: "stopped" };
     const parsed = JSON.parse(line) as { type?: string; state?: string; access?: string };
     if (parsed.type !== "presence" || parsed.state !== "active") return { presence: "stopped" };
@@ -128,18 +123,10 @@ export async function queryPlayerPresence(peerAddr: string): Promise<PresencePro
       parsed.access === "not_in_session"
         ? parsed.access
         : undefined;
-    // TEMP DEBUG - remove once the charnel player_device bug is found
-    console.log(
-      `\u{1F535}\u{1F535}\u{1F535} [presence_debug] queryPlayerPresence(${peerAddr}) parsed access:`,
-      access
-    );
+    debug("playerPairingClient", `queryPlayerPresence(${peerAddr}) parsed access:`, access);
     return { presence: "active", access };
   } catch (err) {
-    // TEMP DEBUG - remove once the charnel player_device bug is found
-    console.error(
-      `\u{1F535}\u{1F535}\u{1F535} [presence_debug] queryPlayerPresence(${peerAddr}) threw:`,
-      err
-    );
+    debug("playerPairingClient", `queryPlayerPresence(${peerAddr}) threw:`, err);
     return { presence: "stopped" };
   }
 }

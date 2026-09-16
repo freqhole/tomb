@@ -8,6 +8,7 @@ import { PlayerCommandSchema, type CommandAck } from "./schema";
 import { broadcastStatus } from "./statusSubscribers";
 import { markActivity } from "./activityIndicator";
 import type { PlaybackBackend } from "./playbackBackend";
+import { debug, warn } from "../../utils/logger";
 
 // only the handful of commands that can take the player from idle (no
 // now-playing item, qr code showing) to actually playing something count
@@ -27,19 +28,17 @@ export { commandInFlight };
 export async function dispatchCommand<TNode = unknown>(
   backend: PlaybackBackend<TNode>,
   node: TNode,
-  rawLine: string,
+  rawLine: string
 ): Promise<CommandAck> {
   const parsed = PlayerCommandSchema.safeParse(JSON.parse(rawLine));
   if (!parsed.success) {
-    // TEMP DEBUG - remove once sync-to-local wiring bug is found
-    console.log(`[debug/dispatcher] failed to parse command:`, rawLine, parsed.error);
+    warn("dispatcher", "failed to parse command:", rawLine, parsed.error);
     return { type: "command_ack", ok: false, reason: "invalid_command" };
   }
 
   const command = parsed.data;
-  // TEMP DEBUG - remove once sync-to-local wiring bug is found
   if (command.command !== "get_status") {
-    console.log(`[debug/dispatcher] dispatching command:`, command);
+    debug("dispatcher", "dispatching command:", command);
   }
   const tracksLoading = QR_HIDING_COMMANDS.has(command.command);
   if (command.command !== "get_status") markActivity();

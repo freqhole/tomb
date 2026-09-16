@@ -47,17 +47,28 @@ import {
   setPendingUpNextSha256,
 } from "./playerState";
 import { debug, warn } from "../../../utils/logger";
-import { appState } from "../../../app/services/storage/db";
+import { appState, setCurrentSong, setQueue } from "../../../app/services/storage/db";
 import { toast } from "../../../components/feedback/Toast";
 import {
   mediaItemKey,
+  mediaItemQueueEntryId,
+  songsOnly,
   songToMediaItem,
   videoToMediaItem,
   type MediaItem,
   type QueuedVideo,
 } from "../../../app/services/storage/mediaItem";
-import { canGoNext, markPlaybackEnded, resetPlaybackEnded } from "../queue/queueState";
-import { stopServerSession } from "../queue/serverSession";
+import {
+  canGoNext,
+  hasPlaybackEnded,
+  markPlaybackEnded,
+  resetPlaybackEnded,
+} from "../queue/queueState";
+import { stopServerSession, updateServerSessionItems } from "../queue/serverSession";
+import { activeHistoryEntryId, stopTracking } from "../queue/listenProgress";
+import { updateHistoryEntrySongs } from "../queue/queueHistory";
+import { clearQueueItemProgress } from "../queue/queueProgress";
+import { mirrorRemoveFromQueue } from "../../../app/services/players/remoteQueueMirror";
 import { stopRadioForMusic } from "../../../app/services/playbackCoordinator";
 import { getDataSource } from "../../data";
 import { toggleSongFavoriteDirect } from "../../queries/favorites";
@@ -230,7 +241,10 @@ function bindAutoAdvance(backend: PlayerBackend): void {
   autoAdvanceUnsubscribe = backend.subscribe((event) => {
     if (event.kind === "ended") {
       debug("player", `backend "${backend.kind}" ended — advancing queue`);
-      void playNext();
+      const endedKey = appState()?.current_sha256 ?? null;
+      void playNext().then(() => {
+        if (endedKey) void removeEndedItemFromQueue(endedKey);
+      });
       return;
     }
     if (event.kind === "error") {
@@ -289,6 +303,50 @@ function bindAutoAdvance(backend: PlayerBackend): void {
       return;
     }
   });
+}
+
+// called once playNext() has already decided what (if anything) plays
+// next, so this only ever removes the item that just finished - never
+// the one now playing. mirrors queue.ts's removeFromQueue's tail (history/
+// server-session sync) but skips its "removing the current item" branch,
+// since by this point the ended item is never current anymore (playNext()
+// either moved current_sha256 on, or left it pointing at endedKey only
+// because the queue had nothing left to advance to).
+async function removeEndedItemFromQueue(endedKey: string): Promise<void> {
+  const state = appState();
+  if (!state?.queue) return;
+  const idx = state.queue.findIndex((i) => mediaItemKey(i) === endedKey);
+  if (idx === -1) return;
+
+  const removedItem = state.queue[idx];
+  const currentIdx = state.current_sha256
+    ? state.queue.findIndex((i) => mediaItemKey(i) === state.current_sha256)
+    : -1;
+  mirrorRemoveFromQueue(idx, currentIdx);
+
+  const newQueue = state.queue.filter((_, i) => i !== idx);
+  await setQueue(newQueue);
+
+  const removedEntryId = mediaItemQueueEntryId(removedItem);
+  if (removedEntryId) clearQueueItemProgress(removedEntryId);
+
+  // the ended item was the last one — nothing was left to advance to, so
+  // current_sha256 still points at it.
+  if (state.current_sha256 === endedKey && newQueue.length === 0) {
+    await setCurrentSong(null);
+  }
+
+  if (newQueue.length > 0) {
+    const entryId = activeHistoryEntryId();
+    if (entryId) void updateHistoryEntrySongs(entryId, songsOnly(newQueue));
+    void updateServerSessionItems(newQueue);
+  } else {
+    stopTracking();
+    // no-ops if playNext() already closed the session as "completed" -
+    // stopServerSession/stopAllServerSessions clear their session map on
+    // the first call and early-return on any call after that.
+    void stopServerSession("abandoned");
+  }
 }
 
 bindActiveBackend(activeBackend);
@@ -636,6 +694,22 @@ export async function play(): Promise<void> {
   // of which backend is active.
   await stopRadioForMusic();
   userExplicitlyPaused = false;
+
+  // playback already ran the queue out (canGoNext() was false last
+  // time playNext() checked) - the backend has nothing valid loaded
+  // anymore, so blindly resending `play` would call the underlying
+  // element's `.play()` on its already-`ended` media, which restarts
+  // it from 0 instead of doing nothing. restart from the queue head
+  // instead, same fallback `togglePlayback()` uses.
+  if (hasPlaybackEnded()) {
+    resetPlaybackEnded();
+    const state = appState();
+    if (state?.queue.length) {
+      await playMediaItem(state.queue[0], { userInitiated: true });
+    }
+    return;
+  }
+
   await activeBackend.send({ kind: "play" });
 }
 
@@ -699,30 +773,48 @@ export async function playNext(): Promise<void> {
     const nextIdx = currentIdx + 1;
     const nextItem = queue[nextIdx];
     attempts++;
-    try {
-      await Promise.race([
-        playMediaItem(nextItem, { userInitiated: true }),
-        new Promise<never>((_, reject) =>
-          setTimeout(
-            () => reject(new Error(`playMediaItem timed out after ${PLAY_SONG_TIMEOUT_MS}ms`)),
-            PLAY_SONG_TIMEOUT_MS
-          )
-        ),
-      ]);
-      return;
-    } catch (err) {
-      const nextTitle = nextItem?.kind === "song" ? nextItem.song.title : nextItem?.video.title;
-      warn(
-        "player",
-        `playNext: failed "${nextTitle}" idx=${nextIdx} attempt=${attempts}/${PLAY_NEXT_MAX_ATTEMPTS}: ${err instanceof Error ? err.message : err}`
-      );
-      currentIdx = nextIdx;
-      if (nextIdx >= queue.length - 1) {
-        warn("player", "playNext: end of queue, no playable songs found");
-        markPlaybackEnded();
-        void stopServerSession("completed");
-        return;
+    const nextTitle = nextItem?.kind === "song" ? nextItem.song.title : nextItem?.video.title;
+    // give a single flaky/slow item one retry (same backoff as
+    // bindAutoAdvance's network-error retry) before giving up on it and
+    // moving to the next queue position - a transient network blip
+    // shouldn't permanently skip an otherwise-good item. the item stays
+    // in the queue either way; this only decides what plays right now.
+    let lastErr: unknown;
+    let played = false;
+    for (let attempt = 0; attempt < 2 && !played; attempt++) {
+      if (attempt > 0) {
+        await new Promise((resolve) => setTimeout(resolve, NETWORK_RETRY_DELAY_MS));
       }
+      try {
+        await Promise.race([
+          playMediaItem(nextItem, { userInitiated: true }),
+          new Promise<never>((_, reject) =>
+            setTimeout(
+              () => reject(new Error(`playMediaItem timed out after ${PLAY_SONG_TIMEOUT_MS}ms`)),
+              PLAY_SONG_TIMEOUT_MS
+            )
+          ),
+        ]);
+        played = true;
+      } catch (err) {
+        lastErr = err;
+        warn(
+          "player",
+          `playNext: failed "${nextTitle}" idx=${nextIdx} retry=${attempt + 1}/2: ${err instanceof Error ? err.message : err}`
+        );
+      }
+    }
+    if (played) return;
+    warn(
+      "player",
+      `playNext: giving up on "${nextTitle}" idx=${nextIdx} after retries (attempt ${attempts}/${PLAY_NEXT_MAX_ATTEMPTS}): ${lastErr instanceof Error ? lastErr.message : lastErr}`
+    );
+    currentIdx = nextIdx;
+    if (nextIdx >= queue.length - 1) {
+      warn("player", "playNext: end of queue, no playable songs found");
+      markPlaybackEnded();
+      void stopServerSession("completed");
+      return;
     }
   }
   warn(

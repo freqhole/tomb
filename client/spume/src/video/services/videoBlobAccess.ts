@@ -15,6 +15,7 @@ import {
 } from "../../music/services/cache/blobCache";
 import { getClientForRemote } from "../../app/api/client";
 import { getRemoteById } from "../../app/services/remotes/remoteManager";
+import { resolveCharnelLocalBlobPath } from "../../app/services/media/resolveCharnelLocalBlobPath";
 import type { QueuedVideo } from "../../app/services/storage/mediaItem";
 import { readVideoFromOPFS } from "./opfs/helpers";
 import { resolveLocalVideoUrl } from "./localVideo";
@@ -35,6 +36,23 @@ export async function getVideoURL(
     }
     const file = await readVideoFromOPFS(video.opfs_path);
     return URL.createObjectURL(file);
+  }
+
+  // authoritative "is this already on disk in charnel's own library?"
+  // check by blake3 - mirrors audioAccess.ts's identical check exactly,
+  // and must run BEFORE the `isVideoSyncedLocally` client-side cache
+  // below (which only tracks videos synced through THIS device's own
+  // sync calls, not content that already happens to be in the library
+  // for any other reason). critically, this also handles a queue item
+  // whose declared `source_peer_addr` happens to be this very device
+  // (e.g. content originally browsed FROM this player and queued
+  // straight back to it) without ever dialing out - iroh refuses a
+  // self-connect outright, so skipping straight to a local lookup here
+  // is required, not just an optimization.
+  const charnelLocalPath = await resolveCharnelLocalBlobPath(video.blake3);
+  if (charnelLocalPath) {
+    const localUrl = await resolveLocalVideoUrl(video.id, charnelLocalPath, !useVideoWindow());
+    if (localUrl) return localUrl;
   }
 
   // a remote video may have since been synced to local storage (see
@@ -73,18 +91,20 @@ export async function getVideoURL(
   const blobId = await resolvePlaybackBlobId(video, remoteId);
 
   // P2P/tauri-managed remotes: resolveBlobUrl already checks the Cache
-  // API before fetching from the peer. unlike Song, Video carries no
-  // blake3/size/mime of its own, but the transport's verified-streaming
-  // progress path (WasmTransport.fetchBlobWithProgress) needs a blake3 to
-  // even attempt real progress, and needs totalBytes to report anything
-  // other than a stuck indeterminate value — so look both up via the
-  // same blob_metadata route syncSongToLocal.ts already uses, whenever a
-  // caller actually wants progress.
+  // API before fetching from the peer. a video usually carries no
+  // blake3/size/mime of its own (only set once synced locally, or by a
+  // caller that already knows it up front - e.g. cenotaph's queue-pushed
+  // videos, which carry it straight off the wire `MediaRef` and have no
+  // real remote `media_blob_id` to look anything up by at all) - prefer
+  // that known blake3 for verified streaming when present, same as
+  // `getAudioURL`'s blake3-first resolution. otherwise fall back to the
+  // metadata round-trip (needs a real `media_blob_id` the remote
+  // recognizes), which also gets totalBytes/mimeType for progress.
   if (await usesBlobResolver(remoteId)) {
-    let blake3: string | undefined;
+    let blake3: string | undefined = video.blake3 ?? undefined;
     let totalBytes: number | undefined;
     let mimeType: string | undefined;
-    if (onProgress) {
+    if (onProgress && !blake3) {
       try {
         const remote = await getRemoteById(remoteId);
         if (remote) {

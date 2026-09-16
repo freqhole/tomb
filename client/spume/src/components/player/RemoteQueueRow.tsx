@@ -225,17 +225,14 @@ export function RemoteQueueRow(props: RemoteQueueRowProps) {
         </Show>
       </div>
 
-      {/* remove button - hidden while pending (no real remote index yet) */}
-      <Show when={!props.isPending}>
-        <button
-          class={`relative z-10 ${isMobile() ? "" : "opacity-0 group-hover:opacity-100 "}p-2 ml-2 text-[var(--color-text-muted)] hover:text-red-400 hover:bg-red-500/20 transition-all duration-200 flex-shrink-0`}
-          onClick={props.onRemove}
-          title="remove from queue"
-          aria-label="remove from queue"
-        >
-          <Icon name="close" size={14} />
-        </button>
-      </Show>
+      <button
+        class={`relative z-10 ${isMobile() ? "" : "opacity-0 group-hover:opacity-100 "}p-2 ml-2 text-[var(--color-text-muted)] hover:text-red-400 hover:bg-red-500/20 transition-all duration-200 flex-shrink-0`}
+        onClick={props.onRemove}
+        title="remove from queue"
+        aria-label="remove from queue"
+      >
+        <Icon name="close" size={14} />
+      </button>
     </div>
   );
 }

@@ -39,21 +39,10 @@ import {
 } from "../opfs/helpers";
 import { resolvePlaybackBlobId } from "../playbackBlobId";
 import { syncVideoViaLocalGrimoire } from "./syncVideoViaLocalGrimoire";
+import { extensionFromMime } from "../videoMime";
 import type { QueuedVideo } from "../../../app/services/storage/mediaItem";
 import type { BlobMetadataResponse } from "@freqhole/api-client";
 import { debug, warn } from "../../../utils/logger";
-
-const MIME_TO_EXTENSION: Record<string, string> = {
-  "video/mp4": "mp4",
-  "video/webm": "webm",
-  "video/quicktime": "mov",
-  "video/x-matroska": "mkv",
-  "video/ogg": "ogv",
-};
-
-function extensionFromMime(mime: string): string {
-  return MIME_TO_EXTENSION[mime] ?? "mp4";
-}
 
 /** look up size/mime/blake3 for a video's blob up front - lets the http
  *  download path pick the right (stable, resume-friendly) file extension

@@ -82,7 +82,15 @@ export class VideoBackend implements PlayerBackend {
     const video = this.initVideo();
     switch (command.kind) {
       case "play":
-        await video.play();
+        try {
+          await video.play();
+        } catch (playError) {
+          // a newer pause()/src reassignment/play() superseded this call -
+          // expected under normal races, not a real failure - see
+          // htmlAudio.ts's identical guard.
+          if (playError instanceof DOMException && playError.name === "AbortError") return;
+          throw playError;
+        }
         return;
       case "pause":
         video.pause();
@@ -249,6 +257,18 @@ export class VideoBackend implements PlayerBackend {
       setPendingUpNextSha256(null);
     }
 
+    // a second, later loadAndPlay call for a different (or duplicate)
+    // queue push can resolve its own URL while this one was still
+    // buffering (getVideoURL awaits a full fetch+blob for the webview
+    // buffering path) - without re-checking here, both calls race to
+    // assign `el.src`/call `.play()` on the same shared element, which
+    // surfaces as WebKit `NotSupportedError`/`AbortError` depending on
+    // timing. mirrors htmlAudio.ts's own second staleness check.
+    if (!isMediaLoadCurrent(video.id, options?.loadGeneration)) {
+      debug("player.video", `skipping cancelled load for ${video.id} (superseded before src set)`);
+      return;
+    }
+
     this.currentVideoId = video.id;
     // TEMP(video-window): proves the scheme actually assigned to WebKitGTK.
     // off mode must report blob:, never asset:.
@@ -278,6 +298,13 @@ export class VideoBackend implements PlayerBackend {
       try {
         await el.play();
       } catch (playError) {
+        // a newer load/play call already superseded this one - expected
+        // under normal races, not a real failure; that newer call owns
+        // the resulting state, so there's nothing to emit or retry here.
+        if (playError instanceof DOMException && playError.name === "AbortError") {
+          debug("player.video", `video.play() aborted for "${video.title}" (superseded)`);
+          return;
+        }
         errorLog(
           "player.video",
           `video.play() rejected for "${video.title}":`,
@@ -319,7 +346,14 @@ export class VideoBackend implements PlayerBackend {
         };
         break;
       case "ended":
-        this.snap = { ...this.snap, position_ms: 0, current_index: null };
+        // the native `pause` event fires right before `ended` and left
+        // `state` at "paused" - without correcting it here, a later
+        // resume (togglePlayback's "paused -> bare play() resumes it"
+        // fast path, or the wire `play`/`resume` command) sees a stale
+        // "paused" snapshot and calls `.play()` on an already-ended
+        // element, which browsers restart from position 0 - looks like
+        // the queue looping the same item forever.
+        this.snap = { ...this.snap, position_ms: 0, current_index: null, state: "stopped" };
         break;
       default:
         break;

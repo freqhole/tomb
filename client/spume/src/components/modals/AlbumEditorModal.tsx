@@ -10,7 +10,7 @@ import { useUpdateAlbumMutation } from "../../music/queries/mutations";
 import { queryKeys } from "../../music/queries/queryKeys";
 import { useAlbumQuery, useAlbumSongsQuery } from "../../music/queries/songs";
 import { pollJobUntilComplete } from "../../app/services/jobs/jobService";
-import { error as errorLog } from "../../utils/logger";
+import { debug, error as errorLog } from "../../utils/logger";
 import { confirm } from "../../app/services/confirmState";
 import { Button } from "../buttons/Button";
 import { toast } from "../feedback/Toast";
@@ -256,7 +256,7 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
     const album = albumQuery.data;
     const songs = songsQuery.data?.items ?? [];
     // TEMP DEBUG
-    console.log("[AlbumEditorModal] init effect tick", {
+    debug("AlbumEditorModal", "init effect tick", {
       propsAlbumId: props.albumId,
       loadedAlbumId: loadedAlbumId(),
       hasAlbum: !!album,
@@ -272,7 +272,7 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
     // modal stuck on "loading..." indefinitely.
     if (album && loadedAlbumId() !== props.albumId) {
       // TEMP DEBUG
-      console.log("[AlbumEditorModal] syncing initialData", {
+      debug("AlbumEditorModal", "syncing initialData", {
         albumId: props.albumId,
         albumTitle: album.title,
       });

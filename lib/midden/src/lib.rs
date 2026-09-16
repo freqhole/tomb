@@ -1298,7 +1298,6 @@ impl MiddenNode {
         );
 
         // wait for relay connection
-        // TEMP DEBUG - remove once the first-pair-attempt-fails bug is found
         info!("midden: waiting for endpoint.online()...");
         endpoint.online().await;
 
@@ -1539,15 +1538,13 @@ impl MiddenNode {
     /// completing.
     pub async fn accept(&self) -> Result<JsValue, JsError> {
         loop {
-            // TEMP DEBUG - remove once the first-pair-attempt-fails bug is found
-            info!("accept: awaiting next incoming connection...");
+            debug!("accept: awaiting next incoming connection...");
             // wait for the next incoming connection
             let incoming = match self.endpoint.accept().await {
                 Some(incoming) => incoming,
                 None => return Ok(JsValue::NULL), // endpoint closed
             };
-            // TEMP DEBUG - remove once the first-pair-attempt-fails bug is found
-            info!("accept: got incoming connection, awaiting handshake...");
+            debug!("accept: got incoming connection, awaiting handshake...");
 
             // accept the connection (completes TLS handshake). a failure
             // here is a single bad connection attempt, not an endpoint-wide
@@ -1559,8 +1556,7 @@ impl MiddenNode {
                     continue;
                 }
             };
-            // TEMP DEBUG - remove once the first-pair-attempt-fails bug is found
-            info!("accept: handshake completed with {}", conn.remote_id());
+            debug!("accept: handshake completed with {}", conn.remote_id());
 
             // extract ALPN before deciding how to handle
             let alpn_bytes = conn.alpn().to_vec();
@@ -1590,8 +1586,7 @@ impl MiddenNode {
             // opening its first stream (or the connection died right
             // after) - same reasoning as above, this is a single bad
             // attempt, not a reason to fail the whole accept() call.
-            // TEMP DEBUG - remove once the first-pair-attempt-fails bug is found
-            info!(
+            debug!(
                 "accept: alpn={} peer={}, awaiting first bi stream...",
                 &alpn,
                 &peer_node_id[..std::cmp::min(16, peer_node_id.len())]

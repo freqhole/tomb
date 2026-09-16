@@ -13,29 +13,11 @@ import { resolveLocalAudioUrl } from "./localAudio";
 import { canSyncSong, syncSongToLocal } from "../sync/syncSongToLocal";
 import { getSyncQueueToLocal } from "../../../app/services/storage/db";
 import { isCharnelMode } from "../../../app/services/charnel";
+import { resolveCharnelLocalBlobPath } from "../../../app/services/media/resolveCharnelLocalBlobPath";
 import type { Song } from "./types";
 import { debug, warn, error as errorLog } from "../../../utils/logger";
 import { resolveBlobUrl, isP2PRemote, usesBlobResolver, revokeBlobUrl } from "./blobResolver";
 import type { BlobProgressCallback } from "@freqhole/api-client";
-
-/// authoritative "is this song already on disk" check for charnel mode -
-/// queries the local grimoire directly by blake3 via the same
-/// `resolve_blob_path_by_blake3` command the rodio backend uses, instead
-/// of trusting the client-side `isSongSyncedLocally` cache (which needs
-/// perfect bookkeeping across every sync path and can drift out of sync
-/// with reality). returns the real fs path, or null if not found/no
-/// blake3/not in charnel mode.
-async function resolveCharnelLocalPath(blake3: string | null | undefined): Promise<string | null> {
-  if (!isCharnelMode() || !blake3) return null;
-  try {
-    // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
-    const { invoke } = await import("@tauri-apps/api/core");
-    const result = await invoke<{ path: string }>("resolve_blob_path_by_blake3", { blake3 });
-    return result.path;
-  } catch {
-    return null;
-  }
-}
 
 // cache of active blob urls to prevent memory leaks
 // stores {url, remoteId, blobId} so we can properly cleanup from blobResolver too
@@ -122,7 +104,7 @@ export async function getAudioURL(song: Song): Promise<string> {
     // exact branch used to call `resolveLocalAudioUrl(song.sha256)` with NO
     // `localPath`, which is a guaranteed no-op in charnel mode (see
     // `localAudio.ts`) regardless of what the cache said.
-    const charnelLocalPath = await resolveCharnelLocalPath(song.blake3);
+    const charnelLocalPath = await resolveCharnelLocalBlobPath(song.blake3);
     if (charnelLocalPath) {
       const localUrl = await resolveLocalAudioUrl(song.sha256, charnelLocalPath);
       if (localUrl) {

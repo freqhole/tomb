@@ -31,9 +31,11 @@ import { addHistoryEntry, updateHistoryEntrySongs, unwrapSongs } from "./queueHi
 import { unwrapVideos } from "../../../video/services/queue/videoQueueHistory";
 import {
   mirrorAppendToQueue,
+  mirrorClearQueue,
   mirrorRemoveFromQueue,
   mirrorReorderQueue,
   mirrorReplaceQueue,
+  optimisticRemoteQueue,
 } from "../../../app/services/players/remoteQueueMirror";
 import { isRemoteTargetActive } from "../../../app/services/players/activeTarget";
 import {
@@ -303,8 +305,13 @@ export async function playQueue(
   if (shouldReplace) {
     // a remote target shares this queue with every other connected client -
     // confirm before wiping it out from under them (local-only playback
-    // keeps replacing instantly, as before).
-    if (isRemoteTargetActive() && currentQueue.length > 0) {
+    // keeps replacing instantly, as before). checked against the REMOTE's
+    // own reported queue, not this device's local `appState().queue` -
+    // nothing keeps the latter in sync with the remote while it's active
+    // (it's just whatever was left over from this device's own last local
+    // playback session), so checking it here showed the confirm even when
+    // the remote's real queue was empty.
+    if (isRemoteTargetActive() && optimisticRemoteQueue().length > 0) {
       const choice = await showReplaceQueueConfirm(finalItems);
       if (choice === "cancel") return;
       if (choice === "append") {
@@ -825,6 +832,7 @@ export async function clearQueue(): Promise<void> {
   );
 
   stop();
+  mirrorClearQueue();
   stopTracking(true); // skipQueueSave - avoids race with setQueue([])
   clearAllQueueProgress();
   clearPendingUpNext();

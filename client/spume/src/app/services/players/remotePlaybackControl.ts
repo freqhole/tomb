@@ -460,6 +460,11 @@ export async function remoteSkip(): Promise<void> {
   await sendControl({ command: "skip" }, { trackPending: true });
 }
 
+/** wipes the remote player's entire queue and stops playback. */
+export async function remoteStop(): Promise<void> {
+  await sendControl({ command: "stop" }, { trackPending: true });
+}
+
 /** removes the queue entry at `index` (0 = currently playing). */
 export async function remoteRemoveFromQueue(index: number): Promise<void> {
   await sendControl({ command: "remove_from_queue", index }, { trackPending: true });

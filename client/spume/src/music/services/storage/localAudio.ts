@@ -26,9 +26,11 @@ export async function resolveLocalAudioUrl(
 ): Promise<string | null> {
   if (isCharnelMode()) {
     if (!localPath) return null;
-    // android gets the custom `freqhole-media` protocol instead of tauri's
-    // built-in `asset` protocol - see `resolveCharnelMediaSrc`'s doc comment
-    // for why (the built-in one truncates every range response to ~1MB).
+    // every platform now goes through the custom `freqhole-media`
+    // protocol instead of tauri's built-in `asset` one - see
+    // `resolveCharnelMediaSrc`'s doc comment for why (the built-in one
+    // truncates every range response to ~1MB, which matters for any
+    // file bigger than that, not just android).
     try {
       return await resolveCharnelMediaSrc(localPath);
     } catch (err) {

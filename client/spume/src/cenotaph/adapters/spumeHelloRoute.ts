@@ -8,6 +8,7 @@
 import type { HelloInfo } from "../index";
 import { getLocalLibraryName } from "../../app/services/storage/db";
 import { isActivePlayer, isRemotePlaybackEnabled } from "./remoteModeSettings";
+import { debug } from "../../utils/logger";
 
 export function getSpumeHelloInfo(): HelloInfo {
   const info: HelloInfo = {
@@ -22,7 +23,6 @@ export function getSpumeHelloInfo(): HelloInfo {
     player_device: isActivePlayer(),
     supports_remote_playback: isRemotePlaybackEnabled(),
   };
-  // TEMP DEBUG - remove once the first-pair-attempt-fails bug is found
-  console.log("[debug/hello] getSpumeHelloInfo() called:", info);
+  debug("spumeHelloRoute", "getSpumeHelloInfo() called:", info);
   return info;
 }

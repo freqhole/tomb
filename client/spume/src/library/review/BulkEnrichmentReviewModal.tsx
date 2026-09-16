@@ -764,27 +764,6 @@ export function BulkEnrichmentReviewModal(props: BulkEnrichmentReviewModalProps)
       }
     >
       <div class="p-4 flex flex-col gap-3 flex-1 min-h-0 overflow-y-auto">
-        {/* TEMP DEBUG: log every render of the wizard body so we can
-            see which resources have data on each tick. remove once the
-            reactivity weirdness is settled. */}
-        {(() => {
-          // eslint-disable-next-line no-console
-          console.log("[BulkReview] render", {
-            albumId: albumId(),
-            currentIndex: props.currentIndex,
-            proposalsState: proposals.state,
-            proposalsLen: proposals()?.length,
-            bioState: aux.bioResp.state,
-            bioProposalsLen: aux.bioResp()?.proposals.length,
-            relatedState: aux.relatedResp.state,
-            relatedProposalsLen: aux.relatedResp()?.proposals.length,
-            albumImagesState: aux.albumImagesResp.state,
-            albumCandidatesLen: aux.albumImagesResp()?.candidates.length,
-            artistImagesState: aux.artistImagesResp.state,
-            artistCandidatesLen: aux.artistImagesResp()?.candidates.length,
-          });
-          return null;
-        })()}
         <Show
           when={proposals() !== undefined}
           fallback={

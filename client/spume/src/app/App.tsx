@@ -83,6 +83,7 @@ import {
 import { togglePlayback } from "../music/services/audio/player";
 import { initRodioPreference } from "../music/services/audio/select";
 import { initVideoWindowPreference } from "../music/services/audio/selectVideo";
+import { installEphemeralReconciler } from "../music/services/audio/ephemeralFetch";
 import { initRemotePlaybackBootstrap } from "../cenotaph/adapters/bootstrap";
 import { swapPlayerBackend } from "../music/services/audio/player";
 import { initQueueSizeLimit } from "../music/services/queue/queueLimit";
@@ -1035,6 +1036,12 @@ export function App() {
       // paired with the rodio opt-in, which also gates the video window.
       await initVideoWindowPreference();
       mark("initVideoWindowPreference done");
+      // one shared `_ephemeral/` reconciler for both audio (rodio) and
+      // video (gstreamer window) `sync_queue_to_local = off` playback -
+      // see ephemeralFetch.ts's own doc comment for why this can't be
+      // done per-backend. no-op outside charnel.
+      installEphemeralReconciler();
+      mark("installEphemeralReconciler done");
       // hydrate the configurable queue size limit from `[client]`
       // in `freqhole-config.toml`. safe outside tauri (no-op).
       await initQueueSizeLimit();

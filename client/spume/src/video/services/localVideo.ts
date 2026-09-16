@@ -8,6 +8,7 @@ import { readVideoFromOPFS } from "./opfs/helpers";
 import { getLocalVideoById } from "./storage/db/videos";
 import { syncVideoToLocal } from "./sync/syncVideoToLocal";
 import { isCharnelMode } from "../../app/services/charnel";
+import { getSyncQueueToLocal } from "../../app/services/storage/db";
 import type { QueuedVideo } from "../../app/services/storage/mediaItem";
 import { resolveCharnelMediaSrc } from "@freqhole/api-client";
 import { warn, debug } from "../../utils/logger";
@@ -26,9 +27,11 @@ export async function resolveLocalVideoUrl(
 ): Promise<string | null> {
   if (isCharnelMode()) {
     if (!localPath) return null;
-    // android gets the custom `freqhole-media` protocol instead of tauri's
-    // built-in `asset` protocol - see `resolveCharnelMediaSrc`'s doc comment
-    // for why (the built-in one truncates every range response to ~1MB).
+    // every platform now goes through the custom `freqhole-media`
+    // protocol instead of tauri's built-in `asset` one - see
+    // `resolveCharnelMediaSrc`'s doc comment for why (the built-in one
+    // truncates every range response to ~1MB, which matters for any
+    // file bigger than that, not just android).
     let assetUrl: string;
     try {
       assetUrl = await resolveCharnelMediaSrc(localPath);
@@ -116,9 +119,28 @@ export async function resolveLocalVideoPath(video: QueuedVideo): Promise<string 
     }
   }
 
-  // remote item: ask the local grimoire for the synced copy's path. the sync
-  // short-circuits to a db lookup when the video is already local.
+  // remote item: sync-on lands the bytes in the library (short-circuits
+  // to a db lookup when already local); sync-off lands them in
+  // `_ephemeral/` instead - no db rows, thrown away once the item leaves
+  // the queue (see `ephemeralFetch.ts`'s shared reconciler) - same split
+  // `rodioBackend.ts` uses for audio, just without a fs-decode-only
+  // backend to gate it on (gstreamer, like rodio, only opens real files).
   if (video.source_type === "remote") {
+    if (!getSyncQueueToLocal()) {
+      try {
+        // lazy import: keeps this heavier, charnel-only dependency chain
+        // out of every caller's (and test's) module graph.
+        // eslint-disable-next-line no-restricted-syntax -- deliberately lazy, see comment above
+        const ephemeralFetchModule = await import("../../music/services/audio/ephemeralFetch");
+        const { fetchEphemeralForVideo } = ephemeralFetchModule;
+        const fetched = await fetchEphemeralForVideo(video);
+        console.info(`[video-window] ephemeral fetch resolved ${video.id} -> ${fetched.path}`);
+        return fetched.path;
+      } catch (err) {
+        warn("localVideo", `ephemeral fetch failed for ${video.id}:`, err);
+        return null;
+      }
+    }
     const result = await syncVideoToLocal(video);
     if (result.success && result.localPath) return result.localPath;
     console.info(

@@ -282,7 +282,7 @@ pub async fn p2p_api_call(
                 error_msg
             })?;
 
-    tracing::info!(peer = %peer_addr, method = %method, path = %path, status = response.status, "p2p api response");
+    tracing::debug!(peer = %peer_addr, method = %method, path = %path, status = response.status, "p2p api response");
 
     Ok(P2pResponse {
         status: response.status,

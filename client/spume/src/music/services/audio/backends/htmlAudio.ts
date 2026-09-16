@@ -352,12 +352,26 @@ export class HtmlAudioBackend implements PlayerBackend {
         }
       }
 
-      // update app state — PlayerBar will now show the new song.
-      await setCurrentSong(song.sha256);
-
+      // re-check staleness right before the point of no return (see this
+      // function's other isMediaLoadCurrent check for why) - AND do it
+      // BEFORE setCurrentSong, not after: setCurrentSong awaits real I/O
+      // (idb/tauri), a window long enough for a second, faster-resolving
+      // playMediaItem call (e.g. a local cached file) to run its own
+      // entire load to completion. checking only after setCurrentSong
+      // previously let a stale call's setCurrentSong(song.sha256) fire
+      // AFTER a genuinely-current newer call had already set
+      // current_sha256 + audio.src correctly, silently overwriting
+      // current_sha256 back to a song this audio element was never
+      // actually loading — the ui would show that (stale) song as
+      // "current" while the audio element kept playing whatever the
+      // PREVIOUS song was. from here to `audio.src = audioURL` below is
+      // all synchronous, so no further gap can reopen this race.
       if (!isMediaLoadCurrent(song.sha256, options?.loadGeneration)) {
         return;
       }
+
+      // update app state — PlayerBar will now show the new song.
+      await setCurrentSong(song.sha256);
 
       this.currentSongId = song.sha256;
 
@@ -395,9 +409,9 @@ export class HtmlAudioBackend implements PlayerBackend {
         audio.removeAttribute("crossorigin");
       }
 
-      // TEMP DEBUG LOGGING - remove once windows audio-src issue is confirmed fixed.
-      console.log(
-        "[htmlAudio TEMP] setting audio.src",
+      debug(
+        "player.html",
+        "setting audio.src",
         JSON.stringify({
           audioURL,
           needsCredentials,
@@ -500,6 +514,13 @@ export class HtmlAudioBackend implements PlayerBackend {
       await audio.play();
       return;
     } catch (playError) {
+      // a newer pause()/src reassignment/play() superseded this call -
+      // expected under normal races (e.g. a queue-push autoplay and a
+      // user's own play click landing close together), not a real
+      // failure. nothing to recover, nothing to surface.
+      if (playError instanceof DOMException && playError.name === "AbortError") {
+        return;
+      }
       // iOS may revoke blob URLs aggressively. attempt one re-create
       // from the cache for the currently-loaded song before giving up.
       if (!audio.src.startsWith("blob:")) throw playError;
@@ -536,7 +557,12 @@ export class HtmlAudioBackend implements PlayerBackend {
         audio.addEventListener("error", onError);
       });
       if (savedPosition > 0) audio.currentTime = savedPosition;
-      await audio.play();
+      try {
+        await audio.play();
+      } catch (retryError) {
+        if (retryError instanceof DOMException && retryError.name === "AbortError") return;
+        throw retryError;
+      }
     }
   }
 
@@ -741,8 +767,7 @@ export class HtmlAudioBackend implements PlayerBackend {
     // network stall - audio is waiting for data. good opportunity to
     // swap to cached version if available.
     audio.addEventListener("waiting", () => {
-      // TEMP DEBUG LOGGING - remove once android media-protocol issue confirmed fixed.
-      console.log("[htmlAudio TEMP] waiting event (network stall/buffering)");
+      debug("player.html", "waiting event (network stall/buffering)");
       void this.trySwapCurrentSongToCached();
     });
 
@@ -768,9 +793,9 @@ export class HtmlAudioBackend implements PlayerBackend {
       const error = audio.error;
       const code = error?.code ?? null;
       const msg = error?.message ?? "unknown error";
-      // TEMP DEBUG LOGGING - remove once windows audio-src issue is confirmed fixed.
-      console.log(
-        "[htmlAudio TEMP] audio error event",
+      debug(
+        "player.html",
+        "audio error event",
         JSON.stringify({
           code,
           msg,
@@ -819,12 +844,11 @@ export class HtmlAudioBackend implements PlayerBackend {
       this.emit({ kind: "state", state: "loading" });
     });
     audio.addEventListener("waiting", () => {
-      // TEMP DEBUG LOGGING - remove once android media-protocol issue confirmed fixed.
       // an extended "loading" spinner with no matching "error"/"canplay" for
       // a while usually means the browser itself is silently retrying a
       // stalled network read (its own backoff, invisible to us beyond the
       // devtools network tab) - this fires every single retry attempt.
-      console.log("[htmlAudio TEMP] waiting event (state -> loading)");
+      debug("player.html", "waiting event (state -> loading)");
       this.emit({ kind: "state", state: "loading" });
     });
     audio.addEventListener("canplay", () => {
@@ -872,23 +896,20 @@ export class HtmlAudioBackend implements PlayerBackend {
 
     // only attempt if the song is currently using a direct URL
     if (!isPlayingDirectURL(current_sha256)) {
-      // TEMP DEBUG LOGGING - remove once android media-protocol issue confirmed fixed.
-      console.log(
-        "[htmlAudio TEMP] trySwapCurrentSongToCached: not a direct-url song, no-op",
+      debug(
+        "player.html",
+        "trySwapCurrentSongToCached: not a direct-url song, no-op",
         current_sha256.slice(0, 8)
       );
       return;
     }
 
-    // TEMP DEBUG LOGGING - remove once android media-protocol issue confirmed fixed.
-    console.log(
-      "[htmlAudio TEMP] trySwapCurrentSongToCached: attempting swap",
-      current_sha256.slice(0, 8)
-    );
+    debug("player.html", "trySwapCurrentSongToCached: attempting swap", current_sha256.slice(0, 8));
     const cachedURL = await trySwapToCachedURL(current_sha256);
     if (!cachedURL) {
-      console.log(
-        "[htmlAudio TEMP] trySwapCurrentSongToCached: no cached url available yet",
+      debug(
+        "player.html",
+        "trySwapCurrentSongToCached: no cached url available yet",
         current_sha256.slice(0, 8)
       );
       return;
@@ -972,7 +993,10 @@ export class HtmlAudioBackend implements PlayerBackend {
         this.snap = { ...this.snap, current_index: event.index };
         return;
       case "ended":
-        this.snap = { ...this.snap, position_ms: 0, current_index: null };
+        // see videoBackend.ts's identical fix - same stale-"paused"-
+        // snapshot bug applies here too (the native `pause` event fires
+        // right before `ended`).
+        this.snap = { ...this.snap, position_ms: 0, current_index: null, state: "stopped" };
         return;
       case "error":
       case "backend_down":

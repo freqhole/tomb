@@ -16,7 +16,7 @@
 // there).
 
 import type { MediaRef, PlaybackBackend, PlayerStatus } from "../index";
-import { createEffect, createRoot, on } from "solid-js";
+import { createEffect, createRoot, createSignal, on } from "solid-js";
 import {
   addToQueue,
   clearQueue,
@@ -38,6 +38,7 @@ import {
 } from "../../app/services/storage/db";
 import { getAutoDownloadEnabled } from "../../app/services/storage/db";
 import {
+  mediaItemBlake3,
   mediaItemKey,
   songToMediaItem,
   videoToMediaItem,
@@ -47,7 +48,41 @@ import type { Song } from "../../music/services/storage/types";
 import type { QueuedVideo } from "../../app/services/storage/mediaItem";
 import { resolveMediaRefToSong, resolveMediaRefToVideo } from "./mediaRefResolve";
 import { leaveRadio, tuneIntoRadio } from "../../app/services/radio/radioService";
-import { warn } from "../../utils/logger";
+import { debug, warn } from "../../utils/logger";
+
+/** one item from a queue push that hasn't resolved to a real queueable
+ * `MediaItem` yet - shown by `CenotaphPlayerApp.tsx` immediately (title/
+ * artist/duration are already on the wire `MediaRef`, no network needed)
+ * so the queue view isn't blank/unresponsive-looking while resolution
+ * (which can involve a real peer dial - see `ensureRemoteForPeer`'s
+ * `createRemote` call for a never-before-seen peer_addr) is in flight.
+ * mirrors rathole's own `MusicState::pending_previews` /
+ * `AppAction::PairingQueuePending` (see tty/pairing/dispatch.rs). */
+export interface PendingQueuePreview {
+  key: string;
+  title: string;
+  artist?: string;
+  durationSeconds?: number;
+  kind: "song" | "video";
+}
+
+const [pendingQueuePreviews, setPendingQueuePreviews] = createSignal<PendingQueuePreview[]>([]);
+export { pendingQueuePreviews };
+
+function addPendingPreview(item: MediaRef): void {
+  const preview: PendingQueuePreview = {
+    key: item.blake3_hash,
+    title: item.title ?? item.blake3_hash.slice(0, 12),
+    artist: item.artist ?? undefined,
+    durationSeconds: item.duration_ms ? item.duration_ms / 1000 : undefined,
+    kind: item.kind === "video" ? "video" : "song",
+  };
+  setPendingQueuePreviews((prev) => [...prev, preview]);
+}
+
+function settlePendingPreview(blake3Hash: string): void {
+  setPendingQueuePreviews((prev) => prev.filter((p) => p.key !== blake3Hash));
+}
 
 /** resolves one wire `MediaRef` to a queueable `MediaItem`, promoting it
  * into the local library first if needed (see `mediaRefResolve.ts`).
@@ -62,9 +97,65 @@ async function resolveMediaItem(item: MediaRef): Promise<MediaItem | null> {
   return song ? songToMediaItem(song) : null;
 }
 
-async function resolveMediaItems(items: MediaRef[]): Promise<MediaItem[]> {
-  const resolved = await Promise.all(items.map(resolveMediaItem));
-  return resolved.filter((item): item is MediaItem => item !== null);
+/** resolves `items` one at a time (not `Promise.all`) and hands each one
+ * to `onResolved` as soon as IT finishes, rather than waiting for the
+ * whole batch - a single slow/unreachable item (e.g. the one-time
+ * `createRemote` peer dial for a never-before-seen source) would
+ * otherwise hold up every other, already-fast-to-resolve item in the
+ * same push. every item is shown as a pending preview immediately (see
+ * `PendingQueuePreview`), settled (removed) the moment its own resolve
+ * finishes, success or failure. */
+async function resolveAndDeliverQueueItems(
+  items: MediaRef[],
+  // hashes to treat as already-queued, e.g. the current queue's own
+  // content for `appendQueue` - mutated in place as items resolve, so a
+  // batch with its own internal duplicates also collapses to one, same
+  // as rathole's `dispatch.rs::resolve_queue_items`. `undefined` (the
+  // `replaceQueue` case) starts from nothing - the old queue is being
+  // thrown away, so there's nothing prior to compare against.
+  seenHashes: Set<string>,
+  onResolved: (item: MediaItem, isFirst: boolean) => Promise<void>
+): Promise<number> {
+  const toResolve: MediaRef[] = [];
+  for (const item of items) {
+    if (seenHashes.has(item.blake3_hash)) {
+      warn(
+        "charnelPlaybackAdapter",
+        `skipping already-queued duplicate item ${item.blake3_hash.slice(0, 8)}...`
+      );
+      continue;
+    }
+    seenHashes.add(item.blake3_hash);
+    toResolve.push(item);
+  }
+  for (const item of toResolve) addPendingPreview(item);
+
+  let resolvedCount = 0;
+  for (const item of toResolve) {
+    try {
+      const mediaItem = await resolveMediaItem(item);
+      if (mediaItem) {
+        await onResolved(mediaItem, resolvedCount === 0);
+        resolvedCount++;
+      } else {
+        warn(
+          "charnelPlaybackAdapter",
+          `failed to resolve queued item ${item.blake3_hash.slice(0, 8)}..., skipping`
+        );
+      }
+    } finally {
+      settlePendingPreview(item.blake3_hash);
+    }
+  }
+  return resolvedCount;
+}
+
+/** the current queue's own content hashes - seeds `resolveAndDeliverQueueItems`'
+ * dedup set for `appendQueue`, so a flaky controller resending the same
+ * `append_queue` command (reconnect, retry) doesn't stack duplicate
+ * entries every time. */
+function currentQueueHashes(): Set<string> {
+  return new Set((appState()?.queue ?? []).map(mediaItemBlake3).filter((h): h is string => !!h));
 }
 
 /** builds the wire `MediaRef` for an already-local `MediaItem`, for
@@ -225,20 +316,48 @@ export const charnelPlaybackAdapter: PlaybackBackend<unknown> = {
     await playQueue([mediaItem], { startIndex: 0 });
   },
   async replaceQueue(_node, items) {
-    const mediaItems = await resolveMediaItems(items);
-    if (mediaItems.length === 0) {
+    debug("charnelPlaybackAdapter", `replaceQueue: resolving ${items.length} item(s)`);
+    // playQueue([item], {startIndex:0}) below has no `source` option, so
+    // without an explicitly empty queue first it never hits queue.ts's
+    // "replace" branch - it falls to playQueueInternal's insert-after-
+    // current behavior instead, silently leaving whatever was already
+    // queued in place. a `replace_queue` command must actually replace.
+    await clearQueue();
+    const resolvedCount = await resolveAndDeliverQueueItems(
+      items,
+      new Set(),
+      async (item, isFirst) => {
+        if (isFirst) {
+          await playQueue([item], { startIndex: 0 });
+        } else {
+          await addToQueue([item]);
+        }
+      }
+    );
+    debug(
+      "charnelPlaybackAdapter",
+      `replaceQueue: resolved ${resolvedCount}/${items.length} item(s)`
+    );
+    if (resolvedCount === 0) {
       warn("charnelPlaybackAdapter", "replaceQueue: no items resolved, nothing to play");
-      return;
     }
-    await playQueue(mediaItems, { startIndex: 0 });
   },
   async appendQueue(_node, items) {
-    const mediaItems = await resolveMediaItems(items);
-    if (mediaItems.length === 0) {
+    debug("charnelPlaybackAdapter", `appendQueue: resolving ${items.length} item(s)`);
+    const resolvedCount = await resolveAndDeliverQueueItems(
+      items,
+      currentQueueHashes(),
+      async (item) => {
+        await addToQueue([item]);
+      }
+    );
+    debug(
+      "charnelPlaybackAdapter",
+      `appendQueue: resolved ${resolvedCount}/${items.length} item(s)`
+    );
+    if (resolvedCount === 0) {
       warn("charnelPlaybackAdapter", "appendQueue: no items resolved, nothing to append");
-      return;
     }
-    await addToQueue(mediaItems);
   },
   pause() {
     pausePlayback();

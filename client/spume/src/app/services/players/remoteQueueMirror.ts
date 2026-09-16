@@ -17,6 +17,7 @@ import {
   remoteRemoveFromQueue,
   remoteReorderQueue,
   remoteStatus,
+  remoteStop,
   remoteTrackPending,
   type RemoteMediaRef,
 } from "./remotePlaybackControl";
@@ -102,6 +103,22 @@ export function optimisticRemoteQueue(): RemoteMediaRef[] {
   return list;
 }
 
+/** removes a single not-yet-confirmed item from the local optimistic
+ * overlay - the underlying push/append network call (if already in
+ * flight) isn't cancelled, but the item disappears from this device's
+ * own queue view right away, matching what clicking "remove" on
+ * something you just queued should do. a no-op once the pending op it
+ * belonged to has already settled (the item's no longer in any
+ * pendingOps entry by then, having been replaced by the real, confirmed
+ * remoteQueue() entry). */
+export function cancelPendingRemoteQueueItem(item: RemoteMediaRef): void {
+  setPendingOps((ops) =>
+    ops
+      .map((op) => ({ ...op, items: op.items.filter((i) => i !== item) }))
+      .filter((op) => op.items.length > 0)
+  );
+}
+
 export function mirrorRemoveFromQueue(localIndex: number, currentIndex: number): void {
   if (!isRemoteTargetActive() || currentIndex < 0) return;
   const remoteIndex = localIndex - currentIndex;
@@ -161,6 +178,16 @@ export function mirrorReplaceVideosToQueue(videos: QueuedVideo[]): void {
     items: videos.map(provisionalVideoRef),
   });
   void remoteTrackPending(pushVideosToPlayer(nodeId, videos)).finally(clearPending);
+}
+
+/** wipes the remote player's queue ("stop" wire command) - queue.ts's
+ * clearQueue() previously only ever touched this device's own local
+ * queue/mirror, silently leaving the remote player's real (persisted)
+ * queue untouched whenever a remote target was active. */
+export function mirrorClearQueue(): void {
+  if (!isRemoteTargetActive()) return;
+  const clearPending = pushPendingOp({ mode: "replace", items: [] });
+  void remoteTrackPending(remoteStop()).finally(clearPending);
 }
 
 // ---- durable remove/reorder reconciliation ---------------------------

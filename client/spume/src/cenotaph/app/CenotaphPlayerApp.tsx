@@ -25,6 +25,7 @@ import {
   activityRamp,
   broadcastPresence,
   commandInFlight,
+  connectedControllers,
   currentPin,
   currentSession,
   develMode,
@@ -39,10 +40,12 @@ import {
   pause as pausePlayback,
   playbackDuration,
   playbackPosition,
+  removeFromQueue as engineRemoveFromQueue,
   resume as resumePlayback,
   retryPlayback,
   setDevelMode,
   skip as skipTrack,
+  stop as stopPlayback,
   upcomingQueue,
   type MediaPlaybackNode,
 } from "../index";
@@ -55,6 +58,7 @@ import {
   setCharnelPlayerPairingEnabled,
   setCharnelPlayerSessionActive,
 } from "../adapters/charnelAcceptBridge";
+import { pendingQueuePreviews } from "../adapters/charnelPlaybackAdapter";
 
 import { appState, getLocalLibraryName } from "../../app/services/storage/db";
 import {
@@ -79,11 +83,16 @@ import {
   isVideoWindowActive,
 } from "../../music/services/audio/player";
 import {
+  clearQueue as clearRealQueue,
+  removeFromQueue as realRemoveFromQueue,
+} from "../../music/services/queue/queue";
+import {
   mediaItemKey,
   mediaItemSubtitle,
   mediaItemTitle,
 } from "../../app/services/storage/mediaItem";
 import { getSongDisplayImages } from "../../utils/images";
+import { isTouchDevice } from "../../utils/isMobile";
 import MediaImage from "../../components/media/MediaImage";
 import { VideoMiniPlayer } from "../../components/player/VideoMiniPlayer";
 import type { ImageMetadata } from "../../music/services/storage/types";
@@ -325,7 +334,40 @@ export function CenotaphPlayerApp() {
   const nowPlayingView = () => {
     if (usingRealPlayer()) {
       const state = appState();
-      if (!state || state.queue.length === 0) return null;
+      const pending = pendingQueuePreviews();
+      if ((!state || state.queue.length === 0) && pending.length === 0) return null;
+
+      // pending previews (see charnelPlaybackAdapter.ts's own doc comment)
+      // show up immediately, before their network/db resolve finishes - a
+      // replace_queue push starts from an empty real queue, so its first
+      // pending item stands in for "now playing" (loading) until it
+      // resolves; an append_queue push (queue already has a real current
+      // item) just tacks its pending items onto queueRest instead.
+      const pendingAsQueueRest = pending.map((p) => ({
+        key: p.key,
+        title: p.title,
+        artist: p.artist,
+        durationSeconds: p.durationSeconds,
+        removeIndex: undefined as number | undefined,
+        pending: true as const,
+      }));
+
+      if (!state || state.queue.length === 0) {
+        const [first, ...rest] = pendingAsQueueRest;
+        return {
+          isVideo: false,
+          artworkImages: undefined as ImageMetadata[] | undefined,
+          artworkUrl: undefined as string | undefined,
+          title: first?.title ?? "resolving\u2026",
+          artist: first?.artist ?? "",
+          positionSeconds: 0,
+          durationSeconds: first?.durationSeconds ?? 0,
+          isPlaying: false,
+          loading: true,
+          queueRest: rest,
+        };
+      }
+
       const idx = state.current_sha256
         ? state.queue.findIndex((i) => mediaItemKey(i) === state.current_sha256)
         : 0;
@@ -341,15 +383,23 @@ export function CenotaphPlayerApp() {
         positionSeconds: realCurrentTime(),
         durationSeconds: realDuration(),
         isPlaying: realIsPlaying(),
-        queueRest: ordered.slice(1).map((i) => ({
-          key: mediaItemKey(i),
-          title: mediaItemTitle(i),
-          artist: mediaItemSubtitle(i) ?? undefined,
-          durationSeconds:
-            i.kind === "song"
-              ? (i.song.duration_seconds ?? undefined)
-              : (i.video.duration_seconds ?? undefined),
-        })),
+        loading: false,
+        queueRest: [
+          ...ordered.slice(1).map((i, restIdx) => ({
+            key: mediaItemKey(i),
+            title: mediaItemTitle(i),
+            artist: mediaItemSubtitle(i) ?? undefined,
+            durationSeconds:
+              i.kind === "song"
+                ? (i.song.duration_seconds ?? undefined)
+                : (i.video.duration_seconds ?? undefined),
+            // full-array index (0 = currently playing) - matches
+            // queue.ts's removeFromQueue(index) convention.
+            removeIndex: (idx >= 0 ? idx : 0) + 1 + restIdx,
+            pending: false as const,
+          })),
+          ...pendingAsQueueRest,
+        ],
       };
     }
     if (mediaKind() !== "audio" || commandInFlight()) return null;
@@ -364,15 +414,32 @@ export function CenotaphPlayerApp() {
       positionSeconds: playbackPosition(),
       durationSeconds: item.duration_ms ? item.duration_ms / 1000 : playbackDuration(),
       isPlaying: engineState() === "playing",
+      loading: false,
       queueRest: upcomingQueue()
         .slice(1)
-        .map((q) => ({
+        .map((q, restIdx) => ({
           key: q.blake3_hash,
           title: q.title ?? q.blake3_hash.slice(0, 12),
           artist: q.artist,
           durationSeconds: q.duration_ms ? q.duration_ms / 1000 : undefined,
+          // full-array index (0 = currently playing) - matches
+          // playbackEngine.ts's removeFromQueue(node, index) convention.
+          removeIndex: 1 + restIdx,
+          pending: false as const,
         })),
     };
+  };
+
+  /** removes one queue entry by its full-array/engine index (see
+   * `nowPlayingView()`'s `removeIndex` field) - routes to spume's real
+   * queue for `usingRealPlayer()`, cenotaph's own engine otherwise. */
+  const handleRemoveQueueItem = (index: number) => {
+    if (usingRealPlayer()) {
+      void realRemoveFromQueue(index);
+      return;
+    }
+    const node = middenNode();
+    if (node) void engineRemoveFromQueue(node, index);
   };
 
   return (
@@ -392,6 +459,22 @@ export function CenotaphPlayerApp() {
 
       <Show when={settingsOpen()}>
         <PlayerSettingsPanel onClose={() => setSettingsOpen(false)} nodeId={nodeId()} />
+      </Show>
+
+      <Show when={connectedControllers().length > 0}>
+        <div
+          class="fixed top-10 right-4 z-[1700] max-w-[40vw] text-right text-xs text-neutral-500"
+          data-testid="connected-controllers"
+        >
+          <For each={connectedControllers()}>
+            {(c, i) => (
+              <span>
+                {i() > 0 ? ", " : ""}
+                {c.display_name}
+              </span>
+            )}
+          </For>
+        </div>
       </Show>
 
       {/* charnel-only: `[player_pairing].enabled` is off in
@@ -515,7 +598,10 @@ export function CenotaphPlayerApp() {
           then (docs/linux-video-window-plan.md). */}
       <Show when={nowPlayingView()}>
         {(view) => (
-          <div class="flex w-full max-w-md flex-col items-center gap-4" data-testid="now-playing">
+          <div
+            class="relative z-[1700] flex w-full max-w-md flex-col items-center gap-4"
+            data-testid="now-playing"
+          >
             <Show
               when={view().isVideo}
               fallback={
@@ -524,6 +610,7 @@ export function CenotaphPlayerApp() {
                   fallback={
                     <div
                       class="flex h-64 w-64 items-center justify-center rounded-lg bg-neutral-800"
+                      classList={{ "animate-pulse": view().loading }}
                       data-testid="artwork-fallback"
                     >
                       <svg
@@ -567,9 +654,18 @@ export function CenotaphPlayerApp() {
             <p class="text-sm text-neutral-400" data-testid="now-playing-artist">
               {view().artist}
             </p>
-            <p class="font-mono text-xs text-neutral-500" data-testid="now-playing-time">
-              {formatTime(view().positionSeconds)} / {formatTime(view().durationSeconds)}
-            </p>
+            <Show
+              when={!view().loading}
+              fallback={
+                <p class="font-mono text-xs text-neutral-500" data-testid="now-playing-time">
+                  resolving…
+                </p>
+              }
+            >
+              <p class="font-mono text-xs text-neutral-500" data-testid="now-playing-time">
+                {formatTime(view().positionSeconds)} / {formatTime(view().durationSeconds)}
+              </p>
+            </Show>
 
             <div class="flex items-center gap-8" data-testid="playback-controls">
               <button
@@ -602,6 +698,26 @@ export function CenotaphPlayerApp() {
               </button>
             </div>
 
+            {/* wrapping div gives the hover-only button ample hover
+                area (not just the text itself) - hover has no touch
+                equivalent, so touch devices show it always instead of
+                hiding it behind an unreachable hover state (same pattern
+                as VideoMiniPlayer.tsx's controls). */}
+            <div class="group flex w-full justify-center py-2">
+              <button
+                type="button"
+                class="text-xs text-neutral-500 transition-opacity"
+                classList={{
+                  "opacity-100": isTouchDevice(),
+                  "opacity-0 group-hover:opacity-100": !isTouchDevice(),
+                }}
+                onClick={() => (usingRealPlayer() ? void clearRealQueue() : stopPlayback())}
+                data-testid="clear-queue-button"
+              >
+                clear queue
+              </button>
+            </div>
+
             <Show when={view().queueRest.length > 0}>
               <ul
                 class="mt-4 w-full max-w-md text-left text-sm text-neutral-400"
@@ -609,14 +725,40 @@ export function CenotaphPlayerApp() {
               >
                 <For each={view().queueRest}>
                   {(queued) => (
-                    <li class="flex items-center justify-between gap-2 truncate border-b border-neutral-800 py-1">
+                    <li
+                      class="group flex items-center justify-between gap-2 truncate border-b border-neutral-800 py-1"
+                      classList={{ "opacity-60 italic": queued.pending }}
+                      data-testid={queued.pending ? "queue-item-pending" : "queue-item"}
+                    >
                       <span class="truncate">
                         {queued.title}
                         <Show when={queued.artist}> — {queued.artist}</Show>
                       </span>
-                      <Show when={queued.durationSeconds !== undefined}>
-                        <span class="font-mono text-xs">{formatTime(queued.durationSeconds!)}</span>
-                      </Show>
+                      <span class="flex shrink-0 items-center gap-2">
+                        <Show
+                          when={!queued.pending}
+                          fallback={<span class="font-mono text-xs">resolving…</span>}
+                        >
+                          <Show when={queued.durationSeconds !== undefined}>
+                            <span class="font-mono text-xs">
+                              {formatTime(queued.durationSeconds!)}
+                            </span>
+                          </Show>
+                          <button
+                            type="button"
+                            class="text-neutral-500 transition-opacity hover:text-neutral-300"
+                            classList={{
+                              "opacity-100": isTouchDevice(),
+                              "opacity-0 group-hover:opacity-100": !isTouchDevice(),
+                            }}
+                            onClick={() => handleRemoveQueueItem(queued.removeIndex!)}
+                            aria-label={`remove ${queued.title} from queue`}
+                            data-testid="queue-item-remove"
+                          >
+                            ✕
+                          </button>
+                        </Show>
+                      </span>
                     </li>
                   )}
                 </For>

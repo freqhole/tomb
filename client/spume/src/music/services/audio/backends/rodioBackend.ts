@@ -23,10 +23,8 @@ import {
 import { getSyncQueueToLocal, setCurrentSong } from "../../../../app/services/storage/db";
 import { syncSongToLocal } from "../../sync/syncSongToLocal";
 import { addToLoadingSet, removeFromLoadingSet, isSongOnDiskEphemeral } from "../../download";
-import { fetchEphemeralForSong, reconcileEphemeralWithQueue } from "../ephemeralFetch";
+import { fetchEphemeralForSong } from "../ephemeralFetch";
 import { clearExternalMediaSession as bridgeClearExternal } from "../mediaSessionBridge";
-import { appState } from "../../../../app/services/storage/db";
-import { createEffect, createRoot } from "solid-js";
 import type { Song } from "../../storage/types";
 import type { MediaItem } from "../../../../app/services/storage/mediaItem";
 import { isMediaLoadCurrent } from "../../../../app/services/media/loadGuard";
@@ -52,11 +50,6 @@ export class RodioBackend implements PlayerBackend {
   private unlistenPromise: Promise<UnlistenFn> | null = null;
   private disposed = false;
 
-  /// dispose handle for the queue-watching reconciler effect installed
-  /// in the constructor. called from `dispose()` so a backend swap
-  /// doesn't leak the effect.
-  private disposeReconciler: (() => void) | null = null;
-
   /// sha256 of the song most recently passed to `loadAndPlay`. used
   /// by the event dispatcher to clear that song from the loading set
   /// the moment the rust supervisor reports it as playable — so the
@@ -65,28 +58,13 @@ export class RodioBackend implements PlayerBackend {
   private currentLoadingSha256: string | null = null;
 
   constructor() {
-    // install a reactive reconciler over `<fetch_dir>/_ephemeral/`:
-    // whenever the queue changes, delete files for songs no longer
-    // in the queue and seed the ui's on-disk signal from the
-    // survivors. this also runs once on construction so the
-    // underline indicator is populated at startup from whatever
-    // was on disk from a previous session.
-    //
-    // we deliberately do NOT purge on init or dispose anymore: a
-    // song that's still in the persisted queue should keep its
-    // ephemeral file across app restarts so the user doesn't have
-    // to re-fetch it on next launch.
-    createRoot((dispose) => {
-      this.disposeReconciler = dispose;
-      createEffect(() => {
-        const queue = appState()?.queue ?? [];
-        const blake3s = queue
-          .filter((i) => i.kind === "song")
-          .map((i) => i.song.blake3)
-          .filter((b): b is string => !!b);
-        void reconcileEphemeralWithQueue(blake3s);
-      });
-    });
+    // ephemeral-dir reconciliation (deleting orphaned `sync_queue_to_local
+    // = off` files, seeding the "available offline" underline) is handled
+    // by one shared, app-wide reconciler covering the whole queue - both
+    // kinds land files in the same `_ephemeral/` dir, so it can't be done
+    // per-backend without each kind's reconcile pass deleting the other's
+    // files. see `ephemeralFetch.ts`'s `installEphemeralReconciler()`,
+    // installed once at app boot.
   }
 
   async send(cmd: PlayerCommand): Promise<void> {
@@ -467,13 +445,10 @@ export class RodioBackend implements PlayerBackend {
       }
       this.unlistenPromise = null;
     }
-    // tear down the queue-watching reconciler. we deliberately do
-    // NOT purge the ephemeral dir here: songs still in the persisted
-    // queue should keep their on-disk audio across an app restart.
-    if (this.disposeReconciler) {
-      this.disposeReconciler();
-      this.disposeReconciler = null;
-    }
+    // note: the ephemeral-dir reconciler is app-wide (see the
+    // constructor's comment) and outlives this backend's disposal -
+    // songs still in the persisted queue keep their on-disk audio
+    // across a backend swap or app restart either way.
   }
 
   // set up the tauri event listener exactly once. concurrent callers

@@ -17,7 +17,10 @@ import {
 } from "../../app/services/storage/db";
 import { onAutoDownloadEnabled } from "../../music/services/autoDownload";
 import { isRemoteTargetActive } from "../../app/services/players/activeTarget";
-import { optimisticRemoteQueue } from "../../app/services/players/remoteQueueMirror";
+import {
+  optimisticRemoteQueue,
+  cancelPendingRemoteQueueItem,
+} from "../../app/services/players/remoteQueueMirror";
 import {
   remoteAutoDownloadEnabled,
   remoteSetAutoDownloadEnabled,
@@ -721,7 +724,10 @@ export function QueueSidebar(props: QueueSidebarProps) {
                           onDoubleClick={() => {}}
                           onRemove={(e) => {
                             e.stopPropagation();
-                            if (isPending()) return;
+                            if (isPending()) {
+                              cancelPendingRemoteQueueItem(ref);
+                              return;
+                            }
                             void remoteRemoveFromQueue(i());
                           }}
                           onDragStart={(e) => {

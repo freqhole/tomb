@@ -40,13 +40,19 @@ export function markControllerConnected(controller: ConnectedController): void {
     pendingRemovals.delete(controller.node_id);
   }
   setConnected((prev) =>
-    prev.some((c) => c.node_id === controller.node_id) ? prev : [...prev, controller],
+    prev.some((c) => c.node_id === controller.node_id) ? prev : [...prev, controller]
   );
 }
 
 export function markControllerDisconnected(nodeId: string): void {
-  const existing = pendingRemovals.get(nodeId);
-  if (existing) clearTimeout(existing);
+  // idempotent: a caller that re-marks the same still-disconnected node
+  // on every poll (see charnelAcceptBridge.ts's periodic snapshot sync)
+  // must NOT reset an already-running grace timer - that would keep
+  // pushing the removal out forever, so a truly-gone controller never
+  // actually leaves the list. only start the timer once, on the first
+  // "disconnected" mark; markControllerConnected already clears it early
+  // on a genuine reconnect.
+  if (pendingRemovals.has(nodeId)) return;
   const timeout = setTimeout(() => {
     pendingRemovals.delete(nodeId);
     setConnected((prev) => prev.filter((c) => c.node_id !== nodeId));

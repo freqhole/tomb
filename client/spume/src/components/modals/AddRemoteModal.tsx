@@ -285,17 +285,9 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
     },
     async (peerAddr): Promise<PlayerAccessCheck> => {
       const existing = await getRemoteByPeerAddr(peerAddr);
-      // TEMP DEBUG - remove once the charnel player_device bug is found
-      console.log(
-        `\u{1F535}\u{1F535}\u{1F535} [presence_debug] playerAccess: getRemoteByPeerAddr(${peerAddr}) ->`,
-        existing
-      );
+      debug("AddRemoteModal", `playerAccess: getRemoteByPeerAddr(${peerAddr}) ->`, existing);
       const probe = await queryPlayerPresence(peerAddr);
-      // TEMP DEBUG - remove once the charnel player_device bug is found
-      console.log(
-        `\u{1F535}\u{1F535}\u{1F535} [presence_debug] playerAccess: queryPlayerPresence(${peerAddr}) ->`,
-        probe
-      );
+      debug("AddRemoteModal", `playerAccess: queryPlayerPresence(${peerAddr}) ->`, probe);
       const authorized =
         probe.presence === "active" && (probe.access === "admin" || probe.access === "in_session");
       return {

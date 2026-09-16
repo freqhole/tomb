@@ -5,10 +5,11 @@
 // internally before returning anything to JS.
 
 import type { CenotaphAcceptableNode, CenotaphBiStream } from "./node";
+import { debug, warn } from "../../utils/logger";
 
 export type AlpnHandler<TNode = unknown> = (
   node: TNode,
-  stream: CenotaphBiStream,
+  stream: CenotaphBiStream
 ) => void | Promise<void>;
 
 const runningNodes = new WeakSet<object>();
@@ -19,7 +20,7 @@ const runningNodes = new WeakSet<object>();
  * calls for the same node instance. */
 export function startAcceptLoop<TNode extends CenotaphAcceptableNode>(
   node: TNode,
-  handlers: Record<string, AlpnHandler<TNode>>,
+  handlers: Record<string, AlpnHandler<TNode>>
 ): void {
   if (runningNodes.has(node as object)) return;
   runningNodes.add(node as object);
@@ -30,13 +31,12 @@ export function startAcceptLoop<TNode extends CenotaphAcceptableNode>(
       if (stream === null) break; // endpoint closed
 
       const alpn = stream.alpn();
-      // TEMP DEBUG - remove once the first-pair-attempt-fails bug is found
-      console.log(`[debug/acceptLoop] accepted connection, alpn=${alpn}`);
+      debug("acceptLoop", `accepted connection, alpn=${alpn}`);
       const handler = handlers[alpn];
       if (handler) {
         void handler(node, stream);
       } else {
-        console.log("[cenotaph] ignoring connection on unhandled alpn", alpn);
+        warn("acceptLoop", "ignoring connection on unhandled alpn", alpn);
         stream.close();
       }
     }

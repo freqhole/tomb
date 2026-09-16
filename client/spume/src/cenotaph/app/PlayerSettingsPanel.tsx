@@ -119,10 +119,18 @@ export function PlayerSettingsPanel(props: { onClose: () => void; nodeId?: strin
 
   return (
     <div
-      class="fixed inset-0 z-[1700] flex items-center justify-center overflow-y-auto bg-black/90 p-6"
+      // above CenotaphPlayerApp.tsx's base content tier (z-[1700] - now-
+      // playing view, inline video, pairing screens) so this modal-like
+      // overlay always wins regardless of dom order, including over an
+      // actively-playing inline video. NOT `items-center justify-center` -
+      // centering a scrolling flex container that way clips the start of
+      // its content when it overflows (a well-known flexbox gotcha) -
+      // `m-auto` on the child below gives the same centered look when
+      // content fits, without clipping when it doesn't.
+      class="fixed inset-0 z-[1800] flex overflow-y-auto bg-black/90 p-6"
       data-testid="settings-panel"
     >
-      <div class="flex max-h-full w-full max-w-md flex-col gap-6 overflow-y-auto text-left">
+      <div class="m-auto flex w-full max-w-md flex-col gap-6 text-left">
         <div class="flex items-center justify-between">
           <div class="flex items-center gap-3">
             <a

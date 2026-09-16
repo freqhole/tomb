@@ -67,6 +67,7 @@ fn next_request_id() -> String {
 struct CenotaphCommandEvent {
     request_id: String,
     command_json: String,
+    peer_id: String,
 }
 
 /// builds the `PlayerProtocol` handler ready to `.accept(PLAYER_ALPN,
@@ -144,6 +145,7 @@ fn spawn_dispatch_bridge(mut rx: PairingDispatchRx) {
             let event = CenotaphCommandEvent {
                 request_id: request_id.clone(),
                 command_json,
+                peer_id: req.peer_id,
             };
             if let Err(e) = app.emit("cenotaph-command", event) {
                 tracing::warn!(target: "cenotaph", error = %e, "failed to emit cenotaph-command event");
@@ -292,7 +294,6 @@ pub fn player_pairing_set_enabled(enabled: bool) -> Result<(), String> {
 /// toggle) changes.
 #[tauri::command]
 pub fn set_player_session_active(active: bool) {
-    // TEMP DEBUG - remove once the charnel player_device bug is found
-    eprintln!("\u{1F7E0}\u{1F7E0}\u{1F7E0} [player_session_debug] tauri command set_player_session_active({active}) invoked");
+    tracing::debug!(active, "tauri command set_player_session_active invoked");
     grimoire::player_session::set_active(active);
 }

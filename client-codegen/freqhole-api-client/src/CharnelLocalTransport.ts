@@ -14,9 +14,6 @@ type InvokeFn = (cmd: string, args?: unknown) => Promise<unknown>;
 // tauri invoke is dynamically imported to avoid bundling in browser builds
 let invoke: InvokeFn | null = null;
 let convertFileSrc: ((path: string, protocol?: string) => string) | null = null;
-// cached target_os check (android only, for now) - see mediaSrcFor() below.
-// null = not yet determined, false = determined non-android.
-let isAndroidCached: boolean | null = null;
 
 /**
  * initialize tauri invoke function
@@ -28,12 +25,6 @@ async function ensureInvoke(): Promise<InvokeFn> {
     invoke = tauri.invoke as InvokeFn;
     // also grab convertFileSrc for blob URLs
     convertFileSrc = tauri.convertFileSrc;
-    try {
-      const buildInfo = (await invoke("get_build_info")) as { target_os?: string };
-      isAndroidCached = buildInfo?.target_os === "android";
-    } catch {
-      isAndroidCached = false;
-    }
     return invoke;
   } catch {
     throw new Error("@tauri-apps/api not available - not running in Tauri");
@@ -41,20 +32,23 @@ async function ensureInvoke(): Promise<InvokeFn> {
 }
 
 /**
- * build a playable url for a local file path - tauri's built-in `asset`
- * protocol everywhere except android, which gets the custom
- * `freqhole-media` protocol instead (see `client/charnel/src-tauri/src/
- * media_protocol.rs`: the built-in one caps every range response to
- * ~1MB, which android's webview media pipeline doesn't reliably recover
- * from for files larger than that - confirmed via a live network trace).
- * call `ensureInvoke()` (or anything that awaits it) at least once before
- * calling this, so `isAndroidCached` is resolved.
+ * build a playable url for a local file path via the custom
+ * `freqhole-media` protocol (see `client/charnel/src-tauri/src/
+ * media_protocol.rs`) - used on every platform, not just android: tauri's
+ * built-in `asset` protocol caps every range response to ~1MB regardless
+ * of what was actually requested, which a webview's media pipeline
+ * doesn't reliably recover from for anything larger (a compressed file
+ * limps along for ~30s before stalling; an uncompressed one like a wav
+ * can stop in single-digit seconds). `freqhole-media` mirrors the
+ * built-in protocol's shape but removes that cap, and is already
+ * registered on every platform regardless of which protocol the client
+ * actually requests.
  */
 function mediaSrcFor(path: string): string {
   if (!convertFileSrc) {
     throw new Error("convertFileSrc not available");
   }
-  return isAndroidCached ? convertFileSrc(path, "freqhole-media") : convertFileSrc(path);
+  return convertFileSrc(path, "freqhole-media");
 }
 
 /**
