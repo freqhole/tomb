@@ -33,12 +33,13 @@
 // should always be persisted into the real local library right away.
 
 import type { MediaRef } from "../index";
-import { getClientForRemote, isCharnelAvailable } from "../../app/api/client";
+import { getClientForRemote, getLocalNodeIdAsync, isCharnelAvailable } from "../../app/api/client";
 import {
   createRemote,
   getRemoteByPeerAddr,
   getTauriManagedRemote,
 } from "../../app/services/remotes/remoteManager";
+import { CENOTAPH_QUEUE_TRACE } from "../queueTrace";
 import type { Remote } from "../../app/services/storage/schemas/remote";
 import { getSongByBlake3 } from "../../music/services/storage/db/songs";
 import { syncSongToLocal, type SyncableSong } from "../../music/services/sync/syncSongToLocal";
@@ -66,6 +67,22 @@ import { debug, warn } from "../../utils/logger";
  * - this is used for BOTH browser and charnel resolution now (there is no
  * charnel-only logic in this function at all), replacing the browser
  * path's old never-persisted `ephemeralPeerRemote()` stand-in. */
+/** true when `peerAddr` is THIS device's own node id (e.g. a controller
+ * telling us to pull from ourselves, or a MediaRef whose source is the
+ * local library re-hosted under our own identity) - a real self-source
+ * should always have already been caught by the local-library short-
+ * circuit above; if it wasn't, dialing ourselves via `ensureRemoteForPeer`
+ * would be wasteful (and, per docs/cenotaph-queue-ux-hardening-plan.md
+ * issue 3, worried the user - "i'm a little nervous that the cenotaph
+ * player still doesn't know if queue items are form it's own node id").
+ * checked explicitly, rather than only relying on the local short-circuit
+ * accidentally covering it, so a miss is a loud, traceable signal instead
+ * of a silent unnecessary network round trip. */
+async function isSelfPeerAddr(peerAddr: string): Promise<boolean> {
+  const selfId = await getLocalNodeIdAsync();
+  return !!selfId && selfId === peerAddr;
+}
+
 async function ensureRemoteForPeer(peerAddr: string): Promise<Remote> {
   const existing = await getRemoteByPeerAddr(peerAddr);
   if (existing) return existing;
@@ -228,6 +245,10 @@ async function getLocalVideoById(videoId: string): Promise<QueuedVideo | null> {
  * the tauri-managed remote via `song_ids`). */
 export async function resolveMediaRefToSong(item: MediaRef): Promise<Song | null> {
   const hashPrefix = item.blake3_hash.slice(0, 8);
+  debug(
+    "mediaRefResolve",
+    `${CENOTAPH_QUEUE_TRACE} resolveMediaRefToSong start: hash=${hashPrefix}... title=${item.title ?? "(none)"} source_peer_addr=${item.source_peer_addr}`
+  );
 
   // browser-only local-library short-circuit: a real IDB lookup by blake3
   // (already indexed, no new grimoire plumbing needed here - see
@@ -262,7 +283,19 @@ export async function resolveMediaRefToSong(item: MediaRef): Promise<Song | null
     }
   }
 
+  if (await isSelfPeerAddr(item.source_peer_addr)) {
+    warn(
+      "mediaRefResolve",
+      `${CENOTAPH_QUEUE_TRACE} song ${hashPrefix}...: source_peer_addr is THIS device's own node id, but it wasn't found in the local library above - refusing to dial myself, treating as unresolved`
+    );
+    return null;
+  }
+
   try {
+    debug(
+      "mediaRefResolve",
+      `${CENOTAPH_QUEUE_TRACE} song ${hashPrefix}...: dialing source peer ${item.source_peer_addr}`
+    );
     const remote = await ensureRemoteForPeer(item.source_peer_addr);
     // prefer the FULL song from the source peer (real artist_name/
     // album_title/images/album_images/artist_images - the exact same
@@ -328,6 +361,10 @@ export async function resolveMediaRefToSong(item: MediaRef): Promise<Song | null
 /** video counterpart of `resolveMediaRefToSong()` above - same shape. */
 export async function resolveMediaRefToVideo(item: MediaRef): Promise<QueuedVideo | null> {
   const hashPrefix = item.blake3_hash.slice(0, 8);
+  debug(
+    "mediaRefResolve",
+    `${CENOTAPH_QUEUE_TRACE} resolveMediaRefToVideo start: hash=${hashPrefix}... title=${item.title ?? "(none)"} source_peer_addr=${item.source_peer_addr}`
+  );
 
   if (!isCharnelAvailable()) {
     const existing = await getVideoByBlake3(item.blake3_hash);
@@ -354,7 +391,19 @@ export async function resolveMediaRefToVideo(item: MediaRef): Promise<QueuedVide
     }
   }
 
+  if (await isSelfPeerAddr(item.source_peer_addr)) {
+    warn(
+      "mediaRefResolve",
+      `${CENOTAPH_QUEUE_TRACE} video ${hashPrefix}...: source_peer_addr is THIS device's own node id, but it wasn't found in the local library above - refusing to dial myself, treating as unresolved`
+    );
+    return null;
+  }
+
   try {
+    debug(
+      "mediaRefResolve",
+      `${CENOTAPH_QUEUE_TRACE} video ${hashPrefix}...: dialing source peer ${item.source_peer_addr}`
+    );
     const remote = await ensureRemoteForPeer(item.source_peer_addr);
     // prefer the FULL video from the source peer (real series_id/
     // season_id/images/description - the same shape `RemoteVideoDataSource`

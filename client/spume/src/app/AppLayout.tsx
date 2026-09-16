@@ -882,6 +882,23 @@ export function AppLayout(props: AppLayoutProps) {
 
   const queueOpen = () => appState()?.queue_open ?? false;
 
+  // the narrow queue overlay (QueueSidebar.tsx's z-1140, backdrop z-1130)
+  // sits above every modal (AddRemoteModal/Modal.tsx top out at z-1060) -
+  // opening a modal while the queue sheet is open (e.g. a toast's
+  // "reconnect" action opening AddRemoteModal - see
+  // docs/cenotaph-queue-ux-hardening-plan.md issue 5) left the modal
+  // buried underneath it with no visible way to close the queue sheet
+  // first. mirrors the video mini player's own auto-dismiss effect above
+  // (same `isAnyModalOpenReactive`). only narrow/overlay mode has this
+  // z-index conflict - wide's inline sidebar is z-110, well below any
+  // modal, so closing it there on every modal open would be needlessly
+  // disruptive to an always-visible panel.
+  createEffect(() => {
+    if (isNarrow() && queueOpen() && isAnyModalOpenReactive()) {
+      void setQueueOpen(false);
+    }
+  });
+
   const handleSeek = (percentage: number) => {
     const dur = duration();
     const timeInSeconds = (percentage / 100) * dur;

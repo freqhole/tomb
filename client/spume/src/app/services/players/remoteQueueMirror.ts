@@ -34,6 +34,8 @@ import {
   pushSongsToPlayer,
   pushVideosToPlayer,
 } from "./playerQueuePush";
+import { debug } from "../../../utils/logger";
+import { CENOTAPH_QUEUE_TRACE } from "../../../cenotaph/queueTrace";
 
 // optimistic overlay (this device's own pending queue edits, not yet
 // confirmed by the player) - see optimisticRemoteQueue() below. built from
@@ -144,6 +146,10 @@ export function mirrorReorderQueue(fromIndex: number, toIndex: number, currentIn
 }
 
 export function mirrorAppendToQueue(songs: Song[]): void {
+  debug(
+    "remoteQueueMirror",
+    `${CENOTAPH_QUEUE_TRACE} mirrorAppendToQueue: called with ${songs.length} song(s), isRemoteTargetActive=${isRemoteTargetActive()}, nodeId=${activeTargetNodeId() ?? "(none)"}`
+  );
   if (!isRemoteTargetActive() || songs.length === 0) return;
   const nodeId = activeTargetNodeId();
   if (!nodeId) return;
@@ -153,6 +159,10 @@ export function mirrorAppendToQueue(songs: Song[]): void {
 
 /** video equivalent of mirrorAppendToQueue() above (phase 16). */
 export function mirrorAppendVideosToQueue(videos: QueuedVideo[]): void {
+  debug(
+    "remoteQueueMirror",
+    `${CENOTAPH_QUEUE_TRACE} mirrorAppendVideosToQueue: called with ${videos.length} video(s), isRemoteTargetActive=${isRemoteTargetActive()}, nodeId=${activeTargetNodeId() ?? "(none)"}`
+  );
   if (!isRemoteTargetActive() || videos.length === 0) return;
   const nodeId = activeTargetNodeId();
   if (!nodeId) return;
@@ -168,6 +178,10 @@ export function mirrorAppendVideosToQueue(videos: QueuedVideo[]): void {
  * an empty local queue; a plain add/insert should always go through
  * mirrorAppendToQueue instead. */
 export function mirrorReplaceQueue(songs: Song[]): void {
+  debug(
+    "remoteQueueMirror",
+    `${CENOTAPH_QUEUE_TRACE} mirrorReplaceQueue: called with ${songs.length} song(s), isRemoteTargetActive=${isRemoteTargetActive()}, nodeId=${activeTargetNodeId() ?? "(none)"}`
+  );
   if (!isRemoteTargetActive() || songs.length === 0) return;
   const nodeId = activeTargetNodeId();
   if (!nodeId) return;
@@ -177,6 +191,10 @@ export function mirrorReplaceQueue(songs: Song[]): void {
 
 /** video equivalent of mirrorReplaceQueue() above. */
 export function mirrorReplaceVideosToQueue(videos: QueuedVideo[]): void {
+  debug(
+    "remoteQueueMirror",
+    `${CENOTAPH_QUEUE_TRACE} mirrorReplaceVideosToQueue: called with ${videos.length} video(s), isRemoteTargetActive=${isRemoteTargetActive()}, nodeId=${activeTargetNodeId() ?? "(none)"}`
+  );
   if (!isRemoteTargetActive() || videos.length === 0) return;
   const nodeId = activeTargetNodeId();
   if (!nodeId) return;

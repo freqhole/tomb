@@ -381,6 +381,41 @@ async fn handle_stream(
     result
 }
 
+/// resolves who `peer_id` should be treated as for this redemption: if
+/// this exact node id already has a linked user (it paired before, under
+/// this or any other display name), reuse that user directly and skip
+/// `register_user`'s username-uniqueness check entirely - re-redeeming a
+/// still-valid pin is re-authentication for an already-trusted peer, not
+/// a fresh registration, and its previously-chosen display name should
+/// never collide with itself. only a genuinely new peer_id goes through
+/// `register_user`. see docs/cenotaph-queue-ux-hardening-plan.md issue 6 -
+/// previously EVERY redemption called `register_user`, so a peer that
+/// paired once and later re-paired (new session, forgotten pin, admin
+/// pairing code rotated, etc.) got rejected as `username_taken` against
+/// its own prior registration.
+async fn resolve_pairing_user(
+    service: &crate::users::UserService,
+    peer_id: &str,
+    create_request: &crate::users::CreateUserRequest,
+) -> Result<crate::users::User, PairResponseReason> {
+    let existing = service.get_user_by_peer_node_id(peer_id).await;
+    if let Some(user) = existing.data.filter(|_| existing.success) {
+        debug!(
+            target: "cenotaph",
+            peer_id = %peer_id,
+            user_id = %user.id,
+            username = %user.username,
+            "pair_request: peer already linked to a user, re-authenticating under existing name"
+        );
+        return Ok(user);
+    }
+    let user_resp = service.register_user(create_request).await;
+    user_resp
+        .data
+        .filter(|_| user_resp.success)
+        .ok_or(PairResponseReason::UsernameTaken)
+}
+
 /// validates `raw` as a real grimoire invite code (mirrors
 /// `server/src/auth/handlers.rs`'s `redeem_invite` regular-invite branch
 /// almost exactly: check the code, register/find the user, link the
@@ -430,18 +465,16 @@ async fn handle_pair_request(
         role: None, // let the invite code's grants_role apply
         invite_code: Some(req.code.clone()),
     };
-    let user_resp = service.register_user(&create_request).await;
-    let user = match user_resp.data.filter(|_| user_resp.success) {
-        Some(user) => user,
-        None => {
+    let user = match resolve_pairing_user(&service, peer_id, &create_request).await {
+        Ok(user) => user,
+        Err(reason) => {
             warn!(
                 target: "cenotaph",
                 peer_id = %peer_id,
                 display_name = %req.display_name,
-                message = %user_resp.message,
-                "pair_request: valid code, but register_user failed (username_taken)"
+                "pair_request: valid code, but resolve_pairing_user failed ({reason:?})"
             );
-            let resp = PairResponse::err(PairResponseReason::UsernameTaken);
+            let resp = PairResponse::err(reason);
             return write_line(send, &serde_json::to_string(&resp).unwrap()).await;
         }
     };
@@ -516,6 +549,24 @@ async fn process_command_line(
         let mut guard = state.lock().unwrap_or_else(|p| p.into_inner());
         let mut session = wire::PlayerSession::ensure_active(guard.session.take());
         let ok = is_get_status_line(raw) || session.is_peer_allowed(peer_id, Some(role));
+        if !ok {
+            // this branch previously had NO logging at all - a command
+            // rejected here (session membership failed, and the peer's
+            // trust-store role wasn't Admin - see PlayerSession::
+            // is_peer_allowed's own doc comment) never reaches dispatch_tx,
+            // so it's invisible to every JS-side/dispatch-bridge trace
+            // downstream. found live: a queue push that silently "never
+            // even queued" with zero trace anywhere was consistent with
+            // being dropped right here.
+            warn!(
+                target: "cenotaph",
+                peer = %peer_id,
+                role = ?role,
+                session_mode = ?session.mode,
+                allowed_node_ids = ?session.allowed_node_ids,
+                "CENOTAPH_QUEUE_TRACE: process_command_line REJECTED (not_in_session) - peer's role is not Admin and it's not in the current session's allowed_node_ids, command dropped before ever reaching dispatch_tx: {raw}"
+            );
+        }
         if ok {
             session.touch();
         }
@@ -575,5 +626,98 @@ mod tests {
             r#"{"type":"control","command":"stop"}"#
         ));
         assert!(!is_get_status_line("not json"));
+    }
+
+    // resolve_pairing_user touches the real db pool singleton (via
+    // UserService) - same convention as offal/dispatch.rs's role-check
+    // tests: #[ignore]'d so normal `cargo test` runs stay fast/isolated,
+    // run explicitly with `cargo test -- --ignored` when touching this
+    // path.
+    #[tokio::test]
+    #[ignore = "needs its own process: touches the real db pool singletons"]
+    async fn resolve_pairing_user_reuses_existing_peer_instead_of_registering_again() {
+        crate::config::init_config_for_tests();
+        // init_config_for_tests() points at a real (persistent, on-disk)
+        // sqlite file - `database::connect()` refuses to create it lazily
+        // (mirrors production's "run `grimoire config init` first"
+        // safety check), so an ignored test touching this singleton pool
+        // for the first time in a process must create the empty file and
+        // run real migrations itself.
+        let db_dir = std::path::Path::new("/tmp/grimoire-test");
+        std::fs::create_dir_all(db_dir).expect("create test db dir");
+        let db_path = db_dir.join("test.db");
+        if !db_path.exists() {
+            std::fs::File::create(&db_path).expect("create empty test db file");
+        }
+        crate::database::run_migrations()
+            .await
+            .expect("run migrations against test db");
+        let service = crate::users::UserService::new();
+
+        // unique per run - the test db above is persistent across runs of
+        // this ignored test, so a fixed peer_id/username would collide.
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let peer_id = format!("test-peer-resolve-pairing-user-{nonce}");
+        let other_peer_id = format!("test-peer-resolve-pairing-user-{nonce}-other");
+        let username = format!("eddie-{nonce}");
+
+        // unlimited-use member-granting code, mirrors create_player_pairing_code's
+        // own shape (see its doc comment for why max_uses <= 0 means unlimited).
+        let invite = service
+            .create_player_pairing_code(crate::users::UserRole::Member, 0, 6)
+            .await
+            .data
+            .expect("create invite code");
+
+        let first_request = crate::users::CreateUserRequest {
+            username: username.clone(),
+            role: None,
+            invite_code: Some(invite.code.clone()),
+        };
+        let first = resolve_pairing_user(&service, &peer_id, &first_request)
+            .await
+            .expect("first redemption registers a new user");
+        assert_eq!(first.username, username);
+        // mirrors handle_pair_request's own follow-up call - the peer-node
+        // link is what a SECOND redemption's short-circuit depends on.
+        service
+            .add_peer_node(&first.id, &peer_id, None)
+            .await
+            .data
+            .expect("link peer node to first user");
+
+        // re-pairing supplies the SAME node id and the SAME (now-taken)
+        // display name - previously this failed as `username_taken`
+        // against the peer's own prior registration.
+        let second_request = crate::users::CreateUserRequest {
+            username: username.clone(),
+            role: None,
+            invite_code: Some(invite.code.clone()),
+        };
+        let second = resolve_pairing_user(&service, &peer_id, &second_request)
+            .await
+            .expect("re-redemption by the same peer_id must succeed, not username_taken");
+        assert_eq!(
+            second.id, first.id,
+            "must resolve to the SAME user, not a new one"
+        );
+
+        // a genuinely different peer_id trying to register the same
+        // display name must still be rejected - the short-circuit is
+        // keyed on peer_id, not username.
+        let other_peer_request = crate::users::CreateUserRequest {
+            username: username.clone(),
+            role: None,
+            invite_code: Some(invite.code.clone()),
+        };
+        let other_peer_result =
+            resolve_pairing_user(&service, &other_peer_id, &other_peer_request).await;
+        assert!(matches!(
+            other_peer_result,
+            Err(PairResponseReason::UsernameTaken)
+        ));
     }
 }

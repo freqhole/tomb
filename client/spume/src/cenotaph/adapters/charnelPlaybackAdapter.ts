@@ -47,6 +47,7 @@ import {
 import type { Song } from "../../music/services/storage/types";
 import type { QueuedVideo } from "../../app/services/storage/mediaItem";
 import { resolveMediaRefToSong, resolveMediaRefToVideo } from "./mediaRefResolve";
+import { CENOTAPH_QUEUE_TRACE } from "../queueTrace";
 import { leaveRadio, tuneIntoRadio } from "../../app/services/radio/radioService";
 import { debug, error, warn } from "../../utils/logger";
 
@@ -77,7 +78,20 @@ function addPendingPreview(item: MediaRef): void {
     durationSeconds: item.duration_ms ? item.duration_ms / 1000 : undefined,
     kind: item.kind === "video" ? "video" : "song",
   };
-  setPendingQueuePreviews((prev) => [...prev, preview]);
+  // idempotent by key - replaceQueue/appendQueue below may both call this
+  // for the same item (once immediately on command receipt, once again
+  // inside resolveAndDeliverQueueItems's own pass) - a duplicate add would
+  // otherwise render the same pending row twice.
+  let added = false;
+  setPendingQueuePreviews((prev) => {
+    if (prev.some((p) => p.key === preview.key)) return prev;
+    added = true;
+    return [...prev, preview];
+  });
+  debug(
+    "charnelPlaybackAdapter",
+    `${CENOTAPH_QUEUE_TRACE} addPendingPreview: ${item.blake3_hash.slice(0, 8)}... ${added ? "added" : "already pending, no-op"}`
+  );
 }
 
 function settlePendingPreview(blake3Hash: string): void {
@@ -116,6 +130,11 @@ async function resolveAndDeliverQueueItems(
   seenHashes: Set<string>,
   onResolved: (item: MediaItem, isFirst: boolean) => Promise<void>
 ): Promise<number> {
+  const batchStart = Date.now();
+  debug(
+    "charnelPlaybackAdapter",
+    `${CENOTAPH_QUEUE_TRACE} resolveAndDeliverQueueItems: received ${items.length} item(s)`
+  );
   const toResolve: MediaRef[] = [];
   for (const item of items) {
     if (seenHashes.has(item.blake3_hash)) {
@@ -129,23 +148,36 @@ async function resolveAndDeliverQueueItems(
     toResolve.push(item);
   }
   for (const item of toResolve) addPendingPreview(item);
+  debug(
+    "charnelPlaybackAdapter",
+    `${CENOTAPH_QUEUE_TRACE} resolveAndDeliverQueueItems: ensured ${toResolve.length} pending preview row(s) exist (${items.length - toResolve.length} deduped) at +${Date.now() - batchStart}ms`
+  );
 
   let resolvedCount = 0;
   for (const item of toResolve) {
     const label = `${item.kind} "${item.title ?? item.blake3_hash.slice(0, 8)}" (${item.blake3_hash.slice(0, 8)}...)`;
+    const itemStart = Date.now();
     try {
       const mediaItem = await resolveMediaItem(item);
+      const resolveMs = Date.now() - itemStart;
       if (!mediaItem) {
         // resolveMediaItem's own resolve/sync functions already log the
         // specific reason (unreachable peer, sync failure, etc.) - this
         // just marks which item in the batch it was, for a queue push of
         // more than one item.
-        warn("charnelPlaybackAdapter", `failed to resolve queued item ${label}, skipping`);
+        warn(
+          "charnelPlaybackAdapter",
+          `${CENOTAPH_QUEUE_TRACE} failed to resolve queued item ${label} after ${resolveMs}ms, skipping`
+        );
         continue;
       }
       try {
         await onResolved(mediaItem, resolvedCount === 0);
         resolvedCount++;
+        debug(
+          "charnelPlaybackAdapter",
+          `${CENOTAPH_QUEUE_TRACE} resolved+queued item ${label} in ${resolveMs}ms (${resolvedCount}/${toResolve.length} so far)`
+        );
       } catch (err) {
         // a resolve can succeed but the actual queue-add (playQueue/
         // addToQueue) can still throw (e.g. a malformed item tripping
@@ -163,6 +195,10 @@ async function resolveAndDeliverQueueItems(
       settlePendingPreview(item.blake3_hash);
     }
   }
+  debug(
+    "charnelPlaybackAdapter",
+    `${CENOTAPH_QUEUE_TRACE} resolveAndDeliverQueueItems: done, resolved ${resolvedCount}/${toResolve.length} in ${Date.now() - batchStart}ms total`
+  );
   return resolvedCount;
 }
 
@@ -332,13 +368,34 @@ export const charnelPlaybackAdapter: PlaybackBackend<unknown> = {
     await playQueue([mediaItem], { startIndex: 0 });
   },
   async replaceQueue(_node, items) {
-    debug("charnelPlaybackAdapter", `replaceQueue: resolving ${items.length} item(s)`);
+    const commandReceivedAt = Date.now();
+    debug(
+      "charnelPlaybackAdapter",
+      `${CENOTAPH_QUEUE_TRACE} replaceQueue: command received, resolving ${items.length} item(s)`
+    );
+    // render pending rows for the WHOLE incoming batch as the very FIRST
+    // thing, before clearQueue()/resolve/sync - so the queue view shows
+    // something the instant this command arrives, rather than waiting on
+    // the old queue to actually finish clearing first. addPendingPreview
+    // is idempotent, so resolveAndDeliverQueueItems's own preview-adding
+    // pass below (needed for appendQueue, which has no pre-add step) is
+    // safe to leave running afterward too.
+    for (const item of items) addPendingPreview(item);
+    debug(
+      "charnelPlaybackAdapter",
+      `${CENOTAPH_QUEUE_TRACE} replaceQueue: pending rows rendered first, at +${Date.now() - commandReceivedAt}ms`
+    );
     // playQueue([item], {startIndex:0}) below has no `source` option, so
     // without an explicitly empty queue first it never hits queue.ts's
     // "replace" branch - it falls to playQueueInternal's insert-after-
     // current behavior instead, silently leaving whatever was already
     // queued in place. a `replace_queue` command must actually replace.
+    const clearStart = Date.now();
     await clearQueue();
+    debug(
+      "charnelPlaybackAdapter",
+      `${CENOTAPH_QUEUE_TRACE} replaceQueue: clearQueue() took ${Date.now() - clearStart}ms`
+    );
     const resolvedCount = await resolveAndDeliverQueueItems(
       items,
       new Set(),
@@ -359,7 +416,14 @@ export const charnelPlaybackAdapter: PlaybackBackend<unknown> = {
     }
   },
   async appendQueue(_node, items) {
-    debug("charnelPlaybackAdapter", `appendQueue: resolving ${items.length} item(s)`);
+    debug(
+      "charnelPlaybackAdapter",
+      `${CENOTAPH_QUEUE_TRACE} appendQueue: command received, resolving ${items.length} item(s)`
+    );
+    // unlike replaceQueue, there's no async step (clearQueue) to hoist
+    // pending-preview rendering ahead of - currentQueueHashes() is
+    // synchronous, so resolveAndDeliverQueueItems's own preview-adding
+    // pass below already runs as the first thing that happens here.
     const resolvedCount = await resolveAndDeliverQueueItems(
       items,
       currentQueueHashes(),

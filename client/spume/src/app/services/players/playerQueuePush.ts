@@ -30,7 +30,15 @@
 import { getClientForRemote, getMiddenNode, isCharnelAvailable } from "../../api/client";
 import { adminClientFor } from "../../api/adminClient";
 import { isCharnelMode } from "../charnel/mode";
-import { fetchLocalNodeId, importBlobBytes } from "../charnel/commands";
+import {
+  fetchLocalNodeId,
+  importBlobByPath,
+  beginChunkedBlobImport,
+  appendChunkedBlobImport,
+  finishChunkedBlobImport,
+  abortChunkedBlobImport,
+} from "../charnel/commands";
+import { resolveCharnelLocalBlobPath } from "../media/resolveCharnelLocalBlobPath";
 import { getAudioURL } from "../../../music/services/storage/audioAccess";
 import type { ImageMetadata, Song } from "../../../music/services/storage/types";
 import { getBlob } from "../../../music/services/storage/blobs";
@@ -40,6 +48,7 @@ import { getRemoteById } from "../remotes/remoteManager";
 import { isP2PRemote, type P2PRemote } from "../storage/schemas/remote";
 import { sendPlayerCommand } from "./playerPairingClient";
 import { debug } from "../../../utils/logger";
+import { CENOTAPH_QUEUE_TRACE } from "../../../cenotaph/queueTrace";
 import {
   applyRemoteStatusFromAck,
   pruneLocalQueueAfterSuccessfulPush,
@@ -50,6 +59,7 @@ import {
   type RenditionRef,
 } from "./remotePlaybackControl";
 import { getVideoURL } from "../../../video/services/videoBlobAccess";
+import { resolveLocalVideoPath } from "../../../video/services/localVideo";
 import { mediaItemKey, songToMediaItem, videoToMediaItem } from "../storage/mediaItem";
 import type { MediaItem, QueuedVideo } from "../storage/mediaItem";
 
@@ -198,22 +208,50 @@ async function resolveImageArtwork(image: ImageMetadata | null): Promise<Resolve
   }
 }
 
+// ~4MB raw per chunk, matching CharnelLocalTransport.uploadChunked/
+// CharnelTransport.uploadMediaViaBytes's own chunk size - keeps peak
+// per-IPC-call payload bounded regardless of the source file's size.
+const IMPORT_CHUNK_SIZE = 4 * 1024 * 1024;
+
+/** charnel-mode fallback used by importMediaBytes below, only once the
+ * local-path fast path (importLocalFileByPath, always tried first by
+ * songToMediaRef/videoToMediaRef) comes up empty - i.e. genuinely
+ * remote-only content this device has to relay through JS. streams bytes
+ * into the p2p blob store in bounded chunks instead of base64-ing the
+ * whole file into one JS string/IPC call (the now-deprecated, 1MB-gated
+ * `importBlobBytes` in charnel/commands.ts). */
+async function importBytesChunked(bytes: Uint8Array): Promise<string> {
+  const uploadId = await beginChunkedBlobImport();
+  try {
+    for (let offset = 0; offset < bytes.byteLength; offset += IMPORT_CHUNK_SIZE) {
+      const chunk = bytes.subarray(offset, Math.min(offset + IMPORT_CHUNK_SIZE, bytes.byteLength));
+      await appendChunkedBlobImport(uploadId, bytesToBase64(chunk));
+    }
+    return await finishChunkedBlobImport(uploadId);
+  } catch (err) {
+    await abortChunkedBlobImport(uploadId).catch(() => {});
+    throw err;
+  }
+}
+
 /** imports media bytes (song or video) into this device's local blob store
- * (charnel: native iroh-blobs FsStore via tauri; browser: the wasm midden
- * node's own store) and returns this device's own node id + the resulting
- * blake3 hash, so the player can be told to pull the bytes from us by hash. */
+ * (charnel: native iroh-blobs FsStore via tauri, streamed in bounded
+ * chunks - see importBytesChunked; browser: the wasm midden node's own
+ * store, a single in-memory call since there's no IPC/JSON boundary to
+ * protect there) and returns this device's own node id + the resulting
+ * blake3 hash, so the player can be told to pull the bytes from us by
+ * hash. only reached when the content isn't already resolvable to a local
+ * file path (see importLocalFileByPath below, always tried first) - i.e.
+ * genuinely remote-only content this device has to relay through JS. */
 async function importMediaBytes(
   bytes: Uint8Array
 ): Promise<{ sourcePeerAddr: string; blake3Hash: string }> {
   if (isCharnelMode()) {
-    const [nodeId, blake3Hash] = await Promise.all([
-      fetchLocalNodeId(),
-      importBlobBytes(bytesToBase64(bytes)),
-    ]);
+    const [nodeId, blake3Hash] = await Promise.all([fetchLocalNodeId(), importBytesChunked(bytes)]);
     if (!nodeId) throw new Error("charnel p2p node id unavailable - is federation enabled?");
     debug(
       "playerQueuePush",
-      `importMediaBytes (charnel) ${bytes.byteLength}b -> blake3=${blake3Hash}, sourcePeerAddr=${nodeId}`
+      `importMediaBytes (charnel, chunked) ${bytes.byteLength}b -> blake3=${blake3Hash}, sourcePeerAddr=${nodeId}`
     );
     return { sourcePeerAddr: nodeId, blake3Hash };
   }
@@ -227,6 +265,21 @@ async function importMediaBytes(
     `importMediaBytes (wasm) ${bytes.byteLength}b -> blake3=${blake3Hash}, sourcePeerAddr=${node.node_id()}`
   );
   return { sourcePeerAddr: node.node_id(), blake3Hash };
+}
+
+/** charnel-only fast path: if the content is already a real file on this
+ * device's own disk (resolveCharnelLocalBlobPath for songs,
+ * resolveLocalVideoPath for video - both tried before ever falling back to
+ * fetch+importMediaBytes), import it directly by path. zero bytes ever
+ * cross into JS memory: no fetch, no base64, no chunking, no IPC payload
+ * proportional to file size at all. mirrors CharnelTransport.ts's own
+ * `uploadByPath` use of the same `p2p_import_blob` command. */
+async function importLocalFileByPath(
+  filePath: string
+): Promise<{ sourcePeerAddr: string; blake3Hash: string }> {
+  const [nodeId, blake3Hash] = await Promise.all([fetchLocalNodeId(), importBlobByPath(filePath)]);
+  if (!nodeId) throw new Error("charnel p2p node id unavailable - is federation enabled?");
+  return { sourcePeerAddr: nodeId, blake3Hash };
 }
 
 // step 8 (cross-remote forwarding): remote_id -> the P2P remote to point
@@ -272,10 +325,20 @@ async function songToMediaRef(
   playerNodeId: string,
   bridgeCache: BridgeCache
 ): Promise<RemoteMediaRef> {
+  const t0 = Date.now();
   if (song.remote_server_id && song.blake3) {
     const bridged = await tryBridgeToSourceRemote(song.remote_server_id, playerNodeId, bridgeCache);
+    debug(
+      "playerQueuePush",
+      `${CENOTAPH_QUEUE_TRACE} songToMediaRef(${song.title}): tryBridgeToSourceRemote took ${Date.now() - t0}ms, bridged=${!!bridged}`
+    );
     if (bridged) {
+      const artworkStart = Date.now();
       const { thumbUrl, fullUrl } = await resolveArtwork(song);
+      debug(
+        "playerQueuePush",
+        `${CENOTAPH_QUEUE_TRACE} songToMediaRef(${song.title}): resolveArtwork (bridged path) took ${Date.now() - artworkStart}ms, total ${Date.now() - t0}ms`
+      );
       return {
         source_peer_addr: bridged.peer_addr,
         blake3_hash: song.blake3,
@@ -290,11 +353,56 @@ async function songToMediaRef(
       };
     }
   }
+  // fast path: this device may already have the actual file on disk
+  // (its own library, or already synced from a prior queue push/play) -
+  // if so, import it directly by path, skipping fetch()+base64 entirely.
+  const localPathStart = Date.now();
+  const localPath = await resolveCharnelLocalBlobPath(song.blake3);
+  if (localPath) {
+    const { sourcePeerAddr, blake3Hash } = await importLocalFileByPath(localPath);
+    debug(
+      "playerQueuePush",
+      `${CENOTAPH_QUEUE_TRACE} songToMediaRef(${song.title}): resolveCharnelLocalBlobPath+importLocalFileByPath took ${Date.now() - localPathStart}ms (no js-memory relay), total ${Date.now() - t0}ms`
+    );
+    const artworkStart = Date.now();
+    const { thumbUrl, fullUrl } = await resolveArtwork(song);
+    debug(
+      "playerQueuePush",
+      `${CENOTAPH_QUEUE_TRACE} songToMediaRef(${song.title}): resolveArtwork (local-path path) took ${Date.now() - artworkStart}ms, total ${Date.now() - t0}ms`
+    );
+    return {
+      source_peer_addr: sourcePeerAddr,
+      blake3_hash: blake3Hash,
+      size_bytes: song.file_size ?? undefined,
+      duration_ms: song.duration_seconds ? Math.round(song.duration_seconds * 1000) : undefined,
+      mime_type: song.mime_type ?? "audio/mpeg",
+      kind: "audio",
+      title: song.title,
+      artist: song.artist_name,
+      artwork_thumb_url: thumbUrl,
+      artwork_full_url: fullUrl,
+    };
+  }
+  const fetchStart = Date.now();
   const url = await getAudioURL(song);
   const res = await fetch(url);
   const bytes = new Uint8Array(await res.arrayBuffer());
+  debug(
+    "playerQueuePush",
+    `${CENOTAPH_QUEUE_TRACE} songToMediaRef(${song.title}): getAudioURL+fetch (relay path) took ${Date.now() - fetchStart}ms`
+  );
+  const importStart = Date.now();
   const { sourcePeerAddr, blake3Hash } = await importMediaBytes(bytes);
+  debug(
+    "playerQueuePush",
+    `${CENOTAPH_QUEUE_TRACE} songToMediaRef(${song.title}): importMediaBytes took ${Date.now() - importStart}ms`
+  );
+  const artworkStart = Date.now();
   const { thumbUrl, fullUrl } = await resolveArtwork(song);
+  debug(
+    "playerQueuePush",
+    `${CENOTAPH_QUEUE_TRACE} songToMediaRef(${song.title}): resolveArtwork (relay path) took ${Date.now() - artworkStart}ms, total ${Date.now() - t0}ms`
+  );
   const ref: RemoteMediaRef = {
     source_peer_addr: sourcePeerAddr,
     blake3_hash: blake3Hash,
@@ -350,6 +458,7 @@ async function videoToMediaRef(
   playerNodeId: string,
   bridgeCache: BridgeCache
 ): Promise<RemoteMediaRef> {
+  const t0 = Date.now();
   // step 8 (cross-remote forwarding) - videos carry no blake3/size of
   // their own (unlike Song), so the fast path needs one lightweight
   // blob_metadata round trip to C instead of a plain field read.
@@ -359,13 +468,22 @@ async function videoToMediaRef(
       playerNodeId,
       bridgeCache
     );
+    debug(
+      "playerQueuePush",
+      `${CENOTAPH_QUEUE_TRACE} videoToMediaRef(${video.title}): tryBridgeToSourceRemote took ${Date.now() - t0}ms, bridged=${!!bridged}`
+    );
     if (bridged) {
       try {
         const client = await getClientForRemote(bridged);
         const metadata = await client.music.blobMetadata({ id: video.media_blob_id });
         if (metadata.success && metadata.data?.blake3) {
+          const artworkStart = Date.now();
           const { thumbUrl, fullUrl } = await resolveVideoArtwork(video);
           const available_renditions = await fetchAvailableRenditions(client, video.media_blob_id);
+          debug(
+            "playerQueuePush",
+            `${CENOTAPH_QUEUE_TRACE} videoToMediaRef(${video.title}): artwork+renditions (bridged path) took ${Date.now() - artworkStart}ms, total ${Date.now() - t0}ms`
+          );
           return {
             source_peer_addr: bridged.peer_addr,
             blake3_hash: metadata.data.blake3,
@@ -387,12 +505,50 @@ async function videoToMediaRef(
       }
     }
   }
+  // fast path: this device may already have the actual file on disk
+  // (its own library, or already synced from a prior queue push/play) -
+  // if so, import it directly by path, skipping fetch()+base64 entirely.
+  const localPathStart = Date.now();
+  const localPath = await resolveLocalVideoPath(video);
+  if (localPath) {
+    const { sourcePeerAddr, blake3Hash } = await importLocalFileByPath(localPath);
+    debug(
+      "playerQueuePush",
+      `${CENOTAPH_QUEUE_TRACE} videoToMediaRef(${video.title}): resolveLocalVideoPath+importLocalFileByPath took ${Date.now() - localPathStart}ms (no js-memory relay), total ${Date.now() - t0}ms`
+    );
+    const artworkStart = Date.now();
+    const { thumbUrl, fullUrl } = await resolveVideoArtwork(video);
+    debug(
+      "playerQueuePush",
+      `${CENOTAPH_QUEUE_TRACE} videoToMediaRef(${video.title}): resolveVideoArtwork (local-path path) took ${Date.now() - artworkStart}ms, total ${Date.now() - t0}ms`
+    );
+    return {
+      source_peer_addr: sourcePeerAddr,
+      blake3_hash: blake3Hash,
+      duration_ms: video.duration_seconds ? Math.round(video.duration_seconds * 1000) : undefined,
+      mime_type: "video/mp4",
+      kind: "video",
+      title: video.title,
+      artwork_thumb_url: thumbUrl,
+      artwork_full_url: fullUrl,
+    };
+  }
+  const fetchStart = Date.now();
   const url = await getVideoURL(video);
   const res = await fetch(url);
   const blob = await res.blob();
   const bytes = new Uint8Array(await blob.arrayBuffer());
+  debug(
+    "playerQueuePush",
+    `${CENOTAPH_QUEUE_TRACE} videoToMediaRef(${video.title}): getVideoURL+fetch (relay path) took ${Date.now() - fetchStart}ms`
+  );
   const { sourcePeerAddr, blake3Hash } = await importMediaBytes(bytes);
+  const artworkStart = Date.now();
   const { thumbUrl, fullUrl } = await resolveVideoArtwork(video);
+  debug(
+    "playerQueuePush",
+    `${CENOTAPH_QUEUE_TRACE} videoToMediaRef(${video.title}): resolveVideoArtwork (relay path) took ${Date.now() - artworkStart}ms, total ${Date.now() - t0}ms`
+  );
   const ref: RemoteMediaRef = {
     source_peer_addr: sourcePeerAddr,
     blake3_hash: blake3Hash,
@@ -456,13 +612,27 @@ function toPushedQueueItems(mediaItems: MediaItem[], refs: RemoteMediaRef[]): Pu
  * was playing. the first song starts playing immediately. */
 export async function pushSongsToPlayer(peerAddr: string, songs: Song[]): Promise<void> {
   if (songs.length === 0) return;
+  const t0 = Date.now();
+  debug(
+    "playerQueuePush",
+    `${CENOTAPH_QUEUE_TRACE} pushSongsToPlayer(${peerAddr}): building ${songs.length} item(s)`
+  );
   const bridgeCache: BridgeCache = new Map();
   const items = await Promise.all(songs.map((song) => songToMediaRef(song, peerAddr, bridgeCache)));
+  debug(
+    "playerQueuePush",
+    `${CENOTAPH_QUEUE_TRACE} pushSongsToPlayer(${peerAddr}): built ${items.length} item(s) in ${Date.now() - t0}ms, sending replace_queue`
+  );
+  const sendStart = Date.now();
   const ack = (await sendPlayerCommand(peerAddr, {
     type: "control",
     command: "replace_queue",
     items,
   })) as CommandAckLike;
+  debug(
+    "playerQueuePush",
+    `${CENOTAPH_QUEUE_TRACE} pushSongsToPlayer(${peerAddr}): sendPlayerCommand took ${Date.now() - sendStart}ms, total ${Date.now() - t0}ms`
+  );
   debug("playerQueuePush", `pushSongsToPlayer(${peerAddr}) ack:`, ack);
   reportCommandAckFailure(ack, peerAddr);
   if (ack?.status) applyRemoteStatusFromAck(ack.status);
@@ -473,13 +643,27 @@ export async function pushSongsToPlayer(peerAddr: string, songs: Song[]): Promis
  * whatever it's currently playing. */
 export async function appendSongsToPlayer(peerAddr: string, songs: Song[]): Promise<void> {
   if (songs.length === 0) return;
+  const t0 = Date.now();
+  debug(
+    "playerQueuePush",
+    `${CENOTAPH_QUEUE_TRACE} appendSongsToPlayer(${peerAddr}): building ${songs.length} item(s)`
+  );
   const bridgeCache: BridgeCache = new Map();
   const items = await Promise.all(songs.map((song) => songToMediaRef(song, peerAddr, bridgeCache)));
+  debug(
+    "playerQueuePush",
+    `${CENOTAPH_QUEUE_TRACE} appendSongsToPlayer(${peerAddr}): built ${items.length} item(s) in ${Date.now() - t0}ms, sending append_queue`
+  );
+  const sendStart = Date.now();
   const ack = (await sendPlayerCommand(peerAddr, {
     type: "control",
     command: "append_queue",
     items,
   })) as CommandAckLike;
+  debug(
+    "playerQueuePush",
+    `${CENOTAPH_QUEUE_TRACE} appendSongsToPlayer(${peerAddr}): sendPlayerCommand took ${Date.now() - sendStart}ms, total ${Date.now() - t0}ms`
+  );
   debug("playerQueuePush", `appendSongsToPlayer(${peerAddr}) ack:`, ack);
   reportCommandAckFailure(ack, peerAddr);
   if (ack?.status) applyRemoteStatusFromAck(ack.status);
@@ -490,15 +674,29 @@ export async function appendSongsToPlayer(peerAddr: string, songs: Song[]): Prom
  * was playing. */
 export async function pushVideosToPlayer(peerAddr: string, videos: QueuedVideo[]): Promise<void> {
   if (videos.length === 0) return;
+  const t0 = Date.now();
+  debug(
+    "playerQueuePush",
+    `${CENOTAPH_QUEUE_TRACE} pushVideosToPlayer(${peerAddr}): building ${videos.length} item(s)`
+  );
   const bridgeCache: BridgeCache = new Map();
   const items = await Promise.all(
     videos.map((video) => videoToMediaRef(video, peerAddr, bridgeCache))
   );
+  debug(
+    "playerQueuePush",
+    `${CENOTAPH_QUEUE_TRACE} pushVideosToPlayer(${peerAddr}): built ${items.length} item(s) in ${Date.now() - t0}ms, sending replace_queue`
+  );
+  const sendStart = Date.now();
   const ack = (await sendPlayerCommand(peerAddr, {
     type: "control",
     command: "replace_queue",
     items,
   })) as CommandAckLike;
+  debug(
+    "playerQueuePush",
+    `${CENOTAPH_QUEUE_TRACE} pushVideosToPlayer(${peerAddr}): sendPlayerCommand took ${Date.now() - sendStart}ms, total ${Date.now() - t0}ms`
+  );
   debug("playerQueuePush", `pushVideosToPlayer(${peerAddr}) ack:`, ack);
   reportCommandAckFailure(ack, peerAddr);
   if (ack?.status) applyRemoteStatusFromAck(ack.status);
@@ -509,15 +707,29 @@ export async function pushVideosToPlayer(peerAddr: string, videos: QueuedVideo[]
  * whatever it's currently playing. */
 export async function appendVideosToPlayer(peerAddr: string, videos: QueuedVideo[]): Promise<void> {
   if (videos.length === 0) return;
+  const t0 = Date.now();
+  debug(
+    "playerQueuePush",
+    `${CENOTAPH_QUEUE_TRACE} appendVideosToPlayer(${peerAddr}): building ${videos.length} item(s)`
+  );
   const bridgeCache: BridgeCache = new Map();
   const items = await Promise.all(
     videos.map((video) => videoToMediaRef(video, peerAddr, bridgeCache))
   );
+  debug(
+    "playerQueuePush",
+    `${CENOTAPH_QUEUE_TRACE} appendVideosToPlayer(${peerAddr}): built ${items.length} item(s) in ${Date.now() - t0}ms, sending append_queue`
+  );
+  const sendStart = Date.now();
   const ack = (await sendPlayerCommand(peerAddr, {
     type: "control",
     command: "append_queue",
     items,
   })) as CommandAckLike;
+  debug(
+    "playerQueuePush",
+    `${CENOTAPH_QUEUE_TRACE} appendVideosToPlayer(${peerAddr}): sendPlayerCommand took ${Date.now() - sendStart}ms, total ${Date.now() - t0}ms`
+  );
   debug("playerQueuePush", `appendVideosToPlayer(${peerAddr}) ack:`, ack);
   reportCommandAckFailure(ack, peerAddr);
   if (ack?.status) applyRemoteStatusFromAck(ack.status);
@@ -544,13 +756,27 @@ async function mediaItemToRef(
  * kind and so silently sent nothing at all for a video-only queue). */
 export async function pushMediaToPlayer(peerAddr: string, items: MediaItem[]): Promise<void> {
   if (items.length === 0) return;
+  const t0 = Date.now();
+  debug(
+    "playerQueuePush",
+    `${CENOTAPH_QUEUE_TRACE} pushMediaToPlayer(${peerAddr}): building ${items.length} item(s)`
+  );
   const bridgeCache: BridgeCache = new Map();
   const refs = await Promise.all(items.map((item) => mediaItemToRef(item, peerAddr, bridgeCache)));
+  debug(
+    "playerQueuePush",
+    `${CENOTAPH_QUEUE_TRACE} pushMediaToPlayer(${peerAddr}): built ${refs.length} item(s) in ${Date.now() - t0}ms, sending replace_queue`
+  );
+  const sendStart = Date.now();
   const ack = (await sendPlayerCommand(peerAddr, {
     type: "control",
     command: "replace_queue",
     items: refs,
   })) as CommandAckLike;
+  debug(
+    "playerQueuePush",
+    `${CENOTAPH_QUEUE_TRACE} pushMediaToPlayer(${peerAddr}): sendPlayerCommand took ${Date.now() - sendStart}ms, total ${Date.now() - t0}ms`
+  );
   debug("playerQueuePush", `pushMediaToPlayer(${peerAddr}) ack:`, ack);
   reportCommandAckFailure(ack, peerAddr);
   if (ack?.status) applyRemoteStatusFromAck(ack.status);
@@ -560,13 +786,27 @@ export async function pushMediaToPlayer(peerAddr: string, items: MediaItem[]): P
 /** append equivalent of pushMediaToPlayer() above. */
 export async function appendMediaToPlayer(peerAddr: string, items: MediaItem[]): Promise<void> {
   if (items.length === 0) return;
+  const t0 = Date.now();
+  debug(
+    "playerQueuePush",
+    `${CENOTAPH_QUEUE_TRACE} appendMediaToPlayer(${peerAddr}): building ${items.length} item(s)`
+  );
   const bridgeCache: BridgeCache = new Map();
   const refs = await Promise.all(items.map((item) => mediaItemToRef(item, peerAddr, bridgeCache)));
+  debug(
+    "playerQueuePush",
+    `${CENOTAPH_QUEUE_TRACE} appendMediaToPlayer(${peerAddr}): built ${refs.length} item(s) in ${Date.now() - t0}ms, sending append_queue`
+  );
+  const sendStart = Date.now();
   const ack = (await sendPlayerCommand(peerAddr, {
     type: "control",
     command: "append_queue",
     items: refs,
   })) as CommandAckLike;
+  debug(
+    "playerQueuePush",
+    `${CENOTAPH_QUEUE_TRACE} appendMediaToPlayer(${peerAddr}): sendPlayerCommand took ${Date.now() - sendStart}ms, total ${Date.now() - t0}ms`
+  );
   debug("playerQueuePush", `appendMediaToPlayer(${peerAddr}) ack:`, ack);
   reportCommandAckFailure(ack, peerAddr);
   if (ack?.status) applyRemoteStatusFromAck(ack.status);

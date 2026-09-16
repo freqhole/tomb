@@ -58,6 +58,15 @@ vi.mock("../../../music/services/storage/audioAccess", () => ({
 vi.mock("../../../video/services/videoBlobAccess", () => ({
   getVideoURL: vi.fn(async () => "https://example.test/video.mp4"),
 }));
+// local-file-path fast path (importLocalFileByPath) is exercised by its own
+// test - here isCharnelMode() is false anyway, so these just need to not
+// pull in their real modules' transitive imports at load time.
+vi.mock("../media/resolveCharnelLocalBlobPath", () => ({
+  resolveCharnelLocalBlobPath: vi.fn(async () => null),
+}));
+vi.mock("../../../video/services/localVideo", () => ({
+  resolveLocalVideoPath: vi.fn(async () => null),
+}));
 
 import {
   pushSongsToPlayer,

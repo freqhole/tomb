@@ -7,6 +7,7 @@
 
 import { openDB, type IDBPDatabase } from "idb";
 import { createSignal } from "solid-js";
+import { setLogLevel } from "../../utils/logger";
 
 const DB_NAME = "freqhole_player_devel_mode";
 const DB_VERSION = 1;
@@ -44,4 +45,12 @@ export async function setDevelMode(next: boolean): Promise<void> {
   const db = await getDb();
   await db.put(STORE_NAME, next, DEVEL_MODE_KEY);
   setDevelModeSignal(next);
+  // devel mode means "i'm debugging this player" - bump the shared
+  // utils/logger.ts level so CENOTAPH_QUEUE_TRACE and every other debug()
+  // call actually shows up in this overlay (installConsoleCapture()
+  // captures console.debug too), without needing a separate console
+  // command that gets wiped on the next reload (see logger.ts's own doc
+  // comment on why setLogLevel persists and a bare window.__LOGGER_CONFIG
+  // assignment doesn't).
+  setLogLevel(next ? "debug" : "error");
 }

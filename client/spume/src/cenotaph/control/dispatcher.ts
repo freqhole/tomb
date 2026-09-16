@@ -9,6 +9,7 @@ import { broadcastStatus } from "./statusSubscribers";
 import { markActivity } from "./activityIndicator";
 import type { PlaybackBackend } from "./playbackBackend";
 import { debug, error, warn } from "../../utils/logger";
+import { CENOTAPH_QUEUE_TRACE } from "../queueTrace";
 
 // only the handful of commands that can take the player from idle (no
 // now-playing item, qr code showing) to actually playing something count
@@ -39,6 +40,15 @@ export async function dispatchCommand<TNode = unknown>(
   const command = parsed.data;
   if (command.command !== "get_status") {
     debug("dispatcher", "dispatching command:", command);
+  }
+  const isQueueCommand = command.command === "replace_queue" || command.command === "append_queue";
+  const dispatchStart = Date.now();
+  if (isQueueCommand) {
+    const itemCount = "items" in command ? command.items.length : 0;
+    debug(
+      "dispatcher",
+      `${CENOTAPH_QUEUE_TRACE} dispatchCommand: received "${command.command}" with ${itemCount} item(s)`
+    );
   }
   const tracksLoading = QR_HIDING_COMMANDS.has(command.command);
   if (command.command !== "get_status") markActivity();
@@ -96,6 +106,12 @@ export async function dispatchCommand<TNode = unknown>(
     // just the one that sent this command - so a shared/multi-user queue
     // stays in sync without everyone polling.
     broadcastStatus(status);
+    if (isQueueCommand) {
+      debug(
+        "dispatcher",
+        `${CENOTAPH_QUEUE_TRACE} dispatchCommand: "${command.command}" acked ok=true after ${Date.now() - dispatchStart}ms, queue.length=${status.queue.length}`
+      );
+    }
     return { type: "command_ack", ok: true, status };
   } catch (err) {
     // a thrown backend method (e.g. queue.ts's addToQueue/playQueue
@@ -109,6 +125,13 @@ export async function dispatchCommand<TNode = unknown>(
     // wasn't this queued" - the deeper resolve/sync functions already log
     // their own failures, but a throw from the QUEUE-ADD step itself
     // (after a successful resolve) had no logging anywhere before this.
+    if (isQueueCommand) {
+      error(
+        "dispatcher",
+        `${CENOTAPH_QUEUE_TRACE} dispatchCommand: "${command.command}" threw after ${Date.now() - dispatchStart}ms:`,
+        err
+      );
+    }
     error("dispatcher", `command "${command.command}" threw:`, err);
     return { type: "command_ack", ok: false, reason: "invalid_command" };
   } finally {

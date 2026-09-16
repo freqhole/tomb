@@ -13,6 +13,7 @@ import { getMiddenNode } from "../../api/client";
 import { isCharnelMode } from "../charnel/mode";
 import type { BiStreamLike } from "@freqhole/api-client";
 import { debug } from "../../../utils/logger";
+import { CENOTAPH_QUEUE_TRACE } from "../../../cenotaph/queueTrace";
 
 export const PLAYER_ALPN = "freqhole-player/1";
 
@@ -76,16 +77,26 @@ async function dialLineOnce(peerAddr: string, line: string): Promise<string | nu
 }
 
 async function dialLine(peerAddr: string, line: string): Promise<string | null> {
+  const t0 = Date.now();
   for (let attempt = 0; ; attempt++) {
+    const attemptStart = Date.now();
     try {
       const response = await dialLineOnce(peerAddr, line);
       debug("playerPairingClient", `dial attempt ${attempt + 1} succeeded, peerAddr=${peerAddr}`, {
         line,
         response,
       });
+      debug(
+        "playerPairingClient",
+        `${CENOTAPH_QUEUE_TRACE} dialLine(${peerAddr}): succeeded on attempt ${attempt + 1} after ${Date.now() - attemptStart}ms (total ${Date.now() - t0}ms)`
+      );
       return response;
     } catch (err) {
       debug("playerPairingClient", `dial attempt ${attempt + 1} failed, peerAddr=${peerAddr}`, err);
+      debug(
+        "playerPairingClient",
+        `${CENOTAPH_QUEUE_TRACE} dialLine(${peerAddr}): attempt ${attempt + 1} failed after ${Date.now() - attemptStart}ms (total ${Date.now() - t0}ms so far)`
+      );
       if (attempt >= DIAL_RETRY_DELAYS_MS.length) throw err;
       await new Promise((resolve) => setTimeout(resolve, DIAL_RETRY_DELAYS_MS[attempt]));
     }
@@ -97,9 +108,18 @@ export async function pairWithPlayer(
   code: string,
   displayName: string
 ): Promise<PairResult> {
+  const t0 = Date.now();
+  debug(
+    "playerPairingClient",
+    `${CENOTAPH_QUEUE_TRACE} pairWithPlayer(${peerAddr}): dialing pair_request`
+  );
   const line = await dialLine(
     peerAddr,
     JSON.stringify({ type: "pair_request", code, display_name: displayName })
+  );
+  debug(
+    "playerPairingClient",
+    `${CENOTAPH_QUEUE_TRACE} pairWithPlayer(${peerAddr}): dialLine returned after ${Date.now() - t0}ms, response=${line ?? "(null)"}`
   );
   if (!line) return { ok: false, reason: "no_response" };
   const parsed = JSON.parse(line) as { ok?: boolean; reason?: string };
@@ -262,11 +282,29 @@ export function closePlayerControlSession(peerAddr: string): void {
 
 export async function sendPlayerCommand(peerAddr: string, command: unknown): Promise<unknown> {
   const line = JSON.stringify(command);
+  const commandType =
+    typeof command === "object" && command !== null && "command" in command
+      ? (command as { command?: unknown }).command
+      : undefined;
+  const isQueueCommand = commandType === "replace_queue" || commandType === "append_queue";
+  const sendStart = Date.now();
+  if (isQueueCommand) {
+    debug(
+      "playerPairingClient",
+      `${CENOTAPH_QUEUE_TRACE} sendPlayerCommand: sending "${String(commandType)}" to ${peerAddr}`
+    );
+  }
   // charnel/tauri's player_pairing_dial invoke has no persistent-session
   // equivalent yet (see subscribeToPlayerStatus's doc comment) - one-shot
   // dial there, same as before.
   if (isCharnelMode()) {
     const response = await dialLine(peerAddr, line);
+    if (isQueueCommand) {
+      debug(
+        "playerPairingClient",
+        `${CENOTAPH_QUEUE_TRACE} sendPlayerCommand: "${String(commandType)}" response after ${Date.now() - sendStart}ms: ${response ?? "(null)"}`
+      );
+    }
     return response ? JSON.parse(response) : null;
   }
   let session = controlSessions.get(peerAddr);
@@ -275,6 +313,12 @@ export async function sendPlayerCommand(peerAddr: string, command: unknown): Pro
     controlSessions.set(peerAddr, session);
   }
   const response = await session.send(line);
+  if (isQueueCommand) {
+    debug(
+      "playerPairingClient",
+      `${CENOTAPH_QUEUE_TRACE} sendPlayerCommand: "${String(commandType)}" response after ${Date.now() - sendStart}ms: ${response ?? "(null)"}`
+    );
+  }
   return response ? JSON.parse(response) : null;
 }
 

@@ -26,6 +26,7 @@ import { spumeTrustStore } from "./trustStoreAdapter";
 import { setSessionSignal } from "../pairing/pinStore";
 import type { PlayerSession, SessionMode } from "../pairing/playerSession";
 import { debug, error } from "../../utils/logger";
+import { CENOTAPH_QUEUE_TRACE } from "../queueTrace";
 import { toast } from "../../components/feedback/Toast";
 
 interface CenotaphCommandEventPayload {
@@ -234,6 +235,32 @@ async function handleCenotaphCommand(
   invoke: <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>
 ): Promise<void> {
   const { request_id, command_json, peer_id } = payload;
+  const isQueueCommand =
+    command_json.includes('"replace_queue"') || command_json.includes('"append_queue"');
+  const receivedAt = Date.now();
+  if (isQueueCommand) {
+    debug(
+      "charnelAcceptBridge",
+      `${CENOTAPH_QUEUE_TRACE} handleCenotaphCommand: received queue command from peer_id=${peer_id} request_id=${request_id}`
+    );
+  }
+
+  // dispatchCommand MUST start before anything else here - for a queue
+  // command, this is what renders pending preview rows (see
+  // charnelPlaybackAdapter.ts's addPendingPreview), and that's supposed
+  // to be the very first thing that happens after a command arrives.
+  // previously this was awaited AFTER the trust-store lookup below,
+  // delaying every pending row by however long that lookup took - the
+  // lookup is only for a cosmetic display name in the connected-
+  // controllers list (peer trust/session gating already happened
+  // natively - see this file's header comment), so it has no reason to
+  // block dispatch at all. `charnelPlaybackAdapter`'s
+  // `PlaybackBackend<unknown>` never reads its `node` argument (see the
+  // adapter's own file) - this accept path has no midden/wasm node to
+  // hand it, unlike the browser path.
+  debug("charnelAcceptBridge", `dispatchCommand starting, request_id=${request_id}`);
+  const dispatchPromise = dispatchCommand(charnelPlaybackAdapter, undefined, command_json);
+
   // rust dials a brand new stream per command rather than holding one
   // open (see player_pairing_accept.rs), so - same as the wasm/browser
   // accept path's per-stream markControllerConnected calls in
@@ -242,15 +269,19 @@ async function handleCenotaphCommand(
   // that into a stable "currently connected" indicator instead of a
   // flicker. no matching "disconnected" call is needed for this path -
   // the grace period timeout handles it once commands stop arriving.
+  // runs CONCURRENTLY with dispatchPromise above, not before it.
   const controller = await spumeTrustStore.getTrustedController(peer_id);
   markControllerConnected({
     node_id: peer_id,
     display_name: controller?.display_name ?? peer_id.slice(0, 8),
   });
-  // `charnelPlaybackAdapter`'s `PlaybackBackend<unknown>` never reads
-  // its `node` argument (see the adapter's own file) - this accept
-  // path has no midden/wasm node to hand it, unlike the browser path.
-  //
+  if (isQueueCommand) {
+    debug(
+      "charnelAcceptBridge",
+      `${CENOTAPH_QUEUE_TRACE} handleCenotaphCommand: getTrustedController+markControllerConnected done at +${Date.now() - receivedAt}ms (ran concurrently with dispatchCommand, not before it)`
+    );
+  }
+
   // dispatchCommand now catches its own backend errors and always
   // resolves to a real ack - this remains as defense in depth (e.g. a
   // malformed command_json JSON.parse throw) so a reply always goes
@@ -258,10 +289,22 @@ async function handleCenotaphCommand(
   // forever with no ack and no error surfaced.
   let ack: unknown;
   try {
-    debug("charnelAcceptBridge", `dispatchCommand starting, request_id=${request_id}`);
-    ack = await dispatchCommand(charnelPlaybackAdapter, undefined, command_json);
+    ack = await dispatchPromise;
     debug("charnelAcceptBridge", `dispatchCommand resolved, request_id=${request_id}`, ack);
+    if (isQueueCommand) {
+      debug(
+        "charnelAcceptBridge",
+        `${CENOTAPH_QUEUE_TRACE} handleCenotaphCommand: queue command dispatched after ${Date.now() - receivedAt}ms, request_id=${request_id}, ack=${JSON.stringify(ack)}`
+      );
+    }
   } catch (err) {
+    if (isQueueCommand) {
+      error(
+        "charnelAcceptBridge",
+        `${CENOTAPH_QUEUE_TRACE} handleCenotaphCommand: queue command threw after ${Date.now() - receivedAt}ms, request_id=${request_id}:`,
+        err
+      );
+    }
     error("charnelAcceptBridge", `dispatchCommand threw for request_id=${request_id}:`, err);
     ack = { type: "command_ack", ok: false, reason: "invalid_command" };
   }

@@ -4,7 +4,7 @@
 // embedded browsers). only rendered by CenotaphPlayerApp while develMode()
 // is on. mirrors player.freqhole.net's now-abandoned `debug/DebugOverlay.tsx`.
 
-import { createEffect, For } from "solid-js";
+import { createEffect, createSignal, For } from "solid-js";
 import { capturedLogLines, type CapturedLogLine } from "../index";
 
 const LEVEL_COLOR: Record<CapturedLogLine["level"], string> = {
@@ -17,25 +17,52 @@ const LEVEL_COLOR: Record<CapturedLogLine["level"], string> = {
 
 export function PlayerDebugOverlay() {
   let scrollRef: HTMLDivElement | undefined;
+  const [copied, setCopied] = createSignal(false);
 
   createEffect(() => {
     capturedLogLines();
     if (scrollRef) scrollRef.scrollTop = scrollRef.scrollHeight;
   });
 
+  // no devtools on tvs/embedded browsers (this overlay's whole reason to
+  // exist) means no other way to get these lines off the device at all.
+  const handleCopy = async () => {
+    const text = capturedLogLines()
+      .map((line) => `[${line.level}] ${line.text}`)
+      .join("\n");
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // no toast surface here - the copied-state flash is the only feedback available
+    }
+  };
+
   return (
     <div
-      ref={scrollRef}
-      class="fixed inset-y-0 left-0 z-[70] w-1/2 overflow-y-auto bg-black/70 p-3 text-left font-mono text-xs"
+      class="fixed inset-y-0 left-0 z-[70] flex w-1/2 flex-col bg-black/70 text-left font-mono text-xs"
       data-testid="debug-overlay"
     >
-      <For each={capturedLogLines()}>
-        {(line) => (
-          <p class={LEVEL_COLOR[line.level]}>
-            [{line.level}] {line.text}
-          </p>
-        )}
-      </For>
+      <div class="flex flex-shrink-0 justify-end p-2">
+        <button
+          type="button"
+          class="rounded border border-white/30 bg-black/60 px-2 py-1 font-sans text-[10px] text-white hover:bg-black/80"
+          onClick={() => void handleCopy()}
+          data-testid="debug-overlay-copy"
+        >
+          {copied() ? "copied!" : "copy all"}
+        </button>
+      </div>
+      <div ref={scrollRef} class="flex-1 overflow-y-auto p-3 pt-0">
+        <For each={capturedLogLines()}>
+          {(line) => (
+            <p class={LEVEL_COLOR[line.level]}>
+              [{line.level}] {line.text}
+            </p>
+          )}
+        </For>
+      </div>
     </div>
   );
 }

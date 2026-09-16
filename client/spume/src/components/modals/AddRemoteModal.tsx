@@ -48,6 +48,7 @@ import { refreshPlayerStatus } from "../../app/services/remotes/remoteHealth";
 import { adminLocalRawDispatch, getLocalAdminClient } from "../../app/api/adminClient";
 import { resolveBlobUrl } from "../../music/services/storage/blobResolver";
 import { debug, error } from "../../utils/logger";
+import { CENOTAPH_QUEUE_TRACE } from "../../cenotaph/queueTrace";
 import { parsePlayerPairingQr } from "../../utils/playerPairingQr";
 import { pushModal, popModal } from "../../music/hooks/modals";
 import { AuthForm } from "../auth/AuthForm";
@@ -207,8 +208,17 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
     if (!pin) return;
     setPlayerPairStatus("pairing");
     setPlayerPairError(null);
+    const t0 = Date.now();
+    debug(
+      "AddRemoteModal",
+      `${CENOTAPH_QUEUE_TRACE} handlePairPlayer(${peerAddr}): starting pairWithPlayer`
+    );
     try {
       const result = await pairWithPlayer(peerAddr, pin, playerControllerName().trim() || "spume");
+      debug(
+        "AddRemoteModal",
+        `${CENOTAPH_QUEUE_TRACE} handlePairPlayer(${peerAddr}): pairWithPlayer returned after ${Date.now() - t0}ms, ok=${result.ok}`
+      );
       if (!result.ok) {
         error(
           "AddRemoteModal",
@@ -247,13 +257,35 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
       await deletePendingRemoteByPeerAddr(peerAddr).catch(() => {});
       // pairing (or re-pairing) is the whole point of scanning a player's qr -
       // finish the job by actually selecting it as the active playback
-      // target, rather than leaving that as a separate manual step.
-      await selectPlayerPlaybackTarget(player);
-      // confirm player status right away rather than waiting for the next
-      // passive health sweep - otherwise the "play on" flyout (which only
-      // lists health-probe-confirmed players) has nothing to show yet and
-      // hides itself entirely, with no way back to "this device".
-      refreshPlayerStatus();
+      // target. NOT awaited (mirrors QueuePlayerTargetRow.tsx's own
+      // fire-and-forget call) - selectPlayerPlaybackTarget already does its
+      // optimistic work (setActiveTargetToPlayer/registerPendingMediaOp)
+      // synchronously before its first await, so this modal can close and
+      // report success immediately instead of sitting on its spinner for
+      // the entire blob-resolve-and-push chain that follows (previously
+      // several/tens of seconds for a real queue - a real reported "pairing
+      // modal hangs" bug, not a logging gap).
+      debug(
+        "AddRemoteModal",
+        `${CENOTAPH_QUEUE_TRACE} handlePairPlayer(${peerAddr}): firing selectPlayerPlaybackTarget (not awaited)`
+      );
+      const selectStart = Date.now();
+      void selectPlayerPlaybackTarget(player)
+        .catch((err) => {
+          error("AddRemoteModal", `selectPlayerPlaybackTarget failed for ${peerAddr}:`, err);
+        })
+        .finally(() => {
+          debug(
+            "AddRemoteModal",
+            `${CENOTAPH_QUEUE_TRACE} handlePairPlayer(${peerAddr}): selectPlayerPlaybackTarget settled after ${Date.now() - selectStart}ms`
+          );
+          // confirm player status right away rather than waiting for the
+          // next passive health sweep - otherwise the "play on" flyout
+          // (which only lists health-probe-confirmed players) has nothing
+          // to show yet and hides itself entirely, with no way back to
+          // "this device".
+          refreshPlayerStatus();
+        });
       toast.success(`paired with ${displayNameHint}`);
       props.onClose();
       props.onPlayerPaired?.(player);
@@ -340,8 +372,18 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
             }).catch(() => {});
           }
           await deletePendingRemoteByPeerAddr(peerAddr).catch(() => {});
-          await selectPlayerPlaybackTarget(player);
-          refreshPlayerStatus();
+          // not awaited - see handlePairPlayer's identical fix above for why.
+          // this is the auto-skip-pin path (already-authorized peer, e.g. a
+          // "reconnect" toast action) - the exact path that needs to close
+          // and get out of the user's way FASTEST, so blocking it on a full
+          // queue push was especially bad here.
+          void selectPlayerPlaybackTarget(player)
+            .catch((err) => {
+              error("AddRemoteModal", `selectPlayerPlaybackTarget failed for ${peerAddr}:`, err);
+            })
+            .finally(() => {
+              refreshPlayerStatus();
+            });
           toast.success(`connected as player: ${player.username}`);
           props.onClose();
           props.onPlayerPaired?.(player);

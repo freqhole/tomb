@@ -23,6 +23,7 @@ import type { MediaRef } from "../index";
 
 const isCharnelAvailable = vi.fn(() => false);
 const getClientForRemote = vi.fn();
+const getLocalNodeIdAsync = vi.fn();
 const createRemote = vi.fn();
 const getRemoteByPeerAddr = vi.fn();
 const getTauriManagedRemote = vi.fn();
@@ -35,6 +36,7 @@ const adaptSongFromAPI = vi.fn();
 vi.mock("../../app/api/client", () => ({
   isCharnelAvailable: () => isCharnelAvailable(),
   getClientForRemote: (...a: unknown[]) => getClientForRemote(...(a as [])),
+  getLocalNodeIdAsync: (...a: unknown[]) => getLocalNodeIdAsync(...(a as [])),
 }));
 vi.mock("../../app/services/remotes/remoteManager", () => ({
   createRemote: (...a: unknown[]) => createRemote(...(a as [])),
@@ -105,6 +107,7 @@ beforeEach(() => {
   // one that never expected a client to be returned at all.
   getClientForRemote.mockReset();
   isCharnelAvailable.mockReturnValue(false);
+  getLocalNodeIdAsync.mockResolvedValue(null);
   getRemoteByPeerAddr.mockResolvedValue(null);
   createRemote.mockResolvedValue(remote);
   getSongByBlake3.mockResolvedValue(null);
@@ -192,6 +195,22 @@ describe("resolveMediaRefToSong", () => {
     syncSongToLocal.mockResolvedValue({ success: false, error: "boom" });
     const result = await resolveMediaRefToSong(songRef());
     expect(result).toBeNull();
+  });
+
+  it("refuses to dial itself when source_peer_addr is this device's own node id and the item wasn't found locally", async () => {
+    getLocalNodeIdAsync.mockResolvedValue("peer-a");
+    const result = await resolveMediaRefToSong(songRef({ source_peer_addr: "peer-a" }));
+    expect(result).toBeNull();
+    expect(getClientForRemote).not.toHaveBeenCalled();
+    expect(createRemote).not.toHaveBeenCalled();
+    expect(syncSongToLocal).not.toHaveBeenCalled();
+  });
+
+  it("still dials a genuinely different peer when source_peer_addr differs from this device's own node id", async () => {
+    getLocalNodeIdAsync.mockResolvedValue("this-device-node-id");
+    getSongByBlake3.mockResolvedValueOnce(null).mockResolvedValueOnce({ sha256: "b3-song-1" });
+    await resolveMediaRefToSong(songRef({ source_peer_addr: "peer-a" }));
+    expect(getClientForRemote).toHaveBeenCalled();
   });
 
   describe("charnel mode", () => {
@@ -311,6 +330,15 @@ describe("resolveMediaRefToVideo", () => {
     syncVideoToLocal.mockResolvedValue({ success: false, error: "boom" });
     const result = await resolveMediaRefToVideo(videoRef());
     expect(result).toBeNull();
+  });
+
+  it("refuses to dial itself when source_peer_addr is this device's own node id and the item wasn't found locally", async () => {
+    getLocalNodeIdAsync.mockResolvedValue("peer-a");
+    const result = await resolveMediaRefToVideo(videoRef({ source_peer_addr: "peer-a" }));
+    expect(result).toBeNull();
+    expect(getClientForRemote).not.toHaveBeenCalled();
+    expect(createRemote).not.toHaveBeenCalled();
+    expect(syncVideoToLocal).not.toHaveBeenCalled();
   });
 
   describe("charnel mode", () => {

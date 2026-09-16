@@ -90,6 +90,10 @@ const adaptSongFromAPI = vi.fn();
 vi.mock("../../app/api/client", () => ({
   isCharnelAvailable: () => isCharnelAvailable(),
   getClientForRemote: (...a: unknown[]) => getClientForRemote(...(a as [])),
+  // resolveMediaRefToSong/Video's self-node-id short-circuit - none of
+  // these tests are exercising "am I my own source peer", so always
+  // resolve to null (not self) here.
+  getLocalNodeIdAsync: () => Promise.resolve(null),
 }));
 vi.mock("../../app/services/remotes/remoteManager", () => ({
   createRemote: (...a: unknown[]) => createRemote(...(a as [])),
@@ -121,7 +125,7 @@ vi.mock("../../video/queries/queryKeys", () => ({
   videoQueryKeys: { videos: { all: () => ["videos"] } },
 }));
 
-import { charnelPlaybackAdapter } from "./charnelPlaybackAdapter";
+import { charnelPlaybackAdapter, pendingQueuePreviews } from "./charnelPlaybackAdapter";
 
 const remote = { remote_id: "remote-1", base_url: "", peer_addr: "peer-a" };
 
@@ -257,6 +261,32 @@ describe("charnelPlaybackAdapter.replaceQueue", () => {
     expect(firstItems[0].kind).toBe("video");
     const [restItems] = addToQueue.mock.calls[0] as unknown as [MediaItem[]];
     expect(restItems[0].kind).toBe("song");
+  });
+
+  it("renders a pending preview row for every item BEFORE clearQueue() resolves - optimistic UI must come first", async () => {
+    let resolveClear!: () => void;
+    clearQueue.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveClear = resolve;
+        })
+    );
+
+    const replacePromise = charnelPlaybackAdapter.replaceQueue(undefined, [
+      videoRef({ blake3_hash: "b3-video-1" }),
+      songRef({ blake3_hash: "b3-song-1" }),
+    ]);
+
+    // let microtasks flush up to (but not past) the still-pending clearQueue().
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(clearQueue).toHaveBeenCalledTimes(1);
+    const keys = pendingQueuePreviews().map((p) => p.key);
+    expect(keys).toEqual(expect.arrayContaining(["b3-video-1", "b3-song-1"]));
+
+    resolveClear();
+    await replacePromise;
   });
 });
 

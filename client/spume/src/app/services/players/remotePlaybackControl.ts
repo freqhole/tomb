@@ -21,6 +21,8 @@ import { appState, setQueue } from "../storage/db";
 import { mediaItemBlake3, mediaItemKey } from "../storage/mediaItem";
 import { toast } from "../../../components/feedback/Toast";
 import { requestAddRemote } from "../remotes/addRemoteRequest";
+import { warn } from "../../../utils/logger";
+import { CENOTAPH_QUEUE_TRACE } from "../../../cenotaph/queueTrace";
 
 export interface RenditionRef {
   blake3_hash: string;
@@ -180,6 +182,10 @@ export function reportCommandAckFailure(
   peerAddr?: string
 ): void {
   if (!ack || ack.ok !== false) return;
+  warn(
+    "remotePlaybackControl",
+    `${CENOTAPH_QUEUE_TRACE} reportCommandAckFailure: ack rejected, reason=${ack.reason ?? "(none)"} peerAddr=${peerAddr ?? "(unknown)"}`
+  );
   toast.warning(describeCommandAckFailure(ack.reason), {
     title: "remote-player-command-rejected",
     action: peerAddr

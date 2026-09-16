@@ -27,8 +27,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 
 use grimoire::cenotaph::{
-    CommandAck, CommandAckReason, PairingCode, PairingDispatchRx, PlayerProtocol, PlayerSession,
-    PlayerStatus, SessionMode, SharedPairingState, StatusCommon,
+    command_summary, CommandAck, CommandAckReason, PairingCode, PairingDispatchRx, PlayerCommand,
+    PlayerProtocol, PlayerSession, PlayerStatus, SessionMode, SharedPairingState, StatusCommon,
 };
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
@@ -111,6 +111,26 @@ pub fn set_node_id(node_id: String) {
 fn spawn_dispatch_bridge(mut rx: PairingDispatchRx) {
     tauri::async_runtime::spawn(async move {
         while let Some(req) = rx.recv().await {
+            // greppable alongside the JS-side CENOTAPH_QUEUE_TRACE tag
+            // (client/spume/src/cenotaph/queueTrace.ts) - this is the
+            // EARLIEST point charnel's rust side knows about a queue
+            // command at all (right off the iroh accept-loop's dispatch
+            // channel, before the webview even exists in the picture),
+            // so a gap between this line and JS's own "received queue
+            // command" trace pins down exactly how long the rust ->
+            // tauri-event handoff itself took.
+            let is_queue_command = matches!(
+                req.command,
+                PlayerCommand::ReplaceQueue { .. } | PlayerCommand::AppendQueue { .. }
+            );
+            if is_queue_command {
+                tracing::info!(
+                    target: "cenotaph",
+                    peer_id = %req.peer_id,
+                    command = %command_summary(&req.command),
+                    "CENOTAPH_QUEUE_TRACE: spawn_dispatch_bridge received queue command off dispatch channel"
+                );
+            }
             let Some(app) = APP_HANDLE.get() else {
                 let _ = req
                     .reply
@@ -147,6 +167,13 @@ fn spawn_dispatch_bridge(mut rx: PairingDispatchRx) {
                 command_json,
                 peer_id: req.peer_id,
             };
+            if is_queue_command {
+                tracing::info!(
+                    target: "cenotaph",
+                    request_id = %request_id,
+                    "CENOTAPH_QUEUE_TRACE: spawn_dispatch_bridge emitting cenotaph-command event to webview"
+                );
+            }
             if let Err(e) = app.emit("cenotaph-command", event) {
                 tracing::warn!(target: "cenotaph", error = %e, "failed to emit cenotaph-command event");
                 if let Some(tx) = pending().as_mut().and_then(|m| m.remove(&request_id)) {
