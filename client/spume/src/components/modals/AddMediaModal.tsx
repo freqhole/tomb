@@ -102,6 +102,22 @@ export interface AddMediaModalProps {
   dismissedReviewSessionId?: string | null;
   /** video session id that has just been reviewed - auto-dismisses its upload card */
   dismissedVideoReviewSessionId?: string | null;
+  /** portal mount target - defaults to document.body. set this to a shadow
+   *  root when the modal is rendered inside a web component (e.g. the
+   *  freqhole.net coach demo), otherwise the portaled overlay escapes the
+   *  shadow root and renders over the host page instead of the frame. */
+  portalMount?: Node;
+  /** overlay z-index override - defaults to 1100. */
+  zIndex?: number;
+  /** overlay position - defaults to "fixed". a Portal escapes any
+   *  transformed ancestor meant to contain "fixed" descendants (it mounts
+   *  as a shadow-root child, not a descendant of that ancestor), so
+   *  "fixed" still resolves against the real viewport and can render over
+   *  a host page's own fixed header. "absolute" instead resolves against
+   *  the nearest *positioned* ancestor across the shadow boundary (e.g.
+   *  the coach demo's `.frame`, which has `position: relative`), keeping
+   *  the overlay confined to that frame. */
+  overlayPosition?: "fixed" | "absolute";
 }
 
 // a job entry tagged with which domain's store it came from, so the merged
@@ -826,12 +842,19 @@ export function AddMediaModal(props: AddMediaModalProps) {
 
   return (
     <Show when={props.isOpen}>
-      <Portal>
+      <Portal mount={props.portalMount as HTMLElement | undefined}>
         {/* overlay - uses inline styles for position/inset to avoid Tailwind
            var(--spacing) calc breaking on older Android WebView */}
         <div
           class="bg-black/50 flex items-center justify-center p-0 wide:p-8"
-          style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, "z-index": 1100 }}
+          style={{
+            position: props.overlayPosition ?? "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            "z-index": props.zIndex ?? 1100,
+          }}
           onClick={() => props.onClose()}
         >
           {/* modal content - full screen on narrow, constrained on wide */}

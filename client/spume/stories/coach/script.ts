@@ -31,7 +31,7 @@ export const coachSteps: CoachStep[] = [
   {
     id: "add-music",
     title: "take a quick tour",
-    body: "freqhole scans + indexes your audio files. apps for mac, linux, & android. CLI for headless servers (like a raspberry pi). this is a tour of the main gui.",
+    body: "freqhole scans + indexes your media files. apps for mac, linux, windows, & android. CLI for headless servers (like a raspberry pi). this is a tour of the main gui.",
     anchor: "addMusicButton",
     apply: (ctx) => {
       ctx.closeAllModals();
@@ -177,6 +177,32 @@ export const coachSteps: CoachStep[] = [
       else if (p < 0.7) ctx.setFavoriteFilters?.(["albums", "artists", "playlists"]);
       else if (p < 0.84) ctx.setFavoriteFilters?.(["artists", "playlists"]);
       else ctx.setFavoriteFilters?.(["playlists"]);
+    },
+  },
+  {
+    id: "videos",
+    title: "video",
+    body: "movies and clips, browsed the same way as your music - virtualized grid, tags, favorites, and all.",
+    anchor: "videosGrid",
+    apply: (ctx) => {
+      ctx.setRoute("videos");
+      ctx.setQueueOpen(false);
+      ctx.closeSearch();
+      ctx.setSpotlight?.(null);
+      ctx.setListProgress?.("videosGrid", 0);
+    },
+    onProgress: (ctx, p) => ctx.setListProgress?.("videosGrid", p),
+  },
+  {
+    id: "series",
+    title: "tv-style series",
+    body: "group episodes into series and seasons; organize your own recordings, footage, or anything episodic.",
+    anchor: "seriesGrid",
+    apply: (ctx) => {
+      ctx.setRoute("series");
+      ctx.setQueueOpen(false);
+      ctx.closeSearch();
+      ctx.setSpotlight?.(null);
     },
   },
   {

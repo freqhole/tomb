@@ -78,11 +78,15 @@ export interface FavoritesLayoutProps {
   onVideoPlay?: (video: VideoSummary) => void;
   getVideoContextMenuActions?: (video: VideoSummary) => MenuAction[];
   onVideoFavoriteToggle?: (videoId: string, isFavorite: boolean) => void;
+  /** fallback image url resolver - see VideoCard's `imageUrl` prop */
+  getVideoImageUrl?: (video: VideoSummary) => string | undefined;
   /** video series card callbacks */
   onSeriesClick?: (series: VideoSeries) => void;
   onSeriesPlay?: (series: VideoSeries) => void;
   getSeriesContextMenuActions?: (series: VideoSeries) => MenuAction[];
   onSeriesFavoriteToggle?: (seriesId: string, isFavorite: boolean) => void;
+  /** fallback image url resolver - see VideoSeriesCard's `imageUrl` prop */
+  getSeriesImageUrl?: (series: VideoSeries) => string | undefined;
   /** navigation callbacks */
   onArtistNavigate?: (artistId: string) => void;
   onAlbumNavigate?: (albumId: string) => void;
@@ -394,6 +398,7 @@ export function FavoritesLayout(props: FavoritesLayoutProps) {
             isFavorite={true}
             onClick={props.onVideoClick}
             onPlay={props.onVideoPlay}
+            imageUrl={props.getVideoImageUrl?.(video)}
             onFavoriteToggle={props.onVideoFavoriteToggle}
           />
         );
@@ -411,6 +416,7 @@ export function FavoritesLayout(props: FavoritesLayoutProps) {
             isFavorite={true}
             onClick={props.onSeriesClick}
             onPlay={props.onSeriesPlay}
+            imageUrl={props.getSeriesImageUrl?.(series)}
             onFavoriteToggle={props.onSeriesFavoriteToggle}
           />
         );

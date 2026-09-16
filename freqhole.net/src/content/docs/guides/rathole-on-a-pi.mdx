@@ -1,0 +1,79 @@
+---
+title: rathole on a pi
+description: running rathole headless on a raspberry pi, as a systemd service, with optional physical button control
+---
+
+[`rathole`](https://github.com/freqhole/tomb) is freqhole's terminal (ratatui) client — a full music + video player you can ssh into, or run directly on a pi's console as a dedicated player. `--player` starts it straight in a QR/pin pairing screen, so it can be paired with and controlled from spume/cenotaph on your phone (see [cenotaph](/guides/cenotaph/) for the full pairing/player picture). grab an arm64/armv7 binary from the [download page](/getting-started/download/).
+
+## running as a systemd service
+
+running `rathole` as a service means it starts automatically on boot and takes over the console (tty1) as a dedicated player, instead of a login prompt.
+
+1. [download](/download) + copy the `rathole` binary somewhere, e.g. `/home/pi/rathole/rathole`
+2. create and save a service file below as `/etc/systemd/system/rathole.service`
+3. `sudo systemctl daemon-reload`
+4. `sudo systemctl enable --now rathole`
+5. check on it: `sudo systemctl status rathole` / `journalctl -u rathole -f`
+
+```ini
+[Unit]
+Description=rathole on tty1
+Wants=network-online.target
+After=network-online.target systemd-user-sessions.service
+Conflicts=getty@tty1.service
+After=getty@tty1.service
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/rathole
+PAMName=login
+Environment=TERM=linux
+
+# switch to the real console before launching.
+# the + runs only this command with elevated privileges.
+ExecStartPre=+chvt 1
+ExecStart=/home/pi/rathole/rathole --player
+
+StandardInput=tty
+StandardOutput=tty
+StandardError=journal
+TTYPath=/dev/tty1
+TTYReset=yes
+TTYVHangup=yes
+TTYVTDisallocate=yes
+
+Restart=no
+
+# return to the maintenance console when rathole stops or exits.
+ExecStopPost=+chvt 2
+
+[Install]
+WantedBy=multi-user.target
+```
+
+this conflicts with `getty@tty1` (the normal login prompt) so rathole owns tty1 directly; `tty2` is still free for a regular login if you need one.
+
+---
+
+## physical buttons (unix control socket)
+
+rathole can listen on a local unix domain socket for simple media-control commands — handy for physical buttons wired to a pi's GPIO, forwarded by a small script that writes a line to the socket. off by default, no network exposure (unix sockets are local-machine + filesystem-permission-gated only).
+
+enable it in `freqhole-config.toml`:
+
+```toml
+[control_socket]
+enabled = true
+# socket_path = "/custom/path.sock"   # optional, defaults to ~/rathole-control.sock
+```
+
+one newline-delimited command per connection, e.g.:
+
+```sh
+echo play_pause | nc -U ~/rathole-control.sock
+```
+
+a few of the available commands: `play_pause`, `next`, `previous`, `volume_up`, `volume_down`, `stop`, and `get_state` (replies with a JSON now-playing snapshot).
+
+full command reference, wire protocol, and config details: [`docs/rathole-control-socket.md`](https://github.com/freqhole/tomb/blob/main/docs/rathole-control-socket.md).

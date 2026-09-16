@@ -39,6 +39,8 @@ sudo dnf install ffmpeg   # fedora
 winget install --id Gyan.FFmpeg
 ```
 
+no winget, or prefer a manual install? [this step-by-step guide](https://gist.github.com/edwardsharp/6fc9ce8eba14185225fd31667856f2e3) walks through installing both ffmpeg and yt-dlp binaries by hand.
+
 ---
 
 ## yt-dlp
@@ -71,3 +73,14 @@ precheck_command = "yt-dlp --print-json --no-download"
 ```
 
 `precheck_command` enables the add-music review step before the actual download starts. use a metadata-only yt-dlp command here so freqhole can show you what will be fetched first.
+
+---
+
+## mpv
+
+**Linux**: the "experimental" video player will use `mpv` to play video.
+
+```bash
+sudo apt install mpv   # debian/ubuntu
+sudo dnf install mpv   # fedora
+```

@@ -18,6 +18,9 @@ export interface VideoSeriesCardProps {
   /** whether this series is favorited (omit to hide the heart entirely) */
   isFavorite?: boolean;
   onFavoriteToggle?: (seriesId: string, isFavorite: boolean) => void;
+  /** fallback image url used when there's no real blob to resolve - see
+   *  VideoCard's identically-named prop for why this exists. */
+  imageUrl?: string;
 }
 
 export function VideoSeriesCard(props: VideoSeriesCardProps) {
@@ -46,6 +49,7 @@ export function VideoSeriesCard(props: VideoSeriesCardProps) {
               blobId={props.series.poster_blob_id}
               remoteBlobId={props.series.poster_blob_id}
               remoteServerId={props.series.remote_server_id}
+              imageUrl={props.imageUrl}
               alt={props.series.title}
               showFallback={true}
               thumbnailSize={200}

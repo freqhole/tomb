@@ -1,0 +1,34 @@
+[Unit]
+Description=rathole on tty1
+Wants=network-online.target
+After=network-online.target systemd-user-sessions.service
+Conflicts=getty@tty1.service
+After=getty@tty1.service
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/rathole
+PAMName=login
+Environment=TERM=linux
+
+# switch to the real console before launching.
+# the + runs only this command with elevated privileges.
+ExecStartPre=+chvt 1
+ExecStart=/home/pi/rathole/rathole --player
+
+StandardInput=tty
+StandardOutput=tty
+StandardError=journal
+TTYPath=/dev/tty1
+TTYReset=yes
+TTYVHangup=yes
+TTYVTDisallocate=yes
+
+Restart=no
+
+# return to the maintenance console when rathole stops or exits.
+ExecStopPost=+chvt 2
+
+[Install]
+WantedBy=multi-user.target

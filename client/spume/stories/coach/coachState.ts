@@ -22,14 +22,11 @@ export type DemoRoute =
   | "radio"
   | "remotes"
   | "album-detail"
-  | "shares";
+  | "shares"
+  | "videos"
+  | "series";
 export type DemoModalName =
-  | "add-music"
-  | "add-remote"
-  | "share"
-  | "settings"
-  | "album-edit"
-  | "resolve-share";
+  "add-music" | "add-remote" | "share" | "settings" | "album-edit" | "resolve-share";
 
 export interface CoachContext {
   setLibraryMode: (mode: DemoLibraryMode) => void;

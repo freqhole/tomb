@@ -42,6 +42,9 @@ export interface VirtualVideoGridProps {
   scrollRestoreKey?: string;
   /** top padding inside the scroll container (px) - content scrolls under this space */
   scrollPaddingTop?: number;
+  /** fallback image url resolver - see VideoCard's `imageUrl` prop for why
+   *  this exists (storybook/demo callers with no real blob to resolve). */
+  getVideoImageUrl?: (video: VideoSummary) => string | undefined;
 }
 
 export function VirtualVideoGrid(props: VirtualVideoGridProps): JSX.Element {
@@ -201,6 +204,7 @@ export function VirtualVideoGrid(props: VirtualVideoGridProps): JSX.Element {
                                   video={video()!}
                                   onClick={props.onVideoClick}
                                   onPlay={props.onVideoPlay}
+                                  imageUrl={props.getVideoImageUrl?.(video()!)}
                                   isFavorite={
                                     props.favoriteVideoIds
                                       ? props.favoriteVideoIds.has(video()!.id)

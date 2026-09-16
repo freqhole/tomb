@@ -13,12 +13,16 @@ updatedSha: "3f1c9aa"
 freqhole supports two ways to connect clients to servers: traditional HTTP and peer-to-peer (P2P).
 
 :::note[headsup]
-the desktop app accepts incoming connections over P2P only — it doesn't run an HTTP server. you can still connect to HTTP remotes as a client. to host an HTTP server, use the rathole CLI.
+the desktop app accepts incoming connections over P2P only — it doesn't run an HTTP server. you can still connect to HTTP remotes as a client. to run your own HTTP server, use the rathole CLI.
 :::
 
 ## HTTP transport
 
 the familiar client-server model.
+
+:::caution[http]
+HTTP is far less common transport than P2P and thus, is far less tested, so expect to see more issues if you choose to use http transport! (sorry! if you run into issues or need help please file a [bug report](https://github.com/freqhole/tomb/issues/new))
+:::
 
 ### how it works
 

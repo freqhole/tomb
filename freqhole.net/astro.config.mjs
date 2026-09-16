@@ -64,10 +64,12 @@ export default defineConfig({
 				{
 					label: 'guides',
 					items: [
-						{ label: 'scanning media', slug: 'guides/scanning' },
+						{ label: 'adding media', slug: 'guides/scanning' },
 						{ label: 'metadata enrichment', slug: 'guides/metadata-enrichment' },
 						{ label: 'sharing with friends', slug: 'guides/sharing' },
 						{ label: 'maintenance', slug: 'guides/maintenance' },
+						{ label: 'rathole on a pi', slug: 'guides/rathole-on-a-pi' },
+						{ label: 'cenotaph', slug: 'guides/cenotaph' },
 					],
 				},
 
