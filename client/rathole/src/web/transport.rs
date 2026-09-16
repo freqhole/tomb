@@ -892,7 +892,10 @@ fn flatten_search_response(body: JsonValue) -> DispatchResponse {
                 (Some(series), None) => series.to_string(),
                 (None, _) => "video".to_string(),
             };
-            let rank = v.get("search_rank").and_then(|val| val.as_f64()).unwrap_or(0.0);
+            let rank = v
+                .get("search_rank")
+                .and_then(|val| val.as_f64())
+                .unwrap_or(0.0);
             rows.push((
                 rank,
                 serde_json::json!({

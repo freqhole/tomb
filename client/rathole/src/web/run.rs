@@ -1026,7 +1026,9 @@ fn on_action_menu_key(app: &mut App, code: KeyCode, tx: &mpsc::UnboundedSender<A
             // way back. surface a friendly message instead, matching
             // the same "not supported here" pattern used elsewhere on
             // web rather than a silent no-op or a dead-end view.
-            if opt.target_command == "__goto_video__" || opt.target_command == "__goto_series_videos__" {
+            if opt.target_command == "__goto_video__"
+                || opt.target_command == "__goto_series_videos__"
+            {
                 eph.focus = Focus::ResultPanel;
                 eph.repl.status = Some(ReplStatus::err(
                     "video browsing needs the tty shell (coming soon on web)".to_string(),

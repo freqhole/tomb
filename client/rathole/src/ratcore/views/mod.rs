@@ -153,7 +153,11 @@ fn header_line(app: &App) -> Line<'static> {
     let mut spans: Vec<Span<'static>> = vec![
         Span::styled("rathole", Style::new().fg(Color::Black).bold()),
         Span::styled(
-            format!(" v{} ({})", env!("CARGO_PKG_VERSION"), env!("FREQHOLE_GIT_SHA")),
+            format!(
+                " v{} ({})",
+                env!("CARGO_PKG_VERSION"),
+                env!("FREQHOLE_GIT_SHA")
+            ),
             Style::new().fg(Color::Black),
         ),
         Span::raw("   "),
