@@ -6,7 +6,7 @@
 //! visibility rule: hidden (0 lines) when the player has never had
 //! anything loaded — i.e. `PlayerState::Stopped` and no
 //! `currently_playing()`. otherwise renders 2 lines: title/artist
-//! + state, and a progress bar with times + volume. a third "up
+//! and state, and a progress bar with times and volume. a third "up
 //! next:" line is added when there's a queue tail to preview - EXCEPT
 //! while the cenotaph pairing view (`Focus::PlayerPairing`) is
 //! focused, since that view already has its own, much bigger queue
