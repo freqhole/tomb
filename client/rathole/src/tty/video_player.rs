@@ -16,6 +16,14 @@
 //! `mpv` on any dev machine that has it installed (see the `#[ignore]`
 //! integration test at the bottom, meant to be run manually — CI has
 //! no `mpv` binary).
+//!
+//! unix-only: mpv ipc control here relies on `tokio::net::UnixStream`,
+//! which doesn't exist on windows. `tty/mod.rs` swaps in
+//! `video_player_stub.rs` (same public `MpvPlayer::spawn` signature,
+//! always errors) there instead - `run.rs` already treats a failed
+//! spawn as a normal, handled case (`app.video_player` stays `None`,
+//! same as "mpv isn't installed"), so no other call site needs to know.
+#![cfg(unix)]
 
 use async_trait::async_trait;
 use serde_json::{json, Value as JsonValue};

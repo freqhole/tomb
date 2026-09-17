@@ -16,6 +16,12 @@ mod radio;
 mod run;
 pub mod serve_monitor;
 mod transport;
+// unix-only real impl vs. windows stub - see video_player.rs's own
+// `#![cfg(unix)]` doc comment.
+#[cfg(unix)]
+mod video_player;
+#[cfg(not(unix))]
+#[path = "video_player_stub.rs"]
 mod video_player;
 
 pub use transport::LocalTransport;
