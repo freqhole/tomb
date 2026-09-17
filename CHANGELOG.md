@@ -1,5 +1,15 @@
 # freqhole-release
 
+## 0.3.5
+
+### Patch Changes
+
+- ed7673b: rathole getz a cenotaph player (so can remotly queue music + video); linux charnel getz cenotaph player improvementz when using experimental rodio + gstreamer playerz; lotz of improvement to remote queueing; try to fix iroh remote relay urlz with trailing dot harder; try to fix fullscreen video for android
+- 7ff2729: re-work file uploadz a bit- add them to local library first, then go thru review, then send to a remote
+- c2a9642: android can do fullscreen video!
+- 036f5e1: fix bug where if a remote doesn't have an image, the top nav image wouldn't change when switching remotez
+- 62207de: only show share linkz from libraries thta support incoming connections (so no android and web)
+
 ## 0.3.4
 
 ### Patch Changes
