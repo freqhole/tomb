@@ -51,6 +51,18 @@ export interface RemoteMediaRef {
   available_renditions?: RenditionRef[];
 }
 
+/** one queued item the remote player couldn't resolve on its own
+ * (unreachable/unauthorized source, sync failure, etc.) - reported back on
+ * `RemoteStatus.unresolved_items` so the controller can proxy the bytes as
+ * a genuine last resort, instead of proactively fetching/importing every
+ * pushed item's bytes up front "just in case" (see `playerQueuePush.ts`'s
+ * `handleUnresolvedItems`, wired in `applyRemoteStatus` below). mirrors
+ * grimoire's `wire::UnresolvedItemRef`. */
+export interface UnresolvedItemRef {
+  blake3_hash: string;
+  source_peer_addr: string;
+}
+
 export type RemoteStatus =
   | {
       type: "status";
@@ -62,6 +74,7 @@ export type RemoteStatus =
       auto_download_enabled: boolean;
       volume: number;
       recently_played: string[];
+      unresolved_items?: UnresolvedItemRef[];
     }
   | {
       type: "status";
@@ -71,6 +84,7 @@ export type RemoteStatus =
       auto_download_enabled: boolean;
       volume: number;
       recently_played: string[];
+      unresolved_items?: UnresolvedItemRef[];
     }
   | {
       type: "status";
@@ -79,6 +93,7 @@ export type RemoteStatus =
       auto_download_enabled: boolean;
       volume: number;
       recently_played: string[];
+      unresolved_items?: UnresolvedItemRef[];
     }
   | {
       type: "status";
@@ -87,6 +102,7 @@ export type RemoteStatus =
       auto_download_enabled: boolean;
       volume: number;
       recently_played: string[];
+      unresolved_items?: UnresolvedItemRef[];
     }
   | {
       type: "status";
@@ -96,6 +112,7 @@ export type RemoteStatus =
       auto_download_enabled: boolean;
       volume: number;
       recently_played: string[];
+      unresolved_items?: UnresolvedItemRef[];
     };
 
 /** the shared queue of the active remote target, or an empty array when
@@ -188,6 +205,10 @@ export function reportCommandAckFailure(
   );
   toast.warning(describeCommandAckFailure(ack.reason), {
     title: "remote-player-command-rejected",
+    // persistent: this needs the user to actually act (re-enter a pin via
+    // the reconnect action) - an auto-dismissing toast previously vanished
+    // long before anyone noticed it, let alone re-paired.
+    persistent: true,
     action: peerAddr
       ? { label: "reconnect", onClick: () => requestAddRemote(peerAddr, { intent: "player" }) }
       : undefined,
@@ -252,6 +273,27 @@ export { remoteStatus };
 // get a response; a suspended tab sends zero requests, so it accumulates
 // zero failures, and correctly stays "not obviously offline" the moment it
 // wakes and starts trying again.
+// registration hook for playerQueuePush.ts's handleUnresolvedItems -
+// deliberately NOT a static (or dynamic) import of playerQueuePush.ts
+// here: that module statically imports getMiddenNode/getClientForRemote
+// from the api client module, which eagerly loads the wasm midden package
+// at import time. a direct import (static OR dynamic - the lint rule
+// `no-restricted-syntax` disallows dynamic imports outright anyway) would
+// pull that whole chain into every test that imports THIS file, even ones
+// that never report an unresolved item - confirmed live: broke
+// remotePlaybackControl.test.ts with `Invalid URL` parsing
+// `midden_bg.wasm` under vitest/jsdom. instead, playerQueuePush.ts
+// (which already imports FROM this file) registers its handler here once
+// at its own module load - by the time any real status can possibly
+// report an unresolved item, playerQueuePush.ts has necessarily already
+// been loaded (pushing/appending media to a player is how a remote
+// target becomes active in the first place).
+type UnresolvedItemsHandler = (peerAddr: string, items: UnresolvedItemRef[]) => void;
+let unresolvedItemsHandler: UnresolvedItemsHandler | null = null;
+export function registerUnresolvedItemsHandler(handler: UnresolvedItemsHandler): void {
+  unresolvedItemsHandler = handler;
+}
+
 function applyRemoteStatus(status: RemoteStatus | null): void {
   if (status) {
     setConsecutiveFailures(0);
@@ -259,6 +301,17 @@ function applyRemoteStatus(status: RemoteStatus | null): void {
     const prevRecentlyPlayed = remoteStatus()?.recently_played ?? [];
     const newlyFinished = status.recently_played.filter((h) => !prevRecentlyPlayed.includes(h));
     if (newlyFinished.length > 0) pruneLocalQueueForFinishedItems(newlyFinished);
+    // reactive proxy-of-last-resort: the player reports items it
+    // genuinely couldn't resolve itself (unreachable/unauthorized source,
+    // etc.) on its own status - only NOW, once that's confirmed, does
+    // this controller do any real networking on the item's behalf (see
+    // playerQueuePush.ts's handleUnresolvedItems doc comment for the full
+    // rationale).
+    const unresolvedItems = status.unresolved_items;
+    if (unresolvedItems && unresolvedItems.length > 0 && unresolvedItemsHandler) {
+      const peerAddr = activeTargetNodeId();
+      if (peerAddr) unresolvedItemsHandler(peerAddr, unresolvedItems);
+    }
   }
   setRemoteStatus(status);
 }

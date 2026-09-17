@@ -459,6 +459,23 @@ pub struct StatusCommon {
     pub auto_download_enabled: bool,
     pub volume: f64,
     pub recently_played: Vec<String>,
+    /// queued items the player couldn't resolve (unreachable/unauthorized
+    /// source, etc.) - lets the controller notice and proxy them as a
+    /// last resort, instead of the controller proactively fetching/
+    /// importing every item's bytes up front "just in case". `default`
+    /// (missing on the wire = empty) keeps this backward compatible with
+    /// any peer that doesn't send it yet. see playerQueuePush.ts's
+    /// `handleUnresolvedItems`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unresolved_items: Vec<UnresolvedItemRef>,
+}
+
+/// one item the player has queued but can't currently resolve/play - see
+/// `StatusCommon::unresolved_items`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UnresolvedItemRef {
+    pub blake3_hash: String,
+    pub source_peer_addr: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -748,6 +765,7 @@ mod tests {
                 auto_download_enabled: true,
                 volume: 0.8,
                 recently_played: vec!["hash1".into()],
+                unresolved_items: vec![],
             },
         });
         let json = serde_json::to_value(&msg).unwrap();

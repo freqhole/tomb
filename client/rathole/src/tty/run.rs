@@ -1777,6 +1777,7 @@ fn build_player_status(app: &App) -> grimoire::cenotaph::PlayerStatus {
             auto_download_enabled: false,
             volume: app.state.ephemeral.music.volume as f64,
             recently_played: Vec::new(),
+            unresolved_items: Vec::new(),
         };
         let position_ms = (vp.position * 1000.0).round() as u64;
         let server_time_ms = std::time::SystemTime::now()
@@ -1819,6 +1820,7 @@ fn build_player_status(app: &App) -> grimoire::cenotaph::PlayerStatus {
         auto_download_enabled: false,
         volume: m.volume as f64,
         recently_played,
+        unresolved_items: Vec::new(),
     };
     let is_playing = is_currently_playing(app);
     let position_ms = if active_playback_is_video(app) {

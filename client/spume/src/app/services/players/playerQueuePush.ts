@@ -18,16 +18,34 @@
 // deliberately simple: no dedupe/hash-cache (import is idempotent per
 // content anyway), no release_blob/GC of imported blobs.
 //
-// "cross-remote forwarding":
-// for a song/video whose source remote (C) isn't this device's own library,
-// songToMediaRef()/videoToMediaRef() first try tryBridgeToSourceRemote() -
-// if this device is already an admin on C, it grants the player (A) direct
-// trust on C via C's admin `peers_allow` command, then points the MediaRef
-// straight at C instead of fetching+relaying the bytes through this device.
-// falls back to the fetch-and-relay path below on any failure (not admin,
-// remote_admin disabled, offline, etc.).
+// "optimistic, reactive-only networking":
+// songToMediaRef()/videoToMediaRef() do at most ONE cheap, local, no-
+// network lookup (getRemoteById) before returning a ref - the queue
+// command is sent with this device's best-guess declared source and
+// nothing more. no admin bridge grant, no local-file check, no fetch/
+// import happens proactively, not even in the background - the player is
+// trusted to resolve the ref itself first (see mediaRefResolve.ts),
+// exactly like every other MediaRef it's ever told about. only once the
+// player's own status genuinely reports it couldn't reach the declared
+// source (`RemoteStatus.unresolved_items`, wired into
+// `handleUnresolvedItems` below via remotePlaybackControl.ts's
+// applyRemoteStatus) does this device do any real networking at all: a
+// "cross-remote forwarding" admin bridge grant (tryBridgeToSourceRemote -
+// if this device is already an admin on the item's source remote C, it
+// grants the player A direct read-trust there via C's admin `peers_allow`
+// command, so A can pull the blob straight from C), or, failing that, a
+// genuine fetch+import relay through this device (the actual "controller
+// proxies media blob data" moment - see the loud CONTROLLER_BLOB_PROXY
+// log lines throughout this file for exactly where that happens).
+// video is a partial exception: a video with no locally-known blake3 (the
+// common case - see QueuedVideo.blake3's own doc comment) genuinely has no
+// hash to declare at all without SOME network round trip, so
+// videoToMediaRef still blocks on a bridged metadata lookup (cheap) or, as
+// a last resort, a full fetch+hash (heavy) - that's required work to send
+// anything, not optional "just in case" work, so it's unaffected by the
+// above.
 
-import { getClientForRemote, getMiddenNode, isCharnelAvailable } from "../../api/client";
+import { getClientForRemote, getMiddenNode } from "../../api/client";
 import { adminClientFor } from "../../api/adminClient";
 import { isCharnelMode } from "../charnel/mode";
 import {
@@ -40,9 +58,7 @@ import {
 } from "../charnel/commands";
 import { resolveCharnelLocalBlobPath } from "../media/resolveCharnelLocalBlobPath";
 import { getAudioURL } from "../../../music/services/storage/audioAccess";
-import type { ImageMetadata, Song } from "../../../music/services/storage/types";
-import { getBlob } from "../../../music/services/storage/blobs";
-import { isValidHttpUrl, resolveBlobUrl } from "../../../music/services/storage/blobResolver";
+import type { Song } from "../../../music/services/storage/types";
 
 /** bounded-concurrency counterpart to `Promise.all(items.map(fn))` - runs
  * at most `limit` calls to `fn` at once instead of firing all of them
@@ -77,25 +93,87 @@ async function mapWithConcurrency<T, R>(
 // scale with unbounded concurrency - see mapWithConcurrency's own doc
 // comment for the real, measured regression this fixes.
 const QUEUE_PUSH_CONCURRENCY = 3;
-import { getSongDisplayImages, pickBestImage } from "../../../utils/images";
-import { getRemoteById } from "../remotes/remoteManager";
+import { createSignal } from "solid-js";
+import { getRemoteById, getRemoteByPeerAddr } from "../remotes/remoteManager";
 import { isP2PRemote, type P2PRemote } from "../storage/schemas/remote";
 import { sendPlayerCommand } from "./playerPairingClient";
-import { debug } from "../../../utils/logger";
+import { debug, warn } from "../../../utils/logger";
 import { CENOTAPH_QUEUE_TRACE } from "../../../cenotaph/queueTrace";
 import {
   applyRemoteStatusFromAck,
   pruneLocalQueueAfterSuccessfulPush,
+  registerUnresolvedItemsHandler,
   reportCommandAckFailure,
   type PushedQueueItem,
   type RemoteMediaRef,
   type RemoteStatus,
   type RenditionRef,
+  type UnresolvedItemRef,
 } from "./remotePlaybackControl";
 import { getVideoURL } from "../../../video/services/videoBlobAccess";
 import { resolveLocalVideoPath } from "../../../video/services/localVideo";
 import { mediaItemKey, songToMediaItem, videoToMediaItem } from "../storage/mediaItem";
 import type { MediaItem, QueuedVideo } from "../storage/mediaItem";
+
+// registers this module's reactive handler with remotePlaybackControl.ts
+// - see that file's own doc comment on `registerUnresolvedItemsHandler`
+// for why this is a registration call rather than remotePlaybackControl.ts
+// importing `handleUnresolvedItems` directly (avoids a circular import
+// that broke that file's own unit tests by pulling the wasm midden
+// package into their module graph). `handleUnresolvedItems` is a hoisted
+// function declaration, so referencing it here (before its own textual
+// definition further down this file) is safe.
+registerUnresolvedItemsHandler((peerAddr, items) => {
+  void handleUnresolvedItems(peerAddr, items);
+});
+
+/** live transfer state for a queue row genuinely being proxied through
+ * this device right now (the CONTROLLER_BLOB_PROXY moments elsewhere in
+ * this file) - `undefined` the rest of the time (the vastly more common
+ * case, an item the player resolves entirely on its own). keyed the same
+ * way `RemoteQueueRow` already identifies a row: the item's
+ * `blake3_hash` - which, for a video still being hashed for the very
+ * first time (see `videoToMediaRef`'s last-resort branch below), IS the
+ * `pending:${video.id}` placeholder `remoteQueueMirror.ts`'s optimistic
+ * overlay already uses for an unconfirmed row, so the UI needs no extra
+ * plumbing to find the right entry either way. */
+export interface QueueItemTransferStatus {
+  phase: "fetching" | "sending";
+  /** source being fetched from (fetching phase) - undefined if unknown. */
+  fromRemoteName?: string;
+  /** player being served (sending phase) - undefined if unknown. */
+  toPlayerName?: string;
+  /** 0..1 if known (content-length/total size was available), else
+   * undefined - UI shows an indeterminate spinner in that case. */
+  progress?: number;
+}
+
+const [transferStatusByKey, setTransferStatusByKey] = createSignal<
+  Map<string, QueueItemTransferStatus>
+>(new Map());
+
+/** read by RemoteQueueRow.tsx to show "fetching from X"/"sending to Y". */
+export function queueItemTransferStatus(key: string): QueueItemTransferStatus | undefined {
+  return transferStatusByKey().get(key);
+}
+
+function setTransferStatus(key: string, status: QueueItemTransferStatus | null): void {
+  setTransferStatusByKey((prev) => {
+    const next = new Map(prev);
+    if (status) next.set(key, status);
+    else next.delete(key);
+    return next;
+  });
+}
+
+async function resolveRemoteName(remoteId: string | null | undefined): Promise<string | undefined> {
+  if (!remoteId) return undefined;
+  return (await getRemoteById(remoteId))?.name;
+}
+
+async function resolvePlayerName(peerAddr: string): Promise<string | undefined> {
+  return (await getRemoteByPeerAddr(peerAddr))?.name;
+}
 
 function bytesToBase64(bytes: Uint8Array): string {
   // chunked to avoid maximum-call-stack on String.fromCharCode for big arrays.
@@ -105,148 +183,6 @@ function bytesToBase64(bytes: Uint8Array): string {
     s += String.fromCharCode(...bytes.subarray(i, i + chunk));
   }
   return btoa(s);
-}
-
-function blobToDataUrl(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onloadend = () => resolve(reader.result as string);
-    reader.onerror = () => reject(reader.error ?? new Error("failed to read blob"));
-    reader.readAsDataURL(blob);
-  });
-}
-
-const ARTWORK_THUMB_MAX_DIM = 96;
-
-/** downscales an image blob to a small jpeg data url for queue-row-sized
- * thumbnails - keeps the per-song thumbnail payload small so syncing a
- * whole queue's worth of art to a paired player stays cheap,
- * distinct from the full-size art used for the player's own now-playing
- * view. returns undefined (caller falls back to the full-size art) if the
- * source isn't decodable as an image or canvas isn't available. */
-async function makeArtworkThumbDataUrl(blob: Blob): Promise<string | undefined> {
-  try {
-    const bitmap = await createImageBitmap(blob);
-    const scale = Math.min(1, ARTWORK_THUMB_MAX_DIM / Math.max(bitmap.width, bitmap.height));
-    const w = Math.max(1, Math.round(bitmap.width * scale));
-    const h = Math.max(1, Math.round(bitmap.height * scale));
-    const canvas = document.createElement("canvas");
-    canvas.width = w;
-    canvas.height = h;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return undefined;
-    ctx.drawImage(bitmap, 0, 0, w, h);
-    return canvas.toDataURL("image/jpeg", 0.8);
-  } catch {
-    return undefined;
-  }
-}
-
-interface ResolvedArtwork {
-  thumbUrl?: string;
-  fullUrl?: string;
-}
-
-/** resolves a song's cover art to something the paired player can display
- * directly - both a small thumbnail (for queue rows, synced cheaply to
- * every client) and the full-size image (for the player's own now-playing
- * view) - a data: url (embedded bytes) whenever the art is only reachable
- * from this device (cached locally, or - charnel/tauri's local library
- * case - a `remote_url` that's actually this device's own embedded-grimoire
- * sidecar on localhost, which the *player* device can never reach), falling
- * back to passing a real remote http(s) url through as-is for BOTH sizes
- * (cheaper: the player fetches it directly instead of a giant embedded
- * data url; no bytes on hand locally to downscale from in that case).
- * mirrors the same localhost safeguard already used by
- * blobResolver.ts/MediaThumbnail.tsx for spume's own image rendering.
- *
- * uses getSongDisplayImages()/pickBestImage() (utils/images.ts) rather than
- * raw song.images - many songs have no song-level image at all (only their
- * album does), and song-level "original"-typed images are often actually
- * mistyped waveforms, so skipping the album-image fallback (the original
- * bug here) silently produced no artwork for most charnel/local songs. */
-async function resolveArtwork(song: Song): Promise<ResolvedArtwork> {
-  return resolveImageArtwork(pickBestImage(getSongDisplayImages(song)));
-}
-
-/** video equivalent of resolveArtwork() above - the video domain has no
- * per-song-like `images[]` gallery used for primary display, just a single
- * flat `poster_blob_id` (mirrors how VideoCard/VideoDetailView etc. render
- * a video's thumbnail) - so this resolves that instead of picking from an
- * images array. local/opfs-imported videos have no `remote_server_id` to
- * resolve a blob through and are skipped for now (no artwork, not fatal -
- * the queue item just carries title/duration with no thumbnail). */
-async function resolveVideoArtwork(video: QueuedVideo): Promise<ResolvedArtwork> {
-  if (!video.poster_blob_id || !video.remote_server_id) return {};
-  try {
-    const url = await resolveBlobUrl(video.poster_blob_id, video.remote_server_id, "image");
-    const res = await fetch(url);
-    if (res.ok) return artworkFromBlob(await res.blob());
-  } catch {
-    // no artwork available - not fatal, the ref just won't carry art.
-  }
-  return {};
-}
-
-/** shared by resolveImageArtwork() (songs) and resolveVideoArtwork() above -
- * downscales/embeds a raw image blob as data urls (thumb + full). */
-async function artworkFromBlob(blob: Blob): Promise<ResolvedArtwork> {
-  const [fullUrl, thumbUrl] = await Promise.all([
-    blobToDataUrl(blob),
-    makeArtworkThumbDataUrl(blob),
-  ]);
-  // TEMP: measuring exact embedded-data-url sizes to confirm/rule out
-  // base64 artwork bloat in the wire command payload - remove once
-  // confirmed either way.
-  debug(
-    "playerQueuePush",
-    `${CENOTAPH_QUEUE_TRACE} artworkFromBlob: source blob ${blob.size} bytes -> fullUrl ${fullUrl.length} chars (~${(fullUrl.length / 1024).toFixed(1)}KB), thumbUrl ${(thumbUrl ?? fullUrl).length} chars (~${((thumbUrl ?? fullUrl).length / 1024).toFixed(1)}KB)`
-  );
-  return { thumbUrl: thumbUrl ?? fullUrl, fullUrl };
-}
-
-async function resolveImageArtwork(image: ImageMetadata | null): Promise<ResolvedArtwork> {
-  if (!image) return {};
-
-  if (image.local_blob_id) {
-    const blob = await getBlob(image.local_blob_id);
-    if (blob) return artworkFromBlob(blob);
-  }
-
-  // charnel/tauri-managed local-library images have no local_blob_id (that
-  // store is wasm-only) and no remote_url either - getBlobHttpUrl() in
-  // remoteSource.ts intentionally returns undefined for charnel-managed
-  // remotes ("tauri-managed remotes don't run an http server"). the only
-  // way to reach the bytes is remote_blob_id/remote_server_id, resolved
-  // through this device's own transport - which for a charnel remote hands
-  // back an asset://... or blob: url that's only valid in *this* webview,
-  // so fetch it ourselves and embed the bytes, same as the remote_url
-  // localhost-safeguard path below.
-  if (image.remote_blob_id && image.remote_server_id) {
-    try {
-      const url = await resolveBlobUrl(image.remote_blob_id, image.remote_server_id, "image");
-      const res = await fetch(url);
-      if (res.ok) return artworkFromBlob(await res.blob());
-    } catch {
-      // fall through to the remote_url handling below
-    }
-  }
-
-  const remoteUrl = image.remote_url;
-  if (!remoteUrl) return {};
-
-  const isLocalOnly = isCharnelAvailable() && remoteUrl.includes("localhost");
-  if (isValidHttpUrl(remoteUrl) && !isLocalOnly) return { thumbUrl: remoteUrl, fullUrl: remoteUrl };
-
-  // only this device can reach this url (charnel's own localhost sidecar,
-  // or a relative/non-http url) - fetch the bytes ourselves and embed them.
-  try {
-    const res = await fetch(remoteUrl);
-    if (!res.ok) return {};
-    return artworkFromBlob(await res.blob());
-  } catch {
-    return {};
-  }
 }
 
 // ~4MB raw per chunk, matching CharnelLocalTransport.uploadChunked/
@@ -260,13 +196,21 @@ const IMPORT_CHUNK_SIZE = 4 * 1024 * 1024;
  * remote-only content this device has to relay through JS. streams bytes
  * into the p2p blob store in bounded chunks instead of base64-ing the
  * whole file into one JS string/IPC call (the now-deprecated, 1MB-gated
- * `importBlobBytes` in charnel/commands.ts). */
-async function importBytesChunked(bytes: Uint8Array): Promise<string> {
+ * `importBlobBytes` in charnel/commands.ts). `onProgress` (0..1), if
+ * given, is called after every chunk - the "sending to $player" progress
+ * shown on a proxied queue row. */
+async function importBytesChunked(
+  bytes: Uint8Array,
+  onProgress?: (fraction: number) => void
+): Promise<string> {
   const uploadId = await beginChunkedBlobImport();
   try {
+    let sent = 0;
     for (let offset = 0; offset < bytes.byteLength; offset += IMPORT_CHUNK_SIZE) {
       const chunk = bytes.subarray(offset, Math.min(offset + IMPORT_CHUNK_SIZE, bytes.byteLength));
       await appendChunkedBlobImport(uploadId, bytesToBase64(chunk));
+      sent += chunk.byteLength;
+      onProgress?.(sent / bytes.byteLength);
     }
     return await finishChunkedBlobImport(uploadId);
   } catch (err) {
@@ -283,12 +227,18 @@ async function importBytesChunked(bytes: Uint8Array): Promise<string> {
  * blake3 hash, so the player can be told to pull the bytes from us by
  * hash. only reached when the content isn't already resolvable to a local
  * file path (see importLocalFileByPath below, always tried first) - i.e.
- * genuinely remote-only content this device has to relay through JS. */
+ * genuinely remote-only content this device has to relay through JS.
+ * `onProgress` only fires in charnel mode (the wasm midden import is one
+ * single in-memory call with nothing to chunk/report between). */
 async function importMediaBytes(
-  bytes: Uint8Array
+  bytes: Uint8Array,
+  onProgress?: (fraction: number) => void
 ): Promise<{ sourcePeerAddr: string; blake3Hash: string }> {
   if (isCharnelMode()) {
-    const [nodeId, blake3Hash] = await Promise.all([fetchLocalNodeId(), importBytesChunked(bytes)]);
+    const [nodeId, blake3Hash] = await Promise.all([
+      fetchLocalNodeId(),
+      importBytesChunked(bytes, onProgress),
+    ]);
     if (!nodeId) throw new Error("charnel p2p node id unavailable - is federation enabled?");
     debug(
       "playerQueuePush",
@@ -306,6 +256,45 @@ async function importMediaBytes(
     `importMediaBytes (wasm) ${bytes.byteLength}b -> blake3=${blake3Hash}, sourcePeerAddr=${node.node_id()}`
   );
   return { sourcePeerAddr: node.node_id(), blake3Hash };
+}
+
+/** `fetch(url)` that reports download progress (0..1) as bytes stream in,
+ * via `onProgress` - the "fetching from $remote" progress shown on a
+ * proxied queue row. falls back to a plain, progress-less
+ * `res.arrayBuffer()` if the runtime doesn't support streaming response
+ * bodies (`res.body` missing) or the total size can't be determined
+ * (no `content-length` header and no `sizeHint`) - progress just stays
+ * unreported (UI shows an indeterminate spinner) in either case. also
+ * returns the response's `content-type` (mirrors what `res.blob().type`
+ * would have given a caller that used the non-streaming blob API instead). */
+async function fetchBytesWithProgress(
+  url: string,
+  sizeHint: number | undefined,
+  onProgress?: (fraction: number) => void
+): Promise<{ bytes: Uint8Array; contentType: string | null }> {
+  const res = await fetch(url);
+  const contentType = res.headers.get("content-type");
+  const total = Number(res.headers.get("content-length")) || sizeHint || 0;
+  if (!res.body || typeof res.body.getReader !== "function" || total <= 0) {
+    return { bytes: new Uint8Array(await res.arrayBuffer()), contentType };
+  }
+  const reader = res.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let received = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    received += value.byteLength;
+    onProgress?.(Math.min(1, received / total));
+  }
+  const bytes = new Uint8Array(received);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return { bytes, contentType };
 }
 
 /** charnel-only fast path: if the content is already a real file on this
@@ -329,15 +318,30 @@ async function importLocalFileByPath(
 // admin bridge once, not once per item.
 type BridgeCache = Map<string, Promise<P2PRemote | null>>;
 
+// session-scoped record of "the blake3 hash this device most recently
+// declared on the wire for a given local media item, and the item
+// itself" - populated by songToMediaRef/videoToMediaRef every time they
+// build a ref, so handleUnresolvedItems (below) can look the original
+// Song/QueuedVideo back up purely from the hash a player reports back on
+// `RemoteStatus.unresolved_items`. nothing else persists this mapping
+// anywhere - it only needs to survive long enough for a player's next
+// status update to arrive, not across app restarts.
+const pushedItemsByHash = new Map<string, MediaItem>();
+
+function rememberPushedItem(hash: string, item: MediaItem): void {
+  pushedItemsByHash.set(hash, item);
+}
+
 /** step 8 (cross-remote forwarding, node A=player, B=this device, C=source
  * remote): if this device already has admin rights on the item's source
  * remote (C), grants the player (A) direct read-trust there via C's admin
- * `peers_allow` command, so A can pull the blob straight from C instead of
- * double-hopping through this device (the fetch-and-relay path below,
- * which remains the fallback and needs no admin rights at all). returns
- * null on any failure - not a P2P remote, not admin on C, remote_admin
- * disabled there, offline, etc. - callers fall back to relaying in that
- * case. */
+ * `peers_allow` command, so A can pull the blob straight from C. called
+ * fire-and-forget (not awaited) by songToMediaRef/videoToMediaRef - see
+ * their own header comments: the queue command already declares C as the
+ * source before this grant finishes, optimistically betting the player
+ * either already has access or will by the time it gets around to
+ * dialing C. returns null on any failure - not a P2P remote, not admin
+ * on C, remote_admin disabled there, offline, etc. */
 async function tryBridgeToSourceRemote(
   remoteId: string,
   playerNodeId: string,
@@ -361,107 +365,108 @@ async function tryBridgeToSourceRemote(
   return pending;
 }
 
-async function songToMediaRef(
-  song: Song,
-  playerNodeId: string,
-  bridgeCache: BridgeCache
-): Promise<RemoteMediaRef> {
+async function songToMediaRef(song: Song, playerNodeId: string): Promise<RemoteMediaRef> {
   const t0 = Date.now();
-  if (song.remote_server_id && song.blake3) {
-    const bridged = await tryBridgeToSourceRemote(song.remote_server_id, playerNodeId, bridgeCache);
-    debug(
-      "playerQueuePush",
-      `${CENOTAPH_QUEUE_TRACE} songToMediaRef(${song.title}): tryBridgeToSourceRemote took ${Date.now() - t0}ms, bridged=${!!bridged}`
-    );
-    if (bridged) {
-      const artworkStart = Date.now();
-      const { thumbUrl, fullUrl } = await resolveArtwork(song);
-      debug(
-        "playerQueuePush",
-        `${CENOTAPH_QUEUE_TRACE} songToMediaRef(${song.title}): resolveArtwork (bridged path) took ${Date.now() - artworkStart}ms, total ${Date.now() - t0}ms`
-      );
-      return {
-        source_peer_addr: bridged.peer_addr,
-        blake3_hash: song.blake3,
-        size_bytes: song.file_size ?? undefined,
-        duration_ms: song.duration_seconds ? Math.round(song.duration_seconds * 1000) : undefined,
-        mime_type: song.mime_type ?? "audio/mpeg",
-        kind: "audio",
-        title: song.title,
-        artist: song.artist_name,
-        artwork_thumb_url: thumbUrl,
-        artwork_full_url: fullUrl,
-      };
-    }
-  }
-  // fast path: this device may already have the actual file on disk
-  // (its own library, or already synced from a prior queue push/play) -
-  // if so, import it directly by path, skipping fetch()+base64 entirely.
-  const localPathStart = Date.now();
-  const localPath = await resolveCharnelLocalBlobPath(song.blake3);
-  if (localPath) {
-    const { sourcePeerAddr, blake3Hash } = await importLocalFileByPath(localPath);
-    debug(
-      "playerQueuePush",
-      `${CENOTAPH_QUEUE_TRACE} songToMediaRef(${song.title}): resolveCharnelLocalBlobPath+importLocalFileByPath took ${Date.now() - localPathStart}ms (no js-memory relay), total ${Date.now() - t0}ms`
-    );
-    const artworkStart = Date.now();
-    const { thumbUrl, fullUrl } = await resolveArtwork(song);
-    debug(
-      "playerQueuePush",
-      `${CENOTAPH_QUEUE_TRACE} songToMediaRef(${song.title}): resolveArtwork (local-path path) took ${Date.now() - artworkStart}ms, total ${Date.now() - t0}ms`
-    );
-    return {
-      source_peer_addr: sourcePeerAddr,
-      blake3_hash: blake3Hash,
-      size_bytes: song.file_size ?? undefined,
-      duration_ms: song.duration_seconds ? Math.round(song.duration_seconds * 1000) : undefined,
-      mime_type: song.mime_type ?? "audio/mpeg",
-      kind: "audio",
-      title: song.title,
-      artist: song.artist_name,
-      artwork_thumb_url: thumbUrl,
-      artwork_full_url: fullUrl,
-    };
-  }
+  const hash = song.blake3 ?? song.sha256;
+
+  // be optimistic: this device already knows everything needed to send
+  // the command RIGHT NOW - the real content hash, and (one cheap, local,
+  // no-network lookup) the actual peer this content lives on. no admin
+  // trust grant, no local-file check, no fetch, no import happens before
+  // returning, and NONE is even kicked off in the background - all of
+  // that is real networking, and the player can (and should) do it for
+  // itself first, exactly the way it resolves anything else it's told
+  // about (see mediaRefResolve.ts). this device only does any networking
+  // at all once the player actually reports (via `unresolved_items` on
+  // its status) that it couldn't reach the declared source - see
+  // `handleUnresolvedItems` below, which is the ONLY caller of
+  // `tryBridgeToSourceRemote`/`ensureSongServableInBackground` now.
+  const remote = song.remote_server_id ? await getRemoteById(song.remote_server_id) : null;
+  const sourcePeerAddr =
+    remote && isP2PRemote(remote) ? remote.peer_addr : ((await fetchLocalNodeId()) ?? playerNodeId);
   debug(
     "playerQueuePush",
-    `${CENOTAPH_QUEUE_TRACE} songToMediaRef(${song.title}): resolveCharnelLocalBlobPath found nothing on disk after ${Date.now() - localPathStart}ms (blake3=${song.blake3 ?? "(none)"}) - falling back to fetch+import relay`
+    `${CENOTAPH_QUEUE_TRACE} songToMediaRef(${song.title}): sending immediately, source_peer_addr=${sourcePeerAddr.slice(0, 8)}..., total ${Date.now() - t0}ms`
   );
-  const fetchStart = Date.now();
-  const url = await getAudioURL(song);
-  const res = await fetch(url);
-  const bytes = new Uint8Array(await res.arrayBuffer());
-  debug(
-    "playerQueuePush",
-    `${CENOTAPH_QUEUE_TRACE} songToMediaRef(${song.title}): getAudioURL+fetch (relay path) took ${Date.now() - fetchStart}ms`
-  );
-  const importStart = Date.now();
-  const { sourcePeerAddr, blake3Hash } = await importMediaBytes(bytes);
-  debug(
-    "playerQueuePush",
-    `${CENOTAPH_QUEUE_TRACE} songToMediaRef(${song.title}): importMediaBytes took ${Date.now() - importStart}ms`
-  );
-  const artworkStart = Date.now();
-  const { thumbUrl, fullUrl } = await resolveArtwork(song);
-  debug(
-    "playerQueuePush",
-    `${CENOTAPH_QUEUE_TRACE} songToMediaRef(${song.title}): resolveArtwork (relay path) took ${Date.now() - artworkStart}ms, total ${Date.now() - t0}ms`
-  );
-  const ref: RemoteMediaRef = {
+  const ref = buildSongRef(song, sourcePeerAddr, hash);
+  rememberPushedItem(hash, songToMediaItem(song));
+  return ref;
+}
+
+/** shared field-builder for a song's `RemoteMediaRef`, used both by the
+ * optimistic `songToMediaRef` above and by `handleUnresolvedItems`'s
+ * reactive retry - identical fields either way, only `sourcePeerAddr`
+ * (and, implicitly, whether real networking already happened to make it
+ * true) differs. artwork is deliberately never included - it's real
+ * blob-ish work (a fetch + canvas downscale) and must never block a queue
+ * command; an item just renders with no artwork (the player has a
+ * fallback icon for that). */
+function buildSongRef(song: Song, sourcePeerAddr: string, blake3Hash: string): RemoteMediaRef {
+  return {
     source_peer_addr: sourcePeerAddr,
     blake3_hash: blake3Hash,
-    size_bytes: bytes.byteLength,
+    size_bytes: song.file_size ?? undefined,
     duration_ms: song.duration_seconds ? Math.round(song.duration_seconds * 1000) : undefined,
     mime_type: song.mime_type ?? "audio/mpeg",
     kind: "audio",
     title: song.title,
     artist: song.artist_name,
-    artwork_thumb_url: thumbUrl,
-    artwork_full_url: fullUrl,
   };
-  debug("playerQueuePush", `songToMediaRef built:`, ref);
-  return ref;
+}
+
+/** makes sure `song`'s bytes are actually servable from this device
+ * (declared as `nodeId` in the ref already sent) - entirely AFTER the
+ * queue command has gone out, never blocking it. checks the cheap,
+ * already-on-disk case first (charnel: a real file, no js-memory bytes
+ * at all); only fetches+imports through JS as a LAST RESORT for content
+ * this device doesn't already have a local copy of - that fetch+import is
+ * the actual "controller proxies media blob data" moment (as opposed to
+ * merely declaring itself the source, which may still resolve to the
+ * cheap on-disk path below and move zero bytes) - logged loudly (warn,
+ * not debug) so it's easy to spot happening more than expected.
+ * `playerNodeId` is only used to resolve a display name for the
+ * "sending to $player" transfer status - see `QueueItemTransferStatus`. */
+async function ensureSongServableInBackground(
+  song: Song,
+  nodeId: string,
+  playerNodeId: string
+): Promise<void> {
+  const t0 = Date.now();
+  const localPath = await resolveCharnelLocalBlobPath(song.blake3);
+  if (localPath) {
+    await importLocalFileByPath(localPath);
+    debug(
+      "playerQueuePush",
+      `${CENOTAPH_QUEUE_TRACE} ensureSongServableInBackground(${song.title}): already on disk, imported by path in ${Date.now() - t0}ms`
+    );
+    return;
+  }
+  warn(
+    "playerQueuePush",
+    `${CENOTAPH_QUEUE_TRACE} CONTROLLER_BLOB_PROXY: relaying "${song.title}" (blake3=${(song.blake3 ?? song.sha256).slice(0, 8)}..., remote_server_id=${song.remote_server_id ?? "(none)"}) through THIS device as a last resort - no known P2P source remote and nothing already on disk. if this fires often, something is misclassifying a song's remote_server_id.`
+  );
+  const hash = song.blake3 ?? song.sha256;
+  const [fromRemoteName, toPlayerName] = await Promise.all([
+    resolveRemoteName(song.remote_server_id),
+    resolvePlayerName(playerNodeId),
+  ]);
+  try {
+    setTransferStatus(hash, { phase: "fetching", fromRemoteName });
+    const url = await getAudioURL(song);
+    const { bytes } = await fetchBytesWithProgress(url, song.file_size ?? undefined, (fraction) =>
+      setTransferStatus(hash, { phase: "fetching", fromRemoteName, progress: fraction })
+    );
+    setTransferStatus(hash, { phase: "sending", toPlayerName });
+    await importMediaBytes(bytes, (fraction) =>
+      setTransferStatus(hash, { phase: "sending", toPlayerName, progress: fraction })
+    );
+    warn(
+      "playerQueuePush",
+      `${CENOTAPH_QUEUE_TRACE} CONTROLLER_BLOB_PROXY: fetched+imported "${song.title}" (${bytes.byteLength}b) in ${Date.now() - t0}ms (command was already sent before this started), sourcePeerAddr=${nodeId}`
+    );
+  } finally {
+    setTransferStatus(hash, null);
+  }
 }
 
 /** looks up already-transcoded renditions for a video's source media blob
@@ -497,16 +502,43 @@ async function fetchAvailableRenditions(
 /** video equivalent of songToMediaRef() above. `QueuedVideo` (the generated
  * `Video` type) has no stable mime-type field of its own (unlike `Song`) -
  * `res.blob().type`, read off the actual fetched bytes, is what
- * `syncVideoToLocal.ts`/`localImport.ts` already use for this same reason. */
+ * `syncVideoToLocal.ts`/`localImport.ts` already use for this same reason.
+ * artwork is deliberately never resolved here either - see
+ * songToMediaRef's header comment for why. */
 async function videoToMediaRef(
   video: QueuedVideo,
   playerNodeId: string,
   bridgeCache: BridgeCache
 ): Promise<RemoteMediaRef> {
   const t0 = Date.now();
-  // step 8 (cross-remote forwarding) - videos carry no blake3/size of
-  // their own (unlike Song), so the fast path needs one lightweight
-  // blob_metadata round trip to C instead of a plain field read.
+
+  // be optimistic, same as songToMediaRef above - if this video already
+  // carries its own blake3, this device already knows everything needed
+  // to send the command right now: one cheap local remote lookup for the
+  // real source peer, no admin grant / fetch / import, not even kicked
+  // off in the background - see songToMediaRef's doc comment for why.
+  // `handleUnresolvedItems` is the only place that still does this
+  // networking, and only once the player actually reports it needs help.
+  if (video.blake3) {
+    const remote = video.remote_server_id ? await getRemoteById(video.remote_server_id) : null;
+    const sourcePeerAddr =
+      remote && isP2PRemote(remote)
+        ? remote.peer_addr
+        : ((await fetchLocalNodeId()) ?? playerNodeId);
+    debug(
+      "playerQueuePush",
+      `${CENOTAPH_QUEUE_TRACE} videoToMediaRef(${video.title}): sending immediately, source_peer_addr=${sourcePeerAddr.slice(0, 8)}..., total ${Date.now() - t0}ms`
+    );
+    const ref = buildVideoRef(video, sourcePeerAddr, video.blake3);
+    rememberPushedItem(video.blake3, videoToMediaItem(video));
+    return ref;
+  }
+
+  // video has no blake3 of its own (the common case, see
+  // QueuedVideo.blake3's doc comment) - the only way to learn one without
+  // fetching+hashing the whole file ourselves is a bridged metadata
+  // lookup (a tiny hash+size read, not a blob transfer) - worth keeping,
+  // since without it there'd be nothing to send at all.
   if (video.remote_server_id && video.media_blob_id) {
     const bridged = await tryBridgeToSourceRemote(
       video.remote_server_id,
@@ -522,95 +554,234 @@ async function videoToMediaRef(
         const client = await getClientForRemote(bridged);
         const metadata = await client.music.blobMetadata({ id: video.media_blob_id });
         if (metadata.success && metadata.data?.blake3) {
-          const artworkStart = Date.now();
-          const { thumbUrl, fullUrl } = await resolveVideoArtwork(video);
           const available_renditions = await fetchAvailableRenditions(client, video.media_blob_id);
-          debug(
-            "playerQueuePush",
-            `${CENOTAPH_QUEUE_TRACE} videoToMediaRef(${video.title}): artwork+renditions (bridged path) took ${Date.now() - artworkStart}ms, total ${Date.now() - t0}ms`
-          );
-          return {
-            source_peer_addr: bridged.peer_addr,
-            blake3_hash: metadata.data.blake3,
+          const ref = buildVideoRef(video, bridged.peer_addr, metadata.data.blake3, {
             size_bytes: metadata.data.size ?? undefined,
-            duration_ms: video.duration_seconds
-              ? Math.round(video.duration_seconds * 1000)
-              : undefined,
             mime_type: metadata.data.mime ?? "video/mp4",
-            kind: "video",
-            title: video.title,
-            artwork_thumb_url: thumbUrl,
-            artwork_full_url: fullUrl,
             available_renditions:
               available_renditions.length > 0 ? available_renditions : undefined,
-          };
+          });
+          rememberPushedItem(metadata.data.blake3, videoToMediaItem(video));
+          return ref;
         }
       } catch {
         // fall through to fetch-and-relay below
       }
     }
   }
-  // fast path: this device may already have the actual file on disk
-  // (its own library, or already synced from a prior queue push/play) -
-  // if so, import it directly by path, skipping fetch()+base64 entirely.
-  const localPathStart = Date.now();
-  const localPath = await resolveLocalVideoPath(video);
-  if (localPath) {
-    const { sourcePeerAddr, blake3Hash } = await importLocalFileByPath(localPath);
+  // last resort - genuinely can't declare a hash without fetching bytes
+  // and computing it ourselves. this DOES block (unlike the background
+  // relay path below) since there's no hash to send at all otherwise -
+  // still the real "controller proxies media blob data" moment, logged
+  // loudly so it's easy to spot happening more than expected. keyed by
+  // the same `pending:${video.id}` placeholder remoteQueueMirror.ts's
+  // optimistic overlay already uses for this row (the real blake3_hash
+  // isn't known until this finishes), so RemoteQueueRow's lookup by
+  // `item.blake3_hash` finds this transfer status without extra plumbing.
+  warn(
+    "playerQueuePush",
+    `${CENOTAPH_QUEUE_TRACE} CONTROLLER_BLOB_PROXY: fetching+importing "${video.title}" through THIS device - no known blake3, no bridge, nothing already on disk. if this fires often, something is misclassifying a video's remote_server_id/media_blob_id.`
+  );
+  const transferKey = `pending:${video.id}`;
+  const [fromRemoteName, toPlayerName] = await Promise.all([
+    resolveRemoteName(video.remote_server_id),
+    resolvePlayerName(playerNodeId),
+  ]);
+  try {
+    setTransferStatus(transferKey, { phase: "fetching", fromRemoteName });
+    const fetchStart = Date.now();
+    const url = await getVideoURL(video);
+    const { bytes, contentType } = await fetchBytesWithProgress(url, undefined, (fraction) =>
+      setTransferStatus(transferKey, { phase: "fetching", fromRemoteName, progress: fraction })
+    );
     debug(
       "playerQueuePush",
-      `${CENOTAPH_QUEUE_TRACE} videoToMediaRef(${video.title}): resolveLocalVideoPath+importLocalFileByPath took ${Date.now() - localPathStart}ms (no js-memory relay), total ${Date.now() - t0}ms`
+      `${CENOTAPH_QUEUE_TRACE} videoToMediaRef(${video.title}): getVideoURL+fetch (relay path, no known blake3) took ${Date.now() - fetchStart}ms`
     );
-    const artworkStart = Date.now();
-    const { thumbUrl, fullUrl } = await resolveVideoArtwork(video);
+    setTransferStatus(transferKey, { phase: "sending", toPlayerName });
+    const { sourcePeerAddr, blake3Hash } = await importMediaBytes(bytes, (fraction) =>
+      setTransferStatus(transferKey, { phase: "sending", toPlayerName, progress: fraction })
+    );
     debug(
       "playerQueuePush",
-      `${CENOTAPH_QUEUE_TRACE} videoToMediaRef(${video.title}): resolveVideoArtwork (local-path path) took ${Date.now() - artworkStart}ms, total ${Date.now() - t0}ms`
+      `${CENOTAPH_QUEUE_TRACE} videoToMediaRef(${video.title}): importMediaBytes took ${Date.now() - t0}ms total`
     );
-    return {
-      source_peer_addr: sourcePeerAddr,
-      blake3_hash: blake3Hash,
-      duration_ms: video.duration_seconds ? Math.round(video.duration_seconds * 1000) : undefined,
-      mime_type: "video/mp4",
-      kind: "video",
-      title: video.title,
-      artwork_thumb_url: thumbUrl,
-      artwork_full_url: fullUrl,
-    };
+    const ref = buildVideoRef(video, sourcePeerAddr, blake3Hash, {
+      size_bytes: bytes.byteLength,
+      mime_type: contentType || "video/mp4",
+    });
+    rememberPushedItem(blake3Hash, videoToMediaItem(video));
+    return ref;
+  } finally {
+    setTransferStatus(transferKey, null);
   }
-  debug(
-    "playerQueuePush",
-    `${CENOTAPH_QUEUE_TRACE} videoToMediaRef(${video.title}): resolveLocalVideoPath found nothing on disk after ${Date.now() - localPathStart}ms - falling back to fetch+import relay`
-  );
-  const fetchStart = Date.now();
-  const url = await getVideoURL(video);
-  const res = await fetch(url);
-  const blob = await res.blob();
-  const bytes = new Uint8Array(await blob.arrayBuffer());
-  debug(
-    "playerQueuePush",
-    `${CENOTAPH_QUEUE_TRACE} videoToMediaRef(${video.title}): getVideoURL+fetch (relay path) took ${Date.now() - fetchStart}ms`
-  );
-  const { sourcePeerAddr, blake3Hash } = await importMediaBytes(bytes);
-  const artworkStart = Date.now();
-  const { thumbUrl, fullUrl } = await resolveVideoArtwork(video);
-  debug(
-    "playerQueuePush",
-    `${CENOTAPH_QUEUE_TRACE} videoToMediaRef(${video.title}): resolveVideoArtwork (relay path) took ${Date.now() - artworkStart}ms, total ${Date.now() - t0}ms`
-  );
-  const ref: RemoteMediaRef = {
+}
+
+/** shared field-builder for a video's `RemoteMediaRef` - see
+ * `buildSongRef`'s doc comment above, same rationale. */
+function buildVideoRef(
+  video: QueuedVideo,
+  sourcePeerAddr: string,
+  blake3Hash: string,
+  extra?: Partial<RemoteMediaRef>
+): RemoteMediaRef {
+  return {
     source_peer_addr: sourcePeerAddr,
     blake3_hash: blake3Hash,
-    size_bytes: bytes.byteLength,
     duration_ms: video.duration_seconds ? Math.round(video.duration_seconds * 1000) : undefined,
-    mime_type: blob.type || "video/mp4",
+    mime_type: "video/mp4",
     kind: "video",
     title: video.title,
-    artwork_thumb_url: thumbUrl,
-    artwork_full_url: fullUrl,
+    ...extra,
   };
-  debug("playerQueuePush", `videoToMediaRef built:`, ref);
-  return ref;
+}
+
+/** video counterpart of ensureSongServableInBackground() above. `hash` is
+ * the already-known content hash (a video's `.blake3` is often unset - see
+ * `QueuedVideo.blake3`'s doc comment - so the caller passes the real hash
+ * it already has rather than this function trying to re-derive one).
+ * `playerNodeId` resolves the "sending to $player" display name. */
+async function ensureVideoServableInBackground(
+  video: QueuedVideo,
+  nodeId: string,
+  playerNodeId: string,
+  hash: string
+): Promise<void> {
+  const t0 = Date.now();
+  const localPath = await resolveLocalVideoPath(video);
+  if (localPath) {
+    await importLocalFileByPath(localPath);
+    debug(
+      "playerQueuePush",
+      `${CENOTAPH_QUEUE_TRACE} ensureVideoServableInBackground(${video.title}): already on disk, imported by path in ${Date.now() - t0}ms`
+    );
+    return;
+  }
+  warn(
+    "playerQueuePush",
+    `${CENOTAPH_QUEUE_TRACE} CONTROLLER_BLOB_PROXY: relaying "${video.title}" (blake3=${video.blake3?.slice(0, 8) ?? "(none)"}..., remote_server_id=${video.remote_server_id ?? "(none)"}) through THIS device as a last resort - no known P2P source remote and nothing already on disk. if this fires often, something is misclassifying a video's remote_server_id.`
+  );
+  const [fromRemoteName, toPlayerName] = await Promise.all([
+    resolveRemoteName(video.remote_server_id),
+    resolvePlayerName(playerNodeId),
+  ]);
+  try {
+    setTransferStatus(hash, { phase: "fetching", fromRemoteName });
+    const url = await getVideoURL(video);
+    const { bytes } = await fetchBytesWithProgress(url, undefined, (fraction) =>
+      setTransferStatus(hash, { phase: "fetching", fromRemoteName, progress: fraction })
+    );
+    setTransferStatus(hash, { phase: "sending", toPlayerName });
+    await importMediaBytes(bytes, (fraction) =>
+      setTransferStatus(hash, { phase: "sending", toPlayerName, progress: fraction })
+    );
+    warn(
+      "playerQueuePush",
+      `${CENOTAPH_QUEUE_TRACE} CONTROLLER_BLOB_PROXY: fetched+imported "${video.title}" (${bytes.byteLength}b) in ${Date.now() - t0}ms (command was already sent before this started), sourcePeerAddr=${nodeId}`
+    );
+  } finally {
+    setTransferStatus(hash, null);
+  }
+}
+
+/** does the actual reactive work (bridge grant, or fetch+import) for one
+ * item a player reported it couldn't resolve, then returns a fresh
+ * `RemoteMediaRef` for it - `hash` (the map key `mediaItem` was cached
+ * under in `pushedItemsByHash`) is used directly rather than re-derived
+ * from the song/video object, since a video resolved via the bridged-
+ * metadata or fetch-and-hash path never had its own `.blake3` set to
+ * begin with (see `QueuedVideo.blake3`'s doc comment) - the cache key IS
+ * the only place that hash is recorded. */
+async function forceServeMediaItem(
+  hash: string,
+  mediaItem: MediaItem,
+  playerNodeId: string,
+  bridgeCache: BridgeCache
+): Promise<RemoteMediaRef> {
+  if (mediaItem.kind === "song") {
+    const song = mediaItem.song;
+    const remote = song.remote_server_id ? await getRemoteById(song.remote_server_id) : null;
+    if (remote && isP2PRemote(remote)) {
+      const bridged = await tryBridgeToSourceRemote(
+        song.remote_server_id!,
+        playerNodeId,
+        bridgeCache
+      );
+      if (bridged) return buildSongRef(song, remote.peer_addr, hash);
+    }
+    const nodeId = (await fetchLocalNodeId()) ?? playerNodeId;
+    await ensureSongServableInBackground(song, nodeId, playerNodeId);
+    return buildSongRef(song, nodeId, hash);
+  }
+  const video = mediaItem.video;
+  const remote = video.remote_server_id ? await getRemoteById(video.remote_server_id) : null;
+  if (remote && isP2PRemote(remote)) {
+    const bridged = await tryBridgeToSourceRemote(
+      video.remote_server_id!,
+      playerNodeId,
+      bridgeCache
+    );
+    if (bridged) return buildVideoRef(video, remote.peer_addr, hash);
+  }
+  const nodeId = (await fetchLocalNodeId()) ?? playerNodeId;
+  await ensureVideoServableInBackground(video, nodeId, playerNodeId, hash);
+  return buildVideoRef(video, nodeId, hash);
+}
+
+/** reactive counterpart to songToMediaRef/videoToMediaRef's now-purely-
+ * local ref building: called whenever a player's status reports non-empty
+ * `unresolved_items` (wired in remotePlaybackControl.ts's
+ * applyRemoteStatus), i.e. only once the player has ACTUALLY tried and
+ * failed to reach an item's declared source itself. this - and
+ * everything it calls (`tryBridgeToSourceRemote`, `ensureSong/
+ * VideoServableInBackground`) - is now the ONLY place in this file that
+ * does proactive networking on a controller's behalf; by the time this
+ * runs it's confirmed necessary, not "just in case". best-effort per
+ * item (one failing to resolve doesn't stop the others); re-sends a
+ * small append_queue with just the successfully-helped item(s). */
+export async function handleUnresolvedItems(
+  peerAddr: string,
+  unresolvedItems: UnresolvedItemRef[]
+): Promise<void> {
+  if (unresolvedItems.length === 0) return;
+  const bridgeCache: BridgeCache = new Map();
+  const retried: RemoteMediaRef[] = [];
+  for (const unresolved of unresolvedItems) {
+    const mediaItem = pushedItemsByHash.get(unresolved.blake3_hash);
+    if (!mediaItem) {
+      warn(
+        "playerQueuePush",
+        `${CENOTAPH_QUEUE_TRACE} handleUnresolvedItems: player ${peerAddr} reported it can't resolve blake3=${unresolved.blake3_hash.slice(0, 8)}... (declared source ${unresolved.source_peer_addr.slice(0, 8)}...) but this device has no record of pushing it this session - can't help.`
+      );
+      continue;
+    }
+    const title = mediaItem.kind === "song" ? mediaItem.song.title : mediaItem.video.title;
+    warn(
+      "playerQueuePush",
+      `${CENOTAPH_QUEUE_TRACE} CONTROLLER_BLOB_PROXY: player ${peerAddr} couldn't resolve "${title}" from declared source ${unresolved.source_peer_addr.slice(0, 8)}... - helping reactively now (the only time this device does networking for a queue item it didn't already have to).`
+    );
+    try {
+      retried.push(
+        await forceServeMediaItem(unresolved.blake3_hash, mediaItem, peerAddr, bridgeCache)
+      );
+    } catch (err) {
+      warn("playerQueuePush", `handleUnresolvedItems: failed to help resolve "${title}":`, err);
+    }
+  }
+  if (retried.length === 0) return;
+  let ack: CommandAckLike | undefined;
+  try {
+    ack = (await sendPlayerCommand(peerAddr, {
+      type: "control",
+      command: "append_queue",
+      items: retried,
+    })) as CommandAckLike;
+  } catch (err) {
+    warn("playerQueuePush", `handleUnresolvedItems: re-send to ${peerAddr} failed:`, err);
+    return;
+  }
+  reportCommandAckFailure(ack, peerAddr);
+  if (ack?.status) applyRemoteStatusFromAck(ack.status);
 }
 
 interface CommandAckLike {
@@ -666,9 +837,8 @@ export async function pushSongsToPlayer(peerAddr: string, songs: Song[]): Promis
     "playerQueuePush",
     `${CENOTAPH_QUEUE_TRACE} pushSongsToPlayer(${peerAddr}): building ${songs.length} item(s)`
   );
-  const bridgeCache: BridgeCache = new Map();
   const items = await mapWithConcurrency(songs, QUEUE_PUSH_CONCURRENCY, (song) =>
-    songToMediaRef(song, peerAddr, bridgeCache)
+    songToMediaRef(song, peerAddr)
   );
   debug(
     "playerQueuePush",
@@ -699,9 +869,8 @@ export async function appendSongsToPlayer(peerAddr: string, songs: Song[]): Prom
     "playerQueuePush",
     `${CENOTAPH_QUEUE_TRACE} appendSongsToPlayer(${peerAddr}): building ${songs.length} item(s)`
   );
-  const bridgeCache: BridgeCache = new Map();
   const items = await mapWithConcurrency(songs, QUEUE_PUSH_CONCURRENCY, (song) =>
-    songToMediaRef(song, peerAddr, bridgeCache)
+    songToMediaRef(song, peerAddr)
   );
   debug(
     "playerQueuePush",
@@ -797,7 +966,7 @@ async function mediaItemToRef(
   bridgeCache: BridgeCache
 ): Promise<RemoteMediaRef> {
   return item.kind === "song"
-    ? songToMediaRef(item.song, playerNodeId, bridgeCache)
+    ? songToMediaRef(item.song, playerNodeId)
     : videoToMediaRef(item.video, playerNodeId, bridgeCache);
 }
 

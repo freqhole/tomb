@@ -14,6 +14,7 @@
 // source device happened to send along.
 import { createResource, createSignal, Show } from "solid-js";
 import type { RemoteMediaRef } from "../../app/services/players/remotePlaybackControl";
+import { queueItemTransferStatus } from "../../app/services/players/playerQueuePush";
 import { getSongByBlake3 } from "../../music/services/storage/db/songs";
 import { getSongDisplayImages, getWaveformImage } from "../../utils/images";
 import { formatDuration } from "../../utils/formatDuration";
@@ -97,6 +98,20 @@ export function RemoteQueueRow(props: RemoteQueueRowProps) {
     const dur = props.item.duration_ms;
     if (!dur || props.positionMs === undefined) return 0;
     return Math.min(1, Math.max(0, props.positionMs / dur));
+  };
+
+  // populated only while this device is genuinely proxying this item's
+  // bytes (see playerQueuePush.ts's CONTROLLER_BLOB_PROXY paths) -
+  // `undefined` the vastly more common case (the player resolves the item
+  // entirely on its own, no networking through this device at all).
+  const transferStatus = () => queueItemTransferStatus(props.item.blake3_hash);
+  const transferLabel = () => {
+    const status = transferStatus();
+    if (!status) return undefined;
+    const pct = status.progress !== undefined ? ` ${Math.round(status.progress * 100)}%` : "";
+    return status.phase === "fetching"
+      ? `fetching from ${status.fromRemoteName ?? "remote"}${pct}`
+      : `sending to ${status.toPlayerName ?? "player"}${pct}`;
   };
 
   return (
@@ -206,22 +221,38 @@ export function RemoteQueueRow(props: RemoteQueueRowProps) {
 
       <div class="flex flex-col items-center ml-3 flex-shrink-0 relative z-10">
         <Show
-          when={!props.isPending}
+          when={!transferStatus()}
           fallback={
-            <span class="text-xs text-shadow-glow px-1 text-[var(--color-text-muted)] italic">
-              queueing…
-            </span>
+            <div class="flex items-center gap-1 max-w-[7rem]" title={transferLabel()}>
+              <Icon
+                name="loader"
+                size={10}
+                className="animate-spin text-[var(--color-text-muted)] flex-shrink-0"
+              />
+              <span class="text-[10px] leading-tight text-shadow-glow text-[var(--color-text-muted)] italic truncate">
+                {transferLabel()}
+              </span>
+            </div>
           }
         >
-          <span
-            class="text-xs text-shadow-glow px-1 tabular-nums text-center min-w-[2.5rem] text-[var(--color-text-secondary)]"
-            style={{ "text-decoration": resolvedSong() ? "underline" : undefined }}
-            title={resolvedSong() ? "already in your local library" : undefined}
+          <Show
+            when={!props.isPending}
+            fallback={
+              <span class="text-xs text-shadow-glow px-1 text-[var(--color-text-muted)] italic">
+                queueing…
+              </span>
+            }
           >
-            {formatDuration(
-              props.item.duration_ms !== undefined ? props.item.duration_ms / 1000 : undefined
-            )}
-          </span>
+            <span
+              class="text-xs text-shadow-glow px-1 tabular-nums text-center min-w-[2.5rem] text-[var(--color-text-secondary)]"
+              style={{ "text-decoration": resolvedSong() ? "underline" : undefined }}
+              title={resolvedSong() ? "already in your local library" : undefined}
+            >
+              {formatDuration(
+                props.item.duration_ms !== undefined ? props.item.duration_ms / 1000 : undefined
+              )}
+            </span>
+          </Show>
         </Show>
       </div>
 

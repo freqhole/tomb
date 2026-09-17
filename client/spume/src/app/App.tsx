@@ -84,6 +84,7 @@ import { togglePlayback } from "../music/services/audio/player";
 import { initRodioPreference } from "../music/services/audio/select";
 import { initVideoWindowPreference } from "../music/services/audio/selectVideo";
 import { installEphemeralReconciler } from "../music/services/audio/ephemeralFetch";
+import { installRelayRateLimitWatcher } from "./services/relayHealthWarnings";
 import { initRemotePlaybackBootstrap } from "../cenotaph/adapters/bootstrap";
 import { swapPlayerBackend } from "../music/services/audio/player";
 import { initQueueSizeLimit } from "../music/services/queue/queueLimit";
@@ -1042,6 +1043,11 @@ export function App() {
       // done per-backend. no-op outside charnel.
       installEphemeralReconciler();
       mark("installEphemeralReconciler done");
+      // surfaces iroh relay connectivity warnings (rate-limiting, lost
+      // connection) as a deduped toast instead of leaving them invisible
+      // in raw console output - see relayHealthWarnings.ts.
+      installRelayRateLimitWatcher();
+      mark("installRelayRateLimitWatcher done");
       // hydrate the configurable queue size limit from `[client]`
       // in `freqhole-config.toml`. safe outside tauri (no-op).
       await initQueueSizeLimit();

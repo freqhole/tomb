@@ -77,6 +77,7 @@ impl PairingRuntime {
                 auto_download_enabled: false,
                 volume: 1.0,
                 recently_played: Vec::new(),
+                unresolved_items: Vec::new(),
             },
         });
         Self {

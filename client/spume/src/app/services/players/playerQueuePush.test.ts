@@ -42,6 +42,7 @@ vi.mock("../../api/client", () => ({
 vi.mock("../../api/adminClient", () => ({ adminClientFor: vi.fn() }));
 vi.mock("../remotes/remoteManager", () => ({
   getRemoteById: vi.fn(async () => null),
+  getRemoteByPeerAddr: vi.fn(async () => null),
   onRemoteStatusChange: vi.fn(),
 }));
 // resolveArtwork()'s remote_blob_id branch isn't exercised (test songs have
@@ -118,6 +119,7 @@ beforeEach(() => {
     vi.fn(
       async () =>
         ({
+          headers: { get: () => null },
           arrayBuffer: async () => new ArrayBuffer(4),
           blob: async () => ({
             arrayBuffer: async () => new ArrayBuffer(4),

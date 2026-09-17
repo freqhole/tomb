@@ -56,6 +56,18 @@ const MediaRefSchema = z.object({
 });
 export type MediaRef = z.infer<typeof MediaRefSchema>;
 
+/** one queued item this player couldn't resolve (unreachable/unauthorized
+ * source, sync failure, etc.) - lets the controller notice and proxy the
+ * bytes as a last resort, instead of proactively fetching/importing every
+ * item's bytes up front "just in case". mirrors grimoire's
+ * `wire::UnresolvedItemRef` (rust wire type shared with charnel/tauri's
+ * status object, which this schema also has to match exactly). */
+const UnresolvedItemRefSchema = z.object({
+  blake3_hash: z.string(),
+  source_peer_addr: z.string(),
+});
+export type UnresolvedItemRef = z.infer<typeof UnresolvedItemRefSchema>;
+
 export const PlayerCommandSchema = z.discriminatedUnion("command", [
   z.object({ type: z.literal("control"), command: z.literal("play"), item: MediaRefSchema }),
   z.object({
@@ -182,6 +194,7 @@ export const PlayerStatusSchema = z.discriminatedUnion("state", [
     auto_download_enabled: z.boolean(),
     volume: z.number().min(0).max(1),
     recently_played: z.array(z.string()),
+    unresolved_items: z.array(UnresolvedItemRefSchema).optional(),
   }),
   z.object({
     type: z.literal("status"),
@@ -191,6 +204,7 @@ export const PlayerStatusSchema = z.discriminatedUnion("state", [
     auto_download_enabled: z.boolean(),
     volume: z.number().min(0).max(1),
     recently_played: z.array(z.string()),
+    unresolved_items: z.array(UnresolvedItemRefSchema).optional(),
   }),
   z.object({
     type: z.literal("status"),
@@ -199,6 +213,7 @@ export const PlayerStatusSchema = z.discriminatedUnion("state", [
     auto_download_enabled: z.boolean(),
     volume: z.number().min(0).max(1),
     recently_played: z.array(z.string()),
+    unresolved_items: z.array(UnresolvedItemRefSchema).optional(),
   }),
   z.object({
     type: z.literal("status"),
@@ -207,6 +222,7 @@ export const PlayerStatusSchema = z.discriminatedUnion("state", [
     auto_download_enabled: z.boolean(),
     volume: z.number().min(0).max(1),
     recently_played: z.array(z.string()),
+    unresolved_items: z.array(UnresolvedItemRefSchema).optional(),
   }),
   z.object({
     type: z.literal("status"),
@@ -216,6 +232,7 @@ export const PlayerStatusSchema = z.discriminatedUnion("state", [
     auto_download_enabled: z.boolean(),
     volume: z.number().min(0).max(1),
     recently_played: z.array(z.string()),
+    unresolved_items: z.array(UnresolvedItemRefSchema).optional(),
   }),
 ]);
 export type PlayerStatus = z.infer<typeof PlayerStatusSchema>;

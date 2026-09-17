@@ -83,6 +83,7 @@ pub fn build_player_protocol() -> PlayerProtocol {
             auto_download_enabled: false,
             volume: 1.0,
             recently_played: Vec::new(),
+            unresolved_items: Vec::new(),
         },
     });
     let _ = STATE.set(state.clone());

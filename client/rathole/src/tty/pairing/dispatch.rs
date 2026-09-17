@@ -649,6 +649,7 @@ async fn replace_queue(ctx: &DispatchContext, items: Vec<MediaRef>) -> CommandAc
             auto_download_enabled: false,
             volume: ctx.volume as f64,
             recently_played: ctx.recently_played.clone(),
+            unresolved_items: Vec::new(),
         },
     })
 }
@@ -681,6 +682,7 @@ async fn append_queue(ctx: &DispatchContext, items: Vec<MediaRef>) -> CommandAck
             auto_download_enabled: false,
             volume: ctx.volume as f64,
             recently_played: ctx.recently_played.clone(),
+            unresolved_items: Vec::new(),
         },
     )
 }
@@ -691,6 +693,7 @@ fn common_from_ctx(ctx: &DispatchContext) -> StatusCommon {
         auto_download_enabled: false,
         volume: ctx.volume as f64,
         recently_played: ctx.recently_played.clone(),
+        unresolved_items: Vec::new(),
     }
 }
 

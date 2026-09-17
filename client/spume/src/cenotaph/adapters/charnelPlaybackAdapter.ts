@@ -98,6 +98,27 @@ function settlePendingPreview(blake3Hash: string): void {
   setPendingQueuePreviews((prev) => prev.filter((p) => p.key !== blake3Hash));
 }
 
+// queued items this player couldn't resolve (unreachable/unauthorized
+// source, sync failure, etc.) - surfaced in currentStatus() below so the
+// controller (which already polls/subscribes to status) can notice and
+// proxy them as a last resort, instead of the controller proactively
+// fetching/importing every item's bytes up front "just in case". cleared
+// the moment a later resolve attempt for the same hash succeeds (e.g.
+// after the controller actually helped and re-sent it, or the source
+// simply came back online on its own).
+const unresolvedItems = new Map<string, { blake3Hash: string; sourcePeerAddr: string }>();
+
+function markUnresolved(item: MediaRef): void {
+  unresolvedItems.set(item.blake3_hash, {
+    blake3Hash: item.blake3_hash,
+    sourcePeerAddr: item.source_peer_addr,
+  });
+}
+
+function clearUnresolved(blake3Hash: string): void {
+  unresolvedItems.delete(blake3Hash);
+}
+
 /** resolves one wire `MediaRef` to a queueable `MediaItem`, promoting it
  * into the local library first if needed (see `mediaRefResolve.ts`).
  * `null` if resolution fails - callers skip it (best-effort, so one
@@ -169,8 +190,10 @@ async function resolveAndDeliverQueueItems(
           "charnelPlaybackAdapter",
           `${CENOTAPH_QUEUE_TRACE} failed to resolve queued item ${label} after ${resolveMs}ms, skipping`
         );
+        markUnresolved(item);
         continue;
       }
+      clearUnresolved(item.blake3_hash);
       try {
         await onResolved(mediaItem, resolvedCount === 0);
         resolvedCount++;
@@ -214,13 +237,26 @@ function currentQueueHashes(): Set<string> {
  * `currentStatus()`'s queue/now-playing fields - no artwork resolution
  * or cross-remote bridging (unlike `playerQueuePush.ts`'s `songToMediaRef`/
  * `videoToMediaRef`, built for pushing TO a different player): this item
- * is already playing right here, so only the display fields matter. */
+ * is already playing right here, so only the display fields matter.
+ *
+ * `blake3_hash` always uses the canonical `mediaItemBlake3()` (never a
+ * locally-reimplemented copy - two near-identical fallback chains used to
+ * live in this file alone, one of which silently substituted a video's
+ * row `id` for its content hash whenever `blake3` was missing, a real
+ * "blake3 field secretly holds an id" hazard for anything downstream that
+ * assumes `blake3_hash` is always a real content hash). falls back to
+ * `mediaItemKey()` only as an explicit, clearly-labeled last resort - the
+ * wire `MediaRef.blake3_hash` field is required and can't be omitted, but
+ * this value is NOT a real content hash when it's reached; a local-only
+ * video queued before it ever had a blake3 backfilled is the only way to
+ * get here. */
 function mediaItemToRef(item: MediaItem): MediaRef {
+  const blake3Hash = mediaItemBlake3(item) ?? mediaItemKey(item);
   if (item.kind === "song") {
     const s = item.song;
     return {
       source_peer_addr: "",
-      blake3_hash: s.blake3 ?? s.sha256,
+      blake3_hash: blake3Hash,
       size_bytes: s.file_size ?? undefined,
       duration_ms: s.duration_seconds ? Math.round(s.duration_seconds * 1000) : undefined,
       mime_type: s.mime_type ?? "audio/mpeg",
@@ -229,10 +265,10 @@ function mediaItemToRef(item: MediaItem): MediaRef {
       artist: s.artist_name ?? undefined,
     };
   }
-  const v = item.video as QueuedVideo & { blake3?: string | null };
+  const v = item.video;
   return {
     source_peer_addr: "",
-    blake3_hash: v.blake3 ?? v.id,
+    blake3_hash: blake3Hash,
     duration_ms: v.duration_seconds ? Math.round(v.duration_seconds * 1000) : undefined,
     kind: "video",
     title: v.title,
@@ -251,15 +287,18 @@ function buildQueueRefs(): MediaRef[] {
   return ordered.map(mediaItemToRef);
 }
 
-/** the real content hash for a `MediaItem` - what `mediaItemToRef`
- * reports as `blake3_hash` (preferring `blake3` over `sha256`/`id`).
- * used to build `recentlyPlayed` entries from items looked up by
- * `mediaItemKey` (which is `sha256`/`id`, NOT necessarily the same
- * value - see `mediaItemKey`'s own doc comment). */
+/** the real content hash for a `MediaItem`, for `recentlyPlayed` entries -
+ * just `mediaItemBlake3()` (the canonical, storage/mediaItem.ts version)
+ * falling back to `mediaItemKey()` (`sha256`/`id`) ONLY when genuinely
+ * unknown. previously reimplemented this fallback chain locally with a
+ * bug: it substituted a video's row `id` for its blake3 whenever `blake3`
+ * was missing, so a `recentlyPlayed` entry for such a video was a row id,
+ * not a hash - harmless in isolation (nothing compared it against a real
+ * hash), but exactly the kind of silent id/blake3 field confusion that's
+ * bitten this codebase before elsewhere. reusing the one canonical helper
+ * instead of a second, silently-diverging copy is the actual fix. */
 function itemBlake3(item: MediaItem): string {
-  return item.kind === "song"
-    ? (item.song.blake3 ?? item.song.sha256)
-    : ((item.video as QueuedVideo & { blake3?: string | null }).blake3 ?? item.video.id);
+  return mediaItemBlake3(item) ?? mediaItemKey(item);
 }
 
 /** finds the current queue item's index within the FULL `appState().queue`
@@ -329,6 +368,10 @@ function currentStatus(): PlayerStatus {
     recently_played: [...recentlyPlayed],
     auto_download_enabled: getAutoDownloadEnabled(),
     volume: volume(),
+    unresolved_items: Array.from(unresolvedItems.values()).map((u) => ({
+      blake3_hash: u.blake3Hash,
+      source_peer_addr: u.sourcePeerAddr,
+    })),
   };
   if (queue.length === 0) {
     return { type: "status", state: "stopped", ...common };
