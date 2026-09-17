@@ -46,6 +46,7 @@ import {
 } from "../../app/services/remotes/remoteManager";
 import { refreshPlayerStatus } from "../../app/services/remotes/remoteHealth";
 import { adminLocalRawDispatch, getLocalAdminClient } from "../../app/api/adminClient";
+import { spumeTrustStore } from "../../cenotaph/adapters/trustStoreAdapter";
 import { resolveBlobUrl } from "../../music/services/storage/blobResolver";
 import { debug, error } from "../../utils/logger";
 import { CENOTAPH_QUEUE_TRACE } from "../../cenotaph/queueTrace";
@@ -238,6 +239,24 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
             pairedAsPlayer: true,
           });
       const player = { node_id: peerAddr, username: remote.name };
+      // baseline peer trust so the player can dial back into this device
+      // for media resolution (songs/query, blob_metadata) once we push a
+      // queue to it - plain browser/wasm clients only: charnel already has
+      // a real grimoire instance, and granting trust there is the explicit,
+      // opt-in "set up local user" checkbox below, not an automatic one.
+      // only grants if not already trusted - trustController() is an
+      // upsert, so an unconditional call here would silently downgrade an
+      // already-admin/member peer back to viewer on every re-pair.
+      if (
+        !isCharnelAvailable() &&
+        !(await spumeTrustStore.isTrustedController(peerAddr).catch(() => false))
+      ) {
+        await spumeTrustStore
+          .trustController(peerAddr, displayNameHint, "viewer")
+          .catch((err) =>
+            error("AddRemoteModal", `failed to grant baseline peer trust for ${peerAddr}:`, err)
+          );
+      }
       if (setUpLocalUser()) {
         try {
           const client = getLocalAdminClient();
@@ -370,6 +389,22 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
               allowMissingServerInfo: true,
               pairedAsPlayer: true,
             }).catch(() => {});
+          }
+          // baseline peer trust - see handlePairPlayer's identical grant above
+          // for why this is needed even on this already-authorized auto-skip
+          // path (being trusted BY the player doesn't imply the player is
+          // trusted back by this device). plain browser/wasm only, same as
+          // above, and guarded the same way to avoid downgrading an
+          // already-admin/member peer on every reconnect.
+          if (
+            !isCharnelAvailable() &&
+            !(await spumeTrustStore.isTrustedController(peerAddr).catch(() => false))
+          ) {
+            await spumeTrustStore
+              .trustController(peerAddr, displayName, "viewer")
+              .catch((err) =>
+                error("AddRemoteModal", `failed to grant baseline peer trust for ${peerAddr}:`, err)
+              );
           }
           await deletePendingRemoteByPeerAddr(peerAddr).catch(() => {});
           // not awaited - see handlePairPlayer's identical fix above for why.
