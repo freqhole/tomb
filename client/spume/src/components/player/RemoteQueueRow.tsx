@@ -105,13 +105,13 @@ export function RemoteQueueRow(props: RemoteQueueRowProps) {
   // `undefined` the vastly more common case (the player resolves the item
   // entirely on its own, no networking through this device at all).
   const transferStatus = () => queueItemTransferStatus(props.item.blake3_hash);
+  // percentage is conveyed by the loading-underline bar below, not text.
   const transferLabel = () => {
     const status = transferStatus();
     if (!status) return undefined;
-    const pct = status.progress !== undefined ? ` ${Math.round(status.progress * 100)}%` : "";
     return status.phase === "fetching"
-      ? `fetching from ${status.fromRemoteName ?? "remote"}${pct}`
-      : `sending to ${status.toPlayerName ?? "player"}${pct}`;
+      ? `fetching from ${status.fromRemoteName ?? "remote"}`
+      : `sending to ${status.toPlayerName ?? "player"}`;
   };
 
   return (
@@ -223,15 +223,43 @@ export function RemoteQueueRow(props: RemoteQueueRowProps) {
         <Show
           when={!transferStatus()}
           fallback={
-            <div class="flex items-center gap-1 max-w-[7rem]" title={transferLabel()}>
-              <Icon
-                name="loader"
-                size={10}
-                className="animate-spin text-[var(--color-text-muted)] flex-shrink-0"
-              />
-              <span class="text-[10px] leading-tight text-shadow-glow text-[var(--color-text-muted)] italic truncate">
-                {transferLabel()}
-              </span>
+            <div class="flex flex-col items-center max-w-[7rem]">
+              <div class="flex items-center gap-1">
+                <Icon
+                  name="loader"
+                  size={10}
+                  className="animate-spin text-[var(--color-text-muted)] flex-shrink-0"
+                />
+                <span class="text-[10px] leading-tight text-shadow-glow text-[var(--color-text-muted)] italic truncate">
+                  {transferLabel()}
+                </span>
+              </div>
+              {/* loading underline - percentage conveyed visually, not as
+                  text (mirrors QueueSongRow.tsx's identical determinate-
+                  fill/indeterminate-bounce pattern). width MUST be read
+                  inside `style` (see QueueSongRow.tsx's own note on this). */}
+              <div
+                class="w-full h-0.5 overflow-hidden rounded-full"
+                style={{ "margin-top": "2px", background: "rgba(168, 85, 247, 0.2)" }}
+              >
+                <div
+                  style={{
+                    width:
+                      transferStatus()?.progress !== undefined
+                        ? `${Math.round((transferStatus()!.progress as number) * 100)}%`
+                        : "100%",
+                    height: "100%",
+                    background: "linear-gradient(90deg, #a855f7 0%, #d946ef 50%, #ec4899 100%)",
+                    animation:
+                      transferStatus()?.progress !== undefined
+                        ? undefined
+                        : "bounce-bar 2s ease-in-out infinite",
+                    "border-radius": "9999px",
+                    transition:
+                      transferStatus()?.progress !== undefined ? "width 150ms ease-out" : undefined,
+                  }}
+                />
+              </div>
             </div>
           }
         >

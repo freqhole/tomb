@@ -337,7 +337,18 @@ export async function sendPlayerCommand(peerAddr: string, command: unknown): Pro
  * of the session (no reconnect attempt, no visible signal), which looked
  * like "another client's seek/queue change takes ages to show up" - the
  * push channel had quietly died and only the next poll tick ever caught
- * up. now it keeps retrying for as long as the caller hasn't unsubscribed.
+ * up. now it keeps retrying for as long as the caller hasn't unsubscribed
+ * AND `opts.shouldRetry` (if given) keeps saying yes - a web-based
+ * cenotaph player is a plain browser tab, not a full always-on remote
+ * server, so unlike a real remote it can vanish for good (tab/browser
+ * closed) with no guarantee of ever coming back. without a way to stop,
+ * this hammered a permanently-gone peer every `RECONNECT_DELAY_MS`
+ * forever - `remotePlaybackControl.ts` wires `shouldRetry` to the same
+ * `remoteTargetOffline()` check the 30s poll fallback already uses to
+ * mark a target offline, so once that's tripped this loop stops instead
+ * of retrying eternally, and `opts.onGiveUp` lets the caller know to
+ * re-establish the subscription itself once the target is reachable
+ * again (e.g. after the next poll succeeds).
  *
  * wasm-only for now: charnel/tauri's `player_pairing_dial` invoke is a
  * one-shot request/response with no persistent-stream equivalent yet -
@@ -346,7 +357,8 @@ export async function sendPlayerCommand(peerAddr: string, command: unknown): Pro
  * unconditionally alongside this). */
 export function subscribeToPlayerStatus(
   peerAddr: string,
-  onStatus: (status: unknown) => void
+  onStatus: (status: unknown) => void,
+  opts?: { shouldRetry?: () => boolean; onGiveUp?: () => void }
 ): () => void {
   if (isCharnelMode()) return () => {};
 
@@ -356,6 +368,13 @@ export function subscribeToPlayerStatus(
 
   void (async () => {
     while (!closed) {
+      if (opts?.shouldRetry && !opts.shouldRetry()) {
+        console.info(
+          `[subscribeToPlayerStatus] ${peerAddr} considered offline, giving up reconnect loop (poll fallback will retry)`
+        );
+        opts.onGiveUp?.();
+        return;
+      }
       try {
         const node = await getMiddenNode();
         if (!node.open_bi) return;

@@ -81,12 +81,33 @@ export interface ApiRouterOptions {
 
 export interface ApiRouter {
   registerRoute(method: string, path: string, handler: ApiRouteHandler, auth?: ApiRouteAuth): void;
+  /** registers a handler for any path starting with `prefix` (e.g.
+   * `/api/blobs/`) whose exact shape isn't known ahead of time (a
+   * `{id}`/`{id}/data` segment) - `apiRouter.ts` has no general path-
+   * param syntax, so a dynamic id is handled by the caller parsing
+   * `rest` (the path with `prefix` stripped) itself, mirroring
+   * grimoire's own `media_blobz::dispatch()` doing the same manual
+   * suffix-splitting server-side. checked only when no EXACT route
+   * matches first, and only the LONGEST matching registered prefix is
+   * used, so a more specific prefix always wins over a shorter one. */
+  registerPrefixRoute(
+    method: string,
+    prefix: string,
+    handler: (rest: string, body: unknown) => ReturnType<ApiRouteHandler>,
+    auth?: ApiRouteAuth
+  ): void;
   /** handle a single request/response round-trip on the `freqhole/1` ALPN. */
   dispatch(stream: CenotaphBiStream): Promise<void>;
 }
 
 export function createApiRouter(options: ApiRouterOptions = {}): ApiRouter {
   const routes = new Map<string, RegisteredRoute>();
+  const prefixRoutes: Array<{
+    method: string;
+    prefix: string;
+    handler: (rest: string, body: unknown) => ReturnType<ApiRouteHandler>;
+    auth: ApiRouteAuth;
+  }> = [];
 
   function registerRoute(
     method: string,
@@ -98,6 +119,36 @@ export function createApiRouter(options: ApiRouterOptions = {}): ApiRouter {
     auth: ApiRouteAuth = "viewer"
   ): void {
     routes.set(routeKey(method, path), { handler, auth });
+  }
+
+  function registerPrefixRoute(
+    method: string,
+    prefix: string,
+    handler: (rest: string, body: unknown) => ReturnType<ApiRouteHandler>,
+    auth: ApiRouteAuth = "viewer"
+  ): void {
+    prefixRoutes.push({ method: method.toUpperCase(), prefix, handler, auth });
+  }
+
+  /** exact match first, then the longest-prefix match among registered
+   * prefix routes for this method - returns a route-shaped object so
+   * `dispatch()`'s auth-check/response-write logic doesn't need two
+   * copies. */
+  function resolveRoute(
+    method: string,
+    path: string
+  ): { auth: ApiRouteAuth; handler: ApiRouteHandler } | null {
+    const exact = routes.get(routeKey(method, path));
+    if (exact) return exact;
+    const upperMethod = method.toUpperCase();
+    let best: (typeof prefixRoutes)[number] | null = null;
+    for (const candidate of prefixRoutes) {
+      if (candidate.method !== upperMethod || !path.startsWith(candidate.prefix)) continue;
+      if (!best || candidate.prefix.length > best.prefix.length) best = candidate;
+    }
+    if (!best) return null;
+    const rest = path.slice(best.prefix.length);
+    return { auth: best.auth, handler: (body: unknown) => best!.handler(rest, body) };
   }
 
   async function dispatch(stream: CenotaphBiStream): Promise<void> {
@@ -117,7 +168,7 @@ export function createApiRouter(options: ApiRouterOptions = {}): ApiRouter {
       }
       requestId = parsed.id;
 
-      const route = routes.get(routeKey(parsed.method, parsed.path));
+      const route = resolveRoute(parsed.method, parsed.path);
       debug("apiRouter", `dispatching ${parsed.method} ${parsed.path}, handler found: ${!!route}`);
       if (!route) {
         await writeApiResponse(stream, parsed.id, 404, { error: "not found" });
@@ -174,5 +225,5 @@ export function createApiRouter(options: ApiRouterOptions = {}): ApiRouter {
     }
   }
 
-  return { registerRoute, dispatch };
+  return { registerRoute, registerPrefixRoute, dispatch };
 }

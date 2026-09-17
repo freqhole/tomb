@@ -78,6 +78,16 @@ export interface MiddenNodeLike {
   // import bytes into local iroh-blobs store, returns blake3 hash (64 hex chars)
   // keeps a TempTag so GC won't collect it until release_blob is called
   import_blob?(data: Uint8Array): Promise<string>;
+  // chunked counterpart of import_blob - the wasm boundary never sees the
+  // whole payload at once (see lib/midden's ImportSession doc comment).
+  // push() is backpressured (resolves once the chunk is queued); finish()
+  // completes the import and returns the blake3 hash, pinned the same way
+  // import_blob's result is (until release_blob is called).
+  start_import?(): {
+    push(chunk: Uint8Array): Promise<void>;
+    finish(): Promise<string>;
+    abort(): void;
+  };
   // release a blob's TempTag, allowing GC
   release_blob?(blake3_hash: string): void;
   // start background accept loop for incoming iroh-blobs connections
@@ -154,6 +164,14 @@ export type BlobProgressCallback = (received: number, total: number) => void;
 
 // unified cache for all remote blobs (HTTP + P2P) - default if no custom cache name provided
 const DEFAULT_CACHE_NAME = "freqhole-blobs-v1";
+
+// retry ladder for a request that fails at the connection/stream level
+// (e.g. "read error: connection lost") - mirrors playerPairingClient.ts's
+// DIAL_RETRY_DELAYS_MS for the same underlying reason: a freshly-dialed
+// p2p connection can still be settling and drop an early request even
+// though the peer is genuinely reachable. short and small on purpose -
+// this guards a single request, not a whole cold-dial handshake.
+const REQUEST_RETRY_DELAYS_MS = [150, 400];
 
 /**
  * decode base64 string to Uint8Array
@@ -325,28 +343,42 @@ export class WasmTransport implements Transport {
   }
 
   async request(method: string, path: string, body?: string): Promise<TransportResponse> {
-    try {
-      // TEMP DEBUG - remove once the first-pair-attempt-fails bug is found
-      console.log(`[debug/WasmTransport] request start ${method} ${path} -> ${this.peerAddr}`);
-      const result = await this.node.api_request(this.peerAddr, method, path, body ?? null);
-      // TEMP DEBUG - remove once the first-pair-attempt-fails bug is found
-      console.log(`[debug/WasmTransport] request ok ${method} ${path} status=${result.status}`);
-      if (result.status < 200 || result.status >= 300) {
-        // TEMP DEBUG - remove once sync-to-local wiring bug is found
-        console.log(`[debug/WasmTransport] ${method} ${path} non-2xx body:`, result.body);
+    let lastErr: unknown;
+    for (let attempt = 0; attempt <= REQUEST_RETRY_DELAYS_MS.length; attempt++) {
+      try {
+        const result = await this.node.api_request(this.peerAddr, method, path, body ?? null);
+        if (result.status < 200 || result.status >= 300) {
+          // TEMP DEBUG - remove once sync-to-local wiring bug is found
+          console.log(`[debug/WasmTransport] ${method} ${path} non-2xx body:`, result.body);
+        }
+        return {
+          status: result.status,
+          body: result.body,
+        };
+      } catch (e) {
+        lastErr = e;
+        // any exception here is a connection/stream-level failure (a real
+        // HTTP-ish response, even non-2xx, resolves normally above) - a
+        // freshly-dialed p2p peer's connection can still be settling (NAT
+        // traversal/relay handoff) and drop an early request with "read
+        // error: connection lost" even though the peer itself is fine, as
+        // seen live pushing a queued song to a just-paired player. retrying
+        // a few times with a short delay (same ladder shape as
+        // playerPairingClient.ts's cold-dial retry) instead of failing
+        // the whole resolve immediately.
+        if (attempt < REQUEST_RETRY_DELAYS_MS.length) {
+          console.warn(
+            `[WasmTransport] ${method} ${path} attempt ${attempt + 1} failed, retrying:`,
+            e,
+          );
+          await new Promise((resolve) => setTimeout(resolve, REQUEST_RETRY_DELAYS_MS[attempt]));
+          continue;
+        }
       }
-      return {
-        status: result.status,
-        body: result.body,
-      };
-    } catch (e) {
-      // P2P connection errors - rethrow with message that isNetworkError will catch
-      const { message, errorType } = extractErrorType(e);
-      // TEMP DEBUG - remove once sync-to-local wiring bug is found
-      console.log(`[debug/WasmTransport] ${method} ${path} threw:`, e);
-      console.warn(`[WasmTransport] P2P request failed: ${message}`);
-      throw new TransportError(`connection failed: ${message}`, { errorType });
     }
+    const { message, errorType } = extractErrorType(lastErr);
+    console.warn(`[WasmTransport] P2P request failed: ${message}`);
+    throw new TransportError(`connection failed: ${message}`, { errorType });
   }
 
   async upload(

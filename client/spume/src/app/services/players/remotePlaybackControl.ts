@@ -298,6 +298,7 @@ function applyRemoteStatus(status: RemoteStatus | null): void {
   if (status) {
     setConsecutiveFailures(0);
     setRemoteAnnouncedOffline(false);
+    resubscribePushStatusIfGivenUp();
     const prevRecentlyPlayed = remoteStatus()?.recently_played ?? [];
     const newlyFinished = status.recently_played.filter((h) => !prevRecentlyPlayed.includes(h));
     if (newlyFinished.length > 0) pruneLocalQueueForFinishedItems(newlyFinished);
@@ -306,11 +307,27 @@ function applyRemoteStatus(status: RemoteStatus | null): void {
     // etc.) on its own status - only NOW, once that's confirmed, does
     // this controller do any real networking on the item's behalf (see
     // playerQueuePush.ts's handleUnresolvedItems doc comment for the full
-    // rationale).
-    const unresolvedItems = status.unresolved_items;
-    if (unresolvedItems && unresolvedItems.length > 0 && unresolvedItemsHandler) {
+    // rationale). same newly-appeared-since-last-status diff as
+    // newlyFinished above - a player re-reports the SAME still-unresolved
+    // hash on every status/ack (including the ack of the retry this
+    // handler itself just sent) until it actually resolves, so reacting
+    // to every occurrence instead of just the first is an unconditional
+    // retry-as-fast-as-the-round-trip-allows loop with no way out for a
+    // genuinely (even if only temporarily) unreachable source - a real
+    // reported bug. reacting only once per hash, exactly when it first
+    // becomes unresolved, still lets a later genuinely-new occurrence
+    // (e.g. the source went offline again after a successful resolve)
+    // trigger a fresh attempt, since `prevUnresolvedHashes` is read from
+    // the immediately-preceding status, not a permanent record.
+    const prevUnresolvedHashes = new Set(
+      (remoteStatus()?.unresolved_items ?? []).map((u) => u.blake3_hash)
+    );
+    const newlyUnresolved = (status.unresolved_items ?? []).filter(
+      (u) => !prevUnresolvedHashes.has(u.blake3_hash)
+    );
+    if (newlyUnresolved.length > 0 && unresolvedItemsHandler) {
       const peerAddr = activeTargetNodeId();
-      if (peerAddr) unresolvedItemsHandler(peerAddr, unresolvedItems);
+      if (peerAddr) unresolvedItemsHandler(peerAddr, newlyUnresolved);
     }
   }
   setRemoteStatus(status);
@@ -695,6 +712,45 @@ export async function fetchRemoteStatus(): Promise<RemoteStatus | null> {
 const POLL_INTERVAL_MS = 30_000;
 let pollHandle: ReturnType<typeof setInterval> | null = null;
 let unsubscribeStatus: (() => void) | null = null;
+// set by subscribeToPlayerStatus's onGiveUp once it stops retrying (see
+// its own doc comment) - a web-based player is a plain browser tab, not
+// a full always-on remote, so it can be gone for good rather than just
+// briefly unreachable; once `remoteTargetOffline()` trips, hammering a
+// reconnect every couple seconds forever is wasted battery/network for a
+// peer that may never come back. cleared (and the subscription
+// re-established) the next time a real status proves the target is
+// reachable again - see `resubscribePushStatusIfGivenUp` below.
+let pushSubscriptionGaveUp = false;
+
+/** the shared shouldRetry/onGiveUp pair passed to every
+ * `subscribeToPlayerStatus` call site below - keeps the give-up/resume
+ * coordination in one place instead of duplicated per call site. */
+function pushSubscriptionOpts(): {
+  shouldRetry: () => boolean;
+  onGiveUp: () => void;
+} {
+  return {
+    shouldRetry: () => !remoteTargetOffline(),
+    onGiveUp: () => {
+      pushSubscriptionGaveUp = true;
+      unsubscribeStatus = null;
+    },
+  };
+}
+
+/** re-opens the push subscription if it previously gave up (see
+ * `pushSubscriptionGaveUp`'s doc comment) - called whenever a real status
+ * arrives (`applyRemoteStatus`), since that only happens after a
+ * genuinely successful exchange with the target, i.e. proof it's
+ * reachable again. no-op if the subscription never gave up, or if no
+ * remote target is currently active (nothing to resubscribe to). */
+function resubscribePushStatusIfGivenUp(): void {
+  if (!pushSubscriptionGaveUp || unsubscribeStatus || !isRemoteTargetActive()) return;
+  const nodeId = activeTargetNodeId();
+  if (!nodeId) return;
+  pushSubscriptionGaveUp = false;
+  unsubscribeStatus = subscribeToPlayerStatus(nodeId, handlePushLine, pushSubscriptionOpts());
+}
 
 /** the push-subscription line handler, shared by `setRemoteStatusPolling`
  * and `forceResyncRemoteStatus` (which needs to reopen the exact same
@@ -736,7 +792,7 @@ export function setRemoteStatusPolling(enabled: boolean): void {
 
     const nodeId = activeTargetNodeId();
     if (nodeId) {
-      unsubscribeStatus = subscribeToPlayerStatus(nodeId, handlePushLine);
+      unsubscribeStatus = subscribeToPlayerStatus(nodeId, handlePushLine, pushSubscriptionOpts());
     }
   } else if (!enabled && pollHandle) {
     clearInterval(pollHandle);
@@ -778,6 +834,6 @@ export function forceResyncRemoteStatus(): void {
   unsubscribeStatus = null;
   const nodeId = activeTargetNodeId();
   if (nodeId) {
-    unsubscribeStatus = subscribeToPlayerStatus(nodeId, handlePushLine);
+    unsubscribeStatus = subscribeToPlayerStatus(nodeId, handlePushLine, pushSubscriptionOpts());
   }
 }

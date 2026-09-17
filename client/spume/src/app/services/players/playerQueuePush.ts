@@ -297,6 +297,92 @@ async function fetchBytesWithProgress(
   return { bytes, contentType };
 }
 
+/** fetches `url` and imports the bytes into this device's blob store in a
+ * single streaming pass - the real fix for the "controller media blob
+ * proxy" relay path (`ensureSongServableInBackground`/
+ * `ensureVideoServableInBackground`/`videoToMediaRef`'s last-resort
+ * branch), which used to always fetch the WHOLE file into one buffer
+ * (`fetchBytesWithProgress`) and THEN hand that whole buffer to
+ * `import_blob` - two full in-memory copies, neither streamed past the
+ * network-read stage.
+ *
+ * browser/wasm: pushes each network chunk straight into midden's
+ * `ImportSession` (`node.start_import()` - see WasmTransport.ts's
+ * `MiddenNodeLike.start_import` doc comment) as it arrives. the wasm
+ * boundary never sees the whole payload at once; iroh-blobs computes the
+ * bao tree incrementally. this is the SAME chunked-import primitive
+ * `@freqhole/reliquary`'s worker-hosted midden client already wraps
+ * (`WorkerImportSession`) - spume runs midden on the main thread, not in
+ * a worker, so it's called directly here instead of through reliquary's
+ * comlink wrapper, but it's the identical underlying api, not a new one.
+ * falls back to the old fetch-then-import-whole-buffer path (on the SAME
+ * response, never re-fetching) only if this node build predates
+ * `start_import` or the response body isn't stream-capable.
+ *
+ * charnel/tauri mode is unaffected - it already streams in bounded chunks
+ * via its own tauri IPC session (`importBytesChunked`/`importMediaBytes`'s
+ * charnel branch), which has nothing to do with wasm's `ImportSession`.
+ *
+ * `onProgress` is phase-tagged so callers can keep showing the queue
+ * row's real "fetching from X"/"sending to Y" distinction (RemoteQueueRow.
+ * tsx) instead of collapsing both into one misleading label: the wasm
+ * streaming branch reports "fetching" throughout (network read is the
+ * real bottleneck; each chunk's `session.push()` is a fast local step
+ * riding along with it, not a separate wait), while charnel/the
+ * whole-buffer fallback genuinely have two sequential phases and report
+ * "fetching" then "sending" accordingly. */
+async function fetchAndImportStreaming(
+  url: string,
+  sizeHint: number | undefined,
+  onProgress?: (phase: "fetching" | "sending", fraction: number) => void
+): Promise<{ sourcePeerAddr: string; blake3Hash: string; contentType: string | null }> {
+  if (isCharnelMode()) {
+    const { bytes, contentType } = await fetchBytesWithProgress(url, sizeHint, (fraction) =>
+      onProgress?.("fetching", fraction)
+    );
+    const imported = await importMediaBytes(bytes, (fraction) => onProgress?.("sending", fraction));
+    return { ...imported, contentType };
+  }
+
+  const node = await getMiddenNode();
+  const res = await fetch(url);
+  const contentType = res.headers.get("content-type");
+  const total = Number(res.headers.get("content-length")) || sizeHint || 0;
+
+  if (!node.start_import || !res.body || typeof res.body.getReader !== "function") {
+    // no chunked-import support (older node build, or a non-streamable
+    // response body) - fall back to the whole-buffer path on the SAME
+    // response, never re-fetching. genuinely two sequential phases here
+    // too (the whole file must finish downloading before import_blob can
+    // start), same reporting as the charnel branch above.
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    const imported = await importMediaBytes(bytes, (fraction) => onProgress?.("sending", fraction));
+    return { ...imported, contentType };
+  }
+
+  const session = node.start_import();
+  const reader = res.body.getReader();
+  let received = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      await session.push(value);
+      received += value.byteLength;
+      if (total > 0) onProgress?.("fetching", Math.min(1, received / total));
+    }
+    const blake3Hash = await session.finish();
+    debug(
+      "playerQueuePush",
+      `fetchAndImportStreaming (wasm, chunked) ${received}b -> blake3=${blake3Hash}, sourcePeerAddr=${node.node_id()}`
+    );
+    return { sourcePeerAddr: node.node_id(), blake3Hash, contentType };
+  } catch (err) {
+    session.abort();
+    throw err;
+  }
+}
+
 /** charnel-only fast path: if the content is already a real file on this
  * device's own disk (resolveCharnelLocalBlobPath for songs,
  * resolveLocalVideoPath for video - both tried before ever falling back to
@@ -470,16 +556,20 @@ async function ensureSongServableInBackground(
   try {
     setTransferStatus(hash, { phase: "fetching", fromRemoteName });
     const url = await getAudioURL(song);
-    const { bytes } = await fetchBytesWithProgress(url, song.file_size ?? undefined, (fraction) =>
-      setTransferStatus(hash, { phase: "fetching", fromRemoteName, progress: fraction })
-    );
-    setTransferStatus(hash, { phase: "sending", toPlayerName });
-    await importMediaBytes(bytes, (fraction) =>
-      setTransferStatus(hash, { phase: "sending", toPlayerName, progress: fraction })
+    const { blake3Hash } = await fetchAndImportStreaming(
+      url,
+      song.file_size ?? undefined,
+      (phase, fraction) =>
+        setTransferStatus(
+          hash,
+          phase === "fetching"
+            ? { phase: "fetching", fromRemoteName, progress: fraction }
+            : { phase: "sending", toPlayerName, progress: fraction }
+        )
     );
     warn(
       "playerQueuePush",
-      `${CENOTAPH_QUEUE_TRACE} CONTROLLER_BLOB_PROXY: fetched+imported "${song.title}" (${bytes.byteLength}b) in ${Date.now() - t0}ms (command was already sent before this started), sourcePeerAddr=${nodeId}`
+      `${CENOTAPH_QUEUE_TRACE} CONTROLLER_BLOB_PROXY: fetched+imported "${song.title}" (blake3=${blake3Hash.slice(0, 8)}...) in ${Date.now() - t0}ms (command was already sent before this started), sourcePeerAddr=${nodeId}`
     );
   } finally {
     setTransferStatus(hash, null);
@@ -606,23 +696,22 @@ async function videoToMediaRef(
     setTransferStatus(transferKey, { phase: "fetching", fromRemoteName });
     const fetchStart = Date.now();
     const url = await getVideoURL(video);
-    const { bytes, contentType } = await fetchBytesWithProgress(url, undefined, (fraction) =>
-      setTransferStatus(transferKey, { phase: "fetching", fromRemoteName, progress: fraction })
+    const { sourcePeerAddr, blake3Hash, contentType } = await fetchAndImportStreaming(
+      url,
+      undefined,
+      (phase, fraction) =>
+        setTransferStatus(
+          transferKey,
+          phase === "fetching"
+            ? { phase: "fetching", fromRemoteName, progress: fraction }
+            : { phase: "sending", toPlayerName, progress: fraction }
+        )
     );
     debug(
       "playerQueuePush",
-      `${CENOTAPH_QUEUE_TRACE} videoToMediaRef(${video.title}): getVideoURL+fetch (relay path, no known blake3) took ${Date.now() - fetchStart}ms`
-    );
-    setTransferStatus(transferKey, { phase: "sending", toPlayerName });
-    const { sourcePeerAddr, blake3Hash } = await importMediaBytes(bytes, (fraction) =>
-      setTransferStatus(transferKey, { phase: "sending", toPlayerName, progress: fraction })
-    );
-    debug(
-      "playerQueuePush",
-      `${CENOTAPH_QUEUE_TRACE} videoToMediaRef(${video.title}): importMediaBytes took ${Date.now() - t0}ms total`
+      `${CENOTAPH_QUEUE_TRACE} videoToMediaRef(${video.title}): fetchAndImportStreaming (relay path, no known blake3) took ${Date.now() - fetchStart}ms`
     );
     const ref = buildVideoRef(video, sourcePeerAddr, blake3Hash, {
-      size_bytes: bytes.byteLength,
       mime_type: contentType || "video/mp4",
     });
     rememberPushedItem(blake3Hash, videoToMediaItem(video));
@@ -683,16 +772,17 @@ async function ensureVideoServableInBackground(
   try {
     setTransferStatus(hash, { phase: "fetching", fromRemoteName });
     const url = await getVideoURL(video);
-    const { bytes } = await fetchBytesWithProgress(url, undefined, (fraction) =>
-      setTransferStatus(hash, { phase: "fetching", fromRemoteName, progress: fraction })
-    );
-    setTransferStatus(hash, { phase: "sending", toPlayerName });
-    await importMediaBytes(bytes, (fraction) =>
-      setTransferStatus(hash, { phase: "sending", toPlayerName, progress: fraction })
+    const { blake3Hash } = await fetchAndImportStreaming(url, undefined, (phase, fraction) =>
+      setTransferStatus(
+        hash,
+        phase === "fetching"
+          ? { phase: "fetching", fromRemoteName, progress: fraction }
+          : { phase: "sending", toPlayerName, progress: fraction }
+      )
     );
     warn(
       "playerQueuePush",
-      `${CENOTAPH_QUEUE_TRACE} CONTROLLER_BLOB_PROXY: fetched+imported "${video.title}" (${bytes.byteLength}b) in ${Date.now() - t0}ms (command was already sent before this started), sourcePeerAddr=${nodeId}`
+      `${CENOTAPH_QUEUE_TRACE} CONTROLLER_BLOB_PROXY: fetched+imported "${video.title}" (blake3=${blake3Hash.slice(0, 8)}...) in ${Date.now() - t0}ms (command was already sent before this started), sourcePeerAddr=${nodeId}`
     );
   } finally {
     setTransferStatus(hash, null);
