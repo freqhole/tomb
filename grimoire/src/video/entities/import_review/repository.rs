@@ -30,11 +30,14 @@ pub async fn list_pending_sessions(
         r#"
         SELECT DISTINCT ib.session_id,
                COALESCE(js.created_at, 0) AS "created_at!: i64",
-               CASE WHEN ? = 1 THEN ua.username ELSE NULL END AS "uploader_username?: String"
+               CASE WHEN ? = 1 THEN ua.username ELSE NULL END AS "uploader_username?: String",
+               st.target_remote_id   AS "target_remote_id?: String",
+               st.target_remote_name AS "target_remote_name?: String"
         FROM import_blobz ib
         LEFT JOIN job_sessionz js ON js.id = ib.session_id
         LEFT JOIN media_blobz mb ON mb.id = ib.media_blob_id
         LEFT JOIN user_accountz ua ON ua.id = js.created_by
+        LEFT JOIN import_session_send_targetz st ON st.session_id = ib.session_id
         -- only surface sessions that still have at least one live (non-deleted) video
         JOIN videoz v             ON v.media_blob_id = ib.media_blob_id AND v.deleted_at IS NULL
         WHERE ib.reviewed_at IS NULL
@@ -61,6 +64,8 @@ pub async fn list_pending_sessions(
             created_at: s.created_at,
             uploader_username: s.uploader_username,
             groups,
+            target_remote_id: s.target_remote_id,
+            target_remote_name: s.target_remote_name,
         });
     }
 

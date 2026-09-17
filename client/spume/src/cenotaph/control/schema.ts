@@ -1,0 +1,246 @@
+// control command protocol: messages a trusted controller sends to command
+// playback, and status messages the player sends back.
+//
+// sent as ndjson lines over a freqhole-player/1 bi-stream, same as pairing
+// (see midden/acceptLoop.ts) - the difference is the connecting node id
+// must already be in the trust store (pairing/trustStore.ts).
+
+import { z } from "zod";
+
+/** a pre-transcoded, already-compatible alternate encoding of a video's
+ * source media, so a receiving player can pull THIS smaller/leaner file
+ * by hash instead of the (possibly much larger, or already-compatible-
+ * anyway) original - e.g. a raspberry pi `--player` pulling a 480p
+ * rendition of a 4k source. no equivalent exists for audio (rathole's
+ * mpv/rodio backends already handle virtually any audio codec/container
+ * directly - there's nothing to gain from a lower-bitrate rendition the
+ * way there is for video's much heavier decode cost). */
+const RenditionRefSchema = z.object({
+  /** blake3 hash of THIS rendition's own bytes (distinct from the
+   * source video's `blake3_hash` above) - pull this hash instead of the
+   * original's to fetch the rendition directly. */
+  blake3_hash: z.string(),
+  /** rendition label (e.g. "480p", matches `video_transcode_renditions`
+   * config on the source device - purely informational on the wire). */
+  label: z.string(),
+  mime_type: z.string().optional(),
+  width: z.number().optional(),
+  height: z.number().optional(),
+});
+export type RenditionRef = z.infer<typeof RenditionRefSchema>;
+
+const MediaRefSchema = z.object({
+  /** peer address (or node id) of the remote the media lives on. */
+  source_peer_addr: z.string(),
+  /** blake3 hash of the media blob. */
+  blake3_hash: z.string(),
+  /** total size in bytes, if known (enables progress reporting). */
+  size_bytes: z.number().nonnegative().optional(),
+  /** track duration in ms, if known (enables queue/now-playing time display). */
+  duration_ms: z.number().nonnegative().optional(),
+  /** mime type hint for the <audio>/<video> element (default: audio/mpeg). */
+  mime_type: z.string().optional(),
+  /** drives full-screen playback for video vs the compact audio/queue view. */
+  kind: z.enum(["audio", "video"]).optional(),
+  title: z.string().optional(),
+  artist: z.string().optional(),
+  /** small thumbnail (queue rows, synced cheaply to every client). */
+  artwork_thumb_url: z.string().optional(),
+  /** full-size art (this player's own now-playing view). */
+  artwork_full_url: z.string().optional(),
+  /** already-transcoded alternates of this video, smallest-first, if the
+   * pushing device already has any on hand - lets a receiving player
+   * pull one of these instead of the (possibly much larger) original.
+   * omitted/empty for audio, or when the source has no renditions. */
+  available_renditions: z.array(RenditionRefSchema).optional(),
+});
+export type MediaRef = z.infer<typeof MediaRefSchema>;
+
+/** one queued item this player couldn't resolve (unreachable/unauthorized
+ * source, sync failure, etc.) - lets the controller notice and proxy the
+ * bytes as a last resort, instead of proactively fetching/importing every
+ * item's bytes up front "just in case". mirrors grimoire's
+ * `wire::UnresolvedItemRef` (rust wire type shared with charnel/tauri's
+ * status object, which this schema also has to match exactly). */
+const UnresolvedItemRefSchema = z.object({
+  blake3_hash: z.string(),
+  source_peer_addr: z.string(),
+});
+export type UnresolvedItemRef = z.infer<typeof UnresolvedItemRefSchema>;
+
+export const PlayerCommandSchema = z.discriminatedUnion("command", [
+  z.object({ type: z.literal("control"), command: z.literal("play"), item: MediaRefSchema }),
+  z.object({
+    type: z.literal("control"),
+    command: z.literal("replace_queue"),
+    items: z.array(MediaRefSchema),
+  }),
+  z.object({
+    type: z.literal("control"),
+    command: z.literal("append_queue"),
+    items: z.array(MediaRefSchema),
+  }),
+  z.object({ type: z.literal("control"), command: z.literal("pause") }),
+  z.object({ type: z.literal("control"), command: z.literal("resume") }),
+  z.object({
+    type: z.literal("control"),
+    command: z.literal("seek"),
+    position_ms: z.number().nonnegative(),
+  }),
+  z.object({ type: z.literal("control"), command: z.literal("skip") }),
+  z.object({
+    type: z.literal("control"),
+    command: z.literal("remove_from_queue"),
+    index: z.number().int().nonnegative(),
+  }),
+  z.object({
+    type: z.literal("control"),
+    command: z.literal("reorder_queue"),
+    from_index: z.number().int().nonnegative(),
+    to_index: z.number().int().nonnegative(),
+  }),
+  z.object({
+    type: z.literal("control"),
+    command: z.literal("set_volume"),
+    volume: z.number().min(0).max(1),
+  }),
+  z.object({ type: z.literal("control"), command: z.literal("stop") }),
+  z.object({ type: z.literal("control"), command: z.literal("get_status") }),
+  z.object({
+    type: z.literal("control"),
+    command: z.literal("set_auto_download_enabled"),
+    enabled: z.boolean(),
+  }),
+  z.object({
+    type: z.literal("control"),
+    command: z.literal("tune_radio"),
+    peer_addr: z.string(),
+    station_id: z.string().optional(),
+  }),
+  z.object({ type: z.literal("control"), command: z.literal("stop_radio") }),
+]);
+export type PlayerCommand = z.infer<typeof PlayerCommandSchema>;
+
+// a dedicated push-subscription session: sent once as the first (and only)
+// line on a stream the controller keeps open indefinitely, instead of the
+// dial-per-command shape every other message on this protocol uses. the
+// player pushes a `PlayerStatus` line on this same stream every time
+// something changes - see control/statusSubscribers.ts.
+export const SubscribeRequestSchema = z.object({ type: z.literal("subscribe") });
+export type SubscribeRequest = z.infer<typeof SubscribeRequestSchema>;
+
+// one-shot presence check: "are you currently acting as a player?" - sent
+// as the only line on a fresh dial (not a persistent stream, unlike
+// `subscribe` above). used by a controller that wants a specific paired
+// peer's live player-mode status without committing to a full
+// subscribeToPlayerStatus() stream just to find out - e.g. populating a
+// "play on" picker with live online/offline status when it opens.
+// answered with a `PresenceAnnouncement` below, then the stream closes.
+export const PresenceQuerySchema = z.object({ type: z.literal("presence_query") });
+export type PresenceQuery = z.infer<typeof PresenceQuerySchema>;
+
+// pushed unprompted to every open `subscribe` stream whenever this
+// player's live presence state changes (see control/statusSubscribers.ts's
+// `broadcastPresence`) - also the direct response to a one-shot
+// `PresenceQuery` above. "active" only ever means "this device currently
+// has its player route open and is accepting commands" (see
+// control/playerConnectionHandler.ts's `isEnabled` gate) - it says nothing
+// about whether anything is actually playing right now, that's what
+// `PlayerStatus` is for.
+// per-caller authorization status for the CURRENT session (see
+// pairing/playerSession.ts's `isPeerAllowedInSession`) - only ever present on
+// a direct `PresenceQuery` reply below, never on the unprompted broadcast
+// pushed to `subscribe` streams (no single caller to compute it for there).
+// "admin": always allowed, regardless of session membership. "in_session":
+// trusted and already joined into the current session (or the session is in
+// "everyone" mode). "not_in_session": trusted, but hasn't joined the current
+// session yet - needs to redeem the session pin before commands will be
+// accepted.
+export const AccessStatusSchema = z.enum(["admin", "in_session", "not_in_session"]);
+export type AccessStatus = z.infer<typeof AccessStatusSchema>;
+
+export const PresenceAnnouncementSchema = z.object({
+  type: z.literal("presence"),
+  state: z.enum(["active", "stopped"]),
+  access: AccessStatusSchema.optional(),
+});
+export type PresenceAnnouncement = z.infer<typeof PresenceAnnouncementSchema>;
+
+// `queue` (the full upcoming queue, current item first) rides along on every
+// status variant so a reconnecting controller can resync via `get_status`
+// instead of only learning about the single currently-playing item.
+// `auto_download_enabled` rides along the same way, so every subscribed
+// controller's own auto-download toggle can mirror whichever controller
+// last changed it (see `set_auto_download_enabled` above).
+//
+// `recently_played` (blake3 hashes, most-recent-last, capped) rides along
+// too: a reconnecting controller that's been away for a while can diff its
+// own queue against this list instead of blindly re-appending everything,
+// so songs this player already played/dropped this session don't get
+// silently re-queued. cleared once the queue fully empties out (session
+// boundary) - see whichever `PlaybackBackend` implementation owns this.
+export const PlayerStatusSchema = z.discriminatedUnion("state", [
+  z.object({
+    type: z.literal("status"),
+    state: z.literal("now_playing"),
+    item: MediaRefSchema,
+    position_ms: z.number().nonnegative(),
+    // wall-clock time (ms since epoch, this device's `Date.now()`) this
+    // status was built at - lets a controller extrapolate a locally-ticking
+    // clock between polls/pushes instead of freezing on the last-received
+    // `position_ms`.
+    server_time_ms: z.number().nonnegative(),
+    queue: z.array(MediaRefSchema),
+    auto_download_enabled: z.boolean(),
+    volume: z.number().min(0).max(1),
+    recently_played: z.array(z.string()),
+    unresolved_items: z.array(UnresolvedItemRefSchema).optional(),
+  }),
+  z.object({
+    type: z.literal("status"),
+    state: z.literal("paused"),
+    position_ms: z.number().nonnegative(),
+    queue: z.array(MediaRefSchema),
+    auto_download_enabled: z.boolean(),
+    volume: z.number().min(0).max(1),
+    recently_played: z.array(z.string()),
+    unresolved_items: z.array(UnresolvedItemRefSchema).optional(),
+  }),
+  z.object({
+    type: z.literal("status"),
+    state: z.literal("buffering"),
+    queue: z.array(MediaRefSchema),
+    auto_download_enabled: z.boolean(),
+    volume: z.number().min(0).max(1),
+    recently_played: z.array(z.string()),
+    unresolved_items: z.array(UnresolvedItemRefSchema).optional(),
+  }),
+  z.object({
+    type: z.literal("status"),
+    state: z.literal("stopped"),
+    queue: z.array(MediaRefSchema),
+    auto_download_enabled: z.boolean(),
+    volume: z.number().min(0).max(1),
+    recently_played: z.array(z.string()),
+    unresolved_items: z.array(UnresolvedItemRefSchema).optional(),
+  }),
+  z.object({
+    type: z.literal("status"),
+    state: z.literal("error"),
+    message: z.string(),
+    queue: z.array(MediaRefSchema),
+    auto_download_enabled: z.boolean(),
+    volume: z.number().min(0).max(1),
+    recently_played: z.array(z.string()),
+    unresolved_items: z.array(UnresolvedItemRefSchema).optional(),
+  }),
+]);
+export type PlayerStatus = z.infer<typeof PlayerStatusSchema>;
+
+export const CommandAckSchema = z.object({
+  type: z.literal("command_ack"),
+  ok: z.boolean(),
+  reason: z.enum(["untrusted", "invalid_command", "not_in_session"]).optional(),
+  status: PlayerStatusSchema.optional(),
+});
+export type CommandAck = z.infer<typeof CommandAckSchema>;

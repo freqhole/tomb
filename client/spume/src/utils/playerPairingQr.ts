@@ -1,11 +1,11 @@
 // detects freqhole-player pairing QR payloads (the `?p=<base64url json>`
-// scheme - see app/player/renderPairingQr.ts's encodePlayerQrPayload).
-// shared by PairPlayerModal.tsx (its own dedicated pairing flow) and
-// AddRemoteModal.tsx (which needs to recognize a scanned/pasted player qr
-// and hand off the embedded node_id to its existing player_device pairing
-// step, instead of trying to test the wrapper url as a remote server -
-// see docs/player-remote-site-plan.md phase 5's "separate modal" design
-// decision for why these two flows stay independent otherwise).
+// scheme - see cenotaph/app/renderPairingQr.ts's encodePlayerQrPayload).
+// used by AddRemoteModal.tsx (THE pairing entry point - see its own doc
+// comment) to recognize a scanned/pasted player qr and hand off the
+// embedded node_id to its player_device pairing step, instead of trying
+// to test the wrapper url as a remote server. (a separate PairPlayerModal
+// used to exist for this too - retired in favor of AddRemoteModal alone,
+// see docs/cenotaph-migration-plan.md phase 11.)
 
 export interface ScannedPlayerQr {
   node_id: string;

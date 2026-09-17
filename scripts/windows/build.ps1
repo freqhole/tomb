@@ -11,7 +11,7 @@
     1. set up the local sqlite db (migrations + views + blob_data) using
        sqlx-cli + the sqlite3 cli - the windows equivalent of `make db-migrate`,
        without needing `make`/`sed`/bash.
-    2. build the haruspex/reliquary/cenotaph ts libs + the spume web client
+    2. build the haruspex/reliquary ts libs + the spume web client
        (skippable with -SkipSpume for a fast rust-only rebuild).
     3. `npm run tauri build` from client/charnel.
     4. print the path to the produced installer.
@@ -121,8 +121,8 @@ if (-not $SkipSpume) {
     }
 
     Write-Host ""
-    Write-Host "== building haruspex/reliquary/cenotaph ts libs ==" -ForegroundColor Cyan
-    foreach ($lib in @("haruspex", "reliquary", "cenotaph")) {
+    Write-Host "== building haruspex/reliquary ts libs ==" -ForegroundColor Cyan
+    foreach ($lib in @("haruspex", "reliquary")) {
         $libDir = Join-Path $repoRoot "lib\$lib\ts"
         Install-NpmDepsIfMissing -ProjectDir $libDir
         Invoke-Checked -FilePath "npm" -ArgumentList @("run", "build") -WorkingDirectory $libDir

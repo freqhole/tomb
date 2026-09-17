@@ -16,6 +16,8 @@ export const COACH_ANCHORS = {
   favoritesGrid: "favoritesGrid",
   feedList: "feedList",
   radioStations: "radioStations",
+  videosGrid: "videosGrid",
+  seriesGrid: "seriesGrid",
   queueSidebar: "queueSidebar",
   topnavSearch: "topnavSearch",
   libraryGraph: "libraryGraph",

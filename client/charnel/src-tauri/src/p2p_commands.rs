@@ -153,15 +153,19 @@ pub async fn init_p2p_client(config_path: &Path) -> Result<(), String> {
     // + the RADIO_ALPN protocol handler. operators can run a radio
     // broadcaster without federation enabled.
     let radio_enabled = grimoire::radio::config::effective().enabled;
+    // same config flag rathole's `--player`/`/player` uses to auto-start
+    // its own accept endpoint - see grimoire::config::PlayerPairingConfig.
+    let player_pairing_enabled = config.player_pairing.enabled;
 
-    if !federation_enabled && !radio_enabled {
-        // tracing::debug!("federation + radio both disabled, skipping P2P init");
+    if !federation_enabled && !radio_enabled && !player_pairing_enabled {
+        // tracing::debug!("federation + radio + player pairing all disabled, skipping P2P init");
         return Ok(());
     }
 
     tracing::info!(
         federation = federation_enabled,
         radio = radio_enabled,
+        player_pairing = player_pairing_enabled,
         "initializing P2P endpoint..."
     );
 
@@ -171,6 +175,21 @@ pub async fn init_p2p_client(config_path: &Path) -> Result<(), String> {
 
     let node_id = endpoint.node_id();
     tracing::info!(node_id = %node_id, "P2P endpoint ready");
+
+    // build the freqhole-player/1 accept-side handler up front (before
+    // start_router_with) so it can be chained into the same router/
+    // endpoint as everything else - a second iroh endpoint would
+    // double-register this device's identity with the relay, and the
+    // relay only delivers to whichever connected most recently (see
+    // rathole's own `run.rs` comment on this exact hazard). always built
+    // and attached, regardless of `player_pairing_enabled` right now -
+    // mirrors the RADIO_ALPN handler below: `PlayerProtocol::accept()`
+    // checks the live config value itself per connection, so toggling
+    // `[player_pairing].enabled` later takes effect immediately, with no
+    // router rebuild/app restart (iroh's Router has no runtime add/remove
+    // protocol API, so the ALPN itself must always be present).
+    let player_protocol = crate::player_pairing_accept::build_player_protocol();
+    crate::player_pairing_accept::set_node_id(node_id.to_string());
 
     // when radio is enabled at startup, spawn one broadcaster per
     // enabled station. when disabled, the registry stays empty and
@@ -194,15 +213,17 @@ pub async fn init_p2p_client(config_path: &Path) -> Result<(), String> {
     // or all stations stopped) it returns "no broadcaster" to the
     // listener; this lets us toggle radio on/off at runtime without a
     // router rebuild (iroh's Router has no runtime add/remove protocol
-    // API as of 0.98).
+    // API as of 0.98). PLAYER_ALPN follows the identical pattern now.
 
     tracing::info!("starting router for blob serving + radio");
     endpoint
         .start_router_with(|builder| {
-            builder.accept(
-                grimoire::radio::RADIO_ALPN,
-                grimoire::radio::RadioProtocol::new(),
-            )
+            builder
+                .accept(
+                    grimoire::radio::RADIO_ALPN,
+                    grimoire::radio::RadioProtocol::new(),
+                )
+                .accept(grimoire::cenotaph::PLAYER_ALPN, player_protocol)
         })
         .await
         .map_err(|e| format!("failed to start P2P router: {}", e))?;
@@ -261,7 +282,7 @@ pub async fn p2p_api_call(
                 error_msg
             })?;
 
-    tracing::info!(peer = %peer_addr, method = %method, path = %path, status = response.status, "p2p api response");
+    tracing::debug!(peer = %peer_addr, method = %method, path = %path, status = response.status, "p2p api response");
 
     Ok(P2pResponse {
         status: response.status,
@@ -458,13 +479,19 @@ pub async fn p2p_import_blob_bytes(data: String) -> Result<String, String> {
     Ok(blake3)
 }
 
-/// begin a chunked blob import for P2P serving
+/// begin a chunked blob import.
 ///
 /// used on Android where the file picker returns File objects (no filesystem
 /// path) and tauri IPC is JSON-only, so a large file can't be sent in one
 /// payload. the client streams the file in bounded chunks; the receiver
 /// accumulates them in a temp file on disk so neither side holds the whole
 /// file in memory. returns an upload_id to pass to the chunk/finish commands.
+///
+/// shared by both P2P uploads (finished via `p2p_import_finish`, which
+/// adopts the file into the p2p-servable blobs store) and local, same-device
+/// uploads (finished via `local_import_finish`, which just hands back the
+/// temp file path for an existing `file_path`-based upload route) - the
+/// begin/chunk/abort steps are identical either way.
 #[tauri::command]
 pub async fn p2p_import_begin() -> Result<String, String> {
     grimoire::blobz::begin_chunked_import()
@@ -505,4 +532,28 @@ pub async fn p2p_import_abort(upload_id: String) -> Result<(), String> {
     grimoire::blobz::abort_chunked_import(&upload_id)
         .await
         .map_err(|e| format!("{}: failed to abort chunked import: {}", e.error_type(), e))
+}
+
+/// finish a chunked import for a LOCAL (same-device, non-P2P) upload:
+/// unlike `p2p_import_finish`, this does not adopt the file into the
+/// p2p-servable blobs store - it just returns the accumulated temp file's
+/// path, for handing to an existing `file_path`-based upload route (e.g.
+/// `/api/upload/music`, `/api/upload/video`). the caller must clean up the
+/// returned path afterward via `local_import_cleanup`.
+#[tauri::command]
+pub async fn local_import_finish(upload_id: String) -> Result<String, String> {
+    let path = grimoire::blobz::finish_chunked_import_to_path(&upload_id)
+        .await
+        .map_err(|e| format!("{}: failed to finish chunked import: {}", e.error_type(), e))?;
+    Ok(path.to_string_lossy().to_string())
+}
+
+/// delete a temp file produced by `local_import_finish`, once the caller
+/// has handed its path to an upload route and no longer needs it. refuses
+/// to delete anything outside the chunked-import temp directory.
+#[tauri::command]
+pub async fn local_import_cleanup(file_path: String) -> Result<(), String> {
+    grimoire::blobz::delete_chunked_import_temp_file(std::path::Path::new(&file_path))
+        .await
+        .map_err(|e| format!("{}: failed to clean up temp file: {}", e.error_type(), e))
 }

@@ -8,7 +8,7 @@
 //! hash, no double buffering).
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 
@@ -80,6 +80,24 @@ impl ChunkedImport {
     ) -> Result<BlobRecord, BlobStoreError> {
         let path = self.take(upload_id)?;
         store.adopt_local_file(&path, meta).await
+    }
+
+    /// finish an upload WITHOUT adopting it into any blob store - just
+    /// returns the accumulated temp file's path, clearing the in-flight
+    /// session. for callers that only want the bytes on disk (e.g. handing
+    /// the path to an existing file-path-based import route) rather than
+    /// registering a new content-addressed blob. the caller owns deleting
+    /// the returned path once done with it - see `dir()`, useful for
+    /// validating a path belongs to this import before deleting it.
+    pub async fn finish_to_path(&self, upload_id: &str) -> Result<PathBuf, BlobStoreError> {
+        self.take(upload_id)
+    }
+
+    /// the directory in-flight (and just-finished) uploads' temp files live
+    /// under - lets a caller confirm a path came from this import before
+    /// deleting it.
+    pub fn dir(&self) -> &Path {
+        &self.dir
     }
 
     /// abort an in-flight upload: deletes the temp file and clears the
@@ -171,6 +189,31 @@ mod tests {
             .expect("read_bytes")
             .expect("bytes present");
         assert_eq!(read_back, expected_bytes);
+    }
+
+    #[tokio::test]
+    async fn finish_to_path_returns_the_temp_file_without_touching_any_store() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let import = ChunkedImport::new(tmp.path().join("uploads"));
+
+        let upload_id = import.begin().await.expect("begin");
+        import
+            .append(&upload_id, b"local, non-p2p bytes")
+            .await
+            .expect("append");
+
+        let path = import
+            .finish_to_path(&upload_id)
+            .await
+            .expect("finish_to_path");
+
+        assert!(path.starts_with(import.dir()));
+        let contents = tokio::fs::read(&path).await.expect("read finished file");
+        assert_eq!(contents, b"local, non-p2p bytes");
+
+        // session is cleared, same as finish() - can't finish twice.
+        let second_finish = import.finish_to_path(&upload_id).await;
+        assert!(matches!(second_finish, Err(BlobStoreError::NotFound(_))));
     }
 
     #[tokio::test]

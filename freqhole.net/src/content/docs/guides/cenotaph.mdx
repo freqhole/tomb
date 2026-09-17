@@ -1,0 +1,33 @@
+---
+title: cenotaph
+description: turning any device into a paired, remotely-controlled freqhole player
+---
+
+**cenotaph** is freqhole's pairing + remote-control protocol (`freqhole-player/1`): it turns a device into a "player" — a screen/speaker showing a QR code that a phone (or another freqhole client) can scan to pair with, then control playback on, like casting to a chromecast or sonos speaker. once paired, controllers can push queues, play/pause, skip, and see what's playing, all peer-to-peer.
+
+there are three ways to run a player:
+
+## rathole (`--player` / `/player`)
+
+freqhole's terminal client, ideal for a raspberry pi wired up to a screen and speakers. `rathole --player` starts directly in the pairing screen; typing `/player` mid-session switches to it too. runs natively (rodio for audio, mpv for video) — no browser involved. see [rathole on a pi](/guides/rathole-on-a-pi/) for a full systemd setup.
+
+## web browser
+
+spume's own `/player` route (e.g. `https://spume.freqhole.net/#/player`) turns any browser tab into a player — handy for repurposing an old phone or tablet as a dedicated screen. runs entirely client-side (no install), same pairing/control protocol as the other two.
+
+## charnel (desktop/mobile app)
+
+the charnel app can act as a player too, via the same `/player` screen rendered in its embedded webview — works out of the box, identical to the web-browser option. desktop builds also have an experimental native player config (opt-in, uses rodio/mpv directly instead of the webview) for platforms that want it.
+
+---
+
+## pairing + control
+
+- pairing is by QR code or a short PIN, shown on the player.
+- a session can allow **everyone** who redeems the PIN, or only **selected** trusted controllers.
+- one PIN redemption can also grant **admin** access (session settings, forgetting controllers, etc.) — the player UI marks these appearances clearly.
+- whichever player you're running, the wire protocol is the same — a controller doesn't need to know or care which of the three it's talking to.
+
+## physical buttons (rathole only)
+
+`rathole` can additionally listen on a local unix socket for simple transport commands (play/pause, next, volume, etc.) — handy for wiring up real buttons on a pi. see [rathole on a pi](/guides/rathole-on-a-pi/#physical-buttons-unix-control-socket) and the full reference: [`docs/rathole-control-socket.md`](https://github.com/freqhole/tomb/blob/main/docs/rathole-control-socket.md).

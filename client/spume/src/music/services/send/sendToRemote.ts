@@ -159,7 +159,11 @@ function newSendId(): string {
 // parse a GrimoireResponse envelope. returns the inner data on success,
 // throws with the structured error detail on failure. the dest's sync
 // handlers always respond with `{ success, message, data?, errors }`.
-class EnvelopeError extends Error {
+//
+// exported so other domains' send orchestrators (e.g. video's
+// sendVideoToRemote.ts) can parse the same `{success,message,data,errors}`
+// envelope shape without duplicating this logic.
+export class EnvelopeError extends Error {
   readonly errorType?: string;
   readonly title?: string;
   readonly detail?: string;
@@ -183,7 +187,7 @@ class EnvelopeError extends Error {
   }
 }
 
-function unwrapEnvelope<T>(
+export function unwrapEnvelope<T>(
   label: string,
   body: string,
   status: number,

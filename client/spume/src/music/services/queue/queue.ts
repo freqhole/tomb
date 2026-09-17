@@ -31,9 +31,11 @@ import { addHistoryEntry, updateHistoryEntrySongs, unwrapSongs } from "./queueHi
 import { unwrapVideos } from "../../../video/services/queue/videoQueueHistory";
 import {
   mirrorAppendToQueue,
+  mirrorClearQueue,
   mirrorRemoveFromQueue,
   mirrorReorderQueue,
   mirrorReplaceQueue,
+  optimisticRemoteQueue,
 } from "../../../app/services/players/remoteQueueMirror";
 import { isRemoteTargetActive } from "../../../app/services/players/activeTarget";
 import {
@@ -270,8 +272,12 @@ export async function playQueue(
 
   // if queue is empty, just set and play
   if (currentQueue.length === 0) {
-    await setQueue(finalItems);
+    // fire the remote push (and its own instant optimistic overlay) before
+    // awaiting the local persistence write below - the two are independent
+    // and shouldn't be serialized just because they happen to be written
+    // next to each other.
     mirrorReplaceQueue(finalSongs);
+    await setQueue(finalItems);
     const startItem = finalItems[startIndex];
     await playMediaItem(startItem, { userInitiated: true });
     triggerImmediatePreCache(finalItems, mediaItemKey(startItem));
@@ -299,8 +305,13 @@ export async function playQueue(
   if (shouldReplace) {
     // a remote target shares this queue with every other connected client -
     // confirm before wiping it out from under them (local-only playback
-    // keeps replacing instantly, as before).
-    if (isRemoteTargetActive() && currentQueue.length > 0) {
+    // keeps replacing instantly, as before). checked against the REMOTE's
+    // own reported queue, not this device's local `appState().queue` -
+    // nothing keeps the latter in sync with the remote while it's active
+    // (it's just whatever was left over from this device's own last local
+    // playback session), so checking it here showed the confirm even when
+    // the remote's real queue was empty.
+    if (isRemoteTargetActive() && optimisticRemoteQueue().length > 0) {
       const choice = await showReplaceQueueConfirm(finalItems);
       if (choice === "cancel") return;
       if (choice === "append") {
@@ -322,8 +333,9 @@ export async function playQueue(
     clearAllQueueProgress();
     clearPendingUpNext();
 
-    await setQueue(finalItems);
+    // see the empty-queue branch above for why the mirror call goes first.
     mirrorReplaceQueue(finalSongs);
+    await setQueue(finalItems);
     const startItem = finalItems[startIndex];
     await playMediaItem(startItem, { userInitiated: true });
     triggerImmediatePreCache(finalItems, mediaItemKey(startItem));
@@ -621,12 +633,14 @@ async function addToQueueInternal(
     newQueue = [...currentQueue, ...items];
   }
 
-  await setQueue(newQueue);
-
   // an already-active remote target keeps playing what it has - newly
   // added songs just extend its queue, they don't take over playback (a
   // fresh replaceQueue only happens via the "play on" handoff itself).
+  // fired before awaiting local persistence below - see playQueue's
+  // empty-queue branch for why the two shouldn't be serialized.
   mirrorAppendToQueue(songsOnly(items));
+
+  await setQueue(newQueue);
 
   // autoplay if: explicitly requested, nothing is currently playing, or playback ended
   const willAutoPlay = startPlaying || !currentId || hasPlaybackEnded();
@@ -818,6 +832,7 @@ export async function clearQueue(): Promise<void> {
   );
 
   stop();
+  mirrorClearQueue();
   stopTracking(true); // skipQueueSave - avoids race with setQueue([])
   clearAllQueueProgress();
   clearPendingUpNext();

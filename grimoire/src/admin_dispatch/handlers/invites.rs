@@ -169,6 +169,7 @@ pub(in crate::admin_dispatch) async fn generate(
         link_for_user_id: None,
         expires_hours: req.expires_hours,
         grants_role,
+        max_uses: None,
     };
     let admin = match fetch_caller_user(caller).await {
         Ok(u) => u,

@@ -111,6 +111,10 @@ erDiagram
     TEXT deleted_by
     TEXT created_by
     TEXT updated_by
+    TEXT media_blob_sha256
+    TEXT media_blob_blake3
+    TEXT media_blob_mime
+    INTEGER media_blob_size
   }
   artist_albumz {
     TEXT artist_id FK
@@ -182,6 +186,7 @@ erDiagram
     INTEGER created_at
     INTEGER deleted_at
     TEXT deleted_by
+    TEXT domain
   }
   taxonz {
     TEXT id PK
@@ -245,16 +250,9 @@ erDiagram
     TEXT deleted_by
     TEXT created_by
     TEXT updated_by
+    INTEGER collaborative
+    INTEGER private
   }
-  playlist_songz {
-    TEXT playlist_id PK
-    TEXT song_id PK
-    INTEGER position
-    INTEGER added_at
-    TEXT added_by
-  }
-  songz ||--o{ playlist_songz : "song_id (-> songz)"
-  playlistz ||--o{ playlist_songz : "playlist_id"
 ```
 
 #### images + links
@@ -323,6 +321,7 @@ erDiagram
     INTEGER created_at
     INTEGER last_used_at
     INTEGER deleted_at
+    TEXT name
   }
   invite_codez {
     TEXT id PK
@@ -393,6 +392,7 @@ erDiagram
     TEXT tag_id FK
     TEXT song_id FK
     TEXT playlist_id FK
+    INTEGER criteria_value
     INTEGER created_at
   }
   radio_play_historyz {
@@ -459,8 +459,8 @@ erDiagram
   }
   media_eventz {
     TEXT id PK
-    TEXT media_blob_id FK
-    TEXT user_id FK
+    TEXT media_blob_id
+    TEXT user_id
     TEXT event_type
     TEXT event_data
     TEXT session_id
@@ -478,6 +478,7 @@ erDiagram
     TEXT artist_id FK
     TEXT playlist_id FK
     TEXT session_id FK
+    TEXT video_id FK
     TEXT created_by_user_id FK
     TEXT created_by_username
     TEXT updated_by_user_id FK
@@ -505,6 +506,7 @@ erDiagram
     REAL progress_percent
     INTEGER songs_completed
     INTEGER total_songs
+    TEXT entity_id
     INTEGER created_at
     INTEGER updated_at
   }
@@ -516,11 +518,10 @@ erDiagram
   albumz ||--o{ music_play_eventz : "album_id (-> albumz)"
   songz ||--o{ music_play_eventz : "song_id (-> songz)"
   media_eventz ||--o{ music_play_eventz : "media_event_id"
-  user_accountz ||--o{ media_eventz : "user_id (-> user_accountz)"
-  media_blobz ||--o{ media_eventz : "media_blob_id (-> media_blobz)"
   user_accountz ||--o{ feed_eventz : "updated_by_user_id (-> user_accountz)"
   user_accountz ||--o{ feed_eventz : "created_by_user_id (-> user_accountz)"
-  listen_sessionz ||--o{ feed_eventz : "session_id"
+  videoz ||--o{ feed_eventz : "video_id (-> videoz)"
+  playback_sessionz ||--o{ feed_eventz : "session_id (-> playback_sessionz)"
   playlistz ||--o{ feed_eventz : "playlist_id (-> playlistz)"
   artistz ||--o{ feed_eventz : "artist_id (-> artistz)"
   albumz ||--o{ feed_eventz : "album_id (-> albumz)"
@@ -633,7 +634,225 @@ erDiagram
   job_sessionz ||--o{ jobz : "session_id"
 ```
 
-_full-text search mirrors (FTS5): `albumz`, `artistz`, `playlistz`, `songz`, `taxonz` each have a companion `<table>_fts` virtual table kept in sync by triggers._
+#### other
+
+```mermaid
+erDiagram
+  entity_imagez {
+    TEXT id PK
+    TEXT entity_type
+    TEXT entity_id
+    TEXT media_blob_id FK
+    INTEGER is_primary
+    TEXT blob_type
+    INTEGER created_at
+    TEXT created_by
+  }
+  entity_tagz {
+    TEXT entity_type PK
+    TEXT entity_id PK
+    TEXT tag_id PK
+    INTEGER created_at
+    TEXT created_by
+  }
+  entity_taxonz {
+    TEXT entity_type PK
+    TEXT entity_id PK
+    TEXT taxon_id PK
+    TEXT origin PK
+    REAL confidence
+    INTEGER created_at
+    TEXT created_by
+  }
+  external_storage_claimed_pathz {
+    TEXT device_id PK
+    TEXT relative_path PK
+    INTEGER claimed_at
+  }
+  external_storage_device_statz {
+    TEXT device_id PK
+    INTEGER last_synced_at
+  }
+  external_storage_filter_set_filterz {
+    TEXT id PK
+    TEXT filter_set_id FK
+    TEXT filter_type
+    TEXT mode
+    TEXT artist_id FK
+    TEXT album_id FK
+    TEXT taxon_id FK
+    TEXT tag_id FK
+    TEXT song_id FK
+    TEXT playlist_id FK
+    INTEGER criteria_value
+    INTEGER created_at
+    INTEGER criteria_scope
+  }
+  external_storage_filter_setz {
+    TEXT id PK
+    TEXT name
+    INTEGER created_at
+    INTEGER updated_at
+    TEXT device_id
+  }
+  external_storage_sync_manifestz {
+    TEXT device_id PK
+    TEXT sync_set_id PK
+    TEXT filename
+    INTEGER synced_at
+  }
+  external_storage_synced_songz {
+    TEXT device_id PK
+    TEXT song_id PK
+    TEXT relative_path
+    TEXT sha256
+    TEXT blake3
+    TEXT tag_hash
+    INTEGER synced_at
+  }
+  import_blobz {
+    TEXT media_blob_id PK
+    TEXT session_id FK
+    INTEGER reviewed_at
+    TEXT reviewed_by
+    INTEGER created_at
+  }
+  import_session_send_targetz {
+    TEXT session_id PK
+    TEXT target_remote_id
+    TEXT target_remote_name
+    INTEGER created_at
+  }
+  play_eventz {
+    TEXT id PK
+    TEXT media_event_id FK
+    TEXT entity_type
+    TEXT entity_id
+    TEXT playlist_id FK
+    TEXT radio_station_id FK
+    TEXT user_id FK
+    TEXT session_id
+    INTEGER created_at
+  }
+  playback_progressz {
+    TEXT user_id PK
+    TEXT entity_type PK
+    TEXT entity_id PK
+    REAL position_fraction
+    REAL position_seconds
+    REAL duration_seconds
+    TEXT position_locator
+    INTEGER completed_at
+    INTEGER updated_at
+  }
+  playback_sessionz {
+    TEXT id PK
+    TEXT user_id FK
+    TEXT session_type
+    TEXT entity_id
+    TEXT label
+    TEXT items
+    INTEGER total_items
+    INTEGER items_completed
+    INTEGER total_duration_ms
+    INTEGER played_duration_ms
+    INTEGER current_item_index
+    INTEGER current_item_position_ms
+    TEXT status
+    INTEGER created_at
+    INTEGER updated_at
+  }
+  playlist_itemz {
+    TEXT id PK
+    TEXT playlist_id FK
+    TEXT entity_type
+    TEXT entity_id
+    INTEGER position
+    INTEGER added_at
+    TEXT added_by
+  }
+  video_seasonz {
+    TEXT id PK
+    TEXT series_id FK
+    INTEGER season_number
+    TEXT title
+    TEXT description
+    TEXT poster_blob_id FK
+    INTEGER created_at
+    INTEGER updated_at
+    INTEGER deleted_at
+  }
+  video_seriez {
+    TEXT id PK
+    TEXT title
+    TEXT description
+    TEXT poster_blob_id FK
+    INTEGER created_at
+    INTEGER updated_at
+    INTEGER deleted_at
+    TEXT created_by
+    TEXT updated_by
+    TEXT deleted_by
+  }
+  videoz {
+    TEXT id PK
+    TEXT series_id FK
+    TEXT season_id FK
+    INTEGER episode_number
+    TEXT title
+    TEXT description
+    TEXT media_blob_id FK
+    TEXT poster_blob_id FK
+    REAL duration_seconds
+    TEXT release_date
+    INTEGER created_at
+    INTEGER updated_at
+    INTEGER deleted_at
+    TEXT created_by
+    TEXT updated_by
+    TEXT deleted_by
+    TEXT content_type
+  }
+  webauthn_challenges {
+    TEXT nonce PK
+    TEXT kind
+    TEXT challenge_json
+    TEXT user_id
+    TEXT username
+    INTEGER is_account_link
+    TEXT invite_code
+    INTEGER created_at
+    INTEGER expires_at
+  }
+  media_blobz ||--o{ entity_imagez : "media_blob_id (-> media_blobz)"
+  tagz ||--o{ entity_tagz : "tag_id (-> tagz)"
+  taxonz ||--o{ entity_taxonz : "taxon_id (-> taxonz)"
+  playlistz ||--o{ external_storage_filter_set_filterz : "playlist_id (-> playlistz)"
+  songz ||--o{ external_storage_filter_set_filterz : "song_id (-> songz)"
+  tagz ||--o{ external_storage_filter_set_filterz : "tag_id (-> tagz)"
+  taxonz ||--o{ external_storage_filter_set_filterz : "taxon_id (-> taxonz)"
+  albumz ||--o{ external_storage_filter_set_filterz : "album_id (-> albumz)"
+  artistz ||--o{ external_storage_filter_set_filterz : "artist_id (-> artistz)"
+  external_storage_filter_setz ||--o{ external_storage_filter_set_filterz : "filter_set_id"
+  job_sessionz ||--o{ import_blobz : "session_id (-> job_sessionz)"
+  job_sessionz ||--o{ import_session_send_targetz : "session_id (-> job_sessionz)"
+  user_accountz ||--o{ play_eventz : "user_id (-> user_accountz)"
+  radio_stationz ||--o{ play_eventz : "radio_station_id (-> radio_stationz)"
+  playlistz ||--o{ play_eventz : "playlist_id (-> playlistz)"
+  media_eventz ||--o{ play_eventz : "media_event_id (-> media_eventz)"
+  user_accountz ||--o{ playback_progressz : "user_id (-> user_accountz)"
+  user_accountz ||--o{ playback_sessionz : "user_id (-> user_accountz)"
+  playlistz ||--o{ playlist_itemz : "playlist_id (-> playlistz)"
+  media_blobz ||--o{ video_seasonz : "poster_blob_id (-> media_blobz)"
+  video_seriez ||--o{ video_seasonz : "series_id"
+  media_blobz ||--o{ video_seriez : "poster_blob_id (-> media_blobz)"
+  media_blobz ||--o{ videoz : "poster_blob_id (-> media_blobz)"
+  media_blobz ||--o{ videoz : "media_blob_id (-> media_blobz)"
+  video_seasonz ||--o{ videoz : "season_id"
+  video_seriez ||--o{ videoz : "series_id"
+```
+
+_full-text search mirrors (FTS5): `albumz`, `artistz`, `playlistz`, `songz`, `taxonz`, `video_seriez`, `videoz` each have a companion `<table>_fts` virtual table kept in sync by triggers._
 
 {/* gen:sqlite:end */}
 
@@ -809,7 +1028,7 @@ unlike SQLite, IndexedDB has no foreign keys - stores reference each other by id
 
 {/* gen:indexeddb:start */}
 
-#### `freqhole_app` (v8)
+#### `freqhole_app` (v13)
 
 ```mermaid
 erDiagram
@@ -847,9 +1066,23 @@ erDiagram
     index by_last_seen_at "last_seen_at"
     index by_kind "kind"
   }
+  video_queue_history {
+    key id PK "id"
+    index by_queued_at "queued_at"
+  }
+  users {
+    key id PK "id"
+    index by_username "username"
+    index by_created_at "created_at"
+  }
+  user_peer_nodes {
+    key node_id PK "node_id"
+    index by_user_id "user_id"
+    index by_created_at "created_at"
+  }
 ```
 
-#### `freqhole_music` · catalog (v13)
+#### `freqhole_music` · catalog (v19)
 
 ```mermaid
 erDiagram
@@ -870,6 +1103,7 @@ erDiagram
   songs {
     key id PK "id"
     index by_sha256 UK "sha256"
+    index by_blake3 "blake3"
     index by_title "title"
     index by_artist_id "artist_id"
     index by_album_id "album_id"
@@ -877,16 +1111,8 @@ erDiagram
     index by_year "year"
     index by_added_at "added_at"
     index by_source_type "source_type"
-    index by_file_identity "[
-          file_name,
-          file_size,
-          last_modified,
-        ]"
-    index by_album_disc_track "[
-          album_id,
-          disc_number,
-          track_number,
-        ]"
+    index by_file_identity "[file_name, file_size, last_modified]"
+    index by_album_disc_track "[album_id, disc_number, track_number]"
     index by_album_title_disc_track "[
           album_title,
           disc_number,
@@ -916,6 +1142,7 @@ erDiagram
           disc_number,
           track_number,
         ]"
+    index by_blake3 "blake3"
   }
   genres {
     key genre_id PK "genre_id"
@@ -929,7 +1156,7 @@ erDiagram
   genres ||--o{ genres : "parent_genre_id"
 ```
 
-#### `freqhole_music` · playlists (v13)
+#### `freqhole_music` · playlists (v19)
 
 ```mermaid
 erDiagram
@@ -941,20 +1168,9 @@ erDiagram
     index by_source_remote_id "source_remote_id"
     index by_last_synced_at "last_synced_at"
   }
-  playlist_songs {
-    key playlist_id_song_id PK "[playlist_id, song_id]"
-    index by_playlist_id "playlist_id"
-    index by_song_id "song_id"
-    index by_position "[
-          playlist_id,
-          position,
-        ]"
-  }
-  playlists ||--o{ playlist_songs : "playlist_id"
-  songs ||--o{ playlist_songs : "song_id (-> songs)"
 ```
 
-#### `freqhole_music` · tags + taxonomy (v13)
+#### `freqhole_music` · tags + taxonomy (v19)
 
 ```mermaid
 erDiagram
@@ -973,6 +1189,7 @@ erDiagram
     key taxon_id PK "taxon_id"
     index by_remote_id "remote_id"
     index by_kind_slug "kind_slug"
+    index by_remote_kind_slug UK "[remote_id, kind_slug, slug]"
     index by_label "label"
   }
   album_taxons {
@@ -988,7 +1205,7 @@ erDiagram
   taxons ||--o{ album_taxons : "taxon_id"
 ```
 
-#### `freqhole_music` · user library (v13)
+#### `freqhole_music` · user library (v19)
 
 ```mermaid
 erDiagram
@@ -1004,12 +1221,33 @@ erDiagram
   }
 ```
 
-#### `freqhole_blobs` (v1)
+#### `freqhole_music` · other (v19)
 
 ```mermaid
 erDiagram
-  blobs {
-    key blob_id PK "blob_id"
+  playlist_items {
+    key playlist_id_entity_type_entity_id PK "[playlist_id, entity_type, entity_id]"
+    index by_playlist_id "playlist_id"
+  }
+  entity_taxons {
+    key entity_type_entity_id_taxon_id PK "[entity_type, entity_id, taxon_id]"
+    index by_entity_type "entity_type"
+    index by_entity_id "[entity_type, entity_id]"
+    index by_taxon_id "[entity_type, taxon_id]"
+    index by_remote_id "remote_id"
+    index by_created_at "created_at"
+  }
+  taxon_kinds {
+    key domain_kind_slug PK "[domain, kind_slug]"
+    index by_domain "domain"
+  }
+  import_review_sessionz {
+    key session_id PK "session_id"
+    index by_created_at "created_at"
+  }
+  import_review_blobz {
+    key song_id PK "song_id"
+    index by_session_id "session_id"
   }
 ```
 

@@ -1,4 +1,4 @@
-import { createEffect, createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
 import { clearPageInfo, setPageInfo } from "../src/app/services/pageInfo";
 import { songToMediaItem } from "../src/app/services/storage/mediaItem";
@@ -24,9 +24,11 @@ import { DraggableRow, DraggableRowSongContent } from "../src/components/lists/D
 import { AlphabetNav } from "../src/components/navigation/AlphabetNav";
 import { TopNav } from "../src/components/navigation/TopNav";
 import { TopNavSearch } from "../src/components/navigation/TopNavSearch";
+import { AddMediaModal } from "../src/components/modals/AddMediaModal";
 import { PlayerBar } from "../src/components/player/PlayerBar";
 import { QueueSidebar } from "../src/components/player/QueueSidebar";
 import { VirtualAlbumGrid } from "../src/components/virtualized/VirtualAlbumGrid";
+import { VirtualVideoGrid } from "../src/components/virtualized/VirtualVideoGrid";
 import { VirtualFeedList } from "../src/components/virtualized/VirtualFeedList";
 import { VirtualSongList } from "../src/components/virtualized/VirtualSongList";
 import WalkCanvas, { type WalkApi } from "../src/components/graph/WalkCanvas";
@@ -34,6 +36,7 @@ import { createWalkerDriver } from "../src/components/graph/drivers/GraphDriver"
 import { MOCK_GRAPH } from "../src/components/graph/mockData";
 import type { Song as DomainSong } from "../src/music/data/types";
 import type { ImageMetadata } from "../src/music/services/storage/types";
+import type { Remote } from "../src/app/services/storage/schemas/remote";
 import { isNarrowViewport } from "../src/config/breakpoints";
 import { QueryClient, QueryClientProvider } from "@tanstack/solid-query";
 import {
@@ -48,6 +51,8 @@ import {
   mockRadioStations,
   mockRemotes,
   mockRemoteSongs,
+  mockVideoSeries,
+  mockVideos,
   placeholderImage,
   runFakeLibraryScan,
   setDemoLibraryMode,
@@ -57,6 +62,7 @@ import {
   fakeScanRunning,
   setFakeScanRunning,
   type Artist,
+  type MockVideoSeries,
   type Playlist,
 } from "./mockData";
 
@@ -88,7 +94,9 @@ type Route =
   | "radio"
   | "remotes"
   | "album-detail"
-  | "shares";
+  | "shares"
+  | "videos"
+  | "series";
 
 // alias the shared placeholder helper for brevity
 const placeholderSvg = placeholderImage;
@@ -259,6 +267,10 @@ export function FullAppDemoBody() {
         return { title: "feed", count: undefined };
       case "radio":
         return { title: "radio", count: mockRadioStations.length };
+      case "videos":
+        return { title: "videos", count: mockVideos.length };
+      case "series":
+        return { title: "series", count: mockVideoSeries.length };
       default:
         return { title: undefined, count: undefined };
     }
@@ -1105,22 +1117,17 @@ export function FullAppDemoBody() {
         }
         renderList={(ctx) => (
           <div class="flex flex-col h-full mt-2 wide:mt-[60px]">
-            <HeadingSection
-              title="artists"
-              count={sortedArtists().length}
-              hideOnNarrow
-              controls={
-                <SearchSortControls
-                  sortBy={artistSortBy()}
-                  sortDirection={artistSortDirection()}
-                  onSortChange={(field, direction) => {
-                    setArtistSortBy(field);
-                    setArtistSortDirection(direction);
-                  }}
-                  sortFields={artistSortFields}
-                />
-              }
-            />
+            <div class="flex-shrink-0 flex justify-end px-3 wide:px-6 py-2">
+              <SearchSortControls
+                sortBy={artistSortBy()}
+                sortDirection={artistSortDirection()}
+                onSortChange={(field, direction) => {
+                  setArtistSortBy(field);
+                  setArtistSortDirection(direction);
+                }}
+                sortFields={artistSortFields}
+              />
+            </div>
 
             <div class="flex-1 overflow-y-auto">
               <For each={sortedArtists()}>
@@ -1310,7 +1317,21 @@ export function FullAppDemoBody() {
         renderDetail={(ctx) => (
           <Show when={ctx.selectedItem()}>
             {(playlist) => (
-              <div class="flex flex-col h-full">
+              <div class="relative flex flex-col h-full overflow-hidden">
+                {/* full-bleed blurred backdrop, derived from the playlist's own
+                    cover art - mirrors the real app's usePlaylistBackgroundImage
+                    hook (which sets an app-wide css background), simplified to a
+                    plain absolutely-positioned image scoped to this panel since
+                    the demo has no real global background layer to hook into. */}
+                <div class="absolute inset-0 overflow-hidden">
+                  <img
+                    src={placeholderSvg(playlist().id, playlist().name)}
+                    alt=""
+                    class="w-full h-full object-cover scale-110 blur-2xl opacity-30"
+                  />
+                  <div class="absolute inset-0 bg-gradient-to-b from-transparent to-[var(--color-bg-primary)]" />
+                </div>
+
                 {/* sticky header with back button + title */}
                 <HeadingSection
                   title={playlist().name}
@@ -1392,6 +1413,32 @@ export function FullAppDemoBody() {
                           </DraggableRow>
                         )}
                       </For>
+                      {/* playlists can hold video too (mixed media) - shown as
+                          a couple of illustrative rows on the first playlist,
+                          same row treatment as songs, minus the drag handle
+                          (this demo's reorder logic is song-index-only). */}
+                      <Show when={playlist().id === mockPlaylists[0]?.id}>
+                        <For each={mockVideos.slice(0, 2)}>
+                          {(video) => (
+                            <div class="flex items-center gap-3 px-3 py-2 rounded bg-[var(--color-bg-secondary)]">
+                              <img
+                                src={placeholderSvg(video.id, video.title)}
+                                alt=""
+                                class="w-10 h-10 rounded object-cover flex-shrink-0"
+                              />
+                              <div class="flex-1 min-w-0">
+                                <div class="body-small text-[var(--color-text-primary)] truncate">
+                                  {video.title}
+                                </div>
+                                <div class="caption truncate">video · {video.content_type}</div>
+                              </div>
+                              <div class="monospace caption text-[var(--color-text-muted)]">
+                                {formatDuration(video.duration_seconds ?? 0)}
+                              </div>
+                            </div>
+                          )}
+                        </For>
+                      </Show>
                     </div>
                     <div class="mt-4 text-xs text-[var(--color-text-tertiary)]">
                       {playlistSongs().length} songs • {selectedSongIds().size} selected
@@ -1476,6 +1523,214 @@ export function FullAppDemoBody() {
     </div>
   );
 
+  // ===== VIDEOS VIEW =====
+  const videosView = () => (
+    <div class="p-3" data-coach-anchor="videosGrid">
+      <div class="ml-0 wide:ml-[100px]"></div>
+      <div class="mt-2 wide:mt-0">
+        <VirtualVideoGrid
+          videos={mockVideos}
+          height={gridHeight()}
+          scrollPaddingTop={isNarrow() ? navOffset() : 100}
+          getVideoImageUrl={(video) => placeholderSvg(video.id, video.title)}
+          onVideoClick={(video) => {
+            console.log("video clicked:", video.title);
+          }}
+          onVideoPlay={(video) => {
+            console.log("play video:", video.title);
+          }}
+        />
+      </div>
+    </div>
+  );
+
+  // ===== SERIES VIEW =====
+  // two-column layout mirroring the real VideoSeriesView.tsx (alphabet nav +
+  // master list on the left; a grid of all series when nothing's selected,
+  // a detail panel once one is picked) - no real VideoSeriesDetailPanel-
+  // equivalent story surface exists yet, so this is hand-composed the same
+  // way artistsView/playlistsView are.
+  const seriesEpisodes = (seriesId: string) =>
+    mockVideos
+      .filter((v) => v.series_id === seriesId)
+      .sort((a, b) => (a.episode_number ?? 0) - (b.episode_number ?? 0));
+
+  const [seriesCurrentLetter, setSeriesCurrentLetter] = createSignal<string | undefined>();
+  const [selectedSeries, setSelectedSeries] = createSignal<MockVideoSeries | null>(null);
+  const seriesDisabledLetters = createMemo(() => {
+    const enabled = new Set(mockVideoSeries.map((s) => s.title[0]?.toUpperCase() ?? "#"));
+    return new Set(
+      "ABCDEFGHIJKLMNOPQRSTUVWXYZ#".split("").filter((letter) => !enabled.has(letter))
+    );
+  });
+
+  const seriesCard = (series: MockVideoSeries, onClick: () => void) => (
+    <div
+      class="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-secondary)] overflow-hidden cursor-pointer hover:border-[var(--color-accent-500)] transition-colors"
+      onClick={onClick}
+    >
+      <img
+        src={placeholderSvg(series.id, series.title)}
+        alt=""
+        class="w-full aspect-video object-cover"
+      />
+      <div class="p-3">
+        <div class="text-sm font-medium text-[var(--color-text-primary)] truncate">
+          {series.title}
+        </div>
+        <div class="text-xs text-[var(--color-text-tertiary)] mt-0.5 line-clamp-2">
+          {series.description}
+        </div>
+      </div>
+    </div>
+  );
+
+  const seriesView = () => (
+    <div class="h-full" data-coach-anchor="seriesGrid">
+      <ResponsiveMasterDetail<MockVideoSeries>
+        items={mockVideoSeries}
+        selection={selectedSeries}
+        onSelectionChange={setSelectedSeries}
+        getItemKey={(s) => s.id}
+        alphabetNav={
+          <div class="mt-2 wide:mt-[60px]">
+            <AlphabetNav
+              currentLetter={seriesCurrentLetter()}
+              disabledLetters={seriesDisabledLetters()}
+              onLetterClick={setSeriesCurrentLetter}
+            />
+          </div>
+        }
+        renderList={(ctx) => (
+          <div class="flex flex-col h-full mt-2 wide:mt-[60px]">
+            <div class="flex-1 overflow-y-auto">
+              <For each={mockVideoSeries}>
+                {(series) => (
+                  <button
+                    data-coach-item
+                    class={`
+                      w-full flex items-center gap-3 px-6 py-3 text-left transition-colors border-l-2
+                      ${
+                        ctx.selectedItem()?.id === series.id
+                          ? "bg-[var(--color-accent-500)]/20 text-[var(--color-text-primary)] border-[var(--color-accent-500)]"
+                          : "hover:bg-[var(--color-bg-secondary)] text-[var(--color-text-secondary)] border-transparent"
+                      }
+                    `}
+                    onClick={() => ctx.selectItem(series)}
+                  >
+                    <img
+                      src={placeholderSvg(series.id, series.title)}
+                      alt=""
+                      class="w-10 h-10 rounded object-cover flex-shrink-0"
+                    />
+                    <div class="min-w-0">
+                      <div class="font-medium truncate">{series.title}</div>
+                      <div class="text-xs text-[var(--color-text-tertiary)] truncate">
+                        {series.seasonCount} season{series.seasonCount === 1 ? "" : "s"} ·{" "}
+                        {series.episodeCount} episodes
+                      </div>
+                    </div>
+                  </button>
+                )}
+              </For>
+            </div>
+          </div>
+        )}
+        renderDetail={(ctx) => (
+          <Show when={ctx.selectedItem()}>
+            {(series) => (
+              <div class="flex flex-col h-full">
+                <HeadingSection
+                  title={series().title}
+                  variant="detail"
+                  sticky
+                  border
+                  showBackButton={ctx.isNarrow() && ctx.showingDetail()}
+                  onBack={() => ctx.onBack()}
+                />
+                <div class="flex-1 overflow-y-auto" data-coach-anchor="seriesGrid:detail">
+                  <div class="p-3 wide:p-6">
+                    <div class="flex gap-4 mb-4">
+                      <img
+                        src={placeholderSvg(series().id, series().title)}
+                        alt=""
+                        class="w-32 aspect-video object-cover rounded-lg flex-shrink-0"
+                      />
+                      <div class="min-w-0">
+                        <p class="text-sm text-[var(--color-text-secondary)] mb-2">
+                          {series().description}
+                        </p>
+                        <p class="text-xs text-[var(--color-text-tertiary)]">
+                          {series().seasonCount} season{series().seasonCount === 1 ? "" : "s"} ·{" "}
+                          {series().episodeCount} episodes · {series().year}
+                        </p>
+                      </div>
+                    </div>
+                    <StatsGrid columns={3} gap="md" class="mb-3 wide:mb-6">
+                      <StatsCard label="seasons" value={String(series().seasonCount)} />
+                      <StatsCard label="episodes" value={String(series().episodeCount)} />
+                      <StatsCard label="year" value={String(series().year)} />
+                    </StatsGrid>
+                  </div>
+                  <div class="px-3 wide:px-6 pb-4">
+                    <h3 class="text-lg font-semibold text-[var(--color-text-primary)] mb-3">
+                      episodes
+                    </h3>
+                    <div class="space-y-1">
+                      <For each={seriesEpisodes(series().id)}>
+                        {(video) => (
+                          <div class="flex items-center gap-3 p-3 bg-[var(--color-bg-secondary)] rounded hover:bg-[var(--color-bg-hover)] transition-colors">
+                            <IconButton
+                              icon="play"
+                              size="sm"
+                              variant="ghost"
+                              aria-label="play episode"
+                            />
+                            <div class="flex-1 min-w-0">
+                              <div class="body-small text-[var(--color-text-primary)] truncate">
+                                {video.title}
+                              </div>
+                              <div class="caption truncate">episode {video.episode_number}</div>
+                            </div>
+                            <div class="monospace caption text-[var(--color-text-muted)]">
+                              {formatDuration(video.duration_seconds ?? 0)}
+                            </div>
+                          </div>
+                        )}
+                      </For>
+                    </div>
+                  </div>
+                </div>
+                <div class="flex-shrink-0 bg-[var(--color-bg-primary)] border-t border-[var(--color-bg-tertiary)] px-3 wide:px-6 py-2 wide:py-3 flex gap-2 wide:gap-3">
+                  <Button variant="primary" onClick={() => console.log("play all episodes")}>
+                    <span class="hidden wide:inline">play all</span>
+                    <span class="wide:hidden">play</span>
+                  </Button>
+                  <Button variant="ghost" onClick={() => console.log("add series to queue")}>
+                    <span class="hidden wide:inline">add to queue</span>
+                    <span class="wide:hidden">+queue</span>
+                  </Button>
+                </div>
+              </div>
+            )}
+          </Show>
+        )}
+        renderEmpty={() => (
+          <div class="h-full overflow-y-auto p-3 wide:p-6 mt-2 wide:mt-[60px]">
+            <div
+              class="grid gap-4"
+              style={{ "grid-template-columns": "repeat(auto-fill, minmax(220px, 1fr))" }}
+            >
+              <For each={mockVideoSeries}>
+                {(series) => seriesCard(series, () => setSelectedSeries(series))}
+              </For>
+            </div>
+          </div>
+        )}
+      />
+    </div>
+  );
+
   // ===== FAVORITES VIEW =====
   const [favoritesList, setFavoritesList] = createSignal<FavoriteItem[]>(mockFavorites);
   const getFavoriteId = (item: FavoriteItem): string => {
@@ -1483,6 +1738,8 @@ export function FullAppDemoBody() {
     if (item.type === "album") return item.album_id;
     if (item.type === "artist") return item.artist_id;
     if (item.type === "playlist") return item.playlist_id;
+    if (item.type === "video") return item.id;
+    if (item.type === "video_series") return item.id;
     return "";
   };
   const favoritesView = () => (
@@ -1525,6 +1782,28 @@ export function FullAppDemoBody() {
         onPlaylistFavoriteToggle={(playlistId, isFavorite) => {
           if (!isFavorite) {
             setFavoritesList((prev) => prev.filter((fav) => getFavoriteId(fav) !== playlistId));
+          }
+        }}
+        onVideoClick={(video) => {
+          navigateTo("videos");
+          console.log("video click:", video.title);
+        }}
+        onVideoPlay={(video) => console.log("video play:", video.title)}
+        getVideoImageUrl={(video) => placeholderSvg(video.id, video.title)}
+        onVideoFavoriteToggle={(videoId, isFavorite) => {
+          if (!isFavorite) {
+            setFavoritesList((prev) => prev.filter((fav) => getFavoriteId(fav) !== videoId));
+          }
+        }}
+        onSeriesClick={(series) => {
+          navigateTo("series");
+          console.log("series click:", series.title);
+        }}
+        onSeriesPlay={(series) => console.log("series play:", series.title)}
+        getSeriesImageUrl={(series) => placeholderSvg(series.id, series.title)}
+        onSeriesFavoriteToggle={(seriesId, isFavorite) => {
+          if (!isFavorite) {
+            setFavoritesList((prev) => prev.filter((fav) => getFavoriteId(fav) !== seriesId));
           }
         }}
         onArtistNavigate={(artistId) => console.log("navigate to artist:", artistId)}
@@ -1770,7 +2049,15 @@ export function FullAppDemoBody() {
   );
 
   // determine which view to show
-  const ROUTES_WITH_LIBRARY: Route[] = ["songs", "albums", "artists", "playlists", "favorites"];
+  const ROUTES_WITH_LIBRARY: Route[] = [
+    "songs",
+    "albums",
+    "artists",
+    "playlists",
+    "favorites",
+    "videos",
+    "series",
+  ];
   const emptyLibraryView = () => (
     <div class="h-full w-full overflow-y-auto">
       <div class="flex min-h-full flex-col items-center p-3 wide:p-6">
@@ -1782,17 +2069,17 @@ export function FullAppDemoBody() {
             welcome to freqhole
           </h1>
           <p class="text-[var(--color-text-secondary)] mb-5 leading-snug">
-            get started by adding music, connecting to a remote server, or tuning into a radio
-            station.
+            get started by adding your own media filez, connecting to a remote server, or tuning
+            into a radio station.
           </p>
           <div class="flex gap-3 justify-center flex-wrap">
             <button
               type="button"
               data-coach-anchor="addMusicButton"
               class="px-4 py-2 text-sm rounded-md bg-[var(--color-bg-secondary)] text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] border border-[var(--color-border-default)]"
-              onClick={() => runFakeLibraryScan({ durationMs: 1500 })}
+              onClick={() => setActiveModal("add-media")}
             >
-              add music
+              add media
             </button>
             <button
               type="button"
@@ -1822,7 +2109,7 @@ export function FullAppDemoBody() {
                     </span>
                   }
                 >
-                  scanning local files… {Math.round(fakeScanProgress() * 100)}%
+                  importing media files… {Math.round(fakeScanProgress() * 100)}%
                 </Show>
               </div>
               <div class="h-1.5 w-full rounded-full bg-[var(--color-bg-secondary)] overflow-hidden">
@@ -2170,6 +2457,53 @@ export function FullAppDemoBody() {
         </For>
       </div>
     </div>
+  );
+
+  // ===== ADD MEDIA MODAL (real component - not a stub) =====
+  // unlike the other demo modals above, this renders the actual
+  // AddMediaModal component (not a hand-drawn stand-in) so the real
+  // music+video tabs, url/file flows, and remote-target switcher are all
+  // visible in the marketing demo - triggered by the "add music" button on
+  // the welcome screen (see addMusicButton below).
+  const addMediaTargetCandidates = mockRemotes.map(
+    (r) =>
+      ({
+        remote_id: r.id,
+        name: r.name,
+        is_active: true,
+        last_connected_at: Date.now(),
+        created_at: Date.now(),
+        updated_at: Date.now(),
+        description: null,
+        image_url: null,
+        image_blob_id: null,
+        version: null,
+        last_info_check: null,
+        transport: "http",
+        base_url: `https://${r.id}.example.com`,
+      }) as unknown as Remote
+  );
+  const addMediaModal = () => (
+    <AddMediaModal
+      isOpen={activeModal() === "add-media"}
+      onClose={() => setActiveModal(null)}
+      fetchVideoEnabled
+      targetCandidates={addMediaTargetCandidates}
+      onMusicFilesSelected={() => setActiveModal(null)}
+      onMusicUrlsSubmitted={() => setActiveModal(null)}
+      onVideoFilesSelected={() => setActiveModal(null)}
+      onVideoUrlsSubmitted={() => setActiveModal(null)}
+      portalMount={flyoutMount()}
+      // the freqhole.net landing page's sticky site header sits outside
+      // the demo's own stacking context - the app's normal 1100 loses to
+      // it, so this demo-only usage needs a much higher override.
+      zIndex={100000}
+      // "fixed" resolves against the real viewport here (Portal escapes
+      // the shadow root's own transformed wrapper) and renders over the
+      // site's fixed header - "absolute" resolves against the frame's own
+      // `position: relative` instead, staying confined to it.
+      overlayPosition="absolute"
+    />
   );
 
   // ===== ALBUM EDIT MODAL (stub) =====
@@ -2582,6 +2916,10 @@ export function FullAppDemoBody() {
         return feedView();
       case "radio":
         return radioView();
+      case "videos":
+        return videosView();
+      case "series":
+        return seriesView();
       default:
         return artistsView();
     }
@@ -2656,6 +2994,14 @@ export function FullAppDemoBody() {
                       label: "radio",
                       onClick: () => navigateTo("radio"),
                     },
+                    {
+                      label: "videos",
+                      onClick: () => navigateTo("videos"),
+                    },
+                    {
+                      label: "series",
+                      onClick: () => navigateTo("series"),
+                    },
                   ],
                 },
               ]}
@@ -2680,6 +3026,8 @@ export function FullAppDemoBody() {
                 { label: "favorites", path: "/favorites", count: mockFavorites.length },
                 { label: "feed", path: "/feed" },
                 { label: "radio", path: "/radio", count: mockRadioStations.length },
+                { label: "videos", path: "/videos", count: mockVideos.length },
+                { label: "series", path: "/series", count: mockVideoSeries.length },
               ]}
               onNavigate={(path) => {
                 const route = path.replace(/^\//, "") as Route;
@@ -2690,7 +3038,9 @@ export function FullAppDemoBody() {
                   route === "playlists" ||
                   route === "favorites" ||
                   route === "feed" ||
-                  route === "radio"
+                  route === "radio" ||
+                  route === "videos" ||
+                  route === "series"
                 ) {
                   navigateTo(route);
                 }
@@ -2837,6 +3187,7 @@ export function FullAppDemoBody() {
           )}
         </Show>
         {addRemoteModal()}
+        {addMediaModal()}
         {albumEditModal()}
         {shareModal()}
         {resolveShareModal()}

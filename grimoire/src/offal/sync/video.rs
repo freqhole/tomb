@@ -127,21 +127,59 @@ pub async fn sync_video_by_blake3(caller: &Caller, body: JsonValue) -> GrimoireR
             })
             .await;
 
-            let Some(video) = create_resp.data else {
-                tracing::error!(
-                    "sync_video_by_blake3: create failed for title=\"{}\": {}",
-                    req.title,
-                    create_resp.message
-                );
-                return GrimoireResponse::failure("failed to create video", create_resp.errors);
-            };
-
-            (
-                video.id,
-                pulled.blob.id,
-                pulled.local_path.to_string_lossy().to_string(),
-                false,
-            )
+            match create_resp.data {
+                Some(video) => (
+                    video.id,
+                    pulled.blob.id,
+                    pulled.local_path.to_string_lossy().to_string(),
+                    false,
+                ),
+                // race: another sync_video_by_blake3 call (e.g. two peers
+                // syncing the same content concurrently) created the video
+                // row for this media blob between our pre-check above and
+                // this insert - reuse it instead of failing, mirroring
+                // import_video_file's identical race handling.
+                None if create_resp
+                    .errors
+                    .iter()
+                    .any(|e| e.error_type == "duplicate_video") =>
+                {
+                    match find_video_id_by_media_blob_id(&pulled.blob.id).await {
+                        Ok(Some(existing_video_id)) => {
+                            tracing::info!(
+                                "sync_video_by_blake3: lost create race for blake3 {} - reusing video {}",
+                                short_blake3,
+                                existing_video_id
+                            );
+                            (
+                                existing_video_id,
+                                pulled.blob.id,
+                                pulled.local_path.to_string_lossy().to_string(),
+                                true,
+                            )
+                        }
+                        _ => {
+                            tracing::error!(
+                                "sync_video_by_blake3: create failed for title=\"{}\": {}",
+                                req.title,
+                                create_resp.message
+                            );
+                            return GrimoireResponse::failure(
+                                "failed to create video",
+                                create_resp.errors,
+                            );
+                        }
+                    }
+                }
+                None => {
+                    tracing::error!(
+                        "sync_video_by_blake3: create failed for title=\"{}\": {}",
+                        req.title,
+                        create_resp.message
+                    );
+                    return GrimoireResponse::failure("failed to create video", create_resp.errors);
+                }
+            }
         }
     };
 

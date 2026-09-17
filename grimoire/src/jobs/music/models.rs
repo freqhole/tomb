@@ -67,6 +67,10 @@ pub struct ProcessFileResult {
     pub song_id: Option<String>,
     pub artist_id: Option<String>,
     pub album_id: Option<String>,
+    /// set only for a video file (mirrors song_id/album_id for music, since
+    /// the same ProcessFile job type/result shape is shared across domains).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub video_id: Option<String>,
     pub metadata_extracted: bool,
     pub thumbnail_generated: bool,
     pub waveform_generated: bool,

@@ -136,6 +136,8 @@ async fn to_grimoire_invite_code(
         link_for_user_id,
         link_expires_at: invite.link_expires_at,
         grants_role: from_haruspex_role(invite.grants_role),
+        max_uses: invite.max_uses,
+        use_count: invite.use_count,
     })
 }
 
@@ -516,6 +518,8 @@ impl UserRepository {
                 used_at: None,
                 used_by: None,
                 is_active: true,
+                max_uses: request.max_uses.unwrap_or(1),
+                use_count: 0,
             })
             .await?;
 

@@ -12,11 +12,11 @@ const DEBUG_VIEWPORT = true;
 
 function logViewport(event: string) {
   if (!DEBUG_VIEWPORT || typeof window === "undefined") return;
-  
+
   const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
   const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
-  const isStandalone = ("standalone" in window.navigator) && (window.navigator as any).standalone;
-  
+  const isStandalone = "standalone" in window.navigator && (window.navigator as any).standalone;
+
   debug("viewport", `${event}`, {
     visualViewport: window.visualViewport?.height,
     innerHeight: window.innerHeight,
@@ -104,10 +104,20 @@ const NAV_HEIGHT = 42;
 
 /**
  * get the nav height to subtract from viewport for content areas.
- * returns NAV_HEIGHT (42px) on narrow/mobile views where nav is fixed,
  * returns 0 on wide/desktop views where nav is part of the flex layout.
+ * on narrow/mobile, reads the live `--nav-height` CSS var (kept in sync by
+ * TopNav's ResizeObserver, and includes `--safe-area-top` via theme.css's
+ * `calc(42px + var(--safe-area-top))`) instead of a bare constant - on
+ * android, `--safe-area-top` is a real, nonzero status-bar inset (see
+ * index.tsx), so a hardcoded 42 under-reserves scroll padding by exactly
+ * that amount and lets list content render partly behind the nav bar.
+ * falls back to the bare constant if the var isn't set yet (e.g. before
+ * TopNav's first mount) or can't be parsed.
  */
 export function getNavHeight(): number {
   if (typeof window === "undefined") return 0;
-  return isNarrowViewport() ? NAV_HEIGHT : 0;
+  if (!isNarrowViewport()) return 0;
+  const raw = getComputedStyle(document.documentElement).getPropertyValue("--nav-height").trim();
+  const parsed = parseFloat(raw);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : NAV_HEIGHT;
 }

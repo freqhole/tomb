@@ -325,7 +325,10 @@ impl PeerConnection {
             recv.read_to_end(max_size)
                 .await
                 .map_err(|e| GrimoireError::FederationApiError {
-                    message: format!("failed to read response: {}", e),
+                    // `{:?}` alongside `{}` since Display alone (e.g. plain
+                    // "connection lost") hides which underlying quinn error
+                    // variant (timeout/reset/explicit close/etc) actually fired.
+                    message: format!("failed to read response: {} ({:?})", e, e),
                 })?;
 
         debug!("received {} bytes from {}", resp_bytes.len(), self.peer_id);

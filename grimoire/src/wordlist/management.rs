@@ -141,6 +141,18 @@ pub fn generate_word_code(word_count: usize) -> GrimoireResponse<String> {
     GrimoireResponse::success("Word code generated successfully", code)
 }
 
+/// generate a random numeric code (default use: 6 digits) - phone-keypad
+/// friendly, used for player-pairing invite codes (rathole/cenotaph's live
+/// pin UX) rather than the word-based codes normal user invites use.
+/// does not require the wordlist to be initialized.
+pub fn generate_numeric_code(digits: usize) -> String {
+    use rand::Rng;
+    let mut rng = rand::thread_rng();
+    (0..digits)
+        .map(|_| rng.gen_range(0..10).to_string())
+        .collect()
+}
+
 /// Parse wordlist from file content
 fn parse_wordlist(content: &str) -> Result<Vec<String>, WordlistError> {
     let words: Vec<String> = content

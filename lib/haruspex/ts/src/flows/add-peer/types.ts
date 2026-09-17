@@ -54,7 +54,10 @@ export interface PeerServerInfo {
   player_device?: boolean | null;
 }
 
-/** a saved remote, as returned by the app's remote store. */
+/** a saved remote, as returned by the app's remote store. "is this a
+ *  player" is deliberately NOT one of these fields - it's a live,
+ *  point-in-time fact (see `ConnectionOutcome`'s `serverInfo.player_device`),
+ *  never a persisted property of the remote itself. */
 export interface SavedRemote {
   remote_id: string;
   name: string;
@@ -89,7 +92,7 @@ export type AddPeerState =
       url: string;
     }
   | { step: "knock_sent" }
-  | { step: "complete"; remote: SavedRemote };
+  | { step: "complete"; remote: SavedRemote; alreadyExisted: boolean };
 
 // ---------------------------------------------------------------------------
 // events (ui events + async effect outcomes)
@@ -138,7 +141,7 @@ export type AddPeerEvent =
   | { type: "DELETE_PENDING"; pending: PendingRemote }
   // async effect outcomes (fed back by the adapter)
   | { type: "PENDING_LOADED"; records: PendingRemote[] }
-  | { type: "DUPLICATE_RESULT"; duplicateName: string | null }
+  | { type: "DUPLICATE_RESULT"; duplicate: SavedRemote | null }
   | { type: "CONNECTION_RESULT"; outcome: ConnectionOutcome }
   | { type: "KNOCK_SENT_RESULT"; ok: boolean; error?: string }
   | { type: "KNOCK_STATUS_RESULT"; outcome: KnockStatusOutcome }

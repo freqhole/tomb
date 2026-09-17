@@ -254,9 +254,12 @@ async fn handle_stream(
                         break;
                     }
                     Err(e) => {
+                        // `{}` alone collapses timeout/reset/explicit-close/etc
+                        // into the same short "connection lost" text - `{:?}`
+                        // surfaces the actual quinn/io error variant underneath.
                         warn!(
-                            "[events-p2p] read error on stream id={} peer={}: {}",
-                            id, node_id_short, e
+                            "[events-p2p] read error on stream id={} peer={}: {} ({:?})",
+                            id, node_id_short, e, e
                         );
                         let _ = write_msg(
                             &mut send,

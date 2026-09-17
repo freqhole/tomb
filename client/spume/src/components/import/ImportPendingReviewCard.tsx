@@ -35,7 +35,7 @@ export function ImportPendingReviewCard(props: ImportPendingReviewCardProps) {
             </p>
           </Show>
           <p class="body-xs text-[var(--color-text-muted)]">
-            music is imported and available - review to fix metadata and artwork
+            please review to fix metadata and artwork first!
           </p>
         </div>
       </div>

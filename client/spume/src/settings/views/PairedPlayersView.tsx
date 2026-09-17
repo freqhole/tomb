@@ -1,38 +1,42 @@
 // settings view for freqhole-player devices paired with this controller.
-// mirrors RemoteAdminView's list/forget pattern, kept player-scoped (see
-// docs/player-remote-site-plan.md phase 5).
+// "pair a player"/"reconnect" both route through AddRemoteModal (via the
+// addRemoteRequest.ts cross-component channel) rather than a separate
+// modal - AddRemoteModal is THE pairing entry point (handles the qr scan,
+// the pin form, AND the live access check that skips the pin entirely for
+// an already-authorized peer - see its own doc comment), so this view has
+// no pairing logic of its own beyond triggering it.
 import { createResource, createSignal, For, Show } from "solid-js";
 import {
-  forgetPairedPlayer,
-  listPairedPlayers,
-  pairedPlayersVersion,
-  renamePairedPlayer,
+  currentPlayersVersion,
+  listPairedPlayerRemotes,
+  type PairedPlayer,
 } from "../../app/services/players/pairedPlayers";
-import type { PeerNodeWithUser } from "../../app/services/storage/types";
-import { PairPlayerModal } from "../../components/modals/PairPlayerModal";
+import { deleteRemote, updateRemote } from "../../app/services/remotes/remoteManager";
+import { requestAddRemote } from "../../app/services/remotes/addRemoteRequest";
 import { Button } from "../../components/buttons/Button";
 import { formatDate } from "../../utils/dateTime";
 
 export function PairedPlayersView() {
-  const [players, { refetch }] = createResource(pairedPlayersVersion, listPairedPlayers);
-  const [showPairModal, setShowPairModal] = createSignal(false);
+  const [players, { refetch }] = createResource(currentPlayersVersion, listPairedPlayerRemotes);
   const [renamingId, setRenamingId] = createSignal<string | null>(null);
   const [renameValue, setRenameValue] = createSignal("");
 
-  const startRename = (player: PeerNodeWithUser) => {
+  const startRename = (player: PairedPlayer) => {
     setRenamingId(player.node_id);
     setRenameValue(player.username);
   };
 
-  const commitRename = async (nodeId: string) => {
-    await renamePairedPlayer(nodeId, renameValue().trim() || nodeId.slice(0, 8));
+  const commitRename = async (player: PairedPlayer) => {
+    await updateRemote(player.remote_id, {
+      name: renameValue().trim() || player.node_id.slice(0, 8),
+    });
     setRenamingId(null);
     await refetch();
   };
 
-  const handleForget = async (player: PeerNodeWithUser) => {
+  const handleForget = async (player: PairedPlayer) => {
     if (!confirm(`forget "${player.username}"? you'll need to pair again to use it.`)) return;
-    await forgetPairedPlayer(player.node_id);
+    await deleteRemote(player.remote_id);
     await refetch();
   };
 
@@ -40,7 +44,7 @@ export function PairedPlayersView() {
     <div class="max-w-2xl mx-auto p-6 space-y-6">
       <div class="flex items-center justify-between">
         <h1 class="text-xl font-bold text-[var(--color-text-primary)]">players</h1>
-        <Button onClick={() => setShowPairModal(true)}>pair a player</Button>
+        <Button onClick={() => requestAddRemote("", { intent: "player" })}>pair a player</Button>
       </div>
 
       <p class="text-sm text-[var(--color-text-secondary)]">
@@ -66,7 +70,7 @@ export function PairedPlayersView() {
                     value={renameValue()}
                     onInput={(e) => setRenameValue(e.currentTarget.value)}
                     onKeyDown={(e) => {
-                      if (e.key === "Enter") void commitRename(player.node_id);
+                      if (e.key === "Enter") void commitRename(player);
                       if (e.key === "Escape") setRenamingId(null);
                     }}
                     class="w-full px-2 py-1 bg-[var(--color-bg-primary)] border border-[var(--color-border-default)] rounded text-sm"
@@ -95,11 +99,19 @@ export function PairedPlayersView() {
                   <button
                     type="button"
                     class="text-xs text-[var(--color-accent-primary)]"
-                    onClick={() => void commitRename(player.node_id)}
+                    onClick={() => void commitRename(player)}
                   >
                     save
                   </button>
                 </Show>
+                <button
+                  type="button"
+                  class="text-xs text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
+                  title="re-enter this player's pairing pin (e.g. if a session expired or trust was revoked)"
+                  onClick={() => requestAddRemote(player.node_id, { intent: "player" })}
+                >
+                  reconnect
+                </button>
                 <button
                   type="button"
                   class="text-xs text-[var(--color-status-error)]"
@@ -115,12 +127,6 @@ export function PairedPlayersView() {
           <p class="text-sm text-[var(--color-text-tertiary)]">no paired players yet.</p>
         </Show>
       </div>
-
-      <PairPlayerModal
-        isOpen={showPairModal()}
-        onClose={() => setShowPairModal(false)}
-        onSuccess={() => void refetch()}
-      />
     </div>
   );
 }

@@ -7,7 +7,7 @@
 // (see docs/player-peer-trust-bridge-plan.md).
 //
 // used by BOTH services/players/pairedPlayers.ts (outbound - players this
-// instance dials) and services/remotePlayback/trustStoreAdapter.ts
+// instance dials) and cenotaph/adapters/trustStoreAdapter.ts
 // (inbound - controllers trusted to dial this instance), since both are
 // just "known peer identities" and there's no reason to keep two separate,
 // structurally-identical stores for them.

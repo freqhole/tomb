@@ -4,41 +4,31 @@
 // its full song list via query_songs, and exposes the mutation fns
 // (patch, merge, move, mark-reviewed) that wire back to the api.
 //
+// works against either backend a session can live in:
+//   - grimoire (desktop/android charnel's embedded local instance) - the
+//     original behavior below, driven by `remote()`.
+//   - the browser's own IndexedDB (plain web, no charnel) - driven by
+//     music/services/storage/db/importReview.ts. selected by passing
+//     `remote() === null` while `sessionId()` is set (there's no `Remote`
+//     to speak of for a purely local-idb session).
+//
 // usage:
 //   const review = useImportReview(() => sessionId(), remote);
 //   review.albums()      // ImportReviewAlbum[]
 //   review.loading()     // boolean
+//   review.targetRemoteName() // string | undefined - "send to X" label
 //   review.patchAlbum(albumId, req)
 //   review.mergeAlbums(sourceIds, targetId)
 //   review.moveSong(songId, toAlbumId)
 //   review.markReviewed(albumId)
 //   review.refetch()
 
-import { createSignal, createResource, createMemo } from "solid-js";
-import { getClientForRemote } from "../../app/api/client";
-import { getRemoteMediaUrl } from "../../utils/urls";
+import { createSignal, createResource, createMemo, createEffect } from "solid-js";
 import { toast } from "../../components/feedback/Toast";
 import type { CurrentRemoteInfo } from "../data/currentState";
-import type {
-  ImportReviewAlbum,
-  ImportReviewSong,
-} from "../../components/import/ImportGroupingView";
-import type { PatchAlbumReviewRequest, PendingReviewAlbum } from "@freqhole/api-client";
-
-// ----------------------------------------------------------------------------
-// helpers
-// ----------------------------------------------------------------------------
-
-// build an http artwork url from a blob id and the remote's base url.
-// used for plain-http remotes; charnel-managed and P2P remotes resolve via
-// transport so artworkUrl may be null - MediaImage handles both paths.
-function artworkUrlFromBlob(
-  blobId: string | null | undefined,
-  remote: CurrentRemoteInfo | null | undefined
-): string | null {
-  if (!blobId || !remote?.base_url) return null;
-  return getRemoteMediaUrl(remote.base_url, blobId);
-}
+import type { ImportReviewAlbum } from "../services/review/importReviewTypes";
+import type { PatchAlbumReviewRequest } from "@freqhole/api-client";
+import { getReviewBackend } from "../services/review/reviewBackend";
 
 // ----------------------------------------------------------------------------
 // hook
@@ -47,6 +37,10 @@ function artworkUrlFromBlob(
 export interface ImportReviewHandle {
   albums: () => ImportReviewAlbum[];
   loading: () => boolean;
+  /** remote this session's reviewed output is destined for, if any -
+   *  undefined for a purely local (nowhere-else-to-send) session. */
+  targetRemoteId: () => string | undefined;
+  targetRemoteName: () => string | undefined;
   patchAlbum: (
     albumId: string,
     req: Omit<PatchAlbumReviewRequest, "album_id" | "session_id">
@@ -64,144 +58,55 @@ export interface ImportReviewHandle {
 
 export function useImportReview(
   sessionId: () => string | null,
+  /** `null`/`undefined` while resolving; `null` once resolved means "no
+   *  grimoire remote for this session" - i.e. it lives in the browser's
+   *  own IndexedDB library instead. */
   remote: () => CurrentRemoteInfo | null | undefined
 ): ImportReviewHandle {
   // reload key: increment to trigger refetch
   const [reloadKey, setReloadKey] = createSignal(0);
+  const [targetRemoteId, setTargetRemoteId] = createSignal<string | undefined>(undefined);
+  const [targetRemoteName, setTargetRemoteName] = createSignal<string | undefined>(undefined);
 
-  const key = createMemo<[string, CurrentRemoteInfo, number] | null>(() => {
+  const key = createMemo<[string, CurrentRemoteInfo | null | undefined, number] | null>(() => {
     const id = sessionId();
-    const r = remote();
-    if (!id || !r) return null;
-    return [id, r, reloadKey()];
+    if (!id) return null;
+    return [id, remote(), reloadKey()];
   });
 
   const [data] = createResource(key, async (k): Promise<ImportReviewAlbum[]> => {
     if (!k) return [];
     const [sid, r] = k;
 
-    let client;
+    const backend = getReviewBackend(r ?? null);
     try {
-      client = await getClientForRemote(r);
+      const target = await backend.getSessionTarget(sid);
+      setTargetRemoteId(target?.id ?? undefined);
+      setTargetRemoteName(target?.name ?? undefined);
+    } catch (err) {
+      // target lookup failing shouldn't block showing the albums themselves.
+      toast.error(`failed to look up send target: ${(err as Error).message}`);
+    }
+
+    try {
+      return await backend.getSessionAlbums(sid);
     } catch (err) {
       toast.error(`failed to reach remote: ${(err as Error).message}`);
       return [];
     }
+  });
 
-    // fetch pending review sessions for this session_id
-    const pendingResp = await client.music.listPendingImportReview({ session_id: sid });
-    if (!pendingResp.success || !pendingResp.data) return [];
-
-    // flatten albums across sessions (should be just one session matching sid)
-    const pendingAlbums = pendingResp.data.flatMap(
-      (session) => session.albums as PendingReviewAlbum[]
-    );
-    if (pendingAlbums.length === 0) return [];
-
-    // enrich each album with its full song list
-    const results = await Promise.all(
-      pendingAlbums.map(async (pa: PendingReviewAlbum): Promise<ImportReviewAlbum> => {
-        let songs: ImportReviewSong[] = [];
-        let entityUrls: { id?: string; name?: string | null; url: string }[] = [];
-        let albumImages: import("../../music/services/storage/types").ImageMetadata[] | undefined;
-        let liveTitle: string | undefined;
-        let liveReleaseDate: string | null = null;
-        let liveLabel: string | null = null;
-        let liveGenres: string[] = [];
-        let liveAlbumType: string | null = null;
-        try {
-          const [songsResp, albumResp] = await Promise.all([
-            client.music.querySongs({
-              q: null,
-              search_fields: null,
-              filters: { album_id: pa.album_id },
-              sort_by: "track_number",
-              sort_direction: "asc",
-              limit: 1000,
-              offset: 0,
-              user_id: null,
-              favorites_only: null,
-              min_rating: null,
-            }),
-            client.music.getAlbum({ id: pa.album_id }),
-          ]);
-          if (songsResp.success && songsResp.data) {
-            songs = songsResp.data.items.map((it): ImportReviewSong => ({
-              id: it.song.id,
-              title: it.song.title,
-              trackNumber: it.song.track_number ?? undefined,
-              discNumber: it.song.disc_number ?? undefined,
-              // song.duration from API is milliseconds (raw DB value)
-              durationSeconds: it.song.duration != null ? it.song.duration / 1000 : undefined,
-            }));
-          }
-          // capture the live album entity title - separate from the session
-          // blob which is written at import time and never updated
-          if (albumResp.success && albumResp.data?.title) {
-            liveTitle = albumResp.data.title;
-          }
-          if (albumResp.success && albumResp.data) {
-            if (albumResp.data.release_date) liveReleaseDate = albumResp.data.release_date;
-            if (albumResp.data.label) liveLabel = albumResp.data.label;
-            if (albumResp.data.genres) liveGenres = albumResp.data.genres.map((g) => g.name);
-            if (albumResp.data.album_type) liveAlbumType = albumResp.data.album_type;
-          }
-          if (albumResp.success && albumResp.data?.urls) {
-            entityUrls = albumResp.data.urls.map((u) => ({
-              id: u.id ?? undefined,
-              name: u.name ?? null,
-              url: u.url,
-            }));
-          }
-          if (albumResp.success && albumResp.data?.images) {
-            albumImages = albumResp.data.images.map((img) => ({
-              remote_blob_id: img.blob_id,
-              remote_url: artworkUrlFromBlob(img.blob_id, r) ?? undefined,
-              remote_server_id: r.remote_id,
-              is_primary: img.is_primary === 1,
-              blob_type: img.blob_type as "original" | "thumbnail" | "waveform" | "preview",
-            }));
-          }
-          // fall back to getAlbum primary image if pending-review query
-          // didn't return artwork (timing window before ProcessFile completes)
-          if (!pa.artwork_blob_id && albumResp.success && albumResp.data?.images) {
-            const primary = albumResp.data.images.find((img) => img.is_primary === 1);
-            if (primary) {
-              pa = { ...pa, artwork_blob_id: primary.blob_id };
-            }
-          }
-        } catch {
-          // leave empty if fetch fails - album is still reviewable
-        }
-
-        const artworkBlobId = pa.artwork_blob_id ?? null;
-
-        // mirror adaptApiImage: pass remote_blob_id + remote_url + remote_server_id
-        // so MediaImage's transport-aware resolution works identically to normal
-        // album art display (handles HTTP, charnel-managed, and P2P remotes).
-        return {
-          id: pa.album_id,
-          // use the live album entity title instead of the session blob value
-          // - the blob title is written at import time and never updated when
-          //   the user edits metadata via MB panel or the metadata form.
-          title: liveTitle ?? pa.title,
-          artist: pa.artist_name ?? null,
-          artistId: pa.artist_id ?? null,
-          releaseDate: liveReleaseDate,
-          label: liveLabel,
-          genres: liveGenres,
-          albumType: liveAlbumType,
-          artworkUrl: artworkUrlFromBlob(artworkBlobId, r),
-          artworkBlobId,
-          remoteServerId: r.remote_id,
-          entityUrls,
-          images: albumImages,
-          songs,
-        };
-      })
-    );
-
-    return results;
+  // data.latest keeps returning the PREVIOUS session's (already-empty) album
+  // list while a new session's fetch is in flight, which used to make a
+  // brand-new review session look instantly "complete" (0 albums, not
+  // loading) before it ever loaded - see resolvedForSid below.
+  const [resolvedForSid, setResolvedForSid] = createSignal<string | null>(null);
+  createEffect(() => {
+    const k = key();
+    if (!k) return;
+    if (data.state === "ready" || data.state === "errored") {
+      setResolvedForSid(k[0]);
+    }
   });
 
   function refetch() {
@@ -213,22 +118,11 @@ export function useImportReview(
     req: Omit<PatchAlbumReviewRequest, "album_id" | "session_id">
   ) {
     const sid = sessionId();
-    const r = remote();
-    if (!sid || !r) return;
-    let client;
+    if (!sid) return;
     try {
-      client = await getClientForRemote(r);
+      await getReviewBackend(remote() ?? null).patchAlbum(sid, albumId, req);
     } catch (err) {
-      toast.error(`failed to reach remote: ${(err as Error).message}`);
-      return;
-    }
-    const resp = await client.music.patchAlbumReview({
-      album_id: albumId,
-      session_id: sid,
-      ...req,
-    });
-    if (!resp.success) {
-      toast.error(`patch failed: ${resp.error?.issues?.[0]?.message ?? "unknown error"}`);
+      toast.error(`patch failed: ${(err as Error).message}`);
       return;
     }
     refetch();
@@ -236,22 +130,11 @@ export function useImportReview(
 
   async function mergeAlbums(sourceIds: string[], targetId: string) {
     const sid = sessionId();
-    const r = remote();
-    if (!sid || !r) return;
-    let client;
+    if (!sid) return;
     try {
-      client = await getClientForRemote(r);
+      await getReviewBackend(remote() ?? null).mergeAlbums(sid, sourceIds, targetId);
     } catch (err) {
-      toast.error(`failed to reach remote: ${(err as Error).message}`);
-      return;
-    }
-    const resp = await client.music.mergeAlbumsReview({
-      session_id: sid,
-      source_ids: sourceIds,
-      target_id: targetId,
-    });
-    if (!resp.success) {
-      toast.error(`merge failed: ${resp.error?.issues?.[0]?.message ?? "unknown error"}`);
+      toast.error(`merge failed: ${(err as Error).message}`);
       return;
     }
     refetch();
@@ -264,24 +147,17 @@ export function useImportReview(
     newAlbumArtistName: string | null = null
   ) {
     const sid = sessionId();
-    const r = remote();
-    if (!sid || !r) return;
-    let client;
+    if (!sid) return;
     try {
-      client = await getClientForRemote(r);
+      await getReviewBackend(remote() ?? null).moveSong(
+        sid,
+        songId,
+        toAlbumId,
+        newAlbumTitle,
+        newAlbumArtistName
+      );
     } catch (err) {
-      toast.error(`failed to reach remote: ${(err as Error).message}`);
-      return;
-    }
-    const resp = await client.music.moveSongReview({
-      session_id: sid,
-      song_id: songId,
-      to_album_id: toAlbumId,
-      new_album_title: newAlbumTitle,
-      new_album_artist_name: newAlbumArtistName,
-    });
-    if (!resp.success) {
-      toast.error(`move failed: ${resp.error?.issues?.[0]?.message ?? "unknown error"}`);
+      toast.error(`move failed: ${(err as Error).message}`);
       return;
     }
     refetch();
@@ -289,21 +165,11 @@ export function useImportReview(
 
   async function markReviewed(albumId: string) {
     const sid = sessionId();
-    const r = remote();
-    if (!sid || !r) return;
-    let client;
+    if (!sid) return;
     try {
-      client = await getClientForRemote(r);
+      await getReviewBackend(remote() ?? null).markAlbumReviewed(sid, albumId);
     } catch (err) {
-      toast.error(`failed to reach remote: ${(err as Error).message}`);
-      return;
-    }
-    const resp = await client.music.markAlbumReviewed({
-      album_id: albumId,
-      session_id: sid,
-    });
-    if (!resp.success) {
-      toast.error(`mark reviewed failed: ${resp.error?.issues?.[0]?.message ?? "unknown error"}`);
+      toast.error(`mark reviewed failed: ${(err as Error).message}`);
       return;
     }
     refetch();
@@ -317,8 +183,18 @@ export function useImportReview(
     // treat "unresolved" (key just became non-null, fetch hasn't started) as
     // loading is only true on the initial fetch (no previous data).
     // during a source-change refetch, data.latest keeps the previous value
-    // so we can keep showing the editor without a loading spinner.
-    loading: () => (data.loading && !data.latest) || data.state === "unresolved",
+    // so we can keep showing the editor without a loading spinner. but if
+    // this exact session id hasn't resolved even once yet, always report
+    // loading - otherwise a new session starting from a stale, already-empty
+    // data.latest (from the PREVIOUS session) reads as "done, zero albums"
+    // before its own fetch has even run.
+    loading: () => {
+      const sid = sessionId();
+      if (sid !== resolvedForSid()) return true;
+      return (data.loading && !data.latest) || data.state === "unresolved";
+    },
+    targetRemoteId,
+    targetRemoteName,
     patchAlbum,
     mergeAlbums,
     moveSong,

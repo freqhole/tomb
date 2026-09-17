@@ -35,6 +35,12 @@ export interface QueuedVideo extends Video {
   opfs_path?: string | null;
   /** local/imported videos: OPFS path for the generated poster thumbnail. */
   poster_opfs_path?: string | null;
+  /** blake3 content hash - mirrors `Song.blake3`. not part of the wire
+   * `Video` schema (only set once synced locally, or when a caller already
+   * knows it up front - e.g. cenotaph's queue-pushed videos, which carry
+   * it on the `MediaRef` itself). lets `getVideoURL()` do verified
+   * iroh-blobs streaming without needing a real remote `media_blob_id`. */
+  blake3?: string | null;
 }
 
 export type MediaItem = { kind: "song"; song: Song } | { kind: "video"; video: QueuedVideo };
@@ -87,6 +93,19 @@ export function mediaItemDurationSeconds(item: MediaItem): number | null {
 
 export function mediaItemQueueEntryId(item: MediaItem): string | undefined {
   return item.kind === "song" ? item.song.queue_entry_id : item.video.queue_entry_id;
+}
+
+/** the real content hash for a `MediaItem`, across both kinds - `null` if
+ * genuinely unknown (a local-only video synced before `blake3` existed).
+ * songs fall back to `sha256` (pre-blake3-backfill rows) - mirrors the
+ * fallback convention already used at every other `s.blake3 ?? s.sha256`
+ * call site in this codebase. used anywhere that needs to key off content
+ * identity regardless of kind - e.g. the ephemeral on-disk fetch/reconcile
+ * lifecycle (`ephemeralFetch.ts`), which is shared between audio and video. */
+export function mediaItemBlake3(item: MediaItem): string | null {
+  return item.kind === "song"
+    ? (item.song.blake3 ?? item.song.sha256)
+    : (item.video.blake3 ?? null);
 }
 
 /** returns a new MediaItem with `queue_entry_id` set (only if not already

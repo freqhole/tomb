@@ -4,6 +4,7 @@ import {
   createResource,
   createSignal,
   For,
+  on,
   onCleanup,
   onMount,
   Show,
@@ -258,16 +259,31 @@ function RemoteServerImage(props: { remote: RemoteItem; class?: string; alt?: st
   const [loadError, setLoadError] = createSignal(false);
   const isP2P = () => !!props.remote.peerAddr;
 
-  // resolve P2P blob URL asynchronously
+  // reset the "failed to load" flag on every remote switch - otherwise a
+  // stale true from a PREVIOUS remote's failed image load would force the
+  // fallback icon even once the new remote's own (perfectly fine) image
+  // starts loading.
+  createEffect(
+    on(
+      () => props.remote.id,
+      () => setLoadError(false)
+    )
+  );
+
+  // resolve P2P blob URL asynchronously. keyed by remote id (always
+  // truthy) rather than `imageBlobId ? {...} : null` - a falsy
+  // createResource source SKIPS fetching but does NOT clear the
+  // previously resolved value, so switching from a P2P remote that had an
+  // image to one that doesn't left the OLD remote's blob url on screen
+  // (no image ever "unresolves"). keying on the remote id instead means
+  // every switch re-runs the fetcher, which itself returns `null` when
+  // this remote has no image to resolve - so the url actually clears.
   const [resolvedP2PUrl] = createResource(
-    () =>
-      isP2P() && props.remote.imageBlobId
-        ? { blobId: props.remote.imageBlobId, remoteId: props.remote.id }
-        : null,
-    async (params) => {
-      if (!params) return null;
+    () => props.remote.id,
+    async () => {
+      if (!isP2P() || !props.remote.imageBlobId) return null;
       try {
-        return await resolveBlobUrl(params.blobId, params.remoteId);
+        return await resolveBlobUrl(props.remote.imageBlobId, props.remote.id);
       } catch (e) {
         return null;
       }
@@ -1389,12 +1405,7 @@ export function TopNav(props: TopNavProps) {
                           <button
                             class="p-1.5 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded transition-colors border-none bg-transparent cursor-pointer flex items-center justify-center"
                             title="player mode"
-                            onClick={() => {
-                              // /player/ is a separate top-level pathname
-                              // branch (see index.tsx), not one of this
-                              // HashRouter's own routes - a real nav.
-                              window.location.href = "/player/";
-                            }}
+                            onClick={() => props.onNavigate?.("/player")}
                           >
                             <Icon name="tv" size={16} />
                           </button>

@@ -12,6 +12,7 @@ import type { Song } from "../../../music/services/storage/types";
 import { readAudioFromOPFS } from "../../../music/services/opfs/helpers";
 import { getVideoByBlake3 } from "../../../video/services/storage/db/videos";
 import { readVideoFromOPFS } from "../../../video/services/opfs/helpers";
+import { getBlob } from "../../../music/services/storage/blobs";
 import { ensureBlobServable } from "../blobServing";
 
 function blobIdFor(song: Song): string {
@@ -60,6 +61,84 @@ export async function getMediaBlob(id: string): Promise<BlobMetadataResponse | n
       blob_type: "original",
       blake3: id,
     };
+  }
+
+  // not a song/video's own audio/video blob - an album art/artist/
+  // waveform image is staged separately (see lib/api/images.ts's
+  // stageAndMapImages, which advertises an image's `local_blob_id` as
+  // its wire `blob_id`) and lives in the generic local blob store, not
+  // keyed to any song/video row. a remote peer resolving a pushed song's
+  // artwork calls this same route for that id - without this fallback it
+  // 404s here even though `ensureBlobServable` already staged the bytes
+  // for the primary iroh-blobs transfer.
+  const image = await getBlob(id);
+  if (image) {
+    await ensureBlobServable(id, () => Promise.resolve(image));
+    return {
+      id,
+      sha256: id,
+      size: image.size,
+      mime: image.type || undefined,
+      filename: undefined,
+      blob_type: "thumbnail",
+      blake3: id,
+    };
+  }
+
+  return null;
+}
+
+// chunked to avoid maximum-call-stack on String.fromCharCode for large
+// files - mirrors playerQueuePush.ts's bytesToBase64 (same reasoning: a
+// single `String.fromCharCode(...bytes)` spread blows the call stack
+// well before real audio-file sizes).
+function bytesToBase64(bytes: Uint8Array): string {
+  let s = "";
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    s += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  }
+  return btoa(s);
+}
+
+export interface BlobDataResponse {
+  id: string;
+  mime?: string;
+  data: string; // base64
+}
+
+/** browser counterpart of grimoire's `build_blob_data_response()` - the
+ * fallback `GET /api/blobs/{id}/data` route `WasmTransport.fetchBlob()`
+ * calls when the primary iroh-blobs verified-streaming download (via
+ * blake3) either isn't attempted (no blake3 known yet) or fails. base64
+ * JSON is only ever a fallback for this route, same as grimoire's own -
+ * the primary transfer path (`download_verified`/`download_verified_
+ * streaming`, see `importMediaBytes`/`ensureBlobServable`) never buffers
+ * a whole file as base64. `null` if this device has no song/video
+ * matching `id` (blake3, or sha256 for pre-blake3-backfill songs). */
+export async function getData(id: string): Promise<BlobDataResponse | null> {
+  const song = (await getSongByBlake3(id)) ?? (await getSongBySha256(id));
+  if (song) {
+    if (!song.opfs_path) return null;
+    const file = await readAudioFromOPFS(song.opfs_path);
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    return { id: blobIdFor(song), mime: song.mime_type ?? file.type, data: bytesToBase64(bytes) };
+  }
+
+  const video = await getVideoByBlake3(id);
+  if (video) {
+    if (!video.opfs_path) return null;
+    const file = await readVideoFromOPFS(video.opfs_path);
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    return { id, mime: video.mime_type ?? file.type, data: bytesToBase64(bytes) };
+  }
+
+  // image blob (album art/artist/waveform) - see getMediaBlob's identical
+  // fallback above for why this doesn't live in the song/video stores.
+  const image = await getBlob(id);
+  if (image) {
+    const bytes = new Uint8Array(await image.arrayBuffer());
+    return { id, mime: image.type || undefined, data: bytesToBase64(bytes) };
   }
 
   return null;

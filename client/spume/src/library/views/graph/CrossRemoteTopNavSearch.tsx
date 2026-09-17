@@ -558,24 +558,6 @@ export function CrossRemoteTopNavSearch(props: CrossRemoteTopNavSearchProps) {
     return best;
   };
 
-  /** row click or Enter on a highlighted row. when a pivot handler is
-   *  supplied (the explore view's graph subview), taxon and entity hits
-   *  (artist/album/song) are intercepted and handed to it for a solo
-   *  graph pivot so the user stays on the explore view - playlists
-   *  still fall through to default detail-view routing. with no pivot
-   *  handler (every other consumer), every suggestion type falls
-   *  through unconditionally to `TopNavSearch`'s default `routes.*`
-   *  navigation. */
-  const onSelectOverride = async (s: InputSuggestion): Promise<boolean> => {
-    if (!props.onPivotToSuggestion) return false;
-    const data = s.data as APISuggestion | undefined;
-    if (!data) return false;
-    if (data.suggestion_type === "playlist") return false;
-    const primary = (s.id ?? "").split("::")[0];
-    if (!primary) return false;
-    return Boolean(await props.onPivotToSuggestion(data, primary, []));
-  };
-
   /** build the detail-view route for a suggestion that isn't going
    *  through the graph pivot path. taxon/genre hits never reach here -
    *  they're excluded from results entirely when there's no pivot
@@ -598,7 +580,9 @@ export function CrossRemoteTopNavSearch(props: CrossRemoteTopNavSearchProps) {
 
   /** Enter with no highlighted row. with a pivot handler, pivots the
    *  graph to the top hit (unless it's a playlist); otherwise navigates
-   *  straight to that hit's detail view. */
+   *  straight to that hit's detail view. a row click never reaches this
+   *  path (see below - clicks always use `TopNavSearch`'s own default
+   *  `routes.*` navigation, same as every other search consumer). */
   const onSubmit = (): boolean => {
     if (query().length < 2) return false;
     const top = topSuggestion();
@@ -614,16 +598,18 @@ export function CrossRemoteTopNavSearch(props: CrossRemoteTopNavSearchProps) {
   };
 
   // hint shown between the input and the suggestions flyout: gentle
-  // nudge that Enter / click will jump the walker to a suggestion. only
-  // shown for the graph pivot consumer - other consumers fall back to
+  // nudge that Enter will jump the walker to the top hit. only shown
+  // for the graph pivot consumer - other consumers fall back to
   // TopNavSearch's own default hint (a no-op here, since none of their
-  // routes are in FILTERABLE_KEYS).
+  // routes are in FILTERABLE_KEYS). row clicks go straight to the
+  // clicked item's normal detail view (see `onSubmit`'s doc comment) -
+  // only Enter pivots the graph.
   const hintOverride = () => {
     if (!props.onPivotToSuggestion) return null;
     if (query().length < 2) return null;
     if (!hasAnyResults()) return null;
     return {
-      message: "press return (or click a row) to pivot the graph →",
+      message: "press return to pivot the graph →",
       onClick: () => {
         onSubmit();
       },
@@ -643,7 +629,6 @@ export function CrossRemoteTopNavSearch(props: CrossRemoteTopNavSearchProps) {
       hasMoreSuggestions={hasMoreAcrossRemotes()}
       onLoadMoreSuggestions={loadMore}
       remoteIdFor={remoteIdFor}
-      onSelectOverride={onSelectOverride}
       onSubmit={onSubmit}
       hintOverride={hintOverride}
       footerContent={

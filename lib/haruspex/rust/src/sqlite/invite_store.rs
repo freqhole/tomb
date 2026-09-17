@@ -31,6 +31,8 @@ struct InviteRow {
     used_at: Option<i64>,
     used_by: Option<String>,
     is_active: i64,
+    max_uses: i64,
+    use_count: i64,
 }
 
 impl TryFrom<InviteRow> for InviteCode {
@@ -61,6 +63,8 @@ impl TryFrom<InviteRow> for InviteCode {
                 .transpose()
                 .map_err(|e| StoreError::Conflict(format!("invalid used_by: {e}")))?,
             is_active: row.is_active != 0,
+            max_uses: row.max_uses,
+            use_count: row.use_count,
         })
     }
 }
@@ -76,10 +80,10 @@ impl InviteStore for SqliteInviteStore {
 
         let row: InviteRow = sqlx::query_as(
             r#"
-            INSERT INTO invite_codez (id, code, code_type, grants_role, link_for_user_id, link_expires_at, created_at, is_active)
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+            INSERT INTO invite_codez (id, code, code_type, grants_role, link_for_user_id, link_expires_at, created_at, is_active, max_uses, use_count)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 0)
             RETURNING id, code, code_type, grants_role, link_for_user_id, link_expires_at,
-                      created_at, used_at, used_by, is_active
+                      created_at, used_at, used_by, is_active, max_uses, use_count
             "#,
         )
         .bind(&id)
@@ -90,6 +94,7 @@ impl InviteStore for SqliteInviteStore {
         .bind(invite.link_expires_at)
         .bind(invite.created_at)
         .bind(is_active)
+        .bind(invite.max_uses)
         .fetch_one(&self.pool)
         .await
         .map_err(|e| match e {
@@ -106,7 +111,7 @@ impl InviteStore for SqliteInviteStore {
         let row: Option<InviteRow> = sqlx::query_as(
             r#"
             SELECT id, code, code_type, grants_role, link_for_user_id, link_expires_at,
-                   created_at, used_at, used_by, is_active
+                   created_at, used_at, used_by, is_active, max_uses, use_count
             FROM invite_codez WHERE code = ?1
             "#,
         )
@@ -123,13 +128,36 @@ impl InviteStore for SqliteInviteStore {
         used_by: Uuid,
         used_at: i64,
     ) -> Result<InviteCode, StoreError> {
+        let invite = self.find_by_code(code).await?.ok_or(StoreError::NotFound)?;
         let used_by_str = used_by.to_string();
-        sqlx::query("UPDATE invite_codez SET used_at = ?1, used_by = ?2 WHERE code = ?3")
-            .bind(used_at)
-            .bind(&used_by_str)
+
+        // only the very first redemption stamps the legacy singular
+        // columns - later redemptions of the same multi-use code are
+        // recorded solely in the log below.
+        if invite.used_at.is_none() {
+            sqlx::query("UPDATE invite_codez SET used_at = ?1, used_by = ?2 WHERE code = ?3")
+                .bind(used_at)
+                .bind(&used_by_str)
+                .bind(code)
+                .execute(&self.pool)
+                .await?;
+        }
+
+        sqlx::query("UPDATE invite_codez SET use_count = use_count + 1 WHERE code = ?1")
             .bind(code)
             .execute(&self.pool)
             .await?;
+
+        let redemption_id = Uuid::new_v4().to_string();
+        sqlx::query(
+            "INSERT INTO invite_code_redemptionz (id, invite_id, used_by, used_at) VALUES (?1, ?2, ?3, ?4)",
+        )
+        .bind(&redemption_id)
+        .bind(invite.id.to_string())
+        .bind(&used_by_str)
+        .bind(used_at)
+        .execute(&self.pool)
+        .await?;
 
         self.find_by_code(code).await?.ok_or(StoreError::NotFound)
     }
@@ -146,7 +174,7 @@ impl InviteStore for SqliteInviteStore {
         let rows: Vec<InviteRow> = sqlx::query_as(
             r#"
             SELECT id, code, code_type, grants_role, link_for_user_id, link_expires_at,
-                   created_at, used_at, used_by, is_active
+                   created_at, used_at, used_by, is_active, max_uses, use_count
             FROM invite_codez WHERE is_active = 1
             ORDER BY created_at ASC
             "#,
@@ -161,7 +189,7 @@ impl InviteStore for SqliteInviteStore {
         let rows: Vec<InviteRow> = sqlx::query_as(
             r#"
             SELECT id, code, code_type, grants_role, link_for_user_id, link_expires_at,
-                   created_at, used_at, used_by, is_active
+                   created_at, used_at, used_by, is_active, max_uses, use_count
             FROM invite_codez ORDER BY created_at DESC
             "#,
         )
@@ -173,7 +201,7 @@ impl InviteStore for SqliteInviteStore {
 
     async fn deactivate_all_unused(&self) -> Result<u64, StoreError> {
         let result = sqlx::query(
-            "UPDATE invite_codez SET is_active = 0 WHERE is_active = 1 AND used_at IS NULL",
+            "UPDATE invite_codez SET is_active = 0 WHERE is_active = 1 AND use_count = 0",
         )
         .execute(&self.pool)
         .await?;
@@ -182,7 +210,7 @@ impl InviteStore for SqliteInviteStore {
 
     async fn update_grants_role(&self, code: &str, role: Role) -> Result<InviteCode, StoreError> {
         sqlx::query(
-            "UPDATE invite_codez SET grants_role = ?1 WHERE code = ?2 AND is_active = 1 AND used_at IS NULL",
+            "UPDATE invite_codez SET grants_role = ?1 WHERE code = ?2 AND is_active = 1 AND use_count = 0",
         )
         .bind(role.as_str())
         .bind(code)
@@ -224,6 +252,8 @@ mod tests {
             used_at: None,
             used_by: None,
             is_active: true,
+            max_uses: 1,
+            use_count: 0,
         }
     }
 
@@ -262,6 +292,43 @@ mod tests {
 
         assert_eq!(used.used_at, Some(200));
         assert_eq!(used.used_by, Some(redeemer));
+        assert_eq!(used.use_count, 1);
+        assert!(!used.is_valid_for_use(300));
+    }
+
+    #[tokio::test]
+    async fn multi_use_invite_can_be_redeemed_by_several_devices() {
+        let store = store().await;
+        let mut i = invite("FAMI-LYPI");
+        i.max_uses = 3;
+        store.create_invite(i).await.unwrap();
+        let first = Uuid::new_v4();
+        let second = Uuid::new_v4();
+        seed_identity(&store, first).await;
+        seed_identity(&store, second).await;
+
+        let after_first = store.mark_used("FAMI-LYPI", first, 200).await.unwrap();
+        assert_eq!(after_first.use_count, 1);
+        assert_eq!(after_first.used_by, Some(first));
+        assert!(after_first.is_valid_for_use(300));
+
+        let after_second = store.mark_used("FAMI-LYPI", second, 300).await.unwrap();
+        assert_eq!(after_second.use_count, 2);
+        // the legacy singular columns still reflect the FIRST redemption only.
+        assert_eq!(after_second.used_by, Some(first));
+        assert!(after_second.is_valid_for_use(400));
+    }
+
+    #[tokio::test]
+    async fn multi_use_invite_becomes_invalid_once_quota_reached() {
+        let store = store().await;
+        let mut i = invite("QUOT-A123");
+        i.max_uses = 1;
+        store.create_invite(i).await.unwrap();
+        let redeemer = Uuid::new_v4();
+        seed_identity(&store, redeemer).await;
+
+        let used = store.mark_used("QUOT-A123", redeemer, 200).await.unwrap();
         assert!(!used.is_valid_for_use(300));
     }
 

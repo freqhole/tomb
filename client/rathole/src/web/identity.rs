@@ -43,14 +43,14 @@ pub async fn load_or_create_node() -> Result<(MiddenNode, String), JsValue> {
             .into(),
         );
         web_sys::console::log_1(&format!("rathole: full node_id: {}", existing.node_id).into());
-        let node = MiddenNode::create_from_key(&existing.secret_key)
+        let node = MiddenNode::create_from_key(&existing.secret_key, None)
             .await
             .map_err(|e| JsValue::from_str(&format!("create_from_key: {e:?}")))?;
         let node_id = node.node_id();
         return Ok((node, node_id));
     }
 
-    let node = MiddenNode::create()
+    let node = MiddenNode::create(None)
         .await
         .map_err(|e| JsValue::from_str(&format!("MiddenNode::create: {e:?}")))?;
     let node_id = node.node_id();

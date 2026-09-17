@@ -125,37 +125,61 @@ pub async fn import_video_file(
     let mut episode_number = None;
     let mut title = raw_title.clone();
 
-    if source_url.is_some() {
-        let parsed = crate::video::scanner::filename_parser::parse_video_filename_stem(&raw_title);
-        if let (Some(season), Some(episode), Some(detected_series_title)) = (
-            parsed.season,
-            parsed.episode,
-            parsed.series_title.clone().filter(|t| !t.is_empty()),
-        ) {
-            match resolve_series_and_season(&detected_series_title, season, created_by.clone())
-                .await
-            {
-                Some((resolved_series_id, resolved_season_id)) => {
-                    series_id = Some(resolved_series_id);
-                    season_id = Some(resolved_season_id);
-                    episode_number = Some(episode);
-                    content_type = None; // let create_video default to "series"
-                }
-                None => {
-                    info!(
-                        "series '{}' detected but could not be resolved/created - importing as a clip",
-                        detected_series_title
-                    );
+    // season/episode/series detection from the filename (+ directory
+    // structure, for scanned/organized libraries) - runs for every import,
+    // not just yt-dlp fetches. `parse_directory_context` only produces a
+    // useful result when there's a real on-disk path to inspect (the
+    // upload path's `file_path` is always real; url-fetched files are
+    // written under a dated `fetch/YYYY/MM/` folder that intentionally
+    // isn't source_title-bearing, so its directory context is filtered out
+    // by `is_useful_folder_name` already and contributes nothing there).
+    let parsed = crate::video::scanner::filename_parser::parse_video_filename_stem(&raw_title);
+    let dir_ctx = crate::video::scanner::filename_parser::parse_directory_context(file_path);
+
+    let detected_series_title = parsed
+        .series_title
+        .clone()
+        .filter(|t| !t.is_empty())
+        .or_else(|| dir_ctx.series_title.clone());
+    // directory structure (a `Season N` folder) is a stronger signal than
+    // a filename-parsed season number when both are present and disagree
+    // - see `DirectoryContext::season_override`'s doc comment.
+    let detected_season = dir_ctx.season_override.or(parsed.season);
+
+    if let (Some(season), Some(episode), Some(series_title)) =
+        (detected_season, parsed.episode, detected_series_title)
+    {
+        match resolve_series_and_season(&series_title, season, created_by.clone()).await {
+            Some((resolved_series_id, resolved_season_id)) => {
+                series_id = Some(resolved_series_id);
+                season_id = Some(resolved_season_id);
+                episode_number = Some(episode);
+                content_type = None; // let create_video default to "series"
+                                     // prefer the cleaned, marker-stripped title over the raw
+                                     // filename stem (e.g. "Show Name" instead of "Show Name
+                                     // S01E05") now that we know this is a real episode.
+                if let Some(t) = parsed.title.clone().filter(|t| !t.is_empty()) {
+                    title = t;
                 }
             }
+            None => {
+                info!(
+                    "series '{}' detected but could not be resolved/created - importing as a clip",
+                    series_title
+                );
+            }
         }
+    }
 
-        // prefer the parsed episode title (real episode name, promo/
-        // boilerplate text after a `|` stripped), falling back to the
-        // detected series title, then the raw filename-derived title.
-        if let Some(episode_title) = parsed.episode_title.filter(|t| !t.is_empty()) {
+    if source_url.is_some() {
+        // yt-dlp full-episode uploads commonly pack promo/branding text
+        // into the filename - prefer the parsed episode title (real
+        // episode name, boilerplate after a `|` stripped), falling back to
+        // the detected series title, then whatever title was resolved
+        // above.
+        if let Some(episode_title) = parsed.episode_title.clone().filter(|t| !t.is_empty()) {
             title = episode_title;
-        } else if let Some(series_title) = parsed.series_title.filter(|t| !t.is_empty()) {
+        } else if let Some(series_title) = parsed.series_title.clone().filter(|t| !t.is_empty()) {
             title = series_title;
         }
         title = crate::video::scanner::filename_parser::strip_youtube_video_id(&title);
@@ -237,13 +261,23 @@ pub async fn import_video_file(
     // sites (same shared `import_blobz` table, keyed on media_blob_id).
     if let Some(session_id) = job.and_then(|j| j.session_id.as_deref()) {
         if let Ok(pool) = crate::database::connect().await {
-            let _ = sqlx::query!(
+            if let Err(e) = sqlx::query!(
                 "INSERT OR IGNORE INTO import_blobz (media_blob_id, session_id) VALUES (?, ?)",
                 media_blob_id,
                 session_id
             )
             .execute(&pool)
-            .await;
+            .await
+            {
+                // was silently swallowed before - see file_processor.rs's
+                // identical fix for why this needs to be visible.
+                tracing::warn!(
+                    "failed to insert import_blobz row for blob {} session {}: {}",
+                    media_blob_id,
+                    session_id,
+                    e
+                );
+            }
         }
     }
 
@@ -493,7 +527,32 @@ pub async fn import_video_file(
         }
     }
 
-    // enqueue the deferred transcode step
+    // enqueue the deferred transcode step - mpv (rathole's own player, and
+    // charnel's gst video window) always plays the ORIGINAL imported file
+    // directly (see e.g. rathole's `tty::queue::play_video_entry`'s
+    // `VideoCommand::Load` against the import's `local_path`, never a
+    // rendition) - renditions only exist to serve OTHER clients that can't
+    // handle the source codec/container directly (e.g. a browser's html5
+    // `<video>`). skip enqueueing entirely (not just no-op inside the job
+    // processor - see `should_skip_transcode`/`process_transcode_video_job`)
+    // when disabled, so a device that never serves such clients (e.g. a
+    // headless rathole `--player` on modest hardware) doesn't pay for a
+    // pointless queued job + background ffmpeg run at all. found via a
+    // real report: unconditional transcoding was pegging cpu hard enough
+    // on a raspberry pi to cause audible audio dropout during playback.
+    if !config.media.transcode_video_enabled {
+        info!(
+            "transcode_video_enabled is false, skipping TranscodeVideo job for video {}",
+            video.id
+        );
+        return Ok(VideoImportResult {
+            video_id: video.id,
+            poster_blob_id,
+            subtitle_blob_ids,
+            is_duplicate: false,
+        });
+    }
+
     let transcode_params = TranscodeVideoParams {
         media_blob_id: media_blob_id.to_string(),
         video_id: video.id.clone(),

@@ -5,6 +5,7 @@
 use serde_json::{json, Value as JsonValue};
 use sha2::{Digest, Sha256};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::time::Duration;
 
 use crate::config::get_config;
@@ -199,6 +200,10 @@ impl PullAudioBlobError {
 ///   8. `create_media_blob` (with sha256 dedupe)
 ///   9. rename temp file → `{output_dir}/{year}/{month}/{blob_id}.{ext}`
 ///
+/// `on_progress`, if given, receives cumulative downloaded byte counts during
+/// step 3 - for callers (e.g. rathole's player tui) rendering a live download
+/// indicator.
+///
 /// caller is responsible for: role checks, transport node_id extraction,
 /// follow-up work (importmusic job creation, song stub creation, etc).
 pub async fn pull_audio_blob_to_local_storage(
@@ -209,6 +214,32 @@ pub async fn pull_audio_blob_to_local_storage(
     filename: &str,
     caller: &Caller,
     domain: MediaDomain,
+) -> Result<PullAudioBlobResult, PullAudioBlobError> {
+    pull_audio_blob_to_local_storage_with_progress(
+        source_node_id,
+        blake3,
+        expected_sha256,
+        expected_size,
+        filename,
+        caller,
+        domain,
+        None,
+    )
+    .await
+}
+
+/// `pull_audio_blob_to_local_storage` with an optional cumulative-bytes
+/// progress callback forwarded to the underlying p2p fetch (step 3).
+#[allow(clippy::too_many_arguments)]
+pub async fn pull_audio_blob_to_local_storage_with_progress(
+    source_node_id: &str,
+    blake3: &str,
+    expected_sha256: Option<&str>,
+    expected_size: Option<u64>,
+    filename: &str,
+    caller: &Caller,
+    domain: MediaDomain,
+    on_progress: Option<&crate::federation::p2p_client::BlobProgressFn>,
 ) -> Result<PullAudioBlobResult, PullAudioBlobError> {
     // 1. validate blake3 hash format (64 hex chars)
     if blake3.len() != 64 || !blake3.chars().all(|c| c.is_ascii_hexdigit()) {
@@ -230,6 +261,59 @@ pub async fn pull_audio_blob_to_local_storage(
                 max: max_upload_bytes,
             });
         }
+    }
+
+    // already-local short-circuit: this exact blake3 may already be sitting
+    // in our own library - either because we're genuinely the origin (a
+    // client queueing a video browsed from this same player's own library
+    // straight back to itself as the active playback target - iroh flatly
+    // refuses to "connect to ourself" in that case) or because we already
+    // pulled/imported this same content before, from this peer or a
+    // different one (media_blob dedup keys on content, not source). either
+    // way there's no reason to re-transfer bytes we already have - reuse
+    // the existing media_blob directly instead of dialing out.
+    match crate::media_blobz::get_media_blob_by_blake3(blake3).await {
+        Ok(existing) if existing.local_path.is_some() => {
+            let local_path = existing.local_path.clone().unwrap();
+            if tokio::fs::metadata(&local_path).await.is_ok() {
+                tracing::info!(
+                    "pull_audio_blob_to_local_storage: {} already local - reusing existing media_blob {} at {} (skipping network fetch)",
+                    &blake3[..16], existing.id, local_path
+                );
+                let sha256 = existing.sha256.clone();
+                let mime = existing.mime.clone().unwrap_or_default();
+                let size = existing.size.unwrap_or(0);
+                return Ok(PullAudioBlobResult {
+                    blob: existing,
+                    local_path: PathBuf::from(local_path),
+                    mime,
+                    sha256,
+                    size,
+                    existing: true,
+                });
+            }
+            tracing::warn!(
+                "pull_audio_blob_to_local_storage: media_blob for {} exists but its local_path is missing on disk ({}) - falling through to a normal peer fetch",
+                &blake3[..16], local_path
+            );
+        }
+        Ok(_) => tracing::debug!(
+            "pull_audio_blob_to_local_storage: media_blob for {} exists but has no local_path - falling through to a normal peer fetch",
+            &blake3[..16]
+        ),
+        Err(_) => {} // not seen locally before - normal peer fetch below.
+    }
+
+    if p2p_client::is_self_peer(source_node_id) {
+        // no local copy was found above, so this self-pull can only fail -
+        // iroh refuses to connect to ourself, and there's nothing else to
+        // try. fail fast with a clear message instead of paying for a
+        // doomed connect attempt first.
+        return Err(PullAudioBlobError::FetchFailed(format!(
+            "{} is this instance's own node id, but no local copy of blob {} was found - nothing to pull",
+            &source_node_id[..16.min(source_node_id.len())],
+            &blake3[..16]
+        )));
     }
 
     // pull the blob from the source peer via iroh-blobs verified streaming.
@@ -272,8 +356,26 @@ pub async fn pull_audio_blob_to_local_storage(
     let year = now.year();
     let month = now.month() as u8;
 
-    // use a temp filename based on blake3 hash (will rename after blob record creation)
-    let temp_filename = format!("{}.{}", &blake3[..16], ext);
+    // use a temp filename based on blake3 hash plus a per-call disambiguator
+    // (will rename after blob record creation). two overlapping pulls of the
+    // SAME blake3 (e.g. a duplicate/retried queue push arriving on a second
+    // connection before the first pull finishes) previously shared this exact
+    // path - whichever finished first renamed it away out from under the
+    // other, which was still trying to open it for the sha256/mime read,
+    // surfacing as a spurious `ReadFailed`/"failed to read downloaded file"
+    // even though the pull itself was working fine. the final path (below,
+    // keyed by the deduped blob id) is still shared and that's fine - a
+    // second concurrent pull's rename onto it is a harmless same-content
+    // overwrite, since `create_media_blob` already dedupes by sha256.
+    static TEMP_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
+    let disambiguator = TEMP_FILE_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let temp_filename = format!(
+        "{}-{}-{}.{}",
+        &blake3[..16],
+        std::process::id(),
+        disambiguator,
+        ext
+    );
     // join each segment separately - a single format!() string with embedded
     // "/" produces a mixed \ and / path on windows once joined onto output_dir.
     let temp_path = output_dir
@@ -291,8 +393,12 @@ pub async fn pull_audio_blob_to_local_storage(
         }
     }
 
-    let fetch_future =
-        p2p_client::fetch_blob_verified_to_file_with_ensure(source_node_id, blake3, &temp_path);
+    let fetch_future = p2p_client::fetch_blob_verified_to_file_with_ensure_and_progress(
+        source_node_id,
+        blake3,
+        &temp_path,
+        on_progress,
+    );
     let file_size = match tokio::time::timeout(Duration::from_secs(120), fetch_future).await {
         Ok(Ok(size)) => {
             tracing::info!(

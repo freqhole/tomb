@@ -15,58 +15,35 @@ import { IconButton } from "../buttons/IconButton";
 import { TextArea } from "../forms/TextArea";
 import { Icon } from "../icons/registry";
 import { Tab, TabList, TabPanel, Tabs } from "../navigation/Tabs";
-import type { UploadJob } from "../../music/import";
+import type { UploadJob, UploadJobStatus } from "../../music/import";
 import type { LocalImportProgress } from "../../music/import";
+import { clearAllJobs, removeJob } from "../../music/import";
 import type { VideoUploadJob } from "../../video/import/remoteImport";
+import { clearAllVideoJobs, removeVideoJob } from "../../video/import/remoteImport";
 import { pushModal, popModal } from "../../music/hooks/modals";
 import { pickDirectory, pickFiles, classifyFile, classifyFileName } from "../../utils/filePicker";
 import { getLocalLibraryName } from "../../app/services/storage/db";
 import { getCurrentRemote } from "../../music/data";
+import type { CurrentRemoteInfo } from "../../music/data/currentState";
+import { getTauriManagedRemote } from "../../app/services/remotes/remoteManager";
 import { getClientForRemote } from "../../app/api/client";
-import { JobPoller } from "../../app/services/jobs/jobService";
-import type {
-  PreCheckFetchResponse,
-  PendingReviewSession,
-  PendingVideoReviewSession,
-} from "@freqhole/api-client";
+import { isCharnelMode } from "../../app/services/charnel";
+import { retryFailedAlbumSend } from "../../app/services/send/sendReviewedSessionToRemote";
+import { retryFailedVideoSend } from "../../app/services/send/sendReviewedVideoSessionToRemote";
+import { RemotePicker } from "../forms/RemotePicker";
+import { LocalTargetPicker, LOCAL_WEB_TARGET_ID } from "../forms/LocalTargetPicker";
+import type { Remote } from "../../app/services/storage/schemas/remote";
+import { isOnline, isProbing, probeRemote } from "../../app/services/remotes/remoteHealth";
+import {
+  getReviewBackend,
+  resolveActiveReviewRemote,
+} from "../../music/services/review/reviewBackend";
+import type { PendingReviewSession, PendingVideoReviewSession } from "@freqhole/api-client";
 import { ImportPendingReviewCard } from "../import/ImportPendingReviewCard";
 import { ImportVideoPendingReviewCard } from "../import/ImportVideoPendingReviewCard";
+import { useUrlPrecheck } from "../import/useUrlPrecheck";
 import { debug } from "../../utils/logger";
 import { toast } from "../feedback/Toast";
-
-// ---------------------------------------------------------------------------
-// module-level precheck state so it survives the modal being closed/reopened
-// while a job is still running (mirrors the old AddMusicModal/AddVideoModal's
-// identical pattern - merged here since both used the exact same
-// client.music.createPrecheckFetchJob/getJobStatus/cancelJob calls anyway).
-// ---------------------------------------------------------------------------
-
-type UrlPrecheckState = "idle" | "checking" | "confirm" | "error";
-type MediaDomain = "music" | "video" | "both";
-
-const [_urlPrecheckState, _setUrlPrecheckState] = createSignal<UrlPrecheckState>("idle");
-const [_precheckResult, _setPrecheckResult] = createSignal<PreCheckFetchResponse | null>(null);
-const [_precheckError, _setPrecheckError] = createSignal<string | null>(null);
-const [_precheckUrls, _setPrecheckUrls] = createSignal<string[]>([]);
-const [_precheckJobId, _setPrecheckJobId] = createSignal<string | null>(null);
-// running count emitted by precheck_progress stage events
-const [_precheckLiveCount, _setPrecheckLiveCount] = createSignal<number | null>(null);
-// 1-based index of the url currently being prechecked, out of
-// _precheckUrls().length - each pasted url gets its own precheck job (the
-// backend only ever prechecks one url per job), run sequentially and
-// merged into one combined result for the confirm screen.
-const [_precheckUrlIndex, _setPrecheckUrlIndex] = createSignal(0);
-// set by handlePrecheckCancel to stop the sequential precheck loop between
-// (or mid-) url iterations - not a signal since it's only read synchronously
-// inside the loop, never rendered.
-let _precheckAbortRequested = false;
-// bulk domain choice for the currently in-flight (or about to be
-// submitted) url batch. lives at module level for the same reopen-survival
-// reason as the rest of the precheck state.
-const [_urlDomain, _setUrlDomain] = createSignal<MediaDomain>("music");
-
-// active poller instance - stopped when cancel is called
-let _activePoller: JobPoller | null = null;
 
 export interface AddMediaModalProps {
   /** whether modal is open */
@@ -87,6 +64,16 @@ export interface AddMediaModalProps {
   onVideoUrlsSubmitted?: (urls: string[]) => void;
   /** name of the remote server (shows in header when set) */
   remoteName?: string;
+  /** the resolved target new uploads/imports go to - null means local
+   *  library. drives the header's remote-picker switcher and the
+   *  url-precheck flow (which needs a concrete remote to call). */
+  targetRemote?: CurrentRemoteInfo | null;
+  /** candidate destinations for the target switcher - same eligibility
+   *  filtering the share flow's SendToRemoteSection uses (p2p remotes +
+   *  the charnel-managed local remote). omit/empty hides the switcher. */
+  targetCandidates?: Remote[];
+  /** fires when the user picks a different target via the switcher. */
+  onTargetChange?: (remoteId: string) => void;
   /** whether to use tauri dialog (for tauri-managed remotes) */
   useCharnelDialog?: boolean;
   /** tracked music upload/fetch jobs to display */
@@ -115,6 +102,22 @@ export interface AddMediaModalProps {
   dismissedReviewSessionId?: string | null;
   /** video session id that has just been reviewed - auto-dismisses its upload card */
   dismissedVideoReviewSessionId?: string | null;
+  /** portal mount target - defaults to document.body. set this to a shadow
+   *  root when the modal is rendered inside a web component (e.g. the
+   *  freqhole.net coach demo), otherwise the portaled overlay escapes the
+   *  shadow root and renders over the host page instead of the frame. */
+  portalMount?: Node;
+  /** overlay z-index override - defaults to 1100. */
+  zIndex?: number;
+  /** overlay position - defaults to "fixed". a Portal escapes any
+   *  transformed ancestor meant to contain "fixed" descendants (it mounts
+   *  as a shadow-root child, not a descendant of that ancestor), so
+   *  "fixed" still resolves against the real viewport and can render over
+   *  a host page's own fixed header. "absolute" instead resolves against
+   *  the nearest *positioned* ancestor across the shadow boundary (e.g.
+   *  the coach demo's `.frame`, which has `position: relative`), keeping
+   *  the overlay confined to that frame. */
+  overlayPosition?: "fixed" | "absolute";
 }
 
 // a job entry tagged with which domain's store it came from, so the merged
@@ -141,9 +144,55 @@ export function AddMediaModal(props: AddMediaModalProps) {
   createEffect(() => {
     if (!props.isOpen) return;
     const id = "add-media-modal";
+    // eslint-disable-next-line solid/reactivity -- deferred props read is correct here: pushModal invokes this later, and props.onClose is read at call time, not now
     pushModal(id, () => props.onClose());
     onCleanup(() => popModal(id));
   });
+
+  // health of the current add-media target - drives whether the tabs/upload
+  // UI show at all (§ user request: never let the user try to upload against
+  // a remote we haven't verified is reachable). reads the same central
+  // online/checking store the top nav and RemotePicker use
+  // (app/services/remotes/remoteHealth.ts) rather than a one-off probe here.
+  // local (charnel-managed) is always "online" - no network involved.
+  // non-forced: probeRemote's own backoff means reopening the modal
+  // repeatedly against the same still-offline remote doesn't re-hammer it.
+  createEffect(() => {
+    const target = props.targetRemote;
+    if (!props.isOpen || !target || target.is_charnel_managed) return;
+    void probeRemote(target as unknown as Remote);
+  });
+  const targetStatus = (): "online" | "offline" | "checking" => {
+    const target = props.targetRemote;
+    if (!target || target.is_charnel_managed) return "online";
+    if (isProbing(target.remote_id)()) return "checking";
+    const online = isOnline(target.remote_id)();
+    if (online === undefined) return "checking"; // probe kicked off above, not resolved yet
+    return online ? "online" : "offline";
+  };
+
+  // in charnel mode, music's path-based imports always redirect through the
+  // local library first (review-before-send flow) - so "review" always means
+  // reviewing local (grimoire) sessions there, regardless of which remote is
+  // active. outside charnel, review sessions live in the browser's own
+  // IndexedDB library instead (see music/services/storage/db/importReview.ts) -
+  // there's no Remote to speak of, so pendingSessions below resolves through
+  // resolveActiveReviewRemote()/getReviewBackend() (see reviewBackend.ts) -
+  // the same resolver App.tsx's openReviewSession uses. video's own
+  // pending-sessions query below now resolves through the same function,
+  // since video's local-first import (handleVideoPathsSelected) also
+  // redirects through the local grimoire instance regardless of which
+  // remote is currently being browsed.
+
+  // local backend's own "remote id" for filtering purposes: the
+  // charnel-managed pseudo-remote's id under charnel (browsing local IS
+  // browsing that remote), or null for plain web (no Remote at all for a
+  // purely local IndexedDB session). a session with no target_remote_id
+  // is normalized to this value below so it lines up with "currently
+  // viewing local" on either backend.
+  const [localBackendId] = createResource(async () =>
+    isCharnelMode() ? ((await getTauriManagedRemote())?.remote_id ?? null) : null
+  );
 
   // pending review sessions (music only) - fetched whenever the modal is open.
   // re-fetches when refetchReviewKey changes (e.g. after a review modal closes).
@@ -153,19 +202,36 @@ export function AddMediaModal(props: AddMediaModalProps) {
   >(
     () => (props.isOpen ? (props.refetchReviewKey ?? 0) : null),
     async (_key: number | null) => {
-      const remote = getCurrentRemote();
-      if (!remote) return [];
+      const remote = await resolveActiveReviewRemote();
       try {
-        const client = await getClientForRemote(remote);
-        const resp = await client.music.listPendingImportReview({ session_id: null });
-        if (!resp.success) return [];
-        return resp.data ?? [];
+        return await getReviewBackend(remote).listPendingSessions();
       } catch {
         return [];
       }
     },
     { initialValue: [] }
   );
+
+  // review tab shows only sessions destined for wherever you're currently
+  // looking (or local-only sessions while browsing local) - a "show
+  // everything" toggle can widen this later without needing to refetch
+  // differently, since the raw list is still fetched in full above.
+  // keyed to props.targetRemote (the header switcher's selection, which
+  // falls back to getCurrentRemote() itself when no override is set - see
+  // App.tsx's addMediaTargetRemote) rather than getCurrentRemote() directly,
+  // so switching targets in the modal actually changes what's shown here.
+  const filteredPendingSessions = createMemo(() => {
+    const sessions = pendingSessions() ?? [];
+    const localId = localBackendId();
+    if (localId === undefined) return []; // still resolving
+    const currentId = props.targetRemote?.remote_id ?? localId;
+    return sessions.filter((s) => (s.target_remote_id ?? localId) === currentId);
+  });
+
+  // same as filteredPendingSessions above, for video sessions - declared
+  // after videoPendingSessions below (createMemo runs its callback eagerly
+  // at creation, so referencing videoPendingSessions here before its own
+  // declaration throws a TDZ ReferenceError).
 
   // pending video review sessions - fetched whenever the modal is open.
   const [videoPendingSessions, { refetch: refetchVideoPendingSessions }] = createResource<
@@ -174,7 +240,11 @@ export function AddMediaModal(props: AddMediaModalProps) {
   >(
     () => (props.isOpen ? (props.refetchReviewKey ?? 0) : null),
     async (_key: number | null) => {
-      const remote = getCurrentRemote();
+      // same resolver music's pendingSessions above uses - video's
+      // local-first import also always redirects to the local grimoire
+      // instance (see App.tsx's handleVideoPathsSelected), so review
+      // sessions live there regardless of which remote is currently browsed.
+      const remote = await resolveActiveReviewRemote();
       if (!remote) return [];
       try {
         const client = await getClientForRemote(remote);
@@ -188,30 +258,80 @@ export function AddMediaModal(props: AddMediaModalProps) {
     { initialValue: [] }
   );
 
+  // same as filteredPendingSessions above, for video sessions.
+  const videoFilteredPendingSessions = createMemo(() => {
+    const sessions = videoPendingSessions() ?? [];
+    const localId = localBackendId();
+    if (localId === undefined) return []; // still resolving
+    const currentId = props.targetRemote?.remote_id ?? localId;
+    return sessions.filter((s) => (s.target_remote_id ?? localId) === currentId);
+  });
+
+  // session ids (any target, not just the currently-viewed one, either
+  // domain) that still have at least one entity pending review - cheap
+  // cross-reference against the pendingSessions/videoPendingSessions
+  // fetches above, no extra api calls. lets a "completed" job row
+  // distinguish "actually done" from "imported, but still needs review"
+  // (§9 in the refactor plan) instead of showing a plain checkmark for
+  // both - one set shared by music and video rather than two parallel ones.
+  const sessionsNeedingReviewIds = createMemo(() => {
+    const ids = new Set<string>();
+    for (const s of pendingSessions() ?? []) {
+      if (s.albums.length > 0) ids.add(s.session_id);
+    }
+    for (const s of videoPendingSessions() ?? []) {
+      if (s.groups.length > 0) ids.add(s.session_id);
+    }
+    return ids;
+  });
+  const jobNeedsReview = (job: { status: UploadJobStatus; sessionId?: string }) =>
+    job.status === "completed" && !!job.sessionId && sessionsNeedingReviewIds().has(job.sessionId);
+
   // session_id of a bulk "mark reviewed" currently in flight, if any
   const [markingSessionReviewed, setMarkingSessionReviewed] = createSignal<string | null>(null);
   const [markingVideoSessionReviewed, setMarkingVideoSessionReviewed] = createSignal<string | null>(
     null
   );
 
+  const handleRetryFailedSend = async (job: UploadJob) => {
+    const failed = job.retryFailedBlake3s;
+    if (!job.albumId || !job.remoteId || !failed || failed.length === 0) return;
+    const localRemote = await getTauriManagedRemote();
+    if (!localRemote) {
+      toast.error("local library isn't set up yet");
+      return;
+    }
+    await retryFailedAlbumSend(
+      job.id,
+      job.albumId,
+      job.remoteId,
+      job.label.split(" \u2192 ").pop() ?? "remote",
+      localRemote as unknown as Remote,
+      failed
+    );
+  };
+
+  const handleRetryFailedVideoSend = async (job: VideoUploadJob) => {
+    if (!job.isRemoteSend || !job.videoId || !job.remoteId) return;
+    const localRemote = await getTauriManagedRemote();
+    if (!localRemote) {
+      toast.error("local library isn't set up yet");
+      return;
+    }
+    await retryFailedVideoSend(
+      job.id,
+      job.videoId,
+      job.remoteId,
+      job.label.split(" \u2192 ").pop() ?? "remote",
+      localRemote as unknown as Remote
+    );
+  };
+
   const handleMarkSessionReviewed = async (session: PendingReviewSession) => {
-    const remote = getCurrentRemote();
-    if (!remote) return;
     setMarkingSessionReviewed(session.session_id);
     try {
-      const client = await getClientForRemote(remote);
-      for (const album of session.albums) {
-        const resp = await client.music.markAlbumReviewed({
-          album_id: album.album_id,
-          session_id: session.session_id,
-        });
-        if (!resp.success) {
-          toast.error(
-            `mark reviewed failed: ${resp.error?.issues?.[0]?.message ?? "unknown error"}`
-          );
-          return;
-        }
-      }
+      const remote = await resolveActiveReviewRemote();
+      await getReviewBackend(remote).markSessionReviewed(session);
       void refetchPendingSessions();
     } catch (err) {
       toast.error(`mark reviewed failed: ${(err as Error).message}`);
@@ -221,7 +341,7 @@ export function AddMediaModal(props: AddMediaModalProps) {
   };
 
   const handleMarkVideoSessionReviewed = async (session: PendingVideoReviewSession) => {
-    const remote = getCurrentRemote();
+    const remote = await resolveActiveReviewRemote();
     if (!remote) return;
     setMarkingVideoSessionReviewed(session.session_id);
     try {
@@ -246,15 +366,9 @@ export function AddMediaModal(props: AddMediaModalProps) {
     }
   };
 
-  // aliases to module-level signals so the rest of the component reads normally
-  const urlPrecheckState = _urlPrecheckState;
-  const precheckResult = _precheckResult;
-  const precheckError = _precheckError;
-  const precheckUrls = _precheckUrls;
-  const precheckLiveCount = _precheckLiveCount;
-  const precheckUrlIndex = _precheckUrlIndex;
-  const urlDomain = _urlDomain;
-  const setUrlDomain = _setUrlDomain;
+  // url-precheck (yt-dlp) state + orchestration - see useUrlPrecheck.ts's
+  // doc comment for why it's module-level state behind a hook.
+  const precheck = useUrlPrecheck();
 
   const useNativeDialog = () => !!props.useCharnelDialog;
 
@@ -377,7 +491,7 @@ export function AddMediaModal(props: AddMediaModalProps) {
   };
 
   const submitUrls = (urls: string[]) => {
-    const domain = urlDomain();
+    const domain = precheck.domain();
     if (domain === "music" || domain === "both") props.onMusicUrlsSubmitted?.(urls);
     if (domain === "video" || domain === "both") props.onVideoUrlsSubmitted?.(urls);
   };
@@ -391,174 +505,19 @@ export function AddMediaModal(props: AddMediaModalProps) {
   };
 
   const handlePrecheckUrls = async () => {
-    const urls = parseUrls();
-    if (urls.length === 0) return;
-
-    const remote = getCurrentRemote();
-    if (!remote) return;
-
-    _setPrecheckUrls(urls);
-    _setPrecheckError(null);
-    _setPrecheckResult(null);
-    _setPrecheckLiveCount(null);
-    _setPrecheckJobId(null);
-    _setPrecheckUrlIndex(0);
-    setShowFullItemList(false);
-    _setUrlPrecheckState("checking");
-    _precheckAbortRequested = false;
-
-    const client = await getClientForRemote(remote);
-    // each pasted url gets its own precheck job (the backend only ever
-    // prechecks one url per job) - run them sequentially and merge the
-    // results below into one combined response for the confirm screen.
-    const results: PreCheckFetchResponse[] = [];
-    const failedUrls: string[] = [];
-    let itemsSoFar = 0;
-
-    for (let i = 0; i < urls.length; i++) {
-      if (_precheckAbortRequested) return;
-      _setPrecheckUrlIndex(i + 1);
-      const url = urls[i];
-
-      try {
-        const result = await client.music.createPrecheckFetchJob({ url });
-        if (!result.success) {
-          failedUrls.push(url);
-          continue;
-        }
-
-        const jobId = result.data.id;
-        _setPrecheckJobId(jobId);
-
-        const poller = new JobPoller(remote, 3000);
-        _activePoller = poller;
-        const baseCount = itemsSoFar;
-        const pollResult = await poller.waitForJob(jobId, 600_000, {
-          onStage: (stage, message) => {
-            if (stage === "precheck_progress" && message) {
-              // parse "found N item(s)..." to show a running count
-              const m = message.match(/(\d+)/);
-              if (m) _setPrecheckLiveCount(baseCount + parseInt(m[1], 10));
-            }
-          },
-        });
-        _activePoller = null;
-        if (_precheckAbortRequested) return;
-
-        let parsed: PreCheckFetchResponse | null = null;
-        if (pollResult.status === "completed") {
-          const jobResp = await client.music.getJobStatus({ job_ids: [jobId] });
-          const jobData = jobResp.success
-            ? (jobResp.data as { jobs: Record<string, { result?: string | null }> })
-            : null;
-          const job = jobData?.jobs?.[jobId];
-          if (job?.result) parsed = JSON.parse(job.result) as PreCheckFetchResponse;
-        } else if (pollResult.status === "timeout") {
-          // if it timed out while the modal is closed and then reopened,
-          // we still want to recover the result - check job status once
-          const snap = await client.music.getJobStatus({ job_ids: [jobId] });
-          const snapData = snap.success
-            ? (snap.data as { jobs: Record<string, { status?: string; result?: string | null }> })
-            : null;
-          const snapJob = snapData?.jobs?.[jobId];
-          if (snapJob?.status === "Completed" && snapJob.result) {
-            parsed = JSON.parse(snapJob.result) as PreCheckFetchResponse;
-          }
-        }
-
-        if (parsed) {
-          results.push(parsed);
-          itemsSoFar += parsed.item_count;
-          _setPrecheckLiveCount(itemsSoFar);
-        } else {
-          failedUrls.push(url);
-        }
-      } catch {
-        failedUrls.push(url);
-      }
-    }
-
-    _activePoller = null;
-    _setPrecheckJobId(null);
-
-    if (results.length === 0) {
-      _setPrecheckError(
-        urls.length === 1 ? "precheck failed" : `precheck failed for all ${urls.length} urls`
-      );
-      _setUrlPrecheckState("error");
-      return;
-    }
-
-    // merge per-url responses into one combined preview - playlist_title/
-    // platform only make sense to surface when every url agreed on them
-    // (or there's just the one url, the common case).
-    const merged: PreCheckFetchResponse = {
-      item_count: results.reduce((n, r) => n + r.item_count, 0),
-      playlist_title: results.length === 1 ? results[0].playlist_title : null,
-      platform: results.every((r) => r.platform === results[0].platform)
-        ? results[0].platform
-        : null,
-      total_duration_seconds: results.some((r) => r.total_duration_seconds != null)
-        ? results.reduce((n, r) => n + (r.total_duration_seconds ?? 0), 0)
-        : null,
-      items: results.flatMap((r) => r.items ?? []),
-      duplicate_count: results.reduce((n, r) => n + r.duplicate_count, 0),
-    };
-
-    _setPrecheckResult(merged);
-    _setUrlPrecheckState("confirm");
-
-    if (failedUrls.length > 0) {
-      toast.warning(
-        `couldn't preview ${failedUrls.length} of ${urls.length} url${urls.length !== 1 ? "s" : ""} - they'll still be downloaded if you continue`,
-        { title: "partial precheck" }
-      );
-    }
+    await precheck.start(parseUrls(), props.targetRemote ?? null, () => setShowFullItemList(false));
   };
 
   const handlePrecheckConfirm = () => {
-    const urls = precheckUrls();
-    if (urls.length > 0) {
+    // eslint-disable-next-line solid/reactivity -- submitUrls reads props.onMusicUrlsSubmitted/onVideoUrlsSubmitted, but this callback fires synchronously on click, not stored for later - no stale-props risk
+    precheck.confirm((urls) => {
       submitUrls(urls);
       setUrlText("");
-    }
-    _setUrlPrecheckState("idle");
-    _setPrecheckResult(null);
-    _setPrecheckUrls([]);
-    _setPrecheckJobId(null);
-    _setPrecheckLiveCount(null);
-    _setPrecheckUrlIndex(0);
+    });
   };
 
   const handlePrecheckCancel = async () => {
-    // stop the sequential precheck loop between/mid url iterations, and
-    // stop the local poller subscription immediately
-    _precheckAbortRequested = true;
-    _activePoller?.stop();
-    _activePoller = null;
-
-    // tell the server to cancel so it kills the yt-dlp process
-    const jobId = _precheckJobId();
-    if (jobId) {
-      const remote = getCurrentRemote();
-      if (remote) {
-        try {
-          const client = await getClientForRemote(remote);
-          await client.music.cancelJob({ job_id: jobId });
-        } catch {
-          // best-effort, don't block the UI
-        }
-      }
-    }
-
-    _setUrlPrecheckState("idle");
-    _setPrecheckResult(null);
-    _setPrecheckError(null);
-    _setPrecheckUrls([]);
-    _setPrecheckJobId(null);
-    _setPrecheckLiveCount(null);
-    _setPrecheckUrlIndex(0);
-    setShowFullItemList(false);
+    await precheck.cancel(props.targetRemote ?? null, () => setShowFullItemList(false));
   };
 
   const formatDuration = (seconds: number | null | undefined): string => {
@@ -592,19 +551,68 @@ export function AddMediaModal(props: AddMediaModalProps) {
   const completedJobs = createMemo(() => allJobs().filter((e) => e.job.status === "completed"));
   const timedOutJobs = createMemo(() => allJobs().filter((e) => e.job.status === "timeout"));
 
-  // reviewableSessions (music only) cross-checks completed sessions against
-  // pendingSessions (fetched only on modal open/refetchReviewKey), which
-  // would otherwise be stale for a session that finishes while the modal is
-  // already open - refetch whenever the completed-job count grows so a
-  // freshly-finished session's real album count shows up promptly instead
-  // of only on reopen.
+  // jobs whose "does this need review" classification hasn't been confirmed
+  // by a fresh pendingSessions fetch yet - rendered as "checking..." rather
+  // than a flat "done" checkmark, since a job that flips to "completed"
+  // doesn't yet know whether its session has anything pending review (that
+  // requires the separate pendingSessions round-trip below to resolve
+  // first). cleared once the refetch THIS job's own completion triggered
+  // actually resolves - not on a fixed timer - so the row only ever shows
+  // "checking" for as long as we're genuinely still waiting on the server.
+  // one shared set for both domains - see the completion-tracking effect below.
+  const [checkingReviewJobIds, setCheckingReviewJobIds] = createSignal<Set<string>>(new Set());
+  const isCheckingReview = (job: { id: string }) => checkingReviewJobIds().has(job.id);
+
+  // cross-checks completed jobs (either domain) against pendingSessions/
+  // videoPendingSessions (fetched only on modal open/refetchReviewKey),
+  // which would otherwise be stale for a session that finishes while the
+  // modal is already open - refetch whenever the completed-job count grows
+  // so a freshly-finished session's real review-pending state shows up
+  // promptly instead of only on reopen. a single immediate refetch can
+  // still race a session whose review-eligible state settles a moment
+  // after the job itself flips to "completed" (e.g. a batch's last
+  // sibling file finishing just after this one) - one delayed follow-up
+  // refetch closes that window instead of leaving the row stuck showing a
+  // plain "done" checkmark until some LATER unrelated job happens to
+  // complete and retrigger this. shared across music + video (previously
+  // two near-identical copies, one of which - video's - was never wired
+  // up at all, so a completed video job always showed a bare "done" even
+  // when it still needed review/hadn't been sent to the remote yet).
   let lastCompletedJobCount = 0;
+  const seenCompletedJobIds = new Set<string>();
   createEffect(() => {
-    const count = completedJobs().length;
+    const entries = completedJobs();
+    const count = entries.length;
     if (count > lastCompletedJobCount) {
       lastCompletedJobCount = count;
-      void refetchPendingSessions();
-      void refetchVideoPendingSessions();
+
+      // only jobs that JUST completed (not ones already resolved as
+      // "done"/"needs review" earlier) go into "checking" - re-marking
+      // every completed job on every unrelated completion would flicker
+      // already-settled rows back to "checking" for no reason.
+      const newlyCompletedIds = entries
+        .filter((e) => e.job.sessionId && !seenCompletedJobIds.has(e.job.id))
+        .map((e) => e.job.id);
+      for (const e of entries) seenCompletedJobIds.add(e.job.id);
+      if (newlyCompletedIds.length > 0) {
+        setCheckingReviewJobIds((prev) => new Set([...prev, ...newlyCompletedIds]));
+      }
+      const clearChecking = () => {
+        if (newlyCompletedIds.length === 0) return;
+        setCheckingReviewJobIds((prev) => {
+          const next = new Set(prev);
+          for (const id of newlyCompletedIds) next.delete(id);
+          return next;
+        });
+      };
+
+      void Promise.resolve(refetchPendingSessions()).then(clearChecking);
+      void Promise.resolve(refetchVideoPendingSessions()).then(clearChecking);
+      const settleTimer = setTimeout(() => {
+        void Promise.resolve(refetchPendingSessions()).then(clearChecking);
+        void Promise.resolve(refetchVideoPendingSessions()).then(clearChecking);
+      }, 2000);
+      onCleanup(() => clearTimeout(settleTimer));
     }
   });
 
@@ -798,10 +806,10 @@ export function AddMediaModal(props: AddMediaModalProps) {
         class="px-3 py-1 text-xs rounded-l border border-[var(--color-border-default)] transition-colors"
         classList={{
           "bg-[var(--color-accent-500)] text-white border-[var(--color-accent-500)]":
-            urlDomain() === "music",
-          "text-[var(--color-text-secondary)]": urlDomain() !== "music",
+            precheck.domain() === "music",
+          "text-[var(--color-text-secondary)]": precheck.domain() !== "music",
         }}
-        onClick={() => setUrlDomain("music")}
+        onClick={() => precheck.setDomain("music")}
       >
         music
       </button>
@@ -810,10 +818,10 @@ export function AddMediaModal(props: AddMediaModalProps) {
         class="px-3 py-1 text-xs border-t border-b border-l-0 border-[var(--color-border-default)] transition-colors"
         classList={{
           "bg-[var(--color-accent-500)] text-white border-[var(--color-accent-500)]":
-            urlDomain() === "video",
-          "text-[var(--color-text-secondary)]": urlDomain() !== "video",
+            precheck.domain() === "video",
+          "text-[var(--color-text-secondary)]": precheck.domain() !== "video",
         }}
-        onClick={() => setUrlDomain("video")}
+        onClick={() => precheck.setDomain("video")}
       >
         video
       </button>
@@ -822,10 +830,10 @@ export function AddMediaModal(props: AddMediaModalProps) {
         class="px-3 py-1 text-xs rounded-r border border-l-0 border-[var(--color-border-default)] transition-colors"
         classList={{
           "bg-[var(--color-accent-500)] text-white border-[var(--color-accent-500)]":
-            urlDomain() === "both",
-          "text-[var(--color-text-secondary)]": urlDomain() !== "both",
+            precheck.domain() === "both",
+          "text-[var(--color-text-secondary)]": precheck.domain() !== "both",
         }}
-        onClick={() => setUrlDomain("both")}
+        onClick={() => precheck.setDomain("both")}
       >
         both
       </button>
@@ -834,12 +842,19 @@ export function AddMediaModal(props: AddMediaModalProps) {
 
   return (
     <Show when={props.isOpen}>
-      <Portal>
+      <Portal mount={props.portalMount as HTMLElement | undefined}>
         {/* overlay - uses inline styles for position/inset to avoid Tailwind
            var(--spacing) calc breaking on older Android WebView */}
         <div
           class="bg-black/50 flex items-center justify-center p-0 wide:p-8"
-          style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, "z-index": 1100 }}
+          style={{
+            position: props.overlayPosition ?? "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            "z-index": props.zIndex ?? 1100,
+          }}
           onClick={() => props.onClose()}
         >
           {/* modal content - full screen on narrow, constrained on wide */}
@@ -854,12 +869,53 @@ export function AddMediaModal(props: AddMediaModalProps) {
           >
             {/* modal header */}
             <div class="flex items-center justify-between p-4 border-b border-[var(--color-border-default)] gap-2">
-              <h2
-                class="heading-5 text-[var(--color-text-primary)] truncate"
-                style={{ "min-width": "0" }}
-              >
-                add media to {props.remoteName || getLocalLibraryName()}
-              </h2>
+              <div class="flex items-center gap-2 min-w-0 flex-1">
+                <h2
+                  class="heading-5 text-[var(--color-text-primary)] truncate flex-shrink-0"
+                  style={{ "min-width": "0" }}
+                >
+                  add media to
+                </h2>
+                {/* target switcher header: charnel/tauri mode uses RemotePicker
+                    (local library is already a real Remote there, so it's
+                    just another candidate in the list); plain web has no
+                    Remote row for "local", so it gets its own small
+                    LocalTargetPicker instead (see that file's doc comment
+                    for why this isn't just fed into RemotePicker). the
+                    picker's own chip already shows the selected name, so no
+                    separate name label is printed alongside it either way. */}
+                <Show
+                  when={isCharnelMode() && (props.targetCandidates?.length ?? 0) > 0}
+                  fallback={
+                    <Show
+                      when={(props.targetCandidates?.length ?? 0) > 0}
+                      fallback={
+                        <span class="heading-5 text-[var(--color-text-primary)] truncate">
+                          {props.remoteName || getLocalLibraryName()}
+                        </span>
+                      }
+                    >
+                      <LocalTargetPicker
+                        remotes={props.targetCandidates!}
+                        value={props.targetRemote?.remote_id ?? LOCAL_WEB_TARGET_ID}
+                        onChange={(id) => props.onTargetChange?.(id)}
+                        localLabel={getLocalLibraryName()}
+                      />
+                    </Show>
+                  }
+                >
+                  <RemotePicker
+                    remotes={props.targetCandidates!}
+                    value={new Set(props.targetRemote ? [props.targetRemote.remote_id] : [])}
+                    onChange={(next) => {
+                      const id = next.values().next().value;
+                      if (id) props.onTargetChange?.(id);
+                    }}
+                    mode="single"
+                    layout="inline"
+                  />
+                </Show>
+              </div>
               <IconButton
                 icon="close"
                 variant="ghost"
@@ -871,90 +927,144 @@ export function AddMediaModal(props: AddMediaModalProps) {
 
             {/* tabs - scrollable area */}
             <div class="px-4 pt-4 overflow-y-auto flex-1 min-h-0">
-              <Tabs
-                activeTab={uploadMode()}
-                onTabChange={(tab) => {
-                  setUploadMode(tab);
-                }}
+              <Show
+                when={targetStatus() === "online"}
+                fallback={
+                  <div class="flex flex-col items-center justify-center py-16 gap-3 text-center">
+                    <Show
+                      when={targetStatus() === "checking"}
+                      fallback={
+                        <>
+                          <Icon name="alertTriangle" size={28} color="var(--color-text-muted)" />
+                          <p class="body-small text-[var(--color-text-secondary)]">
+                            {props.remoteName || "this remote"} appears to be offline
+                          </p>
+                          <p class="body-xs text-[var(--color-text-tertiary)] max-w-xs">
+                            pick a different remote above to continue, or wait for it to come back
+                            online
+                          </p>
+                        </>
+                      }
+                    >
+                      <Icon
+                        name="loader"
+                        size={24}
+                        className="animate-spin"
+                        color="var(--color-text-muted)"
+                      />
+                      <p class="body-small text-[var(--color-text-secondary)]">
+                        checking connection to {props.remoteName || "remote"}...
+                      </p>
+                    </Show>
+                  </div>
+                }
               >
-                <TabList class="justify-center">
-                  <Tab id="files" label="upload files" />
-                  <Tab id="urls" label="download urls" />
-                  <Tab
-                    id="review"
-                    label="review"
-                    badge={
-                      (pendingSessions()?.reduce((n, s) => n + s.albums.length, 0) ?? 0) +
-                        (videoPendingSessions()?.reduce((n, s) => n + s.groups.length, 0) ?? 0) ||
-                      undefined
-                    }
-                  />
-                </TabList>
+                <Tabs
+                  activeTab={uploadMode()}
+                  onTabChange={(tab) => {
+                    setUploadMode(tab);
+                  }}
+                >
+                  <TabList class="justify-center">
+                    <Tab id="files" label="upload files" />
+                    <Tab id="urls" label="download urls" />
+                    <Tab
+                      id="review"
+                      label="review"
+                      badge={
+                        (filteredPendingSessions()?.reduce((n, s) => n + s.albums.length, 0) ?? 0) +
+                          (videoFilteredPendingSessions()?.reduce(
+                            (n, s) => n + s.groups.length,
+                            0
+                          ) ?? 0) || undefined
+                      }
+                    />
+                  </TabList>
 
-                <div class="py-6">
-                  <TabPanel id="files">
-                    <div class="border-2 border-dashed border-[var(--color-border-default)] rounded-lg p-12 flex flex-col items-center justify-center text-center">
-                      <div class="mb-4">
-                        <Icon name="upload" size={48} color="var(--color-text-muted)" />
-                      </div>
-                      <h3 class="heading-6 text-[var(--color-text-primary)] mb-2">add media</h3>
-                      <p class="body-small text-[var(--color-text-secondary)] mb-2">
-                        {props.useCharnelDialog
-                          ? "select files or an entire folder"
-                          : props.remoteName
-                            ? `files will be uploaded to ${props.remoteName}`
-                            : "drag audio or video files here or click to select"}
-                      </p>
-                      <p class="body-xs text-[var(--color-text-tertiary)] mb-4">
-                        supports mp3, flac, wav, m4a, ogg, mp4, mkv, webm, mov, avi
-                      </p>
-                      <div class="flex gap-2">
-                        <Button variant="primary" onClick={handleSelectFiles}>
-                          select files
-                        </Button>
-                        <Show when={useNativeDialog()}>
-                          <Button variant="secondary" onClick={handleSelectDirectory}>
-                            select folder
-                          </Button>
-                        </Show>
-                      </div>
-                    </div>
-                  </TabPanel>
+                  <div class="py-6">
+                    <TabPanel id="files">
+                      <Show
+                        when={
+                          !hasJobs() &&
+                          !isLocalImporting(props.localImportProgress) &&
+                          !isLocalImporting(props.videoLocalImportProgress)
+                        }
+                        fallback={
+                          <div class="flex justify-center gap-2">
+                            <Button variant="secondary" onClick={handleSelectFiles}>
+                              add more files
+                            </Button>
+                            <Show when={useNativeDialog()}>
+                              <Button variant="secondary" onClick={handleSelectDirectory}>
+                                add folder
+                              </Button>
+                            </Show>
+                          </div>
+                        }
+                      >
+                        <div class="border-2 border-dashed border-[var(--color-border-default)] rounded-lg p-12 flex flex-col items-center justify-center text-center">
+                          <div class="mb-4">
+                            <Icon name="upload" size={48} color="var(--color-text-muted)" />
+                          </div>
+                          <h3 class="heading-6 text-[var(--color-text-primary)] mb-2">add media</h3>
+                          <p class="body-small text-[var(--color-text-secondary)] mb-2">
+                            {props.useCharnelDialog
+                              ? "select files or an entire folder"
+                              : props.remoteName
+                                ? `files will be uploaded to ${props.remoteName}`
+                                : "drag audio or video files here or click to select"}
+                          </p>
+                          <p class="body-xs text-[var(--color-text-tertiary)] mb-4">
+                            supports mp3, flac, wav, m4a, ogg, mp4, mkv, webm, mov, avi
+                          </p>
+                          <div class="flex gap-2">
+                            <Button variant="primary" onClick={handleSelectFiles}>
+                              select files
+                            </Button>
+                            <Show when={useNativeDialog()}>
+                              <Button variant="secondary" onClick={handleSelectDirectory}>
+                                select folder
+                              </Button>
+                            </Show>
+                          </div>
+                        </div>
+                      </Show>
+                    </TabPanel>
 
-                  <TabPanel id="urls">
-                    {/* precheck confirm screen */}
-                    <Show when={urlPrecheckState() === "confirm" && precheckResult() !== null}>
-                      {(_) => {
-                        const r = precheckResult()!;
-                        const PREVIEW_COUNT = 5;
-                        const previewItems = r.items?.slice(0, PREVIEW_COUNT) ?? [];
-                        const remainingCount = (r.items?.length ?? 0) - PREVIEW_COUNT;
-                        const duplicateCount = r.duplicate_count ?? 0;
-                        return (
-                          <div class="space-y-4">
-                            <div>
-                              <h3 class="heading-6 text-[var(--color-text-primary)] mb-1">
-                                {r.item_count === 1
-                                  ? (r.items?.[0]?.title ?? "1 item")
-                                  : `${r.item_count} items`}
-                                {r.playlist_title ? ` from "${r.playlist_title}"` : ""}
-                              </h3>
-                              <div class="flex flex-wrap gap-x-3 gap-y-1 body-small text-[var(--color-text-secondary)]">
-                                <Show when={r.platform}>
-                                  <span class="capitalize">{r.platform}</span>
-                                </Show>
-                                <Show when={r.total_duration_seconds}>
-                                  <span>{formatDuration(r.total_duration_seconds)}</span>
-                                </Show>
-                                <Show when={duplicateCount > 0}>
-                                  <span class="text-amber-400">
-                                    {duplicateCount} already in library
-                                  </span>
-                                </Show>
+                    <TabPanel id="urls">
+                      {/* precheck confirm screen */}
+                      <Show when={precheck.state() === "confirm" && precheck.result() !== null}>
+                        {(_) => {
+                          const r = precheck.result()!;
+                          const PREVIEW_COUNT = 5;
+                          const previewItems = r.items?.slice(0, PREVIEW_COUNT) ?? [];
+                          const remainingCount = (r.items?.length ?? 0) - PREVIEW_COUNT;
+                          const duplicateCount = r.duplicate_count ?? 0;
+                          return (
+                            <div class="space-y-4">
+                              <div>
+                                <h3 class="heading-6 text-[var(--color-text-primary)] mb-1">
+                                  {r.item_count === 1
+                                    ? (r.items?.[0]?.title ?? "1 item")
+                                    : `${r.item_count} items`}
+                                  {r.playlist_title ? ` from "${r.playlist_title}"` : ""}
+                                </h3>
+                                <div class="flex flex-wrap gap-x-3 gap-y-1 body-small text-[var(--color-text-secondary)]">
+                                  <Show when={r.platform}>
+                                    <span class="capitalize">{r.platform}</span>
+                                  </Show>
+                                  <Show when={r.total_duration_seconds}>
+                                    <span>{formatDuration(r.total_duration_seconds)}</span>
+                                  </Show>
+                                  <Show when={duplicateCount > 0}>
+                                    <span class="text-amber-400">
+                                      {duplicateCount} already in library
+                                    </span>
+                                  </Show>
+                                </div>
                               </div>
-                            </div>
 
-                            {/* domain toggle - only shown when the remote supports
+                              {/* domain toggle - only shown when the remote supports
                                 video url fetching. applies to the whole batch: a
                                 fetch job's `domain` is one value for the entire
                                 job (confirmed via FetchMediaParamsSchema), so
@@ -963,366 +1073,381 @@ export function AddMediaModal(props: AddMediaModalProps) {
                                 change - "both" works around this by submitting
                                 the same url list twice, once per domain, rather
                                 than trying to split by item. */}
-                            <Show when={props.fetchVideoEnabled}>
-                              <div>
-                                <p class="body-xs text-[var(--color-text-tertiary)] text-center mb-1">
-                                  download as
-                                </p>
-                                <DomainToggle />
-                              </div>
-                            </Show>
+                              <Show when={props.fetchVideoEnabled}>
+                                <div>
+                                  <p class="body-xs text-[var(--color-text-tertiary)] text-center mb-1">
+                                    download as
+                                  </p>
+                                  <DomainToggle />
+                                </div>
+                              </Show>
 
-                            {/* item preview list */}
-                            <Show when={previewItems.length > 0}>
-                              <div class="space-y-1">
-                                <For each={previewItems}>
-                                  {(item) => (
-                                    <div class="flex items-center gap-2 py-0.5">
-                                      <Show when={item.is_duplicate}>
-                                        <span class="body-xs text-amber-400 flex-shrink-0">
-                                          dup
+                              {/* item preview list */}
+                              <Show when={previewItems.length > 0}>
+                                <div class="space-y-1">
+                                  <For each={previewItems}>
+                                    {(item) => (
+                                      <div class="flex items-center gap-2 py-0.5">
+                                        <Show when={item.is_duplicate}>
+                                          <span class="body-xs text-amber-400 flex-shrink-0">
+                                            dup
+                                          </span>
+                                        </Show>
+                                        <span class="body-xs text-[var(--color-text-primary)] truncate flex-1">
+                                          {item.title ?? item.content_id}
                                         </span>
-                                      </Show>
-                                      <span class="body-xs text-[var(--color-text-primary)] truncate flex-1">
-                                        {item.title ?? item.content_id}
-                                      </span>
-                                      <Show when={item.duration_seconds}>
-                                        <span class="body-xs text-[var(--color-text-tertiary)] flex-shrink-0">
-                                          {formatDuration(item.duration_seconds)}
+                                        <Show when={item.duration_seconds}>
+                                          <span class="body-xs text-[var(--color-text-tertiary)] flex-shrink-0">
+                                            {formatDuration(item.duration_seconds)}
+                                          </span>
+                                        </Show>
+                                      </div>
+                                    )}
+                                  </For>
+                                  <Show when={remainingCount > 0 && !showFullItemList()}>
+                                    <button
+                                      class="body-xs text-[var(--color-link)] hover:underline mt-1"
+                                      onClick={() => setShowFullItemList(true)}
+                                    >
+                                      and {remainingCount} more
+                                    </button>
+                                  </Show>
+                                  <Show when={showFullItemList()}>
+                                    <div class="max-h-40 overflow-y-auto space-y-1 mt-1 border border-[var(--color-border-default)] rounded p-2">
+                                      <For each={r.items?.slice(PREVIEW_COUNT) ?? []}>
+                                        {(item) => (
+                                          <div class="flex items-center gap-2 py-0.5">
+                                            <Show when={item.is_duplicate}>
+                                              <span class="body-xs text-amber-400 flex-shrink-0">
+                                                dup
+                                              </span>
+                                            </Show>
+                                            <span class="body-xs text-[var(--color-text-primary)] truncate flex-1">
+                                              {item.title ?? item.content_id}
+                                            </span>
+                                            <Show when={item.duration_seconds}>
+                                              <span class="body-xs text-[var(--color-text-tertiary)] flex-shrink-0">
+                                                {formatDuration(item.duration_seconds)}
+                                              </span>
+                                            </Show>
+                                          </div>
+                                        )}
+                                      </For>
+                                    </div>
+                                  </Show>
+                                </div>
+                              </Show>
+
+                              <div class="flex gap-2 justify-end">
+                                <Button
+                                  variant="secondary"
+                                  onClick={() => void handlePrecheckCancel()}
+                                >
+                                  cancel
+                                </Button>
+                                <Button variant="primary" onClick={handlePrecheckConfirm}>
+                                  download all
+                                </Button>
+                              </div>
+                            </div>
+                          );
+                        }}
+                      </Show>
+
+                      {/* precheck running */}
+                      <Show when={precheck.state() === "checking"}>
+                        <div class="flex flex-col items-center justify-center py-12 gap-3">
+                          <div class="w-2 h-2 rounded-full bg-[var(--color-accent-500)] animate-pulse" />
+                          <Show
+                            when={precheck.liveCount() !== null}
+                            fallback={
+                              <p class="body-small text-[var(--color-text-secondary)]">
+                                {precheck.urls().length > 1
+                                  ? `checking url ${precheck.urlIndex()} of ${precheck.urls().length}...`
+                                  : "checking url..."}
+                              </p>
+                            }
+                          >
+                            <p class="body-small text-[var(--color-text-secondary)]">
+                              found {precheck.liveCount()} item
+                              {precheck.liveCount() !== 1 ? "s" : ""}
+                              {precheck.urls().length > 1
+                                ? ` (url ${precheck.urlIndex()} of ${precheck.urls().length})`
+                                : ""}
+                              ...
+                            </p>
+                          </Show>
+                          <Button variant="ghost" onClick={() => void handlePrecheckCancel()}>
+                            cancel
+                          </Button>
+                        </div>
+                      </Show>
+
+                      {/* precheck error */}
+                      <Show when={precheck.state() === "error"}>
+                        <div class="space-y-4">
+                          <div class="text-center">
+                            <p class="body-small text-red-400 mb-1">precheck failed</p>
+                            <p class="body-xs text-[var(--color-text-tertiary)]">
+                              {precheck.error()}
+                            </p>
+                          </div>
+                          <div class="flex gap-2 justify-center">
+                            <Button variant="secondary" onClick={() => void handlePrecheckCancel()}>
+                              back
+                            </Button>
+                            <Button variant="primary" onClick={handlePrecheckConfirm}>
+                              download anyway
+                            </Button>
+                          </div>
+                        </div>
+                      </Show>
+
+                      {/* url input (idle state) */}
+                      <Show when={precheck.state() === "idle"}>
+                        <div class="space-y-4">
+                          <div class="text-center mb-4">
+                            <h3 class="heading-6 text-[var(--color-text-primary)] mb-2">
+                              download from urls
+                            </h3>
+                            <p class="body-small text-[var(--color-text-secondary)]">
+                              paste media urls (one per line)
+                            </p>
+                          </div>
+
+                          {/* when precheck is unavailable but video fetching is,
+                            there's no confirm screen to host the domain toggle -
+                            show it here instead so video urls are still reachable */}
+                          <Show when={props.fetchVideoEnabled && !props.fetchPrecheckEnabled}>
+                            <DomainToggle />
+                          </Show>
+
+                          <TextArea
+                            value={urlText()}
+                            onInput={(e) => setUrlText(e.currentTarget.value)}
+                            placeholder="https://example.com/song.mp3"
+                            rows={6}
+                            variant="filled"
+                          />
+
+                          {/* youtube playlist / radio warning */}
+                          <Show when={youtubeListWarning()}>
+                            <p class="body-xs text-amber-400 mt-1">{youtubeListWarning()}</p>
+                          </Show>
+
+                          <Show when={props.remoteName}>
+                            <p class="body-xs text-[var(--color-text-tertiary)] mt-1">
+                              urls will be fetched by {props.remoteName}
+                            </p>
+                          </Show>
+
+                          <div class="flex justify-center">
+                            <Show
+                              when={props.fetchPrecheckEnabled}
+                              fallback={
+                                <Button
+                                  variant="primary"
+                                  onClick={handleDownloadUrls}
+                                  disabled={!urlText().trim()}
+                                >
+                                  download
+                                </Button>
+                              }
+                            >
+                              <Button
+                                variant="primary"
+                                onClick={() => void handlePrecheckUrls()}
+                                disabled={!urlText().trim()}
+                              >
+                                check url
+                              </Button>
+                            </Show>
+                          </div>
+                        </div>
+                      </Show>
+                    </TabPanel>
+
+                    <TabPanel id="review">
+                      {/* toolbar: refetch button */}
+                      <div class="flex justify-center mb-4">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => void refetchPendingSessions()}
+                          disabled={pendingSessions.loading}
+                        >
+                          <Show when={pendingSessions.loading} fallback={<span>refresh</span>}>
+                            <Icon name="loader" size={14} color="currentColor" />
+                            <span class="ml-1">loading...</span>
+                          </Show>
+                        </Button>
+                      </div>
+                      <Show
+                        when={
+                          !pendingSessions.loading &&
+                          !videoPendingSessions.loading &&
+                          (filteredPendingSessions() ?? []).length === 0 &&
+                          (videoFilteredPendingSessions() ?? []).length === 0
+                        }
+                      >
+                        <div class="flex flex-col items-center justify-center py-12 gap-2 text-[var(--color-text-muted)]">
+                          <Icon name="check" size={32} color="currentColor" />
+                          <p class="body-small">no pending reviews</p>
+                        </div>
+                      </Show>
+                      <Show when={(filteredPendingSessions() ?? []).length > 0}>
+                        <div class="flex flex-col gap-3">
+                          <For each={filteredPendingSessions() ?? []}>
+                            {(session) => (
+                              <div class="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-secondary)] p-4">
+                                <div class="flex items-start justify-between gap-3">
+                                  <div class="flex flex-col gap-1 min-w-0">
+                                    <div class="flex items-center gap-2 flex-wrap">
+                                      <p class="body-small font-medium text-[var(--color-text-primary)]">
+                                        {session.albums.length} album
+                                        {session.albums.length !== 1 ? "s" : ""}
+                                        {" · "}
+                                        {session.albums.reduce(
+                                          (n, a) => n + a.pending_blob_count,
+                                          0
+                                        )}{" "}
+                                        unreviewed
+                                      </p>
+                                      <Show when={props.isAdmin && session.uploader_username}>
+                                        <span class="body-xs px-1.5 py-0.5 rounded bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)]">
+                                          {session.uploader_username}
                                         </span>
                                       </Show>
                                     </div>
-                                  )}
-                                </For>
-                                <Show when={remainingCount > 0 && !showFullItemList()}>
-                                  <button
-                                    class="body-xs text-[var(--color-link)] hover:underline mt-1"
-                                    onClick={() => setShowFullItemList(true)}
-                                  >
-                                    and {remainingCount} more
-                                  </button>
-                                </Show>
-                                <Show when={showFullItemList()}>
-                                  <div class="max-h-40 overflow-y-auto space-y-1 mt-1 border border-[var(--color-border-default)] rounded p-2">
-                                    <For each={r.items?.slice(PREVIEW_COUNT) ?? []}>
-                                      {(item) => (
-                                        <div class="flex items-center gap-2 py-0.5">
-                                          <Show when={item.is_duplicate}>
-                                            <span class="body-xs text-amber-400 flex-shrink-0">
-                                              dup
-                                            </span>
-                                          </Show>
-                                          <span class="body-xs text-[var(--color-text-primary)] truncate flex-1">
-                                            {item.title ?? item.content_id}
-                                          </span>
-                                          <Show when={item.duration_seconds}>
-                                            <span class="body-xs text-[var(--color-text-tertiary)] flex-shrink-0">
-                                              {formatDuration(item.duration_seconds)}
-                                            </span>
-                                          </Show>
-                                        </div>
-                                      )}
-                                    </For>
-                                  </div>
-                                </Show>
-                              </div>
-                            </Show>
-
-                            <div class="flex gap-2 justify-end">
-                              <Button
-                                variant="secondary"
-                                onClick={() => void handlePrecheckCancel()}
-                              >
-                                cancel
-                              </Button>
-                              <Button variant="primary" onClick={handlePrecheckConfirm}>
-                                download all
-                              </Button>
-                            </div>
-                          </div>
-                        );
-                      }}
-                    </Show>
-
-                    {/* precheck running */}
-                    <Show when={urlPrecheckState() === "checking"}>
-                      <div class="flex flex-col items-center justify-center py-12 gap-3">
-                        <div class="w-2 h-2 rounded-full bg-[var(--color-accent-500)] animate-pulse" />
-                        <Show
-                          when={precheckLiveCount() !== null}
-                          fallback={
-                            <p class="body-small text-[var(--color-text-secondary)]">
-                              {precheckUrls().length > 1
-                                ? `checking url ${precheckUrlIndex()} of ${precheckUrls().length}...`
-                                : "checking url..."}
-                            </p>
-                          }
-                        >
-                          <p class="body-small text-[var(--color-text-secondary)]">
-                            found {precheckLiveCount()} item{precheckLiveCount() !== 1 ? "s" : ""}
-                            {precheckUrls().length > 1
-                              ? ` (url ${precheckUrlIndex()} of ${precheckUrls().length})`
-                              : ""}
-                            ...
-                          </p>
-                        </Show>
-                        <Button variant="ghost" onClick={() => void handlePrecheckCancel()}>
-                          cancel
-                        </Button>
-                      </div>
-                    </Show>
-
-                    {/* precheck error */}
-                    <Show when={urlPrecheckState() === "error"}>
-                      <div class="space-y-4">
-                        <div class="text-center">
-                          <p class="body-small text-red-400 mb-1">precheck failed</p>
-                          <p class="body-xs text-[var(--color-text-tertiary)]">{precheckError()}</p>
-                        </div>
-                        <div class="flex gap-2 justify-center">
-                          <Button variant="secondary" onClick={() => void handlePrecheckCancel()}>
-                            back
-                          </Button>
-                          <Button variant="primary" onClick={handlePrecheckConfirm}>
-                            download anyway
-                          </Button>
-                        </div>
-                      </div>
-                    </Show>
-
-                    {/* url input (idle state) */}
-                    <Show when={urlPrecheckState() === "idle"}>
-                      <div class="space-y-4">
-                        <div class="text-center mb-4">
-                          <h3 class="heading-6 text-[var(--color-text-primary)] mb-2">
-                            download from urls
-                          </h3>
-                          <p class="body-small text-[var(--color-text-secondary)]">
-                            paste media urls (one per line)
-                          </p>
-                        </div>
-
-                        {/* when precheck is unavailable but video fetching is,
-                            there's no confirm screen to host the domain toggle -
-                            show it here instead so video urls are still reachable */}
-                        <Show when={props.fetchVideoEnabled && !props.fetchPrecheckEnabled}>
-                          <DomainToggle />
-                        </Show>
-
-                        <TextArea
-                          value={urlText()}
-                          onInput={(e) => setUrlText(e.currentTarget.value)}
-                          placeholder="https://example.com/song.mp3"
-                          rows={6}
-                          variant="filled"
-                        />
-
-                        {/* youtube playlist / radio warning */}
-                        <Show when={youtubeListWarning()}>
-                          <p class="body-xs text-amber-400 mt-1">{youtubeListWarning()}</p>
-                        </Show>
-
-                        <Show when={props.remoteName}>
-                          <p class="body-xs text-[var(--color-text-tertiary)] mt-1">
-                            urls will be fetched by {props.remoteName}
-                          </p>
-                        </Show>
-
-                        <div class="flex justify-center">
-                          <Show
-                            when={props.fetchPrecheckEnabled}
-                            fallback={
-                              <Button
-                                variant="primary"
-                                onClick={handleDownloadUrls}
-                                disabled={!urlText().trim()}
-                              >
-                                download
-                              </Button>
-                            }
-                          >
-                            <Button
-                              variant="primary"
-                              onClick={() => void handlePrecheckUrls()}
-                              disabled={!urlText().trim()}
-                            >
-                              check url
-                            </Button>
-                          </Show>
-                        </div>
-                      </div>
-                    </Show>
-                  </TabPanel>
-
-                  <TabPanel id="review">
-                    {/* toolbar: refetch button */}
-                    <div class="flex justify-center mb-4">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => void refetchPendingSessions()}
-                        disabled={pendingSessions.loading}
-                      >
-                        <Show when={pendingSessions.loading} fallback={<span>refresh</span>}>
-                          <Icon name="loader" size={14} color="currentColor" />
-                          <span class="ml-1">loading...</span>
-                        </Show>
-                      </Button>
-                    </div>
-                    <Show when={!pendingSessions.loading && (pendingSessions() ?? []).length === 0}>
-                      <div class="flex flex-col items-center justify-center py-12 gap-2 text-[var(--color-text-muted)]">
-                        <Icon name="check" size={32} color="currentColor" />
-                        <p class="body-small">no pending reviews</p>
-                      </div>
-                    </Show>
-                    <Show when={(pendingSessions() ?? []).length > 0}>
-                      <div class="flex flex-col gap-3">
-                        <For each={pendingSessions() ?? []}>
-                          {(session) => (
-                            <div class="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-secondary)] p-4">
-                              <div class="flex items-start justify-between gap-3">
-                                <div class="flex flex-col gap-1 min-w-0">
-                                  <div class="flex items-center gap-2 flex-wrap">
-                                    <p class="body-small font-medium text-[var(--color-text-primary)]">
-                                      {session.albums.length} album
-                                      {session.albums.length !== 1 ? "s" : ""}
-                                      {" · "}
-                                      {session.albums.reduce(
-                                        (n, a) => n + a.pending_blob_count,
-                                        0
-                                      )}{" "}
-                                      unreviewed
+                                    <p class="body-xs text-[var(--color-text-muted)]">
+                                      {new Date(session.created_at * 1000).toLocaleString()}
                                     </p>
-                                    <Show when={props.isAdmin && session.uploader_username}>
-                                      <span class="body-xs px-1.5 py-0.5 rounded bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)]">
-                                        {session.uploader_username}
-                                      </span>
-                                    </Show>
-                                  </div>
-                                  <p class="body-xs text-[var(--color-text-muted)]">
-                                    {new Date(session.created_at * 1000).toLocaleString()}
-                                  </p>
-                                  <div class="flex flex-wrap gap-1 mt-1">
-                                    <For each={session.albums.slice(0, 3)}>
-                                      {(album) => {
-                                        const remoteId = getCurrentRemote()?.remote_id;
-                                        const href = remoteId
-                                          ? `#/${remoteId}/albums/${encodeURIComponent(album.album_id)}`
-                                          : undefined;
-                                        return (
-                                          <a
-                                            href={href}
-                                            class="body-xs px-1.5 py-0.5 rounded bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)] truncate max-w-[160px] hover:text-[var(--color-accent-500)] hover:bg-[var(--color-bg-secondary)] transition-colors"
-                                          >
-                                            {album.title}
-                                          </a>
-                                        );
-                                      }}
-                                    </For>
-                                    <Show when={session.albums.length > 3}>
-                                      <span class="body-xs text-[var(--color-text-muted)]">
-                                        +{session.albums.length - 3} more
-                                      </span>
-                                    </Show>
-                                  </div>
-                                </div>
-                                <div class="flex flex-col items-end gap-6 shrink-0">
-                                  <Button
-                                    variant="primary"
-                                    onClick={() => props.onReviewSession?.(session.session_id)}
-                                  >
-                                    review
-                                  </Button>
-                                  <button
-                                    onClick={() => void handleMarkSessionReviewed(session)}
-                                    disabled={markingSessionReviewed() === session.session_id}
-                                    class="px-2 py-1 text-xs rounded bg-yellow-500/20 text-yellow-300 hover:bg-yellow-500/30 border border-yellow-500/30 transition-colors disabled:opacity-50"
-                                  >
-                                    {markingSessionReviewed() === session.session_id
-                                      ? "marking..."
-                                      : "mark reviewed"}
-                                  </button>
-                                </div>
-                              </div>
-                            </div>
-                          )}
-                        </For>
-                      </div>
-                    </Show>
-
-                    {/* video review sessions - same layout as music above, but
-                        grouped by detected series (group_key) instead of album_id. */}
-                    <Show when={(videoPendingSessions() ?? []).length > 0}>
-                      <div class="flex flex-col gap-3 mt-4 pt-4 border-t border-[var(--color-border-subtle)]">
-                        <p class="body-xs text-[var(--color-text-muted)]">video</p>
-                        <For each={videoPendingSessions() ?? []}>
-                          {(session) => (
-                            <div class="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-secondary)] p-4">
-                              <div class="flex items-start justify-between gap-3">
-                                <div class="flex flex-col gap-1 min-w-0">
-                                  <div class="flex items-center gap-2 flex-wrap">
-                                    <p class="body-small font-medium text-[var(--color-text-primary)]">
-                                      {session.groups.length} group
-                                      {session.groups.length !== 1 ? "s" : ""}
-                                      {" · "}
-                                      {session.groups.reduce(
-                                        (n, g) => n + g.pending_blob_count,
-                                        0
-                                      )}{" "}
-                                      unreviewed
-                                    </p>
-                                    <Show when={props.isAdmin && session.uploader_username}>
-                                      <span class="body-xs px-1.5 py-0.5 rounded bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)]">
-                                        {session.uploader_username}
-                                      </span>
-                                    </Show>
-                                  </div>
-                                  <p class="body-xs text-[var(--color-text-muted)]">
-                                    {new Date(session.created_at * 1000).toLocaleString()}
-                                  </p>
-                                  <div class="flex flex-wrap gap-1 mt-1">
-                                    <For each={session.groups.slice(0, 3)}>
-                                      {(group) => (
-                                        <span class="body-xs px-1.5 py-0.5 rounded bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)] truncate max-w-[160px]">
-                                          {group.series_title ??
-                                            group.videos[0]?.title ??
-                                            "untitled"}
+                                    <div class="flex flex-wrap gap-1 mt-1">
+                                      <For each={session.albums.slice(0, 3)}>
+                                        {(album) => {
+                                          const remoteId = getCurrentRemote()?.remote_id;
+                                          const href = remoteId
+                                            ? `#/${remoteId}/albums/${encodeURIComponent(album.album_id)}`
+                                            : undefined;
+                                          return (
+                                            <a
+                                              href={href}
+                                              class="body-xs px-1.5 py-0.5 rounded bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)] truncate max-w-[160px] hover:text-[var(--color-accent-500)] hover:bg-[var(--color-bg-secondary)] transition-colors"
+                                            >
+                                              {album.title}
+                                            </a>
+                                          );
+                                        }}
+                                      </For>
+                                      <Show when={session.albums.length > 3}>
+                                        <span class="body-xs text-[var(--color-text-muted)]">
+                                          +{session.albums.length - 3} more
                                         </span>
-                                      )}
-                                    </For>
-                                    <Show when={session.groups.length > 3}>
-                                      <span class="body-xs text-[var(--color-text-muted)]">
-                                        +{session.groups.length - 3} more
-                                      </span>
-                                    </Show>
+                                      </Show>
+                                    </div>
+                                  </div>
+                                  <div class="flex flex-col items-end gap-6 shrink-0">
+                                    <Button
+                                      variant="primary"
+                                      onClick={() => props.onReviewSession?.(session.session_id)}
+                                    >
+                                      review
+                                    </Button>
+                                    <button
+                                      onClick={() => void handleMarkSessionReviewed(session)}
+                                      disabled={markingSessionReviewed() === session.session_id}
+                                      class="px-2 py-1 text-xs rounded bg-yellow-500/20 text-yellow-300 hover:bg-yellow-500/30 border border-yellow-500/30 transition-colors disabled:opacity-50"
+                                    >
+                                      {markingSessionReviewed() === session.session_id
+                                        ? "marking..."
+                                        : "mark reviewed"}
+                                    </button>
                                   </div>
                                 </div>
-                                <div class="flex flex-col items-end gap-6 shrink-0">
-                                  <Button
-                                    variant="primary"
-                                    onClick={() => props.onReviewVideoSession?.(session.session_id)}
-                                  >
-                                    review
-                                  </Button>
-                                  <button
-                                    onClick={() => void handleMarkVideoSessionReviewed(session)}
-                                    disabled={markingVideoSessionReviewed() === session.session_id}
-                                    class="px-2 py-1 text-xs rounded bg-yellow-500/20 text-yellow-300 hover:bg-yellow-500/30 border border-yellow-500/30 transition-colors disabled:opacity-50"
-                                  >
-                                    {markingVideoSessionReviewed() === session.session_id
-                                      ? "marking..."
-                                      : "mark reviewed"}
-                                  </button>
+                              </div>
+                            )}
+                          </For>
+                        </div>
+                      </Show>
+
+                      {/* video review sessions - same layout as music above, but
+                        grouped by detected series (group_key) instead of album_id. */}
+                      <Show when={(videoFilteredPendingSessions() ?? []).length > 0}>
+                        <div class="flex flex-col gap-3 mt-4 pt-4 border-t border-[var(--color-border-subtle)]">
+                          <p class="body-xs text-[var(--color-text-muted)]">video</p>
+                          <For each={videoFilteredPendingSessions() ?? []}>
+                            {(session) => (
+                              <div class="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-secondary)] p-4">
+                                <div class="flex items-start justify-between gap-3">
+                                  <div class="flex flex-col gap-1 min-w-0">
+                                    <div class="flex items-center gap-2 flex-wrap">
+                                      <p class="body-small font-medium text-[var(--color-text-primary)]">
+                                        {session.groups.length} group
+                                        {session.groups.length !== 1 ? "s" : ""}
+                                        {" · "}
+                                        {session.groups.reduce(
+                                          (n, g) => n + g.pending_blob_count,
+                                          0
+                                        )}{" "}
+                                        unreviewed
+                                      </p>
+                                      <Show when={props.isAdmin && session.uploader_username}>
+                                        <span class="body-xs px-1.5 py-0.5 rounded bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)]">
+                                          {session.uploader_username}
+                                        </span>
+                                      </Show>
+                                    </div>
+                                    <p class="body-xs text-[var(--color-text-muted)]">
+                                      {new Date(session.created_at * 1000).toLocaleString()}
+                                    </p>
+                                    <div class="flex flex-wrap gap-1 mt-1">
+                                      <For each={session.groups.slice(0, 3)}>
+                                        {(group) => (
+                                          <span class="body-xs px-1.5 py-0.5 rounded bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)] truncate max-w-[160px]">
+                                            {group.series_title ??
+                                              group.videos[0]?.title ??
+                                              "untitled"}
+                                          </span>
+                                        )}
+                                      </For>
+                                      <Show when={session.groups.length > 3}>
+                                        <span class="body-xs text-[var(--color-text-muted)]">
+                                          +{session.groups.length - 3} more
+                                        </span>
+                                      </Show>
+                                    </div>
+                                  </div>
+                                  <div class="flex flex-col items-end gap-6 shrink-0">
+                                    <Button
+                                      variant="primary"
+                                      onClick={() =>
+                                        props.onReviewVideoSession?.(session.session_id)
+                                      }
+                                    >
+                                      review
+                                    </Button>
+                                    <button
+                                      onClick={() => void handleMarkVideoSessionReviewed(session)}
+                                      disabled={
+                                        markingVideoSessionReviewed() === session.session_id
+                                      }
+                                      class="px-2 py-1 text-xs rounded bg-yellow-500/20 text-yellow-300 hover:bg-yellow-500/30 border border-yellow-500/30 transition-colors disabled:opacity-50"
+                                    >
+                                      {markingVideoSessionReviewed() === session.session_id
+                                        ? "marking..."
+                                        : "mark reviewed"}
+                                    </button>
+                                  </div>
                                 </div>
                               </div>
-                            </div>
-                          )}
-                        </For>
-                      </div>
-                    </Show>
-                  </TabPanel>
-                </div>
-              </Tabs>
+                            )}
+                          </For>
+                        </div>
+                      </Show>
+                    </TabPanel>
+                  </div>
+                </Tabs>
+              </Show>
             </div>
 
             {/* progress regions — pinned below tabs, can scroll internally if they
@@ -1337,35 +1462,49 @@ export function AddMediaModal(props: AddMediaModalProps) {
               <Show when={hasJobs()}>
                 <div class="border-t border-[var(--color-border-default)] px-4 py-3">
                   {/* status summary */}
-                  <div class="flex items-center gap-2 mb-2">
-                    <Show when={transferringJobs().length > 0}>
-                      <div class="flex items-center gap-1.5">
-                        <div class="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
-                        <span class="body-xs text-[var(--color-text-secondary)]">
-                          transferring {transferringJobs().length} file
-                          {transferringJobs().length !== 1 ? "s" : ""}
+                  <div class="flex items-center justify-between gap-2 mb-2">
+                    <div class="flex items-center gap-2 flex-wrap">
+                      <Show when={transferringJobs().length > 0}>
+                        <div class="flex items-center gap-1.5">
+                          <div class="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
+                          <span class="body-xs text-[var(--color-text-secondary)]">
+                            transferring {transferringJobs().length} file
+                            {transferringJobs().length !== 1 ? "s" : ""}
+                          </span>
+                        </div>
+                      </Show>
+                      <Show when={transferringJobs().length === 0 && processingJobs().length > 0}>
+                        <div class="flex items-center gap-1.5">
+                          <div class="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
+                          <span class="body-xs text-[var(--color-text-secondary)]">
+                            processing {processingJobs().length} on{" "}
+                            {props.remoteName || getLocalLibraryName()}
+                          </span>
+                        </div>
+                      </Show>
+                      <Show when={completedJobs().length > 0}>
+                        <span class="body-xs text-[var(--color-text-tertiary)]">
+                          {completedJobs().length} done
                         </span>
-                      </div>
-                    </Show>
-                    <Show when={transferringJobs().length === 0 && processingJobs().length > 0}>
-                      <div class="flex items-center gap-1.5">
-                        <div class="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
-                        <span class="body-xs text-[var(--color-text-secondary)]">
-                          processing {processingJobs().length} on{" "}
-                          {props.remoteName || getLocalLibraryName()}
-                        </span>
-                      </div>
-                    </Show>
-                    <Show when={completedJobs().length > 0}>
-                      <span class="body-xs text-[var(--color-text-tertiary)]">
-                        {completedJobs().length} done
-                      </span>
-                    </Show>
-                    <Show when={failedJobs().length > 0}>
-                      <span class="body-xs text-red-400">{failedJobs().length} failed</span>
-                    </Show>
-                    <Show when={timedOutJobs().length > 0}>
-                      <span class="body-xs text-amber-400">{timedOutJobs().length} queued</span>
+                      </Show>
+                      <Show when={failedJobs().length > 0}>
+                        <span class="body-xs text-red-400">{failedJobs().length} failed</span>
+                      </Show>
+                      <Show when={timedOutJobs().length > 0}>
+                        <span class="body-xs text-amber-400">{timedOutJobs().length} queued</span>
+                      </Show>
+                    </div>
+                    <Show when={transferringJobs().length === 0 && processingJobs().length === 0}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          clearAllJobs();
+                          clearAllVideoJobs();
+                        }}
+                        class="body-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] hover:underline flex-shrink-0"
+                      >
+                        clear all
+                      </button>
                     </Show>
                   </div>
 
@@ -1386,11 +1525,13 @@ export function AddMediaModal(props: AddMediaModalProps) {
                   </Show>
 
                   {/* job list */}
-                  <div class="max-h-32 overflow-y-auto space-y-1">
+                  <div class="max-h-64 overflow-y-auto space-y-1">
                     <For each={allJobs()}>
                       {(entry) => {
                         const job = entry.job;
                         const warning = entry.domain === "video" ? entry.job.warning : undefined;
+                        const isDuplicate =
+                          entry.domain === "music" ? (entry.job as UploadJob).isDuplicate : false;
                         return (
                           <div class="py-0.5">
                             <div class="flex items-center gap-2">
@@ -1404,6 +1545,22 @@ export function AddMediaModal(props: AddMediaModalProps) {
                               <div class="flex-shrink-0 w-4 h-4 flex items-center justify-center">
                                 {job.status === "uploading" || job.status === "polling" ? (
                                   <div class="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
+                                ) : job.status === "completed" &&
+                                  entry.domain === "music" &&
+                                  isCheckingReview(job as UploadJob) ? (
+                                  <Icon
+                                    name="loader"
+                                    size={14}
+                                    className="animate-spin"
+                                    color="var(--color-text-muted)"
+                                  />
+                                ) : job.status === "completed" &&
+                                  entry.domain === "music" &&
+                                  jobNeedsReview(job as UploadJob) ? (
+                                  <div
+                                    class="w-2 h-2 rounded-full bg-[var(--color-accent-500)]"
+                                    title="needs review"
+                                  />
                                 ) : job.status === "completed" && warning ? (
                                   <Icon
                                     name="recent"
@@ -1411,7 +1568,19 @@ export function AddMediaModal(props: AddMediaModalProps) {
                                     color="var(--color-warning, #f59e0b)"
                                   />
                                 ) : job.status === "completed" ? (
-                                  <Icon name="check" size={14} color="var(--color-success)" />
+                                  <button
+                                    type="button"
+                                    title="dismiss this upload"
+                                    aria-label="dismiss this upload"
+                                    onClick={() =>
+                                      entry.domain === "video"
+                                        ? removeVideoJob(job.id)
+                                        : removeJob(job.id)
+                                    }
+                                    class="hover:opacity-70 transition-opacity"
+                                  >
+                                    <Icon name="check" size={14} color="var(--color-success)" />
+                                  </button>
                                 ) : job.status === "timeout" ? (
                                   <Icon
                                     name="recent"
@@ -1419,7 +1588,19 @@ export function AddMediaModal(props: AddMediaModalProps) {
                                     color="var(--color-warning, #f59e0b)"
                                   />
                                 ) : (
-                                  <Icon name="close" size={14} color="var(--color-error)" />
+                                  <button
+                                    type="button"
+                                    title="dismiss this failed upload"
+                                    aria-label="dismiss this failed upload"
+                                    onClick={() =>
+                                      entry.domain === "video"
+                                        ? removeVideoJob(job.id)
+                                        : removeJob(job.id)
+                                    }
+                                    class="hover:opacity-70 transition-opacity"
+                                  >
+                                    <Icon name="close" size={14} color="var(--color-error)" />
+                                  </button>
                                 )}
                               </div>
                               {/* label */}
@@ -1429,7 +1610,8 @@ export function AddMediaModal(props: AddMediaModalProps) {
                                   "text-[var(--color-text-secondary)]":
                                     job.status === "uploading" || job.status === "polling",
                                   "text-[var(--color-text-tertiary)]":
-                                    job.status === "completed" && !warning,
+                                    job.status === "completed" && !warning && !jobNeedsReview(job),
+                                  "text-[var(--color-accent-500)]": jobNeedsReview(job),
                                   "text-amber-400":
                                     job.status === "timeout" ||
                                     (job.status === "completed" && !!warning),
@@ -1438,11 +1620,18 @@ export function AddMediaModal(props: AddMediaModalProps) {
                               >
                                 {job.label}
                               </span>
-                              {/* status text */}
+                              {/* status text - failed/completed rows can carry an
+                                  arbitrarily long message (full error detail, or a
+                                  batch import summary like "nothing new to import:
+                                  N file(s) already in your library") - click to
+                                  reveal the full text below the row instead of only
+                                  ever showing the truncated preview. */}
                               <span
                                 class="body-xs flex-shrink-0 text-[var(--color-text-tertiary)] max-w-[60%] truncate"
                                 classList={{
-                                  "cursor-pointer hover:underline": job.status === "failed",
+                                  "cursor-pointer hover:underline":
+                                    job.status === "failed" || job.status === "completed",
+                                  "text-[var(--color-accent-500)]": jobNeedsReview(job),
                                 }}
                                 title={
                                   job.status === "failed"
@@ -1457,7 +1646,9 @@ export function AddMediaModal(props: AddMediaModalProps) {
                                         : undefined
                                 }
                                 onClick={() => {
-                                  if (job.status === "failed") toggleErrorExpanded(job.id);
+                                  if (job.status === "failed" || job.status === "completed") {
+                                    toggleErrorExpanded(job.id);
+                                  }
                                 }}
                               >
                                 {job.status === "uploading"
@@ -1467,14 +1658,16 @@ export function AddMediaModal(props: AddMediaModalProps) {
                                   : job.status === "polling"
                                     ? (job.stage ?? "processing...")
                                     : job.status === "completed"
-                                      ? entry.domain === "music"
-                                        ? ((job as UploadJob).resultSummary ??
-                                          ((job as UploadJob).isDuplicate
+                                      ? isCheckingReview(job)
+                                        ? "checking..."
+                                        : (job.resultSummary ??
+                                          (isDuplicate
                                             ? "already in your library"
-                                            : "done"))
-                                        : warning
-                                          ? `done - ${warning}`
-                                          : "done"
+                                            : jobNeedsReview(job)
+                                              ? "ready to review"
+                                              : warning
+                                                ? `done - ${warning}`
+                                                : "done"))
                                       : job.status === "timeout"
                                         ? "queued, check back later"
                                         : (job.error ?? "failed")}
@@ -1506,6 +1699,47 @@ export function AddMediaModal(props: AddMediaModalProps) {
                                   view album
                                 </a>
                               </Show>
+                              {/* retry failed - music send-to-remote jobs only, shown
+                                  when we recorded specific blake3s that failed to sync
+                                  (see retryFailedAlbumSend's doc comment) */}
+                              <Show
+                                when={
+                                  entry.domain === "music" &&
+                                  job.status === "failed" &&
+                                  (job as UploadJob).albumId &&
+                                  (job as UploadJob).remoteId &&
+                                  ((job as UploadJob).retryFailedBlake3s?.length ?? 0) > 0
+                                }
+                              >
+                                <button
+                                  type="button"
+                                  class="body-xs flex-shrink-0 text-[var(--color-link)] hover:underline"
+                                  onClick={() => void handleRetryFailedSend(job as UploadJob)}
+                                >
+                                  retry
+                                </button>
+                              </Show>
+                              {/* retry failed - video send-to-remote jobs only (see
+                                  VideoUploadJob.isRemoteSend's doc comment) */}
+                              <Show
+                                when={
+                                  entry.domain === "video" &&
+                                  job.status === "failed" &&
+                                  (job as VideoUploadJob).isRemoteSend &&
+                                  (job as VideoUploadJob).videoId &&
+                                  (job as VideoUploadJob).remoteId
+                                }
+                              >
+                                <button
+                                  type="button"
+                                  class="body-xs flex-shrink-0 text-[var(--color-link)] hover:underline"
+                                  onClick={() =>
+                                    void handleRetryFailedVideoSend(job as VideoUploadJob)
+                                  }
+                                >
+                                  retry
+                                </button>
+                              </Show>
                             </div>
                             {/* progress bar - shown while uploading with a known ratio */}
                             <Show
@@ -1523,6 +1757,18 @@ export function AddMediaModal(props: AddMediaModalProps) {
                             >
                               <p class="body-xs text-red-400/80 pl-6 pr-1 whitespace-pre-wrap break-words">
                                 {job.errorFull ?? job.error ?? "failed"}
+                              </p>
+                            </Show>
+                            <Show
+                              when={
+                                job.status === "completed" &&
+                                entry.domain === "music" &&
+                                !!(job as UploadJob).resultSummary &&
+                                expandedErrorJobIds().has(job.id)
+                              }
+                            >
+                              <p class="body-xs text-[var(--color-text-tertiary)] pl-6 pr-1 whitespace-pre-wrap break-words">
+                                {(job as UploadJob).resultSummary}
                               </p>
                             </Show>
                           </div>

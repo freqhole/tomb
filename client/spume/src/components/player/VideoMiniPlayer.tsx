@@ -31,6 +31,13 @@ export interface VideoMiniPlayerProps {
   /** called when the user closes the panel - the panel itself is hidden
    * by the caller (queue/playback is left untouched); see handleClose. */
   onClose?: () => void;
+  /** "floating" (default): the normal anchored-bottom-right panel used
+   *  in AppLayout. "inline": fills its parent in-flow instead (no fixed
+   *  positioning, no collapse/expand toggle, no close button) - used by
+   *  CenotaphPlayerApp to show video in the same slot the now-playing
+   *  artwork/qr code occupies. real browser fullscreen (the fullscreen
+   *  button/double-click) works the same either way. */
+  variant?: "floating" | "inline";
 }
 
 /** floating mini video player — sits above the player bar, anchored to
@@ -40,6 +47,7 @@ export interface VideoMiniPlayerProps {
  * in-bar `VideoThumbSlot`), so playback isn't interrupted by the move. */
 export function VideoMiniPlayer(props: VideoMiniPlayerProps) {
   let mount!: HTMLDivElement;
+  const isInline = () => props.variant === "inline";
 
   onMount(() => {
     const el = props.videoElement;
@@ -56,6 +64,29 @@ export function VideoMiniPlayer(props: VideoMiniPlayerProps) {
       mount.appendChild(el);
       debug("player.video", "VideoMiniPlayer: moved video element into mini-player mount");
     }
+  });
+
+  // android charnel: Element.requestFullscreen() on this WebView is
+  // handled entirely as in-page CSS fullscreen - WebChromeClient.
+  // onShowCustomView never fires for it, so the system status/gesture-nav
+  // bars are never hidden natively. MainActivity.onWebViewCreate installs
+  // a JS-callable bridge (SystemBarsBridge) for exactly this case; a no-op
+  // everywhere else (desktop/iOS/plain web all leave window.AndroidSystemBars
+  // undefined).
+  onMount(() => {
+    const androidSystemBars = (
+      window as unknown as {
+        AndroidSystemBars?: { hide: () => void; show: () => void };
+      }
+    ).AndroidSystemBars;
+    if (!androidSystemBars) return;
+
+    const handleFullscreenChange = () => {
+      if (document.fullscreenElement) androidSystemBars.hide();
+      else androidSystemBars.show();
+    };
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    onCleanup(() => document.removeEventListener("fullscreenchange", handleFullscreenChange));
   });
 
   // esc collapses the expanded view - a private listener, not the shared
@@ -76,9 +107,14 @@ export function VideoMiniPlayer(props: VideoMiniPlayerProps) {
 
   const requestFullscreen = () => {
     const el = props.videoElement;
-    if (el.requestFullscreen) void el.requestFullscreen();
-    else if ("webkitEnterFullscreen" in el) {
+    if (el.requestFullscreen) {
+      el.requestFullscreen().catch((err: unknown) => {
+        console.error("[fullscreen] requestFullscreen() rejected", err);
+      });
+    } else if ("webkitEnterFullscreen" in el) {
       (el as unknown as { webkitEnterFullscreen: () => void }).webkitEnterFullscreen();
+    } else {
+      console.error("[fullscreen] no fullscreen API available on this element");
     }
   };
 
@@ -117,20 +153,24 @@ export function VideoMiniPlayer(props: VideoMiniPlayerProps) {
   // shared button markup for both placements below - a touch device with
   // the panel collapsed renders these in a row above the video (no hover
   // affordance to reveal an overlay), everyone else gets the overlay.
+  // inline (kiosk) usage skips the expand/collapse and close buttons -
+  // there's no floating panel to collapse and nothing to close.
   const ControlButtons = () => (
     <>
-      <button
-        type="button"
-        class="bg-black/50 rounded p-1.5"
-        onClick={toggleExpand}
-        title={expanded() ? "collapse" : "expand"}
-      >
-        <Icon
-          name={expanded() ? IconNames.collapseWindow : IconNames.expandWindow}
-          size={16}
-          className="text-white drop-shadow-lg"
-        />
-      </button>
+      <Show when={!isInline()}>
+        <button
+          type="button"
+          class="bg-black/50 rounded p-1.5"
+          onClick={toggleExpand}
+          title={expanded() ? "collapse" : "expand"}
+        >
+          <Icon
+            name={expanded() ? IconNames.collapseWindow : IconNames.expandWindow}
+            size={16}
+            className="text-white drop-shadow-lg"
+          />
+        </button>
+      </Show>
       <button
         type="button"
         class="bg-black/50 rounded p-1.5"
@@ -139,26 +179,32 @@ export function VideoMiniPlayer(props: VideoMiniPlayerProps) {
       >
         <Icon name={IconNames.fullscreen} size={16} className="text-white drop-shadow-lg" />
       </button>
-      <button type="button" class="bg-black/50 rounded p-1.5" onClick={handleClose} title="close">
-        <Icon name={IconNames.close} size={16} className="text-white drop-shadow-lg" />
-      </button>
+      <Show when={!isInline()}>
+        <button type="button" class="bg-black/50 rounded p-1.5" onClick={handleClose} title="close">
+          <Icon name={IconNames.close} size={16} className="text-white drop-shadow-lg" />
+        </button>
+      </Show>
     </>
   );
 
   // controls sit above the video (own row, no overlap) only when
   // collapsed on a touch device - expanded has no "above" space to move
   // into (the panel already fills the viewport), so it keeps the overlay.
-  const controlsAboveVideo = () => isTouchDevice() && !expanded();
+  const controlsAboveVideo = () => !isInline() && isTouchDevice() && !expanded();
 
   return (
     <div
-      class="fixed z-[1500] flex flex-col"
-      classList={{
-        "inset-x-0 wide:inset-x-auto wide:right-[66px] wide:w-96 lg:w-[28rem] xl:w-[36rem] 2xl:w-[40rem]":
-          !expanded(),
-        "inset-0": expanded(),
-      }}
-      style={{ bottom: "var(--player-bar-height, 0px)" }}
+      class={isInline() ? "relative w-full h-full" : "fixed z-[1500] flex flex-col"}
+      classList={
+        isInline()
+          ? {}
+          : {
+              "inset-x-0 wide:inset-x-auto wide:right-[66px] wide:w-96 lg:w-[28rem] xl:w-[36rem] 2xl:w-[40rem]":
+                !expanded(),
+              "inset-0": expanded(),
+            }
+      }
+      style={isInline() ? undefined : { bottom: "var(--player-bar-height, 0px)" }}
     >
       <Show when={controlsAboveVideo()}>
         <div class="flex justify-end pb-1.5">
@@ -169,9 +215,13 @@ export function VideoMiniPlayer(props: VideoMiniPlayerProps) {
       </Show>
       <div
         class="relative bg-black overflow-hidden group"
-        classList={{ "aspect-video": !expanded(), "h-full": expanded() }}
+        classList={
+          isInline()
+            ? { "w-full h-full rounded-lg": true }
+            : { "aspect-video": !expanded(), "h-full": expanded() }
+        }
         style={
-          expanded()
+          isInline() || expanded()
             ? {}
             : {
                 "box-shadow":
@@ -195,8 +245,9 @@ export function VideoMiniPlayer(props: VideoMiniPlayerProps) {
               // hover has no touch equivalent - keep the controls always
               // visible on touch devices instead of hiding them behind an
               // unreachable hover state.
-              "opacity-100": isTouchDevice(),
-              "opacity-0 group-hover:opacity-100 transition-opacity": !isTouchDevice(),
+              "opacity-100": isTouchDevice() || isInline(),
+              "opacity-0 group-hover:opacity-100 transition-opacity":
+                !isTouchDevice() && !isInline(),
             }}
             style={{
               // while expanded, the chromeless title-bar strip renders above
@@ -204,7 +255,10 @@ export function VideoMiniPlayer(props: VideoMiniPlayerProps) {
               // it doesn't cover these buttons. --chrome-top-inset is 0 when
               // the strip isn't active (non-mac/non-tauri), so this is a
               // no-op there.
-              top: expanded() ? "calc(0.5rem + var(--chrome-top-inset, 0px))" : "0.5rem",
+              top:
+                !isInline() && expanded()
+                  ? "calc(0.5rem + var(--chrome-top-inset, 0px))"
+                  : "0.5rem",
             }}
           >
             <ControlButtons />

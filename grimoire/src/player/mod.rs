@@ -33,7 +33,9 @@ pub mod rodio;
 #[cfg(feature = "rodio-playback")]
 pub mod supervisor;
 
-pub use control::{PlayerCommand, PlayerEvent, PlayerSnapshot, PlayerState, RestartPolicy};
+pub use control::{
+    AudioDeviceInfo, PlayerCommand, PlayerEvent, PlayerSnapshot, PlayerState, RestartPolicy,
+};
 pub use noop::NoopPlayerController;
 
 #[cfg(feature = "rodio-playback")]

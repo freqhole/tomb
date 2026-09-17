@@ -2,6 +2,7 @@
 //! bulk import of already-on-disk paths.
 
 use crate::config::get_config;
+use crate::database;
 use crate::error::ErrorDetail;
 use crate::jobs::{
     create_job, create_job_session, get_job, list_jobs, CreateJobRequest, CreateJobSessionRequest,
@@ -11,10 +12,13 @@ use crate::media_blobz::{
     create_media_blob, get_media_blob_by_sha256, BlobType, CreateMediaBlobRequest,
 };
 use crate::media_domain::MediaDomain;
-use crate::music::scanner::{is_supported_audio_file, scan_directory};
+use crate::music::entities::import_review::repository as import_review_repository;
+use crate::music::scanner::{
+    check_existing_blob_for_path, is_supported_audio_file, scan_directory, ExistingPathCheck,
+};
 use crate::offal::caller::Caller;
 use crate::response::GrimoireResponse;
-use crate::upload::{MusicImportResponse, MusicUploadResponse};
+use crate::upload::{ExistingImportedFile, MusicImportResponse, MusicUploadResponse};
 use crate::users::UserRole;
 use base64::Engine;
 use serde_json::{json, Value as JsonValue};
@@ -249,6 +253,20 @@ pub async fn upload_music(caller: &Caller, body: JsonValue) -> GrimoireResponse<
             None
         }
     };
+
+    // record where this session's reviewed output should ultimately go, if
+    // the caller flagged one - see import_session_send_targetz.
+    if let (Some(sid), Some(remote_id), Some(remote_name)) = (
+        &upload_session_id,
+        &req.target_remote_id,
+        &req.target_remote_name,
+    ) {
+        if let Err(e) =
+            import_review_repository::set_session_send_target(sid, remote_id, remote_name).await
+        {
+            tracing::warn!("failed to record send target for session {}: {}", sid, e);
+        }
+    }
 
     // create import job
     let job_payload = json!({
@@ -571,11 +589,42 @@ pub async fn import_music_paths(caller: &Caller, body: JsonValue) -> GrimoireRes
     };
 
     let session_id = session.id.clone();
+
+    // record where this session's reviewed output should ultimately go, if
+    // the caller flagged one - see import_session_send_targetz.
+    if let (Some(remote_id), Some(remote_name)) = (&req.target_remote_id, &req.target_remote_name) {
+        if let Err(e) =
+            import_review_repository::set_session_send_target(&session_id, remote_id, remote_name)
+                .await
+        {
+            tracing::warn!(
+                "failed to record send target for session {}: {}",
+                session_id,
+                e
+            );
+        }
+    }
+
     let mut jobs_created = 0i32;
     let mut directories_scanned = 0i32;
     let mut files_skipped = 0i32;
     let mut files_queued = 0i32;
     let mut files_already_in_library = 0i32;
+    let mut existing_files: Vec<ExistingImportedFile> = Vec::new();
+
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "failed to connect to database",
+                vec![ErrorDetail::new(
+                    "internal_error",
+                    "database error",
+                    e.to_string(),
+                )],
+            )
+        }
+    };
 
     for path_str in &req.paths {
         let path = Path::new(path_str);
@@ -620,6 +669,34 @@ pub async fn import_music_paths(caller: &Caller, body: JsonValue) -> GrimoireRes
                 continue;
             }
 
+            // cheap (no-hash) check: was this exact path already imported
+            // and is it still unchanged? mirrors scan_directory's own
+            // per-file dedup so individual "add files" gets the same
+            // cheap-skip a folder scan already has, instead of always
+            // queuing a job that just re-hashes an unchanged file. a
+            // moved/renamed duplicate (different path, same content) isn't
+            // caught here - that's only detectable by hashing, and is
+            // already handled once the job runs (see
+            // media_blobz::service::maybe_relocate_existing_blob, which
+            // repoints local_path once the content's rediscovered by hash,
+            // including repairing a path that no longer resolves to a
+            // real file).
+            let existing_blob_id = match check_existing_blob_for_path(&pool, path_str).await {
+                ExistingPathCheck::UnchangedSkip { blob_id } => {
+                    files_already_in_library += 1;
+                    let (song_id, album_id) = resolve_existing_song_for_blob(&pool, &blob_id).await;
+                    existing_files.push(ExistingImportedFile {
+                        file_path: path_str.clone(),
+                        song_id,
+                        album_id,
+                        video_id: None,
+                    });
+                    continue;
+                }
+                ExistingPathCheck::ChangedNeedsRescan { blob_id } => Some(blob_id),
+                ExistingPathCheck::New => None,
+            };
+
             // create a ProcessFile job for this file. leave
             // serialization_group unset so the runner falls back to
             // parent-dir grouping (siblings of one album dir serialize).
@@ -629,7 +706,7 @@ pub async fn import_music_paths(caller: &Caller, body: JsonValue) -> GrimoireRes
                 generate_thumbnail: true,
                 generate_waveform: true,
                 source_url: None,
-                existing_blob_id: None,
+                existing_blob_id,
                 serialization_group: None,
                 domain: None,
             };
@@ -656,13 +733,23 @@ pub async fn import_music_paths(caller: &Caller, body: JsonValue) -> GrimoireRes
 
     let message = if files_queued == 0 && files_already_in_library > 0 {
         format!(
-            "nothing new to import: {} file(s) already in your library ({} directories scanned, {} files skipped)",
-            files_already_in_library, directories_scanned, files_skipped
+            "nothing new to import: {} file(s) already in your library{}",
+            files_already_in_library,
+            format_nonzero_counts(&[
+                ("directories scanned", directories_scanned),
+                ("files skipped", files_skipped),
+            ])
         )
     } else {
         format!(
-            "queued {} file(s) across {} job(s) ({} directories scanned, {} already in library, {} files skipped)",
-            files_queued, jobs_created, directories_scanned, files_already_in_library, files_skipped
+            "queued {} file(s) across {} job(s){}",
+            files_queued,
+            jobs_created,
+            format_nonzero_counts(&[
+                ("directories scanned", directories_scanned),
+                ("already in library", files_already_in_library),
+                ("files skipped", files_skipped),
+            ])
         )
     };
     info!(
@@ -708,6 +795,7 @@ pub async fn import_music_paths(caller: &Caller, body: JsonValue) -> GrimoireRes
                             "import complete: {} completed, {} failed",
                             completed, failed
                         ),
+                        existing_files,
                     };
                     return GrimoireResponse::success(
                         "import complete",
@@ -726,7 +814,58 @@ pub async fn import_music_paths(caller: &Caller, body: JsonValue) -> GrimoireRes
         directories_scanned,
         files_skipped,
         message,
+        existing_files,
     };
 
     GrimoireResponse::success("import started", serde_json::to_value(response).unwrap())
+}
+
+/// build a "(N thing, M other thing)" suffix from labeled counts, omitting
+/// any that are zero - nobody needs to be told "0 directories scanned".
+/// returns an empty string (not even a leading space) when every count is
+/// zero, so callers can just append it directly to their message.
+fn format_nonzero_counts(parts: &[(&str, i32)]) -> String {
+    let joined: Vec<String> = parts
+        .iter()
+        .filter(|(_, n)| *n > 0)
+        .map(|(label, n)| format!("{} {}", n, label))
+        .collect();
+    if joined.is_empty() {
+        String::new()
+    } else {
+        format!(" ({})", joined.join(", "))
+    }
+}
+
+/// resolve the song (and its album, if any) already linked to a media
+/// blob - used when `check_existing_blob_for_path` cheap-skips a path
+/// before any job runs, so a batch-import caller can still report an
+/// actionable existing entity instead of the file silently vanishing from
+/// the result just because nothing new needed to happen.
+async fn resolve_existing_song_for_blob(
+    pool: &sqlx::SqlitePool,
+    blob_id: &str,
+) -> (Option<String>, Option<String>) {
+    let song_id: Option<String> = sqlx::query_scalar!(
+        "SELECT id as \"id!\" FROM songz WHERE media_blob_id = ? AND deleted_at IS NULL LIMIT 1",
+        blob_id
+    )
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten();
+
+    let album_id = match &song_id {
+        Some(sid) => sqlx::query_scalar!(
+            "SELECT album_id as \"album_id!\" FROM album_songz WHERE song_id = ?",
+            sid
+        )
+        .fetch_optional(pool)
+        .await
+        .ok()
+        .flatten(),
+        None => None,
+    };
+
+    (song_id, album_id)
 }

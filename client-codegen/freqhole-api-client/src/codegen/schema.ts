@@ -1285,6 +1285,12 @@ export const AudioDbAlbumDetailResultSchema = z.object({
 });
 export type AudioDbAlbumDetailResult = z.infer<typeof AudioDbAlbumDetailResultSchema>;
 
+export const AudioDeviceInfoSchema = z.object({
+  name: z.string(),
+  description: z.string()
+});
+export type AudioDeviceInfo = z.infer<typeof AudioDeviceInfoSchema>;
+
 export const AutoConfirmMbMatchesRequestSchema = z.object({
   album_ids: z.array(z.string()),
   min_confidence: z.number(),
@@ -1930,6 +1936,14 @@ export const EventFilterSchema = z.object({
 })])).nullish()
 });
 export type EventFilter = z.infer<typeof EventFilterSchema>;
+
+export const ExistingImportedFileSchema = z.object({
+  file_path: z.string(),
+  song_id: z.string().nullish(),
+  album_id: z.string().nullish(),
+  video_id: z.string().nullish()
+});
+export type ExistingImportedFile = z.infer<typeof ExistingImportedFileSchema>;
 
 export const ExternalUrlSchema = z.object({
   name: z.string(),
@@ -2953,6 +2967,11 @@ export const GetFavoriteStatusBulkRequestSchema = z.object({
 });
 export type GetFavoriteStatusBulkRequest = z.infer<typeof GetFavoriteStatusBulkRequestSchema>;
 
+export const GetImportSessionTargetRequestSchema = z.object({
+  session_id: z.string()
+});
+export type GetImportSessionTargetRequest = z.infer<typeof GetImportSessionTargetRequestSchema>;
+
 export const GetJobRequestSchema = z.object({
   job_id: z.string()
 });
@@ -3115,6 +3134,12 @@ export const ImportReviewOkSchema = z.object({
   ok: z.boolean()
 });
 export type ImportReviewOk = z.infer<typeof ImportReviewOkSchema>;
+
+export const ImportSessionSendTargetSchema = z.object({
+  target_remote_id: z.string().nullish(),
+  target_remote_name: z.string().nullish()
+});
+export type ImportSessionSendTarget = z.infer<typeof ImportSessionSendTargetSchema>;
 
 export const IngestRemoteImageRequestSchema = z.object({
   remote_url: z.string(),
@@ -4373,7 +4398,13 @@ export const MusicImportResponseSchema = z.object({
   jobs_created: z.number(),
   directories_scanned: z.number(),
   files_skipped: z.number(),
-  message: z.string()
+  message: z.string(),
+  existing_files: z.array(z.object({
+  file_path: z.string(),
+  song_id: z.string().nullish(),
+  album_id: z.string().nullish(),
+  video_id: z.string().nullish()
+}))
 });
 export type MusicImportResponse = z.infer<typeof MusicImportResponseSchema>;
 
@@ -4480,7 +4511,9 @@ export const PendingReviewSessionSchema = z.object({
   artwork_blob_id: z.string().nullish(),
   song_count: z.number(),
   pending_blob_count: z.number()
-}))
+})),
+  target_remote_id: z.string().nullish(),
+  target_remote_name: z.string().nullish()
 });
 export type PendingReviewSession = z.infer<typeof PendingReviewSessionSchema>;
 
@@ -4532,7 +4565,9 @@ export const PendingVideoReviewSessionSchema = z.object({
   episode_number: z.number().nullish()
 })),
   pending_blob_count: z.number()
-}))
+})),
+  target_remote_id: z.string().nullish(),
+  target_remote_name: z.string().nullish()
 });
 export type PendingVideoReviewSession = z.infer<typeof PendingVideoReviewSessionSchema>;
 
@@ -4604,7 +4639,9 @@ z.object({ kind: z.literal("next") }),
 z.object({ kind: z.literal("previous") }),
 z.object({ kind: z.literal("seek"), ms: z.number() }),
 z.object({ kind: z.literal("set_volume"), v: z.number() }),
-z.object({ kind: z.literal("status") })
+z.object({ kind: z.literal("status") }),
+z.object({ kind: z.literal("list_output_devices") }),
+z.object({ kind: z.literal("set_output_device"), name: z.string() })
 ]);
 export type PlayerCommand = z.infer<typeof PlayerCommandSchema>;
 
@@ -4615,7 +4652,8 @@ z.object({ kind: z.literal("track_changed"), index: z.number(), path: z.string()
 z.object({ kind: z.literal("ended") }),
 z.object({ kind: z.literal("error"), detail: ErrorDetailSchema }),
 z.object({ kind: z.literal("backend_down"), restart_count: z.number() }),
-z.object({ kind: z.literal("backend_up") })
+z.object({ kind: z.literal("backend_up") }),
+z.object({ kind: z.literal("output_devices"), devices: z.array(AudioDeviceInfoSchema) })
 ]);
 export type PlayerEvent = z.infer<typeof PlayerEventSchema>;
 
@@ -7744,6 +7782,21 @@ export const VideoSchema = z.object({
 });
 export type Video = z.infer<typeof VideoSchema>;
 
+export const VideoImportResponseSchema = z.object({
+  session_id: z.string(),
+  jobs_created: z.number(),
+  directories_scanned: z.number(),
+  files_skipped: z.number(),
+  message: z.string(),
+  existing_files: z.array(z.object({
+  file_path: z.string(),
+  song_id: z.string().nullish(),
+  album_id: z.string().nullish(),
+  video_id: z.string().nullish()
+}))
+});
+export type VideoImportResponse = z.infer<typeof VideoImportResponseSchema>;
+
 export const VideoImportReviewOkSchema = z.object({
   ok: z.boolean()
 });
@@ -7774,7 +7827,10 @@ export const VideoRenditionSchema = z.object({
   label: z.string(),
   extension: z.string(),
   mime: z.string().nullish(),
-  skipped: z.boolean()
+  skipped: z.boolean(),
+  blake3: z.string().nullish(),
+  width: z.number().nullish(),
+  height: z.number().nullish()
 });
 export type VideoRendition = z.infer<typeof VideoRenditionSchema>;
 

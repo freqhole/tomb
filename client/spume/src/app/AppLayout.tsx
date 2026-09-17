@@ -47,7 +47,7 @@ import {
 } from "../components/player/VideoMiniPlayer";
 import { QueueSidebar } from "../components/player/QueueSidebar";
 
-import { isRemoteTargetActive } from "./services/players/activeTarget";
+import { activeTargetNodeId, isRemoteTargetActive } from "./services/players/activeTarget";
 import {
   remotePause,
   remoteResume,
@@ -65,6 +65,7 @@ import {
   remoteCurrentItem,
   remoteTargetOffline,
   setRemoteStatusPolling,
+  forceResyncRemoteStatus,
 } from "./services/players/remotePlaybackControl";
 import { getCurrentRemote, getCurrentUser, getDataSource } from "../music/data";
 import { syncArtistImagesForRemotePlay } from "../music/services/sync/syncArtistImagesOnPlay";
@@ -128,7 +129,6 @@ import {
   onSwitchToLocal,
 } from "./services/remotes/remoteManager";
 import { seedOnlineMap, wakeAllRemotes } from "./services/remotes/remoteHealth";
-import { wakeAllPlayers } from "./services/players/playerPresenceStore";
 import type { ImageMetadata, Song } from "../music/services/storage/types";
 import {
   mediaItemKey,
@@ -227,6 +227,11 @@ export function AppLayout(props: AppLayoutProps) {
   const navigate = useNavigate();
   const location = useLocation();
   const queryClient = useQueryClient();
+  // the `/player` route turns this tab into a remote-controllable playback
+  // target (CenotaphPlayerApp) - it renders its own full-screen UI, so
+  // AppLayout hides its normal chrome (TopNav/PlayerBar/sidebar/modals)
+  // rather than mounting a separate top-level shell for it.
+  const isPlayerRoute = createMemo(() => location.pathname === "/player");
   const [currentSongData, setCurrentSongData] = createSignal<Song | null>(null);
   const [currentVideoData, setCurrentVideoData] = createSignal<QueuedVideo | null>(null);
   const toggleFavoriteMutation = useToggleFavoriteMutation();
@@ -315,6 +320,22 @@ export function AppLayout(props: AppLayoutProps) {
   // phase 6: unified playback target (paired freqhole-player devices) -
   // the "play on" picker itself now lives in QueueSidebar's bottom row.
   createEffect(() => setRemoteStatusPolling(isRemoteTargetActive()));
+  // setRemoteStatusPolling(true) above no-ops once already polling (see
+  // its own doc comment) - switching directly from one active remote
+  // target to a DIFFERENT one never toggles isRemoteTargetActive() (it
+  // stays true the whole time), so that effect alone never re-points the
+  // push subscription at the new target - it silently kept listening to
+  // the old one (or nothing, if that connection died), leaving the new
+  // target's queue/status stuck showing stale data for up to a full poll
+  // interval (30s). force a resync whenever the target's node id itself
+  // changes while still remote (a real reported "switching players gets
+  // stuck" bug) - `forceResyncRemoteStatus()` already does exactly the
+  // teardown+reopen this needs (built for the tab-refocus case below).
+  createEffect(
+    on(activeTargetNodeId, (nodeId, prevNodeId) => {
+      if (nodeId && prevNodeId && nodeId !== prevNodeId) forceResyncRemoteStatus();
+    })
+  );
   onCleanup(() => setRemoteStatusPolling(false));
 
   // "optimistic remote-target playerbar sync" follow-up: surface the
@@ -525,9 +546,16 @@ export function AppLayout(props: AppLayoutProps) {
 
     // re-probe when the tab/window becomes visible again — covers the
     // "laptop woke from sleep / switched back to tab" case where
-    // stale-offline flags are common.
+    // stale-offline flags are common. also forces an immediate resync
+    // with the active remote player (if any) - its own poll/push timers
+    // can both sit quiet for a while after an OS-suspended background
+    // tab wakes, which otherwise showed up as a stuck play/pause button
+    // and frozen progress bar for a while after reconnecting.
     const onVisibility = () => {
-      if (document.visibilityState === "visible") wakeAllRemotes();
+      if (document.visibilityState === "visible") {
+        wakeAllRemotes();
+        forceResyncRemoteStatus();
+      }
     };
     document.addEventListener("visibilitychange", onVisibility);
     window.addEventListener("focus", onVisibility);
@@ -602,15 +630,11 @@ export function AppLayout(props: AppLayoutProps) {
 
       // seed the reactive `isOnline(id)` map and fire a background wake-up
       // probe for every offline remote. dedupe + backoff lives in
-      // remoteHealth so it's safe to call this freely.
+      // remoteHealth so it's safe to call this freely - the same probe
+      // also seeds the live `isPlayerNow` map (remoteHealth.ts), so there's
+      // no separate player-presence sweep to run here anymore.
       void seedOnlineMap();
       wakeAllRemotes();
-
-      // same idea for paired players (playerPresenceStore.ts) - a
-      // fire-and-forget sweep, never awaited, so this never delays
-      // initial load/render. QueuePlayerTargetRow's flyout re-triggers
-      // this itself on open for a fresher read.
-      wakeAllPlayers();
 
       // listen for remote status changes (offline/online) and refresh remotes list
       unsubscribeStatusChange = onRemoteStatusChange(async (_remoteId, _isOffline) => {
@@ -874,6 +898,23 @@ export function AppLayout(props: AppLayoutProps) {
 
   const queueOpen = () => appState()?.queue_open ?? false;
 
+  // the narrow queue overlay (QueueSidebar.tsx's z-1140, backdrop z-1130)
+  // sits above every modal (AddRemoteModal/Modal.tsx top out at z-1060) -
+  // opening a modal while the queue sheet is open (e.g. a toast's
+  // "reconnect" action opening AddRemoteModal - see
+  // docs/cenotaph-queue-ux-hardening-plan.md issue 5) left the modal
+  // buried underneath it with no visible way to close the queue sheet
+  // first. mirrors the video mini player's own auto-dismiss effect above
+  // (same `isAnyModalOpenReactive`). only narrow/overlay mode has this
+  // z-index conflict - wide's inline sidebar is z-110, well below any
+  // modal, so closing it there on every modal open would be needlessly
+  // disruptive to an always-visible panel.
+  createEffect(() => {
+    if (isNarrow() && queueOpen() && isAnyModalOpenReactive()) {
+      void setQueueOpen(false);
+    }
+  });
+
   const handleSeek = (percentage: number) => {
     const dur = duration();
     const timeInSeconds = (percentage / 100) * dur;
@@ -1128,240 +1169,278 @@ export function AppLayout(props: AppLayoutProps) {
   };
 
   return (
-    <div
-      class={`flex flex-col ${bgConfig() ? "bg-transparent" : "bg-[var(--color-bg-primary)]"}`}
-      style={{
-        height: "100dvh",
-        "--player-bar-height":
-          (appState()?.queue.length || 0) > 0 || radioStatus() !== "idle" || !!currentRadioStation()
-            ? "var(--player-height)"
-            : "0px",
-      }}
+    <Show
+      when={!isPlayerRoute()}
+      fallback={
+        <div class="h-full w-full">
+          {props.children}
+          <Portal>
+            <ToastRegion />
+          </Portal>
+        </div>
+      }
     >
-      {/* full-page background image (when set by a view) */}
-      <Show when={bgConfig()}>
-        {(config) => (
-          <>
-            {/* background image */}
-            <div
-              class="fixed inset-0 bg-cover bg-center bg-no-repeat transition-opacity duration-500"
-              style={{
-                "background-image": `url(${config().imageUrl})`,
-                "z-index": -2,
-              }}
-            />
-            {/* dark overlay for readability */}
-            <div
-              class="fixed inset-0 bg-black transition-opacity duration-500"
-              style={{
-                opacity: config().overlayOpacity ?? 0.7,
-                "z-index": -1,
-              }}
-            />
-          </>
-        )}
-      </Show>
-
-      {/* top navigation */}
-      <TopNav
-        brandName="freqhole"
-        brandTagline="get yr freq on."
-        currentUsername={getCurrentUser()?.username ?? null}
-        currentUserRole={getCurrentUser()?.role ?? null}
-        searchPlaceholder="search artists, albums, songs..."
-        onSearchChange={(query) => debug("AppLayout", "search:", query)}
-        onSearchSubmit={(query) => debug("AppLayout", "search submit:", query)}
-        onNavigate={(path) => navigate(path)}
-        currentPath={location.pathname + location.search}
-        currentSourceName={currentSourceName()}
-        currentSourceId={getCurrentRemote()?.remote_id ?? null}
-        remotes={remotes().map((r) => {
-          // charnel-managed remotes are always local (embedded grimoire)
-          const isCharnelManaged = r.is_charnel_managed === true;
-          const url = isHttpRemote(r) && r.base_url ? r.base_url.toLowerCase() : "";
-          const isLocal =
-            isCharnelManaged ||
-            url.includes("localhost") ||
-            url.includes("127.0.0.1") ||
-            url.includes("[::1]");
-          return {
-            id: r.remote_id,
-            name: r.name,
-            url: isHttpRemote(r) ? (r.base_url ?? "local") : r.peer_addr,
-            imageUrl: r.image_url ?? undefined,
-            imageBlobId: r.image_blob_id ?? undefined,
-            peerAddr: isP2PRemote(r) ? r.peer_addr : undefined,
-            isOffline: r.is_offline,
-            lastChecked: r.last_checked,
-            isCharnelManaged: r.is_charnel_managed,
-            isLocal,
-            updatedAt: r.updated_at,
-          };
-        })}
-        onSwitchToLocal={handleSwitchToLocal}
-        onSwitchToRemote={handleSwitchToRemote}
-        onRecheckRemote={handleRecheckRemote}
-        onAddRemote={() => setIsAddRemoteOpen(true)}
-        onDeleteRemote={handleDeleteRemote}
-        onRenameRemote={handleRenameRemote}
-        localLibraryName={getLocalLibraryName()}
-        onRenameLocalLibrary={async (newName) => {
-          try {
-            await setLocalLibraryName(newName);
-            toast.success("local library renamed");
-          } catch (error) {
-            console.error("failed to rename local library:", error);
-            toast.error("failed to rename local library");
-            throw error;
-          }
-        }}
-        storageUsage={storageUsage()}
-        storageQuota={storageQuota()}
-        recentPlaylists={
-          recentPlaylistsQuery.data?.map((playlist) => ({
-            id: playlist.playlist_id,
-            name: playlist.title,
-            images: playlist.images,
-            updatedAt: playlist.updated_at,
-            onClick: () => handlePlaylistClick(playlist.playlist_id),
-          })) || []
-        }
-        onViewAllPlaylists={handleViewAllPlaylists}
-        onCreatePlaylist={handleCreatePlaylist}
-        onAddMedia={() => openAddMedia()}
-        pageTitle={getPageInfo().title}
-        pageCount={getPageInfo().count}
-        viewOptions={viewOptions()}
-        rightContent={topNavRightContent()}
-        secondaryRowContent={topNavSecondaryRowContent()}
-        searchComponent={topNavSearchContent()}
-        externalSearchExpanded={topNavSearchExpanded()}
-        hideSearch={topNavHideSearch()}
-        mainNavSections={[
-          {
-            items: [
-              // aggregate feed — combines all remotes
-              {
-                label: "all feeds",
-                onClick: () => {
-                  navigate("/feed");
-                },
-              },
-              // per-remote feed is only available when hasFeedView() is true
-              ...(hasFeedView()
-                ? [
-                    {
-                      label: "feed",
-                      onClick: () => {
-                        navigate(routes.feed());
-                      },
-                    },
-                  ]
-                : []),
-              {
-                label: "songs",
-                onClick: () => {
-                  const prefix = routeContext.isLocal() ? "/local" : `/${routeContext.remoteId()}`;
-                  navigate(`${prefix}/songs`);
-                },
-              },
-              {
-                label: "albums",
-                onClick: () => {
-                  const prefix = routeContext.isLocal() ? "/local" : `/${routeContext.remoteId()}`;
-                  navigate(`${prefix}/albums`);
-                },
-              },
-              {
-                label: "artists",
-                onClick: () => {
-                  const prefix = routeContext.isLocal() ? "/local" : `/${routeContext.remoteId()}`;
-                  navigate(`${prefix}/artists`);
-                },
-              },
-              {
-                label: "playlists",
-                onClick: () => {
-                  const prefix = routeContext.isLocal() ? "/local" : `/${routeContext.remoteId()}`;
-                  navigate(`${prefix}/playlists`);
-                },
-              },
-              {
-                label: "favorites",
-                onClick: () => {
-                  const prefix = routeContext.isLocal() ? "/local" : `/${routeContext.remoteId()}`;
-                  navigate(`${prefix}/favorites`);
-                },
-              },
-            ],
-          },
-        ]}
-      />
-
-      {/* main content area */}
       <div
-        class="flex-1 overflow-hidden flex"
+        class={`flex flex-col ${bgConfig() ? "bg-transparent" : "bg-[var(--color-bg-primary)]"}`}
         style={{
-          // narrow's nav is a floating, semi-transparent strip like wide's -
-          // content spans the full height (starting behind it) so scrolling
-          // moves content up under it, instead of reserving solid space here.
-          "padding-bottom": "var(--player-bar-height)",
+          height: "100dvh",
+          "--player-bar-height":
+            (appState()?.queue.length || 0) > 0 ||
+            radioStatus() !== "idle" ||
+            !!currentRadioStation()
+              ? "var(--player-height)"
+              : "0px",
         }}
       >
-        <div class="flex-1 overflow-hidden">{props.children}</div>
+        {/* full-page background image (when set by a view) */}
+        <Show when={bgConfig()}>
+          {(config) => (
+            <>
+              {/* background image */}
+              <div
+                class="fixed inset-0 bg-cover bg-center bg-no-repeat transition-opacity duration-500"
+                style={{
+                  "background-image": `url(${config().imageUrl})`,
+                  "z-index": -2,
+                }}
+              />
+              {/* dark overlay for readability */}
+              <div
+                class="fixed inset-0 bg-black transition-opacity duration-500"
+                style={{
+                  opacity: config().overlayOpacity ?? 0.7,
+                  "z-index": -1,
+                }}
+              />
+            </>
+          )}
+        </Show>
 
-        {/* queue sidebar - overlay drawer on narrow, inline sidebar on wide.
+        {/* top navigation */}
+        <TopNav
+          brandName="freqhole"
+          brandTagline="get yr freq on."
+          currentUsername={getCurrentUser()?.username ?? null}
+          currentUserRole={getCurrentUser()?.role ?? null}
+          searchPlaceholder="search artists, albums, songs..."
+          onSearchChange={(query) => debug("AppLayout", "search:", query)}
+          onSearchSubmit={(query) => debug("AppLayout", "search submit:", query)}
+          onNavigate={(path) => navigate(path)}
+          currentPath={location.pathname + location.search}
+          currentSourceName={currentSourceName()}
+          currentSourceId={getCurrentRemote()?.remote_id ?? null}
+          remotes={remotes().map((r) => {
+            // charnel-managed remotes are always local (embedded grimoire)
+            const isCharnelManaged = r.is_charnel_managed === true;
+            const url = isHttpRemote(r) && r.base_url ? r.base_url.toLowerCase() : "";
+            const isLocal =
+              isCharnelManaged ||
+              url.includes("localhost") ||
+              url.includes("127.0.0.1") ||
+              url.includes("[::1]");
+            return {
+              id: r.remote_id,
+              name: r.name,
+              url: isHttpRemote(r) ? (r.base_url ?? "local") : r.peer_addr,
+              imageUrl: r.image_url ?? undefined,
+              imageBlobId: r.image_blob_id ?? undefined,
+              peerAddr: isP2PRemote(r) ? r.peer_addr : undefined,
+              isOffline: r.is_offline,
+              lastChecked: r.last_checked,
+              isCharnelManaged: r.is_charnel_managed,
+              isLocal,
+              updatedAt: r.updated_at,
+            };
+          })}
+          onSwitchToLocal={handleSwitchToLocal}
+          onSwitchToRemote={handleSwitchToRemote}
+          onRecheckRemote={handleRecheckRemote}
+          onAddRemote={() => setIsAddRemoteOpen(true)}
+          onDeleteRemote={handleDeleteRemote}
+          onRenameRemote={handleRenameRemote}
+          localLibraryName={getLocalLibraryName()}
+          onRenameLocalLibrary={async (newName) => {
+            try {
+              await setLocalLibraryName(newName);
+              toast.success("local library renamed");
+            } catch (error) {
+              console.error("failed to rename local library:", error);
+              toast.error("failed to rename local library");
+              throw error;
+            }
+          }}
+          storageUsage={storageUsage()}
+          storageQuota={storageQuota()}
+          recentPlaylists={
+            recentPlaylistsQuery.data?.map((playlist) => ({
+              id: playlist.playlist_id,
+              name: playlist.title,
+              images: playlist.images,
+              updatedAt: playlist.updated_at,
+              onClick: () => handlePlaylistClick(playlist.playlist_id),
+            })) || []
+          }
+          onViewAllPlaylists={handleViewAllPlaylists}
+          onCreatePlaylist={handleCreatePlaylist}
+          onAddMedia={() => openAddMedia()}
+          pageTitle={getPageInfo().title}
+          pageCount={getPageInfo().count}
+          viewOptions={viewOptions()}
+          rightContent={topNavRightContent()}
+          secondaryRowContent={topNavSecondaryRowContent()}
+          searchComponent={topNavSearchContent()}
+          externalSearchExpanded={topNavSearchExpanded()}
+          hideSearch={topNavHideSearch()}
+          mainNavSections={[
+            {
+              items: [
+                // aggregate feed — combines all remotes
+                {
+                  label: "all feeds",
+                  onClick: () => {
+                    navigate("/feed");
+                  },
+                },
+                // per-remote feed is only available when hasFeedView() is true
+                ...(hasFeedView()
+                  ? [
+                      {
+                        label: "feed",
+                        onClick: () => {
+                          navigate(routes.feed());
+                        },
+                      },
+                    ]
+                  : []),
+                {
+                  label: "songs",
+                  onClick: () => {
+                    const prefix = routeContext.isLocal()
+                      ? "/local"
+                      : `/${routeContext.remoteId()}`;
+                    navigate(`${prefix}/songs`);
+                  },
+                },
+                {
+                  label: "albums",
+                  onClick: () => {
+                    const prefix = routeContext.isLocal()
+                      ? "/local"
+                      : `/${routeContext.remoteId()}`;
+                    navigate(`${prefix}/albums`);
+                  },
+                },
+                {
+                  label: "artists",
+                  onClick: () => {
+                    const prefix = routeContext.isLocal()
+                      ? "/local"
+                      : `/${routeContext.remoteId()}`;
+                    navigate(`${prefix}/artists`);
+                  },
+                },
+                {
+                  label: "playlists",
+                  onClick: () => {
+                    const prefix = routeContext.isLocal()
+                      ? "/local"
+                      : `/${routeContext.remoteId()}`;
+                    navigate(`${prefix}/playlists`);
+                  },
+                },
+                {
+                  label: "favorites",
+                  onClick: () => {
+                    const prefix = routeContext.isLocal()
+                      ? "/local"
+                      : `/${routeContext.remoteId()}`;
+                    navigate(`${prefix}/favorites`);
+                  },
+                },
+              ],
+            },
+          ]}
+        />
+
+        {/* main content area */}
+        <div
+          class="flex-1 overflow-hidden flex"
+          style={{
+            // narrow's nav is a floating, semi-transparent strip like wide's -
+            // content spans the full height (starting behind it) so scrolling
+            // moves content up under it, instead of reserving solid space here.
+            "padding-bottom": "var(--player-bar-height)",
+          }}
+        >
+          <div class="flex-1 overflow-hidden">{props.children}</div>
+
+          {/* queue sidebar - overlay drawer on narrow, inline sidebar on wide.
             operates directly on the real, ordered `MediaItem[]` queue
             (phase 4b) - QueueSidebar now renders one unified, interleaved
             virtualized list, so no more song-only/video-only index-mapping
             is needed. */}
-        <QueueSidebar
-          isOpen={queueOpen()}
-          variant={isNarrow() ? "overlay" : "inline"}
-          items={appState()?.queue ?? []}
-          currentIndex={findMediaItemIndex(appState()?.queue ?? [], appState()?.current_sha256)}
-          upNextIndex={
-            pendingUpNextSha256()
-              ? findMediaItemIndex(appState()?.queue ?? [], pendingUpNextSha256())
-              : undefined
-          }
-          currentTime={currentTime()}
-          duration={duration()}
-          progressMap={progressMap()}
-          loadingIds={loadingIds()}
-          onClose={() => void setQueueOpen(false)}
-          onItemClick={(index) => {
-            const item = appState()?.queue[index];
-            if (item) void playMediaItem(item, { userInitiated: true });
-          }}
-          onItemDoubleClick={(index) => {
-            const item = appState()?.queue[index];
-            if (item) void playMediaItem(item, { userInitiated: true });
-          }}
-          onRemoveItem={(index) => void removeFromQueue(index)}
-          onReorder={(fromIndex, toIndex) => void reorderQueue(fromIndex, toIndex)}
-          onClearAll={() => {
-            void clearQueue();
-          }}
-          onRadioQueueEntryClick={(station) => {
-            void tuneIntoRadio(station.peer_addr, {
-              stationId: station.station_id,
-              stationName: station.station_name,
-              isLocal: station.is_local,
-            });
-          }}
-          getRadioQueueContextMenuActions={getRadioQueueContextMenuActions}
-          onResumeDownloads={() => {
-            resumeAutoDownload();
-          }}
-          pendingDownloadCount={getPendingDownloadCount()}
-          getContextMenuActions={(index, item) => {
-            const queueLength = appState()?.queue.length ?? 0;
+          <QueueSidebar
+            isOpen={queueOpen()}
+            variant={isNarrow() ? "overlay" : "inline"}
+            items={appState()?.queue ?? []}
+            currentIndex={findMediaItemIndex(appState()?.queue ?? [], appState()?.current_sha256)}
+            upNextIndex={
+              pendingUpNextSha256()
+                ? findMediaItemIndex(appState()?.queue ?? [], pendingUpNextSha256())
+                : undefined
+            }
+            currentTime={currentTime()}
+            duration={duration()}
+            progressMap={progressMap()}
+            loadingIds={loadingIds()}
+            onClose={() => void setQueueOpen(false)}
+            onItemClick={(index) => {
+              const item = appState()?.queue[index];
+              if (item) void playMediaItem(item, { userInitiated: true });
+            }}
+            onItemDoubleClick={(index) => {
+              const item = appState()?.queue[index];
+              if (item) void playMediaItem(item, { userInitiated: true });
+            }}
+            onRemoveItem={(index) => void removeFromQueue(index)}
+            onReorder={(fromIndex, toIndex) => void reorderQueue(fromIndex, toIndex)}
+            onClearAll={() => {
+              void clearQueue();
+            }}
+            onRadioQueueEntryClick={(station) => {
+              void tuneIntoRadio(station.peer_addr, {
+                stationId: station.station_id,
+                stationName: station.station_name,
+                isLocal: station.is_local,
+              });
+            }}
+            getRadioQueueContextMenuActions={getRadioQueueContextMenuActions}
+            onResumeDownloads={() => {
+              resumeAutoDownload();
+            }}
+            pendingDownloadCount={getPendingDownloadCount()}
+            getContextMenuActions={(index, item) => {
+              const queueLength = appState()?.queue.length ?? 0;
 
-            if (item.kind === "video") {
-              return useVideoContextMenu(item.video, {
+              if (item.kind === "video") {
+                return useVideoContextMenu(item.video, {
+                  showPlayActions: false,
+                  isFavorite: queueVideoFavoriteQuery.data?.has(item.video.id) ?? false,
+                  showRemoveFromQueue: true,
+                  queueIndex: index,
+                  onRemoveFromQueue: () => void removeFromQueue(index),
+                  showClearAbove: index > 0,
+                  onClearAbove: () => void clearSongsAbove(index),
+                  showClearBelow: index < queueLength - 1,
+                  onClearBelow: () => void clearSongsBelow(index),
+                });
+              }
+
+              const song = item.song;
+              const isSynced = isSongSyncedLocally(song.sha256);
+              return useSongContextMenu(song, {
                 showPlayActions: false,
-                isFavorite: queueVideoFavoriteQuery.data?.has(item.video.id) ?? false,
+                isFavorite: song.is_favorite || false,
                 showRemoveFromQueue: true,
                 queueIndex: index,
                 onRemoveFromQueue: () => void removeFromQueue(index),
@@ -1369,651 +1448,637 @@ export function AppLayout(props: AppLayoutProps) {
                 onClearAbove: () => void clearSongsAbove(index),
                 showClearBelow: index < queueLength - 1,
                 onClearBelow: () => void clearSongsBelow(index),
-              });
-            }
-
-            const song = item.song;
-            const isSynced = isSongSyncedLocally(song.sha256);
-            return useSongContextMenu(song, {
-              showPlayActions: false,
-              isFavorite: song.is_favorite || false,
-              showRemoveFromQueue: true,
-              queueIndex: index,
-              onRemoveFromQueue: () => void removeFromQueue(index),
-              showClearAbove: index > 0,
-              onClearAbove: () => void clearSongsAbove(index),
-              showClearBelow: index < queueLength - 1,
-              onClearBelow: () => void clearSongsBelow(index),
-              showDeleteFromLocal: isSynced,
-              onDeleteFromLocal: async () => {
-                const result = await deleteSongFromLocal(song.id, {
-                  remoteServerId: song.remote_server_id,
-                  sha256: song.sha256,
-                });
-                if (result.success) {
-                  // also remove from queue after deletion
-                  await removeFromQueue(index);
-                  toast.success("removed from local library");
-                } else {
-                  toast.error(result.error || "failed to delete");
-                }
-              },
-            });
-          }}
-          historyEntries={queueHistory()}
-          onReplayHistoryEntry={(entry) => {
-            if (entry.type === "radio_station" && entry.radio_station_ref) {
-              const ref = entry.radio_station_ref;
-              void tuneIntoRadio(ref.peer_addr, {
-                stationId: ref.station_id,
-                stationName: ref.station_name,
-                isLocal: ref.is_local,
-              });
-              return;
-            }
-            const hasProgress = (entry.listened_seconds || 0) > 0;
-            if (hasProgress) {
-              // resume from where we left off
-              void resumeHistoryEntry(entry);
-            } else {
-              // play from the beginning
-              void addToQueue(entry.songs, {
-                startPlaying: true,
-                source: {
-                  type: entry.type,
-                  label: entry.label,
-                  entity_id: entry.entity_id,
-                  image: entry.image,
+                showDeleteFromLocal: isSynced,
+                onDeleteFromLocal: async () => {
+                  const result = await deleteSongFromLocal(song.id, {
+                    remoteServerId: song.remote_server_id,
+                    sha256: song.sha256,
+                  });
+                  if (result.success) {
+                    // also remove from queue after deletion
+                    await removeFromQueue(index);
+                    toast.success("removed from local library");
+                  } else {
+                    toast.error(result.error || "failed to delete");
+                  }
                 },
               });
-            }
-          }}
-          onRemoveHistoryEntry={(id) => {
-            void removeHistoryEntry(id);
-          }}
-          onClearHistory={async () => {
-            const confirmed = await confirm({
-              title: "clear history",
-              message: "are you sure you want to clear all queue history?",
-              confirmText: "clear",
-              variant: "danger",
-            });
-            if (confirmed) {
-              void clearQueueHistory();
-            }
-          }}
-          getHistoryContextMenuActions={getHistoryContextMenuActions}
-          currentRadioStation={currentRadioStation()}
-          currentRadioRemoteName={currentRadioRemoteName()}
-          currentRadioRemoteImage={currentRadioRemoteImage()}
-        />
-      </div>
-
-      {/* unified player bar — handles both music (queue) and radio modes.
-          radio audio element lives here so playback survives navigation;
-          `setRadioAudioSink` is called once on mount. */}
-      <Show
-        when={
-          (appState()?.queue.length || 0) > 0 ||
-          radioStatus() !== "idle" ||
-          !!currentRadioStation() ||
-          isRemoteTargetActive()
-        }
-      >
-        {(() => {
-          const isRadio = () => playbackMode() === "radio";
-
-          // phase 14b-style local-library lookup for whatever's currently
-          // playing on a remote target - mirrors RemoteQueueRow.tsx's own
-          // per-row lookup, so the bar can show a resolved song's real
-          // images/favorite state instead of just the raw thumb the source
-          // device sent, when this device happens to already have it.
-          const [remoteBarSong] = createResource(
-            () => remoteCurrentItem()?.blake3_hash,
-            getSongByBlake3
-          );
-
-          // build the song-shaped object the bar consumes. in radio mode,
-          // map fields from radioNowPlaying() + radioArtUrl().
-          const barSong = () => {
-            if (isRemoteTargetActive()) {
-              const item = remoteCurrentItem();
-              if (!item) return undefined;
-              const resolved = remoteBarSong();
-              if (resolved) {
-                return {
-                  id: resolved.id,
-                  sha256: resolved.sha256,
-                  title: resolved.title,
-                  artist:
-                    resolved.album_type === "compilation" && resolved.track_artist?.trim()
-                      ? resolved.track_artist
-                      : resolved.artist_name,
-                  album: resolved.album_title,
-                  images: resolved.images,
-                  album_images: resolved.album_images,
-                  isFavorite: resolved.is_favorite || false,
-                };
+            }}
+            historyEntries={queueHistory()}
+            onReplayHistoryEntry={(entry) => {
+              if (entry.type === "radio_station" && entry.radio_station_ref) {
+                const ref = entry.radio_station_ref;
+                void tuneIntoRadio(ref.peer_addr, {
+                  stationId: ref.station_id,
+                  stationName: ref.station_name,
+                  isLocal: ref.is_local,
+                });
+                return;
               }
-              return {
-                id: item.blake3_hash,
-                title: item.title || "untitled",
-                artist: item.artist ?? "unknown artist",
-                album: undefined,
-                thumbnailUrl: item.artwork_full_url ?? item.artwork_thumb_url,
-                images: undefined,
-                isFavorite: false,
-              };
-            }
-            if (isRadio()) {
-              const np = radioNowPlaying();
-              if (!np) {
-                const station = currentRadioStation();
-                if (!station) return undefined;
-                return {
-                  id: station.station_id || station.peer_addr || "radio",
-                  title: station.station_name || "radio station",
-                  artist: "radio",
-                  album: "ready to resume",
-                  thumbnailUrl: undefined,
-                };
-              }
-              const remoteId = radioCurrentRemoteServerId();
-              const artUrl = radioArtUrl() ?? undefined;
-              const images = remoteId
-                ? [
-                    ...(np.art_blob_id
-                      ? [
-                          {
-                            remote_blob_id: np.art_blob_id,
-                            remote_server_id: remoteId,
-                            is_primary: true,
-                            blob_type: "thumbnail" as const,
-                          },
-                        ]
-                      : []),
-                    ...(np.waveform_blob_id
-                      ? [
-                          {
-                            remote_blob_id: np.waveform_blob_id,
-                            remote_server_id: remoteId,
-                            is_primary: false,
-                            blob_type: "waveform" as const,
-                          },
-                        ]
-                      : []),
-                  ]
-                : undefined;
-              return {
-                id: np.song_id || "radio",
-                title: np.title || "untitled",
-                artist: np.artist ?? "unknown artist",
-                album: np.album ?? undefined,
-                thumbnailUrl: artUrl,
-                images,
-                isFavorite: radioCurrentFavorite() ?? false,
-              };
-            }
-            const cs = currentSongData();
-            if (cs) {
-              return {
-                id: cs.id,
-                sha256: cs.sha256,
-                title: cs.title,
-                artist:
-                  cs.album_type === "compilation" && cs.track_artist?.trim()
-                    ? cs.track_artist
-                    : cs.artist_name,
-                album: cs.album_title,
-                images: cs.images,
-                album_images: cs.album_images,
-                artist_images: cs.artist_images,
-                isFavorite: cs.is_favorite || false,
-              };
-            }
-            const cv = currentVideoData();
-            if (cv) {
-              // video mode: player bar shows a minimal metadata surface
-              // (title only, no favorite/album-nav actions yet). the
-              // actual video element is mounted on the dedicated watch
-              // page via getVideoElement(), not embedded in the bar.
-              return {
-                id: cv.id,
-                sha256: cv.id,
-                title: cv.title,
-                artist: "video",
-                album: undefined,
-                images: undefined,
-                album_images: undefined,
-                isFavorite: false,
-              };
-            }
-            // fall back to appState directly so the bar never flashes "no
-            // song playing" during the brief window between appState loading
-            // from IDB and the createEffect updating currentSongData.
-            const state = appState();
-            const sha256 = state?.current_sha256;
-            if (!sha256) return undefined;
-            const queueItem = state?.queue.find((i) => mediaItemKey(i) === sha256);
-            if (!queueItem) return undefined;
-            if (queueItem.kind === "video") {
-              return {
-                id: queueItem.video.id,
-                sha256: queueItem.video.id,
-                title: queueItem.video.title,
-                artist: "video",
-                album: undefined,
-                images: undefined,
-                album_images: undefined,
-                isFavorite: false,
-              };
-            }
-            const queueSong = queueItem.song;
-            return {
-              id: queueSong.id,
-              sha256: queueSong.sha256,
-              title: queueSong.title,
-              artist:
-                queueSong.album_type === "compilation" && queueSong.track_artist?.trim()
-                  ? queueSong.track_artist
-                  : queueSong.artist_name,
-              album: queueSong.album_title,
-              images: queueSong.images,
-              album_images: queueSong.album_images,
-              artist_images: queueSong.artist_images,
-              isFavorite: queueSong.is_favorite || false,
-            };
-          };
-
-          // map the currently playing video's raw codegen `images` shape
-          // (`blob_id`/`is_primary: number`) to the bar's `ImageMetadata`
-          // shape (`remote_blob_id`/`is_primary: boolean`) — mirrors the
-          // same mapping done for queued video rows in QueueSidebar.tsx.
-          const barVideo = (): PlayerBarVideo | null => {
-            const cv = currentVideoData();
-            if (!cv) return null;
-            return {
-              id: cv.id,
-              title: cv.title,
-              source_type: cv.source_type,
-              poster_blob_id: cv.poster_blob_id,
-              poster_opfs_path: cv.poster_opfs_path,
-              remote_server_id: cv.remote_server_id,
-              images: cv.images?.map((img) => ({
-                remote_blob_id: img.blob_id,
-                remote_server_id: cv.remote_server_id,
-                is_primary: !!img.is_primary,
-                blob_type: img.blob_type,
-              })),
-            };
-          };
-
-          const barIsPlaying = () =>
-            isRemoteTargetActive()
-              ? remoteIsPlaying()
-              : isRadio()
-                ? radioStatus() === "playing"
-                : isPlaying();
-          // for remote targets: show the loading ring while a control
-          // command is in flight (play/pause/skip/seek/volume) or before
-          // the first status has arrived for this target (reconnect-safe -
-          // avoids briefly showing a stale/wrong play-pause icon while the
-          // real state is still unknown).
-          const barIsLoading = () =>
-            isRemoteTargetActive()
-              ? remoteCommandPending() || !remoteStatusKnown()
-              : isRadio()
-                ? radioStatus() === "connecting"
-                : isLoading();
-          const debouncedBarIsLoading = createDebouncedBoolean(barIsLoading);
-          const barCurrentTime = () =>
-            isRemoteTargetActive()
-              ? remotePositionMs() / 1000
-              : isRadio()
-                ? radioElapsedMs() / 1000
-                : currentTime();
-          const barDuration = () => {
-            if (isRemoteTargetActive()) {
-              const ms = remoteDurationMs();
-              return ms ? ms / 1000 : 0;
-            }
-            if (isRadio()) return 0;
-            return duration();
-          };
-          // hides the seek/duration ui for radio (always live) and for
-          // remote targets whose current item didn't report a duration
-          // (e.g. tuned radio relayed through a player) - a remote item with
-          // a known duration gets full seek support (phase 13).
-          const barIsLiveStream = () =>
-            isRadio() || (isRemoteTargetActive() && barDuration() === 0);
-
-          const onPlayPause = () => {
-            if (isRemoteTargetActive()) {
-              if (remoteTargetOffline()) return;
-              void (remoteIsPlaying() ? remotePause() : remoteResume());
-              return;
-            }
-            if (isRadio()) {
-              if (radioStatus() === "paused") {
-                if (radioUseTimelineMode()) {
-                  acknowledgeTimelineUserStart();
-                }
-                radioResume();
-              } else if (radioStatus() === "playing") radioPause();
-              else if (radioStatus() === "error") leaveRadio();
-              else if (radioStatus() === "idle") {
-                const station = currentRadioStation();
-                if (!station) return;
-                void tuneIntoRadio(station.peer_addr, {
-                  stationId: station.station_id,
-                  stationName: station.station_name,
-                  isLocal: station.is_local,
+              const hasProgress = (entry.listened_seconds || 0) > 0;
+              if (hasProgress) {
+                // resume from where we left off
+                void resumeHistoryEntry(entry);
+              } else {
+                // play from the beginning
+                void addToQueue(entry.songs, {
+                  startPlaying: true,
+                  source: {
+                    type: entry.type,
+                    label: entry.label,
+                    entity_id: entry.entity_id,
+                    image: entry.image,
+                  },
                 });
               }
-              return;
-            }
-            togglePlayback();
-          };
-          const onPrev = () => {
-            // no previous-track support in the freqhole-player control protocol yet
-            if (isRemoteTargetActive()) return;
-            if (isRadio()) return; // radio has no track skip
-            playPrevious();
-          };
-          const onNext = () => {
-            if (isRemoteTargetActive()) {
-              if (remoteTargetOffline()) return;
-              void remoteSkip();
-              return;
-            }
-            if (isRadio()) {
-              if (!canAdminSkipRadioTrack()) return;
-              void requestRadioTrackSkip().catch((e) => {
-                toast.error(e instanceof Error ? e.message : String(e));
+            }}
+            onRemoveHistoryEntry={(id) => {
+              void removeHistoryEntry(id);
+            }}
+            onClearHistory={async () => {
+              const confirmed = await confirm({
+                title: "clear history",
+                message: "are you sure you want to clear all queue history?",
+                confirmText: "clear",
+                variant: "danger",
               });
-              return;
-            }
-            playNext();
-          };
-          const onSeekCb = (pct: number) => {
-            if (isRemoteTargetActive()) {
-              if (remoteTargetOffline()) return;
-              const ms = remoteDurationMs();
-              if (!ms) return; // no known duration - seek ui is hidden anyway
-              void remoteSeek((pct / 100) * ms);
-              return;
-            }
-            if (isRadio()) return; // live audio is not seekable
-            handleSeek(pct);
-          };
-          const onVolumeChangeCb = (vol: number) => {
-            if (isRemoteTargetActive()) {
-              if (remoteTargetOffline()) return;
-              void remoteSetVolume(vol);
-              return;
-            }
-            setPlayerVolume(vol);
-          };
-          const onFavToggle = (songId: string) => {
-            if (isRadio()) {
-              // toggle favorite for the currently-playing radio track on
-              // the broadcasting peer. requires the peer to be a
-              // registered remote with an authenticated session; the
-              // service surfaces an error otherwise.
-              const next = !(radioCurrentFavorite() ?? false);
-              void setRadioFavorite(songId, next).catch((e) => {
-                debug("AppLayout", "radio favorite toggle failed:", e);
-              });
-              return;
-            }
-            handleSongFavoriteToggle(songId);
-          };
-          const onImageClick = () => {
-            if (isRadio()) {
-              if (!radioArtUrl()) {
+              if (confirmed) {
+                void clearQueueHistory();
+              }
+            }}
+            getHistoryContextMenuActions={getHistoryContextMenuActions}
+            currentRadioStation={currentRadioStation()}
+            currentRadioRemoteName={currentRadioRemoteName()}
+            currentRadioRemoteImage={currentRadioRemoteImage()}
+          />
+        </div>
+
+        {/* unified player bar — handles both music (queue) and radio modes.
+          radio audio element lives here so playback survives navigation;
+          `setRadioAudioSink` is called once on mount. */}
+        <Show
+          when={
+            (appState()?.queue.length || 0) > 0 ||
+            radioStatus() !== "idle" ||
+            !!currentRadioStation() ||
+            isRemoteTargetActive()
+          }
+        >
+          {(() => {
+            const isRadio = () => playbackMode() === "radio";
+
+            // phase 14b-style local-library lookup for whatever's currently
+            // playing on a remote target - mirrors RemoteQueueRow.tsx's own
+            // per-row lookup, so the bar can show a resolved song's real
+            // images/favorite state instead of just the raw thumb the source
+            // device sent, when this device happens to already have it.
+            const [remoteBarSong] = createResource(
+              () => remoteCurrentItem()?.blake3_hash,
+              getSongByBlake3
+            );
+
+            // build the song-shaped object the bar consumes. in radio mode,
+            // map fields from radioNowPlaying() + radioArtUrl().
+            const barSong = () => {
+              if (isRemoteTargetActive()) {
+                const item = remoteCurrentItem();
+                if (!item) return undefined;
+                const resolved = remoteBarSong();
+                if (resolved) {
+                  return {
+                    id: resolved.id,
+                    sha256: resolved.sha256,
+                    title: resolved.title,
+                    artist:
+                      resolved.album_type === "compilation" && resolved.track_artist?.trim()
+                        ? resolved.track_artist
+                        : resolved.artist_name,
+                    album: resolved.album_title,
+                    images: resolved.images,
+                    album_images: resolved.album_images,
+                    isFavorite: resolved.is_favorite || false,
+                  };
+                }
+                return {
+                  id: item.blake3_hash,
+                  title: item.title || "untitled",
+                  artist: item.artist ?? "unknown artist",
+                  album: undefined,
+                  thumbnailUrl: item.artwork_full_url ?? item.artwork_thumb_url,
+                  images: undefined,
+                  isFavorite: false,
+                };
+              }
+              if (isRadio()) {
+                const np = radioNowPlaying();
+                if (!np) {
+                  const station = currentRadioStation();
+                  if (!station) return undefined;
+                  return {
+                    id: station.station_id || station.peer_addr || "radio",
+                    title: station.station_name || "radio station",
+                    artist: "radio",
+                    album: "ready to resume",
+                    thumbnailUrl: undefined,
+                  };
+                }
+                const remoteId = radioCurrentRemoteServerId();
+                const artUrl = radioArtUrl() ?? undefined;
+                const images = remoteId
+                  ? [
+                      ...(np.art_blob_id
+                        ? [
+                            {
+                              remote_blob_id: np.art_blob_id,
+                              remote_server_id: remoteId,
+                              is_primary: true,
+                              blob_type: "thumbnail" as const,
+                            },
+                          ]
+                        : []),
+                      ...(np.waveform_blob_id
+                        ? [
+                            {
+                              remote_blob_id: np.waveform_blob_id,
+                              remote_server_id: remoteId,
+                              is_primary: false,
+                              blob_type: "waveform" as const,
+                            },
+                          ]
+                        : []),
+                    ]
+                  : undefined;
+                return {
+                  id: np.song_id || "radio",
+                  title: np.title || "untitled",
+                  artist: np.artist ?? "unknown artist",
+                  album: np.album ?? undefined,
+                  thumbnailUrl: artUrl,
+                  images,
+                  isFavorite: radioCurrentFavorite() ?? false,
+                };
+              }
+              const cs = currentSongData();
+              if (cs) {
+                return {
+                  id: cs.id,
+                  sha256: cs.sha256,
+                  title: cs.title,
+                  artist:
+                    cs.album_type === "compilation" && cs.track_artist?.trim()
+                      ? cs.track_artist
+                      : cs.artist_name,
+                  album: cs.album_title,
+                  images: cs.images,
+                  album_images: cs.album_images,
+                  artist_images: cs.artist_images,
+                  isFavorite: cs.is_favorite || false,
+                };
+              }
+              const cv = currentVideoData();
+              if (cv) {
+                // video mode: player bar shows a minimal metadata surface
+                // (title only, no favorite/album-nav actions yet). the
+                // actual video element is mounted on the dedicated watch
+                // page via getVideoElement(), not embedded in the bar.
+                return {
+                  id: cv.id,
+                  sha256: cv.id,
+                  title: cv.title,
+                  artist: "video",
+                  album: undefined,
+                  images: undefined,
+                  album_images: undefined,
+                  isFavorite: false,
+                };
+              }
+              // fall back to appState directly so the bar never flashes "no
+              // song playing" during the brief window between appState loading
+              // from IDB and the createEffect updating currentSongData.
+              const state = appState();
+              const sha256 = state?.current_sha256;
+              if (!sha256) return undefined;
+              const queueItem = state?.queue.find((i) => mediaItemKey(i) === sha256);
+              if (!queueItem) return undefined;
+              if (queueItem.kind === "video") {
+                return {
+                  id: queueItem.video.id,
+                  sha256: queueItem.video.id,
+                  title: queueItem.video.title,
+                  artist: "video",
+                  album: undefined,
+                  images: undefined,
+                  album_images: undefined,
+                  isFavorite: false,
+                };
+              }
+              const queueSong = queueItem.song;
+              return {
+                id: queueSong.id,
+                sha256: queueSong.sha256,
+                title: queueSong.title,
+                artist:
+                  queueSong.album_type === "compilation" && queueSong.track_artist?.trim()
+                    ? queueSong.track_artist
+                    : queueSong.artist_name,
+                album: queueSong.album_title,
+                images: queueSong.images,
+                album_images: queueSong.album_images,
+                artist_images: queueSong.artist_images,
+                isFavorite: queueSong.is_favorite || false,
+              };
+            };
+
+            // map the currently playing video's raw codegen `images` shape
+            // (`blob_id`/`is_primary: number`) to the bar's `ImageMetadata`
+            // shape (`remote_blob_id`/`is_primary: boolean`) — mirrors the
+            // same mapping done for queued video rows in QueueSidebar.tsx.
+            const barVideo = (): PlayerBarVideo | null => {
+              const cv = currentVideoData();
+              if (!cv) return null;
+              return {
+                id: cv.id,
+                title: cv.title,
+                source_type: cv.source_type,
+                poster_blob_id: cv.poster_blob_id,
+                poster_opfs_path: cv.poster_opfs_path,
+                remote_server_id: cv.remote_server_id,
+                images: cv.images?.map((img) => ({
+                  remote_blob_id: img.blob_id,
+                  remote_server_id: cv.remote_server_id,
+                  is_primary: !!img.is_primary,
+                  blob_type: img.blob_type,
+                })),
+              };
+            };
+
+            const barIsPlaying = () =>
+              isRemoteTargetActive()
+                ? remoteIsPlaying()
+                : isRadio()
+                  ? radioStatus() === "playing"
+                  : isPlaying();
+            // for remote targets: show the loading ring while a control
+            // command is in flight (play/pause/skip/seek/volume) or before
+            // the first status has arrived for this target (reconnect-safe -
+            // avoids briefly showing a stale/wrong play-pause icon while the
+            // real state is still unknown).
+            const barIsLoading = () =>
+              isRemoteTargetActive()
+                ? remoteCommandPending() || !remoteStatusKnown()
+                : isRadio()
+                  ? radioStatus() === "connecting"
+                  : isLoading();
+            const debouncedBarIsLoading = createDebouncedBoolean(barIsLoading);
+            const barCurrentTime = () =>
+              isRemoteTargetActive()
+                ? remotePositionMs() / 1000
+                : isRadio()
+                  ? radioElapsedMs() / 1000
+                  : currentTime();
+            const barDuration = () => {
+              if (isRemoteTargetActive()) {
+                const ms = remoteDurationMs();
+                return ms ? ms / 1000 : 0;
+              }
+              if (isRadio()) return 0;
+              return duration();
+            };
+            // hides the seek/duration ui for radio (always live) and for
+            // remote targets whose current item didn't report a duration
+            // (e.g. tuned radio relayed through a player) - a remote item with
+            // a known duration gets full seek support (phase 13).
+            const barIsLiveStream = () =>
+              isRadio() || (isRemoteTargetActive() && barDuration() === 0);
+
+            const onPlayPause = () => {
+              if (isRemoteTargetActive()) {
+                if (remoteTargetOffline()) return;
+                void (remoteIsPlaying() ? remotePause() : remoteResume());
+                return;
+              }
+              if (isRadio()) {
+                if (radioStatus() === "paused") {
+                  if (radioUseTimelineMode()) {
+                    acknowledgeTimelineUserStart();
+                  }
+                  radioResume();
+                } else if (radioStatus() === "playing") radioPause();
+                else if (radioStatus() === "error") leaveRadio();
+                else if (radioStatus() === "idle") {
+                  const station = currentRadioStation();
+                  if (!station) return;
+                  void tuneIntoRadio(station.peer_addr, {
+                    stationId: station.station_id,
+                    stationName: station.station_name,
+                    isLocal: station.is_local,
+                  });
+                }
+                return;
+              }
+              togglePlayback();
+            };
+            const onPrev = () => {
+              // no previous-track support in the freqhole-player control protocol yet
+              if (isRemoteTargetActive()) return;
+              if (isRadio()) return; // radio has no track skip
+              playPrevious();
+            };
+            const onNext = () => {
+              if (isRemoteTargetActive()) {
+                if (remoteTargetOffline()) return;
+                void remoteSkip();
+                return;
+              }
+              if (isRadio()) {
+                if (!canAdminSkipRadioTrack()) return;
+                void requestRadioTrackSkip().catch((e) => {
+                  toast.error(e instanceof Error ? e.message : String(e));
+                });
+                return;
+              }
+              playNext();
+            };
+            const onSeekCb = (pct: number) => {
+              if (isRemoteTargetActive()) {
+                if (remoteTargetOffline()) return;
+                const ms = remoteDurationMs();
+                if (!ms) return; // no known duration - seek ui is hidden anyway
+                void remoteSeek((pct / 100) * ms);
+                return;
+              }
+              if (isRadio()) return; // live audio is not seekable
+              handleSeek(pct);
+            };
+            const onVolumeChangeCb = (vol: number) => {
+              if (isRemoteTargetActive()) {
+                if (remoteTargetOffline()) return;
+                void remoteSetVolume(vol);
+                return;
+              }
+              setPlayerVolume(vol);
+            };
+            const onFavToggle = (songId: string) => {
+              if (isRadio()) {
+                // toggle favorite for the currently-playing radio track on
+                // the broadcasting peer. requires the peer to be a
+                // registered remote with an authenticated session; the
+                // service surfaces an error otherwise.
+                const next = !(radioCurrentFavorite() ?? false);
+                void setRadioFavorite(songId, next).catch((e) => {
+                  debug("AppLayout", "radio favorite toggle failed:", e);
+                });
+                return;
+              }
+              handleSongFavoriteToggle(songId);
+            };
+            const onImageClick = () => {
+              if (isRadio()) {
+                if (!radioArtUrl()) {
+                  navigate("/radio");
+                  return;
+                }
+                void openRadioImageCarousel();
+                return;
+              }
+              handlePlayerImageClick();
+            };
+
+            const onSongMetaClick = () => {
+              if (!isRadio()) {
+                const cs = currentSongData();
+                if (!cs || !cs.album_id) return;
+                setHighlightedSongId(cs.id);
+                // scope to the song's origin remote, not the currently-active
+                // one — queue items can come from any remote/local source.
+                navigate(routes.albumOn(cs.remote_server_id ?? "local", cs.album_id));
+                return;
+              }
+
+              const np = radioNowPlaying();
+              const remoteId = radioCurrentRemoteServerId();
+              const songId = typeof np?.song_id === "string" ? np.song_id.trim() : "";
+              if (!np || !remoteId || !songId) {
                 navigate("/radio");
                 return;
               }
-              void openRadioImageCarousel();
-              return;
-            }
-            handlePlayerImageClick();
-          };
-
-          const onSongMetaClick = () => {
-            if (!isRadio()) {
-              const cs = currentSongData();
-              if (!cs || !cs.album_id) return;
-              setHighlightedSongId(cs.id);
-              // scope to the song's origin remote, not the currently-active
-              // one — queue items can come from any remote/local source.
-              navigate(routes.albumOn(cs.remote_server_id ?? "local", cs.album_id));
-              return;
-            }
-
-            const np = radioNowPlaying();
-            const remoteId = radioCurrentRemoteServerId();
-            const songId = typeof np?.song_id === "string" ? np.song_id.trim() : "";
-            if (!np || !remoteId || !songId) {
-              navigate("/radio");
-              return;
-            }
-            void (async () => {
-              try {
-                const remote = await getRemoteById(remoteId);
-                if (!remote) {
+              void (async () => {
+                try {
+                  const remote = await getRemoteById(remoteId);
+                  if (!remote) {
+                    navigate("/radio");
+                    return;
+                  }
+                  const client = await getClientForRemote(remote);
+                  const result = await client.music.querySongs({
+                    q: null,
+                    search_fields: null,
+                    filters: { song_ids: [songId] },
+                    sort_by: null,
+                    sort_direction: null,
+                    limit: 1,
+                    offset: null,
+                    user_id: null,
+                    favorites_only: null,
+                    min_rating: null,
+                  });
+                  if (!result.success || result.data.items.length === 0) {
+                    navigate("/radio");
+                    return;
+                  }
+                  const albumId = result.data.items[0].album?.id;
+                  if (!albumId) {
+                    navigate("/radio");
+                    return;
+                  }
+                  setHighlightedSongId(songId);
+                  navigate(
+                    `/${remoteId}/albums/${encodeURIComponent(albumId)}?song_id=${encodeURIComponent(songId)}`
+                  );
+                } catch (e) {
+                  debug("AppLayout", "radio song meta navigate failed:", e);
                   navigate("/radio");
-                  return;
                 }
-                const client = await getClientForRemote(remote);
-                const result = await client.music.querySongs({
-                  q: null,
-                  search_fields: null,
-                  filters: { song_ids: [songId] },
-                  sort_by: null,
-                  sort_direction: null,
-                  limit: 1,
-                  offset: null,
-                  user_id: null,
-                  favorites_only: null,
-                  min_rating: null,
-                });
-                if (!result.success || result.data.items.length === 0) {
-                  navigate("/radio");
-                  return;
-                }
-                const albumId = result.data.items[0].album?.id;
-                if (!albumId) {
-                  navigate("/radio");
-                  return;
-                }
-                setHighlightedSongId(songId);
-                navigate(
-                  `/${remoteId}/albums/${encodeURIComponent(albumId)}?song_id=${encodeURIComponent(songId)}`
-                );
-              } catch (e) {
-                debug("AppLayout", "radio song meta navigate failed:", e);
-                navigate("/radio");
-              }
-            })();
-          };
+              })();
+            };
 
-          // status badge for radio mode: live indicator + listener count.
-          // when in timeline/queue mode (no MSE, forced by broadcaster, or
-          // network fallback) shows "queue" instead of "live" with a purple dot.
-          const statusBadge = () =>
-            isRadio() ? (
-              <div
-                class="flex items-center gap-1 pr-1.5 py-0 rounded-full bg-black/60 backdrop-blur text-[9px] font-bold uppercase tracking-wide leading-none"
-                classList={{
-                  "text-violet-400": radioStatus() === "playing" && radioUseTimelineMode(),
-                  "text-red-400": radioStatus() === "playing" && !radioUseTimelineMode(),
-                  "text-amber-400": radioStatus() === "connecting",
-                  "text-neutral-400": radioStatus() === "paused",
-                  "text-red-500": radioStatus() === "error",
-                }}
-                title={radioCurrentPeerAddr() ?? ""}
-              >
-                <span>
-                  {radioStatus() === "playing"
-                    ? radioUseTimelineMode()
-                      ? "queue"
-                      : "live"
-                    : radioStatus() === "connecting"
-                      ? "tuning"
-                      : radioStatus() === "paused"
-                        ? "paused"
-                        : radioStatus() === "idle"
-                          ? "ready"
-                          : "error"}
-                </span>
-                <span
-                  class="w-1 h-1 rounded-full"
+            // status badge for radio mode: live indicator + listener count.
+            // when in timeline/queue mode (no MSE, forced by broadcaster, or
+            // network fallback) shows "queue" instead of "live" with a purple dot.
+            const statusBadge = () =>
+              isRadio() ? (
+                <div
+                  class="flex items-center gap-1 pr-1.5 py-0 rounded-full bg-black/60 backdrop-blur text-[9px] font-bold uppercase tracking-wide leading-none"
                   classList={{
-                    "bg-violet-400 animate-pulse":
-                      radioStatus() === "playing" && radioUseTimelineMode(),
-                    "bg-red-500 animate-pulse":
-                      radioStatus() === "playing" && !radioUseTimelineMode(),
-                    "bg-amber-400 animate-pulse": radioStatus() === "connecting",
-                    "bg-neutral-400": radioStatus() === "paused",
-                    "bg-red-500": radioStatus() === "error",
+                    "text-violet-400": radioStatus() === "playing" && radioUseTimelineMode(),
+                    "text-red-400": radioStatus() === "playing" && !radioUseTimelineMode(),
+                    "text-amber-400": radioStatus() === "connecting",
+                    "text-neutral-400": radioStatus() === "paused",
+                    "text-red-500": radioStatus() === "error",
                   }}
-                />
-                <span class="opacity-70 normal-case font-medium tabular-nums">
-                  {radioListenerCount()} listening
-                </span>
-              </div>
-            ) : undefined;
-
-          return (
-            <>
-              <Show
-                when={
-                  !videoMiniPlayerDismissed() &&
-                  !isRadio() &&
-                  currentVideoData() &&
-                  // on linux the picture is in its own gstreamer window, so
-                  // there is no element here to mirror
-                  !isVideoWindowActive() &&
-                  getVideoElement()
-                }
-              >
-                {(el) => (
-                  <VideoMiniPlayer
-                    videoElement={el()}
-                    onClose={() => setVideoMiniPlayerDismissed(true)}
+                  title={radioCurrentPeerAddr() ?? ""}
+                >
+                  <span>
+                    {radioStatus() === "playing"
+                      ? radioUseTimelineMode()
+                        ? "queue"
+                        : "live"
+                      : radioStatus() === "connecting"
+                        ? "tuning"
+                        : radioStatus() === "paused"
+                          ? "paused"
+                          : radioStatus() === "idle"
+                            ? "ready"
+                            : "error"}
+                  </span>
+                  <span
+                    class="w-1 h-1 rounded-full"
+                    classList={{
+                      "bg-violet-400 animate-pulse":
+                        radioStatus() === "playing" && radioUseTimelineMode(),
+                      "bg-red-500 animate-pulse":
+                        radioStatus() === "playing" && !radioUseTimelineMode(),
+                      "bg-amber-400 animate-pulse": radioStatus() === "connecting",
+                      "bg-neutral-400": radioStatus() === "paused",
+                      "bg-red-500": radioStatus() === "error",
+                    }}
                   />
-                )}
-              </Show>
-              <PlayerBar
-                song={barSong()}
-                isPlaying={barIsPlaying()}
-                isLoading={debouncedBarIsLoading()}
-                mediaTransferProgress={mediaTransferProgress()}
-                hasUpNext={isRadio() ? false : !!pendingUpNextSha256()}
-                currentTime={barCurrentTime()}
-                duration={barDuration()}
-                volume={isRemoteTargetActive() ? remoteVolume() : volume()}
-                queueOpen={queueOpen()}
-                onPlayPause={onPlayPause}
-                onPrevious={onPrev}
-                onNext={onNext}
-                onSeek={onSeekCb}
-                onVolumeChange={onVolumeChangeCb}
-                onQueueToggle={handleQueueToggle}
-                onFavoriteToggle={onFavToggle}
-                onImageClick={onImageClick}
-                onSongMetaClick={onSongMetaClick}
-                queueLength={appState()?.queue.length || 0}
-                canGoNext={
-                  isRadio()
-                    ? canAdminSkipRadioTrack()
-                    : isRemoteTargetActive()
-                      ? remoteQueue().length > remoteOptimisticCurrentIndex() + 1
-                      : canGoNext()
-                }
-                canGoPrevious={isRadio() || isRemoteTargetActive() ? false : canGoPrevious()}
-                showNext={!isRadio() || canAdminSkipRadioTrack()}
-                showPrevious={!isRadio()}
-                statusBadge={statusBadge()}
-                isLiveStream={barIsLiveStream()}
-                showExternalStorageIcon={externalStorageMounted()}
-                externalStorageBusy={externalStorageSyncingSignal()}
-                externalStorageProgress={externalStorageSyncProgressSignal()}
-                onExternalStorageIconClick={() => navigate("/storage-overview")}
-                activeTargetIsRemote={isRemoteTargetActive()}
-                isVideoActive={!isRadio() && !!currentVideoData()}
-                videoElement={
-                  !isRadio() && currentVideoData() && !isVideoWindowActive()
-                    ? getVideoElement()
-                    : null
-                }
-                video={!isRadio() ? barVideo() : null}
-                isVideoFavorite={isCurrentVideoFavorite()}
-                onVideoFavoriteToggle={handleVideoFavoriteToggle}
-              />
-            </>
-          );
-        })()}
-      </Show>
+                  <span class="opacity-70 normal-case font-medium tabular-nums">
+                    {radioListenerCount()} listening
+                  </span>
+                </div>
+              ) : undefined;
 
-      {/* persistent <audio> for radio playback. hidden; lives at app root
+            return (
+              <>
+                <Show
+                  when={
+                    !videoMiniPlayerDismissed() &&
+                    !isRadio() &&
+                    currentVideoData() &&
+                    // on linux the picture is in its own gstreamer window, so
+                    // there is no element here to mirror
+                    !isVideoWindowActive() &&
+                    getVideoElement()
+                  }
+                >
+                  {(el) => (
+                    <VideoMiniPlayer
+                      videoElement={el()}
+                      onClose={() => setVideoMiniPlayerDismissed(true)}
+                    />
+                  )}
+                </Show>
+                <PlayerBar
+                  song={barSong()}
+                  isPlaying={barIsPlaying()}
+                  isLoading={debouncedBarIsLoading()}
+                  mediaTransferProgress={mediaTransferProgress()}
+                  hasUpNext={isRadio() ? false : !!pendingUpNextSha256()}
+                  currentTime={barCurrentTime()}
+                  duration={barDuration()}
+                  volume={isRemoteTargetActive() ? remoteVolume() : volume()}
+                  queueOpen={queueOpen()}
+                  onPlayPause={onPlayPause}
+                  onPrevious={onPrev}
+                  onNext={onNext}
+                  onSeek={onSeekCb}
+                  onVolumeChange={onVolumeChangeCb}
+                  onQueueToggle={handleQueueToggle}
+                  onFavoriteToggle={onFavToggle}
+                  onImageClick={onImageClick}
+                  onSongMetaClick={onSongMetaClick}
+                  queueLength={appState()?.queue.length || 0}
+                  canGoNext={
+                    isRadio()
+                      ? canAdminSkipRadioTrack()
+                      : isRemoteTargetActive()
+                        ? remoteQueue().length > remoteOptimisticCurrentIndex() + 1
+                        : canGoNext()
+                  }
+                  canGoPrevious={isRadio() || isRemoteTargetActive() ? false : canGoPrevious()}
+                  showNext={!isRadio() || canAdminSkipRadioTrack()}
+                  showPrevious={!isRadio()}
+                  statusBadge={statusBadge()}
+                  isLiveStream={barIsLiveStream()}
+                  showExternalStorageIcon={externalStorageMounted()}
+                  externalStorageBusy={externalStorageSyncingSignal()}
+                  externalStorageProgress={externalStorageSyncProgressSignal()}
+                  onExternalStorageIconClick={() => navigate("/storage-overview")}
+                  activeTargetIsRemote={isRemoteTargetActive()}
+                  isVideoActive={!isRadio() && !!currentVideoData()}
+                  videoElement={
+                    !isRadio() && currentVideoData() && !isVideoWindowActive()
+                      ? getVideoElement()
+                      : null
+                  }
+                  video={!isRadio() ? barVideo() : null}
+                  isVideoFavorite={isCurrentVideoFavorite()}
+                  onVideoFavoriteToggle={handleVideoFavoriteToggle}
+                />
+              </>
+            );
+          })()}
+        </Show>
+
+        {/* persistent <audio> for radio playback. hidden; lives at app root
           so navigation never tears it down. wired into radioService via
           setRadioAudioSink in onMount. */}
-      <RadioAudioSink />
+        <RadioAudioSink />
 
-      {/* add remote modal */}
-      <AddRemoteModal
-        isOpen={isAddRemoteOpen()}
-        onClose={() => setIsAddRemoteOpen(false)}
-        onSuccess={(remote) => {
-          debug("AppLayout", "remote added successfully");
-          // reload remotes, switch source to the new remote, and
-          // route to its default page.
-          void (async () => {
-            const allRemotes = await getAllRemotes();
-            setRemotes(allRemotes);
+        {/* add remote modal */}
+        <AddRemoteModal
+          isOpen={isAddRemoteOpen()}
+          onClose={() => setIsAddRemoteOpen(false)}
+          onSuccess={(remote) => {
+            debug("AppLayout", "remote added successfully");
+            // reload remotes, switch source to the new remote, and
+            // route to its default page.
+            void (async () => {
+              const allRemotes = await getAllRemotes();
+              setRemotes(allRemotes);
 
-            const result = await connectToRemote(remote.remote_id, { skipHealthCheck: true });
-            if (result.success) {
-              navigate(getDefaultRoute(remote.remote_id));
-              queryClient.invalidateQueries();
-            }
-          })();
-        }}
-      />
+              const result = await connectToRemote(remote.remote_id, { skipHealthCheck: true });
+              if (result.success) {
+                navigate(getDefaultRoute(remote.remote_id));
+                queryClient.invalidateQueries();
+              }
+            })();
+          }}
+        />
 
-      {/* connection progress modal (appears when connecting takes >1s) */}
-      <ConnectionProgressModal state={connectionProgress()} onCancel={() => cancelConnection()} />
+        {/* connection progress modal (appears when connecting takes >1s) */}
+        <ConnectionProgressModal state={connectionProgress()} onCancel={() => cancelConnection()} />
 
-      {/* global confirm dialog */}
-      <ConfirmDialog
-        isOpen={confirmState().isOpen}
-        onClose={closeConfirm}
-        onConfirm={() => resolveConfirm(true)}
-        title={confirmState().title}
-        message={confirmState().message}
-        confirmText={confirmState().confirmText}
-        cancelText={confirmState().cancelText}
-        variant={confirmState().variant}
-      />
+        {/* global confirm dialog */}
+        <ConfirmDialog
+          isOpen={confirmState().isOpen}
+          onClose={closeConfirm}
+          onConfirm={() => resolveConfirm(true)}
+          title={confirmState().title}
+          message={confirmState().message}
+          confirmText={confirmState().confirmText}
+          cancelText={confirmState().cancelText}
+          variant={confirmState().variant}
+        />
 
-      {/* global playlist selector modal */}
-      <PlaylistSelectorModal
-        isOpen={playlistSelectorState().isOpen}
-        onClose={closePlaylistSelector}
-        items={playlistSelectorState().items}
-        remote={playlistSelectorState().remote}
-      />
+        {/* global playlist selector modal */}
+        <PlaylistSelectorModal
+          isOpen={playlistSelectorState().isOpen}
+          onClose={closePlaylistSelector}
+          items={playlistSelectorState().items}
+          remote={playlistSelectorState().remote}
+        />
 
-      {/* global station selector modal (charnel-only) */}
-      <AddToStationModal />
+        {/* global station selector modal (charnel-only) */}
+        <AddToStationModal />
 
-      {/* toast notifications */}
-      <Portal>
-        <ToastRegion />
-      </Portal>
-    </div>
+        {/* toast notifications */}
+        <Portal>
+          <ToastRegion />
+        </Portal>
+      </div>
+    </Show>
   );
 }
 

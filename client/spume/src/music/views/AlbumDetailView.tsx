@@ -1,6 +1,6 @@
 // album detail view - shows album info and songs list
 import { useNavigate, useParams, useSearchParams } from "@solidjs/router";
-import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { useQueryClient } from "@tanstack/solid-query";
 import { appState } from "../../app/services/storage/db";
 import { playQueue, addToQueue } from "../services/queue/queue";
@@ -378,10 +378,42 @@ export function AlbumDetailView() {
   // (and so a second click can't queue the same songs twice).
   const [albumActionPending, setAlbumActionPending] = createSignal<"play" | "queue" | null>(null);
 
+  // when the header (art/title/tags/buttons) leaves too little room for
+  // the song list, the split layout below (fixed header, song list
+  // scrolls in its own box) can shrink the song list to near-zero height
+  // - technically still scrollable, but unusably cramped, looking like
+  // "the songs never show up". below MIN_SONGLIST_HEIGHT (~2 song rows,
+  // see SongRow.tsx's own padding/line-height), fall back to one plain
+  // scrollable column for the whole view instead (mirrors RadioView.tsx's
+  // `useStickyDetailLayout` pattern).
+  const MIN_SONGLIST_HEIGHT = 100;
+  const [useSplitLayout, setUseSplitLayout] = createSignal(true);
+  let viewportRef: HTMLDivElement | undefined;
+  let headerRef: HTMLDivElement | undefined;
+  const recomputeLayout = () => {
+    window.requestAnimationFrame(() => {
+      if (!viewportRef || !headerRef) return;
+      const remainingHeight = viewportRef.clientHeight - headerRef.offsetHeight;
+      setUseSplitLayout(remainingHeight >= MIN_SONGLIST_HEIGHT);
+    });
+  };
+
+  onMount(() => {
+    window.addEventListener("resize", recomputeLayout);
+    onCleanup(() => window.removeEventListener("resize", recomputeLayout));
+    // the header's own height can change independent of the window
+    // (tags expanding, title wrapping, marquee mount) - a plain resize
+    // listener wouldn't catch that.
+    const obs = new ResizeObserver(recomputeLayout);
+    if (headerRef) obs.observe(headerRef);
+    onCleanup(() => obs.disconnect());
+  });
+
   // reset when album changes
   createEffect(() => {
     params.id;
     setTagsExpanded(false);
+    recomputeLayout();
   });
 
   return (
@@ -391,269 +423,279 @@ export function AlbumDetailView() {
       documentTitle={albumInfo()?.title}
       onBack={buildRoute("/albums")}
     >
-      <div class="flex flex-col h-full">
+      <div
+        ref={viewportRef}
+        class="flex flex-col h-full"
+        classList={{ "overflow-y-auto": !useSplitLayout() }}
+      >
         <Show when={albumInfo()} fallback={<LoadingState class="flex-1" />}>
           {(info) => (
             <>
-              {/* header with album info - responsive layout */}
-              <div class="flex justify-between px-1 wide:gap-6 wide:p-6">
-                {/* album info */}
-                <div class="flex flex-col justify-center min-w-0 wide:mt-20 wide:gap-2 wide:text-left">
-                  {/* everything above the action-buttons row gets a min-h
+              <div ref={headerRef} class="flex-shrink-0">
+                {/* header with album info - responsive layout */}
+                <div class="flex justify-between px-1 wide:gap-6 wide:p-6">
+                  {/* album info */}
+                  <div class="flex flex-col justify-center min-w-0 wide:mt-20 wide:gap-2 wide:text-left">
+                    {/* everything above the action-buttons row gets a min-h
                       matching the artwork box (w-32/w-64 → h-32/h-64) so a
                       sparsely populated album (short title, no tags) can't
                       leave this shorter than the artwork — which would let
                       the action-buttons row start high enough to overlap
                       the artwork's bottom edge. */}
-                  <div class="min-h-32 wide:min-h-64">
-                    <h1 class="text-2xl wide:text-5xl font-bold text-[var(--color-text-primary)]">
-                      <MarqueeText text={info().title} class="pb-1" />
-                    </h1>
-                    <div class="flex flex-col wide:flex-wrap gap-y-0.5 wide:gap-x-2 wide:gap-y-1 wide:text-xl text-[var(--color-text-secondary)]">
-                      <button
-                        onClick={handleArtistClick}
-                        class="hover:text-[var(--color-text-primary)] hover:underline text-left"
-                      >
-                        <MarqueeText text={songs()[0]?.artist_name || "unknown artist"} />
-                      </button>
-                      <div class="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
-                        {info().year && <span>{info().year}</span>}
-                        <span>•</span>
-                        <span>
-                          {songs().length} {songs().length === 1 ? "song" : "songs"}
-                        </span>
-                        <span>•</span>
-                        <span>{formatLongDuration(totalDuration())}</span>
+                    <div class="min-h-32 wide:min-h-64">
+                      <h1 class="text-2xl wide:text-5xl font-bold text-[var(--color-text-primary)]">
+                        <MarqueeText text={info().title} class="pb-1" />
+                      </h1>
+                      <div class="flex flex-col wide:flex-wrap gap-y-0.5 wide:gap-x-2 wide:gap-y-1 wide:text-xl text-[var(--color-text-secondary)]">
+                        <button
+                          onClick={handleArtistClick}
+                          class="hover:text-[var(--color-text-primary)] hover:underline text-left"
+                        >
+                          <MarqueeText text={songs()[0]?.artist_name || "unknown artist"} />
+                        </button>
+                        <div class="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+                          {info().year && <span>{info().year}</span>}
+                          <span>•</span>
+                          <span>
+                            {songs().length} {songs().length === 1 ? "song" : "songs"}
+                          </span>
+                          <span>•</span>
+                          <span>{formatLongDuration(totalDuration())}</span>
+                        </div>
                       </div>
-                    </div>
 
-                    {/* genres, tags, and links — collapsed to ~2 lines on
+                      {/* genres, tags, and links — collapsed to ~2 lines on
                         all breakpoints with a see-more toggle. entity urls
                         get their own collapsible row below so the two can
                         expand/collapse independently. */}
-                    <Show
-                      when={
-                        (songs()[0]?.album_taxons?.length ?? 0) > 0 ||
-                        (songs()[0]?.album_tags?.length ?? 0) > 0
-                      }
-                    >
-                      <div class="mt-1">
-                        <div
-                          ref={(el) => {
-                            const check = () => {
-                              if (!tagsExpanded()) {
-                                setTagsOverflowing(el.scrollHeight > el.clientHeight);
-                              }
-                            };
-                            requestAnimationFrame(check);
-                            const obs = new ResizeObserver(check);
-                            obs.observe(el);
-                          }}
-                          class={`flex flex-wrap gap-1.5 wide:justify-start ${
-                            !tagsExpanded() ? "max-h-[3.25rem] overflow-hidden" : ""
-                          }`}
-                        >
-                          <For
-                            each={
-                              songs()[0]?.album_taxons?.filter((t) => t.kind_slug === "genre") ?? []
-                            }
-                          >
-                            {(genre) => (
-                              <span class="px-2 py-0.5 bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)] rounded-full text-xs">
-                                {formatTaxonLabel(genre.label)}
-                              </span>
-                            )}
-                          </For>
-                          {/* non-genre taxons (label, mood, era, region, ...) */}
-                          <TaxonChipList
-                            taxons={songs()[0]?.album_taxons}
-                            excludeKinds={["genre"]}
-                          />
-                          <For each={songs()[0]?.album_tags ?? []}>
-                            {(tag) => (
-                              <span class="px-2 py-0.5 bg-[var(--color-accent-primary)]/10 text-[var(--color-accent-primary)] rounded-full text-xs">
-                                #{tag}
-                              </span>
-                            )}
-                          </For>
-                        </div>
-                        <Show when={tagsOverflowing() || tagsExpanded()}>
-                          <button
-                            onClick={() => setTagsExpanded((v) => !v)}
-                            class="pb-2 text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]"
-                          >
-                            {tagsExpanded() ? "see less" : "see more"}
-                          </button>
-                        </Show>
-                      </div>
-                    </Show>
-
-                    {/* entity links — independently collapsible row */}
-                    <Show when={(albumQuery.data?.urls?.length ?? 0) > 0}>
-                      <div class="mt-1">
-                        <EntityLinks urls={albumQuery.data?.urls} collapsible />
-                      </div>
-                    </Show>
-                  </div>
-
-                  {/* play button, edit button, and favorite toggle */}
-                  <div class="mt-0 wide:mt-4 flex items-center wide:justify-start gap-2 wide:gap-3">
-                    <Button
-                      variant="primary"
-                      loading={albumActionPending() === "play"}
-                      disabled={albumActionPending() !== null}
-                      onClick={handlePlayAlbum}
-                    >
-                      <span class="hidden wide:inline">play album</span>
-                      <span class="wide:hidden">play</span>
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      loading={albumActionPending() === "queue"}
-                      disabled={albumActionPending() !== null}
-                      onClick={handleQueueAlbum}
-                      title="add album to queue"
-                      aria-label="add album to queue"
-                    >
-                      <span class="hidden wide:inline">+queue</span>
-                      <span class="wide:hidden inline-flex items-center">
-                        <Icon name={IconNames.queue} />
-                      </span>
-                    </Button>
-                    <Show when={isCharnelMode() || !!getCurrentRemote()}>
-                      <Button
-                        variant="ghost"
-                        onClick={() =>
-                          void showStationSelector(
-                            {
-                              kind: "album",
-                              albumId: albumInfo()?.album_id ?? params.id,
-                              albumTitle: albumInfo()?.title ?? "",
-                            },
-                            getCurrentRemote()?.remote_id
-                          )
-                        }
-                        title="start radio from album"
-                        aria-label="start radio from album"
-                      >
-                        <span class="hidden wide:inline">+radio</span>
-                        <span class="wide:hidden inline-flex items-center">
-                          <Icon name={IconNames.radioTower} />
-                        </span>
-                      </Button>
-                    </Show>
-                    <Button
-                      variant="ghost"
-                      onClick={() => {
-                        const remoteId = getCurrentRemote()?.remote_id ?? "local";
-                        const info = albumInfo();
-                        const bareId = info?.album_id ?? params.id;
-                        const title = info?.title ?? "";
-                        const artistName = songs()[0]?.artist_name ?? "";
-                        const artistId = info?.artist_id ?? "";
-                        const qs = new URLSearchParams({
-                          graph: albumNodeId(remoteId, bareId),
-                        });
-                        if (title) qs.set("name", title);
-                        if (artistName) qs.set("artist", artistName);
-                        if (artistId) qs.set("artistId", artistId);
-                        navigate(`/explore?${qs.toString()}`);
-                      }}
-                      title="explore album in graph"
-                      aria-label="explore album in graph"
-                    >
-                      <span class="hidden wide:inline">explore</span>
-                      <span class="wide:hidden inline-flex items-center">
-                        <Icon name={IconNames.library} />
-                      </span>
-                    </Button>
-                    <Show when={canUpdateAlbum()}>
-                      <button
-                        onClick={() =>
-                          showAlbumEditor({
-                            albumId: info().album_id || params.id,
-                            onMergeNavigate: (newAlbumId) => navigate(`/albums/${newAlbumId}`),
-                            onDeleted: () => navigate(-1),
-                          })
-                        }
-                        class="p-2 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded transition-colors"
-                        title="edit album info"
-                      >
-                        <Icon name={IconNames.edit} />
-                      </button>
-                    </Show>
-                    <FavoriteHeart
-                      isFavorite={albumQuery.data?.is_favorite ?? false}
-                      onToggle={handleAlbumFavoriteToggle}
-                    />
-                    <ShareButton
-                      target={{
-                        kind: "album",
-                        id: albumInfo()?.album_id ?? params.id,
-                        displayTitle: albumInfo()?.title ?? "",
-                      }}
-                      source={() => currentRemoteFull()}
-                      buildSendPayload={buildSendPayload}
-                    />
-                    <Rating
-                      rating={albumQuery.data?.user_rating ?? 0}
-                      size="md"
-                      onRatingChange={(rating) => {
-                        setRatingMutation.mutate({
-                          targetType: "album",
-                          targetId: info().album_id || params.id,
-                          rating,
-                        });
-                      }}
-                    />
-                  </div>
-                </div>
-
-                {/* album artwork */}
-                <ContextMenu actions={albumContextMenuActions()}>
-                  <div
-                    class="relative group w-32 h-32 wide:w-64 wide:h-64 mx-auto wide:mx-0 bg-[var(--color-bg-elevated)] rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden cursor-pointer hover:border-l-[var(--color-accent-500)] border-transparent border-2"
-                    title="view album images"
-                    onClick={handleAlbumImageClick}
-                  >
-                    <MediaImage
-                      images={songs()[0]?.album_images}
-                      imageUrl={albumArtworkUrl() || null}
-                      alt={info().title}
-                      class="w-full h-full object-cover"
-                      domainType="album"
-                    />
-                    <div
-                      class="absolute inset-0 bg-black/0 transition-colors flex items-center justify-center"
-                      classList={{
-                        "opacity-0 group-hover:bg-black/30 group-hover:opacity-100":
-                          !imageCarouselLoading(),
-                        "bg-black/30 opacity-100": imageCarouselLoading(),
-                      }}
-                    >
                       <Show
-                        when={!imageCarouselLoading()}
-                        fallback={
-                          <Icon
-                            name={IconNames.loader}
-                            size={32}
-                            className="text-white drop-shadow-lg animate-spin"
-                          />
+                        when={
+                          (songs()[0]?.album_taxons?.length ?? 0) > 0 ||
+                          (songs()[0]?.album_tags?.length ?? 0) > 0
                         }
                       >
-                        <Icon
-                          name={IconNames.carousel}
-                          size={32}
-                          className="text-white drop-shadow-lg"
-                        />
+                        <div class="mt-1">
+                          <div
+                            ref={(el) => {
+                              const check = () => {
+                                if (!tagsExpanded()) {
+                                  setTagsOverflowing(el.scrollHeight > el.clientHeight);
+                                }
+                              };
+                              requestAnimationFrame(check);
+                              const obs = new ResizeObserver(check);
+                              obs.observe(el);
+                            }}
+                            class={`flex flex-wrap gap-1.5 wide:justify-start ${
+                              !tagsExpanded() ? "max-h-[3.25rem] overflow-hidden" : ""
+                            }`}
+                          >
+                            <For
+                              each={
+                                songs()[0]?.album_taxons?.filter((t) => t.kind_slug === "genre") ??
+                                []
+                              }
+                            >
+                              {(genre) => (
+                                <span class="px-2 py-0.5 bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)] rounded-full text-xs">
+                                  {formatTaxonLabel(genre.label)}
+                                </span>
+                              )}
+                            </For>
+                            {/* non-genre taxons (label, mood, era, region, ...) */}
+                            <TaxonChipList
+                              taxons={songs()[0]?.album_taxons}
+                              excludeKinds={["genre"]}
+                            />
+                            <For each={songs()[0]?.album_tags ?? []}>
+                              {(tag) => (
+                                <span class="px-2 py-0.5 bg-[var(--color-accent-primary)]/10 text-[var(--color-accent-primary)] rounded-full text-xs">
+                                  #{tag}
+                                </span>
+                              )}
+                            </For>
+                          </div>
+                          <Show when={tagsOverflowing() || tagsExpanded()}>
+                            <button
+                              onClick={() => setTagsExpanded((v) => !v)}
+                              class="pb-2 text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]"
+                            >
+                              {tagsExpanded() ? "see less" : "see more"}
+                            </button>
+                          </Show>
+                        </div>
+                      </Show>
+
+                      {/* entity links — independently collapsible row */}
+                      <Show when={(albumQuery.data?.urls?.length ?? 0) > 0}>
+                        <div class="mt-1">
+                          <EntityLinks urls={albumQuery.data?.urls} collapsible />
+                        </div>
                       </Show>
                     </div>
                   </div>
-                </ContextMenu>
+
+                  {/* album artwork */}
+                  <ContextMenu actions={albumContextMenuActions()}>
+                    <div
+                      class="relative group w-32 h-32 wide:w-64 wide:h-64 mx-auto wide:mx-0 bg-[var(--color-bg-elevated)] rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden cursor-pointer hover:border-l-[var(--color-accent-500)] border-transparent border-2"
+                      title="view album images"
+                      onClick={handleAlbumImageClick}
+                    >
+                      <MediaImage
+                        images={songs()[0]?.album_images}
+                        imageUrl={albumArtworkUrl() || null}
+                        alt={info().title}
+                        class="w-full h-full object-cover"
+                        domainType="album"
+                      />
+                      <div
+                        class="absolute inset-0 bg-black/0 transition-colors flex items-center justify-center"
+                        classList={{
+                          "opacity-0 group-hover:bg-black/30 group-hover:opacity-100":
+                            !imageCarouselLoading(),
+                          "bg-black/30 opacity-100": imageCarouselLoading(),
+                        }}
+                      >
+                        <Show
+                          when={!imageCarouselLoading()}
+                          fallback={
+                            <Icon
+                              name={IconNames.loader}
+                              size={32}
+                              className="text-white drop-shadow-lg animate-spin"
+                            />
+                          }
+                        >
+                          <Icon
+                            name={IconNames.carousel}
+                            size={32}
+                            className="text-white drop-shadow-lg"
+                          />
+                        </Show>
+                      </div>
+                    </div>
+                  </ContextMenu>
+                </div>
+
+                {/* play button, edit button, and favorite toggle - a full-width
+                  row below the header (not squeezed into the title column
+                  alongside the fixed-size artwork square) so all the buttons
+                  fit on one line instead of overflowing under the artwork. */}
+                <div class="mt-3 px-1 wide:px-6 flex flex-wrap items-center gap-2 wide:gap-3">
+                  <Button
+                    variant="primary"
+                    loading={albumActionPending() === "play"}
+                    disabled={albumActionPending() !== null}
+                    onClick={handlePlayAlbum}
+                  >
+                    <span class="hidden wide:inline">play album</span>
+                    <span class="wide:hidden">play</span>
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    loading={albumActionPending() === "queue"}
+                    disabled={albumActionPending() !== null}
+                    onClick={handleQueueAlbum}
+                    title="add album to queue"
+                    aria-label="add album to queue"
+                  >
+                    <span class="hidden wide:inline">+queue</span>
+                    <span class="wide:hidden inline-flex items-center">
+                      <Icon name={IconNames.queue} />
+                    </span>
+                  </Button>
+                  <Show when={isCharnelMode() || !!getCurrentRemote()}>
+                    <Button
+                      variant="ghost"
+                      onClick={() =>
+                        void showStationSelector(
+                          {
+                            kind: "album",
+                            albumId: albumInfo()?.album_id ?? params.id,
+                            albumTitle: albumInfo()?.title ?? "",
+                          },
+                          getCurrentRemote()?.remote_id
+                        )
+                      }
+                      title="start radio from album"
+                      aria-label="start radio from album"
+                    >
+                      <span class="hidden wide:inline">+radio</span>
+                      <span class="wide:hidden inline-flex items-center">
+                        <Icon name={IconNames.radioTower} />
+                      </span>
+                    </Button>
+                  </Show>
+                  <Button
+                    variant="ghost"
+                    onClick={() => {
+                      const remoteId = getCurrentRemote()?.remote_id ?? "local";
+                      const info = albumInfo();
+                      const bareId = info?.album_id ?? params.id;
+                      const title = info?.title ?? "";
+                      const artistName = songs()[0]?.artist_name ?? "";
+                      const artistId = info?.artist_id ?? "";
+                      const qs = new URLSearchParams({
+                        graph: albumNodeId(remoteId, bareId),
+                      });
+                      if (title) qs.set("name", title);
+                      if (artistName) qs.set("artist", artistName);
+                      if (artistId) qs.set("artistId", artistId);
+                      navigate(`/explore?${qs.toString()}`);
+                    }}
+                    title="explore album in graph"
+                    aria-label="explore album in graph"
+                  >
+                    <span class="hidden wide:inline">explore</span>
+                    <span class="wide:hidden inline-flex items-center">
+                      <Icon name={IconNames.library} />
+                    </span>
+                  </Button>
+                  <Show when={canUpdateAlbum()}>
+                    <button
+                      onClick={() =>
+                        showAlbumEditor({
+                          albumId: info().album_id || params.id,
+                          onMergeNavigate: (newAlbumId) => navigate(`/albums/${newAlbumId}`),
+                          onDeleted: () => navigate(-1),
+                        })
+                      }
+                      class="p-2 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded transition-colors"
+                      title="edit album info"
+                    >
+                      <Icon name={IconNames.edit} />
+                    </button>
+                  </Show>
+                  <FavoriteHeart
+                    isFavorite={albumQuery.data?.is_favorite ?? false}
+                    onToggle={handleAlbumFavoriteToggle}
+                  />
+                  <ShareButton
+                    target={{
+                      kind: "album",
+                      id: albumInfo()?.album_id ?? params.id,
+                      displayTitle: albumInfo()?.title ?? "",
+                    }}
+                    source={() => currentRemoteFull()}
+                    buildSendPayload={buildSendPayload}
+                  />
+                  <Rating
+                    rating={albumQuery.data?.user_rating ?? 0}
+                    size="md"
+                    onRatingChange={(rating) => {
+                      setRatingMutation.mutate({
+                        targetType: "album",
+                        targetId: info().album_id || params.id,
+                        rating,
+                      });
+                    }}
+                  />
+                </div>
               </div>
 
               {/* songs list */}
-              <div class="flex-1 overflow-auto">
+              <div classList={{ "flex-1 min-h-0 overflow-auto": useSplitLayout() }}>
                 <div class="px-4 wide:px-6 py-2 wide:py-4 space-y-1">
                   <For each={songs()}>
                     {(song) => {

@@ -153,6 +153,47 @@ pub fn parse_peer_address(peer_addr: &str) -> GrimoireResult<EndpointAddr> {
     }
 }
 
+/// true when `peer_addr` resolves to our OWN node id - iroh's `connect()`
+/// flatly refuses ("Connecting to ourself is not supported"), so callers
+/// about to dial a peer for a blob/API request should check this first
+/// rather than let that connect fail. can legitimately happen when a
+/// client queues/pushes a `MediaRef` whose `source_peer_addr` is this
+/// same instance (e.g. queueing a video browsed from this player's own
+/// library straight back to itself as the active playback target) - see
+/// `offal::upload::pull`'s self-pull short-circuit. returns `false`
+/// (rather than propagating a parse/uninitialized-endpoint error) for any
+/// unparseable address or if the local endpoint isn't up yet - the
+/// caller's normal connect attempt will surface the real error either way.
+pub fn is_self_peer(peer_addr: &str) -> bool {
+    let Ok(endpoint) = get_endpoint() else {
+        return false;
+    };
+    let Ok(addr) = parse_peer_address(peer_addr) else {
+        return false;
+    };
+    addr.id == endpoint.secret_key().public()
+}
+
+/// export a blob straight from this device's own iroh-blobs store, no
+/// network involved - `None` if it isn't present locally (the hash is
+/// unparseable, the store isn't up, or this device genuinely never had
+/// the bytes). used to serve a self-peer request (see `is_self_peer`)
+/// without a doomed connect attempt.
+async fn try_export_local_blob(blake3_hash: &str, target: &std::path::Path) -> Option<u64> {
+    let store = crate::database::storage_node().await.ok()?.fs_store;
+    let hash: Hash = blake3_hash.parse().ok()?;
+    store.blobs().export(hash, target).await.ok()?;
+    tokio::fs::metadata(target).await.ok().map(|m| m.len())
+}
+
+/// same as `try_export_local_blob`, but reads the bytes into memory
+/// instead of exporting to a file - used by the in-memory fetch variants.
+async fn try_read_local_blob(blake3_hash: &str) -> Option<Vec<u8>> {
+    let store = crate::database::storage_node().await.ok()?.fs_store;
+    let hash: Hash = blake3_hash.parse().ok()?;
+    store.blobs().get_bytes(hash).await.ok().map(|b| b.to_vec())
+}
+
 /// connect to a peer
 ///
 /// iroh handles connection caching/reuse internally, so we just call connect()
@@ -249,7 +290,7 @@ pub async fn api_request(
 /// it doesn't know or care what json shape the line carries. mirrors
 /// `@freqhole/midden`'s `BiStream::write_line`/`read_line`/`close` byte
 /// for byte, so it interoperates with any peer speaking that same
-/// framing (currently: charnel's native player-pairing transport talking
+/// framing (currently: charnel's player-pairing transport talking
 /// to a player.freqhole.net device's `freqhole-player/1` ALPN).
 ///
 /// returns `Ok(None)` on a clean EOF before any bytes were read
@@ -376,8 +417,20 @@ pub async fn fetch_blob_verified_to_file(
     blake3_hash: &str,
     target: &std::path::Path,
 ) -> GrimoireResult<u64> {
+    fetch_blob_verified_to_file_with_progress(peer_addr, blake3_hash, target, None).await
+}
+
+/// `fetch_blob_verified_to_file` with an optional cumulative-bytes progress
+/// callback, for callers (e.g. rathole's player tui) that want to render a
+/// download progress indicator while a large file streams to disk.
+pub async fn fetch_blob_verified_to_file_with_progress(
+    peer_addr: &str,
+    blake3_hash: &str,
+    target: &std::path::Path,
+    on_progress: Option<&BlobProgressFn>,
+) -> GrimoireResult<u64> {
     let (store, hash, hash_short, node_id_short) =
-        download_blob_to_store(peer_addr, blake3_hash, None).await?;
+        download_blob_to_store(peer_addr, blake3_hash, on_progress).await?;
 
     // export from store directly to target file (no memory buffering)
     store
@@ -471,12 +524,28 @@ async fn download_blob_to_store(
     let mut had_error = false;
     let mut last_error_text: Option<String> = None;
     let mut failure_kind: Option<DownloadFailureKind> = None;
+    // last cumulative byte count reported before any failure - lets the
+    // final error message distinguish "never got any bytes" (peer
+    // unreachable/connection never established) from "connection dropped
+    // mid-transfer", which iroh-blobs' own opaque error text doesn't say.
+    let mut bytes_before_failure: u64 = 0;
 
     while let Some(event) = stream.next().await {
         match event {
             DownloadProgressItem::Error(e) => {
                 had_error = true;
-                last_error_text = Some(format!("{:?}", e));
+                // alternate/pretty debug prints the full cause chain for
+                // most error crates (plain `{:?}` often collapses to one
+                // opaque line, e.g. just "Unable to download <hash>" with
+                // no indication of why) - fall back to plain debug if the
+                // alternate form isn't actually more informative.
+                let pretty = format!("{:#?}", e);
+                let plain = format!("{:?}", e);
+                last_error_text = Some(if pretty.len() > plain.len() {
+                    pretty
+                } else {
+                    plain
+                });
                 tracing::error!("iroh-blobs: download error for {}: {:?}", hash_short, e);
 
                 // `e`'s concrete type is `n0_error::AnyError` (not a direct
@@ -521,6 +590,7 @@ async fn download_blob_to_store(
                 debug!("iroh-blobs: part complete for {}", hash_short);
             }
             DownloadProgressItem::Progress(bytes) => {
+                bytes_before_failure = bytes;
                 if let Some(cb) = on_progress {
                     cb(bytes);
                 }
@@ -569,11 +639,24 @@ async fn download_blob_to_store(
                 error!(
                     hash = %hash_short,
                     peer = %node_id_short,
+                    bytes_before_failure,
                     error = %msg,
                     "[p2p] iroh-blobs verified download failed"
                 );
+                let progress_note = if bytes_before_failure > 0 {
+                    format!(
+                        "{} bytes transferred before the connection dropped",
+                        bytes_before_failure
+                    )
+                } else {
+                    "no bytes were transferred (never connected, or peer refused/timed out)"
+                        .to_string()
+                };
                 return Err(GrimoireError::FederationApiError {
-                    message: format!("verified download failed: {}", msg),
+                    message: format!(
+                        "verified download of blob {} from peer {} failed: {} ({})",
+                        hash_short, node_id_short, msg, progress_note
+                    ),
                 });
             }
         }
@@ -688,6 +771,12 @@ pub async fn compute_blake3(peer_addr: &str, blob_id: &str) -> GrimoireResult<Op
     Ok(blake3)
 }
 
+/// pause before a post-ensure retry (see fetch_blob_verified_with_ensure_progress
+/// / fetch_blob_verified_to_file_with_ensure_and_progress) - long enough to let
+/// a connection dropped by a transient blip (e.g. an idle-timeout teardown)
+/// actually re-establish, short enough not to make a real failure feel stuck.
+const RETRY_BACKOFF: std::time::Duration = std::time::Duration::from_secs(5);
+
 /// fetch a blob using verified streaming with on-demand loading
 ///
 /// tries iroh-blobs first. if blob not in FsStore, calls ensure_blob
@@ -708,6 +797,26 @@ pub async fn fetch_blob_verified_with_ensure_progress(
     blake3_hash: &str,
     on_progress: Option<&BlobProgressFn>,
 ) -> GrimoireResult<Vec<u8>> {
+    // see fetch_blob_verified_to_file_with_ensure_and_progress's identical
+    // self-peer short-circuit for why this must never attempt to connect.
+    if is_self_peer(peer_addr) {
+        if let Some(data) = try_read_local_blob(blake3_hash).await {
+            info!(
+                hash = %&blake3_hash[..16.min(blake3_hash.len())],
+                bytes = data.len(),
+                "fetch_blob_verified_with_ensure: self-peer, read from local store"
+            );
+            return Ok(data);
+        }
+        return Err(GrimoireError::FederationApiError {
+            message: format!(
+                "{} is this instance's own node id, but no local copy of blob {} was found - nothing to fetch",
+                &peer_addr[..16.min(peer_addr.len())],
+                &blake3_hash[..16.min(blake3_hash.len())],
+            ),
+        });
+    }
+
     info!(
         "fetch_blob_verified_with_ensure: starting for {} from {}",
         &blake3_hash[..16.min(blake3_hash.len())],
@@ -754,7 +863,11 @@ pub async fn fetch_blob_verified_with_ensure_progress(
         }
     }
 
-    // retry verified download
+    // retry verified download - a brief pause first gives a connection that
+    // just dropped (e.g. an idle-timeout teardown) a moment to actually
+    // reconnect, instead of immediately retrying against the same still-bad
+    // connection.
+    tokio::time::sleep(RETRY_BACKOFF).await;
     info!(
         "fetch_blob_verified_with_ensure: retrying verified download for {}",
         &blake3_hash[..16.min(blake3_hash.len())],
@@ -774,6 +887,43 @@ pub async fn fetch_blob_verified_to_file_with_ensure(
     blake3_hash: &str,
     target: &std::path::Path,
 ) -> GrimoireResult<u64> {
+    fetch_blob_verified_to_file_with_ensure_and_progress(peer_addr, blake3_hash, target, None).await
+}
+
+/// `fetch_blob_verified_to_file_with_ensure` with an optional cumulative-bytes
+/// progress callback, forwarded to both the initial attempt and the
+/// post-ensure retry.
+pub async fn fetch_blob_verified_to_file_with_ensure_and_progress(
+    peer_addr: &str,
+    blake3_hash: &str,
+    target: &std::path::Path,
+    on_progress: Option<&BlobProgressFn>,
+) -> GrimoireResult<u64> {
+    // a queued MediaRef can legitimately name this same instance as its
+    // own source (e.g. content browsed from this player's own library and
+    // queued straight back to it - see `is_self_peer`'s doc comment).
+    // iroh refuses a self-connect outright, so there's no point ever
+    // dialing here - export directly from this device's own iroh-blobs
+    // store instead, which already has the bytes whenever the caller-side
+    // import (e.g. `p2p_import_blob_bytes`) ran on this same instance.
+    if is_self_peer(peer_addr) {
+        if let Some(size) = try_export_local_blob(blake3_hash, target).await {
+            info!(
+                hash = %&blake3_hash[..16.min(blake3_hash.len())],
+                bytes = size,
+                "fetch_blob_verified_to_file_with_ensure: self-peer, exported from local store"
+            );
+            return Ok(size);
+        }
+        return Err(GrimoireError::FederationApiError {
+            message: format!(
+                "{} is this instance's own node id, but no local copy of blob {} was found - nothing to fetch",
+                &peer_addr[..16.min(peer_addr.len())],
+                &blake3_hash[..16.min(blake3_hash.len())],
+            ),
+        });
+    }
+
     info!(
         "fetch_blob_verified_to_file_with_ensure: starting for {} from {}",
         &blake3_hash[..16.min(blake3_hash.len())],
@@ -781,7 +931,9 @@ pub async fn fetch_blob_verified_to_file_with_ensure(
     );
 
     // first attempt
-    match fetch_blob_verified_to_file(peer_addr, blake3_hash, target).await {
+    match fetch_blob_verified_to_file_with_progress(peer_addr, blake3_hash, target, on_progress)
+        .await
+    {
         Ok(size) => return Ok(size),
         Err(e) => {
             let hash_short = &blake3_hash[..16.min(blake3_hash.len())];
@@ -835,13 +987,17 @@ pub async fn fetch_blob_verified_to_file_with_ensure(
         }
     }
 
-    // retry
+    // retry - see fetch_blob_verified_with_ensure_progress's identical
+    // backoff reasoning.
+    tokio::time::sleep(RETRY_BACKOFF).await;
     info!(
         "fetch_blob_verified_to_file_with_ensure: retrying for {}",
         &blake3_hash[..16.min(blake3_hash.len())],
     );
 
-    let result = fetch_blob_verified_to_file(peer_addr, blake3_hash, target).await;
+    let result =
+        fetch_blob_verified_to_file_with_progress(peer_addr, blake3_hash, target, on_progress)
+            .await;
     if let Err(ref e) = result {
         error!(
             hash = %&blake3_hash[..16.min(blake3_hash.len())],

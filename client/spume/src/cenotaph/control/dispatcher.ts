@@ -1,0 +1,140 @@
+// control command dispatcher: validates commands from an already-trusted
+// controller and routes them to a caller-supplied `PlaybackBackend`,
+// instead of importing one hardcoded playback engine directly - see
+// playbackBackend.ts.
+
+import { createSignal } from "solid-js";
+import { PlayerCommandSchema, type CommandAck } from "./schema";
+import { broadcastStatus } from "./statusSubscribers";
+import { markActivity } from "./activityIndicator";
+import type { PlaybackBackend } from "./playbackBackend";
+import { debug, error, warn } from "../../utils/logger";
+import { CENOTAPH_QUEUE_TRACE } from "../queueTrace";
+
+// only the handful of commands that can take the player from idle (no
+// now-playing item, qr code showing) to actually playing something count
+// as "loading" for `commandInFlight` below - e.g. `get_status` (sent
+// constantly by every paired client's background poll, even while
+// genuinely idle) must NOT flip this, or a qr-overlay loading spinner
+// would flicker every few seconds regardless of whether anything's
+// actually happening.
+const QR_HIDING_COMMANDS = new Set(["play", "replace_queue", "append_queue"]);
+
+const [commandInFlight, setCommandInFlight] = createSignal(false);
+/** true while a command that would transition the player out of its idle/
+ * qr-showing state is being processed - a host app's qr overlay can use
+ * this for its loading state. */
+export { commandInFlight };
+
+export async function dispatchCommand<TNode = unknown>(
+  backend: PlaybackBackend<TNode>,
+  node: TNode,
+  rawLine: string
+): Promise<CommandAck> {
+  const parsed = PlayerCommandSchema.safeParse(JSON.parse(rawLine));
+  if (!parsed.success) {
+    warn("dispatcher", "failed to parse command:", rawLine, parsed.error);
+    return { type: "command_ack", ok: false, reason: "invalid_command" };
+  }
+
+  const command = parsed.data;
+  if (command.command !== "get_status") {
+    debug("dispatcher", "dispatching command:", command);
+  }
+  const isQueueCommand = command.command === "replace_queue" || command.command === "append_queue";
+  const dispatchStart = Date.now();
+  if (isQueueCommand) {
+    const itemCount = "items" in command ? command.items.length : 0;
+    debug(
+      "dispatcher",
+      `${CENOTAPH_QUEUE_TRACE} dispatchCommand: received "${command.command}" with ${itemCount} item(s)`
+    );
+  }
+  const tracksLoading = QR_HIDING_COMMANDS.has(command.command);
+  if (command.command !== "get_status") markActivity();
+  if (tracksLoading) setCommandInFlight(true);
+  try {
+    switch (command.command) {
+      case "play":
+        await backend.play(node, command.item);
+        break;
+      case "replace_queue":
+        await backend.replaceQueue(node, command.items);
+        break;
+      case "append_queue":
+        await backend.appendQueue(node, command.items);
+        break;
+      case "pause":
+        await backend.pause();
+        break;
+      case "resume":
+        await backend.resume();
+        break;
+      case "seek":
+        backend.seek(command.position_ms);
+        break;
+      case "skip":
+        await backend.skip(node);
+        break;
+      case "remove_from_queue":
+        await backend.removeFromQueue(node, command.index);
+        break;
+      case "reorder_queue":
+        backend.reorderQueue(command.from_index, command.to_index);
+        break;
+      case "set_volume":
+        backend.setVolume(command.volume);
+        break;
+      case "stop":
+        backend.stop();
+        break;
+      case "tune_radio":
+        await backend.startRadio(node, command.peer_addr, command.station_id);
+        break;
+      case "stop_radio":
+        backend.stopRadio();
+        break;
+      case "set_auto_download_enabled":
+        backend.setAutoDownloadEnabled(command.enabled);
+        break;
+      case "get_status":
+        break;
+    }
+
+    const status = backend.currentStatus();
+    // push the same status to every other subscribed controller too - not
+    // just the one that sent this command - so a shared/multi-user queue
+    // stays in sync without everyone polling.
+    broadcastStatus(status);
+    if (isQueueCommand) {
+      debug(
+        "dispatcher",
+        `${CENOTAPH_QUEUE_TRACE} dispatchCommand: "${command.command}" acked ok=true after ${Date.now() - dispatchStart}ms, queue.length=${status.queue.length}`
+      );
+    }
+    return { type: "command_ack", ok: true, status };
+  } catch (err) {
+    // a thrown backend method (e.g. queue.ts's addToQueue/playQueue
+    // rejecting for a resolved video/song item) previously propagated
+    // uncaught all the way to the accept-loop connection handler -
+    // browser/wasm mode then silently closed the WHOLE connection with no
+    // ack at all (killing every other command queued behind it too), and
+    // charnel-native mode only logged a bare "dispatchCommand threw" with
+    // no indication of which command or item was involved. logging the
+    // command here (not just the raw error) is what actually answers "why
+    // wasn't this queued" - the deeper resolve/sync functions already log
+    // their own failures, but a throw from the QUEUE-ADD step itself
+    // (after a successful resolve) had no logging anywhere before this.
+    if (isQueueCommand) {
+      error(
+        "dispatcher",
+        `${CENOTAPH_QUEUE_TRACE} dispatchCommand: "${command.command}" threw after ${Date.now() - dispatchStart}ms:`,
+        err
+      );
+    }
+    error("dispatcher", `command "${command.command}" threw:`, err);
+    return { type: "command_ack", ok: false, reason: "invalid_command" };
+  } finally {
+    if (tracksLoading) setCommandInFlight(false);
+  }
+}

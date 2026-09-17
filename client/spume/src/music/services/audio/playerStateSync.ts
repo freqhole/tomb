@@ -20,12 +20,7 @@
 
 import type { PlayerEvent } from "@freqhole/api-client";
 import type { PlayerBackend, Unsubscribe } from "./backend";
-import {
-  setCurrentTime,
-  setDuration,
-  setIsLoading,
-  setIsPlaying,
-} from "./playerState";
+import { setCurrentTime, setDuration, setIsLoading, setIsPlaying } from "./playerState";
 
 let currentUnsubscribe: Unsubscribe | null = null;
 

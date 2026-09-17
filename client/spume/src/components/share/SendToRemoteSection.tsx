@@ -170,10 +170,14 @@ export const SendToRemoteSection: Component<SendToRemoteSectionProps> = (props) 
           retryBlake3s,
         });
       }
-      const summary =
-        `sent to ${destName}: ` +
-        `${final.syncedSongs} synced, ${final.skippedSongs} skipped, ` +
-        `${final.failedSongs} failed`;
+      // only report counts that actually happened - a summary like
+      // "0 synced, 0 skipped, 3 failed" is just noise around the one
+      // number that matters.
+      const parts: string[] = [];
+      if (final.syncedSongs > 0) parts.push(`${final.syncedSongs} synced`);
+      if (final.skippedSongs > 0) parts.push(`${final.skippedSongs} skipped`);
+      if (final.failedSongs > 0) parts.push(`${final.failedSongs} failed`);
+      const summary = `sent to ${destName}: ${parts.length > 0 ? parts.join(", ") : "nothing to sync"}`;
       if (final.failedSongs > 0) toast.warning(summary);
       else toast.success(summary);
       setLastResult({ destId: entry.id, destName, progress: final });

@@ -4,8 +4,9 @@
 // calls grimoire::api::dispatch directly via the api_call IPC command.
 // uses Tauri's asset protocol for blob/audio file access (no HTTP streaming).
 
-import type { Transport, TransportResponse, BlobData } from "./transport.js";
+import type { Transport, TransportResponse, BlobData, UploadMetadata } from "./transport.js";
 import type { CloseReason, EventFilter, JobEvent, JobStateSnapshot } from "./codegen/schema.js";
+import { bytesToBase64 } from "./base64.js";
 
 // tauri invoke function type
 type InvokeFn = (cmd: string, args?: unknown) => Promise<unknown>;
@@ -13,9 +14,6 @@ type InvokeFn = (cmd: string, args?: unknown) => Promise<unknown>;
 // tauri invoke is dynamically imported to avoid bundling in browser builds
 let invoke: InvokeFn | null = null;
 let convertFileSrc: ((path: string, protocol?: string) => string) | null = null;
-// cached target_os check (android only, for now) - see mediaSrcFor() below.
-// null = not yet determined, false = determined non-android.
-let isAndroidCached: boolean | null = null;
 
 /**
  * initialize tauri invoke function
@@ -27,12 +25,6 @@ async function ensureInvoke(): Promise<InvokeFn> {
     invoke = tauri.invoke as InvokeFn;
     // also grab convertFileSrc for blob URLs
     convertFileSrc = tauri.convertFileSrc;
-    try {
-      const buildInfo = (await invoke("get_build_info")) as { target_os?: string };
-      isAndroidCached = buildInfo?.target_os === "android";
-    } catch {
-      isAndroidCached = false;
-    }
     return invoke;
   } catch {
     throw new Error("@tauri-apps/api not available - not running in Tauri");
@@ -40,20 +32,35 @@ async function ensureInvoke(): Promise<InvokeFn> {
 }
 
 /**
- * build a playable url for a local file path - tauri's built-in `asset`
- * protocol everywhere except android, which gets the custom
- * `freqhole-media` protocol instead (see `client/charnel/src-tauri/src/
- * media_protocol.rs`: the built-in one caps every range response to
- * ~1MB, which android's webview media pipeline doesn't reliably recover
- * from for files larger than that - confirmed via a live network trace).
- * call `ensureInvoke()` (or anything that awaits it) at least once before
- * calling this, so `isAndroidCached` is resolved.
+ * build a playable url for a local file path via the custom
+ * `freqhole-media` protocol (see `client/charnel/src-tauri/src/
+ * media_protocol.rs`) - used on every platform, not just android: tauri's
+ * built-in `asset` protocol caps every range response to ~1MB regardless
+ * of what was actually requested, which a webview's media pipeline
+ * doesn't reliably recover from for anything larger (a compressed file
+ * limps along for ~30s before stalling; an uncompressed one like a wav
+ * can stop in single-digit seconds). `freqhole-media` mirrors the
+ * built-in protocol's shape but removes that cap, and is already
+ * registered on every platform regardless of which protocol the client
+ * actually requests.
  */
 function mediaSrcFor(path: string): string {
   if (!convertFileSrc) {
     throw new Error("convertFileSrc not available");
   }
-  return isAndroidCached ? convertFileSrc(path, "freqhole-media") : convertFileSrc(path);
+  return convertFileSrc(path, "freqhole-media");
+}
+
+/**
+ * tauri's `invoke()` rejects with the raw `String` from a `Result<T,
+ * String>` command - not an `Error` instance - so a plain
+ * `err instanceof Error ? err.message : "..."` check silently discards
+ * that string. this covers the string case too.
+ */
+function ipcErrorMessage(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  if (typeof err === "string" && err.trim()) return err;
+  return "IPC error";
 }
 
 /**
@@ -161,18 +168,22 @@ export class CharnelLocalTransport implements Transport {
       console.info(
         `[perf] api_call ${path} failed after ${(performance.now() - requestStart).toFixed(1)}ms`,
       );
-      // IPC error - treat as network error
+      // IPC error - tauri's invoke() rejects with the raw String from a
+      // Result<T, String> command (not an Error instance), so this must
+      // check for a plain string too or the real message gets discarded.
       return {
         status: 0,
         body: JSON.stringify({
-          error: err instanceof Error ? err.message : "IPC error",
+          error: ipcErrorMessage(err),
         }),
       };
     }
   }
 
   /**
-   * upload - converts FormData to base64 JSON and calls dispatch
+   * upload - routes music/video to the chunked local-import path (see
+   * `uploadChunked`); everything else (images etc) still uses the legacy
+   * whole-file base64 path, which is fine at small file sizes.
    *
    * for tauri-local, we use wait_for_completion to block until the job
    * finishes, avoiding the need for polling from the client side.
@@ -180,16 +191,9 @@ export class CharnelLocalTransport implements Transport {
   async upload(
     path: string,
     formData: FormData,
-    _onProgress?: (loaded: number, total: number) => void,
+    onProgress?: (loaded: number, total: number) => void,
+    metadata?: UploadMetadata,
   ): Promise<TransportResponse> {
-    // no byte-level progress possible here - unlike CharnelTransport (P2P),
-    // which already chunks the file for android/memory reasons and can
-    // report progress per chunk, this local-dispatch path reads the whole
-    // file into one base64 JSON body and sends it as a single IPC call.
-    // chunking this too would need a new local (non-P2P) equivalent of the
-    // `-by-blake3` upload route, since that route currently requires a
-    // `node_id` and always pulls from a remote peer.
-    // extract file and other fields from FormData
     const file = formData.get("file") as File | null;
     if (!file) {
       return {
@@ -202,6 +206,87 @@ export class CharnelLocalTransport implements Transport {
       };
     }
 
+    if (path === "/api/upload/music" || path === "/api/upload/video") {
+      return this.uploadChunked(path, file, metadata, onProgress);
+    }
+
+    return this.uploadLegacyBase64(path, file, metadata);
+  }
+
+  /**
+   * stream a music/video file to this local grimoire instance in bounded
+   * chunks via the local_import_* tauri commands (shared with
+   * CharnelTransport's P2P chunked import - see p2p_commands.rs), instead
+   * of buffering the whole file into one base64 JSON body. mirrors
+   * CharnelTransport.uploadMediaViaBytes, but finishes to a plain temp-file
+   * path (this device IS the destination, no remote peer to pull from)
+   * which is then handed to the existing `file_path`-based upload route.
+   *
+   * `onProgress`, if given, is called after each chunk with (bytes sent so
+   * far, file.size) - real, byte-level progress from the chunk loop itself.
+   */
+  private async uploadChunked(
+    path: string,
+    file: File,
+    metadata: UploadMetadata | undefined,
+    onProgress?: (loaded: number, total: number) => void,
+  ): Promise<TransportResponse> {
+    const inv = await ensureInvoke();
+
+    // ~4MB raw per chunk -> ~5.5MB base64 per IPC call, matching the P2P
+    // chunked import's chunk size.
+    const CHUNK_SIZE = 4 * 1024 * 1024;
+
+    const uploadId = (await inv("p2p_import_begin")) as string;
+    let filePath: string;
+    try {
+      for (let offset = 0; offset < file.size; offset += CHUNK_SIZE) {
+        const slice = file.slice(offset, Math.min(offset + CHUNK_SIZE, file.size));
+        const chunkBytes = new Uint8Array(await slice.arrayBuffer());
+        await inv("p2p_import_chunk", { uploadId, data: bytesToBase64(chunkBytes) });
+        onProgress?.(Math.min(offset + chunkBytes.length, file.size), file.size);
+      }
+      filePath = (await inv("local_import_finish", { uploadId })) as string;
+    } catch (err) {
+      try {
+        await inv("p2p_import_abort", { uploadId });
+      } catch {
+        // ignore abort failures
+      }
+      throw err;
+    }
+
+    try {
+      const body: Record<string, unknown> = {
+        file_path: filePath,
+        filename: file.name,
+        wait_for_completion: true,
+        ...metadata,
+      };
+      return await this.request("POST", path, JSON.stringify(body));
+    } finally {
+      try {
+        await inv("local_import_cleanup", { filePath });
+      } catch {
+        // best-effort - a leaked temp file isn't worth failing the upload over
+      }
+    }
+  }
+
+  /**
+   * @deprecated whole-file base64 upload - reads the entire file into
+   * memory and base64-encodes it in one shot, which OOM-crashed the
+   * android webview for large music/video files (see uploadChunked, which
+   * replaced this for those routes). only still used for small non-media
+   * uploads (e.g. images) where this is safe. do not extend this to any
+   * new large-file route - add it to the `uploadChunked` branch in
+   * `upload()` instead.
+   */
+  private async uploadLegacyBase64(
+    path: string,
+    file: File,
+    metadata?: UploadMetadata,
+  ): Promise<TransportResponse> {
     // read file as base64
     const arrayBuffer = await file.arrayBuffer();
     const base64 = btoa(
@@ -215,17 +300,8 @@ export class CharnelLocalTransport implements Transport {
       // tauri-local optimization: wait for job to complete instead of returning job_id
       // this eliminates the need for client-side polling
       wait_for_completion: true,
+      ...metadata,
     };
-
-    // include associate_with if present
-    const associationStr = formData.get("associate_with");
-    if (associationStr && typeof associationStr === "string") {
-      try {
-        body.associate_with = JSON.parse(associationStr);
-      } catch {
-        // ignore parse errors
-      }
-    }
 
     // call through normal request path
     return this.request("POST", path, JSON.stringify(body));

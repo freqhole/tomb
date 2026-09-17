@@ -28,7 +28,7 @@ import type { LocalVideoSeriesRow } from "../storage/db/series";
 import { getOrCreateLocalVideoSeason, updateLocalVideoSeason } from "../storage/db/seasons";
 import type { LocalVideoSeasonRow } from "../storage/db/seasons";
 import { downloadAndStoreImages } from "../../../music/services/sync/syncSongToLocal";
-import { pickBestImage, imagesAreStale } from "../../../utils/images";
+import { pickBestImage, imagesAreStale, preservePrimarySelection } from "../../../utils/images";
 import type { ImageMetadata } from "../../../music/services/storage/types";
 import { invalidateVideoLibraryQueries } from "../../queries/cacheUpdates";
 import { markVideoSynced } from "../syncState";
@@ -39,21 +39,10 @@ import {
 } from "../opfs/helpers";
 import { resolvePlaybackBlobId } from "../playbackBlobId";
 import { syncVideoViaLocalGrimoire } from "./syncVideoViaLocalGrimoire";
+import { extensionFromMime } from "../videoMime";
 import type { QueuedVideo } from "../../../app/services/storage/mediaItem";
 import type { BlobMetadataResponse } from "@freqhole/api-client";
 import { debug, warn } from "../../../utils/logger";
-
-const MIME_TO_EXTENSION: Record<string, string> = {
-  "video/mp4": "mp4",
-  "video/webm": "webm",
-  "video/quicktime": "mov",
-  "video/x-matroska": "mkv",
-  "video/ogg": "ogv",
-};
-
-function extensionFromMime(mime: string): string {
-  return MIME_TO_EXTENSION[mime] ?? "mp4";
-}
 
 /** look up size/mime/blake3 for a video's blob up front - lets the http
  *  download path pick the right (stable, resume-friendly) file extension
@@ -162,7 +151,7 @@ async function resolveLocalSeriesContext(
         } as ImageMetadata,
       ]);
       if (images.length > 0) {
-        seriesUpdates.images = images;
+        seriesUpdates.images = preservePrimarySelection(existingSeries.images, images);
         // grid tiles and detail panels read poster_blob_id, not the images
         // gallery - for a local row it holds the *local* blob id (same
         // convention as localSource.ts's uploadImage).
@@ -203,7 +192,7 @@ async function resolveLocalSeriesContext(
         ]);
         if (seasonImages.length > 0) {
           await updateLocalVideoSeason(localSeason.id, {
-            images: seasonImages,
+            images: preservePrimarySelection(existingSeason.images, seasonImages),
             poster_blob_id: pickBestImage(seasonImages)?.local_blob_id ?? null,
           });
           invalidateVideoLibraryQueries();
@@ -228,6 +217,11 @@ export function canSyncVideo(video: QueuedVideo): boolean {
  * fire-and-forget callers; the play path uses it to build a url. */
 export interface VideoSyncOutcome {
   success: boolean;
+  /** charnel only — the real grimoire db row id of the synced video (NOT
+   * a content hash - see /memories/repo/tomb-sha256-vs-blake3-vs-id.md).
+   * lets a caller with no local IDB (cenotaph's charnel resolve path) read
+   * the persisted row back via `client.video.getVideo({ id })`. */
+  videoId?: string;
   /** charnel only — absolute fs path of the local copy. */
   localPath?: string;
   error?: string;
@@ -249,6 +243,18 @@ async function syncVideoViaCharnel(
 
   const blobId = await resolvePlaybackBlobId(video, remoteId);
   const meta = await fetchBlobMetadata(remoteId, blobId, remoteOverride);
+  // prefer a blake3 the caller already knows (e.g. cenotaph's
+  // mediaRefResolve.ts sets `video.blake3` directly from the wire
+  // MediaRef's own hash, computed once by the peer that imported the
+  // bytes) over re-deriving one from this metadata fetch - which is
+  // explicitly best-effort and swallows ANY failure (unreachable peer,
+  // timeout, etc.) into an empty `{}`. blindly trusting `meta.blake3`
+  // meant a flaky/slow metadata round trip could throw away a perfectly
+  // good, already-known hash and fail the whole sync with "video blob
+  // has no blake3" even though one was known the entire time - the
+  // actual root cause of "queue a video from a remote controller" never
+  // resolving in charnel mode.
+  const blake3 = video.blake3 ?? meta.blake3 ?? null;
 
   addToLoadingSet(video.id);
   updateLoadingProgress(video.id, null); // grimoire's pull reports no progress back
@@ -257,7 +263,7 @@ async function syncVideoViaCharnel(
       video,
       remote,
       blobId,
-      meta.blake3 ?? null,
+      blake3,
       meta.size,
       meta.mime
     );
@@ -271,7 +277,7 @@ async function syncVideoViaCharnel(
       `synced video "${video.title}" (${video.id}) into the local library via grimoire (existing=${result.skipped})`
     );
     invalidateVideoLibraryQueries();
-    return { success: true, localPath: result.localPath };
+    return { success: true, videoId: result.videoId, localPath: result.localPath };
   } finally {
     removeFromLoadingSet(video.id);
   }
@@ -296,15 +302,22 @@ export async function syncVideoToLocal(
   if (!video.remote_server_id || !video.media_blob_id) {
     return { success: false, error: "video missing remote or blob id" };
   }
-  if (!getSyncQueueToLocal()) return { success: false, error: "sync-to-local is off" };
   // tauri's webview (WKWebView on macOS) supports OPFS getFileHandle/
   // getDirectoryHandle but not the async createWritable() writable-stream
   // api, so writeVideoToOPFS below would throw. charnel-mode syncs instead go
   // through the local grimoire, which pulls the bytes natively by blake3 -
-  // same split music's syncSongToLocal.ts uses.
+  // same split music's syncSongToLocal.ts uses. charnel has no "stream
+  // without persisting" alternative at all (see docs/
+  // cenotaph-charnel-native-playback-rewire-plan.md's gst-window gap) and
+  // must always persist (cenotaph queue pushes rely on this) - so the
+  // `sync_queue_to_local` toggle check below is skipped for this branch,
+  // matching syncSongToLocal.ts's convention (no internal gate at all -
+  // the toggle is enforced at call sites instead, see videoBlobAccess.ts's
+  // own `getSyncQueueToLocal() && canSyncVideo(video)` check).
   if (isCharnelMode()) {
     return syncVideoViaCharnel(video, remoteOverride);
   }
+  if (!getSyncQueueToLocal()) return { success: false, error: "sync-to-local is off" };
 
   try {
     const existing = await getLocalVideoById(video.id);

@@ -297,7 +297,7 @@ export interface GenreWithStats {
 
 // database metadata
 export const MUSIC_DB_NAME = "freqhole_music";
-export const MUSIC_DB_VERSION = 18;
+export const MUSIC_DB_VERSION = 19;
 
 // store names
 export const STORE_ARTISTS = "artists";
@@ -314,6 +314,13 @@ export const STORE_TAXONS = "taxons";
 export const STORE_ALBUM_TAXONS = "album_taxons";
 export const STORE_ENTITY_TAXONS = "entity_taxons";
 export const STORE_TAXON_KINDS = "taxon_kinds";
+// v19: local-library equivalent of grimoire's job_sessionz +
+// import_blobz + import_session_send_targetz (see migrations/079) - lets
+// plain-browser (no charnel) imports get the exact same "review before
+// send" flow desktop/android already have, backed by IndexedDB instead
+// of sqlite. see db/importReview.ts.
+export const STORE_IMPORT_REVIEW_SESSIONZ = "import_review_sessionz";
+export const STORE_IMPORT_REVIEW_BLOBZ = "import_review_blobz";
 
 // sentinel `remote_id` used in `taxons` / `album_taxons` rows to mark
 // entries that belong to the local indexeddb library. matches
@@ -384,5 +391,34 @@ export interface TaxonKindRow {
   value_type: string;
   unit: string | null;
   display_order: number;
+  created_at: number;
+}
+
+// ===== IMPORT_REVIEW_SESSIONZ TABLE (local equivalent of job_sessionz +
+// import_session_send_targetz) =====
+// one row per local-first import batch. `target_remote_id`/
+// `target_remote_name` mirror grimoire's import_session_send_targetz -
+// set once at session-creation time when the batch is destined for a
+// remote (the "review before send" flow), left null for a purely local
+// import. `target_remote_name` is a snapshot, not a live join, so review
+// still reads sensibly if the remote is later renamed/removed.
+export interface LocalImportReviewSession {
+  session_id: string;
+  created_at: number;
+  target_remote_id: string | null;
+  target_remote_name: string | null;
+}
+
+// ===== IMPORT_REVIEW_BLOBZ TABLE (local equivalent of import_blobz)
+// =====
+// tracks which locally-imported songs still need review. keyed on
+// song_id (IDB's local library has no separate content-addressed blob
+// row the way grimoire does - the song row itself is the unit of
+// review). `reviewed_at` null means still pending, matching grimoire's
+// `import_blobz.reviewed_at` convention.
+export interface LocalImportReviewBlob {
+  song_id: string;
+  session_id: string;
+  reviewed_at: number | null;
   created_at: number;
 }

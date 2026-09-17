@@ -13,7 +13,7 @@
 //   review.markReviewed(groupKey)
 //   review.refetch()
 
-import { createSignal, createResource, createMemo } from "solid-js";
+import { createSignal, createResource, createMemo, createEffect } from "solid-js";
 import { getClientForRemote } from "../../app/api/client";
 import { getRemoteMediaUrl } from "../../utils/urls";
 import type { CurrentRemoteInfo } from "../../music/data/currentState";
@@ -59,6 +59,11 @@ export interface ImportReviewVideoGroup {
 export interface VideoImportReviewHandle {
   groups: () => ImportReviewVideoGroup[];
   loading: () => boolean;
+  /** durable send target set at import time (see grimoire's
+   * import_session_send_targetz, shared with music's session tracking) -
+   * `undefined` means this session has no target (purely local import). */
+  targetRemoteId: () => string | undefined;
+  targetRemoteName: () => string | undefined;
   /** last failure from patchGroup/moveVideo/markReviewed, for inline
    * display - never shown as a toast (see ImportVideoReviewEditor.tsx). */
   error: () => string | null;
@@ -101,6 +106,8 @@ export function useVideoImportReview(
 ): VideoImportReviewHandle {
   const [reloadKey, setReloadKey] = createSignal(0);
   const [error, setError] = createSignal<string | null>(null);
+  const [targetRemoteId, setTargetRemoteId] = createSignal<string | undefined>(undefined);
+  const [targetRemoteName, setTargetRemoteName] = createSignal<string | undefined>(undefined);
 
   const key = createMemo<[string, CurrentRemoteInfo, number] | null>(() => {
     const id = sessionId();
@@ -119,6 +126,22 @@ export function useVideoImportReview(
     } catch (err) {
       setError(`failed to reach remote: ${(err as Error).message}`);
       return [];
+    }
+
+    // durable send target, set at import time (see ImportSessionSendTarget
+    // repository - the route itself is domain-agnostic despite living
+    // under `client.music`; sessions aren't scoped to a domain).
+    try {
+      const targetResp = await client.music.getImportSessionTarget({ session_id: sid });
+      setTargetRemoteId(
+        targetResp.success ? (targetResp.data?.target_remote_id ?? undefined) : undefined
+      );
+      setTargetRemoteName(
+        targetResp.success ? (targetResp.data?.target_remote_name ?? undefined) : undefined
+      );
+    } catch {
+      setTargetRemoteId(undefined);
+      setTargetRemoteName(undefined);
     }
 
     const resp = await client.video.listPendingVideoImportReview({ session_id: sid });
@@ -145,6 +168,18 @@ export function useVideoImportReview(
         })),
       }))
     );
+  });
+
+  // data.latest keeps returning the PREVIOUS session's (already-empty)
+  // group list while a new session's fetch is in flight - see
+  // useImportReview.ts's identical resolvedForSid for the full reasoning.
+  const [resolvedForSid, setResolvedForSid] = createSignal<string | null>(null);
+  createEffect(() => {
+    const k = key();
+    if (!k) return;
+    if (data.state === "ready" || data.state === "errored") {
+      setResolvedForSid(k[0]);
+    }
   });
 
   function refetch() {
@@ -247,7 +282,13 @@ export function useVideoImportReview(
     // data.latest keeps the previous value during a source-change refetch,
     // same reasoning as useImportReview.ts
     groups: () => data.latest ?? data() ?? [],
-    loading: () => (data.loading && !data.latest) || data.state === "unresolved",
+    loading: () => {
+      const sid = sessionId();
+      if (sid !== resolvedForSid()) return true;
+      return (data.loading && !data.latest) || data.state === "unresolved";
+    },
+    targetRemoteId,
+    targetRemoteName,
     error,
     clearError: () => setError(null),
     patchGroup,

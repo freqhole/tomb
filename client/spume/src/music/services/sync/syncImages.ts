@@ -114,3 +114,38 @@ export async function inlineImagesForSync(
   }
   return out;
 }
+
+/** inlines a single already-resolved image url directly, with no source-
+ * transport blob-id lookup - `fetch()` handles both a real http(s) url and
+ * a `data:` url (already-embedded bytes) identically, so no url-scheme
+ * branching is needed. used for artwork that arrived over the
+ * `freqhole-player/1` control wire (`RemoteMediaRef.artwork_*_url` - see
+ * `mediaRefResolve.ts`), which is a resolved url/data-url already, not a
+ * blob id on any transport `inlineImagesForSync` above could fetch from. */
+export async function inlineRawUrlForSync(
+  url: string | undefined,
+  isPrimary: boolean,
+  blobType: string
+): Promise<SyncImageRefBody | undefined> {
+  if (!url) return undefined;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) {
+      warn("syncImages", `inlineRawUrlForSync: fetch failed (${res.status})`);
+      return undefined;
+    }
+    const blob = await res.blob();
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    const sha256 = await sha256Hex(bytes);
+    return {
+      content_sha256: sha256,
+      data_base64: bytesToBase64(bytes),
+      mime_type: blob.type || "image/jpeg",
+      is_primary: isPrimary,
+      blob_type: blobType,
+    };
+  } catch (err) {
+    warn("syncImages", "inlineRawUrlForSync failed:", err);
+    return undefined;
+  }
+}

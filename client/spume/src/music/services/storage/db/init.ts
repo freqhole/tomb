@@ -11,6 +11,8 @@ import {
   STORE_ENTITY_TAXONS,
   STORE_FAVORITES,
   STORE_GENRES,
+  STORE_IMPORT_REVIEW_BLOBZ,
+  STORE_IMPORT_REVIEW_SESSIONZ,
   STORE_PLAYLIST_ITEMS,
   STORE_PLAYLISTS,
   STORE_RATINGS,
@@ -222,6 +224,27 @@ export async function initMusicDB(): Promise<IDBPDatabase> {
           keyPath: ["domain", "kind_slug"],
         });
         taxonKindsStore.createIndex("by_domain", "domain");
+      }
+
+      // v19: local equivalent of grimoire's job_sessionz +
+      // import_session_send_targetz (see LocalImportReviewSession doc
+      // comment) - one row per local-first import batch.
+      if (!db.objectStoreNames.contains(STORE_IMPORT_REVIEW_SESSIONZ)) {
+        const importSessionzStore = db.createObjectStore(STORE_IMPORT_REVIEW_SESSIONZ, {
+          keyPath: "session_id",
+        });
+        importSessionzStore.createIndex("by_created_at", "created_at");
+      }
+
+      // v19: local equivalent of grimoire's import_blobz - which songs
+      // still need review, grouped by session. `reviewed_at` stays
+      // unindexed (filtered in JS after `by_session_id.getAll`) since IDB
+      // has no partial/WHERE-scoped index like sqlite's idx_import_blobz_pending.
+      if (!db.objectStoreNames.contains(STORE_IMPORT_REVIEW_BLOBZ)) {
+        const importBlobzStore = db.createObjectStore(STORE_IMPORT_REVIEW_BLOBZ, {
+          keyPath: "song_id",
+        });
+        importBlobzStore.createIndex("by_session_id", "session_id");
       }
 
       // v11 -> v12: migrate cached songs from `album_genres` (GenreRef[]) to

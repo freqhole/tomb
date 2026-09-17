@@ -28,7 +28,7 @@
 //! db) every operation is a graceful no-op.
 
 use idb::{Factory, TransactionMode};
-use wasm_bindgen::JsValue;
+use wasm_bindgen::{JsCast, JsValue};
 
 const DB_NAME: &str = "freqhole_app";
 const STORE: &str = "pending_remotes";
@@ -164,7 +164,7 @@ async fn create_inner(
 ) -> Result<PendingRemote, idb::Error> {
     let db = open_db().await?;
     if !db.store_names().iter().any(|n| n == STORE) {
-        return Err(idb::Error::StoreNotFound(STORE.into()));
+        return Err(idb::Error::ObjectStoreNotFound(JsValue::from_str(STORE)));
     }
 
     let id = uuid_v4();

@@ -38,6 +38,18 @@ const RemoteCommonSchema = z.object({
   // when true, this remote is excluded from all graph visualizations
   // (treated as offline for coloring, drawn with a diagonal slash)
   graph_disabled: z.boolean().optional(),
+  // set once, at creation, when this remote was added via the player
+  // pairing pin flow (see playerPairingClient.ts) rather than the normal
+  // add-remote flow - a permanent, historical fact about HOW this remote
+  // was onboarded, never updated afterward by a live probe. deliberately
+  // NOT the same thing as "is this remote a player right now" (that's
+  // always a live fact, see remoteHealth.ts's `isPlayerNow` - see
+  // docs/cenotaph-migration-plan.md phase 11 for why a live-status flag
+  // was rejected). used only to populate the settings "players" list
+  // (PairedPlayersView.tsx) so an offline/session-expired player remote
+  // stays manageable (rename/forget/re-enter pin) instead of vanishing
+  // the moment it stops live-reporting as a player.
+  paired_as_player: z.boolean().optional(),
 });
 
 // ============================================================================
@@ -85,12 +97,9 @@ const LegacyRemoteSchema = RemoteCommonSchema.extend({
  * - if peer_addr is set and transport_type is wasm/app, it's P2P
  * - otherwise default to HTTP
  */
-function inferTransport(
-  legacy: z.infer<typeof LegacyRemoteSchema>
-): HttpRemote | P2PRemote {
+function inferTransport(legacy: z.infer<typeof LegacyRemoteSchema>): HttpRemote | P2PRemote {
   const isP2P =
-    legacy.peer_addr &&
-    (legacy.transport_type === "wasm" || legacy.transport_type === "app");
+    legacy.peer_addr && (legacy.transport_type === "wasm" || legacy.transport_type === "app");
 
   if (isP2P) {
     return {
@@ -160,9 +169,7 @@ export function safeParseRemote(raw: unknown): Remote | undefined {
  * filters out any that fail to parse.
  */
 export function parseRemotes(rawList: unknown[]): Remote[] {
-  return rawList
-    .map((r) => safeParseRemote(r))
-    .filter((r): r is Remote => r !== undefined);
+  return rawList.map((r) => safeParseRemote(r)).filter((r): r is Remote => r !== undefined);
 }
 
 // ============================================================================

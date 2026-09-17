@@ -14,6 +14,7 @@
 // source device happened to send along.
 import { createResource, createSignal, Show } from "solid-js";
 import type { RemoteMediaRef } from "../../app/services/players/remotePlaybackControl";
+import { queueItemTransferStatus } from "../../app/services/players/playerQueuePush";
 import { getSongByBlake3 } from "../../music/services/storage/db/songs";
 import { getSongDisplayImages, getWaveformImage } from "../../utils/images";
 import { formatDuration } from "../../utils/formatDuration";
@@ -97,6 +98,20 @@ export function RemoteQueueRow(props: RemoteQueueRowProps) {
     const dur = props.item.duration_ms;
     if (!dur || props.positionMs === undefined) return 0;
     return Math.min(1, Math.max(0, props.positionMs / dur));
+  };
+
+  // populated only while this device is genuinely proxying this item's
+  // bytes (see playerQueuePush.ts's CONTROLLER_BLOB_PROXY paths) -
+  // `undefined` the vastly more common case (the player resolves the item
+  // entirely on its own, no networking through this device at all).
+  const transferStatus = () => queueItemTransferStatus(props.item.blake3_hash);
+  // percentage is conveyed by the loading-underline bar below, not text.
+  const transferLabel = () => {
+    const status = transferStatus();
+    if (!status) return undefined;
+    return status.phase === "fetching"
+      ? `fetching from ${status.fromRemoteName ?? "remote"}`
+      : `sending to ${status.toPlayerName ?? "player"}`;
   };
 
   return (
@@ -206,36 +221,77 @@ export function RemoteQueueRow(props: RemoteQueueRowProps) {
 
       <div class="flex flex-col items-center ml-3 flex-shrink-0 relative z-10">
         <Show
-          when={!props.isPending}
+          when={!transferStatus()}
           fallback={
-            <span class="text-xs text-shadow-glow px-1 text-[var(--color-text-muted)] italic">
-              queueing…
-            </span>
+            <div class="flex flex-col items-center max-w-[7rem]">
+              <div class="flex items-center gap-1">
+                <Icon
+                  name="loader"
+                  size={10}
+                  className="animate-spin text-[var(--color-text-muted)] flex-shrink-0"
+                />
+                <span class="text-[10px] leading-tight text-shadow-glow text-[var(--color-text-muted)] italic truncate">
+                  {transferLabel()}
+                </span>
+              </div>
+              {/* loading underline - percentage conveyed visually, not as
+                  text (mirrors QueueSongRow.tsx's identical determinate-
+                  fill/indeterminate-bounce pattern). width MUST be read
+                  inside `style` (see QueueSongRow.tsx's own note on this). */}
+              <div
+                class="w-full h-0.5 overflow-hidden rounded-full"
+                style={{ "margin-top": "2px", background: "rgba(168, 85, 247, 0.2)" }}
+              >
+                <div
+                  style={{
+                    width:
+                      transferStatus()?.progress !== undefined
+                        ? `${Math.round((transferStatus()!.progress as number) * 100)}%`
+                        : "100%",
+                    height: "100%",
+                    background: "linear-gradient(90deg, #a855f7 0%, #d946ef 50%, #ec4899 100%)",
+                    animation:
+                      transferStatus()?.progress !== undefined
+                        ? undefined
+                        : "bounce-bar 2s ease-in-out infinite",
+                    "border-radius": "9999px",
+                    transition:
+                      transferStatus()?.progress !== undefined ? "width 150ms ease-out" : undefined,
+                  }}
+                />
+              </div>
+            </div>
           }
         >
-          <span
-            class="text-xs text-shadow-glow px-1 tabular-nums text-center min-w-[2.5rem] text-[var(--color-text-secondary)]"
-            style={{ "text-decoration": resolvedSong() ? "underline" : undefined }}
-            title={resolvedSong() ? "already in your local library" : undefined}
+          <Show
+            when={!props.isPending}
+            fallback={
+              <span class="text-xs text-shadow-glow px-1 text-[var(--color-text-muted)] italic">
+                queueing…
+              </span>
+            }
           >
-            {formatDuration(
-              props.item.duration_ms !== undefined ? props.item.duration_ms / 1000 : undefined
-            )}
-          </span>
+            <span
+              class="text-xs text-shadow-glow px-1 tabular-nums text-center min-w-[2.5rem] text-[var(--color-text-secondary)]"
+              style={{ "text-decoration": resolvedSong() ? "underline" : undefined }}
+              title={resolvedSong() ? "already in your local library" : undefined}
+            >
+              {formatDuration(
+                props.item.duration_ms !== undefined ? props.item.duration_ms / 1000 : undefined
+              )}
+            </span>
+          </Show>
         </Show>
       </div>
 
-      {/* remove button - hidden while pending (no real remote index yet) */}
-      <Show when={!props.isPending}>
-        <button
-          class={`relative z-10 ${isMobile() ? "" : "opacity-0 group-hover:opacity-100 "}p-2 ml-2 text-[var(--color-text-muted)] hover:text-red-400 hover:bg-red-500/20 transition-all duration-200 flex-shrink-0`}
-          onClick={props.onRemove}
-          title="remove from queue"
-          aria-label="remove from queue"
-        >
-          <Icon name="close" size={14} />
-        </button>
-      </Show>
+      <button
+        class={`relative z-10 ${isMobile() ? "" : "opacity-0 group-hover:opacity-100 "}p-2 ml-2 text-[var(--color-text-muted)] hover:text-red-400 hover:bg-red-500/20 transition-all duration-200 flex-shrink-0`}
+        onClick={props.onRemove}
+        title="remove from queue"
+        aria-label="remove from queue"
+      >
+        <Icon name="close" size={14} />
+      </button>
     </div>
   );
 }

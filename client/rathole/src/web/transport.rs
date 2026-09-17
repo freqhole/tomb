@@ -258,11 +258,11 @@ impl Transport for MiddenTransport {
         };
         let resp = match self
             .node
-            .proxy_request(&self.peer_addr, method, route, Some(body_str))
+            .api_request(&self.peer_addr, method, route, Some(body_str))
             .await
         {
             Ok(v) => v,
-            Err(e) => return logged_fail(route, format!("proxy_request: {}", js_err_str(e))),
+            Err(e) => return logged_fail(route, format!("api_request: {}", js_err_str(e))),
         };
 
         // resp is a JS object `{ status: u16, body: Option<String> }`.
@@ -766,6 +766,10 @@ fn song_query_json_to_row(item: &JsonValue) -> crate::ratcore::app::SongRow {
             .and_then(|v| v.as_str())
             .map(|s| s.to_string()),
         local_path,
+        // web/wasm shell has no mpv/ratatui-image art rendering yet.
+        art_blob_ids: Vec::new(),
+        art_url: None,
+        source_blake3: None,
     }
 }
 
@@ -873,6 +877,50 @@ fn flatten_search_response(body: JsonValue) -> DispatchResponse {
                     "id": p.get("id").and_then(|v| v.as_str()).unwrap_or(""),
                     "title": title,
                     "subtitle": format!("{count} songs"),
+                    "score": rank,
+                }),
+            ));
+        }
+    }
+    if let Some(videos) = body.get("videos").and_then(|v| v.as_array()) {
+        for v in videos {
+            let title = v.get("title").and_then(|val| val.as_str()).unwrap_or("");
+            let series_name = v.get("series_name").and_then(|val| val.as_str());
+            let episode = v.get("episode_number").and_then(|val| val.as_i64());
+            let subtitle = match (series_name, episode) {
+                (Some(series), Some(ep)) => format!("{series} #{ep}"),
+                (Some(series), None) => series.to_string(),
+                (None, _) => "video".to_string(),
+            };
+            let rank = v
+                .get("search_rank")
+                .and_then(|val| val.as_f64())
+                .unwrap_or(0.0);
+            rows.push((
+                rank,
+                serde_json::json!({
+                    "type": "video",
+                    "id": v.get("id").and_then(|val| val.as_str()).unwrap_or(""),
+                    "title": title,
+                    "subtitle": subtitle,
+                    "series_id": v.get("series_id").and_then(|val| val.as_str()),
+                    "score": rank,
+                }),
+            ));
+        }
+    }
+    if let Some(series) = body.get("video_series").and_then(|v| v.as_array()) {
+        for s in series {
+            let title = s.get("title").and_then(|v| v.as_str()).unwrap_or("");
+            let count = s.get("video_count").and_then(|v| v.as_i64()).unwrap_or(0);
+            let rank = s.get("search_rank").and_then(|v| v.as_f64()).unwrap_or(0.0);
+            rows.push((
+                rank,
+                serde_json::json!({
+                    "type": "video_series",
+                    "id": s.get("id").and_then(|v| v.as_str()).unwrap_or(""),
+                    "title": title,
+                    "subtitle": format!("{count} videos"),
                     "score": rank,
                 }),
             ));

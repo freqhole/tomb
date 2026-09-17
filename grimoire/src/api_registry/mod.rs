@@ -185,9 +185,10 @@ pub mod type_registry {
         UpdateArtistMetadataResponse, UpdateArtistRequest,
     };
     use crate::music::entities::import_review::models::{
-        AlbumPendingRequest, AlbumPendingResponse, ImportReviewOk, ListPendingReviewRequest,
-        MarkAlbumReviewedRequest, MergeAlbumsReviewRequest, MoveSongReviewRequest,
-        PatchAlbumReviewRequest, PendingReviewAlbum, PendingReviewSession, SongReviewPatch,
+        AlbumPendingRequest, AlbumPendingResponse, GetImportSessionTargetRequest, ImportReviewOk,
+        ImportSessionSendTarget, ListPendingReviewRequest, MarkAlbumReviewedRequest,
+        MergeAlbumsReviewRequest, MoveSongReviewRequest, PatchAlbumReviewRequest,
+        PendingReviewAlbum, PendingReviewSession, SongReviewPatch,
     };
     use crate::music::entities::playlists::{
         AddSongsToPlaylistRequest, CreatePlaylistRequest, DeletePlaylistRequest,
@@ -214,9 +215,9 @@ pub mod type_registry {
         PreCheckFetchResponse,
     };
     use crate::upload::{
-        AssociationHint, AssociationInfo, DeleteImageRequest, ImageUploadResponse,
-        MusicImportResponse, MusicMetadataHints, MusicUploadResponse, SetPrimaryImageRequest,
-        VideoMetadataHints, VideoUploadResponse,
+        AssociationHint, AssociationInfo, DeleteImageRequest, ExistingImportedFile,
+        ImageUploadResponse, MusicImportResponse, MusicMetadataHints, MusicUploadResponse,
+        SetPrimaryImageRequest, VideoImportResponse, VideoMetadataHints, VideoUploadResponse,
     };
 
     // analytics types
@@ -251,7 +252,9 @@ pub mod type_registry {
     // player control types (rodio plan phase 1 — no http route consumes
     // these yet, but the typescript codegen needs them so the spume
     // PlayerBackend interface can import generated zod schemas.)
-    use crate::player::{PlayerCommand, PlayerEvent, PlayerSnapshot, PlayerState, RestartPolicy};
+    use crate::player::{
+        AudioDeviceInfo, PlayerCommand, PlayerEvent, PlayerSnapshot, PlayerState, RestartPolicy,
+    };
 
     // search types
     use crate::search::{
@@ -416,6 +419,11 @@ pub mod type_registry {
         registered.insert("RestartPolicy".to_string());
         gen.add_schema::<PlayerCommand>("PlayerCommand");
         registered.insert("PlayerCommand".to_string());
+        // leaf type referenced by PlayerEvent's manual zod schema string
+        // (OutputDevices { devices: Vec<AudioDeviceInfo> }) - must
+        // register before PlayerEvent itself.
+        gen.add_schema::<AudioDeviceInfo>("AudioDeviceInfo");
+        registered.insert("AudioDeviceInfo".to_string());
         gen.add_schema::<PlayerEvent>("PlayerEvent");
         registered.insert("PlayerEvent".to_string());
 
@@ -1433,6 +1441,10 @@ pub mod type_registry {
 
         gen.add_schema::<MusicImportResponse>("MusicImportResponse");
         registered.insert("MusicImportResponse".to_string());
+        gen.add_schema::<VideoImportResponse>("VideoImportResponse");
+        registered.insert("VideoImportResponse".to_string());
+        gen.add_schema::<ExistingImportedFile>("ExistingImportedFile");
+        registered.insert("ExistingImportedFile".to_string());
 
         gen.add_schema::<DeleteImageRequest>("DeleteImageRequest");
         registered.insert("DeleteImageRequest".to_string());
@@ -1742,6 +1754,10 @@ pub mod type_registry {
         registered.insert("AlbumPendingRequest".to_string());
         gen.add_schema::<AlbumPendingResponse>("AlbumPendingResponse");
         registered.insert("AlbumPendingResponse".to_string());
+        gen.add_schema::<GetImportSessionTargetRequest>("GetImportSessionTargetRequest");
+        registered.insert("GetImportSessionTargetRequest".to_string());
+        gen.add_schema::<ImportSessionSendTarget>("ImportSessionSendTarget");
+        registered.insert("ImportSessionSendTarget".to_string());
 
         // video import review types (grouped by detected series)
         gen.add_schema::<ListPendingVideoReviewRequest>("ListPendingVideoReviewRequest");

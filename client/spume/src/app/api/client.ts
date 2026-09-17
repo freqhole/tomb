@@ -25,7 +25,7 @@ import { isCharnelMode } from "../services/charnel";
 // static import (not dynamic) so Rollup doesn't emit a live-binding chunk reference
 // that Safari JSC throws a TDZ error on before the chunk has evaluated
 import { MiddenNode, MiddenNodeOptions } from "@freqhole/midden";
-import { PLAYER_ALPN } from "@freqhole/cenotaph";
+import { PLAYER_ALPN } from "../../cenotaph";
 
 // re-export for call sites that still need direct access
 // note: isCharnelAvailable uses local isCharnelMode which checks both env var and window.__TAURI__
@@ -169,7 +169,7 @@ export async function getMiddenNode(): Promise<MiddenNodeLike> {
 
     // freqhole/1 hello route + freqhole-player/1 accept loop + local
     // library hooks are wired up by initRemotePlaybackBootstrap() (see
-    // app/services/remotePlayback/bootstrap.ts), registered once from
+    // cenotaph/adapters/bootstrap.ts), registered once from
     // App.tsx's boot sequence via onMiddenReady - kept out of this
     // function to avoid a static import cycle back into client.ts.
 

@@ -72,6 +72,11 @@ export interface VideoCardProps {
   isFavorite?: boolean;
   onFavoriteToggle?: (videoId: string, isFavorite: boolean) => void;
   class?: string;
+  /** fallback image url used when there's no real blob to resolve (the
+   *  wire `Video.images` entries carry no `remote_url`, unlike Song/Album -
+   *  storybook/demo callers pass a placeholder here instead). ignored
+   *  whenever a real local/remote poster resolves. */
+  imageUrl?: string;
 }
 
 export function VideoCard(props: VideoCardProps): JSX.Element {
@@ -177,6 +182,7 @@ export function VideoCard(props: VideoCardProps): JSX.Element {
           <MediaImage
             remoteBlobId={props.video.poster_blob_id}
             remoteServerId={props.video.remote_server_id}
+            imageUrl={props.imageUrl}
             alt={props.video.title}
             showFallback={true}
             thumbnailSize={200}

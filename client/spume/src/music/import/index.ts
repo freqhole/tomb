@@ -19,6 +19,7 @@ export {
   fetchUrlsOnRemote,
   getUploadJobs,
   importPathsToLocal,
+  removeJob,
   uploadFilesToRemote,
   uploadPathsToRemote,
   type RemoteUploadResult,

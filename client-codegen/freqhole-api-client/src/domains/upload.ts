@@ -7,9 +7,10 @@ import {
   ImageUploadResponseSchema,
   MusicImportResponseSchema,
   MusicUploadResponseSchema,
+  VideoImportResponseSchema,
   VideoUploadResponseSchema,
 } from "../codegen/schema.js";
-import type { Transport } from "../transport.js";
+import type { Transport, UploadMetadata } from "../transport.js";
 import type { SafeParseResult } from "./types.js";
 import { toZodError } from "../errors.js";
 
@@ -51,6 +52,25 @@ export type UploadImageOptions = {
   associate?: s.AssociationHint;
 };
 
+/** "review before send" annotation - see grimoire's
+ * import_session_send_targetz. when set, the session this upload lands
+ * in gets tagged so any client (any device, any restart) can see it
+ * should ultimately be sent to this remote once reviewed. ergonomic
+ * camelCase call-site shape - converted to `UploadMetadata`'s snake_case
+ * wire fields at the `transport.upload()` boundary below. */
+export interface ImportSendTargetOptions {
+  targetRemoteId?: string;
+  targetRemoteName?: string;
+}
+
+function toUploadMetadata(options?: ImportSendTargetOptions): UploadMetadata | undefined {
+  if (!options?.targetRemoteId && !options?.targetRemoteName) return undefined;
+  return {
+    target_remote_id: options.targetRemoteId,
+    target_remote_name: options.targetRemoteName,
+  };
+}
+
 export function createUploadMethods(transport: Transport) {
   return {
     /**
@@ -61,11 +81,17 @@ export function createUploadMethods(transport: Transport) {
     music: async (
       file: File | Blob,
       onProgress?: (loaded: number, total: number) => void,
+      options?: ImportSendTargetOptions,
     ): Promise<SafeParseResult<s.MusicUploadResponse>> => {
       const formData = new FormData();
       formData.append("file", file);
 
-      const response = await transport.upload("/api/upload/music", formData, onProgress);
+      const response = await transport.upload(
+        "/api/upload/music",
+        formData,
+        onProgress,
+        toUploadMetadata(options),
+      );
       return parseResponse(response.body, response.status, MusicUploadResponseSchema);
     },
 
@@ -144,11 +170,11 @@ export function createUploadMethods(transport: Transport) {
       const formData = new FormData();
       formData.append("file", file);
 
-      if (options?.associate) {
-        formData.append("associate_with", JSON.stringify(options.associate));
-      }
+      const metadata: UploadMetadata | undefined = options?.associate
+        ? { associate_with: options.associate }
+        : undefined;
 
-      const response = await transport.upload("/api/upload/image", formData);
+      const response = await transport.upload("/api/upload/image", formData, undefined, metadata);
       return parseResponse(response.body, response.status, ImageUploadResponseSchema);
     },
 
@@ -195,11 +221,13 @@ export function createUploadMethods(transport: Transport) {
      */
     musicByPaths: async (
       paths: string[],
-      options?: { waitForCompletion?: boolean },
+      options?: { waitForCompletion?: boolean } & ImportSendTargetOptions,
     ): Promise<SafeParseResult<s.MusicImportResponse>> => {
       const body = {
         paths,
         wait_for_completion: options?.waitForCompletion ?? false,
+        target_remote_id: options?.targetRemoteId,
+        target_remote_name: options?.targetRemoteName,
       };
 
       const response = await transport.request(
@@ -208,6 +236,34 @@ export function createUploadMethods(transport: Transport) {
         JSON.stringify(body),
       );
       return parseResponse(response.body, response.status, MusicImportResponseSchema);
+    },
+
+    /**
+     * import video files by filesystem paths (tauri-local only)
+     * accepts file paths or directory paths (directories are scanned recursively)
+     * bypasses file transfer since files are already local - mirrors musicByPaths
+     *
+     * @param paths - array of file or directory paths to import
+     * @param options - optional settings
+     * @param options.waitForCompletion - if true, wait for all jobs to complete (up to 5 min)
+     */
+    videoByPaths: async (
+      paths: string[],
+      options?: { waitForCompletion?: boolean } & ImportSendTargetOptions,
+    ): Promise<SafeParseResult<s.VideoImportResponse>> => {
+      const body = {
+        paths,
+        wait_for_completion: options?.waitForCompletion ?? false,
+        target_remote_id: options?.targetRemoteId,
+        target_remote_name: options?.targetRemoteName,
+      };
+
+      const response = await transport.request(
+        "POST",
+        "/api/upload/video-paths",
+        JSON.stringify(body),
+      );
+      return parseResponse(response.body, response.status, VideoImportResponseSchema);
     },
   };
 }

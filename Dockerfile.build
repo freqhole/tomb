@@ -7,12 +7,50 @@ ARG TARGET_ARCH=aarch64-unknown-linux-gnu
 ARG CARGO_EXTRA_FLAGS=""
 
 # install build dependencies
-RUN apt-get update && \
-    apt-get install -y \
+# bullseye (build-pi32's BASE_IMAGE) is oldoldstable now. root cause
+# (confirmed by testing FOUR different apt source configs - deb.debian.org
+# as-is, minus -security, minus -security+-updates, archive.debian.org's
+# frozen snapshot, snapshot.debian.org pinned to a past date - all four
+# produced the exact SAME conflict with the exact same version numbers):
+# this isn't a repo/suite selection problem at all. the `debian:bullseye`
+# DOCKER IMAGE ITSELF already has libc6/libssl1.1/perl-base baked in at
+# newer point-release versions (Debian's official image keeps getting
+# rebuilt with newer point releases even for an oldoldstable tag), while
+# EVERY apt source that still has "-dev"/`perl` companion packages
+# available only offers OLDER versions with a hard `Depends: foo (=
+# <old version>)` pin - normally `-security` bridged that gap by shipping
+# matching newer -dev/perl builds in lockstep with runtime lib security
+# patches, but its package files are now 404 everywhere (see repo memory
+# tomb-pi32-bullseye-security-archive-eol.md) so that bridge is gone.
+# apt won't downgrade an already-installed package on its own even with
+# `--allow-downgrades` (that just permits it, doesn't request it) - so
+# explicitly install the runtime libs at the exact OLDER version their
+# -dev/perl companions actually demand (read straight off apt's own
+# conflict report below), forcing the downgrade. archive.debian.org's
+# frozen bullseye snapshot (already used by the armhf-specific alsa pin
+# further below, for the same underlying reason) is the sole source here
+# too - it's a genuine point-in-time capture, so its own main-suite -dev/
+# perl packages and the exact runtime versions we're pinning here come
+# from the same consistent snapshot. `check-valid-until=no` is required
+# (archived Release files carry a long-expired Valid-Until). all
+# build-time-only tools, so an older snapshot is fine. no-op on bookworm
+# (build-pi/build-linux's BASE_IMAGE) - its sources.list has no
+# "bullseye" reference to match, so it's left untouched there.
+RUN if grep -qi bullseye /etc/apt/sources.list 2>/dev/null || grep -Rqi bullseye /etc/apt/sources.list.d 2>/dev/null; then \
+    rm -f /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources; \
+    echo "deb [check-valid-until=no] http://archive.debian.org/debian bullseye main" > /etc/apt/sources.list; \
+    fi
+RUN apt-get update -o Acquire::Check-Valid-Until=false && \
+    apt-get install -y --allow-downgrades \
     curl \
     build-essential \
     pkg-config \
-    libssl-dev \
+    libc6=2.31-13+deb11u11 \
+    libc6-dev=2.31-13+deb11u11 \
+    libssl1.1=1.1.1w-0+deb11u1 \
+    libssl-dev=1.1.1w-0+deb11u1 \
+    perl-base=5.32.1-4+deb11u3 \
+    perl=5.32.1-4+deb11u3 \
     libasound2-dev
 
 # install cross-compilation tools for ARM64 (aarch64)
@@ -49,8 +87,8 @@ RUN if [ "$TARGET_ARCH" = "aarch64-unknown-linux-gnu" ]; then \
 # version - installing them at mismatched versions fails to resolve).
 RUN if [ "$TARGET_ARCH" = "armv7-unknown-linux-gnueabihf" ]; then \
     dpkg --add-architecture armhf && \
-    echo "deb [check-valid-until=no] http://archive.debian.org/debian bullseye main" > /etc/apt/sources.list.d/archive-bullseye.list && \
-    apt-get update && \
+    echo "deb [check-valid-until=no] http://snapshot.debian.org/archive/debian/20250501T000000Z bullseye main" > /etc/apt/sources.list.d/archive-bullseye.list && \
+    apt-get update -o Acquire::Check-Valid-Until=false && \
     apt-get install -y \
     libasound2-data=1.2.4-1.1 \
     libasound2:armhf=1.2.4-1.1 \

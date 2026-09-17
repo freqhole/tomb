@@ -3,11 +3,18 @@
 // uses Tauri IPC commands to make P2P requests via the server's
 // app iroh endpoint. no WASM needed.
 
-import type { BlobData, BlobFetchOptions, Transport, TransportResponse } from "./transport.js";
+import type {
+  BlobData,
+  BlobFetchOptions,
+  Transport,
+  TransportResponse,
+  UploadMetadata,
+} from "./transport.js";
 import type { BlobProgressCallback } from "./WasmTransport.js";
 import { isTauriRuntime } from "./tauriRuntime.js";
 import type { CloseReason, EventFilter, JobEvent, JobStateSnapshot } from "./codegen/schema.js";
 import { JobEventsStreamClosed } from "./CharnelLocalTransport.js";
+import { bytesToBase64 } from "./base64.js";
 
 // tauri invoke function type
 type InvokeFn = (cmd: string, args?: unknown) => Promise<unknown>;
@@ -187,17 +194,6 @@ function base64ToBytes(base64: string): Uint8Array {
 }
 
 /**
- * encode Uint8Array to base64 string
- */
-function bytesToBase64(bytes: Uint8Array): string {
-  let binary = "";
-  for (let i = 0; i < bytes.length; i++) {
-    binary += String.fromCharCode(bytes[i]);
-  }
-  return btoa(binary);
-}
-
-/**
  * CharnelTransport - P2P transport using Tauri IPC commands
  * implements Transport interface for use with FreqholeClient
  */
@@ -270,6 +266,7 @@ export class CharnelTransport implements Transport {
     path: string,
     formData: FormData,
     onProgress?: (loaded: number, total: number) => void,
+    metadata?: UploadMetadata,
   ): Promise<TransportResponse> {
     // extract file from form data
     const file = formData.get("file") as File | null;
@@ -296,11 +293,11 @@ export class CharnelTransport implements Transport {
     // the import is already chunked (see uploadMediaViaBytes), so real
     // per-chunk progress is reported here, same as HttpTransport's XHR path.
     if (path === "/api/upload/music" || path === "/api/upload/video") {
-      return this.uploadMediaViaBytes(path, file, onProgress);
+      return this.uploadMediaViaBytes(path, file, onProgress, metadata);
     }
 
     // for non-media uploads (images etc), use base64 (small enough)
-    return this.uploadViaBase64(path, file, formData);
+    return this.uploadViaBase64(path, file, metadata);
   }
 
   /**
@@ -356,7 +353,7 @@ export class CharnelTransport implements Transport {
   private async uploadViaBase64(
     path: string,
     file: File,
-    formData: FormData,
+    metadata?: UploadMetadata,
   ): Promise<TransportResponse> {
     if (file.size > MAX_BASE64_UPLOAD_BYTES) {
       throw uploadTooLargeError(file, path);
@@ -368,17 +365,8 @@ export class CharnelTransport implements Transport {
     const body: Record<string, unknown> = {
       data: base64,
       filename: file.name,
+      ...metadata,
     };
-
-    // include associate_with if present
-    const associateWithStr = formData.get("associate_with") as string | null;
-    if (associateWithStr) {
-      try {
-        body.associate_with = JSON.parse(associateWithStr);
-      } catch {
-        // ignore parse errors
-      }
-    }
 
     // send via api_request — routes through offal dispatch on the remote peer
     return this.request("POST", path, JSON.stringify(body));
@@ -405,6 +393,7 @@ export class CharnelTransport implements Transport {
     path: string,
     file: File,
     onProgress?: (loaded: number, total: number) => void,
+    metadata?: UploadMetadata,
   ): Promise<TransportResponse> {
     const inv = await ensureInvoke();
 
@@ -439,7 +428,7 @@ export class CharnelTransport implements Transport {
     console.debug("[P2P] uploadMediaViaBytes: imported blob, blake3 =", blake3);
 
     // tell the remote peer to pull the blob from us
-    const body = { blake3, filename: file.name };
+    const body = { blake3, filename: file.name, ...metadata };
     return tagStep("remote_trigger", () =>
       this.request("POST", `${path}-by-blake3`, JSON.stringify(body)),
     );

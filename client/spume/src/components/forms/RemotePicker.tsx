@@ -19,6 +19,7 @@
 
 import {
   createEffect,
+  createMemo,
   createResource,
   createSignal,
   For,
@@ -30,6 +31,7 @@ import { Portal } from "solid-js/web";
 import { Icon, IconNames } from "../icons/registry";
 import { Modal } from "../modals/Modal";
 import { resolveBlobUrl } from "../../music/services/storage/blobResolver";
+import { isOnline, isProbing, probeRemote } from "../../app/services/remotes/remoteHealth";
 import { type Remote, isP2PRemote } from "../../app/services/storage/schemas/remote";
 
 export type RemotePickerMode = "single" | "multi";
@@ -121,9 +123,36 @@ export function RemotePicker(props: RemotePickerProps) {
   });
 
   // ── selection helpers ──────────────────────────────────────────────────────
+  // local (charnel-managed) library always sorts first - it's the one
+  // destination that's always available and never worth scrolling past.
+  const sortedRemotes = createMemo(() =>
+    [...props.remotes].sort(
+      (a, b) => Number(!!b.is_charnel_managed) - Number(!!a.is_charnel_managed)
+    )
+  );
+
   const isActive = (remoteId: string) => props.value.has(remoteId);
 
+  // offline/checking status comes from the same central store the top nav
+  // and boot-time sweep use (app/services/remotes/remoteHealth.ts) - never
+  // a per-picker probe, so every picker in the app agrees. "checking" wins
+  // over a stale "offline" read so the row doesn't flash offline text right
+  // before a probe resolves it back online.
+  const isChecking = (remoteId: string) => isProbing(remoteId)();
+  const isRemoteOffline = (remoteId: string) =>
+    !isChecking(remoteId) && isOnline(remoteId)() === false;
+
+  // force a fresh check the moment a remote is picked, rather than trusting
+  // a possibly-stale last-known status - probeRemote's own backoff/dedupe
+  // (shared with every other caller) keeps this from being a second, wasted
+  // probe when one's already in flight.
+  const checkOnPick = (remoteId: string) => {
+    const remote = sortedRemotes().find((r) => r.remote_id === remoteId);
+    if (remote) void probeRemote(remote, { force: true });
+  };
+
   const select = (remoteId: string) => {
+    checkOnPick(remoteId);
     if (mode() === "single") {
       props.onChange(new Set([remoteId]));
       // close flyout after single-select pick
@@ -142,6 +171,7 @@ export function RemotePicker(props: RemotePickerProps) {
   };
 
   const solo = (remoteId: string) => {
+    checkOnPick(remoteId);
     props.onChange(new Set([remoteId]));
   };
 
@@ -169,7 +199,7 @@ export function RemotePicker(props: RemotePickerProps) {
   };
 
   const handleFlyoutKey = (e: KeyboardEvent) => {
-    const count = props.remotes.length;
+    const count = sortedRemotes().length;
     if (e.key === "Escape") {
       e.preventDefault();
       closeFlyout();
@@ -184,7 +214,7 @@ export function RemotePicker(props: RemotePickerProps) {
 
   const selectedLabel = () => {
     const names = [...props.value].map(
-      (id) => props.remotes.find((r) => r.remote_id === id)?.name ?? id
+      (id) => sortedRemotes().find((r) => r.remote_id === id)?.name ?? id
     );
     if (names.length === 0) return "remotes";
     const joined = names.join(", ");
@@ -216,12 +246,14 @@ export function RemotePicker(props: RemotePickerProps) {
       {/* chip strip — rendered for overflow measurement; hidden when overflowing */}
       <Show when={!isOverflowing()}>
         <div ref={chipContainerRef} class={chipStripClass()}>
-          <For each={props.remotes}>
+          <For each={sortedRemotes()}>
             {(remote) => (
               <RemoteChip
                 remote={remote}
                 isActive={isActive(remote.remote_id)}
                 isLocked={isLocked(remote.remote_id)}
+                isOffline={isRemoteOffline(remote.remote_id)}
+                isChecking={isChecking(remote.remote_id)}
                 mode={mode()}
                 onSelect={() => select(remote.remote_id)}
                 onSolo={() => solo(remote.remote_id)}
@@ -243,15 +275,21 @@ export function RemotePicker(props: RemotePickerProps) {
           title="pick remote"
         >
           {selectedLabel()}
+          <Show when={isChecking([...props.value][0] ?? "")}>
+            <Icon name="loader" size={12} className="animate-spin" />
+          </Show>
           <Icon name="chevronDown" size={12} />
         </button>
 
-        {/* desktop flyout via Portal, anchored to trigger */}
+        {/* desktop flyout via Portal, anchored to trigger. z-[1200] - above
+            any modal's own overlay (modals in this codebase top out at
+            z-1100, see AddMediaModal/ImageCarouselModal) since this
+            component is used both standalone and inside modals. */}
         <Show when={!isMobile() && flyoutOpen()}>
           <Portal>
-            <div class="fixed inset-0 z-40" onClick={closeFlyout} />
+            <div class="fixed inset-0 z-[1200]" onClick={closeFlyout} />
             <div
-              class="fixed z-50 bg-[var(--color-bg-elevated)] border border-[var(--color-border-subtle)] rounded-lg shadow-xl overflow-y-auto max-h-72 min-w-44 py-1"
+              class="fixed z-[1201] bg-[var(--color-bg-elevated)] border border-[var(--color-border-subtle)] rounded-lg shadow-xl overflow-y-auto max-h-72 min-w-44 py-1"
               style={{
                 top: `${flyoutPos()?.top ?? 0}px`,
                 left: `${flyoutPos()?.left ?? 0}px`,
@@ -262,30 +300,41 @@ export function RemotePicker(props: RemotePickerProps) {
               onKeyDown={handleFlyoutKey}
             >
               <RemoteFlyoutList
-                remotes={props.remotes}
+                remotes={sortedRemotes()}
                 value={props.value}
                 mode={mode()}
                 focusedIndex={focusedIndex()}
                 onSelect={select}
                 onSolo={solo}
                 isLocked={isLocked}
+                isOffline={isRemoteOffline}
+                isChecking={isChecking}
               />
             </div>
           </Portal>
         </Show>
 
-        {/* mobile modal sheet */}
+        {/* mobile modal sheet - zIndex matches the desktop flyout's, same
+            reasoning (must sit above a parent modal like AddMediaModal). */}
         <Show when={isMobile()}>
-          <Modal isOpen={flyoutOpen()} onClose={closeFlyout} title="select remote" size="sm">
+          <Modal
+            isOpen={flyoutOpen()}
+            onClose={closeFlyout}
+            title="select remote"
+            size="sm"
+            zIndex={1200}
+          >
             <div class="py-1">
               <RemoteFlyoutList
-                remotes={props.remotes}
+                remotes={sortedRemotes()}
                 value={props.value}
                 mode={mode()}
                 focusedIndex={focusedIndex()}
                 onSelect={select}
                 onSolo={solo}
                 isLocked={isLocked}
+                isOffline={isRemoteOffline}
+                isChecking={isChecking}
               />
             </div>
           </Modal>
@@ -305,12 +354,16 @@ function RemoteFlyoutList(props: {
   onSelect: (remoteId: string) => void;
   onSolo: (remoteId: string) => void;
   isLocked: (remoteId: string) => boolean;
+  isOffline: (remoteId: string) => boolean;
+  isChecking: (remoteId: string) => boolean;
 }) {
   return (
     <For each={props.remotes}>
       {(remote, i) => {
         const active = () => props.value.has(remote.remote_id);
         const locked = () => props.isLocked(remote.remote_id);
+        const offline = () => props.isOffline(remote.remote_id);
+        const checking = () => props.isChecking(remote.remote_id);
         const focused = () => i() === props.focusedIndex;
 
         // long press → solo (multi mode only), mirrors RemoteChip's gesture
@@ -371,6 +424,7 @@ function RemoteFlyoutList(props: {
                 !active() && !locked(),
               "outline outline-1 outline-[var(--color-accent-500)] rounded": focused(),
               "opacity-40 cursor-not-allowed": locked(),
+              "opacity-60": !locked() && offline(),
             }}
             onClick={() => {
               if (locked() || didLongPress) return;
@@ -402,7 +456,27 @@ function RemoteFlyoutList(props: {
                 onError={() => setImgError(true)}
               />
             </Show>
-            <span class="truncate">{remote.name}</span>
+            <span class="truncate" classList={{ "opacity-50": offline() }}>
+              {remote.name}
+            </span>
+            <Show when={remote.is_charnel_managed}>
+              <Icon
+                name="home"
+                size={12}
+                color={active() ? "var(--color-accent-500)" : "var(--color-text-muted)"}
+              />
+            </Show>
+            <Show when={checking()}>
+              <Icon
+                name="loader"
+                size={12}
+                className="animate-spin"
+                color="var(--color-text-muted)"
+              />
+            </Show>
+            <Show when={!checking() && offline()}>
+              <span class="text-[10px] text-[var(--color-text-muted)] flex-shrink-0">offline</span>
+            </Show>
           </button>
         );
       }}
@@ -414,6 +488,8 @@ interface RemoteChipProps {
   remote: Remote;
   isActive: boolean;
   isLocked: boolean;
+  isOffline: boolean;
+  isChecking: boolean;
   mode: RemotePickerMode;
   onSelect: () => void;
   onSolo: () => void;
@@ -481,7 +557,8 @@ function RemoteChip(props: RemoteChipProps) {
     const transport = props.remote.is_charnel_managed ? "" : isP2P() ? "" : " (http)";
     const hint = props.mode === "multi" ? "\nlong press to solo" : "";
     const lock = props.isLocked ? "\nrequires admin" : "";
-    return `${props.remote.name}${transport}${hint}${lock}`;
+    const status = props.isChecking ? "\nchecking..." : props.isOffline ? "\noffline" : "";
+    return `${props.remote.name}${transport}${hint}${lock}${status}`;
   };
 
   return (
@@ -494,7 +571,9 @@ function RemoteChip(props: RemoteChipProps) {
         props.isActive
           ? "bg-[var(--color-accent-500)] text-[var(--color-text-on-accent)]"
           : "bg-[var(--color-bg-elevated)] text-[var(--color-text-disabled)] hover:bg-[var(--color-bg-elevated-hover)] hover:text-[var(--color-text-secondary)]"
-      } ${props.isLocked ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
+      } ${props.isLocked ? "opacity-50 cursor-not-allowed" : "cursor-pointer"} ${
+        !props.isLocked && props.isOffline ? "opacity-60" : ""
+      }`}
       onMouseDown={startPress}
       onMouseUp={endPress}
       onMouseLeave={endPress}
@@ -530,6 +609,17 @@ function RemoteChip(props: RemoteChipProps) {
         >
           http
         </span>
+      </Show>
+      <Show when={props.isChecking}>
+        <Icon
+          name="loader"
+          size={12}
+          className="animate-spin"
+          color={props.isActive ? "var(--color-text-on-accent)" : "var(--color-text-muted)"}
+        />
+      </Show>
+      <Show when={!props.isChecking && props.isOffline}>
+        <span class="text-[10px] opacity-80">offline</span>
       </Show>
     </button>
   );

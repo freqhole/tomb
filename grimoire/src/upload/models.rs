@@ -141,6 +141,24 @@ pub struct SetPrimaryImageRequest {
     pub blob_id: String,
 }
 
+/// one file from an import-by-paths batch that was skipped before a job
+/// ever ran (see `ExistingPathCheck::UnchangedSkip`) because it's an exact,
+/// unchanged re-import of a path already in the library. carries whatever
+/// entity id is already linked to it so a caller can still treat it as a
+/// known, actionable result (e.g. forward it to a "send to remote" target)
+/// instead of it silently vanishing just because no new job was created.
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct ExistingImportedFile {
+    /// the path that was skipped
+    pub file_path: String,
+    /// song already linked to this content, if this was a music import
+    pub song_id: Option<String>,
+    /// album the existing song belongs to, if any
+    pub album_id: Option<String>,
+    /// video already linked to this content, if this was a video import
+    pub video_id: Option<String>,
+}
+
 /// response for music import by paths (tauri-local)
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct MusicImportResponse {
@@ -154,4 +172,31 @@ pub struct MusicImportResponse {
     pub files_skipped: i32,
     /// success message
     pub message: String,
+    /// individual files skipped because they're an unchanged re-import of
+    /// something already in the library - see `ExistingImportedFile`. only
+    /// populated for the single-file branch today (a directory scan's
+    /// per-file skips aren't resolved to entity ids yet - see the doc
+    /// comment on `ExistingPathCheck::UnchangedSkip`'s directory-scan call
+    /// site for why that's a separate, larger follow-up).
+    #[serde(default)]
+    pub existing_files: Vec<ExistingImportedFile>,
+}
+
+/// response for video import by paths (tauri-local) - mirrors
+/// `MusicImportResponse`.
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct VideoImportResponse {
+    /// job session ID for tracking batch progress
+    pub session_id: String,
+    /// number of jobs created (files to process)
+    pub jobs_created: i32,
+    /// number of paths that were directories (scanned recursively)
+    pub directories_scanned: i32,
+    /// number of files skipped (not video or already processed)
+    pub files_skipped: i32,
+    /// success message
+    pub message: String,
+    /// see `MusicImportResponse::existing_files`.
+    #[serde(default)]
+    pub existing_files: Vec<ExistingImportedFile>,
 }

@@ -48,6 +48,7 @@ import {
 import { isCharnelMode } from "../services/charnel";
 import { getDefaultRoute } from "../../music/utils/routing";
 import { debug } from "../../utils/logger";
+import { CenotaphPlayerApp } from "../../cenotaph/app/CenotaphPlayerApp";
 
 interface RoutesProps {
   onAddMedia: () => void;
@@ -147,6 +148,11 @@ export function routes(props: RoutesProps) {
       <Route path="/" component={AppLayout}>
         {/* root redirect - goes to last active remote or local */}
         <Route path="/" component={RootRedirect} />
+
+        {/* remote-controllable playback target (see docs/cenotaph-migration-plan.md
+            phase 6) - AppLayout hides its own chrome (TopNav/PlayerBar/sidebar)
+            for this route, so it still renders full-screen. */}
+        <Route path="/player" component={CenotaphPlayerApp} />
 
         {/* aggregate feed - combines all remotes */}
         <Route path="/feed" component={AggregateFeedView} />

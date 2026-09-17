@@ -3,7 +3,13 @@
 // uses midden's MiddenNode to make API requests to peer nodes.
 // blobs are cached in Cache API for audio playback.
 
-import type { BlobData, BlobFetchOptions, Transport, TransportResponse } from "./transport.js";
+import type {
+  BlobData,
+  BlobFetchOptions,
+  Transport,
+  TransportResponse,
+  UploadMetadata,
+} from "./transport.js";
 import { snapshotJobEventsViaRequest } from "./transport.js";
 import type { CloseReason, EventFilter, JobEvent, JobStateSnapshot } from "./codegen/schema.js";
 import { JobEventsStreamClosed } from "./CharnelLocalTransport.js";
@@ -72,6 +78,16 @@ export interface MiddenNodeLike {
   // import bytes into local iroh-blobs store, returns blake3 hash (64 hex chars)
   // keeps a TempTag so GC won't collect it until release_blob is called
   import_blob?(data: Uint8Array): Promise<string>;
+  // chunked counterpart of import_blob - the wasm boundary never sees the
+  // whole payload at once (see lib/midden's ImportSession doc comment).
+  // push() is backpressured (resolves once the chunk is queued); finish()
+  // completes the import and returns the blake3 hash, pinned the same way
+  // import_blob's result is (until release_blob is called).
+  start_import?(): {
+    push(chunk: Uint8Array): Promise<void>;
+    finish(): Promise<string>;
+    abort(): void;
+  };
   // release a blob's TempTag, allowing GC
   release_blob?(blake3_hash: string): void;
   // start background accept loop for incoming iroh-blobs connections
@@ -148,6 +164,14 @@ export type BlobProgressCallback = (received: number, total: number) => void;
 
 // unified cache for all remote blobs (HTTP + P2P) - default if no custom cache name provided
 const DEFAULT_CACHE_NAME = "freqhole-blobs-v1";
+
+// retry ladder for a request that fails at the connection/stream level
+// (e.g. "read error: connection lost") - mirrors playerPairingClient.ts's
+// DIAL_RETRY_DELAYS_MS for the same underlying reason: a freshly-dialed
+// p2p connection can still be settling and drop an early request even
+// though the peer is genuinely reachable. short and small on purpose -
+// this guards a single request, not a whole cold-dial handshake.
+const REQUEST_RETRY_DELAYS_MS = [150, 400];
 
 /**
  * decode base64 string to Uint8Array
@@ -319,34 +343,49 @@ export class WasmTransport implements Transport {
   }
 
   async request(method: string, path: string, body?: string): Promise<TransportResponse> {
-    try {
-      // TEMP DEBUG - remove once the first-pair-attempt-fails bug is found
-      console.log(`[debug/WasmTransport] request start ${method} ${path} -> ${this.peerAddr}`);
-      const result = await this.node.api_request(this.peerAddr, method, path, body ?? null);
-      // TEMP DEBUG - remove once the first-pair-attempt-fails bug is found
-      console.log(`[debug/WasmTransport] request ok ${method} ${path} status=${result.status}`);
-      if (result.status < 200 || result.status >= 300) {
-        // TEMP DEBUG - remove once sync-to-local wiring bug is found
-        console.log(`[debug/WasmTransport] ${method} ${path} non-2xx body:`, result.body);
+    let lastErr: unknown;
+    for (let attempt = 0; attempt <= REQUEST_RETRY_DELAYS_MS.length; attempt++) {
+      try {
+        const result = await this.node.api_request(this.peerAddr, method, path, body ?? null);
+        if (result.status < 200 || result.status >= 300) {
+          // TEMP DEBUG - remove once sync-to-local wiring bug is found
+          console.log(`[debug/WasmTransport] ${method} ${path} non-2xx body:`, result.body);
+        }
+        return {
+          status: result.status,
+          body: result.body,
+        };
+      } catch (e) {
+        lastErr = e;
+        // any exception here is a connection/stream-level failure (a real
+        // HTTP-ish response, even non-2xx, resolves normally above) - a
+        // freshly-dialed p2p peer's connection can still be settling (NAT
+        // traversal/relay handoff) and drop an early request with "read
+        // error: connection lost" even though the peer itself is fine, as
+        // seen live pushing a queued song to a just-paired player. retrying
+        // a few times with a short delay (same ladder shape as
+        // playerPairingClient.ts's cold-dial retry) instead of failing
+        // the whole resolve immediately.
+        if (attempt < REQUEST_RETRY_DELAYS_MS.length) {
+          console.warn(
+            `[WasmTransport] ${method} ${path} attempt ${attempt + 1} failed, retrying:`,
+            e,
+          );
+          await new Promise((resolve) => setTimeout(resolve, REQUEST_RETRY_DELAYS_MS[attempt]));
+          continue;
+        }
       }
-      return {
-        status: result.status,
-        body: result.body,
-      };
-    } catch (e) {
-      // P2P connection errors - rethrow with message that isNetworkError will catch
-      const { message, errorType } = extractErrorType(e);
-      // TEMP DEBUG - remove once sync-to-local wiring bug is found
-      console.log(`[debug/WasmTransport] ${method} ${path} threw:`, e);
-      console.warn(`[WasmTransport] P2P request failed: ${message}`);
-      throw new TransportError(`connection failed: ${message}`, { errorType });
     }
+    const { message, errorType } = extractErrorType(lastErr);
+    console.warn(`[WasmTransport] P2P request failed: ${message}`);
+    throw new TransportError(`connection failed: ${message}`, { errorType });
   }
 
   async upload(
     path: string,
     formData: FormData,
     _onProgress?: (loaded: number, total: number) => void,
+    metadata?: UploadMetadata,
   ): Promise<TransportResponse> {
     // no byte-level progress possible here - unlike CharnelTransport's tauri
     // IPC path (which self-chunks and can report per-chunk progress), the
@@ -375,11 +414,11 @@ export class WasmTransport implements Transport {
     // available - chunked/verified streaming, no base64/raw-bytes framing.
     const blobPullPaths = ["/api/upload/music", "/api/upload/video"];
     if (blobPullPaths.includes(path) && this.node.import_blob) {
-      return this.uploadViaIrohBlobs(path, file, formData);
+      return this.uploadViaIrohBlobs(path, file, metadata);
     }
 
     // fallback: base64 encode and send via api_request (works for image uploads)
-    return this.uploadViaBase64(path, file, formData);
+    return this.uploadViaBase64(path, file, metadata);
   }
 
   /**
@@ -392,7 +431,7 @@ export class WasmTransport implements Transport {
   private async uploadViaIrohBlobs(
     path: string,
     file: File,
-    formData: FormData,
+    metadata?: UploadMetadata,
   ): Promise<TransportResponse> {
     try {
       const fileBytes = new Uint8Array(await file.arrayBuffer());
@@ -403,27 +442,8 @@ export class WasmTransport implements Transport {
           blake3: hash,
           filename: file.name,
           size: fileBytes.length,
+          ...metadata,
         };
-
-        // include metadata if present (parsed as JSON)
-        const metadataStr = formData.get("metadata") as string | null;
-        if (metadataStr) {
-          try {
-            body.metadata = JSON.parse(metadataStr);
-          } catch {
-            // ignore parse errors
-          }
-        }
-
-        // include associate_with if present
-        const associateWithStr = formData.get("associate_with") as string | null;
-        if (associateWithStr) {
-          try {
-            body.associate_with = JSON.parse(associateWithStr);
-          } catch {
-            // ignore parse errors
-          }
-        }
 
         const response = await this.request("POST", `${path}-by-blake3`, JSON.stringify(body));
         return response;
@@ -449,7 +469,7 @@ export class WasmTransport implements Transport {
   private async uploadViaBase64(
     path: string,
     file: File,
-    formData: FormData,
+    metadata?: UploadMetadata,
   ): Promise<TransportResponse> {
     if (path === "/api/upload/music" || path === "/api/upload/video") {
       console.warn(
@@ -469,17 +489,8 @@ export class WasmTransport implements Transport {
     const body: Record<string, unknown> = {
       data: base64,
       filename: file.name,
+      ...metadata,
     };
-
-    // include associate_with if present
-    const associateWithStr = formData.get("associate_with") as string | null;
-    if (associateWithStr) {
-      try {
-        body.associate_with = JSON.parse(associateWithStr);
-      } catch {
-        // ignore parse errors
-      }
-    }
 
     // send via api_request — routes through offal dispatch on the remote peer
     return this.request("POST", path, JSON.stringify(body));

@@ -426,6 +426,7 @@ const feedTypes: FeedItemType[] = [
   "recent_album",
   "recent_rating",
   "recent_playlist",
+  "recent_video",
   "listen_session",
 ];
 
@@ -471,22 +472,27 @@ export function generateFeedItems(
     const isSession = feedType === "listen_session";
     const isAlbum = feedType === "recent_album";
     const isPlaylist = feedType === "recent_playlist";
+    const isVideo = feedType === "recent_video";
     const hasRating = feedType === "recent_rating";
+    const video = isVideo ? mockVideos[Math.floor(r3 * mockVideos.length)] : null;
 
     const imageSeed = isPlaylist
       ? `playlist-${Math.floor(r3 * 20)}`
       : isAlbum
         ? `album-${Math.floor(r4 * 100)}`
-        : `feed-${globalIdx}`;
+        : isVideo
+          ? `video-${video!.id}`
+          : `feed-${globalIdx}`;
 
     items.push({
       id: remote ? `${remote.id}-feed-${globalIdx}` : `feed-${globalIdx}`,
       feed_type: feedType,
-      song_id: !isSession && !isAlbum && !isPlaylist ? `song-${Math.floor(r3 * 200)}` : null,
-      album_id: !isPlaylist ? `album-${Math.floor(r4 * 100)}` : null,
-      artist_id: `artist-${Math.floor(r5 * 50)}`,
+      song_id:
+        !isSession && !isAlbum && !isPlaylist && !isVideo ? `song-${Math.floor(r3 * 200)}` : null,
+      album_id: !isPlaylist && !isVideo ? `album-${Math.floor(r4 * 100)}` : null,
+      artist_id: isVideo ? null : `artist-${Math.floor(r5 * 50)}`,
       playlist_id: isPlaylist ? `playlist-${Math.floor(r3 * 20)}` : null,
-      video_id: null,
+      video_id: isVideo ? video!.id : null,
       entity_id: isSession ? `album-${Math.floor(r4 * 100)}` : null,
       title: isSession
         ? `${artist} session`
@@ -494,8 +500,10 @@ export function generateFeedItems(
           ? album
           : isPlaylist
             ? `${user}'s ${genre} mix`
-            : song,
-      subtitle: null,
+            : isVideo
+              ? video!.title
+              : song,
+      subtitle: isVideo ? video!.content_type : null,
       images: [
         {
           remote_url: placeholderImage(imageSeed),
@@ -515,17 +523,26 @@ export function generateFeedItems(
       progress_percent: isSession ? Math.floor(r6 * 100) : null,
       songs_completed: isSession ? Math.floor(r6 * 12) : null,
       total_songs: isSession ? 12 : null,
-      artist_name: artist,
-      album_title: isPlaylist ? null : album,
-      genre,
-      genre_id: `genre-${genre}`,
+      artist_name: isVideo ? null : artist,
+      album_title: isPlaylist || isVideo ? null : album,
+      genre: isVideo ? null : genre,
+      genre_id: isVideo ? null : `genre-${genre}`,
       year: 1970 + Math.floor(r3 * 50),
       song_count: isAlbum ? Math.floor(r4 * 12) + 3 : null,
       songs_added: null,
-      total_duration_ms: isSession || isAlbum ? Math.floor(r5 * 3600000) + 600000 : null,
+      total_duration_ms:
+        isSession || isAlbum
+          ? Math.floor(r5 * 3600000) + 600000
+          : isVideo
+            ? (video!.duration_seconds ?? 0) * 1000
+            : null,
       image_count: null,
       urls: null,
-      description: isPlaylist ? "a curated selection of deep cuts" : null,
+      description: isPlaylist
+        ? "a curated selection of deep cuts"
+        : isVideo
+          ? (video!.description ?? null)
+          : null,
       tags: r6 > 0.7 ? [genre, "vinyl", "remastered"].slice(0, Math.floor(r4 * 3) + 1) : null,
       is_favorite: r3 > 0.7,
       is_initial_add: isAlbum ? r5 > 0.5 : true,
@@ -542,8 +559,7 @@ export function generateFeedItems(
 // mock remotes used for the "all feed" (aggregate) view
 export const mockRemotes = [
   { id: "remote-local", name: "local library" },
-  { id: "remote-bandcamp-mirror", name: "bandcamp mirror" },
-  { id: "remote-friends-house", name: "friends-house" },
+  { id: "remote-frenz-house", name: "frenz-house" },
   { id: "remote-vinyl-rips", name: "vinyl rips" },
   { id: "remote-carps-basement", name: "carp's basement" },
 ];
@@ -625,6 +641,157 @@ export const mockRemoteSongs: MockRemoteSong[] = [
     thumbnailUrl: placeholderImage("remote-song-5"),
   },
 ];
+
+// =====================================================================
+// video/series mock data
+// =====================================================================
+
+export interface MockVideoSeries {
+  id: string;
+  title: string;
+  description: string;
+  seasonCount: number;
+  episodeCount: number;
+  year: number;
+}
+
+export const mockVideoSeries: MockVideoSeries[] = [
+  {
+    id: "series-bramblewood",
+    title: "bramblewood",
+    description: "a small-town mystery serial.",
+    seasonCount: 3,
+    episodeCount: 24,
+    year: 2019,
+  },
+  {
+    id: "series-night-signal",
+    title: "night signal",
+    description: "found-footage sci-fi anthology.",
+    seasonCount: 2,
+    episodeCount: 16,
+    year: 2021,
+  },
+  {
+    id: "series-salt-flats",
+    title: "salt flats",
+    description: "a documentary series on desert ecosystems.",
+    seasonCount: 1,
+    episodeCount: 8,
+    year: 2022,
+  },
+  {
+    id: "series-backline",
+    title: "backline",
+    description: "behind-the-scenes touring diaries.",
+    seasonCount: 4,
+    episodeCount: 32,
+    year: 2018,
+  },
+];
+
+import type { VideoSummary } from "../src/video/data/types";
+
+const videoTitlePool = [
+  "pilot",
+  "the long way home",
+  "static",
+  "hollow point",
+  "afterglow",
+  "the widening gyre",
+  "salt and light",
+  "loadout",
+  "in the weeds",
+  "a quiet frequency",
+  "backstage pass",
+  "low tide",
+];
+
+/**
+ * generate deterministic VideoSummary rows for stories - mirrors
+ * generateBulkAlbums/generateBulkSongs above, but for the video domain.
+ * every third video is a standalone movie/clip (no series); the rest are
+ * distributed across mockVideoSeries with sequential episode numbers.
+ * poster_blob_id/images are left empty - there's no live backend/blob
+ * store in storybook, so cards fall back to VideoCard's own placeholder
+ * icon rather than pointing at a blob id that can never resolve.
+ */
+export function generateBulkVideos(count: number): VideoSummary[] {
+  const now = Math.floor(Date.now() / 1000);
+  return Array.from({ length: count }, (_, i) => {
+    const isStandalone = i % 3 === 0;
+    const series = isStandalone ? null : mockVideoSeries[i % mockVideoSeries.length];
+    const titleBase = videoTitlePool[i % videoTitlePool.length];
+    const episodeNumber = series ? (i % series.episodeCount) + 1 : null;
+
+    return {
+      id: `video-${i}`,
+      series_id: series?.id ?? null,
+      season_id: series ? `${series.id}-season-1` : null,
+      episode_number: episodeNumber,
+      content_type: series ? "series" : "movie",
+      title: series ? `${series.title}: ${titleBase}` : titleBase,
+      description: series
+        ? `${series.description} episode ${episodeNumber}.`
+        : "a freqhole demo video.",
+      media_blob_id: "",
+      poster_blob_id: null,
+      duration_seconds: 600 + Math.floor(seededRand(i * 43) * 3000),
+      release_date: null,
+      created_at: now - i * 3600,
+      updated_at: now - i * 3600,
+      deleted_at: null,
+      created_by: null,
+      updated_by: null,
+      deleted_by: null,
+      images: [],
+      play_count: Math.floor(seededRand(i * 47) * 50),
+      // "remote" (not "local") so VideoCard resolves its poster through
+      // MediaImage's `imageUrl` fallback (see getVideoImageUrl in the
+      // stories) rather than the local/opfs-only poster path, which has
+      // no such fallback and would always show the bare play-icon.
+      source_type: "remote",
+      added_at: now - i * 3600,
+    };
+  });
+}
+
+// shared mock video collection - reused by SuperStory's videos/series/
+// favorites/feed views so ids line up across all of them.
+export const mockVideos: VideoSummary[] = generateBulkVideos(60);
+
+import type { VideoSeries } from "../src/video/data/types";
+
+// wire-shaped VideoSeries objects - only needed where a real component
+// (VideoSeriesCard, via FavoritesLayout) requires the actual wire type;
+// the hand-rolled two-column series view uses the plain MockVideoSeries
+// array above instead, since it also wants season/episode counts that
+// don't exist on the real wire type.
+function toWireVideoSeries(series: MockVideoSeries): VideoSeries {
+  const now = Math.floor(Date.now() / 1000);
+  return {
+    id: series.id,
+    title: series.title,
+    description: series.description,
+    poster_blob_id: null,
+    created_at: now,
+    updated_at: now,
+    deleted_at: null,
+    created_by: null,
+    updated_by: null,
+    deleted_by: null,
+  };
+}
+
+// a few videos/series marked as favorites, so the favorites view (and its
+// videos/series filter toggles) has something to show.
+mockFavorites.push(
+  ...mockVideos.slice(0, 3).map((v) => ({ ...v, type: "video" as const })),
+  ...mockVideoSeries.slice(0, 2).map((s) => ({
+    ...toWireVideoSeries(s),
+    type: "video_series" as const,
+  }))
+);
 
 // =====================================================================
 // radio mock data

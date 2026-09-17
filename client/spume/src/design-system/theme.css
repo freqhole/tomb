@@ -1,8 +1,11 @@
 @import "tailwindcss";
 
-/* /player/ pairing-qr loading spinner - see app/player/CenotaphPlayerApp.tsx.
-   duration is set inline per-frame so it can ramp speed, hence its own named
-   animation rather than tailwind's fixed-duration `animate-spin` utility. */
+/* /player/ pairing-qr loading spinner - see cenotaph/app/CenotaphPlayerApp.tsx.
+   fixed 1s baseline duration - actual speed is driven at runtime via the
+   Web Animations API's `playbackRate` (not by rewriting this duration),
+   since changing `animation-duration` on a running css animation resets
+   it back to its start every time, which looked "wonky"/stuttery here
+   given how often the ramp recalculates (every 100ms). */
 @keyframes spin-ramp {
   to {
     transform: rotate(360deg);
@@ -10,6 +13,7 @@
 }
 .spin-ramp {
   animation-name: spin-ramp;
+  animation-duration: 1s;
   animation-timing-function: linear;
   animation-iteration-count: infinite;
 }

@@ -75,9 +75,7 @@ pub fn draw(frame: &mut Frame, area: Rect, _app: &App) {
     let hint = Line::from(vec![
         Span::raw("type ").dim(),
         Span::styled("/help", Style::new().fg(ACCENT).bold()),
-        Span::raw(" for help  \u{00b7}  ").dim(),
-        Span::styled("/", Style::new().fg(ACCENT).bold()),
-        Span::raw(" for slash commandz ").dim(),
+        Span::raw(" for help ").dim(),
     ]);
     frame.render_widget(
         Paragraph::new(hint).alignment(ratatui::layout::Alignment::Center),

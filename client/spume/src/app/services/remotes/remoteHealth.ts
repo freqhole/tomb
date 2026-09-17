@@ -15,6 +15,7 @@ import type { Remote } from "../storage/schemas/remote";
 import {
   checkRemoteHealth,
   getAllRemotes,
+  onPlayerStatusChange,
   onRemoteStatusChange,
 } from "./remoteManager";
 
@@ -95,6 +96,61 @@ export function isOnlineNow(remoteId: string): boolean | undefined {
   return onlineMap().get(remoteId);
 }
 
+// ---- reactive "is a probe currently in flight" map --------------------------
+// lets any consumer (RemotePicker, AddMediaModal's target-health gate, etc.)
+// show the same "checking..." state instead of each hand-rolling its own.
+
+const [probingIds, setProbingIds] = createSignal<Set<string>>(new Set());
+
+function markProbing(remoteId: string, probing: boolean): void {
+  setProbingIds((prev) => {
+    const has = prev.has(remoteId);
+    if (probing === has) return prev;
+    const next = new Set(prev);
+    if (probing) next.add(remoteId);
+    else next.delete(remoteId);
+    return next;
+  });
+}
+
+/** reactive accessor: true while a health check for this remote is in flight. */
+export function isProbing(remoteId: string): () => boolean {
+  return () => probingIds().has(remoteId);
+}
+
+/** non-reactive snapshot. */
+export function isProbingNow(remoteId: string): boolean {
+  return probingIds().has(remoteId);
+}
+
+// ---- reactive "is this remote currently a player" map -----------------------
+// deliberately NOT persisted anywhere (see docs/rathole-pairing-invite-code-
+// plan.md) - "is a player" is a live, point-in-time fact learned from the
+// same hello probe `checkRemoteHealth` already makes for online status, fed
+// in here via `onPlayerStatusChange` rather than a second network call.
+// `undefined` means "not probed yet this session", same convention as
+// `isOnline` above.
+
+const [playerMap, setPlayerMap] = createSignal<Map<string, boolean>>(new Map());
+
+onPlayerStatusChange((remoteId, isPlayerNow) => {
+  setPlayerMap((prev) => {
+    const next = new Map(prev);
+    next.set(remoteId, isPlayerNow);
+    return next;
+  });
+});
+
+/** reactive accessor - subscribe with `isPlayerNow(remoteId)()`. */
+export function isPlayerNow(remoteId: string): () => boolean | undefined {
+  return () => playerMap().get(remoteId);
+}
+
+/** non-reactive snapshot. */
+export function isPlayerNowSnapshot(remoteId: string): boolean | undefined {
+  return playerMap().get(remoteId);
+}
+
 /**
  * seed the reactive map from `getAllRemotes`. safe to call multiple times;
  * later updates flow in via `onRemoteStatusChange`.
@@ -102,9 +158,7 @@ export function isOnlineNow(remoteId: string): boolean | undefined {
 export async function seedOnlineMap(): Promise<void> {
   try {
     const all = await getAllRemotes();
-    setOnlineMap(
-      new Map(all.map((r) => [r.remote_id, r.is_offline !== true]))
-    );
+    setOnlineMap(new Map(all.map((r) => [r.remote_id, r.is_offline !== true])));
   } catch {
     // best-effort seed; reactive updates still work.
   }
@@ -149,6 +203,7 @@ export async function probeRemote(
   }
 
   const p = (async () => {
+    markProbing(id, true);
     try {
       const online = await checkRemoteHealth(remote);
       if (online) recordSuccess(id);
@@ -159,6 +214,7 @@ export async function probeRemote(
       return false;
     } finally {
       inFlight.delete(id);
+      markProbing(id, false);
     }
   })();
   inFlight.set(id, p);
@@ -185,6 +241,30 @@ export function wakeAllRemotes(options: { force?: boolean } = {}): void {
       if (r.is_offline !== true) continue;
       // probeRemote handles its own backoff + dedupe.
       void probeRemote(r, options);
+    }
+  })();
+}
+
+/**
+ * fire-and-forget re-probe of EVERY known remote, regardless of
+ * online/offline state or backoff - unlike `wakeAllRemotes` (which only
+ * re-checks already-offline remotes), player-mode status can change on
+ * an otherwise-always-online remote at any time, so anything needing a
+ * fresh "who's a player right now" read (e.g. opening the "play on"
+ * flyout) should call this instead of relying on the passive
+ * online-status sweep. results flow in via `isPlayerNow`/`isOnline`.
+ */
+export function refreshPlayerStatus(): void {
+  void (async () => {
+    let all: Remote[];
+    try {
+      all = await getAllRemotes();
+    } catch {
+      return;
+    }
+    for (const r of all) {
+      if (r.is_charnel_managed) continue;
+      void probeRemote(r, { force: true });
     }
   })();
 }

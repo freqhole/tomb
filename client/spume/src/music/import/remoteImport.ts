@@ -2,7 +2,7 @@
 // tracks upload/fetch jobs reactively so the UI can show progress
 import { createStore, produce } from "solid-js/store";
 import type { FreqholeClient } from "@freqhole/api-client";
-import { getClientForRemote } from "../../app/api/client";
+import { getClientForRemote, type RemoteLike } from "../../app/api/client";
 import { JobPoller } from "../../app/services/jobs/jobService";
 import { toast } from "../../components/feedback/Toast";
 import { getCurrentRemote, getCurrentUser } from "../data";
@@ -10,6 +10,7 @@ import { warn as logWarn } from "../../utils/logger";
 import {
   humanizeJobError as humanizeJobErrorShared,
   extractTransportErrorType,
+  errorMessageFrom,
   type FriendlyError,
 } from "../../utils/humanizeJobError";
 export type { FriendlyError };
@@ -65,6 +66,11 @@ export interface UploadJob {
    * (HttpTransport via XHR); stays undefined (indeterminate) on P2P/tauri
    * uploads, which don't stream a trackable request body. */
   progress?: number;
+  /** for a "send to remote" job (see sendReviewedSessionToRemote.ts): the
+   * specific blake3 hashes that failed to sync - lets a "retry failed"
+   * action resend just those instead of the whole album again. undefined
+   * for import jobs, or a send with no failures. */
+  retryFailedBlake3s?: string[];
 }
 
 // reactive store for all tracked upload jobs
@@ -83,13 +89,20 @@ export function clearCompletedJobs() {
   setUploadJobs((jobs) => jobs.filter((j) => j.status !== "completed"));
 }
 
+/** remove a single job (e.g. dismissing a failed row) */
+export function removeJob(id: string) {
+  setUploadJobs((jobs) => jobs.filter((j) => j.id !== id));
+}
+
 /** clear all jobs */
 export function clearAllJobs() {
   setUploadJobs([]);
 }
 
-// add a new tracked job and return its client-side id
-function addTrackedJob(label: string, type: UploadJobType): string {
+// add a new tracked job and return its client-side id - exported so
+// sendReviewedSessionToRemote.ts can show "sending to remote" in the same
+// job list instead of running invisibly (see docs on that call site).
+export function addTrackedJob(label: string, type: UploadJobType): string {
   const id = `upload-${nextJobId++}`;
   const job: UploadJob = {
     id,
@@ -103,7 +116,7 @@ function addTrackedJob(label: string, type: UploadJobType): string {
 }
 
 // update a tracked job's status
-function updateJobStatus(
+export function updateJobStatus(
   id: string,
   status: UploadJobStatus,
   extra?: { jobId?: string; error?: string; errorFull?: string }
@@ -120,7 +133,7 @@ function updateJobStatus(
 }
 
 // update a tracked job's stage label (concise human-readable line).
-function updateJobStage(id: string, stage: string | undefined) {
+export function updateJobStage(id: string, stage: string | undefined) {
   setUploadJobs(
     (j) => j.id === id,
     produce((j) => {
@@ -130,7 +143,7 @@ function updateJobStage(id: string, stage: string | undefined) {
 }
 
 // update a tracked job's upload transfer progress (0..1).
-function updateJobProgress(id: string, progress: number) {
+export function updateJobProgress(id: string, progress: number) {
   setUploadJobs(
     (j) => j.id === id,
     produce((j) => {
@@ -140,8 +153,11 @@ function updateJobProgress(id: string, progress: number) {
 }
 
 // merge entity ids onto a tracked job once we've resolved them from the
-// server-side job result.
-function updateJobEntities(
+// server-side job result - also used by sendReviewedSessionToRemote.ts to
+// attach a send job's target/album/retry info (not resolved from a server
+// job result, but the same "patch known fields onto this tracked row"
+// shape applies).
+export function updateJobEntities(
   id: string,
   ids: {
     albumId?: string;
@@ -151,6 +167,7 @@ function updateJobEntities(
     sessionId?: string;
     isDuplicate?: boolean;
     resultSummary?: string;
+    retryFailedBlake3s?: string[];
   }
 ) {
   setUploadJobs(
@@ -163,6 +180,7 @@ function updateJobEntities(
       if (ids.sessionId) j.sessionId = ids.sessionId;
       if (ids.isDuplicate !== undefined) j.isDuplicate = ids.isDuplicate;
       if (ids.resultSummary) j.resultSummary = ids.resultSummary;
+      if (ids.retryFailedBlake3s) j.retryFailedBlake3s = ids.retryFailedBlake3s;
     })
   );
 }
@@ -224,7 +242,12 @@ async function resolveJobEntities(
         logWarn("remoteImport", `list_jobs for session ${row.session_id} failed: ${String(e)}`);
       }
     }
-    return null;
+    // this job's own result had no entity ids (e.g. a track merged into a
+    // sibling job's album, with the interesting result living there instead)
+    // and no fallback match was found - still return the session id if we
+    // have one, so callers can track/send-to-remote the review session
+    // rather than silently losing it.
+    return sessionId ? { sessionId } : null;
   } catch (e) {
     logWarn("remoteImport", `resolveJobEntities(${jobId}) failed: ${String(e)}`);
     return null;
@@ -318,12 +341,27 @@ export interface RemoteUploadResult {
  * after all files have been submitted (not after jobs complete).
  * uses batched polling to reduce HTTP overhead when uploading multiple files.
  * @param onJobComplete optional callback when any job finishes (for query invalidation)
+ * @param targetRemote import against this remote instead of whatever's
+ *   currently selected - used to force local-first import on platforms
+ *   (android) that can only ever produce `File` objects, never real paths,
+ *   so can't use `importPathsToLocal`'s batch endpoint (see the "review
+ *   before send" add-media flow).
+ * @param onSessionResolved fired once a file's session_id is known - each
+ *   file uploads (and gets its own job/session) independently, there's no
+ *   shared batch session like `importPathsToLocal`'s musicByPaths call.
+ * @param sendTarget when set, tags each resulting session (server-side,
+ *   in import_session_send_targetz) as destined for this remote once
+ *   reviewed - durable across app restarts/devices, unlike the old
+ *   client-only pendingSendTargets bookkeeping this replaces.
  */
 export async function uploadFilesToRemote(
   files: FileList,
-  onJobComplete?: () => void
+  onJobComplete?: () => void,
+  targetRemote?: RemoteLike,
+  onSessionResolved?: (sessionId: string) => void,
+  sendTarget?: { remoteId: string; remoteName: string }
 ): Promise<void> {
-  const remote = getCurrentRemote();
+  const remote = targetRemote ?? getCurrentRemote();
   if (!remote) throw new Error("no active remote");
 
   const fileArray = Array.from(files);
@@ -339,9 +377,15 @@ export async function uploadFilesToRemote(
     (async () => {
       try {
         const client = await getClientForRemote(remote);
-        const result = await client.upload.music(file, (loaded, total) => {
-          if (total > 0) updateJobProgress(trackId, loaded / total);
-        });
+        const result = await client.upload.music(
+          file,
+          (loaded, total) => {
+            if (total > 0) updateJobProgress(trackId, loaded / total);
+          },
+          sendTarget
+            ? { targetRemoteId: sendTarget.remoteId, targetRemoteName: sendTarget.remoteName }
+            : undefined
+        );
         if (!result.success) {
           // extract error message from the ZodError
           const errMsg = result.error?.issues?.[0]?.message || "upload request failed";
@@ -359,6 +403,7 @@ export async function uploadFilesToRemote(
         if (pollResult.status === "completed") {
           const ids = await resolveJobEntities(client, jobId);
           if (ids) updateJobEntities(trackId, ids);
+          if (ids?.sessionId) onSessionResolved?.(ids.sessionId);
           updateJobStatus(trackId, "completed");
           onJobComplete?.();
         } else if (pollResult.status === "timeout") {
@@ -386,7 +431,7 @@ export async function uploadFilesToRemote(
           onJobComplete?.();
         }
       } catch (error) {
-        const msg = error instanceof Error ? error.message : "unknown error";
+        const msg = errorMessageFrom(error);
         const friendly = humanizeJobError(msg, extractTransportErrorType(error));
         updateJobStatus(trackId, "failed", { error: friendly.short, errorFull: friendly.full });
       }
@@ -461,7 +506,7 @@ export async function uploadPathsToRemote(
           onJobComplete?.();
         }
       } catch (error) {
-        const msg = error instanceof Error ? error.message : "unknown error";
+        const msg = errorMessageFrom(error);
         const friendly = humanizeJobError(msg, extractTransportErrorType(error));
         updateJobStatus(trackId, "failed", { error: friendly.short, errorFull: friendly.full });
       }
@@ -483,23 +528,46 @@ export async function uploadPathsToRemote(
 export async function importPathsToLocal(
   paths: string[],
   onJobComplete?: () => void,
-  onSessionComplete?: (sessionId: string) => void
+  onSessionComplete?: (sessionId: string) => void,
+  /** import against this remote instead of whatever's currently selected -
+   * used to force local-first import when the active target is a real
+   * remote (see the add-media "review before sending" flow). */
+  targetRemote?: RemoteLike,
+  /** when set, tags the created session (server-side) as destined for
+   * this remote once reviewed - see uploadFilesToRemote's matching param. */
+  sendTarget?: { remoteId: string; remoteName: string }
 ): Promise<void> {
   if (paths.length === 0) return;
-  const remote = getCurrentRemote();
+  const remote = targetRemote ?? getCurrentRemote();
   if (!remote) throw new Error("no active remote");
 
   const client = await getClientForRemote(remote);
 
   // submit all paths in one request - server creates a single session for the
   // batch so all files end up reviewable together
-  const batchResult = await client.upload.musicByPaths(paths);
+  const batchResult = await client.upload.musicByPaths(paths, {
+    targetRemoteId: sendTarget?.remoteId,
+    targetRemoteName: sendTarget?.remoteName,
+  });
   if (!batchResult.success) {
     const errMsg = batchResult.error?.issues?.[0]?.message || "batch import request failed";
     throw new Error(errMsg);
   }
 
   const sessionId = batchResult.data.session_id;
+
+  // paths that were cheap-skipped server-side (exact, unchanged re-import
+  // of something already in the library) never get a ProcessFile job, so
+  // they'd otherwise never resolve an albumId/songId at all - which used
+  // to mean a batch that's entirely already-known content silently never
+  // got sent to a remote target, even with a pendingSendTarget registered
+  // (see grimoire's ExistingImportedFile / `existing_files` on the
+  // response). build a path -> existing-entity lookup up front so both
+  // branches below (zero jobs created, and any per-row fallback) can use
+  // it identically.
+  const existingByPath = new Map(
+    (batchResult.data.existing_files ?? []).map((f) => [f.file_path, f])
+  );
 
   // add one tracked progress row per path so the upload panel shows granular feedback
   const trackIds: string[] = paths.map((filePath) => {
@@ -516,11 +584,25 @@ export async function importPathsToLocal(
   // the case there's nothing to poll for, so finish immediately with an
   // honest summary instead of waiting on child jobs that will never exist.
   if (batchResult.data.jobs_created === 0) {
-    for (const trackId of trackIds) {
-      updateJobEntities(trackId, { resultSummary: batchResult.data.message, sessionId });
+    for (let i = 0; i < trackIds.length; i++) {
+      const trackId = trackIds[i];
+      const existing = existingByPath.get(paths[i]);
+      updateJobEntities(trackId, {
+        resultSummary: batchResult.data.message,
+        sessionId,
+        albumId: existing?.album_id ?? undefined,
+        songId: existing?.song_id ?? undefined,
+        isDuplicate: existing ? true : undefined,
+      });
       updateJobStatus(trackId, "completed");
     }
+    // register the send target BEFORE checking for auto-send, so a batch
+    // that's entirely already-known-locally content still gets forwarded
+    // to its remote target instead of silently never being sent (this is
+    // the actual fix - onJobComplete used to never fire on this branch at
+    // all, so checkAutoSendForCompletedSessions never even ran for it).
     onSessionComplete?.(sessionId);
+    onJobComplete?.();
     return;
   }
 
@@ -615,7 +697,7 @@ export async function importPathsToLocal(
               onJobComplete?.();
             }
           } catch (err) {
-            const msg = err instanceof Error ? err.message : "unknown error";
+            const msg = errorMessageFrom(err);
             const friendly = humanizeJobError(msg, extractTransportErrorType(err));
             updateJobStatus(trackId, "failed", { error: friendly.short, errorFull: friendly.full });
           } finally {
@@ -627,15 +709,26 @@ export async function importPathsToLocal(
 
       // ensure any rows that never got a matching child job (or whose poll
       // threw before reaching a terminal status) don't stay stuck in
-      // "polling" forever. deliberately does NOT borrow another row's
-      // albumId here - each row's "view album" link must only ever reflect
-      // that row's own resolved job, never a sibling's, or multi-file/
-      // multi-folder batches would show the wrong album for files that
-      // legitimately have none (or whose own job hasn't resolved yet).
-      for (const trackId of trackIds) {
+      // "polling" forever. these rows are files the server cheap-skipped
+      // (already in the library, unchanged) rather than "still pending" -
+      // resolve their existing entity via `existingByPath` (each row's own
+      // path only - never borrows a sibling's, or multi-file/multi-folder
+      // batches would show the wrong album for files that legitimately
+      // have none, or whose own job hasn't resolved yet).
+      for (let i = 0; i < trackIds.length; i++) {
+        const trackId = trackIds[i];
         const j = uploadJobs.find((j) => j.id === trackId);
         if (!j) continue;
         if (j.status !== "completed" && j.status !== "failed" && j.status !== "timeout") {
+          const existing = existingByPath.get(paths[i]);
+          if (existing) {
+            updateJobEntities(trackId, {
+              resultSummary: batchResult.data.message,
+              albumId: existing.album_id ?? undefined,
+              songId: existing.song_id ?? undefined,
+              isDuplicate: true,
+            });
+          }
           updateJobStatus(trackId, "completed");
           onJobComplete?.();
         }
@@ -657,9 +750,15 @@ export async function importPathsToLocal(
  * fires off fetch jobs and polls in the background — returns immediately.
  * uses batched polling to reduce HTTP overhead when fetching multiple urls.
  * @param onJobComplete optional callback when any job finishes
+ * @param targetRemote import against this remote instead of whatever's
+ *   currently selected - see uploadFilesToRemote's identical param.
  */
-export async function fetchUrlsOnRemote(urls: string[], onJobComplete?: () => void): Promise<void> {
-  const remote = getCurrentRemote();
+export async function fetchUrlsOnRemote(
+  urls: string[],
+  onJobComplete?: () => void,
+  targetRemote?: RemoteLike
+): Promise<void> {
+  const remote = targetRemote ?? getCurrentRemote();
   if (!remote) throw new Error("no active remote");
 
   const userId = getCurrentUser()?.userId;
@@ -728,7 +827,7 @@ export async function fetchUrlsOnRemote(urls: string[], onJobComplete?: () => vo
           onJobComplete?.();
         }
       } catch (error) {
-        const msg = error instanceof Error ? error.message : "unknown error";
+        const msg = errorMessageFrom(error);
         const friendly = humanizeJobError(msg, extractTransportErrorType(error));
         updateJobStatus(trackId, "failed", { error: friendly.short, errorFull: friendly.full });
       }

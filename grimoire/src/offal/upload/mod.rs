@@ -29,8 +29,11 @@ pub use image::upload_image;
 pub use mime::detect_extension;
 pub use models::*;
 pub use music::{import_music_paths, upload_music, upload_music_by_blake3};
-pub use pull::{pull_audio_blob_to_local_storage, PullAudioBlobError, PullAudioBlobResult};
-pub use video::{upload_video, upload_video_by_blake3};
+pub use pull::{
+    pull_audio_blob_to_local_storage, pull_audio_blob_to_local_storage_with_progress,
+    PullAudioBlobError, PullAudioBlobResult,
+};
+pub use video::{import_video_paths, upload_video, upload_video_by_blake3};
 
 /// route metadata for upload
 pub const ROUTES: &[RouteInfo] = &[
@@ -97,6 +100,15 @@ pub const ROUTES: &[RouteInfo] = &[
         response_type: "VideoUploadResponse",
         auth: RouteAuth::Role(UserRole::Member),
     },
+    RouteInfo {
+        name: "import_video_paths",
+        path: "/api/upload/video-paths",
+        method: Method::POST,
+        domain: Domain::Video,
+        request_type: "String",
+        response_type: "VideoImportResponse",
+        auth: RouteAuth::Role(UserRole::Member),
+    },
 ];
 
 /// collect all route metadata from upload domain
@@ -123,6 +135,7 @@ pub async fn dispatch(
         "/api/upload/music-by-blake3" => Some(upload_music_by_blake3(caller, body.clone()).await),
         "/api/upload/video" => Some(upload_video(caller, body.clone()).await),
         "/api/upload/video-by-blake3" => Some(upload_video_by_blake3(caller, body.clone()).await),
+        "/api/upload/video-paths" => Some(import_video_paths(caller, body.clone()).await),
         _ => None,
     }
 }

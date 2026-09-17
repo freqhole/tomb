@@ -32,6 +32,101 @@ pub struct DirectoryScanOutcome {
     pub jobs_created: usize,
 }
 
+/// outcome of the cheap (no-hash) "have I already imported this exact path"
+/// check - a plain `local_path` lookup plus an mtime/size comparison
+/// against what's recorded, with no sha256/blake3 computation at all.
+/// shared by the directory scanner (below) and `import_music_paths`'s
+/// individual-file branch, so both "add files" and "add folder" get the
+/// same cheap-skip behavior instead of only the directory scanner having
+/// it.
+///
+/// this only ever matches on an EXACT path equal to what's being checked -
+/// it can't and doesn't need to detect "this content already exists under
+/// a different (possibly now-stale) path". that's a separate, unavoidably
+/// hash-based case already handled once hashing happens anyway (see
+/// `media_blobz::service::maybe_relocate_existing_blob`, which repoints an
+/// existing row's `local_path` to wherever the content was just
+/// rediscovered, including repairing a path that no longer resolves to a
+/// real file).
+#[derive(Debug, Clone)]
+pub enum ExistingPathCheck {
+    /// no media_blobz row has this exact local_path - process normally.
+    New,
+    /// a row exists at this exact path and its recorded size/mtime still
+    /// match what's on disk right now - nothing to do, skip entirely.
+    /// carries the existing blob id so a caller that short-circuits before
+    /// ever running a job (no `ProcessFileResult` will ever exist for this
+    /// file) can still resolve the song/album already linked to it.
+    UnchangedSkip { blob_id: String },
+    /// a row exists at this exact path but size/mtime differ from what's
+    /// recorded - the file changed in place. carries the existing blob id
+    /// so the caller can take the rescan-update path (preserves song id,
+    /// playlist memberships, favorites, etc.) instead of creating a
+    /// duplicate.
+    ChangedNeedsRescan { blob_id: String },
+}
+
+/// see [`ExistingPathCheck`]. `file_path` should already be canonicalized
+/// (same convention every `local_path` in the db is stored under).
+pub async fn check_existing_blob_for_path(
+    pool: &sqlx::SqlitePool,
+    file_path: &str,
+) -> ExistingPathCheck {
+    let file_meta = std::fs::metadata(file_path).ok();
+    let file_modified_at = file_meta
+        .as_ref()
+        .and_then(|m| m.modified().ok())
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    let file_size = file_meta.as_ref().map(|m| m.len() as i64).unwrap_or(0);
+
+    let existing_blob = sqlx::query!(
+        r#"
+        SELECT id, metadata
+        FROM media_blobz
+        WHERE local_path = ? AND deleted_at IS NULL
+        LIMIT 1
+        "#,
+        file_path
+    )
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten();
+
+    let Some(blob) = existing_blob else {
+        return ExistingPathCheck::New;
+    };
+    let blob_id = blob.id.clone().unwrap_or_default();
+
+    let mut stored_modified_at: Option<i64> = None;
+    let mut stored_size: Option<i64> = None;
+    if let Some(metadata_str) = blob.metadata.as_deref() {
+        if let Ok(metadata) = serde_json::from_str::<serde_json::Value>(metadata_str) {
+            stored_modified_at = metadata.get("file_modified_at").and_then(|v| v.as_i64());
+            stored_size = metadata.get("file_size").and_then(|v| v.as_i64());
+        }
+    }
+
+    // cheap unchanged check: both mtime and size match what we recorded
+    let mtime_match = stored_modified_at == Some(file_modified_at);
+    let size_match = match stored_size {
+        Some(s) => s == file_size,
+        // legacy rows without recorded file_size fall back to mtime-only match
+        None => mtime_match,
+    };
+    if mtime_match && size_match {
+        return ExistingPathCheck::UnchangedSkip { blob_id };
+    }
+
+    if blob_id.is_empty() {
+        ExistingPathCheck::New
+    } else {
+        ExistingPathCheck::ChangedNeedsRescan { blob_id }
+    }
+}
+
 /// Scan a directory for audio files and create processing jobs
 ///
 /// Returns a breakdown of files discovered vs. actually queued/skipped
@@ -175,71 +270,23 @@ pub async fn scan_directory_and_create_jobs(
     let mut files_to_process = 0usize;
 
     for file_path in audio_files {
-        // get file modified time and size (cheap dedup signal, no hashing)
-        let file_meta = std::fs::metadata(&file_path).ok();
-        let file_modified_at = file_meta
-            .as_ref()
-            .and_then(|m| m.modified().ok())
-            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-            .map(|d| d.as_secs() as i64)
-            .unwrap_or(0);
-        let file_size = file_meta.as_ref().map(|m| m.len() as i64).unwrap_or(0);
-
-        // check if file already exists in database
-        let existing_blob = sqlx::query!(
-            r#"
-            SELECT id, metadata
-            FROM media_blobz
-            WHERE local_path = ? AND deleted_at IS NULL
-            LIMIT 1
-            "#,
-            file_path
-        )
-        .fetch_optional(&pool)
-        .await
-        .ok()
-        .flatten();
-
         // when an existing blob is found, decide between cheap-skip and rescan-update
-        let existing_blob_id_for_update = if let Some(blob) = existing_blob {
-            let mut stored_modified_at: Option<i64> = None;
-            let mut stored_size: Option<i64> = None;
-            if let Some(metadata_str) = blob.metadata.as_deref() {
-                if let Ok(metadata) = serde_json::from_str::<serde_json::Value>(metadata_str) {
-                    stored_modified_at = metadata.get("file_modified_at").and_then(|v| v.as_i64());
-                    stored_size = metadata.get("file_size").and_then(|v| v.as_i64());
+        let existing_blob_id_for_update =
+            match check_existing_blob_for_path(&pool, &file_path).await {
+                ExistingPathCheck::UnchangedSkip { .. } => {
+                    debug!("skipping unchanged file: {}", file_path);
+                    files_skipped += 1;
+                    continue;
                 }
-            }
-
-            // cheap unchanged check: both mtime and size match what we recorded
-            let mtime_match = stored_modified_at == Some(file_modified_at);
-            let size_match = match stored_size {
-                Some(s) => s == file_size,
-                // legacy rows without recorded file_size fall back to mtime-only match
-                None => mtime_match,
+                ExistingPathCheck::ChangedNeedsRescan { blob_id } => {
+                    debug!(
+                    "file changed since last scan, will update existing record: {} (blob_id={})",
+                    file_path, blob_id
+                );
+                    Some(blob_id)
+                }
+                ExistingPathCheck::New => None,
             };
-            if mtime_match && size_match {
-                debug!("skipping unchanged file: {}", file_path);
-                files_skipped += 1;
-                continue;
-            }
-
-            // file at this path differs from what we recorded - take the
-            // rescan-update path on the existing record instead of inserting
-            // a duplicate blob/song
-            let blob_id = blob.id.unwrap_or_default();
-            debug!(
-                "file changed since last scan, will update existing record: {} (blob_id={})",
-                file_path, blob_id
-            );
-            if blob_id.is_empty() {
-                None
-            } else {
-                Some(blob_id)
-            }
-        } else {
-            None
-        };
 
         // bucket by immediate parent directory
         let parent_dir = Path::new(&file_path)
@@ -345,5 +392,87 @@ mod tests {
 
         let txt_path = PathBuf::from("test.txt");
         assert!(!is_audio_file(&txt_path, &extensions));
+    }
+
+    async fn init_test_env(data_dir: &std::path::Path) {
+        let config_toml = format!(
+            r#"data_dir = "{data_dir}"
+
+[database]
+filename = "grimoire.db"
+
+[media]
+max_fs_file_size = 104857600
+supported_audio_formats = ["mp3", "flac"]
+
+[musicbrainz]
+enabled = false
+
+[logging]
+level = "warn"
+"#,
+            data_dir = data_dir.display()
+        );
+        let config_path = data_dir.join("freqhole-config.toml");
+        std::fs::write(&config_path, config_toml).expect("write config");
+        std::fs::write(data_dir.join("grimoire.db"), b"").expect("touch grimoire.db");
+
+        crate::config::init_config(Some(config_path)).expect("init config");
+        database::run_migrations().await.expect("run migrations");
+    }
+
+    /// cargo test -p grimoire --lib -- --ignored --exact music::scanner::directory::tests::test_check_existing_blob_for_path
+    #[tokio::test]
+    #[ignore = "needs its own process: touches the real db pool singletons"]
+    async fn test_check_existing_blob_for_path() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        init_test_env(tmp.path()).await;
+        let pool = database::connect().await.expect("connect");
+
+        let file_path = tmp.path().join("song.mp3");
+        std::fs::write(&file_path, b"some audio bytes").expect("write test file");
+        let file_path_str = file_path.to_str().unwrap().to_string();
+
+        // no row for this path at all yet.
+        assert!(matches!(
+            check_existing_blob_for_path(&pool, &file_path_str).await,
+            ExistingPathCheck::New
+        ));
+
+        let meta = std::fs::metadata(&file_path).unwrap();
+        let mtime = meta
+            .modified()
+            .unwrap()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+        let size = meta.len() as i64;
+
+        sqlx::query(
+            "INSERT INTO media_blobz (id, sha256, blob_type, local_path, metadata)
+             VALUES ('blob0001', ?, 'original', ?, ?)",
+        )
+        .bind("a".repeat(64))
+        .bind(&file_path_str)
+        .bind(serde_json::json!({ "file_modified_at": mtime, "file_size": size }).to_string())
+        .execute(&pool)
+        .await
+        .expect("insert media blob row");
+
+        // recorded mtime/size match what's on disk - unchanged, cheap-skip.
+        assert!(matches!(
+            check_existing_blob_for_path(&pool, &file_path_str).await,
+            ExistingPathCheck::UnchangedSkip { .. }
+        ));
+
+        // file changed on disk (different size/mtime than recorded) -
+        // needs a rescan-update on the existing row, not a fresh import.
+        std::fs::write(&file_path, b"different, longer audio bytes now").expect("rewrite file");
+        match check_existing_blob_for_path(&pool, &file_path_str).await {
+            ExistingPathCheck::ChangedNeedsRescan { blob_id } => {
+                assert_eq!(blob_id, "blob0001");
+            }
+            other => panic!("expected ChangedNeedsRescan, got {other:?}"),
+        }
     }
 }

@@ -48,9 +48,11 @@ pub async fn handle_incoming(peer_node_id: PublicKey, conn: iroh::endpoint::Conn
     let node_id_str = peer_node_id.to_string();
     let node_id_short = &node_id_str[..16];
 
-    // check if allowed: known peer > haruspex lookup > knocking
+    // check if allowed: known peer > haruspex lookup > our own remotez list > knocking
     let known = is_known_peer(&node_id_str).await;
     let resolved = !known && resolve_peer(&node_id_str).await.user.is_some();
+    let remote_peer =
+        !known && !resolved && crate::remotez::is_known_remote_peer(&node_id_str).await;
     let knocking = is_knocking_enabled();
 
     if known {
@@ -61,6 +63,11 @@ pub async fn handle_incoming(peer_node_id: PublicKey, conn: iroh::endpoint::Conn
     } else if resolved {
         debug!(
             "[p2p-handler] connection from haruspex-resolved peer: {}",
+            node_id_short
+        );
+    } else if remote_peer {
+        debug!(
+            "[p2p-handler] connection from a peer in our own remotez list: {}",
             node_id_short
         );
     } else if knocking {
@@ -570,7 +577,11 @@ fn path_matches(template: &str, actual: &str) -> bool {
 /// get a Caller for a peer by their node_id
 ///
 /// looks up the user associated with this peer's iroh node_id
-/// and creates a Caller with their user_id and role.
+/// and creates a Caller with their user_id and role. falls back to a
+/// viewer-role placeholder for a peer we don't have a user account for but
+/// have ourselves added as a remote (see `remotez::is_known_remote_peer`) -
+/// enough to satisfy blob-serving requests (which don't check the caller's
+/// role) without granting them a real account's privileges.
 pub(crate) async fn get_caller_for_peer(node_id: &str) -> Option<Caller> {
     let service = UserService::new();
     // use repository directly via service's internal access
@@ -580,7 +591,13 @@ pub(crate) async fn get_caller_for_peer(node_id: &str) -> Option<Caller> {
             data: Some(user),
             ..
         } => Some(Caller::new(&user.id, &user.username, user.role)),
-        _ => None,
+        _ => {
+            if crate::remotez::is_known_remote_peer(node_id).await {
+                Some(Caller::new("guest", "remote-peer", UserRole::Viewer))
+            } else {
+                None
+            }
+        }
     }
 }
 

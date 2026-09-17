@@ -4,6 +4,7 @@
 // rule — never edit music's opfs helpers to make room for video.
 import { debug, error as errorLog } from "../../../utils/logger";
 import { unmarkVideoSynced } from "../syncState";
+import { getLocalVideoById, deleteLocalVideo, getLocalVideos } from "../storage/db/videos";
 
 // opfs directory for video files
 const VIDEO_DIR = "video";
@@ -326,9 +327,6 @@ export async function getVideoOPFSUsage(): Promise<{
 
 // purge a single video from OPFS (delete OPFS files + IDB row) - a coherent single operation
 export async function purgeVideoFromOPFS(videoId: string): Promise<void> {
-  const { getLocalVideoById } = await import("../storage/db/videos");
-  const { deleteLocalVideo } = await import("../storage/db/videos");
-
   try {
     const video = await getLocalVideoById(videoId);
     if (!video) {
@@ -356,8 +354,6 @@ export async function purgeVideoFromOPFS(videoId: string): Promise<void> {
 
 // purge all videos from OPFS - continues past individual failures, doesn't abort the whole batch on one error
 export async function purgeAllVideosFromOPFS(): Promise<void> {
-  const { getLocalVideos } = await import("../storage/db/videos");
-
   try {
     // fetch all local videos (no pagination, get them all)
     const result = await getLocalVideos({ limit: 10000, offset: 0 });

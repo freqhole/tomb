@@ -225,6 +225,7 @@ pub(in crate::admin_dispatch) async fn generate_account_link(
         link_for_user_id: Some(user_id),
         expires_hours: Some(24),
         grants_role: None,
+        max_uses: None,
     };
     let response = service
         .generate_invite_codes(&create_req, 1, 4, &admin)

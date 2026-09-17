@@ -1,16 +1,23 @@
 // local import service - handles adding music files to the local IndexedDB/OPFS library
 import { createSignal } from "solid-js";
 import { processMusicFiles } from "./fileProcessor";
+import { createSong, getSongBySha256 } from "../services/storage/db";
 import {
-  createSong,
-  getSongBySha256,
-} from "../services/storage/db";
+  createLocalImportSession,
+  recordLocalImportBlob,
+  type LocalImportReviewSendTarget,
+} from "../services/storage/db/importReview";
 import { computeSHA256 } from "../../utils/hash";
 import { debug, warn } from "../../utils/logger";
+import { errorMessageFrom } from "../../utils/humanizeJobError";
 
 export interface ImportResult {
   addedCount: number;
   skippedCount: number;
+  /** local review session this batch landed in - see importReview.ts.
+   * always created, even for a batch that turns out to be all duplicates
+   * (mirrors grimoire's import_music_paths, which does the same). */
+  sessionId: string;
 }
 
 // local import progress — tracks the current phase and file-level progress
@@ -36,7 +43,8 @@ const IDLE_PROGRESS: LocalImportProgress = {
 };
 
 // reactive signal for local import progress
-const [localImportProgress, setLocalImportProgress] = createSignal<LocalImportProgress>(IDLE_PROGRESS);
+const [localImportProgress, setLocalImportProgress] =
+  createSignal<LocalImportProgress>(IDLE_PROGRESS);
 
 /** get reactive local import progress */
 export function getLocalImportProgress() {
@@ -48,11 +56,19 @@ export function clearLocalImportProgress() {
   setLocalImportProgress(IDLE_PROGRESS);
 }
 
-// import music files from file picker into local library
-export async function importMusicFiles(files: FileList): Promise<ImportResult> {
+// import music files from file picker into local library. every batch is
+// tracked as a review session (see importReview.ts) so web/browser clients
+// get the same "review before send" flow desktop/android already have via
+// grimoire - `target`, when set, tags the session to be sent to that
+// remote once reviewed (see AddMediaModal's local-review wiring).
+export async function importMusicFiles(
+  files: FileList,
+  target?: LocalImportReviewSendTarget
+): Promise<ImportResult> {
   const fileArray = Array.from(files);
   let addedCount = 0;
   let skippedCount = 0;
+  const sessionId = await createLocalImportSession(target);
 
   // phase 1: hashing
   setLocalImportProgress({
@@ -106,7 +122,7 @@ export async function importMusicFiles(files: FileList): Promise<ImportResult> {
     if (existingSong) {
       debug(
         "localImport",
-        `skipping duplicate (sha256 match): ${songData.file_name} - already exists as song id ${existingSong.id}`,
+        `skipping duplicate (sha256 match): ${songData.file_name} - already exists as song id ${existingSong.id}`
       );
       skippedCount++;
       continue;
@@ -114,24 +130,31 @@ export async function importMusicFiles(files: FileList): Promise<ImportResult> {
 
     // no duplicate found, add the song
     try {
-      await createSong(songData);
+      const song = await createSong(songData);
+      await recordLocalImportBlob(sessionId, song.id);
       addedCount++;
-      debug("localImport", `added: ${songData.file_name} (sha256: ${songData.sha256.slice(0, 8)}...)`);
+      debug(
+        "localImport",
+        `added: ${songData.file_name} (sha256: ${songData.sha256.slice(0, 8)}...)`
+      );
     } catch (error) {
       // handle constraint error (duplicate sha256 from race condition or stale index)
-      if (error instanceof Error && error.name === 'ConstraintError') {
+      if (error instanceof Error && error.name === "ConstraintError") {
         warn(
           "localImport",
-          `skipping duplicate (constraint error): ${songData.file_name} - sha256 ${songData.sha256.slice(0, 8)}... already exists in database`,
+          `skipping duplicate (constraint error): ${songData.file_name} - sha256 ${songData.sha256.slice(0, 8)}... already exists in database`
         );
-        warn("localImport", 'this suggests getSongBySha256 did not find the existing song - possible stale index');
+        warn(
+          "localImport",
+          "this suggests getSongBySha256 did not find the existing song - possible stale index"
+        );
         skippedCount++;
       } else {
         // re-throw unexpected errors
         setLocalImportProgress((prev) => ({
           ...prev,
           phase: "error",
-          errorMessage: error instanceof Error ? error.message : "unknown error",
+          errorMessage: errorMessageFrom(error),
         }));
         throw error;
       }
@@ -149,5 +172,5 @@ export async function importMusicFiles(files: FileList): Promise<ImportResult> {
   });
 
   debug("localImport", `added ${addedCount} songs, skipped ${skippedCount} duplicates`);
-  return { addedCount, skippedCount };
+  return { addedCount, skippedCount, sessionId };
 }

@@ -18,8 +18,19 @@ import { createSignal } from "solid-js";
 import { sendPlayerCommand, subscribeToPlayerStatus } from "./playerPairingClient";
 import { activeTargetNodeId, isRemoteTargetActive } from "./activeTarget";
 import { appState, setQueue } from "../storage/db";
-import { isSongItem } from "../storage/mediaItem";
+import { mediaItemBlake3, mediaItemKey } from "../storage/mediaItem";
 import { toast } from "../../../components/feedback/Toast";
+import { requestAddRemote } from "../remotes/addRemoteRequest";
+import { warn } from "../../../utils/logger";
+import { CENOTAPH_QUEUE_TRACE } from "../../../cenotaph/queueTrace";
+
+export interface RenditionRef {
+  blake3_hash: string;
+  label: string;
+  mime_type?: string;
+  width?: number;
+  height?: number;
+}
 
 export interface RemoteMediaRef {
   source_peer_addr: string;
@@ -34,6 +45,22 @@ export interface RemoteMediaRef {
   artwork_thumb_url?: string;
   /** full-size art (player's own now-playing view). */
   artwork_full_url?: string;
+  /** already-transcoded alternates of this video, if known - lets a
+   * receiving player pull one instead of the (possibly much larger)
+   * original. see `playerQueuePush.ts`'s `videoToMediaRef`. */
+  available_renditions?: RenditionRef[];
+}
+
+/** one queued item the remote player couldn't resolve on its own
+ * (unreachable/unauthorized source, sync failure, etc.) - reported back on
+ * `RemoteStatus.unresolved_items` so the controller can proxy the bytes as
+ * a genuine last resort, instead of proactively fetching/importing every
+ * pushed item's bytes up front "just in case" (see `playerQueuePush.ts`'s
+ * `handleUnresolvedItems`, wired in `applyRemoteStatus` below). mirrors
+ * grimoire's `wire::UnresolvedItemRef`. */
+export interface UnresolvedItemRef {
+  blake3_hash: string;
+  source_peer_addr: string;
 }
 
 export type RemoteStatus =
@@ -47,6 +74,7 @@ export type RemoteStatus =
       auto_download_enabled: boolean;
       volume: number;
       recently_played: string[];
+      unresolved_items?: UnresolvedItemRef[];
     }
   | {
       type: "status";
@@ -56,6 +84,7 @@ export type RemoteStatus =
       auto_download_enabled: boolean;
       volume: number;
       recently_played: string[];
+      unresolved_items?: UnresolvedItemRef[];
     }
   | {
       type: "status";
@@ -64,6 +93,7 @@ export type RemoteStatus =
       auto_download_enabled: boolean;
       volume: number;
       recently_played: string[];
+      unresolved_items?: UnresolvedItemRef[];
     }
   | {
       type: "status";
@@ -72,6 +102,7 @@ export type RemoteStatus =
       auto_download_enabled: boolean;
       volume: number;
       recently_played: string[];
+      unresolved_items?: UnresolvedItemRef[];
     }
   | {
       type: "status";
@@ -81,6 +112,7 @@ export type RemoteStatus =
       auto_download_enabled: boolean;
       volume: number;
       recently_played: string[];
+      unresolved_items?: UnresolvedItemRef[];
     };
 
 /** the shared queue of the active remote target, or an empty array when
@@ -155,32 +187,148 @@ function describeCommandAckFailure(reason?: string): string {
  * through sendControl, so they need to report failures themselves). before
  * this existed, an `ok:false` ack (e.g. `not_in_session`) was silently
  * swallowed: no toast, no thrown error, just the pending/loading indicator
- * clearing as if the command had actually gone through. */
+ * clearing as if the command had actually gone through.
+ *
+ * warning (not error) severity - this is a recoverable, expected-ish state
+ * (session/pin expired, not a real failure) - and carries a "reconnect"
+ * action button (when `peerAddr` is known) that opens the Add Remote modal
+ * pre-filled for that peer, reusing the same auto-skip-pin-if-authorized/
+ * re-enter-pin QR-driven flow AddRemoteModal.tsx already implements. */
 export function reportCommandAckFailure(
-  ack: { ok?: boolean; reason?: string } | null | undefined
+  ack: { ok?: boolean; reason?: string } | null | undefined,
+  peerAddr?: string
 ): void {
   if (!ack || ack.ok !== false) return;
-  toast.error(describeCommandAckFailure(ack.reason), {
+  warn(
+    "remotePlaybackControl",
+    `${CENOTAPH_QUEUE_TRACE} reportCommandAckFailure: ack rejected, reason=${ack.reason ?? "(none)"} peerAddr=${peerAddr ?? "(unknown)"}`
+  );
+  toast.warning(describeCommandAckFailure(ack.reason), {
     title: "remote-player-command-rejected",
+    // persistent: this needs the user to actually act (re-enter a pin via
+    // the reconnect action) - an auto-dismissing toast previously vanished
+    // long before anyone noticed it, let alone re-paired.
+    persistent: true,
+    action: peerAddr
+      ? { label: "reconnect", onClick: () => requestAddRemote(peerAddr, { intent: "player" }) }
+      : undefined,
   });
 }
 
-const [remoteStatus, setRemoteStatus] = createSignal<RemoteStatus | null>(null);
+/// rathole/cenotaph now pushes a fresh status every ~250ms (so the
+/// position/playing-state stays live) - most of those pushes only
+/// differ in `position_ms`/`server_time_ms` advancing in step with real
+/// elapsed time, which `remotePositionMs()` already extrapolates
+/// locally between updates via its own `tickNow()` ticker. without a
+/// custom `equals`, solid's default signal equality is reference-based,
+/// so a brand-new status OBJECT every tick made every consumer of
+/// `remoteStatus()` (queue rows, now-playing card, etc.) re-render
+/// every ~250ms even when nothing user-visible actually changed - the
+/// "flashing"/unstable-render symptom.
+///
+/// can't just strip position_ms/server_time_ms unconditionally though -
+/// a real seek needs to be reflected immediately (jumping the visible
+/// position bar), not silently swallowed until some unrelated field
+/// happens to change. so: only treat two statuses as equal if position
+/// moved roughly in step with the real time elapsed between them
+/// (natural playback progression, within a couple seconds of slack for
+/// tick jitter) - a bigger mismatch means a real seek/jump and is
+/// treated as a genuine change.
+function statusEqualsIgnoringClock(a: RemoteStatus | null, b: RemoteStatus | null): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  if ("position_ms" in a && "position_ms" in b && "server_time_ms" in a && "server_time_ms" in b) {
+    const expectedDrift = b.server_time_ms - a.server_time_ms;
+    const actualDrift = b.position_ms - a.position_ms;
+    if (Math.abs(actualDrift - expectedDrift) > 2_000) {
+      return false; // a real seek/jump, not just natural progression.
+    }
+  }
+  const strip = (s: RemoteStatus): unknown => {
+    const clone: Record<string, unknown> = { ...s };
+    delete clone.position_ms;
+    delete clone.server_time_ms;
+    return clone;
+  };
+  return JSON.stringify(strip(a)) === JSON.stringify(strip(b));
+}
+
+const [remoteStatus, setRemoteStatus] = createSignal<RemoteStatus | null>(null, {
+  equals: statusEqualsIgnoringClock,
+});
 export { remoteStatus };
 
-// client-side offline detection: `Date.now()` of the last time a REAL
-// status (poll response, push, or command ack) actually landed for the
-// currently-active target - distinct from `remoteStatusKnown()` (which
-// only asks "have we EVER heard from this target", not "recently").
-let lastStatusAt = 0;
+// client-side offline detection: counts CONSECUTIVE failed exchanges with
+// the active target (see `OFFLINE_FAILURE_THRESHOLD` below) - distinct
+// from `remoteStatusKnown()` (which only asks "have we EVER heard from
+// this target", not "recently"). deliberately NOT a wall-clock "haven't
+// heard from it in N seconds" timeout (an earlier version of this was) -
+// a wall-clock check comparing against a local `setInterval`-driven clock
+// breaks the moment that clock itself gets suspended (backgrounded tab,
+// phone screen locked): the interval simply doesn't fire while asleep, so
+// the NEXT tick sees the entire sleep duration as "silence" and instantly
+// declares the target offline even though nothing ever actually failed to
+// respond. a failure counter has no such failure mode by construction - it
+// can only grow from a request that was actually sent and actually didn't
+// get a response; a suspended tab sends zero requests, so it accumulates
+// zero failures, and correctly stays "not obviously offline" the moment it
+// wakes and starts trying again.
+// registration hook for playerQueuePush.ts's handleUnresolvedItems -
+// deliberately NOT a static (or dynamic) import of playerQueuePush.ts
+// here: that module statically imports getMiddenNode/getClientForRemote
+// from the api client module, which eagerly loads the wasm midden package
+// at import time. a direct import (static OR dynamic - the lint rule
+// `no-restricted-syntax` disallows dynamic imports outright anyway) would
+// pull that whole chain into every test that imports THIS file, even ones
+// that never report an unresolved item - confirmed live: broke
+// remotePlaybackControl.test.ts with `Invalid URL` parsing
+// `midden_bg.wasm` under vitest/jsdom. instead, playerQueuePush.ts
+// (which already imports FROM this file) registers its handler here once
+// at its own module load - by the time any real status can possibly
+// report an unresolved item, playerQueuePush.ts has necessarily already
+// been loaded (pushing/appending media to a player is how a remote
+// target becomes active in the first place).
+type UnresolvedItemsHandler = (peerAddr: string, items: UnresolvedItemRef[]) => void;
+let unresolvedItemsHandler: UnresolvedItemsHandler | null = null;
+export function registerUnresolvedItemsHandler(handler: UnresolvedItemsHandler): void {
+  unresolvedItemsHandler = handler;
+}
 
 function applyRemoteStatus(status: RemoteStatus | null): void {
   if (status) {
-    lastStatusAt = Date.now();
+    setConsecutiveFailures(0);
     setRemoteAnnouncedOffline(false);
+    resubscribePushStatusIfGivenUp();
     const prevRecentlyPlayed = remoteStatus()?.recently_played ?? [];
     const newlyFinished = status.recently_played.filter((h) => !prevRecentlyPlayed.includes(h));
     if (newlyFinished.length > 0) pruneLocalQueueForFinishedItems(newlyFinished);
+    // reactive proxy-of-last-resort: the player reports items it
+    // genuinely couldn't resolve itself (unreachable/unauthorized source,
+    // etc.) on its own status - only NOW, once that's confirmed, does
+    // this controller do any real networking on the item's behalf (see
+    // playerQueuePush.ts's handleUnresolvedItems doc comment for the full
+    // rationale). same newly-appeared-since-last-status diff as
+    // newlyFinished above - a player re-reports the SAME still-unresolved
+    // hash on every status/ack (including the ack of the retry this
+    // handler itself just sent) until it actually resolves, so reacting
+    // to every occurrence instead of just the first is an unconditional
+    // retry-as-fast-as-the-round-trip-allows loop with no way out for a
+    // genuinely (even if only temporarily) unreachable source - a real
+    // reported bug. reacting only once per hash, exactly when it first
+    // becomes unresolved, still lets a later genuinely-new occurrence
+    // (e.g. the source went offline again after a successful resolve)
+    // trigger a fresh attempt, since `prevUnresolvedHashes` is read from
+    // the immediately-preceding status, not a permanent record.
+    const prevUnresolvedHashes = new Set(
+      (remoteStatus()?.unresolved_items ?? []).map((u) => u.blake3_hash)
+    );
+    const newlyUnresolved = (status.unresolved_items ?? []).filter(
+      (u) => !prevUnresolvedHashes.has(u.blake3_hash)
+    );
+    if (newlyUnresolved.length > 0 && unresolvedItemsHandler) {
+      const peerAddr = activeTargetNodeId();
+      if (peerAddr) unresolvedItemsHandler(peerAddr, newlyUnresolved);
+    }
   }
   setRemoteStatus(status);
 }
@@ -197,15 +345,121 @@ function applyRemoteStatus(status: RemoteStatus | null): void {
  * isn't worth surfacing to the user, and syncLocalQueueFromRemote acts as
  * a final catch-all at switch-back time regardless. */
 function pruneLocalQueueForFinishedItems(finishedHashes: string[]): void {
+  pruneLocalQueueByBlake3(finishedHashes);
+}
+
+/** shared queue-array mutation behind `pruneLocalQueueForFinishedItems`
+ * (below - items the remote reports as done with, matched by blake3 since
+ * that's the only identity a remote-reported `recently_played` hash can
+ * carry). drops any local queue entry (song OR video - see
+ * `mediaItemBlake3`) whose content hash is in `hashes`, except `keepKey`
+ * (a `mediaItemKey()`) - a no-op if nothing actually matches, so callers
+ * can call this unconditionally without checking first. */
+function pruneLocalQueueByBlake3(hashes: string[], keepKey?: string | null): void {
   const state = appState();
-  if (!state) return;
-  const finished = new Set(finishedHashes);
+  if (!state || hashes.length === 0) return;
+  const targets = new Set(hashes);
   const kept = state.queue.filter((item) => {
-    if (!isSongItem(item)) return true;
-    return !item.song.blake3 || !finished.has(item.song.blake3);
+    if (keepKey && mediaItemKey(item) === keepKey) return true;
+    const hash = mediaItemBlake3(item);
+    return !hash || !targets.has(hash);
   });
   if (kept.length === state.queue.length) return;
   void setQueue(kept);
+}
+
+/** counterpart to `pruneLocalQueueByBlake3` above, used by
+ * `pruneLocalQueueAfterSuccessfulPush` - matches by `mediaItemKey()`
+ * (`Song.sha256`/`Video.id`, always non-null) rather than blake3.
+ * required for video: `mediaItemBlake3()` has no fallback for a video
+ * with no locally-known blake3 (common - see `QueuedVideo.blake3`'s own
+ * doc comment), so matching by content hash there silently never matched
+ * anything and the video sat in the local queue forever (a real bug found
+ * live: "i can't queue videos" - the drain step was the part that never
+ * fired). `pruneLocalQueueAfterSuccessfulPush` always operates on the
+ * SAME local queue items that were just pushed, so their stable local key
+ * is always known up front - unlike `pruneLocalQueueByBlake3` above,
+ * which only ever receives hashes the REMOTE reported, with no local
+ * object to derive a key from. */
+function pruneLocalQueueByKey(keys: Set<string>, keepKey?: string | null): void {
+  const state = appState();
+  if (!state || keys.size === 0) return;
+  const kept = state.queue.filter((item) => {
+    const key = mediaItemKey(item);
+    if (keepKey && key === keepKey) return true;
+    return !keys.has(key);
+  });
+  if (kept.length === state.queue.length) return;
+  void setQueue(kept);
+}
+
+/** identifies one local queue item that was just pushed to a remote
+ * target - `key` (`mediaItemKey()`) is what `pruneLocalQueueByKey` matches
+ * the local queue against; `blake3Hash` is the REAL hash that ended up on
+ * the wire for this item (from the `RemoteMediaRef` actually sent, e.g.
+ * freshly computed by `importMediaBytes()` for a relayed item) - NOT
+ * necessarily the same as the local object's own `blake3` field (which
+ * may be stale or entirely absent, especially for video). only the
+ * confirmation check below (comparing against `remoteCurrentItem()`,
+ * which the remote reports purely by wire hash) needs `blake3Hash` at
+ * all - the actual prune/drain decision uses `key`. */
+export interface PushedQueueItem {
+  key: string;
+  blake3Hash: string;
+}
+
+/** drops queue entries once they've been successfully handed to the
+ * active remote target - called right after a successful
+ * `replace_queue`/`append_queue` ack (see `playerQueuePush.ts`'s 6 push/
+ * append functions), not only once the remote later reports them
+ * "finished" (`pruneLocalQueueForFinishedItems` above) - a duplicate
+ * shadow copy sitting in the local queue the whole time a remote target is
+ * active is exactly what caused a full re-queue the next time "play on"
+ * was reselected. per user direction: for a REPLACE (`isReplace: true` -
+ * the pushed item at index 0 is meant to become the remote's new "now
+ * playing"), the CURRENTLY-PLAYING local item (if it's among
+ * `pushedItems`) is held back unless the remote's own just-applied
+ * status (`remoteCurrentItem()` - call this AFTER `applyRemoteStatusFromAck`,
+ * not before) confirms it's already the remote's current item too - "it's
+ * like a handoff", avoiding a moment where nothing appears to be playing
+ * anywhere on this device while the remote hasn't confirmed it picked up
+ * playback yet. **for an APPEND (`isReplace: false`), there is no handoff
+ * happening at all** - the local current item keeps playing locally
+ * exactly as before, it's merely being queued up on the remote for later,
+ * so the remote's own current item will never match it and the
+ * confirmation gate would hold it back forever (a real bug found live:
+ * appending a song to an already-playing remote left it stuck in the
+ * local queue permanently, since the remote never reports playing
+ * something that was only just appended to its tail). append always
+ * drains immediately on a successful ack, no confirmation needed. */
+export function pruneLocalQueueAfterSuccessfulPush(
+  pushedItems: PushedQueueItem[],
+  isReplace: boolean
+): void {
+  const state = appState();
+  if (!state || pushedItems.length === 0) return;
+  const pushedKeys = new Set(pushedItems.map((p) => p.key));
+  if (!isReplace) {
+    pruneLocalQueueByKey(pushedKeys);
+    return;
+  }
+  const currentItem = state.current_sha256
+    ? state.queue.find((i) => mediaItemKey(i) === state.current_sha256)
+    : undefined;
+  const currentKey = currentItem ? mediaItemKey(currentItem) : null;
+  const currentWasPushed = !!currentKey && pushedKeys.has(currentKey);
+  if (!currentWasPushed) {
+    pruneLocalQueueByKey(pushedKeys);
+    return;
+  }
+  // the wire hash actually sent for the current item - NOT
+  // `mediaItemBlake3(currentItem)`, which may be stale/absent (video) and
+  // wouldn't match what the remote actually reports back as its current
+  // item's hash.
+  const currentPushedHash = pushedItems.find((p) => p.key === currentKey)?.blake3Hash ?? null;
+  const remoteConfirmedCurrent =
+    !!currentPushedHash && remoteCurrentItem()?.blake3_hash === currentPushedHash;
+  pruneLocalQueueByKey(pushedKeys, remoteConfirmedCurrent ? null : currentKey);
 }
 
 /** applies a status carried on a raw sendPlayerCommand ack - used by
@@ -233,6 +487,7 @@ export function applyRemoteStatusFromAck(status: RemoteStatus): void {
 export function resetRemoteStatus(): void {
   applyRemoteStatus(null);
   setRemoteAnnouncedOffline(false);
+  setConsecutiveFailures(0);
 }
 export const remoteIsPlaying = () => remoteStatus()?.state === "now_playing";
 
@@ -282,26 +537,28 @@ export const remoteOptimisticCurrentIndex = (): number => {
  * paused) right after connecting or after a subscription drop/reconnect. */
 export const remoteStatusKnown = () => remoteStatus() !== null;
 
-// client-side "haven't heard from this player in N seconds" timeout -
-// user explicitly asked for this ("good for clients to have some timeout
-// mechanism in case the player goes offline - shouldn't be too aggressive,
-// but also not too lax and slow"). tuned the same way as the player-side
-// DISCONNECT_GRACE_MS (connectedControllers.ts): comfortably above the
-// 30s heartbeat/poll interval (so one slow/delayed tick doesn't falsely
-// flag offline) while still resolving a genuine outage well under a
-// minute. re-derives every tick of the existing `tickNow` clock (250ms,
-// already running whenever a remote target is active), so no extra timer
-// is needed - it simply stops ticking (and this signal stops updating)
-// once polling is disabled, same as remotePositionMs() above.
-const OFFLINE_TIMEOUT_MS = 45_000;
+// client-side "the last couple of exchanges with this player have all
+// failed" detection - user explicitly asked for this ("good for clients
+// to have some timeout mechanism in case the player goes offline -
+// shouldn't be too aggressive, but also not too lax and slow"), but tuned
+// as a count of REAL failed attempts rather than elapsed wall-clock time
+// (see `applyRemoteStatus`'s doc comment for why - the previous wall-clock
+// version false-triggered whenever a backgrounded tab/sleeping phone woke
+// back up). each failed poll increments this (see `sendControl`'s catch
+// below); any successful status resets it to 0. threshold of 2 means a
+// genuine outage still resolves within roughly two poll intervals (see
+// `POLL_INTERVAL_MS`) - comfortably fast, but not tripped by one single
+// flaky request.
+const OFFLINE_FAILURE_THRESHOLD = 2;
+const [consecutiveFailures, setConsecutiveFailures] = createSignal(0);
 
 // set on receiving a live `{type:"presence", state:"stopped"}` push (see
 // setRemoteStatusPolling's onStatus handler below) - the player announcing
 // it just stopped accepting connections (remote-playback toggle turned
 // off, or its tab navigated away from /player) reported this immediately,
-// well before OFFLINE_TIMEOUT_MS would otherwise notice via silence alone.
-// reset on every real status (applyRemoteStatus) and on resetRemoteStatus()
-// (switching target).
+// well before the failure-count threshold would otherwise notice via
+// repeated silence alone. reset on every real status (applyRemoteStatus)
+// and on resetRemoteStatus() (switching target).
 const [remoteAnnouncedOffline, setRemoteAnnouncedOffline] = createSignal(false);
 
 /** call from a push-subscription's raw line handler - kept as a plain
@@ -311,17 +568,18 @@ function markRemoteAnnouncedOffline(): void {
   setRemoteAnnouncedOffline(true);
 }
 
-/** true once we've gone suspiciously long (`OFFLINE_TIMEOUT_MS`) without a
- * real status landing for the active target - covers both a dead poll
- * (dial/fetch throwing, e.g. player unreachable) and a silently-dropped
- * push subscription. gated on `remoteStatusKnown()` first so a
- * still-connecting target (never heard from at all yet) shows the
- * existing "syncing" state instead of a premature "offline". also true
- * immediately (no need to wait out the timeout) once the player has
- * explicitly announced it stopped, via `remoteAnnouncedOffline` above. */
+/** true once the last `OFFLINE_FAILURE_THRESHOLD` exchanges with the
+ * active target have all failed - covers both a dead poll (dial/fetch
+ * throwing, e.g. player unreachable) and a silently-dropped push
+ * subscription (the poll fallback picks up the resulting silence). gated
+ * on `remoteStatusKnown()` first so a still-connecting target (never
+ * heard from at all yet) shows the existing "syncing" state instead of a
+ * premature "offline". also true immediately (no need to accumulate
+ * failures first) once the player has explicitly announced it stopped,
+ * via `remoteAnnouncedOffline` above. */
 export const remoteTargetOffline = (): boolean =>
   remoteStatusKnown() &&
-  (remoteAnnouncedOffline() || tickNow() - lastStatusAt > OFFLINE_TIMEOUT_MS);
+  (remoteAnnouncedOffline() || consecutiveFailures() >= OFFLINE_FAILURE_THRESHOLD);
 
 // command-pending feedback (phase 13): sendControl callers below opt in via
 // `trackPending: true` for the handful of playerbar-driven commands (play/
@@ -357,9 +615,16 @@ async function sendControl(
   if (opts?.trackPending) setPendingCount((n) => n + 1);
   try {
     const ack = (await sendPlayerCommand(nodeId, { type: "control", ...command })) as CommandAck;
-    if (command.command !== "get_status") reportCommandAckFailure(ack);
+    if (command.command !== "get_status") reportCommandAckFailure(ack, nodeId);
     if (ack?.status) applyRemoteStatus(ack.status);
     return ack;
+  } catch (err) {
+    // a real, actually-attempted, actually-failed exchange - the only
+    // thing `remoteTargetOffline()`'s failure counter should ever grow
+    // from (see its own doc comment for why this replaced a wall-clock
+    // timeout).
+    setConsecutiveFailures((n) => n + 1);
+    throw err;
   } finally {
     if (opts?.trackPending) setPendingCount((n) => Math.max(0, n - 1));
   }
@@ -375,6 +640,11 @@ export async function remoteResume(): Promise<void> {
 
 export async function remoteSkip(): Promise<void> {
   await sendControl({ command: "skip" }, { trackPending: true });
+}
+
+/** wipes the remote player's entire queue and stops playback. */
+export async function remoteStop(): Promise<void> {
+  await sendControl({ command: "stop" }, { trackPending: true });
 }
 
 /** removes the queue entry at `index` (0 = currently playing). */
@@ -442,6 +712,62 @@ export async function fetchRemoteStatus(): Promise<RemoteStatus | null> {
 const POLL_INTERVAL_MS = 30_000;
 let pollHandle: ReturnType<typeof setInterval> | null = null;
 let unsubscribeStatus: (() => void) | null = null;
+// set by subscribeToPlayerStatus's onGiveUp once it stops retrying (see
+// its own doc comment) - a web-based player is a plain browser tab, not
+// a full always-on remote, so it can be gone for good rather than just
+// briefly unreachable; once `remoteTargetOffline()` trips, hammering a
+// reconnect every couple seconds forever is wasted battery/network for a
+// peer that may never come back. cleared (and the subscription
+// re-established) the next time a real status proves the target is
+// reachable again - see `resubscribePushStatusIfGivenUp` below.
+let pushSubscriptionGaveUp = false;
+
+/** the shared shouldRetry/onGiveUp pair passed to every
+ * `subscribeToPlayerStatus` call site below - keeps the give-up/resume
+ * coordination in one place instead of duplicated per call site. */
+function pushSubscriptionOpts(): {
+  shouldRetry: () => boolean;
+  onGiveUp: () => void;
+} {
+  return {
+    shouldRetry: () => !remoteTargetOffline(),
+    onGiveUp: () => {
+      pushSubscriptionGaveUp = true;
+      unsubscribeStatus = null;
+    },
+  };
+}
+
+/** re-opens the push subscription if it previously gave up (see
+ * `pushSubscriptionGaveUp`'s doc comment) - called whenever a real status
+ * arrives (`applyRemoteStatus`), since that only happens after a
+ * genuinely successful exchange with the target, i.e. proof it's
+ * reachable again. no-op if the subscription never gave up, or if no
+ * remote target is currently active (nothing to resubscribe to). */
+function resubscribePushStatusIfGivenUp(): void {
+  if (!pushSubscriptionGaveUp || unsubscribeStatus || !isRemoteTargetActive()) return;
+  const nodeId = activeTargetNodeId();
+  if (!nodeId) return;
+  pushSubscriptionGaveUp = false;
+  unsubscribeStatus = subscribeToPlayerStatus(nodeId, handlePushLine, pushSubscriptionOpts());
+}
+
+/** the push-subscription line handler, shared by `setRemoteStatusPolling`
+ * and `forceResyncRemoteStatus` (which needs to reopen the exact same
+ * subscription, not just start polling). */
+function handlePushLine(line: unknown): void {
+  const parsed = line as { type?: string; state?: string };
+  if (parsed.type === "presence") {
+    // pushed unprompted whenever the player's own presence changes (see
+    // `@freqhole/cenotaph`'s `broadcastPresence`) - a "stopped" push means
+    // the player just announced it's no longer reachable/accepting
+    // commands, well before the failure-count threshold would otherwise
+    // notice via repeated silence alone.
+    if (parsed.state === "stopped") markRemoteAnnouncedOffline();
+    return;
+  }
+  applyRemoteStatus(line as RemoteStatus);
+}
 
 /** start/stop polling get_status + the push subscription while a remote
  * target is active - call once (e.g. from an effect watching
@@ -449,12 +775,13 @@ let unsubscribeStatus: (() => void) | null = null;
 export function setRemoteStatusPolling(enabled: boolean): void {
   if (enabled && !pollHandle) {
     setRemoteAnnouncedOffline(false);
+    setConsecutiveFailures(0);
     void remoteGetStatus();
     pollHandle = setInterval(() => {
       // swallow dial/fetch failures here (e.g. player unreachable) rather
-      // than letting them surface as unhandled rejections - a run of
-      // these failing silently is exactly what remoteTargetOffline() above
-      // is watching for (lastStatusAt just stops advancing).
+      // than letting them surface as unhandled rejections - sendControl()
+      // already recorded the failure in `consecutiveFailures`, which is
+      // what remoteTargetOffline() above is actually watching.
       if (isRemoteTargetActive()) void remoteGetStatus().catch(() => {});
     }, POLL_INTERVAL_MS);
 
@@ -465,19 +792,7 @@ export function setRemoteStatusPolling(enabled: boolean): void {
 
     const nodeId = activeTargetNodeId();
     if (nodeId) {
-      unsubscribeStatus = subscribeToPlayerStatus(nodeId, (line) => {
-        const parsed = line as { type?: string; state?: string };
-        if (parsed.type === "presence") {
-          // pushed unprompted whenever the player's own presence changes
-          // (see `@freqhole/cenotaph`'s `broadcastPresence`) - a "stopped"
-          // push means the player just announced it's no longer
-          // reachable/accepting commands, well before OFFLINE_TIMEOUT_MS
-          // would otherwise notice via silence alone.
-          if (parsed.state === "stopped") markRemoteAnnouncedOffline();
-          return;
-        }
-        applyRemoteStatus(line as RemoteStatus);
-      });
+      unsubscribeStatus = subscribeToPlayerStatus(nodeId, handlePushLine, pushSubscriptionOpts());
     }
   } else if (!enabled && pollHandle) {
     clearInterval(pollHandle);
@@ -489,5 +804,36 @@ export function setRemoteStatusPolling(enabled: boolean): void {
       clearInterval(tickHandle);
       tickHandle = null;
     }
+  }
+}
+
+/** forces an immediate resync with the active remote target - call when
+ * the tab/window regains focus/visibility after being backgrounded. an
+ * OS-suspended background tab can leave the 30s poll interval and the
+ * push subscription both quiet for a while (the poll timer picks back up
+ * on its own schedule, which can be a long wait; the push subscription's
+ * own read loop may not notice a half-dead connection promptly, or at
+ * all, if the underlying transport doesn't surface it as a clean read
+ * failure) - found via a real report of the play/pause button and
+ * position going stale/wrong for a while after reconnecting. re-fetches
+ * status immediately AND tears down + reopens the push subscription
+ * rather than trusting either one's own retry timing. no-op if no remote
+ * target is active.
+ *
+ * also resets `consecutiveFailures` defensively - not strictly required
+ * for correctness (the failure counter, unlike the wall-clock timeout it
+ * replaced, can't have grown from sleep alone), but avoids carrying over
+ * a couple of pre-sleep failures into the fresh reconnect attempt below. */
+export function forceResyncRemoteStatus(): void {
+  if (!isRemoteTargetActive()) return;
+  setRemoteAnnouncedOffline(false);
+  setConsecutiveFailures(0);
+  setTickNow(Date.now());
+  void remoteGetStatus().catch(() => {});
+  unsubscribeStatus?.();
+  unsubscribeStatus = null;
+  const nodeId = activeTargetNodeId();
+  if (nodeId) {
+    unsubscribeStatus = subscribeToPlayerStatus(nodeId, handlePushLine, pushSubscriptionOpts());
   }
 }

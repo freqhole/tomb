@@ -45,6 +45,15 @@ pub struct UploadMusicRequest {
     /// if true, wait for job to complete before returning
     #[serde(default)]
     pub wait_for_completion: bool,
+    /// when this local-first import is destined for a remote once reviewed
+    /// (the "review before send" add-media flow) - the remote's id.
+    /// written into import_session_send_targetz alongside the created
+    /// session so any client sees the same destination later.
+    #[serde(default)]
+    pub target_remote_id: Option<String>,
+    /// snapshot of the target remote's display name at upload time.
+    #[serde(default)]
+    pub target_remote_name: Option<String>,
 }
 
 /// request for video upload via base64 data or file path
@@ -75,6 +84,31 @@ pub struct ImportMusicPathsRequest {
     /// if true, wait for all jobs to complete before returning
     #[serde(default)]
     pub wait_for_completion: bool,
+    /// see UploadMusicRequest::target_remote_id - same "review before send"
+    /// annotation, for the batch-paths import route.
+    #[serde(default)]
+    pub target_remote_id: Option<String>,
+    /// snapshot of the target remote's display name at import time.
+    #[serde(default)]
+    pub target_remote_name: Option<String>,
+}
+
+/// request for video import by paths (tauri-local optimization) - mirrors
+/// `ImportMusicPathsRequest`.
+#[derive(Debug, Deserialize)]
+pub struct ImportVideoPathsRequest {
+    /// list of file or directory paths to import
+    pub paths: Vec<String>,
+    /// if true, wait for all jobs to complete before returning
+    #[serde(default)]
+    pub wait_for_completion: bool,
+    /// see UploadMusicRequest::target_remote_id - same "review before send"
+    /// annotation, for the batch-paths import route.
+    #[serde(default)]
+    pub target_remote_id: Option<String>,
+    /// snapshot of the target remote's display name at import time.
+    #[serde(default)]
+    pub target_remote_name: Option<String>,
 }
 
 /// request for music upload via iroh-blobs pull model

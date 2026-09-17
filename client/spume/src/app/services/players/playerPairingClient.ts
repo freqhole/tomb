@@ -12,12 +12,40 @@
 import { getMiddenNode } from "../../api/client";
 import { isCharnelMode } from "../charnel/mode";
 import type { BiStreamLike } from "@freqhole/api-client";
+import { debug } from "../../../utils/logger";
+import { CENOTAPH_QUEUE_TRACE } from "../../../cenotaph/queueTrace";
 
 export const PLAYER_ALPN = "freqhole-player/1";
 
 export interface PairResult {
   ok: boolean;
   reason?: string;
+}
+
+// maps `PairResult.reason` wire codes (see grimoire/src/cenotaph/wire.rs's
+// `PairResponseReason` / spume's own pairing/protocol.ts) to a message
+// that actually explains what to do, instead of showing the raw
+// snake_case wire string to the user. lives next to `PairResult` (rather
+// than the generic http/ipc error-string table in
+// `@freqhole/api-client`'s errors.ts) since these codes belong to this
+// module's own ndjson pairing protocol, not a `GrimoireResponse`/
+// `ApiError` shape.
+export function describePairError(reason: string | undefined): string {
+  switch (reason) {
+    case "invalid_code":
+    case "invalid_pin":
+      return "that pin was rejected - it may have rotated since this qr was shown, or was mistyped. check the player's current pin and try again";
+    case "rate_limited":
+      return "too many failed attempts - wait a moment and try again";
+    case "username_taken":
+      return "that display name is already in use on this player - pick a different one";
+    case "no_response":
+      return "no response from the player - check it's online and reachable";
+    case undefined:
+      return "pairing failed (no reason given)";
+    default:
+      return `pairing failed: ${reason}`;
+  }
 }
 
 // a cold peer connection (no prior direct/relay path established yet) can
@@ -49,18 +77,26 @@ async function dialLineOnce(peerAddr: string, line: string): Promise<string | nu
 }
 
 async function dialLine(peerAddr: string, line: string): Promise<string | null> {
+  const t0 = Date.now();
   for (let attempt = 0; ; attempt++) {
+    const attemptStart = Date.now();
     try {
       const response = await dialLineOnce(peerAddr, line);
-      // TEMP DEBUG - remove once the first-pair-attempt-fails bug is found
-      console.log(`[debug/dial] attempt ${attempt + 1} succeeded, peerAddr=${peerAddr}`, {
+      debug("playerPairingClient", `dial attempt ${attempt + 1} succeeded, peerAddr=${peerAddr}`, {
         line,
         response,
       });
+      debug(
+        "playerPairingClient",
+        `${CENOTAPH_QUEUE_TRACE} dialLine(${peerAddr}): succeeded on attempt ${attempt + 1} after ${Date.now() - attemptStart}ms (total ${Date.now() - t0}ms)`
+      );
       return response;
     } catch (err) {
-      // TEMP DEBUG - remove once the first-pair-attempt-fails bug is found
-      console.log(`[debug/dial] attempt ${attempt + 1} failed, peerAddr=${peerAddr}`, err);
+      debug("playerPairingClient", `dial attempt ${attempt + 1} failed, peerAddr=${peerAddr}`, err);
+      debug(
+        "playerPairingClient",
+        `${CENOTAPH_QUEUE_TRACE} dialLine(${peerAddr}): attempt ${attempt + 1} failed after ${Date.now() - attemptStart}ms (total ${Date.now() - t0}ms so far)`
+      );
       if (attempt >= DIAL_RETRY_DELAYS_MS.length) throw err;
       await new Promise((resolve) => setTimeout(resolve, DIAL_RETRY_DELAYS_MS[attempt]));
     }
@@ -69,12 +105,21 @@ async function dialLine(peerAddr: string, line: string): Promise<string | null> 
 
 export async function pairWithPlayer(
   peerAddr: string,
-  pin: string,
+  code: string,
   displayName: string
 ): Promise<PairResult> {
+  const t0 = Date.now();
+  debug(
+    "playerPairingClient",
+    `${CENOTAPH_QUEUE_TRACE} pairWithPlayer(${peerAddr}): dialing pair_request`
+  );
   const line = await dialLine(
     peerAddr,
-    JSON.stringify({ type: "pair_request", pin, display_name: displayName })
+    JSON.stringify({ type: "pair_request", code, display_name: displayName })
+  );
+  debug(
+    "playerPairingClient",
+    `${CENOTAPH_QUEUE_TRACE} pairWithPlayer(${peerAddr}): dialLine returned after ${Date.now() - t0}ms, response=${line ?? "(null)"}`
   );
   if (!line) return { ok: false, reason: "no_response" };
   const parsed = JSON.parse(line) as { ok?: boolean; reason?: string };
@@ -83,24 +128,52 @@ export async function pairWithPlayer(
 
 export type PlayerPresence = "active" | "stopped";
 
-/** one-shot "is this paired player currently accepting connections?" probe
- * (see `@freqhole/cenotaph`'s `PresenceQuery`/`PresenceAnnouncement`) -
- * used to populate the "play on" picker with live online/offline status
- * without committing to a full `subscribeToPlayerStatus()` stream. a
- * single dial attempt, deliberately NOT `dialLine()`'s multi-second retry
- * ladder (built for a first cold pairing dial) - a picker showing several
- * players at once needs a quick, best-effort answer per entry, not a ~3s
- * wait on each unreachable one. any failure (dial error, no response,
- * malformed response) is just "stopped" - there's no separate
- * "unreachable" state surfaced to callers. */
-export async function queryPlayerPresence(peerAddr: string): Promise<PlayerPresence> {
+/** answers "would a real command from THIS caller be accepted right now" -
+ * mirrors rathole's `AccessStatus`/cenotaph's `AccessStatusSchema`. only
+ * ever present when `presence` is `"active"` (the peer answered at all,
+ * see `PresenceProbeResult` below) - a peer that's unreachable, or that
+ * has never paired with this identity, has no notion of "this caller's
+ * access" to report. */
+export type PlayerAccessStatus = "admin" | "in_session" | "not_in_session";
+
+export interface PresenceProbeResult {
+  presence: PlayerPresence;
+  access?: PlayerAccessStatus;
+}
+
+/** one-shot "is this paired player currently accepting connections, and
+ * would a command from ME be accepted right now?" probe (see
+ * `@freqhole/cenotaph`'s `PresenceQuery`/`PresenceAnnouncement`) - used to
+ * populate the "play on" picker with live online/offline status without
+ * committing to a full `subscribeToPlayerStatus()` stream, and (via
+ * `access`) to decide whether an already-paired remote needs its session
+ * pin re-entered before the Add Remote modal can "kick into player mode"
+ * for it. a single dial attempt, deliberately NOT `dialLine()`'s
+ * multi-second retry ladder (built for a first cold pairing dial) - a
+ * picker showing several players at once needs a quick, best-effort
+ * answer per entry, not a ~3s wait on each unreachable one. any failure
+ * (dial error, no response, malformed response, or an untrusted peer -
+ * see `handleConnection`'s "no response for anything but pair_request
+ * from an untrusted peer" behavior) is just `{presence: "stopped"}` -
+ * there's no separate "unreachable"/"untrusted" state surfaced here. */
+export async function queryPlayerPresence(peerAddr: string): Promise<PresenceProbeResult> {
   try {
     const line = await dialLineOnce(peerAddr, JSON.stringify({ type: "presence_query" }));
-    if (!line) return "stopped";
-    const parsed = JSON.parse(line) as { type?: string; state?: string };
-    return parsed.type === "presence" && parsed.state === "active" ? "active" : "stopped";
-  } catch {
-    return "stopped";
+    debug("playerPairingClient", `queryPlayerPresence(${peerAddr}) raw line:`, line);
+    if (!line) return { presence: "stopped" };
+    const parsed = JSON.parse(line) as { type?: string; state?: string; access?: string };
+    if (parsed.type !== "presence" || parsed.state !== "active") return { presence: "stopped" };
+    const access =
+      parsed.access === "admin" ||
+      parsed.access === "in_session" ||
+      parsed.access === "not_in_session"
+        ? parsed.access
+        : undefined;
+    debug("playerPairingClient", `queryPlayerPresence(${peerAddr}) parsed access:`, access);
+    return { presence: "active", access };
+  } catch (err) {
+    debug("playerPairingClient", `queryPlayerPresence(${peerAddr}) threw:`, err);
+    return { presence: "stopped" };
   }
 }
 
@@ -144,16 +217,39 @@ class PlayerControlSession {
 
   private async sendNow(line: string): Promise<string | null> {
     for (let attempt = 0; ; attempt++) {
+      let stream: BiStreamLike;
       try {
-        const stream = await this.getStream();
-        await stream.write_line(line);
-        return (await stream.read_line()) as string | null;
+        stream = await this.getStream();
       } catch (err) {
-        // the stream (or the dial itself) is broken - drop it so the next
-        // attempt redials from scratch, same backoff dialLine() already uses.
+        // never got a stream at all - nothing was sent, safe to redial
+        // and retry from scratch.
         this.stream = null;
         if (attempt >= DIAL_RETRY_DELAYS_MS.length) throw err;
         await new Promise((resolve) => setTimeout(resolve, DIAL_RETRY_DELAYS_MS[attempt]));
+        continue;
+      }
+      try {
+        await stream.write_line(line);
+      } catch (err) {
+        // failed before the command reached the wire - safe to redial
+        // and resend from scratch, same as a dial failure above.
+        this.stream = null;
+        if (attempt >= DIAL_RETRY_DELAYS_MS.length) throw err;
+        await new Promise((resolve) => setTimeout(resolve, DIAL_RETRY_DELAYS_MS[attempt]));
+        continue;
+      }
+      try {
+        return (await stream.read_line()) as string | null;
+      } catch (err) {
+        // the write DID succeed - rathole may already have applied this
+        // command (e.g. append_queue). resending it here would risk a
+        // duplicate, since rathole has no per-command idempotency
+        // tracking - drop the stream so the NEXT command redials
+        // cleanly, but don't blindly retry (and re-apply) THIS one.
+        // a real disconnect/blip (e.g. the phone waking from sleep
+        // mid-read) previously duplicated whatever was just sent.
+        this.stream = null;
+        throw err;
       }
     }
   }
@@ -186,11 +282,33 @@ export function closePlayerControlSession(peerAddr: string): void {
 
 export async function sendPlayerCommand(peerAddr: string, command: unknown): Promise<unknown> {
   const line = JSON.stringify(command);
+  const commandType =
+    typeof command === "object" && command !== null && "command" in command
+      ? (command as { command?: unknown }).command
+      : undefined;
+  const isQueueCommand = commandType === "replace_queue" || commandType === "append_queue";
+  const sendStart = Date.now();
+  if (isQueueCommand) {
+    // TEMP: measuring exact wire payload size to confirm/rule out
+    // base64-embedded-artwork bloat as the cause of a multi-second gap
+    // between the controller finishing a queue push and the player's rust
+    // side actually receiving it - remove once confirmed either way.
+    debug(
+      "playerPairingClient",
+      `${CENOTAPH_QUEUE_TRACE} sendPlayerCommand: sending "${String(commandType)}" to ${peerAddr}, payload size=${line.length} chars (~${(line.length / 1024).toFixed(1)}KB)`
+    );
+  }
   // charnel/tauri's player_pairing_dial invoke has no persistent-session
   // equivalent yet (see subscribeToPlayerStatus's doc comment) - one-shot
   // dial there, same as before.
   if (isCharnelMode()) {
     const response = await dialLine(peerAddr, line);
+    if (isQueueCommand) {
+      debug(
+        "playerPairingClient",
+        `${CENOTAPH_QUEUE_TRACE} sendPlayerCommand: "${String(commandType)}" response after ${Date.now() - sendStart}ms: ${response ?? "(null)"}`
+      );
+    }
     return response ? JSON.parse(response) : null;
   }
   let session = controlSessions.get(peerAddr);
@@ -199,6 +317,12 @@ export async function sendPlayerCommand(peerAddr: string, command: unknown): Pro
     controlSessions.set(peerAddr, session);
   }
   const response = await session.send(line);
+  if (isQueueCommand) {
+    debug(
+      "playerPairingClient",
+      `${CENOTAPH_QUEUE_TRACE} sendPlayerCommand: "${String(commandType)}" response after ${Date.now() - sendStart}ms: ${response ?? "(null)"}`
+    );
+  }
   return response ? JSON.parse(response) : null;
 }
 
@@ -213,7 +337,18 @@ export async function sendPlayerCommand(peerAddr: string, command: unknown): Pro
  * of the session (no reconnect attempt, no visible signal), which looked
  * like "another client's seek/queue change takes ages to show up" - the
  * push channel had quietly died and only the next poll tick ever caught
- * up. now it keeps retrying for as long as the caller hasn't unsubscribed.
+ * up. now it keeps retrying for as long as the caller hasn't unsubscribed
+ * AND `opts.shouldRetry` (if given) keeps saying yes - a web-based
+ * cenotaph player is a plain browser tab, not a full always-on remote
+ * server, so unlike a real remote it can vanish for good (tab/browser
+ * closed) with no guarantee of ever coming back. without a way to stop,
+ * this hammered a permanently-gone peer every `RECONNECT_DELAY_MS`
+ * forever - `remotePlaybackControl.ts` wires `shouldRetry` to the same
+ * `remoteTargetOffline()` check the 30s poll fallback already uses to
+ * mark a target offline, so once that's tripped this loop stops instead
+ * of retrying eternally, and `opts.onGiveUp` lets the caller know to
+ * re-establish the subscription itself once the target is reachable
+ * again (e.g. after the next poll succeeds).
  *
  * wasm-only for now: charnel/tauri's `player_pairing_dial` invoke is a
  * one-shot request/response with no persistent-stream equivalent yet -
@@ -222,7 +357,8 @@ export async function sendPlayerCommand(peerAddr: string, command: unknown): Pro
  * unconditionally alongside this). */
 export function subscribeToPlayerStatus(
   peerAddr: string,
-  onStatus: (status: unknown) => void
+  onStatus: (status: unknown) => void,
+  opts?: { shouldRetry?: () => boolean; onGiveUp?: () => void }
 ): () => void {
   if (isCharnelMode()) return () => {};
 
@@ -232,9 +368,17 @@ export function subscribeToPlayerStatus(
 
   void (async () => {
     while (!closed) {
+      if (opts?.shouldRetry && !opts.shouldRetry()) {
+        console.info(
+          `[subscribeToPlayerStatus] ${peerAddr} considered offline, giving up reconnect loop (poll fallback will retry)`
+        );
+        opts.onGiveUp?.();
+        return;
+      }
       try {
         const node = await getMiddenNode();
         if (!node.open_bi) return;
+        console.info(`[subscribeToPlayerStatus] dialing ${peerAddr}...`);
         const s = await node.open_bi(peerAddr, PLAYER_ALPN);
         if (closed) {
           s.close();
@@ -242,18 +386,28 @@ export function subscribeToPlayerStatus(
         }
         stream = s;
         await s.write_line(JSON.stringify({ type: "subscribe" }));
+        console.info(`[subscribeToPlayerStatus] subscribed to ${peerAddr}, awaiting pushes`);
         for (;;) {
           const line = (await s.read_line()) as string | null;
-          if (line === null) break;
+          if (line === null) {
+            console.warn(
+              `[subscribeToPlayerStatus] stream to ${peerAddr} closed (read_line returned null/eof), reconnecting in ${RECONNECT_DELAY_MS}ms`
+            );
+            break;
+          }
           try {
             onStatus(JSON.parse(line));
           } catch {
             // malformed push line - ignore, next push will arrive fine
           }
         }
-      } catch {
+      } catch (err) {
         // dial/stream failed - fall through to the reconnect delay below
         // (poll fallback still covers status in the meantime)
+        console.warn(
+          `[subscribeToPlayerStatus] dial/stream to ${peerAddr} failed, reconnecting in ${RECONNECT_DELAY_MS}ms:`,
+          err
+        );
       } finally {
         stream?.close();
         stream = null;

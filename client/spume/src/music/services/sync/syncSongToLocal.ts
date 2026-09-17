@@ -30,9 +30,14 @@ import {
 } from "../download";
 import type { ImageMetadata, Song, TaxonRef } from "../storage/types";
 import type { Remote } from "../../../app/services/storage/schemas/remote";
-import { inlineImagesForSync, type InlinableImage, type InlineImageCache } from "./syncImages";
+import {
+  inlineImagesForSync,
+  inlineRawUrlForSync,
+  type InlinableImage,
+  type InlineImageCache,
+} from "./syncImages";
 import { invalidateMusicLibraryQueries } from "../../queries/cacheUpdates";
-import { imagesAreStale } from "../../../utils/images";
+import { imagesAreStale, preservePrimarySelection } from "../../../utils/images";
 
 function toInlinableImages(images: ImageMetadata[] | undefined): InlinableImage[] {
   return (images ?? []).map((img) => ({
@@ -107,6 +112,25 @@ async function syncSongViaLocalGrimoire(song: SyncableSong, remote: Remote): Pro
         "syncSongViaLocalGrimoire",
         `source remote ${remote.remote_id} is known offline - skipping image inlining for "${song.title}"`
       );
+    }
+
+    // raw-url-only images (no `remote_blob_id` to fetch via the source
+    // transport) - e.g. artwork that arrived over the `freqhole-player/1`
+    // control wire as an already-resolved `data:`/http(s) url (see
+    // `mediaRefResolve.ts`'s `RemoteMediaRef.artwork_*_url` handling).
+    // `toInlinableImages`/`inlineImagesForSync` above silently skip these
+    // (no blob id), so without this pass a cenotaph-queued song's artwork
+    // never made it into the destination's real song_imagez row at all.
+    // independent of `sourceIsOffline` - these need no source transport.
+    const rawUrlOnly = (imgs: ImageMetadata[] | undefined) =>
+      (imgs ?? []).filter((img) => !img.remote_blob_id && img.remote_url);
+    for (const img of rawUrlOnly(song.images)) {
+      const ref = await inlineRawUrlForSync(img.remote_url, !!img.is_primary, img.blob_type);
+      if (ref) songImagesBody.push(ref);
+    }
+    for (const img of rawUrlOnly(song.album_images)) {
+      const ref = await inlineRawUrlForSync(img.remote_url, !!img.is_primary, img.blob_type);
+      if (ref) albumImagesBody.push(ref);
     }
 
     // build SyncSongByBlake3Request shape (matches grimoire offal/sync types).
@@ -616,7 +640,9 @@ export async function syncSongToLocal(
       if (albumRemoteIds.length && imagesAreStale(albumRecord.images, albumRemoteIds)) {
         const albumImages = await downloadAndStoreImages(remote, song.album_images);
         if (albumImages.length > 0) {
-          await updateAlbum(albumId, { images: albumImages });
+          await updateAlbum(albumId, {
+            images: preservePrimarySelection(albumRecord.images, albumImages),
+          });
         }
       }
 
@@ -624,7 +650,9 @@ export async function syncSongToLocal(
       if (artistRemoteIds.length && imagesAreStale(artistRecord.images, artistRemoteIds)) {
         const artistImages = await downloadAndStoreImages(remote, song.artist_images);
         if (artistImages.length > 0) {
-          await updateArtist(artistId, { images: artistImages });
+          await updateArtist(artistId, {
+            images: preservePrimarySelection(artistRecord.images, artistImages),
+          });
         }
       }
 

@@ -113,6 +113,7 @@ pub async fn process_file_job(job: &Job) -> Result<Option<Value>, JobError> {
                     song_id: update.song_id,
                     artist_id: None,
                     album_id: None,
+                    video_id: None,
                     metadata_extracted: update.song_updated,
                     thumbnail_generated: false,
                     waveform_generated: false,
@@ -202,6 +203,7 @@ pub async fn process_file_job(job: &Job) -> Result<Option<Value>, JobError> {
             song_id: None,
             artist_id: None,
             album_id: None,
+            video_id: Some(import_result.video_id.clone()),
             metadata_extracted: !import_result.is_duplicate,
             thumbnail_generated: import_result.poster_blob_id.is_some(),
             waveform_generated: false,
@@ -266,14 +268,32 @@ pub async fn process_file_job(job: &Job) -> Result<Option<Value>, JobError> {
                 } else {
                     // register this blob in the import review queue if the job has a session
                     if let Some(ref session_id) = job.session_id {
-                        if let Ok(pool) = crate::database::connect().await {
-                            let _ = sqlx::query!(
-                                "INSERT OR IGNORE INTO import_blobz (media_blob_id, session_id) VALUES (?, ?)",
-                                media_blob_id,
-                                session_id
-                            )
-                            .execute(&pool)
-                            .await;
+                        match crate::database::connect().await {
+                            Ok(pool) => {
+                                if let Err(e) = sqlx::query!(
+                                    "INSERT OR IGNORE INTO import_blobz (media_blob_id, session_id) VALUES (?, ?)",
+                                    media_blob_id,
+                                    session_id
+                                )
+                                .execute(&pool)
+                                .await
+                                {
+                                    // was silently swallowed before - a failed insert here
+                                    // means this song can NEVER show up in the review queue,
+                                    // with no other symptom than "import completed, but no
+                                    // review card ever appears" - too important to drop.
+                                    warn!(
+                                        "failed to insert import_blobz row for blob {} session {}: {}",
+                                        media_blob_id, session_id, e
+                                    );
+                                }
+                            }
+                            Err(e) => {
+                                warn!(
+                                    "failed to connect to db while inserting import_blobz row for blob {} session {}: {}",
+                                    media_blob_id, session_id, e
+                                );
+                            }
                         }
                     }
 
@@ -338,6 +358,7 @@ pub async fn process_file_job(job: &Job) -> Result<Option<Value>, JobError> {
             song_id,
             artist_id,
             album_id,
+            video_id: None,
             metadata_extracted: false,
             thumbnail_generated: false,
             waveform_generated: false,
@@ -665,6 +686,7 @@ pub async fn process_file_job(job: &Job) -> Result<Option<Value>, JobError> {
         song_id,
         artist_id,
         album_id,
+        video_id: None,
         metadata_extracted,
         thumbnail_generated: images_collected,
         waveform_generated,

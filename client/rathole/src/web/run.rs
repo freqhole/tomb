@@ -228,6 +228,10 @@ fn on_key(
         Focus::MusicView => on_music_key_web(app, code, tx),
         Focus::Repl => on_repl_key_web(app, code, tx),
         Focus::PlayerRow => on_player_row_key_web(app, code, tx),
+        // no video playback or `--player` pairing support on the web
+        // shell yet (per user: not a goal right now) - no-op rather
+        // than a fake/partial implementation.
+        Focus::VideoView | Focus::PlayerPairing => {}
     }
 }
 
@@ -469,6 +473,14 @@ fn on_peer_input_key(
 fn on_result_panel_key(app: &mut App, code: KeyCode, shift: bool) {
     let eph = &mut app.state.ephemeral;
     let step: u16 = if shift { 10 } else { 1 };
+    // esc/tab dismiss the row-detail overlay (back to the row list)
+    // before falling through to their normal panel-level meaning -
+    // see `row_detail_view`'s own doc comment for why this exists.
+    if eph.row_detail_view.is_some() && matches!(code, KeyCode::Esc | KeyCode::Tab) {
+        eph.row_detail_view = None;
+        eph.last_dispatch_scroll = 0;
+        return;
+    }
     let has_rows = eph
         .last_dispatch
         .as_ref()
@@ -524,21 +536,14 @@ fn on_result_panel_key(app: &mut App, code: KeyCode, shift: bool) {
                     }
                     let actions =
                         crate::ratcore::catalog::result_actions_for_row(&ld.command, Some(row));
-                    // single "view full row" action — skip the menu
-                    // and render the json detail inline.
+                    // single "view full row" action — show the json
+                    // detail as an overlay (see `row_detail_view`'s doc
+                    // comment) rather than replacing `last_dispatch`,
+                    // so esc/tab goes back to this same row list.
                     if actions.len() == 1 && actions[0].target_command == "__view_row__" {
                         let pretty =
                             serde_json::to_string_pretty(row).unwrap_or_else(|_| row.to_string());
-                        eph.last_dispatch = Some(crate::ratcore::app::LastDispatch {
-                            command: "(view row)".to_string(),
-                            success: true,
-                            message: "row detail".to_string(),
-                            data_pretty: Some(pretty),
-                            rows: vec![],
-                            cursor: 0,
-                            pending: false,
-                            progress: vec![],
-                        });
+                        eph.row_detail_view = Some(pretty);
                         eph.last_dispatch_scroll = 0;
                         return;
                     }
@@ -935,16 +940,7 @@ fn on_action_menu_key(app: &mut App, code: KeyCode, tx: &mpsc::UnboundedSender<A
             eph.action_menu = None;
             if opt.target_command == "__view_row__" {
                 let pretty = serde_json::to_string_pretty(&row).unwrap_or_else(|_| row.to_string());
-                eph.last_dispatch = Some(crate::ratcore::app::LastDispatch {
-                    command: format!("(view row)"),
-                    success: true,
-                    message: "row detail".to_string(),
-                    data_pretty: Some(pretty),
-                    rows: vec![],
-                    cursor: 0,
-                    pending: false,
-                    progress: vec![],
-                });
+                eph.row_detail_view = Some(pretty);
                 eph.last_dispatch_scroll = 0;
                 eph.focus = Focus::ResultPanel;
                 return;
@@ -1021,6 +1017,22 @@ fn on_action_menu_key(app: &mut App, code: KeyCode, tx: &mpsc::UnboundedSender<A
                             Some(ReplStatus::err(format!("no {label} id on this row")));
                     }
                 }
+                return;
+            }
+            // the video view has no key handling on the web shell
+            // (`Focus::VideoView | Focus::PlayerPairing => {}` in this
+            // file's key dispatch - video is a tty-only feature for
+            // now), so navigating there would strand the user with no
+            // way back. surface a friendly message instead, matching
+            // the same "not supported here" pattern used elsewhere on
+            // web rather than a silent no-op or a dead-end view.
+            if opt.target_command == "__goto_video__"
+                || opt.target_command == "__goto_series_videos__"
+            {
+                eph.focus = Focus::ResultPanel;
+                eph.repl.status = Some(ReplStatus::err(
+                    "video browsing needs the tty shell (coming soon on web)".to_string(),
+                ));
                 return;
             }
             if opt.target_command.starts_with("__queue_") {
@@ -1666,8 +1678,14 @@ fn on_action(app: &mut App, action: AppAction, action_tx: &mpsc::UnboundedSender
             let track_changed = matches!(ev, crate::ratcore::app::MusicEvent::TrackChanged { .. });
             apply_music_event_web(app, ev, action_tx);
             if track_changed {
-                if let Some(cur) = app.state.ephemeral.music.currently_playing() {
-                    let id = cur.id.clone();
+                if let Some(id) = app
+                    .state
+                    .ephemeral
+                    .music
+                    .currently_playing()
+                    .and_then(|e| e.song_id())
+                    .map(str::to_string)
+                {
                     let transport = app.transport.clone();
                     let tx = action_tx.clone();
                     wasm_bindgen_futures::spawn_local(async move {
@@ -1711,7 +1729,7 @@ fn on_action(app: &mut App, action: AppAction, action_tx: &mpsc::UnboundedSender
             Ok(now_favorited) => {
                 if target_type == "song" {
                     if let Some(cur) = app.state.ephemeral.music.currently_playing() {
-                        if cur.id == target_id {
+                        if cur.song_id() == Some(target_id.as_str()) {
                             app.state.ephemeral.music.current_favorited = now_favorited;
                         }
                     }
@@ -1733,6 +1751,9 @@ fn on_action(app: &mut App, action: AppAction, action_tx: &mpsc::UnboundedSender
                 }
             }
         },
+        AppAction::PairingDownloadProgress(progress) => {
+            app.state.ephemeral.player_pairing.download_progress = progress;
+        }
         AppAction::CollectionLoaded { songs } => {
             // promote the loaded collection into the queue + start
             // playing the first row. blob resolution is lazy (per
@@ -1783,6 +1804,43 @@ fn on_action(app: &mut App, action: AppAction, action_tx: &mpsc::UnboundedSender
         // web shell has no grimoire event loop, so this is unreachable.
         AppAction::DeviceLinked { .. } => {}
         AppAction::KnockAccepted { .. } => {}
+        // video playback (mpv) and video/rendition management are
+        // tty-shell only (per user: not a web-build goal right now) -
+        // arms exist solely for exhaustiveness.
+        AppAction::VideoPlayerEvent(_)
+        | AppAction::QueryVideos { .. }
+        | AppAction::VideoQueryResults { .. }
+        | AppAction::UpdateVideo { .. }
+        | AppAction::VideoUpdateResult { .. }
+        | AppAction::DeleteVideo { .. }
+        | AppAction::VideoDeleteResult { .. }
+        | AppAction::ListVideoRenditions { .. }
+        | AppAction::VideoRenditionsResult { .. }
+        | AppAction::DeleteVideoRendition { .. }
+        | AppAction::VideoRenditionDeleteResult { .. }
+        // player-pairing queue pushes: tty-only (web never runs the
+        // `freqhole-player/1` endpoint) - arms exist solely for
+        // exhaustiveness.
+        | AppAction::PairingReplaceQueue { .. }
+        | AppAction::PairingAppendQueue { .. }
+        // queue placeholder rows for in-flight pulls: tty-only, same
+        // reasoning as the queue-push arms just above.
+        | AppAction::PairingQueuePending { .. }
+        | AppAction::PairingQueuePreviewSettled { .. }
+        // song art resolution + mpv framebuffer display: tty-only.
+        | AppAction::SongArtResolved { .. }
+        // queue-advance from a remote skip command: tty-only (see
+        // AppAction::PairingSkip's doc comment).
+        | AppAction::PairingSkip
+        // remote queue remove/reorder commands: tty-only, same reasoning.
+        | AppAction::PairingRemoveFromQueue { .. }
+        | AppAction::PairingReorderQueue { .. }
+        // radio tune/stop + its status updates: tty-only (mpv/iroh
+        // native client - see tty::radio's module doc).
+        | AppAction::PairingTuneRadio { .. }
+        | AppAction::PairingStopRadio
+        | AppAction::RadioStatusUpdate { .. }
+        | AppAction::RadioEnded { .. } => {}
     }
 }
 
@@ -1925,7 +1983,22 @@ fn play_index_web(app: &mut App, idx: usize, action_tx: &mpsc::UnboundedSender<A
     m.position_ms = 0;
     m.duration_ms = 0;
     m.player_state = crate::ratcore::app::PlayerState::Loading;
-    let row = m.queue[idx].clone();
+    let entry = m.queue[idx].clone();
+    let Some(row) = entry.as_song().cloned() else {
+        // web has no video backend at all - a video queue entry here
+        // can only come from a future pairing/mixed-queue feature;
+        // skip it like any other unplayable row.
+        let _ = action_tx.unbounded_send(AppAction::MusicEvent(
+            crate::ratcore::app::MusicEvent::Error(format!(
+                "no audio backend for {} (skipping)",
+                entry.title()
+            )),
+        ));
+        let _ = action_tx.unbounded_send(AppAction::MusicEvent(
+            crate::ratcore::app::MusicEvent::Ended,
+        ));
+        return;
+    };
     let Some(blob_id) = row.media_blob_id.clone() else {
         let _ = action_tx.unbounded_send(AppAction::MusicEvent(
             crate::ratcore::app::MusicEvent::Error(format!(
@@ -2002,7 +2075,10 @@ fn play_now_web(
     start: usize,
     action_tx: &mpsc::UnboundedSender<AppAction>,
 ) {
-    app.state.ephemeral.music.queue = songs;
+    app.state.ephemeral.music.queue = songs
+        .into_iter()
+        .map(crate::ratcore::app::QueueEntry::Song)
+        .collect();
     play_index_web(app, start, action_tx);
 }
 
@@ -2019,7 +2095,8 @@ fn enqueue_now_web(
     let m = &mut app.state.ephemeral.music;
     let was_idle = m.current.is_none();
     let start = m.queue.len();
-    m.queue.extend(songs);
+    m.queue
+        .extend(songs.into_iter().map(crate::ratcore::app::QueueEntry::Song));
     if was_idle {
         play_index_web(app, start, action_tx);
     }
@@ -2950,8 +3027,14 @@ fn on_player_row_key_web(
         KeyCode::Tab => prk::tab_or_leave(&mut app.state),
         // 'f' shortcut for favorite, regardless of cursor position.
         KeyCode::Char('f') => {
-            if let Some(cur) = app.state.ephemeral.music.currently_playing() {
-                let id = cur.id.clone();
+            if let Some(id) = app
+                .state
+                .ephemeral
+                .music
+                .currently_playing()
+                .and_then(|e| e.song_id())
+                .map(str::to_string)
+            {
                 let _ = action_tx.unbounded_send(AppAction::ToggleFavorite {
                     target_type: "song".into(),
                     target_id: id,
@@ -2995,8 +3078,14 @@ fn on_player_row_key_web(
                     Some(PlayerCmd::SetVolume(v))
                 }
                 prk::PlayerRowAction::Favorite => {
-                    if let Some(cur) = app.state.ephemeral.music.currently_playing() {
-                        let id = cur.id.clone();
+                    if let Some(id) = app
+                        .state
+                        .ephemeral
+                        .music
+                        .currently_playing()
+                        .and_then(|e| e.song_id())
+                        .map(str::to_string)
+                    {
                         let _ = action_tx.unbounded_send(AppAction::ToggleFavorite {
                             target_type: "song".into(),
                             target_id: id,
@@ -3067,6 +3156,9 @@ fn apply_music_event_web(
             play_index_web(app, next, action_tx);
         }
         MusicEvent::Error(e) => app.state.ephemeral.music.last_event_error = Some(e),
+        MusicEvent::OutputDevices { devices } => {
+            app.state.ephemeral.music.output_devices = devices;
+        }
     }
 }
 

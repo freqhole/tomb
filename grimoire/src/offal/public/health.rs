@@ -35,15 +35,49 @@ pub const ROUTES: &[RouteInfo] = &[
 pub async fn server_info() -> GrimoireResponse<JsonValue> {
     let config = get_config();
 
+    // knocking + passkey-over-p2p only depend on `[federation]`, not
+    // `[server]` - computed up front so a `[server]`-less p2p peer (e.g.
+    // rathole) reports its REAL capabilities instead of hardcoded
+    // false/None, letting clients offer knock/passkey access to it same
+    // as any other remote (see the `player_device` branch below).
+    let knocking_enabled = config
+        .federation
+        .as_ref()
+        .filter(|f| f.enabled)
+        .map(|f| f.knocking_enabled);
+    #[cfg(feature = "webauthn")]
+    let passkey_p2p_enabled = Some(config.federation.as_ref().is_some_and(|f| f.enabled));
+    #[cfg(not(feature = "webauthn"))]
+    let passkey_p2p_enabled: Option<bool> = None;
+
     let Some(server_config) = config.server.as_ref() else {
-        return GrimoireResponse::failure(
-            "server config missing",
-            vec![ErrorDetail::new(
-                "config_error",
-                "configuration error",
-                "server config not found",
-            )],
+        // no `[server]` section configured - this is a headless p2p-only
+        // instance (e.g. rathole), not a full http-servable remote. answer
+        // with a minimal, degraded hello instead of hard failing.
+        // `player_device` reflects whether THIS process currently counts
+        // as an active player (see `crate::player_session`) - not merely
+        // whether `[server]` is absent, since a headless instance might
+        // not have player-pairing mode entered right now either.
+        let response = ServerInfoResponse {
+            name: "freqhole player".to_string(),
+            description: Some("headless freqhole player (pairing + remote access)".to_string()),
+            version: env!("CARGO_PKG_VERSION").to_string(),
+            image_url: None,
+            image_blob_id: None,
+            knocking_enabled,
+            musicbrainz_enabled: None,
+            lastfm_enabled: None,
+            audiodb_enabled: None,
+            passkey_p2p_enabled,
+            fetch_precheck_enabled: None,
+            fetch_video_enabled: None,
+            player_device: Some(crate::player_session::is_active()),
+        };
+        tracing::debug!(
+            player_device = ?response.player_device,
+            "server_info() (no [server] section)"
         );
+        return GrimoireResponse::success("ok", serde_json::to_value(response).unwrap());
     };
 
     let name = server_config.name.clone();
@@ -63,24 +97,11 @@ pub async fn server_info() -> GrimoireResponse<JsonValue> {
             None => "/api/hello/image".to_string(),
         });
 
-    // knocking enabled from federation config
-    let knocking_enabled = config
-        .federation
-        .as_ref()
-        .filter(|f| f.enabled)
-        .map(|f| f.knocking_enabled);
-
     // enrichment service flags (exposed so clients can hide ui for
     // sources the server doesn't have configured).
     let musicbrainz_enabled = Some(config.musicbrainz.enabled);
     let lastfm_enabled = Some(config.lastfm.enabled && !config.lastfm.api_key.is_empty());
     let audiodb_enabled = Some(config.audiodb.enabled && !config.audiodb.api_key.is_empty());
-
-    // webauthn over p2p is available when the feature is compiled in and federation is enabled
-    #[cfg(feature = "webauthn")]
-    let passkey_p2p_enabled = Some(config.federation.as_ref().is_some_and(|f| f.enabled));
-    #[cfg(not(feature = "webauthn"))]
-    let passkey_p2p_enabled: Option<bool> = None;
 
     let fetch_precheck_enabled = Some(
         config
@@ -111,8 +132,18 @@ pub async fn server_info() -> GrimoireResponse<JsonValue> {
         passkey_p2p_enabled,
         fetch_precheck_enabled,
         fetch_video_enabled,
-        player_device: None,
+        // a full `[server]`-having remote can ALSO be a currently-active
+        // player at the same time (e.g. a raspi running both `server` and
+        // rathole `--player` against the same grimoire db) - see
+        // `crate::player_session`.
+        player_device: Some(crate::player_session::is_active()),
     };
+
+    tracing::debug!(
+        name = ?response.name,
+        player_device = ?response.player_device,
+        "server_info()"
+    );
 
     GrimoireResponse::success("ok", serde_json::to_value(response).unwrap())
 }

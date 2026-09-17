@@ -18,8 +18,8 @@ import { mirrorAppendVideosToQueue } from "../../app/services/players/remoteQueu
 export async function addVideoToQueue(video: VideoSummary | QueuedVideo): Promise<void> {
   const queue = appState()?.queue ?? [];
   const item = videoToMediaItem({ ...video, queue_entry_id: undefined });
-  await setQueue([...queue, item]);
   if (isRemoteTargetActive()) mirrorAppendVideosToQueue(videosOnly([item]));
+  await setQueue([...queue, item]);
 }
 
 // Fisher-Yates shuffle — used by series/season "shuffle all" actions
@@ -41,8 +41,8 @@ export async function addVideosToQueue(videos: VideoSummary[]): Promise<void> {
   if (videos.length === 0) return;
   const queue = appState()?.queue ?? [];
   const items = videos.map((v) => videoToMediaItem({ ...v, queue_entry_id: undefined }));
-  await setQueue([...queue, ...items]);
   if (isRemoteTargetActive()) mirrorAppendVideosToQueue(videosOnly(items));
+  await setQueue([...queue, ...items]);
 }
 
 export async function playVideoNext(video: VideoSummary | QueuedVideo): Promise<void> {

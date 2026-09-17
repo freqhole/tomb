@@ -4,13 +4,15 @@
 // own modules are (music/, media_blobz/, video/, ...) - onto a cenotaph
 // `ApiRouter`. see docs/cenotaph-migration-plan.md phase 3, tier 2.
 
-import type { ApiRouter } from "@freqhole/cenotaph";
+import type { ApiRouter } from "../../cenotaph";
 import { query as querySongs } from "./music/songs";
-import { getMetadata as blobMetadata } from "./media_blobz";
+import { getBlobData, getMetadata as blobMetadata, getMetadataByBlake3 } from "./media_blobz";
 import { query as queryVideos } from "./video/videos";
 
 export function registerBrowserApiRoutes(router: ApiRouter): void {
   router.registerRoute("POST", "/api/songs/query", querySongs);
   router.registerRoute("POST", "/api/blob_metadata", blobMetadata);
+  router.registerRoute("POST", "/api/blob_metadata_by_blake3", getMetadataByBlake3);
   router.registerRoute("POST", "/api/video/videos/query", queryVideos);
+  router.registerPrefixRoute("GET", "/api/blobs/", getBlobData);
 }

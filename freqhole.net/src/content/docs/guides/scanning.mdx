@@ -1,5 +1,5 @@
 ---
-title: scanning your library
+title: adding media to your library
 description: importing music and video into freqhole
 created: 2026-03-25T09:44:27-04:00
 updated: 2026-06-08T14:54:58-04:00
@@ -10,7 +10,21 @@ updatedBy: "edwardsharp"
 updatedSha: "3f1c9aa"
 ---
 
-freqhole scans directories to import music + video files into your library. discovery is shared, then each file goes through its domain-specific import pipeline.
+freqhole has two ways to get media in: the **add media** modal (files/urls, one at a time or a batch) for everyday use, and directory **scanning** for bulk imports on a server. discovery is shared, then each file goes through its domain-specific import pipeline.
+
+## adding media (files + urls)
+
+the add media modal ("add media" button in the app) is the everyday way to add music or video: drag files in, pick them from a file picker, or paste URLs (if url fetching is configured via [`[server.fetch_music]`/`[server.fetch_video]`](/concepts/configuration/) — see the [prerequisites](/getting-started/prerequisites/) guide for the `yt-dlp` setup these rely on).
+
+files are always added to **your own local library first** — reviewed there (metadata, matching, duplicates) before anything is sent anywhere. if you have a remote selected as your current target, the modal shows a target switcher and, once you're happy with the review, sends the reviewed items to that remote next. staying purely local (no remote selected) is also fine — nothing is sent anywhere in that case.
+
+this two-step (local first, then send) is deliberate: it means you always get to review/fix metadata against your own fast local copy, and a flaky network mid-upload never leaves your library in a half-imported state.
+
+## sending existing media to a friend
+
+for media that's already in your library, the **share** modal's "send to remote" section pushes it to a friend's remote (or your own charnel-managed local library) directly — no need to re-add it via files/urls. it lists every eligible destination with a live status badge (checking / offline / needs login / ready) and shows how much of the content the destination already has before sending.
+
+---
 
 ## configuring scan directories
 
@@ -25,6 +39,8 @@ choose **music** or **video** for the folder. the desktop command defaults to mu
 ---
 
 ## running a scan
+
+bulk-importing directories full of files (e.g. a big existing collection on a server) uses a directory scan instead of the add-media modal:
 
 ### CLI
 

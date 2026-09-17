@@ -10,8 +10,9 @@ use crate::music::crud::{
 use crate::music::entities::albums::{update_album as grimoire_update_album, UpdateAlbumRequest};
 use crate::music::entities::import_review::{
     models::{
-        AlbumPendingRequest, ImportReviewOk, ListPendingReviewRequest, MarkAlbumReviewedRequest,
-        MergeAlbumsReviewRequest, MoveSongReviewRequest, PatchAlbumReviewRequest,
+        AlbumPendingRequest, GetImportSessionTargetRequest, ImportReviewOk,
+        ListPendingReviewRequest, MarkAlbumReviewedRequest, MergeAlbumsReviewRequest,
+        MoveSongReviewRequest, PatchAlbumReviewRequest,
     },
     repository,
 };
@@ -73,6 +74,15 @@ pub const ROUTES: &[RouteInfo] = &[
         domain: Domain::Music,
         request_type: "AlbumPendingRequest",
         response_type: "AlbumPendingResponse",
+        auth: RouteAuth::Authenticated,
+    },
+    RouteInfo {
+        name: "get_import_session_target",
+        path: "/api/music/import/session-target",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "GetImportSessionTargetRequest",
+        response_type: "ImportSessionSendTarget",
         auth: RouteAuth::Authenticated,
     },
 ];
@@ -514,5 +524,44 @@ pub async fn album_pending(caller: &Caller, body: JsonValue) -> GrimoireResponse
             ),
         },
         Err(e) => GrimoireResponse::failure("failed to check album pending", vec![e.into()]),
+    }
+}
+
+/// look up a session's send target directly - unlike list_pending, works
+/// even after the session's last album has been marked reviewed (see
+/// GetImportSessionTargetRequest doc comment for why that distinction
+/// matters).
+pub async fn get_session_target(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
+    if let Err(resp) = crate::acl_bridge::require_scope(caller, "get_import_session_target").await {
+        return resp;
+    }
+
+    let req: GetImportSessionTargetRequest = match serde_json::from_value(body) {
+        Ok(r) => r,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "invalid request body",
+                vec![ErrorDetail::new(
+                    "invalid_request",
+                    "Invalid Request",
+                    e.to_string(),
+                )],
+            )
+        }
+    };
+
+    match repository::get_session_send_target(&req.session_id).await {
+        Ok(resp) => match serde_json::to_value(resp) {
+            Ok(v) => GrimoireResponse::success("ok", v),
+            Err(e) => GrimoireResponse::failure(
+                "serialization error",
+                vec![ErrorDetail::new(
+                    "serialization_error",
+                    "Serialization Error",
+                    e.to_string(),
+                )],
+            ),
+        },
+        Err(e) => GrimoireResponse::failure("failed to look up session target", vec![e.into()]),
     }
 }

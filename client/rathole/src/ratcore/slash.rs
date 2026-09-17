@@ -71,6 +71,27 @@ pub enum SlashAction {
     },
     /// switch focus to the music view (no query change).
     Music,
+    /// switch focus to the video view (browse/detail/edit), optionally
+    /// filtered by a search query. mirrors `Music`/`Local` but for the
+    /// video domain - fetches via `Transport::query_videos`.
+    Videos {
+        query: Option<String>,
+    },
+    /// list video series in the result panel, optionally filtered by a
+    /// search query. dispatched via `/series`. read-only (no dedicated
+    /// browse view yet - see docs/rathole-video-domain-plan.md).
+    Series {
+        query: Option<String>,
+    },
+    /// switch focus to the `--player` cenotaph-compatible pairing view
+    /// (qr/pin, connected controllers, settings). starts the
+    /// `freqhole-player/1` alpn listener on first use if it isn't
+    /// already running.
+    Player,
+    /// same as `Player`, but opens directly to the settings sub-view
+    /// (session mode, regenerate pin, audio device, autostart, image
+    /// mode, control socket) instead of the qr/pin overview.
+    PlayerSettings,
     /// list locally-downloaded songs in the music view (recent first).
     Local,
     /// switch focus to the admin palette and reveal the commands
@@ -174,6 +195,19 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ("seek", "/seek <m:ss|sec>   seek to position"),
     ("vol", "/vol <0-200>       set volume percent"),
     ("music", "/music             focus music view"),
+    (
+        "videos",
+        "/videos [query]    browse/search videos (enter: detail, p: play)",
+    ),
+    ("series", "/series [query]    list video series"),
+    (
+        "player",
+        "/player            cenotaph-compatible pairing view (qr/pin)",
+    ),
+    (
+        "player-settings",
+        "/player-settings   pairing view, opened to settings",
+    ),
     ("local", "/local             list local downloaded songs"),
     (
         "fetch",
@@ -249,7 +283,7 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ),
     (
         "scan",
-        "/scan [path] [tags]|dirs|move|remove|add <path> [tags]|abort [confirm]",
+        "/scan [music|video] <path> [tags]|dirs|move|remove|add [music|video] <path> [tags]|abort [confirm]",
     ),
     (
         "genre",
@@ -392,7 +426,7 @@ pub const GROUPS: &[(&str, &[(&str, &str)])] = &[
             ("form", "open interactive scan form"),
             (
                 "add",
-                "add directory to active scan: /scan add <path> [tags]",
+                "add directory to active scan: /scan add [music|video] <path> [tags]",
             ),
             ("dirs", "list tracked scan directories"),
             ("move", "move/relocate a scanned directory"),
@@ -517,6 +551,10 @@ pub fn parse(input: &str) -> SlashAction {
             },
         },
         "music" | "m" => SlashAction::Music,
+        "videos" | "video" => SlashAction::Videos { query: arg },
+        "series" => SlashAction::Series { query: arg },
+        "player" | "pair" | "pairing" => SlashAction::Player,
+        "player-settings" | "playersettings" | "pairsettings" => SlashAction::PlayerSettings,
         "local" | "l" => SlashAction::Local,
         "fetch" | "dl" | "download" | "yt" => match arg.as_deref().map(str::trim) {
             Some(url) if !url.is_empty() => SlashAction::AdminDispatch {
@@ -1013,9 +1051,10 @@ fn parse_scan_sub(arg: Option<&str>) -> SlashAction {
         if rest.is_empty() {
             return SlashAction::BadArgs {
                 name: "scan",
-                hint: "usage: /scan add <path> [tag_csv]",
+                hint: "usage: /scan add [music|video] <path> [tag_csv]",
             };
         }
+        let (domain, rest) = strip_scan_domain(rest);
         let (path, tags) = match rest.split_once(char::is_whitespace) {
             Some((p, t)) => (p.trim(), t.trim()),
             None => (rest, ""),
@@ -1023,10 +1062,13 @@ fn parse_scan_sub(arg: Option<&str>) -> SlashAction {
         if path.is_empty() {
             return SlashAction::BadArgs {
                 name: "scan",
-                hint: "usage: /scan add <path> [tag_csv]",
+                hint: "usage: /scan add [music|video] <path> [tag_csv]",
             };
         }
         let mut body = serde_json::json!({ "path": path, "recursive": true });
+        if let Some(d) = domain {
+            body["domain"] = serde_json::json!(d);
+        }
         if !tags.is_empty() {
             body["tags"] = serde_json::json!(tags);
         }
@@ -1035,6 +1077,7 @@ fn parse_scan_sub(arg: Option<&str>) -> SlashAction {
             body,
         };
     }
+    let (domain, raw) = strip_scan_domain(raw);
     let (path, tags) = match raw.split_once(char::is_whitespace) {
         Some((p, t)) => (p.trim(), t.trim()),
         None => (raw, ""),
@@ -1042,16 +1085,35 @@ fn parse_scan_sub(arg: Option<&str>) -> SlashAction {
     if path.is_empty() {
         return SlashAction::BadArgs {
             name: "scan",
-            hint: "usage: /scan <path> [tag_csv]",
+            hint: "usage: /scan [music|video] <path> [tag_csv]",
         };
     }
     let mut body = serde_json::json!({ "path": path, "recursive": true });
+    if let Some(d) = domain {
+        body["domain"] = serde_json::json!(d);
+    }
     if !tags.is_empty() {
         body["tags"] = serde_json::json!(tags);
     }
     SlashAction::AdminDispatch {
         name: "library_scan",
         body,
+    }
+}
+
+/// strip an optional leading `music`/`video` domain keyword from a
+/// `/scan`/`/scan add` argument string. defaults to grimoire's own
+/// default (music) when omitted, so existing `/scan <path>` usage
+/// (no domain keyword) is unaffected.
+fn strip_scan_domain(s: &str) -> (Option<&'static str>, &str) {
+    match s.split_once(char::is_whitespace) {
+        Some((first, rest)) if first.eq_ignore_ascii_case("video") => {
+            (Some("video"), rest.trim_start())
+        }
+        Some((first, rest)) if first.eq_ignore_ascii_case("music") => {
+            (Some("music"), rest.trim_start())
+        }
+        _ => (None, s),
     }
 }
 
@@ -1498,6 +1560,7 @@ pub fn focus_for(action: &SlashAction) -> Option<Focus> {
         SlashAction::Search { .. } | SlashAction::Music | SlashAction::Local => {
             Some(Focus::MusicView)
         }
+        SlashAction::Videos { .. } => Some(Focus::VideoView),
         SlashAction::Admin => Some(Focus::AdminPalette),
         _ => None,
     }
@@ -2041,6 +2104,32 @@ mod tests {
                 ..
             }
         ));
+        match parse("/scan video /tmp/movies") {
+            SlashAction::AdminDispatch { name, body } => {
+                assert_eq!(name, "library_scan");
+                assert_eq!(body["domain"], "video");
+                assert_eq!(body["path"], "/tmp/movies");
+            }
+            other => panic!("expected AdminDispatch, got {other:?}"),
+        }
+        match parse("/scan add video /tmp/movies tv,drama") {
+            SlashAction::AdminDispatch { name, body } => {
+                assert_eq!(name, "__scan_add__");
+                assert_eq!(body["domain"], "video");
+                assert_eq!(body["path"], "/tmp/movies");
+                assert_eq!(body["tags"], "tv,drama");
+            }
+            other => panic!("expected AdminDispatch, got {other:?}"),
+        }
+        // no domain keyword still defaults to grimoire's own default (music) -
+        // `body` simply has no `domain` key in this case.
+        match parse("/scan /tmp/music") {
+            SlashAction::AdminDispatch { name, body } => {
+                assert_eq!(name, "library_scan");
+                assert!(body.get("domain").is_none());
+            }
+            other => panic!("expected AdminDispatch, got {other:?}"),
+        }
     }
 
     #[test]

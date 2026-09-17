@@ -1,68 +1,81 @@
-// paired player devices (freqhole-player/1 remotes) — backed by the
-// shared users/user_peer_nodes stores (see services/users/usersStore.ts)
-// rather than a dedicated store. NOT part of the `Remote` schema: a
-// paired player has no http/admin api surface, just pairing + a small
-// control-command protocol, so folding it into the `Remote` discriminated
-// union would leak player-only concerns (pin state, control acks) into
-// every generic remote/api-dispatch call site. see
-// docs/player-remote-site-plan.md phase 5 for the no-Remote rationale, and
-// docs/player-peer-trust-bridge-plan.md for the users/user_peer_nodes
-// mirroring rationale.
+// "play on" / player-target listing: a player is just an ordinary `Remote`
+// (added and managed via remoteManager.ts directly, same as any other
+// remote) - there's no separate CRUD/storage system for "paired players"
+// anymore. two different read-only views over that same remote list live
+// here, for two genuinely different questions:
+//   - `listCurrentPlayers`: remotes CURRENTLY reporting player mode (see
+//     remoteHealth.ts's live `isPlayerNow` signal, fed from the same hello
+//     probe already used for online status) - what the "play on" flyout
+//     (QueuePlayerTargetRow.tsx) wants, since casting only makes sense to a
+//     live target.
+//   - `listPairedPlayerRemotes`: every remote EVER paired via the player
+//     pin flow (`Remote.paired_as_player` - a permanent, write-once
+//     categorization, not a live status), regardless of current
+//     reachability - what the settings "players" list
+//     (PairedPlayersView.tsx) wants, so an offline/session-expired player
+//     stays manageable instead of vanishing.
+// kept in one module because both are thin queries over the same
+// `{remote_id, node_id, username, created_at}`-shaped view.
 
 import { createSignal } from "solid-js";
 import {
-  allowPeer,
-  findUserByNodeId,
-  listPeerNodesWithUsers,
-  removePeerNode,
-  touchPeerNode,
-  updateUser,
-} from "../users/usersStore";
-import type { PeerNodeWithUser } from "../storage/types";
+  getAllRemotes,
+  onPlayerStatusChange,
+  onRemoteStatusChange,
+} from "../remotes/remoteManager";
+import { isPlayerNowSnapshot } from "../remotes/remoteHealth";
+import { isHttpRemote, type P2PRemote } from "../storage/types";
 
-// bumped whenever players are paired/renamed/forgotten so views can
-// refresh without polling (mirrors radioHistoryVersion's pattern).
+export interface PairedPlayer {
+  remote_id: string;
+  node_id: string;
+  username: string;
+  created_at: number;
+}
+
+function toPairedPlayer(remote: P2PRemote): PairedPlayer {
+  return {
+    remote_id: remote.remote_id,
+    node_id: remote.peer_addr,
+    username: remote.name,
+    created_at: remote.created_at,
+  };
+}
+
+// bumped whenever any remote's online/player status changes, so views
+// can refetch without polling (mirrors the old CRUD-driven version
+// signal this replaces - there's no separate pairing bookkeeping to
+// bump on anymore, just the live status broadcasts).
 const [version, setVersion] = createSignal(0);
-export const pairedPlayersVersion = version;
-
-function bumpVersion(): void {
+export const currentPlayersVersion = version;
+function bump(): void {
   setVersion((v) => v + 1);
 }
+onPlayerStatusChange(() => bump());
+onRemoteStatusChange(() => bump());
 
-export async function listPairedPlayers(): Promise<PeerNodeWithUser[]> {
-  const all = await listPeerNodesWithUsers();
-  return all.sort((a, b) => b.created_at - a.created_at);
+/** remotes currently reporting player mode - a point-in-time read; for
+ * a live-updating view, react to `currentPlayersVersion` (or
+ * remoteHealth.ts's `isPlayerNow` directly) instead of polling this. */
+export async function listCurrentPlayers(): Promise<PairedPlayer[]> {
+  const all = await getAllRemotes();
+  return all
+    .filter((r): r is P2PRemote => !isHttpRemote(r) && isPlayerNowSnapshot(r.remote_id) === true)
+    .sort((a, b) => b.created_at - a.created_at)
+    .map(toPairedPlayer);
 }
 
-export async function getPairedPlayer(nodeId: string): Promise<PeerNodeWithUser | null> {
-  return findUserByNodeId(nodeId);
-}
-
-export async function savePairedPlayer(
-  nodeId: string,
-  displayName: string
-): Promise<PeerNodeWithUser> {
-  // outbound pairing doesn't grant any special privilege - "member" is a
-  // nominal default, unused for anything since this instance never checks
-  // a paired player's own role (only inbound trust, in trustStoreAdapter.ts,
-  // ever consults role for auth purposes).
-  const player = await allowPeer(nodeId, displayName, "member");
-  bumpVersion();
-  return player;
-}
-
-export async function renamePairedPlayer(nodeId: string, displayName: string): Promise<void> {
-  const existing = await findUserByNodeId(nodeId);
-  if (!existing) return;
-  await updateUser(existing.user_id, { username: displayName });
-  bumpVersion();
-}
-
-export async function forgetPairedPlayer(nodeId: string): Promise<void> {
-  await removePeerNode(nodeId);
-  bumpVersion();
-}
-
-export async function touchPairedPlayer(nodeId: string): Promise<void> {
-  await touchPeerNode(nodeId);
+/** every remote ever paired via the player pin flow (`paired_as_player`,
+ * see `RemoteCommonSchema`'s doc comment) - regardless of whether it's
+ * CURRENTLY reachable/in player mode. used by the settings "players" view
+ * (PairedPlayersView.tsx), which needs to stay manageable (rename/forget/
+ * re-enter pin) for an offline or session-expired player, unlike
+ * `listCurrentPlayers` above which deliberately only surfaces live
+ * targets for the "play on" picker. */
+export async function listPairedPlayerRemotes(): Promise<PairedPlayer[]> {
+  const all = await getAllRemotes();
+  return all
+    .filter((r): r is P2PRemote => !isHttpRemote(r) && r.paired_as_player === true)
+    .sort((a, b) => b.created_at - a.created_at)
+    .map(toPairedPlayer);
 }

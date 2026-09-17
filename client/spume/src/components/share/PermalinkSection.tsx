@@ -1,7 +1,8 @@
 // permalink section of the share modal.
 // renders the freqhole:// deep link and the https:// web mirror with copy buttons.
-// always visible — both urls work regardless of which transports the source has;
-// the encoder validates the source has at least a node id or http origin.
+// shown whenever the source has at least a node id or http origin — the caller
+// (ShareModal) hides this section entirely for a local-library source on
+// android/web, where that identity isn't reliably reachable by others.
 
 import { createMemo, Show, type Component } from "solid-js";
 import { CopyButton } from "../buttons/CopyButton";

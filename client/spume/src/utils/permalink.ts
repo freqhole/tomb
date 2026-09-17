@@ -5,18 +5,33 @@
 //   https://<webHost>/#?share=<base64url(payload)>
 //
 // the web form lives in the url hash because spume uses `HashRouter` —
-// putting it on the path would 404 on static hosting. it sits as a query
-// inside the hash so it can overlay any existing route.
+// putting it on the path would 404 on static hosting, and it would also
+// collide with the `/:remoteId` dynamic route (a bare `#share/<token>`
+// fragment, the shape other freqhole apps use, matches that route and
+// triggers a real "remote not found" navigation before this file's own
+// hashchange listener gets a chance to look at it). it sits as a query
+// inside the hash instead so it can overlay any existing route.
 //
-// payload is a SharePayloadV1 — canonical-json (sorted keys, no whitespace),
-// then base64url-encoded (no padding). v1 is unsigned; share links describe
-// an entity, they don't grant access. signing arrives in v2 if needed.
+// the token itself is just spume's own field names (`v`/`s`/`k`/`i`/...)
+// over haruspex's shared `@freqhole/haruspex/share` codec (its legacy v1
+// "entity" wire shape) rather than a second, hand-rolled codec — so a
+// share link decodes the same way here as it does in skein or any other
+// haruspex-based app, even though spume still embeds the token in its own
+// router-safe url shape. `decodeShareToken` rejects (throws) any token
+// that decodes to a non-`entity` haruspex payload (a bare node reference,
+// or another app's own doc/canvas share) — those aren't resolvable here.
 //
 // at least one of `s.n` (source iroh node id, 64 hex) or `s.h` (source http
 // origin) must be present so a recipient can resolve the entity.
 
 import type { ShareTargetKind } from "../components/share/types";
 import { isCharnelMode } from "../app/services/charnel/mode";
+import {
+  decodeShareToken as haruspexDecodeShareToken,
+  encodeShareToken as haruspexEncodeShareToken,
+  extractShareToken as haruspexExtractShareToken,
+  type EntitySharePayload,
+} from "@freqhole/haruspex/share";
 
 const VALID_KINDS: ShareTargetKind[] = [
   "album",
@@ -113,45 +128,36 @@ export function getShareWebHost(): string {
 
 // ---- encoder / decoder -----------------------------------------------------
 
-/**
- * canonical-json: keys sorted, no whitespace. ensures the same payload always
- * produces the same token regardless of object construction order.
- */
-function canonicalJson(value: unknown): string {
-  if (value === null || typeof value !== "object") return JSON.stringify(value);
-  if (Array.isArray(value)) {
-    return "[" + value.map(canonicalJson).join(",") + "]";
-  }
-  const obj = value as Record<string, unknown>;
-  const keys = Object.keys(obj).sort();
-  return (
-    "{" +
-    keys
-      .filter((k) => obj[k] !== undefined)
-      .map((k) => JSON.stringify(k) + ":" + canonicalJson(obj[k]))
-      .join(",") +
-    "}"
-  );
+/** spume's own `SharePayloadV1` <-> haruspex's shared `EntitySharePayload`
+ * wire shape - same information, different field names/nesting. keeping
+ * this adapter (rather than renaming every field through spume) lets
+ * every existing call site stay untouched while the actual encode/decode
+ * work runs through the one shared codec every freqhole app (skein
+ * included) uses, instead of a second, hand-rolled implementation. */
+function toEntityPayload(p: SharePayloadV1): EntitySharePayload {
+  return {
+    kind: "entity",
+    source: { nodeId: p.s.n, httpOrigin: p.s.h },
+    entityKind: p.k,
+    entityId: p.i,
+    parentId: p.p,
+    title: p.t,
+    artist: p.a,
+    album: p.al,
+  };
 }
 
-function base64UrlEncode(bytes: Uint8Array): string {
-  // btoa expects a binary string. build it without going through TextDecoder
-  // so we can handle the ascii-only json output deterministically.
-  let bin = "";
-  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
-  const b64 = btoa(bin);
-  // url-safe + strip padding
-  return b64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
-function base64UrlDecode(token: string): Uint8Array {
-  // restore padding + standard b64 alphabet
-  const pad = token.length % 4 === 0 ? "" : "=".repeat(4 - (token.length % 4));
-  const b64 = token.replace(/-/g, "+").replace(/_/g, "/") + pad;
-  const bin = atob(b64);
-  const out = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
-  return out;
+function fromEntityPayload(e: EntitySharePayload): SharePayloadV1 {
+  return {
+    v: 1,
+    s: { n: e.source.nodeId, h: e.source.httpOrigin },
+    k: e.entityKind as ShareTargetKind,
+    i: e.entityId,
+    p: e.parentId,
+    t: e.title,
+    a: e.artist,
+    al: e.album,
+  };
 }
 
 /**
@@ -160,53 +166,27 @@ function base64UrlDecode(token: string): Uint8Array {
  */
 export function encodeShareToken(p: SharePayloadV1): string {
   validatePayload(p);
-  const json = canonicalJson(p);
-  const bytes = new TextEncoder().encode(json);
-  return base64UrlEncode(bytes);
+  return haruspexEncodeShareToken(toEntityPayload(p));
 }
 
 /**
- * decode a share token back to a `SharePayloadV1`. throws on invalid base64,
- * malformed json, or any structural / semantic check that fails. unknown
- * fields outside the schema are dropped silently (forward-compat).
+ * decode a share token back to a `SharePayloadV1`. accepts a bare token, a
+ * `#share/<token>`/`share/<token>` fragment, or a full url ending in one
+ * (see haruspex's `extractShareToken`) - the caller doesn't need to strip
+ * anything itself. throws on invalid base64/json, on a token that decodes
+ * to a non-`entity` share (e.g. a bare node reference or another app's doc
+ * share - not resolvable here), or on any structural/semantic check that
+ * fails.
  */
 export function decodeShareToken(token: string): SharePayloadV1 {
-  let bytes: Uint8Array;
-  try {
-    bytes = base64UrlDecode(token);
-  } catch (e) {
-    throw new Error(`invalid share token (base64): ${String(e)}`);
+  const payload = haruspexDecodeShareToken(token);
+  if (!payload) {
+    throw new Error("invalid share token");
   }
-  let json: unknown;
-  try {
-    json = JSON.parse(new TextDecoder().decode(bytes));
-  } catch (e) {
-    throw new Error(`invalid share token (json): ${String(e)}`);
+  if (payload.kind !== "entity") {
+    throw new Error(`unsupported share token kind: "${payload.kind}"`);
   }
-  if (!json || typeof json !== "object" || Array.isArray(json)) {
-    throw new Error("invalid share token: payload is not an object");
-  }
-  const obj = json as Record<string, unknown>;
-  if (obj.v !== 1) {
-    throw new Error(`unsupported share token version: ${String(obj.v)}`);
-  }
-  if (!obj.s || typeof obj.s !== "object" || Array.isArray(obj.s)) {
-    throw new Error("invalid share token: missing source identity");
-  }
-  const s = obj.s as Record<string, unknown>;
-  const out: SharePayloadV1 = {
-    v: 1,
-    s: {
-      n: typeof s.n === "string" ? s.n : undefined,
-      h: typeof s.h === "string" ? s.h : undefined,
-    },
-    k: obj.k as ShareTargetKind,
-    i: typeof obj.i === "string" ? obj.i : "",
-    p: typeof obj.p === "string" ? obj.p : undefined,
-    t: typeof obj.t === "string" ? obj.t : undefined,
-    a: typeof obj.a === "string" ? obj.a : undefined,
-    al: typeof obj.al === "string" ? obj.al : undefined,
-  };
+  const out = fromEntityPayload(payload);
   validatePayload(out);
   return out;
 }
@@ -222,17 +202,23 @@ export function buildShareUrls(p: SharePayloadV1, webHost: string = getShareWebH
 
 /**
  * extract a share token from a hash string (e.g. `window.location.hash`).
- * accepts both `#?share=...` and `#/whatever?share=...` shapes — anything
- * after the first `?` is parsed as url-search-params.
+ * accepts spume's own `#?share=...` / `#/whatever?share=...` shapes (still
+ * how spume embeds its own links in a url — see `buildShareUrls`, which
+ * deliberately avoids the bare `#share/<token>` fragment other freqhole
+ * apps use, since that would collide with spume's `/:remoteId` hash
+ * route), and falls back to haruspex's `#share/<token>`/`share/<token>`
+ * fragment shape for a link generated by one of those other apps.
  */
 export function extractShareTokenFromHash(hash: string): string | null {
   if (!hash) return null;
   const stripped = hash.startsWith("#") ? hash.slice(1) : hash;
   const qIdx = stripped.indexOf("?");
-  if (qIdx < 0) return null;
-  const params = new URLSearchParams(stripped.slice(qIdx + 1));
-  const token = params.get(SHARE_HASH_PARAM);
-  return token && token.length > 0 ? token : null;
+  if (qIdx >= 0) {
+    const token = new URLSearchParams(stripped.slice(qIdx + 1)).get(SHARE_HASH_PARAM);
+    if (token) return token;
+  }
+  const fallback = haruspexExtractShareToken(stripped);
+  return fallback && fallback !== stripped ? fallback : null;
 }
 
 /**

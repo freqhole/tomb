@@ -33,11 +33,23 @@ import {
   deletePendingRemoteByPeerAddr,
 } from "../../app/services/storage/db";
 import { getCurrentUser } from "../../music/data/currentState";
-import { pairWithPlayer } from "../../app/services/players/playerPairingClient";
-import { savePairedPlayer } from "../../app/services/players/pairedPlayers";
+import {
+  pairWithPlayer,
+  queryPlayerPresence,
+  describePairError,
+} from "../../app/services/players/playerPairingClient";
+import { selectPlayerPlaybackTarget } from "../../app/services/players/selectPlaybackTarget";
+import {
+  createRemote,
+  getRemoteByPeerAddr,
+  updateRemote,
+} from "../../app/services/remotes/remoteManager";
+import { refreshPlayerStatus } from "../../app/services/remotes/remoteHealth";
 import { adminLocalRawDispatch, getLocalAdminClient } from "../../app/api/adminClient";
+import { spumeTrustStore } from "../../cenotaph/adapters/trustStoreAdapter";
 import { resolveBlobUrl } from "../../music/services/storage/blobResolver";
-import { debug } from "../../utils/logger";
+import { debug, error } from "../../utils/logger";
+import { CENOTAPH_QUEUE_TRACE } from "../../cenotaph/queueTrace";
 import { parsePlayerPairingQr } from "../../utils/playerPairingQr";
 import { pushModal, popModal } from "../../music/hooks/modals";
 import { AuthForm } from "../auth/AuthForm";
@@ -55,6 +67,13 @@ export interface AddRemoteModalProps {
   onPlayerPaired?: (player: { node_id: string; username: string }) => void;
   /** initial value to pre-fill the input (e.g., from ?r= query param) */
   initialValue?: string;
+  /** "player" when the caller already knows this is a player-pairing
+   *  flow (a reconnect toast action, or the paired-players settings
+   *  view's "reconnect"/"pair a player" buttons - see addRemoteRequest.ts)
+   *  rather than a generic "might be a remote server" address. combined
+   *  with `scannedPlayerQr` (see below) to decide whether to show only
+   *  the pin form in the "auth" step, same as an actual qr scan. */
+  initialIntent?: "player";
   /**
    * when set to a peer_addr, the modal will auto-complete the setup for that
    * peer. used by App.tsx to drive completion from device-linked / knock-accepted
@@ -129,6 +148,20 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
     "idle"
   );
   const [playerPairError, setPlayerPairError] = createSignal<string | null>(null);
+  // set whenever the in-progress attempt was identified as a player device
+  // via its qr's own `role: "player_remote"` marker (not just discovered
+  // as player_device by the later server-info probe) - lets the "auth"
+  // step hide the generic remote login/knock ui and show only the pin
+  // form, since scanning a player qr unambiguously means "pair with this
+  // player", not "add it as a general remote too".
+  const [scannedPlayerQr, setScannedPlayerQr] = createSignal(false);
+  // true when the "auth" step should show ONLY the pin form - either a
+  // real qr scan was detected this session, or the caller already told us
+  // this is a player-pairing flow via `initialIntent` (reconnect toast,
+  // paired-players settings view). `handleTestConnection` only ever sets
+  // `scannedPlayerQr` based on what it actually parses, so it can't
+  // clobber an intent that came in via props.
+  const playerOnly = () => scannedPlayerQr() || props.initialIntent === "player";
   createEffect(
     on(
       () => props.isOpen,
@@ -140,6 +173,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
         setSetUpLocalUser(false);
         setLocalUserRole("viewer");
         setRoleLoaded(false);
+        setScannedPlayerQr(false);
       }
     )
   );
@@ -175,14 +209,54 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
     if (!pin) return;
     setPlayerPairStatus("pairing");
     setPlayerPairError(null);
+    const t0 = Date.now();
+    debug(
+      "AddRemoteModal",
+      `${CENOTAPH_QUEUE_TRACE} handlePairPlayer(${peerAddr}): starting pairWithPlayer`
+    );
     try {
       const result = await pairWithPlayer(peerAddr, pin, playerControllerName().trim() || "spume");
+      debug(
+        "AddRemoteModal",
+        `${CENOTAPH_QUEUE_TRACE} handlePairPlayer(${peerAddr}): pairWithPlayer returned after ${Date.now() - t0}ms, ok=${result.ok}`
+      );
       if (!result.ok) {
+        error(
+          "AddRemoteModal",
+          `pairWithPlayer rejected: peerAddr=${peerAddr} reason=${result.reason ?? "(none)"}`
+        );
         setPlayerPairStatus("error");
-        setPlayerPairError(result.reason ?? "pairing failed");
+        setPlayerPairError(describePairError(result.reason));
         return;
       }
-      const player = await savePairedPlayer(peerAddr, displayNameHint);
+      const existing = await getRemoteByPeerAddr(peerAddr);
+      const remote = existing
+        ? await updateRemote(existing.remote_id, { name: displayNameHint, paired_as_player: true })
+        : await createRemote({
+            name: displayNameHint,
+            peer_addr: peerAddr,
+            allowMissingServerInfo: true,
+            pairedAsPlayer: true,
+          });
+      const player = { node_id: peerAddr, username: remote.name };
+      // baseline peer trust so the player can dial back into this device
+      // for media resolution (songs/query, blob_metadata) once we push a
+      // queue to it - plain browser/wasm clients only: charnel already has
+      // a real grimoire instance, and granting trust there is the explicit,
+      // opt-in "set up local user" checkbox below, not an automatic one.
+      // only grants if not already trusted - trustController() is an
+      // upsert, so an unconditional call here would silently downgrade an
+      // already-admin/member peer back to viewer on every re-pair.
+      if (
+        !isCharnelAvailable() &&
+        !(await spumeTrustStore.isTrustedController(peerAddr).catch(() => false))
+      ) {
+        await spumeTrustStore
+          .trustController(peerAddr, displayNameHint, "viewer")
+          .catch((err) =>
+            error("AddRemoteModal", `failed to grant baseline peer trust for ${peerAddr}:`, err)
+          );
+      }
       if (setUpLocalUser()) {
         try {
           const client = getLocalAdminClient();
@@ -200,14 +274,158 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
         }
       }
       await deletePendingRemoteByPeerAddr(peerAddr).catch(() => {});
-      toast.success(`paired with ${displayNameHint}`);
+      // pairing (or re-pairing) is the whole point of scanning a player's qr -
+      // finish the job by actually selecting it as the active playback
+      // target. NOT awaited (mirrors QueuePlayerTargetRow.tsx's own
+      // fire-and-forget call) - selectPlayerPlaybackTarget already does its
+      // optimistic work (setActiveTargetToPlayer/registerPendingMediaOp)
+      // synchronously before its first await, so this modal can close and
+      // report success immediately instead of sitting on its spinner for
+      // the entire blob-resolve-and-push chain that follows (previously
+      // several/tens of seconds for a real queue - a real reported "pairing
+      // modal hangs" bug, not a logging gap).
+      debug(
+        "AddRemoteModal",
+        `${CENOTAPH_QUEUE_TRACE} handlePairPlayer(${peerAddr}): firing selectPlayerPlaybackTarget (not awaited)`
+      );
+      const selectStart = Date.now();
+      void selectPlayerPlaybackTarget(player)
+        .catch((err) => {
+          error("AddRemoteModal", `selectPlayerPlaybackTarget failed for ${peerAddr}:`, err);
+        })
+        .finally(() => {
+          debug(
+            "AddRemoteModal",
+            `${CENOTAPH_QUEUE_TRACE} handlePairPlayer(${peerAddr}): selectPlayerPlaybackTarget settled after ${Date.now() - selectStart}ms`
+          );
+          // confirm player status right away rather than waiting for the
+          // next passive health sweep - otherwise the "play on" flyout
+          // (which only lists health-probe-confirmed players) has nothing
+          // to show yet and hides itself entirely, with no way back to
+          // "this device".
+          refreshPlayerStatus();
+        });
+      // toast.success(`paired with ${displayNameHint}`);
       props.onClose();
       props.onPlayerPaired?.(player);
     } catch (err) {
+      error("AddRemoteModal", `pairWithPlayer threw: peerAddr=${peerAddr}`, err);
       setPlayerPairStatus("error");
       setPlayerPairError(err instanceof Error ? err.message : String(err));
     }
   };
+
+  // an already-saved player remote may already have live access (admin, or
+  // a member that previously joined the current session) - checked via a
+  // real presence_query probe (see playerPairingClient.ts's
+  // `queryPlayerPresence`) rather than assumed from anything persisted (see
+  // docs/cenotaph-migration-plan.md phase 11: "is this a player"/"do i have
+  // access" are both deliberately live, never-stored facts). that live
+  // check runs REGARDLESS of whether this browser/device has a local
+  // remote row for the peer yet - admin/session access lives entirely on
+  // the player's side (grimoire's user table), not in this client's own
+  // storage, so a fresh browser/private window/cleared-storage device
+  // that's nonetheless already an admin of this player must still auto-
+  // skip the pin. `existing` only affects `alreadyPaired`/`remoteId` (used
+  // to persist `paired_as_player` below) - it used to gate the whole probe,
+  // which incorrectly forced the pin form for exactly this case.
+  interface PlayerAccessCheck {
+    alreadyPaired: boolean;
+    authorized: boolean;
+    remoteId?: string;
+    remoteName?: string;
+  }
+  const [playerAccess] = createResource(
+    (): string | null => {
+      const s = state();
+      return s.step === "auth" && s.serverInfo?.player_device && s.peerAddr ? s.peerAddr : null;
+    },
+    async (peerAddr): Promise<PlayerAccessCheck> => {
+      const existing = await getRemoteByPeerAddr(peerAddr);
+      debug("AddRemoteModal", `playerAccess: getRemoteByPeerAddr(${peerAddr}) ->`, existing);
+      const probe = await queryPlayerPresence(peerAddr);
+      debug("AddRemoteModal", `playerAccess: queryPlayerPresence(${peerAddr}) ->`, probe);
+      const authorized =
+        probe.presence === "active" && (probe.access === "admin" || probe.access === "in_session");
+      return {
+        alreadyPaired: !!existing,
+        authorized,
+        remoteId: existing?.remote_id,
+        remoteName: existing?.name,
+      };
+    }
+  );
+
+  // already have access (no pin needed) - just "kick into player mode" and
+  // close, per the user's described flow: scanning/re-adding a player qr
+  // for an already-trusted, already-in-session peer should need nothing
+  // more from the user. covers two cases now that the live check above
+  // runs regardless of local state: an existing (possibly non-player)
+  // remote just needs `paired_as_player` set (`handlePairPlayer`'s own
+  // create/updateRemote call is never reached on this auto-skip path,
+  // see pairedPlayers.ts's filter), and a peer with NO local remote row at
+  // all (already admin/in-session on the player's side, but never added
+  // here before) needs one created from scratch - otherwise it connects
+  // once but leaves nothing behind to show up in the "play on" selector
+  // or to reconnect to next time.
+  createEffect(
+    on(
+      () => playerAccess(),
+      (result) => {
+        if (!result?.authorized) return;
+        const s = state();
+        if (s.step !== "auth" || !s.peerAddr) return;
+        const peerAddr = s.peerAddr;
+        const displayName =
+          result.remoteName ?? s.serverInfo?.name ?? `player ${peerAddr.slice(0, 8)}`;
+        const player = { node_id: peerAddr, username: displayName };
+        void (async () => {
+          if (result.remoteId) {
+            await updateRemote(result.remoteId, { paired_as_player: true }).catch(() => {});
+          } else {
+            await createRemote({
+              name: displayName,
+              peer_addr: peerAddr,
+              allowMissingServerInfo: true,
+              pairedAsPlayer: true,
+            }).catch(() => {});
+          }
+          // baseline peer trust - see handlePairPlayer's identical grant above
+          // for why this is needed even on this already-authorized auto-skip
+          // path (being trusted BY the player doesn't imply the player is
+          // trusted back by this device). plain browser/wasm only, same as
+          // above, and guarded the same way to avoid downgrading an
+          // already-admin/member peer on every reconnect.
+          if (
+            !isCharnelAvailable() &&
+            !(await spumeTrustStore.isTrustedController(peerAddr).catch(() => false))
+          ) {
+            await spumeTrustStore
+              .trustController(peerAddr, displayName, "viewer")
+              .catch((err) =>
+                error("AddRemoteModal", `failed to grant baseline peer trust for ${peerAddr}:`, err)
+              );
+          }
+          await deletePendingRemoteByPeerAddr(peerAddr).catch(() => {});
+          // not awaited - see handlePairPlayer's identical fix above for why.
+          // this is the auto-skip-pin path (already-authorized peer, e.g. a
+          // "reconnect" toast action) - the exact path that needs to close
+          // and get out of the user's way FASTEST, so blocking it on a full
+          // queue push was especially bad here.
+          void selectPlayerPlaybackTarget(player)
+            .catch((err) => {
+              error("AddRemoteModal", `selectPlayerPlaybackTarget failed for ${peerAddr}:`, err);
+            })
+            .finally(() => {
+              refreshPlayerStatus();
+            });
+          toast.success(`connected as player: ${player.username}`);
+          props.onClose();
+          props.onPlayerPaired?.(player);
+        })();
+      }
+    )
+  );
 
   // charnel mode: link to complete passkey auth in the system browser.
   // generates a ?link= url for spume's /link route. never actually shown
@@ -266,12 +484,23 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
   );
 
   // open the flow (loads pending remotes) whenever the modal opens, with
-  // any pre-filled value (e.g. from a ?r= query param)
+  // any pre-filled value (e.g. from a ?r= query param, a share link, or
+  // the settings "players" view's "reconnect" button - see
+  // addRemoteRequest.ts). previously this only primed the flow machine's
+  // OWN internal `ctx.input` (via `initialInput`) without ever touching
+  // the "url" step's own local `inputValue` signal the input box actually
+  // renders, or auto-submitting - so a caller expecting "open already
+  // pointed at X" instead saw a blank box needing a manual paste/retype.
   createEffect(
     on(
       () => props.isOpen,
       (isOpen) => {
-        if (isOpen) void dispatch({ type: "MODAL_OPEN", initialInput: props.initialValue });
+        if (!isOpen) return;
+        void dispatch({ type: "MODAL_OPEN", initialInput: props.initialValue });
+        if (props.initialValue) {
+          setInputValue(props.initialValue);
+          handleTestConnection(props.initialValue);
+        }
       }
     )
   );
@@ -356,7 +585,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
 
   const handleTestConnection = (input: string) => {
     // a scanned/pasted freqhole-player pairing qr (`?p=<base64url json>` -
-    // see app/player/renderPairingQr.ts) wraps its node_id in a url whose
+    // see cenotaph/app/renderPairingQr.ts) wraps its node_id in a url whose
     // host is meaningless (often the player's own dev-server localhost
     // origin, unreachable from another device) - decode it and hand off
     // the bare node_id instead of the wrapper url, so the flow's existing
@@ -364,6 +593,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
     // runs against the real peer_addr rather than trying to fetch the
     // wrapper as an http remote.
     const playerQr = parsePlayerPairingQr(input);
+    setScannedPlayerQr(!!playerQr);
     const resolved = playerQr?.node_id ?? input;
     // keep the "url" step's input box in sync with whatever's actually
     // being submitted, so a QR scan (or the origin hint) is visible/
@@ -925,157 +1155,195 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
                         </div>
                       </Show>
 
-                      <Show
-                        when={s.serverInfo?.player_device}
-                        fallback={
-                          <>
-                            <AuthForm
-                              initialMode={s.peerAddr ? "register" : "login"}
-                              onSubmit={handleAuth}
-                              onPasskeyClick={handlePasskeyAuth}
-                              error={s.error || undefined}
-                              showModeToggle={!s.peerAddr}
-                              hidePasskeyInfo={!!s.peerAddr || isCharnelAvailable()}
-                              hidePasskeyButton={!s.peerAddr && isCharnelAvailable()}
-                            />
+                      {/* normal remote auth/knock flow - shown for a
+                          player_device peer like rathole too (it's both a
+                          real remote AND a pairable player, unlike a pure
+                          web/cenotaph player - see server_info()'s doc
+                          comment in grimoire), UNLESS this attempt started
+                          from scanning the player's own qr code, which
+                          unambiguously means "pair with this player", not
+                          "add it as a general remote too" - the pin form
+                          below should be front and center, not buried
+                          under an unrelated login/knock form. */}
+                      <Show when={!playerOnly() || !s.serverInfo?.player_device}>
+                        <AuthForm
+                          initialMode={s.peerAddr ? "register" : "login"}
+                          onSubmit={handleAuth}
+                          onPasskeyClick={handlePasskeyAuth}
+                          error={s.error || undefined}
+                          showModeToggle={!s.peerAddr}
+                          hidePasskeyInfo={!!s.peerAddr || isCharnelAvailable()}
+                          hidePasskeyButton={!s.peerAddr && isCharnelAvailable()}
+                        />
 
-                            {/* request access option for P2P when knocking is enabled */}
-                            <Show
-                              when={
-                                s.peerAddr &&
-                                (s.serverInfo?.knocking_enabled ||
-                                  s.serverInfo?.passkey_p2p_enabled)
-                              }
-                            >
-                              <div class="text-center pt-4 border-t border-[var(--color-border-default)]">
-                                <Show when={s.serverInfo?.knocking_enabled}>
-                                  <p class="text-sm text-[var(--color-text-secondary)] mb-2">
-                                    don't have an invite code?
-                                  </p>
-                                  <button
-                                    type="button"
-                                    class="text-sm text-[var(--color-accent-primary)] hover:underline"
-                                    onClick={() => void dispatch({ type: "BACK" })}
-                                  >
-                                    request access from the admin
-                                  </button>
-                                </Show>
-                                <Show when={s.serverInfo?.passkey_p2p_enabled}>
-                                  <Show when={isCharnelAvailable() && showCharnelLink()}>
-                                    <div class="space-y-2 mt-2">
-                                      <div class="flex gap-2">
-                                        <input
-                                          type="text"
-                                          readOnly
-                                          value={charnelSpumeLink() ?? ""}
-                                          class="flex-1 px-3 py-2 text-xs rounded-md border border-[var(--color-border-default)] bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)] select-all cursor-text"
-                                          onClick={(e) => (e.target as HTMLInputElement).select()}
-                                        />
-                                      </div>
-                                      <div class="flex gap-2">
-                                        <button
-                                          type="button"
-                                          class="flex-1 py-2 text-sm font-medium rounded-lg border border-[var(--color-border-default)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] transition-colors"
-                                          onClick={handleCharnelLinkCopy}
-                                        >
-                                          {charnelLinkCopied() ? "copied!" : "copy link"}
-                                        </button>
-                                        <button
-                                          type="button"
-                                          class="flex-1 py-2 text-sm font-medium rounded-lg bg-[var(--color-accent-primary)] text-white hover:opacity-90 transition-opacity"
-                                          onClick={handleCharnelLinkOpen}
-                                        >
-                                          open in browser
-                                        </button>
-                                      </div>
-                                    </div>
-                                  </Show>
-                                </Show>
-                              </div>
-                            </Show>
-                          </>
-                        }
-                      >
-                        {/* freqhole-player device: pin pairing instead of grimoire auth */}
-                        <div class="space-y-4">
-                          <div>
-                            <label class="block text-sm font-medium text-[var(--color-text-primary)] mb-2">
-                              pin (shown on the player's screen)
-                            </label>
-                            <input
-                              type="text"
-                              inputmode="numeric"
-                              value={playerPin()}
-                              onInput={(e) => setPlayerPin(e.currentTarget.value)}
-                              placeholder="123456"
-                              class="w-full px-3 py-2 bg-[var(--color-bg-secondary)] border border-[var(--color-border-default)] rounded-md text-[var(--color-text-primary)] font-mono text-lg tracking-widest"
-                              disabled={playerPairStatus() === "pairing"}
-                            />
-                          </div>
-                          <div>
-                            <label class="block text-sm font-medium text-[var(--color-text-primary)] mb-2">
-                              your name (shown on the player)
-                            </label>
-                            <input
-                              type="text"
-                              value={playerControllerName()}
-                              onInput={(e) => setPlayerControllerName(e.currentTarget.value)}
-                              class="w-full px-3 py-2 bg-[var(--color-bg-secondary)] border border-[var(--color-border-default)] rounded-md text-[var(--color-text-primary)] text-sm"
-                              disabled={playerPairStatus() === "pairing"}
-                            />
-                          </div>
-                          <Show when={playerPairStatus() === "error"}>
-                            <div class="p-3 bg-[var(--color-status-error)]/10 border border-[var(--color-status-error)] rounded-md">
-                              <p class="text-sm text-[var(--color-status-error)]">
-                                {playerPairError()}
+                        {/* request access option for P2P when knocking is enabled */}
+                        <Show
+                          when={
+                            s.peerAddr &&
+                            (s.serverInfo?.knocking_enabled || s.serverInfo?.passkey_p2p_enabled)
+                          }
+                        >
+                          <div class="text-center pt-4 border-t border-[var(--color-border-default)]">
+                            <Show when={s.serverInfo?.knocking_enabled}>
+                              <p class="text-sm text-[var(--color-text-secondary)] mb-2">
+                                don't have an invite code?
                               </p>
-                            </div>
-                          </Show>
-                          <Show when={isCharnelAvailable()}>
-                            <div class="flex flex-col gap-2">
-                              <label class="flex items-center gap-2 text-sm text-[var(--color-text-primary)]">
-                                <input
-                                  type="checkbox"
-                                  checked={setUpLocalUser()}
-                                  onChange={(e) =>
-                                    void handleToggleLocalUser(e.currentTarget.checked)
-                                  }
-                                  disabled={playerPairStatus() === "pairing"}
-                                />
-                                set up a local user for this node id
-                              </label>
-                              <Show when={setUpLocalUser()}>
-                                <select
-                                  value={localUserRole()}
-                                  onChange={(e) =>
-                                    setLocalUserRole(
-                                      e.currentTarget.value as "admin" | "member" | "viewer"
-                                    )
-                                  }
-                                  class="w-full px-3 py-2 bg-[var(--color-bg-secondary)] border border-[var(--color-border-default)] rounded-md text-[var(--color-text-primary)] text-sm"
-                                  disabled={playerPairStatus() === "pairing"}
-                                >
-                                  <option value="viewer">viewer</option>
-                                  <option value="member">member</option>
-                                  <option value="admin">admin</option>
-                                </select>
+                              <button
+                                type="button"
+                                class="text-sm text-[var(--color-accent-primary)] hover:underline"
+                                onClick={() => void dispatch({ type: "BACK" })}
+                              >
+                                request access from the admin
+                              </button>
+                            </Show>
+                            <Show when={s.serverInfo?.passkey_p2p_enabled}>
+                              <Show when={isCharnelAvailable() && showCharnelLink()}>
+                                <div class="space-y-2 mt-2">
+                                  <div class="flex gap-2">
+                                    <input
+                                      type="text"
+                                      readOnly
+                                      value={charnelSpumeLink() ?? ""}
+                                      class="flex-1 px-3 py-2 text-xs rounded-md border border-[var(--color-border-default)] bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)] select-all cursor-text"
+                                      onClick={(e) => (e.target as HTMLInputElement).select()}
+                                    />
+                                  </div>
+                                  <div class="flex gap-2">
+                                    <button
+                                      type="button"
+                                      class="flex-1 py-2 text-sm font-medium rounded-lg border border-[var(--color-border-default)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] transition-colors"
+                                      onClick={handleCharnelLinkCopy}
+                                    >
+                                      {charnelLinkCopied() ? "copied!" : "copy link"}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      class="flex-1 py-2 text-sm font-medium rounded-lg bg-[var(--color-accent-primary)] text-white hover:opacity-90 transition-opacity"
+                                      onClick={handleCharnelLinkOpen}
+                                    >
+                                      open in browser
+                                    </button>
+                                  </div>
+                                </div>
                               </Show>
-                            </div>
-                          </Show>
-                          <Button
-                            type="button"
-                            disabled={playerPairStatus() === "pairing" || !playerPin().trim()}
-                            class="w-full"
-                            onClick={() =>
-                              s.peerAddr &&
-                              void handlePairPlayer(
-                                s.peerAddr,
-                                s.serverInfo?.name ?? `player ${s.peerAddr.slice(0, 8)}`
-                              )
+                            </Show>
+                          </div>
+                        </Show>
+                      </Show>
+
+                      {/* freqhole-player device: pairing is available IN ADDITION to
+                          the normal remote flow above, not instead of it -
+                          unless it's the ONLY thing shown (scannedPlayerQr,
+                          see above), in which case the divider/spacing above
+                          it would be a floating rule with nothing above to
+                          separate from. */}
+                      <Show when={s.serverInfo?.player_device}>
+                        <div
+                          class={
+                            playerOnly()
+                              ? ""
+                              : "pt-4 mt-4 border-t border-[var(--color-border-default)]"
+                          }
+                        >
+                          <Show
+                            when={!playerAccess.loading && !playerAccess()?.authorized}
+                            fallback={
+                              <div class="flex items-center justify-center gap-2 py-4 text-sm text-[var(--color-text-secondary)]">
+                                <div class="w-4 h-4 border-2 border-[var(--color-accent-primary)] border-t-transparent rounded-full animate-spin" />
+                                {playerAccess.loading
+                                  ? "checking player access..."
+                                  : "reconnecting as player..."}
+                              </div>
                             }
                           >
-                            {playerPairStatus() === "pairing" ? "pairing..." : "pair"}
-                          </Button>
+                            <p class="text-sm text-[var(--color-text-secondary)] mb-4 text-center">
+                              {playerAccess()?.alreadyPaired
+                                ? "re-enter this player's pairing pin to reconnect"
+                                : "this device also supports pairing as a player"}
+                            </p>
+                            <div class="space-y-4">
+                              <div>
+                                <label class="block text-sm font-medium text-[var(--color-text-primary)] mb-2">
+                                  pin (shown on the player's screen)
+                                </label>
+                                <input
+                                  type="text"
+                                  inputmode="numeric"
+                                  value={playerPin()}
+                                  onInput={(e) => setPlayerPin(e.currentTarget.value)}
+                                  placeholder="123456"
+                                  class="w-full px-3 py-2 bg-[var(--color-bg-secondary)] border border-[var(--color-border-default)] rounded-md text-[var(--color-text-primary)] font-mono text-lg tracking-widest"
+                                  disabled={playerPairStatus() === "pairing"}
+                                />
+                              </div>
+                              <Show when={!playerAccess()?.alreadyPaired}>
+                                <div>
+                                  <label class="block text-sm font-medium text-[var(--color-text-primary)] mb-2">
+                                    your name (shown on the player)
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={playerControllerName()}
+                                    onInput={(e) => setPlayerControllerName(e.currentTarget.value)}
+                                    class="w-full px-3 py-2 bg-[var(--color-bg-secondary)] border border-[var(--color-border-default)] rounded-md text-[var(--color-text-primary)] text-sm"
+                                    disabled={playerPairStatus() === "pairing"}
+                                  />
+                                </div>
+                              </Show>
+                              <Show when={playerPairStatus() === "error"}>
+                                <div class="p-3 bg-[var(--color-status-error)]/10 border border-[var(--color-status-error)] rounded-md">
+                                  <p class="text-sm text-[var(--color-status-error)]">
+                                    {playerPairError()}
+                                  </p>
+                                </div>
+                              </Show>
+                              <Show when={isCharnelAvailable()}>
+                                <div class="flex flex-col gap-2">
+                                  <label class="flex items-center gap-2 text-sm text-[var(--color-text-primary)]">
+                                    <input
+                                      type="checkbox"
+                                      checked={setUpLocalUser()}
+                                      onChange={(e) =>
+                                        void handleToggleLocalUser(e.currentTarget.checked)
+                                      }
+                                      disabled={playerPairStatus() === "pairing"}
+                                    />
+                                    set up a local user for this node id
+                                  </label>
+                                  <Show when={setUpLocalUser()}>
+                                    <select
+                                      value={localUserRole()}
+                                      onChange={(e) =>
+                                        setLocalUserRole(
+                                          e.currentTarget.value as "admin" | "member" | "viewer"
+                                        )
+                                      }
+                                      class="w-full px-3 py-2 bg-[var(--color-bg-secondary)] border border-[var(--color-border-default)] rounded-md text-[var(--color-text-primary)] text-sm"
+                                      disabled={playerPairStatus() === "pairing"}
+                                    >
+                                      <option value="viewer">viewer</option>
+                                      <option value="member">member</option>
+                                      <option value="admin">admin</option>
+                                    </select>
+                                  </Show>
+                                </div>
+                              </Show>
+                              <Button
+                                type="button"
+                                disabled={playerPairStatus() === "pairing" || !playerPin().trim()}
+                                class="w-full"
+                                onClick={() =>
+                                  s.peerAddr &&
+                                  void handlePairPlayer(
+                                    s.peerAddr,
+                                    s.serverInfo?.name ?? `player ${s.peerAddr.slice(0, 8)}`
+                                  )
+                                }
+                              >
+                                {playerPairStatus() === "pairing" ? "pairing..." : "pair"}
+                              </Button>
+                            </div>
+                          </Show>
                         </div>
                       </Show>
                     </div>
@@ -1138,7 +1406,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
                       </div>
                       <div class="text-center">
                         <h3 class="text-lg font-semibold text-[var(--color-text-primary)] mb-1">
-                          remote added!
+                          {s.alreadyExisted ? "already connected" : "remote added!"}
                         </h3>
                         <p class="text-sm text-[var(--color-text-secondary)]">
                           {s.remote.peer_addr

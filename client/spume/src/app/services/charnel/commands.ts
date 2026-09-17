@@ -392,17 +392,90 @@ export async function fetchLocalNodeId(): Promise<string | null> {
   }
 }
 
+// base64 inflates raw bytes ~4/3x - a whole-file single-shot import (the
+// entire file held in JS memory as one base64 string, JSON-serialized
+// across tauri IPC in one call) is fine for a tiny payload but is exactly
+// the hazard that stalled cenotaph queue pushes for ~a minute per album
+// (19 songs x up to ~27MB FLAC each, all base64'd and shipped at once via
+// `Promise.all` - see playerQueuePush.ts). anything bigger than this MUST
+// go through the chunked p2p_import_begin/p2p_import_chunk/p2p_import_finish
+// path instead (see beginChunkedBlobImport et al. below).
+const MAX_SINGLE_SHOT_IMPORT_BYTES = 1_000_000;
+
 /**
- * import raw bytes into this charnel app's local iroh-blobs store so they
- * can be pulled by a remote peer via verified download. mirrors
- * `CharnelTransport.ts`'s `uploadMediaViaBytes` use of the same tauri
- * command for music/video uploads - same store, same pull model.
+ * @deprecated whole-file, single-shot bytes import - loads the ENTIRE file
+ * into JS memory as one base64 string in one IPC call. hard-gated at
+ * `MAX_SINGLE_SHOT_IMPORT_BYTES` so this can't silently reintroduce that
+ * hazard - use the chunked `beginChunkedBlobImport`/`appendChunkedBlobImport`/
+ * `finishChunkedBlobImport` trio for anything real-sized, or
+ * `importBlobByPath` when a local filesystem path is already known (no JS
+ * bytes at all).
  *
  * @returns the blake3 hash the bytes were stored under.
  */
 export async function importBlobBytes(base64: string): Promise<string> {
+  const approxBytes = (base64.length * 3) / 4;
+  if (approxBytes > MAX_SINGLE_SHOT_IMPORT_BYTES) {
+    throw new Error(
+      `importBlobBytes: refusing to single-shot-import ~${Math.round(approxBytes / 1024 / 1024)}MB ` +
+        `(limit ${MAX_SINGLE_SHOT_IMPORT_BYTES / 1024 / 1024}MB) in one base64 IPC call - ` +
+        `use the chunked beginChunkedBlobImport/appendChunkedBlobImport/finishChunkedBlobImport path instead`
+    );
+  }
   const invoke = await getInvoke();
   return invoke<string>("p2p_import_blob_bytes", { data: base64 });
+}
+
+/**
+ * import an already-on-disk file into this charnel app's local iroh-blobs
+ * store by filesystem path - no bytes ever cross into JS memory (mirrors
+ * `p2p_import_blob`'s TryReference/no-copy mode, the same command
+ * `CharnelTransport.ts`'s `uploadByPath` uses for regular music/video
+ * uploads). always prefer this over `importBlobBytes`/chunked import
+ * whenever a local path is already known - see `resolveCharnelLocalBlobPath.ts`
+ * (songs) / `resolveLocalVideoPath` (video), both of which already exist for
+ * exactly this purpose.
+ *
+ * @returns the blake3 hash the file was stored under.
+ */
+export async function importBlobByPath(filePath: string): Promise<string> {
+  const invoke = await getInvoke();
+  return invoke<string>("p2p_import_blob", { filePath });
+}
+
+/**
+ * begin a chunked P2P blob import - streams a large file into the local
+ * iroh-blobs store in bounded pieces (see `appendChunkedBlobImport`/
+ * `finishChunkedBlobImport` below) instead of one whole-file base64 IPC
+ * call. mirrors `CharnelLocalTransport.uploadChunked`'s use of the same
+ * commands for regular media uploads.
+ */
+export async function beginChunkedBlobImport(): Promise<string> {
+  const invoke = await getInvoke();
+  return invoke<string>("p2p_import_begin");
+}
+
+/** appends one base64-encoded chunk to an in-flight import started by
+ * `beginChunkedBlobImport`. returns the total bytes received so far. */
+export async function appendChunkedBlobImport(
+  uploadId: string,
+  base64Chunk: string
+): Promise<number> {
+  const invoke = await getInvoke();
+  return invoke<number>("p2p_import_chunk", { uploadId, data: base64Chunk });
+}
+
+/** finishes a chunked import: adopts the accumulated bytes into the p2p
+ * blob store and returns the resulting blake3 hash. */
+export async function finishChunkedBlobImport(uploadId: string): Promise<string> {
+  const invoke = await getInvoke();
+  return invoke<string>("p2p_import_finish", { uploadId });
+}
+
+/** aborts an in-flight chunked import, discarding any accumulated bytes. */
+export async function abortChunkedBlobImport(uploadId: string): Promise<void> {
+  const invoke = await getInvoke();
+  await invoke("p2p_import_abort", { uploadId });
 }
 
 /**
