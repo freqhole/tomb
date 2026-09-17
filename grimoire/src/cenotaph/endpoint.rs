@@ -529,10 +529,25 @@ async fn command_loop(
         write_line(send, &serde_json::to_string(&ack).unwrap()).await?;
 
         let mut buf = String::new();
+        // TEMP: measuring how long it takes to receive the NEXT line off
+        // the wire - if this is where the multi-second gap lives (rather
+        // than in dispatch/resolve), that points at the connection itself
+        // (relay throttling) rather than at anything JS-side. remove once
+        // confirmed either way.
+        let read_start = std::time::Instant::now();
         match reader.read_line(&mut buf).await {
             Ok(0) => break,
             Err(_) => break,
-            Ok(_) => current = Some(buf.trim_end().to_string()),
+            Ok(n) => {
+                info!(
+                    target: "cenotaph",
+                    peer = %peer_id,
+                    bytes = n,
+                    elapsed_ms = read_start.elapsed().as_millis(),
+                    "CENOTAPH_QUEUE_TRACE: command_loop: read next line off the wire"
+                );
+                current = Some(buf.trim_end().to_string());
+            }
         }
     }
     Ok(())
@@ -599,7 +614,10 @@ async fn process_command_line(
         return CommandAck::err(CommandAckReason::InvalidCommand);
     }
     let started = std::time::Instant::now();
-    info!(target: "cenotaph", peer = %peer_id, command = %command_debug, "process_command_line: sent to dispatch_tx, awaiting reply");
+    // TEMP: raw.len() is the exact wire payload size rust actually
+    // received - confirms/rules out base64-embedded-artwork bloat as a
+    // cause of slow queue pushes. remove once confirmed either way.
+    info!(target: "cenotaph", peer = %peer_id, command = %command_debug, raw_bytes = raw.len(), "CENOTAPH_QUEUE_TRACE: process_command_line: sent to dispatch_tx, awaiting reply");
     let ack = reply_rx
         .await
         .unwrap_or_else(|_| CommandAck::err(CommandAckReason::InvalidCommand));

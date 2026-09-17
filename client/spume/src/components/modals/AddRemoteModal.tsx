@@ -1241,18 +1241,20 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
                                   disabled={playerPairStatus() === "pairing"}
                                 />
                               </div>
-                              <div>
-                                <label class="block text-sm font-medium text-[var(--color-text-primary)] mb-2">
-                                  your name (shown on the player)
-                                </label>
-                                <input
-                                  type="text"
-                                  value={playerControllerName()}
-                                  onInput={(e) => setPlayerControllerName(e.currentTarget.value)}
-                                  class="w-full px-3 py-2 bg-[var(--color-bg-secondary)] border border-[var(--color-border-default)] rounded-md text-[var(--color-text-primary)] text-sm"
-                                  disabled={playerPairStatus() === "pairing"}
-                                />
-                              </div>
+                              <Show when={!playerAccess()?.alreadyPaired}>
+                                <div>
+                                  <label class="block text-sm font-medium text-[var(--color-text-primary)] mb-2">
+                                    your name (shown on the player)
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={playerControllerName()}
+                                    onInput={(e) => setPlayerControllerName(e.currentTarget.value)}
+                                    class="w-full px-3 py-2 bg-[var(--color-bg-secondary)] border border-[var(--color-border-default)] rounded-md text-[var(--color-text-primary)] text-sm"
+                                    disabled={playerPairStatus() === "pairing"}
+                                  />
+                                </div>
+                              </Show>
                               <Show when={playerPairStatus() === "error"}>
                                 <div class="p-3 bg-[var(--color-status-error)]/10 border border-[var(--color-status-error)] rounded-md">
                                   <p class="text-sm text-[var(--color-status-error)]">

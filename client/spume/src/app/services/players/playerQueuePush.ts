@@ -43,6 +43,40 @@ import { getAudioURL } from "../../../music/services/storage/audioAccess";
 import type { ImageMetadata, Song } from "../../../music/services/storage/types";
 import { getBlob } from "../../../music/services/storage/blobs";
 import { isValidHttpUrl, resolveBlobUrl } from "../../../music/services/storage/blobResolver";
+
+/** bounded-concurrency counterpart to `Promise.all(items.map(fn))` - runs
+ * at most `limit` calls to `fn` at once instead of firing all of them
+ * simultaneously. found live: blasting a whole album's worth of
+ * `songToMediaRef`/`videoToMediaRef` calls (each doing a tauri IPC
+ * fetch+chunked-import round trip) via a plain `Promise.all` saturated
+ * something in the tauri IPC bridge badly enough that a 16-song queue
+ * push's resolve step alone took ~11 SECONDS all at once (vs. a few
+ * hundred ms per item run with only a handful in flight) - everything
+ * queued up and released in a single burst rather than actually running
+ * in parallel. order-preserving: `result[i]` corresponds to `items[i]`
+ * regardless of finish order. */
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let next = 0;
+  async function worker(): Promise<void> {
+    for (;;) {
+      const i = next++;
+      if (i >= items.length) return;
+      results[i] = await fn(items[i], i);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
+}
+
+// tauri IPC (and the underlying fetch()es for artwork/audio bytes) don't
+// scale with unbounded concurrency - see mapWithConcurrency's own doc
+// comment for the real, measured regression this fixes.
+const QUEUE_PUSH_CONCURRENCY = 3;
 import { getSongDisplayImages, pickBestImage } from "../../../utils/images";
 import { getRemoteById } from "../remotes/remoteManager";
 import { isP2PRemote, type P2PRemote } from "../storage/schemas/remote";
@@ -161,6 +195,13 @@ async function artworkFromBlob(blob: Blob): Promise<ResolvedArtwork> {
     blobToDataUrl(blob),
     makeArtworkThumbDataUrl(blob),
   ]);
+  // TEMP: measuring exact embedded-data-url sizes to confirm/rule out
+  // base64 artwork bloat in the wire command payload - remove once
+  // confirmed either way.
+  debug(
+    "playerQueuePush",
+    `${CENOTAPH_QUEUE_TRACE} artworkFromBlob: source blob ${blob.size} bytes -> fullUrl ${fullUrl.length} chars (~${(fullUrl.length / 1024).toFixed(1)}KB), thumbUrl ${(thumbUrl ?? fullUrl).length} chars (~${((thumbUrl ?? fullUrl).length / 1024).toFixed(1)}KB)`
+  );
   return { thumbUrl: thumbUrl ?? fullUrl, fullUrl };
 }
 
@@ -383,6 +424,10 @@ async function songToMediaRef(
       artwork_full_url: fullUrl,
     };
   }
+  debug(
+    "playerQueuePush",
+    `${CENOTAPH_QUEUE_TRACE} songToMediaRef(${song.title}): resolveCharnelLocalBlobPath found nothing on disk after ${Date.now() - localPathStart}ms (blake3=${song.blake3 ?? "(none)"}) - falling back to fetch+import relay`
+  );
   const fetchStart = Date.now();
   const url = await getAudioURL(song);
   const res = await fetch(url);
@@ -533,6 +578,10 @@ async function videoToMediaRef(
       artwork_full_url: fullUrl,
     };
   }
+  debug(
+    "playerQueuePush",
+    `${CENOTAPH_QUEUE_TRACE} videoToMediaRef(${video.title}): resolveLocalVideoPath found nothing on disk after ${Date.now() - localPathStart}ms - falling back to fetch+import relay`
+  );
   const fetchStart = Date.now();
   const url = await getVideoURL(video);
   const res = await fetch(url);
@@ -618,7 +667,9 @@ export async function pushSongsToPlayer(peerAddr: string, songs: Song[]): Promis
     `${CENOTAPH_QUEUE_TRACE} pushSongsToPlayer(${peerAddr}): building ${songs.length} item(s)`
   );
   const bridgeCache: BridgeCache = new Map();
-  const items = await Promise.all(songs.map((song) => songToMediaRef(song, peerAddr, bridgeCache)));
+  const items = await mapWithConcurrency(songs, QUEUE_PUSH_CONCURRENCY, (song) =>
+    songToMediaRef(song, peerAddr, bridgeCache)
+  );
   debug(
     "playerQueuePush",
     `${CENOTAPH_QUEUE_TRACE} pushSongsToPlayer(${peerAddr}): built ${items.length} item(s) in ${Date.now() - t0}ms, sending replace_queue`
@@ -649,7 +700,9 @@ export async function appendSongsToPlayer(peerAddr: string, songs: Song[]): Prom
     `${CENOTAPH_QUEUE_TRACE} appendSongsToPlayer(${peerAddr}): building ${songs.length} item(s)`
   );
   const bridgeCache: BridgeCache = new Map();
-  const items = await Promise.all(songs.map((song) => songToMediaRef(song, peerAddr, bridgeCache)));
+  const items = await mapWithConcurrency(songs, QUEUE_PUSH_CONCURRENCY, (song) =>
+    songToMediaRef(song, peerAddr, bridgeCache)
+  );
   debug(
     "playerQueuePush",
     `${CENOTAPH_QUEUE_TRACE} appendSongsToPlayer(${peerAddr}): built ${items.length} item(s) in ${Date.now() - t0}ms, sending append_queue`
@@ -680,8 +733,8 @@ export async function pushVideosToPlayer(peerAddr: string, videos: QueuedVideo[]
     `${CENOTAPH_QUEUE_TRACE} pushVideosToPlayer(${peerAddr}): building ${videos.length} item(s)`
   );
   const bridgeCache: BridgeCache = new Map();
-  const items = await Promise.all(
-    videos.map((video) => videoToMediaRef(video, peerAddr, bridgeCache))
+  const items = await mapWithConcurrency(videos, QUEUE_PUSH_CONCURRENCY, (video) =>
+    videoToMediaRef(video, peerAddr, bridgeCache)
   );
   debug(
     "playerQueuePush",
@@ -713,8 +766,8 @@ export async function appendVideosToPlayer(peerAddr: string, videos: QueuedVideo
     `${CENOTAPH_QUEUE_TRACE} appendVideosToPlayer(${peerAddr}): building ${videos.length} item(s)`
   );
   const bridgeCache: BridgeCache = new Map();
-  const items = await Promise.all(
-    videos.map((video) => videoToMediaRef(video, peerAddr, bridgeCache))
+  const items = await mapWithConcurrency(videos, QUEUE_PUSH_CONCURRENCY, (video) =>
+    videoToMediaRef(video, peerAddr, bridgeCache)
   );
   debug(
     "playerQueuePush",
@@ -762,7 +815,9 @@ export async function pushMediaToPlayer(peerAddr: string, items: MediaItem[]): P
     `${CENOTAPH_QUEUE_TRACE} pushMediaToPlayer(${peerAddr}): building ${items.length} item(s)`
   );
   const bridgeCache: BridgeCache = new Map();
-  const refs = await Promise.all(items.map((item) => mediaItemToRef(item, peerAddr, bridgeCache)));
+  const refs = await mapWithConcurrency(items, QUEUE_PUSH_CONCURRENCY, (item) =>
+    mediaItemToRef(item, peerAddr, bridgeCache)
+  );
   debug(
     "playerQueuePush",
     `${CENOTAPH_QUEUE_TRACE} pushMediaToPlayer(${peerAddr}): built ${refs.length} item(s) in ${Date.now() - t0}ms, sending replace_queue`
@@ -792,7 +847,9 @@ export async function appendMediaToPlayer(peerAddr: string, items: MediaItem[]):
     `${CENOTAPH_QUEUE_TRACE} appendMediaToPlayer(${peerAddr}): building ${items.length} item(s)`
   );
   const bridgeCache: BridgeCache = new Map();
-  const refs = await Promise.all(items.map((item) => mediaItemToRef(item, peerAddr, bridgeCache)));
+  const refs = await mapWithConcurrency(items, QUEUE_PUSH_CONCURRENCY, (item) =>
+    mediaItemToRef(item, peerAddr, bridgeCache)
+  );
   debug(
     "playerQueuePush",
     `${CENOTAPH_QUEUE_TRACE} appendMediaToPlayer(${peerAddr}): built ${refs.length} item(s) in ${Date.now() - t0}ms, sending append_queue`

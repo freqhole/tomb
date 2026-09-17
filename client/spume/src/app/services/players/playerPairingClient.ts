@@ -289,9 +289,13 @@ export async function sendPlayerCommand(peerAddr: string, command: unknown): Pro
   const isQueueCommand = commandType === "replace_queue" || commandType === "append_queue";
   const sendStart = Date.now();
   if (isQueueCommand) {
+    // TEMP: measuring exact wire payload size to confirm/rule out
+    // base64-embedded-artwork bloat as the cause of a multi-second gap
+    // between the controller finishing a queue push and the player's rust
+    // side actually receiving it - remove once confirmed either way.
     debug(
       "playerPairingClient",
-      `${CENOTAPH_QUEUE_TRACE} sendPlayerCommand: sending "${String(commandType)}" to ${peerAddr}`
+      `${CENOTAPH_QUEUE_TRACE} sendPlayerCommand: sending "${String(commandType)}" to ${peerAddr}, payload size=${line.length} chars (~${(line.length / 1024).toFixed(1)}KB)`
     );
   }
   // charnel/tauri's player_pairing_dial invoke has no persistent-session
