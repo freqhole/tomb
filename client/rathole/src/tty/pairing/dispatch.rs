@@ -282,7 +282,7 @@ async fn dispatch_pairing_command_inner(
                 crate::ratcore::app::VideoCommand::Pause,
             )
             .await;
-            status_ack(&ctx, None)
+            status_ack_override(&ctx, false, ctx.position_ms)
         }
         PairingCommand::Resume => {
             send_generic(
@@ -291,7 +291,7 @@ async fn dispatch_pairing_command_inner(
                 crate::ratcore::app::VideoCommand::Play,
             )
             .await;
-            status_ack(&ctx, None)
+            status_ack_override(&ctx, true, ctx.position_ms)
         }
         PairingCommand::Seek { position_ms } => {
             send_generic(
@@ -302,7 +302,7 @@ async fn dispatch_pairing_command_inner(
                 },
             )
             .await;
-            status_ack(&ctx, None)
+            status_ack_override(&ctx, ctx.is_playing, position_ms)
         }
         PairingCommand::Stop => {
             send_generic(
@@ -311,7 +311,7 @@ async fn dispatch_pairing_command_inner(
                 crate::ratcore::app::VideoCommand::Close,
             )
             .await;
-            status_ack(&ctx, None)
+            status_ack_override(&ctx, false, 0)
         }
         PairingCommand::SetVolume { volume } => {
             if let Some(player) = &ctx.player {
@@ -735,16 +735,31 @@ fn common_from_ctx(ctx: &DispatchContext) -> StatusCommon {
 /// path and `append_queue`'s "combined queue, unchanged playback
 /// state" ack.
 fn status_with_common(ctx: &DispatchContext, common: StatusCommon) -> CommandAck {
+    status_with_overrides(common, ctx.is_playing, ctx.position_ms)
+}
+
+/// like `status_with_common` but with an explicit playing/position
+/// state instead of `ctx`'s own (frozen at dispatch-request time,
+/// i.e. BEFORE whatever command is currently running actually took
+/// effect). used by pause/resume/seek/stop, whose effect on playback
+/// state is deterministic and known immediately - using `ctx.
+/// is_playing`/`ctx.position_ms` unmodified for those acks meant a
+/// pause command's own ack always reported the pre-pause "still
+/// playing" state (never the real, just-applied one), so a paired
+/// controller's play/pause button looked permanently one command
+/// behind (a real, reported bug - mirrors the equivalent fix already
+/// made in spume's `charnelPlaybackAdapter.ts`).
+fn status_with_overrides(common: StatusCommon, is_playing: bool, position_ms: u64) -> CommandAck {
     let status = match common.queue.first() {
         None => PlayerStatus::Stopped { common },
-        Some(item) if ctx.is_playing => PlayerStatus::NowPlaying {
+        Some(item) if is_playing => PlayerStatus::NowPlaying {
             item: Box::new(item.clone()),
-            position_ms: ctx.position_ms,
+            position_ms,
             server_time_ms: now_ms().max(0) as u64,
             common,
         },
         Some(_) => PlayerStatus::Paused {
-            position_ms: ctx.position_ms,
+            position_ms,
             common,
         },
     };
@@ -761,6 +776,13 @@ fn status_ack(ctx: &DispatchContext, explicit: Option<PlayerStatus>) -> CommandA
         Some(status) => CommandAck::ok(status),
         None => status_with_common(ctx, common_from_ctx(ctx)),
     }
+}
+
+/// `status_ack`'s counterpart for pause/resume/seek/stop - see
+/// `status_with_overrides`'s doc comment for why these need an
+/// explicit post-command playing/position rather than `ctx`'s own.
+fn status_ack_override(ctx: &DispatchContext, is_playing: bool, position_ms: u64) -> CommandAck {
+    status_with_overrides(common_from_ctx(ctx), is_playing, position_ms)
 }
 
 #[cfg(test)]

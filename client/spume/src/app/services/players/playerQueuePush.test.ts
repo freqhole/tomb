@@ -34,10 +34,12 @@ vi.mock("../charnel/mode", () => ({ isCharnelMode: () => isCharnelMode() }));
 const isCharnelAvailable = vi.fn(() => false);
 const getClientForRemote = vi.fn();
 const getMiddenNode = vi.fn();
+const getLocalNodeIdAsync = vi.fn();
 vi.mock("../../api/client", () => ({
   isCharnelAvailable: () => isCharnelAvailable(),
   getClientForRemote: (...a: unknown[]) => getClientForRemote(...(a as [])),
   getMiddenNode: () => getMiddenNode(),
+  getLocalNodeIdAsync: () => getLocalNodeIdAsync(),
 }));
 vi.mock("../../api/adminClient", () => ({ adminClientFor: vi.fn() }));
 vi.mock("../remotes/remoteManager", () => ({
@@ -132,6 +134,7 @@ beforeEach(() => {
     node_id: () => "this-device",
     import_blob: async () => "b3-1",
   });
+  getLocalNodeIdAsync.mockResolvedValue("this-device");
 });
 
 describe("pushSongsToPlayer drain-on-ack", () => {

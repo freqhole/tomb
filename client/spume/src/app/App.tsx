@@ -463,6 +463,7 @@ export function App() {
   // radio works with zero remotes (anyone with a node id can listen)
   const isRadioRoute = () => currentHash().startsWith("#/radio");
   const isSharedRoute = () => currentHash().startsWith("#/shared");
+  const isPlayerRoute = () => currentHash().startsWith("#/player");
 
   // listen for hash changes to update reactive state
   onMount(() => {
@@ -1708,7 +1709,8 @@ export function App() {
             hasRemotes() ||
             isSettingsRoute() ||
             isRadioRoute() ||
-            isSharedRoute()
+            isSharedRoute() ||
+            isPlayerRoute()
           }
           fallback={
             <div class="h-screen flex items-center justify-center bg-[var(--color-bg-primary)]">
@@ -1717,6 +1719,9 @@ export function App() {
                 onAddRemote={() => setIsAddRemoteOpen(true)}
                 onGoToRadio={() => {
                   window.location.hash = `/radio`;
+                }}
+                onGoToPlayer={() => {
+                  window.location.hash = `/player`;
                 }}
               />
             </div>

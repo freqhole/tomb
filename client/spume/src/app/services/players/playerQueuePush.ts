@@ -45,7 +45,7 @@
 // anything, not optional "just in case" work, so it's unaffected by the
 // above.
 
-import { getClientForRemote, getMiddenNode } from "../../api/client";
+import { getClientForRemote, getLocalNodeIdAsync, getMiddenNode } from "../../api/client";
 import { adminClientFor } from "../../api/adminClient";
 import { isCharnelMode } from "../charnel/mode";
 import {
@@ -328,6 +328,23 @@ type BridgeCache = Map<string, Promise<P2PRemote | null>>;
 // status update to arrive, not across app restarts.
 const pushedItemsByHash = new Map<string, MediaItem>();
 
+/** this device's own p2p node id, charnel or browser alike - the only
+ * correct "declared source" fallback when a local item has no P2P remote
+ * of its own. `fetchLocalNodeId() ?? playerNodeId` used to be used for
+ * this instead - `fetchLocalNodeId()` is charnel/tauri-only and resolves
+ * to `null` in plain browser mode, silently falling back to
+ * `playerNodeId` (the DESTINATION player's own address, not a source at
+ * all). that made every locally-owned item pushed from a plain browser
+ * controller declare itself as its own source, which the player's
+ * `isSelfPeerAddr` check correctly refuses to dial - resolution failed
+ * every time, `handleUnresolvedItems` retried with the exact same broken
+ * fallback, forever (a real, reported infinite append_queue retry loop). */
+async function ownNodeIdOrThrow(): Promise<string> {
+  const id = await getLocalNodeIdAsync();
+  if (!id) throw new Error("no local p2p node id available (p2p not initialized)");
+  return id;
+}
+
 function rememberPushedItem(hash: string, item: MediaItem): void {
   pushedItemsByHash.set(hash, item);
 }
@@ -365,7 +382,7 @@ async function tryBridgeToSourceRemote(
   return pending;
 }
 
-async function songToMediaRef(song: Song, playerNodeId: string): Promise<RemoteMediaRef> {
+async function songToMediaRef(song: Song): Promise<RemoteMediaRef> {
   const t0 = Date.now();
   const hash = song.blake3 ?? song.sha256;
 
@@ -383,7 +400,7 @@ async function songToMediaRef(song: Song, playerNodeId: string): Promise<RemoteM
   // `tryBridgeToSourceRemote`/`ensureSongServableInBackground` now.
   const remote = song.remote_server_id ? await getRemoteById(song.remote_server_id) : null;
   const sourcePeerAddr =
-    remote && isP2PRemote(remote) ? remote.peer_addr : ((await fetchLocalNodeId()) ?? playerNodeId);
+    remote && isP2PRemote(remote) ? remote.peer_addr : await ownNodeIdOrThrow();
   debug(
     "playerQueuePush",
     `${CENOTAPH_QUEUE_TRACE} songToMediaRef(${song.title}): sending immediately, source_peer_addr=${sourcePeerAddr.slice(0, 8)}..., total ${Date.now() - t0}ms`
@@ -522,9 +539,7 @@ async function videoToMediaRef(
   if (video.blake3) {
     const remote = video.remote_server_id ? await getRemoteById(video.remote_server_id) : null;
     const sourcePeerAddr =
-      remote && isP2PRemote(remote)
-        ? remote.peer_addr
-        : ((await fetchLocalNodeId()) ?? playerNodeId);
+      remote && isP2PRemote(remote) ? remote.peer_addr : await ownNodeIdOrThrow();
     debug(
       "playerQueuePush",
       `${CENOTAPH_QUEUE_TRACE} videoToMediaRef(${video.title}): sending immediately, source_peer_addr=${sourcePeerAddr.slice(0, 8)}..., total ${Date.now() - t0}ms`
@@ -709,7 +724,7 @@ async function forceServeMediaItem(
       );
       if (bridged) return buildSongRef(song, remote.peer_addr, hash);
     }
-    const nodeId = (await fetchLocalNodeId()) ?? playerNodeId;
+    const nodeId = await ownNodeIdOrThrow();
     await ensureSongServableInBackground(song, nodeId, playerNodeId);
     return buildSongRef(song, nodeId, hash);
   }
@@ -723,7 +738,7 @@ async function forceServeMediaItem(
     );
     if (bridged) return buildVideoRef(video, remote.peer_addr, hash);
   }
-  const nodeId = (await fetchLocalNodeId()) ?? playerNodeId;
+  const nodeId = await ownNodeIdOrThrow();
   await ensureVideoServableInBackground(video, nodeId, playerNodeId, hash);
   return buildVideoRef(video, nodeId, hash);
 }
@@ -838,7 +853,7 @@ export async function pushSongsToPlayer(peerAddr: string, songs: Song[]): Promis
     `${CENOTAPH_QUEUE_TRACE} pushSongsToPlayer(${peerAddr}): building ${songs.length} item(s)`
   );
   const items = await mapWithConcurrency(songs, QUEUE_PUSH_CONCURRENCY, (song) =>
-    songToMediaRef(song, peerAddr)
+    songToMediaRef(song)
   );
   debug(
     "playerQueuePush",
@@ -870,7 +885,7 @@ export async function appendSongsToPlayer(peerAddr: string, songs: Song[]): Prom
     `${CENOTAPH_QUEUE_TRACE} appendSongsToPlayer(${peerAddr}): building ${songs.length} item(s)`
   );
   const items = await mapWithConcurrency(songs, QUEUE_PUSH_CONCURRENCY, (song) =>
-    songToMediaRef(song, peerAddr)
+    songToMediaRef(song)
   );
   debug(
     "playerQueuePush",
@@ -966,7 +981,7 @@ async function mediaItemToRef(
   bridgeCache: BridgeCache
 ): Promise<RemoteMediaRef> {
   return item.kind === "song"
-    ? songToMediaRef(item.song, playerNodeId)
+    ? songToMediaRef(item.song)
     : videoToMediaRef(item.video, playerNodeId, bridgeCache);
 }
 

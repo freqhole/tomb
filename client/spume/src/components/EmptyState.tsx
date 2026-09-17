@@ -5,6 +5,7 @@ export interface EmptyStateProps {
   onAddMedia: () => void;
   onAddRemote: () => void;
   onGoToRadio: () => void;
+  onGoToPlayer: () => void;
 }
 
 export function EmptyState(props: EmptyStateProps) {
@@ -20,8 +21,8 @@ export function EmptyState(props: EmptyStateProps) {
         </h1>
 
         <p class="text-[var(--color-text-secondary)] mb-2">
-          get started by adding media, connecting to a remote server, or tuning into a radio
-          station.
+          get started by adding media, connecting to a remote server, tuning into a radio station,
+          or start a jukebox you can control from another device.
         </p>
 
         <div class="flex gap-3 justify-center">
@@ -35,6 +36,10 @@ export function EmptyState(props: EmptyStateProps) {
 
           <Button variant="secondary" onClick={props.onGoToRadio}>
             listen to radio
+          </Button>
+
+          <Button variant="secondary" onClick={props.onGoToPlayer}>
+            jukebox
           </Button>
         </div>
 
