@@ -305,7 +305,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
           // "this device".
           refreshPlayerStatus();
         });
-      toast.success(`paired with ${displayNameHint}`);
+      // toast.success(`paired with ${displayNameHint}`);
       props.onClose();
       props.onPlayerPaired?.(player);
     } catch (err) {

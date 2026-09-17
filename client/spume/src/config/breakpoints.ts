@@ -70,13 +70,22 @@ export function isXlViewport(): boolean {
 
 /**
  * playerbar height in px, matching theme.css's `--player-height` exactly
- * (80px narrow / 72px wide, both plus safe-area-bottom). used wherever a
- * view computes an explicit list height in JS (virtualized lists, etc) -
- * views that just render the css var directly don't need this. passing the
- * wrong value here causes a visible gap (or overlap) between list content
- * and the real playerbar.
+ * (80px narrow / 72px wide, both plus `--safe-area-bottom`). used wherever
+ * a view computes an explicit list height in JS (virtualized lists, etc) -
+ * views that just render the css var directly don't need this. reads the
+ * live `--player-height` var (mirrors `getNavHeight()`'s identical fix for
+ * `--nav-height`/`--safe-area-top`) instead of a bare constant - a device
+ * with a nonzero safe-area-bottom (iOS home indicator, android edge-to-edge)
+ * has a REAL playerbar taller than the flat 80/72px constant, which under-
+ * reserved space and let a virtualized list's last row(s) render partly
+ * behind the actual (taller) playerbar. falls back to the flat constant if
+ * the var isn't set yet or can't be parsed (e.g. before first paint).
  */
 export function getPlayerBarHeightPx(isNarrow: boolean, visible: boolean): number {
   if (!visible) return 0;
-  return isNarrow ? 80 : 72;
+  const fallback = isNarrow ? 80 : 72;
+  if (typeof window === "undefined") return fallback;
+  const raw = getComputedStyle(document.documentElement).getPropertyValue("--player-height").trim();
+  const parsed = parseFloat(raw);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }

@@ -47,7 +47,7 @@ import {
 } from "../components/player/VideoMiniPlayer";
 import { QueueSidebar } from "../components/player/QueueSidebar";
 
-import { isRemoteTargetActive } from "./services/players/activeTarget";
+import { activeTargetNodeId, isRemoteTargetActive } from "./services/players/activeTarget";
 import {
   remotePause,
   remoteResume,
@@ -320,6 +320,22 @@ export function AppLayout(props: AppLayoutProps) {
   // phase 6: unified playback target (paired freqhole-player devices) -
   // the "play on" picker itself now lives in QueueSidebar's bottom row.
   createEffect(() => setRemoteStatusPolling(isRemoteTargetActive()));
+  // setRemoteStatusPolling(true) above no-ops once already polling (see
+  // its own doc comment) - switching directly from one active remote
+  // target to a DIFFERENT one never toggles isRemoteTargetActive() (it
+  // stays true the whole time), so that effect alone never re-points the
+  // push subscription at the new target - it silently kept listening to
+  // the old one (or nothing, if that connection died), leaving the new
+  // target's queue/status stuck showing stale data for up to a full poll
+  // interval (30s). force a resync whenever the target's node id itself
+  // changes while still remote (a real reported "switching players gets
+  // stuck" bug) - `forceResyncRemoteStatus()` already does exactly the
+  // teardown+reopen this needs (built for the tab-refocus case below).
+  createEffect(
+    on(activeTargetNodeId, (nodeId, prevNodeId) => {
+      if (nodeId && prevNodeId && nodeId !== prevNodeId) forceResyncRemoteStatus();
+    })
+  );
   onCleanup(() => setRemoteStatusPolling(false));
 
   // "optimistic remote-target playerbar sync" follow-up: surface the
