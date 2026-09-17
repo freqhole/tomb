@@ -32,7 +32,12 @@ import {
   setSyncQueueToLocal,
 } from "../../app/services/storage/db";
 import { isCharnelMode, getConfig } from "../../app/services/charnel";
-import { remotePlaybackEnabled, setRemotePlaybackEnabled } from "../adapters/remoteModeSettings";
+import {
+  forceShowQr,
+  remotePlaybackEnabled,
+  setRemotePlaybackEnabled,
+  toggleForceShowQr,
+} from "../adapters/remoteModeSettings";
 import { spumeTrustStore } from "../adapters/trustStoreAdapter";
 import { spumeSessionStore } from "../adapters/playerSessionAdapter";
 import {
@@ -237,6 +242,26 @@ export function PlayerSettingsPanel(props: { onClose: () => void; nodeId?: strin
           <p class="text-sm text-neutral-500">
             off by default - turn on to let other devices pair with (and control playback on) this
             one, via pin or qr code.
+          </p>
+        </div>
+
+        <div class="flex flex-col gap-2">
+          <label class="text-sm tracking-widest text-neutral-500 uppercase">
+            show pairing qr code
+          </label>
+          <button
+            type="button"
+            class="self-start rounded bg-neutral-700 px-3 py-1 text-base"
+            aria-pressed={forceShowQr()}
+            onClick={() => toggleForceShowQr()}
+            data-testid="force-show-qr-toggle"
+          >
+            {forceShowQr() ? "on" : "off"}
+          </button>
+          <p class="text-sm text-neutral-500">
+            keeps the pairing qr/pin visible even while something's playing or queued - handy for
+            pairing another controller mid-session. press "q" on the player screen to toggle this
+            too.
           </p>
         </div>
 

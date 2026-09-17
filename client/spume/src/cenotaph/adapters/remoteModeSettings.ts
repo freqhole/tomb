@@ -62,3 +62,16 @@ export function setPlayerRouteMounted(mounted: boolean): void {
 export function isActivePlayer(): boolean {
   return playerRouteMounted && isRemotePlaybackEnabled();
 }
+
+// ephemeral (never persisted, resets on reload) - forces
+// CenotaphPlayerApp.tsx's pairing qr/pin screen to show even while
+// something's playing or queued, so a user can pair a second controller
+// mid-session without clearing the queue first. toggled by
+// PlayerSettingsPanel.tsx's button and CenotaphPlayerApp.tsx's "q"
+// keyboard shortcut.
+const [forceShowQr, setForceShowQrSignal] = createSignal(false);
+export { forceShowQr };
+
+export function toggleForceShowQr(): void {
+  setForceShowQrSignal((value) => !value);
+}

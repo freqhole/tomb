@@ -33,6 +33,7 @@ import {
   appendVideosToPlayer,
   pushSongsToPlayer,
   pushVideosToPlayer,
+  registerPendingRetryHook,
 } from "./playerQueuePush";
 import { debug } from "../../../utils/logger";
 import { CENOTAPH_QUEUE_TRACE } from "../../../cenotaph/queueTrace";
@@ -84,6 +85,21 @@ function provisionalVideoRef(video: QueuedVideo): RemoteMediaRef {
 function provisionalMediaItemRef(item: MediaItem): RemoteMediaRef {
   return item.kind === "song" ? provisionalSongRef(item.song) : provisionalVideoRef(item.video);
 }
+
+// lets playerQueuePush.ts's handleUnresolvedItems (CONTROLLER_BLOB_PROXY
+// retry) show a placeholder row for the exact hash the player reported as
+// unresolved, so its transfer-status progress bar has a rendered row to
+// attach to - injected here (rather than playerQueuePush.ts importing
+// pushPendingOp directly) to avoid a circular import, since this file
+// already imports FROM playerQueuePush.ts. the placeholder's hash is
+// overridden to `hash` explicitly rather than trusting
+// provisionalSongRef/provisionalVideoRef's own derivation, since a
+// video's real (already-known) hash at retry time may differ from
+// provisionalVideoRef's `pending:${id}` placeholder.
+registerPendingRetryHook((hash, item) => {
+  const ref: RemoteMediaRef = { ...provisionalMediaItemRef(item), blake3_hash: hash };
+  return pushPendingOp({ mode: "append", items: [ref] });
+});
 
 /** same instant-overlay mechanism as mirrorAppendToQueue/mirrorReplaceQueue
  * below, exported directly for a caller (selectPlaybackTarget.ts's initial

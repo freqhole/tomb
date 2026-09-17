@@ -12,6 +12,7 @@ import type { Song } from "../../../music/services/storage/types";
 import { readAudioFromOPFS } from "../../../music/services/opfs/helpers";
 import { getVideoByBlake3 } from "../../../video/services/storage/db/videos";
 import { readVideoFromOPFS } from "../../../video/services/opfs/helpers";
+import { getBlob } from "../../../music/services/storage/blobs";
 import { ensureBlobServable } from "../blobServing";
 
 function blobIdFor(song: Song): string {
@@ -62,6 +63,28 @@ export async function getMediaBlob(id: string): Promise<BlobMetadataResponse | n
     };
   }
 
+  // not a song/video's own audio/video blob - an album art/artist/
+  // waveform image is staged separately (see lib/api/images.ts's
+  // stageAndMapImages, which advertises an image's `local_blob_id` as
+  // its wire `blob_id`) and lives in the generic local blob store, not
+  // keyed to any song/video row. a remote peer resolving a pushed song's
+  // artwork calls this same route for that id - without this fallback it
+  // 404s here even though `ensureBlobServable` already staged the bytes
+  // for the primary iroh-blobs transfer.
+  const image = await getBlob(id);
+  if (image) {
+    await ensureBlobServable(id, () => Promise.resolve(image));
+    return {
+      id,
+      sha256: id,
+      size: image.size,
+      mime: image.type || undefined,
+      filename: undefined,
+      blob_type: "thumbnail",
+      blake3: id,
+    };
+  }
+
   return null;
 }
 
@@ -108,6 +131,14 @@ export async function getData(id: string): Promise<BlobDataResponse | null> {
     const file = await readVideoFromOPFS(video.opfs_path);
     const bytes = new Uint8Array(await file.arrayBuffer());
     return { id, mime: video.mime_type ?? file.type, data: bytesToBase64(bytes) };
+  }
+
+  // image blob (album art/artist/waveform) - see getMediaBlob's identical
+  // fallback above for why this doesn't live in the song/video stores.
+  const image = await getBlob(id);
+  if (image) {
+    const bytes = new Uint8Array(await image.arrayBuffer());
+    return { id, mime: image.type || undefined, data: bytesToBase64(bytes) };
   }
 
   return null;

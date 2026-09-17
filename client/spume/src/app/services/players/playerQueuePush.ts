@@ -435,6 +435,21 @@ function rememberPushedItem(hash: string, item: MediaItem): void {
   pushedItemsByHash.set(hash, item);
 }
 
+/** injected by remoteQueueMirror.ts, which registers itself at module
+ * load (mirrors registerUnresolvedItemsHandler in remotePlaybackControl.ts
+ * - avoids a circular import, since remoteQueueMirror.ts already imports
+ * FROM this file). lets `handleUnresolvedItems` below show a placeholder
+ * queue row, keyed by the exact hash the player reported as unresolved,
+ * for the duration of the CONTROLLER_BLOB_PROXY retry - without it,
+ * `optimisticRemoteQueue()` has no row at that hash at all (the player
+ * never added it to its own queue, since failing to resolve it is the
+ * whole reason it's being retried), so `RemoteQueueRow`'s transfer-status
+ * lookup had nothing to attach to and the progress bar never rendered. */
+let registerPendingRetryOp: ((hash: string, item: MediaItem) => () => void) | null = null;
+export function registerPendingRetryHook(fn: (hash: string, item: MediaItem) => () => void): void {
+  registerPendingRetryOp = fn;
+}
+
 /** step 8 (cross-remote forwarding, node A=player, B=this device, C=source
  * remote): if this device already has admin rights on the item's source
  * remote (C), grants the player (A) direct read-trust there via C's admin
@@ -851,42 +866,49 @@ export async function handleUnresolvedItems(
   if (unresolvedItems.length === 0) return;
   const bridgeCache: BridgeCache = new Map();
   const retried: RemoteMediaRef[] = [];
-  for (const unresolved of unresolvedItems) {
-    const mediaItem = pushedItemsByHash.get(unresolved.blake3_hash);
-    if (!mediaItem) {
+  const clearPending: Array<() => void> = [];
+  try {
+    for (const unresolved of unresolvedItems) {
+      const mediaItem = pushedItemsByHash.get(unresolved.blake3_hash);
+      if (!mediaItem) {
+        warn(
+          "playerQueuePush",
+          `${CENOTAPH_QUEUE_TRACE} handleUnresolvedItems: player ${peerAddr} reported it can't resolve blake3=${unresolved.blake3_hash.slice(0, 8)}... (declared source ${unresolved.source_peer_addr.slice(0, 8)}...) but this device has no record of pushing it this session - can't help.`
+        );
+        continue;
+      }
+      const title = mediaItem.kind === "song" ? mediaItem.song.title : mediaItem.video.title;
       warn(
         "playerQueuePush",
-        `${CENOTAPH_QUEUE_TRACE} handleUnresolvedItems: player ${peerAddr} reported it can't resolve blake3=${unresolved.blake3_hash.slice(0, 8)}... (declared source ${unresolved.source_peer_addr.slice(0, 8)}...) but this device has no record of pushing it this session - can't help.`
+        `${CENOTAPH_QUEUE_TRACE} CONTROLLER_BLOB_PROXY: player ${peerAddr} couldn't resolve "${title}" from declared source ${unresolved.source_peer_addr.slice(0, 8)}... - helping reactively now (the only time this device does networking for a queue item it didn't already have to).`
       );
-      continue;
+      const clear = registerPendingRetryOp?.(unresolved.blake3_hash, mediaItem);
+      if (clear) clearPending.push(clear);
+      try {
+        retried.push(
+          await forceServeMediaItem(unresolved.blake3_hash, mediaItem, peerAddr, bridgeCache)
+        );
+      } catch (err) {
+        warn("playerQueuePush", `handleUnresolvedItems: failed to help resolve "${title}":`, err);
+      }
     }
-    const title = mediaItem.kind === "song" ? mediaItem.song.title : mediaItem.video.title;
-    warn(
-      "playerQueuePush",
-      `${CENOTAPH_QUEUE_TRACE} CONTROLLER_BLOB_PROXY: player ${peerAddr} couldn't resolve "${title}" from declared source ${unresolved.source_peer_addr.slice(0, 8)}... - helping reactively now (the only time this device does networking for a queue item it didn't already have to).`
-    );
+    if (retried.length === 0) return;
+    let ack: CommandAckLike | undefined;
     try {
-      retried.push(
-        await forceServeMediaItem(unresolved.blake3_hash, mediaItem, peerAddr, bridgeCache)
-      );
+      ack = (await sendPlayerCommand(peerAddr, {
+        type: "control",
+        command: "append_queue",
+        items: retried,
+      })) as CommandAckLike;
     } catch (err) {
-      warn("playerQueuePush", `handleUnresolvedItems: failed to help resolve "${title}":`, err);
+      warn("playerQueuePush", `handleUnresolvedItems: re-send to ${peerAddr} failed:`, err);
+      return;
     }
+    reportCommandAckFailure(ack, peerAddr);
+    if (ack?.status) applyRemoteStatusFromAck(ack.status);
+  } finally {
+    for (const clear of clearPending) clear();
   }
-  if (retried.length === 0) return;
-  let ack: CommandAckLike | undefined;
-  try {
-    ack = (await sendPlayerCommand(peerAddr, {
-      type: "control",
-      command: "append_queue",
-      items: retried,
-    })) as CommandAckLike;
-  } catch (err) {
-    warn("playerQueuePush", `handleUnresolvedItems: re-send to ${peerAddr} failed:`, err);
-    return;
-  }
-  reportCommandAckFailure(ack, peerAddr);
-  if (ack?.status) applyRemoteStatusFromAck(ack.status);
 }
 
 interface CommandAckLike {

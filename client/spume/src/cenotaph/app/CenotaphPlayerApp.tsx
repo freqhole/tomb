@@ -48,9 +48,11 @@ import { pendingQueuePreviews } from "../adapters/charnelPlaybackAdapter";
 
 import { appState, getLocalLibraryName } from "../../app/services/storage/db";
 import {
+  forceShowQr,
   remotePlaybackEnabled,
   setPlayerRouteMounted,
   setRemotePlaybackEnabled,
+  toggleForceShowQr,
 } from "../adapters/remoteModeSettings";
 import { PlayerDebugOverlay } from "./PlayerDebugOverlay";
 import { PlayerSettingsPanel } from "./PlayerSettingsPanel";
@@ -229,6 +231,10 @@ export function CenotaphPlayerApp() {
         setSettingsOpen((open) => !open);
         return;
       }
+      if (e.key === "q" || e.key === "Q") {
+        toggleForceShowQr();
+        return;
+      }
       if (e.key === "d" || e.key === "D") void setDevelMode(!develMode());
     };
     window.addEventListener("keydown", onKeyDown);
@@ -294,10 +300,12 @@ export function CenotaphPlayerApp() {
   // the qr+pin pairing screen is the only ui a brand-new (not-yet-trusted)
   // device has to discover this player at all - it must reappear once a
   // session's queue empties back out, not just before the very first
-  // session ever starts.
+  // session ever starts. `forceShowQr()` overrides the queue-empty check
+  // so a user can pair a second controller without clearing what's
+  // already playing (settings panel button, or the "q" shortcut).
   const showPairingScreen = () => {
     if (isCharnelMode() && pairingConfigEnabled() === false) return false;
-    return (appState()?.queue.length ?? 0) === 0;
+    return forceShowQr() || (appState()?.queue.length ?? 0) === 0;
   };
 
   /** the queue rows below the current "now playing" item - deliberately a
