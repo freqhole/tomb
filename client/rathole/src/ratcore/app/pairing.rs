@@ -609,6 +609,17 @@ pub struct PairingDownloadProgress {
     pub title: Option<String>,
 }
 
+/// mirrors `grimoire::cenotaph::wire::UnresolvedItemRef` (`ratcore` can't
+/// depend on grimoire directly - see this struct's sibling `StatusCommon`
+/// above) - one queued item this player couldn't pull from its declared
+/// source, reported on `StatusCommon.unresolved_items` so the controller
+/// can proxy it as a last resort. see `PairingViewState::unresolved_items`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct UnresolvedItemRef {
+    pub blake3_hash: String,
+    pub source_peer_addr: String,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct PairingViewState {
     pub mode: PairingViewMode,
@@ -627,6 +638,15 @@ pub struct PairingViewState {
     /// nothing is downloading. pushed by `tty::pairing`'s dispatch via
     /// `AppAction::PairingDownloadProgress`.
     pub download_progress: Option<PairingDownloadProgress>,
+    /// queued items this player couldn't resolve on its own - kept
+    /// here (not just a `DispatchContext`-local list) so it persists
+    /// across dispatch calls until either the controller helps (a
+    /// later resolve for the same hash clears it, via
+    /// `AppAction::PairingItemResolved`) or a fresh `replace_queue`
+    /// wipes the queue entirely. included on every outgoing
+    /// `StatusCommon.unresolved_items` (see `tty::pairing::
+    /// common_from_ctx`/`tty::run::build_player_status`).
+    pub unresolved_items: Vec<UnresolvedItemRef>,
     /// true while the audio-output-device picker overlay (opened from
     /// the "audio output device" settings row) is showing.
     pub device_picker_open: bool,

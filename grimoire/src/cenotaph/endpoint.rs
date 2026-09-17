@@ -185,13 +185,31 @@ impl PlayerProtocol {
 
 impl ProtocolHandler for PlayerProtocol {
     async fn accept(&self, conn: Connection) -> std::result::Result<(), AcceptError> {
-        // the ALPN handler is now always attached (see charnel's
-        // p2p_commands.rs) - checking the live config value here, per
-        // connection, is what actually lets `[player_pairing].enabled`
-        // be toggled on/off without a router rebuild/app restart. reject
-        // outright (no handshake at all) when disabled, same as the
-        // browser cenotaph accept loop's `isEnabled()` gate.
-        if !crate::config::get_config().player_pairing.enabled {
+        // charnel always attaches this handler regardless of config (see
+        // p2p_commands.rs) and relies entirely on `player_pairing.enabled`
+        // as its live per-connection on/off toggle - toggling it off/on in
+        // settings takes effect on the very next connection, no app
+        // restart/router rebuild needed.
+        //
+        // rathole is different: it only ever STARTS this endpoint at all
+        // when `--player`/`/player`/`federation.enabled` says to (see
+        // `PairingRuntime::ensure_started`'s callers) - `player_pairing.
+        // enabled` there is JUST an additional autostart-on-launch trigger
+        // (see its own doc comment), never meant to gate whether an
+        // already-started endpoint accepts connections. checking ONLY
+        // that flag here meant a rathole started via `--player` alone
+        // (the common case, `player_pairing.enabled` still false/default)
+        // silently rejected every single pairing dial with zero logging -
+        // `player_session::is_active()` is the correct, broader "is this
+        // process genuinely acting as a player right now" signal both
+        // hosts already keep in sync with their own on/off toggle (rathole:
+        // `--player`/focus==PlayerPairing; charnel: spume's own route-
+        // mounted+accept-toggle state - see their respective `set_active`
+        // call sites), so OR-ing it in here fixes rathole without changing
+        // charnel's existing behavior.
+        if !crate::config::get_config().player_pairing.enabled
+            && !crate::player_session::is_active()
+        {
             return Ok(());
         }
         let peer_id = conn.remote_id();

@@ -361,6 +361,41 @@ createRoot(() => {
   );
 });
 
+/** resolves once `isPlaying()` matches `expected`, or after `timeoutMs`
+ * (never rejects - a backend that never settles must not hang the
+ * command forever). needed because pausePlayback()/resumePlayback() only
+ * KICK OFF the underlying backend's async pause/play - `isPlaying()`
+ * itself only updates later, once the backend's own event stream reports
+ * the real state change (see playerStateSync.ts's `applyEvent`). without
+ * this, `currentStatus()` (built immediately after, for the command's
+ * ack) always read the OLD value, so a paired controller's play/pause
+ * button looked exactly one command behind the real state - a real bug
+ * found live ("pause the remote, remote pauses, but the controller still
+ * shows playing until I click again"). */
+function waitForPlaybackState(expected: boolean, timeoutMs = 2000): Promise<void> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      dispose();
+      resolve();
+    }, timeoutMs);
+    const dispose = createRoot((disposeRoot) => {
+      createEffect(() => {
+        if (settled) return;
+        if (isPlaying() === expected) {
+          settled = true;
+          clearTimeout(timer);
+          disposeRoot();
+          resolve();
+        }
+      });
+      return disposeRoot;
+    });
+  });
+}
+
 function currentStatus(): PlayerStatus {
   const queue = buildQueueRefs();
   const common = {
@@ -482,11 +517,13 @@ export const charnelPlaybackAdapter: PlaybackBackend<unknown> = {
       warn("charnelPlaybackAdapter", "appendQueue: no items resolved, nothing to append");
     }
   },
-  pause() {
+  async pause() {
     pausePlayback();
+    await waitForPlaybackState(false);
   },
-  resume() {
-    void resumePlayback();
+  async resume() {
+    await resumePlayback();
+    await waitForPlaybackState(true);
   },
   seek(positionMs) {
     seekPlayback(positionMs / 1000);

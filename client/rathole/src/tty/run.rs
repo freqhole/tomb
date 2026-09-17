@@ -742,6 +742,22 @@ fn on_peer_input_key(app: &mut App, code: KeyCode) {
     }
 }
 
+/// true whenever the in-process pairing endpoint (`PairingRuntime::
+/// ensure_started`, started by `--player`/`federation.enabled`/
+/// `player_pairing.enabled`/focus==PlayerPairing) already owns p2p for
+/// this session - a manually-started `/serve p2p`/`/serve auto`
+/// subprocess in that case would register the exact same iroh identity
+/// with the relay a second time, and the relay only delivers to
+/// whichever connection registered most recently (the loser silently
+/// drops ALL traffic - a real user hit this as "connection lost" pairing
+/// failures).
+fn pairing_endpoint_owns_p2p() -> bool {
+    let cfg = grimoire::config::get_config();
+    grimoire::player_session::is_active()
+        || cfg.federation.as_ref().map(|f| f.enabled).unwrap_or(false)
+        || cfg.player_pairing.enabled
+}
+
 /// intercept serve-related app actions so we can route them to the
 /// subprocess monitor before falling through to the generic
 /// `on_action` dispatcher. returns `true` when the action was
@@ -769,6 +785,16 @@ fn handle_serve_action(
                 ServeKindRequest::Http => ServeKind::Http,
                 ServeKindRequest::P2p => ServeKind::P2p,
             };
+            // a manually-started p2p subprocess would register the same
+            // iroh identity as the in-process pairing endpoint a second
+            // time - see `pairing_endpoint_owns_p2p`'s doc comment.
+            if matches!(mapped, ServeKind::Auto | ServeKind::P2p) && pairing_endpoint_owns_p2p() {
+                app.state.ephemeral.repl.status = Some(ReplStatus::err(
+                    "can't start a p2p subprocess: player pairing already owns p2p this session - use /serve http instead"
+                        .to_string(),
+                ));
+                return true;
+            }
             match monitor.start(mapped) {
                 Ok(()) => {
                     app.state.ephemeral.repl.status = Some(ReplStatus::ok(format!(
@@ -1484,6 +1510,25 @@ fn on_action(app: &mut App, action: AppAction, action_tx: &mpsc::UnboundedSender
                 .pending_previews
                 .retain(|item| item.blake3_hash != blake3_hash);
         }
+        AppAction::PairingItemUnresolved {
+            blake3_hash,
+            source_peer_addr,
+        } => {
+            let list = &mut app.state.ephemeral.player_pairing.unresolved_items;
+            if !list.iter().any(|u| u.blake3_hash == blake3_hash) {
+                list.push(crate::ratcore::app::UnresolvedItemRef {
+                    blake3_hash,
+                    source_peer_addr,
+                });
+            }
+        }
+        AppAction::PairingItemResolved { blake3_hash } => {
+            app.state
+                .ephemeral
+                .player_pairing
+                .unresolved_items
+                .retain(|u| u.blake3_hash != blake3_hash);
+        }
         AppAction::SongArtResolved { song_id, paths } => {
             let still_current = app
                 .state
@@ -1768,7 +1813,21 @@ fn radio_now_playing_ref(app: &App) -> Option<grimoire::cenotaph::MediaRef> {
 /// (ctx-based, `&App`-decoupled) version, since that one deliberately
 /// stays usable from a spawned task without `&App` access.
 fn build_player_status(app: &App) -> grimoire::cenotaph::PlayerStatus {
-    use grimoire::cenotaph::{PlayerStatus, StatusCommon};
+    use grimoire::cenotaph::{
+        PlayerStatus, StatusCommon, UnresolvedItemRef as WireUnresolvedItemRef,
+    };
+
+    let unresolved_items: Vec<WireUnresolvedItemRef> = app
+        .state
+        .ephemeral
+        .player_pairing
+        .unresolved_items
+        .iter()
+        .map(|u| WireUnresolvedItemRef {
+            blake3_hash: u.blake3_hash.clone(),
+            source_peer_addr: u.source_peer_addr.clone(),
+        })
+        .collect();
 
     if let Some(item) = radio_now_playing_ref(app) {
         let vp = &app.state.ephemeral.video_player;
@@ -1777,7 +1836,7 @@ fn build_player_status(app: &App) -> grimoire::cenotaph::PlayerStatus {
             auto_download_enabled: false,
             volume: app.state.ephemeral.music.volume as f64,
             recently_played: Vec::new(),
-            unresolved_items: Vec::new(),
+            unresolved_items: unresolved_items.clone(),
         };
         let position_ms = (vp.position * 1000.0).round() as u64;
         let server_time_ms = std::time::SystemTime::now()
@@ -1820,7 +1879,7 @@ fn build_player_status(app: &App) -> grimoire::cenotaph::PlayerStatus {
         auto_download_enabled: false,
         volume: m.volume as f64,
         recently_played,
-        unresolved_items: Vec::new(),
+        unresolved_items,
     };
     let is_playing = is_currently_playing(app);
     let position_ms = if active_playback_is_video(app) {
@@ -1916,6 +1975,7 @@ fn handle_pairing_dispatch(
         duration_ms,
         is_playing,
         recently_played,
+        unresolved_items: app.state.ephemeral.player_pairing.unresolved_items.clone(),
     };
     tokio::task::spawn_local(async move {
         tracing::info!(target: "player_protocol", "handle_pairing_dispatch: request received from pairing_rx, dispatching");

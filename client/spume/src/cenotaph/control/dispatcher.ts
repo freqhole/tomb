@@ -65,10 +65,10 @@ export async function dispatchCommand<TNode = unknown>(
         await backend.appendQueue(node, command.items);
         break;
       case "pause":
-        backend.pause();
+        await backend.pause();
         break;
       case "resume":
-        backend.resume();
+        await backend.resume();
         break;
       case "seek":
         backend.seek(command.position_ms);

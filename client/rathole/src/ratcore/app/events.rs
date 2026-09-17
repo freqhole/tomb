@@ -766,6 +766,25 @@ pub enum AppAction {
     /// replace it, mirroring `resolve_queue_items`'s existing
     /// skip-and-warn behavior).
     PairingQueuePreviewSettled { blake3_hash: String },
+    /// `resolve_queue_items` couldn't pull this item from its declared
+    /// source (unreachable/unauthorized peer, sync failure, etc.) -
+    /// recorded in `PairingViewState::unresolved_items` so the next
+    /// status report includes it, letting the CONTROLLER notice and
+    /// proxy the bytes itself as a last resort (mirrors spume's
+    /// charnelPlaybackAdapter.ts `markUnresolved`/`unresolved_items`
+    /// wire field). purely additive here - rathole itself does nothing
+    /// else with this beyond reporting it.
+    PairingItemUnresolved {
+        blake3_hash: String,
+        source_peer_addr: String,
+    },
+    /// a later resolve attempt for a previously-unresolved hash
+    /// succeeded (e.g. after the controller helped and re-sent it) -
+    /// clears the matching entry from `PairingViewState::
+    /// unresolved_items`. also sent on every ordinary successful
+    /// resolve (a no-op if the hash was never unresolved to begin
+    /// with) so a stale entry can never linger past its own recovery.
+    PairingItemResolved { blake3_hash: String },
     /// a song's artwork blob(s) resolved to local file path(s) (see
     /// `SongRow::art_blob_ids`) - the ui loop installs `paths` into
     /// `PairingViewState::art_paths` if `song_id` still matches

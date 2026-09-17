@@ -124,14 +124,8 @@ export function LogzSettingsView() {
 
       <div class="bg-[var(--color-bg-secondary)] border border-[var(--color-border-subtle)] rounded-lg p-4 mb-4">
         <h2 class="text-sm font-semibold text-[var(--color-text-muted)] uppercase tracking-wider mb-2">
-          verbosity
+          log level
         </h2>
-        <p class="text-xs text-[var(--color-text-secondary)] mb-3">
-          the app's own `debug()`/`info()` tracing (including anything tagged CENOTAPH_QUEUE_TRACE)
-          only reaches the console at all above this level - the filter chips below only hide/show
-          what's ALREADY been captured, they can't recover a debug() call that never fired. persists
-          across reloads.
-        </p>
         <div class="flex flex-wrap gap-2">
           <For each={GATE_LEVELS}>
             {(level) => (

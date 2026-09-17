@@ -1043,9 +1043,9 @@ export function App() {
       // done per-backend. no-op outside charnel.
       installEphemeralReconciler();
       mark("installEphemeralReconciler done");
-      // surfaces iroh relay connectivity warnings (rate-limiting, lost
-      // connection) as a deduped toast instead of leaving them invisible
-      // in raw console output - see relayHealthWarnings.ts.
+      // surfaces iroh relay rate-limiting warnings as an occasional,
+      // deduped toast instead of leaving them invisible in raw console
+      // output - see relayHealthWarnings.ts.
       installRelayRateLimitWatcher();
       mark("installRelayRateLimitWatcher done");
       // hydrate the configurable queue size limit from `[client]`

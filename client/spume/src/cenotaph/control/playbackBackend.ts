@@ -19,8 +19,8 @@ export interface PlaybackBackend<TNode = unknown> {
   play(node: TNode, item: MediaRef): Promise<void>;
   replaceQueue(node: TNode, items: MediaRef[]): Promise<void>;
   appendQueue(node: TNode, items: MediaRef[]): Promise<void>;
-  pause(): void;
-  resume(): void;
+  pause(): Promise<void> | void;
+  resume(): Promise<void> | void;
   seek(positionMs: number): void;
   skip(node: TNode): Promise<void>;
   removeFromQueue(node: TNode, index: number): Promise<void>;

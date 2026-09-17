@@ -17,10 +17,10 @@ use tracing::{info, warn};
 
 use grimoire::cenotaph::{
     CommandAck, CommandAckReason, MediaKind, MediaRef, PlayerCommand as PairingCommand,
-    PlayerStatus, StatusCommon,
+    PlayerStatus, StatusCommon, UnresolvedItemRef as WireUnresolvedItemRef,
 };
 
-use crate::ratcore::app::{AppAction, QueueEntry, QueuedVideoRow, SongRow};
+use crate::ratcore::app::{AppAction, QueueEntry, QueuedVideoRow, SongRow, UnresolvedItemRef};
 use crate::ratcore::transport::{PlayerCmd, VideoPlayer};
 
 use super::now_ms;
@@ -64,6 +64,11 @@ pub struct DispatchContext {
     /// recently-finished queue entries, most recent first - built from
     /// `MusicState::history` by `run.rs`'s `handle_pairing_dispatch`.
     pub recently_played: Vec<String>,
+    /// snapshot of `PairingViewState::unresolved_items` - reported
+    /// as-is on every `StatusCommon` this dispatch builds; only
+    /// `resolve_queue_items` (via `AppAction::PairingItemUnresolved`/
+    /// `PairingItemResolved`) actually mutates the real, persisted list.
+    pub unresolved_items: Vec<UnresolvedItemRef>,
 }
 
 /// converts a unified queue entry into the wire `MediaRef` shape -
@@ -598,6 +603,12 @@ async fn resolve_queue_items(
                     let _ = tx.send(AppAction::PairingQueuePreviewSettled {
                         blake3_hash: item.blake3_hash.clone(),
                     });
+                    // a no-op unless this exact hash was previously
+                    // unresolved (e.g. the controller helped and
+                    // re-sent it) - clears the stale entry either way.
+                    let _ = tx.send(AppAction::PairingItemResolved {
+                        blake3_hash: item.blake3_hash.clone(),
+                    });
                 }
                 sent_first = true;
                 entries.push(entry);
@@ -607,6 +618,14 @@ async fn resolve_queue_items(
                 if let Some(tx) = &ctx.action_tx {
                     let _ = tx.send(AppAction::PairingQueuePreviewSettled {
                         blake3_hash: item.blake3_hash.clone(),
+                    });
+                    // report back on the next status so the CONTROLLER
+                    // can notice and proxy this item as a last resort
+                    // (see `AppAction::PairingItemUnresolved`'s doc
+                    // comment).
+                    let _ = tx.send(AppAction::PairingItemUnresolved {
+                        blake3_hash: item.blake3_hash.clone(),
+                        source_peer_addr: item.source_peer_addr.clone(),
                     });
                 }
             }
@@ -649,7 +668,7 @@ async fn replace_queue(ctx: &DispatchContext, items: Vec<MediaRef>) -> CommandAc
             auto_download_enabled: false,
             volume: ctx.volume as f64,
             recently_played: ctx.recently_played.clone(),
-            unresolved_items: Vec::new(),
+            unresolved_items: wire_unresolved_items(ctx),
         },
     })
 }
@@ -682,9 +701,22 @@ async fn append_queue(ctx: &DispatchContext, items: Vec<MediaRef>) -> CommandAck
             auto_download_enabled: false,
             volume: ctx.volume as f64,
             recently_played: ctx.recently_played.clone(),
-            unresolved_items: Vec::new(),
+            unresolved_items: wire_unresolved_items(ctx),
         },
     )
+}
+
+/// converts `ctx.unresolved_items` (the ratcore-portable mirror, since
+/// `ratcore` can't depend on grimoire directly) into the real wire
+/// shape for a `StatusCommon` literal.
+fn wire_unresolved_items(ctx: &DispatchContext) -> Vec<WireUnresolvedItemRef> {
+    ctx.unresolved_items
+        .iter()
+        .map(|u| WireUnresolvedItemRef {
+            blake3_hash: u.blake3_hash.clone(),
+            source_peer_addr: u.source_peer_addr.clone(),
+        })
+        .collect()
 }
 
 fn common_from_ctx(ctx: &DispatchContext) -> StatusCommon {
@@ -693,7 +725,7 @@ fn common_from_ctx(ctx: &DispatchContext) -> StatusCommon {
         auto_download_enabled: false,
         volume: ctx.volume as f64,
         recently_played: ctx.recently_played.clone(),
-        unresolved_items: Vec::new(),
+        unresolved_items: wire_unresolved_items(ctx),
     }
 }
 
@@ -763,6 +795,7 @@ mod tests {
             duration_ms: 0,
             is_playing: false,
             recently_played: vec![],
+            unresolved_items: vec![],
         }
     }
 
