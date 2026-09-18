@@ -60,6 +60,13 @@ pub fn play_index(app: &mut App, idx: usize, tx: &mpsc::UnboundedSender<AppActio
         app.state.ephemeral.player_pairing.art_paths.clear();
         if was_video_active || was_audio_fallback_active {
             close_video(app);
+        } else if let Some(player) = app.player.clone() {
+            // the last entry was a plain rodio song - close_video (above)
+            // only stops mpv, so without this rodio just kept playing the
+            // final track forever once the queue ran out from under it.
+            tokio::task::spawn_local(async move {
+                let _ = player.send(PlayerCmd::Stop).await;
+            });
         }
         return;
     }

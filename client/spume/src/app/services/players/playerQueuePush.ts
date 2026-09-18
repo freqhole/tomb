@@ -138,13 +138,16 @@ registerUnresolvedItemsHandler((peerAddr, items) => {
  * overlay already uses for an unconfirmed row, so the UI needs no extra
  * plumbing to find the right entry either way. */
 export interface QueueItemTransferStatus {
-  phase: "fetching" | "sending";
+  phase: "fetching" | "sending" | "awaiting_ack";
   /** source being fetched from (fetching phase) - undefined if unknown. */
   fromRemoteName?: string;
-  /** player being served (sending phase) - undefined if unknown. */
+  /** player being served (sending/awaiting_ack phase) - undefined if
+   * unknown. */
   toPlayerName?: string;
   /** 0..1 if known (content-length/total size was available), else
-   * undefined - UI shows an indeterminate spinner in that case. */
+   * undefined - UI shows an indeterminate spinner in that case. always
+   * undefined for `awaiting_ack` - there's no fraction to report while
+   * waiting on the player's append_queue response, only elapsed time. */
   progress?: number;
 }
 
@@ -547,7 +550,8 @@ function buildSongRef(song: Song, sourcePeerAddr: string, blake3Hash: string): R
 async function ensureSongServableInBackground(
   song: Song,
   nodeId: string,
-  playerNodeId: string
+  playerNodeId: string,
+  hash: string
 ): Promise<void> {
   const t0 = Date.now();
   const localPath = await resolveCharnelLocalBlobPath(song.blake3);
@@ -561,9 +565,8 @@ async function ensureSongServableInBackground(
   }
   warn(
     "playerQueuePush",
-    `${CENOTAPH_QUEUE_TRACE} CONTROLLER_BLOB_PROXY: relaying "${song.title}" (blake3=${(song.blake3 ?? song.sha256).slice(0, 8)}..., remote_server_id=${song.remote_server_id ?? "(none)"}) through THIS device as a last resort - no known P2P source remote and nothing already on disk. if this fires often, something is misclassifying a song's remote_server_id.`
+    `${CENOTAPH_QUEUE_TRACE} CONTROLLER_BLOB_PROXY: relaying "${song.title}" (blake3=${hash.slice(0, 8)}..., remote_server_id=${song.remote_server_id ?? "(none)"}) through THIS device as a last resort - no known P2P source remote and nothing already on disk. if this fires often, something is misclassifying a song's remote_server_id.`
   );
-  const hash = song.blake3 ?? song.sha256;
   const [fromRemoteName, toPlayerName] = await Promise.all([
     resolveRemoteName(song.remote_server_id),
     resolvePlayerName(playerNodeId),
@@ -830,7 +833,7 @@ async function forceServeMediaItem(
       if (bridged) return buildSongRef(song, remote.peer_addr, hash);
     }
     const nodeId = await ownNodeIdOrThrow();
-    await ensureSongServableInBackground(song, nodeId, playerNodeId);
+    await ensureSongServableInBackground(song, nodeId, playerNodeId, hash);
     return buildSongRef(song, nodeId, hash);
   }
   const video = mediaItem.video;
@@ -893,6 +896,18 @@ export async function handleUnresolvedItems(
       }
     }
     if (retried.length === 0) return;
+    // the append_queue round-trip itself can take far longer than the
+    // blob transfer it followed (seconds, sometimes 10+, under relay
+    // rate-limiting - see the WARN logs this session) with NOTHING
+    // shown for it otherwise, since fetchAndImportStreaming's own
+    // "fetching"/"sending" phases already finished by this point. mark
+    // every retried item as "awaiting_ack" for the duration of this one
+    // wait so the row shows *something* instead of a generic, timeless
+    // "queueing..." the whole time.
+    const toPlayerName = await resolvePlayerName(peerAddr);
+    for (const ref of retried) {
+      setTransferStatus(ref.blake3_hash, { phase: "awaiting_ack", toPlayerName });
+    }
     let ack: CommandAckLike | undefined;
     try {
       ack = (await sendPlayerCommand(peerAddr, {
@@ -903,6 +918,8 @@ export async function handleUnresolvedItems(
     } catch (err) {
       warn("playerQueuePush", `handleUnresolvedItems: re-send to ${peerAddr} failed:`, err);
       return;
+    } finally {
+      for (const ref of retried) setTransferStatus(ref.blake3_hash, null);
     }
     reportCommandAckFailure(ack, peerAddr);
     if (ack?.status) applyRemoteStatusFromAck(ack.status);

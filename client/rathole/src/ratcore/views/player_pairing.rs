@@ -405,12 +405,12 @@ fn draw_queue_glance(frame: &mut Frame, area: Rect, app: &App) {
     let current = m.current.and_then(|i| m.queue.get(i));
 
     // "now playing" title + artist each get a dynamically-sized,
-    // centered big-text line (same shrink-to-fit approach as the pin)
-    // instead of plain text - falls back to normal bold/dim text when
-    // even the smallest big-text size can't fit (long titles/artist
-    // names will often land here - that's fine, still an upgrade for
-    // the ones short enough to benefit). album stays regular text
-    // (centered too), no need for it to compete for the same space.
+    // centered big-text line (same shrink-to-fit approach as the pin) -
+    // a title/artist too long for even the narrowest candidate still
+    // renders big and is simply clipped by its row's `Rect` (see
+    // `fit_text_layout`'s own doc comment), never shrunk to plain text.
+    // album stays regular text (centered too), no need for it to
+    // compete for the same space.
     //
     // available height of 4 (not 2): `PIN_SIZE_CANDIDATES`' only
     // remaining entry (`HalfHeight`) needs 4 terminal rows per glyph -
@@ -479,11 +479,8 @@ fn draw_queue_glance(frame: &mut Frame, area: Rect, app: &App) {
                 }
                 None => {
                     frame.render_widget(
-                        Paragraph::new(Line::from(vec![
-                            Span::styled("now playing: ", Style::new().bold()),
-                            Span::raw(format!("{kind_glyph}{}", entry.title())),
-                        ]))
-                        .alignment(Alignment::Center),
+                        Paragraph::new(Line::from(format!("{kind_glyph}{}", entry.title())).bold())
+                            .alignment(Alignment::Center),
                         title_area,
                     );
                 }
@@ -582,12 +579,11 @@ fn draw_queue_glance(frame: &mut Frame, area: Rect, app: &App) {
         });
         // a dim horizontal rule is drawn between rows (not before the
         // first one) so a dense queue doesn't visually run together.
-        // entries that don't fit as big text are skipped entirely
-        // (not shrunk to tiny plain text) - couch-distance readability
-        // is the whole point of this glance, so a long queue simply
-        // stops rendering once it runs out of room rather than
-        // degrading; a too-long title alone is skipped in favor of
-        // shorter ones still to come.
+        // every row renders as big text (a too-long title is simply
+        // clipped by its own row's Rect, not shrunk to plain text) -
+        // couch-distance readability is the whole point of this glance.
+        // a row is only skipped when there's genuinely no vertical
+        // space left for it.
         let mut drew_row = false;
         for (text, dim) in real_rows.chain(preview_rows) {
             let sep_cost = u16::from(drew_row);
@@ -632,20 +628,24 @@ fn draw_queue_glance(frame: &mut Frame, area: Rect, app: &App) {
 }
 
 /// like `fit_pin_layout`, but for an arbitrary title string rather than
-/// a fixed 6-digit pin - tries `TEXT_SIZE_CANDIDATES` in order, falling
-/// back further whenever a wider size doesn't fit `avail_w`/`avail_h`.
-/// long titles that don't fit even the narrowest candidate fall back to
-/// `None` (plain text) - still an upgrade for the ones short enough to
-/// benefit.
+/// a fixed 6-digit pin - tries `TEXT_SIZE_CANDIDATES` in order, preferring
+/// whichever candidate actually fits `avail_w`. a title too long for
+/// every candidate still renders big (using the narrowest one that fits
+/// `avail_h`) rather than shrinking to plain text - the caller's `Rect`
+/// clips whatever overflows, which reads better at a glance than tiny
+/// text. `None` only when there's no vertical room at all (or the text
+/// is empty).
 fn fit_text_layout(text: &str, avail_w: u16, avail_h: u16) -> Option<PinLayout> {
     let n = text.chars().count() as u16;
     if n == 0 {
         return None;
     }
+    let mut narrowest_fit: Option<(PixelSize, u16)> = None;
     for &(pixel_size, cols, rows) in TEXT_SIZE_CANDIDATES {
         if rows > avail_h {
             continue;
         }
+        narrowest_fit = Some((pixel_size, rows));
         if n * cols <= avail_w {
             return Some(PinLayout {
                 pixel_size,
@@ -654,7 +654,11 @@ fn fit_text_layout(text: &str, avail_w: u16, avail_h: u16) -> Option<PinLayout> 
             });
         }
     }
-    None
+    narrowest_fit.map(|(pixel_size, rows)| PinLayout {
+        pixel_size,
+        text: text.to_string(),
+        rows,
+    })
 }
 
 /// renders "downloading 2/5: <title> [####------] 43%" (or a

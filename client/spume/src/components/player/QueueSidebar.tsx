@@ -1,5 +1,14 @@
 import { createVirtualizer } from "@tanstack/solid-virtual";
-import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import {
+  createEffect,
+  createMemo,
+  createSignal,
+  For,
+  Index,
+  onCleanup,
+  onMount,
+  Show,
+} from "solid-js";
 import type { MediaItem } from "../../app/services/storage/mediaItem";
 import { mediaItemKey } from "../../app/services/storage/mediaItem";
 import { QueueSongRow } from "./QueueSongRow";
@@ -702,44 +711,60 @@ export function QueueSidebar(props: QueueSidebarProps) {
                   class="relative p-2"
                   style={{ height: `${optimisticRemoteQueue().length * ROW_HEIGHT}px` }}
                 >
-                  <For each={optimisticRemoteQueue()} fallback={null}>
-                    {(ref, i) => {
+                  {/* <Index>, not <For>: optimisticRemoteQueue() rebuilds a
+                      brand-new array of brand-new RemoteMediaRef objects on
+                      every remote status update (even ones unrelated to
+                      this specific row, e.g. another item's transfer
+                      progress ticking) - <For>'s per-item-reference keying
+                      tore down and rebuilt every row's whole component
+                      instance on every single one of those updates, which
+                      is why a row's in-flight transfer-status badge kept
+                      disappearing before a user could ever see it (proven
+                      live: console logs showed the correct transferStatus
+                      value being observed, but the row was mid-remount so
+                      it never painted). <Index> keys by POSITION instead -
+                      exactly the right semantics here (queue position IS
+                      this list's real identity) - so a row's component
+                      instance now survives status updates and only its
+                      reactive `item()` value changes underneath it. */}
+                  <Index each={optimisticRemoteQueue()} fallback={null}>
+                    {(item, i) => {
                       const confirmedCount = () => remoteQueue().length;
-                      const isPending = () => i() >= confirmedCount();
-                      const isCurrentlyPlaying = () => i() === remoteOptimisticCurrentIndex();
-                      const isDragging = () => effectiveRemoteDraggedIndex() === i();
-                      const isDropTarget = () => remoteDropTargetIndex() === i();
+                      const isPending = () => i >= confirmedCount();
+                      const isCurrentlyPlaying = () => i === remoteOptimisticCurrentIndex();
+                      const isDragging = () => effectiveRemoteDraggedIndex() === i;
+                      const isDropTarget = () => remoteDropTargetIndex() === i;
 
                       return (
                         <RemoteQueueRow
-                          item={ref}
-                          index={i()}
+                          item={item()}
+                          index={i}
                           isCurrentlyPlaying={isCurrentlyPlaying()}
                           isPending={isPending()}
                           positionMs={isCurrentlyPlaying() ? remotePositionMs() : undefined}
                           isDragging={isDragging()}
                           isDropTarget={isDropTarget()}
-                          top={i() * ROW_HEIGHT}
+                          top={i * ROW_HEIGHT}
                           onClick={() => {}}
                           onDoubleClick={() => {}}
                           onRemove={(e) => {
                             e.stopPropagation();
                             if (isPending()) {
-                              cancelPendingRemoteQueueItem(ref);
+                              cancelPendingRemoteQueueItem(item());
                               return;
                             }
-                            void remoteRemoveFromQueue(i());
+                            void remoteRemoveFromQueue(i);
                           }}
                           onDragStart={(e) => {
                             if (isPending()) return;
-                            setRemoteDraggedIndex(i());
-                            setupDragImage(e, i());
+                            setRemoteDraggedIndex(i);
+                            setupDragImage(e, i);
                           }}
                           onDragOver={(e) => {
                             if (isPending()) return;
                             e.preventDefault();
                             if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
-                            setRemoteDropTargetIndex(i());
+                            setRemoteDropTargetIndex(i);
                           }}
                           onDragLeave={() => setRemoteDropTargetIndex(null)}
                           onDragEnd={() => {
@@ -749,7 +774,7 @@ export function QueueSidebar(props: QueueSidebarProps) {
                           onDrop={() => {
                             if (isPending()) return;
                             const fromIndex = remoteDraggedIndex();
-                            const toIndex = i();
+                            const toIndex = i;
                             setRemoteDraggedIndex(null);
                             setRemoteDropTargetIndex(null);
                             if (fromIndex === null || fromIndex === toIndex) return;
@@ -762,7 +787,7 @@ export function QueueSidebar(props: QueueSidebarProps) {
                             if (isPending()) return;
                             if (isCharnelMode() && e.button === 0) {
                               pendingPointerDrag = {
-                                index: i(),
+                                index: i,
                                 startY: e.clientY,
                                 pointerId: e.pointerId,
                                 target: e.currentTarget as HTMLElement,
@@ -773,7 +798,7 @@ export function QueueSidebar(props: QueueSidebarProps) {
                         />
                       );
                     }}
-                  </For>
+                  </Index>
                 </div>
               </Show>
             }

@@ -2255,6 +2255,61 @@ pub async fn api_call(
     serde_json::to_value(&response).map_err(|e| e.to_string())
 }
 
+/// same as `POST /api/sync/song-by-blake3` via `api_call`, but reports live
+/// download progress over a tauri channel instead of going silent for the
+/// whole pull (routinely 8-70+ seconds for a real audio file - the generic
+/// `api_call`/offal-route dispatch above has no side channel to carry
+/// progress on, by design, since it also serves HTTP/CLI/remote-ALPN
+/// callers that have no such channel either). mirrors
+/// `p2p_commands::p2p_fetch_blob_verified`'s channel pattern exactly -
+/// same `BlobDownloadProgress`/`progress_forwarder`, just wired to
+/// `grimoire::offal::sync::sync_song_by_blake3_impl` instead of a raw
+/// blob fetch, so the rest of the sync (song row + image linking) still
+/// happens the same way `sync_song_by_blake3` already does it.
+#[tauri::command]
+pub async fn sync_song_by_blake3_with_progress(
+    app_handle: tauri::AppHandle,
+    body: serde_json::Value,
+    on_progress: tauri::ipc::Channel<crate::p2p_commands::BlobDownloadProgress>,
+) -> Result<serde_json::Value, String> {
+    ensure_initialized(&app_handle).await?;
+
+    let caller = get_caller_from_app_config(&app_handle)?;
+
+    let req: grimoire::offal::sync::SyncSongByBlake3Request = serde_json::from_value(body)
+        .map_err(|e| format!("bad sync_song_by_blake3_with_progress request: {}", e))?;
+
+    let progress_cb = crate::p2p_commands::progress_forwarder(on_progress);
+    let response =
+        grimoire::offal::sync::sync_song_by_blake3_impl(&caller, req, Some(progress_cb.as_ref()))
+            .await;
+
+    serde_json::to_value(&response).map_err(|e| e.to_string())
+}
+
+/// video counterpart of `sync_song_by_blake3_with_progress` - see its doc
+/// comment for the full rationale.
+#[tauri::command]
+pub async fn sync_video_by_blake3_with_progress(
+    app_handle: tauri::AppHandle,
+    body: serde_json::Value,
+    on_progress: tauri::ipc::Channel<crate::p2p_commands::BlobDownloadProgress>,
+) -> Result<serde_json::Value, String> {
+    ensure_initialized(&app_handle).await?;
+
+    let caller = get_caller_from_app_config(&app_handle)?;
+
+    let req: grimoire::offal::sync::SyncVideoByBlake3Request = serde_json::from_value(body)
+        .map_err(|e| format!("bad sync_video_by_blake3_with_progress request: {}", e))?;
+
+    let progress_cb = crate::p2p_commands::progress_forwarder(on_progress);
+    let response =
+        grimoire::offal::sync::sync_video_by_blake3_impl(&caller, req, Some(progress_cb.as_ref()))
+            .await;
+
+    serde_json::to_value(&response).map_err(|e| e.to_string())
+}
+
 /// get caller identity from app config admin user
 pub(crate) fn get_caller_from_app_config(
     app_handle: &tauri::AppHandle,

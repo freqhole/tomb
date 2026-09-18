@@ -24,10 +24,32 @@ export interface VideoSyncResult {
   skipped?: boolean;
 }
 
+/** invoke `sync_video_by_blake3_with_progress` instead of the generic
+ * `api_call` - see syncSongToLocal.ts's `invokeSyncSongWithProgress` for
+ * the full rationale, this is the same pattern for video. */
+async function invokeSyncVideoWithProgress(
+  invoke: (cmd: string, args?: Record<string, unknown>) => Promise<unknown>,
+  body: unknown,
+  totalBytes: number,
+  onProgress: (received: number, total: number) => void
+): Promise<unknown> {
+  // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
+  const tauri = await import("@tauri-apps/api/core");
+  const channel = new tauri.Channel<{ bytes_downloaded: number }>();
+  channel.onmessage = (message) => {
+    onProgress(message?.bytes_downloaded ?? 0, totalBytes);
+  };
+  return invoke("sync_video_by_blake3_with_progress", { body, onProgress: channel });
+}
+
 /**
  * sync a video into the local charnel-managed grimoire via the iroh-blobs
  * pull path. requires a P2P source remote (the node id is what grimoire dials
  * to fetch the bytes) and a blake3 for the blob being synced.
+ *
+ * `onProgress`, when given, is wired to `sync_video_by_blake3_with_progress`
+ * instead of the plain `api_call`/`sync_video_by_blake3` dispatch - see
+ * `syncSongToLocal.ts`'s `syncSongViaLocalGrimoire` doc comment for why.
  */
 export async function syncVideoViaLocalGrimoire(
   video: QueuedVideo,
@@ -35,7 +57,8 @@ export async function syncVideoViaLocalGrimoire(
   blobId: string,
   blake3: string | null,
   size?: number | null,
-  mime?: string | null
+  mime?: string | null,
+  onProgress?: (received: number, total: number) => void
 ): Promise<VideoSyncResult> {
   if (!blake3) {
     return { success: false, error: "video blob has no blake3 (cannot pull via iroh)" };
@@ -75,10 +98,9 @@ export async function syncVideoViaLocalGrimoire(
       `${label} pulling blake3=${blake3.slice(0, 8)} from ${sourceNodeId.slice(0, 8)} series=${body.series_title ?? "none"} season=${body.season_number ?? "none"} images=${body.video_images.length}/${body.series_images.length}/${body.season_images.length} mime=${mime ?? "unknown"}`
     );
 
-    const response = (await invoke("api_call", {
-      path: "/api/sync/video-by-blake3",
-      body,
-    })) as {
+    const response = (await (onProgress
+      ? invokeSyncVideoWithProgress(invoke, body, size ?? 0, onProgress)
+      : invoke("api_call", { path: "/api/sync/video-by-blake3", body }))) as {
       success: boolean;
       message: string;
       errors?: Array<{ error_type: string; title: string; detail: string }>;

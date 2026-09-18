@@ -922,6 +922,8 @@ pub fn run() {
             commands::get_log_file_path,
             // unified API dispatch (spike)
             commands::api_call,
+            commands::sync_song_by_blake3_with_progress,
+            commands::sync_video_by_blake3_with_progress,
             wizard::open_setup_wizard,
             wizard::close_setup_wizard,
             // separate video window (linux; stubbed elsewhere)

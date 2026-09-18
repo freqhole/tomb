@@ -257,7 +257,7 @@ async function syncVideoViaCharnel(
   const blake3 = video.blake3 ?? meta.blake3 ?? null;
 
   addToLoadingSet(video.id);
-  updateLoadingProgress(video.id, null); // grimoire's pull reports no progress back
+  updateLoadingProgress(video.id, null);
   try {
     const result = await syncVideoViaLocalGrimoire(
       video,
@@ -265,7 +265,8 @@ async function syncVideoViaCharnel(
       blobId,
       blake3,
       meta.size,
-      meta.mime
+      meta.mime,
+      (received, total) => updateLoadingProgress(video.id, total > 0 ? received / total : null)
     );
     if (!result.success) {
       warn("videoSync", `charnel sync failed for video ${video.id}: ${result.error}`);

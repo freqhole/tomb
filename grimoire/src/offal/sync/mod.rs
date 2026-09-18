@@ -23,8 +23,8 @@ mod video;
 pub use album::sync_album;
 pub use models::*;
 pub use playlist::sync_playlist;
-pub use song::{get_synced_sha256s, sync_song_by_blake3};
-pub use video::sync_video_by_blake3;
+pub use song::{get_synced_sha256s, sync_song_by_blake3, sync_song_by_blake3_impl};
+pub use video::{sync_video_by_blake3, sync_video_by_blake3_impl};
 
 /// route metadata for sync
 pub const ROUTES: &[RouteInfo] = &[

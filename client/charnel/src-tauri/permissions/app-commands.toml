@@ -70,6 +70,8 @@ commands.allow = [
     "read_logs",
     "get_log_file_path",
     "api_call",
+    "sync_song_by_blake3_with_progress",
+    "sync_video_by_blake3_with_progress",
     "open_setup_wizard",
     "close_setup_wizard",
     "video_window_available",

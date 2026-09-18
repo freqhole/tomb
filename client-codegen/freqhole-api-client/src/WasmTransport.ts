@@ -100,6 +100,14 @@ export interface MiddenNodeLike {
   // download blob by ID with on-demand blake3 computation - optional
   // returns [Uint8Array, string] but typed as any[] for wasm-bindgen compatibility
   download_verified_by_id?(peer_addr: string, blob_id: string): Promise<any[]>;
+  // same as download_verified_by_id but reports incremental progress -
+  // on_progress receives a fraction in [0, 1]. returns [Uint8Array, string].
+  download_verified_by_id_progress?(
+    peer_addr: string,
+    blob_id: string,
+    total_size: number,
+    on_progress: (fraction: number) => void,
+  ): Promise<any[]>;
   // download blob and stream chunks via callback - preferred for large files
   // on_chunk receives (chunk: Uint8Array, offset: number)
   // on_progress receives (fraction: number) in [0, 1]
@@ -766,13 +774,28 @@ export class WasmTransport implements Transport {
     // fallback because `/api/blobs/{id}/data` only works for DB-backed blobs
     // and file-backed media blobs would otherwise fail first, then fall back
     // anyway.
-    if (!blake3 && this.node.download_verified_by_id && mimeType?.startsWith("audio/")) {
+    // download_verified_by_id_progress always ships alongside plain
+    // download_verified_by_id in the same midden build (both are generated
+    // from the same wasm-bindgen pass) - there's no real scenario where
+    // only the non-progress variant is available, so this only checks for
+    // the progress-capable one. the plain variant has no progress hook at
+    // all - calling it here would only ever report one 0->100% jump at
+    // completion instead of the incremental updates a multi-second
+    // download needs for a usable progress bar.
+    if (!blake3 && this.node.download_verified_by_id_progress && mimeType?.startsWith("audio/")) {
       try {
-        const result = await this.node.download_verified_by_id(this.peerAddr, blobId);
+        const result = await this.node.download_verified_by_id_progress(
+          this.peerAddr,
+          blobId,
+          totalBytes ?? 0,
+          (fraction: number) => {
+            if (totalBytes && totalBytes > 0) {
+              onProgress(Math.min(totalBytes, Math.floor(fraction * totalBytes)), totalBytes);
+            }
+          },
+        );
         const data = result[0] as Uint8Array;
         const contentType = mimeType || "application/octet-stream";
-
-        onProgress(data.length, data.length);
 
         await this.storeInCache(cache, blobId, data, contentType, opts);
 
@@ -827,13 +850,22 @@ export class WasmTransport implements Transport {
     // this matches fetchBlob() so callers using the progress path (radio
     // timeline playback) do not fail just because the API response omitted
     // blake3 for a song.
-    if (!blake3 && this.node.download_verified_by_id) {
+    if (!blake3 && this.node.download_verified_by_id_progress) {
       try {
-        const result = await this.node.download_verified_by_id(this.peerAddr, blobId);
+        // see the audio-specific branch above for why only the progress
+        // variant is checked for here.
+        const result = await this.node.download_verified_by_id_progress(
+          this.peerAddr,
+          blobId,
+          totalBytes ?? 0,
+          (fraction: number) => {
+            if (totalBytes && totalBytes > 0) {
+              onProgress(Math.min(totalBytes, Math.floor(fraction * totalBytes)), totalBytes);
+            }
+          },
+        );
         const data = result[0] as Uint8Array;
         const contentType = mimeType || "application/octet-stream";
-
-        onProgress(data.length, data.length);
 
         await this.storeInCache(cache, blobId, data, contentType, opts);
 

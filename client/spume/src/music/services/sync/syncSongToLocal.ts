@@ -47,6 +47,29 @@ function toInlinableImages(images: ImageMetadata[] | undefined): InlinableImage[
   }));
 }
 
+/** invoke `sync_song_by_blake3_with_progress` instead of the generic
+ * `api_call`, wiring its `tauri::ipc::Channel<{bytes_downloaded}>` into the
+ * plain `(received, total) => void` shape every other progress callback in
+ * this codebase already uses - mirrors CharnelTransport.ts's
+ * `fetchBlobWithProgress` channel setup exactly. `totalBytes` is
+ * client-known only (the channel itself only ever carries a cumulative
+ * byte count, never a total) - `0` keeps callers on their indeterminate
+ * spinner instead of a bogus ratio, same convention as everywhere else. */
+async function invokeSyncSongWithProgress(
+  invoke: (cmd: string, args?: Record<string, unknown>) => Promise<unknown>,
+  body: unknown,
+  totalBytes: number,
+  onProgress: SyncProgressCallback
+): Promise<unknown> {
+  // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
+  const tauri = await import("@tauri-apps/api/core");
+  const channel = new tauri.Channel<{ bytes_downloaded: number }>();
+  channel.onmessage = (message) => {
+    onProgress(message?.bytes_downloaded ?? 0, totalBytes);
+  };
+  return invoke("sync_song_by_blake3_with_progress", { body, onProgress: channel });
+}
+
 /**
  * sync a song to the local charnel-managed grimoire via the iroh-blobs path.
  *
@@ -57,8 +80,21 @@ function toInlinableImages(images: ImageMetadata[] | undefined): InlinableImage[
  * requires:
  *  - song.blake3 + song.sha256
  *  - source remote is a p2p remote with a usable peer_addr
+ *
+ * `onProgress`, when given, is wired to `sync_song_by_blake3_with_progress`
+ * (a tauri channel-based command mirroring `p2p_fetch_blob_verified`'s
+ * progress pattern) instead of the plain `api_call`/`sync_song_by_blake3`
+ * dispatch - the generic dispatch has no side channel for progress, so the
+ * pull (routinely 8-70+ seconds for a real file) otherwise reports nothing
+ * at all until it's fully done. omitted entirely when no caller cares
+ * (e.g. the "already synced, just resolve the local path" shortcut, which
+ * is a db lookup only - never a real download).
  */
-async function syncSongViaLocalGrimoire(song: SyncableSong, remote: Remote): Promise<SyncResult> {
+async function syncSongViaLocalGrimoire(
+  song: SyncableSong,
+  remote: Remote,
+  onProgress?: SyncProgressCallback
+): Promise<SyncResult> {
   if (!song.blake3) {
     return { success: false, error: "song missing blake3 (cannot pull via iroh)" };
   }
@@ -137,7 +173,7 @@ async function syncSongViaLocalGrimoire(song: SyncableSong, remote: Remote): Pro
     const body = {
       blake3: song.blake3,
       sha256: song.sha256,
-      size: null,
+      size: song.file_size ?? null,
       // no real extension known yet (bytes haven't been fetched) - leave it off so
       // grimoire's detect_extension() falls through to real mime sniffing after download
       // instead of mistaking a placeholder for a genuine extension
@@ -162,10 +198,9 @@ async function syncSongViaLocalGrimoire(song: SyncableSong, remote: Remote): Pro
       is_compilation: false,
     };
 
-    const response = (await invoke("api_call", {
-      path: "/api/sync/song-by-blake3",
-      body,
-    })) as {
+    const response = (await (onProgress
+      ? invokeSyncSongWithProgress(invoke, body, song.file_size ?? 0, onProgress)
+      : invoke("api_call", { path: "/api/sync/song-by-blake3", body }))) as {
       success: boolean;
       message: string;
       errors?: Array<{ error_type: string; title: string; detail: string }>;
@@ -277,6 +312,10 @@ export interface SyncableSong {
   remote_song_id?: string | null;
   blake3?: string | null;
   skip_feed_events?: boolean; // skip album feed events when syncing (e.g., playlist songs)
+  /** declared size in bytes, when known - forwarded to grimoire's charnel
+   * pull (was previously always sent as `null`, which also meant the
+   * progress channel had no total to report against). */
+  file_size?: number | null;
 }
 
 /**
@@ -471,7 +510,15 @@ export async function syncSongToLocal(
 ): Promise<SyncResult> {
   const { sha256, media_blob_id, remote_server_id } = song;
 
-  if (!sha256) {
+  // browser mode uses sha256 as the OPFS/IDB primary key throughout this
+  // function, so it's a hard requirement there. charnel mode never touches
+  // OPFS/IDB (delegates to syncSongViaLocalGrimoire, which only needs
+  // song.blake3) - an empty sha256 there is the deliberate "unknown, let
+  // iroh-blobs verify by blake3 instead" sentinel mediaRefResolve.ts sets
+  // when the source peer couldn't be queried for the real one, not an
+  // error. rejecting it here made every such queue push unplayable on
+  // charnel with a misleading "song missing sha256" failure.
+  if (!sha256 && !isCharnelMode()) {
     return { success: false, error: "song missing sha256" };
   }
 
@@ -483,15 +530,21 @@ export async function syncSongToLocal(
     return { success: false, error: "song missing remote_server_id" };
   }
 
+  // dedup/in-flight tracking key: sha256 when known, else blake3 (the
+  // charnel "unknown sha256" case above) - never the empty string itself,
+  // which would otherwise collide across every song hitting that fallback
+  // at the same time.
+  const downloadKey = sha256 || song.blake3 || media_blob_id;
+
   // check unified download state BEFORE any async work
   // this prevents duplicate downloads when multiple triggers fire
-  if (!canStartDownload(sha256)) {
-    const inFlight = getInProgressDownload(sha256);
+  if (!canStartDownload(downloadKey)) {
+    const inFlight = getInProgressDownload(downloadKey);
     if (inFlight) {
       // await rather than returning immediately: callers now include the play
       // path, which needs the library copy to actually exist before it can
       // build a url from it.
-      debug("syncSongToLocal", `awaiting in-flight sync for ${sha256.slice(0, 8)}...`);
+      debug("syncSongToLocal", `awaiting in-flight sync for ${downloadKey.slice(0, 8)}...`);
       await inFlight;
       if (!isCharnelMode()) {
         return { success: true, localSongId: sha256, skipped: true };
@@ -503,12 +556,12 @@ export async function syncSongToLocal(
     // still ask grimoire for the local blob path via the fast existing-song
     // shortcut (db lookup only, no network transfer).
     if (!isCharnelMode()) {
-      debug("syncSongToLocal", `skipping ${sha256.slice(0, 8)}... (already synced)`);
+      debug("syncSongToLocal", `skipping ${downloadKey.slice(0, 8)}... (already synced)`);
       return { success: true, localSongId: sha256, skipped: true };
     }
     debug(
       "syncSongToLocal",
-      `${sha256.slice(0, 8)}... already synced — resolving local path via grimoire`
+      `${downloadKey.slice(0, 8)}... already synced — resolving local path via grimoire`
     );
     const remote = remoteOverride ?? (await getRemoteById(remote_server_id));
     if (!remote) return { success: false, error: `remote not found: ${remote_server_id}` };
@@ -542,7 +595,7 @@ export async function syncSongToLocal(
       // path. the local grimoire pulls audio directly from the source remote's
       // iroh node id by blake3; no audio bytes cross the IPC boundary.
       if (isCharnelMode()) {
-        return syncSongViaLocalGrimoire(song, remote);
+        return syncSongViaLocalGrimoire(song, remote, onProgress);
       }
 
       // browser mode: fetch via transport and persist to OPFS + IDB.
@@ -574,8 +627,17 @@ export async function syncSongToLocal(
           media_blob_id,
           onProgress,
           song.blake3 ?? undefined,
-          undefined,
-          undefined,
+          // blobMetadata.size (a real byte count, just fetched above) -
+          // this used to be passed as `undefined`, so a transport with
+          // no other way to learn the total (e.g. iroh-blobs streaming,
+          // which doesn't report a content-length up front) could never
+          // compute a `received/total` fraction at all - onProgress kept
+          // firing but `total` stayed 0 forever, so the caller's
+          // `if (total > 0)` guard silently never ran and the queue row
+          // never got a single numeric progress update for the whole
+          // download.
+          blobMetadata.size ?? undefined,
+          mimeType,
           { cache: "skip" }
         );
       } else {
@@ -728,7 +790,7 @@ export async function syncSongToLocal(
   })();
 
   // register this download so other callers can check/skip
-  registerDownload(sha256, syncPromise as unknown as Promise<void>);
+  registerDownload(downloadKey, syncPromise as unknown as Promise<void>);
 
   return syncPromise;
 }
