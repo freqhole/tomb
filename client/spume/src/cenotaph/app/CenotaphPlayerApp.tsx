@@ -84,6 +84,7 @@ import {
 import { getSongDisplayImages } from "../../utils/images";
 import { isTouchDevice } from "../../utils/isMobile";
 import MediaImage from "../../components/media/MediaImage";
+import { Icon, IconNames } from "../../components/icons/registry";
 import { VideoMiniPlayer } from "../../components/player/VideoMiniPlayer";
 import { QueueSongRow } from "../../components/player/QueueSongRow";
 import { VideoQueueRow } from "../../components/player/VideoQueueRow";
@@ -444,7 +445,15 @@ export function CenotaphPlayerApp() {
 
       <button
         type="button"
-        class="fixed top-4 right-4 z-[1700] text-xs text-neutral-500"
+        // z-[90]: this whole route's content must stay BELOW the globally-
+        // mounted chrome (TitleBarStrip z-100, its hamburger/right-click
+        // flyout at z-[1950] - see TitleBarStrip.tsx's CHROME_MENU_Z_INDEX)
+        // - it used to sit at z-[1700], well above both, which drew the
+        // art/settings/pairing content over the title bar strip and hid
+        // the linux hamburger flyout underneath it. PlayerSettingsPanel
+        // (z-[1800]) still needs to out-rank this tier, which it does
+        // either way.
+        class="fixed top-4 right-4 z-[90] text-xs text-neutral-500"
         onClick={() => setSettingsOpen(true)}
         data-testid="settings-toggle"
       >
@@ -457,7 +466,7 @@ export function CenotaphPlayerApp() {
 
       <Show when={connectedControllers().length > 0}>
         <div
-          class="fixed top-10 right-4 z-[1700] max-w-[40vw] text-right text-xs text-neutral-500"
+          class="fixed top-10 right-4 z-[90] max-w-[40vw] text-right text-xs text-neutral-500"
           data-testid="connected-controllers"
         >
           <For each={connectedControllers()}>
@@ -479,7 +488,7 @@ export function CenotaphPlayerApp() {
           immediately, no app restart (see `handleEnablePlayerPairing`). */}
       <Show when={pairingConfigEnabled() === false}>
         <div
-          class="relative z-[1700] flex max-w-2xl flex-col items-center gap-10"
+          class="relative z-[90] flex max-w-2xl flex-col items-center gap-10"
           data-testid="player-pairing-disabled"
         >
           <p class="text-[clamp(1.25rem,4vmin,2rem)] text-neutral-400">
@@ -588,7 +597,7 @@ export function CenotaphPlayerApp() {
       <Show when={nowPlayingView()}>
         {(view) => (
           <div
-            class="group relative z-[1700] flex w-full max-w-md flex-col items-center gap-4"
+            class="group relative z-[90] flex w-full max-w-md flex-col items-center gap-4"
             data-testid="now-playing"
           >
             <Show
@@ -666,19 +675,16 @@ export function CenotaphPlayerApp() {
             >
               <button
                 type="button"
-                class="text-3xl leading-none"
                 onClick={() => void realTogglePlayback()}
                 data-testid="play-pause-button"
               >
-                {view().isPlaying ? "⏸" : "▶"}
+                {/* svg icons, not unicode glyphs - some linux webkitgtk
+                    installs have no glyph for ⏭ (skip/next) in their
+                    default font stack and render an empty box. */}
+                <Icon name={view().isPlaying ? IconNames.pause : IconNames.play} size={32} />
               </button>
-              <button
-                type="button"
-                class="text-3xl leading-none"
-                onClick={() => void realPlayNext()}
-                data-testid="skip-button"
-              >
-                ⏭
+              <button type="button" onClick={() => void realPlayNext()} data-testid="skip-button">
+                <Icon name={IconNames.next} size={32} />
               </button>
             </div>
 

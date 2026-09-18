@@ -138,8 +138,12 @@ export function install(): void {
   }
 
   // self-document the buffer so any later snapshot is contextualised.
+  // __APP_VERSION__ (baked in at build time - see vite.config.ts) is the
+  // only reliable way to tell a stale frontend bundle from a fresh one -
+  // logged unconditionally here (not just in settings) so it's always in
+  // every capture, matching the rust side's own "boot: build info" line.
   push("info", [
-    `logz: capture started | ua: ${
+    `logz: capture started | version: ${__APP_VERSION__} | ua: ${
       typeof navigator !== "undefined" ? navigator.userAgent : "unknown"
     } | url: ${typeof location !== "undefined" ? location.href : "unknown"}`,
   ]);
@@ -178,9 +182,6 @@ export function clear(): void {
 // format helper used by the copy-to-clipboard button in the view.
 export function formatForCopy(entries: ReadonlyArray<LogEntry>): string {
   return entries
-    .map(
-      (e) =>
-        `[${new Date(e.ts).toISOString()}] ${e.level.toUpperCase()}: ${e.message}`
-    )
+    .map((e) => `[${new Date(e.ts).toISOString()}] ${e.level.toUpperCase()}: ${e.message}`)
     .join("\n\n");
 }

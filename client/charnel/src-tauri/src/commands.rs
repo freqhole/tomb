@@ -778,7 +778,7 @@ pub fn get_freqhole_config(app_handle: tauri::AppHandle) -> Option<FreqholeConfi
 }
 
 /// open (or focus) the "about freqhole" window - desktop only (mobile has
-/// no native window to open); referenced unconditionally from the single
+/// no system window to open); referenced unconditionally from the single
 /// invoke_handler list, unlike `menu::show_about_window` which lives in a
 /// `#[cfg(desktop)]`-gated module.
 #[tauri::command]
@@ -2171,7 +2171,7 @@ pub fn get_rodio_playback(app_handle: tauri::AppHandle) -> bool {
 ///
 /// always false off macOS/linux - `decorations(false)` is only ever applied
 /// `#[cfg(any(target_os = "macos", target_os = "linux"))]`, so other
-/// platforms (windows, mobile) keep their native title bar regardless of
+/// platforms (windows, mobile) keep their system title bar regardless of
 /// the config value, and must not also draw a custom one on top of it.
 #[tauri::command]
 pub fn get_chromeless_title_bar(app_handle: tauri::AppHandle) -> bool {
@@ -2206,7 +2206,7 @@ pub fn supports_chromeless_title_bar() -> bool {
     cfg!(any(target_os = "macos", target_os = "linux"))
 }
 
-/// set the chromeless_title_bar setting. the native window is only ever
+/// set the chromeless_title_bar setting. the system window is only ever
 /// built with decorations on/off once, at window-creation time (see
 /// lib.rs/wizard.rs), so this just persists the preference - it takes
 /// effect the next time the app is restarted, same as `use_rodio_playback`.

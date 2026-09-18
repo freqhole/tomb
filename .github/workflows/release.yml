@@ -323,7 +323,7 @@ jobs:
             "build/$V/freqhole_charnel_${V}_x86_64.rpm" \
             --clobber
 
-  # ---- Linux arm64: rathole cli + charnel .deb/.rpm (native arm runner) -----
+  # ---- Linux arm64: rathole cli + charnel .deb/.rpm (platform arm runner) -----
   linux-arm64:
     name: linux arm64 (cli + deb/rpm)
     needs: create-release

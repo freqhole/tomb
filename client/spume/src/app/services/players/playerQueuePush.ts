@@ -6,7 +6,7 @@
 // them fetchable by iroh-blobs verified streaming), then tells the player
 // to pull from *this* node by blake3 hash. two transports, selected via
 // isCharnelMode() (see importMediaBytes() below): wasm (browser midden
-// node's own store) or charnel/tauri native (`p2p_import_blob_bytes`/
+// node's own store) or charnel/tauri (`p2p_import_blob_bytes`/
 // `p2p_get_node_id`, the same iroh-blobs FsStore + pull model
 // `CharnelTransport.ts` already uses for music/video uploads).
 //
@@ -220,7 +220,7 @@ async function importBytesChunked(
 }
 
 /** imports media bytes (song or video) into this device's local blob store
- * (charnel: native iroh-blobs FsStore via tauri, streamed in bounded
+ * (charnel: iroh-blobs FsStore via tauri, streamed in bounded
  * chunks - see importBytesChunked; browser: the wasm midden node's own
  * store, a single in-memory call since there's no IPC/JSON boundary to
  * protect there) and returns this device's own node id + the resulting

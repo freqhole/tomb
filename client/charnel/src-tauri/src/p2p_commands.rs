@@ -1,4 +1,4 @@
-//! P2P tauri commands for native iroh transport
+//! P2P tauri commands for iroh transport
 //!
 //! provides tauri IPC commands for making P2P requests to remote peers
 //! using the server's federation endpoint. used by TauriTransport.ts.

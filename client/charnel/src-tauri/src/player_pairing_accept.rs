@@ -1,4 +1,4 @@
-//! charnel's native accept-side for the `freqhole-player/1` protocol -
+//! charnel's accept-side for the `freqhole-player/1` protocol -
 //! registers `grimoire::cenotaph::PLAYER_ALPN` on charnel's own p2p
 //! router (reusing the SAME iroh endpoint/identity `p2p_commands.rs`
 //! already manages, not a second one - see that module's
@@ -9,17 +9,17 @@
 //!
 //! mirrors rathole's `tty/pairing/dispatch.rs` in SHAPE (translate an
 //! authorized command into this consumer's real playback backend) but
-//! NOT in content - charnel has no native rodio/mpv command surface
+//! NOT in content - charnel has no rodio/mpv command surface
 //! here, it just forwards the raw wire command to JS and awaits a
 //! `CommandAck` back, keeping the single existing playback
 //! implementation (`charnelPlaybackAdapter.ts`, already used for the
 //! dial-out/controller side) as the one true JS-side driver.
 //!
 //! per docs/cenotaph-migration-plan.md's front 3 scope: this accept
-//! mode targets charnel's "experimental player config" (native mpv/
+//! mode targets charnel's "experimental player config" (mpv/
 //! rodio playback via `charnelPlaybackAdapter.ts`) - not the plain
 //! webview `mediaPlaybackBackend` DOM-engine path, which would also
-//! need a charnel-native blob-fetch/radio-tune `MediaPlaybackNode`
+//! need a charnel blob-fetch/radio-tune `MediaPlaybackNode`
 //! implementation (not built here; tracked as a follow-up).
 
 use std::collections::HashMap;

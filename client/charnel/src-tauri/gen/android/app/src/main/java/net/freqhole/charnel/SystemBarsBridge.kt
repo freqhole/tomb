@@ -11,7 +11,7 @@ import android.webkit.JavascriptInterface
  * via logging that WebChromeClient.onShowCustomView never fires for it, only
  * for the legacy webkitEnterFullscreen() video API. so JS drives the system
  * bars directly via document's fullscreenchange event instead of relying on
- * the native custom-view callback.
+ * the custom-view callback.
  */
 class SystemBarsBridge(private val activity: MainActivity) {
     @JavascriptInterface

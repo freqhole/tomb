@@ -71,7 +71,7 @@ export async function openSetupWizard(route: string = "/"): Promise<void> {
 }
 
 /**
- * open (or focus) the native "about freqhole" window.
+ * open (or focus) the "about freqhole" window.
  */
 export async function openAboutWindow(): Promise<void> {
   try {
@@ -102,7 +102,7 @@ export interface P2pStatusResponse {
 
 /**
  * current P2P endpoint status + whether federation is enabled at all
- * (mirrors the native app-menu/tray P2P controls, see charnel's
+ * (mirrors the app-menu/tray P2P controls, see charnel's
  * menu.rs/tray.rs).
  */
 export async function getP2pStatus(): Promise<P2pStatusResponse | null> {
@@ -204,11 +204,11 @@ export async function setWindowTitle(title: string): Promise<void> {
 
 /**
  * check whether this window should render its own drag-strip + traffic-light
- * buttons instead of relying on the native title bar.
+ * buttons instead of relying on the title bar.
  *
  * mirrors whatever the rust side actually did when it built the window (see
  * lib.rs/wizard.rs) - macOS + linux only, defaults to true. other platforms
- * always keep their native decorations regardless of this setting, so
+ * always keep their system decorations regardless of this setting, so
  * callers must gate rendering on this AND running under tauri desktop.
  */
 export async function getChromelessTitleBar(): Promise<boolean> {
@@ -251,7 +251,7 @@ export async function minimizeWindow(): Promise<void> {
 
 /**
  * toggle the current window between maximized and restored. mirrors what
- * double-clicking a `data-tauri-drag-region` strip already does natively.
+ * double-clicking a `data-tauri-drag-region` strip already does itself.
  */
 export async function toggleMaximizeWindow(): Promise<void> {
   try {
@@ -277,7 +277,7 @@ export async function closeWindow(): Promise<void> {
 }
 
 /**
- * explicitly start a native window drag from the title-bar strip, in
+ * explicitly start a system window drag from the title-bar strip, in
  * addition to the passive `data-tauri-drag-region` attribute (which relies
  * on tauri's injected mousedown listener picking up the click). errors are
  * logged (rather than swallowed) since a silent failure here is exactly

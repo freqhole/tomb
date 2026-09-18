@@ -13,7 +13,7 @@
 // (a webview api) or a `blob:` url. that is a *host* detail, not a policy
 // one: both stores get the same lifecycle and the same eviction rules.
 
-/** which playback host will consume the bytes. `rodio` is charnel's native
+/** which playback host will consume the bytes. `rodio` is charnel's
  * audio path (default on linux); everything else plays in the webview. */
 export type PlaybackHost = "webview" | "rodio";
 

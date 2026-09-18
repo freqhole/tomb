@@ -64,10 +64,10 @@ pub struct FreqholeAppConfig {
     pub disable_backdrop_blur: bool,
 
     /// use a fully custom, in-webview title bar (drag strip + traffic-light
-    /// buttons drawn by spume/the wizard) instead of the native macOS title
+    /// buttons drawn by spume/the wizard) instead of the macOS title
     /// bar. macOS only - ignored on linux/windows, which always keep their
-    /// native decorations regardless of this flag. default: true (opt out
-    /// to fall back to the native `TitleBarStyle::Transparent` bar that was
+    /// system decorations regardless of this flag. default: true (opt out
+    /// to fall back to the `TitleBarStyle::Transparent` bar that was
     /// used before this option existed).
     #[serde(default = "default_chromeless_title_bar")]
     pub chromeless_title_bar: bool,

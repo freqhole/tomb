@@ -145,7 +145,19 @@ pub async fn sync_song_by_blake3(caller: &Caller, body: JsonValue) -> GrimoireRe
     let pulled = match pull_audio_blob_to_local_storage(
         &req.source_node_id,
         &req.blake3,
-        Some(&req.sha256),
+        // an empty sha256 means the caller genuinely doesn't know one yet
+        // (e.g. cenotaph's mediaRefResolve.ts syncing straight from a
+        // RemoteMediaRef, which carries no sha256 at all) - not a real hash
+        // to verify against. skip the check in that case and trust
+        // iroh-blobs' own blake3-verified streaming for integrity; passing
+        // it through unconditionally previously made every such pull fail
+        // with a bogus Sha256Mismatch (comparing the real downloaded file's
+        // hash against a placeholder that was never a sha256 to begin with).
+        if req.sha256.is_empty() {
+            None
+        } else {
+            Some(req.sha256.as_str())
+        },
         req.size,
         &req.filename,
         caller,

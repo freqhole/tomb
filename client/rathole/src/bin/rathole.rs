@@ -100,7 +100,7 @@ fn init_file_logging() {
 
 /// dup file descriptor 2 (stderr) to the rathole log file so any
 /// raw `fprintf(stderr, ...)` from C audio shims (CoreAudio,
-/// symphonia's underlying decoders, iroh-relay native bits) lands
+/// symphonia's underlying decoders, iroh-relay bits) lands
 /// in the log instead of scribbling over the ratatui alt-screen.
 /// best-effort: failures here just leave stderr alone, which is no
 /// worse than the previous behaviour.

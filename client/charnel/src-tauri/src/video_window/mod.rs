@@ -77,7 +77,7 @@ pub fn video_window_diagnostics() -> VideoWindowDiagnostics {
 
 /// compatibility alias for development builds made before the command rename.
 #[tauri::command]
-pub fn native_video_available() -> bool {
+pub fn system_video_available() -> bool {
     video_window_available()
 }
 
@@ -99,7 +99,7 @@ pub async fn video_window_command(
 
 /// compatibility alias for development builds made before the command rename.
 #[tauri::command]
-pub async fn native_video_command(
+pub async fn system_video_command(
     app: AppHandle<Wry>,
     command: VideoCommand,
 ) -> Result<(), String> {

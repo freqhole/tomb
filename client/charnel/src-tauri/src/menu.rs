@@ -275,7 +275,7 @@ fn build_app_submenu(app: &AppHandle<Wry>) -> tauri::Result<Submenu<Wry>> {
 }
 
 /// show the about window (or focus it if already open). shared by the
-/// native app menu and the chromeless title-bar's web context menu.
+/// system app menu and the chromeless title-bar's web context menu.
 pub fn show_about_window(app: &AppHandle<Wry>) {
     if let Some(about_window) = app.get_webview_window("about") {
         let _ = about_window.show();

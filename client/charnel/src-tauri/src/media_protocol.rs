@@ -34,12 +34,30 @@ pub fn handler(
     _ctx: UriSchemeContext<'_, Wry>,
     request: Request<Vec<u8>>,
 ) -> Response<Cow<'static, [u8]>> {
-    match get_response(request) {
-        Ok(response) => response,
-        Err(status) => Response::builder()
+    // a panic in here would otherwise cross the app callback boundary
+    // with no guarantee of a trace (media error 4 investigation - "the
+    // handler is never invoked" and "the handler panicked before its
+    // first log line" would look identical from the js side otherwise).
+    let uri_for_panic_log = request.uri().to_string();
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| get_response(request)));
+    match result {
+        Ok(Ok(response)) => response,
+        Ok(Err(status)) => Response::builder()
             .status(status)
             .body(Cow::Borrowed(&[][..]))
             .unwrap(),
+        Err(panic_payload) => {
+            let panic_msg = panic_payload
+                .downcast_ref::<&str>()
+                .map(|s| s.to_string())
+                .or_else(|| panic_payload.downcast_ref::<String>().cloned())
+                .unwrap_or_else(|| "<non-string panic payload>".to_string());
+            tracing::error!(uri = %uri_for_panic_log, panic = %panic_msg, "freqhole-media: handler panicked");
+            Response::builder()
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .body(Cow::Borrowed(&[][..]))
+                .unwrap()
+        }
     }
 }
 
@@ -48,34 +66,68 @@ fn get_response(request: Request<Vec<u8>>) -> Result<Response<Cow<'static, [u8]>
     let raw_path = &request.uri().path()[1..];
     let path = percent_encoding::percent_decode_str(raw_path)
         .decode_utf8()
-        .map_err(|_| StatusCode::BAD_REQUEST)?
+        .map_err(|_| {
+            tracing::warn!(
+                raw_path,
+                "freqhole-media: failed to percent-decode request path"
+            );
+            StatusCode::BAD_REQUEST
+        })?
         .to_string();
+
+    let range_header = request.headers().get("range").and_then(|r| r.to_str().ok());
 
     // this scheme is only ever hit with paths this app itself generated
     // (from already-validated backend responses - synced media file paths),
     // not arbitrary user input, but still guard against directory traversal
     // and reject anything that isn't a plain, existing file.
-    let canonical = std::fs::canonicalize(&path).map_err(|_| StatusCode::NOT_FOUND)?;
+    let canonical = std::fs::canonicalize(&path).map_err(|e| {
+        tracing::warn!(path = %path, error = %e, "freqhole-media: canonicalize failed (file missing?)");
+        StatusCode::NOT_FOUND
+    })?;
     if !canonical.is_file() {
+        tracing::warn!(path = %path, "freqhole-media: canonicalized path is not a regular file");
         return Err(StatusCode::NOT_FOUND);
     }
 
-    let mut file = File::open(&canonical).map_err(|_| StatusCode::NOT_FOUND)?;
+    let mut file = File::open(&canonical).map_err(|e| {
+        tracing::warn!(path = %path, error = %e, "freqhole-media: failed to open file");
+        StatusCode::NOT_FOUND
+    })?;
     let len = file
         .metadata()
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .map_err(|e| {
+            tracing::warn!(path = %path, error = %e, "freqhole-media: failed to read file metadata");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?
         .len();
 
-    let mime_type = mime_guess::from_path(&canonical)
-        .first_raw()
-        .unwrap_or("application/octet-stream");
+    // extension alone is unreliable here: some already-imported files still
+    // carry a generic `.bin` placeholder extension left over from before
+    // their real one was ever re-derived from a sniffed mime type (see
+    // `detect_extension`'s own callers) - `mime_guess::from_path` silently
+    // falls back to `application/octet-stream` for those, and linux
+    // (webkitgtk) / windows (webview2) both refuse to even attempt playing
+    // an `<audio>`/`<video>` source whose Content-Type doesn't look like
+    // media (confirmed live: `NotSupportedError`/media error code 4 for a
+    // perfectly valid mp3 served with a `.bin` extension). sniff magic
+    // bytes the same way the upload/pull path already does, instead of
+    // trusting the extension alone.
+    let mut peek_buf = vec![0u8; 4096.min(len as usize)];
+    file.read_exact(&mut peek_buf).map_err(|e| {
+        tracing::warn!(path = %path, error = %e, "freqhole-media: failed to read header bytes for mime sniffing");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+    file.seek(SeekFrom::Start(0)).map_err(|e| {
+        tracing::warn!(path = %path, error = %e, "freqhole-media: failed to seek back to start after sniffing");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+    let mime_type = grimoire::offal::upload::mime::detect_media_mime_type(&path, &peek_buf);
 
     let mut resp = Response::builder()
         .header(CONTENT_TYPE, mime_type)
         .header(ACCEPT_RANGES, "bytes")
         .header(ACCESS_CONTROL_ALLOW_ORIGIN, "*");
-
-    let range_header = request.headers().get("range").and_then(|r| r.to_str().ok());
 
     let Some(range_header) = range_header else {
         // no range requested - serve the whole file in one response.
@@ -91,6 +143,7 @@ fn get_response(request: Request<Vec<u8>>) -> Result<Response<Cow<'static, [u8]>
     resp = resp.header(ACCESS_CONTROL_EXPOSE_HEADERS, "content-range");
 
     let not_satisfiable = || {
+        tracing::warn!(path = %path, len, range = ?range_header, "freqhole-media: range not satisfiable");
         Response::builder()
             .status(StatusCode::RANGE_NOT_SATISFIABLE)
             .header(CONTENT_RANGE, format!("bytes */{len}"))

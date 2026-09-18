@@ -80,7 +80,7 @@ pub fn open_setup_wizard_at_route(app: AppHandle<Wry>, route: &str) -> Result<()
     } else {
         win_builder.title_bar_style(TitleBarStyle::Transparent)
     };
-    // linux has no TitleBarStyle equivalent - leave native decorations
+    // linux has no TitleBarStyle equivalent - leave system decorations
     // alone when the toggle is off.
     #[cfg(target_os = "linux")]
     let chromeless = FreqholeAppConfig::load(&app)
@@ -342,7 +342,7 @@ pub async fn close_setup_wizard(
         } else {
             win_builder.title_bar_style(TitleBarStyle::Transparent)
         };
-        // linux has no TitleBarStyle equivalent - leave native decorations
+        // linux has no TitleBarStyle equivalent - leave system decorations
         // alone when the toggle is off.
         #[cfg(target_os = "linux")]
         let app_config = FreqholeAppConfig::load(&app).unwrap_or_default();

@@ -391,9 +391,14 @@ export class HtmlAudioBackend implements PlayerBackend {
       // - only REMOVING the attribute actually takes the element out of
       // CORS mode entirely for these local-file reads. only treat it as
       // needing credentials when it's actually http(s) to some other host -
-      // `freqhole-media.localhost` is our own custom protocol (android-only,
-      // see media_protocol.rs), just as local as `asset.localhost`, and its
-      // handler doesn't send Access-Control-* headers at all.
+      // `freqhole-media.localhost` is our own custom protocol (used on
+      // every platform now, not just android - see media_protocol.rs's own
+      // header comment), just as local as `asset.localhost`, and its
+      // handler doesn't send Access-Control-* headers at all. this fake-
+      // https hostname form only ever shows up on windows/android (same
+      // chromium-webview limitation as `asset.localhost` above) - macOS/
+      // linux get the real `freqhole-media://localhost/...` scheme instead,
+      // which never starts with "http" and so skips this whole branch.
       const LOCAL_FILE_HOSTNAMES = new Set(["asset.localhost", "freqhole-media.localhost"]);
       let needsCredentials = false;
       if (audioURL.startsWith("http")) {
@@ -801,11 +806,13 @@ export class HtmlAudioBackend implements PlayerBackend {
           msg,
           fullSrc: audio.src,
           crossOrigin: audio.crossOrigin,
+          networkState: audio.networkState,
+          readyState: audio.readyState,
         })
       );
       warn(
         "player.html",
-        `audio element error code=${code} src=${audio.src?.slice(0, 60) ?? null}: ${msg}`
+        `audio element error code=${code} src=${audio.src?.slice(0, 60) ?? null}: ${msg} (networkState=${audio.networkState} readyState=${audio.readyState})`
       );
 
       // an error that immediately follows a seek attempt - recover in

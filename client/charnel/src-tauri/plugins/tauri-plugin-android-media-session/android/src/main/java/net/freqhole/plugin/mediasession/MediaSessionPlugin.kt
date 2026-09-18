@@ -98,7 +98,7 @@ class MediaSessionPlugin(private val activity: Activity) : Plugin(activity) {
     // <audio> via the standard html5 path, which fires the JS 'pause'
     // event and propagates to MediaSession state correctly.
 
-    // native track-end watchdog. when the playback state goes to "playing"
+    // platform track-end watchdog. when the playback state goes to "playing"
     // with a known position+duration, we schedule a callback for the
     // expected end-of-track time. on fire, we emit an "expectedend" action
     // that js uses as a backup trigger to advance the queue if the
@@ -294,7 +294,7 @@ class MediaSessionPlugin(private val activity: Activity) : Plugin(activity) {
     }
 
     /**
-     * (re)schedule the native end-of-track watchdog. cancels any pending
+     * (re)schedule the platform end-of-track watchdog. cancels any pending
      * callback and, if currently playing with a known duration, posts a
      * new one to fire shortly after the track is expected to end.
      *

@@ -5,7 +5,7 @@
 // src/dev/testBridge.ts dial helpers.
 //
 // two transports, selected via isCharnelMode(): wasm (browser midden node,
-// open_bi/write_line/read_line/close) and charnel (tauri native
+// open_bi/write_line/read_line/close) and charnel (tauri
 // `player_pairing_dial` invoke, same one-line-request/response shape) -
 // mirrors adminClient.ts's WasmAdminTransport/CharnelAdminTransport split.
 

@@ -264,7 +264,7 @@ queue_size_limit = 150
 max_concurrency = 0
 
 # ============================================================================
-# OPTIONAL: native audio backend (rodio/cpal) tuning
+# OPTIONAL: system audio backend (rodio/cpal) tuning
 # only consumed when the `rodio-playback` cargo feature is on (charnel
 # desktop app, cli `serve`). headless / web-only builds ignore it.
 # the whole section is optional; omit it to accept defaults.

@@ -1796,7 +1796,7 @@ fn on_action(app: &mut App, action: AppAction, action_tx: &mpsc::UnboundedSender
             app.state.ephemeral.pending_knocks = count;
             app.state.ephemeral.pending_knock_username = if count == 1 { username } else { None };
         }
-        // serve subprocess control is native-only (rathole spawns a
+        // serve subprocess control is platform-only (rathole spawns a
         // child `freqhole serve`). the web shell has no subprocess
         // model; arms exist solely for exhaustiveness.
         AppAction::ServeStart { .. } | AppAction::ServeStop => {}
@@ -1836,7 +1836,7 @@ fn on_action(app: &mut App, action: AppAction, action_tx: &mpsc::UnboundedSender
         | AppAction::PairingRemoveFromQueue { .. }
         | AppAction::PairingReorderQueue { .. }
         // radio tune/stop + its status updates: tty-only (mpv/iroh
-        // native client - see tty::radio's module doc).
+        // client - see tty::radio's module doc).
         | AppAction::PairingTuneRadio { .. }
         | AppAction::PairingStopRadio
         | AppAction::RadioStatusUpdate { .. }
@@ -3190,7 +3190,7 @@ fn install_paste_listener(app: Rc<RefCell<App>>) -> Result<(), JsValue> {
     //    ratzilla's bubble-phase listener). two jobs:
     //    a) swallow Cmd-V / Ctrl-V so ratzilla never delivers a stray
     //       `Char('v')` to the input handler when the user actually means
-    //       to paste. the browser's native `paste` event still fires.
+    //       to paste. the browser's `paste` event still fires.
     //    b) preventDefault on Tab / Shift-Tab so the browser doesn't
     //       move focus off the canvas. ratzilla still gets the keydown
     //       (we don't stop propagation), so our handlers run.

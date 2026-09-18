@@ -9,7 +9,7 @@ import androidx.core.view.WindowInsetsControllerCompat
  * hide/show the status + gesture nav bars via WindowInsetsControllerCompat -
  * the modern API Android actually respects for this (legacy
  * View.SYSTEM_UI_FLAG_* bits don't reliably hide the gesture nav bar on
- * modern Android). shared by FullscreenWebChromeClient (native video
+ * modern Android). shared by FullscreenWebChromeClient (platform video
  * fullscreen, if it ever fires) and SystemBarsBridge (the JS-callable path,
  * needed because Element.requestFullscreen() on this WebView is handled
  * entirely as in-page CSS fullscreen and never invokes onShowCustomView).

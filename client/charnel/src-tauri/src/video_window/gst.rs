@@ -353,7 +353,7 @@ fn build_window(app: &AppHandle<Wry>) -> Result<VideoWindow, String> {
 /// mirror `[audio].linux_buffer_frames` (the rodio/cpal period-size tuning
 /// documented in `grimoire/src/player/rodio.rs`) for gst's own audio sink -
 /// the same pipewire/pulseaudio underrun issue that causes stutters on
-/// native music playback can also affect video playback. uses its own
+/// music playback can also affect video playback. uses its own
 /// `[video].linux_buffer_frames` knob (default 8192) rather than reusing
 /// `[audio]`'s value, since video's audio path commonly wants a different
 /// buffer size than the dedicated music player. "deep-element-added"

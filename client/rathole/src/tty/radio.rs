@@ -2,7 +2,7 @@
 //!
 //! connects to a broadcaster over `freqhole-radio/1` (grimoire's own
 //! `radio::{messages,protocol}` types - the same wire format the
-//! browser/wasm and charnel-native radio clients use, see
+//! browser/wasm and charnel radio clients use, see
 //! `client/charnel/src-tauri/src/radio_commands.rs`, which this
 //! module's connect/tune/hello handshake mirrors closely), and writes
 //! the raw fMP4 chunk stream into a per-track named pipe that gets

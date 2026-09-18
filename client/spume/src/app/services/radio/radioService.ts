@@ -935,7 +935,7 @@ export async function tuneIntoRadio(
     setCurrentStationId(opts.stationId ?? null);
   }
 
-  // pick transport: charnel/tauri uses the native iroh path via
+  // pick transport: charnel/tauri uses the iroh path via
   // `radio_tune` IPC commands (or `radio_tune_local` for self-listen);
   // everywhere else uses midden wasm.
   const useCharnel = isCharnelAvailable();

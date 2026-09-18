@@ -1,6 +1,6 @@
 //! tauri plugin: android lock-screen / media-notification controls.
 //!
-//! exposes a small command surface that proxies to a native kotlin plugin
+//! exposes a small command surface that proxies to a kotlin plugin
 //! which owns an android `MediaSessionCompat` + foreground `MediaStyle`
 //! notification. desktop and ios are no-ops so the plugin can be registered
 //! unconditionally.
