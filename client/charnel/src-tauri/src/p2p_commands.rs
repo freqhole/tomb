@@ -1,4 +1,4 @@
-//! P2P tauri commands for native iroh transport
+//! P2P tauri commands for iroh transport
 //!
 //! provides tauri IPC commands for making P2P requests to remote peers
 //! using the server's federation endpoint. used by TauriTransport.ts.
@@ -101,8 +101,9 @@ pub struct BlobDownloadProgress {
 
 /// adapt a tauri channel into the plain callback grimoire's downloader takes.
 /// send failures are ignored - a closed channel (frontend navigated away) must
-/// never abort an in-flight download.
-fn progress_forwarder(
+/// never abort an in-flight download. `pub(crate)`: also used by
+/// `commands::sync_song_by_blake3_with_progress`.
+pub(crate) fn progress_forwarder(
     channel: tauri::ipc::Channel<BlobDownloadProgress>,
 ) -> Box<grimoire::federation::p2p_client::BlobProgressFn> {
     Box::new(move |bytes_downloaded| {

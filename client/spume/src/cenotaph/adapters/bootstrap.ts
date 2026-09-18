@@ -22,7 +22,7 @@ export function initRemotePlaybackBootstrap(): void {
   if (registered) return;
   registered = true;
 
-  // charnel has no midden/wasm node at all - its accept loop is native
+  // charnel has no midden/wasm node at all - its accept loop is
   // (grimoire::cenotaph, registered on charnel's own p2p endpoint) and
   // just needs its tauri-event bridge started, not onMiddenReady.
   if (isCharnelMode()) {

@@ -4,11 +4,12 @@
 use serde_json::Value as JsonValue;
 
 use crate::error::ErrorDetail;
+use crate::federation::p2p_client::BlobProgressFn;
 use crate::media_domain::MediaDomain;
 use crate::music::crud::create_or_update::import_song_with_metadata;
 use crate::music::crud::ImportSongRequest;
 use crate::offal::caller::Caller;
-use crate::offal::upload::pull_audio_blob_to_local_storage;
+use crate::offal::upload::pull_audio_blob_to_local_storage_with_progress;
 use crate::response::GrimoireResponse;
 
 use super::images::resolve_sync_image_ref;
@@ -30,9 +31,16 @@ pub async fn get_synced_sha256s(_caller: &Caller) -> GrimoireResponse<JsonValue>
 /// flow:
 ///   1. parse + validate request
 ///   2. shortcut: if a song row already exists keyed by `blake3`, skip the pull entirely
-///   3. otherwise, call `pull_audio_blob_to_local_storage` (verified streaming + dedupe)
+///   3. otherwise, call `pull_audio_blob_to_local_storage_with_progress` (verified streaming + dedupe)
 ///   4. write a complete song row via `import_song_with_metadata` (no async ImportMusic job)
 ///   5. attach song images by `SyncImageRef` (inline base64 OR existing-by-sha256)
+///
+/// thin wrapper over `sync_song_by_blake3_impl` for the generic offal route
+/// dispatch (HTTP, CLI, remote ALPN) - none of those transports have a side
+/// channel for progress, so this always passes `None`. `charnel_lib`'s
+/// `sync_song_by_blake3_with_progress` tauri command calls the same impl
+/// with a real callback wired to a `tauri::ipc::Channel` instead - see its
+/// doc comment for why this couldn't just be added here.
 pub async fn sync_song_by_blake3(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
     let req: SyncSongByBlake3Request = match serde_json::from_value(body) {
         Ok(r) => r,
@@ -52,7 +60,19 @@ pub async fn sync_song_by_blake3(caller: &Caller, body: JsonValue) -> GrimoireRe
             );
         }
     };
+    sync_song_by_blake3_impl(caller, req, None).await
+}
 
+/// same as `sync_song_by_blake3` but takes an already-parsed request and an
+/// optional progress callback, forwarded straight through to
+/// `pull_audio_blob_to_local_storage_with_progress` (step 3 - the only slow
+/// part of this whole handler, routinely 8-70+ seconds for a real audio
+/// file with nothing else to show for it in the meantime).
+pub async fn sync_song_by_blake3_impl(
+    caller: &Caller,
+    req: SyncSongByBlake3Request,
+    on_progress: Option<&BlobProgressFn>,
+) -> GrimoireResponse<JsonValue> {
     tracing::debug!(
         "sync_song_by_blake3: START from {} -- title=\"{}\" blake3={} sha256={} size={:?} source_node={} source_remote={:?} filename=\"{}\"",
         caller.username,
@@ -142,14 +162,27 @@ pub async fn sync_song_by_blake3(caller: &Caller, body: JsonValue) -> GrimoireRe
         &req.source_node_id[..16.min(req.source_node_id.len())],
         req.size.map(|s| s as i64).unwrap_or(-1),
     );
-    let pulled = match pull_audio_blob_to_local_storage(
+    let pulled = match pull_audio_blob_to_local_storage_with_progress(
         &req.source_node_id,
         &req.blake3,
-        Some(&req.sha256),
+        // an empty sha256 means the caller genuinely doesn't know one yet
+        // (e.g. cenotaph's mediaRefResolve.ts syncing straight from a
+        // RemoteMediaRef, which carries no sha256 at all) - not a real hash
+        // to verify against. skip the check in that case and trust
+        // iroh-blobs' own blake3-verified streaming for integrity; passing
+        // it through unconditionally previously made every such pull fail
+        // with a bogus Sha256Mismatch (comparing the real downloaded file's
+        // hash against a placeholder that was never a sha256 to begin with).
+        if req.sha256.is_empty() {
+            None
+        } else {
+            Some(req.sha256.as_str())
+        },
         req.size,
         &req.filename,
         caller,
         MediaDomain::Music,
+        on_progress,
     )
     .await
     {

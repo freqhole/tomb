@@ -2,7 +2,7 @@
 //!
 //! connects to a broadcaster over `freqhole-radio/1` (grimoire's own
 //! `radio::{messages,protocol}` types - the same wire format the
-//! browser/wasm and charnel-native radio clients use, see
+//! browser/wasm and charnel radio clients use, see
 //! `client/charnel/src-tauri/src/radio_commands.rs`, which this
 //! module's connect/tune/hello handshake mirrors closely), and writes
 //! the raw fMP4 chunk stream into a per-track named pipe that gets
@@ -219,6 +219,31 @@ struct TrackFifo {
     writer: Option<tokio::fs::File>,
 }
 
+/// `mkfifo` is a POSIX-only syscall (no windows equivalent) - split out
+/// so this module still compiles on windows even though radio playback
+/// there is unreachable in practice (it needs `app.video_player`, which
+/// is always `None` on windows - see tty/video_player_stub.rs).
+#[cfg(unix)]
+fn create_fifo(path: &std::path::Path) -> Result<(), String> {
+    let cpath = std::ffi::CString::new(path.to_string_lossy().as_bytes().to_vec())
+        .map_err(|e| e.to_string())?;
+    // SAFETY: `mkfifo` is a plain libc syscall; `cpath` is a valid
+    // NUL-terminated string owned for the duration of this call.
+    let ret = unsafe { libc::mkfifo(cpath.as_ptr(), 0o600) };
+    if ret != 0 {
+        return Err(format!(
+            "mkfifo failed: {}",
+            std::io::Error::last_os_error()
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn create_fifo(_path: &std::path::Path) -> Result<(), String> {
+    Err("named pipes (fifos) aren't supported on this platform".to_string())
+}
+
 impl TrackFifo {
     /// opens a fresh fifo, tells mpv to load it, and stores the write
     /// end - first dropping any previous fifo (closing its write end
@@ -230,17 +255,7 @@ impl TrackFifo {
     ) -> Result<(), String> {
         self.close();
         let path = std::env::temp_dir().join(format!("rathole-radio-{}.fifo", ulid::Ulid::new()));
-        let cpath = std::ffi::CString::new(path.to_string_lossy().as_bytes().to_vec())
-            .map_err(|e| e.to_string())?;
-        // SAFETY: `mkfifo` is a plain libc syscall; `cpath` is a valid
-        // NUL-terminated string owned for the duration of this call.
-        let ret = unsafe { libc::mkfifo(cpath.as_ptr(), 0o600) };
-        if ret != 0 {
-            return Err(format!(
-                "mkfifo failed: {}",
-                std::io::Error::last_os_error()
-            ));
-        }
+        create_fifo(&path)?;
         // opening the write end blocks (on tokio's blocking pool) until
         // a reader shows up - kick that off concurrently with mpv's own
         // open (the loadfile below) rather than awaiting it first, or

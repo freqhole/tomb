@@ -160,11 +160,16 @@ async function downloadSong(song: SyncableSong): Promise<void> {
     debug("autoDownload", `starting download: ${song.title} (${sha256.slice(0, 8)}...)`);
 
     const result = await syncSongToLocal(song, (received, total) => {
-      // update progress for UI
+      // update progress for UI - updateLoadingProgress wants a 0..1
+      // fraction (same as every other caller, e.g. blobResolver.ts/
+      // audioAccess.ts's `received / total`) - this used to pass an
+      // already-*100 percentage instead, which QueueSongRow's
+      // loadingPercent() then multiplied by 100 AGAIN, so the bar
+      // clamped to 100% on the very first tick instead of animating.
       if (total > 0) {
-        const pct = Math.round((received / total) * 100);
-        updateLoadingProgress(sha256, pct);
-        debug("autoDownload", `progress: ${sha256.slice(0, 8)}... ${pct}%`);
+        const fraction = received / total;
+        updateLoadingProgress(sha256, fraction);
+        debug("autoDownload", `progress: ${sha256.slice(0, 8)}... ${Math.round(fraction * 100)}%`);
       }
     });
 

@@ -134,9 +134,12 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
   // error state after a failed connection test.
   const [inputValue, setInputValue] = createSignal("");
 
-  // qr scanner state (browser-only, not in tauri)
+  // qr scanner state - gated only on actual camera API availability, not
+  // platform: a webview that genuinely can't do getUserMedia (some tauri
+  // desktop builds) already evaluates this false on its own, and one that
+  // can (android, browser) just works - no need to special-case either.
   const [showScanner, setShowScanner] = createSignal(false);
-  const canScanQr = () => !isCharnelAvailable() && !!navigator.mediaDevices?.getUserMedia;
+  const canScanQr = () => !!navigator.mediaDevices?.getUserMedia;
 
   // pin pairing state, used only when the probed peer is a freqhole-player
   // device (s.serverInfo?.player_device) rather than a real remote server.

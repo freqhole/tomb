@@ -14,23 +14,7 @@
 // real syncSongToLocal()/syncVideoToLocal() - both already branch
 // internally on isCharnelMode(). this is what makes cenotaph's own
 // artist/album/series image handling "just work" for free: those already
-// live inside syncSongToLocal()/syncVideoToLocal() (see
-// syncArtistImagesOnPlay.ts's sibling `downloadAndStoreImages`/
-// `imagesAreStale` machinery) and only need a real, fully-populated
-// object to act on - no cenotaph-specific image logic exists or is
-// needed here. an earlier version of this function queried by `filters:
-// { blake3 }`, which silently no-op'd because grimoire had no such
-// filter at the time - fixed for real this round (see
-// docs/cenotaph-player-queue-unification-plan.md task 15) by adding
-// `media_blob_blake3` (songs) / `media_blob_ids` (videos, via
-// `blob_metadata_by_blake3` first) filters server-side, instead of
-// papering over the gap with a thinner client-side object. falls back to
-// a thin, MediaRef-only object (title/artist strings, single artwork
-// url) only when the full fetch fails (source peer offline, etc.) - this
-// supersedes the older, thinner "no sync, defer to play-time" charnel
-// design recorded in docs/cenotaph-charnel-native-playback-rewire-plan.md's
-// phase 1 - per explicit user direction this session, a queued item
-// should always be persisted into the real local library right away.
+// live inside syncSongToLocal()/syncVideoToLocal()
 
 import type { MediaRef } from "../index";
 import { getClientForRemote, getLocalNodeIdAsync, isCharnelAvailable } from "../../app/api/client";
@@ -311,10 +295,18 @@ export async function resolveMediaRefToSong(item: MediaRef): Promise<Song | null
     // `adaptSongFromAPI` always sets it to a real string - safe to assert
     // here rather than widen `SyncableSong`'s own (correctly strict) type.
     const syncableSong: SyncableSong = (full as SyncableSong | null) ?? {
-      // MediaRef has no sha256 of its own - reused as a placeholder, same
-      // convention flagged in this file's header comment (sha256/blake3
-      // conflation, tracked separately per the sha256-deprecation effort).
-      sha256: item.blake3_hash,
+      // MediaRef has no sha256 of its own. browser-mode sync uses this as
+      // its local IDB primary key (never sent anywhere for verification),
+      // so blake3 is a fine stand-in there - but charnel mode forwards it
+      // straight to grimoire's sync_song_by_blake3, which used to pass it
+      // on unconditionally as a "verify the download against this sha256"
+      // check - the blake3 hash re-used as a fake sha256 could never match
+      // the real downloaded file's actual sha256, so every charnel pull
+      // failed with a bogus Sha256Mismatch. an empty string tells grimoire
+      // this is genuinely unknown (skip that check, trust iroh-blobs' own
+      // blake3-verified streaming instead - see sync_song_by_blake3's own
+      // handling of an empty `req.sha256`).
+      sha256: isCharnelAvailable() ? "" : item.blake3_hash,
       media_blob_id: item.blake3_hash,
       title: item.title ?? "untitled",
       artist_name: item.artist ?? "unknown artist",

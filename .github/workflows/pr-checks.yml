@@ -226,7 +226,7 @@ jobs:
         run: npm test
 
   midden-check:
-    name: midden (rust fmt + clippy + native test + wasm build)
+    name: midden (rust fmt + clippy + platform test + wasm build)
     if: github.head_ref != 'changeset-release/main'
     runs-on: ${{ vars.LINUX_X86_64_RUNNER || 'ubuntu-24.04' }}
     steps:
@@ -251,10 +251,10 @@ jobs:
         working-directory: lib/midden
         run: cargo clippy --all-targets -- -D warnings
 
-      - name: cargo test (native)
+      - name: cargo test (platform)
         # the browser-facing bits are behind wasm-bindgen, but the opfs_store
-        # module's storage/actor logic is storage-generic and carries native
-        # (non-wasm) tests via a NativeDir test impl.
+        # module's storage/actor logic is storage-generic and carries platform
+        # (non-wasm) tests via a test impl.
         working-directory: lib/midden
         run: cargo test
 

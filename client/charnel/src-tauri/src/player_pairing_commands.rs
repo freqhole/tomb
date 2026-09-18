@@ -1,4 +1,4 @@
-//! charnel-native transport for player.freqhole.net's `freqhole-player/1`
+//! charnel transport for player.freqhole.net's `freqhole-player/1`
 //! pairing/control protocol.
 //!
 //! player.freqhole.net devices speak a small ndjson protocol (one json
@@ -7,7 +7,7 @@
 //! `player.freqhole.net/src/pairing/pairingHandler.ts` +
 //! `player.freqhole.net/src/control/dispatcher.ts`. spume's
 //! `playerPairingClient.ts` already speaks this over midden/wasm in the
-//! browser; this command gives it a native equivalent so pairing/control
+//! browser; this command gives it a equivalent so pairing/control
 //! also works from the tauri desktop app (`getMiddenNode()` throws under
 //! charnel mode, which is the bug this exists to fix).
 //!

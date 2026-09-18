@@ -45,7 +45,7 @@ export default defineConfig(({ mode }) => {
     plugins: [solid(), middenBareSpecifierPlugin()],
     resolve: {
       alias: {
-        // midden is a wasm/native module — replace with the browser-only stub
+        // midden is a wasm module — replace with the browser-only stub
         // for any demo build.
         "@freqhole/midden": middenStub,
       },

@@ -327,7 +327,7 @@ async fn dispatch_pairing_command_inner(
         PairingCommand::Skip => {
             // route through the unified queue's own advance logic
             // (see `AppAction::PairingSkip`'s doc comment) rather than
-            // a backend-native "next" - neither rodio nor mpv ever
+            // a backend "next" - neither rodio nor mpv ever
             // have more than one track loaded at once, so their own
             // Next/skip primitives are a no-op.
             if let Some(tx) = &ctx.action_tx {

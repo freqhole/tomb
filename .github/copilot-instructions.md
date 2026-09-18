@@ -317,7 +317,7 @@ Avoid emojis in comments, error messages, or any code. Use them only in markdown
 - **This is mostly AI-generated code** - Expect unconventional patterns and over-documentation
 - **Legacy artifacts**: `legacycli/`, `legacylib/`, `legacyserver/` are deprecated, ignore them
 - **Config must be initialized first**: Call `grimoire::config::init_config()` before any database operations
-- **Docker builds for cross-compilation**: Native cross-compilation is fragile; use `make build-pi` or `make build-linux`
+- **Docker builds for cross-compilation**: cross-compilation is fragile; use `make build-pi` or `make build-linux`
 
 ## Never use git mutation commands without explicit permission
 

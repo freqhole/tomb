@@ -33,6 +33,13 @@ const TRAFFIC_LIGHTS_WIDTH_PX = 80;
 const LINUX_CHROME_WIDTH_PX = 132;
 /** pointer movement (px) before a press on the strip becomes a window drag. */
 const DRAG_THRESHOLD_PX = 4;
+// this menu is global window chrome (about/p2p/logs/settings/etc), not
+// page content - it must out-rank every ordinary page z-index (modals,
+// dropdowns, the cenotaph player's own content tier) regardless of which
+// route is showing underneath it. passed as an explicit override (not a
+// change to ContextMenu/ClickDropdownMenu's own default z-[1200]) so every
+// OTHER caller of those shared components is unaffected.
+const CHROME_MENU_Z_INDEX = 1950;
 
 const STATIC_MENU_ACTIONS: MenuAction[] = [
   { label: "logs", onClick: () => void openSetupWizard("/logs") },
@@ -197,6 +204,7 @@ export function TitleBarStrip() {
       <ContextMenu
         actions={chromeMenuActions()}
         onOpen={refreshP2pStatus}
+        zIndex={CHROME_MENU_Z_INDEX}
         triggerClass={`block fixed top-0 left-0 right-0 ${
           videoMiniPlayerExpanded() ? "z-[1600]" : "z-[100]"
         }`}
@@ -412,6 +420,7 @@ export function TitleBarStrip() {
                   actions={chromeMenuActions()}
                   onOpen={refreshP2pStatus}
                   align="left"
+                  zIndex={CHROME_MENU_Z_INDEX}
                 />
               </Show>
             </div>

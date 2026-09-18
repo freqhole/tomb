@@ -14,7 +14,7 @@ path = "src/lib.rs"
 [features]
 default = ["server/webauthn", "rodio-playback"]
 webauthn = ["server/webauthn"]
-# enable native audio playback for the `freqhole player daemon`
+# enable platform audio playback for the `freqhole player daemon`
 # subcommand. propagates to grimoire's `rodio-playback` feature so
 # `grimoire::player::spawn_player` is available. headless cross-
 # compile targets without cpal can disable this with

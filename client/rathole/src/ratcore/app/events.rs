@@ -794,7 +794,7 @@ pub enum AppAction {
     SongArtResolved { song_id: String, paths: Vec<String> },
     /// a `freqhole-player/1` `skip` command - advances the SAME
     /// unified queue the local `n` key does (`tty::queue::play_next`),
-    /// never a backend-native "next" primitive: both rodio and mpv are
+    /// never a backend "next" primitive: both rodio and mpv are
     /// only ever loaded with a single track at a time (see
     /// `tty::queue`'s module doc), so their own internal Next/skip is
     /// a no-op regardless of which one is currently active. dispatch

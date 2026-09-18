@@ -1,17 +1,17 @@
-// charnel's native accept-side bridge for the `freqhole-player/1`
+// charnel's accept-side bridge for the `freqhole-player/1`
 // protocol. the rust side (`grimoire::cenotaph`, registered on charnel's
 // own p2p router - see
 // client/charnel/src-tauri/src/player_pairing_accept.rs) already handles
-// the pairing handshake, trust, and session gating natively via
+// the pairing handshake, trust, and session gating via
 // `grimoire::users::UserService` - this bridge only needs to forward
 // each already-authorized command to spume's real playback backend
 // (`charnelPlaybackAdapter.ts`, the same one already used for the
 // dial-out/controller side) and send the resulting ack back.
 //
-// scope: charnel's "experimental player config" (native mpv/rodio via
+// scope: charnel's "experimental player config" ( mpv/rodio via
 // charnelPlaybackAdapter.ts) only - see docs/cenotaph-migration-plan.md's
 // front 3 for why the plain webview `mediaPlaybackBackend` DOM-engine
-// path (which would need its own charnel-native blob-fetch/radio-tune
+// path (which would need its own charnel blob-fetch/radio-tune
 // `MediaPlaybackNode`) isn't wired up here.
 
 import { dispatchCommand } from "../control/dispatcher";
@@ -73,7 +73,7 @@ interface PairingSnapshotDto {
 }
 
 // grimoire's rust endpoint (grimoire/src/cenotaph/endpoint.rs) tracks
-// connected controllers natively via state::mark_connected/mark_disconnected
+// connected controllers via state::mark_connected/mark_disconnected
 // for BOTH command-dispatching streams and read-only `subscribe` status-
 // watcher streams - the latter never dispatch a command at all, so they're
 // invisible to the per-command markControllerConnected call below. polling
@@ -82,7 +82,7 @@ interface PairingSnapshotDto {
 const CONNECTED_POLL_INTERVAL_MS = 5000;
 
 // grimoire's `current_code`/`session` (real, redeemable grimoire invite
-// codes, validated natively by `grimoire::cenotaph::endpoint.rs`) is the
+// codes, validated by `grimoire::cenotaph::endpoint.rs`) is the
 // ONLY pairing pin that will ever actually be accepted in charnel mode -
 // `pinStore.ts`'s `PlayerSession.pin` is a purely local, independently-
 // generated value with no relationship to it whatsoever. previously
@@ -252,8 +252,8 @@ async function handleCenotaphCommand(
   // previously this was awaited AFTER the trust-store lookup below,
   // delaying every pending row by however long that lookup took - the
   // lookup is only for a cosmetic display name in the connected-
-  // controllers list (peer trust/session gating already happened
-  // natively - see this file's header comment), so it has no reason to
+  // controllers list (peer trust/session gating already happened,
+  // see this file's header comment), so it has no reason to
   // block dispatch at all. `charnelPlaybackAdapter`'s
   // `PlaybackBackend<unknown>` never reads its `node` argument (see the
   // adapter's own file) - this accept path has no midden/wasm node to

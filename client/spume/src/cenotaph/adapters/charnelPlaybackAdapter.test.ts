@@ -290,7 +290,7 @@ describe("charnelPlaybackAdapter.replaceQueue", () => {
   });
 });
 
-describe("charnel mode (native tauri build)", () => {
+describe("charnel mode (tauri build)", () => {
   beforeEach(() => {
     isCharnelAvailable.mockReturnValue(true);
     getTauriManagedRemote.mockResolvedValue({ remote_id: "local-remote", base_url: "" });

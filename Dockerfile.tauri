@@ -8,7 +8,7 @@ FROM node:24-bookworm
 # trixie (not bookworm) for a much newer webkitgtk (2.52.5-1~deb13u1 vs
 # bookworm's 2.50.6-1~deb12u2, confirmed via trixie-security on both amd64
 # and arm64) - webkitgtk's html <audio> reliability was the original driver,
-# though most audio now goes through the native rodio backend instead.
+# though most audio now goes through the rodio backend instead.
 # FROM node:24-trixie
 
 ARG TARGET_ARCH
@@ -29,7 +29,7 @@ RUN apt-get update && apt-get install -y \
     libayatana-appindicator3-dev \
     librsvg2-dev \
     # alsa headers — required by cpal (pulled in via grimoire's
-    # `rodio-playback` feature) for native audio output on linux.
+    # `rodio-playback` feature) for audio output on linux.
     libasound2-dev \
     # libudev.pc — required by the linux-only `udev` crate used by
     # charnel's external-storage device watcher.

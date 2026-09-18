@@ -7,10 +7,11 @@
 use serde_json::Value as JsonValue;
 
 use crate::error::{ErrorDetail, GrimoireError, GrimoireResult};
+use crate::federation::p2p_client::BlobProgressFn;
 use crate::media_blobz::BlobType;
 use crate::media_domain::MediaDomain;
 use crate::offal::caller::Caller;
-use crate::offal::upload::pull_audio_blob_to_local_storage;
+use crate::offal::upload::pull_audio_blob_to_local_storage_with_progress;
 use crate::response::GrimoireResponse;
 
 use super::images::resolve_sync_image_ref;
@@ -19,6 +20,12 @@ use super::models::{SyncImageRef, SyncVideoByBlake3Request, SyncVideoByBlake3Res
 /// sync a video from a source remote via iroh-blobs pull.
 ///
 /// path: POST /api/sync/video-by-blake3
+///
+/// thin wrapper over `sync_video_by_blake3_impl` for the generic offal route
+/// dispatch (HTTP, CLI, remote ALPN) - see `song::sync_song_by_blake3`'s
+/// doc comment for why this always passes `None`; `charnel_lib`'s
+/// `sync_video_by_blake3_with_progress` tauri command calls the impl with a
+/// real callback instead.
 pub async fn sync_video_by_blake3(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
     let req: SyncVideoByBlake3Request = match serde_json::from_value(body) {
         Ok(r) => r,
@@ -38,7 +45,18 @@ pub async fn sync_video_by_blake3(caller: &Caller, body: JsonValue) -> GrimoireR
             );
         }
     };
+    sync_video_by_blake3_impl(caller, req, None).await
+}
 
+/// same as `sync_video_by_blake3` but takes an already-parsed request and an
+/// optional progress callback, forwarded straight through to
+/// `pull_audio_blob_to_local_storage_with_progress` - see
+/// `song::sync_song_by_blake3_impl`'s doc comment for the full rationale.
+pub async fn sync_video_by_blake3_impl(
+    caller: &Caller,
+    req: SyncVideoByBlake3Request,
+    on_progress: Option<&BlobProgressFn>,
+) -> GrimoireResponse<JsonValue> {
     let short_blake3 = req.blake3[..16.min(req.blake3.len())].to_string();
     tracing::info!(
         "sync_video_by_blake3: START from {} -- title=\"{}\" blake3={} series={:?} season={:?} source_node={}",
@@ -77,7 +95,7 @@ pub async fn sync_video_by_blake3(caller: &Caller, body: JsonValue) -> GrimoireR
             )
         }
         _ => {
-            let pulled = match pull_audio_blob_to_local_storage(
+            let pulled = match pull_audio_blob_to_local_storage_with_progress(
                 &req.source_node_id,
                 &req.blake3,
                 req.sha256.as_deref(),
@@ -85,6 +103,7 @@ pub async fn sync_video_by_blake3(caller: &Caller, body: JsonValue) -> GrimoireR
                 &req.filename,
                 caller,
                 MediaDomain::Video,
+                on_progress,
             )
             .await
             {

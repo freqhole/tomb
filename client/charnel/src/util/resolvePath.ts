@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 
 /**
- * resolve a file path to its canonical form via the native backend.
+ * resolve a file path to its canonical form via the system backend.
  *
  * on linux flatpak, the file picker returns document portal paths like
  * /run/user/1000/doc/666aaa99/Music/ - these are deliberately left as-is

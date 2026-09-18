@@ -54,14 +54,6 @@ const getConfig = (): LoggerConfig => {
   return readPersistedConfig() ?? { level: "error", enabled: true };
 };
 
-// log level priorities
-const LOG_LEVELS: Record<LogLevel, number> = {
-  debug: 0,
-  info: 1,
-  warn: 2,
-  error: 3,
-};
-
 // colors for different log levels (browser console)
 const LOG_COLORS: Record<LogLevel, string> = {
   debug: "#6b7280", // gray
@@ -83,25 +75,14 @@ const LOG_COLORS: Record<LogLevel, string> = {
  * setLogLevel('debug'); // or: import { setLogLevel } from "./utils/logger"
  */
 export function log(level: LogLevel, tag: string, ...args: any[]): void {
-  const config = getConfig();
-
-  // CENOTAPH_QUEUE_TRACE lines always print, regardless of level/enabled -
-  // this specific tag was added expressly so this class of trace can
-  // never again go silently missing behind a logger config that failed
-  // to apply/persist/survive a reload (a real, repeated problem this
-  // session - see docs/cenotaph-queue-ux-hardening-plan.md). every other
-  // tag still respects the normal gate below.
-  const isForcedTrace = args.some(
-    (a) => typeof a === "string" && a.includes("CENOTAPH_QUEUE_TRACE")
-  );
-
-  if (!isForcedTrace) {
-    // check if logging is enabled
-    if (!config.enabled) return;
-
-    // check if this log level should be shown
-    if (LOG_LEVELS[level] < LOG_LEVELS[config.level]) return;
-  }
+  // no level/enabled gate here anymore - a silent, easy-to-forget-about
+  // gate (defaulting to "error"-only) repeatedly hid brand new debug/warn
+  // logging behind a config flag that never got set for the current
+  // session, costing real debugging time tracking down "why don't my new
+  // logs show up" more than once. every log call now always prints;
+  // getConfig/setLogLevel/enableLogging/disableLogging are kept below for
+  // any callers that still read the current level, but nothing here uses
+  // them to suppress output anymore.
 
   // format timestamp
   const now = new Date();

@@ -28,5 +28,3 @@ cargo run --bin freqhole -- rathole
 - lean into existing freqhole abstractions (`grimoire::admin_dispatch`,
   `grimoire::remotez::Remote`, `UserService::get_first_root_user`,
   `SetupService::run_setup`)
-- no "native" terminology in code or docs — say "binary build" vs
-  "wasm build" if a distinction is ever needed

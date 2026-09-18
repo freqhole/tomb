@@ -417,6 +417,17 @@ pub fn run() {
 
     setup_tracing();
 
+    // the only reliable way to tell a stale binary from a fresh one - see
+    // build.rs's own doc comment on why this is baked in at compile time.
+    // log it as the very first line, unconditionally, so "is this actually
+    // the build I just made" is a one-line grep instead of a guessing game.
+    tracing::info!(
+        version = %crate::app_config::get_binary_version(),
+        git_sha = env!("FREQHOLE_GIT_SHA"),
+        debug = cfg!(debug_assertions),
+        "boot: build info"
+    );
+
     // temporary boot-timing instrumentation (see slow-tauri-boot investigation) —
     // logs elapsed ms since process start at each checkpoint in the setup closure
     // below, to narrow down what's holding up the "loading..." screen.
@@ -589,7 +600,7 @@ pub fn run() {
                 } else {
                     wizard_builder.title_bar_style(TitleBarStyle::Transparent)
                 };
-                // linux has no TitleBarStyle equivalent - leave native
+                // linux has no TitleBarStyle equivalent - leave system
                 // decorations alone when the toggle is off.
                 #[cfg(target_os = "linux")]
                 let wizard_builder = if app_config.chromeless_title_bar {
@@ -713,7 +724,7 @@ pub fn run() {
                     .as_ref()
                     .map(|f| f.enabled)
                     .unwrap_or(false);
-                // player pairing (experimental native accept-side, see
+                // player pairing (experimental player accept-side, see
                 // player_pairing_accept.rs) also needs the p2p endpoint up,
                 // independent of federation - same as radio's own
                 // config-driven trigger below in init_p2p_client itself.
@@ -762,7 +773,7 @@ pub fn run() {
                 } else {
                     win_builder.title_bar_style(TitleBarStyle::Transparent)
                 };
-                // linux has no TitleBarStyle equivalent - leave native
+                // linux has no TitleBarStyle equivalent - leave system
                 // decorations alone when the toggle is off.
                 #[cfg(target_os = "linux")]
                 let win_builder = if app_config.chromeless_title_bar {
@@ -772,7 +783,7 @@ pub fn run() {
                 };
 
                 let window = win_builder.build()?;
-                tracing::info!(elapsed_ms = %boot_start.elapsed().as_millis(), "boot: main window built (native window visible from here)");
+                tracing::info!(elapsed_ms = %boot_start.elapsed().as_millis(), "boot: main window built (system window visible from here)");
                 // suppress unused variable warning on non-macOS
                 let _ = &window;
 
@@ -911,15 +922,17 @@ pub fn run() {
             commands::get_log_file_path,
             // unified API dispatch (spike)
             commands::api_call,
+            commands::sync_song_by_blake3_with_progress,
+            commands::sync_video_by_blake3_with_progress,
             wizard::open_setup_wizard,
             wizard::close_setup_wizard,
             // separate video window (linux; stubbed elsewhere)
             video_window::video_window_available,
             video_window::video_window_diagnostics,
             video_window::video_window_command,
-            video_window::native_video_available,
-            video_window::native_video_command,
-            // P2P native transport commands
+            video_window::system_video_available,
+            video_window::system_video_command,
+            // P2P transport commands
             p2p_commands::p2p_is_available,
             p2p_commands::p2p_get_node_id,
             p2p_commands::p2p_api_call,
@@ -976,9 +989,9 @@ pub fn run() {
             // its own plugin instead)
             media_session::media_session_set_track,
             media_session::media_session_clear_track,
-            // native transport for player.freqhole.net pairing/control
+            // transport for player.freqhole.net pairing/control
             player_pairing_commands::player_pairing_dial,
-            // native accept-side for freqhole-player/1 (charnel as the
+            // accept-side for freqhole-player/1 (charnel as the
             // player being paired-with/controlled, not the controller)
             player_pairing_accept::player_pairing_is_started,
             player_pairing_accept::player_pairing_get_enabled,

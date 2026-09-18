@@ -19,7 +19,7 @@ use crate::response::GrimoireResponse;
 use crate::users::UserRole;
 
 mod image;
-mod mime;
+pub mod mime;
 mod models;
 mod music;
 mod pull;

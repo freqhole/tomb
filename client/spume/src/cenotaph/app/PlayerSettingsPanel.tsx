@@ -147,7 +147,7 @@ export function PlayerSettingsPanel(props: { onClose: () => void; nodeId?: strin
 
   return (
     <div
-      // above CenotaphPlayerApp.tsx's base content tier (z-[1700] - now-
+      // above CenotaphPlayerApp.tsx's base content tier (z-[90] - now-
       // playing view, inline video, pairing screens) so this modal-like
       // overlay always wins regardless of dom order, including over an
       // actively-playing inline video. NOT `items-center justify-center` -

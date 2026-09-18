@@ -778,7 +778,7 @@ pub fn get_freqhole_config(app_handle: tauri::AppHandle) -> Option<FreqholeConfi
 }
 
 /// open (or focus) the "about freqhole" window - desktop only (mobile has
-/// no native window to open); referenced unconditionally from the single
+/// no system window to open); referenced unconditionally from the single
 /// invoke_handler list, unlike `menu::show_about_window` which lives in a
 /// `#[cfg(desktop)]`-gated module.
 #[tauri::command]
@@ -2171,7 +2171,7 @@ pub fn get_rodio_playback(app_handle: tauri::AppHandle) -> bool {
 ///
 /// always false off macOS/linux - `decorations(false)` is only ever applied
 /// `#[cfg(any(target_os = "macos", target_os = "linux"))]`, so other
-/// platforms (windows, mobile) keep their native title bar regardless of
+/// platforms (windows, mobile) keep their system title bar regardless of
 /// the config value, and must not also draw a custom one on top of it.
 #[tauri::command]
 pub fn get_chromeless_title_bar(app_handle: tauri::AppHandle) -> bool {
@@ -2206,7 +2206,7 @@ pub fn supports_chromeless_title_bar() -> bool {
     cfg!(any(target_os = "macos", target_os = "linux"))
 }
 
-/// set the chromeless_title_bar setting. the native window is only ever
+/// set the chromeless_title_bar setting. the system window is only ever
 /// built with decorations on/off once, at window-creation time (see
 /// lib.rs/wizard.rs), so this just persists the preference - it takes
 /// effect the next time the app is restarted, same as `use_rodio_playback`.
@@ -2252,6 +2252,61 @@ pub async fn api_call(
     let response = grimoire::offal::dispatch(&path, &caller, body, None).await;
 
     // return the full response as JSON
+    serde_json::to_value(&response).map_err(|e| e.to_string())
+}
+
+/// same as `POST /api/sync/song-by-blake3` via `api_call`, but reports live
+/// download progress over a tauri channel instead of going silent for the
+/// whole pull (routinely 8-70+ seconds for a real audio file - the generic
+/// `api_call`/offal-route dispatch above has no side channel to carry
+/// progress on, by design, since it also serves HTTP/CLI/remote-ALPN
+/// callers that have no such channel either). mirrors
+/// `p2p_commands::p2p_fetch_blob_verified`'s channel pattern exactly -
+/// same `BlobDownloadProgress`/`progress_forwarder`, just wired to
+/// `grimoire::offal::sync::sync_song_by_blake3_impl` instead of a raw
+/// blob fetch, so the rest of the sync (song row + image linking) still
+/// happens the same way `sync_song_by_blake3` already does it.
+#[tauri::command]
+pub async fn sync_song_by_blake3_with_progress(
+    app_handle: tauri::AppHandle,
+    body: serde_json::Value,
+    on_progress: tauri::ipc::Channel<crate::p2p_commands::BlobDownloadProgress>,
+) -> Result<serde_json::Value, String> {
+    ensure_initialized(&app_handle).await?;
+
+    let caller = get_caller_from_app_config(&app_handle)?;
+
+    let req: grimoire::offal::sync::SyncSongByBlake3Request = serde_json::from_value(body)
+        .map_err(|e| format!("bad sync_song_by_blake3_with_progress request: {}", e))?;
+
+    let progress_cb = crate::p2p_commands::progress_forwarder(on_progress);
+    let response =
+        grimoire::offal::sync::sync_song_by_blake3_impl(&caller, req, Some(progress_cb.as_ref()))
+            .await;
+
+    serde_json::to_value(&response).map_err(|e| e.to_string())
+}
+
+/// video counterpart of `sync_song_by_blake3_with_progress` - see its doc
+/// comment for the full rationale.
+#[tauri::command]
+pub async fn sync_video_by_blake3_with_progress(
+    app_handle: tauri::AppHandle,
+    body: serde_json::Value,
+    on_progress: tauri::ipc::Channel<crate::p2p_commands::BlobDownloadProgress>,
+) -> Result<serde_json::Value, String> {
+    ensure_initialized(&app_handle).await?;
+
+    let caller = get_caller_from_app_config(&app_handle)?;
+
+    let req: grimoire::offal::sync::SyncVideoByBlake3Request = serde_json::from_value(body)
+        .map_err(|e| format!("bad sync_video_by_blake3_with_progress request: {}", e))?;
+
+    let progress_cb = crate::p2p_commands::progress_forwarder(on_progress);
+    let response =
+        grimoire::offal::sync::sync_video_by_blake3_impl(&caller, req, Some(progress_cb.as_ref()))
+            .await;
+
     serde_json::to_value(&response).map_err(|e| e.to_string())
 }
 

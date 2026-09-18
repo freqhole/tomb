@@ -323,7 +323,7 @@ jobs:
             "build/$V/freqhole_charnel_${V}_x86_64.rpm" \
             --clobber
 
-  # ---- Linux arm64: rathole cli + charnel .deb/.rpm (native arm runner) -----
+  # ---- Linux arm64: rathole cli + charnel .deb/.rpm (platform arm runner) -----
   linux-arm64:
     name: linux arm64 (cli + deb/rpm)
     needs: create-release
@@ -451,6 +451,14 @@ jobs:
           java-version: 17
       - name: set up android sdk
         uses: android-actions/setup-android@v3
+        with:
+          # default `packages` input includes the legacy standalone "tools"
+          # package, which google removed from the SDK repository entirely
+          # (cmdline-tools;latest replaced it) - sdkmanager now hard-fails
+          # trying to fetch it ("Failed to find package 'tools'", exit 1).
+          # ndk/build-tools are installed explicitly by the next step
+          # anyway, so platform-tools is all this step actually needs.
+          packages: "platform-tools"
       - name: install ndk + build-tools
         run: sdkmanager "ndk;26.3.11579264" "build-tools;${ANDROID_BUILD_TOOLS_VERSION}"
       - name: export ndk path

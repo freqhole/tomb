@@ -886,7 +886,7 @@ pub fn apply_navigation(
             leave(state);
             ReplOutcome::Done
         }
-        // wasm fallback for the native-only commands above. these all
+        // wasm fallback for the platform-only commands above. these all
         // depend on grimoire/arboard/open/log_buffer which aren't
         // available in the browser shell — surface a friendly status
         // line instead of failing to compile.

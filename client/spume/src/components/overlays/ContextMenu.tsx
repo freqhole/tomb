@@ -48,6 +48,10 @@ export interface ContextMenuProps {
   as?: ValidComponent;
   /** extra classes merged onto the trigger element */
   triggerClass?: string;
+  /** overrides the default z-[1200] flyout tier - use sparingly, only for
+   *  a menu that must out-rank z-1200's usual siblings (e.g. the title
+   *  bar's global chrome menu, which should sit above page content). */
+  zIndex?: number;
 }
 
 // context menu component using kobalte primitives
@@ -60,6 +64,7 @@ export function ContextMenu(props: ContextMenuProps) {
     "onOpen",
     "as",
     "triggerClass",
+    "zIndex",
   ]);
 
   const handleOpenChange = (open: boolean) => {
@@ -87,10 +92,10 @@ export function ContextMenu(props: ContextMenuProps) {
             shadow-2xl
             overflow-hidden
             animate-[fade-in_0.15s_ease-out]
-            z-[1200]
             origin-top-left
             data-[expanded]:animate-[fade-in_0.15s_ease-out]
           "
+          style={{ "z-index": local.zIndex ?? 1200 }}
         >
           <Show when={local.header}>
             <div class="p-2 border-b border-[var(--color-border-default)]">{local.header}</div>
@@ -159,6 +164,9 @@ export interface DropdownMenuProps {
    * left edge of the viewport (e.g. the title-bar hamburger), where it
    * pushes the menu off-screen to the left. use "left" there instead. */
   align?: "left" | "right";
+  /** overrides the default z-[1200] flyout tier - see `ContextMenuProps`'s
+   *  own doc comment for the same field. */
+  zIndex?: number;
 }
 
 export function DropdownMenu(props: DropdownMenuProps) {
@@ -240,7 +248,7 @@ export function DropdownMenu(props: DropdownMenuProps) {
 // for reliable viewport-relative placement regardless of ancestor transforms or
 // overflow contexts.
 export function ClickDropdownMenu(props: DropdownMenuProps) {
-  const [local] = splitProps(props, ["trigger", "actions", "header", "onOpen", "align"]);
+  const [local] = splitProps(props, ["trigger", "actions", "header", "onOpen", "align", "zIndex"]);
 
   type MenuPos = {
     top?: number;
@@ -314,7 +322,7 @@ export function ClickDropdownMenu(props: DropdownMenuProps) {
     const s: JSX.CSSProperties = {
       position: "fixed",
       "max-height": `${p.maxHeight}px`,
-      "z-index": "1200",
+      "z-index": `${local.zIndex ?? 1200}`,
     };
     if (p.left !== undefined) s.left = `${p.left}px`;
     if (p.right !== undefined) s.right = `${p.right}px`;

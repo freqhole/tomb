@@ -57,7 +57,9 @@ const [pendingOps, setPendingOps] = createSignal<PendingRemoteQueueOp[]>([]);
  * at once. */
 function pushPendingOp(op: PendingRemoteQueueOp): () => void {
   setPendingOps((ops) => [...ops, op]);
-  return () => setPendingOps((ops) => ops.filter((o) => o !== op));
+  return () => {
+    setPendingOps((ops) => ops.filter((o) => o !== op));
+  };
 }
 
 function provisionalSongRef(song: Song): RemoteMediaRef {
@@ -119,7 +121,13 @@ export function registerPendingMediaOp(mode: "append" | "replace", items: MediaI
  * can't beat this device's own upload pipeline (fetch bytes, blob-import,
  * artwork resize) finishing first. purely a display-layer overlay, same
  * spirit as remotePlaybackControl.ts's remoteOptimisticCurrentIndex - never
- * mutates remoteStatus() itself, so a real status update always wins. */
+ * mutates remoteStatus() itself, so a real status update always wins.
+ *
+ * note: solid's `<Index>` (used by QueueSidebar.tsx for this list) keys
+ * rows by position rather than object reference, so a fresh object
+ * identity here on every call (e.g. from `[...list, ...op.items]`) does
+ * NOT cause row remounts - only a genuine length/position change does. */
+
 export function optimisticRemoteQueue(): RemoteMediaRef[] {
   let list = remoteQueue();
   for (const op of pendingOps()) {

@@ -71,7 +71,7 @@ ratatui-image = { version = "11", default-features = false, features = [
 # default-features off + `png` only: we never decode arbitrary source
 # formats here, just build + encode a png.
 image = { version = "0.25", default-features = false, features = ["png"] }
-# native iroh endpoint for the `--player`/`/player` pairing ALPN
+# iroh endpoint for the `--player`/`/player` pairing ALPN
 # (tty/pairing.rs) - same version grimoire itself pins, so the
 # `iroh::protocol::ProtocolHandler`/`Connection`/etc. types registered
 # on grimoire's `FederationEndpoint` router are the same types here.

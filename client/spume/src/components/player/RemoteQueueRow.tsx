@@ -105,13 +105,14 @@ export function RemoteQueueRow(props: RemoteQueueRowProps) {
   // `undefined` the vastly more common case (the player resolves the item
   // entirely on its own, no networking through this device at all).
   const transferStatus = () => queueItemTransferStatus(props.item.blake3_hash);
+
   // percentage is conveyed by the loading-underline bar below, not text.
   const transferLabel = () => {
     const status = transferStatus();
     if (!status) return undefined;
-    return status.phase === "fetching"
-      ? `fetching from ${status.fromRemoteName ?? "remote"}`
-      : `sending to ${status.toPlayerName ?? "player"}`;
+    if (status.phase === "fetching") return `fetching from ${status.fromRemoteName ?? "remote"}`;
+    if (status.phase === "sending") return `sending to ${status.toPlayerName ?? "player"}`;
+    return `waiting on ${status.toPlayerName ?? "player"}`;
   };
 
   return (
