@@ -961,7 +961,7 @@ export function FeedView() {
               <VirtualFeedList
                 items={allItems()}
                 height={listHeight()}
-                scrollPaddingTop={isNarrowViewport() ? getNavHeight() : 72}
+                scrollPaddingTop={isNarrowViewport() ? getNavHeight() : 100}
                 onItemClick={handleItemClick}
                 onImageClick={handleImageClick}
                 onAddToQueue={handleAddToQueue}

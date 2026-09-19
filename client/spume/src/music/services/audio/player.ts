@@ -70,6 +70,7 @@ import { activeHistoryEntryId, stopTracking } from "../queue/listenProgress";
 import { updateHistoryEntrySongs } from "../queue/queueHistory";
 import { clearQueueItemProgress } from "../queue/queueProgress";
 import { mirrorRemoveFromQueue } from "../../../app/services/players/remoteQueueMirror";
+import { isActivePlayer } from "../../../cenotaph/adapters/remoteModeSettings";
 import { stopRadioForMusic } from "../../../app/services/playbackCoordinator";
 import { getDataSource } from "../../data";
 import { toggleSongFavoriteDirect } from "../../queries/favorites";
@@ -244,7 +245,11 @@ function bindAutoAdvance(backend: PlayerBackend): void {
       debug("player", `backend "${backend.kind}" ended — advancing queue`);
       const endedKey = appState()?.current_sha256 ?? null;
       void playNext().then(() => {
-        if (endedKey) void removeEndedItemFromQueue(endedKey);
+        // drop-from-queue-on-finish is cenotaph-player-only (this device
+        // being actively controlled as a /player) - regular standalone
+        // local playback keeps finished items in the queue, same as
+        // before this mechanism existed.
+        if (endedKey && isActivePlayer()) void removeEndedItemFromQueue(endedKey);
       });
       return;
     }

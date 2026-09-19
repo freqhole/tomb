@@ -715,7 +715,7 @@ export function AggregateFeedView() {
     <div class="flex flex-col h-full relative" ref={feedListRef}>
       {/* revalidation progress — shown when checking remotes on return */}
       <Show when={revalidationProgress()}>
-        <div style={{ "padding-top": (remotes() ?? []).length > 1 ? "50px" : "0" }}>
+        <div style={{ "padding-top": (remotes() ?? []).length > 1 ? "150px" : "100px" }}>
           <LoadingMoreIndicator isLoading={true} text={revalidationProgress()!} debounceMs={300} />
         </div>
       </Show>
@@ -735,7 +735,7 @@ export function AggregateFeedView() {
       <Show
         when={!isLoading()}
         fallback={
-          <div style={{ "padding-top": (remotes() ?? []).length > 1 ? "50px" : "0" }}>
+          <div style={{ "padding-top": (remotes() ?? []).length > 1 ? "150px" : "100px" }}>
             <LoadingState text="loading feed..." />
           </div>
         }
@@ -745,7 +745,7 @@ export function AggregateFeedView() {
           fallback={
             <div
               class="flex items-center justify-center h-full text-[var(--color-text-disabled)]"
-              style={{ "padding-top": (remotes() ?? []).length > 1 ? "50px" : "0" }}
+              style={{ "padding-top": (remotes() ?? []).length > 1 ? "150px" : "100px" }}
             >
               no feed items
             </div>
@@ -756,7 +756,7 @@ export function AggregateFeedView() {
               items={filteredItems()}
               height={listHeight()}
               scrollPaddingTop={
-                isNarrowViewport() ? getNavHeight() : (remotes() ?? []).length > 1 ? 50 : 0
+                isNarrowViewport() ? getNavHeight() : (remotes() ?? []).length > 1 ? 150 : 100
               }
               onItemClick={handlePlayItem}
               onScroll={handleScroll}

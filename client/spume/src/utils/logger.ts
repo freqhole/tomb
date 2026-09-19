@@ -51,8 +51,12 @@ function persistConfig(config: LoggerConfig): void {
 // -> the hardcoded default.
 const getConfig = (): LoggerConfig => {
   if (typeof window !== "undefined" && window.__LOGGER_CONFIG) return window.__LOGGER_CONFIG;
+  // error-only by default for all clients - turn it up via the logz
+  // settings view (or window.__LOGGER_CONFIG) when actually debugging.
   return readPersistedConfig() ?? { level: "error", enabled: true };
 };
+
+const LEVEL_ORDER: Record<LogLevel, number> = { debug: 0, info: 1, warn: 2, error: 3 };
 
 // colors for different log levels (browser console)
 const LOG_COLORS: Record<LogLevel, string> = {
@@ -75,14 +79,12 @@ const LOG_COLORS: Record<LogLevel, string> = {
  * setLogLevel('debug'); // or: import { setLogLevel } from "./utils/logger"
  */
 export function log(level: LogLevel, tag: string, ...args: any[]): void {
-  // no level/enabled gate here anymore - a silent, easy-to-forget-about
-  // gate (defaulting to "error"-only) repeatedly hid brand new debug/warn
-  // logging behind a config flag that never got set for the current
-  // session, costing real debugging time tracking down "why don't my new
-  // logs show up" more than once. every log call now always prints;
-  // getConfig/setLogLevel/enableLogging/disableLogging are kept below for
-  // any callers that still read the current level, but nothing here uses
-  // them to suppress output anymore.
+  // gated on the configured level/enabled flag (settings UI's "log level"
+  // buttons + window.__LOGGER_CONFIG both write here via setLogLevel/
+  // enableLogging/disableLogging) - error-only by default for all clients,
+  // turned up explicitly when debugging.
+  const config = getConfig();
+  if (!config.enabled || LEVEL_ORDER[level] < LEVEL_ORDER[config.level]) return;
 
   // format timestamp
   const now = new Date();
