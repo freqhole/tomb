@@ -13,6 +13,8 @@ import { Icon, IconNames } from "../../components/icons/registry";
 import { FavoriteHeart } from "../../components/ratings/FavoriteHeart";
 import { Rating } from "../../components/ratings/Rating";
 import { ShareButton } from "../../components/buttons/ShareButton";
+import type { SendVideoPayload } from "../services/send/sendVideoToRemote";
+import type { QueuedVideo } from "../../app/services/storage/mediaItem";
 import { createCurrentRemoteFull } from "../../app/services/remotes/currentRemoteFull";
 import { formatDuration } from "../../utils/formatDuration";
 import { buildRoute } from "../../music/utils/routing";
@@ -143,6 +145,17 @@ export function VideoDetailView() {
   const [playPending, setPlayPending] = createSignal(false);
   const [queuePending, setQueuePending] = createSignal(false);
   const currentRemoteFull = createCurrentRemoteFull();
+
+  // build a SendVideoPayload for the share modal's send-to-remote section -
+  // VideoSummary spreads directly into QueuedVideo (see QueuedVideo's own
+  // doc comment), so no per-field mapping is needed here.
+  const buildSendPayload = (): SendVideoPayload => {
+    const v = videoQuery.data!;
+    return {
+      kind: "video",
+      videos: [{ video: v as QueuedVideo, blobId: v.media_blob_id, blake3: v.blake3 ?? null }],
+    };
+  };
 
   // favorite status query for this video
   const videoIds = createMemo(() => {
@@ -374,6 +387,7 @@ export function VideoDetailView() {
                     <ShareButton
                       target={{ kind: "video", id: video().id, displayTitle: video().title }}
                       source={currentRemoteFull}
+                      buildSendPayload={buildSendPayload}
                     />
                     <Rating rating={userRating()} size="md" onRatingChange={handleRatingChange} />
                   </div>
@@ -458,6 +472,7 @@ export function VideoDetailView() {
                     <ShareButton
                       target={{ kind: "video", id: video().id, displayTitle: video().title }}
                       source={currentRemoteFull}
+                      buildSendPayload={buildSendPayload}
                     />
                     <Rating rating={userRating()} size="md" onRatingChange={handleRatingChange} />
                   </div>

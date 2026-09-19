@@ -36,6 +36,10 @@ import { formatSeasonLabel } from "../../components/forms/VideoSeasonAutocomplet
 import { getClientForRemote } from "../../app/api/client";
 import { getCurrentRemote, type CurrentRemoteInfo } from "../../music/data/currentState";
 import { BulkEditVideosModal } from "../../components/modals/BulkEditVideosModal";
+import { BulkSendToRemoteModal } from "../../components/modals/BulkSendToRemoteModal";
+import { getLatestBulkSendJobId } from "../../app/services/send/bulkSendJobs";
+import { createCurrentRemoteFull } from "../../app/services/remotes/currentRemoteFull";
+import type { QueuedVideo } from "../../app/services/storage/mediaItem";
 import { TagSelectorModal } from "../../components/modals/TagSelectorModal";
 import { createVideoTagAdapter } from "../../components/modals/tagAdapters/videoTagAdapter";
 import { useVideoSeriesListQuery } from "../../video/queries/series";
@@ -232,8 +236,23 @@ export function VideosTable(props: VideosTableProps) {
   const [lastSelectedIndex, setLastSelectedIndex] = createSignal<number | null>(null);
   const [bulkEditOpen, setBulkEditOpen] = createSignal(false);
   const [tagSelectorOpen, setTagSelectorOpen] = createSignal(false);
+  const [bulkSendOpen, setBulkSendOpen] = createSignal(false);
   const videoTagAdapter = createVideoTagAdapter("video");
   const queryClient = useQueryClient();
+  const currentRemoteFull = createCurrentRemoteFull();
+  const latestBulkSendJobId = getLatestBulkSendJobId();
+
+  // resolved once the modal actually opens (not reactively - a bulk send
+  // is a snapshot of the selection at the moment the user clicked, same
+  // as every other bulk action here).
+  const selectedVideoItems = () =>
+    props.videos
+      .filter((v) => selectedIds().has(v.id))
+      .map((v) => ({
+        video: v as QueuedVideo,
+        blobId: v.media_blob_id,
+        blake3: v.blake3 ?? null,
+      }));
 
   // series id -> title lookup for the series column (self-contained,
   // mirrors the taxon-loading block below's "own its data" pattern).
@@ -510,6 +529,17 @@ export function VideosTable(props: VideosTableProps) {
             <Icon name="tag" size={11} />
             tags
           </button>
+          <Show when={currentRemoteFull()}>
+            <button
+              type="button"
+              onClick={() => setBulkSendOpen(true)}
+              class="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded border border-[var(--color-border-default)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] cursor-pointer bg-transparent whitespace-nowrap"
+              title="send the selected videos to another remote"
+            >
+              <Icon name="recent" size={11} />
+              send to remote
+            </button>
+          </Show>
           <button
             type="button"
             onClick={clearSelection}
@@ -542,6 +572,17 @@ export function VideosTable(props: VideosTableProps) {
             clearSelection();
             void queryClient.invalidateQueries({ queryKey: videoQueryKeys.tags.all() });
           }}
+        />
+      </Show>
+
+      <Show when={bulkSendOpen() && !!currentRemoteFull()}>
+        <BulkSendToRemoteModal
+          isOpen={true}
+          onClose={() => setBulkSendOpen(false)}
+          kind="videos"
+          source={currentRemoteFull()!}
+          videoItems={selectedVideoItems()}
+          jobId={latestBulkSendJobId()}
         />
       </Show>
     </div>

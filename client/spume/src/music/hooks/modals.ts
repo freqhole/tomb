@@ -377,7 +377,7 @@ export {
 // kept generic via a `source` accessor so callers can pass either a
 // reactive `createCurrentRemoteFull()` or a one-shot snapshot getter.
 import type { ShareTarget } from "../../components/share/types";
-import type { SendPayload } from "../services/send/sendToRemote";
+import type { SendToRemotePayload } from "../../components/share/SendToRemoteSection";
 
 export interface ShareModalOptions {
   target: ShareTarget;
@@ -387,7 +387,7 @@ export interface ShareModalOptions {
    * lazily build the send-to-remote payload. may be async so context-menu
    * shares can defer the song-list fetch until the modal opens.
    */
-  buildSendPayload?: () => SendPayload | Promise<SendPayload>;
+  buildSendPayload?: () => SendToRemotePayload | Promise<SendToRemotePayload>;
   /** override default web mirror host. */
   webHost?: string;
 }

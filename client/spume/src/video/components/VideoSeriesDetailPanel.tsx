@@ -16,6 +16,8 @@ import { MarqueeText } from "../../components/text/MarqueeText";
 import { TagChips } from "../../components/badges/TagChips";
 import { TaxonChips } from "../../components/badges/TaxonChips";
 import { ShareButton } from "../../components/buttons/ShareButton";
+import type { SendVideoPayload } from "../services/send/sendVideoToRemote";
+import type { QueuedVideo } from "../../app/services/storage/mediaItem";
 import { FavoriteHeart } from "../../components/ratings/FavoriteHeart";
 import { formatDuration, formatLongDuration } from "../../utils/formatDuration";
 import { buildRoute } from "../../music/utils/routing";
@@ -297,6 +299,18 @@ export function VideoSeriesDetailPanel(props: VideoSeriesDetailPanelProps) {
   const totalDurationSeconds = createMemo(() =>
     allVideos().reduce((sum, v) => sum + (v.duration_seconds ?? 0), 0)
   );
+
+  // build a SendVideoPayload for the share modal's send-to-remote section -
+  // every episode across every season plus any season-less videos.
+  const buildSeriesSendPayload = (): SendVideoPayload => ({
+    kind: "video",
+    videos: allVideos().map((v) => ({
+      video: v as QueuedVideo,
+      blobId: v.media_blob_id,
+      blake3: v.blake3 ?? null,
+    })),
+  });
+
   const aggregateTagsQuery = useVideoSeriesAggregateTagsQuery(() => props.seriesId, allVideoIds);
   const aggregateTaxonsQuery = useVideoSeriesAggregateTaxonsQuery(
     () => props.seriesId,
@@ -605,6 +619,7 @@ export function VideoSeriesDetailPanel(props: VideoSeriesDetailPanelProps) {
                             displayTitle: data().series.title,
                           }}
                           source={currentRemoteFull}
+                          buildSendPayload={buildSeriesSendPayload}
                         />
                       </div>
                     </div>
@@ -711,6 +726,7 @@ export function VideoSeriesDetailPanel(props: VideoSeriesDetailPanelProps) {
                             displayTitle: data().series.title,
                           }}
                           source={currentRemoteFull}
+                          buildSendPayload={buildSeriesSendPayload}
                         />
                       </div>
                     </div>

@@ -72,6 +72,15 @@ export interface SendVideosOptions {
   onProgress?: (progress: SendVideoProgress) => void;
 }
 
+/** share-modal payload for a video/videos send — mirrors music's
+ * `SendPayload` union shape (a `kind` discriminant) so
+ * `SendToRemoteSection.tsx` can accept either domain's payload through
+ * one prop. */
+export interface SendVideoPayload {
+  kind: "video";
+  videos: SendVideoItem[];
+}
+
 /**
  * push `items` from `source` to `dest`, one `POST /api/sync/video-by-blake3`
  * per video. resolves with the final progress snapshot; throws

@@ -17,7 +17,7 @@ import { PermalinkSection } from "../share/PermalinkSection";
 import { SendToRemoteSection } from "../share/SendToRemoteSection";
 import type { ShareTarget } from "../share/types";
 import type { Remote } from "../../app/services/storage/schemas/remote";
-import type { SendPayload } from "../../music/services/send/sendToRemote";
+import type { SendToRemotePayload } from "../share/SendToRemoteSection";
 import { isCharnelMode, isAndroidTauri } from "../../app/services/charnel";
 
 /** true only for desktop charnel, the one platform whose local-library
@@ -41,7 +41,7 @@ export interface ShareModalProps {
    * modal opens. omit entirely for share targets that don't support
    * send-to (e.g. artists) — the section will hide.
    */
-  buildSendPayload?: () => SendPayload | Promise<SendPayload>;
+  buildSendPayload?: () => SendToRemotePayload | Promise<SendToRemotePayload>;
   /** override the default web mirror host. */
   webHost?: string;
 }
