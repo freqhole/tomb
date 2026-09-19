@@ -7,7 +7,7 @@ import {
   recordLocalImportBlob,
   type LocalImportReviewSendTarget,
 } from "../services/storage/db/importReview";
-import { computeSHA256 } from "../../utils/hash";
+import { generateUUID } from "../../utils/uuid";
 import { hashBlake3Streaming } from "@freqhole/reliquary/worker";
 import { debug, warn } from "../../utils/logger";
 import { errorMessageFrom } from "../../utils/humanizeJobError";
@@ -72,13 +72,14 @@ export async function importMusicFiles(
   const sessionId = await createLocalImportSession(target);
 
   // phase 0: cheap blake3-only dedup pre-check (streaming, no full-file
-  // buffer - see hashBlake3Streaming) - skips the expensive whole-file
-  // sha256 read below entirely for a file that's already in the library,
-  // rather than paying that cost only to discover the duplicate
-  // afterward. Song.sha256 itself stays required (it's the local
-  // library's primary tracking key everywhere else - see
-  // /memories/repo/tomb-sha256-vs-blake3-vs-id.md), this just avoids
-  // computing it when we don't need to.
+  // buffer - see hashBlake3Streaming). also doubles as this batch's ONLY
+  // hashing pass now - a fresh local import no longer computes a real
+  // sha256 at all (see fileProcessor.ts's processMusicFile doc comment
+  // for the full reasoning/tradeoff - part of the ongoing sha256->blake3
+  // deprecation, docs/blob-transfer-opfs-and-sha256-refactor-plan.md
+  // phase 7). `Song.sha256` stays a real, required string field for now
+  // (still the identity for OLDER, pre-this-change songs) - new rows
+  // just leave it "" and rely on `blake3` instead.
   setLocalImportProgress({
     phase: "hashing",
     current: 0,
@@ -110,18 +111,12 @@ export async function importMusicFiles(
     candidates.push(fileArray[i]);
   }
 
-  // phase 1: sha256 hashing
-  debug("localImport", "computing sha256 hashes for uploaded files...");
-  const sha256Hashes: string[] = [];
-  for (let i = 0; i < candidates.length; i++) {
-    setLocalImportProgress((prev) => ({
-      ...prev,
-      phase: "hashing",
-      current: i + 1,
-      currentFile: candidates[i].name,
-    }));
-    sha256Hashes.push(await computeSHA256(candidates[i]));
-  }
+  // phase 1: generate an opaque per-file OPFS storage key for each
+  // surviving candidate - NOT a content hash, just a random id (same idea
+  // as Song.id) used only to name the file on disk (audio/<key>.<ext>).
+  // see fileProcessor.ts's processMusicFile doc comment for why this
+  // replaced a whole-file sha256 read here.
+  const opfsKeys: string[] = candidates.map(() => generateUUID());
 
   // phase 2: processing metadata
   setLocalImportProgress((prev) => ({
@@ -131,7 +126,7 @@ export async function importMusicFiles(
     currentFile: "extracting metadata...",
   }));
 
-  const songsData = await processMusicFiles(candidates, sha256Hashes);
+  const songsData = await processMusicFiles(candidates, opfsKeys);
 
   // phase 3: saving to idb
   for (let i = 0; i < songsData.length; i++) {
@@ -147,7 +142,12 @@ export async function importMusicFiles(
       skippedCount,
     }));
 
-    // check for duplicates by sha256 (content-based deduplication)
+    // safety-net duplicate check: `songData.sha256` is "" for every new
+    // import now (see fileProcessor.ts), so `getSongBySha256` guards
+    // against that and returns undefined immediately - this only ever
+    // matches an OLDER song that still has a real, pre-this-change
+    // sha256 stored (the phase-0 blake3 pre-check already handled the
+    // common "re-imported the same file" case above).
     const existingSong = await getSongBySha256(songData.sha256);
 
     if (existingSong) {
@@ -166,14 +166,17 @@ export async function importMusicFiles(
       addedCount++;
       debug(
         "localImport",
-        `added: ${songData.file_name} (sha256: ${songData.sha256.slice(0, 8)}...)`
+        `added: ${songData.file_name} (${songData.blake3 ? `blake3: ${songData.blake3.slice(0, 8)}` : "no blake3"})`
       );
     } catch (error) {
-      // handle constraint error (duplicate sha256 from race condition or stale index)
+      // handle constraint error (duplicate real sha256 from a race
+      // condition against an OLDER song, or a stale index) - a fresh
+      // import's own "" sha256 can no longer cause this (by_sha256 is
+      // non-unique as of DB v20, see db/init.ts).
       if (error instanceof Error && error.name === "ConstraintError") {
         warn(
           "localImport",
-          `skipping duplicate (constraint error): ${songData.file_name} - sha256 ${songData.sha256.slice(0, 8)}... already exists in database`
+          `skipping duplicate (constraint error): ${songData.file_name} - already exists in database`
         );
         warn(
           "localImport",

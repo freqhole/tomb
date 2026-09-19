@@ -1603,6 +1603,11 @@ export function App() {
           onRemoteVideoJobComplete();
         } else if (result.errors.length > 0) {
           toast.error("failed to import video files", { title: "import error" });
+        } else if (result.skipped > 0) {
+          toast.info(
+            `already in your library - skipped ${result.skipped} duplicate video file${result.skipped > 1 ? "s" : ""}`,
+            { title: "no new videos" }
+          );
         }
       } catch (error) {
         console.error("failed to process video files:", error);

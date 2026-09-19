@@ -59,7 +59,15 @@ export async function initMusicDB(): Promise<IDBPDatabase> {
         const songsStore = db.createObjectStore(STORE_SONGS, {
           keyPath: "id",
         });
-        songsStore.createIndex("by_sha256", "sha256", { unique: true });
+        // NOT unique (see v19->v20 migration below for why) - a locally
+        // imported song may leave `sha256` as `""` (sentinel for "never
+        // computed", see localImport.ts/fileProcessor.ts) rather than pay
+        // for a whole-file crypto.subtle.digest read. `blake3` is the
+        // preferred identity for such songs (see audioAccess.ts's
+        // `songTrackingKey()`) - part of the ongoing, deliberately
+        // incremental sha256->blake3 deprecation - see
+        // /memories/repo/tomb-sha256-vs-blake3-vs-id.md.
+        songsStore.createIndex("by_sha256", "sha256");
         songsStore.createIndex("by_blake3", "blake3");
         songsStore.createIndex("by_title", "title");
         songsStore.createIndex("by_artist_id", "artist_id");
@@ -419,6 +427,51 @@ export async function initMusicDB(): Promise<IDBPDatabase> {
         if (!songsStore.indexNames.contains("by_blake3")) {
           songsStore.createIndex("by_blake3", "blake3");
         }
+      }
+
+      // v19 -> v20: drop `by_sha256`'s `unique` constraint (chipping away at
+      // the sha256->blake3 deprecation - see
+      // /memories/repo/tomb-sha256-vs-blake3-vs-id.md).
+      //
+      // background: `Song.sha256` was, until now, ALWAYS a real whole-file
+      // SHA-256 (computed browser-side via `crypto.subtle.digest`, a full-
+      // buffer read - see docs/blob-transfer-opfs-and-sha256-refactor-plan.md
+      // phase 7) for every local import, and the unique index enforced
+      // "every song has a real, distinct content hash". going forward, a
+      // NEW local import leaves `sha256` as `""` (empty string, the same
+      // "unknown" sentinel grimoire's own sync routes already accept - see
+      // phase 3's finding on `SyncSongByBlake3Request.sha256`) and relies on
+      // `blake3` (already computed via a streaming hash, see
+      // fileProcessor.ts's `registerBlake3`) as its real identity instead.
+      // a SECOND song with `sha256: ""` would otherwise violate the unique
+      // constraint on save - dropping it (and going sparse-by-omission like
+      // `by_blake3` already is for pre-blake3 rows) is required, not
+      // optional, for that to work.
+      //
+      // IndexedDB has no "alter index" op - the only way to change an
+      // existing index's constraints is delete + recreate within a
+      // versionchange transaction (safe here: the index is derived data,
+      // rebuilt from the `sha256` property already on every row - nothing
+      // is lost, and every song keeps its own `sha256` field value
+      // untouched, only the index's own uniqueness rule changes).
+      //
+      // v20 -> v21: re-run the exact same drop-and-recreate for anyone who
+      // already landed on v20 while this migration was still being
+      // developed/iterated on in a live dev tab - IndexedDB only fires
+      // `upgrade` when the requested version is greater than whatever's
+      // already stored, so a tab that reached v20 with the old unique
+      // index (or an earlier, broken attempt at this same migration)
+      // would otherwise stay stuck with it forever, silently turning every
+      // second `sha256: ""` import into a ConstraintError that
+      // localImport.ts's catch block mistakes for a real duplicate. this
+      // block is idempotent (safe to run again for anyone who correctly
+      // got the non-unique index from the v20 migration too).
+      if (oldVersion < 21 && db.objectStoreNames.contains(STORE_SONGS)) {
+        const songsStore = tx.objectStore(STORE_SONGS);
+        if (songsStore.indexNames.contains("by_sha256")) {
+          songsStore.deleteIndex("by_sha256");
+        }
+        songsStore.createIndex("by_sha256", "sha256");
       }
     },
     // a dead connection stays cached forever otherwise, so every later

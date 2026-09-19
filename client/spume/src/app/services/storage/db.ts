@@ -277,9 +277,11 @@ async function updateSongInQueue(
   const state = appState();
   if (!state?.queue) return;
 
-  // find and update the song in the queue
+  // find and update the song in the queue - `sha256` may be "" for a
+  // freshly-imported local song (see fileProcessor.ts); only fall back to
+  // it when non-empty so it can't match every OTHER empty-sha256 song too.
   const updatedQueue = state.queue.map((item) =>
-    item.kind === "song" && (item.song.id === songId || item.song.sha256 === sha256)
+    item.kind === "song" && (item.song.id === songId || (!!sha256 && item.song.sha256 === sha256))
       ? { kind: "song" as const, song: { ...item.song, ...updates } }
       : item
   );

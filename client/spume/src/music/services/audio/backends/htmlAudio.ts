@@ -47,6 +47,7 @@ import {
   trySwapToCachedURL,
 } from "../../storage/audioAccess";
 import type { Song } from "../../storage/types";
+import { songIdentityKey } from "../../storage/types";
 import type { MediaItem } from "../../../../app/services/storage/mediaItem";
 import { isMediaLoadCurrent } from "../../../../app/services/media/loadGuard";
 import { debug, warn, error as errorLog } from "../../../../utils/logger";
@@ -278,9 +279,11 @@ export class HtmlAudioBackend implements PlayerBackend {
 
     try {
       // mark this song as pending "up next" — UI shows spinner but keeps
-      // current song info.
-      setPendingUpNextSha256(song.sha256);
-      debug("player", `pending up next: "${song.title}" (${song.sha256.slice(0, 8)}...)`);
+      // current song info. keyed by songIdentityKey, not raw sha256 - two
+      // different freshly-imported local songs can both have sha256 "".
+      const songKey = songIdentityKey(song);
+      setPendingUpNextSha256(songKey);
+      debug("player", `pending up next: "${song.title}" (${songKey.slice(0, 8)}...)`);
 
       // NOTE: we intentionally don't pre-cache here when user clicks a song.
       // pre-caching is handled by:
@@ -298,20 +301,20 @@ export class HtmlAudioBackend implements PlayerBackend {
           urlError instanceof Error ? urlError.message : urlError
         );
         alreadyLogged = true;
-        if (pendingUpNextSha256() === song.sha256) {
+        if (pendingUpNextSha256() === songKey) {
           setPendingUpNextSha256(null);
         }
         throw urlError;
       }
 
-      if (!isMediaLoadCurrent(song.sha256, options?.loadGeneration)) {
-        debug("player.html", `skipping cancelled load for ${song.sha256.slice(0, 8)}`);
+      if (!isMediaLoadCurrent(songKey, options?.loadGeneration)) {
+        debug("player.html", `skipping cancelled load for ${songKey.slice(0, 8)}`);
         return;
       }
 
       // verify this song is still the pending one — user may have
       // selected a different song while we were downloading.
-      if (pendingUpNextSha256() !== song.sha256) {
+      if (pendingUpNextSha256() !== songKey) {
         debug("player", "aborting playSong - user switched to different song during download");
         return;
       }
@@ -322,7 +325,7 @@ export class HtmlAudioBackend implements PlayerBackend {
       // cleanup previous audio url and any pending swap listener — but
       // only if switching to a different song (replaying the same song
       // may have reused/recreated the blob URL we'd be cleaning up).
-      if (this.currentSongId && this.currentSongId !== song.sha256) {
+      if (this.currentSongId && this.currentSongId !== songKey) {
         cleanupAudioURL(this.currentSongId);
       }
       if (this.pendingSwapCleanup) {
@@ -366,14 +369,14 @@ export class HtmlAudioBackend implements PlayerBackend {
       // "current" while the audio element kept playing whatever the
       // PREVIOUS song was. from here to `audio.src = audioURL` below is
       // all synchronous, so no further gap can reopen this race.
-      if (!isMediaLoadCurrent(song.sha256, options?.loadGeneration)) {
+      if (!isMediaLoadCurrent(songKey, options?.loadGeneration)) {
         return;
       }
 
       // update app state — PlayerBar will now show the new song.
-      await setCurrentSong(song.sha256);
+      await setCurrentSong(songKey);
 
-      this.currentSongId = song.sha256;
+      this.currentSongId = songKey;
 
       // set crossOrigin for direct remote URLs (needed for cookie auth on
       // cross-origin). tauri's windows AND android asset protocols serve
@@ -533,7 +536,7 @@ export class HtmlAudioBackend implements PlayerBackend {
       const current_sha256 = state?.current_sha256;
       if (!current_sha256) throw playError;
       const songInQueue = state?.queue.find(
-        (i) => i.kind === "song" && i.song.sha256 === current_sha256
+        (i) => i.kind === "song" && songIdentityKey(i.song) === current_sha256
       );
       if (!songInQueue || songInQueue.kind !== "song") throw playError;
       const freshURL = await refreshBlobURL(songInQueue.song);
@@ -592,7 +595,7 @@ export class HtmlAudioBackend implements PlayerBackend {
     const wasPlaying = isPlaying();
     const state = appState();
     const song = state?.queue.find(
-      (i) => i.kind === "song" && i.song.sha256 === state.current_sha256
+      (i) => i.kind === "song" && songIdentityKey(i.song) === state.current_sha256
     );
     const isFlac =
       song?.kind === "song" && (song.song.mime_type ?? "").toLowerCase().includes("flac");

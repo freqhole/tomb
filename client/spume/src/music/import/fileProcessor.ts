@@ -142,8 +142,34 @@ async function getAudioDuration(file: File): Promise<number> {
   });
 }
 
-// create song object from file (with normalized schema)
-export async function processMusicFile(file: File, songId: string): Promise<NewSong> {
+// create song object from file (with normalized schema).
+//
+// `opfsKey` is an opaque per-file storage key for the OPFS filename ONLY
+// (e.g. `audio/<opfsKey>.mp3`) - it is NOT a content hash and is never
+// stored as `Song.sha256`. this is part of the ongoing, deliberately
+// incremental sha256->blake3 deprecation (see
+// docs/blob-transfer-opfs-and-sha256-refactor-plan.md phase 7 and
+// /memories/repo/tomb-sha256-vs-blake3-vs-id.md): a fresh local import no
+// longer runs a whole-file crypto.subtle.digest just to mint an OPFS
+// filename - the caller (localImport.ts) just generates a random id for
+// that purpose, same as `Song.id` itself. `sha256` is left as `""` (the
+// same "unknown, not computed" sentinel grimoire's own sync routes
+// already accept - see phase 3) and `blake3` (computed just below via
+// `registerBlake3`, streaming, no full-file buffer) is the song's real
+// content identity from here on - see audioAccess.ts's
+// `songTrackingKey()` for where callers should prefer it over `sha256`.
+//
+// tradeoff, written down on purpose so it isn't rediscovered the hard
+// way later: this means the local-import dedup check (localImport.ts's
+// `getSongBySha256`, still real for OLDER songs that have a genuine
+// stored sha256 from before this change) can no longer catch "this exact
+// file was already imported" for a very old, pre-blake3 song - the
+// blake3 pre-check earlier in localImport.ts only matches against rows
+// that already HAVE a blake3 stored. narrow, rare edge case (needs a song
+// imported before blake3 support existed, re-imported unchanged today) -
+// accepted deliberately rather than keep paying for a whole-file sha256
+// read on every import to guard against it.
+export async function processMusicFile(file: File, opfsKey: string): Promise<NewSong> {
   const metadata = await extractMetadata(file);
 
   // check opfs support
@@ -154,7 +180,7 @@ export async function processMusicFile(file: File, songId: string): Promise<NewS
   // write file to opfs
   debug("fileProcessor", `writing to opfs: ${file.name}`);
   const extension = getFileExtension(metadata.mime_type, file.name);
-  const opfsPath = await writeAudioToOPFS(file, songId, extension);
+  const opfsPath = await writeAudioToOPFS(file, opfsKey, extension);
 
   // best-effort - lets this song be sent to a remote later without
   // re-reading the file (see registerBlake3 doc comment above).
@@ -186,7 +212,10 @@ export async function processMusicFile(file: File, songId: string): Promise<NewS
   const albumPrimaryGenreId: string | null = null;
 
   const song: NewSong = {
-    sha256: songId,
+    // "" = not computed for this song - see this function's doc comment.
+    // prefer `blake3` (right below) for anything that needs a real
+    // content-based identity.
+    sha256: "",
     title: metadata.title,
     artist_id: artist.artist_id,
     album_id: album.album_id,
@@ -230,19 +259,20 @@ export async function processMusicFile(file: File, songId: string): Promise<NewS
   return song;
 }
 
-// batch process multiple files
+// batch process multiple files. `opfsKeys` are opaque per-file storage
+// keys (see processMusicFile's doc comment) - NOT content hashes.
 export async function processMusicFiles(
   files: FileList | File[],
-  songIds: string[]
+  opfsKeys: string[]
 ): Promise<NewSong[]> {
   const fileArray = Array.from(files);
 
-  if (fileArray.length !== songIds.length) {
-    throw new Error("files and songIds arrays must have same length");
+  if (fileArray.length !== opfsKeys.length) {
+    throw new Error("files and opfsKeys arrays must have same length");
   }
 
   const results = await Promise.all(
-    fileArray.map((file, index) => processMusicFile(file, songIds[index]))
+    fileArray.map((file, index) => processMusicFile(file, opfsKeys[index]))
   );
   return results;
 }

@@ -31,6 +31,7 @@ import { formatSeasonLabel } from "../../../components/forms/VideoSeasonAutocomp
 import { debug } from "../../../utils/logger";
 import { currentTime, duration, isPlaying } from "../audio/playerState";
 import type { Song } from "../storage/types";
+import { songIdentityKey } from "../storage/types";
 import { getMediaSessionArtworkForVideo } from "./mediaSessionArtwork";
 import { getLocalArtworkFilePath } from "./mediaSessionArtwork";
 import {
@@ -189,7 +190,7 @@ export function installMediaSessionBridge(): void {
           const state = appState();
           if (!state?.current_sha256) return null;
           const item = state.queue.find(
-            (i) => i.kind === "song" && i.song.sha256 === state.current_sha256
+            (i) => i.kind === "song" && songIdentityKey(i.song) === state.current_sha256
           );
           if (!item || item.kind !== "song") return false;
           return item.song.is_favorite ?? false;

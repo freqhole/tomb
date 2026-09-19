@@ -14,7 +14,7 @@
 // and `songStartIndexAfter`/`videoStartIndexAfter` below.
 
 import type { Video } from "@freqhole/api-client";
-import type { Song } from "../../../music/services/storage/types";
+import { songIdentityKey, type Song } from "../../../music/services/storage/types";
 
 /** app-local extension of the generated `Video` type — mirrors how `Song`
  * already carries queue/sync bookkeeping fields that aren't part of the
@@ -71,11 +71,13 @@ export function videosOnly(items: MediaItem[]): QueuedVideo[] {
   return items.filter(isVideoItem).map((i) => i.video);
 }
 
-/** stable identity key across kinds — `Song.sha256` for songs,
+/** stable identity key across kinds — `songIdentityKey(song)` for songs
+ * (blake3 || sha256 || id - see types.ts; a raw `song.sha256` collides
+ * across every freshly-imported local song, which all share `""`),
  * `Video.id` for videos. used everywhere queue code used to compare
  * `.sha256` for dedup/lookup. */
 export function mediaItemKey(item: MediaItem): string {
-  return item.kind === "song" ? item.song.sha256 : item.video.id;
+  return item.kind === "song" ? songIdentityKey(item.song) : item.video.id;
 }
 
 export function mediaItemTitle(item: MediaItem): string {

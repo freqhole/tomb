@@ -12,6 +12,7 @@ import { advanceServerProgress, reconnectServerSession } from "./serverSession";
 import { isPlaying, setVisualPosition } from "../audio/playerState";
 import { saveProgressToIDB } from "./queueProgress";
 import type { Song } from "../storage/types";
+import { songIdentityKey } from "../storage/types";
 
 // the currently active history entry id being tracked
 const [activeHistoryEntryId, setActiveHistoryEntryId] = createSignal<string | null>(null);
@@ -205,7 +206,7 @@ export function reconnectProgressTracking(): void {
   if (!entry) return;
 
   // set the visual position in the player bar (without starting playback)
-  const currentSong = queueSongs.find((s) => s.sha256 === state.current_sha256);
+  const currentSong = queueSongs.find((s) => songIdentityKey(s) === state.current_sha256);
   if (currentSong && entry.current_song_position > 0) {
     setVisualPosition(entry.current_song_position, currentSong.duration_seconds ?? undefined);
   }

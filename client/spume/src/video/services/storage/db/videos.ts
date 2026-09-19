@@ -99,8 +99,14 @@ export async function deleteLocalVideo(id: string): Promise<void> {
 /** look up a local video by its blake3 hash - mirrors
  * music/services/storage/db/songs.ts's getSongByBlake3(), used the same
  * way: deciding whether a remote/peer queue entry (blake3_hash) already
- * exists in this device's own local library. */
+ * exists in this device's own local library. no caller passes "" today
+ * (LocalVideoRow.blake3 is nullable and defaults to `null`, which IDB's
+ * sparse index already skips - unlike Song.sha256, which is a required
+ * string that fresh imports leave as ""), but guard anyway so a future
+ * caller can't accidentally match an unrelated row the way
+ * getSongBySha256("") used to. */
 export async function getVideoByBlake3(blake3: string): Promise<LocalVideoRow | undefined> {
+  if (!blake3) return undefined;
   const db = await getVideoDB();
   const index = db.transaction(STORE_VIDEOS).store.index("by_blake3");
   const video = (await index.get(blake3)) as LocalVideoRow | undefined;

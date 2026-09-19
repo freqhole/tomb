@@ -35,6 +35,7 @@ import { buildRoute } from "../utils/routing";
 import { getArtistAbbreviation } from "../utils/format";
 import { warn } from "../../utils/logger";
 import type { ImageMetadata } from "../services/storage/types";
+import { songIdentityKey } from "../services/storage/types";
 import { isNarrowViewport, getPlayerBarHeightPx } from "../../config/breakpoints";
 import { createCurrentRemoteFull } from "../../app/services/remotes/currentRemoteFull";
 import {
@@ -831,7 +832,9 @@ export function ArtistsView(props: ArtistsViewProps) {
           onBack={handleBack}
           remote={currentRemoteFull}
           isLoadingSongs={artistSongsQuery.isPending}
-          playingSongId={artistSongs().find((s) => s.sha256 === appState()?.current_sha256)?.id}
+          playingSongId={
+            artistSongs().find((s) => songIdentityKey(s) === appState()?.current_sha256)?.id
+          }
         />
       )}
     </Show>

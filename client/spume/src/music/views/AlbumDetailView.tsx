@@ -30,6 +30,7 @@ import { useToggleFavoriteMutation } from "../queries/favorites";
 import { queryKeys } from "../queries/queryKeys";
 import { useAlbumContextMenu, useSongContextMenu } from "../hooks/contextMenu";
 import type { Song } from "../services/storage/types";
+import { songIdentityKey } from "../services/storage/types";
 import type { ImageMetadata } from "../services/storage/types";
 import { buildRoute } from "../utils/routing";
 import { albumNodeId } from "../../components/graph/data/nodeIds";
@@ -225,8 +226,10 @@ export function AlbumDetailView() {
     const songList = songs();
     if (songList.length === 0) return;
 
-    // set queue to all album songs and play the clicked one
-    const startIndex = songList.findIndex((s) => s.sha256 === song.sha256);
+    // set queue to all album songs and play the clicked one - keyed by
+    // `id` (always unique), not `sha256` (empty for every fresh local
+    // import, so two such songs would otherwise match the same index).
+    const startIndex = songList.findIndex((s) => s.id === song.id);
     const info = albumInfo();
     await playQueue(songList, {
       startIndex: Math.max(0, startIndex),
@@ -705,7 +708,7 @@ export function AlbumDetailView() {
                           : song.track_number;
 
                       const isHighlighted = () => highlightedSongId() === song.id;
-                      const isPlaying = () => appState()?.current_sha256 === song.sha256;
+                      const isPlaying = () => appState()?.current_sha256 === songIdentityKey(song);
                       let rowEl!: HTMLDivElement;
 
                       createEffect(() => {

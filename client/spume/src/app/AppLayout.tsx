@@ -130,6 +130,7 @@ import {
 } from "./services/remotes/remoteManager";
 import { seedOnlineMap, wakeAllRemotes } from "./services/remotes/remoteHealth";
 import type { ImageMetadata, Song } from "../music/services/storage/types";
+import { songIdentityKey } from "../music/services/storage/types";
 import {
   mediaItemKey,
   songsOnly,
@@ -810,7 +811,7 @@ export function AppLayout(props: AppLayoutProps) {
 
     const queueSongs = songsOnly(state.queue);
     const currentIndex = state.current_sha256
-      ? queueSongs.findIndex((s) => s.sha256 === state.current_sha256)
+      ? queueSongs.findIndex((s) => songIdentityKey(s) === state.current_sha256)
       : 0;
 
     // this effect will re-run when queue or current index changes

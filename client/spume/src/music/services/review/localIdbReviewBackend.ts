@@ -55,7 +55,7 @@ export function createLocalIdbReviewBackend(): ReviewBackend {
       return { id: session.target_remote_id, name: session.target_remote_name };
     },
 
-    async patchAlbum(_sessionId, albumId, req) {
+    async patchAlbum(sessionId, albumId, req) {
       await patchLocalAlbum(albumId, {
         title: req.title,
         artistId: req.artist_id,
@@ -71,6 +71,12 @@ export function createLocalIdbReviewBackend(): ReviewBackend {
           trackArtist: s.track_artist,
         })),
       });
+      // grimoireReviewBackend.ts's patchAlbum patches AND marks reviewed in
+      // one shot (grimoire's server-side route does both) - this local-idb
+      // mirror was missing the second half, which left "looks good" doing
+      // nothing but re-saving the same edits: the album never left the
+      // pending list because nothing here ever marked it reviewed.
+      await markLocalAlbumReviewed(sessionId, albumId);
     },
 
     async mergeAlbums(_sessionId, sourceIds, targetId) {

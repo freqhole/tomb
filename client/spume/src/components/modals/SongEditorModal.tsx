@@ -873,6 +873,27 @@ export function SongEditorModal(props: SongEditorModalProps) {
               </div>
             </Show>
           </div>
+          {/* identity ids - debug aid for the sha256->blake3 migration */}
+          <Show when={songQuery.data}>
+            <div class="space-y-1 text-sm font-mono">
+              <div>
+                <span class="text-[var(--color-text-tertiary)]">id: </span>
+                <span class="text-[var(--color-text-secondary)]">{songQuery.data!.id}</span>
+              </div>
+              <Show when={songQuery.data!.sha256}>
+                <div>
+                  <span class="text-[var(--color-text-tertiary)]">sha256: </span>
+                  <span class="text-[var(--color-text-secondary)]">{songQuery.data!.sha256}</span>
+                </div>
+              </Show>
+              <Show when={songQuery.data!.blake3}>
+                <div>
+                  <span class="text-[var(--color-text-tertiary)]">blake3: </span>
+                  <span class="text-[var(--color-text-secondary)]">{songQuery.data!.blake3}</span>
+                </div>
+              </Show>
+            </div>
+          </Show>
           <Show
             when={songQuery.data?.metadata}
             fallback={

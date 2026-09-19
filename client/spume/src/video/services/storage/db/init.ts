@@ -97,3 +97,12 @@ export async function getVideoDB(): Promise<IDBPDatabase> {
 
   return dbInstance;
 }
+
+// close database connection - mirrors music/services/storage/db/init.ts's
+// closeMusicDB(), used by tests to force a fresh openDB() upgrade pass.
+export function closeVideoDB(): void {
+  if (dbInstance) {
+    dbInstance.close();
+    dbInstance = null;
+  }
+}
