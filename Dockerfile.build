@@ -5,6 +5,11 @@ FROM ${BASE_IMAGE}
 ARG TARGET_ARCH=aarch64-unknown-linux-gnu
 # extra cargo flags (e.g. --no-default-features) passed to the build command
 ARG CARGO_EXTRA_FLAGS=""
+# git short sha of the checkout this binary was built from - the build
+# context has no .git (see .dockerignore), so rathole/build.rs's own git-
+# command fallback always misses here; the Makefile passes this in as the
+# real value (mirrors Dockerfile.tauri's identical convention).
+ARG FREQHOLE_GIT_SHA=unknown
 
 # install build dependencies
 # bullseye (build-pi32's BASE_IMAGE) is oldoldstable now. root cause
@@ -136,4 +141,4 @@ WORKDIR /app
 COPY . .
 
 # build server and cli for the specified target architecture
-RUN SQLX_OFFLINE="true" cargo build --release --target $TARGET_ARCH -p server -p cli $CARGO_EXTRA_FLAGS
+RUN SQLX_OFFLINE="true" FREQHOLE_GIT_SHA=${FREQHOLE_GIT_SHA} cargo build --release --target $TARGET_ARCH -p server -p cli $CARGO_EXTRA_FLAGS
