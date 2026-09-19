@@ -1,5 +1,11 @@
 # freqhole-release
 
+## 0.3.6
+
+### Patch Changes
+
+- 76aa8a8: fix delete-after-play leaking from cenotaph player; tidy cenotaph view; try to fix log-level filter; add more offset top to feed views;
+
 ## 0.3.5
 
 ### Patch Changes
