@@ -166,6 +166,14 @@ args = "-i {input} -map 0:v:0 -map 0:a:0? -c:v libx264 -preset veryfast -crf 23 
 # for the temp filename ffmpeg writes to.
 # (default: "mp4")
 extension = "mp4"
+# OPTIONAL: skip transcoding entirely when the source video's own video
+# stream already matches both of these (checked against ffprobe's probed
+# codec/container - audio track is deliberately NOT checked here, matching
+# a container/video-codec match is sufficient for playback compatibility).
+# leave either unset to always transcode this rendition regardless of
+# source format.
+target_codec = "h264"
+target_container = "mp4"
 
 # OPTIONAL: add more profiles for fixed-resolution renditions (e.g. lower
 # bandwidth streaming targets) by appending more [[media.video_transcode_renditions]]
