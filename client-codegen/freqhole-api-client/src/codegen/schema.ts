@@ -5190,6 +5190,7 @@ export const PublicAssetRefSchema = z.object({
 export type PublicAssetRef = z.infer<typeof PublicAssetRefSchema>;
 
 export const PublicNowPlayingSchema = z.object({
+  kind: z.string(),
   song_id: z.string(),
   title: z.string(),
   artist: z.string().nullish(),
@@ -5211,6 +5212,7 @@ export const PublicStationSchema = z.object({
   is_default: z.boolean(),
   is_public: z.boolean(),
   now_playing: z.object({
+  kind: z.string(),
   song_id: z.string(),
   title: z.string(),
   artist: z.string().nullish(),
@@ -5452,6 +5454,7 @@ export const RadioInfoResponseSchema = z.object({
   is_default: z.boolean(),
   is_public: z.boolean(),
   now_playing: z.object({
+  kind: z.string(),
   song_id: z.string(),
   title: z.string(),
   artist: z.string().nullish(),
@@ -5531,6 +5534,7 @@ export const RadioStationsResponseSchema = z.object({
   is_default: z.boolean(),
   is_public: z.boolean(),
   now_playing: z.object({
+  kind: z.string(),
   song_id: z.string(),
   title: z.string(),
   artist: z.string().nullish(),

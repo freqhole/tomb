@@ -81,11 +81,21 @@ impl MiddenNode {
             parse_peer_addr(peer_addr, &self.own_relay_urls).map_err(|e| JsError::new(&e))?;
 
         info!("[radio] connecting to broadcaster...");
-        let conn = self
-            .endpoint
-            .connect(addr, RADIO_ALPN)
-            .await
-            .map_err(to_js_err)?;
+        // bounded dial, matching `open_bi`'s reasoning in lib.rs: without
+        // an addr hint iroh falls back to pkarr/DNS discovery, which can
+        // spin internally for ~2 minutes when the peer isn't reachable
+        // yet on this specific ALPN - even if a different ALPN to the
+        // same peer already connected fine (each is its own QUIC dial
+        // with its own NAT-traversal attempt). a bounded failure here
+        // lets the caller see a real error instead of "connecting..."
+        // forever.
+        let conn = n0_future::time::timeout(
+            self.connect_timeout,
+            self.endpoint.connect(addr, RADIO_ALPN),
+        )
+        .await
+        .map_err(|_| JsError::new("radio: connect timed out"))?
+        .map_err(to_js_err)?;
 
         // open control bidi stream FIRST, send Tune, then expect Hello.
         info!("[radio] opening control stream...");

@@ -174,16 +174,19 @@ pub async fn list_filters(station_id: &str) -> GrimoireResult<Vec<StationFilter>
         r#"SELECT f.id as "id!", f.station_id as "station_id!",
                   f.filter_type as "filter_type!",
                   COALESCE(f.artist_id, f.album_id, f.taxon_id, f.tag_id, f.song_id, f.playlist_id,
+                           f.video_id, f.video_series_id,
                            CAST(f.criteria_value AS TEXT), '') as "filter_value!: String",
-                  COALESCE(ar.name, al.title, tx.label, t.name, s.title, p.title, '') as "filter_label!: String",
+                  COALESCE(ar.name, al.title, tx.label, t.name, s.title, p.title, v.title, vs.title, '') as "filter_label!: String",
                   f.mode as "mode!", f.created_at as "created_at!"
            FROM radio_station_filterz f
-           LEFT JOIN artistz   ar ON ar.id = f.artist_id
-           LEFT JOIN albumz    al ON al.id = f.album_id
-           LEFT JOIN taxonz    tx ON tx.id = f.taxon_id
-           LEFT JOIN tagz      t  ON t.id  = f.tag_id
-           LEFT JOIN songz     s  ON s.id  = f.song_id
-           LEFT JOIN playlistz p  ON p.id  = f.playlist_id
+           LEFT JOIN artistz     ar ON ar.id = f.artist_id
+           LEFT JOIN albumz      al ON al.id = f.album_id
+           LEFT JOIN taxonz      tx ON tx.id = f.taxon_id
+           LEFT JOIN tagz        t  ON t.id  = f.tag_id
+           LEFT JOIN songz       s  ON s.id  = f.song_id
+           LEFT JOIN playlistz   p  ON p.id  = f.playlist_id
+           LEFT JOIN videoz      v  ON v.id  = f.video_id
+           LEFT JOIN video_seriez vs ON vs.id = f.video_series_id
            WHERE f.station_id = ?
            ORDER BY f.created_at ASC"#,
         station_id
@@ -193,13 +196,16 @@ pub async fn list_filters(station_id: &str) -> GrimoireResult<Vec<StationFilter>
     .map_err(GrimoireError::from)
 }
 
-/// (artist_id, album_id, taxon_id, tag_id, song_id, playlist_id, criteria_value)
-/// — exactly one of these seven is `Some` for a given filter row (or none,
-/// for `favorite`), per the CHECK constraint added in migration 051.
+/// (artist_id, album_id, taxon_id, tag_id, song_id, playlist_id, video_id,
+/// video_series_id, criteria_value) — exactly one of these nine is `Some`
+/// for a given filter row (or none, for `favorite`), per the CHECK
+/// constraint added in migrations 051/081.
 ///
 /// `pub(crate)` — shared with `external_storage::repository`, whose
 /// filter-set-filter table has the identical FK/criteria shape.
 pub(crate) type FilterInsertCols<'a> = (
+    Option<&'a str>,
+    Option<&'a str>,
     Option<&'a str>,
     Option<&'a str>,
     Option<&'a str>,
@@ -227,8 +233,8 @@ pub(crate) fn parse_filter_clause<'a>(
         StationFilterType::parse(filter_type).ok_or_else(|| GrimoireError::ProcessingFailed {
             message: format!(
                 "{label}: unknown filter_type '{filter_type}' (expected one of artist, album, \
-                 taxon, tag, track, playlist, favorite, rating_gte, rating_lte, \
-                 play_count_gte, play_count_lte, duration_gte, duration_lte, \
+                 taxon, tag, track, playlist, video, video_series, favorite, rating_gte, \
+                 rating_lte, play_count_gte, play_count_lte, duration_gte, duration_lte, \
                  added_days_gte, added_days_lte)"
             ),
         })?;
@@ -249,13 +255,95 @@ pub(crate) fn parse_filter_clause<'a>(
     // columns (and criteria_value, for reference types) are left null —
     // the schema CHECK constraint enforces this.
     let cols: FilterInsertCols = match kind {
-        StationFilterType::Artist => (Some(filter_value), None, None, None, None, None, None),
-        StationFilterType::Album => (None, Some(filter_value), None, None, None, None, None),
-        StationFilterType::Taxon => (None, None, Some(filter_value), None, None, None, None),
-        StationFilterType::Tag => (None, None, None, Some(filter_value), None, None, None),
-        StationFilterType::Track => (None, None, None, None, Some(filter_value), None, None),
-        StationFilterType::Playlist => (None, None, None, None, None, Some(filter_value), None),
-        StationFilterType::Favorite => (None, None, None, None, None, None, None),
+        StationFilterType::Artist => (
+            Some(filter_value),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        ),
+        StationFilterType::Album => (
+            None,
+            Some(filter_value),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        ),
+        StationFilterType::Taxon => (
+            None,
+            None,
+            Some(filter_value),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        ),
+        StationFilterType::Tag => (
+            None,
+            None,
+            None,
+            Some(filter_value),
+            None,
+            None,
+            None,
+            None,
+            None,
+        ),
+        StationFilterType::Track => (
+            None,
+            None,
+            None,
+            None,
+            Some(filter_value),
+            None,
+            None,
+            None,
+            None,
+        ),
+        StationFilterType::Playlist => (
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(filter_value),
+            None,
+            None,
+            None,
+        ),
+        StationFilterType::Video => (
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(filter_value),
+            None,
+            None,
+        ),
+        StationFilterType::VideoSeries => (
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(filter_value),
+            None,
+        ),
+        StationFilterType::Favorite => (None, None, None, None, None, None, None, None, None),
         StationFilterType::RatingGte | StationFilterType::RatingLte => {
             let n: i64 =
                 filter_value
@@ -275,7 +363,7 @@ pub(crate) fn parse_filter_clause<'a>(
                     ),
                 });
             }
-            (None, None, None, None, None, None, Some(n))
+            (None, None, None, None, None, None, None, None, Some(n))
         }
         StationFilterType::PlayCountGte
         | StationFilterType::PlayCountLte
@@ -301,7 +389,7 @@ pub(crate) fn parse_filter_clause<'a>(
                     ),
                 });
             }
-            (None, None, None, None, None, None, Some(n))
+            (None, None, None, None, None, None, None, None, Some(n))
         }
     };
     Ok((kind, mode, cols))
@@ -315,14 +403,27 @@ pub async fn add_filter(
 ) -> GrimoireResult<StationFilter> {
     let pool = database::connect().await?;
 
-    let (kind, mode, (artist_id, album_id, taxon_id, tag_id, song_id, playlist_id, criteria_value)) =
-        parse_filter_clause("radio", filter_type, filter_value, mode)?;
+    let (
+        kind,
+        mode,
+        (
+            artist_id,
+            album_id,
+            taxon_id,
+            tag_id,
+            song_id,
+            playlist_id,
+            video_id,
+            video_series_id,
+            criteria_value,
+        ),
+    ) = parse_filter_clause("radio", filter_type, filter_value, mode)?;
     let kind_str = kind.as_str();
 
     let id: String = sqlx::query_scalar!(
         r#"INSERT INTO radio_station_filterz
-              (station_id, filter_type, mode, artist_id, album_id, taxon_id, tag_id, song_id, playlist_id, criteria_value)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              (station_id, filter_type, mode, artist_id, album_id, taxon_id, tag_id, song_id, playlist_id, video_id, video_series_id, criteria_value)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
            RETURNING id"#,
         station_id,
         kind_str,
@@ -333,6 +434,8 @@ pub async fn add_filter(
         tag_id,
         song_id,
         playlist_id,
+        video_id,
+        video_series_id,
         criteria_value,
     )
     .fetch_one(&pool)
@@ -343,16 +446,19 @@ pub async fn add_filter(
         r#"SELECT f.id as "id!", f.station_id as "station_id!",
                   f.filter_type as "filter_type!",
                   COALESCE(f.artist_id, f.album_id, f.taxon_id, f.tag_id, f.song_id, f.playlist_id,
+                           f.video_id, f.video_series_id,
                            CAST(f.criteria_value AS TEXT), '') as "filter_value!: String",
-                  COALESCE(ar.name, al.title, tx.label, t.name, s.title, p.title, '') as "filter_label!: String",
+                  COALESCE(ar.name, al.title, tx.label, t.name, s.title, p.title, v.title, vs.title, '') as "filter_label!: String",
                   f.mode as "mode!", f.created_at as "created_at!"
            FROM radio_station_filterz f
-           LEFT JOIN artistz   ar ON ar.id = f.artist_id
-           LEFT JOIN albumz    al ON al.id = f.album_id
-           LEFT JOIN taxonz    tx ON tx.id = f.taxon_id
-           LEFT JOIN tagz      t  ON t.id  = f.tag_id
-           LEFT JOIN songz     s  ON s.id  = f.song_id
-           LEFT JOIN playlistz p  ON p.id  = f.playlist_id
+           LEFT JOIN artistz     ar ON ar.id = f.artist_id
+           LEFT JOIN albumz      al ON al.id = f.album_id
+           LEFT JOIN taxonz      tx ON tx.id = f.taxon_id
+           LEFT JOIN tagz        t  ON t.id  = f.tag_id
+           LEFT JOIN songz         s  ON s.id  = f.song_id
+           LEFT JOIN playlistz   p  ON p.id  = f.playlist_id
+           LEFT JOIN videoz      v  ON v.id  = f.video_id
+           LEFT JOIN video_seriez vs ON vs.id = f.video_series_id
            WHERE f.id = ?"#,
         id
     )
@@ -371,40 +477,123 @@ pub async fn remove_filter(filter_id: &str) -> GrimoireResult<()> {
 
 // ---------- playlist resolution ------------------------------------------
 
-/// resolve a station's effective song list. returns DISTINCT song ids.
+/// a station's effective candidate pool, split by domain. each side is
+/// resolved independently (its own union-within-group/intersect-across-
+/// group/subtract-excludes pass over only ITS OWN filter rows - see
+/// `resolve_playlist`) rather than mixed into one intersection, since a
+/// song-only filter type (e.g. `artist`) and a video-only one (e.g.
+/// `video_series`) describe two unrelated content pools, not two
+/// constraints on the same one - intersecting them would always yield
+/// nothing. `video_ids` is empty for any station with zero video-type
+/// filter rows, so a pre-existing song-only station's resolution is
+/// completely unaffected by this struct's existence.
+#[derive(Debug, Clone, Default)]
+pub struct ResolvedPlaylist {
+    pub song_ids: Vec<String>,
+    pub video_ids: Vec<String>,
+}
+
+/// resolve a station's effective playlist across both domains.
 ///
-/// rules:
+/// rules (applied independently per-domain - see `ResolvedPlaylist`):
 ///   * includes are grouped by `filter_type`. within a group the matches
 ///     are UNIONed (e.g. two artist includes => songs by either artist).
 ///     across groups the unions are INTERSECTED (e.g. an artist include
 ///     plus a genre include => songs by that artist AND in that genre).
 ///   * the union of every `exclude` clause is then subtracted.
-///   * when only excludes are configured, the candidate set is seeded
-///     from the full playable library so excludes still take effect.
-///   * when there are zero filter rows, returns an empty vec — caller
-///     treats this as "no source" and falls back to the full library or
-///     a global random pick.
-pub async fn resolve_playlist(station_id: &str) -> GrimoireResult<Vec<String>> {
+///   * when only excludes are configured for a domain, that domain's
+///     candidate set is seeded from its full playable library so
+///     excludes still take effect.
+///   * when a domain has zero filter rows of its own, that domain's
+///     result is empty — callers treat an empty `song_ids` the same way
+///     they always have ("no source", falls back to the full library or
+///     a global random pick); an empty `video_ids` simply means this
+///     station has no video content configured (the common case today).
+pub async fn resolve_playlist(station_id: &str) -> GrimoireResult<ResolvedPlaylist> {
     let pool = database::connect().await?;
 
     let filters = list_filters_with_fks(&pool, station_id).await?;
 
+    const VIDEO_FILTER_TYPES: [&str; 2] = ["video", "video_series"];
+    let (video_filters, song_filters): (Vec<&FilterRow>, Vec<&FilterRow>) = filters
+        .iter()
+        .partition(|f| VIDEO_FILTER_TYPES.contains(&f.filter_type.as_str()));
+
+    let song_ids = resolve_domain(
+        &pool,
+        &song_filters,
+        song_ids_for_clause_default,
+        all_playable_song_ids,
+    )
+    .await?;
+    let video_ids = resolve_domain(
+        &pool,
+        &video_filters,
+        video_ids_for_clause,
+        all_playable_video_ids,
+    )
+    .await?;
+
+    Ok(ResolvedPlaylist {
+        song_ids: song_ids.into_iter().collect(),
+        video_ids: video_ids.into_iter().collect(),
+    })
+}
+
+/// `song_ids_for_clause` takes an extra `scoped_user_id` param that
+/// `resolve_domain`'s generic clause-resolver signature doesn't need
+/// (radio stations are shared, not per-listener - always `None`, see
+/// `song_ids_for_clause`'s own doc comment) - this thin wrapper adapts it
+/// to the same `(pool, clause) -> Vec<String>` shape `video_ids_for_clause`
+/// already has, so both can share `resolve_domain`.
+async fn song_ids_for_clause_default(
+    pool: &sqlx::SqlitePool,
+    clause: &FilterRow,
+) -> GrimoireResult<Vec<String>> {
+    song_ids_for_clause(pool, clause, None).await
+}
+
+/// shared include/exclude resolution algorithm for one domain's filter
+/// rows - see `ResolvedPlaylist`'s doc comment for why song and video
+/// candidates are never intersected against each other. `clause_fn`
+/// resolves one filter row to matching ids for this domain;
+/// `all_ids_fn` seeds the seen-set when only excludes are configured (or
+/// there are no filter rows for this domain, which correctly yields an
+/// empty set via the `filters.is_empty()` early return below - the
+/// exclude-only fallback only applies when there's at least one
+/// (exclude) row).
+async fn resolve_domain<'a, ClauseFut, AllFut>(
+    pool: &'a sqlx::SqlitePool,
+    filters: &[&'a FilterRow],
+    clause_fn: impl Fn(&'a sqlx::SqlitePool, &'a FilterRow) -> ClauseFut,
+    all_ids_fn: impl FnOnce(&'a sqlx::SqlitePool) -> AllFut,
+) -> GrimoireResult<std::collections::HashSet<String>>
+where
+    ClauseFut: std::future::Future<Output = GrimoireResult<Vec<String>>> + 'a,
+    AllFut: std::future::Future<Output = GrimoireResult<Vec<String>>>,
+{
     if filters.is_empty() {
-        return Ok(Vec::new());
+        return Ok(std::collections::HashSet::new());
     }
 
-    let includes: Vec<&FilterRow> = filters.iter().filter(|f| f.mode == "include").collect();
-    let excludes: Vec<&FilterRow> = filters.iter().filter(|f| f.mode == "exclude").collect();
+    let includes: Vec<&FilterRow> = filters
+        .iter()
+        .copied()
+        .filter(|f| f.mode == "include")
+        .collect();
+    let excludes: Vec<&FilterRow> = filters
+        .iter()
+        .copied()
+        .filter(|f| f.mode == "exclude")
+        .collect();
 
-    // group includes by filter_type, then union within a group and
-    // intersect across groups.
     let mut result: std::collections::HashSet<String> = if includes.is_empty() {
-        all_playable_song_ids(&pool).await?.into_iter().collect()
+        all_ids_fn(pool).await?.into_iter().collect()
     } else {
         let mut by_type: std::collections::HashMap<String, std::collections::HashSet<String>> =
             std::collections::HashMap::new();
         for clause in &includes {
-            let matches = song_ids_for_clause(&pool, clause, None).await?;
+            let matches = clause_fn(pool, clause).await?;
             by_type
                 .entry(clause.filter_type.clone())
                 .or_default()
@@ -418,15 +607,14 @@ pub async fn resolve_playlist(station_id: &str) -> GrimoireResult<Vec<String>> {
         acc
     };
 
-    // subtract excludes (union of every exclude clause).
     for clause in &excludes {
-        let matches = song_ids_for_clause(&pool, clause, None).await?;
+        let matches = clause_fn(pool, clause).await?;
         for id in matches {
             result.remove(&id);
         }
     }
 
-    Ok(result.into_iter().collect())
+    Ok(result)
 }
 
 /// every playable song id in the library — used as the seed set when a
@@ -450,6 +638,57 @@ pub(crate) async fn all_playable_song_ids(pool: &sqlx::SqlitePool) -> GrimoireRe
     .map_err(GrimoireError::from)
 }
 
+/// every playable video id in the library — the video-domain counterpart
+/// of `all_playable_song_ids`, used as the seed set when a station has
+/// only `exclude`-mode video filters configured.
+pub(crate) async fn all_playable_video_ids(pool: &sqlx::SqlitePool) -> GrimoireResult<Vec<String>> {
+    sqlx::query_scalar!(
+        r#"SELECT DISTINCT v.id as "video_id!"
+           FROM videoz v
+           JOIN media_blobz b ON b.id = v.media_blob_id
+           WHERE b.local_path IS NOT NULL
+             AND v.deleted_at IS NULL
+             AND b.deleted_at IS NULL"#
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(GrimoireError::from)
+}
+
+/// look up video ids for one filter clause - the video-domain counterpart
+/// of `song_ids_for_clause`. only `"video"`/`"video_series"` resolve to
+/// anything today; every other filter_type (including the criteria types
+/// and the ones that COULD plausibly span both domains, like `taxon`/
+/// `tag`/`playlist`/`favorite`) intentionally yields an empty vec here
+/// until cross-domain matching is explicitly designed (real behavior-
+/// change risk for existing stations if done naively), rather than
+/// silently guessed at in this pass.
+pub(crate) async fn video_ids_for_clause(
+    pool: &sqlx::SqlitePool,
+    clause: &FilterRow,
+) -> GrimoireResult<Vec<String>> {
+    let rows: Vec<String> = match clause.filter_type.as_str() {
+        "video" => match &clause.video_id {
+            Some(id) => vec![id.clone()],
+            None => Vec::new(),
+        },
+        "video_series" => match &clause.video_series_id {
+            Some(id) => {
+                sqlx::query_scalar!(
+                    r#"SELECT id as "video_id!" FROM videoz
+                   WHERE series_id = ? AND deleted_at IS NULL"#,
+                    id
+                )
+                .fetch_all(pool)
+                .await?
+            }
+            None => Vec::new(),
+        },
+        _ => Vec::new(),
+    };
+    Ok(rows)
+}
+
 /// internal row carrying the typed FK columns alongside the metadata.
 ///
 /// `pub(crate)` — shared with `external_storage::repository`'s filter-set
@@ -463,6 +702,8 @@ pub(crate) struct FilterRow {
     pub(crate) tag_id: Option<String>,
     pub(crate) song_id: Option<String>,
     pub(crate) playlist_id: Option<String>,
+    pub(crate) video_id: Option<String>,
+    pub(crate) video_series_id: Option<String>,
     pub(crate) criteria_value: Option<i64>,
     /// 1 = "everyone's" (favorite/rating), NULL/anything else = "just this
     /// user's". `radio_station_filterz` has no such column (radio's
@@ -479,7 +720,8 @@ async fn list_filters_with_fks(
         FilterRow,
         r#"SELECT filter_type as "filter_type!",
                   mode as "mode!",
-                  artist_id, album_id, taxon_id, tag_id, song_id, playlist_id, criteria_value,
+                  artist_id, album_id, taxon_id, tag_id, song_id, playlist_id,
+                  video_id, video_series_id, criteria_value,
                   NULL as "criteria_scope: i64"
            FROM radio_station_filterz
            WHERE station_id = ?

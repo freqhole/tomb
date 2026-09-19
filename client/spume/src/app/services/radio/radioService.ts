@@ -54,11 +54,29 @@ function stopQueueModeAdapter(): void {
 
 const MSE_CODEC = 'audio/mp4; codecs="mp4a.40.2"';
 
-// detect MSE support once at module init. mobile safari and some other
-// environments lack MediaSource; those listeners must use timeline/queue mode.
-const hasMSE =
+type ManagedMediaSourceCtor = new () => MediaSource;
+
+// safari (iOS 17.1+) added a separate, power-conscious `ManagedMediaSource`
+// API alongside classic `MediaSource` - undetected by a `window.MediaSource`
+// check alone, which would wrongly force those devices into timeline/queue
+// mode even though they can chunk-stream. attach path is `srcObject` on our
+// existing `<audio>` element (below) - confirmed working on a real iPhone
+// (iOS 18.7), but only once `audio.disableRemotePlayback = true` is set
+// before the `srcObject` assignment; without it, WebKit never fires
+// `sourceopen` at all (see where `disableRemotePlayback` is set, below).
+const managedMediaSourceCtor: ManagedMediaSourceCtor | null =
   typeof window !== "undefined" &&
-  typeof (window as unknown as { MediaSource?: unknown }).MediaSource === "function";
+  typeof (window as unknown as { ManagedMediaSource?: unknown }).ManagedMediaSource === "function"
+    ? (window as unknown as { ManagedMediaSource: ManagedMediaSourceCtor }).ManagedMediaSource
+    : null;
+
+// detect MSE support once at module init. mobile safari and some other
+// environments lack both MediaSource and ManagedMediaSource; those
+// listeners must use timeline/queue mode.
+const hasMSE =
+  (typeof window !== "undefined" &&
+    typeof (window as unknown as { MediaSource?: unknown }).MediaSource === "function") ||
+  managedMediaSourceCtor !== null;
 
 type RadioModeCapability = "chunk_stream" | "timeline_seed";
 
@@ -301,6 +319,8 @@ export function recordCurrentRadioTrackHistory(track: {
 }): void {
   const songId = track.songId?.trim() ? track.songId.trim() : null;
   const np = {
+    // history recording only handles songs today - see plan doc.
+    kind: "song",
     song_id: songId ?? "",
     title: track.title,
     artist: track.artist ?? null,
@@ -365,6 +385,8 @@ export function applyTimelineNowPlaying(track: {
     swapArtUrl(track.artUrl ?? null);
   }
   setNowPlaying({
+    // timeline/queue mode is song-only today - see plan doc.
+    kind: "song",
     song_id: songId,
     title: track.title,
     artist: track.artist ?? null,
@@ -997,11 +1019,47 @@ export async function tuneIntoRadio(
 
   // on environments without MediaSource (mobile safari, some webviews)
   // ms stays null and we rely entirely on the timeline/queue adapter.
-  const ms: MediaSource | null = hasMSE
+  // prefer classic MediaSource when present; fall back to
+  // ManagedMediaSource (see its doc comment above re: unverified-on-audio
+  // caveat) so devices that only expose it aren't wrongly routed to
+  // timeline/queue mode.
+  const hasClassicMediaSource =
+    typeof (window as unknown as { MediaSource?: unknown }).MediaSource === "function";
+  const usingManagedMediaSource = !hasClassicMediaSource && managedMediaSourceCtor !== null;
+  const ms: MediaSource | null = hasClassicMediaSource
     ? new (globalThis as unknown as { MediaSource: new () => MediaSource }).MediaSource()
-    : null;
+    : usingManagedMediaSource
+      ? new managedMediaSourceCtor!()
+      : null;
+  // ManagedMediaSource waits for an explicit `startstreaming` event before
+  // it wants chunks pushed; classic MediaSource has no such signal, so it
+  // stays permanently "streamable" from the caller's point of view.
+  let canStream = !usingManagedMediaSource;
+  console.info(
+    "[radio] media source mode:",
+    ms === null
+      ? "none (timeline/queue fallback)"
+      : usingManagedMediaSource
+        ? "ManagedMediaSource"
+        : "MediaSource"
+  );
   if (ms) {
-    audio.src = URL.createObjectURL(ms);
+    if (usingManagedMediaSource) {
+      // WebKit requires remote playback (AirPlay) be disabled - or an
+      // AirPlay-compatible alternative source provided - or `sourceopen`
+      // never fires at all. must be set before `srcObject` is assigned.
+      audio.disableRemotePlayback = true;
+      (audio as HTMLMediaElement & { srcObject?: MediaProvider | null }).srcObject = ms;
+      ms.addEventListener("startstreaming", () => {
+        canStream = true;
+        drain();
+      });
+      ms.addEventListener("endstreaming", () => {
+        canStream = false;
+      });
+    } else {
+      audio.src = URL.createObjectURL(ms);
+    }
   }
 
   let sb: SourceBuffer | null = null;
@@ -1068,6 +1126,7 @@ export async function tuneIntoRadio(
   const BUFFER_BEHIND_TARGET_S = 10;
   const drain = () => {
     if (!isActiveTune()) return;
+    if (!canStream) return;
     if (!sb || sb.updating) return;
     const next = queue.shift();
     if (next) {
@@ -1194,12 +1253,42 @@ export async function tuneIntoRadio(
 
   // ---- recovery state ---------------------------------------------------
   if (ms) {
-    await new Promise<void>((resolve) => {
-      ms.addEventListener("sourceopen", () => resolve(), { once: true });
-    });
+    const sourceopenStartedAtMs = Date.now();
+    console.info("[radio] waiting for MediaSource sourceopen event...");
+    // ManagedMediaSource attached via srcObject firing sourceopen has NOT
+    // been confirmed on a real device - a 10s bound turns a silent
+    // permanent hang into a clear, diagnosable error instead of a stuck
+    // "connecting" spinner with zero further log output.
+    const sourceopenFired = await Promise.race([
+      new Promise<boolean>((resolve) => {
+        ms.addEventListener("sourceopen", () => resolve(true), { once: true });
+      }),
+      new Promise<boolean>((resolve) => {
+        window.setTimeout(() => resolve(false), 10_000);
+      }),
+    ]);
+    console.info(
+      `[radio] sourceopen ${sourceopenFired ? "fired" : "TIMED OUT waiting"} after ${Date.now() - sourceopenStartedAtMs}ms (usingManagedMediaSource: ${usingManagedMediaSource})`
+    );
+    if (!sourceopenFired) {
+      setStatus("error");
+      setError("MediaSource never opened (sourceopen timed out) - see console");
+      if (usingManagedMediaSource) {
+        (audio as HTMLMediaElement & { srcObject?: MediaProvider | null }).srcObject = null;
+      } else {
+        URL.revokeObjectURL(audio.src);
+        audio.removeAttribute("src");
+      }
+      audio.load();
+      throw new Error("radio tune aborted: MediaSource sourceopen never fired");
+    }
     if (!isActiveTune()) {
-      URL.revokeObjectURL(audio.src);
-      audio.removeAttribute("src");
+      if (usingManagedMediaSource) {
+        (audio as HTMLMediaElement & { srcObject?: MediaProvider | null }).srcObject = null;
+      } else {
+        URL.revokeObjectURL(audio.src);
+        audio.removeAttribute("src");
+      }
       audio.load();
       throw new Error("radio tune superseded by a newer attempt");
     }
@@ -2073,12 +2162,31 @@ export async function tuneIntoRadio(
   let handle: RadioHandleLike;
   let timelineBootstrapTimer: number | null = null;
   let chunkBootstrapTimer: number | null = null;
+  const tuneCallStartedAtMs = Date.now();
+  console.info(
+    "[radio] calling tune_radio now — mode:",
+    useLocal ? "charnel-local" : useCharnel ? "charnel" : "midden-wasm",
+    "peerAddr:",
+    peerAddr,
+    "stationId:",
+    opts.stationId ?? null
+  );
+  // heartbeat while the tune call is in flight - if this fires more than
+  // once, the underlying call (native midden/iroh binding, or charnel IPC)
+  // is genuinely hanging rather than erroring quickly, which rules out a
+  // fast local failure and points at the network/peer/connection layer.
+  const tuneHeartbeat = window.setInterval(() => {
+    console.warn(
+      `[radio] still waiting on tune_radio after ${Date.now() - tuneCallStartedAtMs}ms — no response yet`
+    );
+  }, 3000);
   try {
     handle = useLocal
       ? await tuneRadioCharnelLocal(opts.stationId, applyHello, applyMeta, onChunk)
       : useCharnel
         ? await tuneRadioCharnel(peerAddr, opts.stationId, applyHello, applyMeta, onChunk)
         : await node!.tune_radio(peerAddr, opts.stationId, applyHello, applyMeta, onChunk);
+    console.info(`[radio] tune_radio resolved after ${Date.now() - tuneCallStartedAtMs}ms`);
     if (!isActiveTune()) {
       try {
         handle.leave();
@@ -2088,14 +2196,21 @@ export async function tuneIntoRadio(
       throw new Error("radio tune superseded by a newer attempt");
     }
   } catch (e) {
+    console.error(`[radio] tune_radio rejected after ${Date.now() - tuneCallStartedAtMs}ms:`, e);
     if (isActiveTune()) {
       setStatus("error");
       setError(`tune failed: ${e}`);
     }
-    if (ms) URL.revokeObjectURL(audio.src);
-    audio.removeAttribute("src");
+    if (usingManagedMediaSource) {
+      (audio as HTMLMediaElement & { srcObject?: MediaProvider | null }).srcObject = null;
+    } else if (ms) {
+      URL.revokeObjectURL(audio.src);
+      audio.removeAttribute("src");
+    }
     audio.load();
     throw e;
+  } finally {
+    window.clearInterval(tuneHeartbeat);
   }
 
   const session: RadioSession = {
@@ -2191,6 +2306,7 @@ function coerceNowPlaying(raw: unknown): PublicNowPlaying | null {
   if (!raw || typeof raw !== "object") return null;
   const r = raw as Record<string, unknown>;
   const np: PublicNowPlaying = {
+    kind: r.kind === "video" ? "video" : "song",
     song_id: typeof r.song_id === "string" ? r.song_id : "",
     title: typeof r.title === "string" ? r.title : "(untitled)",
     artist: typeof r.artist === "string" ? r.artist : null,

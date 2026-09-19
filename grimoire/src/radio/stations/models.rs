@@ -133,6 +133,12 @@ pub enum StationFilterType {
     Tag,
     Track,
     Playlist,
+    /// a single video (videoz row) - the video-domain equivalent of
+    /// `Track`. added migration 081.
+    Video,
+    /// every video in a video_seriez (across every season) - the
+    /// video-domain equivalent of `Album`. added migration 081.
+    VideoSeries,
     /// song is favorited, or belongs to a favorited album/artist/
     /// playlist — any user, existential (see repository.rs). no value.
     Favorite,
@@ -165,6 +171,8 @@ impl StationFilterType {
             Self::Tag => "tag",
             Self::Track => "track",
             Self::Playlist => "playlist",
+            Self::Video => "video",
+            Self::VideoSeries => "video_series",
             Self::Favorite => "favorite",
             Self::RatingGte => "rating_gte",
             Self::RatingLte => "rating_lte",
@@ -186,6 +194,8 @@ impl StationFilterType {
             "tag" => Some(Self::Tag),
             "track" => Some(Self::Track),
             "playlist" => Some(Self::Playlist),
+            "video" => Some(Self::Video),
+            "video_series" => Some(Self::VideoSeries),
             "favorite" => Some(Self::Favorite),
             "rating_gte" => Some(Self::RatingGte),
             "rating_lte" => Some(Self::RatingLte),
@@ -199,12 +209,19 @@ impl StationFilterType {
         }
     }
 
-    /// true for the nine criteria types added in migration 051 (numeric
-    /// threshold or no value, as opposed to an FK reference id).
+    /// true for the criteria types (numeric threshold or no value, as
+    /// opposed to an FK reference id).
     pub fn is_criteria(self) -> bool {
         !matches!(
             self,
-            Self::Artist | Self::Album | Self::Taxon | Self::Tag | Self::Track | Self::Playlist
+            Self::Artist
+                | Self::Album
+                | Self::Taxon
+                | Self::Tag
+                | Self::Track
+                | Self::Playlist
+                | Self::Video
+                | Self::VideoSeries
         )
     }
 }

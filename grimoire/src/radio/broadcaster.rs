@@ -693,7 +693,13 @@ impl Broadcaster {
             None => return Ok(false),
         };
         // resolve the underlying playable track (reuses the songz pipeline).
-        let track = match crate::radio::playlist::fetch_track(&bumper.song_id).await {
+        // bumpers are always songs (radio_bumperz.song_id FKs to songz).
+        let track = match crate::radio::playlist::fetch_track(
+            crate::radio::playlist::RadioItemKind::Song,
+            &bumper.song_id,
+        )
+        .await
+        {
             Ok(t) => t,
             Err(e) => {
                 warn!(
@@ -762,18 +768,22 @@ impl Broadcaster {
             track.song_id
         );
 
-        let art = match resolve_track_art(&track.song_id).await {
-            Ok(a) => a,
-            Err(e) => {
-                warn!(
-                    "[radio-broadcaster] station {} art lookup failed: {e}",
-                    self.station_id
-                );
-                None
+        let art = match track.kind {
+            crate::radio::playlist::RadioItemKind::Song => resolve_track_art(&track.song_id).await,
+            crate::radio::playlist::RadioItemKind::Video => {
+                crate::radio::art::resolve_video_poster_art(&track.song_id).await
             }
-        };
+        }
+        .unwrap_or_else(|e| {
+            warn!(
+                "[radio-broadcaster] station {} art lookup failed: {e}",
+                self.station_id
+            );
+            None
+        });
 
         let now_playing = Arc::new(NowPlaying {
+            kind: track.kind,
             song_id: track.song_id.clone(),
             title: if is_bumper {
                 format!("[station id] {}", track.title)
@@ -803,7 +813,14 @@ impl Broadcaster {
             }
         }
 
-        let mut encoder = BufferedEncoder::start(&track.local_path)?;
+        let mut encoder = {
+            let station_encode_args = stations::get_station(&self.station_id)
+                .await
+                .ok()
+                .flatten()
+                .and_then(|s| s.encode_args);
+            BufferedEncoder::start(&track.local_path, station_encode_args.as_deref())?
+        };
         let skip_generation = self.skip_request_generation.load(Ordering::Relaxed);
 
         let first = encoder
@@ -854,16 +871,27 @@ impl Broadcaster {
 
         // record this play. failure is non-fatal (history is best-effort).
         // skip for bumpers — they aren't part of the listenable history.
+        // also skip radio_play_historyz specifically for a video pick -
+        // that table's song_id column FKs to songz, so a video id would
+        // violate the constraint (recent-repeat avoidance doesn't apply
+        // to video yet, see playlist.rs). play_eventz has no such
+        // limitation (entity_type is already song|video), so that half
+        // still records normally for video below.
         let listeners = self.listener_count() as i64;
         let play_id = if is_bumper {
             None
         } else {
             // credit each current listener with a play row in
-            // music_play_eventz so radio plays roll up into the unified
-            // top-songs / per-song play count analytics. failure is
+            // play_eventz so radio plays roll up into the unified
+            // top-songs/top-videos play count analytics. failure is
             // non-fatal — best-effort, same as record_play below.
             if listeners > 0 {
+                let entity_type = match track.kind {
+                    crate::radio::playlist::RadioItemKind::Song => "song",
+                    crate::radio::playlist::RadioItemKind::Video => "video",
+                };
                 if let Err(e) = play_events::record_radio_plays(
+                    entity_type,
                     &track.song_id,
                     &self.station_id,
                     listeners as u32,
@@ -877,15 +905,19 @@ impl Broadcaster {
                 }
             }
 
-            match stations::record_play(&self.station_id, &track.song_id, listeners).await {
-                Ok(id) => Some(id),
-                Err(e) => {
-                    warn!(
-                        "[radio-broadcaster] station {} record_play failed: {e}",
-                        self.station_id
-                    );
-                    None
+            if track.kind == crate::radio::playlist::RadioItemKind::Song {
+                match stations::record_play(&self.station_id, &track.song_id, listeners).await {
+                    Ok(id) => Some(id),
+                    Err(e) => {
+                        warn!(
+                            "[radio-broadcaster] station {} record_play failed: {e}",
+                            self.station_id
+                        );
+                        None
+                    }
                 }
+            } else {
+                None
             }
         };
         let started = std::time::Instant::now();

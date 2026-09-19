@@ -95,9 +95,14 @@ async fn run_session(conn: &Connection) -> GrimoireResult<()> {
 
     // 2a. per-station auth gate: when `is_public = 0` the requested
     // station is restricted to peers in the federation peer list.
-    // public stations skip this check entirely.
+    // public stations skip this check entirely. also grabs the
+    // station's own `codec` override for the Hello message below - lets
+    // a station broadcasting a different codec (e.g. a video-carrying
+    // test station) tell listeners the right `MediaSource` codec string
+    // instead of the audio-only default.
     let station_id = bc.station_id().to_string();
-    if let Some(station) = get_station(&station_id).await? {
+    let station_row = get_station(&station_id).await?;
+    if let Some(station) = &station_row {
         if station.is_public == 0 {
             let peer_node = conn.remote_id().to_string();
             let allowed = is_known_peer(&peer_node).await;
@@ -110,6 +115,7 @@ async fn run_session(conn: &Connection) -> GrimoireResult<()> {
             }
         }
     }
+    let station_codec = station_row.map(|s| s.codec);
 
     // 3. subscribe + send Hello.
     let _guard = ListenerGuard::new(bc.clone());
@@ -118,7 +124,7 @@ async fn run_session(conn: &Connection) -> GrimoireResult<()> {
     let is_timeline_only = bc.is_timeline_only();
 
     let hello = ControlMessage::Hello(HelloMessage {
-        codec: RADIO_CODEC.to_string(),
+        codec: station_codec.unwrap_or_else(|| RADIO_CODEC.to_string()),
         now_playing: (*sub.now_playing).clone(),
         listener_count,
         radio_mode_capabilities: bc.radio_mode_capabilities(),

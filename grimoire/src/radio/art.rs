@@ -108,6 +108,25 @@ pub async fn resolve_track_art(song_id: &str) -> GrimoireResult<Option<ResolvedA
     Ok(None)
 }
 
+/// resolve poster art for a video by id. video counterpart of
+/// `resolve_track_art` - videos have a single poster image
+/// (`videoz.poster_blob_id`), no album/artist fallback chain to walk.
+pub async fn resolve_video_poster_art(video_id: &str) -> GrimoireResult<Option<ResolvedArt>> {
+    let pool = database::connect().await?;
+    let poster_blob_id: Option<String> = sqlx::query_scalar!(
+        "SELECT poster_blob_id FROM videoz WHERE id = ? AND deleted_at IS NULL",
+        video_id
+    )
+    .fetch_optional(&pool)
+    .await?
+    .flatten();
+
+    match poster_blob_id {
+        Some(blob_id) => fetch_blob_as_art(&blob_id).await,
+        None => Ok(None),
+    }
+}
+
 async fn try_song_non_waveform(song_id: &str) -> GrimoireResult<Option<ResolvedArt>> {
     let pool = database::connect().await?;
     let rows = sqlx::query!(

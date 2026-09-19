@@ -184,6 +184,13 @@ pub struct TimelineUpcomingItem {
 /// without bumping the protocol version.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct NowPlaying {
+    /// whether `song_id`/`audio_blob_id` below actually identify a song or
+    /// a video - see `radio::playlist::RadioItemKind`'s own doc comment
+    /// for why those fields weren't renamed to kind-neutral names.
+    /// defaults to `Song` so older senders/receivers that predate this
+    /// field still round-trip correctly.
+    #[serde(default)]
+    pub kind: crate::radio::playlist::RadioItemKind,
     pub song_id: String,
     pub title: String,
     #[serde(default)]

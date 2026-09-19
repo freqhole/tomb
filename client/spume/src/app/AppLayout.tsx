@@ -2096,7 +2096,15 @@ function RadioAudioSink() {
     el.controls = false;
     el.autoplay = false;
     el.preload = "auto";
-    el.style.display = "none";
+    // NOT display:none - confirmed on a real iPhone that a
+    // ManagedMediaSource attached via srcObject never fires sourceopen on
+    // a display:none element (an isolated, visible repro fired it fine).
+    // visually-hidden-but-laid-out keeps it off iOS's suspend heuristics.
+    el.style.position = "absolute";
+    el.style.width = "1px";
+    el.style.height = "1px";
+    el.style.overflow = "hidden";
+    el.style.clip = "rect(0,0,0,0)";
     return el;
   })();
   setRadioAudioSink(audioEl);

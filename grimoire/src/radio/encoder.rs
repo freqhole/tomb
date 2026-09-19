@@ -73,15 +73,20 @@ impl StderrTail {
 impl Encoder {
     /// spawn ffmpeg for the given input path. ffmpeg runs in the background;
     /// chunks are pulled lazily via [`Encoder::next_chunk`].
-    pub fn start(input_path: &str) -> GrimoireResult<Self> {
+    ///
+    /// `encode_args_override` is a station's own `encode_args` column (see
+    /// `RadioStation`) - `None` falls back to the node-wide `[radio]` toml
+    /// default, same as before this param existed.
+    pub fn start(input_path: &str, encode_args_override: Option<&str>) -> GrimoireResult<Self> {
         let ffmpeg = get_config().media.ffmpeg_path.clone();
         let cfg = radio_cfg();
+        let encode_args = encode_args_override.unwrap_or(&cfg.encode_args);
 
         // parse args FIRST (so quoted strings stay intact), then substitute
         // {input}. mirrors the pattern used by extract_album_art_args /
         // generate_waveform_args in MediaConfig.
         let mut args =
-            shell_words::split(&cfg.encode_args).map_err(|e| GrimoireError::ProcessingFailed {
+            shell_words::split(encode_args).map_err(|e| GrimoireError::ProcessingFailed {
                 message: format!("radio: failed to parse encode_args: {e}"),
             })?;
         for arg in args.iter_mut() {
@@ -295,16 +300,21 @@ pub struct BufferedEncoder {
 impl BufferedEncoder {
     /// spawn ffmpeg + the feeder task. the channel capacity is derived
     /// from the radio config (`buffer_seconds / frag_seconds`).
-    pub fn start(input_path: &str) -> GrimoireResult<Self> {
+    pub fn start(input_path: &str, encode_args_override: Option<&str>) -> GrimoireResult<Self> {
         Self::start_with_capacity(
             input_path,
+            encode_args_override,
             crate::radio::config::ring_capacity(&radio_cfg()),
         )
     }
 
     /// like [`Self::start`] but with an explicit channel capacity (used
     /// in tests).
-    pub fn start_with_capacity(input_path: &str, capacity: usize) -> GrimoireResult<Self> {
+    pub fn start_with_capacity(
+        input_path: &str,
+        encode_args_override: Option<&str>,
+        capacity: usize,
+    ) -> GrimoireResult<Self> {
         let cfg = radio_cfg();
         let attempts = cfg.encoder_restart_attempts.max(1);
         let label = input_path.to_string();
@@ -312,7 +322,7 @@ impl BufferedEncoder {
         let mut last_err: Option<GrimoireError> = None;
         let mut encoder: Option<Encoder> = None;
         for attempt in 1..=attempts {
-            match Encoder::start(input_path) {
+            match Encoder::start(input_path, encode_args_override) {
                 Ok(enc) => {
                     if attempt > 1 {
                         info!(

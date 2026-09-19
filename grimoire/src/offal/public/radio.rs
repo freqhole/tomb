@@ -129,6 +129,9 @@ pub struct PublicStation {
 /// art fails to encode just return `None`.
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema, Default)]
 pub struct PublicNowPlaying {
+    /// `"song"` | `"video"` - see `radio::playlist::RadioItemKind::as_str`.
+    #[serde(default)]
+    pub kind: String,
     pub song_id: String,
     pub title: String,
     pub artist: Option<String>,
@@ -323,6 +326,7 @@ async fn snapshot_station(
         is_default: default_id == Some(bc.station_id()),
         is_public,
         now_playing: PublicNowPlaying {
+            kind: np.kind.as_str().to_string(),
             song_id: np.song_id.clone(),
             title: np.title.clone(),
             artist: np.artist.clone(),
