@@ -150,13 +150,24 @@ function servePlaylistzBundle(): Plugin {
 export default defineConfig({
   server: {
     fs: {
-      // @freqhole/haruspex/reliquary/midden are file: deps pointing at
-      // in-tree lib/ packages (../../lib/<name> from spume/), so vite's
-      // default dev-server file allowlist (project root + node_modules
-      // only) blocks serving their real, non-symlink-resolved source/dist
-      // files - matching skein/loam's vite.config.ts, which needed the
-      // same allowance for the same reason.
-      allow: [".", "../../lib/haruspex", "../../lib/reliquary", "../../lib/midden"],
+      // @freqhole/haruspex/reliquary/midden/api-client are file: deps
+      // pointing at in-tree lib/ (and client-codegen/) packages
+      // (../../lib/<name> or ../../client-codegen/<name> from spume/), so
+      // vite's default dev-server file allowlist (project root +
+      // node_modules only) blocks serving their real, non-symlink-resolved
+      // source/dist files - matching skein/loam's vite.config.ts, which
+      // needed the same allowance for the same reason. api-client was
+      // missing here (unlike the other three) - confirmed live via
+      // "outside of Vite serving allow list" errors for its domains/*.ts
+      // files, which meant edits to files importing from it couldn't
+      // reliably HMR-reload.
+      allow: [
+        ".",
+        "../../lib/haruspex",
+        "../../lib/reliquary",
+        "../../lib/midden",
+        "../../client-codegen/freqhole-api-client",
+      ],
     },
   },
   plugins: [

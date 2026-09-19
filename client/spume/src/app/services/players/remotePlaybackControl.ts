@@ -18,7 +18,7 @@ import { createSignal } from "solid-js";
 import { sendPlayerCommand, subscribeToPlayerStatus } from "./playerPairingClient";
 import { activeTargetNodeId, isRemoteTargetActive } from "./activeTarget";
 import { appState, setQueue } from "../storage/db";
-import { mediaItemBlake3, mediaItemKey } from "../storage/mediaItem";
+import { mediaItemKey } from "../storage/mediaItem";
 import { toast } from "../../../components/feedback/Toast";
 import { requestAddRemote } from "../remotes/addRemoteRequest";
 import { warn } from "../../../utils/logger";
@@ -299,26 +299,30 @@ function applyRemoteStatus(status: RemoteStatus | null): void {
     setConsecutiveFailures(0);
     setRemoteAnnouncedOffline(false);
     resubscribePushStatusIfGivenUp();
-    const prevRecentlyPlayed = remoteStatus()?.recently_played ?? [];
-    const newlyFinished = status.recently_played.filter((h) => !prevRecentlyPlayed.includes(h));
-    if (newlyFinished.length > 0) pruneLocalQueueForFinishedItems(newlyFinished);
+    // note: no local-queue mutation happens here based on recently_played -
+    // the remote player's own queue array is authoritative and already
+    // shrinks as items finish, so remoteQueue()/optimisticRemoteQueue()
+    // (which just read remoteStatus().queue) stay correct on their own.
+    // this device's LOCAL device queue (appState().queue) is a separate
+    // concern, only ever drained at push time (pruneLocalQueueAfterSuccessfulPush,
+    // below) - never reactively based on what a remote target reports.
     // reactive proxy-of-last-resort: the player reports items it
     // genuinely couldn't resolve itself (unreachable/unauthorized source,
     // etc.) on its own status - only NOW, once that's confirmed, does
     // this controller do any real networking on the item's behalf (see
     // playerQueuePush.ts's handleUnresolvedItems doc comment for the full
-    // rationale). same newly-appeared-since-last-status diff as
-    // newlyFinished above - a player re-reports the SAME still-unresolved
-    // hash on every status/ack (including the ack of the retry this
-    // handler itself just sent) until it actually resolves, so reacting
-    // to every occurrence instead of just the first is an unconditional
-    // retry-as-fast-as-the-round-trip-allows loop with no way out for a
-    // genuinely (even if only temporarily) unreachable source - a real
-    // reported bug. reacting only once per hash, exactly when it first
-    // becomes unresolved, still lets a later genuinely-new occurrence
-    // (e.g. the source went offline again after a successful resolve)
-    // trigger a fresh attempt, since `prevUnresolvedHashes` is read from
-    // the immediately-preceding status, not a permanent record.
+    // rationale). newly-appeared-since-last-status diff - a player
+    // re-reports the SAME still-unresolved hash on every status/ack
+    // (including the ack of the retry this handler itself just sent)
+    // until it actually resolves, so reacting to every occurrence instead
+    // of just the first is an unconditional retry-as-fast-as-the-round-
+    // trip-allows loop with no way out for a genuinely (even if only
+    // temporarily) unreachable source - a real reported bug. reacting
+    // only once per hash, exactly when it first becomes unresolved, still
+    // lets a later genuinely-new occurrence (e.g. the source went offline
+    // again after a successful resolve) trigger a fresh attempt, since
+    // `prevUnresolvedHashes` is read from the immediately-preceding
+    // status, not a permanent record.
     const prevUnresolvedHashes = new Set(
       (remoteStatus()?.unresolved_items ?? []).map((u) => u.blake3_hash)
     );
@@ -331,41 +335,6 @@ function applyRemoteStatus(status: RemoteStatus | null): void {
     }
   }
   setRemoteStatus(status);
-}
-
-/** phase 18: real-time counterpart to selectPlaybackTarget.ts's
- * syncLocalQueueFromRemote() (which only re-syncs once, at the moment the
- * user actually switches back to local) - as soon as the remote player
- * reports an item finished (recently_played grows), drop the matching
- * local queue entry right away, so the local queue is already caught up
- * by the time the user switches back instead of jumping all at once. songs
- * only, matched by blake3 hash - same limitation as
- * syncLocalQueueFromRemote (videos have no stable local hash to match a
- * remote blake3_hash against). fire-and-forget; a failed local write here
- * isn't worth surfacing to the user, and syncLocalQueueFromRemote acts as
- * a final catch-all at switch-back time regardless. */
-function pruneLocalQueueForFinishedItems(finishedHashes: string[]): void {
-  pruneLocalQueueByBlake3(finishedHashes);
-}
-
-/** shared queue-array mutation behind `pruneLocalQueueForFinishedItems`
- * (below - items the remote reports as done with, matched by blake3 since
- * that's the only identity a remote-reported `recently_played` hash can
- * carry). drops any local queue entry (song OR video - see
- * `mediaItemBlake3`) whose content hash is in `hashes`, except `keepKey`
- * (a `mediaItemKey()`) - a no-op if nothing actually matches, so callers
- * can call this unconditionally without checking first. */
-function pruneLocalQueueByBlake3(hashes: string[], keepKey?: string | null): void {
-  const state = appState();
-  if (!state || hashes.length === 0) return;
-  const targets = new Set(hashes);
-  const kept = state.queue.filter((item) => {
-    if (keepKey && mediaItemKey(item) === keepKey) return true;
-    const hash = mediaItemBlake3(item);
-    return !hash || !targets.has(hash);
-  });
-  if (kept.length === state.queue.length) return;
-  void setQueue(kept);
 }
 
 /** counterpart to `pruneLocalQueueByBlake3` above, used by

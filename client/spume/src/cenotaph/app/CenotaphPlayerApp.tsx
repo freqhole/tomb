@@ -303,10 +303,18 @@ export function CenotaphPlayerApp() {
   // session's queue empties back out, not just before the very first
   // session ever starts. `forceShowQr()` overrides the queue-empty check
   // so a user can pair a second controller without clearing what's
-  // already playing (settings panel button, or the "q" shortcut).
+  // already playing (settings panel button, or the "q" shortcut). checks
+  // pendingQueuePreviews() too, not just the real queue - a replace_queue
+  // push starts from an empty real queue and only fills in as pending
+  // items resolve, so without this the qr stayed up (or reappeared)
+  // while items were still pending, even though there was really
+  // something (about) to play.
   const showPairingScreen = () => {
     if (isCharnelMode() && pairingConfigEnabled() === false) return false;
-    return forceShowQr() || (appState()?.queue.length ?? 0) === 0;
+    return (
+      forceShowQr() ||
+      ((appState()?.queue.length ?? 0) === 0 && pendingQueuePreviews().length === 0)
+    );
   };
 
   /** the queue rows below the current "now playing" item - deliberately a
@@ -437,7 +445,15 @@ export function CenotaphPlayerApp() {
     <div
       class="flex h-screen flex-col items-center gap-6 overflow-y-auto bg-black px-6 pb-6 text-center text-white"
       classList={{ "justify-center": !hasQueueRest(), "justify-start": hasQueueRest() }}
-      style={{ "padding-top": hasQueueRest() ? "38px" : "24px" }}
+      // adds var(--chrome-top-inset) (the chromeless title-bar strip's
+      // height, 0 when it's not active) on top of the usual spacing, so
+      // now-playing art/qr/settings-button content clears the strip
+      // instead of rendering underneath it. still just padding on a
+      // scrolling container - content can still scroll out the top edge
+      // same as before.
+      style={{
+        "padding-top": `calc(${hasQueueRest() ? "38px" : "24px"} + var(--chrome-top-inset, 0px))`,
+      }}
     >
       <Show when={develMode()}>
         <PlayerDebugOverlay />
@@ -453,11 +469,12 @@ export function CenotaphPlayerApp() {
         // the linux hamburger flyout underneath it. PlayerSettingsPanel
         // (z-[1800]) still needs to out-rank this tier, which it does
         // either way.
-        class="fixed top-4 right-4 z-[90] text-xs text-neutral-500"
+        class="fixed right-4 z-[90] text-xs text-neutral-500"
+        style={{ top: "calc(1rem + var(--chrome-top-inset, 0px))" }}
         onClick={() => setSettingsOpen(true)}
         data-testid="settings-toggle"
       >
-        settings
+        [s]ettings
       </button>
 
       <Show when={settingsOpen()}>
@@ -466,7 +483,8 @@ export function CenotaphPlayerApp() {
 
       <Show when={connectedControllers().length > 0}>
         <div
-          class="fixed top-10 right-4 z-[90] max-w-[40vw] text-right text-xs text-neutral-500"
+          class="fixed right-4 z-[90] max-w-[40vw] text-right text-xs text-neutral-500"
+          style={{ top: "calc(2.5rem + var(--chrome-top-inset, 0px))" }}
           data-testid="connected-controllers"
         >
           <For each={connectedControllers()}>

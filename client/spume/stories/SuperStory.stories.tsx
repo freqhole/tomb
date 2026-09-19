@@ -2096,6 +2096,13 @@ export function FullAppDemoBody() {
             >
               listen to radio
             </button>
+            <button
+              type="button"
+              class="px-4 py-2 text-sm rounded-md bg-[var(--color-bg-secondary)] text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] border border-[var(--color-border-default)]"
+              onClick={() => {}}
+            >
+              jukebox
+            </button>
           </div>
           <div class="mt-4 text-sm text-[var(--color-text-muted)] italic">...or go to settings</div>
           <Show when={fakeScanRunning() || fakeScanProgress() >= 1}>

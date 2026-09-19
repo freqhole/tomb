@@ -156,6 +156,10 @@ export function PlayerSettingsPanel(props: { onClose: () => void; nodeId?: strin
       // `m-auto` on the child below gives the same centered look when
       // content fits, without clipping when it doesn't.
       class="fixed inset-0 z-[1800] flex overflow-y-auto bg-black/90 p-6"
+      // adds the chromeless title-bar strip's height (0 when inactive) on
+      // top of the usual p-6 top padding, so the back/close header row
+      // clears the strip instead of rendering underneath it.
+      style={{ "padding-top": "calc(1.5rem + var(--chrome-top-inset, 0px))" }}
       data-testid="settings-panel"
     >
       <div class="m-auto flex w-full max-w-md flex-col gap-6 text-left">
@@ -247,7 +251,7 @@ export function PlayerSettingsPanel(props: { onClose: () => void; nodeId?: strin
 
         <div class="flex flex-col gap-2">
           <label class="text-sm tracking-widest text-neutral-500 uppercase">
-            show pairing qr code
+            show pairing [q]r code
           </label>
           <button
             type="button"
