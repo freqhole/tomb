@@ -19,12 +19,16 @@ import type { ShareTarget } from "../share/types";
 import type { Remote } from "../../app/services/storage/schemas/remote";
 import type { SendToRemotePayload } from "../share/SendToRemoteSection";
 import { isCharnelMode, isAndroidTauri } from "../../app/services/charnel";
+import { isLocalBrowserSourceRemote } from "../../music/services/send/localBrowserSource";
 
 /** true only for desktop charnel, the one platform whose local-library
  * iroh endpoint stays reliably reachable for an inbound connection —
- * android tauri (backgrounded often) and plain web (tab/process not
- * long-lived) can't honor a permalink pointing at their own local
- * library, so those get send-to-remote only. */
+ * android tauri (backgrounded often) and a plain browser tab (also not
+ * long-lived, see `isLocalBrowserSourceRemote`) can't honor a permalink
+ * pointing at their own local library, so those get send-to-remote only -
+ * this is purely a permalink-visibility gate, unrelated to whether
+ * send-to-remote itself works for local content (it does, see
+ * SendToRemoteSection). */
 function canPermalinkLocalLibrary(): boolean {
   return isCharnelMode() && !isAndroidTauri();
 }
@@ -66,7 +70,12 @@ export const ShareModal: Component<ShareModalProps> = (props) => {
         >
           {(src) => (
             <>
-              <Show when={!src().is_charnel_managed || canPermalinkLocalLibrary()}>
+              <Show
+                when={
+                  (!src().is_charnel_managed && !isLocalBrowserSourceRemote(src())) ||
+                  canPermalinkLocalLibrary()
+                }
+              >
                 <PermalinkSection target={props.target} source={src()} webHost={props.webHost} />
               </Show>
               <Show when={props.buildSendPayload}>

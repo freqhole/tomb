@@ -15,7 +15,7 @@ import { Rating } from "../../components/ratings/Rating";
 import { ShareButton } from "../../components/buttons/ShareButton";
 import type { SendVideoPayload } from "../services/send/sendVideoToRemote";
 import type { QueuedVideo } from "../../app/services/storage/mediaItem";
-import { createCurrentRemoteFull } from "../../app/services/remotes/currentRemoteFull";
+import { createShareSourceRemote } from "../../app/services/remotes/shareSource";
 import { formatDuration } from "../../utils/formatDuration";
 import { buildRoute } from "../../music/utils/routing";
 import { TaxonChips } from "../../components/badges/TaxonChips";
@@ -144,7 +144,7 @@ export function VideoDetailView() {
 
   const [playPending, setPlayPending] = createSignal(false);
   const [queuePending, setQueuePending] = createSignal(false);
-  const currentRemoteFull = createCurrentRemoteFull();
+  const currentRemoteFull = createShareSourceRemote();
 
   // build a SendVideoPayload for the share modal's send-to-remote section -
   // VideoSummary spreads directly into QueuedVideo (see QueuedVideo's own

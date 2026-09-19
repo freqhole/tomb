@@ -202,15 +202,58 @@ export function startBulkAlbumSend(args: StartBulkAlbumSendArgs): string {
   return jobId;
 }
 
-async function runBulkAlbumSend(jobId: string, args: StartBulkAlbumSendArgs): Promise<void> {
+/** shared per-item loop harness for a bulk send job - checks cancel/pause
+ *  between items and applies the job bookkeeping (currentItemTitle,
+ *  completed/failed counts, errors) both bulk kinds need identically. each
+ *  kind only supplies how to send one item, returning the error messages
+ *  that item produced (empty = success) - album and video legitimately
+ *  differ in what "success" means for one item (album never inspects its
+ *  own per-song failures, video does), so that decision stays with the
+ *  caller rather than being baked into this loop. */
+async function runBulkSendLoop<T>(
+  jobId: string,
+  items: T[],
+  itemTitle: (item: T) => string,
+  sendOne: (item: T) => Promise<string[]>
+): Promise<void> {
   const ctrl = controls.get(jobId)!;
-  const dataSource = getDataSource();
-  for (const albumId of args.albumIds) {
+  for (const item of items) {
     if (ctrl.cancelled) break;
     await waitIfPaused(jobId);
     if (ctrl.cancelled) break;
-    updateJob(jobId, { currentItemTitle: albumId });
+    updateJob(jobId, { currentItemTitle: itemTitle(item) });
     try {
+      const errors = await sendOne(item);
+      const cur = getBulkSendJob(jobId);
+      if (errors.length > 0) {
+        updateJob(jobId, {
+          failedItems: (cur?.failedItems ?? 0) + 1,
+          errors: [...(cur?.errors ?? []), ...errors],
+        });
+      } else {
+        updateJob(jobId, { completedItems: (cur?.completedItems ?? 0) + 1 });
+      }
+    } catch (e) {
+      const cur = getBulkSendJob(jobId);
+      updateJob(jobId, {
+        failedItems: (cur?.failedItems ?? 0) + 1,
+        errors: [
+          ...(cur?.errors ?? []),
+          `${itemTitle(item)}: ${e instanceof Error ? e.message : String(e)}`,
+        ],
+      });
+    }
+  }
+  finishJob(jobId);
+}
+
+async function runBulkAlbumSend(jobId: string, args: StartBulkAlbumSendArgs): Promise<void> {
+  const dataSource = getDataSource();
+  await runBulkSendLoop(
+    jobId,
+    args.albumIds,
+    (albumId) => albumId,
+    async (albumId) => {
       if (!dataSource.getAlbumSongs) throw new Error("album songs not supported here");
       const response = await dataSource.getAlbumSongs(albumId, { limit: 1000 });
       const songs = sortSongsCanonical(response.items);
@@ -234,20 +277,12 @@ async function runBulkAlbumSend(jobId: string, args: StartBulkAlbumSendArgs): Pr
         songs: songs as unknown as RemoteSong[],
       };
       await sendToRemote(payload, args.source, args.dest, {});
-      const cur = getBulkSendJob(jobId);
-      updateJob(jobId, { completedItems: (cur?.completedItems ?? 0) + 1 });
-    } catch (e) {
-      const cur = getBulkSendJob(jobId);
-      updateJob(jobId, {
-        failedItems: (cur?.failedItems ?? 0) + 1,
-        errors: [
-          ...(cur?.errors ?? []),
-          `${albumId}: ${e instanceof Error ? e.message : String(e)}`,
-        ],
-      });
+      // album path: always counts as completed once sendToRemote resolves,
+      // regardless of any per-song failures inside its own progress -
+      // matches the pre-refactor behavior exactly.
+      return [];
     }
-  }
-  finishJob(jobId);
+  );
 }
 
 export interface StartBulkVideoSendArgs {
@@ -268,36 +303,13 @@ export function startBulkVideoSend(args: StartBulkVideoSendArgs): string {
 }
 
 async function runBulkVideoSend(jobId: string, args: StartBulkVideoSendArgs): Promise<void> {
-  const ctrl = controls.get(jobId)!;
-  for (const item of args.items) {
-    if (ctrl.cancelled) break;
-    await waitIfPaused(jobId);
-    if (ctrl.cancelled) break;
-    updateJob(jobId, { currentItemTitle: item.video.title });
-    try {
+  await runBulkSendLoop(
+    jobId,
+    args.items,
+    (item) => item.video.title,
+    async (item) => {
       const result = await sendVideosToRemote([item], args.source, args.dest, {});
-      const cur = getBulkSendJob(jobId);
-      if (result.failedVideos > 0) {
-        updateJob(jobId, {
-          failedItems: (cur?.failedItems ?? 0) + 1,
-          errors: [
-            ...(cur?.errors ?? []),
-            ...result.errors.map((e) => `${item.video.title}: ${e}`),
-          ],
-        });
-      } else {
-        updateJob(jobId, { completedItems: (cur?.completedItems ?? 0) + 1 });
-      }
-    } catch (e) {
-      const cur = getBulkSendJob(jobId);
-      updateJob(jobId, {
-        failedItems: (cur?.failedItems ?? 0) + 1,
-        errors: [
-          ...(cur?.errors ?? []),
-          `${item.video.title}: ${e instanceof Error ? e.message : String(e)}`,
-        ],
-      });
+      return result.failedVideos > 0 ? result.errors.map((e) => `${item.video.title}: ${e}`) : [];
     }
-  }
-  finishJob(jobId);
+  );
 }

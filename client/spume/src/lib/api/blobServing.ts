@@ -25,6 +25,14 @@ const staged = new Set<string>();
  * every failure (bytes not found locally, this transport can't stage
  * blobs, node unavailable) rather than throwing, since staging is always
  * a best-effort step ahead of a peer's fetch, never a hard requirement.
+ *
+ * streams `getBytes()`'s result into midden's chunked `ImportSession`
+ * (`start_import`) instead of reading it whole via `blob.arrayBuffer()`
+ * first - a locally-added video especially can be multi-gigabyte, and
+ * this runs on every peer fetch, not just once at import time. mirrors
+ * `playerQueuePush.ts`'s `fetchAndImportStreaming` (the wasm chunked
+ * branch) - see docs/blob-transfer-opfs-and-sha256-refactor-plan.md
+ * phase 5.
  */
 export async function ensureBlobServable(
   blake3: string,
@@ -39,8 +47,27 @@ export async function ensureBlobServable(
     const blob = await getBytes();
     if (!blob) return;
 
-    const bytes = new Uint8Array(await blob.arrayBuffer());
-    const imported = await node.import_blob(bytes);
+    let imported: string;
+    if (node.start_import) {
+      const session = node.start_import();
+      const reader = blob.stream().getReader();
+      try {
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          await session.push(value);
+        }
+        imported = await session.finish();
+      } catch (err) {
+        session.abort();
+        throw err;
+      } finally {
+        reader.releaseLock();
+      }
+    } else {
+      const bytes = new Uint8Array(await blob.arrayBuffer());
+      imported = await node.import_blob(bytes);
+    }
     if (imported !== blake3) {
       warn(
         "blobServing",

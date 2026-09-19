@@ -1,13 +1,14 @@
 // local import service - handles adding music files to the local IndexedDB/OPFS library
 import { createSignal } from "solid-js";
 import { processMusicFiles } from "./fileProcessor";
-import { createSong, getSongBySha256 } from "../services/storage/db";
+import { createSong, getSongBySha256, getSongByBlake3 } from "../services/storage/db";
 import {
   createLocalImportSession,
   recordLocalImportBlob,
   type LocalImportReviewSendTarget,
 } from "../services/storage/db/importReview";
 import { computeSHA256 } from "../../utils/hash";
+import { hashBlake3Streaming } from "@freqhole/reliquary/worker";
 import { debug, warn } from "../../utils/logger";
 import { errorMessageFrom } from "../../utils/humanizeJobError";
 
@@ -70,7 +71,14 @@ export async function importMusicFiles(
   let skippedCount = 0;
   const sessionId = await createLocalImportSession(target);
 
-  // phase 1: hashing
+  // phase 0: cheap blake3-only dedup pre-check (streaming, no full-file
+  // buffer - see hashBlake3Streaming) - skips the expensive whole-file
+  // sha256 read below entirely for a file that's already in the library,
+  // rather than paying that cost only to discover the duplicate
+  // afterward. Song.sha256 itself stays required (it's the local
+  // library's primary tracking key everywhere else - see
+  // /memories/repo/tomb-sha256-vs-blake3-vs-id.md), this just avoids
+  // computing it when we don't need to.
   setLocalImportProgress({
     phase: "hashing",
     current: 0,
@@ -80,8 +88,7 @@ export async function importMusicFiles(
     skippedCount: 0,
   });
 
-  debug("localImport", "computing sha256 hashes for uploaded files...");
-  const sha256Hashes: string[] = [];
+  const candidates: File[] = [];
   for (let i = 0; i < fileArray.length; i++) {
     setLocalImportProgress((prev) => ({
       ...prev,
@@ -89,7 +96,31 @@ export async function importMusicFiles(
       current: i + 1,
       currentFile: fileArray[i].name,
     }));
-    sha256Hashes.push(await computeSHA256(fileArray[i]));
+    let blake3: string | null = null;
+    try {
+      blake3 = await hashBlake3Streaming(fileArray[i]);
+    } catch (err) {
+      warn("localImport", `failed to blake3-hash ${fileArray[i].name} for dedup pre-check:`, err);
+    }
+    if (blake3 && (await getSongByBlake3(blake3))) {
+      debug("localImport", `skipping duplicate (blake3 match): ${fileArray[i].name}`);
+      skippedCount++;
+      continue;
+    }
+    candidates.push(fileArray[i]);
+  }
+
+  // phase 1: sha256 hashing
+  debug("localImport", "computing sha256 hashes for uploaded files...");
+  const sha256Hashes: string[] = [];
+  for (let i = 0; i < candidates.length; i++) {
+    setLocalImportProgress((prev) => ({
+      ...prev,
+      phase: "hashing",
+      current: i + 1,
+      currentFile: candidates[i].name,
+    }));
+    sha256Hashes.push(await computeSHA256(candidates[i]));
   }
 
   // phase 2: processing metadata
@@ -100,7 +131,7 @@ export async function importMusicFiles(
     currentFile: "extracting metadata...",
   }));
 
-  const songsData = await processMusicFiles(fileArray, sha256Hashes);
+  const songsData = await processMusicFiles(candidates, sha256Hashes);
 
   // phase 3: saving to idb
   for (let i = 0; i < songsData.length; i++) {

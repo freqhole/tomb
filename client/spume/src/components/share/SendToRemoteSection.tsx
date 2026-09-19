@@ -119,6 +119,10 @@ export const SendToRemoteSection: Component<SendToRemoteSectionProps> = (props) 
     return songs.map((s) => s.blake3).filter((b): b is string => !!b);
   });
 
+  // "music"/"video" for the destination row's blob-presence badge text -
+  // BlobBadge previously always said "music", even for a video payload.
+  const mediaLabel = createMemo<string>(() => (payload()?.kind === "video" ? "video" : "music"));
+
   // richer pairs for the local (idb) probe — needs sha256 to do indexed
   // lookups on the local songs store (no blake3 index). video has no
   // send-to-local-browser-library path yet (see runForDest), so this is
@@ -379,6 +383,7 @@ export const SendToRemoteSection: Component<SendToRemoteSectionProps> = (props) 
                   payloadReady={!payload.loading && !payload.error}
                   probeBlake3s={probeBlake3s}
                   probeSongs={probeSongs}
+                  mediaLabel={mediaLabel}
                   isActive={() => activeDestId() === entry.id}
                   anyActive={() => !!activeDestId()}
                   progress={progress}
@@ -398,6 +403,7 @@ interface DestinationRowProps {
   payloadReady: boolean;
   probeBlake3s: () => string[] | null;
   probeSongs: () => ProbeSongHashes[] | null;
+  mediaLabel: () => string;
   isActive: () => boolean;
   anyActive: () => boolean;
   progress: () => AnyProgress | null;
@@ -493,6 +499,7 @@ const DestinationRow: Component<DestinationRowProps> = (props) => {
                     show={blobsCount() > 0 && status().kind === "ready"}
                     presence={presence}
                     total={blobsCount}
+                    mediaLabel={props.mediaLabel}
                   />
                 </div>
               </div>
@@ -573,6 +580,7 @@ const BlobBadge: Component<{
   show: boolean;
   presence: () => { checking: boolean; presentCount: number; error?: string };
   total: () => number;
+  mediaLabel: () => string;
 }> = (props) => {
   return (
     <Show when={props.show}>
@@ -580,20 +588,21 @@ const BlobBadge: Component<{
         {(() => {
           const pr = props.presence();
           const total = props.total();
+          const label = props.mediaLabel();
           if (pr.checking) {
             return (
               <>
                 <Icon name={IconNames.loader} size={11} className="animate-spin" />
-                <span>checking music</span>
+                <span>checking {label}</span>
               </>
             );
           }
-          if (pr.error) return <span>music unknown</span>;
+          if (pr.error) return <span>{label} unknown</span>;
           if (pr.presentCount >= total) {
             return (
               <>
                 <Icon name={IconNames.checkCircle} size={11} />
-                <span>has this music</span>
+                <span>has this {label}</span>
               </>
             );
           }

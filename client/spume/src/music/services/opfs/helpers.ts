@@ -25,11 +25,7 @@ async function ensureThumbnailsDir(): Promise<FileSystemDirectoryHandle> {
 }
 
 // write audio file to opfs
-export async function writeAudioToOPFS(
-  blob: Blob,
-  id: string,
-  extension: string,
-): Promise<string> {
+export async function writeAudioToOPFS(blob: Blob, id: string, extension: string): Promise<string> {
   try {
     const audioDir = await ensureAudioDir();
     const fileName = `${id}.${extension}`;
@@ -50,11 +46,72 @@ export async function writeAudioToOPFS(
   }
 }
 
-// write thumbnail image to opfs
-export async function writeThumbnailToOPFS(
-  blob: Blob,
+// how often a chunk-sink writable is flushed to disk - a
+// FileSystemWritableFileStream only persists past its internal swap file
+// once close() is called (per spec/MDN), so without periodic checkpoints a
+// mid-download failure would discard everything. mirrors video's own
+// streamVideoToOPFSWithResume checkpoint size.
+const CHUNK_SINK_CHECKPOINT_BYTES = 8 * 1024 * 1024;
+
+/**
+ * open an OPFS destination for a synced audio file and return a sink that
+ * can be driven directly by Transport.streamBlobToSink's onChunk callback,
+ * so a p2p download never has to be assembled into one in-memory buffer
+ * before landing on disk - see
+ * docs/blob-transfer-opfs-and-sha256-refactor-plan.md phase 2. no resume
+ * support (unlike streamVideoToOPFSWithResume's HTTP Range-based resume) -
+ * a p2p download's own resume/pause lives in midden's persistent blob
+ * store instead, so this always starts the destination file fresh.
+ */
+export async function openAudioOPFSChunkSink(
   id: string,
-): Promise<string> {
+  extension: string
+): Promise<{
+  writeChunk: (chunk: Uint8Array) => Promise<void>;
+  finish: () => Promise<{ opfsPath: string; size: number }>;
+}> {
+  const audioDir = await ensureAudioDir();
+  const fileName = `${id}.${extension}`;
+  const opfsPath = `${AUDIO_DIR}/${fileName}`;
+  const fileHandle = await audioDir.getFileHandle(fileName, { create: true });
+
+  let writable = await fileHandle.createWritable();
+  let written = 0;
+  let sinceCheckpoint = 0;
+  let closed = false;
+
+  const writeChunk = async (chunk: Uint8Array): Promise<void> => {
+    // chunks arriving via Comlink/wasm transfers are always plain
+    // ArrayBuffers, never SharedArrayBuffer - safe to assert.
+    const buffer = chunk.buffer.slice(
+      chunk.byteOffset,
+      chunk.byteOffset + chunk.byteLength
+    ) as ArrayBuffer;
+    await writable.write(buffer);
+    written += chunk.length;
+    sinceCheckpoint += chunk.length;
+    if (sinceCheckpoint >= CHUNK_SINK_CHECKPOINT_BYTES) {
+      await writable.close();
+      writable = await fileHandle.createWritable({ keepExistingData: true });
+      await writable.seek(written);
+      sinceCheckpoint = 0;
+    }
+  };
+
+  const finish = async (): Promise<{ opfsPath: string; size: number }> => {
+    if (!closed) {
+      closed = true;
+      await writable.close();
+    }
+    debug("opfs", `streamed audio chunks to opfs: ${fileName} (${written} bytes)`);
+    return { opfsPath, size: written };
+  };
+
+  return { writeChunk, finish };
+}
+
+// write thumbnail image to opfs
+export async function writeThumbnailToOPFS(blob: Blob, id: string): Promise<string> {
   try {
     const thumbnailsDir = await ensureThumbnailsDir();
 
@@ -146,7 +203,7 @@ export async function deleteAudioFromOPFS(path: string): Promise<void> {
 export async function deleteThumbnailFromOPFS(blobId: string): Promise<void> {
   try {
     const thumbnailsDir = await ensureThumbnailsDir();
-    
+
     // we don't know the exact extension, so iterate to find the file
     for await (const [name, handle] of thumbnailsDir.entries()) {
       if (handle.kind === "file" && name.startsWith(blobId + ".")) {
@@ -155,7 +212,7 @@ export async function deleteThumbnailFromOPFS(blobId: string): Promise<void> {
         return;
       }
     }
-    
+
     // if not found by prefix, try exact match (for legacy files without extension)
     try {
       await thumbnailsDir.removeEntry(blobId);

@@ -45,7 +45,7 @@ import {
   withThumbSuffix,
 } from "../services/storage/blobResolver";
 import { ShareButton } from "../../components/buttons/ShareButton";
-import { createCurrentRemoteFull } from "../../app/services/remotes/currentRemoteFull";
+import { createShareSourceRemote } from "../../app/services/remotes/shareSource";
 import type { SendPayload } from "../services/send/sendToRemote";
 import type { RemoteSong } from "../data/remote/adapters";
 import { isCharnelMode } from "../../app/services/charnel";
@@ -129,7 +129,7 @@ export function AlbumDetailView() {
   });
 
   // current remote (full Remote record) — used as the source for "send to remote".
-  const currentRemoteFull = createCurrentRemoteFull();
+  const currentRemoteFull = createShareSourceRemote();
 
   // build a SendPayload describing this album for the send-to-remote flyout.
   const buildSendPayload = (): SendPayload => {

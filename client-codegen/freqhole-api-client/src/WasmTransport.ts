@@ -976,6 +976,71 @@ export class WasmTransport implements Transport {
   }
 
   /**
+   * stream a blob's bytes straight to a caller-supplied sink, without ever
+   * assembling the whole blob in one buffer here - see the `Transport`
+   * interface doc comment for why this exists (docs/blob-transfer-opfs-
+   * and-sha256-refactor-plan.md phase 2). only the verified iroh-blobs
+   * path (blake3 required) is supported - callers without a blake3 should
+   * use `getBlobUrlWithProgress`/`fetchBlob` instead, same as before.
+   */
+  async streamBlobToSink(
+    blobId: string,
+    onChunk: (chunk: Uint8Array, offset: number) => void | Promise<void>,
+    onProgress: (received: number, total: number) => void,
+    blake3?: string,
+    totalBytes?: number,
+    mimeType?: string,
+  ): Promise<{ contentType: string; totalBytes: number }> {
+    if (!blake3) {
+      throw new TransportError(
+        `streamBlobToSink requires a blake3 hash for verified streaming (blob ${blobId})`,
+      );
+    }
+    const streamingFn =
+      this.node.download_verified_streaming_with_ensure ?? this.node.download_verified_streaming;
+    if (!streamingFn) {
+      throw new TransportError(
+        `streamBlobToSink: node has no streaming download method (blob ${blobId})`,
+      );
+    }
+
+    let totalReceived = 0;
+    // chunk delivery is fire-and-forget from the wasm side (see
+    // download_verified_streaming_with_ensure's own doc comment) - queue
+    // each onChunk call after the previous one finishes so a slow sink
+    // (e.g. an OPFS write) applies real backpressure instead of racing
+    // ahead of disk writes.
+    let writeChain: Promise<void> = Promise.resolve();
+
+    await streamingFn.call(
+      this.node,
+      this.peerAddr,
+      blake3,
+      totalBytes ?? 0,
+      (chunk: Uint8Array, offset: number) => {
+        // chunk is a wasm-owned Uint8Array view - copy to detach before
+        // it's handed off across the write chain / a later tick.
+        const owned = new Uint8Array(chunk.length);
+        owned.set(chunk);
+        totalReceived += owned.length;
+        writeChain = writeChain.then(() => onChunk(owned, offset));
+        if (!totalBytes || totalBytes <= 0) {
+          onProgress(totalReceived, totalReceived);
+        }
+      },
+      (fraction: number) => {
+        if (totalBytes && totalBytes > 0) {
+          const received = Math.min(totalBytes, Math.floor(fraction * totalBytes));
+          onProgress(received, totalBytes);
+        }
+      },
+    );
+    await writeChain;
+
+    return { contentType: mimeType ?? "application/octet-stream", totalBytes: totalReceived };
+  }
+
+  /**
    * revoke a blob URL to free memory
    */
   revokeBlobUrl(blobId: string): void {

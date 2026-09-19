@@ -56,6 +56,8 @@ import { isP2PRemote, type Remote } from "../../../app/services/storage/schemas/
 import { debug, info, warn, error as logError } from "../../../utils/logger";
 import type { RemoteSong } from "../../data/remote/adapters";
 import type { ImageMetadata } from "../storage/types";
+import { readAudioFromOPFS } from "../opfs/helpers";
+import { ensureBlobServable } from "../../../lib/api/blobServing";
 import {
   buildSyncAlbumRequest,
   buildSyncPlaylistRequest,
@@ -467,6 +469,22 @@ export async function sendToRemote(
     }
     const blobAlready = alreadyPresent.has(blake3);
 
+    // stage this song's bytes with our own midden node before asking dest
+    // to pull them - grimoire's pull path (pull_audio_blob_to_local_
+    // storage_with_progress) tries a direct iroh-blobs fetch first, then
+    // falls back to a grimoire-only EnsureBlobRequest federation message a
+    // plain browser can never answer. without this, a song whose blake3
+    // was never registered with this node (e.g. registerBlake3 failed at
+    // import time, or this song was synced-to-local from elsewhere and
+    // never itself re-registered) fails outright with no fallback. no-op
+    // when there's nothing local to stage (song.opfs_path null - the song
+    // came from a genuinely different remote, not this device) or when
+    // already staged this session. see
+    // docs/blob-transfer-opfs-and-sha256-refactor-plan.md phase 6.
+    if (song.opfs_path) {
+      await ensureBlobServable(blake3, () => readAudioFromOPFS(song.opfs_path!)).catch(() => {});
+    }
+
     const req: SyncSongByBlake3Request | null = buildSyncSongByBlake3Request({
       remoteName,
       sourceRemoteId,
@@ -667,6 +685,15 @@ export async function sendToRemote(
             for (const song of missing) {
               const blake3 = song.blake3 as string;
               const shortHash = blake3.slice(0, 16);
+              // same eager staging as the main song loop above - a song
+              // that's missing specifically because it was never
+              // registered with our own midden node gets exactly one more
+              // chance to register before this retry.
+              if (song.opfs_path) {
+                await ensureBlobServable(blake3, () => readAudioFromOPFS(song.opfs_path!)).catch(
+                  () => {}
+                );
+              }
               const req: SyncSongByBlake3Request | null = buildSyncSongByBlake3Request({
                 remoteName,
                 sourceRemoteId,

@@ -36,6 +36,7 @@ import {
   writeVideoPosterToOPFS,
   writeVideoToOPFS,
   streamVideoToOPFSWithResume,
+  openVideoOPFSChunkSink,
 } from "../opfs/helpers";
 import { resolvePlaybackBlobId } from "../playbackBlobId";
 import { syncVideoViaLocalGrimoire } from "./syncVideoViaLocalGrimoire";
@@ -69,7 +70,15 @@ async function fetchBlobMetadata(
 }
 
 /** fetch the full video blob via the P2P/charnel path, tracking download
- *  progress under `video.id`.
+ *  progress under `video.id`, and land it in OPFS.
+ *
+ *  prefers streaming chunks straight to the OPFS destination (P2P/wasm
+ *  only, requires a blake3) over assembling a blob-url blob and re-reading
+ *  it via fetch()+.blob(), which fully materializes the whole file in
+ *  memory twice before it ever reaches disk - see
+ *  docs/blob-transfer-opfs-and-sha256-refactor-plan.md phase 2. falls back
+ *  to the older blob-url path for transports that don't support
+ *  streamBlobToSink (or when there's no blake3 to verify against).
  *
  *  fetches with `cache: "skip"`: these bytes are headed for OPFS, and
  *  caching them on the way would store the video twice. */
@@ -79,7 +88,7 @@ async function fetchP2PVideoBlob(
   blobId: string,
   meta: Partial<BlobMetadataResponse>,
   remoteOverride?: Remote
-): Promise<Blob> {
+): Promise<{ opfsPath: string; size: number; mimeType: string }> {
   const remote = remoteOverride ?? (await getRemoteById(remoteId));
   if (!remote) throw new Error(`remote ${remoteId} not found`);
   const transport = await getTransportForRemote(remote);
@@ -90,6 +99,26 @@ async function fetchP2PVideoBlob(
     const onProgress = (received: number, total: number) => {
       if (total > 0) updateLoadingProgress(video.id, received / total);
     };
+
+    if (transport.streamBlobToSink && meta.blake3) {
+      const mimeType = meta.mime ?? "video/mp4";
+      const extension = extensionFromMime(mimeType);
+      const sink = await openVideoOPFSChunkSink(video.id, extension);
+      let result: { opfsPath: string; size: number };
+      try {
+        await transport.streamBlobToSink(
+          blobId,
+          (chunk) => sink.writeChunk(chunk),
+          onProgress,
+          meta.blake3,
+          meta.size ?? undefined,
+          mimeType
+        );
+      } finally {
+        result = await sink.finish();
+      }
+      return { ...result, mimeType };
+    }
 
     if (transport.getBlobUrlWithProgress) {
       const url = await transport.getBlobUrlWithProgress(
@@ -102,13 +131,25 @@ async function fetchP2PVideoBlob(
       );
       const response = await fetch(url);
       if (!response.ok) throw new Error(`failed to fetch video blob: ${response.statusText}`);
-      return response.blob();
+      const blob = await response.blob();
+      const extension = extensionFromMime(blob.type);
+      return {
+        opfsPath: await writeVideoToOPFS(blob, video.id, extension),
+        size: blob.size,
+        mimeType: blob.type || "video/mp4",
+      };
     }
 
     const url = await transport.getBlobUrl(blobId, meta.blake3 ?? undefined, { cache: "skip" });
     const response = await fetch(url);
     if (!response.ok) throw new Error(`failed to fetch video blob: ${response.statusText}`);
-    return response.blob();
+    const blob = await response.blob();
+    const extension = extensionFromMime(blob.type);
+    return {
+      opfsPath: await writeVideoToOPFS(blob, video.id, extension),
+      size: blob.size,
+      mimeType: blob.type || "video/mp4",
+    };
   } finally {
     removeFromLoadingSet(video.id);
   }
@@ -347,23 +388,21 @@ export async function syncVideoToLocal(
       // metadata comes first so the fetch can report real progress (blake3 +
       // size) rather than sitting on an indeterminate indicator.
       const meta = await fetchBlobMetadata(video.remote_server_id, blobId, remoteOverride);
-      let videoBlob: Blob;
       try {
-        videoBlob = await fetchP2PVideoBlob(
+        const result = await fetchP2PVideoBlob(
           video,
           video.remote_server_id,
           blobId,
           meta,
           remoteOverride
         );
+        opfsPath = result.opfsPath;
+        fileSize = result.size;
+        mimeType = result.mimeType;
       } catch (err) {
         warn("videoSync", `fetch failed for video ${video.id}, skipping sync:`, err);
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
-      const extension = extensionFromMime(videoBlob.type);
-      opfsPath = await writeVideoToOPFS(videoBlob, video.id, extension);
-      fileSize = videoBlob.size;
-      mimeType = videoBlob.type || "video/mp4";
       blake3 = meta.blake3 ?? null;
     } else {
       // plain http remote: stream straight to opfs, resuming a previously

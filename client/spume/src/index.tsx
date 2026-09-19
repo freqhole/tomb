@@ -8,8 +8,10 @@ installLogCapture();
 
 import { QueryClientProvider } from "@tanstack/solid-query";
 import { render } from "solid-js/web";
+import { createResource, Show } from "solid-js";
 import { App } from "./app/App";
 import { isCharnelMode } from "./app/services/charnel";
+import { acquireSingleInstanceLock } from "./app/services/singleInstance";
 import { queryClient } from "./queryClient";
 
 export { queryClient };
@@ -28,10 +30,33 @@ if (isCharnelMode() && /android/i.test(navigator.userAgent)) {
   document.documentElement.style.setProperty("--safe-area-top", "env(safe-area-inset-top, 0px)");
 }
 
+// tauri/charnel is a single native window, no multi-tab concern - only a
+// plain browser needs the single-instance lock (see singleInstance.ts).
+function Root() {
+  if (isCharnelMode()) return <App />;
+
+  const [isPrimaryTab] = createResource(acquireSingleInstanceLock);
+
+  return (
+    <Show when={!isPrimaryTab.loading}>
+      <Show
+        when={isPrimaryTab()}
+        fallback={
+          <div class="flex items-center justify-center h-screen bg-[var(--color-bg-primary)]">
+            <p class="text-[var(--color-text-secondary)]">freqhole is running in another tab.</p>
+          </div>
+        }
+      >
+        <App />
+      </Show>
+    </Show>
+  );
+}
+
 render(
   () => (
     <QueryClientProvider client={queryClient}>
-      <App />
+      <Root />
     </QueryClientProvider>
   ),
   root

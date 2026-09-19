@@ -21,6 +21,8 @@ import type { QueuedVideo } from "../../../app/services/storage/mediaItem";
 import { debug, info, warn, error as logError } from "../../../utils/logger";
 import { buildSyncVideoByBlake3Body } from "../sync/buildSyncVideoRequest";
 import { EnvelopeError, unwrapEnvelope } from "../../../music/services/send/sendToRemote";
+import { ensureBlobServable } from "../../../lib/api/blobServing";
+import { readVideoFromOPFS } from "../opfs/helpers";
 
 const TAG = "sendVideoToRemote";
 
@@ -164,6 +166,19 @@ export async function sendVideosToRemote(
   for (const item of eligible) {
     const blake3 = item.blake3 as string;
     const shortHash = blake3.slice(0, 16);
+    // stage this video's bytes with our own midden node before asking
+    // dest to pull them - same reasoning as sendToRemote.ts's song loop:
+    // grimoire's pull path falls back to a grimoire-only EnsureBlobRequest
+    // federation message a plain browser can never answer, so a video
+    // whose blake3 was never registered with this node (video's own local
+    // import only computes blake3, it doesn't register it - see
+    // docs/blob-transfer-opfs-and-sha256-refactor-plan.md phase 6) would
+    // otherwise fail the pull outright with no fallback.
+    if (item.video.opfs_path) {
+      await ensureBlobServable(blake3, () => readVideoFromOPFS(item.video.opfs_path!)).catch(
+        () => {}
+      );
+    }
     try {
       const body = await buildSyncVideoByBlake3Body({
         video: item.video,

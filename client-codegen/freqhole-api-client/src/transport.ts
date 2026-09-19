@@ -138,6 +138,34 @@ export interface Transport {
   ): Promise<string>;
 
   /**
+   * stream a blob's bytes to a caller-supplied sink, chunk by chunk,
+   * instead of assembling the whole blob in memory first (optional).
+   * only implemented by WasmTransport - HTTP callers should stream
+   * directly from `fetch()`'s own `response.body` reader instead (see
+   * `streamVideoToOPFSWithResume`), and CharnelLocalTransport's sync-to-
+   * local path never goes through JS at all (grimoire's own disk-backed
+   * pull). intended for a caller writing straight to OPFS (or anywhere
+   * else) without ever holding the full blob in one buffer - see
+   * docs/blob-transfer-opfs-and-sha256-refactor-plan.md phase 2.
+   * @param blobId - the blob ID to fetch
+   * @param onChunk - called with each chunk as it arrives, in order
+   * @param onProgress - callback with (received, total) bytes
+   * @param blake3 - optional blake3 hash for verified streaming via iroh-blobs
+   * @param totalBytes - optional known total size in bytes
+   * @param mimeType - optional content type (midden's streaming path doesn't
+   *   surface the source mime)
+   * @returns the content type and total bytes actually streamed
+   */
+  streamBlobToSink?(
+    blobId: string,
+    onChunk: (chunk: Uint8Array, offset: number) => void | Promise<void>,
+    onProgress: (received: number, total: number) => void,
+    blake3?: string,
+    totalBytes?: number,
+    mimeType?: string,
+  ): Promise<{ contentType: string; totalBytes: number }>;
+
+  /**
    * fetch server image (public, no auth required)
    * used during "add remote" flow before user is authenticated
    * only implemented by P2P transports (WasmTransport)

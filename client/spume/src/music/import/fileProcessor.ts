@@ -20,14 +20,39 @@ import { isCharnelMode } from "../../app/services/charnel";
  * never called under charnel (its own local grimoire instance handles
  * blake3 registration itself - see grimoire's blobz/blake3.rs), and any
  * failure here (relay unavailable, node not ready yet) just leaves the
- * song without a blake3 rather than failing the import. */
+ * song without a blake3 rather than failing the import.
+ *
+ * streams the file into midden's chunked `ImportSession` (`start_import`)
+ * instead of reading it whole via `file.arrayBuffer()` first - mirrors
+ * `playerQueuePush.ts`'s `fetchAndImportStreaming` (the wasm chunked
+ * branch), the established pattern for this exact primitive. falls back
+ * to the one-shot `import_blob(bytes)` only when this node build predates
+ * `start_import` - see docs/blob-transfer-opfs-and-sha256-refactor-plan.md
+ * phase 5. */
 async function registerBlake3(file: File): Promise<string | null> {
   if (isCharnelMode()) return null;
   try {
     const node = await getMiddenNode();
-    if (!node.import_blob) return null;
-    const bytes = new Uint8Array(await file.arrayBuffer());
-    return await node.import_blob(bytes);
+    if (!node.start_import) {
+      if (!node.import_blob) return null;
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      return await node.import_blob(bytes);
+    }
+    const session = node.start_import();
+    const reader = file.stream().getReader();
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        await session.push(value);
+      }
+      return await session.finish();
+    } catch (err) {
+      session.abort();
+      throw err;
+    } finally {
+      reader.releaseLock();
+    }
   } catch (err) {
     warn("fileProcessor", `failed to register blake3 for ${file.name}:`, err);
     return null;

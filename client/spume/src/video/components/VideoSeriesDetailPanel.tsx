@@ -21,7 +21,7 @@ import type { QueuedVideo } from "../../app/services/storage/mediaItem";
 import { FavoriteHeart } from "../../components/ratings/FavoriteHeart";
 import { formatDuration, formatLongDuration } from "../../utils/formatDuration";
 import { buildRoute } from "../../music/utils/routing";
-import { createCurrentRemoteFull } from "../../app/services/remotes/currentRemoteFull";
+import { createShareSourceRemote } from "../../app/services/remotes/shareSource";
 import { useVideoSeriesDetailQuery } from "../queries/series";
 import { useVideoSeriesAggregateTagsQuery } from "../queries/tags";
 import { useVideoSeriesAggregateTaxonsQuery } from "../queries/taxons";
@@ -164,7 +164,7 @@ export interface VideoSeriesDetailPanelProps {
 export function VideoSeriesDetailPanel(props: VideoSeriesDetailPanelProps) {
   const detailQuery = useVideoSeriesDetailQuery(() => props.seriesId);
   const queryClient = useQueryClient();
-  const currentRemoteFull = createCurrentRemoteFull();
+  const currentRemoteFull = createShareSourceRemote();
 
   // favorite status for this series (own bulk-status query, mirrors
   // VideoDetailView's single-id useVideoFavoriteStatuses usage).
