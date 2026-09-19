@@ -169,6 +169,13 @@ export default defineConfig({
         "../../client-codegen/freqhole-api-client",
       ],
     },
+    // cross-origin isolation headers - matching skein/loam's vite.config.ts:
+    // without these, the new worker-hosted midden node's WASM init can hang
+    // indefinitely in some browsers
+    headers: {
+      "Cross-Origin-Opener-Policy": "same-origin",
+      "Cross-Origin-Embedder-Policy": "require-corp",
+    },
   },
   plugins: [
     // only include WASM plugins for non-Tauri builds

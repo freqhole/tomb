@@ -21,6 +21,7 @@ export {
 export type {
   MiddenWorkerApi,
   MiddenWorkerIdentity,
+  MiddenWorkerInitOptions,
   StreamInfo,
 } from "./midden-worker-contract.js";
 export {
@@ -29,7 +30,12 @@ export {
 } from "./midden-worker-contract.js";
 
 export type { CreateMiddenWorker } from "./midden-worker-client.js";
-export { WorkerBiStream, WorkerImportSession, WorkerMiddenNode } from "./midden-worker-client.js";
+export {
+  WorkerBiStream,
+  WorkerImportSession,
+  WorkerMiddenNode,
+  WorkerRadioHandle,
+} from "./midden-worker-client.js";
 
 export { MiddenNode } from "./midden-stub.js";
 

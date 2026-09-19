@@ -22,10 +22,7 @@ import {
   type Transport,
 } from "@freqhole/api-client";
 import { isCharnelMode } from "../services/charnel";
-// static import (not dynamic) so Rollup doesn't emit a live-binding chunk reference
-// that Safari JSC throws a TDZ error on before the chunk has evaluated
-import { MiddenNode, MiddenNodeOptions } from "@freqhole/midden";
-import { PLAYER_ALPN } from "../../cenotaph";
+import { WorkerMiddenNode } from "@freqhole/reliquary/worker";
 
 // re-export for call sites that still need direct access
 // note: isCharnelAvailable uses local isCharnelMode which checks both env var and window.__TAURI__
@@ -123,32 +120,31 @@ export async function getMiddenNode(): Promise<MiddenNodeLike> {
     // check for persisted identity
     const existingIdentity = await getP2PIdentity();
 
-    // `create_with_options` (not the deprecated `create`/`create_from_key`)
-    // so `extra_alpns` can register PLAYER_ALPN - spume's single existing
-    // identity now also accepts freqhole-player/1 pairing/control
-    // connections (see docs/cenotaph-migration-plan.md phase 1: spume has
-    // exactly one identity, reused for this, never a second one).
-    const options = new MiddenNodeOptions();
-    options.extra_alpns = [PLAYER_ALPN];
-
     const relaySettings = await getMiddenRelaySettings();
-    if (relaySettings.relay_urls.length > 0) {
-      options.relay_urls = relaySettings.relay_urls;
-      options.relay_custom_only = relaySettings.relay_custom_only;
-    }
 
-    let node: MiddenNodeLike;
+    // worker-hosted (not constructed in-thread) so the OPFS-backed
+    // persistent blob store can actually be used - FileSystemSyncAccessHandle
+    // only works inside a dedicated worker. see
+    // docs/blob-transfer-opfs-and-sha256-refactor-plan.md phase 1. the
+    // worker entry (middenWorker.ts) owns extra_alpns/PLAYER_ALPN and
+    // opfs_store_dir itself - this call only needs to pass through the
+    // persisted secret key + user-configurable relay settings.
+    const node = await WorkerMiddenNode.create(
+      existingIdentity?.secret_key ?? null,
+      () => new Worker(new URL("./middenWorker.ts", import.meta.url), { type: "module" }),
+      {
+        relayUrls: relaySettings.relay_urls.length > 0 ? relaySettings.relay_urls : undefined,
+        relayCustomOnly: relaySettings.relay_custom_only,
+      }
+    );
+
     if (existingIdentity) {
-      // restore from persisted key
       console.log(
         "[midden] restoring identity from IndexedDB:",
         existingIdentity.node_id.slice(0, 16) + "..."
       );
-      options.secret_key = existingIdentity.secret_key;
-      node = await MiddenNode.create_with_options(options);
     } else {
-      // create new identity and persist it
-      node = await MiddenNode.create_with_options(options);
+      // brand-new identity - persist it
       const secretKey = node.secret_key();
       const nodeId = node.node_id();
       await saveP2PIdentity(secretKey, nodeId);
@@ -160,12 +156,11 @@ export async function getMiddenNode(): Promise<MiddenNodeLike> {
     console.log("[midden] node ready, node_id:", nodeId);
     notifyMiddenReady();
 
-    // start blob server to accept incoming iroh-blobs connections
-    // (allows remote peers to pull blobs from us during P2P upload)
-    if (typeof node.start_blob_server === "function") {
-      node.start_blob_server();
-      console.log("[midden] blob server started (accepting iroh-blobs connections)");
-    }
+    // NOTE: no start_blob_server() call here - the worker's accept() loop
+    // (driven by initRemotePlaybackAcceptMode below) already handles
+    // incoming iroh-blobs connections entirely on the rust side (see
+    // MiddenNode::accept()'s doc comment in lib/midden/src/lib.rs).
+    // calling both would race for the same incoming connections.
 
     // freqhole/1 hello route + freqhole-player/1 accept loop + local
     // library hooks are wired up by initRemotePlaybackBootstrap() (see
