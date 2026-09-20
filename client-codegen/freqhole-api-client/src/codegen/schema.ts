@@ -5428,6 +5428,8 @@ export type RadioBumpersSetFrequencyRequest = z.infer<typeof RadioBumpersSetFreq
 export const RadioConfigPayloadSchema = z.object({
   enabled: z.boolean(),
   encode_args: z.string(),
+  video_encode_args: z.string(),
+  video_codec: z.string(),
   ffmpeg_available: z.boolean()
 });
 export type RadioConfigPayload = z.infer<typeof RadioConfigPayloadSchema>;

@@ -111,21 +111,6 @@ function filterDisplayValue(f: StationFilter): string {
   }
 }
 
-// starting point for a video-carrying station's ffmpeg args/MSE codec -
-// grimoire's node-wide default (`default_encode_args` in
-// grimoire/src/radio/config.rs) strips video entirely (`-vn`), so a
-// video/audio_or_video station needs an explicit override or it would
-// silently broadcast audio only. editable in the form below; not yet
-// verified against a real device end-to-end (see the video prototype's
-// progress notes) - a reasonable starting point, not a guarantee.
-const VIDEO_ENCODE_ARGS =
-  "-hide_banner -loglevel error -fflags +genpts -i {input} -map 0:v:0 -map 0:a:0 " +
-  "-c:v libx264 -profile:v main -preset veryfast -b:v 2500k -pix_fmt yuv420p " +
-  "-c:a aac -profile:a aac_low -b:a 192k -ar 48000 -ac 2 " +
-  "-movflags frag_keyframe+empty_moov+default_base_moof " +
-  "-frag_duration 3000000 -avoid_negative_ts make_zero -f mp4 pipe:1";
-const VIDEO_CODEC = 'video/mp4; codecs="avc1.4D401F, mp4a.40.2"';
-
 function stationShallowEqual(a: RadioStation, b: RadioStation): boolean {
   return (
     a.id === b.id &&
@@ -172,23 +157,12 @@ export default function RadioView() {
   const [contentMode, setContentMode] = createSignal<
     "audio_only" | "audio_or_video" | "video_only"
   >("audio_only");
+  // advanced, per-station ffmpeg override - left blank by default so the
+  // station inherits the node-wide `[radio].encode_args`/`.video_codec`
+  // config (see RadioConfigSection) instead of a value baked in here.
   const [encodeArgs, setEncodeArgs] = createSignal("");
   const [codec, setCodec] = createSignal("");
-  const [seedAllVideos, setSeedAllVideos] = createSignal(true);
   const [creating, setCreating] = createSignal(false);
-
-  // prefill the video encode preset the first time the user picks a
-  // video-carrying content_mode; leaves manual edits alone once made, and
-  // clears back to empty (node-wide default) going back to audio_only.
-  createEffect(() => {
-    if (contentMode() === "audio_only") {
-      setEncodeArgs("");
-      setCodec("");
-      return;
-    }
-    if (!encodeArgs().trim()) setEncodeArgs(VIDEO_ENCODE_ARGS);
-    if (!codec().trim()) setCodec(VIDEO_CODEC);
-  });
 
   // per-station seed editor
   const [expandedId, setExpandedId] = createSignal<string | null>(null);
@@ -364,7 +338,7 @@ export default function RadioView() {
     }
     setCreating(true);
     try {
-      const created = (await admin.dispatchOrThrow("radio_stations_create", {
+      await admin.dispatchOrThrow("radio_stations_create", {
         name: name().trim(),
         description: description().trim() || undefined,
         is_public: isPublic(),
@@ -372,25 +346,9 @@ export default function RadioView() {
         play_mode: playMode(),
         timeline_only_mode: ffmpegAvailable() ? timelineOnly() : true,
         content_mode: contentMode(),
-        encode_args: contentMode() !== "audio_only" ? encodeArgs().trim() || undefined : undefined,
-        codec: contentMode() !== "audio_only" ? codec().trim() || undefined : undefined,
-      })) as RadioStation;
-      // video/audio_or_video stations have nothing to play yet without a
-      // filter - seed with "every video in the library" so a video-only
-      // station is immediately playable, matching what this checkbox
-      // promises.
-      if (contentMode() !== "audio_only" && seedAllVideos()) {
-        try {
-          await admin.dispatchOrThrow("radio_filters_add", {
-            station_id: created.id,
-            filter_type: "all_videos",
-            filter_value: "",
-            mode: "include",
-          });
-        } catch (e) {
-          setError(`station created, but failed to seed all-videos filter: ${String(e)}`);
-        }
-      }
+        encode_args: encodeArgs().trim() || undefined,
+        codec: codec().trim() || undefined,
+      });
       // reset form
       setName("");
       setDescription("");
@@ -399,7 +357,8 @@ export default function RadioView() {
       setPlayMode("shuffle");
       setTimelineOnly(!ffmpegAvailable());
       setContentMode("audio_only");
-      setSeedAllVideos(true);
+      setEncodeArgs("");
+      setCodec("");
       setShowCreate(false);
       await loadStations();
     } catch (e) {
@@ -558,16 +517,23 @@ export default function RadioView() {
                   ffmpeg is not installed on this node; stations will run in timeline-only mode.
                 </p>
               </Show>
-              <Show when={contentMode() !== "audio_only"}>
+              <details class="card">
+                <summary style={{ cursor: "pointer" }}>
+                  advanced: per-station ffmpeg override
+                </summary>
                 <div
-                  class="card"
-                  style={{ display: "flex", "flex-direction": "column", gap: "0.6rem" }}
+                  style={{
+                    display: "flex",
+                    "flex-direction": "column",
+                    gap: "0.6rem",
+                    "margin-top": "0.6rem",
+                  }}
                 >
                   <p class="item-meta">
-                    video-carrying stations need an ffmpeg encode that keeps the video stream (the
-                    node-wide default strips it) and a matching browser codec string - prefilled
-                    with a starting-point preset below, editable if it doesn't work for your
-                    library's videos.
+                    leave blank to use this node's <code>[radio]</code> config defaults (see "radio
+                    config" above) - a video-capable content mode already gets a video-carrying
+                    encode from there automatically. only set these if THIS station specifically
+                    needs a different ffmpeg encode or codec than the node default.
                   </p>
                   <label>
                     <span class="label">codec (MSE SourceBuffer mime type)</span>
@@ -575,6 +541,7 @@ export default function RadioView() {
                       type="text"
                       value={codec()}
                       onInput={(e) => setCodec(e.currentTarget.value)}
+                      placeholder="(inherit from node config)"
                     />
                   </label>
                   <label>
@@ -583,27 +550,11 @@ export default function RadioView() {
                       rows={3}
                       value={encodeArgs()}
                       onInput={(e) => setEncodeArgs(e.currentTarget.value)}
+                      placeholder="(inherit from node config)"
                     />
-                  </label>
-                  <label
-                    style={{
-                      display: "flex",
-                      gap: "0.5rem",
-                      "align-items": "center",
-                    }}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={seedAllVideos()}
-                      onChange={(e) => setSeedAllVideos(e.currentTarget.checked)}
-                    />
-                    <span>
-                      seed with "every video in the library" (shuffle) - more filters can be added
-                      after creation
-                    </span>
                   </label>
                 </div>
-              </Show>
+              </details>
               <div class="form-row" style={{ display: "flex", gap: "0.5rem" }}>
                 <button type="submit" class="primary small" disabled={creating()}>
                   {creating() ? "creating..." : "create station"}
@@ -1236,6 +1187,8 @@ function SongSuggestInput(props: SongSuggestInputProps) {
 interface RadioConfigPayload {
   enabled: boolean;
   encode_args: string;
+  video_encode_args?: string;
+  video_codec?: string;
   ffmpeg_available?: boolean;
 }
 
@@ -1246,8 +1199,9 @@ interface RadioConfigSectionProps {
 
 function RadioConfigSection(props: RadioConfigSectionProps) {
   const [enabled, setEnabled] = createSignal(false);
-  // loaded silently — still passed through on toggle so encode_args isn't lost
   const [encodeArgs, setEncodeArgs] = createSignal("");
+  const [videoEncodeArgs, setVideoEncodeArgs] = createSignal("");
+  const [videoCodec, setVideoCodec] = createSignal("");
   const [loading, setLoading] = createSignal(true);
   const [busy, setBusy] = createSignal(false);
   const [err, setErr] = createSignal("");
@@ -1259,6 +1213,8 @@ function RadioConfigSection(props: RadioConfigSectionProps) {
       const cfg = await props.dispatch<RadioConfigPayload>("radio_config_get", undefined);
       setEnabled(cfg.enabled);
       setEncodeArgs(cfg.encode_args);
+      setVideoEncodeArgs(cfg.video_encode_args ?? "");
+      setVideoCodec(cfg.video_codec ?? "");
       props.onEnabledChange?.(cfg.enabled);
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
@@ -1272,7 +1228,7 @@ function RadioConfigSection(props: RadioConfigSectionProps) {
   });
 
   // toggling the main switch immediately persists the new value to
-  // freqhole-config.toml. encode_args is passed through unchanged.
+  // freqhole-config.toml. everything else is passed through unchanged.
   async function toggleEnabled(next: boolean) {
     const prev = enabled();
     setEnabled(next);
@@ -1282,6 +1238,8 @@ function RadioConfigSection(props: RadioConfigSectionProps) {
       await props.dispatch<RadioConfigPayload>("radio_config_set", {
         enabled: next,
         encode_args: encodeArgs(),
+        video_encode_args: videoEncodeArgs(),
+        video_codec: videoCodec(),
       });
       props.onEnabledChange?.(next);
       await load();
@@ -1291,6 +1249,26 @@ function RadioConfigSection(props: RadioConfigSectionProps) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
+    }
+  }
+
+  const [savingEncode, setSavingEncode] = createSignal(false);
+  async function saveEncode(e: Event) {
+    e.preventDefault();
+    setSavingEncode(true);
+    setErr("");
+    try {
+      await props.dispatch<RadioConfigPayload>("radio_config_set", {
+        enabled: enabled(),
+        encode_args: encodeArgs(),
+        video_encode_args: videoEncodeArgs(),
+        video_codec: videoCodec(),
+      });
+      await load();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSavingEncode(false);
     }
   }
 
@@ -1314,6 +1292,7 @@ function RadioConfigSection(props: RadioConfigSectionProps) {
               display: "flex",
               "align-items": "center",
               gap: "0.5rem",
+              "margin-bottom": "0.6rem",
             }}
           >
             <button
@@ -1325,6 +1304,48 @@ function RadioConfigSection(props: RadioConfigSectionProps) {
               {enabled() ? "radio enabled" : "radio disabled"}
             </button>
           </div>
+          <details>
+            <summary style={{ cursor: "pointer" }}>advanced: node-wide ffmpeg defaults</summary>
+            <form
+              onSubmit={saveEncode}
+              style={{
+                display: "flex",
+                "flex-direction": "column",
+                gap: "0.5rem",
+                "margin-top": "0.6rem",
+              }}
+            >
+              <label>
+                <span class="label">audio encode args (audio_only stations)</span>
+                <textarea
+                  rows={3}
+                  value={encodeArgs()}
+                  onInput={(e) => setEncodeArgs(e.currentTarget.value)}
+                />
+              </label>
+              <label>
+                <span class="label">video encode args (audio_or_video/video_only stations)</span>
+                <textarea
+                  rows={3}
+                  value={videoEncodeArgs()}
+                  onInput={(e) => setVideoEncodeArgs(e.currentTarget.value)}
+                />
+              </label>
+              <label>
+                <span class="label">video codec (MSE SourceBuffer mime type)</span>
+                <input
+                  type="text"
+                  value={videoCodec()}
+                  onInput={(e) => setVideoCodec(e.currentTarget.value)}
+                />
+              </label>
+              <div>
+                <button type="submit" class="primary small" disabled={savingEncode()}>
+                  {savingEncode() ? "saving..." : "save"}
+                </button>
+              </div>
+            </form>
+          </details>
         </div>
       </Show>
     </div>

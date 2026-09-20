@@ -169,6 +169,8 @@ function RadioConfigSection(props: {
 
   const [enabled, setEnabled] = createSignal(false);
   const [encodeArgs, setEncodeArgs] = createSignal("");
+  const [videoEncodeArgs, setVideoEncodeArgs] = createSignal("");
+  const [videoCodec, setVideoCodec] = createSignal("");
   const [ffmpegAvailable, setFfmpegAvailable] = createSignal(true);
   const [busy, setBusy] = createSignal(false);
   const [loadError, setLoadError] = createSignal<string | null>(null);
@@ -194,6 +196,8 @@ function RadioConfigSection(props: {
       const ffmpeg = c.ffmpeg_available !== false;
       setEnabled(c.enabled);
       setEncodeArgs(c.encode_args);
+      setVideoEncodeArgs(c.video_encode_args ?? "");
+      setVideoCodec(c.video_codec ?? "");
       setFfmpegAvailable(ffmpeg);
       setLoadError(null);
       props.onStateChange?.({ enabled: c.enabled, ffmpegAvailable: ffmpeg });
@@ -207,6 +211,8 @@ function RadioConfigSection(props: {
       await props.client.dispatchOrThrow("radio_config_set", {
         enabled: enabled(),
         encode_args: encodeArgs(),
+        video_encode_args: videoEncodeArgs(),
+        video_codec: videoCodec(),
         ffmpeg_available: ffmpegAvailable(),
       });
       props.onStateChange?.({ enabled: enabled(), ffmpegAvailable: ffmpegAvailable() });
@@ -250,12 +256,38 @@ function RadioConfigSection(props: {
           </label>
           <label class="flex flex-col gap-1">
             <span class="text-xs text-[var(--color-text-secondary)]">
-              ffmpeg encode args (use <code>{"{input}"}</code> for the song path)
+              ffmpeg encode args (use <code>{"{input}"}</code> for the song path) - used by
+              audio-only stations with no per-station override
             </span>
             <textarea
               class="font-mono text-xs px-2 py-1 rounded bg-[var(--color-bg-tertiary)] border border-[var(--color-border-subtle)] text-[var(--color-text-primary)] min-h-[6rem]"
               value={encodeArgs()}
               onInput={(e) => setEncodeArgs(e.currentTarget.value)}
+              disabled={busy()}
+              spellcheck={false}
+            />
+          </label>
+          <label class="flex flex-col gap-1">
+            <span class="text-xs text-[var(--color-text-secondary)]">
+              video-capable ffmpeg encode args - used by audio_or_video/video_only stations with no
+              per-station override (keeps the video stream, unlike the args above)
+            </span>
+            <textarea
+              class="font-mono text-xs px-2 py-1 rounded bg-[var(--color-bg-tertiary)] border border-[var(--color-border-subtle)] text-[var(--color-text-primary)] min-h-[6rem]"
+              value={videoEncodeArgs()}
+              onInput={(e) => setVideoEncodeArgs(e.currentTarget.value)}
+              disabled={busy()}
+              spellcheck={false}
+            />
+          </label>
+          <label class="flex flex-col gap-1">
+            <span class="text-xs text-[var(--color-text-secondary)]">
+              video codec (MSE SourceBuffer mime type matching the args above)
+            </span>
+            <input
+              class="font-mono text-xs px-2 py-1 rounded bg-[var(--color-bg-tertiary)] border border-[var(--color-border-subtle)] text-[var(--color-text-primary)]"
+              value={videoCodec()}
+              onInput={(e) => setVideoCodec(e.currentTarget.value)}
               disabled={busy()}
               spellcheck={false}
             />
@@ -561,21 +593,6 @@ function StationsSection(props: {
 // create station form
 // ------------------------------------------------------------------
 
-// starting point for a video-carrying station's ffmpeg args/MSE codec -
-// grimoire's node-wide default (`default_encode_args` in
-// grimoire/src/radio/config.rs) strips video entirely (`-vn`), so a
-// video/audio_or_video station needs an explicit override or it would
-// silently broadcast audio only. editable in the form below; not yet
-// verified against a real device end-to-end (see the video prototype's
-// progress notes) - a reasonable starting point, not a guarantee.
-const VIDEO_ENCODE_ARGS =
-  "-hide_banner -loglevel error -fflags +genpts -i {input} -map 0:v:0 -map 0:a:0 " +
-  "-c:v libx264 -profile:v main -preset veryfast -b:v 2500k -pix_fmt yuv420p " +
-  "-c:a aac -profile:a aac_low -b:a 192k -ar 48000 -ac 2 " +
-  "-movflags frag_keyframe+empty_moov+default_base_moof " +
-  "-frag_duration 3000000 -avoid_negative_ts make_zero -f mp4 pipe:1";
-const VIDEO_CODEC = 'video/mp4; codecs="avc1.4D401F, mp4a.40.2"';
-
 function CreateStationSection(props: {
   client: AdminClient;
   ffmpegAvailable: () => boolean;
@@ -590,28 +607,18 @@ function CreateStationSection(props: {
   const [contentMode, setContentMode] = createSignal<
     "audio_only" | "audio_or_video" | "video_only"
   >("audio_only");
+  // advanced, per-station ffmpeg override - left blank by default so the
+  // station inherits the node-wide `[radio].encode_args`/`.video_codec`
+  // config (see RadioConfigSection) instead of a value baked in here.
+  // only sent to the server when the operator actually types something.
   const [encodeArgs, setEncodeArgs] = createSignal("");
   const [codec, setCodec] = createSignal("");
-  const [seedAllVideos, setSeedAllVideos] = createSignal(true);
   const [submitting, setSubmitting] = createSignal(false);
 
   createEffect(() => {
     if (!props.ffmpegAvailable()) {
       setTimelineOnly(true);
     }
-  });
-
-  // prefill the video encode preset the first time the user picks a
-  // video-carrying content_mode; leaves any manual edits alone once made,
-  // and clears back to empty (node-wide default) going back to audio_only.
-  createEffect(() => {
-    if (contentMode() === "audio_only") {
-      setEncodeArgs("");
-      setCodec("");
-      return;
-    }
-    if (!encodeArgs().trim()) setEncodeArgs(VIDEO_ENCODE_ARGS);
-    if (!codec().trim()) setCodec(VIDEO_CODEC);
   });
 
   const submit = async (e: Event) => {
@@ -630,32 +637,14 @@ function CreateStationSection(props: {
         play_mode: playMode(),
         timeline_only_mode: props.ffmpegAvailable() ? timelineOnly() : true,
         content_mode: contentMode(),
-        encode_args: contentMode() !== "audio_only" ? encodeArgs().trim() || undefined : undefined,
-        codec: contentMode() !== "audio_only" ? codec().trim() || undefined : undefined,
+        encode_args: encodeArgs().trim() || undefined,
+        codec: codec().trim() || undefined,
       };
       const created = (await props.client.dispatchOrThrow(
         "radio_stations_create",
         req
       )) as RadioStation;
       toast.success(`station "${created.name}" created`);
-      // video/audio_or_video stations have nothing to play yet without a
-      // filter - seed with "every video in the library" so a video-only
-      // station is immediately playable, matching what this checkbox
-      // promises.
-      if (contentMode() !== "audio_only" && seedAllVideos()) {
-        try {
-          await props.client.dispatchOrThrow("radio_filters_add", {
-            station_id: created.id,
-            filter_type: "all_videos",
-            filter_value: "",
-            mode: "include",
-          });
-        } catch (e) {
-          const msg =
-            e instanceof AdminCommandError ? e.message : e instanceof Error ? e.message : String(e);
-          toast.error(`station created, but failed to seed all-videos filter: ${msg}`);
-        }
-      }
       // reset form
       setName("");
       setDescription("");
@@ -664,7 +653,8 @@ function CreateStationSection(props: {
       setPlayMode("shuffle");
       setTimelineOnly(!props.ffmpegAvailable());
       setContentMode("audio_only");
-      setSeedAllVideos(true);
+      setEncodeArgs("");
+      setCodec("");
       props.onCreated?.();
     } catch (e) {
       const msg =
@@ -765,12 +755,16 @@ function CreateStationSection(props: {
             ffmpeg is not installed on this node; stations will run in timeline-only mode.
           </div>
         </Show>
-        <Show when={contentMode() !== "audio_only"}>
-          <div class="flex flex-col gap-3 rounded-md border border-[var(--color-border-subtle)] bg-[var(--color-bg-tertiary)]/40 p-3">
+        <details class="rounded-md border border-[var(--color-border-subtle)] bg-[var(--color-bg-tertiary)]/40 p-3">
+          <summary class="text-xs font-medium text-[var(--color-text-secondary)] cursor-pointer select-none">
+            advanced: per-station ffmpeg override
+          </summary>
+          <div class="flex flex-col gap-3 mt-3">
             <div class="text-xs text-[var(--color-text-muted)]">
-              video-carrying stations need an ffmpeg encode that keeps the video stream (the
-              node-wide default strips it) and a matching browser codec string - prefilled with a
-              starting-point preset below, editable if it doesn't work for your library's videos.
+              leave blank to use this node's <code>[radio]</code> config defaults (see "radio
+              config" above) - a video-capable content mode already gets a video-carrying encode
+              from there automatically. only set these if THIS station specifically needs a
+              different ffmpeg encode or codec than the node default.
             </div>
             <label class="flex flex-col gap-1">
               <span class="text-xs uppercase tracking-wide text-[var(--color-text-muted)]">
@@ -780,6 +774,7 @@ function CreateStationSection(props: {
                 class="w-full rounded bg-[var(--color-bg-tertiary)] px-3 py-2 text-xs font-mono text-[var(--color-text-primary)] border border-[var(--color-border-subtle)]"
                 value={codec()}
                 onInput={(e) => setCodec(e.currentTarget.value)}
+                placeholder="(inherit from node config)"
               />
             </label>
             <label class="flex flex-col gap-1">
@@ -791,19 +786,11 @@ function CreateStationSection(props: {
                 rows={3}
                 value={encodeArgs()}
                 onInput={(e) => setEncodeArgs(e.currentTarget.value)}
+                placeholder="(inherit from node config)"
               />
-            </label>
-            <label class="flex items-center gap-2 text-sm text-[var(--color-text-secondary)]">
-              <input
-                type="checkbox"
-                checked={seedAllVideos()}
-                onChange={(e) => setSeedAllVideos(e.currentTarget.checked)}
-              />
-              seed with "every video in the library" (shuffle) - more filters can be added after
-              creation
             </label>
           </div>
-        </Show>
+        </details>
         <div>
           <button
             type="submit"

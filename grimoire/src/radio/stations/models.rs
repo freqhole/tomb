@@ -15,8 +15,19 @@ pub struct RadioStation {
     pub description: Option<String>,
     pub is_public: i64,
     pub is_enabled: i64,
-    /// per-station ffmpeg override; null = use toml `[radio].encode_args`.
+    /// per-station ffmpeg override; null = use toml `[radio].encode_args`
+    /// (or `[radio].video_encode_args` for a video-capable content_mode -
+    /// see `effective_encode_args`). resolved dynamically (never cached),
+    /// so a per-station override always wins even if the node-wide
+    /// config changes later.
     pub encode_args: Option<String>,
+    /// mse codec string. unlike `encode_args`, always a concrete value -
+    /// `create_station`/`update_station` fill it with the content_mode-
+    /// appropriate node-wide default at write time when the caller
+    /// doesn't supply one, and `update_station` also refreshes it
+    /// whenever `content_mode` changes without an explicit `codec` in the
+    /// same request (so a stale audio-only codec can't survive a switch
+    /// to a video-capable mode - see repository.rs's `update_station`).
     pub codec: String,
     /// 'shuffle' | 'album'
     pub play_mode: String,
@@ -29,6 +40,29 @@ pub struct RadioStation {
     pub content_mode: String,
     pub created_at: i64,
     pub updated_at: i64,
+}
+
+impl RadioStation {
+    /// resolves the ffmpeg args this station's encoder should actually
+    /// run: an explicit per-station override if set, otherwise the
+    /// node-wide config default for its content_mode - `audio_only`
+    /// stations get `[radio].encode_args` (which strips video via
+    /// `-vn`), anything video-capable gets `[radio].video_encode_args`
+    /// instead. resolved fresh every time (never cached on the row), so
+    /// changing `content_mode` takes effect immediately without also
+    /// needing to touch `encode_args`.
+    pub fn effective_encode_args<'a>(
+        &'a self,
+        cfg: &'a crate::radio::config::RadioConfig,
+    ) -> &'a str {
+        self.encode_args
+            .as_deref()
+            .unwrap_or(if self.content_mode == "audio_only" {
+                &cfg.encode_args
+            } else {
+                &cfg.video_encode_args
+            })
+    }
 }
 
 /// create a new station. all fields except `name` are optional and use

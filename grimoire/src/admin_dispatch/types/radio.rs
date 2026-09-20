@@ -91,8 +91,18 @@ pub struct RadioConfigPayload {
     /// main switch — when false, the broadcaster doesn't start at boot
     /// and `freqhole radio serve` refuses to run.
     pub enabled: bool,
-    /// ffmpeg encoder template (`{input}` placeholder, output to `pipe:1`).
+    /// ffmpeg encoder template (`{input}` placeholder, output to `pipe:1`)
+    /// for `audio_only` stations with no per-station override.
     pub encode_args: String,
+    /// ffmpeg encoder template for video-capable stations
+    /// (`audio_or_video`/`video_only`) with no per-station override -
+    /// keeps the video stream instead of `-vn`-stripping it.
+    #[serde(default)]
+    pub video_encode_args: String,
+    /// MSE codec string matching `video_encode_args`'s output, for the
+    /// same video-capable-stations-with-no-override case.
+    #[serde(default)]
+    pub video_codec: String,
     /// true when ffmpeg is available on this node.
     #[serde(default)]
     pub ffmpeg_available: bool,

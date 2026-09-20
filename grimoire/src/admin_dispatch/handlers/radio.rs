@@ -444,6 +444,8 @@ pub(in crate::admin_dispatch) async fn config_get() -> GrimoireResponse<JsonValu
     let payload = RadioConfigPayload {
         enabled: cfg.enabled,
         encode_args: cfg.encode_args,
+        video_encode_args: cfg.video_encode_args,
+        video_codec: cfg.video_codec,
         ffmpeg_available: ffmpeg_available(),
     };
     to_value(GrimoireResponse::success("ok", payload))
@@ -478,6 +480,14 @@ pub(in crate::admin_dispatch) async fn config_set(args: JsonValue) -> GrimoireRe
         m.insert(
             "encode_args".into(),
             toml::Value::String(req.encode_args.clone()),
+        );
+        m.insert(
+            "video_encode_args".into(),
+            toml::Value::String(req.video_encode_args.clone()),
+        );
+        m.insert(
+            "video_codec".into(),
+            toml::Value::String(req.video_codec.clone()),
         );
         m
     });
@@ -522,6 +532,8 @@ pub(in crate::admin_dispatch) async fn config_set(args: JsonValue) -> GrimoireRe
     let out = RadioConfigPayload {
         enabled: cfg.enabled,
         encode_args: cfg.encode_args,
+        video_encode_args: cfg.video_encode_args,
+        video_codec: cfg.video_codec,
         ffmpeg_available: ffmpeg_available(),
     };
     to_value(GrimoireResponse::success("config updated", out))

@@ -10,13 +10,22 @@
 //   - radioState() → coarse status signal: 'idle' | 'connecting' | 'playing' | 'error'
 
 import { createSignal } from "solid-js";
-import { schema, type PublicNowPlaying } from "@freqhole/api-client";
+import type { PublicNowPlaying } from "@freqhole/api-client";
 import type { RadioHandleLike } from "@freqhole/api-client";
 import { getMiddenNode, isCharnelAvailable } from "../../api/client";
 import { tuneRadioCharnel, tuneRadioCharnelLocal } from "./charnelRadioAdapter";
 import { registerStopRadio, registerVolumeMirror, stopMusicForRadio } from "../playbackCoordinator";
 import { pause as pausePlayerAudio } from "../../../music/services/audio/player";
 import { recordHistoryEntry } from "./radioHistory";
+import {
+  type RadioModeCapability,
+  type RadioTimelineSnapshot,
+  rawArtMetaFrom,
+  artUrlFromRaw,
+  coerceModeCapabilities,
+  coerceTimelineSnapshot,
+  coerceNowPlaying,
+} from "./radioCoercion";
 import {
   currentRadioStation,
   setCurrentRadioStationPersisted,
@@ -81,32 +90,6 @@ const hasMSE =
   (typeof window !== "undefined" &&
     typeof (window as unknown as { MediaSource?: unknown }).MediaSource === "function") ||
   managedMediaSourceCtor !== null;
-
-type RadioModeCapability = "chunk_stream" | "timeline_seed";
-
-interface RadioTimelineCurrentItem {
-  timeline_item_id: string;
-  song_id: string;
-  start_at_ms: number;
-  duration_ms: number | null;
-}
-
-interface RadioTimelineUpcomingItem {
-  timeline_item_id: string;
-  song_id: string;
-  planned_start_at_ms: number;
-  duration_ms: number | null;
-}
-
-interface RadioTimelineSnapshot {
-  station_id: string;
-  timeline_seq: number;
-  station_epoch_ms: number;
-  generated_at_ms: number;
-  current: RadioTimelineCurrentItem | null;
-  upcoming: RadioTimelineUpcomingItem[];
-  lookahead_count: number;
-}
 
 export type RadioStatus = "idle" | "connecting" | "playing" | "paused" | "error";
 
@@ -672,131 +655,6 @@ function swapArtUrl(next: string | null): void {
   setArtUrl(next);
 }
 
-// extract raw inline art metadata (`{mime, data}` base64) from the raw
-// now_playing payload, for storing in history. returns null if absent.
-function rawArtMetaFrom(raw: unknown): { mime: string; data: string } | null {
-  if (!raw || typeof raw !== "object") return null;
-  const art = (raw as { art?: unknown }).art;
-  if (!art || typeof art !== "object") return null;
-  const a = art as { mime?: unknown; data?: unknown };
-  if (typeof a.mime !== "string" || typeof a.data !== "string") return null;
-  return { mime: a.mime, data: a.data };
-}
-
-// build a Blob URL from inline ArtData (`{mime, blob_id, data}`) on the
-// raw now_playing payload. returns null if missing/malformed.
-function artUrlFromRaw(raw: unknown): string | null {
-  if (!raw || typeof raw !== "object") return null;
-  const art = (raw as { art?: unknown }).art;
-  if (!art || typeof art !== "object") return null;
-  const a = art as { mime?: unknown; data?: unknown };
-  if (typeof a.mime !== "string" || typeof a.data !== "string") return null;
-  try {
-    const bin = atob(a.data);
-    const bytes = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-    const blob = new Blob([bytes as BlobPart], { type: a.mime });
-    return URL.createObjectURL(blob);
-  } catch (e) {
-    console.warn("[radio] art decode failed:", e);
-    return null;
-  }
-}
-
-function coerceModeCapabilities(raw: unknown): RadioModeCapability[] {
-  if (!Array.isArray(raw)) return [];
-  const out: RadioModeCapability[] = [];
-  for (const item of raw) {
-    if ((item === "chunk_stream" || item === "timeline_seed") && !out.includes(item)) {
-      out.push(item);
-    }
-  }
-  return out;
-}
-
-function coerceTimelineSnapshot(raw: unknown): RadioTimelineSnapshot | null {
-  if (!raw || typeof raw !== "object") return null;
-  const x = raw as {
-    station_id?: unknown;
-    timeline_seq?: unknown;
-    station_epoch_ms?: unknown;
-    generated_at_ms?: unknown;
-    current?: unknown;
-    upcoming?: unknown;
-    lookahead_count?: unknown;
-  };
-
-  if (
-    typeof x.station_id !== "string" ||
-    typeof x.timeline_seq !== "number" ||
-    typeof x.station_epoch_ms !== "number" ||
-    typeof x.generated_at_ms !== "number"
-  ) {
-    return null;
-  }
-
-  const parseCurrent = (item: unknown): RadioTimelineCurrentItem | null => {
-    if (!item || typeof item !== "object") return null;
-    const y = item as {
-      timeline_item_id?: unknown;
-      song_id?: unknown;
-      start_at_ms?: unknown;
-      duration_ms?: unknown;
-    };
-    if (
-      typeof y.timeline_item_id !== "string" ||
-      typeof y.song_id !== "string" ||
-      typeof y.start_at_ms !== "number"
-    ) {
-      return null;
-    }
-    return {
-      timeline_item_id: y.timeline_item_id,
-      song_id: y.song_id,
-      start_at_ms: y.start_at_ms,
-      duration_ms: typeof y.duration_ms === "number" ? y.duration_ms : null,
-    };
-  };
-
-  const parseUpcoming = (item: unknown): RadioTimelineUpcomingItem | null => {
-    if (!item || typeof item !== "object") return null;
-    const y = item as {
-      timeline_item_id?: unknown;
-      song_id?: unknown;
-      planned_start_at_ms?: unknown;
-      duration_ms?: unknown;
-    };
-    if (
-      typeof y.timeline_item_id !== "string" ||
-      typeof y.song_id !== "string" ||
-      typeof y.planned_start_at_ms !== "number"
-    ) {
-      return null;
-    }
-    return {
-      timeline_item_id: y.timeline_item_id,
-      song_id: y.song_id,
-      planned_start_at_ms: y.planned_start_at_ms,
-      duration_ms: typeof y.duration_ms === "number" ? y.duration_ms : null,
-    };
-  };
-
-  const current = parseCurrent(x.current);
-  const upcoming = Array.isArray(x.upcoming)
-    ? x.upcoming.map(parseUpcoming).filter((u): u is RadioTimelineUpcomingItem => u !== null)
-    : [];
-
-  return {
-    station_id: x.station_id,
-    timeline_seq: x.timeline_seq,
-    station_epoch_ms: x.station_epoch_ms,
-    generated_at_ms: x.generated_at_ms,
-    current,
-    upcoming,
-    lookahead_count: typeof x.lookahead_count === "number" ? x.lookahead_count : upcoming.length,
-  };
-}
-
 interface TuneOptions {
   /** station id to tune into; omit to use the broadcaster's default. */
   stationId?: string;
@@ -1128,6 +986,12 @@ export async function tuneIntoRadio(
       console.info(
         "[radio] session summary:",
         JSON.stringify({
+          // video streams carry a much heavier per-fragment payload
+          // (h264 frames vs AAC-only) and a slower/riskier server-side
+          // encode - tagging every summary line by kind lets audio vs
+          // video buffering behavior be told apart in the logs instead
+          // of blending into one set of stats.
+          kind: nowPlaying()?.kind ?? "unknown",
           stall_count: stallCount,
           resync_count: resyncCount,
           sourcebuffer_reset_count: sourceBufferResetCount,
@@ -1388,20 +1252,30 @@ export async function tuneIntoRadio(
   // started every listen on a knife's edge and stalled almost every
   // cycle. a fresh tune always gets the full margin regardless of prior
   // session history.
-  const INITIAL_LIVE_EDGE_BUFFER_MS = stabilityMode() ? 8000 : 6000;
+  //
+  // doubled across the board (from an earlier 6-8s/1.5-2s/12-20s baseline)
+  // per real-world testing feedback: the player was consistently starting
+  // too close to the live edge and the per-stall bump was too small,
+  // taking several repeated stalls before the buffer actually grew enough
+  // to stop stalling — a slower, more annoying recovery than just starting
+  // (and correcting) with more headroom up front. server-side
+  // `buffer_seconds` (default 60s, see grimoire's `RadioConfig`) comfortably
+  // covers this - these targets are still well inside that late-joiner
+  // ring, so there's real buffered data to seek into.
+  const INITIAL_LIVE_EDGE_BUFFER_MS = stabilityMode() ? 16000 : 12000;
   // post-skip reset target: smaller, because an admin skip's burst of
   // chunks (sent unpaced, see SKIP_BURST_CHUNKS server-side) gives the
   // buffer a real head start that a fresh tune never gets.
   const POST_SKIP_LIVE_EDGE_BUFFER_MS = hasStartedChunkPlaybackThisSession
     ? stabilityMode()
-      ? 4000
-      : 2500
-    : stabilityMode()
       ? 8000
-      : 6000;
+      : 5000
+    : stabilityMode()
+      ? 16000
+      : 12000;
   let liveEdgeBufferMs = INITIAL_LIVE_EDGE_BUFFER_MS;
-  const LIVE_EDGE_BUMP_MS = stabilityMode() ? 2000 : 1500;
-  const MAX_LIVE_EDGE_BUFFER_MS = stabilityMode() ? 20000 : 12000;
+  const LIVE_EDGE_BUMP_MS = stabilityMode() ? 4000 : 3000;
+  const MAX_LIVE_EDGE_BUFFER_MS = stabilityMode() ? 30000 : 20000;
   let stallCount = 0;
   const onStall = () => {
     if (!isActiveTune()) return;
@@ -2339,41 +2213,6 @@ export async function tuneIntoRadio(
   void setCurrentRadioStationPersisted(stationRef);
 
   return audio;
-}
-
-/**
- * coerce a meta `now_playing` blob into our `PublicNowPlaying` shape.
- * the wire format from the radio control stream sends the `NowPlaying`
- * struct (with `art: { mime, blob_id, data }`); the http `RadioInfo`
- * endpoint sends `art_blob_id` instead. this picks whichever fields are
- * present so views can render either source uniformly.
- */
-function coerceNowPlaying(raw: unknown): PublicNowPlaying | null {
-  if (!raw || typeof raw !== "object") return null;
-  const r = raw as Record<string, unknown>;
-  const np: PublicNowPlaying = {
-    kind: r.kind === "video" ? "video" : "song",
-    song_id: typeof r.song_id === "string" ? r.song_id : "",
-    title: typeof r.title === "string" ? r.title : "(untitled)",
-    artist: typeof r.artist === "string" ? r.artist : null,
-    album: typeof r.album === "string" ? r.album : null,
-    art_blob_id:
-      typeof r.art_blob_id === "string"
-        ? r.art_blob_id
-        : isArt(r.art) && typeof r.art.blob_id === "string"
-          ? r.art.blob_id
-          : null,
-    waveform_blob_id: typeof r.waveform_blob_id === "string" ? r.waveform_blob_id : null,
-    duration_ms: typeof r.duration_ms === "number" ? r.duration_ms : null,
-  };
-  // best-effort validate via the generated zod schema; ignore on failure
-  // so unexpected fields don't blow up playback.
-  const parsed = schema.PublicNowPlayingSchema.safeParse(np);
-  return parsed.success ? parsed.data : np;
-}
-
-function isArt(v: unknown): v is { blob_id?: unknown } {
-  return !!v && typeof v === "object";
 }
 
 // ---- favorite (broadcasting peer) ------------------------------------

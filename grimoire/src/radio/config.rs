@@ -63,6 +63,22 @@ pub struct RadioConfig {
     #[serde(default = "default_encode_args")]
     pub encode_args: String,
 
+    /// ffmpeg command-line template for VIDEO-capable stations
+    /// (`content_mode` != 'audio_only') that don't set their own
+    /// per-station `encode_args` override. `encode_args` (above) strips
+    /// video entirely (`-vn`) - a video/audio_or_video station needs this
+    /// separate template so video streaming "just works" without any
+    /// per-station ffmpeg configuration. see
+    /// `RadioStation::effective_encode_args`.
+    #[serde(default = "default_video_encode_args")]
+    pub video_encode_args: String,
+
+    /// MSE `SourceBuffer` codec string matching `video_encode_args`'s
+    /// output, for the same "no per-station config needed" reason. see
+    /// `RadioStation::effective_codec`.
+    #[serde(default = "default_video_codec")]
+    pub video_codec: String,
+
     /// approximate audio duration of one fragment, in milliseconds. must
     /// match the `-frag_duration` value baked into `encode_args`. the
     /// pacer uses this to compute when each chunk should be emitted.
@@ -94,6 +110,8 @@ impl Default for RadioConfig {
         Self {
             enabled: false,
             encode_args: default_encode_args(),
+            video_encode_args: default_video_encode_args(),
+            video_codec: default_video_codec(),
             frag_ms: default_frag_ms(),
             buffer_seconds: default_buffer_seconds(),
             inter_track_silence_ms: default_inter_track_silence_ms(),
@@ -141,6 +159,25 @@ fn default_inter_track_silence_ms() -> u32 {
 
 fn default_encoder_restart_attempts() -> u32 {
     3
+}
+
+/// video-capable default ffmpeg args - same fragmented-mp4/aac tail as
+/// `default_encode_args`, but keeps the video stream (h264 main profile,
+/// libx264) instead of `-vn`-stripping it. an unverified-for-every-
+/// library starting point (bitrate/profile are reasonable defaults, not
+/// guarantees) - operators can override via `[radio].video_encode_args`
+/// or, for one specific station, that station's own `encode_args`.
+fn default_video_encode_args() -> String {
+    "-hide_banner -loglevel error -fflags +genpts -i {input} -map 0:v:0 -map 0:a:0 \
+     -c:v libx264 -profile:v main -preset veryfast -b:v 2500k -pix_fmt yuv420p \
+     -c:a aac -profile:a aac_low -b:a 192k -ar 48000 -ac 2 \
+     -movflags frag_keyframe+empty_moov+default_base_moof \
+     -frag_duration 3000000 -avoid_negative_ts make_zero -f mp4 pipe:1"
+        .to_string()
+}
+
+fn default_video_codec() -> String {
+    "video/mp4; codecs=\"avc1.4D401F, mp4a.40.2\"".to_string()
 }
 
 /// derived ring capacity (in chunks) — `buffer_seconds / frag_seconds`,

@@ -164,6 +164,27 @@ pub async fn pick_random_song() -> GrimoireResult<RadioTrack> {
     })
 }
 
+/// pick a random video from the library. used as the video-domain
+/// zero-config fallback (mirrors `pick_random_song`) so a `video_only` or
+/// `audio_or_video` station with no filters configured at all still
+/// shuffles across every playable video instead of erroring - matches
+/// how a song-side station with no filters already falls back to the
+/// full song library.
+pub async fn pick_random_video() -> GrimoireResult<RadioTrack> {
+    let pool = database::connect().await?;
+    let video_ids = stations::repository::all_playable_video_ids(&pool).await?;
+    let id = {
+        use rand::seq::SliceRandom;
+        video_ids
+            .choose(&mut rand::thread_rng())
+            .cloned()
+            .ok_or_else(|| GrimoireError::ProcessingFailed {
+                message: "radio: no playable videos in library".to_string(),
+            })?
+    };
+    fetch_track(RadioItemKind::Video, &id).await
+}
+
 /// get all playable song ids from the library. used as fallback for
 /// album mode when no explicit source is configured.
 async fn all_playable_songs() -> GrimoireResult<Vec<String>> {
@@ -303,26 +324,21 @@ async fn pick_for_station_after_with_options(
 
     // shuffle mode: blend song + video candidates into one pool. no
     // explicit source at all in either domain = fall back to the global
-    // random song pool - the zero-config default station relies on this,
-    // and it never has video content configured by definition. NOT a
-    // valid fallback for a video_only station (it has no song-domain
-    // fallback of its own yet - unlike songs, there's no "shuffle every
-    // video with zero filters" implicit behavior, only the explicit
-    // 'all_videos' marker filter) - error clearly instead of silently
-    // playing a song on a station that's supposed to be video-only.
+    // random pool for whichever domain(s) content_mode allows -
+    // `pick_random_song` for audio_only/audio_or_video (the zero-config
+    // default station relies on this), `pick_random_video` for
+    // video_only/audio_or_video (mirrors the song-side fallback -
+    // previously this errored, requiring an explicit `all_videos` filter
+    // just to get ANY video playing, which was confusing for a station
+    // whose whole point is "shuffle everything").
     if song_candidates.is_empty() && video_candidates.is_empty() {
-        if content_mode == "video_only" {
-            return Err(GrimoireError::ProcessingFailed {
-                message: format!(
-                    "radio: station {station_id} is video_only but has no video candidates - \
-                     add a video, video_series, or all_videos filter"
-                ),
-            });
-        }
         debug!(
             "[radio-picker] station {} (mode: shuffle) has no explicit source; using random fallback",
             station_id
         );
+        if content_mode == "video_only" {
+            return pick_random_video().await;
+        }
         return pick_random_song().await;
     }
     info!(

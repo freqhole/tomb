@@ -68,16 +68,35 @@ pub async fn get_station(id: &str) -> GrimoireResult<Option<RadioStation>> {
     .map_err(GrimoireError::from)
 }
 
+/// content_mode-appropriate default MSE codec string, used whenever a
+/// station's codec isn't explicitly supplied (creation, or a
+/// content_mode change - see `create_station`/`update_station`).
+/// `audio_only` gets the plain audio default; anything video-capable
+/// gets the node-wide `[radio].video_codec` config default.
+fn default_codec_for_content_mode(
+    content_mode: &str,
+    cfg: &crate::radio::config::RadioConfig,
+) -> String {
+    if content_mode == "audio_only" {
+        crate::radio::messages::RADIO_CODEC.to_string()
+    } else {
+        cfg.video_codec.clone()
+    }
+}
+
 pub async fn create_station(req: CreateStationRequest) -> GrimoireResult<RadioStation> {
     let pool = database::connect().await?;
     let is_public = req.is_public.unwrap_or(false) as i64;
     let is_enabled = req.is_enabled.unwrap_or(true) as i64;
     let timeline_only_mode = req.timeline_only_mode.unwrap_or(false) as i64;
-    let codec = req
-        .codec
-        .unwrap_or_else(|| crate::radio::config::MSE_CODEC.to_string());
     let play_mode = normalize_play_mode(req.play_mode);
     let content_mode = normalize_content_mode(req.content_mode);
+    // codec always gets a concrete, content_mode-appropriate value at
+    // creation time (unlike encode_args, which stays nullable and
+    // resolves dynamically - see `RadioStation::effective_encode_args`).
+    let codec = req.codec.unwrap_or_else(|| {
+        default_codec_for_content_mode(&content_mode, &crate::radio::config::effective())
+    });
 
     // sqlite generates id via DEFAULT (lower(hex(randomblob(8))))
     let id: String = sqlx::query_scalar!(
@@ -117,6 +136,18 @@ pub async fn update_station(req: UpdateStationRequest) -> GrimoireResult<RadioSt
 
     let play_mode = req.play_mode.map(|m| normalize_play_mode(Some(m)));
     let content_mode = req.content_mode.map(|m| normalize_content_mode(Some(m)));
+    // when content_mode is changing and the caller didn't ALSO specify a
+    // codec in the same request, refresh codec to the new mode's config
+    // default instead of leaving whatever was there before (very likely
+    // picked for the OLD content_mode, and would otherwise silently
+    // survive the switch wrong - the exact bug that motivated this).
+    let codec = match (&content_mode, &req.codec) {
+        (Some(cm), None) => Some(default_codec_for_content_mode(
+            cm,
+            &crate::radio::config::effective(),
+        )),
+        _ => req.codec,
+    };
 
     sqlx::query!(
         r#"UPDATE radio_stationz SET
@@ -136,7 +167,7 @@ pub async fn update_station(req: UpdateStationRequest) -> GrimoireResult<RadioSt
         is_public,
         is_enabled,
         req.encode_args,
-        req.codec,
+        codec,
         play_mode,
         timeline_only_mode,
         content_mode,

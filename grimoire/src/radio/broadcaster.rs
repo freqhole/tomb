@@ -814,11 +814,15 @@ impl Broadcaster {
         }
 
         let mut encoder = {
+            // content_mode-aware: a video-capable station with no
+            // per-station encode_args override must NOT fall back to the
+            // plain audio default (`-vn` strips video entirely) - see
+            // `RadioStation::effective_encode_args`.
             let station_encode_args = stations::get_station(&self.station_id)
                 .await
                 .ok()
                 .flatten()
-                .and_then(|s| s.encode_args);
+                .map(|s| s.effective_encode_args(&radio_cfg).to_string());
             BufferedEncoder::start(&track.local_path, station_encode_args.as_deref())?
         };
         let skip_generation = self.skip_request_generation.load(Ordering::Relaxed);
@@ -942,6 +946,11 @@ impl Broadcaster {
             started
         };
         let mut media_chunks_emitted: u64 = 0;
+        // real-time-factor diagnostic: counts fragments the encoder
+        // delivered a full frag_ms (or more) behind the pacer's schedule -
+        // see the warn! at the point of detection below for what this
+        // means and why it matters more for video than audio.
+        let mut encoder_behind_schedule_events: u32 = 0;
 
         // pull chunks until ffmpeg signals EOF (clean song end). if it
         // errors mid-song we still want to close out the play history row
@@ -1019,6 +1028,36 @@ impl Broadcaster {
                                 }
                             }
                         }
+                    } else {
+                        // encoder didn't have this fragment ready by its
+                        // scheduled emission time - the buffer_seconds
+                        // cushion is what's actually protecting listeners
+                        // right now, not the pacer. one-off lateness (a
+                        // slow disk read, a brief CPU spike) is normal and
+                        // not worth logging; falling a FULL fragment or
+                        // more behind schedule means the encode itself
+                        // can't keep up in real time (a real risk for a
+                        // video-capable station's much heavier h264 encode
+                        // vs the cheap audio-only default - see
+                        // `RadioConfig::video_encode_args`) and every
+                        // occurrence erodes that cushion, eventually
+                        // surfacing to listeners as a stall no amount of
+                        // CLIENT-side buffering can mask (the bytes simply
+                        // don't exist yet upstream). logged unthrottled,
+                        // like other broadcaster warnings in this file -
+                        // this should be rare in a healthy setup, so
+                        // volume itself is the diagnostic signal.
+                        let behind = now.duration_since(target);
+                        if behind >= Duration::from_millis(frag_ms) {
+                            encoder_behind_schedule_events += 1;
+                            warn!(
+                                "[radio-broadcaster] station {} encoder running {:?} behind \
+                                 real-time schedule on '{}' (event #{encoder_behind_schedule_events} \
+                                 this track) - the encode can't keep up with frag_ms={frag_ms}ms; \
+                                 consider a cheaper preset/lower bitrate for this content_mode",
+                                self.station_id, behind, track.title
+                            );
+                        }
                     }
 
                     let seq = self.next_seq.fetch_add(1, Ordering::Relaxed);
@@ -1069,8 +1108,8 @@ impl Broadcaster {
         }
 
         info!(
-            "[radio-broadcaster] station {} song finished: {}",
-            self.station_id, track.title
+            "[radio-broadcaster] station {} song finished: {} ({} chunks, {} behind-schedule events)",
+            self.station_id, track.title, media_chunks_emitted, encoder_behind_schedule_events
         );
         Ok(())
     }
