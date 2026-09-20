@@ -23,6 +23,10 @@ pub struct RadioStation {
     /// when non-zero the broadcaster skips the audio uni stream entirely;
     /// all listeners use timeline/queue-mode playback.
     pub timeline_only_mode: i64,
+    /// 'audio_only' | 'audio_or_video' | 'video_only' - gates whether the
+    /// picker resolves song_ids/video_ids at all, independent of which
+    /// filter rows exist. see migration 082's doc comment.
+    pub content_mode: String,
     pub created_at: i64,
     pub updated_at: i64,
 }
@@ -48,6 +52,9 @@ pub struct CreateStationRequest {
     /// this station and serve only timeline control messages.
     #[serde(default)]
     pub timeline_only_mode: Option<bool>,
+    /// 'audio_only' (default) | 'audio_or_video' | 'video_only'.
+    #[serde(default)]
+    pub content_mode: Option<String>,
 }
 
 /// partial update — only present fields are written.
@@ -72,6 +79,9 @@ pub struct UpdateStationRequest {
     /// this station and serve only timeline control messages.
     #[serde(default)]
     pub timeline_only_mode: Option<bool>,
+    /// 'audio_only' | 'audio_or_video' | 'video_only'.
+    #[serde(default)]
+    pub content_mode: Option<String>,
 }
 
 /// one filter clause attached to a station.
@@ -139,6 +149,11 @@ pub enum StationFilterType {
     /// every video in a video_seriez (across every season) - the
     /// video-domain equivalent of `Album`. added migration 081.
     VideoSeries,
+    /// every playable video in the library, no FK/value at all (like
+    /// `Favorite` below) - lets a station shuffle across all videos
+    /// without needing a `video_series` row per series. added for the
+    /// "video-only station" prototype.
+    AllVideos,
     /// song is favorited, or belongs to a favorited album/artist/
     /// playlist — any user, existential (see repository.rs). no value.
     Favorite,
@@ -173,6 +188,7 @@ impl StationFilterType {
             Self::Playlist => "playlist",
             Self::Video => "video",
             Self::VideoSeries => "video_series",
+            Self::AllVideos => "all_videos",
             Self::Favorite => "favorite",
             Self::RatingGte => "rating_gte",
             Self::RatingLte => "rating_lte",
@@ -196,6 +212,7 @@ impl StationFilterType {
             "playlist" => Some(Self::Playlist),
             "video" => Some(Self::Video),
             "video_series" => Some(Self::VideoSeries),
+            "all_videos" => Some(Self::AllVideos),
             "favorite" => Some(Self::Favorite),
             "rating_gte" => Some(Self::RatingGte),
             "rating_lte" => Some(Self::RatingLte),

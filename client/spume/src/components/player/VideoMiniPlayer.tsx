@@ -2,7 +2,11 @@ import { createEffect, createSignal, onCleanup, onMount, Show } from "solid-js";
 import { Icon, IconNames } from "../icons/registry";
 import { debug } from "../../utils/logger";
 import { isTouchDevice } from "../../utils/isMobile";
-import { isPlaying, pause, togglePlayback } from "../../music/services/audio/player";
+import {
+  isPlaying as musicIsPlaying,
+  pause as musicPause,
+  togglePlayback as musicTogglePlayback,
+} from "../../music/services/audio/player";
 
 // delay before a click's play/pause toggle fires, so a second click
 // arriving within the window can cancel it and fire fullscreen instead.
@@ -38,6 +42,21 @@ export interface VideoMiniPlayerProps {
    *  artwork/qr code occupies. real browser fullscreen (the fullscreen
    *  button/double-click) works the same either way. */
   variant?: "floating" | "inline";
+  /** overrides for the default (on-demand queue) music player's
+   * isPlaying/togglePlayback/pause - lets radio's video-kind tracks reuse
+   * this component with radioStatus()/radioResume()/radioPause() instead.
+   * omitted (the non-radio, default queue-video case) keeps existing
+   * behavior unchanged. */
+  isPlaying?: () => boolean;
+  onTogglePlayback?: () => void | Promise<void>;
+  onPause?: () => void;
+  /** called when this panel unmounts (dismissed, or the underlying video
+   * stops being active) - lets a caller whose video element must always
+   * stay attached SOMEWHERE in the dom (radio's persistent sink; see its
+   * ManagedMediaSource doc comments) move it back to a hidden parent
+   * instead of leaving it orphaned. no-op for the default queue-video
+   * case, which has no such requirement. */
+  onElementDetach?: (el: HTMLVideoElement) => void;
 }
 
 /** floating mini video player — sits above the player bar, anchored to
@@ -48,6 +67,11 @@ export interface VideoMiniPlayerProps {
 export function VideoMiniPlayer(props: VideoMiniPlayerProps) {
   let mount!: HTMLDivElement;
   const isInline = () => props.variant === "inline";
+  const playing = () => (props.isPlaying ?? musicIsPlaying)();
+  const doTogglePlayback = () => void (props.onTogglePlayback ?? musicTogglePlayback)();
+  const doPause = () => (props.onPause ?? musicPause)();
+
+  onCleanup(() => props.onElementDetach?.(props.videoElement));
 
   onMount(() => {
     const el = props.videoElement;
@@ -125,7 +149,7 @@ export function VideoMiniPlayer(props: VideoMiniPlayerProps) {
   // pause (if playing) and hide the panel - does NOT touch the queue, so
   // playback can resume from the player bar and the panel reopens then.
   const handleClose = () => {
-    if (isPlaying()) pause();
+    if (playing()) doPause();
     props.onClose?.();
   };
 
@@ -138,7 +162,7 @@ export function VideoMiniPlayer(props: VideoMiniPlayerProps) {
     if (clickTimer) return;
     clickTimer = setTimeout(() => {
       clickTimer = null;
-      void togglePlayback();
+      doTogglePlayback();
     }, CLICK_VS_DBLCLICK_DELAY_MS);
   };
 

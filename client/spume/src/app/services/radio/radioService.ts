@@ -1,6 +1,7 @@
 // radio service: tunes into a freqhole-radio/1 broadcaster via midden,
-// pumps fMP4/AAC chunks into a MediaSource, and surfaces meta updates as
-// solid signals.
+// pumps fMP4/AAC (or, for a video-carrying station, fMP4/AAC+H264) chunks
+// into a MediaSource attached to a <video> element, and surfaces meta
+// updates as solid signals.
 //
 // public API:
 //   - tuneInto(peerAddr, opts?) → returns { audio, leave } + state signals
@@ -52,6 +53,9 @@ function stopQueueModeAdapter(): void {
   queueAdapter?.stopQueueModeAdapter();
 }
 
+// fallback only - the real codec for a SourceBuffer always comes from
+// the station's own Hello.codec (see applyHello), which may differ for
+// a video-carrying station. used only if Hello is somehow missing one.
 const MSE_CODEC = 'audio/mp4; codecs="mp4a.40.2"';
 
 type ManagedMediaSourceCtor = new () => MediaSource;
@@ -60,7 +64,7 @@ type ManagedMediaSourceCtor = new () => MediaSource;
 // API alongside classic `MediaSource` - undetected by a `window.MediaSource`
 // check alone, which would wrongly force those devices into timeline/queue
 // mode even though they can chunk-stream. attach path is `srcObject` on our
-// existing `<audio>` element (below) - confirmed working on a real iPhone
+// persistent <video> element (below) - confirmed working on a real iPhone
 // (iOS 18.7), but only once `audio.disableRemotePlayback = true` is set
 // before the `srcObject` assignment; without it, WebKit never fires
 // `sourceopen` at all (see where `disableRemotePlayback` is set, below).
@@ -111,7 +115,9 @@ interface RadioSession {
   stationId: string | null;
   stationName: string | null;
   isLocal: boolean;
-  audio: HTMLAudioElement;
+  // a <video> element regardless of station content_mode - an audio-only
+  // station just never gets real frames painted to it. see getRadioVideoElement.
+  audio: HTMLVideoElement;
   leave: () => void;
 }
 
@@ -204,11 +210,12 @@ const stopElapsedTicker = (opts: { reset?: boolean } = {}) => {
 };
 
 let activeSession: RadioSession | null = null;
-// optional persistent <audio> element supplied by RadioBar. when set, new
-// tunes attach their MediaSource to it instead of creating a fresh element.
-// keeps playback alive across navigation and gives the global player bar a
-// stable target for volume + visibility.
-let audioSink: HTMLAudioElement | null = null;
+// optional persistent <video> element supplied by RadioAudioSink. when set,
+// new tunes attach their MediaSource to it instead of creating a fresh
+// element. keeps playback alive across navigation and gives the global
+// player bar a stable target for volume + visibility, and (for a
+// video-carrying station) a real surface to paint video frames onto.
+let audioSink: HTMLVideoElement | null = null;
 
 // active radio listen session — created on first playback start, closed on
 // leaveRadio. one per active tune. used purely for feed visibility ("user
@@ -509,12 +516,23 @@ registerStopRadio(() => leaveRadio());
 registerVolumeMirror((vol) => setRadioVolume(vol));
 
 /**
- * register a persistent <audio> element to receive radio playback. pass
+ * register a persistent <video> element to receive radio playback. pass
  * null to unregister. safe to call before any tune; tuneIntoRadio reads
  * the sink at call time.
  */
-export function setRadioAudioSink(el: HTMLAudioElement | null): void {
+export function setRadioAudioSink(el: HTMLVideoElement | null): void {
   audioSink = el;
+}
+
+/**
+ * the persistent sink element itself, for UI that wants to mount it
+ * somewhere visible (e.g. a video-kind track's real frames) - mirrors
+ * `music/services/audio/player.ts`'s `getVideoElement()`. null before
+ * `setRadioAudioSink` has registered one (RadioAudioSink mounts at app
+ * root, so in practice this is only null pre-mount).
+ */
+export function getRadioVideoElement(): HTMLVideoElement | null {
+  return audioSink;
 }
 
 /**
@@ -848,15 +866,17 @@ function maybeRecordImmediateMetaHistory(
 }
 
 /**
- * connect to a radio broadcaster. returns the audio element so views
- * can attach it to the dom (or to a layout-level player bar later).
+ * connect to a radio broadcaster. returns the <video> element so views
+ * can attach it to the dom (or to a layout-level player bar later) - used
+ * for its audio output on every station, and for real video frames when
+ * the station is currently playing a video-kind track.
  *
  * subsequent calls leave the previous session before starting the new one.
  */
 export async function tuneIntoRadio(
   peerAddr: string,
   opts: TuneOptions = {}
-): Promise<HTMLAudioElement> {
+): Promise<HTMLVideoElement> {
   clearTimelineReconnect();
   if (opts.preservePlayback) {
     // reconnect control stream without resetting timeline playback state.
@@ -1002,13 +1022,16 @@ export async function tuneIntoRadio(
   }
 
   // ---- mse setup -------------------------------------------------------
-  // prefer a persistent sink (mounted in the global RadioBar) so navigation
-  // doesn't tear down the audio element. fall back to a transient element
-  // for callers without a registered sink.
-  const audio = audioSink ?? document.createElement("audio");
+  // prefer a persistent sink (mounted in the global RadioAudioSink) so
+  // navigation doesn't tear down the element. fall back to a transient
+  // element for callers without a registered sink. always a <video>
+  // element (even for an audio-only station) so a video-carrying station
+  // never needs to swap elements mid-stream - see getRadioVideoElement.
+  const audio = audioSink ?? document.createElement("video");
   const ownsAudio = audio !== audioSink;
   audio.autoplay = false;
   audio.preload = "auto";
+  audio.playsInline = true;
   // a persistent sink could carry a stale mute from a session that ended
   // mid post-skip-mute window; always start a fresh tune unmuted.
   audio.muted = false;
@@ -1063,6 +1086,11 @@ export async function tuneIntoRadio(
   }
 
   let sb: SourceBuffer | null = null;
+  // set by applyHello once the real Hello message arrives - the fallback
+  // in rebuildSourceBuffer() uses this instead of the hardcoded default
+  // so a video station's SourceBuffer never gets recreated with the
+  // wrong (audio-only) codec after a lag resync.
+  let helloCodec: string | null = null;
   const queue: Uint8Array[] = [];
   let seekedToLive = false;
   let chunkPlayStarted = false;
@@ -1292,11 +1320,9 @@ export async function tuneIntoRadio(
       audio.load();
       throw new Error("radio tune superseded by a newer attempt");
     }
-    sb = ms.addSourceBuffer(MSE_CODEC);
-    // sequence mode rewrites segment timestamps so cross-track + catchup
-    // chunks form a single contiguous buffered range.
-    sb.mode = "sequence";
-    sb.addEventListener("updateend", drain);
+    // NOTE: addSourceBuffer is deliberately NOT called here - it needs the
+    // station's actual codec string, which only arrives via Hello (see
+    // applyHello below, which creates `sb` the first time it runs).
   }
 
   // server-driven resync: when the broadcaster sends ControlMessage::Lag
@@ -1564,7 +1590,7 @@ export async function tuneIntoRadio(
       // only reached if the very first addSourceBuffer (during tune
       // bootstrap) never happened — fall back to creating one.
       try {
-        sb = ms.addSourceBuffer(MSE_CODEC);
+        sb = ms.addSourceBuffer(helloCodec ?? MSE_CODEC);
         sb.mode = "sequence";
         sb.addEventListener("updateend", drain);
       } catch (e) {
@@ -1911,6 +1937,26 @@ export async function tuneIntoRadio(
     if (!isActiveTune()) return;
     try {
       const msg = JSON.parse(helloJson);
+      // the station's real codec only arrives here - addSourceBuffer must
+      // use it (a video station's codec differs from the audio-only
+      // MSE_CODEC fallback), not the hardcoded constant.
+      if (ms && !sb) {
+        const codec =
+          typeof msg?.codec === "string" && msg.codec.trim() ? msg.codec.trim() : MSE_CODEC;
+        helloCodec = codec;
+        try {
+          sb = ms.addSourceBuffer(codec);
+          // sequence mode rewrites segment timestamps so cross-track +
+          // catchup chunks form a single contiguous buffered range.
+          sb.mode = "sequence";
+          sb.addEventListener("updateend", drain);
+        } catch (e) {
+          console.error(`[radio] addSourceBuffer(${codec}) failed:`, e);
+          setStatus("error");
+          setError(`unsupported codec: ${codec}`);
+          return;
+        }
+      }
       if (msg?.now_playing) {
         const helloStationId =
           typeof msg.now_playing.station_id === "string" &&

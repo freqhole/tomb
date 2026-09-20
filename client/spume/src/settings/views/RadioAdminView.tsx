@@ -34,8 +34,11 @@ import { SeedSuggestInput, SongSuggestInput } from "../../components/radio/SeedS
 import {
   REFERENCE_FILTER_TYPES,
   CRITERIA_FILTER_TYPES,
-  type FilterType,
-  isReferenceFilterType,
+  VIDEO_REFERENCE_FILTER_TYPES,
+  VIDEO_ONLY_FILTER_TYPES,
+  type RadioFilterType,
+  isRadioReferenceFilterType,
+  isNoValueFilterType,
   isRatingFilterType,
   filterDisplayValue,
   FILTER_MODES,
@@ -406,6 +409,7 @@ function StationsSection(props: {
                 <th class="py-2 pr-4">name</th>
                 <th class="py-2 pr-4">public</th>
                 <th class="py-2 pr-4">enabled</th>
+                <th class="py-2 pr-4">content</th>
                 <th class="py-2 pr-4">codec</th>
                 <th class="py-2 pr-4">play mode</th>
                 <th class="py-2 pr-4">timeline only</th>
@@ -443,6 +447,23 @@ function StationsSection(props: {
                           }
                         >
                           {s.is_enabled ? "on" : "off"}
+                        </span>
+                      </td>
+                      <td class="py-2 pr-4">
+                        <span
+                          class={
+                            s.content_mode === "video_only"
+                              ? "px-2 py-0.5 text-xs rounded-full bg-fuchsia-600/20 text-fuchsia-400"
+                              : s.content_mode === "audio_or_video"
+                                ? "px-2 py-0.5 text-xs rounded-full bg-sky-600/20 text-sky-400"
+                                : "px-2 py-0.5 text-xs rounded-full bg-neutral-700/40 text-neutral-400"
+                          }
+                        >
+                          {s.content_mode === "video_only"
+                            ? "video only"
+                            : s.content_mode === "audio_or_video"
+                              ? "audio + video"
+                              : "audio only"}
                         </span>
                       </td>
                       <td class="py-2 pr-4 text-xs text-[var(--color-text-muted)]">{s.codec}</td>
@@ -540,6 +561,21 @@ function StationsSection(props: {
 // create station form
 // ------------------------------------------------------------------
 
+// starting point for a video-carrying station's ffmpeg args/MSE codec -
+// grimoire's node-wide default (`default_encode_args` in
+// grimoire/src/radio/config.rs) strips video entirely (`-vn`), so a
+// video/audio_or_video station needs an explicit override or it would
+// silently broadcast audio only. editable in the form below; not yet
+// verified against a real device end-to-end (see the video prototype's
+// progress notes) - a reasonable starting point, not a guarantee.
+const VIDEO_ENCODE_ARGS =
+  "-hide_banner -loglevel error -fflags +genpts -i {input} -map 0:v:0 -map 0:a:0 " +
+  "-c:v libx264 -profile:v main -preset veryfast -b:v 2500k -pix_fmt yuv420p " +
+  "-c:a aac -profile:a aac_low -b:a 192k -ar 48000 -ac 2 " +
+  "-movflags frag_keyframe+empty_moov+default_base_moof " +
+  "-frag_duration 3000000 -avoid_negative_ts make_zero -f mp4 pipe:1";
+const VIDEO_CODEC = 'video/mp4; codecs="avc1.4D401F, mp4a.40.2"';
+
 function CreateStationSection(props: {
   client: AdminClient;
   ffmpegAvailable: () => boolean;
@@ -551,12 +587,31 @@ function CreateStationSection(props: {
   const [isEnabled, setIsEnabled] = createSignal(true);
   const [playMode, setPlayMode] = createSignal("shuffle");
   const [timelineOnly, setTimelineOnly] = createSignal(false);
+  const [contentMode, setContentMode] = createSignal<
+    "audio_only" | "audio_or_video" | "video_only"
+  >("audio_only");
+  const [encodeArgs, setEncodeArgs] = createSignal("");
+  const [codec, setCodec] = createSignal("");
+  const [seedAllVideos, setSeedAllVideos] = createSignal(true);
   const [submitting, setSubmitting] = createSignal(false);
 
   createEffect(() => {
     if (!props.ffmpegAvailable()) {
       setTimelineOnly(true);
     }
+  });
+
+  // prefill the video encode preset the first time the user picks a
+  // video-carrying content_mode; leaves any manual edits alone once made,
+  // and clears back to empty (node-wide default) going back to audio_only.
+  createEffect(() => {
+    if (contentMode() === "audio_only") {
+      setEncodeArgs("");
+      setCodec("");
+      return;
+    }
+    if (!encodeArgs().trim()) setEncodeArgs(VIDEO_ENCODE_ARGS);
+    if (!codec().trim()) setCodec(VIDEO_CODEC);
   });
 
   const submit = async (e: Event) => {
@@ -574,12 +629,33 @@ function CreateStationSection(props: {
         is_enabled: isEnabled(),
         play_mode: playMode(),
         timeline_only_mode: props.ffmpegAvailable() ? timelineOnly() : true,
+        content_mode: contentMode(),
+        encode_args: contentMode() !== "audio_only" ? encodeArgs().trim() || undefined : undefined,
+        codec: contentMode() !== "audio_only" ? codec().trim() || undefined : undefined,
       };
       const created = (await props.client.dispatchOrThrow(
         "radio_stations_create",
         req
       )) as RadioStation;
       toast.success(`station "${created.name}" created`);
+      // video/audio_or_video stations have nothing to play yet without a
+      // filter - seed with "every video in the library" so a video-only
+      // station is immediately playable, matching what this checkbox
+      // promises.
+      if (contentMode() !== "audio_only" && seedAllVideos()) {
+        try {
+          await props.client.dispatchOrThrow("radio_filters_add", {
+            station_id: created.id,
+            filter_type: "all_videos",
+            filter_value: "",
+            mode: "include",
+          });
+        } catch (e) {
+          const msg =
+            e instanceof AdminCommandError ? e.message : e instanceof Error ? e.message : String(e);
+          toast.error(`station created, but failed to seed all-videos filter: ${msg}`);
+        }
+      }
       // reset form
       setName("");
       setDescription("");
@@ -587,6 +663,8 @@ function CreateStationSection(props: {
       setIsEnabled(true);
       setPlayMode("shuffle");
       setTimelineOnly(!props.ffmpegAvailable());
+      setContentMode("audio_only");
+      setSeedAllVideos(true);
       props.onCreated?.();
     } catch (e) {
       const msg =
@@ -665,10 +743,65 @@ function CreateStationSection(props: {
             />
             ffmpeg chunk mode (uncheck for timeline-only mode)
           </label>
+          <label class="flex items-center gap-2 text-sm text-[var(--color-text-secondary)]">
+            content
+            <select
+              class="rounded bg-[var(--color-bg-tertiary)] px-2 py-1 text-sm text-[var(--color-text-primary)] border border-[var(--color-border-subtle)]"
+              value={contentMode()}
+              onChange={(e) =>
+                setContentMode(
+                  e.currentTarget.value as "audio_only" | "audio_or_video" | "video_only"
+                )
+              }
+            >
+              <option value="audio_only">audio only</option>
+              <option value="audio_or_video">audio + video</option>
+              <option value="video_only">video only</option>
+            </select>
+          </label>
         </div>
         <Show when={!props.ffmpegAvailable()}>
           <div class="text-xs text-[var(--color-text-muted)]">
             ffmpeg is not installed on this node; stations will run in timeline-only mode.
+          </div>
+        </Show>
+        <Show when={contentMode() !== "audio_only"}>
+          <div class="flex flex-col gap-3 rounded-md border border-[var(--color-border-subtle)] bg-[var(--color-bg-tertiary)]/40 p-3">
+            <div class="text-xs text-[var(--color-text-muted)]">
+              video-carrying stations need an ffmpeg encode that keeps the video stream (the
+              node-wide default strips it) and a matching browser codec string - prefilled with a
+              starting-point preset below, editable if it doesn't work for your library's videos.
+            </div>
+            <label class="flex flex-col gap-1">
+              <span class="text-xs uppercase tracking-wide text-[var(--color-text-muted)]">
+                codec (MSE SourceBuffer mime type)
+              </span>
+              <input
+                class="w-full rounded bg-[var(--color-bg-tertiary)] px-3 py-2 text-xs font-mono text-[var(--color-text-primary)] border border-[var(--color-border-subtle)]"
+                value={codec()}
+                onInput={(e) => setCodec(e.currentTarget.value)}
+              />
+            </label>
+            <label class="flex flex-col gap-1">
+              <span class="text-xs uppercase tracking-wide text-[var(--color-text-muted)]">
+                encode args (ffmpeg, `{"{input}"}` placeholder)
+              </span>
+              <textarea
+                class="w-full rounded bg-[var(--color-bg-tertiary)] px-3 py-2 text-xs font-mono text-[var(--color-text-primary)] border border-[var(--color-border-subtle)]"
+                rows={3}
+                value={encodeArgs()}
+                onInput={(e) => setEncodeArgs(e.currentTarget.value)}
+              />
+            </label>
+            <label class="flex items-center gap-2 text-sm text-[var(--color-text-secondary)]">
+              <input
+                type="checkbox"
+                checked={seedAllVideos()}
+                onChange={(e) => setSeedAllVideos(e.currentTarget.checked)}
+              />
+              seed with "every video in the library" (shuffle) - more filters can be added after
+              creation
+            </label>
           </div>
         </Show>
         <div>
@@ -709,13 +842,13 @@ function StationSeedEditor(props: { stationId: string; client: AdminClient }) {
   });
 
   const [busy, setBusy] = createSignal(false);
-  const [fType, setFType] = createSignal<FilterType>("tag");
+  const [fType, setFType] = createSignal<RadioFilterType>("tag");
   const [fValue, setFValue] = createSignal("");
   const [fMode, setFMode] = createSignal("include");
 
   const addFilter = async (e: Event) => {
     e.preventDefault();
-    if (fType() !== "favorite" && !fValue().trim()) {
+    if (!isNoValueFilterType(fType()) && !fValue().trim()) {
       toast.error("filter value required");
       return;
     }
@@ -724,7 +857,7 @@ function StationSeedEditor(props: { stationId: string; client: AdminClient }) {
       await props.client.dispatchOrThrow("radio_filters_add", {
         station_id: props.stationId,
         filter_type: fType(),
-        filter_value: fType() === "favorite" ? "" : fValue().trim(),
+        filter_value: isNoValueFilterType(fType()) ? "" : fValue().trim(),
         mode: fMode(),
       });
       setFValue("");
@@ -756,7 +889,9 @@ function StationSeedEditor(props: { stationId: string; client: AdminClient }) {
     <div class="rounded-md border border-[var(--color-border-subtle)] bg-[var(--color-bg-base)] p-4">
       <div class="text-xs text-[var(--color-text-muted)] mb-3">
         seed query — every clause references a real record. include rows define the candidate set
-        (intersection); exclude rows subtract from it. add `track` filters to pin specific songs.
+        (intersection); exclude rows subtract from it. add `track` filters to pin specific songs, or
+        `video`/`video_series` for a specific video/series; `all_videos` shuffles across every
+        playable video in the library (a good starting point for a video-only station).
       </div>
 
       {/* filters */}
@@ -814,24 +949,31 @@ function StationSeedEditor(props: { stationId: string; client: AdminClient }) {
             class="text-xs px-2 py-1 rounded bg-[var(--color-bg-tertiary)] border border-[var(--color-border-subtle)] text-[var(--color-text-primary)]"
             value={fType()}
             onChange={(e) => {
-              setFType(e.currentTarget.value as FilterType);
+              setFType(e.currentTarget.value as RadioFilterType);
               setFValue("");
             }}
           >
             <optgroup label="reference">
               <For each={REFERENCE_FILTER_TYPES}>{(t) => <option value={t}>{t}</option>}</For>
+              <For each={VIDEO_REFERENCE_FILTER_TYPES}>{(t) => <option value={t}>{t}</option>}</For>
+            </optgroup>
+            <optgroup label="video library">
+              <For each={VIDEO_ONLY_FILTER_TYPES}>{(t) => <option value={t}>{t}</option>}</For>
             </optgroup>
             <optgroup label="criteria (any user)">
               <For each={CRITERIA_FILTER_TYPES}>{(t) => <option value={t}>{t}</option>}</For>
             </optgroup>
           </select>
-          <Show when={isReferenceFilterType(fType())}>
+          <Show when={isRadioReferenceFilterType(fType())}>
             <Show
               when={fType() === "track"}
               fallback={
                 <SeedSuggestInput
                   client={props.client}
-                  kind={fType() as "tag" | "taxon" | "artist" | "album" | "playlist"}
+                  kind={
+                    fType() as
+                      "tag" | "taxon" | "artist" | "album" | "playlist" | "video" | "video_series"
+                  }
                   value={fValue()}
                   onChange={setFValue}
                   placeholder={`${fType()} name`}
@@ -841,10 +983,10 @@ function StationSeedEditor(props: { stationId: string; client: AdminClient }) {
               <SongSuggestInput client={props.client} value={fValue()} onChange={setFValue} />
             </Show>
           </Show>
-          <Show when={fType() === "favorite"}>
+          <Show when={isNoValueFilterType(fType())}>
             <span class="text-xs text-[var(--color-text-muted)] px-1">no value needed</span>
           </Show>
-          <Show when={!isReferenceFilterType(fType()) && fType() !== "favorite"}>
+          <Show when={!isRadioReferenceFilterType(fType()) && !isNoValueFilterType(fType())}>
             <input
               type="number"
               class="text-xs px-2 py-1 rounded bg-[var(--color-bg-tertiary)] border border-[var(--color-border-subtle)] text-[var(--color-text-primary)] w-24"

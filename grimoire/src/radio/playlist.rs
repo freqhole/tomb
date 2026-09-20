@@ -229,13 +229,25 @@ async fn pick_for_station_after_with_options(
         }
     })?;
 
-    let resolved = stations::resolve_playlist(station_id).await?;
-    let mut song_candidates = resolved.song_ids;
-    // video candidates only participate in shuffle mode for now - album
-    // mode's video equivalent (shuffle series, play season/episode order)
-    // is a separate, not-yet-built picker branch. left unused (not even
-    // read) in the album branch below, same as before this change.
-    let video_candidates = resolved.video_ids;
+    // content_mode gates which domain(s) this station ever draws from -
+    // 'audio_only' (every pre-existing station) never touches video_ids,
+    // 'video_only' never touches song_ids, 'audio_or_video' uses both.
+    // this is what makes it safe for cross-domain criteria filters
+    // (taxon/tag/favorite/etc) to also match video: an audio_only
+    // station's resolve_playlist call below never even RUNS a video
+    // query, let alone returns one.
+    let content_mode = station.content_mode.trim().to_ascii_lowercase();
+    let resolved = stations::resolve_playlist(station_id, &content_mode).await?;
+    let mut song_candidates = if content_mode == "video_only" {
+        Vec::new()
+    } else {
+        resolved.song_ids
+    };
+    let video_candidates = if content_mode == "audio_only" {
+        Vec::new()
+    } else {
+        resolved.video_ids
+    };
 
     let mode = match station.play_mode.trim().to_ascii_lowercase().as_str() {
         "album" => "album",
@@ -243,6 +255,18 @@ async fn pick_for_station_after_with_options(
     };
 
     if mode == "album" {
+        if content_mode == "video_only" {
+            // album mode's video-domain equivalent (shuffle series, play
+            // season/episode order) doesn't exist yet - error clearly
+            // rather than silently falling back to the song library
+            // below, which would be wrong for a video-only station.
+            return Err(GrimoireError::ProcessingFailed {
+                message: format!(
+                    "radio: station {station_id} is video_only, but album play_mode doesn't \
+                     support video yet - use shuffle mode instead"
+                ),
+            });
+        }
         // use the full song library if no explicit candidates are
         // configured (video candidates are ignored entirely in this mode).
         if song_candidates.is_empty() {
@@ -280,8 +304,21 @@ async fn pick_for_station_after_with_options(
     // shuffle mode: blend song + video candidates into one pool. no
     // explicit source at all in either domain = fall back to the global
     // random song pool - the zero-config default station relies on this,
-    // and it never has video content configured by definition.
+    // and it never has video content configured by definition. NOT a
+    // valid fallback for a video_only station (it has no song-domain
+    // fallback of its own yet - unlike songs, there's no "shuffle every
+    // video with zero filters" implicit behavior, only the explicit
+    // 'all_videos' marker filter) - error clearly instead of silently
+    // playing a song on a station that's supposed to be video-only.
     if song_candidates.is_empty() && video_candidates.is_empty() {
+        if content_mode == "video_only" {
+            return Err(GrimoireError::ProcessingFailed {
+                message: format!(
+                    "radio: station {station_id} is video_only but has no video candidates - \
+                     add a video, video_series, or all_videos filter"
+                ),
+            });
+        }
         debug!(
             "[radio-picker] station {} (mode: shuffle) has no explicit source; using random fallback",
             station_id

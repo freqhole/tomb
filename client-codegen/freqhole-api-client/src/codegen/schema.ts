@@ -1508,7 +1508,8 @@ export const CreateStationRequestSchema = z.object({
   encode_args: z.string().nullish(),
   codec: z.string().nullish(),
   play_mode: z.string().nullish(),
-  timeline_only_mode: z.boolean().nullish()
+  timeline_only_mode: z.boolean().nullish(),
+  content_mode: z.string().nullish()
 });
 export type CreateStationRequest = z.infer<typeof CreateStationRequestSchema>;
 
@@ -5496,6 +5497,7 @@ export const RadioStationSchema = z.object({
   codec: z.string(),
   play_mode: z.string(),
   timeline_only_mode: z.number(),
+  content_mode: z.string(),
   created_at: z.number(),
   updated_at: z.number()
 });
@@ -7635,7 +7637,8 @@ export const UpdateStationRequestSchema = z.object({
   encode_args: z.string().nullish(),
   codec: z.string().nullish(),
   play_mode: z.string().nullish(),
-  timeline_only_mode: z.boolean().nullish()
+  timeline_only_mode: z.boolean().nullish(),
+  content_mode: z.string().nullish()
 });
 export type UpdateStationRequest = z.infer<typeof UpdateStationRequestSchema>;
 

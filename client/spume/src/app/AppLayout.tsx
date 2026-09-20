@@ -209,6 +209,7 @@ import {
   radioResume,
   radioStatus,
   radioUseTimelineMode,
+  getRadioVideoElement,
   setRadioAudioSink,
   setRadioFavorite,
   tuneIntoRadio,
@@ -272,6 +273,31 @@ export function AppLayout(props: AppLayoutProps) {
     })
   );
 
+  // radio counterpart of the two effects above - a station's video-kind
+  // track switching (or starting playback) un-dismisses the same panel.
+  // mutually exclusive with the local-video case (isRadio() gates which
+  // one actually renders), so sharing one dismissed signal is safe.
+  createEffect(
+    on(
+      () =>
+        playbackMode() === "radio" && radioNowPlaying()?.kind === "video"
+          ? radioNowPlaying()?.song_id
+          : undefined,
+      (id, prevId) => {
+        if (prevId !== undefined && id !== undefined && id !== prevId) {
+          setVideoMiniPlayerDismissed(false);
+        }
+      }
+    )
+  );
+  createEffect(
+    on(radioStatus, (s) => {
+      if (s === "playing" && radioNowPlaying()?.kind === "video" && videoMiniPlayerDismissed()) {
+        setVideoMiniPlayerDismissed(false);
+      }
+    })
+  );
+
   // the mini player floats above everything, including modals - hide it
   // (pausing playback first) whenever any modal opens so it doesn't sit
   // on top of the modal. only applies when a video is actually loaded
@@ -279,10 +305,15 @@ export function AppLayout(props: AppLayoutProps) {
   // hide, so opening a modal shouldn't pause music playback).
   const isAnyModalOpenReactive = useIsAnyModalOpen();
   createEffect(() => {
-    if (currentVideoData() && isAnyModalOpenReactive() && !videoMiniPlayerDismissed()) {
-      if (isPlaying()) pause();
-      setVideoMiniPlayerDismissed(true);
+    const radioVideoActive = playbackMode() === "radio" && radioNowPlaying()?.kind === "video";
+    if (!currentVideoData() && !radioVideoActive) return;
+    if (!isAnyModalOpenReactive() || videoMiniPlayerDismissed()) return;
+    if (radioVideoActive) {
+      if (radioStatus() === "playing") radioPause();
+    } else if (isPlaying()) {
+      pause();
     }
+    setVideoMiniPlayerDismissed(true);
   });
 
   // favorite status for the currently-playing video (video summary rows
@@ -1713,6 +1744,24 @@ export function AppLayout(props: AppLayoutProps) {
               };
             };
 
+            // radio counterpart of barVideo() - only meaningful once
+            // radioNowPlaying().kind === "video" (see isVideoActive below).
+            // radio's now_playing has no poster/images array of its own
+            // (see PublicNowPlaying in grimoire), just the single
+            // art_blob_id already resolved server-side to the video's
+            // poster_blob_id.
+            const barRadioVideo = (): PlayerBarVideo | null => {
+              const np = radioNowPlaying();
+              if (!np || np.kind !== "video") return null;
+              return {
+                id: np.song_id || "radio-video",
+                title: np.title || "untitled",
+                source_type: "remote",
+                poster_blob_id: np.art_blob_id ?? null,
+                remote_server_id: radioCurrentRemoteServerId() ?? undefined,
+              };
+            };
+
             const barIsPlaying = () =>
               isRemoteTargetActive()
                 ? remoteIsPlaying()
@@ -1955,18 +2004,27 @@ export function AppLayout(props: AppLayoutProps) {
                 <Show
                   when={
                     !videoMiniPlayerDismissed() &&
-                    !isRadio() &&
-                    currentVideoData() &&
-                    // on linux the picture is in its own gstreamer window, so
-                    // there is no element here to mirror
-                    !isVideoWindowActive() &&
-                    getVideoElement()
+                    ((!isRadio() &&
+                      currentVideoData() &&
+                      // on linux the picture is in its own gstreamer window,
+                      // so there is no element here to mirror
+                      !isVideoWindowActive() &&
+                      getVideoElement()) ||
+                      (isRadio() && radioNowPlaying()?.kind === "video" && getRadioVideoElement()))
                   }
                 >
                   {(el) => (
                     <VideoMiniPlayer
                       videoElement={el()}
                       onClose={() => setVideoMiniPlayerDismissed(true)}
+                      isPlaying={isRadio() ? () => radioStatus() === "playing" : undefined}
+                      onTogglePlayback={
+                        isRadio()
+                          ? () => (radioStatus() === "playing" ? radioPause() : radioResume())
+                          : undefined
+                      }
+                      onPause={isRadio() ? () => radioPause() : undefined}
+                      onElementDetach={isRadio() ? reclaimRadioVideoElement : undefined}
                     />
                   )}
                 </Show>
@@ -2007,13 +2065,18 @@ export function AppLayout(props: AppLayoutProps) {
                   externalStorageProgress={externalStorageSyncProgressSignal()}
                   onExternalStorageIconClick={() => navigate("/storage-overview")}
                   activeTargetIsRemote={isRemoteTargetActive()}
-                  isVideoActive={!isRadio() && !!currentVideoData()}
+                  isVideoActive={
+                    (!isRadio() && !!currentVideoData()) ||
+                    (isRadio() && radioNowPlaying()?.kind === "video")
+                  }
                   videoElement={
                     !isRadio() && currentVideoData() && !isVideoWindowActive()
                       ? getVideoElement()
-                      : null
+                      : isRadio() && radioNowPlaying()?.kind === "video"
+                        ? getRadioVideoElement()
+                        : null
                   }
-                  video={!isRadio() ? barVideo() : null}
+                  video={!isRadio() ? barVideo() : barRadioVideo()}
                   isVideoFavorite={isCurrentVideoFavorite()}
                   onVideoFavoriteToggle={handleVideoFavoriteToggle}
                 />
@@ -2022,8 +2085,9 @@ export function AppLayout(props: AppLayoutProps) {
           })()}
         </Show>
 
-        {/* persistent <audio> for radio playback. hidden; lives at app root
-          so navigation never tears it down. wired into radioService via
+        {/* persistent <video> for radio playback (also carries audio-only
+          stations - see RadioAudioSink's doc comment). lives at app root so
+          navigation never tears it down. wired into radioService via
           setRadioAudioSink in onMount. */}
         <RadioAudioSink />
 
@@ -2083,19 +2147,43 @@ export function AppLayout(props: AppLayoutProps) {
   );
 }
 
+// the hidden mount `RadioAudioSink` appends its `<video>` element into by
+// default - tracked at module scope (singleton, mirrors `audioSink` in
+// radioService.ts) so `reclaimRadioVideoElement` can move the element back
+// here after the floating `VideoMiniPlayer` (which re-parents it elsewhere
+// while a video-kind track is visible) closes. the element must always
+// stay attached to a real, non-`display:none` parent - see the
+// ManagedMediaSource doc comments below - so simply letting it go
+// orphaned when the mini player unmounts is not an option here.
+let radioVideoSinkMount: HTMLDivElement | null = null;
+
+/** moves the radio video element back into its hidden default parent -
+ * passed as `VideoMiniPlayer`'s `onElementDetach` for the radio case. */
+function reclaimRadioVideoElement(el: HTMLVideoElement): void {
+  if (radioVideoSinkMount && el.parentElement !== radioVideoSinkMount) {
+    radioVideoSinkMount.appendChild(el);
+  }
+}
+
 /**
- * persistent <audio> element for radio playback. mounted once at the
- * app root so navigation never re-creates it (which would tear down the
- * MediaSource pipe). registers itself with `setRadioAudioSink` on mount
- * and unregisters on unmount. hidden from layout.
+ * persistent <video> element for radio playback (audio-only stations just
+ * never get real frames painted to it). mounted once at the app root so
+ * navigation never re-creates it (which would tear down the MediaSource
+ * pipe). registers itself with `setRadioAudioSink` on mount and
+ * unregisters on unmount. hidden here by default; the floating
+ * `VideoMiniPlayer` (see AppLayout's render body) re-parents it into a
+ * visible panel via `appendChild` while a video-kind track is playing,
+ * then moves it back here (`reclaimRadioVideoElement`, above) afterward -
+ * same technique as the non-radio video backend's element.
  */
 function RadioAudioSink() {
   let mount!: HTMLDivElement;
-  const audioEl = (() => {
-    const el = document.createElement("audio");
+  const videoEl = (() => {
+    const el = document.createElement("video");
     el.controls = false;
     el.autoplay = false;
     el.preload = "auto";
+    el.playsInline = true;
     // NOT display:none - confirmed on a real iPhone that a
     // ManagedMediaSource attached via srcObject never fires sourceopen on
     // a display:none element (an isolated, visible repro fired it fine).
@@ -2107,19 +2195,21 @@ function RadioAudioSink() {
     el.style.clip = "rect(0,0,0,0)";
     return el;
   })();
-  setRadioAudioSink(audioEl);
+  setRadioAudioSink(videoEl);
   // initial volume sync — RadioAudioSink mounts after player.ts has
   // restored the persisted volume, so seed the new sink to match.
   try {
-    audioEl.volume = Math.max(0, Math.min(1, volume()));
+    videoEl.volume = Math.max(0, Math.min(1, volume()));
   } catch {
     // ignore — element may not be ready yet.
   }
   onMount(() => {
-    if (mount && audioEl.parentElement !== mount) mount.appendChild(audioEl);
+    if (mount && videoEl.parentElement !== mount) mount.appendChild(videoEl);
+    radioVideoSinkMount = mount;
   });
   onCleanup(() => {
     setRadioAudioSink(null);
+    radioVideoSinkMount = null;
   });
   return <div ref={(el) => (mount = el)} class="hidden" />;
 }

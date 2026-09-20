@@ -16,6 +16,19 @@ fn normalize_play_mode(mode: Option<String>) -> String {
     }
 }
 
+/// 'audio_only' (default) | 'audio_or_video' | 'video_only' - see
+/// migration 082's doc comment. unrecognized input falls back to
+/// 'audio_only' rather than erroring, matching `normalize_play_mode`.
+fn normalize_content_mode(mode: Option<String>) -> String {
+    let raw = mode.unwrap_or_else(|| "audio_only".to_string());
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "audio_only" => "audio_only".to_string(),
+        "audio_or_video" => "audio_or_video".to_string(),
+        "video_only" => "video_only".to_string(),
+        _ => "audio_only".to_string(),
+    }
+}
+
 /// list every station (no filtering; ui can hide disabled ones).
 pub async fn list_stations() -> GrimoireResult<Vec<RadioStation>> {
     let pool = database::connect().await?;
@@ -26,6 +39,7 @@ pub async fn list_stations() -> GrimoireResult<Vec<RadioStation>> {
                   is_enabled as "is_enabled!: i64",
                   encode_args, codec as "codec!", play_mode as "play_mode!",
                   timeline_only_mode as "timeline_only_mode!: i64",
+                  content_mode as "content_mode!",
                   created_at as "created_at!", updated_at as "updated_at!"
            FROM radio_stationz
            ORDER BY created_at ASC"#
@@ -44,6 +58,7 @@ pub async fn get_station(id: &str) -> GrimoireResult<Option<RadioStation>> {
                   is_enabled as "is_enabled!: i64",
                   encode_args, codec as "codec!", play_mode as "play_mode!",
                   timeline_only_mode as "timeline_only_mode!: i64",
+                  content_mode as "content_mode!",
                   created_at as "created_at!", updated_at as "updated_at!"
            FROM radio_stationz WHERE id = ?"#,
         id
@@ -62,12 +77,13 @@ pub async fn create_station(req: CreateStationRequest) -> GrimoireResult<RadioSt
         .codec
         .unwrap_or_else(|| crate::radio::config::MSE_CODEC.to_string());
     let play_mode = normalize_play_mode(req.play_mode);
+    let content_mode = normalize_content_mode(req.content_mode);
 
     // sqlite generates id via DEFAULT (lower(hex(randomblob(8))))
     let id: String = sqlx::query_scalar!(
         r#"INSERT INTO radio_stationz
-                  (name, description, is_public, is_enabled, encode_args, codec, play_mode, timeline_only_mode)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                  (name, description, is_public, is_enabled, encode_args, codec, play_mode, timeline_only_mode, content_mode)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
            RETURNING id"#,
         req.name,
         req.description,
@@ -77,6 +93,7 @@ pub async fn create_station(req: CreateStationRequest) -> GrimoireResult<RadioSt
         codec,
         play_mode,
           timeline_only_mode,
+        content_mode,
     )
     .fetch_one(&pool)
     .await?;
@@ -99,6 +116,7 @@ pub async fn update_station(req: UpdateStationRequest) -> GrimoireResult<RadioSt
     let timeline_only_mode = req.timeline_only_mode.map(|b| b as i64);
 
     let play_mode = req.play_mode.map(|m| normalize_play_mode(Some(m)));
+    let content_mode = req.content_mode.map(|m| normalize_content_mode(Some(m)));
 
     sqlx::query!(
         r#"UPDATE radio_stationz SET
@@ -110,6 +128,7 @@ pub async fn update_station(req: UpdateStationRequest) -> GrimoireResult<RadioSt
               codec              = COALESCE(?, codec),
               play_mode          = COALESCE(?, play_mode),
               timeline_only_mode = COALESCE(?, timeline_only_mode),
+              content_mode       = COALESCE(?, content_mode),
               updated_at         = unixepoch()
            WHERE id = ?"#,
         req.name,
@@ -120,6 +139,7 @@ pub async fn update_station(req: UpdateStationRequest) -> GrimoireResult<RadioSt
         req.codec,
         play_mode,
         timeline_only_mode,
+        content_mode,
         req.id,
     )
     .execute(&pool)
@@ -233,9 +253,9 @@ pub(crate) fn parse_filter_clause<'a>(
         StationFilterType::parse(filter_type).ok_or_else(|| GrimoireError::ProcessingFailed {
             message: format!(
                 "{label}: unknown filter_type '{filter_type}' (expected one of artist, album, \
-                 taxon, tag, track, playlist, video, video_series, favorite, rating_gte, \
-                 rating_lte, play_count_gte, play_count_lte, duration_gte, duration_lte, \
-                 added_days_gte, added_days_lte)"
+                 taxon, tag, track, playlist, video, video_series, all_videos, favorite, \
+                 rating_gte, rating_lte, play_count_gte, play_count_lte, duration_gte, \
+                 duration_lte, added_days_gte, added_days_lte)"
             ),
         })?;
 
@@ -344,6 +364,7 @@ pub(crate) fn parse_filter_clause<'a>(
             None,
         ),
         StationFilterType::Favorite => (None, None, None, None, None, None, None, None, None),
+        StationFilterType::AllVideos => (None, None, None, None, None, None, None, None, None),
         StationFilterType::RatingGte | StationFilterType::RatingLte => {
             let n: i64 =
                 filter_value
@@ -509,30 +530,101 @@ pub struct ResolvedPlaylist {
 ///     they always have ("no source", falls back to the full library or
 ///     a global random pick); an empty `video_ids` simply means this
 ///     station has no video content configured (the common case today).
-pub async fn resolve_playlist(station_id: &str) -> GrimoireResult<ResolvedPlaylist> {
+/// resolve a station's effective playlist across both domains.
+///
+/// `content_mode` ('audio_only' | 'audio_or_video' | 'video_only', see
+/// migration 082) gates whether either domain is resolved AT ALL -
+/// 'audio_only' never runs a single video query (not just "discards the
+/// result"), which is what makes it safe for `taxon`/`tag`/`favorite`/
+/// `rating_gte`/`rating_lte`/`play_count_gte`/`play_count_lte`/
+/// `duration_gte`/`duration_lte`/`added_days_gte`/`added_days_lte` filter
+/// rows to ALSO match video content for a non-audio_only station: those
+/// filter types now route into BOTH domains' independent resolution
+/// passes (not just song's), but an 'audio_only' station's video pass
+/// simply never executes, so its behavior is byte-for-byte identical to
+/// before this existed.
+///
+/// rules (applied independently per-domain - see `ResolvedPlaylist`):
+///   * includes are grouped by `filter_type`. within a group the matches
+///     are UNIONed (e.g. two artist includes => songs by either artist).
+///     across groups the unions are INTERSECTED (e.g. an artist include
+///     plus a genre include => songs by that artist AND in that genre).
+///   * the union of every `exclude` clause is then subtracted.
+///   * when only excludes are configured for a domain, that domain's
+///     candidate set is seeded from its full playable library so
+///     excludes still take effect.
+///   * when a domain has zero filter rows of its own, that domain's
+///     result is empty — callers treat an empty `song_ids` the same way
+///     they always have ("no source", falls back to the full library or
+///     a global random pick); an empty `video_ids` simply means this
+///     station has no video content configured (the common case today).
+pub async fn resolve_playlist(
+    station_id: &str,
+    content_mode: &str,
+) -> GrimoireResult<ResolvedPlaylist> {
     let pool = database::connect().await?;
+
+    let resolve_song = content_mode != "video_only";
+    let resolve_video = content_mode != "audio_only";
 
     let filters = list_filters_with_fks(&pool, station_id).await?;
 
-    const VIDEO_FILTER_TYPES: [&str; 2] = ["video", "video_series"];
-    let (video_filters, song_filters): (Vec<&FilterRow>, Vec<&FilterRow>) = filters
-        .iter()
-        .partition(|f| VIDEO_FILTER_TYPES.contains(&f.filter_type.as_str()));
+    // strictly video-only reference types - no song equivalent at all.
+    const VIDEO_ONLY_FILTER_TYPES: [&str; 3] = ["video", "video_series", "all_videos"];
+    // types that describe the same real-world concept for either domain
+    // - these rows participate in BOTH domains' independent resolution
+    // (each still resolved via its own clause-resolver/full-library
+    // fallback), not just song's. `artist`/`album`/`track`/`playlist`
+    // stay song-only (no video equivalent for the first three; `playlist`
+    // wasn't part of this feature's ask even though playlist_itemz
+    // already supports mixed song+video playlists).
+    const CROSS_DOMAIN_FILTER_TYPES: [&str; 11] = [
+        "taxon",
+        "tag",
+        "favorite",
+        "rating_gte",
+        "rating_lte",
+        "play_count_gte",
+        "play_count_lte",
+        "duration_gte",
+        "duration_lte",
+        "added_days_gte",
+        "added_days_lte",
+    ];
 
-    let song_ids = resolve_domain(
-        &pool,
-        &song_filters,
-        song_ids_for_clause_default,
-        all_playable_song_ids,
-    )
-    .await?;
-    let video_ids = resolve_domain(
-        &pool,
-        &video_filters,
-        video_ids_for_clause,
-        all_playable_video_ids,
-    )
-    .await?;
+    let song_ids = if resolve_song {
+        let song_filters: Vec<&FilterRow> = filters
+            .iter()
+            .filter(|f| !VIDEO_ONLY_FILTER_TYPES.contains(&f.filter_type.as_str()))
+            .collect();
+        resolve_domain(
+            &pool,
+            &song_filters,
+            song_ids_for_clause_default,
+            all_playable_song_ids,
+        )
+        .await?
+    } else {
+        Default::default()
+    };
+    let video_ids = if resolve_video {
+        let video_filters: Vec<&FilterRow> = filters
+            .iter()
+            .filter(|f| {
+                VIDEO_ONLY_FILTER_TYPES.contains(&f.filter_type.as_str())
+                    || CROSS_DOMAIN_FILTER_TYPES.contains(&f.filter_type.as_str())
+            })
+            .collect();
+        resolve_domain(
+            &pool,
+            &video_filters,
+            video_ids_for_clause_default,
+            all_playable_video_ids,
+        )
+        .await?
+    } else {
+        Default::default()
+    };
 
     Ok(ResolvedPlaylist {
         song_ids: song_ids.into_iter().collect(),
@@ -656,16 +748,28 @@ pub(crate) async fn all_playable_video_ids(pool: &sqlx::SqlitePool) -> GrimoireR
 }
 
 /// look up video ids for one filter clause - the video-domain counterpart
-/// of `song_ids_for_clause`. only `"video"`/`"video_series"` resolve to
-/// anything today; every other filter_type (including the criteria types
-/// and the ones that COULD plausibly span both domains, like `taxon`/
-/// `tag`/`playlist`/`favorite`) intentionally yields an empty vec here
-/// until cross-domain matching is explicitly designed (real behavior-
-/// change risk for existing stations if done naively), rather than
-/// silently guessed at in this pass.
+/// of `song_ids_for_clause`. handles the two video-only reference types
+/// (`video`/`video_series`), the `all_videos` marker, and mirrors of
+/// every cross-domain criteria type `song_ids_for_clause` also handles
+/// (`taxon`/`tag`/`favorite`/`rating_gte`/`rating_lte`/`play_count_gte`/
+/// `play_count_lte`/`duration_gte`/`duration_lte`/`added_days_gte`/
+/// `added_days_lte`) - see `resolve_playlist`'s `CROSS_DOMAIN_FILTER_TYPES`
+/// for which types actually get routed here at all (gated on the
+/// station's `content_mode` there, not here - this function has no idea
+/// what station it's being called for). `artist`/`album`/`track`/
+/// `playlist` stay song-only (videos have no artist/album concept, and
+/// `playlist` wasn't part of the user's ask - `playlist_itemz` already
+/// supports mixed song+video playlists server-side if that's wanted
+/// later).
+///
+/// `scoped_user_id` mirrors `song_ids_for_clause`'s param of the same
+/// name - `None` for radio (any-user cascade), `Some(uid)` reserved for
+/// a future per-user caller (external_storage sync doesn't call this
+/// yet).
 pub(crate) async fn video_ids_for_clause(
     pool: &sqlx::SqlitePool,
     clause: &FilterRow,
+    scoped_user_id: Option<&str>,
 ) -> GrimoireResult<Vec<String>> {
     let rows: Vec<String> = match clause.filter_type.as_str() {
         "video" => match &clause.video_id {
@@ -684,9 +788,274 @@ pub(crate) async fn video_ids_for_clause(
             }
             None => Vec::new(),
         },
+        "all_videos" => all_playable_video_ids(pool).await?,
+        // ---- cross-domain criteria types (mirror song_ids_for_clause) --
+        //
+        // taxon/tag cascade: a video matches if IT, its video_series, or
+        // its video_season (any of the three - `entity_taxonz`/
+        // `entity_tagz` are polymorphic across all three, see
+        // `VideoEntityType`) carries the tag/taxon. series_id/season_id
+        // are NULL for a standalone video, so those joins simply never
+        // match for one - safe.
+        "taxon" => match &clause.taxon_id {
+            Some(id) => {
+                sqlx::query_scalar!(
+                    r#"SELECT DISTINCT v.id as "video_id!"
+                   FROM videoz v
+                   LEFT JOIN entity_taxonz et_v ON et_v.entity_type = 'video'
+                          AND et_v.entity_id = v.id AND et_v.taxon_id = ?
+                   LEFT JOIN entity_taxonz et_s ON et_s.entity_type = 'video_series'
+                          AND et_s.entity_id = v.series_id AND et_s.taxon_id = ?
+                   LEFT JOIN entity_taxonz et_e ON et_e.entity_type = 'video_season'
+                          AND et_e.entity_id = v.season_id AND et_e.taxon_id = ?
+                   WHERE et_v.taxon_id IS NOT NULL OR et_s.taxon_id IS NOT NULL
+                      OR et_e.taxon_id IS NOT NULL"#,
+                    id,
+                    id,
+                    id,
+                )
+                .fetch_all(pool)
+                .await?
+            }
+            None => Vec::new(),
+        },
+        "tag" => match &clause.tag_id {
+            Some(id) => {
+                sqlx::query_scalar!(
+                    r#"SELECT DISTINCT v.id as "video_id!"
+                   FROM videoz v
+                   LEFT JOIN entity_tagz et_v ON et_v.entity_type = 'video'
+                          AND et_v.entity_id = v.id AND et_v.tag_id = ?
+                   LEFT JOIN entity_tagz et_s ON et_s.entity_type = 'video_series'
+                          AND et_s.entity_id = v.series_id AND et_s.tag_id = ?
+                   LEFT JOIN entity_tagz et_e ON et_e.entity_type = 'video_season'
+                          AND et_e.entity_id = v.season_id AND et_e.tag_id = ?
+                   WHERE et_v.tag_id IS NOT NULL OR et_s.tag_id IS NOT NULL
+                      OR et_e.tag_id IS NOT NULL"#,
+                    id,
+                    id,
+                    id,
+                )
+                .fetch_all(pool)
+                .await?
+            }
+            None => Vec::new(),
+        },
+        // favorite/rating cascade: a video matches if IT, its
+        // video_series, or a playlist containing it is
+        // favorited/rated. no video_season level here - unlike
+        // taxon/tag, favorites/ratings only ever target 'video'/
+        // 'video_series'/'playlist' (see client-side FavoriteTarget).
+        "favorite" => match scoped_user_id.filter(|_| clause.criteria_scope != Some(1)) {
+            Some(uid) => {
+                sqlx::query_scalar!(
+                    r#"SELECT DISTINCT v.id as "video_id!"
+                   FROM videoz v
+                   LEFT JOIN user_favoritez fv
+                          ON fv.target_type = 'video' AND fv.target_id = v.id AND fv.user_id = ?
+                   LEFT JOIN user_favoritez fs
+                          ON fs.target_type = 'video_series' AND fs.target_id = v.series_id AND fs.user_id = ?
+                   LEFT JOIN playlist_itemz pi ON pi.entity_id = v.id AND pi.entity_type = 'video'
+                   LEFT JOIN user_favoritez fp
+                          ON fp.target_type = 'playlist' AND fp.target_id = pi.playlist_id AND fp.user_id = ?
+                   WHERE fv.id IS NOT NULL OR fs.id IS NOT NULL OR fp.id IS NOT NULL"#,
+                    uid,
+                    uid,
+                    uid,
+                )
+                .fetch_all(pool)
+                .await?
+            }
+            None => {
+                sqlx::query_scalar!(
+                    r#"SELECT DISTINCT v.id as "video_id!"
+                   FROM videoz v
+                   LEFT JOIN user_favoritez fv
+                          ON fv.target_type = 'video' AND fv.target_id = v.id
+                   LEFT JOIN user_favoritez fs
+                          ON fs.target_type = 'video_series' AND fs.target_id = v.series_id
+                   LEFT JOIN playlist_itemz pi ON pi.entity_id = v.id AND pi.entity_type = 'video'
+                   LEFT JOIN user_favoritez fp
+                          ON fp.target_type = 'playlist' AND fp.target_id = pi.playlist_id
+                   WHERE fv.id IS NOT NULL OR fs.id IS NOT NULL OR fp.id IS NOT NULL"#
+                )
+                .fetch_all(pool)
+                .await?
+            }
+        },
+        "rating_gte" => match clause.criteria_value {
+            Some(threshold) => {
+                match scoped_user_id.filter(|_| clause.criteria_scope != Some(1)) {
+                    Some(uid) => {
+                        sqlx::query_scalar!(
+                            r#"SELECT DISTINCT v.id as "video_id!"
+                           FROM videoz v
+                           LEFT JOIN user_ratingz rv
+                                  ON rv.target_type = 'video' AND rv.target_id = v.id
+                                     AND rv.rating >= ? AND rv.user_id = ?
+                           LEFT JOIN user_ratingz rs
+                                  ON rs.target_type = 'video_series' AND rs.target_id = v.series_id
+                                     AND rs.rating >= ? AND rs.user_id = ?
+                           WHERE rv.id IS NOT NULL OR rs.id IS NOT NULL"#,
+                            threshold,
+                            uid,
+                            threshold,
+                            uid,
+                        )
+                        .fetch_all(pool)
+                        .await?
+                    }
+                    None => {
+                        sqlx::query_scalar!(
+                            r#"SELECT DISTINCT v.id as "video_id!"
+                           FROM videoz v
+                           LEFT JOIN user_ratingz rv
+                                  ON rv.target_type = 'video' AND rv.target_id = v.id AND rv.rating >= ?
+                           LEFT JOIN user_ratingz rs
+                                  ON rs.target_type = 'video_series' AND rs.target_id = v.series_id AND rs.rating >= ?
+                           WHERE rv.id IS NOT NULL OR rs.id IS NOT NULL"#,
+                            threshold,
+                            threshold,
+                        )
+                        .fetch_all(pool)
+                        .await?
+                    }
+                }
+            }
+            None => Vec::new(),
+        },
+        "rating_lte" => match clause.criteria_value {
+            Some(threshold) => {
+                match scoped_user_id.filter(|_| clause.criteria_scope != Some(1)) {
+                    Some(uid) => {
+                        sqlx::query_scalar!(
+                            r#"SELECT DISTINCT v.id as "video_id!"
+                           FROM videoz v
+                           LEFT JOIN user_ratingz rv
+                                  ON rv.target_type = 'video' AND rv.target_id = v.id
+                                     AND rv.rating <= ? AND rv.user_id = ?
+                           LEFT JOIN user_ratingz rs
+                                  ON rs.target_type = 'video_series' AND rs.target_id = v.series_id
+                                     AND rs.rating <= ? AND rs.user_id = ?
+                           WHERE rv.id IS NOT NULL OR rs.id IS NOT NULL"#,
+                            threshold,
+                            uid,
+                            threshold,
+                            uid,
+                        )
+                        .fetch_all(pool)
+                        .await?
+                    }
+                    None => {
+                        sqlx::query_scalar!(
+                            r#"SELECT DISTINCT v.id as "video_id!"
+                           FROM videoz v
+                           LEFT JOIN user_ratingz rv
+                                  ON rv.target_type = 'video' AND rv.target_id = v.id AND rv.rating <= ?
+                           LEFT JOIN user_ratingz rs
+                                  ON rs.target_type = 'video_series' AND rs.target_id = v.series_id AND rs.rating <= ?
+                           WHERE rv.id IS NOT NULL OR rs.id IS NOT NULL"#,
+                            threshold,
+                            threshold,
+                        )
+                        .fetch_all(pool)
+                        .await?
+                    }
+                }
+            }
+            None => Vec::new(),
+        },
+        "play_count_gte" => match clause.criteria_value {
+            Some(threshold) => {
+                sqlx::query_scalar!(
+                    r#"SELECT v.id as "video_id!"
+                   FROM videoz v
+                   WHERE (SELECT COUNT(*) FROM play_eventz WHERE entity_type = 'video' AND entity_id = v.id) >= ?"#,
+                    threshold
+                )
+                .fetch_all(pool)
+                .await?
+            }
+            None => Vec::new(),
+        },
+        "play_count_lte" => match clause.criteria_value {
+            Some(threshold) => {
+                sqlx::query_scalar!(
+                    r#"SELECT v.id as "video_id!"
+                   FROM videoz v
+                   WHERE (SELECT COUNT(*) FROM play_eventz WHERE entity_type = 'video' AND entity_id = v.id) <= ?"#,
+                    threshold
+                )
+                .fetch_all(pool)
+                .await?
+            }
+            None => Vec::new(),
+        },
+        "duration_gte" => match clause.criteria_value {
+            Some(threshold) => {
+                sqlx::query_scalar!(
+                    r#"SELECT v.id as "video_id!" FROM videoz v
+                   WHERE v.duration_seconds IS NOT NULL AND v.duration_seconds >= ?"#,
+                    threshold
+                )
+                .fetch_all(pool)
+                .await?
+            }
+            None => Vec::new(),
+        },
+        "duration_lte" => match clause.criteria_value {
+            Some(threshold) => {
+                sqlx::query_scalar!(
+                    r#"SELECT v.id as "video_id!" FROM videoz v
+                   WHERE v.duration_seconds IS NOT NULL AND v.duration_seconds <= ?"#,
+                    threshold
+                )
+                .fetch_all(pool)
+                .await?
+            }
+            None => Vec::new(),
+        },
+        // same "added at least/most n days ago" inversion as songs - see
+        // StationFilterType's doc comments.
+        "added_days_gte" => match clause.criteria_value {
+            Some(days) => {
+                sqlx::query_scalar!(
+                    r#"SELECT v.id as "video_id!" FROM videoz v
+                   WHERE v.created_at <= unixepoch() - (? * 86400)"#,
+                    days
+                )
+                .fetch_all(pool)
+                .await?
+            }
+            None => Vec::new(),
+        },
+        "added_days_lte" => match clause.criteria_value {
+            Some(days) => {
+                sqlx::query_scalar!(
+                    r#"SELECT v.id as "video_id!" FROM videoz v
+                   WHERE v.created_at >= unixepoch() - (? * 86400)"#,
+                    days
+                )
+                .fetch_all(pool)
+                .await?
+            }
+            None => Vec::new(),
+        },
         _ => Vec::new(),
     };
     Ok(rows)
+}
+
+/// thin wrapper adapting `video_ids_for_clause`'s 3-arg signature to the
+/// 2-arg `(pool, clause) -> Vec<String>` shape `resolve_domain` expects -
+/// mirrors `song_ids_for_clause_default` exactly, same reasoning (radio
+/// stations are shared, not per-listener, so `scoped_user_id` is always
+/// `None` here).
+async fn video_ids_for_clause_default(
+    pool: &sqlx::SqlitePool,
+    clause: &FilterRow,
+) -> GrimoireResult<Vec<String>> {
+    video_ids_for_clause(pool, clause, None).await
 }
 
 /// internal row carrying the typed FK columns alongside the metadata.

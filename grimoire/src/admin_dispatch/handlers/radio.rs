@@ -362,6 +362,68 @@ pub(in crate::admin_dispatch) async fn seed_suggest(
                 })
                 .collect()
         }
+        "video" => {
+            use crate::video::crud::query::query_videos;
+            let params = QueryParams {
+                q: if q.is_empty() { None } else { Some(q.clone()) },
+                search_fields: None,
+                filters: std::collections::HashMap::new(),
+                sort_by: Some("title".to_string()),
+                sort_direction: Some("asc".to_string()),
+                limit: Some(limit),
+                offset: Some(0),
+                user_id: None,
+                favorites_only: None,
+                min_rating: None,
+                mb_lookup_status: None,
+                pending_review: None,
+                own_or_collaborative_only: None,
+                caller_is_admin: None,
+                caller_user_id: None,
+            };
+            let resp = query_videos(params, None, None, false).await;
+            resp.data
+                .map(|qr| qr.items)
+                .unwrap_or_default()
+                .into_iter()
+                .map(|v| RadioSeedSuggestion {
+                    id: v.id,
+                    name: v.title,
+                    subtitle: None,
+                })
+                .collect()
+        }
+        "video_series" => {
+            use crate::video::crud::query::query_video_seriez;
+            let params = QueryParams {
+                q: if q.is_empty() { None } else { Some(q.clone()) },
+                search_fields: None,
+                filters: std::collections::HashMap::new(),
+                sort_by: Some("title".to_string()),
+                sort_direction: Some("asc".to_string()),
+                limit: Some(limit),
+                offset: Some(0),
+                user_id: None,
+                favorites_only: None,
+                min_rating: None,
+                mb_lookup_status: None,
+                pending_review: None,
+                own_or_collaborative_only: None,
+                caller_is_admin: None,
+                caller_user_id: None,
+            };
+            let resp = query_video_seriez(params).await;
+            resp.data
+                .map(|qr| qr.items)
+                .unwrap_or_default()
+                .into_iter()
+                .map(|s| RadioSeedSuggestion {
+                    id: s.id,
+                    name: s.title,
+                    subtitle: None,
+                })
+                .collect()
+        }
         other => {
             return GrimoireResponse::failure(
                 format!("unknown seed-suggest kind: {}", other),
