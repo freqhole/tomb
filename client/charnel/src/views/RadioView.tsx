@@ -12,8 +12,19 @@ interface RadioStation {
   codec: string;
   play_mode: string;
   content_mode: string; // 'audio_only' | 'audio_or_video' | 'video_only'
+  bumper_frequency_seconds: number | null;
   created_at: number;
   updated_at: number;
+}
+
+interface RadioBumper {
+  id: string;
+  station_id: string;
+  song_id: string | null;
+  video_id: string | null;
+  label: string;
+  weight: number;
+  created_at: number;
 }
 
 interface StationFilter {
@@ -776,6 +787,18 @@ export default function RadioView() {
                   </div>
                   <Show when={expandedId() === s.id}>
                     <StationSeedEditor stationId={s.id} dispatch={admin.dispatchOrThrow} />
+                    <StationBumperEditor
+                      stationId={s.id}
+                      dispatch={admin.dispatchOrThrow}
+                      frequencySeconds={s.bumper_frequency_seconds}
+                    />
+                    <StationEncodeOverrideEditor
+                      stationId={s.id}
+                      dispatch={admin.dispatchOrThrow}
+                      encodeArgs={s.encode_args ?? ""}
+                      codec={s.codec}
+                      onSaved={() => loadStations()}
+                    />
                   </Show>
                 </>
               )}
@@ -1019,6 +1042,343 @@ function StationSeedEditor(props: StationSeedEditorProps) {
   );
 }
 
+interface StationBumperEditorProps {
+  stationId: string;
+  dispatch: Dispatch;
+  frequencySeconds: number | null;
+}
+
+function StationBumperEditor(props: StationBumperEditorProps) {
+  const [bumpers, setBumpers] = createSignal<RadioBumper[]>([]);
+  const [loading, setLoading] = createSignal(true);
+  const [error, setError] = createSignal("");
+  const [busy, setBusy] = createSignal(false);
+
+  const [bKind, setBKind] = createSignal<"song" | "video">("song");
+  const [bValue, setBValue] = createSignal("");
+  const [bLabel, setBLabel] = createSignal("");
+  const [bWeight, setBWeight] = createSignal(1);
+  const [freq, setFreq] = createSignal(props.frequencySeconds?.toString() ?? "");
+  const [freqBusy, setFreqBusy] = createSignal(false);
+
+  createEffect(() => {
+    void props.stationId;
+    void load();
+  });
+
+  async function load() {
+    setLoading(true);
+    setError("");
+    try {
+      const bs = await props.dispatch<RadioBumper[]>("radio_bumpers_list", {
+        station_id: props.stationId,
+      });
+      setBumpers(bs ?? []);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function addBumper(e: Event) {
+    e.preventDefault();
+    if (!bValue().trim()) {
+      setError(`pick a ${bKind()} for this bumper`);
+      return;
+    }
+    if (!bLabel().trim()) {
+      setError("bumper label required");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      await props.dispatch("radio_bumpers_add", {
+        station_id: props.stationId,
+        song_id: bKind() === "song" ? bValue().trim() : null,
+        video_id: bKind() === "video" ? bValue().trim() : null,
+        label: bLabel().trim(),
+        weight: bWeight(),
+      });
+      setBValue("");
+      setBLabel("");
+      setBWeight(1);
+      await load();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function removeBumper(bumperId: string) {
+    setBusy(true);
+    setError("");
+    try {
+      await props.dispatch("radio_bumpers_remove", { bumper_id: bumperId });
+      await load();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveFrequency(e: Event) {
+    e.preventDefault();
+    setFreqBusy(true);
+    setError("");
+    try {
+      const trimmed = freq().trim();
+      const frequency_seconds = trimmed === "" ? null : Number(trimmed);
+      await props.dispatch("radio_bumpers_set_frequency", {
+        station_id: props.stationId,
+        frequency_seconds,
+      });
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setFreqBusy(false);
+    }
+  }
+
+  return (
+    <div
+      class="card"
+      style={{
+        "margin-bottom": "0.5rem",
+        "border-left": "3px solid #bd5f8f",
+        padding: "0.75rem",
+      }}
+    >
+      <Show when={error()}>
+        <p class="error" style={{ "margin-top": 0 }}>
+          {error()}
+        </p>
+      </Show>
+      <Show when={loading()}>
+        <p class="item-meta">loading bumpers...</p>
+      </Show>
+      <Show when={!loading()}>
+        <form
+          onSubmit={saveFrequency}
+          style={{
+            display: "flex",
+            gap: "0.4rem",
+            "align-items": "flex-end",
+            "margin-bottom": "0.6rem",
+          }}
+        >
+          <label style={{ display: "flex", "flex-direction": "column", gap: "0.2rem" }}>
+            <span class="item-meta" style={{ "font-size": "0.72rem" }}>
+              play a bumper every N seconds (blank = off)
+            </span>
+            <input
+              type="number"
+              min="0"
+              value={freq()}
+              onInput={(e) => setFreq(e.currentTarget.value)}
+              style={{ "font-size": "0.8rem", width: "8rem" }}
+            />
+          </label>
+          <button type="submit" class="primary small" disabled={freqBusy()}>
+            save cadence
+          </button>
+        </form>
+
+        <div style={{ "margin-bottom": "0.5rem" }}>
+          <For each={bumpers()}>
+            {(b) => (
+              <div
+                style={{
+                  display: "flex",
+                  "align-items": "center",
+                  gap: "0.4rem",
+                  padding: "0.2rem 0",
+                  "border-bottom": "1px solid #222",
+                }}
+              >
+                <span
+                  class="badge"
+                  style={{
+                    background: b.video_id ? "#4a3a7a" : "#1f4f6f",
+                    color: b.video_id ? "#c7b8ff" : "#a7d5e8",
+                    "font-size": "0.7rem",
+                    padding: "0.1rem 0.35rem",
+                  }}
+                >
+                  {b.video_id ? "video" : "song"}
+                </span>
+                <span style={{ "font-size": "0.78rem", flex: "1" }}>{b.label}</span>
+                <span class="item-meta" style={{ "font-size": "0.72rem" }}>
+                  weight {b.weight}
+                </span>
+                <button
+                  class="danger small"
+                  style={{ padding: "0.1rem 0.4rem", "font-size": "0.75rem" }}
+                  onClick={() => removeBumper(b.id)}
+                  disabled={busy()}
+                >
+                  ×
+                </button>
+              </div>
+            )}
+          </For>
+          <Show when={bumpers().length === 0}>
+            <p class="item-meta" style={{ margin: "0.25rem 0", "font-size": "0.78rem" }}>
+              no bumpers
+            </p>
+          </Show>
+        </div>
+
+        <form
+          onSubmit={addBumper}
+          style={{
+            display: "flex",
+            gap: "0.35rem",
+            "flex-wrap": "wrap",
+            "align-items": "flex-end",
+          }}
+        >
+          <select
+            value={bKind()}
+            onChange={(e) => {
+              setBKind(e.currentTarget.value as "song" | "video");
+              setBValue("");
+            }}
+            style={{ "font-size": "0.8rem" }}
+          >
+            <option value="song">song</option>
+            <option value="video">video</option>
+          </select>
+          <Show
+            when={bKind() === "song"}
+            fallback={
+              <SeedSuggestInput
+                kind="video"
+                value={bValue()}
+                onChange={setBValue}
+                dispatch={props.dispatch}
+                placeholder="video title"
+              />
+            }
+          >
+            <SongSuggestInput value={bValue()} onChange={setBValue} dispatch={props.dispatch} />
+          </Show>
+          <input
+            type="text"
+            placeholder="label (e.g. station id)"
+            value={bLabel()}
+            onInput={(e) => setBLabel(e.currentTarget.value)}
+            style={{ "font-size": "0.8rem" }}
+          />
+          <input
+            type="number"
+            min="1"
+            title="weight (higher = picked more often)"
+            value={bWeight()}
+            onInput={(e) => setBWeight(e.currentTarget.valueAsNumber || 1)}
+            style={{ "font-size": "0.8rem", width: "4rem" }}
+          />
+          <button type="submit" class="primary small" disabled={busy()}>
+            + add bumper
+          </button>
+        </form>
+      </Show>
+    </div>
+  );
+}
+
+interface StationEncodeOverrideEditorProps {
+  stationId: string;
+  dispatch: Dispatch;
+  encodeArgs: string;
+  codec: string;
+  onSaved: () => void | Promise<void>;
+}
+
+// per-station ffmpeg override (codec + encode args) - see
+// `RadioStation.encode_args`'s doc comment in grimoire for why the
+// override is nullable but "clear" from this form sends an empty
+// string (the only way `radio_stations_update`'s COALESCE can revert
+// it to the node-wide default).
+function StationEncodeOverrideEditor(props: StationEncodeOverrideEditorProps) {
+  const [encodeArgs, setEncodeArgs] = createSignal(props.encodeArgs);
+  const [codec, setCodec] = createSignal(props.codec);
+  const [busy, setBusy] = createSignal(false);
+  const [error, setError] = createSignal("");
+
+  async function save(e: Event) {
+    e.preventDefault();
+    if (!codec().trim()) {
+      setError("codec is required (station playback breaks without one)");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      await props.dispatch("radio_stations_update", {
+        id: props.stationId,
+        encode_args: encodeArgs().trim(),
+        codec: codec().trim(),
+      });
+      await props.onSaved();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div
+      class="card"
+      style={{
+        "margin-bottom": "0.5rem",
+        "border-left": "3px solid #bd5f8f",
+        padding: "0.75rem",
+      }}
+    >
+      <p class="item-meta" style={{ "margin-top": 0 }}>
+        per-station ffmpeg override - leave "encode args" blank to inherit this node's default for
+        this station's content mode (see "radio config" above).
+      </p>
+      <Show when={error()}>
+        <p class="error" style={{ "margin-top": 0 }}>
+          {error()}
+        </p>
+      </Show>
+      <form onSubmit={save} style={{ display: "flex", "flex-direction": "column", gap: "0.5rem" }}>
+        <label>
+          <span class="label">codec (MSE SourceBuffer mime type)</span>
+          <input
+            type="text"
+            value={codec()}
+            onInput={(e) => setCodec(e.currentTarget.value)}
+            disabled={busy()}
+          />
+        </label>
+        <label>
+          <span class="label">encode args (ffmpeg, {"{input}"} placeholder)</span>
+          <textarea
+            rows={3}
+            value={encodeArgs()}
+            onInput={(e) => setEncodeArgs(e.currentTarget.value)}
+            placeholder="(inherit from node config)"
+            disabled={busy()}
+          />
+        </label>
+        <div>
+          <button type="submit" class="primary small" disabled={busy()}>
+            {busy() ? "saving..." : "save"}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
 // ------------------------------------------------------------------
 // seed value autocomplete helpers (mirror of spume RadioAdminView)
 // ------------------------------------------------------------------
@@ -1190,6 +1550,8 @@ interface RadioConfigPayload {
   video_encode_args?: string;
   video_codec?: string;
   ffmpeg_available?: boolean;
+  max_concurrent_audio_streams?: number;
+  max_concurrent_video_streams?: number;
 }
 
 interface RadioConfigSectionProps {
@@ -1202,6 +1564,8 @@ function RadioConfigSection(props: RadioConfigSectionProps) {
   const [encodeArgs, setEncodeArgs] = createSignal("");
   const [videoEncodeArgs, setVideoEncodeArgs] = createSignal("");
   const [videoCodec, setVideoCodec] = createSignal("");
+  const [maxConcurrentAudioStreams, setMaxConcurrentAudioStreams] = createSignal(2);
+  const [maxConcurrentVideoStreams, setMaxConcurrentVideoStreams] = createSignal(1);
   const [loading, setLoading] = createSignal(true);
   const [busy, setBusy] = createSignal(false);
   const [err, setErr] = createSignal("");
@@ -1215,6 +1579,8 @@ function RadioConfigSection(props: RadioConfigSectionProps) {
       setEncodeArgs(cfg.encode_args);
       setVideoEncodeArgs(cfg.video_encode_args ?? "");
       setVideoCodec(cfg.video_codec ?? "");
+      setMaxConcurrentAudioStreams(cfg.max_concurrent_audio_streams ?? 2);
+      setMaxConcurrentVideoStreams(cfg.max_concurrent_video_streams ?? 1);
       props.onEnabledChange?.(cfg.enabled);
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
@@ -1240,6 +1606,8 @@ function RadioConfigSection(props: RadioConfigSectionProps) {
         encode_args: encodeArgs(),
         video_encode_args: videoEncodeArgs(),
         video_codec: videoCodec(),
+        max_concurrent_audio_streams: maxConcurrentAudioStreams(),
+        max_concurrent_video_streams: maxConcurrentVideoStreams(),
       });
       props.onEnabledChange?.(next);
       await load();
@@ -1253,8 +1621,8 @@ function RadioConfigSection(props: RadioConfigSectionProps) {
   }
 
   const [savingEncode, setSavingEncode] = createSignal(false);
-  async function saveEncode(e: Event) {
-    e.preventDefault();
+  async function saveEncode(e?: Event) {
+    e?.preventDefault();
     setSavingEncode(true);
     setErr("");
     try {
@@ -1263,6 +1631,8 @@ function RadioConfigSection(props: RadioConfigSectionProps) {
         encode_args: encodeArgs(),
         video_encode_args: videoEncodeArgs(),
         video_codec: videoCodec(),
+        max_concurrent_audio_streams: maxConcurrentAudioStreams(),
+        max_concurrent_video_streams: maxConcurrentVideoStreams(),
       });
       await load();
     } catch (e) {
@@ -1303,6 +1673,28 @@ function RadioConfigSection(props: RadioConfigSectionProps) {
             >
               {enabled() ? "radio enabled" : "radio disabled"}
             </button>
+          </div>
+          <div style={{ display: "flex", gap: "0.75rem", "margin-bottom": "0.6rem" }}>
+            <label style={{ flex: "1" }}>
+              <span class="label">max concurrent audio streams</span>
+              <input
+                type="number"
+                min="0"
+                value={maxConcurrentAudioStreams()}
+                onInput={(e) => setMaxConcurrentAudioStreams(e.currentTarget.valueAsNumber || 0)}
+                onBlur={() => void saveEncode()}
+              />
+            </label>
+            <label style={{ flex: "1" }}>
+              <span class="label">max concurrent video streams</span>
+              <input
+                type="number"
+                min="0"
+                value={maxConcurrentVideoStreams()}
+                onInput={(e) => setMaxConcurrentVideoStreams(e.currentTarget.valueAsNumber || 0)}
+                onBlur={() => void saveEncode()}
+              />
+            </label>
           </div>
           <details>
             <summary style={{ cursor: "pointer" }}>advanced: node-wide ffmpeg defaults</summary>

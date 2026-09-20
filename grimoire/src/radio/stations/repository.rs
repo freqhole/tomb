@@ -40,6 +40,7 @@ pub async fn list_stations() -> GrimoireResult<Vec<RadioStation>> {
                   encode_args, codec as "codec!", play_mode as "play_mode!",
                   timeline_only_mode as "timeline_only_mode!: i64",
                   content_mode as "content_mode!",
+                  bumper_frequency_seconds,
                   created_at as "created_at!", updated_at as "updated_at!"
            FROM radio_stationz
            ORDER BY created_at ASC"#
@@ -59,6 +60,7 @@ pub async fn get_station(id: &str) -> GrimoireResult<Option<RadioStation>> {
                   encode_args, codec as "codec!", play_mode as "play_mode!",
                   timeline_only_mode as "timeline_only_mode!: i64",
                   content_mode as "content_mode!",
+                  bumper_frequency_seconds,
                   created_at as "created_at!", updated_at as "updated_at!"
            FROM radio_stationz WHERE id = ?"#,
         id

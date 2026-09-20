@@ -3,9 +3,9 @@
 // a host app can drive its OWN existing player/queue instead of running a
 // second, parallel playback engine just to answer remote commands.
 //
-// player.freqhole.net wraps its own playback/playbackEngine.ts +
-// playback/radioClient.ts; spume wraps its own real player + queue
-// services (see docs/cenotaph-migration-plan.md phase 1).
+// spume wraps its own real player + queue services - see
+// `charnelPlaybackAdapter.ts`, the only implementation of this interface
+// in use.
 
 import type { MediaRef, PlayerStatus } from "./schema";
 

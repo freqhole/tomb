@@ -7,6 +7,8 @@
 
 pub mod ratcore;
 
+pub mod share;
+
 #[cfg(not(target_arch = "wasm32"))]
 pub mod log_buffer;
 

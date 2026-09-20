@@ -1,8 +1,7 @@
 // pure, stateless parsing/coercion helpers extracted out of
-// radioService.ts (first cut of the decomposition tracked in
-// docs/radio-audio-video-unification-plan.md's "housekeeping" item) -
-// none of these read or write any radio session state, they just turn
-// raw wire/JSON payloads into typed shapes (or null on malformed input).
+// radioService.ts - none of these read or write any radio session
+// state, they just turn raw wire/JSON payloads into typed shapes (or
+// null on malformed input).
 
 import { schema, type PublicNowPlaying } from "@freqhole/api-client";
 

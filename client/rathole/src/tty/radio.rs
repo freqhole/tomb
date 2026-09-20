@@ -4,31 +4,43 @@
 //! `radio::{messages,protocol}` types - the same wire format the
 //! browser/wasm and charnel radio clients use, see
 //! `client/charnel/src-tauri/src/radio_commands.rs`, which this
-//! module's connect/tune/hello handshake mirrors closely), and writes
-//! the raw fMP4 chunk stream into a per-track named pipe that gets
-//! `VideoCommand::Load`ed into the existing mpv backend.
+//! module's connect/tune/hello handshake mirrors closely), and feeds
+//! the raw fMP4 chunk stream straight into a DEDICATED mpv process's
+//! own stdin, as one continuous byte stream for the whole session.
 //!
 //! mpv (not rodio) drives radio playback: rodio's `PlayerCommand::Load`
 //! only ever opens a real `std::fs::File` (needs `Read + Seek`, since
-//! rodio/symphonia's `Decoder::new` requires `Seek`), and a fifo isn't
-//! seekable - there's no precedent anywhere in this codebase of rodio
-//! decoding a live/growing stream. mpv already handles exactly this
-//! (it's built for HLS/live streams), and rathole already manages an
-//! mpv subprocess for video/audio-fallback playback (`tty::video_player`).
+//! rodio/symphonia's `Decoder::new` requires `Seek`), and a live stream
+//! isn't seekable. mpv already handles exactly this (it's built for
+//! HLS/live streams).
 //!
-//! each track gets its OWN fifo, mirroring the wire protocol's own
-//! per-track "soft reset" semantics (see `protocol.rs`'s `is_init` doc
-//! comment - browsers tear down + recreate their MediaSource on this
-//! same flag): a new `is_init` chunk drops the previous fifo's write
-//! end (mpv sees EOF and that "file" ends) and opens a fresh one,
-//! `loadfile`d into mpv the same way a queued song/video is - this
-//! avoids needing to signal a mid-stream demux reset to mpv itself,
-//! which has no clean way to do that against one already-open file.
+//! this is a DEDICATED mpv process (`RadioMpv`, spawned fresh per
+//! session), NOT the shared `app.video_player` used for on-demand queue
+//! playback - reading a live radio feed needs sole ownership of the
+//! child's stdin for the whole session, which isn't compatible with a
+//! process shared with unrelated queue playback.
+//!
+//! an earlier version of this module used a fresh named pipe per track
+//! (torn down/recreated on every `is_init` chunk, `loadfile`d into the
+//! shared mpv backend over its json ipc socket) on the theory that mpv
+//! has "no clean way" to reset mid-stream. that turned out to be both
+//! UNRELIABLE (mpv would frequently accept the `loadfile` ipc command
+//! but never actually start demuxing - confirmed via direct
+//! reproduction, see docs/radio-mpv-fifo-stall-investigation.md) and
+//! UNNECESSARY (a validated test confirmed mpv tolerates a second,
+//! independent `ftyp+moov` arriving mid-stream on a single stdin pipe
+//! without hanging or erroring - it just keeps playing). so a fresh
+//! `is_init` chunk now just marks "this is where a new track begins"
+//! for the wire protocol/ui's own bookkeeping (`AppAction::
+//! RadioStatusUpdate`, driven by `Meta` control messages) - the actual
+//! media bytes just keep flowing into the same mpv stdin handle,
+//! uninterrupted.
 
-use std::rc::Rc;
+use std::process::Stdio;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use tokio::io::AsyncWriteExt;
+use tokio::process::{Child, ChildStdin, Command};
 use tokio::sync::mpsc;
 
 use grimoire::federation::p2p_client::{get_endpoint_arc, parse_peer_address};
@@ -37,8 +49,7 @@ use grimoire::radio::protocol::{
     read_chunk, read_control_message, write_control_message, RADIO_ALPN,
 };
 
-use crate::ratcore::app::{App, AppAction, RadioPlaybackState, VideoCommand};
-use crate::ratcore::transport::VideoPlayer;
+use crate::ratcore::app::{App, AppAction, RadioPlaybackState};
 
 /// bumped on every `start`/`stop` - lets a superseded session's task
 /// recognize it's stale (another tune or an explicit stop happened)
@@ -55,19 +66,18 @@ fn generation_is_current(generation: u64) -> bool {
 
 /// start (or retune) a radio session - any previous session is
 /// superseded immediately (its next chunk/control-message check will
-/// fail and it tears itself down on its own).
+/// fail and it tears itself down on its own). unlike on-demand queue
+/// video, there's no upfront "no mpv backend in this shell" check here
+/// - `RadioMpv::spawn` is attempted lazily on the first chunk and any
+/// failure (mpv missing, failed to spawn, etc.) surfaces as a normal
+/// `AppAction::RadioEnded` error through the same path as any other
+/// session failure.
 pub fn start(
     app: &mut App,
     peer_addr: String,
     station_id: Option<String>,
     tx: mpsc::UnboundedSender<AppAction>,
 ) {
-    let Some(video_player) = app.video_player.clone() else {
-        let _ = tx.send(AppAction::RadioEnded {
-            error: Some("no mpv backend in this shell".to_string()),
-        });
-        return;
-    };
     // mutually exclusive with regular queue playback, same reasoning
     // as switching between audio/video queue entries - see
     // `tty::queue::play_index`'s module doc.
@@ -84,7 +94,7 @@ pub fn start(
     };
 
     tokio::task::spawn_local(async move {
-        let result = run_session(generation, peer_addr, station_id, video_player, tx.clone()).await;
+        let result = run_session(generation, peer_addr, station_id, tx.clone()).await;
         if generation_is_current(generation) {
             let _ = tx.send(AppAction::RadioEnded {
                 error: result.err(),
@@ -93,26 +103,210 @@ pub fn start(
     });
 }
 
+/// fetches every radio station a remote peer knows about, over the same
+/// p2p transport `start` uses to actually tune (`api_request`/
+/// `FREQHOLE_ALPN` - see grimoire's `p2p_client.rs`) hitting the peer's
+/// public, unauthenticated `GET /api/radio/stations` discovery route
+/// directly - the exact one spume/charnel's own radio browse views poll.
+/// read-only: doesn't touch `app.state` or start a session.
+pub async fn scan_remote_stations(peer_addr: &str) -> crate::ratcore::app::DispatchResponse {
+    use crate::ratcore::app::DispatchResponse;
+    match fetch_stations_raw(peer_addr).await {
+        Ok(stations) => DispatchResponse {
+            success: true,
+            message: format!("found {} radio station(s) on {peer_addr}", stations.len()),
+            data: Some(serde_json::Value::Array(stations)),
+        },
+        Err(e) => DispatchResponse {
+            success: false,
+            message: e,
+            data: None,
+        },
+    }
+}
+
+/// scans every known remote's public radio stations concurrently and
+/// merges them into one flat row list, each row stamped with
+/// `remote_name`/`peer_addr` so a selected row carries everything
+/// `start` needs to tune in directly - backs `/radio` (bare)/`/radio
+/// list`'s result-panel listing. remotes with no `peer_addr` (http-only
+/// entries - rathole can only dial p2p ones) or that fail to respond are
+/// silently skipped rather than failing the whole scan; the summary
+/// message reports how many of each.
+pub async fn scan_all_remote_stations(
+    remotes: &[crate::ratcore::app::RemoteEntry],
+) -> crate::ratcore::app::DispatchResponse {
+    use crate::ratcore::app::DispatchResponse;
+
+    let dialable: Vec<(&str, &str)> = remotes
+        .iter()
+        .filter_map(|r| r.peer_addr.as_deref().map(|p| (r.name.as_str(), p)))
+        .collect();
+
+    if dialable.is_empty() {
+        return DispatchResponse {
+            success: true,
+            message: "no known remotes with a p2p address to scan - use /remote to add one"
+                .to_string(),
+            data: Some(serde_json::Value::Array(vec![])),
+        };
+    }
+
+    let fetches = dialable.into_iter().map(|(name, peer_addr)| {
+        let name = name.to_string();
+        let peer_addr = peer_addr.to_string();
+        async move {
+            let result = fetch_stations_raw(&peer_addr).await;
+            (name, peer_addr, result)
+        }
+    });
+    let results = futures::future::join_all(fetches).await;
+
+    let mut rows: Vec<serde_json::Value> = Vec::new();
+    let mut failed = 0usize;
+    for (remote_name, peer_addr, result) in results {
+        match result {
+            Ok(stations) => {
+                for mut station in stations {
+                    if let Some(obj) = station.as_object_mut() {
+                        obj.insert(
+                            "remote_name".to_string(),
+                            serde_json::Value::String(remote_name.clone()),
+                        );
+                        obj.insert(
+                            "peer_addr".to_string(),
+                            serde_json::Value::String(peer_addr.clone()),
+                        );
+                    }
+                    rows.push(station);
+                }
+            }
+            Err(_) => failed += 1,
+        }
+    }
+
+    let ok_count = remotes.len().saturating_sub(failed);
+    DispatchResponse {
+        success: true,
+        message: format!(
+            "found {} radio station(s) across {ok_count} remote(s){}",
+            rows.len(),
+            if failed > 0 {
+                format!(" ({failed} unreachable)")
+            } else {
+                String::new()
+            }
+        ),
+        data: Some(serde_json::Value::Array(rows)),
+    }
+}
+
+/// merges a local `radio_stations_list`-shaped [`DispatchResponse`]
+/// (rows from `grimoire::radio::stations::repository::list_stations`,
+/// keyed by `id`) with a [`scan_all_remote_stations`]-shaped one (rows
+/// already stamped with `station_id`/`remote_name`/`peer_addr`) into
+/// one flat, uniformly-shaped row list for `/radio` (bare)/`/radio
+/// list` - see that function's doc comment for why bare/list needs to
+/// show both (rathole's own db is frequently a real, populated station
+/// list too, not just an admin-empty stub). local rows get
+/// `station_id` copied from `id`, `remote_name: "this device"`, and -
+/// when p2p is up - our own node id as `peer_addr`, so a local row can
+/// be tuned into via the same `__radio_tune_in__` self-dial path as a
+/// remote one; if p2p isn't ready yet the row still shows, just without
+/// a working "tune in" until it is.
+pub fn merge_local_and_remote_stations(
+    local: crate::ratcore::app::DispatchResponse,
+    remote: crate::ratcore::app::DispatchResponse,
+) -> crate::ratcore::app::DispatchResponse {
+    use crate::ratcore::app::DispatchResponse;
+
+    let own_node_id = grimoire::federation::p2p_client::get_node_id().ok();
+
+    let mut rows: Vec<serde_json::Value> = Vec::new();
+    if let Some(serde_json::Value::Array(local_rows)) = local.data {
+        for mut station in local_rows {
+            if let Some(obj) = station.as_object_mut() {
+                if let Some(id) = obj.get("id").cloned() {
+                    obj.insert("station_id".to_string(), id);
+                }
+                obj.insert(
+                    "remote_name".to_string(),
+                    serde_json::Value::String("this device".to_string()),
+                );
+                if let Some(node_id) = &own_node_id {
+                    obj.insert(
+                        "peer_addr".to_string(),
+                        serde_json::Value::String(node_id.clone()),
+                    );
+                }
+            }
+            rows.push(station);
+        }
+    }
+    let local_count = rows.len();
+    let mut remote_count = 0usize;
+    if let Some(serde_json::Value::Array(remote_rows)) = remote.data {
+        remote_count = remote_rows.len();
+        rows.extend(remote_rows);
+    }
+
+    let mut message = format!("{local_count} local, {remote_count} remote radio station(s)");
+    if remote_count == 0 && !remote.message.is_empty() {
+        message.push_str(&format!(" ({})", remote.message));
+    }
+
+    DispatchResponse {
+        success: true,
+        message,
+        data: Some(serde_json::Value::Array(rows)),
+    }
+}
+
+/// shared `GET /api/radio/stations` fetch + response unwrap for
+/// [`scan_remote_stations`]/[`scan_all_remote_stations`] - returns just
+/// the `stations` array, or an error string on any failure (transport,
+/// non-200, or unparseable body).
+async fn fetch_stations_raw(peer_addr: &str) -> Result<Vec<serde_json::Value>, String> {
+    let resp = grimoire::federation::p2p_client::api_request(
+        peer_addr,
+        "GET",
+        "/api/radio/stations",
+        None,
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+    if resp.status != 200 {
+        return Err(format!(
+            "peer returned status {}: {}",
+            resp.status, resp.body
+        ));
+    }
+    let json: serde_json::Value =
+        serde_json::from_str(&resp.body).map_err(|e| format!("unreadable response: {e}"))?;
+    let stations = json
+        .get("data")
+        .and_then(|d| d.get("stations"))
+        .and_then(|s| s.as_array())
+        .cloned()
+        .unwrap_or_default();
+    Ok(stations)
+}
+
 /// stop the active radio session (if any). bumps the generation so the
 /// running task's next check fails and it tears itself down on its own
-/// (closing its iroh connection + fifo), and closes mpv right away
-/// rather than waiting for the task to next poll - so the ui/audio
-/// react immediately instead of on the next chunk/heartbeat.
+/// (closing its iroh connection + dedicated mpv process) - reactive
+/// rather than instant, but in practice the loop notices on its next
+/// chunk/control message, which for an actively-streaming station is
+/// typically well under a second away.
 pub fn stop(app: &mut App) {
     GENERATION.fetch_add(1, Ordering::SeqCst);
     app.state.ephemeral.radio = RadioPlaybackState::default();
-    if let Some(video_player) = app.video_player.clone() {
-        tokio::task::spawn_local(async move {
-            let _ = video_player.send(VideoCommand::Close).await;
-        });
-    }
 }
 
 async fn run_session(
     generation: u64,
     peer_addr: String,
     station_id: Option<String>,
-    video_player: Rc<dyn VideoPlayer>,
     tx: mpsc::UnboundedSender<AppAction>,
 ) -> Result<(), String> {
     let endpoint = get_endpoint_arc().map_err(|e| e.to_string())?;
@@ -163,12 +357,19 @@ async fn run_session(
         .await
         .map_err(|e| format!("accept audio stream: {e}"))?;
 
-    let mut track = TrackFifo::default();
-    let mut current_title = hello.now_playing.title.clone();
+    // spawned lazily on the first chunk (not upfront) so a station that
+    // never sends any audio (shouldn't happen, but matches the old
+    // per-track-fifo design's laziness) doesn't pop a window/spawn mpv
+    // for nothing.
+    let mut mpv: Option<RadioMpv> = None;
+    // discard bytes until the next init chunk - mirrors the old
+    // per-track-fifo design's "close the fifo, wait for next init" on a
+    // Lag/Skip control message, just without anything to actually tear
+    // down anymore (see this module's doc comment).
+    let mut discard_until_init = false;
 
     loop {
         if !generation_is_current(generation) {
-            track.close();
             return Ok(());
         }
         tokio::select! {
@@ -177,27 +378,32 @@ async fn run_session(
                     return Ok(()); // clean eof - broadcaster closed the audio stream.
                 };
                 if chunk.is_init {
-                    track
-                        .begin_new_track(&video_player, current_title.clone())
-                        .await?;
+                    discard_until_init = false;
                 }
-                track.write(&chunk.bytes).await?;
+                if discard_until_init {
+                    continue;
+                }
+                if mpv.is_none() {
+                    mpv = Some(RadioMpv::spawn().await?);
+                }
+                if let Some(mpv) = mpv.as_mut() {
+                    mpv.write(&chunk.bytes).await?;
+                }
             }
             ctrl = read_control_message(&mut ctrl_recv) => {
                 match ctrl.map_err(|e| e.to_string())? {
                     Some(ControlMessage::Meta(meta)) => {
-                        current_title = meta.now_playing.title.clone();
                         let _ = tx.send(AppAction::RadioStatusUpdate {
                             station_name: None,
                             track_title: Some(meta.now_playing.title),
                             track_artist: meta.now_playing.artist,
                         });
                     }
-                    // both tell the listener to discard audio until the
-                    // next init chunk - closing the current fifo now
-                    // (rather than waiting for stray trailing chunks to
-                    // error out against it) matches that.
-                    Some(ControlMessage::Lag(_)) | Some(ControlMessage::Skip(_)) => track.close(),
+                    // both mean "discard until the next init chunk" -
+                    // see `discard_until_init`'s doc comment above.
+                    Some(ControlMessage::Lag(_)) | Some(ControlMessage::Skip(_)) => {
+                        discard_until_init = true;
+                    }
                     Some(ControlMessage::Goodbye(g)) => {
                         return Err(format!("station closed the session: {}", g.reason));
                     }
@@ -209,102 +415,58 @@ async fn run_session(
     }
 }
 
-/// owns the currently-active per-track named pipe: the write end
-/// (chunks are written here as they arrive) and its path (unlinked on
-/// close/drop). a fresh instance is `loadfile`d into mpv on every
-/// `is_init` chunk - see this module's doc comment.
-#[derive(Default)]
-struct TrackFifo {
-    path: Option<std::path::PathBuf>,
-    writer: Option<tokio::fs::File>,
+/// dedicated mpv process for one radio session, fed via its own stdin
+/// as one continuous byte stream - NOT the shared `app.video_player`
+/// used for on-demand queue playback (see this module's doc comment for
+/// why). owned by `run_session`'s local loop; dropping it (session
+/// ends, for any reason) kills the process via `kill_on_drop`.
+struct RadioMpv {
+    // holds the process alive + kills it on drop; its own `stdin` field
+    // is `None` after `take()` below, but that doesn't affect killing.
+    _child: Child,
+    stdin: ChildStdin,
 }
 
-/// `mkfifo` is a POSIX-only syscall (no windows equivalent) - split out
-/// so this module still compiles on windows even though radio playback
-/// there is unreachable in practice (it needs `app.video_player`, which
-/// is always `None` on windows - see tty/video_player_stub.rs).
-#[cfg(unix)]
-fn create_fifo(path: &std::path::Path) -> Result<(), String> {
-    let cpath = std::ffi::CString::new(path.to_string_lossy().as_bytes().to_vec())
-        .map_err(|e| e.to_string())?;
-    // SAFETY: `mkfifo` is a plain libc syscall; `cpath` is a valid
-    // NUL-terminated string owned for the duration of this call.
-    let ret = unsafe { libc::mkfifo(cpath.as_ptr(), 0o600) };
-    if ret != 0 {
-        return Err(format!(
-            "mkfifo failed: {}",
-            std::io::Error::last_os_error()
-        ));
-    }
-    Ok(())
-}
+impl RadioMpv {
+    async fn spawn() -> Result<Self, String> {
+        let mut child = Command::new("mpv")
+            .arg("-") // read the media stream from stdin.
+            .arg("--idle=yes")
+            .arg("--force-window=no")
+            .arg(format!(
+                "--vo={}",
+                super::video_player::default_video_output()
+            ))
+            .arg("--no-terminal")
+            .arg("--msg-level=all=warn")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .kill_on_drop(true)
+            .spawn()
+            .map_err(|e| format!("failed to spawn mpv: {e}"))?;
 
-#[cfg(not(unix))]
-fn create_fifo(_path: &std::path::Path) -> Result<(), String> {
-    Err("named pipes (fifos) aren't supported on this platform".to_string())
-}
+        let stdin = child
+            .stdin
+            .take()
+            .ok_or_else(|| "mpv stdin unavailable".to_string())?;
+        if let Some(stdout) = child.stdout.take() {
+            tokio::task::spawn_local(super::video_player::log_mpv_output(stdout, "stdout"));
+        }
+        if let Some(stderr) = child.stderr.take() {
+            tokio::task::spawn_local(super::video_player::log_mpv_output(stderr, "stderr"));
+        }
 
-impl TrackFifo {
-    /// opens a fresh fifo, tells mpv to load it, and stores the write
-    /// end - first dropping any previous fifo (closing its write end
-    /// signals eof to mpv for that "file").
-    async fn begin_new_track(
-        &mut self,
-        video_player: &Rc<dyn VideoPlayer>,
-        title: String,
-    ) -> Result<(), String> {
-        self.close();
-        let path = std::env::temp_dir().join(format!("rathole-radio-{}.fifo", ulid::Ulid::new()));
-        create_fifo(&path)?;
-        // opening the write end blocks (on tokio's blocking pool) until
-        // a reader shows up - kick that off concurrently with mpv's own
-        // open (the loadfile below) rather than awaiting it first, or
-        // neither side would ever make progress.
-        let open_path = path.clone();
-        let write_fut = tokio::task::spawn_blocking(move || {
-            std::fs::OpenOptions::new().write(true).open(open_path)
-        });
-        video_player
-            .send(VideoCommand::Load {
-                path: path.to_string_lossy().into_owned(),
-                title: Some(title),
-                start_seconds: None,
-            })
-            .await?;
-        let file = write_fut
-            .await
-            .map_err(|e| e.to_string())?
-            .map_err(|e| format!("open radio fifo for writing: {e}"))?;
-        self.path = Some(path);
-        self.writer = Some(tokio::fs::File::from_std(file));
-        Ok(())
+        Ok(Self {
+            _child: child,
+            stdin,
+        })
     }
 
-    /// writes to the current fifo, if one is open - silently dropped
-    /// otherwise (no track has started yet, or the last one was closed
-    /// by a Lag/Skip and we're waiting on the next init chunk).
     async fn write(&mut self, bytes: &[u8]) -> Result<(), String> {
-        let Some(writer) = self.writer.as_mut() else {
-            return Ok(());
-        };
-        if let Err(e) = writer.write_all(bytes).await {
-            self.close();
-            return Err(format!("write radio chunk: {e}"));
-        }
-        Ok(())
-    }
-
-    /// drops the write end (mpv sees eof) and unlinks the fifo file.
-    fn close(&mut self) {
-        self.writer = None;
-        if let Some(path) = self.path.take() {
-            let _ = std::fs::remove_file(&path);
-        }
-    }
-}
-
-impl Drop for TrackFifo {
-    fn drop(&mut self) {
-        self.close();
+        self.stdin
+            .write_all(bytes)
+            .await
+            .map_err(|e| format!("write to mpv stdin: {e}"))
     }
 }

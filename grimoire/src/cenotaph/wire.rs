@@ -506,6 +506,30 @@ pub enum PlayerStatus {
         #[serde(flatten)]
         common: StatusCommon,
     },
+    /// tuned into a `freqhole-radio/1` broadcast rather than playing from
+    /// the regular queue - distinct from every other variant above
+    /// (which are all built around a `MediaRef` queue item) because a
+    /// radio station has no queue position/duration to report, only a
+    /// live "currently airing" title. `title`/`artist`/`kind` mirror
+    /// whatever `radio::messages::NowPlaying` the player's own radio
+    /// session last received - `None` while still connecting, before the
+    /// broadcaster's `Hello`/first `Meta` message has arrived.
+    PlayingRadio {
+        /// the broadcasting peer's address - what a controller needs to
+        /// tune a DIFFERENT player into the same station (see
+        /// `PlayerCommand::TuneRadio`).
+        peer_addr: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        station_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        title: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        artist: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        kind: Option<MediaKind>,
+        #[serde(flatten)]
+        common: StatusCommon,
+    },
 }
 
 /// wraps a `PlayerStatus` with the constant `"type":"status"` envelope

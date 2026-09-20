@@ -38,6 +38,11 @@ pub struct RadioStation {
     /// picker resolves song_ids/video_ids at all, independent of which
     /// filter rows exist. see migration 082's doc comment.
     pub content_mode: String,
+    /// seconds between bumper plays; `None` disables bumpers for this
+    /// station. read/write via `radio_bumpers_set_frequency` (also
+    /// exposed here so listing/getting a station doesn't need a second
+    /// round trip just to show the current cadence).
+    pub bumper_frequency_seconds: Option<i64>,
     pub created_at: i64,
     pub updated_at: i64,
 }
@@ -51,17 +56,82 @@ impl RadioStation {
     /// instead. resolved fresh every time (never cached on the row), so
     /// changing `content_mode` takes effect immediately without also
     /// needing to touch `encode_args`.
+    ///
+    /// an empty-string override is treated the same as no override at
+    /// all - `update_station`'s `COALESCE(?, encode_args)` can only ever
+    /// preserve the existing value or set a new one, never clear it back
+    /// to NULL (a bound NULL parameter means "don't touch this column",
+    /// same as an omitted field), so clearing the admin UI's textarea
+    /// and saving sends `""` as the only way to "revert to inherit" -
+    /// without this, `""` would be used as the literal ffmpeg args
+    /// (silently producing a broken encode command).
     pub fn effective_encode_args<'a>(
         &'a self,
         cfg: &'a crate::radio::config::RadioConfig,
     ) -> &'a str {
         self.encode_args
             .as_deref()
+            .filter(|s| !s.is_empty())
             .unwrap_or(if self.content_mode == "audio_only" {
                 &cfg.encode_args
             } else {
                 &cfg.video_encode_args
             })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn station(content_mode: &str, encode_args: Option<&str>) -> RadioStation {
+        RadioStation {
+            id: "s1".to_string(),
+            name: "test".to_string(),
+            description: None,
+            is_public: 0,
+            is_enabled: 1,
+            encode_args: encode_args.map(str::to_string),
+            codec: "audio/mp4; codecs=\"mp4a.40.2\"".to_string(),
+            play_mode: "shuffle".to_string(),
+            timeline_only_mode: 0,
+            content_mode: content_mode.to_string(),
+            bumper_frequency_seconds: None,
+            created_at: 0,
+            updated_at: 0,
+        }
+    }
+
+    #[test]
+    fn effective_encode_args_uses_override_when_set() {
+        let cfg = crate::radio::config::RadioConfig::default();
+        let s = station("audio_only", Some("-vn -c:a libopus custom"));
+        assert_eq!(s.effective_encode_args(&cfg), "-vn -c:a libopus custom");
+    }
+
+    #[test]
+    fn effective_encode_args_falls_back_to_node_default_when_unset() {
+        let cfg = crate::radio::config::RadioConfig::default();
+        let s = station("audio_only", None);
+        assert_eq!(s.effective_encode_args(&cfg), cfg.encode_args);
+    }
+
+    #[test]
+    fn effective_encode_args_treats_empty_string_as_no_override() {
+        // the only way `update_station`'s COALESCE can "clear" an
+        // override from the admin UI - see the doc comment above.
+        let cfg = crate::radio::config::RadioConfig::default();
+        let audio = station("audio_only", Some(""));
+        assert_eq!(audio.effective_encode_args(&cfg), cfg.encode_args);
+        let video = station("video_only", Some(""));
+        assert_eq!(video.effective_encode_args(&cfg), cfg.video_encode_args);
+    }
+
+    #[test]
+    fn effective_encode_args_picks_video_default_for_video_capable_modes() {
+        let cfg = crate::radio::config::RadioConfig::default();
+        let s = station("audio_or_video", None);
+        assert_eq!(s.effective_encode_args(&cfg), cfg.video_encode_args);
     }
 }
 

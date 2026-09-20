@@ -12,9 +12,10 @@
 //!     recent-repeat avoidance on the song side only for now - see
 //!     `RadioTrack`'s own doc comment)
 //!   - `album`: shuffle albums, then play each album in disc/track order
-//!     - song-only for now. the video-domain equivalent (shuffle video
-//!       series, play each in season/episode order) is a separate,
-//!       not-yet-built picker branch.
+//!     (song) - `video_only` stations get the video-domain equivalent
+//!     (shuffle `video_seriez`, play each in season/episode order) via
+//!     `pick_series_mode`. `audio_or_video` stations still ignore video
+//!     entirely in album mode (only song albums shuffle there).
 
 use crate::database;
 use crate::error::{GrimoireError, GrimoireResult};
@@ -277,16 +278,39 @@ async fn pick_for_station_after_with_options(
 
     if mode == "album" {
         if content_mode == "video_only" {
-            // album mode's video-domain equivalent (shuffle series, play
-            // season/episode order) doesn't exist yet - error clearly
-            // rather than silently falling back to the song library
-            // below, which would be wrong for a video-only station.
-            return Err(GrimoireError::ProcessingFailed {
-                message: format!(
-                    "radio: station {station_id} is video_only, but album play_mode doesn't \
-                     support video yet - use shuffle mode instead"
-                ),
-            });
+            // video's album-mode equivalent: shuffle across video_seriez,
+            // then play each series in season/episode order - mirrors the
+            // song branch below (full-library fallback, pick_series_mode
+            // mirrors pick_album_mode). audio_or_video stations still
+            // ignore video entirely in album mode, same as before - only
+            // video_only's previous hard error is being lifted here.
+            let mut video_pool = video_candidates;
+            if video_pool.is_empty() {
+                let pool = database::connect().await?;
+                video_pool = stations::repository::all_playable_video_ids(&pool).await?;
+                debug!(
+                    "[radio-picker] station {} (mode: {}) has no explicit source; using full video library ({} videos)",
+                    station_id,
+                    mode,
+                    video_pool.len()
+                );
+                if video_pool.is_empty() {
+                    return Err(GrimoireError::ProcessingFailed {
+                        message: "radio: no videos available in library".to_string(),
+                    });
+                }
+            } else {
+                info!(
+                    "[radio-picker] station {} (mode: {}) using {} explicit video candidates",
+                    station_id,
+                    mode,
+                    video_pool.len()
+                );
+            }
+
+            let chosen =
+                pick_series_mode(station_id, &video_pool, anchor_song_id, force_new_album).await?;
+            return fetch_track(RadioItemKind::Video, &chosen).await;
         }
         // use the full song library if no explicit candidates are
         // configured (video candidates are ignored entirely in this mode).
@@ -477,6 +501,215 @@ async fn pick_album_mode(
     );
 
     Ok(first_track)
+}
+
+/// video's counterpart to `pick_album_mode` - shuffle across
+/// `video_seriez`, then play each series in season/episode order.
+/// reuses `next_track_in_same_album`/`candidate_albums_for_new_pick`
+/// as-is (both are already generic over an "album/series key -> ordered
+/// id list" map, no song-specific typing) - only the data loading +
+/// index-building steps need a video-shaped counterpart.
+///
+/// continuity note: `radio_play_historyz` is song-only (its `song_id`
+/// column FKs to `songz` - see this module's doc comment), so there is
+/// no persisted "last video played" to fall back on. `resolve_last_song_id`
+/// still works correctly here despite the name: when `anchor_song_id` is
+/// `Some` (the common case - `broadcaster::refill_planner` threads the
+/// last pick's id through in-memory regardless of domain) it's used
+/// directly without touching the DB; a cold start with no anchor just
+/// begins a new series, the same safe fallback album mode gets on ITS
+/// own cold start.
+async fn pick_series_mode(
+    station_id: &str,
+    candidates: &[String],
+    anchor_video_id: Option<&str>,
+    force_new_series: bool,
+) -> GrimoireResult<String> {
+    let rows = load_video_candidate_meta(candidates).await?;
+    if rows.is_empty() {
+        return Err(GrimoireError::ProcessingFailed {
+            message: format!("radio: station {station_id} resolved 0 series candidates"),
+        });
+    }
+
+    let (by_series, video_pos) = build_series_index(rows);
+    info!(
+        "[radio-series-mode] station {} loaded {} series with {} total episodes",
+        station_id,
+        by_series.len(),
+        video_pos.len()
+    );
+
+    let last_played = resolve_last_song_id(station_id, anchor_video_id).await;
+    info!(
+        "[radio-series-mode] station {} last_played: {:?}",
+        station_id, last_played
+    );
+
+    if !force_new_series {
+        if let Some(next) = next_track_in_same_album(&by_series, &video_pos, last_played.as_deref())
+        {
+            info!(
+                "[radio-series-mode] station {} continuing in same series: next episode {}",
+                station_id, next
+            );
+            return Ok(next);
+        }
+    } else {
+        info!(
+            "[radio-series-mode] station {} forcing new series after skip request",
+            station_id
+        );
+    }
+
+    let series_keys = candidate_albums_for_new_pick(&by_series, &video_pos, last_played.as_deref());
+    if series_keys.is_empty() {
+        return Err(GrimoireError::ProcessingFailed {
+            message: format!("radio: station {station_id} has no series groups"),
+        });
+    }
+
+    info!(
+        "[radio-series-mode] station {} picking new series from {} candidates",
+        station_id,
+        series_keys.len()
+    );
+
+    let chosen_series = {
+        use rand::seq::SliceRandom;
+        let mut rng = rand::thread_rng();
+        series_keys
+            .choose(&mut rng)
+            .ok_or_else(|| GrimoireError::ProcessingFailed {
+                message: format!("radio: station {station_id} failed to choose series"),
+            })?
+            .clone()
+    };
+
+    let first_episode = by_series
+        .get(&chosen_series)
+        .and_then(|v| v.first())
+        .cloned()
+        .ok_or_else(|| GrimoireError::ProcessingFailed {
+            message: format!("radio: station {station_id} chosen series has no episodes"),
+        })?;
+
+    info!(
+        "[radio-series-mode] station {} chose series {} → first episode: {}",
+        station_id, chosen_series, first_episode
+    );
+
+    Ok(first_episode)
+}
+
+#[derive(Debug, Clone, FromRow)]
+struct CandidateVideoMeta {
+    video_id: String,
+    series_id: Option<String>,
+    season_number: Option<i64>,
+    episode_number: Option<i64>,
+}
+
+async fn load_video_candidate_meta(
+    candidates: &[String],
+) -> GrimoireResult<Vec<CandidateVideoMeta>> {
+    if candidates.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let pool = database::connect().await?;
+    let mut qb = sqlx::QueryBuilder::<sqlx::Sqlite>::new(
+        r#"
+        SELECT
+            v.id             AS video_id,
+            v.series_id      AS series_id,
+            vs.season_number AS season_number,
+            v.episode_number AS episode_number
+        FROM videoz v
+        LEFT JOIN video_seasonz vs ON vs.id = v.season_id
+        WHERE v.id IN (
+        "#,
+    );
+
+    {
+        let mut separated = qb.separated(", ");
+        for id in candidates {
+            separated.push_bind(id);
+        }
+    }
+
+    qb.push(
+        r#")
+        AND v.deleted_at IS NULL
+        ORDER BY
+            v.series_id IS NULL,
+            v.series_id ASC,
+            vs.season_number IS NULL,
+            vs.season_number ASC,
+            v.episode_number IS NULL,
+            v.episode_number ASC,
+            v.id ASC"#,
+    );
+
+    qb.build_query_as::<CandidateVideoMeta>()
+        .fetch_all(&pool)
+        .await
+        .map_err(GrimoireError::from)
+}
+
+/// video's counterpart to `build_album_index` - groups by `series_id`
+/// (a video with no series gets its own singleton group, same
+/// `__single__:` sentinel convention `build_album_index` uses for a
+/// song with no album), orders each group by season/episode number
+/// (both nullable - unset values sort last, mirroring
+/// `list_videos_by_series`'s existing ordering convention).
+#[allow(clippy::type_complexity)]
+fn build_series_index(
+    rows: Vec<CandidateVideoMeta>,
+) -> (
+    std::collections::HashMap<String, Vec<String>>,
+    std::collections::HashMap<String, (String, usize)>,
+) {
+    info!("[radio-series-build] got {} rows to index", rows.len());
+
+    let mut grouped: std::collections::HashMap<String, Vec<CandidateVideoMeta>> =
+        std::collections::HashMap::new();
+
+    for row in rows {
+        let series_key = row
+            .series_id
+            .clone()
+            .unwrap_or_else(|| format!("__single__:{}", row.video_id));
+        grouped.entry(series_key).or_default().push(row);
+    }
+
+    let mut by_series: std::collections::HashMap<String, Vec<String>> =
+        std::collections::HashMap::new();
+    let mut video_pos: std::collections::HashMap<String, (String, usize)> =
+        std::collections::HashMap::new();
+
+    for (series_key, mut episodes) in grouped {
+        episodes.sort_by(|a, b| {
+            a.season_number
+                .unwrap_or(i64::MAX)
+                .cmp(&b.season_number.unwrap_or(i64::MAX))
+                .then_with(|| {
+                    a.episode_number
+                        .unwrap_or(i64::MAX)
+                        .cmp(&b.episode_number.unwrap_or(i64::MAX))
+                })
+                .then_with(|| a.video_id.cmp(&b.video_id))
+        });
+
+        let mut ordered = Vec::with_capacity(episodes.len());
+        for (idx, e) in episodes.into_iter().enumerate() {
+            ordered.push(e.video_id.clone());
+            video_pos.insert(e.video_id, (series_key.clone(), idx));
+        }
+        by_series.insert(series_key, ordered);
+    }
+
+    (by_series, video_pos)
 }
 
 async fn load_candidate_meta(candidates: &[String]) -> GrimoireResult<Vec<CandidateMeta>> {
@@ -758,7 +991,8 @@ async fn fetch_video_track(video_id: &str) -> GrimoireResult<RadioTrack> {
 #[cfg(test)]
 mod tests {
     use super::{
-        build_album_index, candidate_albums_for_new_pick, next_track_in_same_album, CandidateMeta,
+        build_album_index, build_series_index, candidate_albums_for_new_pick,
+        next_track_in_same_album, CandidateMeta, CandidateVideoMeta,
     };
 
     #[test]
@@ -902,5 +1136,125 @@ mod tests {
         let mut next_albums = candidate_albums_for_new_pick(&by_album, &song_pos, Some("a_d2_t1"));
         next_albums.sort();
         assert_eq!(next_albums, vec!["B".to_string()]);
+    }
+
+    #[test]
+    fn build_series_index_orders_episodes_by_season_then_episode() {
+        let rows = vec![
+            CandidateVideoMeta {
+                video_id: "v1_s1_e2".to_string(),
+                series_id: Some("series1".to_string()),
+                season_number: Some(1),
+                episode_number: Some(2),
+            },
+            CandidateVideoMeta {
+                video_id: "v1_s1_e1".to_string(),
+                series_id: Some("series1".to_string()),
+                season_number: Some(1),
+                episode_number: Some(1),
+            },
+            CandidateVideoMeta {
+                video_id: "v1_s2_e1".to_string(),
+                series_id: Some("series1".to_string()),
+                season_number: Some(2),
+                episode_number: Some(1),
+            },
+        ];
+
+        let (by_series, video_pos) = build_series_index(rows);
+        assert_eq!(
+            by_series.get("series1").cloned().unwrap_or_default(),
+            vec![
+                "v1_s1_e1".to_string(),
+                "v1_s1_e2".to_string(),
+                "v1_s2_e1".to_string(),
+            ]
+        );
+        assert_eq!(video_pos.get("v1_s1_e1"), Some(&("series1".to_string(), 0)));
+        assert_eq!(video_pos.get("v1_s2_e1"), Some(&("series1".to_string(), 2)));
+    }
+
+    #[test]
+    fn build_series_index_gives_seriesless_videos_their_own_singleton_group() {
+        let rows = vec![
+            CandidateVideoMeta {
+                video_id: "standalone".to_string(),
+                series_id: None,
+                season_number: None,
+                episode_number: None,
+            },
+            CandidateVideoMeta {
+                video_id: "s1_e1".to_string(),
+                series_id: Some("series1".to_string()),
+                season_number: Some(1),
+                episode_number: Some(1),
+            },
+        ];
+
+        let (by_series, video_pos) = build_series_index(rows);
+        // a video with no series gets its own group, keyed by a
+        // sentinel that can never collide with a real series id.
+        assert_eq!(by_series.len(), 2);
+        assert_eq!(
+            by_series.get("__single__:standalone").cloned(),
+            Some(vec!["standalone".to_string()])
+        );
+        assert_eq!(
+            video_pos.get("standalone"),
+            Some(&("__single__:standalone".to_string(), 0))
+        );
+        assert_eq!(video_pos.get("s1_e1"), Some(&("series1".to_string(), 0)));
+    }
+
+    #[test]
+    fn series_mode_sequence_finishes_series_before_switching() {
+        let rows = vec![
+            CandidateVideoMeta {
+                video_id: "a_s1_e2".to_string(),
+                series_id: Some("A".to_string()),
+                season_number: Some(1),
+                episode_number: Some(2),
+            },
+            CandidateVideoMeta {
+                video_id: "b_s1_e1".to_string(),
+                series_id: Some("B".to_string()),
+                season_number: Some(1),
+                episode_number: Some(1),
+            },
+            CandidateVideoMeta {
+                video_id: "a_s2_e1".to_string(),
+                series_id: Some("A".to_string()),
+                season_number: Some(2),
+                episode_number: Some(1),
+            },
+            CandidateVideoMeta {
+                video_id: "a_s1_e1".to_string(),
+                series_id: Some("A".to_string()),
+                season_number: Some(1),
+                episode_number: Some(1),
+            },
+        ];
+
+        let (by_series, video_pos) = build_series_index(rows);
+
+        // next_track_in_same_album/candidate_albums_for_new_pick are
+        // reused as-is for series mode - they're generic over the
+        // "group key -> ordered id list" map shape.
+        assert_eq!(
+            next_track_in_same_album(&by_series, &video_pos, Some("a_s1_e1")),
+            Some("a_s1_e2".to_string())
+        );
+        assert_eq!(
+            next_track_in_same_album(&by_series, &video_pos, Some("a_s1_e2")),
+            Some("a_s2_e1".to_string())
+        );
+        assert_eq!(
+            next_track_in_same_album(&by_series, &video_pos, Some("a_s2_e1")),
+            None
+        );
+        let mut next_series =
+            candidate_albums_for_new_pick(&by_series, &video_pos, Some("a_s2_e1"));
+        next_series.sort();
+        assert_eq!(next_series, vec!["B".to_string()]);
     }
 }

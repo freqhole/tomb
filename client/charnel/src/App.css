@@ -289,6 +289,28 @@ input[type="number"]::placeholder {
   color: #52525b;
 }
 
+textarea {
+  width: 100%;
+  padding: 0.75rem 1rem;
+  font-size: 0.875rem;
+  font-family: "SF Mono", Monaco, monospace;
+  background: #18181b;
+  border: 1px solid #27272a;
+  border-radius: 8px;
+  color: #fafafa;
+  outline: none;
+  resize: vertical;
+  transition: border-color 0.2s;
+}
+
+textarea:focus {
+  border-color: #ff1a9e;
+}
+
+textarea::placeholder {
+  color: #52525b;
+}
+
 /* select inputs - need appearance:none for Linux WebKit */
 select {
   -webkit-appearance: none;

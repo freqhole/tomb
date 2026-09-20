@@ -294,6 +294,7 @@ pub fn result_actions_for_row(
             ("remove", "radio_bumpers_remove"),
             ("set frequency", "radio_bumpers_set_frequency"),
         ],
+        "radio_scan_all_remotes" | "radio_scan_remote" => &[("tune in", "__radio_tune_in__")],
         "library_favorites" => &[("toggle favorite", "__toggle_favorite_favorite__")],
         _ => &[],
     };

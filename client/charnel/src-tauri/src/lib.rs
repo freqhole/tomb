@@ -77,6 +77,8 @@ mod media_session {
 mod jobs_events_commands;
 mod player_pairing_accept;
 mod radio_commands;
+#[cfg(unix)]
+mod radio_mpv;
 mod remotez_commands;
 mod server_controls;
 mod spume_bridge;

@@ -113,6 +113,20 @@ export type RemoteStatus =
       volume: number;
       recently_played: string[];
       unresolved_items?: UnresolvedItemRef[];
+    }
+  | {
+      type: "status";
+      state: "playing_radio";
+      peer_addr: string;
+      station_id?: string;
+      title?: string;
+      artist?: string;
+      kind?: "audio" | "video";
+      queue: RemoteMediaRef[];
+      auto_download_enabled: boolean;
+      volume: number;
+      recently_played: string[];
+      unresolved_items?: UnresolvedItemRef[];
     };
 
 /** the shared queue of the active remote target, or an empty array when
@@ -120,10 +134,9 @@ export type RemoteStatus =
 export const remoteQueue = (): RemoteMediaRef[] => remoteStatus()?.queue ?? [];
 
 /** blake3 hashes the active remote target already dealt with this session
- * (played through, manually skipped, or explicitly removed - see
- * player.freqhole.net's playbackEngine.ts `recordRecentlyPlayed()`). used
- * when re-selecting a remote target after having played locally for a
- * while, so the handoff doesn't blindly re-queue songs the player already
+ * (played through, manually skipped, or explicitly removed). used when
+ * re-selecting a remote target after having played locally for a while,
+ * so the handoff doesn't blindly re-queue songs the player already
  * finished with. */
 export const remoteRecentlyPlayed = (): string[] => remoteStatus()?.recently_played ?? [];
 
@@ -132,15 +145,45 @@ export const remoteRecentlyPlayed = (): string[] => remoteStatus()?.recently_pla
  * directly as `item` - every other state (paused/buffering/stopped/error)
  * only carries `queue`, whose index 0 is "current" by protocol convention
  * (see RemoteStatus above) - `stopped`/`error` genuinely have nothing
- * playing, so those (and an empty queue) return undefined. used so the
- * player bar keeps showing the right title/artist/artwork/duration across
- * a play<->pause transition instead of only while actively playing. */
+ * playing, so those (and an empty queue) return undefined. `playing_radio`
+ * also returns undefined - a radio tune-in isn't a queue item at all, see
+ * `remotePlayingRadioInfo()` for that case instead. used so the player bar
+ * keeps showing the right title/artist/artwork/duration across a
+ * play<->pause transition instead of only while actively playing. */
 export const remoteCurrentItem = (): RemoteMediaRef | undefined => {
   const s = remoteStatus();
   if (!s) return undefined;
   if (s.state === "now_playing") return s.item;
-  if (s.state === "stopped" || s.state === "error") return undefined;
+  if (s.state === "stopped" || s.state === "error" || s.state === "playing_radio") {
+    return undefined;
+  }
   return s.queue[0];
+};
+
+/** the active remote target's live radio tune-in, if it's currently tuned
+ * into one instead of playing from its regular queue - `undefined`
+ * otherwise. `peer_addr`/`station_id` are what `remoteTuneRadio()` needs to
+ * tune ANOTHER paired player into the same station; `title`/`artist`/`kind`
+ * are omitted while the remote is still connecting, before its own radio
+ * session received a first now-playing update. */
+export const remotePlayingRadioInfo = ():
+  | {
+      peerAddr: string;
+      stationId?: string;
+      title?: string;
+      artist?: string;
+      kind?: "audio" | "video";
+    }
+  | undefined => {
+  const s = remoteStatus();
+  if (!s || s.state !== "playing_radio") return undefined;
+  return {
+    peerAddr: s.peer_addr,
+    stationId: s.station_id,
+    title: s.title,
+    artist: s.artist,
+    kind: s.kind,
+  };
 };
 
 /** the active remote target's auto-download toggle, mirrored from whichever
@@ -605,6 +648,24 @@ export async function remotePause(): Promise<void> {
 
 export async function remoteResume(): Promise<void> {
   await sendControl({ command: "resume" }, { trackPending: true });
+}
+
+/** tunes the active remote target into a radio station - `stationId`
+ * omitted uses whichever station the broadcaster treats as default.
+ * takes over from the remote's regular queue entirely (mirrors how
+ * tuning into radio locally interrupts local queue playback - see
+ * `playbackCoordinator.ts`); the remote's own `startRadio` is what
+ * actually enforces that on its end. */
+export async function remoteTuneRadio(peerAddr: string, stationId?: string): Promise<void> {
+  await sendControl(
+    { command: "tune_radio", peer_addr: peerAddr, station_id: stationId },
+    { trackPending: true }
+  );
+}
+
+/** stops the active remote target's radio tune-in, if it has one. */
+export async function remoteStopRadio(): Promise<void> {
+  await sendControl({ command: "stop_radio" }, { trackPending: true });
 }
 
 export async function remoteSkip(): Promise<void> {

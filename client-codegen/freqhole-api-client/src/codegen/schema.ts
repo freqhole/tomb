@@ -5212,6 +5212,7 @@ export const PublicStationSchema = z.object({
   listener_count: z.number(),
   is_default: z.boolean(),
   is_public: z.boolean(),
+  is_running: z.boolean(),
   now_playing: z.object({
   kind: z.string(),
   song_id: z.string(),
@@ -5394,7 +5395,8 @@ export type QueryVideosRequest = z.infer<typeof QueryVideosRequestSchema>;
 export const RadioBumperSchema = z.object({
   id: z.string(),
   station_id: z.string(),
-  song_id: z.string(),
+  song_id: z.string().nullish(),
+  video_id: z.string().nullish(),
   label: z.string(),
   weight: z.number(),
   created_at: z.number()
@@ -5403,7 +5405,8 @@ export type RadioBumper = z.infer<typeof RadioBumperSchema>;
 
 export const RadioBumpersAddRequestSchema = z.object({
   station_id: z.string(),
-  song_id: z.string(),
+  song_id: z.string().nullish(),
+  video_id: z.string().nullish(),
   label: z.string(),
   weight: z.number().nullish()
 });
@@ -5430,7 +5433,9 @@ export const RadioConfigPayloadSchema = z.object({
   encode_args: z.string(),
   video_encode_args: z.string(),
   video_codec: z.string(),
-  ffmpeg_available: z.boolean()
+  ffmpeg_available: z.boolean(),
+  max_concurrent_audio_streams: z.number(),
+  max_concurrent_video_streams: z.number()
 });
 export type RadioConfigPayload = z.infer<typeof RadioConfigPayloadSchema>;
 
@@ -5456,6 +5461,7 @@ export const RadioInfoResponseSchema = z.object({
   listener_count: z.number(),
   is_default: z.boolean(),
   is_public: z.boolean(),
+  is_running: z.boolean(),
   now_playing: z.object({
   kind: z.string(),
   song_id: z.string(),
@@ -5500,6 +5506,7 @@ export const RadioStationSchema = z.object({
   play_mode: z.string(),
   timeline_only_mode: z.number(),
   content_mode: z.string(),
+  bumper_frequency_seconds: z.number().nullish(),
   created_at: z.number(),
   updated_at: z.number()
 });
@@ -5537,6 +5544,7 @@ export const RadioStationsResponseSchema = z.object({
   listener_count: z.number(),
   is_default: z.boolean(),
   is_public: z.boolean(),
+  is_running: z.boolean(),
   now_playing: z.object({
   kind: z.string(),
   song_id: z.string(),

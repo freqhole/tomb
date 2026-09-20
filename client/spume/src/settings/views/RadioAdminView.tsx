@@ -28,6 +28,7 @@ import {
   type UpdateStationRequest,
   type StationFilter,
   type RadioConfigPayload,
+  type RadioBumper,
 } from "@freqhole/api-client";
 import { toast } from "../../components/feedback/Toast";
 import { SeedSuggestInput, SongSuggestInput } from "../../components/radio/SeedSuggestInputs";
@@ -171,6 +172,8 @@ function RadioConfigSection(props: {
   const [encodeArgs, setEncodeArgs] = createSignal("");
   const [videoEncodeArgs, setVideoEncodeArgs] = createSignal("");
   const [videoCodec, setVideoCodec] = createSignal("");
+  const [maxConcurrentAudioStreams, setMaxConcurrentAudioStreams] = createSignal(2);
+  const [maxConcurrentVideoStreams, setMaxConcurrentVideoStreams] = createSignal(1);
   const [ffmpegAvailable, setFfmpegAvailable] = createSignal(true);
   const [busy, setBusy] = createSignal(false);
   const [loadError, setLoadError] = createSignal<string | null>(null);
@@ -198,6 +201,8 @@ function RadioConfigSection(props: {
       setEncodeArgs(c.encode_args);
       setVideoEncodeArgs(c.video_encode_args ?? "");
       setVideoCodec(c.video_codec ?? "");
+      setMaxConcurrentAudioStreams(c.max_concurrent_audio_streams ?? 2);
+      setMaxConcurrentVideoStreams(c.max_concurrent_video_streams ?? 1);
       setFfmpegAvailable(ffmpeg);
       setLoadError(null);
       props.onStateChange?.({ enabled: c.enabled, ffmpegAvailable: ffmpeg });
@@ -214,6 +219,8 @@ function RadioConfigSection(props: {
         video_encode_args: videoEncodeArgs(),
         video_codec: videoCodec(),
         ffmpeg_available: ffmpegAvailable(),
+        max_concurrent_audio_streams: maxConcurrentAudioStreams(),
+        max_concurrent_video_streams: maxConcurrentVideoStreams(),
       });
       props.onStateChange?.({ enabled: enabled(), ffmpegAvailable: ffmpegAvailable() });
       toast.success("radio config saved");
@@ -292,6 +299,34 @@ function RadioConfigSection(props: {
               spellcheck={false}
             />
           </label>
+          <div class="flex gap-3">
+            <label class="flex flex-col gap-1 flex-1">
+              <span class="text-xs text-[var(--color-text-secondary)]">
+                max concurrent audio streams (audio_only stations)
+              </span>
+              <input
+                type="number"
+                min="0"
+                class="text-xs px-2 py-1 rounded bg-[var(--color-bg-tertiary)] border border-[var(--color-border-subtle)] text-[var(--color-text-primary)]"
+                value={maxConcurrentAudioStreams()}
+                onInput={(e) => setMaxConcurrentAudioStreams(e.currentTarget.valueAsNumber || 0)}
+                disabled={busy()}
+              />
+            </label>
+            <label class="flex flex-col gap-1 flex-1">
+              <span class="text-xs text-[var(--color-text-secondary)]">
+                max concurrent video streams (audio_or_video/video_only stations)
+              </span>
+              <input
+                type="number"
+                min="0"
+                class="text-xs px-2 py-1 rounded bg-[var(--color-bg-tertiary)] border border-[var(--color-border-subtle)] text-[var(--color-text-primary)]"
+                value={maxConcurrentVideoStreams()}
+                onInput={(e) => setMaxConcurrentVideoStreams(e.currentTarget.valueAsNumber || 0)}
+                disabled={busy()}
+              />
+            </label>
+          </div>
           <div>
             <button
               type="submit"
@@ -574,7 +609,23 @@ function StationsSection(props: {
                     <Show when={expandedId() === s.id}>
                       <tr class="border-t border-[var(--color-border-subtle)]">
                         <td colspan={7} class="py-3 pr-4">
-                          <StationSeedEditor stationId={s.id} client={props.client} />
+                          <div class="flex flex-col gap-3">
+                            <StationSeedEditor stationId={s.id} client={props.client} />
+                            <StationBumperEditor
+                              stationId={s.id}
+                              client={props.client}
+                              frequencySeconds={s.bumper_frequency_seconds ?? null}
+                            />
+                            <StationEncodeOverrideEditor
+                              stationId={s.id}
+                              client={props.client}
+                              encodeArgs={s.encode_args ?? ""}
+                              codec={s.codec}
+                              onSaved={() => {
+                                void refetch();
+                              }}
+                            />
+                          </div>
                         </td>
                       </tr>
                     </Show>
@@ -994,6 +1045,318 @@ function StationSeedEditor(props: { stationId: string; client: AdminClient }) {
           </button>
         </form>
       </div>
+    </div>
+  );
+}
+
+// ------------------------------------------------------------------
+// per-station ffmpeg override (codec + encode args) - see
+// `RadioStation.encode_args`'s doc comment in grimoire for why the
+// override is nullable but "clear" from this form sends an empty
+// string (the only way `radio_stations_update`'s COALESCE can revert
+// it to the node-wide default).
+// ------------------------------------------------------------------
+
+function StationEncodeOverrideEditor(props: {
+  stationId: string;
+  client: AdminClient;
+  encodeArgs: string;
+  codec: string;
+  onSaved: () => void | Promise<void>;
+}) {
+  const [encodeArgs, setEncodeArgs] = createSignal(props.encodeArgs);
+  const [codec, setCodec] = createSignal(props.codec);
+  const [busy, setBusy] = createSignal(false);
+
+  const save = async (e: Event) => {
+    e.preventDefault();
+    if (!codec().trim()) {
+      toast.error("codec is required (station playback breaks without one)");
+      return;
+    }
+    setBusy(true);
+    try {
+      const req: UpdateStationRequest = {
+        id: props.stationId,
+        encode_args: encodeArgs().trim(),
+        codec: codec().trim(),
+      };
+      await props.client.dispatchOrThrow("radio_stations_update", req);
+      toast.success("per-station ffmpeg override saved");
+      await props.onSaved();
+    } catch (e) {
+      const msg =
+        e instanceof AdminCommandError ? e.message : e instanceof Error ? e.message : String(e);
+      toast.error(`failed to save ffmpeg override: ${msg}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div class="rounded-md border border-[var(--color-border-subtle)] bg-[var(--color-bg-tertiary)]/40 p-3">
+      <div class="text-xs font-medium text-[var(--color-text-secondary)] mb-2">
+        per-station ffmpeg override
+      </div>
+      <p class="text-xs text-[var(--color-text-muted)] mb-3">
+        leave "encode args" blank to inherit this node's <code>[radio]</code> config default for
+        this station's content mode (see "radio config" above).
+      </p>
+      <form class="flex flex-col gap-3" onSubmit={save}>
+        <label class="flex flex-col gap-1">
+          <span class="text-xs uppercase tracking-wide text-[var(--color-text-muted)]">
+            codec (MSE SourceBuffer mime type)
+          </span>
+          <input
+            class="w-full rounded bg-[var(--color-bg-tertiary)] px-3 py-2 text-xs font-mono text-[var(--color-text-primary)] border border-[var(--color-border-subtle)]"
+            value={codec()}
+            onInput={(e) => setCodec(e.currentTarget.value)}
+            disabled={busy()}
+            spellcheck={false}
+          />
+        </label>
+        <label class="flex flex-col gap-1">
+          <span class="text-xs uppercase tracking-wide text-[var(--color-text-muted)]">
+            encode args (ffmpeg, {"{input}"} placeholder)
+          </span>
+          <textarea
+            class="font-mono text-xs px-2 py-1 rounded bg-[var(--color-bg-tertiary)] border border-[var(--color-border-subtle)] text-[var(--color-text-primary)] min-h-[5rem]"
+            value={encodeArgs()}
+            onInput={(e) => setEncodeArgs(e.currentTarget.value)}
+            disabled={busy()}
+            placeholder="(inherit from node config)"
+            spellcheck={false}
+          />
+        </label>
+        <div>
+          <button
+            type="submit"
+            class="px-3 py-1 text-sm rounded bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 border border-emerald-600/30 disabled:opacity-50"
+            disabled={busy()}
+          >
+            {busy() ? "saving..." : "save"}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+// ------------------------------------------------------------------
+// per-station bumper editor (DJ drops / station IDs)
+// ------------------------------------------------------------------
+
+function StationBumperEditor(props: {
+  stationId: string;
+  client: AdminClient;
+  frequencySeconds: number | null;
+}) {
+  const [bumpers, { refetch }] = createResource<RadioBumper[]>(async () => {
+    try {
+      const data = await props.client.dispatchOrThrow("radio_bumpers_list", {
+        station_id: props.stationId,
+      });
+      return (data ?? []) as RadioBumper[];
+    } catch (e) {
+      const msg =
+        e instanceof AdminCommandError ? e.message : e instanceof Error ? e.message : String(e);
+      toast.error(`failed to load bumpers: ${msg}`);
+      return [];
+    }
+  });
+
+  const [busy, setBusy] = createSignal(false);
+  const [bKind, setBKind] = createSignal<"song" | "video">("song");
+  const [bValue, setBValue] = createSignal("");
+  const [bLabel, setBLabel] = createSignal("");
+  const [bWeight, setBWeight] = createSignal(1);
+  const [freq, setFreq] = createSignal(props.frequencySeconds?.toString() ?? "");
+  const [freqBusy, setFreqBusy] = createSignal(false);
+
+  const addBumper = async (e: Event) => {
+    e.preventDefault();
+    if (!bValue().trim()) {
+      toast.error(`pick a ${bKind()} for this bumper`);
+      return;
+    }
+    if (!bLabel().trim()) {
+      toast.error("bumper label required");
+      return;
+    }
+    setBusy(true);
+    try {
+      await props.client.dispatchOrThrow("radio_bumpers_add", {
+        station_id: props.stationId,
+        song_id: bKind() === "song" ? bValue().trim() : null,
+        video_id: bKind() === "video" ? bValue().trim() : null,
+        label: bLabel().trim(),
+        weight: bWeight(),
+      });
+      setBValue("");
+      setBLabel("");
+      setBWeight(1);
+      await refetch();
+    } catch (e) {
+      const msg =
+        e instanceof AdminCommandError ? e.message : e instanceof Error ? e.message : String(e);
+      toast.error(`failed to add bumper: ${msg}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const removeBumper = async (bumperId: string) => {
+    setBusy(true);
+    try {
+      await props.client.dispatchOrThrow("radio_bumpers_remove", { bumper_id: bumperId });
+      await refetch();
+    } catch (e) {
+      const msg =
+        e instanceof AdminCommandError ? e.message : e instanceof Error ? e.message : String(e);
+      toast.error(`failed to remove bumper: ${msg}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const saveFrequency = async (e: Event) => {
+    e.preventDefault();
+    setFreqBusy(true);
+    try {
+      const trimmed = freq().trim();
+      const frequency_seconds = trimmed === "" ? null : Number(trimmed);
+      await props.client.dispatchOrThrow("radio_bumpers_set_frequency", {
+        station_id: props.stationId,
+        frequency_seconds,
+      });
+      toast.success("bumper cadence saved");
+    } catch (e) {
+      const msg =
+        e instanceof AdminCommandError ? e.message : e instanceof Error ? e.message : String(e);
+      toast.error(`failed to save bumper cadence: ${msg}`);
+    } finally {
+      setFreqBusy(false);
+    }
+  };
+
+  return (
+    <div class="rounded-md border border-[var(--color-border-subtle)] bg-[var(--color-bg-base)] p-4">
+      <h3 class="text-sm font-semibold text-[var(--color-text-primary)] mb-2">bumpers</h3>
+      <div class="text-xs text-[var(--color-text-muted)] mb-3">
+        short DJ-drop/station-id clips the broadcaster slots between regular tracks. song and video
+        bumpers can both be attached to any station regardless of its content mode.
+      </div>
+
+      <form class="flex flex-wrap items-end gap-2 mb-3" onSubmit={saveFrequency}>
+        <label class="flex flex-col gap-1">
+          <span class="text-xs text-[var(--color-text-secondary)]">
+            play a bumper every N seconds (blank = bumpers off)
+          </span>
+          <input
+            type="number"
+            min="0"
+            class="text-xs px-2 py-1 rounded bg-[var(--color-bg-tertiary)] border border-[var(--color-border-subtle)] text-[var(--color-text-primary)] w-40"
+            value={freq()}
+            onInput={(e) => setFreq(e.currentTarget.value)}
+            disabled={freqBusy()}
+          />
+        </label>
+        <button
+          type="submit"
+          class="px-3 py-1 text-xs rounded bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 border border-emerald-600/30 disabled:opacity-50"
+          disabled={freqBusy()}
+        >
+          save cadence
+        </button>
+      </form>
+
+      <Show
+        when={!bumpers.loading && (bumpers()?.length ?? 0) > 0}
+        fallback={
+          <div class="text-xs text-[var(--color-text-muted)] mb-2">
+            {bumpers.loading ? "loading..." : "no bumpers yet"}
+          </div>
+        }
+      >
+        <ul class="flex flex-col gap-1 mb-2">
+          <For each={bumpers() ?? []}>
+            {(b) => (
+              <li class="flex items-center justify-between gap-2 text-xs px-2 py-1 rounded bg-[var(--color-bg-tertiary)]">
+                <span>
+                  <span
+                    class={
+                      b.video_id
+                        ? "px-1.5 py-0.5 rounded bg-violet-600/20 text-violet-400 mr-2"
+                        : "px-1.5 py-0.5 rounded bg-sky-600/20 text-sky-400 mr-2"
+                    }
+                  >
+                    {b.video_id ? "video" : "song"}
+                  </span>
+                  <span class="text-[var(--color-text-primary)]">{b.label}</span>
+                  <span class="text-[var(--color-text-muted)]"> (weight {b.weight})</span>
+                </span>
+                <button
+                  class="px-2 py-0.5 text-xs rounded bg-red-600/20 hover:bg-red-600/30 text-red-400 disabled:opacity-50"
+                  onClick={() => removeBumper(b.id)}
+                  disabled={busy()}
+                >
+                  remove
+                </button>
+              </li>
+            )}
+          </For>
+        </ul>
+      </Show>
+
+      <form class="flex flex-wrap items-end gap-2" onSubmit={addBumper}>
+        <select
+          class="text-xs px-2 py-1 rounded bg-[var(--color-bg-tertiary)] border border-[var(--color-border-subtle)] text-[var(--color-text-primary)]"
+          value={bKind()}
+          onChange={(e) => {
+            setBKind(e.currentTarget.value as "song" | "video");
+            setBValue("");
+          }}
+        >
+          <option value="song">song</option>
+          <option value="video">video</option>
+        </select>
+        <Show
+          when={bKind() === "song"}
+          fallback={
+            <SeedSuggestInput
+              client={props.client}
+              kind="video"
+              value={bValue()}
+              onChange={setBValue}
+              placeholder="video title"
+            />
+          }
+        >
+          <SongSuggestInput client={props.client} value={bValue()} onChange={setBValue} />
+        </Show>
+        <input
+          type="text"
+          class="text-xs px-2 py-1 rounded bg-[var(--color-bg-tertiary)] border border-[var(--color-border-subtle)] text-[var(--color-text-primary)]"
+          placeholder="label (e.g. station id)"
+          value={bLabel()}
+          onInput={(e) => setBLabel(e.currentTarget.value)}
+        />
+        <input
+          type="number"
+          min="1"
+          class="text-xs px-2 py-1 rounded bg-[var(--color-bg-tertiary)] border border-[var(--color-border-subtle)] text-[var(--color-text-primary)] w-16"
+          title="weight (higher = picked more often)"
+          value={bWeight()}
+          onInput={(e) => setBWeight(e.currentTarget.valueAsNumber || 1)}
+        />
+        <button
+          type="submit"
+          class="px-3 py-1 text-xs rounded bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 border border-emerald-600/30 disabled:opacity-50"
+          disabled={busy()}
+        >
+          + add bumper
+        </button>
+      </form>
     </div>
   );
 }

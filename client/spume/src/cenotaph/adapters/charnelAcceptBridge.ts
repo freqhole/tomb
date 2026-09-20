@@ -8,11 +8,9 @@
 // (`charnelPlaybackAdapter.ts`, the same one already used for the
 // dial-out/controller side) and send the resulting ack back.
 //
-// scope: charnel's "experimental player config" ( mpv/rodio via
-// charnelPlaybackAdapter.ts) only - see docs/cenotaph-migration-plan.md's
-// front 3 for why the plain webview `mediaPlaybackBackend` DOM-engine
-// path (which would need its own charnel blob-fetch/radio-tune
-// `MediaPlaybackNode`) isn't wired up here.
+// scope: charnel's "experimental player config" (mpv/rodio via
+// charnelPlaybackAdapter.ts) - the only playback backend this protocol
+// ever dispatches to.
 
 import { dispatchCommand } from "../control/dispatcher";
 import { charnelPlaybackAdapter } from "./charnelPlaybackAdapter";

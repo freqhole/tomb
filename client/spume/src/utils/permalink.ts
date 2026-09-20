@@ -217,6 +217,20 @@ export function extractShareTokenFromHash(hash: string): string | null {
     const token = new URLSearchParams(stripped.slice(qIdx + 1)).get(SHARE_HASH_PARAM);
     if (token) return token;
   }
+  // only defer to haruspex's own `#share/`/`share/` fragment shape when
+  // that prefix is actually present. previously this ran unconditionally
+  // and inferred "a token was found" from `fallback !== stripped` alone -
+  // haruspex's own extractShareToken used to ALSO truncate at the first
+  // "&" even with no share prefix present at all, so a route like this
+  // app's own `/radio?node_id=...&station_id=...` (the only spume route
+  // whose hash contains an unrelated "&") came out "changed" purely from
+  // that truncation and was wrongly treated as a real share token -
+  // reopening the share modal with garbage right after a station-share
+  // link's own "play radio station" button navigated there. haruspex's
+  // truncation is now itself gated on the prefix matching (see its own
+  // fix), but checking here too means this call site can never regress
+  // the same way even if that invariant ever changes upstream.
+  if (!stripped.includes("#share/") && !stripped.startsWith("share/")) return null;
   const fallback = haruspexExtractShareToken(stripped);
   return fallback && fallback !== stripped ? fallback : null;
 }

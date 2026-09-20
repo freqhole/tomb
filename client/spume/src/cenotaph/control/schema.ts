@@ -234,6 +234,27 @@ export const PlayerStatusSchema = z.discriminatedUnion("state", [
     recently_played: z.array(z.string()),
     unresolved_items: z.array(UnresolvedItemRefSchema).optional(),
   }),
+  // tuned into a `freqhole-radio/1` broadcast rather than playing from
+  // the regular queue - no queue position/duration to report, only a
+  // live "currently airing" title. `title`/`artist`/`kind` are omitted
+  // while still connecting, before the broadcaster's first message
+  // arrives. `peer_addr` is the broadcasting peer's address - what
+  // another controller needs to tune a DIFFERENT player into the same
+  // station (see `tune_radio`).
+  z.object({
+    type: z.literal("status"),
+    state: z.literal("playing_radio"),
+    peer_addr: z.string(),
+    station_id: z.string().optional(),
+    title: z.string().optional(),
+    artist: z.string().optional(),
+    kind: z.enum(["audio", "video"]).optional(),
+    queue: z.array(MediaRefSchema),
+    auto_download_enabled: z.boolean(),
+    volume: z.number().min(0).max(1),
+    recently_played: z.array(z.string()),
+    unresolved_items: z.array(UnresolvedItemRefSchema).optional(),
+  }),
 ]);
 export type PlayerStatus = z.infer<typeof PlayerStatusSchema>;
 

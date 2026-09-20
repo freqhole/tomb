@@ -447,6 +447,8 @@ pub(in crate::admin_dispatch) async fn config_get() -> GrimoireResponse<JsonValu
         video_encode_args: cfg.video_encode_args,
         video_codec: cfg.video_codec,
         ffmpeg_available: ffmpeg_available(),
+        max_concurrent_audio_streams: cfg.max_concurrent_audio_streams,
+        max_concurrent_video_streams: cfg.max_concurrent_video_streams,
     };
     to_value(GrimoireResponse::success("ok", payload))
 }
@@ -488,6 +490,14 @@ pub(in crate::admin_dispatch) async fn config_set(args: JsonValue) -> GrimoireRe
         m.insert(
             "video_codec".into(),
             toml::Value::String(req.video_codec.clone()),
+        );
+        m.insert(
+            "max_concurrent_audio_streams".into(),
+            toml::Value::Integer(req.max_concurrent_audio_streams as i64),
+        );
+        m.insert(
+            "max_concurrent_video_streams".into(),
+            toml::Value::Integer(req.max_concurrent_video_streams as i64),
         );
         m
     });
@@ -535,6 +545,8 @@ pub(in crate::admin_dispatch) async fn config_set(args: JsonValue) -> GrimoireRe
         video_encode_args: cfg.video_encode_args,
         video_codec: cfg.video_codec,
         ffmpeg_available: ffmpeg_available(),
+        max_concurrent_audio_streams: cfg.max_concurrent_audio_streams,
+        max_concurrent_video_streams: cfg.max_concurrent_video_streams,
     };
     to_value(GrimoireResponse::success("config updated", out))
 }
@@ -658,6 +670,7 @@ fn bumper_to_payload(b: crate::radio::bumpers::Bumper) -> RadioBumper {
         id: b.id,
         station_id: b.station_id,
         song_id: b.song_id,
+        video_id: b.video_id,
         label: b.label,
         weight: b.weight,
         created_at: b.created_at,
@@ -686,8 +699,14 @@ pub(in crate::admin_dispatch) async fn bumpers_add(args: JsonValue) -> GrimoireR
         Err(r) => return r,
     };
     let weight = req.weight.unwrap_or(1);
-    match crate::radio::bumpers::add_bumper(&req.station_id, &req.song_id, &req.label, Some(weight))
-        .await
+    match crate::radio::bumpers::add_bumper(
+        &req.station_id,
+        req.song_id.as_deref(),
+        req.video_id.as_deref(),
+        &req.label,
+        Some(weight),
+    )
+    .await
     {
         Ok(b) => {
             let payload = bumper_to_payload(b);

@@ -155,6 +155,7 @@ export function RadioView() {
     a.listener_count === b.listener_count &&
     a.is_default === b.is_default &&
     a.is_public === b.is_public &&
+    a.is_running === b.is_running &&
     a.source.label === b.source.label &&
     a.source.peer_addr === b.source.peer_addr &&
     a.source.base_url === b.source.base_url &&
@@ -796,14 +797,21 @@ export function RadioView() {
                               <div class="flex-1 min-w-0">
                                 <div class="text-sm font-medium truncate">{station.name}</div>
                                 <div class="text-[11px] text-neutral-400 truncate">
-                                  {isCurrent(station)
-                                    ? radioListenerCount()
-                                    : station.listener_count}{" "}
-                                  listening
                                   <Show
-                                    when={canShowStationNowPlaying(station) && station.now_playing}
+                                    when={station.is_running}
+                                    fallback={<>not started yet - tap to tune in</>}
                                   >
-                                    {(np) => <> · {np().title}</>}
+                                    {isCurrent(station)
+                                      ? radioListenerCount()
+                                      : station.listener_count}{" "}
+                                    listening
+                                    <Show
+                                      when={
+                                        canShowStationNowPlaying(station) && station.now_playing
+                                      }
+                                    >
+                                      {(np) => <> · {np().title}</>}
+                                    </Show>
                                   </Show>
                                 </div>
                               </div>
@@ -906,8 +914,13 @@ export function RadioView() {
                         )}
                       </Show>
                       <div class="text-xs text-neutral-500 mt-1">
-                        {station.listener_count} listener
-                        {station.listener_count === 1 ? "" : "s"}
+                        <Show
+                          when={station.is_running}
+                          fallback={<>not started yet - tap play to tune in</>}
+                        >
+                          {station.listener_count} listener
+                          {station.listener_count === 1 ? "" : "s"}
+                        </Show>
                       </div>
                       <div class="mt-3 flex items-center gap-2">
                         <button

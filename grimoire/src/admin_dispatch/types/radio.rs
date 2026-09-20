@@ -106,6 +106,14 @@ pub struct RadioConfigPayload {
     /// true when ffmpeg is available on this node.
     #[serde(default)]
     pub ffmpeg_available: bool,
+    /// max number of concurrently-running `audio_only` broadcasters.
+    #[serde(default)]
+    pub max_concurrent_audio_streams: u32,
+    /// max number of concurrently-running video-capable
+    /// (`audio_or_video`/`video_only`) broadcasters - shares one smaller
+    /// pool since video encoding is far more cpu-expensive.
+    #[serde(default)]
+    pub max_concurrent_video_streams: u32,
 }
 
 // ---------- supervisor (start/stop/restart) ----------------------------
@@ -145,13 +153,14 @@ pub struct RadioSupervisorStationRequest {
 
 // ---------- bumpers (DJ drops / station IDs) ---------------------------
 
-/// one bumper row. references a `songz` row so uploads / metadata /
-/// art reuse the existing music pipeline.
+/// one bumper row. references a `songz` OR `videoz` row (exactly one)
+/// so uploads / metadata / art reuse the existing music/video pipelines.
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct RadioBumper {
     pub id: String,
     pub station_id: String,
-    pub song_id: String,
+    pub song_id: Option<String>,
+    pub video_id: Option<String>,
     pub label: String,
     pub weight: i64,
     pub created_at: i64,
@@ -163,11 +172,15 @@ pub struct RadioBumpersListRequest {
     pub station_id: String,
 }
 
-/// request for `radio_bumpers_add`.
+/// request for `radio_bumpers_add`. exactly one of `song_id`/`video_id`
+/// must be set.
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct RadioBumpersAddRequest {
     pub station_id: String,
-    pub song_id: String,
+    #[serde(default)]
+    pub song_id: Option<String>,
+    #[serde(default)]
+    pub video_id: Option<String>,
     pub label: String,
     /// optional weight (default 1). higher = picked more often.
     #[serde(default)]

@@ -118,6 +118,15 @@ impl State {
 
 pub struct Broadcaster {
     station_id: String,
+    /// station's `content_mode` at spawn time ('audio_only' |
+    /// 'audio_or_video' | 'video_only') - snapshotted here (rather than
+    /// re-fetched from the db) purely so the concurrent-stream-limit
+    /// check (see `check_concurrency_cap`) can count running broadcasters
+    /// by group without a db round trip per station on every registry
+    /// scan. a station's content_mode change only takes effect for THIS
+    /// purpose on its next restart, same as `encode_args`/other settings
+    /// that `restart_station` exists to apply.
+    content_mode: String,
     state: RwLock<State>,
     chunk_tx: broadcast::Sender<Arc<Chunk>>,
     meta_tx: broadcast::Sender<MetaUpdate>,
@@ -170,13 +179,14 @@ pub struct Broadcaster {
 }
 
 impl Broadcaster {
-    fn new(station_id: String) -> Self {
+    fn new(station_id: String, content_mode: String) -> Self {
         let (chunk_tx, _) = broadcast::channel(cfg::CHUNK_CHANNEL_CAPACITY);
         let (meta_tx, _) = broadcast::channel(cfg::META_CHANNEL_CAPACITY);
         let ring_capacity = cfg::ring_capacity(&crate::radio::config::effective());
         Self {
             state: RwLock::new(State::empty(ring_capacity, &station_id)),
             station_id,
+            content_mode,
             chunk_tx,
             meta_tx,
             next_seq: AtomicU32::new(0),
@@ -692,14 +702,10 @@ impl Broadcaster {
             Some(b) => b,
             None => return Ok(false),
         };
-        // resolve the underlying playable track (reuses the songz pipeline).
-        // bumpers are always songs (radio_bumperz.song_id FKs to songz).
-        let track = match crate::radio::playlist::fetch_track(
-            crate::radio::playlist::RadioItemKind::Song,
-            &bumper.song_id,
-        )
-        .await
-        {
+        // resolve the underlying playable track (reuses the songz/videoz
+        // pipeline via fetch_track - bumper.item() reports which one).
+        let (kind, item_id) = bumper.item();
+        let track = match crate::radio::playlist::fetch_track(kind, item_id).await {
             Ok(t) => t,
             Err(e) => {
                 warn!(
@@ -1153,6 +1159,42 @@ fn default_override() -> &'static RwLock<Option<String>> {
     DEFAULT_OVERRIDE.get_or_init(|| RwLock::new(None))
 }
 
+/// true for any content_mode that can carry video (`audio_or_video` /
+/// `video_only`) - these share the smaller `max_concurrent_video_streams`
+/// pool since video encoding is far more cpu-expensive than audio-only.
+/// `audio_only` shares `max_concurrent_audio_streams` instead.
+fn is_video_capable(content_mode: &str) -> bool {
+    content_mode != "audio_only"
+}
+
+/// count currently-registered broadcasters in the given cap group
+/// (video-capable vs audio-only), given an already-borrowed registry map -
+/// used by `init_registry`, which already holds the write lock and would
+/// deadlock re-acquiring it via `running_count_for_group`.
+fn count_group_in_map(reg: &HashMap<String, Arc<Broadcaster>>, video: bool) -> usize {
+    reg.values()
+        .filter(|bc| is_video_capable(&bc.content_mode) == video)
+        .count()
+}
+
+/// same as `count_group_in_map`, but acquires its own read lock - for
+/// callers (`start_station`) that don't already hold one.
+async fn running_count_for_group(video: bool) -> usize {
+    let reg = registry().read().await;
+    count_group_in_map(&reg, video)
+}
+
+fn concurrency_cap_error(video: bool, current: usize, limit: u32) -> GrimoireError {
+    let group = if video { "video" } else { "audio" };
+    GrimoireError::ProcessingFailed {
+        message: format!(
+            "radio: concurrent {group} stream limit reached ({current}/{limit}) - stop \
+             another {group} station first or raise max_concurrent_{group}_streams in the \
+             [radio] config"
+        ),
+    }
+}
+
 /// start a broadcaster for every enabled station in the database. safe
 /// to call multiple times — already-running stations are kept; stations
 /// added since the last call are spawned. stations removed since last
@@ -1194,13 +1236,35 @@ pub async fn init_registry() -> GrimoireResult<()> {
     // station_id (single-station deployments + the demo).
     let _ = DEFAULT_STATION_ID.set(enabled[0].id.clone());
 
+    let radio_cfg = crate::radio::config::effective();
     let mut reg = registry().write().await;
     let mut tk = tasks().write().await;
     for st in enabled {
         if reg.contains_key(&st.id) {
             continue;
         }
-        let bc = Arc::new(Broadcaster::new(st.id.clone()));
+        let video = is_video_capable(&st.content_mode);
+        let limit = if video {
+            radio_cfg.max_concurrent_video_streams
+        } else {
+            radio_cfg.max_concurrent_audio_streams
+        };
+        let current = count_group_in_map(&reg, video);
+        if current >= limit as usize {
+            warn!(
+                "[radio-broadcaster] station '{}' ({}) not started at boot: {} concurrent-stream \
+                 limit reached ({}/{}) - raise max_concurrent_{}_streams in [radio] config to \
+                 start more at once",
+                st.name,
+                st.id,
+                if video { "video" } else { "audio" },
+                current,
+                limit,
+                if video { "video" } else { "audio" }
+            );
+            continue;
+        }
+        let bc = Arc::new(Broadcaster::new(st.id.clone(), st.content_mode.clone()));
         // seed runtime flag from db so a server restart picks up the
         // persisted value without an extra admin call.
         if st.timeline_only_mode != 0 {
@@ -1271,6 +1335,23 @@ pub async fn running_station_ids() -> Vec<String> {
     registry().read().await.keys().cloned().collect()
 }
 
+/// find a currently-running broadcaster in the given cap group (video vs
+/// audio) with zero listeners, other than `exclude` - a candidate to stop
+/// and free a concurrency slot for a newly-requested station. the cap
+/// counts running broadcaster PROCESSES, not active listeners, so a
+/// station nobody is listening to (e.g. everyone left minutes ago, or it
+/// was auto-started at boot and never actually tuned into) would
+/// otherwise occupy its slot forever.
+async fn find_idle_broadcaster_in_group(video: bool, exclude: &str) -> Option<String> {
+    let reg = registry().read().await;
+    reg.values()
+        .filter(|bc| bc.station_id() != exclude)
+        .filter(|bc| is_video_capable(&bc.content_mode) == video)
+        .filter(|bc| bc.listener_count() == 0)
+        .map(|bc| bc.station_id().to_string())
+        .next()
+}
+
 /// spawn a broadcaster for `station_id` if not already running. errors
 /// when the station row is missing or marked `is_enabled = 0`. idempotent
 /// on re-call (returns Ok).
@@ -1294,7 +1375,31 @@ pub async fn start_station(station_id: &str) -> GrimoireResult<()> {
             ),
         });
     }
-    let bc = Arc::new(Broadcaster::new(st.id.clone()));
+    let video = is_video_capable(&st.content_mode);
+    let radio_cfg = crate::radio::config::effective();
+    let limit = if video {
+        radio_cfg.max_concurrent_video_streams
+    } else {
+        radio_cfg.max_concurrent_audio_streams
+    };
+    let current = running_count_for_group(video).await;
+    if current >= limit as usize {
+        // don't fail immediately - a running-but-unlistened-to station in
+        // the same group is a better use of the slot than this brand new
+        // request. only surface the cap error if every station in the
+        // group genuinely has listeners.
+        match find_idle_broadcaster_in_group(video, station_id).await {
+            Some(idle_id) => {
+                info!(
+                    "[radio-broadcaster] concurrency cap reached ({current}/{limit}) - \
+                     stopping idle station '{idle_id}' to free a slot for '{station_id}'"
+                );
+                stop_station(&idle_id).await?;
+            }
+            None => return Err(concurrency_cap_error(video, current, limit)),
+        }
+    }
+    let bc = Arc::new(Broadcaster::new(st.id.clone(), st.content_mode.clone()));
     let task_bc = bc.clone();
     let handle = tokio::spawn(async move { task_bc.run().await });
     {

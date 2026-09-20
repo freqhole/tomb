@@ -73,20 +73,50 @@ async fn run_session(conn: &Connection) -> GrimoireResult<()> {
         }
     };
 
-    let bc = match requested_station.as_deref() {
-        Some(id) => get_broadcaster(id)
-            .await
-            .ok_or_else(|| GrimoireError::FederationApiError {
-                message: format!("radio: no broadcaster for station '{id}'"),
-            })?,
-        None => {
-            get_default_broadcaster()
-                .await
-                .ok_or_else(|| GrimoireError::FederationApiError {
+    let bc =
+        match requested_station.as_deref() {
+            Some(id) => {
+                // lazily start an enabled-but-not-yet-running station on
+                // first tune request - without this, any station beyond
+                // the boot-time `max_concurrent_*_streams` cutoff (see
+                // `broadcaster::init_registry`, which only starts stations
+                // up to that limit and never retries the rest) is
+                // permanently untunable even though it's enabled, since
+                // nothing else ever spawns it. idempotent / respects the
+                // same concurrency cap `start_station` already enforces -
+                // surfaces a clear "too many concurrent streams" error
+                // instead of this function's generic "no broadcaster"
+                // message when the cap is the actual reason.
+                if get_broadcaster(id).await.is_none() {
+                    if let Err(e) = crate::radio::broadcaster::start_station(id).await {
+                        // without this, the control stream just drops
+                        // silently (no Hello ever sent) and the client can
+                        // only guess why ("station may be private or
+                        // unavailable") - send the real reason first so a
+                        // concurrency-cap failure (or any other
+                        // start_station error) is actually visible.
+                        let _ = write_control_message(
+                            &mut ctrl_send,
+                            &ControlMessage::Goodbye(GoodbyeMessage {
+                                reason: e.to_string(),
+                            }),
+                        )
+                        .await;
+                        return Err(e);
+                    }
+                }
+                get_broadcaster(id)
+                    .await
+                    .ok_or_else(|| GrimoireError::FederationApiError {
+                        message: format!("radio: no broadcaster for station '{id}'"),
+                    })?
+            }
+            None => get_default_broadcaster().await.ok_or_else(|| {
+                GrimoireError::FederationApiError {
                     message: "radio: no default station configured".to_string(),
-                })?
-        }
-    };
+                }
+            })?,
+        };
     info!(
         "[radio-handler] tune request station_id={:?} resolved_station_id={}",
         requested_station,

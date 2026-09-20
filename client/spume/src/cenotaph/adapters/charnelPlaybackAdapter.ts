@@ -1,18 +1,13 @@
 // PlaybackBackend<MiddenNodeLike> adapter that delegates cenotaph's
 // `/player/` remote-control commands to spume's REAL player (rodio/gst-
-// aware via `select.ts`/`selectVideo.ts`) instead of cenotaph's own
-// self-contained DOM `<video>`/`<audio>` engine (`playbackEngine.ts`).
-//
-// see docs/cenotaph-linux-experimental-player-plan.md - this is phase 1
-// ("command-routing adapter"). activated only for a charnel build with
-// the rodio opt-in on (see acceptModeBootstrap.ts) - plain browser/wasm
-// mode keeps using cenotaph's own `mediaPlaybackBackend` unchanged.
+// aware via `select.ts`/`selectVideo.ts`) - the only playback backend
+// spume uses for this route, browser and charnel alike.
 //
 // resolving an incoming `MediaRef` to a real local `Song`/`QueuedVideo`
-// reuses the exact same logic `localLibraryHooks.ts` uses for cenotaph's
-// own engine (see `mediaRefResolve.ts`) - both need "is this already in
-// my local library, and if not, pull it in from its source peer", just
-// for different reasons (a queueable domain object here vs. raw bytes
+// reuses the exact same logic `localLibraryHooks.ts` uses elsewhere in
+// spume (see `mediaRefResolve.ts`) - both need "is this already in my
+// local library, and if not, pull it in from its source peer", just for
+// different reasons (a queueable domain object here vs. raw bytes
 // there).
 
 import type { MediaRef, PlaybackBackend, PlayerStatus } from "../index";
@@ -48,7 +43,14 @@ import type { Song } from "../../music/services/storage/types";
 import type { QueuedVideo } from "../../app/services/storage/mediaItem";
 import { resolveMediaRefToSong, resolveMediaRefToVideo } from "./mediaRefResolve";
 import { CENOTAPH_QUEUE_TRACE } from "../queueTrace";
-import { leaveRadio, tuneIntoRadio } from "../../app/services/radio/radioService";
+import {
+  leaveRadio,
+  radioCurrentPeerAddr,
+  radioCurrentStationId,
+  radioNowPlaying,
+  radioStatus,
+  tuneIntoRadio,
+} from "../../app/services/radio/radioService";
 import { debug, error, warn } from "../../utils/logger";
 
 /** one item from a queue push that hasn't resolved to a real queueable
@@ -397,9 +399,8 @@ function waitForPlaybackState(expected: boolean, timeoutMs = 2000): Promise<void
 }
 
 function currentStatus(): PlayerStatus {
-  const queue = buildQueueRefs();
   const common = {
-    queue,
+    queue: buildQueueRefs(),
     recently_played: [...recentlyPlayed],
     auto_download_enabled: getAutoDownloadEnabled(),
     volume: volume(),
@@ -408,6 +409,30 @@ function currentStatus(): PlayerStatus {
       source_peer_addr: u.sourcePeerAddr,
     })),
   };
+
+  // radio takes precedence over the regular queue - tuneIntoRadio()
+  // (called by startRadio below) runs as its own session entirely
+  // separate from the queue/player, so a radio tune-in must be reported
+  // here or a paired controller has no way to tell radio is playing at
+  // all (the queue-based branches below would otherwise report whatever
+  // stale queue state happened to exist before the tune).
+  const radioPeer = radioCurrentPeerAddr();
+  const rStatus = radioStatus();
+  if (radioPeer && (rStatus === "connecting" || rStatus === "playing" || rStatus === "paused")) {
+    const np = radioNowPlaying();
+    return {
+      type: "status",
+      state: "playing_radio",
+      peer_addr: radioPeer,
+      station_id: radioCurrentStationId() ?? undefined,
+      title: np?.title,
+      artist: np?.artist ?? undefined,
+      kind: np?.kind === "video" ? "video" : np ? "audio" : undefined,
+      ...common,
+    };
+  }
+
+  const queue = common.queue;
   if (queue.length === 0) {
     return { type: "status", state: "stopped", ...common };
   }
@@ -432,10 +457,9 @@ function currentStatus(): PlayerStatus {
 
 /** `PlaybackBackend` implementation that delegates to spume's own real
  * player/queue services (see this module's header comment). `node` is
- * accepted (per the interface) but never used - unlike cenotaph's own
- * `mediaPlaybackBackend`, this adapter never talks to iroh-blobs
- * directly; `mediaRefResolve.ts` already goes through spume's normal
- * remote-client plumbing for that. */
+ * accepted (per the interface) but never used - this adapter never
+ * talks to iroh-blobs directly; `mediaRefResolve.ts` already goes
+ * through spume's normal remote-client plumbing for that. */
 export const charnelPlaybackAdapter: PlaybackBackend<unknown> = {
   async play(_node, item) {
     const mediaItem = await resolveMediaItem(item);

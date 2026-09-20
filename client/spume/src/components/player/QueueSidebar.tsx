@@ -804,19 +804,7 @@ export function QueueSidebar(props: QueueSidebarProps) {
             }
           >
             <Show when={props.items.length === 0}>
-              <Show
-                when={!hasRadioQueueEntry()}
-                fallback={
-                  <div class="flex flex-col items-center justify-center h-full text-center px-8">
-                    <p class="text-[var(--color-text-secondary)] text-sm m-0 mb-2">
-                      no songs queued
-                    </p>
-                    <p class="text-[var(--color-text-muted)] text-xs m-0">
-                      radio is saved above as a queue entry
-                    </p>
-                  </div>
-                }
-              >
+              <Show when={!hasRadioQueueEntry()}>
                 <div class="flex flex-col items-center justify-center h-full text-center px-8">
                   <div class="w-16 h-16 mb-4 bg-[var(--color-accent-500)]/10 flex items-center justify-center">
                     <Icon name="queue" size={32} color="var(--color-accent-500)" />

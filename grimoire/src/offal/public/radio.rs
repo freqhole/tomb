@@ -117,7 +117,20 @@ pub struct PublicStation {
     /// happens to every known peer either way; this just controls the
     /// per-station auth gate in the iroh handler).
     pub is_public: bool,
+    /// false for an enabled station that hasn't been tuned into yet this
+    /// boot (see `broadcaster::init_registry`'s doc comment - only the
+    /// first N stations up to `max_concurrent_*_streams` auto-start at
+    /// boot, the rest sit enabled-but-cold until someone tunes in, which
+    /// lazily starts them - see `radio::handler::run_session`).
+    /// `listener_count`/`now_playing` are meaningless placeholders while
+    /// this is false.
+    #[serde(default = "default_true")]
+    pub is_running: bool,
     pub now_playing: PublicNowPlaying,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 /// the now-playing card without the binary art payload (clients fetch
@@ -325,6 +338,7 @@ async fn snapshot_station(
         listener_count: bc.listener_count(),
         is_default: default_id == Some(bc.station_id()),
         is_public,
+        is_running: true,
         now_playing: PublicNowPlaying {
             kind: np.kind.as_str().to_string(),
             song_id: np.song_id.clone(),
@@ -541,8 +555,36 @@ pub async fn stations() -> GrimoireResponse<JsonValue> {
     let running = list_running().await;
     let default_id = crate::radio::broadcaster::default_station_id();
     let mut out = Vec::with_capacity(running.len());
+    let mut seen = std::collections::HashSet::with_capacity(running.len());
     for bc in &running {
+        seen.insert(bc.station_id().to_string());
         out.push(snapshot_station(bc, default_id).await);
+    }
+    // enabled stations beyond the boot-time `max_concurrent_*_streams`
+    // cutoff never get an auto-started broadcaster (see
+    // `broadcaster::init_registry`) and previously just vanished from
+    // discovery entirely - a station nobody has ever tuned into stays
+    // invisible forever, even though it's enabled and would work fine
+    // once tuned (see `radio::handler::run_session`'s lazy-start). list
+    // them too, as "cold" placeholders, so there's something for a
+    // listener to actually click - the lazy-start in the tune handler
+    // takes it from there.
+    if let Ok(all_stations) = crate::radio::stations::list_stations().await {
+        for s in all_stations {
+            if s.is_enabled == 0 || seen.contains(&s.id) {
+                continue;
+            }
+            out.push(PublicStation {
+                station_id: s.id,
+                name: s.name,
+                description: s.description,
+                listener_count: 0,
+                is_default: false,
+                is_public: s.is_public != 0,
+                is_running: false,
+                now_playing: PublicNowPlaying::default(),
+            });
+        }
     }
     // every running station is advertised to every caller. `is_public`
     // only controls *who can tune in* — peers not in the local peer

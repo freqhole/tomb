@@ -103,6 +103,26 @@ pub struct RadioConfig {
     /// retry restarts ffmpeg from scratch.
     #[serde(default = "default_encoder_restart_attempts")]
     pub encoder_restart_attempts: u32,
+
+    /// max number of `audio_only` stations allowed to have a running
+    /// broadcaster (ffmpeg encoder process) at once. `init_registry`
+    /// skips (with a warning) any additional enabled `audio_only`
+    /// stations beyond this cap at boot; `radio_supervisor_start`/
+    /// `stations_create`/`stations_update` (which auto-start a newly
+    /// enabled station) return an error instead of starting one over the
+    /// cap. does not stop an already-running station - lower this and
+    /// restart the ones you want to keep instead.
+    #[serde(default = "default_max_concurrent_audio_streams")]
+    pub max_concurrent_audio_streams: u32,
+
+    /// same as `max_concurrent_audio_streams`, but for any content_mode
+    /// that can carry video (`audio_or_video`/`video_only`, which share
+    /// this one smaller pool) - kept separate and lower by default
+    /// because video encoding is far more cpu-expensive than audio-only,
+    /// and a resource-constrained node (e.g. a Raspberry Pi) is much
+    /// more likely to need a tight cap here specifically.
+    #[serde(default = "default_max_concurrent_video_streams")]
+    pub max_concurrent_video_streams: u32,
 }
 
 impl Default for RadioConfig {
@@ -116,6 +136,8 @@ impl Default for RadioConfig {
             buffer_seconds: default_buffer_seconds(),
             inter_track_silence_ms: default_inter_track_silence_ms(),
             encoder_restart_attempts: default_encoder_restart_attempts(),
+            max_concurrent_audio_streams: default_max_concurrent_audio_streams(),
+            max_concurrent_video_streams: default_max_concurrent_video_streams(),
         }
     }
 }
@@ -159,6 +181,14 @@ fn default_inter_track_silence_ms() -> u32 {
 
 fn default_encoder_restart_attempts() -> u32 {
     3
+}
+
+fn default_max_concurrent_audio_streams() -> u32 {
+    2
+}
+
+fn default_max_concurrent_video_streams() -> u32 {
+    1
 }
 
 /// video-capable default ffmpeg args - same fragmented-mp4/aac tail as

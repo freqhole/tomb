@@ -6,6 +6,7 @@ import {
   createMemo,
   createResource,
   createSignal,
+  ErrorBoundary,
   on,
   onCleanup,
   onMount,
@@ -199,9 +200,11 @@ import { setHighlightedSongId } from "../music/state/highlightedSong";
 import {
   leaveRadio,
   radioArtUrl,
+  radioConnectPhase,
   radioCurrentFavorite,
   radioCurrentPeerAddr,
   radioCurrentRemoteServerId,
+  radioCurrentStationId,
   radioElapsedMs,
   radioListenerCount,
   radioNowPlaying,
@@ -273,29 +276,33 @@ export function AppLayout(props: AppLayoutProps) {
     })
   );
 
-  // radio counterpart of the two effects above - a station's video-kind
-  // track switching (or starting playback) un-dismisses the same panel.
-  // mutually exclusive with the local-video case (isRadio() gates which
-  // one actually renders), so sharing one dismissed signal is safe.
+  // radio counterpart of the effects above - un-dismisses only when a
+  // genuinely NEW video-carrying radio SESSION starts (a different
+  // peer_addr/station_id, or transitioning into radio-video from
+  // something else entirely). explicit resume is handled separately in
+  // onPlayPause's radio branch (see below), for parity with the
+  // local-video isPlaying effect above.
+  //
+  // an earlier version of this keyed off radioStatus()/song_id directly
+  // (un-dismissing on every "-> playing" transition, or every track
+  // change while kind stayed "video") - status legitimately cycles
+  // connecting->playing on every ADMIN SKIP even mid-session (see
+  // flushForAdminSkip in radioService.ts), and song_id changes on every
+  // ordinary track transition too - both silently reopened a panel the
+  // user had just explicitly closed, moments (or a track) later, making
+  // the close button look broken.
   createEffect(
     on(
       () =>
         playbackMode() === "radio" && radioNowPlaying()?.kind === "video"
-          ? radioNowPlaying()?.song_id
+          ? `${radioCurrentPeerAddr() ?? ""}:${radioCurrentStationId() ?? ""}`
           : undefined,
-      (id, prevId) => {
-        if (prevId !== undefined && id !== undefined && id !== prevId) {
+      (session, prevSession) => {
+        if (session !== undefined && session !== prevSession) {
           setVideoMiniPlayerDismissed(false);
         }
       }
     )
-  );
-  createEffect(
-    on(radioStatus, (s) => {
-      if (s === "playing" && radioNowPlaying()?.kind === "video" && videoMiniPlayerDismissed()) {
-        setVideoMiniPlayerDismissed(false);
-      }
-    })
   );
 
   // the mini player floats above everything, including modals - hide it
@@ -1813,7 +1820,13 @@ export function AppLayout(props: AppLayoutProps) {
                     acknowledgeTimelineUserStart();
                   }
                   radioResume();
-                } else if (radioStatus() === "playing") radioPause();
+                  // explicit user resume, same as the local-video isPlaying
+                  // effect above - reopens a panel the user closed while
+                  // paused, mirroring VideoMiniPlayer's own "pause + hide,
+                  // reopens once playback resumes" contract.
+                  if (radioNowPlaying()?.kind === "video") setVideoMiniPlayerDismissed(false);
+                } else if (radioStatus() === "playing" || radioStatus() === "connecting")
+                  radioPause();
                 else if (radioStatus() === "error") leaveRadio();
                 else if (radioStatus() === "idle") {
                   const station = currentRadioStation();
@@ -1968,13 +1981,13 @@ export function AppLayout(props: AppLayoutProps) {
                   }}
                   title={radioCurrentPeerAddr() ?? ""}
                 >
-                  <span>
+                  <span class="truncate">
                     {radioStatus() === "playing"
                       ? radioUseTimelineMode()
                         ? "queue"
                         : "live"
                       : radioStatus() === "connecting"
-                        ? "tuning"
+                        ? radioConnectPhase() || "tuning\u2026"
                         : radioStatus() === "paused"
                           ? "paused"
                           : radioStatus() === "idle"
@@ -1982,7 +1995,7 @@ export function AppLayout(props: AppLayoutProps) {
                             : "error"}
                   </span>
                   <span
-                    class="w-1 h-1 rounded-full"
+                    class="w-1 h-1 rounded-full flex-shrink-0"
                     classList={{
                       "bg-violet-400 animate-pulse":
                         radioStatus() === "playing" && radioUseTimelineMode(),
@@ -1993,41 +2006,64 @@ export function AppLayout(props: AppLayoutProps) {
                       "bg-red-500": radioStatus() === "error",
                     }}
                   />
-                  <span class="opacity-70 normal-case font-medium tabular-nums">
-                    {radioListenerCount()} listening
-                  </span>
+                  {/* listener count isn't meaningful yet while tuning - drop
+                      it so the badge has more room for the connect-phase
+                      text above instead (was previously "N listening" even
+                      mid-tune, which just reads as noise). */}
+                  <Show when={radioStatus() !== "connecting"}>
+                    <span class="opacity-70 normal-case font-medium tabular-nums">
+                      {radioListenerCount()} listening
+                    </span>
+                  </Show>
                 </div>
               ) : undefined;
 
             return (
               <>
-                <Show
-                  when={
-                    !videoMiniPlayerDismissed() &&
-                    ((!isRadio() &&
-                      currentVideoData() &&
-                      // on linux the picture is in its own gstreamer window,
-                      // so there is no element here to mirror
-                      !isVideoWindowActive() &&
-                      getVideoElement()) ||
-                      (isRadio() && radioNowPlaying()?.kind === "video" && getRadioVideoElement()))
-                  }
+                {/* ErrorBoundary: a rare solid-js reentrant-dispose bug
+                    (`cleanNode`/`node.owned[i]`) was traced to this panel
+                    mounting/unmounting (via `<Show>`) on every dismiss/
+                    status change while it also owns a live, re-parented
+                    `<video>` element - contain any recurrence here so it
+                    can't take down the rest of the layout. the mount
+                    condition below no longer includes the dismissed flag
+                    (see `hidden` prop) specifically to stop causing that
+                    churn in the first place; this boundary is a backstop,
+                    not the fix. */}
+                <ErrorBoundary
+                  fallback={(err) => {
+                    console.warn("[player.video] mini player crashed, resetting:", err);
+                    return null;
+                  }}
                 >
-                  {(el) => (
-                    <VideoMiniPlayer
-                      videoElement={el()}
-                      onClose={() => setVideoMiniPlayerDismissed(true)}
-                      isPlaying={isRadio() ? () => radioStatus() === "playing" : undefined}
-                      onTogglePlayback={
-                        isRadio()
-                          ? () => (radioStatus() === "playing" ? radioPause() : radioResume())
-                          : undefined
-                      }
-                      onPause={isRadio() ? () => radioPause() : undefined}
-                      onElementDetach={isRadio() ? reclaimRadioVideoElement : undefined}
-                    />
-                  )}
-                </Show>
+                  <Show
+                    when={
+                      (!isRadio() &&
+                        currentVideoData() &&
+                        // on linux the picture is in its own gstreamer window,
+                        // so there is no element here to mirror
+                        !isVideoWindowActive() &&
+                        getVideoElement()) ||
+                      (isRadio() && radioNowPlaying()?.kind === "video" && getRadioVideoElement())
+                    }
+                  >
+                    {(el) => (
+                      <VideoMiniPlayer
+                        videoElement={el()}
+                        hidden={videoMiniPlayerDismissed()}
+                        onClose={() => setVideoMiniPlayerDismissed(true)}
+                        isPlaying={isRadio() ? () => radioStatus() === "playing" : undefined}
+                        onTogglePlayback={
+                          isRadio()
+                            ? () => (radioStatus() === "playing" ? radioPause() : radioResume())
+                            : undefined
+                        }
+                        onPause={isRadio() ? () => radioPause() : undefined}
+                        onElementDetach={isRadio() ? reclaimRadioVideoElement : undefined}
+                      />
+                    )}
+                  </Show>
+                </ErrorBoundary>
                 <PlayerBar
                   song={barSong()}
                   isPlaying={barIsPlaying()}
