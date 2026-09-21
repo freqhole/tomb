@@ -79,6 +79,7 @@ import { resolveSongOrId } from "./facadeHelpers";
 import { isRemoteTargetActive } from "../../../app/services/players/activeTarget";
 
 import type { Song } from "../storage/types";
+import { songIdentityKey } from "../storage/types";
 // auto-advance past unplayable songs before giving up.
 const PLAY_NEXT_MAX_ATTEMPTS = 5;
 // per-song setup timeout for `playNext`.
@@ -168,7 +169,9 @@ async function toggleCurrentSongFavorite(): Promise<void> {
   const state = appState();
   const sha256 = state?.current_sha256;
   if (!sha256) return;
-  const queuedItem = state.queue.find((i) => i.kind === "song" && i.song.sha256 === sha256);
+  const queuedItem = state.queue.find(
+    (i) => i.kind === "song" && songIdentityKey(i.song) === sha256
+  );
   const song =
     (queuedItem?.kind === "song" ? queuedItem.song : undefined) ??
     (await getDataSource().getSongById(sha256));
@@ -480,7 +483,7 @@ export async function playSong(
 ): Promise<void> {
   const userInitiated = !!options?.userInitiated;
   const song = await resolveSongOrId(songOrId);
-  const loadGeneration = beginMediaLoad(song.sha256);
+  const loadGeneration = beginMediaLoad(songIdentityKey(song));
 
   // a remote target (paired freqhole-player) owns playback instead of
   // this device - playSong is queue/state-driven and gets called from

@@ -2,7 +2,12 @@ import { createEffect, createSignal, onCleanup, onMount, Show } from "solid-js";
 import { Icon, IconNames } from "../icons/registry";
 import { debug } from "../../utils/logger";
 import { isTouchDevice } from "../../utils/isMobile";
-import { isPlaying, pause, togglePlayback } from "../../music/services/audio/player";
+import { useChromeSuppression } from "../../app/shell/chromeSuppression";
+import {
+  isPlaying as musicIsPlaying,
+  pause as musicPause,
+  togglePlayback as musicTogglePlayback,
+} from "../../music/services/audio/player";
 
 // delay before a click's play/pause toggle fires, so a second click
 // arriving within the window can cancel it and fire fullscreen instead.
@@ -38,6 +43,28 @@ export interface VideoMiniPlayerProps {
    *  artwork/qr code occupies. real browser fullscreen (the fullscreen
    *  button/double-click) works the same either way. */
   variant?: "floating" | "inline";
+  /** overrides for the default (on-demand queue) music player's
+   * isPlaying/togglePlayback/pause - lets radio's video-kind tracks reuse
+   * this component with radioStatus()/radioResume()/radioPause() instead.
+   * omitted (the non-radio, default queue-video case) keeps existing
+   * behavior unchanged. */
+  isPlaying?: () => boolean;
+  onTogglePlayback?: () => void | Promise<void>;
+  onPause?: () => void;
+  /** hides the panel via CSS instead of unmounting it - unmounting here
+   * (e.g. via a parent `<Show>` keyed on this) tears down the video
+   * element's DOM position/reactive owner every time the user
+   * dismisses/re-shows the panel, which is unnecessary churn for
+   * something this is just a visibility toggle - see the module doc
+   * comment for the full reasoning. omitted/false = visible. */
+  hidden?: boolean;
+  /** called when this panel unmounts (dismissed, or the underlying video
+   * stops being active) - lets a caller whose video element must always
+   * stay attached SOMEWHERE in the dom (radio's persistent sink; see its
+   * ManagedMediaSource doc comments) move it back to a hidden parent
+   * instead of leaving it orphaned. no-op for the default queue-video
+   * case, which has no such requirement. */
+  onElementDetach?: (el: HTMLVideoElement) => void;
 }
 
 /** floating mini video player — sits above the player bar, anchored to
@@ -47,16 +74,47 @@ export interface VideoMiniPlayerProps {
  * in-bar `VideoThumbSlot`), so playback isn't interrupted by the move. */
 export function VideoMiniPlayer(props: VideoMiniPlayerProps) {
   let mount!: HTMLDivElement;
+  // captured once, NOT read live via `props.videoElement` elsewhere - that
+  // getter re-invokes the owning `<Show>`'s render-prop accessor on every
+  // read (solid compiles JSX expression props as getters), which throws
+  // "stale value from <Show>" if read from `onCleanup` - by definition
+  // running while that same `<Show>` is mid-disposal. this prop never
+  // legitimately changes for a given mounted instance, so a plain capture
+  // is correct, not just a workaround.
+  const videoEl = props.videoElement;
   const isInline = () => props.variant === "inline";
+  const playing = () => (props.isPlaying ?? musicIsPlaying)();
+  const doTogglePlayback = () => void (props.onTogglePlayback ?? musicTogglePlayback)();
+  const doPause = () => (props.onPause ?? musicPause)();
+
+  // hide the chromeless title-bar strip's stoplight buttons (show on
+  // hover only) while this panel is expanded to fill the screen - an
+  // expanded floating player is the one case that visually competes with
+  // them; "inline" (kiosk) usage never expands, so it never suppresses.
+  useChromeSuppression("video-mini-player", () => !isInline() && expanded());
+
+  onCleanup(() => props.onElementDetach?.(videoEl));
 
   onMount(() => {
-    const el = props.videoElement;
+    const el = videoEl;
     debug("player.video", "VideoMiniPlayer mount", {
       readyState: el.readyState,
       paused: el.paused,
       hasParent: !!el.parentElement,
       currentParentTag: el.parentElement?.tagName,
     });
+    // the radio hidden-sink styling (RadioAudioSink) sets `position:
+    // absolute` + `clip: rect(0,0,0,0)` to stay invisible-but-laid-out;
+    // `clip` only applies to absolutely/fixed-positioned elements, so
+    // leaving `position: absolute` in place here (only width/height/
+    // objectFit were ever reset) meant the clip rect kept zeroing out
+    // the video's visible area even after appending it into a normal,
+    // visible panel - audio decoded/played fine (clip doesn't affect
+    // audio), but nothing ever painted. clear all three so the element
+    // actually renders at its natural (now 100%/100%) size.
+    el.style.removeProperty("position");
+    el.style.removeProperty("clip");
+    el.style.removeProperty("overflow");
     el.style.width = "100%";
     el.style.height = "100%";
     el.style.objectFit = "contain";
@@ -106,7 +164,13 @@ export function VideoMiniPlayer(props: VideoMiniPlayerProps) {
   });
 
   const requestFullscreen = () => {
-    const el = props.videoElement;
+    const el = videoEl;
+    console.info(
+      "[player.video] requestFullscreen fired, has requestFullscreen:",
+      !!el.requestFullscreen,
+      "has webkitEnterFullscreen:",
+      "webkitEnterFullscreen" in el
+    );
     if (el.requestFullscreen) {
       el.requestFullscreen().catch((err: unknown) => {
         console.error("[fullscreen] requestFullscreen() rejected", err);
@@ -119,13 +183,15 @@ export function VideoMiniPlayer(props: VideoMiniPlayerProps) {
   };
 
   const toggleExpand = () => {
+    console.info("[player.video] toggleExpand fired, was", expanded());
     setExpanded((was) => !was);
   };
 
   // pause (if playing) and hide the panel - does NOT touch the queue, so
   // playback can resume from the player bar and the panel reopens then.
   const handleClose = () => {
-    if (isPlaying()) pause();
+    console.info("[player.video] handleClose fired, playing:", playing());
+    if (playing()) doPause();
     props.onClose?.();
   };
 
@@ -135,14 +201,16 @@ export function VideoMiniPlayer(props: VideoMiniPlayerProps) {
   });
 
   const handleClick = () => {
+    console.info("[player.video] handleClick (single) fired");
     if (clickTimer) return;
     clickTimer = setTimeout(() => {
       clickTimer = null;
-      void togglePlayback();
+      doTogglePlayback();
     }, CLICK_VS_DBLCLICK_DELAY_MS);
   };
 
   const handleDblClick = () => {
+    console.info("[player.video] handleDblClick fired");
     if (clickTimer) {
       clearTimeout(clickTimer);
       clickTimer = null;
@@ -161,7 +229,10 @@ export function VideoMiniPlayer(props: VideoMiniPlayerProps) {
         <button
           type="button"
           class="bg-black/50 rounded p-1.5"
-          onClick={toggleExpand}
+          onClick={(e) => {
+            e.stopPropagation();
+            toggleExpand();
+          }}
           title={expanded() ? "collapse" : "expand"}
         >
           <Icon
@@ -174,13 +245,24 @@ export function VideoMiniPlayer(props: VideoMiniPlayerProps) {
       <button
         type="button"
         class="bg-black/50 rounded p-1.5"
-        onClick={requestFullscreen}
+        onClick={(e) => {
+          e.stopPropagation();
+          requestFullscreen();
+        }}
         title="fullscreen"
       >
         <Icon name={IconNames.fullscreen} size={16} className="text-white drop-shadow-lg" />
       </button>
       <Show when={!isInline()}>
-        <button type="button" class="bg-black/50 rounded p-1.5" onClick={handleClose} title="close">
+        <button
+          type="button"
+          class="bg-black/50 rounded p-1.5"
+          onClick={(e) => {
+            e.stopPropagation();
+            handleClose();
+          }}
+          title="close"
+        >
           <Icon name={IconNames.close} size={16} className="text-white drop-shadow-lg" />
         </button>
       </Show>
@@ -204,7 +286,13 @@ export function VideoMiniPlayer(props: VideoMiniPlayerProps) {
               "inset-0": expanded(),
             }
       }
-      style={isInline() ? undefined : { bottom: "var(--player-bar-height, 0px)" }}
+      // inline style (not a `hidden`/`display:none` class) - guaranteed to
+      // win regardless of tailwind's utility ordering, unlike relying on
+      // class-vs-class specificity against the "flex"/"fixed" classes above.
+      style={{
+        ...(isInline() ? {} : { bottom: "var(--player-bar-height, 0px)" }),
+        ...(props.hidden ? { display: "none" } : {}),
+      }}
     >
       <Show when={controlsAboveVideo()}>
         <div class="flex justify-end pb-1.5">

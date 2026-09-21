@@ -28,6 +28,7 @@
 import { createEffect, createRoot } from "solid-js";
 import { appState } from "../../../app/services/storage/db";
 import { songsOnly } from "../../../app/services/storage/mediaItem";
+import { songIdentityKey } from "../storage/types";
 import {
   activeHistoryEntryId,
   markSongCompleted,
@@ -81,7 +82,7 @@ export function installPlaybackOrchestrator(): void {
       // against the song-only subset and bail if the current item
       // isn't a song.
       const queueSongs = songsOnly(queue);
-      const songIdx = queueSongs.findIndex((s) => s.sha256 === current_sha256);
+      const songIdx = queueSongs.findIndex((s) => songIdentityKey(s) === current_sha256);
       const currentSong = songIdx >= 0 ? queueSongs[songIdx] : null;
       if (!currentSong) return;
 

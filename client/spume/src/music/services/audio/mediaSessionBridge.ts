@@ -31,6 +31,7 @@ import { formatSeasonLabel } from "../../../components/forms/VideoSeasonAutocomp
 import { debug } from "../../../utils/logger";
 import { currentTime, duration, isPlaying } from "../audio/playerState";
 import type { Song } from "../storage/types";
+import { songIdentityKey } from "../storage/types";
 import { getMediaSessionArtworkForVideo } from "./mediaSessionArtwork";
 import { getLocalArtworkFilePath } from "./mediaSessionArtwork";
 import {
@@ -189,7 +190,7 @@ export function installMediaSessionBridge(): void {
           const state = appState();
           if (!state?.current_sha256) return null;
           const item = state.queue.find(
-            (i) => i.kind === "song" && i.song.sha256 === state.current_sha256
+            (i) => i.kind === "song" && songIdentityKey(i.song) === state.current_sha256
           );
           if (!item || item.kind !== "song") return false;
           return item.song.is_favorite ?? false;
@@ -336,21 +337,30 @@ export function setExternalMediaSession(options: ExternalMediaSessionOptions): v
       ] as MediaImage[])
     : undefined;
 
-  // clear metadata first, then set it (iOS Safari workaround)
-  navigator.mediaSession.metadata = null;
-  navigator.mediaSession.metadata = new MediaMetadata({
-    title: options.title,
-    artist: options.artist,
-    album: options.album,
-    artwork,
-  });
+  // clear metadata first, then set it (iOS Safari workaround). wrapped -
+  // WebKit can throw an internal error here (`TypeError: null is not an
+  // object (evaluating 'node.owned[i]')`) when called in quick succession
+  // with radio's own MediaSource-backed video element, seen crashing the
+  // whole reactive update (e.g. radioPause()'s setStatus call) instead of
+  // just failing this one, unrelated, best-effort OS integration.
+  try {
+    navigator.mediaSession.metadata = null;
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: options.title,
+      artist: options.artist,
+      album: options.album,
+      artwork,
+    });
 
-  navigator.mediaSession.playbackState = options.isPlaying ? "playing" : "paused";
+    navigator.mediaSession.playbackState = options.isPlaying ? "playing" : "paused";
 
-  navigator.mediaSession.setActionHandler("play", options.onPlay ?? null);
-  navigator.mediaSession.setActionHandler("pause", options.onPause ?? null);
-  navigator.mediaSession.setActionHandler("nexttrack", options.onNextTrack ?? null);
-  navigator.mediaSession.setActionHandler("previoustrack", options.onPreviousTrack ?? null);
+    navigator.mediaSession.setActionHandler("play", options.onPlay ?? null);
+    navigator.mediaSession.setActionHandler("pause", options.onPause ?? null);
+    navigator.mediaSession.setActionHandler("nexttrack", options.onNextTrack ?? null);
+    navigator.mediaSession.setActionHandler("previoustrack", options.onPreviousTrack ?? null);
+  } catch (e) {
+    console.warn("[mediaSessionBridge] setExternalMediaSession metadata/state threw:", e);
+  }
   try {
     navigator.mediaSession.setActionHandler(
       "favorite" as MediaSessionAction,

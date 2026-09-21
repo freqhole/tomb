@@ -1,6 +1,7 @@
 // radio service: tunes into a freqhole-radio/1 broadcaster via midden,
-// pumps fMP4/AAC chunks into a MediaSource, and surfaces meta updates as
-// solid signals.
+// pumps fMP4/AAC (or, for a video-carrying station, fMP4/AAC+H264) chunks
+// into a MediaSource attached to a <video> element, and surfaces meta
+// updates as solid signals.
 //
 // public API:
 //   - tuneInto(peerAddr, opts?) → returns { audio, leave } + state signals
@@ -8,14 +9,23 @@
 //   - leave() → tear down current session
 //   - radioState() → coarse status signal: 'idle' | 'connecting' | 'playing' | 'error'
 
-import { createSignal } from "solid-js";
-import { schema, type PublicNowPlaying } from "@freqhole/api-client";
+import { batch, createSignal } from "solid-js";
+import type { PublicNowPlaying } from "@freqhole/api-client";
 import type { RadioHandleLike } from "@freqhole/api-client";
 import { getMiddenNode, isCharnelAvailable } from "../../api/client";
 import { tuneRadioCharnel, tuneRadioCharnelLocal } from "./charnelRadioAdapter";
 import { registerStopRadio, registerVolumeMirror, stopMusicForRadio } from "../playbackCoordinator";
 import { pause as pausePlayerAudio } from "../../../music/services/audio/player";
 import { recordHistoryEntry } from "./radioHistory";
+import {
+  type RadioModeCapability,
+  type RadioTimelineSnapshot,
+  rawArtMetaFrom,
+  artUrlFromRaw,
+  coerceModeCapabilities,
+  coerceTimelineSnapshot,
+  coerceNowPlaying,
+} from "./radioCoercion";
 import {
   currentRadioStation,
   setCurrentRadioStationPersisted,
@@ -26,6 +36,12 @@ import {
   getRemoteById,
 } from "../remotes/remoteManager";
 import { getClientForRemote } from "../../api/client";
+import {
+  currentFavorite,
+  setCurrentFavorite,
+  fetchRadioFavorite,
+  setRadioFavoriteForPeer,
+} from "./radioFavorite";
 
 // queue-mode adapter api injected at module init via
 // `registerQueueAdapter`. avoids a static import cycle
@@ -52,39 +68,34 @@ function stopQueueModeAdapter(): void {
   queueAdapter?.stopQueueModeAdapter();
 }
 
+// fallback only - the real codec for a SourceBuffer always comes from
+// the station's own Hello.codec (see applyHello), which may differ for
+// a video-carrying station. used only if Hello is somehow missing one.
 const MSE_CODEC = 'audio/mp4; codecs="mp4a.40.2"';
 
-// detect MSE support once at module init. mobile safari and some other
-// environments lack MediaSource; those listeners must use timeline/queue mode.
-const hasMSE =
+type ManagedMediaSourceCtor = new () => MediaSource;
+
+// safari (iOS 17.1+) added a separate, power-conscious `ManagedMediaSource`
+// API alongside classic `MediaSource` - undetected by a `window.MediaSource`
+// check alone, which would wrongly force those devices into timeline/queue
+// mode even though they can chunk-stream. attach path is `srcObject` on our
+// persistent <video> element (below) - confirmed working on a real iPhone
+// (iOS 18.7), but only once `audio.disableRemotePlayback = true` is set
+// before the `srcObject` assignment; without it, WebKit never fires
+// `sourceopen` at all (see where `disableRemotePlayback` is set, below).
+const managedMediaSourceCtor: ManagedMediaSourceCtor | null =
   typeof window !== "undefined" &&
-  typeof (window as unknown as { MediaSource?: unknown }).MediaSource === "function";
+  typeof (window as unknown as { ManagedMediaSource?: unknown }).ManagedMediaSource === "function"
+    ? (window as unknown as { ManagedMediaSource: ManagedMediaSourceCtor }).ManagedMediaSource
+    : null;
 
-type RadioModeCapability = "chunk_stream" | "timeline_seed";
-
-interface RadioTimelineCurrentItem {
-  timeline_item_id: string;
-  song_id: string;
-  start_at_ms: number;
-  duration_ms: number | null;
-}
-
-interface RadioTimelineUpcomingItem {
-  timeline_item_id: string;
-  song_id: string;
-  planned_start_at_ms: number;
-  duration_ms: number | null;
-}
-
-interface RadioTimelineSnapshot {
-  station_id: string;
-  timeline_seq: number;
-  station_epoch_ms: number;
-  generated_at_ms: number;
-  current: RadioTimelineCurrentItem | null;
-  upcoming: RadioTimelineUpcomingItem[];
-  lookahead_count: number;
-}
+// detect MSE support once at module init. mobile safari and some other
+// environments lack both MediaSource and ManagedMediaSource; those
+// listeners must use timeline/queue mode.
+const hasMSE =
+  (typeof window !== "undefined" &&
+    typeof (window as unknown as { MediaSource?: unknown }).MediaSource === "function") ||
+  managedMediaSourceCtor !== null;
 
 export type RadioStatus = "idle" | "connecting" | "playing" | "paused" | "error";
 
@@ -93,7 +104,9 @@ interface RadioSession {
   stationId: string | null;
   stationName: string | null;
   isLocal: boolean;
-  audio: HTMLAudioElement;
+  // a <video> element regardless of station content_mode - an audio-only
+  // station just never gets real frames painted to it. see getRadioVideoElement.
+  audio: HTMLVideoElement;
   leave: () => void;
 }
 
@@ -124,16 +137,21 @@ const [currentIsLocal, setCurrentIsLocal] = createSignal<boolean>(false);
 // bar to fetch the waveform blob from the right backend). null while
 // resolving or when no matching remote is configured locally.
 const [currentRemoteServerId, setCurrentRemoteServerId] = createSignal<string | null>(null);
+// human-readable sub-status for the "connecting" phase (player bar shows
+// this instead of the listener count while tuning, since a raw "tuning"
+// label with no further detail reads as stuck even when it's progressing
+// normally - see `drain()`/`tuneIntoRadio` for where this gets updated).
+const [connectPhase, setConnectPhase] = createSignal<string>("");
 // favorite state for the currently-playing radio track. mirrors the
 // remote's `is_favorite` for the broadcasting peer + currently-logged-in
 // user; reset on every track transition. null = unknown / not yet
 // fetched (also covers "no registered remote for this peer" case where
 // we can't talk to a favorites endpoint at all).
-const [currentFavorite, setCurrentFavorite] = createSignal<boolean | null>(null);
-// conservative buffering (bigger live-edge cushion, slower resync triggers —
-// see INITIAL_LIVE_EDGE_BUFFER_MS et al below) defaults on now: nothing ever
-// called setRadioStabilityMode to flip this true, so every listener has
-// always run on the smaller/tighter baseline regardless of link quality.
+// conservative buffering (slower resync triggers, bigger stall-recovery
+// baseline — see STALL_RECOVERY_BASELINE_MS et al below) defaults on
+// now: nothing ever called setRadioStabilityMode to flip this true, so
+// every listener has always run on the smaller/tighter baseline
+// regardless of link quality.
 const [stabilityMode, setStabilityMode] = createSignal<boolean>(true);
 const [modeCapabilities, setModeCapabilities] = createSignal<RadioModeCapability[]>([]);
 const [timelineSeedActive, setTimelineSeedActive] = createSignal<boolean>(false);
@@ -152,13 +170,6 @@ let listenStartedAtMs = 0;
 let listenedAccumulatedMs = 0;
 let elapsedTickHandle: number | null = null;
 let lastConfirmedHistoryTrackKey: string | null = null;
-
-// true once chunk playback has actually started at least once in this
-// browser session (module-level, so it persists across leave/re-tune
-// within the same page load). the very first tune-in has no prior
-// buffered headroom to fall back on if the network hiccups, so it starts
-// with a larger live-edge buffer than subsequent tunes.
-let hasStartedChunkPlaybackThisSession = false;
 
 const startElapsedTicker = () => {
   if (elapsedTickHandle !== null) return;
@@ -186,11 +197,12 @@ const stopElapsedTicker = (opts: { reset?: boolean } = {}) => {
 };
 
 let activeSession: RadioSession | null = null;
-// optional persistent <audio> element supplied by RadioBar. when set, new
-// tunes attach their MediaSource to it instead of creating a fresh element.
-// keeps playback alive across navigation and gives the global player bar a
-// stable target for volume + visibility.
-let audioSink: HTMLAudioElement | null = null;
+// optional persistent <video> element supplied by RadioAudioSink. when set,
+// new tunes attach their MediaSource to it instead of creating a fresh
+// element. keeps playback alive across navigation and gives the global
+// player bar a stable target for volume + visibility, and (for a
+// video-carrying station) a real surface to paint video frames onto.
+let audioSink: HTMLVideoElement | null = null;
 
 // active radio listen session — created on first playback start, closed on
 // leaveRadio. one per active tune. used purely for feed visibility ("user
@@ -274,6 +286,7 @@ export const radioCurrentPeerAddr = currentPeerAddr;
 export const radioCurrentStationId = currentStationId;
 export const radioCurrentIsLocal = currentIsLocal;
 export const radioCurrentRemoteServerId = currentRemoteServerId;
+export const radioConnectPhase = connectPhase;
 export const radioCurrentFavorite = currentFavorite;
 export const radioElapsedMs = elapsedMs;
 export const radioStabilityMode = stabilityMode;
@@ -301,6 +314,8 @@ export function recordCurrentRadioTrackHistory(track: {
 }): void {
   const songId = track.songId?.trim() ? track.songId.trim() : null;
   const np = {
+    // history recording only handles songs today - see plan doc.
+    kind: "song",
     song_id: songId ?? "",
     title: track.title,
     artist: track.artist ?? null,
@@ -365,6 +380,8 @@ export function applyTimelineNowPlaying(track: {
     swapArtUrl(track.artUrl ?? null);
   }
   setNowPlaying({
+    // timeline/queue mode is song-only today - see plan doc.
+    kind: "song",
     song_id: songId,
     title: track.title,
     artist: track.artist ?? null,
@@ -383,8 +400,10 @@ export function markTimelinePlaybackStarted(): void {
   if (listenStartedAtMs === 0) {
     listenStartedAtMs = Date.now();
   }
-  setError(null);
-  setStatus("playing");
+  batch(() => {
+    setError(null);
+    setStatus("playing");
+  });
   startElapsedTicker();
   void ensureRadioListenSession();
 }
@@ -393,8 +412,10 @@ export function markTimelinePlaybackBlocked(reason: string): void {
   // only treat this as a hard error while in timeline mode.
   if (!useTimelineMode()) return;
   stopElapsedTicker();
-  setStatus("error");
-  setError(reason);
+  batch(() => {
+    setStatus("error");
+    setError(reason);
+  });
 }
 
 // iOS Safari can block async audio.play() in timeline mode even after a
@@ -416,10 +437,10 @@ export function handleTimelineAutoplayBlocked(): void {
 // attempts no-op when their id no longer matches this value.
 let activeTuneAttemptId = 0;
 
-const TIMELINE_RECONNECT_BASE_MS = 2_000;
-const TIMELINE_RECONNECT_MAX_MS = 30_000;
-let timelineReconnectTimer: number | null = null;
-let timelineReconnectDelayMs = TIMELINE_RECONNECT_BASE_MS;
+const RECONNECT_BASE_MS = 2_000;
+const RECONNECT_MAX_MS = 30_000;
+let reconnectTimer: number | null = null;
+let reconnectDelayMs = RECONNECT_BASE_MS;
 
 function bumpTuneAttemptId(): number {
   activeTuneAttemptId = (activeTuneAttemptId + 1) >>> 0;
@@ -427,41 +448,45 @@ function bumpTuneAttemptId(): number {
   return activeTuneAttemptId;
 }
 
-function clearTimelineReconnect(): void {
-  if (timelineReconnectTimer !== null) {
-    window.clearTimeout(timelineReconnectTimer);
-    timelineReconnectTimer = null;
+function clearReconnect(): void {
+  if (reconnectTimer !== null) {
+    window.clearTimeout(reconnectTimer);
+    reconnectTimer = null;
   }
-  timelineReconnectDelayMs = TIMELINE_RECONNECT_BASE_MS;
+  reconnectDelayMs = RECONNECT_BASE_MS;
 }
 
-function scheduleTimelineReconnect(peerAddr: string, opts: TuneOptions, reason: string): void {
-  if (!peerAddr || timelineReconnectTimer !== null) return;
+// used by both timeline/queue mode (a clean "goodbye" control message) and
+// chunk/MSE mode (a clean "goodbye", OR the dead-connection watchdog below
+// noticing the control stream went silent - e.g. the remote process
+// restarted without ever getting to send "goodbye") - reconnecting is the
+// same re-tune-with-backoff regardless of which one triggered it.
+function scheduleReconnect(peerAddr: string, opts: TuneOptions, reason: string): void {
+  if (!peerAddr || reconnectTimer !== null) return;
 
-  const delayMs = timelineReconnectDelayMs;
-  timelineReconnectDelayMs = Math.min(
-    TIMELINE_RECONNECT_MAX_MS,
-    Math.floor(timelineReconnectDelayMs * 1.8)
-  );
+  const delayMs = reconnectDelayMs;
+  reconnectDelayMs = Math.min(RECONNECT_MAX_MS, Math.floor(reconnectDelayMs * 1.8));
 
-  console.info(`[radio] timeline session ended (${reason}); reconnecting in ${delayMs}ms`);
+  console.info(`[radio] session ended (${reason}); reconnecting in ${delayMs}ms`);
 
-  timelineReconnectTimer = window.setTimeout(() => {
-    timelineReconnectTimer = null;
+  reconnectTimer = window.setTimeout(() => {
+    reconnectTimer = null;
     void tuneIntoRadio(peerAddr, {
       ...opts,
       userInitiated: false,
       preservePlayback: true,
       autoReconnect: true,
     }).catch((e) => {
-      console.warn("[radio] timeline reconnect attempt failed:", e);
+      console.warn("[radio] reconnect attempt failed:", e);
       // keep trying while this is still the selected station and the
       // user hasn't explicitly gone idle/paused.
       if (currentPeerAddr() !== peerAddr) return;
       if (status() === "idle" || status() === "paused") return;
-      setStatus("connecting");
-      setError(null);
-      scheduleTimelineReconnect(peerAddr, opts, "retry failed");
+      batch(() => {
+        setStatus("connecting");
+        setError(null);
+      });
+      scheduleReconnect(peerAddr, opts, "retry failed");
     });
   }, delayMs);
 }
@@ -487,12 +512,23 @@ registerStopRadio(() => leaveRadio());
 registerVolumeMirror((vol) => setRadioVolume(vol));
 
 /**
- * register a persistent <audio> element to receive radio playback. pass
+ * register a persistent <video> element to receive radio playback. pass
  * null to unregister. safe to call before any tune; tuneIntoRadio reads
  * the sink at call time.
  */
-export function setRadioAudioSink(el: HTMLAudioElement | null): void {
+export function setRadioAudioSink(el: HTMLVideoElement | null): void {
   audioSink = el;
+}
+
+/**
+ * the persistent sink element itself, for UI that wants to mount it
+ * somewhere visible (e.g. a video-kind track's real frames) - mirrors
+ * `music/services/audio/player.ts`'s `getVideoElement()`. null before
+ * `setRadioAudioSink` has registered one (RadioAudioSink mounts at app
+ * root, so in practice this is only null pre-mount).
+ */
+export function getRadioVideoElement(): HTMLVideoElement | null {
+  return audioSink;
 }
 
 /**
@@ -519,7 +555,7 @@ export function setRadioVolume(vol: number): void {
 export function radioPause(): void {
   if (status() !== "playing" && status() !== "connecting") return;
   if (!activeSession) return;
-  clearTimelineReconnect();
+  clearReconnect();
   if (useTimelineMode()) {
     try {
       pausePlayerAudio();
@@ -534,18 +570,26 @@ export function radioPause(): void {
     stationName: activeSession.stationName,
     isLocal: activeSession.isLocal,
   };
+  const session = activeSession;
+  activeSession = null;
+  stopElapsedTicker();
+  // flip status BEFORE tearing down the media element below - session.leave()
+  // calls audio.pause()/audio.load(), which fire native media events
+  // synchronously; doing that WHILE a Solid reactive update from setStatus
+  // is still cascading (interleaving a raw DOM mutation with a Solid update
+  // pass) was implicated in a `cleanNode`/`node.owned[i]` reentrant-dispose
+  // crash. letting the reactive update settle first, then doing the
+  // imperative teardown, avoids the overlap.
+  setStatus("paused");
   // drop the iroh session entirely (this signals leave to the
   // broadcaster). we don't call leaveRadio() because that resets the
   // displayed metadata; we want the bar to keep showing the station so
   // the user knows what they paused.
   try {
-    activeSession.leave();
+    session.leave();
   } catch (e) {
     console.warn("[radio] pause: handle.leave threw:", e);
   }
-  activeSession = null;
-  stopElapsedTicker();
-  setStatus("paused");
 }
 
 /**
@@ -580,7 +624,7 @@ export function leaveRadio(): void {
   // `appState()`-derived effect (mediaSessionBridge's metadata refetch,
   // etc.) even though nothing radio-related had changed.
   if (!activeSession && !isRadioPlayerBarActive()) return;
-  clearTimelineReconnect();
+  clearReconnect();
   // invalidate async callbacks from any in-flight/old tune attempt.
   bumpTuneAttemptId();
   lastConfirmedHistoryTrackKey = null;
@@ -595,22 +639,25 @@ export function leaveRadio(): void {
     activeSession = null;
   }
   setStatus("idle");
-  setError(null);
-  setNowPlaying(null);
-  swapArtUrl(null);
-  setListenerCount(0);
-  setCurrentPeerAddr(null);
-  setCurrentStationId(null);
-  setCurrentIsLocal(false);
-  setCurrentRemoteServerId(null);
-  setCurrentFavorite(null);
-  setModeCapabilities([]);
-  setTimelineSeedActive(false);
-  setTimelineSnapshot(null);
-  // reset timeline mode back to the MSE-availability baseline so a
-  // subsequent tune to a different station isn't stuck in timeline mode
-  // just because the previous one had poor network or forced it.
-  setUseTimelineMode(!hasMSE);
+  batch(() => {
+    setError(null);
+    setNowPlaying(null);
+    swapArtUrl(null);
+    setListenerCount(0);
+    setCurrentPeerAddr(null);
+    setCurrentStationId(null);
+    setCurrentIsLocal(false);
+    setCurrentRemoteServerId(null);
+    setCurrentFavorite(null);
+    setConnectPhase("");
+    setModeCapabilities([]);
+    setTimelineSeedActive(false);
+    setTimelineSnapshot(null);
+    // reset timeline mode back to the MSE-availability baseline so a
+    // subsequent tune to a different station isn't stuck in timeline mode
+    // just because the previous one had poor network or forced it.
+    setUseTimelineMode(!hasMSE);
+  });
   stopQueueModeAdapter();
   stopElapsedTicker({ reset: true });
 
@@ -630,131 +677,6 @@ function swapArtUrl(next: string | null): void {
     }
   }
   setArtUrl(next);
-}
-
-// extract raw inline art metadata (`{mime, data}` base64) from the raw
-// now_playing payload, for storing in history. returns null if absent.
-function rawArtMetaFrom(raw: unknown): { mime: string; data: string } | null {
-  if (!raw || typeof raw !== "object") return null;
-  const art = (raw as { art?: unknown }).art;
-  if (!art || typeof art !== "object") return null;
-  const a = art as { mime?: unknown; data?: unknown };
-  if (typeof a.mime !== "string" || typeof a.data !== "string") return null;
-  return { mime: a.mime, data: a.data };
-}
-
-// build a Blob URL from inline ArtData (`{mime, blob_id, data}`) on the
-// raw now_playing payload. returns null if missing/malformed.
-function artUrlFromRaw(raw: unknown): string | null {
-  if (!raw || typeof raw !== "object") return null;
-  const art = (raw as { art?: unknown }).art;
-  if (!art || typeof art !== "object") return null;
-  const a = art as { mime?: unknown; data?: unknown };
-  if (typeof a.mime !== "string" || typeof a.data !== "string") return null;
-  try {
-    const bin = atob(a.data);
-    const bytes = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-    const blob = new Blob([bytes as BlobPart], { type: a.mime });
-    return URL.createObjectURL(blob);
-  } catch (e) {
-    console.warn("[radio] art decode failed:", e);
-    return null;
-  }
-}
-
-function coerceModeCapabilities(raw: unknown): RadioModeCapability[] {
-  if (!Array.isArray(raw)) return [];
-  const out: RadioModeCapability[] = [];
-  for (const item of raw) {
-    if ((item === "chunk_stream" || item === "timeline_seed") && !out.includes(item)) {
-      out.push(item);
-    }
-  }
-  return out;
-}
-
-function coerceTimelineSnapshot(raw: unknown): RadioTimelineSnapshot | null {
-  if (!raw || typeof raw !== "object") return null;
-  const x = raw as {
-    station_id?: unknown;
-    timeline_seq?: unknown;
-    station_epoch_ms?: unknown;
-    generated_at_ms?: unknown;
-    current?: unknown;
-    upcoming?: unknown;
-    lookahead_count?: unknown;
-  };
-
-  if (
-    typeof x.station_id !== "string" ||
-    typeof x.timeline_seq !== "number" ||
-    typeof x.station_epoch_ms !== "number" ||
-    typeof x.generated_at_ms !== "number"
-  ) {
-    return null;
-  }
-
-  const parseCurrent = (item: unknown): RadioTimelineCurrentItem | null => {
-    if (!item || typeof item !== "object") return null;
-    const y = item as {
-      timeline_item_id?: unknown;
-      song_id?: unknown;
-      start_at_ms?: unknown;
-      duration_ms?: unknown;
-    };
-    if (
-      typeof y.timeline_item_id !== "string" ||
-      typeof y.song_id !== "string" ||
-      typeof y.start_at_ms !== "number"
-    ) {
-      return null;
-    }
-    return {
-      timeline_item_id: y.timeline_item_id,
-      song_id: y.song_id,
-      start_at_ms: y.start_at_ms,
-      duration_ms: typeof y.duration_ms === "number" ? y.duration_ms : null,
-    };
-  };
-
-  const parseUpcoming = (item: unknown): RadioTimelineUpcomingItem | null => {
-    if (!item || typeof item !== "object") return null;
-    const y = item as {
-      timeline_item_id?: unknown;
-      song_id?: unknown;
-      planned_start_at_ms?: unknown;
-      duration_ms?: unknown;
-    };
-    if (
-      typeof y.timeline_item_id !== "string" ||
-      typeof y.song_id !== "string" ||
-      typeof y.planned_start_at_ms !== "number"
-    ) {
-      return null;
-    }
-    return {
-      timeline_item_id: y.timeline_item_id,
-      song_id: y.song_id,
-      planned_start_at_ms: y.planned_start_at_ms,
-      duration_ms: typeof y.duration_ms === "number" ? y.duration_ms : null,
-    };
-  };
-
-  const current = parseCurrent(x.current);
-  const upcoming = Array.isArray(x.upcoming)
-    ? x.upcoming.map(parseUpcoming).filter((u): u is RadioTimelineUpcomingItem => u !== null)
-    : [];
-
-  return {
-    station_id: x.station_id,
-    timeline_seq: x.timeline_seq,
-    station_epoch_ms: x.station_epoch_ms,
-    generated_at_ms: x.generated_at_ms,
-    current,
-    upcoming,
-    lookahead_count: typeof x.lookahead_count === "number" ? x.lookahead_count : upcoming.length,
-  };
 }
 
 interface TuneOptions {
@@ -826,16 +748,18 @@ function maybeRecordImmediateMetaHistory(
 }
 
 /**
- * connect to a radio broadcaster. returns the audio element so views
- * can attach it to the dom (or to a layout-level player bar later).
+ * connect to a radio broadcaster. returns the <video> element so views
+ * can attach it to the dom (or to a layout-level player bar later) - used
+ * for its audio output on every station, and for real video frames when
+ * the station is currently playing a video-kind track.
  *
  * subsequent calls leave the previous session before starting the new one.
  */
 export async function tuneIntoRadio(
   peerAddr: string,
   opts: TuneOptions = {}
-): Promise<HTMLAudioElement> {
-  clearTimelineReconnect();
+): Promise<HTMLVideoElement> {
+  clearReconnect();
   if (opts.preservePlayback) {
     // reconnect control stream without resetting timeline playback state.
     if (activeSession) {
@@ -864,6 +788,7 @@ export async function tuneIntoRadio(
   );
   const tuneAttemptId = bumpTuneAttemptId();
   const isActiveTune = () => tuneAttemptId === activeTuneAttemptId;
+  setConnectPhase("connecting to peer\u2026");
 
   const guarded = (fn: () => void) => {
     if (!isActiveTune()) return;
@@ -929,18 +854,19 @@ export async function tuneIntoRadio(
     }
   }
 
-  setStatus("connecting");
-  setCurrentPeerAddr(peerAddr);
-  if (opts.stationId !== undefined) {
-    setCurrentStationId(opts.stationId ?? null);
-  }
-
   // pick transport: charnel/tauri uses the iroh path via
   // `radio_tune` IPC commands (or `radio_tune_local` for self-listen);
   // everywhere else uses midden wasm.
   const useCharnel = isCharnelAvailable();
   const useLocal = !!opts.isLocal && useCharnel;
-  setCurrentIsLocal(useLocal);
+  batch(() => {
+    setStatus("connecting");
+    setCurrentPeerAddr(peerAddr);
+    if (opts.stationId !== undefined) {
+      setCurrentStationId(opts.stationId ?? null);
+    }
+    setCurrentIsLocal(useLocal);
+  });
   if (useLocal) {
     // local self-listen has no peer-address match in remotes table.
     // pin the tauri-managed remote id for blob/waveform lookups.
@@ -972,21 +898,26 @@ export async function tuneIntoRadio(
       throw new Error("radio tune superseded by a newer attempt");
     }
     if (typeof middenNode.tune_radio !== "function") {
-      setStatus("error");
-      setError("midden build missing tune_radio");
+      batch(() => {
+        setStatus("error");
+        setError("midden build missing tune_radio");
+      });
       throw new Error("this midden build does not expose tune_radio (rebuild client/midden)");
     }
     node = { tune_radio: middenNode.tune_radio.bind(middenNode) };
   }
 
   // ---- mse setup -------------------------------------------------------
-  // prefer a persistent sink (mounted in the global RadioBar) so navigation
-  // doesn't tear down the audio element. fall back to a transient element
-  // for callers without a registered sink.
-  const audio = audioSink ?? document.createElement("audio");
+  // prefer a persistent sink (mounted in the global RadioAudioSink) so
+  // navigation doesn't tear down the element. fall back to a transient
+  // element for callers without a registered sink. always a <video>
+  // element (even for an audio-only station) so a video-carrying station
+  // never needs to swap elements mid-stream - see getRadioVideoElement.
+  const audio = audioSink ?? document.createElement("video");
   const ownsAudio = audio !== audioSink;
   audio.autoplay = false;
   audio.preload = "auto";
+  audio.playsInline = true;
   // a persistent sink could carry a stale mute from a session that ended
   // mid post-skip-mute window; always start a fresh tune unmuted.
   audio.muted = false;
@@ -997,26 +928,109 @@ export async function tuneIntoRadio(
 
   // on environments without MediaSource (mobile safari, some webviews)
   // ms stays null and we rely entirely on the timeline/queue adapter.
-  const ms: MediaSource | null = hasMSE
+  // prefer classic MediaSource when present; fall back to
+  // ManagedMediaSource (see its doc comment above re: unverified-on-audio
+  // caveat) so devices that only expose it aren't wrongly routed to
+  // timeline/queue mode.
+  const hasClassicMediaSource =
+    typeof (window as unknown as { MediaSource?: unknown }).MediaSource === "function";
+  const usingManagedMediaSource = !hasClassicMediaSource && managedMediaSourceCtor !== null;
+  const ms: MediaSource | null = hasClassicMediaSource
     ? new (globalThis as unknown as { MediaSource: new () => MediaSource }).MediaSource()
-    : null;
+    : usingManagedMediaSource
+      ? new managedMediaSourceCtor!()
+      : null;
+  // ManagedMediaSource waits for an explicit `startstreaming` event before
+  // it wants chunks pushed; classic MediaSource has no such signal, so it
+  // stays permanently "streamable" from the caller's point of view.
+  let canStream = !usingManagedMediaSource;
+  console.info(
+    "[radio] media source mode:",
+    ms === null
+      ? "none (timeline/queue fallback)"
+      : usingManagedMediaSource
+        ? "ManagedMediaSource"
+        : "MediaSource"
+  );
   if (ms) {
-    audio.src = URL.createObjectURL(ms);
+    if (usingManagedMediaSource) {
+      // WebKit requires remote playback (AirPlay) be disabled - or an
+      // AirPlay-compatible alternative source provided - or `sourceopen`
+      // never fires at all. must be set before `srcObject` is assigned.
+      audio.disableRemotePlayback = true;
+      (audio as HTMLMediaElement & { srcObject?: MediaProvider | null }).srcObject = ms;
+      ms.addEventListener("startstreaming", () => {
+        canStream = true;
+        drain();
+      });
+      ms.addEventListener("endstreaming", () => {
+        canStream = false;
+      });
+    } else {
+      audio.src = URL.createObjectURL(ms);
+    }
   }
 
   let sb: SourceBuffer | null = null;
-  const queue: Uint8Array[] = [];
+  // set by applyHello once the real Hello message arrives - the fallback
+  // in rebuildSourceBuffer() uses this instead of the hardcoded default
+  // so a video station's SourceBuffer never gets recreated with the
+  // wrong (audio-only) codec after a lag resync.
+  let helloCodec: string | null = null;
+  // carries each chunk's own seq/isInit alongside its bytes so drain()
+  // can look up `pendingMeta` and compute a track-boundary position at
+  // the moment a chunk is ACTUALLY appended, not when it merely arrived
+  // (arrival-time can have other not-yet-appended chunks still queued
+  // ahead of it - see drain()'s doc comment on this).
+  const queue: { bytes: Uint8Array; seq: number; isInit: boolean }[] = [];
   let seekedToLive = false;
   let chunkPlayStarted = false;
   let chunkAutoplayBlocked = false;
 
   // ---- diagnostics -----------------------------------------------------
   let sourceBufferResetCount = 0;
+  // QuotaExceededError specifically, tracked apart from the generic
+  // reset counter above - a distinct signal from codec mismatches/other
+  // append failures, worth being able to tell apart at a glance in logs
+  // now that clients routinely hold onto a much bigger buffered span by
+  // design (see docs/radio-buffering-retune-plan.md's MSE quota notes).
+  let quotaErrorCount = 0;
   let resyncCount = 0;
   let maxLiveEdgeBufferMs = 0;
   const chunkGapSamplesMs: number[] = [];
   let chunkGapSumMs = 0;
   let lastChunkAtMs: number | null = null;
+  // last time ANY inbound signal arrived on the control/chunk stream -
+  // a real chunk, a hello, or a meta/control message (including the
+  // broadcaster's own `chunk_ready` heartbeat, which arrives every ~5s
+  // even when no track/meta changes are happening - see
+  // grimoire/src/radio/handler.rs's HEARTBEAT_INTERVAL). the local
+  // stall watchdog below only knows about the SourceBuffer/playhead, not
+  // whether the network is still delivering anything at all - without
+  // this, a truly dead connection (e.g. the remote process restarted)
+  // just makes the watchdog re-seek forever within whatever's already
+  // buffered, looping the same few seconds/minutes of stale audio
+  // indefinitely instead of ever reconnecting.
+  let lastControlActivityAtMs = Date.now();
+  const markControlActivity = () => {
+    lastControlActivityAtMs = Date.now();
+  };
+  // generous multiple of the server's own heartbeat cadence, so normal
+  // network jitter (or a broadcaster briefly busy re-encoding) doesn't
+  // false-positive as a dead connection.
+  const CONNECTION_DEAD_AFTER_MS = 15_000;
+  // media duration each non-init append actually contributed to
+  // `sb.buffered.end()`, vs. the wall-clock gap since the previous chunk
+  // (already tracked above). if this consistently runs BELOW the wall-
+  // clock gap, each fragment represents less real playback time than
+  // the server's pacing assumes (frag_ms) - which would explain the
+  // ahead-of-playhead margin eroding over time even while chunks keep
+  // arriving right on the server's real-time schedule (confirmed
+  // separately via the server's own catchup-depth/warm-up logs) -
+  // temporary, for tracking down the "stalls that never recover" report.
+  const mediaGrowthSamplesMs: number[] = [];
+  let mediaGrowthSumMs = 0;
+  let pendingGrowthMeasurement: { bufferedEndBeforeS: number } | null = null;
   let diagnosticsTick: number | null = null;
   const pushChunkGapSample = (gapMs: number) => {
     chunkGapSamplesMs.push(gapMs);
@@ -1024,6 +1038,14 @@ export async function tuneIntoRadio(
     if (chunkGapSamplesMs.length > 240) {
       const dropped = chunkGapSamplesMs.shift();
       if (typeof dropped === "number") chunkGapSumMs -= dropped;
+    }
+  };
+  const pushMediaGrowthSample = (growthMs: number) => {
+    mediaGrowthSamplesMs.push(growthMs);
+    mediaGrowthSumMs += growthMs;
+    if (mediaGrowthSamplesMs.length > 240) {
+      const dropped = mediaGrowthSamplesMs.shift();
+      if (typeof dropped === "number") mediaGrowthSumMs -= dropped;
     }
   };
   const percentile = (samples: number[], p: number): number => {
@@ -1039,15 +1061,35 @@ export async function tuneIntoRadio(
       const samples = chunkGapSamplesMs.length;
       const avgChunkGapMs = samples > 0 ? chunkGapSumMs / samples : 0;
       const p95ChunkGapMs = percentile(chunkGapSamplesMs, 0.95);
+      const growthSamples = mediaGrowthSamplesMs.length;
+      const avgMediaGrowthMs = growthSamples > 0 ? mediaGrowthSumMs / growthSamples : 0;
+      const p95MediaGrowthMs = percentile(mediaGrowthSamplesMs, 0.95);
+      // the actual thing this whole retune effort is trying to grow -
+      // how far ahead of the playhead the buffered span currently
+      // reaches. null when nothing's buffered yet (still connecting).
+      const distanceFromLiveEdgeS =
+        sb && sb.buffered.length > 0
+          ? Math.round(sb.buffered.end(sb.buffered.length - 1) - audio.currentTime)
+          : null;
       console.info(
         "[radio] session summary:",
         JSON.stringify({
+          // video streams carry a much heavier per-fragment payload
+          // (h264 frames vs AAC-only) and a slower/riskier server-side
+          // encode - tagging every summary line by kind lets audio vs
+          // video buffering behavior be told apart in the logs instead
+          // of blending into one set of stats.
+          kind: nowPlaying()?.kind ?? "unknown",
           stall_count: stallCount,
           resync_count: resyncCount,
           sourcebuffer_reset_count: sourceBufferResetCount,
+          quota_error_count: quotaErrorCount,
           max_live_edge_buffer_ms: maxLiveEdgeBufferMs,
+          distance_from_live_edge_s: distanceFromLiveEdgeS,
           avg_chunk_gap_ms: Math.round(avgChunkGapMs),
           p95_chunk_gap_ms: Math.round(p95ChunkGapMs),
+          avg_media_growth_per_chunk_ms: Math.round(avgMediaGrowthMs),
+          p95_media_growth_per_chunk_ms: Math.round(p95MediaGrowthMs),
           queue_depth: queue.length,
         })
       );
@@ -1068,11 +1110,71 @@ export async function tuneIntoRadio(
   const BUFFER_BEHIND_TARGET_S = 10;
   const drain = () => {
     if (!isActiveTune()) return;
+    if (!canStream) return;
     if (!sb || sb.updating) return;
+    // resolve the previous append's actual contribution to buffered
+    // media duration - must happen BEFORE popping the next item, since
+    // this is the one moment `sb.buffered.end()` reflects exactly what
+    // the last append added and nothing else yet.
+    if (pendingGrowthMeasurement && sb.buffered.length > 0) {
+      const grownS =
+        sb.buffered.end(sb.buffered.length - 1) - pendingGrowthMeasurement.bufferedEndBeforeS;
+      pushMediaGrowthSample(grownS * 1000);
+      // per-chunk (not just 30s-averaged) visibility into a single
+      // short fragment - temporary, for tuning docs/radio-buffering-
+      // retune-plan.md's chronic-stall investigation. `ASSUMED_FRAG_MS`
+      // is the server's DEFAULT `frag_ms` (not fetched from the wire -
+      // Hello doesn't carry it), so this is approximate for a station
+      // with a non-default frag_ms override, but still meaningful:
+      // logged unthrottled like other diagnostic warnings in this file
+      // - volume itself is the signal (one short fragment now and then
+      // is normal jitter; every fragment running short is the pattern
+      // that would explain a margin that never stops eroding).
+      const ASSUMED_FRAG_MS = 3000;
+      if (grownS * 1000 < ASSUMED_FRAG_MS * 0.8) {
+        console.warn(
+          `[radio] short fragment: appended chunk only grew buffered media by ` +
+            `${(grownS * 1000).toFixed(0)}ms (expected ~${ASSUMED_FRAG_MS}ms)`
+        );
+      }
+      pendingGrowthMeasurement = null;
+    }
     const next = queue.shift();
     if (next) {
+      // a track-transition init chunk's boundary position must be
+      // computed HERE, right before its own appendBuffer call - not at
+      // onChunk/arrival time. `sb.buffered.end()` only reflects appends
+      // that have already fully completed; since drain() only reaches
+      // this point when nothing else is mid-append, it's guaranteed to
+      // be exactly where THIS chunk's audio will start once appended
+      // (sequence mode places it immediately after the current end).
+      // computing it earlier (at arrival) could be wrong by however much
+      // backlog was still queued ahead of this chunk at the time -
+      // exactly the case a burst of catchup chunks creates.
+      if (next.isInit && pendingMeta.has(next.seq)) {
+        const m = pendingMeta.get(next.seq)!;
+        pendingMeta.delete(next.seq);
+        if (useTimelineMode() || sb.buffered.length === 0) {
+          applyPendingTrackMeta(m, next.seq);
+        } else {
+          pendingTrackBoundaries.push({
+            seq: next.seq,
+            boundaryTime: sb.buffered.end(sb.buffered.length - 1),
+            data: m,
+          });
+        }
+      }
+      // measure this specific append's real contribution to buffered
+      // media duration (resolved at the top of the NEXT drain() call,
+      // once this append actually completes) - skip init chunks, they
+      // carry no real media duration of their own.
+      if (!next.isInit) {
+        pendingGrowthMeasurement = {
+          bufferedEndBeforeS: sb.buffered.length > 0 ? sb.buffered.end(sb.buffered.length - 1) : 0,
+        };
+      }
       try {
-        sb.appendBuffer(next as BufferSource);
+        sb.appendBuffer(next.bytes as BufferSource);
       } catch (e) {
         // synchronous appendBuffer failure (quota exceeded, codec
         // mismatch on a fresh init, sourcebuffer in an invalid state).
@@ -1080,7 +1182,30 @@ export async function tuneIntoRadio(
         // recovery the queue would never drain again and the radio
         // session would silently freeze. trigger a SourceBuffer reset
         // and wait for the next init segment so we can resume cleanly.
-        console.warn("[radio] appendBuffer failed; resetting SourceBuffer to recover:", e);
+        const isQuotaError =
+          typeof e === "object" &&
+          e !== null &&
+          (e as { name?: unknown }).name === "QuotaExceededError";
+        if (isQuotaError) {
+          quotaErrorCount += 1;
+          // log the buffered span size at the moment of failure - the
+          // one piece of context a generic catch-all can't tell you,
+          // needed to actually tune the proactive trim threshold
+          // mentioned in docs/radio-buffering-retune-plan.md instead of
+          // guessing at one.
+          console.warn(
+            "[radio] appendBuffer hit QuotaExceededError; resetting SourceBuffer to recover:",
+            {
+              bufferedSpanS:
+                sb.buffered.length > 0
+                  ? sb.buffered.end(sb.buffered.length - 1) - sb.buffered.start(0)
+                  : 0,
+              chunkBytes: next.bytes.byteLength,
+            }
+          );
+        } else {
+          console.warn("[radio] appendBuffer failed; resetting SourceBuffer to recover:", e);
+        }
         const nextResync = (lastAppliedInit ?? -1) + 1;
         // resetSourceBuffer rebuilds `sb` and waits for an init >= nextResync.
         resetSourceBuffer(nextResync);
@@ -1105,33 +1230,46 @@ export async function tuneIntoRadio(
         }
       }
     }
-    // jump to the live edge once enough of a cushion has actually
-    // accumulated. catchup chunks carry mid-track media timestamps, so
-    // the playhead at 0 sits in an empty range until we seek forward.
-    // when the player has stalled before, `liveEdgeBufferMs` shifts the
-    // target back from the true edge so MSE has more headroom — but
-    // requiring only `buffered.length > 0` (as little as a single
-    // fragment) meant that headroom was silently clamped away to
-    // whatever scraps existed yet (`Math.max(0, end - liveEdgeBufferMs)`
-    // going negative and landing on 0) instead of actually being
-    // honored, so cold-start playback used to begin essentially AT the
-    // live edge with no real cushion at all — a knife's edge that
-    // stalled the moment the next real-time-paced chunk was even
-    // slightly late. waiting for the buffer to actually hold
-    // `liveEdgeBufferMs` worth of media before seeking/starting means
-    // the cushion is real by the time playback begins. seek in either
-    // direction so a playhead stranded ahead of a rebuilt (post-lag)
-    // buffer also re-anchors.
+    // start as far from the live edge as whatever's already caught up
+    // will allow, instead of anchoring a small fixed distance back from
+    // the tail. a tune/lag-resync catchup burst can carry anywhere from
+    // "barely anything" (just tuned in as a track started) up to a full
+    // `buffer_seconds` worth of already-downloaded, already-decodable
+    // media (joined well into a long track) - see "key finding" in
+    // docs/radio-buffering-retune-plan.md. seeking to `start` uses
+    // whichever of those actually happened, for free, rather than
+    // discarding most of it and carving out a small fixed cushion near
+    // `end` regardless. `minReadyToStartMs()` still sets a real floor on
+    // how much must be buffered before we consider starting at all (see
+    // its own doc comment for why that floor can't be trivial) - it
+    // just doesn't ALSO dictate where we land once past it.
+    //
+    // once playing, real-time consumption and real-time chunk emission
+    // both advance at 1x, so whatever gap this initial seek establishes
+    // holds steady on its own rather than eroding - see the same doc's
+    // steady-state argument. seek in either direction so a playhead
+    // stranded ahead of a rebuilt (post-lag/post-skip) buffer also
+    // re-anchors.
     if (!seekedToLive && sb.buffered.length > 0) {
       const start = sb.buffered.start(0);
       const end = sb.buffered.end(sb.buffered.length - 1);
-      const ready = end - start >= liveEdgeBufferMs / 1000;
+      const targetS = minReadyToStartMs() / 1000;
+      const bufferedS = end - start;
+      setConnectPhase(`buffering ${bufferedS.toFixed(1)}s / ${targetS.toFixed(1)}s`);
+      const ready = bufferedS >= targetS;
       if (ready) {
-        const target = Math.max(start, end - liveEdgeBufferMs / 1000);
+        const target = start;
         if (audio.currentTime < target || audio.currentTime > end) {
           audio.currentTime = target;
         }
         seekedToLive = true;
+        // this is the SAME readiness gate a post-skip/post-lag rebuffer
+        // uses (see flushForAdminSkip/resetSourceBuffer) - unmute here
+        // rather than on a separate, smaller threshold.
+        if (rebufferMuteActive) {
+          audio.muted = false;
+          rebufferMuteActive = false;
+        }
       }
     }
     if (!useTimelineMode() && seekedToLive) {
@@ -1146,25 +1284,7 @@ export async function tuneIntoRadio(
     console.info(`[radio] attempting chunk playback (${reason})`);
     void audio
       .play()
-      .then(() => {
-        if (!isActiveTune()) return;
-        if (chunkPlayStarted) return;
-        chunkPlayStarted = true;
-        hasStartedChunkPlaybackThisSession = true;
-        if (pendingInitialNowPlaying) {
-          setNowPlaying(pendingInitialNowPlaying.now_playing);
-          swapArtUrl(pendingInitialNowPlaying.art_url);
-          pendingInitialNowPlaying = null;
-        }
-        if (listenStartedAtMs === 0) {
-          listenStartedAtMs = Date.now();
-        }
-        setError(null);
-        setStatus("playing");
-        startElapsedTicker();
-        void ensureRadioListenSession();
-        console.info("[radio] chunk playback started");
-      })
+      .then(() => markChunkPlaybackStarted())
       .catch((e) => {
         if (!isActiveTune()) return;
         const errName =
@@ -1186,28 +1306,103 @@ export async function tuneIntoRadio(
           console.warn("[radio] chunk playback blocked by autoplay policy");
           return;
         }
+        // WebKit can reject this promise with a bogus internal error
+        // (`TypeError: null is not an object (evaluating 'node.owned[i]')`)
+        // even though playback genuinely started - the media element's own
+        // "playing" event still fires right alongside this rejection. don't
+        // treat this as a real failure; leave status alone and let that
+        // "playing" event listener (below) call markChunkPlaybackStarted()
+        // instead, so a spurious rejection here doesn't strand the session
+        // in "connecting" forever (which also left the player bar's
+        // play/pause control dead, since it has no case for "connecting").
+        if (!audio.paused) {
+          console.warn(
+            "[radio] chunk playback promise rejected but media element isn't paused - treating as started:",
+            e
+          );
+          markChunkPlaybackStarted();
+          return;
+        }
         // keep session in connecting state for transient startup failures;
         // next buffered update may successfully start playback.
         console.warn("[radio] chunk playback attempt failed:", e);
       });
   };
 
+  /** idempotent - flips status to "playing" + runs first-start bookkeeping.
+   * called from the `.play()` success path AND from the media element's
+   * own "playing" event (see its listener below) since WebKit can reject
+   * the `.play()` promise with a bogus internal error even when playback
+   * genuinely started - the "playing" event is the authoritative signal. */
+  const markChunkPlaybackStarted = () => {
+    if (!isActiveTune()) return;
+    if (chunkPlayStarted) return;
+    chunkPlayStarted = true;
+    if (listenStartedAtMs === 0) {
+      listenStartedAtMs = Date.now();
+    }
+    batch(() => {
+      setConnectPhase("");
+      if (pendingInitialNowPlaying) {
+        setNowPlaying(pendingInitialNowPlaying.now_playing);
+        swapArtUrl(pendingInitialNowPlaying.art_url);
+        pendingInitialNowPlaying = null;
+      }
+      setError(null);
+      setStatus("playing");
+    });
+    startElapsedTicker();
+    void ensureRadioListenSession();
+    console.info("[radio] chunk playback started");
+  };
+
   // ---- recovery state ---------------------------------------------------
   if (ms) {
-    await new Promise<void>((resolve) => {
-      ms.addEventListener("sourceopen", () => resolve(), { once: true });
-    });
+    const sourceopenStartedAtMs = Date.now();
+    setConnectPhase("opening media pipeline\u2026");
+    console.info("[radio] waiting for MediaSource sourceopen event...");
+    // ManagedMediaSource attached via srcObject firing sourceopen has NOT
+    // been confirmed on a real device - a 10s bound turns a silent
+    // permanent hang into a clear, diagnosable error instead of a stuck
+    // "connecting" spinner with zero further log output.
+    const sourceopenFired = await Promise.race([
+      new Promise<boolean>((resolve) => {
+        ms.addEventListener("sourceopen", () => resolve(true), { once: true });
+      }),
+      new Promise<boolean>((resolve) => {
+        window.setTimeout(() => resolve(false), 10_000);
+      }),
+    ]);
+    console.info(
+      `[radio] sourceopen ${sourceopenFired ? "fired" : "TIMED OUT waiting"} after ${Date.now() - sourceopenStartedAtMs}ms (usingManagedMediaSource: ${usingManagedMediaSource})`
+    );
+    if (!sourceopenFired) {
+      batch(() => {
+        setStatus("error");
+        setError("MediaSource never opened (sourceopen timed out) - see console");
+      });
+      if (usingManagedMediaSource) {
+        (audio as HTMLMediaElement & { srcObject?: MediaProvider | null }).srcObject = null;
+      } else {
+        URL.revokeObjectURL(audio.src);
+        audio.removeAttribute("src");
+      }
+      audio.load();
+      throw new Error("radio tune aborted: MediaSource sourceopen never fired");
+    }
     if (!isActiveTune()) {
-      URL.revokeObjectURL(audio.src);
-      audio.removeAttribute("src");
+      if (usingManagedMediaSource) {
+        (audio as HTMLMediaElement & { srcObject?: MediaProvider | null }).srcObject = null;
+      } else {
+        URL.revokeObjectURL(audio.src);
+        audio.removeAttribute("src");
+      }
       audio.load();
       throw new Error("radio tune superseded by a newer attempt");
     }
-    sb = ms.addSourceBuffer(MSE_CODEC);
-    // sequence mode rewrites segment timestamps so cross-track + catchup
-    // chunks form a single contiguous buffered range.
-    sb.mode = "sequence";
-    sb.addEventListener("updateend", drain);
+    // NOTE: addSourceBuffer is deliberately NOT called here - it needs the
+    // station's actual codec string, which only arrives via Hello (see
+    // applyHello below, which creates `sb` the first time it runs).
   }
 
   // server-driven resync: when the broadcaster sends ControlMessage::Lag
@@ -1221,27 +1416,24 @@ export async function tuneIntoRadio(
   // `onChunk` flip the status signal back to "playing" once the cut
   // actually lands, without touching the lag-rate bookkeeping below.
   let awaitingSkipResync = false;
-  // muted (not paused) during the brief window right after an admin skip
-  // while the fresh buffer refills. relying on the browser's own stall
-  // behavior for "silence" while a SourceBuffer is nearly empty and being
-  // rapidly appended to isn't actually clean — in practice it can sound
-  // like stutter/glitching rather than true silence. muting guarantees a
-  // clean gap regardless of what the decoder does under the hood, and is
-  // independent of the volume-slider-controlled `.volume` property.
-  let postSkipMuteActive = false;
-  let postSkipMuteDeadlineMs = 0;
-  let postSkipMuteEngagedAtMs = 0;
-  const POST_SKIP_MUTE_MAX_MS = 8000;
-  // require a minimum real elapsed time before considering unmuting, not
-  // just an instantaneous "buffer looks ok" snapshot — the burst of chunks
-  // sent right after a skip lands the live-edge seek with a cushion that
-  // already satisfies POST_SKIP_UNMUTE_AHEAD_S the instant it happens, so
-  // without this the mute was clearing within one watchdog tick (~500ms)
-  // and doing nothing. this gives one real pacing cycle a chance to
-  // either settle cleanly or reveal a stall (which drains the cushion and
-  // holds the mute until it recovers).
-  const POST_SKIP_MIN_MUTE_MS = 2500;
-  const POST_SKIP_UNMUTE_AHEAD_S = 1.5;
+  // muted (not paused) while a buffer is being torn down and re-filled -
+  // right after an admin skip OR a lag resync (both now share the exact
+  // same "flush, then re-buffer using the standard readiness/anchor
+  // logic" path, per explicit user direction: a full stop + genuine
+  // re-buffer is fine and expected, not something to race past with a
+  // separate smaller/faster cushion). relying on the browser's own
+  // stall behavior for "silence" while a SourceBuffer is nearly empty
+  // and being rapidly appended to isn't actually clean - in practice it
+  // can sound like stutter/glitching rather than true silence. muting
+  // guarantees a clean gap regardless of what the decoder does under
+  // the hood, independent of the volume-slider-controlled `.volume`
+  // property. unmuted the moment `drain()`'s normal `seekedToLive` gate
+  // is satisfied again - the SAME gate a fresh tune uses.
+  // `REBUFFER_MUTE_MAX_MS` is purely a safety net in case that never
+  // happens for some reason.
+  let rebufferMuteActive = false;
+  let rebufferMuteDeadlineMs = 0;
+  const REBUFFER_MUTE_MAX_MS = 8000;
   const recentLags: number[] = [];
   const RAPID_LAG_THRESHOLD = 3;
   const RAPID_LAG_WINDOW_MS = 60_000;
@@ -1251,53 +1443,73 @@ export async function tuneIntoRadio(
   const LAG_SIGNAL_WINDOW_MS = 8_000;
   const RESYNC_SIGNALS_REQUIRED = stabilityMode() ? 3 : 2;
   const RESYNC_COOLDOWN_MS = stabilityMode() ? 8_000 : 5_000;
-  // adaptive buffer: when MediaElement fires `waiting` / `stalled` we
-  // bump the live-edge target back so the SourceBuffer has more headroom
-  // before the playhead crosses into the unbuffered zone. starts with a
-  // small headroom behind the true live edge so a brief producer gap (track
-  // transition, ffmpeg cold start, jitter) doesn't immediately drain the
-  // buffer and park the playhead, and grows by `LIVE_EDGE_BUMP_MS` per
-  // stall up to `MAX_LIVE_EDGE_BUFFER_MS`, letting a struggling listener
-  // gracefully fall behind the live edge instead of dropping out.
+  // minimum amount of real buffered media before we start playback at
+  // all - decoupled from WHERE we then seek to (see drain()'s anchor
+  // logic below), but NOT a trivial number: since drain() seeks to
+  // buffered `start` rather than a fixed distance from `end`, this
+  // floor IS the actual cushion size in the common shallow-catchup case
+  // (tuned in right as a track started, so there's little/no catchup
+  // burst to seek deep into yet) - it's not just "have we waited long
+  // enough," it's "how much margin does the listener get once playback
+  // begins." an earlier version of this shrunk it to a flat 3000ms on
+  // the theory that a deep catchup burst arrives fast regardless, which
+  // is true for the DEEP case but starves the SHALLOW case of any real
+  // margin - confirmed by a real increase in reported stalls,
+  // disproportionately for video (heavier per-fragment payload, a
+  // slower/riskier server-side encode - see broadcaster.rs's real-time-
+  // factor diagnostic - makes video more exposed to a stall when started
+  // with too little cushion). when catchup happens to be deep, this
+  // floor is still crossed almost instantly by the unpaced burst - it
+  // only sets a MINIMUM, it doesn't cap how much cushion is actually
+  // used once crossed.
+  const minReadyToStartMs = (): number => {
+    const kind = pendingInitialNowPlaying?.now_playing.kind ?? nowPlaying()?.kind;
+    if (kind === "video") return stabilityMode() ? 20000 : 16000;
+    return stabilityMode() ? 16000 : 12000;
+  };
+  // stall-RECOVERY baseline/ceiling only - NOT the initial anchor
+  // anymore (that's now derived from catchup depth via
+  // `minReadyToStartMs()` + drain()'s seek-to-`start` logic, not a
+  // fixed constant). used by the watchdog to re-anchor after a GENUINE
+  // stall (the ahead-of-playhead buffer actually ran dry), and grown
+  // per repeated stall via `LIVE_EDGE_BUMP_MS` up to
+  // `MAX_LIVE_EDGE_BUFFER_MS`.
   //
-  // every fresh tune-in (the very first station this session, or
-  // switching to a completely different station later) connects to a
-  // brand new broadcast stream with no burst of chunks to jump-start the
-  // buffer — it's purely real-time-paced fragments arriving roughly every
-  // `frag_ms` (nominally 3000ms), so the initial cushion needs real
-  // margin above that cadence or the very first chunks after playback
-  // starts run out before the next one lands. an earlier version of this
-  // baseline dropped to 2500ms once any station had played this session,
-  // on the assumption that a "warmed up" session needed less headroom —
-  // but that's below the fragment cadence itself, so switching stations
-  // started every listen on a knife's edge and stalled almost every
-  // cycle. a fresh tune always gets the full margin regardless of prior
-  // session history.
-  const INITIAL_LIVE_EDGE_BUFFER_MS = stabilityMode() ? 8000 : 6000;
-  // post-skip reset target: smaller, because an admin skip's burst of
-  // chunks (sent unpaced, see SKIP_BURST_CHUNKS server-side) gives the
-  // buffer a real head start that a fresh tune never gets.
-  const POST_SKIP_LIVE_EDGE_BUFFER_MS = hasStartedChunkPlaybackThisSession
-    ? stabilityMode()
-      ? 4000
-      : 2500
-    : stabilityMode()
-      ? 8000
-      : 6000;
-  let liveEdgeBufferMs = INITIAL_LIVE_EDGE_BUFFER_MS;
-  const LIVE_EDGE_BUMP_MS = stabilityMode() ? 2000 : 1500;
-  const MAX_LIVE_EDGE_BUFFER_MS = stabilityMode() ? 20000 : 12000;
+  // doubled from an earlier 6-8s/1.5-2s/12-20s baseline per real-world
+  // testing feedback (see docs/radio-audio-video-unification-plan.md's
+  // buffering section for that history) - kept here since it still
+  // governs recovery after a real stall, even though it no longer
+  // governs the initial cushion.
+  const STALL_RECOVERY_BASELINE_MS = stabilityMode() ? 16000 : 12000;
+  let liveEdgeBufferMs = STALL_RECOVERY_BASELINE_MS;
+  const LIVE_EDGE_BUMP_MS = stabilityMode() ? 4000 : 3000;
+  const MAX_LIVE_EDGE_BUFFER_MS = stabilityMode() ? 30000 : 20000;
   let stallCount = 0;
   const onStall = () => {
     if (!isActiveTune()) return;
     stallCount += 1;
-    // stalls during the deliberate post-skip mute window are expected —
-    // the buffer is refilling from empty on purpose — and shouldn't
-    // inflate the headroom the way a genuine mid-track network stall
-    // does. bumping it here anyway defeats flushForAdminSkip's reset to
-    // baseline and quickly re-creates the same inflated-headroom problem
-    // that reset was meant to avoid.
-    if (!postSkipMuteActive && liveEdgeBufferMs < MAX_LIVE_EDGE_BUFFER_MS) {
+    // buffer state at the EXACT moment of the stall - temporary, for
+    // tuning docs/radio-buffering-retune-plan.md's chronic-stall
+    // investigation. distinguishes "stalled because the buffer was
+    // genuinely thin" (aheadS near 0) from "stalled for some other
+    // reason despite plenty being buffered" (aheadS healthy) - the 30s
+    // session summary only shows this averaged out, not at the instant
+    // it actually happened.
+    const aheadS =
+      sb && sb.buffered.length > 0
+        ? sb.buffered.end(sb.buffered.length - 1) - audio.currentTime
+        : null;
+    console.info(
+      `[radio] stall #${stallCount} at t=${audio.currentTime.toFixed(2)}s, ` +
+        `aheadS=${aheadS === null ? "n/a" : aheadS.toFixed(2)}, rebufferMuteActive=${rebufferMuteActive}`
+    );
+    // stalls during a deliberate rebuffer-mute window (post-skip or
+    // post-lag-resync) are expected - the buffer is refilling from
+    // empty on purpose - and shouldn't inflate the headroom the way a
+    // genuine mid-track network stall does. bumping it here anyway
+    // defeats the reset to baseline those paths already do and quickly
+    // re-creates the same inflated-headroom problem that reset avoids.
+    if (!rebufferMuteActive && liveEdgeBufferMs < MAX_LIVE_EDGE_BUFFER_MS) {
       liveEdgeBufferMs = Math.min(MAX_LIVE_EDGE_BUFFER_MS, liveEdgeBufferMs + LIVE_EDGE_BUMP_MS);
       if (liveEdgeBufferMs > maxLiveEdgeBufferMs) {
         maxLiveEdgeBufferMs = liveEdgeBufferMs;
@@ -1338,25 +1550,67 @@ export async function tuneIntoRadio(
   // a stutter. wait for a small real cushion instead; a moment of silence
   // while the buffer fills is preferable to a string of tiny seeks.
   const MIN_RESUME_AHEAD_S = 1.5;
+  // the control/chunk stream has gone completely silent (no chunk, hello,
+  // meta, or heartbeat for CONNECTION_DEAD_AFTER_MS) - unlike a stall
+  // (data is still coming, just the playhead is momentarily wedged), no
+  // amount of local re-seeking will ever fix this: the remote is gone
+  // (process restarted, network dropped, etc). reconnect the same way a
+  // clean "goodbye" does, rather than let the stall watchdog below keep
+  // re-anchoring into the same stale buffered span forever.
+  const handleDeadConnection = () => {
+    if (!activeSession) return;
+    console.warn(
+      `[radio] no data or heartbeat for over ${CONNECTION_DEAD_AFTER_MS}ms - ` +
+        "connection appears dead, reconnecting"
+    );
+    const reconnectPeer = activeSession.peerAddr;
+    const reconnectOpts: TuneOptions = {
+      stationId: currentStationId() ?? expectedStationId ?? opts.stationId,
+      stationName: activeSession.stationName ?? opts.stationName,
+      isLocal: activeSession.isLocal ?? opts.isLocal,
+      userInitiated: false,
+      preservePlayback: true,
+      autoReconnect: true,
+    };
+    try {
+      activeSession.leave();
+    } catch (e) {
+      console.warn("[radio] dead-connection leave threw:", e);
+    }
+    activeSession = null;
+    guarded(() => {
+      stopElapsedTicker();
+      batch(() => {
+        setStatus("connecting");
+        setError(null);
+      });
+    });
+    scheduleReconnect(reconnectPeer, reconnectOpts, "no data received");
+  };
   const runWatchdog = () => {
-    if (!isActiveTune() || useTimelineMode() || !sb) return;
-    if (pendingTrackBoundary && audio.currentTime >= pendingTrackBoundary.boundaryTime - 0.05) {
-      const boundary = pendingTrackBoundary;
-      pendingTrackBoundary = null;
+    if (!isActiveTune()) return;
+    if (Date.now() - lastControlActivityAtMs > CONNECTION_DEAD_AFTER_MS) {
+      handleDeadConnection();
+      return;
+    }
+    if (useTimelineMode() || !sb) return;
+    // apply every boundary the playhead has already reached, in order -
+    // not just the first one - so a run of several short tracks (or a
+    // burst that queued multiple transitions) doesn't skip straight to
+    // the latest one without ever showing/recording the ones in between.
+    while (
+      pendingTrackBoundaries.length > 0 &&
+      audio.currentTime >= pendingTrackBoundaries[0].boundaryTime - 0.05
+    ) {
+      const boundary = pendingTrackBoundaries.shift()!;
       applyPendingTrackMeta(boundary.data, boundary.seq);
     }
-    if (postSkipMuteActive) {
-      const aheadS =
-        sb.buffered.length > 0 ? sb.buffered.end(sb.buffered.length - 1) - audio.currentTime : 0;
-      const elapsedMs = Date.now() - postSkipMuteEngagedAtMs;
-      const pastDeadline = Date.now() >= postSkipMuteDeadlineMs;
-      if (
-        pastDeadline ||
-        (elapsedMs >= POST_SKIP_MIN_MUTE_MS && aheadS >= POST_SKIP_UNMUTE_AHEAD_S)
-      ) {
-        audio.muted = false;
-        postSkipMuteActive = false;
-      }
+    // primary unmute path is drain()'s `seekedToLive` gate (the same
+    // one a fresh tune uses) - this is purely a safety net in case that
+    // never fires for some reason.
+    if (rebufferMuteActive && Date.now() >= rebufferMuteDeadlineMs) {
+      audio.muted = false;
+      rebufferMuteActive = false;
     }
     if (!chunkPlayStarted || chunkAutoplayBlocked) return;
     const now = Date.now();
@@ -1399,8 +1653,15 @@ export async function tuneIntoRadio(
       seekTarget = end - headroomS;
     }
     if (seekTarget !== null && Math.abs(seekTarget - t) > 0.05) {
+      // buffered span at the moment of recovery - temporary, for tuning
+      // docs/radio-buffering-retune-plan.md's chronic-stall
+      // investigation. small `end - t` here (vs. a healthy
+      // `liveEdgeBufferMs`) means the ahead-of-playhead buffer had
+      // genuinely run thin by the time recovery kicked in, not just
+      // that playback itself hiccuped with plenty of data still on hand.
       console.info(
-        `[radio] watchdog recovering stall: ${t.toFixed(2)}s -> ${seekTarget.toFixed(2)}s`
+        `[radio] watchdog recovering stall: ${t.toFixed(2)}s -> ${seekTarget.toFixed(2)}s ` +
+          `(bufferedEnd=${end.toFixed(2)}s, aheadOfPlayhead=${(end - t).toFixed(2)}s)`
       );
       try {
         audio.currentTime = seekTarget;
@@ -1430,9 +1691,36 @@ export async function tuneIntoRadio(
     startWatchdog();
     audio.addEventListener("playing", () => {
       console.info("[radio] media element event: playing");
+      // authoritative signal that playback actually started - see
+      // markChunkPlaybackStarted's doc comment for why this can't just
+      // rely on the `.play()` promise resolving. deferred a microtask:
+      // this native event can fire SYNCHRONOUSLY as a side effect of a
+      // solid-driven DOM mutation (e.g. the video mini player's
+      // `appendChild` re-parenting an already-playing MediaSource-backed
+      // element), which reenters solid's own update loop mid-flight and
+      // corrupts its owner-cleanup bookkeeping (`cleanNode`/
+      // `node.owned[i]`/"Cannot read properties of null (reading '1')").
+      // hopping through a microtask guarantees this signal write always
+      // starts a fresh, top-level solid update instead of nesting inside
+      // one that's still running.
+      queueMicrotask(() => markChunkPlaybackStarted());
     });
     audio.addEventListener("pause", () => {
       console.info("[radio] media element event: pause");
+      // a genuine external pause (e.g. the native fullscreen video
+      // overlay's own pause button, which calls `.pause()` on this
+      // element directly - entirely bypassing radioPause()/the OS media
+      // session action handler) leaves this tune attempt marked active,
+      // so without this the stall watchdog below sees `audio.paused` and
+      // force-resumes playback within ~1s - exactly the "pauses for a
+      // moment then keeps playing" symptom. `isActiveTune()` already
+      // goes false before OUR OWN teardown path reaches its own
+      // `audio.pause()` call (see radioPause()/leaveRadio()), so it
+      // stays a safe way to tell "we did this" from "something external
+      // paused the element out from under us" apart.
+      if (isActiveTune()) {
+        radioPause();
+      }
     });
     audio.addEventListener("error", () => {
       const mediaError = audio.error;
@@ -1462,12 +1750,12 @@ export async function tuneIntoRadio(
    * time. setting `timestampOffset` is the spec-sanctioned way to
    * restart a "sequence" mode SourceBuffer's timeline in place. */
   const rebuildSourceBuffer = () => {
-    if (pendingTrackBoundary) {
-      // the buffered timeline is being torn down/reset, so the stored
-      // boundary position no longer means anything — apply whatever
-      // "now playing" swap was waiting on it now rather than losing it.
-      const boundary = pendingTrackBoundary;
-      pendingTrackBoundary = null;
+    // the buffered timeline is being torn down/reset, so every stored
+    // boundary position no longer means anything - apply whatever "now
+    // playing" swaps were waiting on them now, in order, rather than
+    // losing them.
+    while (pendingTrackBoundaries.length > 0) {
+      const boundary = pendingTrackBoundaries.shift()!;
       applyPendingTrackMeta(boundary.data, boundary.seq);
     }
     if (!ms) return;
@@ -1475,13 +1763,15 @@ export async function tuneIntoRadio(
       // only reached if the very first addSourceBuffer (during tune
       // bootstrap) never happened — fall back to creating one.
       try {
-        sb = ms.addSourceBuffer(MSE_CODEC);
+        sb = ms.addSourceBuffer(helloCodec ?? MSE_CODEC);
         sb.mode = "sequence";
         sb.addEventListener("updateend", drain);
       } catch (e) {
         console.error("[radio] addSourceBuffer fallback failed:", e);
-        setStatus("error");
-        setError("media source rebuild failed; please reconnect");
+        batch(() => {
+          setStatus("error");
+          setError("media source rebuild failed; please reconnect");
+        });
       }
       return;
     }
@@ -1524,8 +1814,10 @@ export async function tuneIntoRadio(
       lastWatchdogProgressMs = Date.now();
     } catch (e) {
       console.error("[radio] SourceBuffer reset failed:", e);
-      setStatus("error");
-      setError("media source reset failed; please reconnect");
+      batch(() => {
+        setStatus("error");
+        setError("media source reset failed; please reconnect");
+      });
     }
   };
 
@@ -1539,6 +1831,17 @@ export async function tuneIntoRadio(
     resyncAtSeq = resyncSeq;
     queue.length = 0;
     seekedToLive = false;
+    // same reasoning as flushForAdminSkip: a lag resync tears down and
+    // re-fills the buffer from empty too, so it gets the identical
+    // quiet-rebuffer treatment (mute now, unmute via drain()'s
+    // seekedToLive gate) rather than letting the reset itself glitch
+    // audibly, and the same baseline reset (not a separate target).
+    if (liveEdgeBufferMs > STALL_RECOVERY_BASELINE_MS) {
+      liveEdgeBufferMs = STALL_RECOVERY_BASELINE_MS;
+    }
+    audio.muted = true;
+    rebufferMuteActive = true;
+    rebufferMuteDeadlineMs = Date.now() + REBUFFER_MUTE_MAX_MS;
     rebuildSourceBuffer();
     // record + count this resync. when we churn faster than the user's
     // patience, surface as an error so they can take action.
@@ -1558,8 +1861,10 @@ export async function tuneIntoRadio(
         setUseTimelineMode(true);
         // don't set error state; the queue adapter will take over.
       } else {
-        setStatus("error");
-        setError(`connection unstable — ${recentLags.length} resyncs in the last minute`);
+        batch(() => {
+          setStatus("error");
+          setError(`connection unstable — ${recentLags.length} resyncs in the last minute`);
+        });
       }
     }
   };
@@ -1586,23 +1891,27 @@ export async function tuneIntoRadio(
     // the stall watchdog's gap-crossing seek collapse toward a no-op and
     // took many cycles to recover from. resetting to the session's
     // baseline still lets it grow back up if this track's connection is
-    // genuinely struggling too.
-    if (liveEdgeBufferMs > POST_SKIP_LIVE_EDGE_BUFFER_MS) {
-      liveEdgeBufferMs = POST_SKIP_LIVE_EDGE_BUFFER_MS;
+    // genuinely struggling too. a full stop + genuine re-buffer here is
+    // expected and fine (per explicit user direction) - this no longer
+    // resets to a SEPARATE, smaller post-skip target, just the same
+    // baseline every fresh tune/lag-resync starts from.
+    if (liveEdgeBufferMs > STALL_RECOVERY_BASELINE_MS) {
+      liveEdgeBufferMs = STALL_RECOVERY_BASELINE_MS;
     }
     // mute rather than pause: keeps the media element's playback state
     // machine (and the browser's own auto-resume-on-data behavior) alone,
-    // it just silences whatever it produces until a real cushion of the
-    // new track is buffered. unmuted again from the watchdog once that
-    // cushion exists (or after a safety timeout).
+    // it just silences whatever it produces until drain()'s normal
+    // seekedToLive gate is satisfied again - the SAME gate a fresh tune
+    // uses, not a separate faster/smaller one.
     audio.muted = true;
-    postSkipMuteActive = true;
-    postSkipMuteEngagedAtMs = Date.now();
-    postSkipMuteDeadlineMs = postSkipMuteEngagedAtMs + POST_SKIP_MUTE_MAX_MS;
+    rebufferMuteActive = true;
+    rebufferMuteDeadlineMs = Date.now() + REBUFFER_MUTE_MAX_MS;
     rebuildSourceBuffer();
     guarded(() => {
-      setStatus("connecting");
-      setError(null);
+      batch(() => {
+        setStatus("connecting");
+        setError(null);
+      });
     });
   };
 
@@ -1659,51 +1968,49 @@ export async function tuneIntoRadio(
           ? bye.reason
           : "radio session ended";
 
-      // timeline mode should keep buffered audio alive and reconnect in
-      // the background. full teardown would revoke object urls and cut
-      // off playback immediately.
-      if (useTimelineMode()) {
-        const reconnectPeer = activeSession?.peerAddr ?? currentPeerAddr();
-        const reconnectOpts: TuneOptions = {
-          stationId: currentStationId() ?? expectedStationId ?? opts.stationId,
-          stationName: activeSession?.stationName ?? opts.stationName,
-          isLocal: activeSession?.isLocal ?? opts.isLocal,
-          userInitiated: false,
-          preservePlayback: true,
-          autoReconnect: true,
-        };
+      // reconnect in the background rather than a full teardown (which
+      // would revoke object urls / reset the displayed station+track and
+      // cut off playback immediately) - same recovery path for both
+      // timeline/queue mode and chunk/MSE mode (see the dead-connection
+      // watchdog below, which reaches the same reconnect call when the
+      // remote disappears WITHOUT ever getting to send "goodbye").
+      const reconnectPeer = activeSession?.peerAddr ?? currentPeerAddr();
+      const reconnectOpts: TuneOptions = {
+        stationId: currentStationId() ?? expectedStationId ?? opts.stationId,
+        stationName: activeSession?.stationName ?? opts.stationName,
+        isLocal: activeSession?.isLocal ?? opts.isLocal,
+        userInitiated: false,
+        preservePlayback: true,
+        autoReconnect: true,
+      };
 
-        if (activeSession) {
-          try {
-            activeSession.leave();
-          } catch (e) {
-            console.warn("[radio] goodbye leave threw:", e);
-          }
-          activeSession = null;
+      if (activeSession) {
+        try {
+          activeSession.leave();
+        } catch (e) {
+          console.warn("[radio] goodbye leave threw:", e);
         }
+        activeSession = null;
+      }
 
-        guarded(() => {
-          stopElapsedTicker();
+      guarded(() => {
+        stopElapsedTicker();
+        batch(() => {
           setStatus("connecting");
           setError(null);
         });
+      });
 
-        if (reconnectPeer) {
-          scheduleTimelineReconnect(reconnectPeer, reconnectOpts, reason);
-        } else {
-          guarded(() => {
+      if (reconnectPeer) {
+        scheduleReconnect(reconnectPeer, reconnectOpts, reason);
+      } else {
+        guarded(() => {
+          batch(() => {
             setStatus("error");
             setError(reason);
           });
-        }
-        return true;
+        });
       }
-
-      leaveRadio();
-      guarded(() => {
-        setStatus("error");
-        setError(reason);
-      });
       return true;
     }
     if (msg.type === "timeline") {
@@ -1715,8 +2022,12 @@ export async function tuneIntoRadio(
           );
           leaveRadio();
           guarded(() => {
-            setStatus("error");
-            setError(`station mismatch: expected ${expectedStationId}, got ${snapshot.station_id}`);
+            batch(() => {
+              setStatus("error");
+              setError(
+                `station mismatch: expected ${expectedStationId}, got ${snapshot.station_id}`
+              );
+            });
           });
           return true;
         }
@@ -1764,11 +2075,16 @@ export async function tuneIntoRadio(
   // the init chunk landing over the network says nothing about when the
   // listener actually *hears* that track — the SourceBuffer can still
   // hold many seconds of the outgoing track's tail waiting to play out.
-  // `pendingTrackBoundary` records where in the buffered timeline the new
-  // track's audio actually begins, so the visible "now playing" swap can
-  // wait for the playhead to really get there instead of jumping the
-  // instant the bytes arrive.
-  let pendingTrackBoundary: {
+  // `pendingTrackBoundaries` records where in the buffered timeline each
+  // new track's audio actually begins, so the visible "now playing" swap
+  // can wait for the playhead to really get there instead of jumping the
+  // instant the bytes arrive. a QUEUE (not a single slot): two track
+  // transitions can land before the playhead reaches the first one (e.g.
+  // several short tracks, or a burst of catchup chunks) - a single
+  // nullable slot would silently drop every boundary but the last one,
+  // which is exactly what "now playing gets off at track start/end"
+  // symptoms traced back to.
+  let pendingTrackBoundaries: {
     seq: number;
     boundaryTime: number;
     data: {
@@ -1777,7 +2093,7 @@ export async function tuneIntoRadio(
       raw_art: { mime: string; data: string } | null;
       listener_count: number;
     };
-  } | null = null;
+  }[] = [];
   // hello's now_playing reflects whatever the broadcaster considers
   // "current" the instant the listener subscribes — but a new listener
   // still has to drain however much catchup audio the broadcaster sent
@@ -1820,8 +2136,31 @@ export async function tuneIntoRadio(
 
   const applyHello = (helloJson: string) => {
     if (!isActiveTune()) return;
+    markControlActivity();
     try {
       const msg = JSON.parse(helloJson);
+      // the station's real codec only arrives here - addSourceBuffer must
+      // use it (a video station's codec differs from the audio-only
+      // MSE_CODEC fallback), not the hardcoded constant.
+      if (ms && !sb) {
+        const codec =
+          typeof msg?.codec === "string" && msg.codec.trim() ? msg.codec.trim() : MSE_CODEC;
+        helloCodec = codec;
+        try {
+          sb = ms.addSourceBuffer(codec);
+          // sequence mode rewrites segment timestamps so cross-track +
+          // catchup chunks form a single contiguous buffered range.
+          sb.mode = "sequence";
+          sb.addEventListener("updateend", drain);
+        } catch (e) {
+          console.error(`[radio] addSourceBuffer(${codec}) failed:`, e);
+          batch(() => {
+            setStatus("error");
+            setError(`unsupported codec: ${codec}`);
+          });
+          return;
+        }
+      }
       if (msg?.now_playing) {
         const helloStationId =
           typeof msg.now_playing.station_id === "string" &&
@@ -1834,8 +2173,10 @@ export async function tuneIntoRadio(
           );
           leaveRadio();
           guarded(() => {
-            setStatus("error");
-            setError(`station mismatch: expected ${expectedStationId}, got ${helloStationId}`);
+            batch(() => {
+              setStatus("error");
+              setError(`station mismatch: expected ${expectedStationId}, got ${helloStationId}`);
+            });
           });
           return;
         }
@@ -1863,8 +2204,10 @@ export async function tuneIntoRadio(
       if (typeof msg?.listener_count === "number") {
         setListenerCount(msg.listener_count);
       }
-      setModeCapabilities(coerceModeCapabilities(msg?.radio_mode_capabilities));
-      setTimelineSeedActive(msg?.timeline_seed_active === true);
+      batch(() => {
+        setModeCapabilities(coerceModeCapabilities(msg?.radio_mode_capabilities));
+        setTimelineSeedActive(msg?.timeline_seed_active === true);
+      });
       // broadcaster-forced timeline-only: server told us not to expect an
       // audio uni stream regardless of our own MSE capability.
       if (msg?.broadcaster_timeline_only === true) {
@@ -1911,6 +2254,7 @@ export async function tuneIntoRadio(
 
   const applyMeta = (metaJson: string) => {
     if (!isActiveTune()) return;
+    markControlActivity();
     try {
       const msg = JSON.parse(metaJson);
       // dispatch lag / chunk_ready first — these are not metadata
@@ -2009,6 +2353,7 @@ export async function tuneIntoRadio(
 
   const onChunk = (seq: number, isInit: boolean, bytes: Uint8Array) => {
     if (!isActiveTune() || !ms) return;
+    markControlActivity();
     if (!sawFirstChunk) {
       sawFirstChunk = true;
       if (!useTimelineMode() && !isInit) {
@@ -2035,37 +2380,19 @@ export async function tuneIntoRadio(
       if (awaitingSkipResync) {
         awaitingSkipResync = false;
         guarded(() => {
-          setStatus("playing");
-          setError(null);
+          batch(() => {
+            setStatus("playing");
+            setError(null);
+          });
         });
       }
     }
-    if (isInit && pendingMeta.has(seq)) {
-      const m = pendingMeta.get(seq)!;
-      pendingMeta.delete(seq);
-      if (useTimelineMode() || !sb || sb.buffered.length === 0) {
-        // no local buffered timeline to gate on (timeline/queue mode, or
-        // nothing appended yet) — apply right away.
-        applyPendingTrackMeta(m, seq);
-      } else {
-        // this chunk hasn't been appended yet (it's queued below); the
-        // current buffered end is where its audio will start playing
-        // from. defer the visible swap until the playhead actually
-        // reaches that point instead of the moment the bytes merely
-        // arrived over the network.
-        pendingTrackBoundary = {
-          seq,
-          boundaryTime: sb.buffered.end(sb.buffered.length - 1),
-          data: m,
-        };
-      }
-      // no-op for elapsed timer: live radio uses listener-session time,
-      // not per-track playback position.
-    } else if (isInit) {
-      // no-op for elapsed timer: live radio uses listener-session time.
-    }
+    // pendingMeta lookup + track-boundary scheduling now happens in
+    // drain(), right before this exact chunk is actually appended - see
+    // its doc comment for why that timing matters (arrival-time here can
+    // have other not-yet-appended chunks still queued ahead of it).
     if (isInit) lastAppliedInit = seq;
-    queue.push(bytes);
+    queue.push({ bytes, seq, isInit });
     drain();
   };
 
@@ -2073,12 +2400,33 @@ export async function tuneIntoRadio(
   let handle: RadioHandleLike;
   let timelineBootstrapTimer: number | null = null;
   let chunkBootstrapTimer: number | null = null;
+  const tuneCallStartedAtMs = Date.now();
+  setConnectPhase("connecting to broadcaster\u2026");
+  console.info(
+    "[radio] calling tune_radio now — mode:",
+    useLocal ? "charnel-local" : useCharnel ? "charnel" : "midden-wasm",
+    "peerAddr:",
+    peerAddr,
+    "stationId:",
+    opts.stationId ?? null
+  );
+  // heartbeat while the tune call is in flight - if this fires more than
+  // once, the underlying call (native midden/iroh binding, or charnel IPC)
+  // is genuinely hanging rather than erroring quickly, which rules out a
+  // fast local failure and points at the network/peer/connection layer.
+  const tuneHeartbeat = window.setInterval(() => {
+    console.warn(
+      `[radio] still waiting on tune_radio after ${Date.now() - tuneCallStartedAtMs}ms — no response yet`
+    );
+  }, 3000);
   try {
     handle = useLocal
       ? await tuneRadioCharnelLocal(opts.stationId, applyHello, applyMeta, onChunk)
       : useCharnel
         ? await tuneRadioCharnel(peerAddr, opts.stationId, applyHello, applyMeta, onChunk)
         : await node!.tune_radio(peerAddr, opts.stationId, applyHello, applyMeta, onChunk);
+    console.info(`[radio] tune_radio resolved after ${Date.now() - tuneCallStartedAtMs}ms`);
+    setConnectPhase("waiting for stream data\u2026");
     if (!isActiveTune()) {
       try {
         handle.leave();
@@ -2088,14 +2436,23 @@ export async function tuneIntoRadio(
       throw new Error("radio tune superseded by a newer attempt");
     }
   } catch (e) {
+    console.error(`[radio] tune_radio rejected after ${Date.now() - tuneCallStartedAtMs}ms:`, e);
     if (isActiveTune()) {
-      setStatus("error");
-      setError(`tune failed: ${e}`);
+      batch(() => {
+        setStatus("error");
+        setError(`tune failed: ${e}`);
+      });
     }
-    if (ms) URL.revokeObjectURL(audio.src);
-    audio.removeAttribute("src");
+    if (usingManagedMediaSource) {
+      (audio as HTMLMediaElement & { srcObject?: MediaProvider | null }).srcObject = null;
+    } else if (ms) {
+      URL.revokeObjectURL(audio.src);
+      audio.removeAttribute("src");
+    }
     audio.load();
     throw e;
+  } finally {
+    window.clearInterval(tuneHeartbeat);
   }
 
   const session: RadioSession = {
@@ -2138,7 +2495,12 @@ export async function tuneIntoRadio(
     },
   };
   activeSession = session;
-  timelineReconnectDelayMs = TIMELINE_RECONNECT_BASE_MS;
+  reconnectDelayMs = RECONNECT_BASE_MS;
+  // the connect phase itself (dialing the peer, waiting on tune_radio,
+  // etc.) can legitimately take a while and shouldn't count against the
+  // dead-connection watchdog above - reset its clock right as the
+  // session actually goes live.
+  markControlActivity();
 
   // start the queue-mode adapter; it watches useTimelineMode() + the
   // timeline snapshot reactively and is a no-op when MSE streaming is
@@ -2154,8 +2516,10 @@ export async function tuneIntoRadio(
       if (!useTimelineMode()) return;
       if (timelineSnapshot() !== null) return;
       console.warn("[radio] timeline bootstrap timeout: no timeline snapshot received after 12s");
-      setStatus("error");
-      setError("timeline mode could not start: broadcaster did not provide timeline snapshots");
+      batch(() => {
+        setStatus("error");
+        setError("timeline mode could not start: broadcaster did not provide timeline snapshots");
+      });
     }, 12_000);
   } else if (ms) {
     chunkBootstrapTimer = window.setTimeout(() => {
@@ -2163,8 +2527,10 @@ export async function tuneIntoRadio(
       if (useTimelineMode()) return;
       if (sawFirstChunk) return;
       console.warn("[radio] chunk bootstrap timeout: no audio chunks received after 12s");
-      setStatus("error");
-      setError("radio audio stream did not start: no chunks received from broadcaster");
+      batch(() => {
+        setStatus("error");
+        setError("radio audio stream did not start: no chunks received from broadcaster");
+      });
     }, 12_000);
   }
 
@@ -2180,105 +2546,8 @@ export async function tuneIntoRadio(
   return audio;
 }
 
-/**
- * coerce a meta `now_playing` blob into our `PublicNowPlaying` shape.
- * the wire format from the radio control stream sends the `NowPlaying`
- * struct (with `art: { mime, blob_id, data }`); the http `RadioInfo`
- * endpoint sends `art_blob_id` instead. this picks whichever fields are
- * present so views can render either source uniformly.
- */
-function coerceNowPlaying(raw: unknown): PublicNowPlaying | null {
-  if (!raw || typeof raw !== "object") return null;
-  const r = raw as Record<string, unknown>;
-  const np: PublicNowPlaying = {
-    song_id: typeof r.song_id === "string" ? r.song_id : "",
-    title: typeof r.title === "string" ? r.title : "(untitled)",
-    artist: typeof r.artist === "string" ? r.artist : null,
-    album: typeof r.album === "string" ? r.album : null,
-    art_blob_id:
-      typeof r.art_blob_id === "string"
-        ? r.art_blob_id
-        : isArt(r.art) && typeof r.art.blob_id === "string"
-          ? r.art.blob_id
-          : null,
-    waveform_blob_id: typeof r.waveform_blob_id === "string" ? r.waveform_blob_id : null,
-    duration_ms: typeof r.duration_ms === "number" ? r.duration_ms : null,
-  };
-  // best-effort validate via the generated zod schema; ignore on failure
-  // so unexpected fields don't blow up playback.
-  const parsed = schema.PublicNowPlayingSchema.safeParse(np);
-  return parsed.success ? parsed.data : np;
-}
-
-function isArt(v: unknown): v is { blob_id?: unknown } {
-  return !!v && typeof v === "object";
-}
-
-// ---- favorite (broadcasting peer) ------------------------------------
-//
-// the radio doesn't expose per-listener state, but if the broadcasting
-// peer is a registered remote with an authenticated session we can call
-// the remote's `music.setFavorite` / `music.querySongs` endpoints
-// directly. when no remote is registered for the peer, both calls are
-// no-ops and the heart stays disabled.
-
-/** best-effort: read `is_favorite` for the given song from the
- * broadcasting peer's API and update `radioCurrentFavorite`. silently
- * leaves the signal as `null` when no remote is registered or the call
- * fails (e.g. unauthenticated session). */
-async function fetchRadioFavorite(songId: string, peerAddr: string): Promise<void> {
-  try {
-    const remote = await getRemoteByPeerAddr(peerAddr);
-    if (!remote) return;
-    const client = await getClientForRemote(remote);
-    const result = await client.music.querySongs({
-      q: null,
-      search_fields: null,
-      filters: { song_ids: [songId] },
-      sort_by: null,
-      sort_direction: null,
-      limit: 1,
-      offset: null,
-      user_id: null,
-      favorites_only: null,
-      min_rating: null,
-    });
-    if (!result.success || result.data.items.length === 0) return;
-    const fav = result.data.items[0].is_favorite;
-    if (typeof fav === "boolean") setCurrentFavorite(fav);
-  } catch (e) {
-    console.warn("[radio] fetch favorite failed:", e);
-  }
-}
-
-/** toggle the favorite for the currently-playing radio track on the
- * broadcasting peer. optimistically updates `radioCurrentFavorite` and
- * rolls back on failure. throws if no peer/remote is available. */
+// favorite (broadcasting peer) toggling lives in radioFavorite.ts; this
+// just supplies the currently-tuned peer, since only this module tracks it.
 export async function setRadioFavorite(songId: string, isFavorite: boolean): Promise<void> {
-  const peer = currentPeerAddr();
-  if (!peer) throw new Error("no active radio session");
-  const remote = await getRemoteByPeerAddr(peer);
-  if (!remote) {
-    throw new Error("broadcasting peer is not a registered remote — cannot favorite");
-  }
-  const previous = currentFavorite();
-  setCurrentFavorite(isFavorite);
-  try {
-    const client = await getClientForRemote(remote);
-    const result = await client.entities.setFavorite({
-      user_id: null,
-      target_type: "song",
-      target_id: songId,
-      is_favorite: isFavorite,
-    });
-    if (!result.success) {
-      throw new Error("error" in result ? JSON.stringify(result.error) : "set favorite failed");
-    }
-    if (!result.data?.success) {
-      throw new Error(result.data?.message || "set favorite failed");
-    }
-  } catch (e) {
-    setCurrentFavorite(previous);
-    throw e;
-  }
+  return setRadioFavoriteForPeer(songId, isFavorite, currentPeerAddr());
 }

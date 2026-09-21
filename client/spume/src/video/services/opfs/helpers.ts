@@ -187,6 +187,68 @@ export async function streamVideoToOPFSWithResume(
   return { opfsPath, size: received };
 }
 
+// checkpoint size for openVideoOPFSChunkSink - matches
+// streamVideoToOPFSWithResume's own CHECKPOINT_BYTES above.
+const CHUNK_SINK_CHECKPOINT_BYTES = 8 * 1024 * 1024;
+
+/**
+ * open an OPFS destination for a synced video file and return a sink that
+ * can be driven directly by Transport.streamBlobToSink's onChunk callback
+ * - the p2p counterpart to streamVideoToOPFSWithResume's HTTP fetch-reader
+ * loop, so a p2p video sync never assembles the whole file in one buffer
+ * before landing on disk either. see
+ * docs/blob-transfer-opfs-and-sha256-refactor-plan.md phase 2. no resume
+ * support (unlike the HTTP path's Range-based resume) - a p2p download's
+ * own resume/pause lives in midden's persistent blob store instead, so
+ * this always starts the destination file fresh.
+ */
+export async function openVideoOPFSChunkSink(
+  id: string,
+  extension: string
+): Promise<{
+  writeChunk: (chunk: Uint8Array) => Promise<void>;
+  finish: () => Promise<{ opfsPath: string; size: number }>;
+}> {
+  const videoDir = await ensureVideoDir();
+  const fileName = `${id}.${extension}`;
+  const opfsPath = `${VIDEO_DIR}/${fileName}`;
+  const fileHandle = await videoDir.getFileHandle(fileName, { create: true });
+
+  let writable = await fileHandle.createWritable();
+  let written = 0;
+  let sinceCheckpoint = 0;
+  let closed = false;
+
+  const writeChunk = async (chunk: Uint8Array): Promise<void> => {
+    // chunks arriving via Comlink/wasm transfers are always plain
+    // ArrayBuffers, never SharedArrayBuffer - safe to assert.
+    const buffer = chunk.buffer.slice(
+      chunk.byteOffset,
+      chunk.byteOffset + chunk.byteLength
+    ) as ArrayBuffer;
+    await writable.write(buffer);
+    written += chunk.length;
+    sinceCheckpoint += chunk.length;
+    if (sinceCheckpoint >= CHUNK_SINK_CHECKPOINT_BYTES) {
+      await writable.close();
+      writable = await fileHandle.createWritable({ keepExistingData: true });
+      await writable.seek(written);
+      sinceCheckpoint = 0;
+    }
+  };
+
+  const finish = async (): Promise<{ opfsPath: string; size: number }> => {
+    if (!closed) {
+      closed = true;
+      await writable.close();
+    }
+    debug("opfs", `streamed video chunks to opfs: ${fileName} (${written} bytes)`);
+    return { opfsPath, size: written };
+  };
+
+  return { writeChunk, finish };
+}
+
 // write a poster/thumbnail image to opfs, returns the stored path
 export async function writeVideoPosterToOPFS(blob: Blob, id: string): Promise<string> {
   try {

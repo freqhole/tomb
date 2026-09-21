@@ -150,16 +150,19 @@ fn draw_quit_confirm(frame: &mut Frame) {
 }
 
 fn header_line(app: &App) -> Line<'static> {
+    // omit the "(sha)" suffix entirely rather than printing "(unknown)" -
+    // a docker build with no .git in its context (see Dockerfile.build)
+    // bakes in "unknown" when FREQHOLE_GIT_SHA isn't passed as a build
+    // arg; a blank header is less confusing than a literal "unknown".
+    let git_sha = env!("FREQHOLE_GIT_SHA");
+    let version_label = if git_sha == "unknown" {
+        format!(" v{}", env!("CARGO_PKG_VERSION"))
+    } else {
+        format!(" v{} ({})", env!("CARGO_PKG_VERSION"), git_sha)
+    };
     let mut spans: Vec<Span<'static>> = vec![
         Span::styled("rathole", Style::new().fg(Color::Black).bold()),
-        Span::styled(
-            format!(
-                " v{} ({})",
-                env!("CARGO_PKG_VERSION"),
-                env!("FREQHOLE_GIT_SHA")
-            ),
-            Style::new().fg(Color::Black),
-        ),
+        Span::styled(version_label, Style::new().fg(Color::Black)),
         Span::raw("   "),
     ];
 

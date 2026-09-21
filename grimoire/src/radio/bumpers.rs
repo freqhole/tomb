@@ -1,11 +1,14 @@
-//! station bumpers — short audio clips (DJ drops, station IDs) that the
-//! broadcaster slots between regular songs.
+//! station bumpers — short audio/video clips (DJ drops, station IDs)
+//! that the broadcaster slots between regular songs/videos.
 //!
-//! see migrations/024_radio_bumperz.sql for the schema. each row points
-//! at a `media_blobz` row directly so the upload + transcoding pipeline
-//! can produce playable bumpers without cluttering `songz`.
+//! see migrations/024_radio_bumperz.sql (song bumpers) and
+//! migrations/083_radio_bumperz_video.sql (added video bumpers) for the
+//! schema. each row points at a `songz` or `videoz` row directly
+//! (exactly one, never both) so the upload + transcoding + metadata +
+//! art pipeline for whichever domain produces a playable bumper without
+//! a second flow.
 //!
-//! the broadcaster picks a bumper between songs when the per-station
+//! the broadcaster picks a bumper between tracks when the per-station
 //! `bumper_frequency_seconds` interval has elapsed since the last
 //! bumper play. weighted random selection, with `weight` controlling
 //! relative pick probability.
@@ -16,22 +19,45 @@ use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use zod_gen_derive::ZodSchema;
 
-/// one bumper row.
+/// one bumper row. exactly one of `song_id`/`video_id` is set, matching
+/// the schema's CHECK constraint - which one determines the bumper's
+/// `RadioItemKind` when the broadcaster plays it.
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema, FromRow, PartialEq)]
 pub struct Bumper {
     pub id: String,
     pub station_id: String,
-    pub song_id: String,
+    pub song_id: Option<String>,
+    pub video_id: Option<String>,
     pub label: String,
     pub weight: i64,
     pub created_at: i64,
+}
+
+impl Bumper {
+    /// the item this bumper plays, tagged with its domain - mirrors
+    /// `RadioItemKind`/`RadioTrack`'s own `(kind, id)` shape so callers
+    /// (`broadcaster::maybe_play_bumper`) don't need to match on
+    /// `song_id`/`video_id` themselves.
+    pub fn item(&self) -> (crate::radio::playlist::RadioItemKind, &str) {
+        match (&self.song_id, &self.video_id) {
+            (Some(id), _) => (crate::radio::playlist::RadioItemKind::Song, id.as_str()),
+            (None, Some(id)) => (crate::radio::playlist::RadioItemKind::Video, id.as_str()),
+            (None, None) => {
+                // schema CHECK constraint makes this unreachable in
+                // practice; Song is the safer of two wrong guesses
+                // (matches this type's pre-video default everywhere
+                // else in the radio module).
+                (crate::radio::playlist::RadioItemKind::Song, "")
+            }
+        }
+    }
 }
 
 pub async fn list_bumpers(station_id: &str) -> GrimoireResult<Vec<Bumper>> {
     let pool = database::connect().await?;
     sqlx::query_as!(
         Bumper,
-        r#"SELECT id as "id!", station_id as "station_id!", song_id as "song_id!",
+        r#"SELECT id as "id!", station_id as "station_id!", song_id, video_id,
                   label as "label!", weight as "weight!",
                   created_at as "created_at!"
            FROM radio_bumperz WHERE station_id = ?
@@ -43,19 +69,29 @@ pub async fn list_bumpers(station_id: &str) -> GrimoireResult<Vec<Bumper>> {
     .map_err(GrimoireError::from)
 }
 
+/// add a bumper. exactly one of `song_id`/`video_id` must be `Some` -
+/// callers (the admin dispatch handler) validate this before calling in,
+/// but the schema's own CHECK constraint is the actual backstop.
 pub async fn add_bumper(
     station_id: &str,
-    song_id: &str,
+    song_id: Option<&str>,
+    video_id: Option<&str>,
     label: &str,
     weight: Option<i64>,
 ) -> GrimoireResult<Bumper> {
+    if song_id.is_some() == video_id.is_some() {
+        return Err(GrimoireError::BadRequest {
+            message: "radio bumper: exactly one of song_id/video_id must be set".to_string(),
+        });
+    }
     let pool = database::connect().await?;
     let weight = weight.unwrap_or(1).max(1);
     let id: String = sqlx::query_scalar!(
-        r#"INSERT INTO radio_bumperz (station_id, song_id, label, weight)
-           VALUES (?, ?, ?, ?) RETURNING id"#,
+        r#"INSERT INTO radio_bumperz (station_id, song_id, video_id, label, weight)
+           VALUES (?, ?, ?, ?, ?) RETURNING id"#,
         station_id,
         song_id,
+        video_id,
         label,
         weight,
     )
@@ -63,7 +99,7 @@ pub async fn add_bumper(
     .await?;
     sqlx::query_as!(
         Bumper,
-        r#"SELECT id as "id!", station_id as "station_id!", song_id as "song_id!",
+        r#"SELECT id as "id!", station_id as "station_id!", song_id, video_id,
                   label as "label!", weight as "weight!",
                   created_at as "created_at!"
            FROM radio_bumperz WHERE id = ?"#,

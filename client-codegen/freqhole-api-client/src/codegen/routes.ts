@@ -40,6 +40,7 @@ export const routes = {
     radio_public_blob_thumbnail: { method: 'GET', path: '/api/radio/stations/{station_id}/blobs/{blob_id}/thumb/{size}', req: null, resp: null, auth: { type: 'public' } as const },
     radio_public_timeline: { method: 'GET', path: '/api/radio/stations/{station_id}/timeline', req: null, resp: s.PublicTimelineManifestSchema, auth: { type: 'public' } as const },
     radio_stations: { method: 'GET', path: '/api/radio/stations', req: null, resp: s.RadioStationsResponseSchema, auth: { type: 'public' } as const },
+    radio_stations_full: { method: 'GET', path: '/api/radio/stations/full', req: null, resp: s.RadioStationsResponseSchema, auth: { type: 'authenticated' } as const },
     server_info: { method: 'GET', path: '/api/hello', req: null, resp: s.ServerInfoResponseSchema, auth: { type: 'public' } as const },
   },
   auth: {

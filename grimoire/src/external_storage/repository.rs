@@ -374,19 +374,22 @@ pub async fn list_filter_set_filters(filter_set_id: &str) -> GrimoireResult<Vec<
         r#"SELECT f.id as "id!", f.filter_set_id as "filter_set_id!",
                   f.filter_type as "filter_type!",
                   COALESCE(f.artist_id, f.album_id, f.taxon_id, f.tag_id, f.song_id, f.playlist_id,
+                           f.video_id, f.video_series_id,
                            CAST(f.criteria_value AS TEXT), '') as "filter_value!: String",
-                  COALESCE(ar.name, al.title, tx.label, t.name, s.title, p.title, '') as "filter_label!: String",
+                  COALESCE(ar.name, al.title, tx.label, t.name, s.title, p.title, v.title, vs.title, '') as "filter_label!: String",
                   f.mode as "mode!", f.created_at as "created_at!",
                   CASE WHEN f.filter_type IN ('favorite', 'rating_gte', 'rating_lte')
                        THEN CASE WHEN f.criteria_scope = 1 THEN 'everyone' ELSE 'me' END
                        ELSE NULL END as "criteria_scope: String"
            FROM external_storage_filter_set_filterz f
-           LEFT JOIN artistz   ar ON ar.id = f.artist_id
-           LEFT JOIN albumz    al ON al.id = f.album_id
-           LEFT JOIN taxonz    tx ON tx.id = f.taxon_id
-           LEFT JOIN tagz      t  ON t.id  = f.tag_id
-           LEFT JOIN songz     s  ON s.id  = f.song_id
-           LEFT JOIN playlistz p  ON p.id  = f.playlist_id
+           LEFT JOIN artistz     ar ON ar.id = f.artist_id
+           LEFT JOIN albumz      al ON al.id = f.album_id
+           LEFT JOIN taxonz      tx ON tx.id = f.taxon_id
+           LEFT JOIN tagz        t  ON t.id  = f.tag_id
+           LEFT JOIN songz       s  ON s.id  = f.song_id
+           LEFT JOIN playlistz   p  ON p.id  = f.playlist_id
+           LEFT JOIN videoz      v  ON v.id  = f.video_id
+           LEFT JOIN video_seriez vs ON vs.id = f.video_series_id
            WHERE f.filter_set_id = ?
            ORDER BY f.created_at ASC"#,
         filter_set_id
@@ -405,8 +408,21 @@ pub async fn add_filter_set_filter(
 ) -> GrimoireResult<FilterSetFilter> {
     let pool = database::connect().await?;
 
-    let (kind, mode, (artist_id, album_id, taxon_id, tag_id, song_id, playlist_id, criteria_value)) =
-        parse_filter_clause("sync filter", filter_type, filter_value, mode)?;
+    let (
+        kind,
+        mode,
+        (
+            artist_id,
+            album_id,
+            taxon_id,
+            tag_id,
+            song_id,
+            playlist_id,
+            video_id,
+            video_series_id,
+            criteria_value,
+        ),
+    ) = parse_filter_clause("sync filter", filter_type, filter_value, mode)?;
     let kind_str = kind.as_str();
 
     // only "favorite"/"rating_gte"/"rating_lte" have a scope choice -
@@ -420,8 +436,8 @@ pub async fn add_filter_set_filter(
 
     let id: String = sqlx::query_scalar!(
         r#"INSERT INTO external_storage_filter_set_filterz
-              (filter_set_id, filter_type, mode, artist_id, album_id, taxon_id, tag_id, song_id, playlist_id, criteria_value, criteria_scope)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              (filter_set_id, filter_type, mode, artist_id, album_id, taxon_id, tag_id, song_id, playlist_id, video_id, video_series_id, criteria_value, criteria_scope)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
            RETURNING id"#,
         filter_set_id,
         kind_str,
@@ -432,6 +448,8 @@ pub async fn add_filter_set_filter(
         tag_id,
         song_id,
         playlist_id,
+        video_id,
+        video_series_id,
         criteria_value,
         criteria_scope_value,
     )
@@ -443,19 +461,22 @@ pub async fn add_filter_set_filter(
         r#"SELECT f.id as "id!", f.filter_set_id as "filter_set_id!",
                   f.filter_type as "filter_type!",
                   COALESCE(f.artist_id, f.album_id, f.taxon_id, f.tag_id, f.song_id, f.playlist_id,
+                           f.video_id, f.video_series_id,
                            CAST(f.criteria_value AS TEXT), '') as "filter_value!: String",
-                  COALESCE(ar.name, al.title, tx.label, t.name, s.title, p.title, '') as "filter_label!: String",
+                  COALESCE(ar.name, al.title, tx.label, t.name, s.title, p.title, v.title, vs.title, '') as "filter_label!: String",
                   f.mode as "mode!", f.created_at as "created_at!",
                   CASE WHEN f.filter_type IN ('favorite', 'rating_gte', 'rating_lte')
                        THEN CASE WHEN f.criteria_scope = 1 THEN 'everyone' ELSE 'me' END
                        ELSE NULL END as "criteria_scope: String"
            FROM external_storage_filter_set_filterz f
-           LEFT JOIN artistz   ar ON ar.id = f.artist_id
-           LEFT JOIN albumz    al ON al.id = f.album_id
-           LEFT JOIN taxonz    tx ON tx.id = f.taxon_id
-           LEFT JOIN tagz      t  ON t.id  = f.tag_id
-           LEFT JOIN songz     s  ON s.id  = f.song_id
-           LEFT JOIN playlistz p  ON p.id  = f.playlist_id
+           LEFT JOIN artistz     ar ON ar.id = f.artist_id
+           LEFT JOIN albumz      al ON al.id = f.album_id
+           LEFT JOIN taxonz      tx ON tx.id = f.taxon_id
+           LEFT JOIN tagz        t  ON t.id  = f.tag_id
+           LEFT JOIN songz       s  ON s.id  = f.song_id
+           LEFT JOIN playlistz   p  ON p.id  = f.playlist_id
+           LEFT JOIN videoz      v  ON v.id  = f.video_id
+           LEFT JOIN video_seriez vs ON vs.id = f.video_series_id
            WHERE f.id = ?"#,
         id
     )
@@ -492,6 +513,8 @@ struct FilterClauseRow {
     tag_id: Option<String>,
     song_id: Option<String>,
     playlist_id: Option<String>,
+    video_id: Option<String>,
+    video_series_id: Option<String>,
     criteria_value: Option<i64>,
     criteria_scope: Option<i64>,
     label: String,
@@ -505,6 +528,7 @@ async fn list_filter_set_clause_rows(
         FilterClauseRow,
         r#"SELECT f.id as "id!", f.filter_type as "filter_type!", f.mode as "mode!",
                   f.artist_id, f.album_id, f.taxon_id, f.tag_id, f.song_id, f.playlist_id,
+                  f.video_id, f.video_series_id,
                   f.criteria_value, f.criteria_scope,
                   COALESCE(ar.name, al.title, tx.label, t.name, s.title, p.title, '') as "label!: String"
            FROM external_storage_filter_set_filterz f
@@ -597,6 +621,8 @@ pub async fn resolve_filter_set_groups(
         tag_id: r.tag_id.clone(),
         song_id: r.song_id.clone(),
         playlist_id: r.playlist_id.clone(),
+        video_id: r.video_id.clone(),
+        video_series_id: r.video_series_id.clone(),
         criteria_value: r.criteria_value,
         criteria_scope: r.criteria_scope,
     };

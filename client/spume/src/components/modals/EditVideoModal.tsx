@@ -1019,6 +1019,25 @@ export function EditVideoModal(props: EditVideoModalProps) {
             <Show when={videoMetadataQuery.isLoading}>
               <div class="text-xs text-[var(--color-text-tertiary)]">loading metadata...</div>
             </Show>
+
+            {/* identity ids - debug aid for the sha256->blake3 migration.
+                videos have no sha256 (never did - blake3 only). */}
+            <Show when={videoQuery.data}>
+              <div class="space-y-1 text-sm font-mono">
+                <div>
+                  <span class="text-[var(--color-text-tertiary)]">id: </span>
+                  <span class="text-[var(--color-text-secondary)]">{videoQuery.data!.id}</span>
+                </div>
+                <Show when={videoQuery.data!.blake3}>
+                  <div>
+                    <span class="text-[var(--color-text-tertiary)]">blake3: </span>
+                    <span class="text-[var(--color-text-secondary)]">
+                      {videoQuery.data!.blake3}
+                    </span>
+                  </div>
+                </Show>
+              </div>
+            </Show>
           </div>
 
           {/* renditions list */}

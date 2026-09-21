@@ -124,6 +124,25 @@ pub enum SlashAction {
         kind: &'static str,
         query: Option<String>,
     },
+    /// tune into (listen to) a remote radio station - `/radio listen
+    /// <share-link-or-peer-addr> [station_id]`. distinct from
+    /// `Library { kind: "radio", .. }`'s `/radio tune <name>`, which
+    /// fuzzy-matches a LOCAL station by name and STARTS its broadcaster
+    /// (an admin action) - this instead dials a peer directly and
+    /// listens, reusing the exact same session `tty::radio::start`
+    /// already runs for an incoming `freqhole-player/1` `tune_radio`
+    /// command (see that module's doc comment).
+    RadioListen {
+        peer_addr: String,
+        station_id: Option<String>,
+    },
+    /// scan (list) every radio station a remote peer knows about -
+    /// `/radio scan <share-link-or-peer-addr>`. read-only discovery, no
+    /// tune/listen - fetches the peer's public `/api/radio/stations`
+    /// over the same p2p transport `RadioListen` uses to actually tune.
+    RadioScan {
+        peer_addr: String,
+    },
     /// no-op — empty input or whitespace.
     Empty,
     /// start the local serve subprocess (auto / http / p2p).
@@ -224,7 +243,7 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ("artist", "/artist [query]    browse artists (or search)"),
     ("playlist", "/playlist [query]  list playlists (or search)"),
     ("favorites", "/favorites         list your favorited songs"),
-    ("radio", "/radio             list radio stations"),
+    ("radio", "/radio             scan known remotes' radio stations"),
     ("help", "/help              list every slash command"),
     ("clear", "/clear             clear the playback queue"),
     (
@@ -405,10 +424,18 @@ pub const GROUPS: &[(&str, &[(&str, &str)])] = &[
     (
         "radio",
         &[
-            ("list", "list radio stations"),
+            ("list", "scan known remotes' radio stations"),
             ("start", "start station: /radio start <id>"),
             ("stop", "stop station: /radio stop <id>"),
             ("tune", "tune by name: /radio tune <name>"),
+            (
+                "listen",
+                "listen to a remote station: /radio listen <link-or-peer-addr> [id]",
+            ),
+            (
+                "scan",
+                "list a remote peer's stations: /radio scan <link-or-peer-addr>",
+            ),
         ],
     ),
     (
@@ -1468,8 +1495,12 @@ fn parse_enrich_sub(arg: Option<&str>) -> SlashAction {
 }
 
 /// parse `/radio [list|start <id>|stop <id>|tune <name>]`. bare and
-/// `list` list stations. unknown subs fall back to legacy
-/// fuzzy-match-and-tune so `/radio mellow` still works.
+/// `list` scan every known remote's public radio stations (see
+/// `tty::radio::scan_all_remote_stations`) - NOT rathole's own local
+/// stations, which almost always sit empty (no station-creation ui
+/// exists here). unknown subs fall back to legacy fuzzy-match-and-tune
+/// (against LOCAL stations, to start their broadcaster) so `/radio
+/// mellow` still works.
 fn parse_radio_sub(arg: Option<&str>) -> SlashAction {
     let raw = arg.unwrap_or("").trim();
     if raw.is_empty() {
@@ -1500,16 +1531,73 @@ fn parse_radio_sub(arg: Option<&str>) -> SlashAction {
             kind: "radio",
             query: Some(id.to_string()),
         },
-        // start/stop/tune without an id is a usage error.
-        "start" | "stop" | "play" | "tune" => SlashAction::BadArgs {
+        "listen" | "join" if !id.is_empty() => parse_radio_listen(id),
+        "scan" if !id.is_empty() => parse_radio_scan(id),
+        // start/stop/tune/listen/scan without an id is a usage error.
+        "start" | "stop" | "play" | "tune" | "listen" | "join" | "scan" => SlashAction::BadArgs {
             name: "radio",
-            hint: "usage: /radio [list|start <id>|stop <id>|tune <name>]",
+            hint: "usage: /radio [list|start <id>|stop <id>|tune <name>|listen <link-or-peer-addr> [id]|scan <link-or-peer-addr>]",
         },
         // unknown sub - legacy fuzzy-match-and-tune.
         _ => SlashAction::Library {
             kind: "radio",
             query: Some(raw.to_string()),
         },
+    }
+}
+
+/// parses the arg of `/radio scan <arg>` into a [`SlashAction::RadioScan`]
+/// `arg` is either a share link/token (any kind, only the embedded
+/// peer/node id is used - unlike `parse_radio_listen` this doesn't need a
+/// `radio_station` entity share specifically, since scanning lists every
+/// station a peer has, not one particular one) or a raw peer_addr.
+fn parse_radio_scan(arg: &str) -> SlashAction {
+    let peer_addr = crate::share::decode_radio_share(arg)
+        .map(|s| s.peer_addr)
+        .unwrap_or_else(|| arg.trim().to_string());
+    if peer_addr.is_empty() {
+        return SlashAction::BadArgs {
+            name: "radio",
+            hint: "usage: /radio scan <link-or-peer-addr>",
+        };
+    }
+    SlashAction::RadioScan { peer_addr }
+}
+
+/// parses the arg of `/radio listen <arg>` (or `join`) into a
+/// [`SlashAction::RadioListen`] - `arg` is either a share link/token
+/// (decoded via [`crate::share::decode_radio_share`]) or a raw
+/// `<peer_addr> [station_id]` pair, peer_addr first.
+fn parse_radio_listen(arg: &str) -> SlashAction {
+    if let Some(share) = crate::share::decode_radio_share(arg) {
+        return SlashAction::RadioListen {
+            peer_addr: share.peer_addr,
+            station_id: Some(share.station_id),
+        };
+    }
+    let (peer_addr, station_id) = match arg.split_once(char::is_whitespace) {
+        Some((p, rest)) => {
+            let rest = rest.trim();
+            (
+                p.trim(),
+                if rest.is_empty() {
+                    None
+                } else {
+                    Some(rest.to_string())
+                },
+            )
+        }
+        None => (arg.trim(), None),
+    };
+    if peer_addr.is_empty() {
+        return SlashAction::BadArgs {
+            name: "radio",
+            hint: "usage: /radio listen <link-or-peer-addr> [station_id]",
+        };
+    }
+    SlashAction::RadioListen {
+        peer_addr: peer_addr.to_string(),
+        station_id,
     }
 }
 
@@ -2201,6 +2289,97 @@ mod tests {
             SlashAction::Library {
                 kind: "radio",
                 query: Some("mellow jams".into()),
+            }
+        );
+    }
+
+    #[test]
+    fn parses_radio_listen_subcommand() {
+        // raw peer_addr, no station id.
+        assert_eq!(
+            parse("/radio listen deadbeefcafe"),
+            SlashAction::RadioListen {
+                peer_addr: "deadbeefcafe".into(),
+                station_id: None,
+            }
+        );
+        // raw peer_addr + station id.
+        assert_eq!(
+            parse("/radio listen deadbeefcafe abc123"),
+            SlashAction::RadioListen {
+                peer_addr: "deadbeefcafe".into(),
+                station_id: Some("abc123".into()),
+            }
+        );
+        // `/radio join` is an alias.
+        assert_eq!(
+            parse("/radio join deadbeefcafe abc123"),
+            SlashAction::RadioListen {
+                peer_addr: "deadbeefcafe".into(),
+                station_id: Some("abc123".into()),
+            }
+        );
+        // missing arg is a usage error.
+        assert!(matches!(
+            parse("/radio listen"),
+            SlashAction::BadArgs { name: "radio", .. }
+        ));
+        // a real radio_station share token also decodes correctly.
+        let token = {
+            use base64::Engine as _;
+            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(
+                serde_json::json!({
+                    "v": 2,
+                    "k": "entity",
+                    "sn": "deadbeefcafe",
+                    "ek": "radio_station",
+                    "i": "abc123",
+                })
+                .to_string(),
+            )
+        };
+        assert_eq!(
+            parse(&format!("/radio listen {token}")),
+            SlashAction::RadioListen {
+                peer_addr: "deadbeefcafe".into(),
+                station_id: Some("abc123".into()),
+            }
+        );
+    }
+
+    #[test]
+    fn parses_radio_scan_subcommand() {
+        // raw peer_addr.
+        assert_eq!(
+            parse("/radio scan deadbeefcafe"),
+            SlashAction::RadioScan {
+                peer_addr: "deadbeefcafe".into(),
+            }
+        );
+        // missing arg is a usage error.
+        assert!(matches!(
+            parse("/radio scan"),
+            SlashAction::BadArgs { name: "radio", .. }
+        ));
+        // any share link (not just radio_station kind) resolves to its
+        // embedded node id - scanning lists every station, not one.
+        let token = {
+            use base64::Engine as _;
+            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(
+                serde_json::json!({
+                    "v": 2,
+                    "k": "entity",
+                    "sn": "deadbeefcafe",
+                    "ek": "radio_station",
+                    "i": "abc123",
+                })
+                .to_string(),
+            )
+        };
+        assert_eq!(
+            parse(&format!("/radio scan {token}")),
+            SlashAction::RadioScan {
+                peer_addr: "deadbeefcafe".into(),
             }
         );
     }

@@ -30,10 +30,14 @@ pub struct UpgradeAndMigrateOutcome {
     pub config: ConfigUpgradeResult,
     pub haruspex: MigrationOutcome,
     pub reliquary: MigrationOutcome,
+    pub radio_encode_args: MigrationOutcome,
 }
 
-/// how one migration went: it ran (with a one-line summary and its full
-/// report as json), it failed (with the error message), or it was skipped
+/// how one migration went: it ran (with a one-line summary, its full
+/// report as json, and whether it actually changed anything - these
+/// migrations re-scan and re-check every row on every run, so a clean
+/// rerun where everything already existed is the common case, not an
+/// error), it failed (with the error message), or it was skipped
 /// entirely (with the reason).
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
@@ -41,6 +45,10 @@ pub enum MigrationOutcome {
     Ran {
         summary: String,
         report: serde_json::Value,
+        /// true when this run actually inserted/cleared/flushed something,
+        /// or surfaced a problem worth a human's attention - false for the
+        /// common "re-verified everything already migrated cleanly" case.
+        changed: bool,
     },
     Failed {
         error: String,
@@ -57,6 +65,17 @@ impl MigrationOutcome {
             MigrationOutcome::Ran { summary, .. } => summary.clone(),
             MigrationOutcome::Failed { error } => format!("failed: {}", error),
             MigrationOutcome::Skipped { reason } => format!("skipped: {}", reason),
+        }
+    }
+
+    /// true when this outcome is worth surfacing to a human - a failure,
+    /// or a run that actually changed/flagged something. false for a
+    /// no-op rerun or a skip, which `describe_outcome` omits entirely.
+    fn is_noteworthy(&self) -> bool {
+        match self {
+            MigrationOutcome::Ran { changed, .. } => *changed,
+            MigrationOutcome::Failed { .. } => true,
+            MigrationOutcome::Skipped { .. } => false,
         }
     }
 }
@@ -108,14 +127,49 @@ fn summarize_reliquary_report(report: &crate::blobz::MigrationReport) -> String 
     summary
 }
 
-/// wrap a migration report into a `Ran` outcome with its summary and
-/// serialized report.
-fn ran_outcome<R: Serialize>(report: &R, summary: String) -> MigrationOutcome {
+/// wrap a migration report into a `Ran` outcome with its summary,
+/// serialized report, and whether it actually changed anything.
+fn ran_outcome<R: Serialize>(report: &R, summary: String, changed: bool) -> MigrationOutcome {
     MigrationOutcome::Ran {
         summary,
         report: serde_json::to_value(report).unwrap_or(serde_json::Value::Null),
+        changed,
     }
 }
+
+/// one-line summary of the stale radio `encode_args` migration report.
+fn summarize_radio_encode_args_report(
+    report: &crate::radio::stations::StaleEncodeArgsMigrationReport,
+) -> String {
+    format!(
+        "examined {} station(s) with a per-station encode_args override, cleared {} known-stale one(s) back to inherit: {:?}",
+        report.examined,
+        report.cleared_station_ids.len(),
+        report.cleared_station_ids
+    )
+}
+
+/// last version whose grimoire db could still have rows that never made
+/// it into haruspex/reliquary - anyone upgrading from newer than this has
+/// already been through a run that migrated everything there was to
+/// migrate (both are safe to rerun regardless - see their own doc
+/// comments - but a full-table rescan is real cost on a large library, so
+/// skip it once it can't possibly find anything new). same
+/// self-terminating gate shape as `LAST_VERSION_WITH_STALE_RADIO_DEFAULTS_RISK`.
+const LAST_VERSION_NEEDING_HARUSPEX_RELIQUARY_MIGRATION: &str = "0.3.1";
+
+/// last version whose shipped `[radio]` encode_args/video_encode_args/
+/// video_codec defaults could end up frozen as a literal override -
+/// either in the toml (fixed structurally: the template no longer
+/// declares these keys, so `upgrade_config`'s merge already drops them
+/// for every upgrade going forward) or per-station in the db (not
+/// touched by the config merge at all, so it needs this explicit,
+/// version-gated one-shot pass). anyone upgrading FROM this version or
+/// older gets the one-shot db clear exactly once - their `[server]
+/// .version` is bumped to the current binary version as part of this
+/// same upgrade, so the gate naturally never re-fires for them again,
+/// no matter how many further releases ship.
+const LAST_VERSION_WITH_STALE_RADIO_DEFAULTS_RISK: &str = "0.3.6";
 
 /// upgrade the config file at `config_path`, reload the in-memory config
 /// from it, then run the one-shot data migrations.
@@ -142,48 +196,118 @@ pub async fn upgrade_config_and_migrate(
             haruspex: MigrationOutcome::Skipped {
                 reason: reason.clone(),
             },
-            reliquary: MigrationOutcome::Skipped { reason },
+            reliquary: MigrationOutcome::Skipped {
+                reason: reason.clone(),
+            },
+            radio_encode_args: MigrationOutcome::Skipped { reason },
         });
     }
 
-    let haruspex = match crate::users::migrate_to_haruspex().await {
-        Ok(report) => {
-            let summary = summarize_haruspex_report(&report);
-            ran_outcome(&report, summary)
-        }
-        Err(e) => MigrationOutcome::Failed {
-            error: e.to_string(),
-        },
+    let needs_haruspex_reliquary_pass = !crate::updates::is_newer(
+        &config.old_version,
+        LAST_VERSION_NEEDING_HARUSPEX_RELIQUARY_MIGRATION,
+    );
+    let skip_reason = || MigrationOutcome::Skipped {
+        reason: format!(
+            "old config version {} is newer than {} - already fully migrated by an earlier upgrade",
+            config.old_version, LAST_VERSION_NEEDING_HARUSPEX_RELIQUARY_MIGRATION
+        ),
     };
 
-    let reliquary = match crate::blobz::migrate_to_reliquary().await {
-        Ok(report) => {
-            let summary = summarize_reliquary_report(&report);
-            ran_outcome(&report, summary)
+    let haruspex = if !needs_haruspex_reliquary_pass {
+        skip_reason()
+    } else {
+        match crate::users::migrate_to_haruspex().await {
+            Ok(report) => {
+                let summary = summarize_haruspex_report(&report);
+                let tables = [
+                    report.identities.inserted,
+                    report.api_keys.inserted,
+                    report.credentials.inserted,
+                    report.devices.inserted,
+                    report.knocks.inserted,
+                    report.invites.inserted,
+                    report.challenges.inserted,
+                ];
+                let changed = tables.iter().sum::<i64>() > 0
+                    || report.flushed_sessions > 0
+                    || !report.is_clean();
+                ran_outcome(&report, summary, changed)
+            }
+            Err(e) => MigrationOutcome::Failed {
+                error: e.to_string(),
+            },
         }
-        Err(e) => MigrationOutcome::Failed {
-            error: e.to_string(),
-        },
+    };
+
+    let reliquary = if !needs_haruspex_reliquary_pass {
+        skip_reason()
+    } else {
+        match crate::blobz::migrate_to_reliquary().await {
+            Ok(report) => {
+                let summary = summarize_reliquary_report(&report);
+                let changed = report.inserted > 0 || !report.is_clean();
+                ran_outcome(&report, summary, changed)
+            }
+            Err(e) => MigrationOutcome::Failed {
+                error: e.to_string(),
+            },
+        }
+    };
+
+    let radio_encode_args = if !crate::updates::is_newer(
+        &config.old_version,
+        LAST_VERSION_WITH_STALE_RADIO_DEFAULTS_RISK,
+    ) {
+        match crate::radio::stations::clear_stale_default_encode_args().await {
+            Ok(report) => {
+                let summary = summarize_radio_encode_args_report(&report);
+                let changed = !report.cleared_station_ids.is_empty();
+                ran_outcome(&report, summary, changed)
+            }
+            Err(e) => MigrationOutcome::Failed {
+                error: e.to_string(),
+            },
+        }
+    } else {
+        MigrationOutcome::Skipped {
+            reason: format!(
+                "old config version {} is newer than {} - stale radio defaults can't be present",
+                config.old_version, LAST_VERSION_WITH_STALE_RADIO_DEFAULTS_RISK
+            ),
+        }
     };
 
     Ok(UpgradeAndMigrateOutcome {
         config,
         haruspex,
         reliquary,
+        radio_encode_args,
     })
 }
 
 /// short multi-line human summary of an upgrade-and-migrate outcome, ready
-/// to log or display verbatim.
+/// to log or display verbatim. only lines for a failed migration or one
+/// that actually changed/flagged something are included - a clean no-op
+/// rerun (the common case; see `MigrationOutcome::is_noteworthy`) is left
+/// out entirely rather than padding the summary with "nothing happened".
 pub fn describe_outcome(outcome: &UpgradeAndMigrateOutcome) -> String {
-    format!(
-        "config upgraded: {} -> {} (backup: {})\nharuspex migration: {}\nreliquary migration: {}",
+    let mut lines = vec![format!(
+        "config upgraded: {} -> {} (backup: {})",
         outcome.config.old_version,
         outcome.config.new_version,
-        outcome.config.backup_path.display(),
-        outcome.haruspex.describe(),
-        outcome.reliquary.describe()
-    )
+        outcome.config.backup_path.display()
+    )];
+    for (name, migration) in [
+        ("haruspex", &outcome.haruspex),
+        ("reliquary", &outcome.reliquary),
+        ("radio encode_args", &outcome.radio_encode_args),
+    ] {
+        if migration.is_noteworthy() {
+            lines.push(format!("{} migration: {}", name, migration.describe()));
+        }
+    }
+    lines.join("\n")
 }
 
 #[cfg(test)]
@@ -196,11 +320,13 @@ mod tests {
         let ran = MigrationOutcome::Ran {
             summary: "ok".to_string(),
             report: serde_json::json!({ "inserted": 1 }),
+            changed: true,
         };
         let v = serde_json::to_value(&ran).expect("serialize ran");
         assert_eq!(v["status"], "ran");
         assert_eq!(v["summary"], "ok");
         assert_eq!(v["report"]["inserted"], 1);
+        assert_eq!(v["changed"], true);
 
         let failed = MigrationOutcome::Failed {
             error: "boom".to_string(),
@@ -218,7 +344,7 @@ mod tests {
     }
 
     #[test]
-    fn test_describe_outcome_covers_all_lines() {
+    fn test_describe_outcome_omits_skips_and_no_op_runs() {
         let outcome = UpgradeAndMigrateOutcome {
             config: ConfigUpgradeResult {
                 backup_path: PathBuf::from("/tmp/freqhole-config.toml.bak.x"),
@@ -231,12 +357,51 @@ mod tests {
             reliquary: MigrationOutcome::Failed {
                 error: "gate error".to_string(),
             },
+            radio_encode_args: MigrationOutcome::Ran {
+                summary: "examined 3 station(s), cleared 0".to_string(),
+                report: serde_json::json!({}),
+                changed: false,
+            },
         };
         let text = describe_outcome(&outcome);
         assert!(text.contains("0.1.0 -> 0.2.0"));
         assert!(text.contains("/tmp/freqhole-config.toml.bak.x"));
-        assert!(text.contains("haruspex migration: skipped: reload failed"));
+        // a skip is never noteworthy - omitted entirely.
+        assert!(!text.contains("haruspex"));
+        // a failure is always noteworthy, regardless of the gate above.
         assert!(text.contains("reliquary migration: failed: gate error"));
+        // a clean no-op run is not noteworthy - omitted entirely.
+        assert!(!text.contains("radio encode_args"));
+    }
+
+    #[test]
+    fn test_describe_outcome_includes_a_changed_run() {
+        let outcome = UpgradeAndMigrateOutcome {
+            config: ConfigUpgradeResult {
+                backup_path: PathBuf::from("/tmp/freqhole-config.toml.bak.x"),
+                old_version: "0.3.6".to_string(),
+                new_version: "0.3.7".to_string(),
+            },
+            haruspex: MigrationOutcome::Ran {
+                summary: "nothing new".to_string(),
+                report: serde_json::json!({}),
+                changed: false,
+            },
+            reliquary: MigrationOutcome::Ran {
+                summary: "nothing new".to_string(),
+                report: serde_json::json!({}),
+                changed: false,
+            },
+            radio_encode_args: MigrationOutcome::Ran {
+                summary: "cleared 1 stale station override".to_string(),
+                report: serde_json::json!({}),
+                changed: true,
+            },
+        };
+        let text = describe_outcome(&outcome);
+        assert!(!text.contains("haruspex"));
+        assert!(!text.contains("reliquary"));
+        assert!(text.contains("radio encode_args migration: cleared 1 stale station override"));
     }
 
     #[tokio::test]

@@ -7,7 +7,8 @@ export function createAppMethods(call: CallFn) {
   return {
     healthCheck: () => {
       return call(
-        "app", "health_check",
+        "app",
+        "health_check",
         routes.app.health_check.resp,
         routes.app.health_check.req,
         routes.app.health_check.method,
@@ -17,7 +18,8 @@ export function createAppMethods(call: CallFn) {
 
     serverInfo: () => {
       return call(
-        "app", "server_info",
+        "app",
+        "server_info",
         routes.app.server_info.resp,
         routes.app.server_info.req,
         routes.app.server_info.method,
@@ -27,7 +29,8 @@ export function createAppMethods(call: CallFn) {
 
     radioInfo: () => {
       return call(
-        "app", "radio_info",
+        "app",
+        "radio_info",
         routes.app.radio_info.resp,
         routes.app.radio_info.req,
         routes.app.radio_info.method,
@@ -37,7 +40,8 @@ export function createAppMethods(call: CallFn) {
 
     radioStations: () => {
       return call(
-        "app", "radio_stations",
+        "app",
+        "radio_stations",
         routes.app.radio_stations.resp,
         routes.app.radio_stations.req,
         routes.app.radio_stations.method,
@@ -45,10 +49,25 @@ export function createAppMethods(call: CallFn) {
       );
     },
 
+    // authenticated counterpart of radioStations() - includes non-public
+    // stations too, for a caller who actually resolved (real session or
+    // known iroh peer). see offal::music::radio's doc comment.
+    radioStationsFull: () => {
+      return call(
+        "app",
+        "radio_stations_full",
+        routes.app.radio_stations_full.resp,
+        routes.app.radio_stations_full.req,
+        routes.app.radio_stations_full.method,
+        routes.app.radio_stations_full.path,
+      );
+    },
+
     // get blob metadata for a station blob
     radioPublicBlob: (params: { station_id: string; blob_id: string }) => {
       return call(
-        "app", "radio_public_blob",
+        "app",
+        "radio_public_blob",
         routes.app.radio_public_blob.resp,
         routes.app.radio_public_blob.req,
         routes.app.radio_public_blob.method,
@@ -60,7 +79,8 @@ export function createAppMethods(call: CallFn) {
     // stream the binary data for a station blob
     radioPublicBlobData: (params: { station_id: string; blob_id: string }) => {
       return call(
-        "app", "radio_public_blob_data",
+        "app",
+        "radio_public_blob_data",
         routes.app.radio_public_blob_data.resp,
         routes.app.radio_public_blob_data.req,
         routes.app.radio_public_blob_data.method,
@@ -72,7 +92,8 @@ export function createAppMethods(call: CallFn) {
     // get a thumbnail for a station blob at a given size
     radioPublicBlobThumbnail: (params: { station_id: string; blob_id: string; size: string }) => {
       return call(
-        "app", "radio_public_blob_thumbnail",
+        "app",
+        "radio_public_blob_thumbnail",
         routes.app.radio_public_blob_thumbnail.resp,
         routes.app.radio_public_blob_thumbnail.req,
         routes.app.radio_public_blob_thumbnail.method,
@@ -84,7 +105,8 @@ export function createAppMethods(call: CallFn) {
     // get the public timeline manifest for a station
     radioPublicTimeline: (params: { station_id: string }) => {
       return call(
-        "app", "radio_public_timeline",
+        "app",
+        "radio_public_timeline",
         routes.app.radio_public_timeline.resp,
         routes.app.radio_public_timeline.req,
         routes.app.radio_public_timeline.method,

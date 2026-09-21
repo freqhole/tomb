@@ -1,11 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  decodeShareToken,
-  encodeShareToken,
-  extractShareToken,
-  shareFragment,
-} from "./codec.js";
+import { decodeShareToken, encodeShareToken, extractShareToken, shareFragment } from "./codec.js";
 import type { DocSharePayload, EntitySharePayload, NodeSharePayload } from "./codec.js";
 
 const NODE_ID = "ab".repeat(32);
@@ -75,6 +70,24 @@ describe("encodeShareToken / decodeShareToken (current wire)", () => {
     const url = `https://example.com/app/${shareFragment(payload)}`;
     expect(decodeShareToken(url)).toEqual(payload);
     expect(extractShareToken(url)).toBe(token);
+  });
+
+  it("truncates a trailing '&'-joined query only when a real #share/ prefix precedes it", () => {
+    const payload: NodeSharePayload = { kind: "node", nodeId: NODE_ID };
+    const token = encodeShareToken(payload);
+    expect(extractShareToken(`#share/${token}&foo=bar`)).toBe(token);
+    expect(extractShareToken(`share/${token}&foo=bar`)).toBe(token);
+  });
+
+  it("does NOT truncate at '&' when no #share/ or share/ prefix is present", () => {
+    // a host app's own unrelated route can contain "&" without ever being
+    // a share link at all (e.g. spume's `/radio?node_id=...&station_id=
+    // ...`) - truncating here anyway used to make the output differ from
+    // the input, which callers (see spume's extractShareTokenFromHash)
+    // relied on as "a token was found", wrongly treating the truncated
+    // leftovers as a real share token.
+    const input = "/radio?node_id=deadbeef&station_id=abc123";
+    expect(extractShareToken(input)).toBe(input);
   });
 });
 

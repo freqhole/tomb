@@ -197,8 +197,12 @@ async fn connect_with_retry(socket_path: &std::path::Path) -> Result<UnixStream,
 /// forwards mpv's own stdout/stderr into our logs, since we no
 /// longer silence it with `--really-quiet` — this is what actually
 /// reveals *why* mpv failed to start (drm busy, missing driver,
-/// etc.) instead of just "socket never appeared".
-async fn log_mpv_output(stream: impl tokio::io::AsyncRead + Unpin, stream_name: &'static str) {
+/// etc.) instead of just "socket never appeared". shared with
+/// `tty::radio`'s dedicated radio mpv process.
+pub(super) async fn log_mpv_output(
+    stream: impl tokio::io::AsyncRead + Unpin,
+    stream_name: &'static str,
+) {
     let mut lines = BufReader::new(stream).lines();
     loop {
         match lines.next_line().await {
@@ -463,7 +467,7 @@ impl VideoPlayer for MpvPlayer {
     }
 }
 
-fn default_video_output() -> &'static str {
+pub(super) fn default_video_output() -> &'static str {
     if cfg!(target_os = "linux") {
         "drm"
     } else {

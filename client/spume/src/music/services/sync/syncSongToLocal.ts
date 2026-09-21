@@ -13,7 +13,7 @@ import { isCharnelMode } from "../../../app/services/charnel";
 import { extractNodeIdStrict } from "../../../app/services/remotes/peerAddr";
 import { isP2PRemote } from "../../../app/services/storage/schemas/remote";
 import { debug, warn, error as errorLog } from "../../../utils/logger";
-import { writeAudioToOPFS } from "../opfs/helpers";
+import { writeAudioToOPFS, openAudioOPFSChunkSink } from "../opfs/helpers";
 import { getOrCreateAlbum, getOrCreateArtist, initMusicDB } from "../storage/db";
 import { updateAlbum } from "../storage/db/albums";
 import { updateArtist } from "../storage/db/artists";
@@ -621,43 +621,70 @@ export async function syncSongToLocal(
       // `cache: "skip"` because these bytes are about to be written to OPFS —
       // without it the transport also stores them in the api cache and the
       // song ends up in two places.
-      let blobUrl: string;
-      if (onProgress && transport.getBlobUrlWithProgress) {
-        blobUrl = await transport.getBlobUrlWithProgress(
-          media_blob_id,
-          onProgress,
-          song.blake3 ?? undefined,
-          // blobMetadata.size (a real byte count, just fetched above) -
-          // this used to be passed as `undefined`, so a transport with
-          // no other way to learn the total (e.g. iroh-blobs streaming,
-          // which doesn't report a content-length up front) could never
-          // compute a `received/total` fraction at all - onProgress kept
-          // firing but `total` stayed 0 forever, so the caller's
-          // `if (total > 0)` guard silently never ran and the queue row
-          // never got a single numeric progress update for the whole
-          // download.
-          blobMetadata.size ?? undefined,
-          mimeType,
-          { cache: "skip" }
-        );
+      //
+      // prefer streaming straight to the OPFS destination (P2P/wasm only,
+      // requires a blake3) over the older getBlobUrlWithProgress -> fetch
+      // -> .blob() -> writeAudioToOPFS path, which fully materializes the
+      // whole file in memory twice (once as the assembled blob-url blob,
+      // again as the response.blob() re-read) before it ever reaches disk
+      // - see docs/blob-transfer-opfs-and-sha256-refactor-plan.md phase 2.
+      let opfsPath: string;
+      let fileSize: number;
+      if (transport.streamBlobToSink && song.blake3) {
+        const sink = await openAudioOPFSChunkSink(sha256, extension);
+        let result: { opfsPath: string; size: number };
+        try {
+          await transport.streamBlobToSink(
+            media_blob_id,
+            (chunk) => sink.writeChunk(chunk),
+            onProgress ?? (() => {}),
+            song.blake3,
+            blobMetadata.size ?? undefined,
+            mimeType
+          );
+        } finally {
+          result = await sink.finish();
+        }
+        opfsPath = result.opfsPath;
+        fileSize = result.size;
       } else {
-        blobUrl = await transport.getBlobUrl(media_blob_id, song.blake3 ?? undefined, {
-          cache: "skip",
-        });
+        let blobUrl: string;
+        if (onProgress && transport.getBlobUrlWithProgress) {
+          blobUrl = await transport.getBlobUrlWithProgress(
+            media_blob_id,
+            onProgress,
+            song.blake3 ?? undefined,
+            // blobMetadata.size (a real byte count, just fetched above) -
+            // this used to be passed as `undefined`, so a transport with
+            // no other way to learn the total (e.g. iroh-blobs streaming,
+            // which doesn't report a content-length up front) could never
+            // compute a `received/total` fraction at all - onProgress kept
+            // firing but `total` stayed 0 forever, so the caller's
+            // `if (total > 0)` guard silently never ran and the queue row
+            // never got a single numeric progress update for the whole
+            // download.
+            blobMetadata.size ?? undefined,
+            mimeType,
+            { cache: "skip" }
+          );
+        } else {
+          blobUrl = await transport.getBlobUrl(media_blob_id, song.blake3 ?? undefined, {
+            cache: "skip",
+          });
+        }
+
+        // fetch the blob data
+        const response = await fetch(blobUrl);
+        if (!response.ok) {
+          return { success: false, error: `failed to fetch audio blob: ${response.statusText}` };
+        }
+
+        const blob = await response.blob();
+
+        // save to OPFS using sha256 as filename
+        opfsPath = await writeAudioToOPFS(blob, sha256, extension);
+        fileSize = blob.size;
       }
-
-      // fetch the blob data
-      const response = await fetch(blobUrl);
-      if (!response.ok) {
-        return { success: false, error: `failed to fetch audio blob: ${response.statusText}` };
-      }
-
-      const blob = await response.blob();
-
-      // browser mode: save to OPFS and IndexedDB
-
-      // save to OPFS using sha256 as filename
-      const opfsPath = await writeAudioToOPFS(blob, sha256, extension);
 
       // create or get artist record
       const artistRecord = await getOrCreateArtist(song.artist_name || "unknown artist");
@@ -758,7 +785,7 @@ export async function syncSongToLocal(
         source_type: "synced" as Song["source_type"],
         opfs_path: opfsPath,
         file_name: `${song.title || "untitled"}.${extension}`,
-        file_size: blob.size,
+        file_size: fileSize,
         last_modified: Date.now(),
         mime_type: mimeType,
         source_url: null, // not downloaded via HTTP URL

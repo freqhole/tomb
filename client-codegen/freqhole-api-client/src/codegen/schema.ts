@@ -1508,7 +1508,8 @@ export const CreateStationRequestSchema = z.object({
   encode_args: z.string().nullish(),
   codec: z.string().nullish(),
   play_mode: z.string().nullish(),
-  timeline_only_mode: z.boolean().nullish()
+  timeline_only_mode: z.boolean().nullish(),
+  content_mode: z.string().nullish()
 });
 export type CreateStationRequest = z.infer<typeof CreateStationRequestSchema>;
 
@@ -5190,6 +5191,7 @@ export const PublicAssetRefSchema = z.object({
 export type PublicAssetRef = z.infer<typeof PublicAssetRefSchema>;
 
 export const PublicNowPlayingSchema = z.object({
+  kind: z.string(),
   song_id: z.string(),
   title: z.string(),
   artist: z.string().nullish(),
@@ -5210,7 +5212,9 @@ export const PublicStationSchema = z.object({
   listener_count: z.number(),
   is_default: z.boolean(),
   is_public: z.boolean(),
+  is_running: z.boolean(),
   now_playing: z.object({
+  kind: z.string(),
   song_id: z.string(),
   title: z.string(),
   artist: z.string().nullish(),
@@ -5391,7 +5395,8 @@ export type QueryVideosRequest = z.infer<typeof QueryVideosRequestSchema>;
 export const RadioBumperSchema = z.object({
   id: z.string(),
   station_id: z.string(),
-  song_id: z.string(),
+  song_id: z.string().nullish(),
+  video_id: z.string().nullish(),
   label: z.string(),
   weight: z.number(),
   created_at: z.number()
@@ -5400,7 +5405,8 @@ export type RadioBumper = z.infer<typeof RadioBumperSchema>;
 
 export const RadioBumpersAddRequestSchema = z.object({
   station_id: z.string(),
-  song_id: z.string(),
+  song_id: z.string().nullish(),
+  video_id: z.string().nullish(),
   label: z.string(),
   weight: z.number().nullish()
 });
@@ -5424,8 +5430,12 @@ export type RadioBumpersSetFrequencyRequest = z.infer<typeof RadioBumpersSetFreq
 
 export const RadioConfigPayloadSchema = z.object({
   enabled: z.boolean(),
-  encode_args: z.string(),
-  ffmpeg_available: z.boolean()
+  encode_args: z.string().nullish(),
+  video_encode_args: z.string().nullish(),
+  video_codec: z.string().nullish(),
+  ffmpeg_available: z.boolean(),
+  max_concurrent_audio_streams: z.number(),
+  max_concurrent_video_streams: z.number()
 });
 export type RadioConfigPayload = z.infer<typeof RadioConfigPayloadSchema>;
 
@@ -5451,7 +5461,9 @@ export const RadioInfoResponseSchema = z.object({
   listener_count: z.number(),
   is_default: z.boolean(),
   is_public: z.boolean(),
+  is_running: z.boolean(),
   now_playing: z.object({
+  kind: z.string(),
   song_id: z.string(),
   title: z.string(),
   artist: z.string().nullish(),
@@ -5493,6 +5505,8 @@ export const RadioStationSchema = z.object({
   codec: z.string(),
   play_mode: z.string(),
   timeline_only_mode: z.number(),
+  content_mode: z.string(),
+  bumper_frequency_seconds: z.number().nullish(),
   created_at: z.number(),
   updated_at: z.number()
 });
@@ -5530,7 +5544,9 @@ export const RadioStationsResponseSchema = z.object({
   listener_count: z.number(),
   is_default: z.boolean(),
   is_public: z.boolean(),
+  is_running: z.boolean(),
   now_playing: z.object({
+  kind: z.string(),
   song_id: z.string(),
   title: z.string(),
   artist: z.string().nullish(),
@@ -7631,7 +7647,8 @@ export const UpdateStationRequestSchema = z.object({
   encode_args: z.string().nullish(),
   codec: z.string().nullish(),
   play_mode: z.string().nullish(),
-  timeline_only_mode: z.boolean().nullish()
+  timeline_only_mode: z.boolean().nullish(),
+  content_mode: z.string().nullish()
 });
 export type UpdateStationRequest = z.infer<typeof UpdateStationRequestSchema>;
 

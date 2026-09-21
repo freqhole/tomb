@@ -336,6 +336,12 @@ pub struct RadioPlaybackState {
     pub track_title: Option<String>,
     pub track_artist: Option<String>,
     pub last_error: Option<String>,
+    /// human-readable sub-status while tuning in ("connecting to
+    /// peer…", "waiting for stream data…") - mirrors spume's own
+    /// `radioConnectPhase` signal. cleared once the first chunk starts
+    /// flowing into mpv, at which point `track_title`/`track_artist`
+    /// (from `Hello`) are the more useful thing to show.
+    pub connect_phase: Option<String>,
 }
 
 /// minimal portable view of an in-flight job session for the

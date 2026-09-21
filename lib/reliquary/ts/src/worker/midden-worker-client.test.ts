@@ -25,6 +25,8 @@ function makeFakeApi(overrides: Partial<MiddenWorkerApi> = {}): MiddenWorkerApi 
     streamWriteMessage: vi.fn(async () => undefined),
     streamReadToEnd: vi.fn(async () => new Uint8Array()),
     streamWriteRawAndFinish: vi.fn(async () => undefined),
+    streamWriteLine: vi.fn(async () => undefined),
+    streamReadLine: vi.fn(async () => null),
     streamClose: vi.fn(async () => undefined),
     importBlob: vi.fn(),
     importBlobAndExportBao: vi.fn(),
@@ -51,6 +53,9 @@ function makeFakeApi(overrides: Partial<MiddenWorkerApi> = {}): MiddenWorkerApi 
     unprotectBlob: vi.fn(),
     computeBlake3: vi.fn(),
     proxyRequest: vi.fn(),
+    proxyAdmin: vi.fn(),
+    tuneRadio: vi.fn(),
+    radioLeave: vi.fn(),
     ...overrides,
   };
 }
@@ -122,9 +127,8 @@ describe("WorkerBiStream", () => {
 
     await stream.write_raw_and_finish(original);
 
-    const [calledStreamId, sentBytes] = (
-      api.streamWriteRawAndFinish as ReturnType<typeof vi.fn>
-    ).mock.calls[0] as [number, Uint8Array];
+    const [calledStreamId, sentBytes] = (api.streamWriteRawAndFinish as ReturnType<typeof vi.fn>)
+      .mock.calls[0] as [number, Uint8Array];
     expect(calledStreamId).toBe(7);
     expect(sentBytes.buffer).not.toBe(original.buffer);
     expect(Array.from(sentBytes)).toEqual([1, 1, 1]);

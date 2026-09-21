@@ -118,7 +118,8 @@ build-linux:
 	$(MAKE) db-prepare
 	docker build -f Dockerfile.build -t freqhole-linux-builder . \
 		--platform linux/amd64 \
-		--build-arg TARGET_ARCH=$(LINUX_TARGET)
+		--build-arg TARGET_ARCH=$(LINUX_TARGET) \
+		--build-arg FREQHOLE_GIT_SHA=$(GIT_SHA)
 	@mkdir -p $(BUILD_DIR)/$(VERSION)
 	docker run --rm -v $(PWD)/$(BUILD_DIR)/$(VERSION):/output freqhole-linux-builder \
 		sh -c "cp /app/target/$(LINUX_TARGET)/release/rathole /output/rathole_$(VERSION)_linux-x86_64"
@@ -130,7 +131,8 @@ build-linux:
 build-pi:
 	@echo "building rathole CLI (cli crate) for Raspberry Pi (aarch64) using Docker..."
 	$(MAKE) db-prepare
-	docker build -f Dockerfile.build -t freqhole-pi-builder .
+	docker build -f Dockerfile.build -t freqhole-pi-builder . \
+		--build-arg FREQHOLE_GIT_SHA=$(GIT_SHA)
 	@mkdir -p $(BUILD_DIR)/$(VERSION)
 	docker run --rm -v $(PWD)/$(BUILD_DIR)/$(VERSION):/output freqhole-pi-builder \
 		sh -c "cp /app/target/$(PI_TARGET)/release/rathole /output/rathole_$(VERSION)_linux-aarch64"
@@ -145,7 +147,8 @@ build-pi32:
 	docker build -f Dockerfile.build -t freqhole-pi32-builder . \
 		--build-arg BASE_IMAGE=debian:bullseye \
 		--build-arg TARGET_ARCH=$(PI32_TARGET) \
-		--build-arg CARGO_EXTRA_FLAGS="--no-default-features"
+		--build-arg CARGO_EXTRA_FLAGS="--no-default-features" \
+		--build-arg FREQHOLE_GIT_SHA=$(GIT_SHA)
 	@mkdir -p $(BUILD_DIR)/$(VERSION)
 	docker run --rm -v $(PWD)/$(BUILD_DIR)/$(VERSION):/output freqhole-pi32-builder \
 		sh -c "cp /app/target/$(PI32_TARGET)/release/rathole /output/rathole_$(VERSION)_linux-armv7"

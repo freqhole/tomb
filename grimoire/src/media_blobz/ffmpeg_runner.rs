@@ -15,13 +15,16 @@
 use crate::error::GrimoireError;
 use std::process::Stdio;
 use std::time::Duration;
+use tokio::io::AsyncReadExt;
 
-/// shared per-operation timeout. not yet configurable per-call (transcode
-/// vs poster/waveform/subtitle extraction all share this one value) - a
-/// legitimate large/4k transcode can be slow, so this is generous, but a
-/// future pass could plumb a per-operation override through if that turns
-/// out to matter in practice.
-const FFMPEG_TIMEOUT: Duration = Duration::from_secs(30 * 60);
+/// idle timeout: reset every time ffmpeg writes anything new to stderr
+/// (which it does periodically - by default every ~0.5-1s - via its own
+/// progress stats line), not an overall cap on total run time. a
+/// legitimate large/4k transcode can genuinely take well over 30 minutes
+/// as long as it's still actively working; this only fires once ffmpeg
+/// has gone fully silent (hung/stuck) for this long. hardcoded - not
+/// worth a config knob for this.
+const FFMPEG_IDLE_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 
 /// turn a raw ffmpeg/ffprobe stderr blob into a short, human-readable
 /// summary suitable for surfacing in the client's job-progress UI. the raw
@@ -107,27 +110,57 @@ pub async fn run_ffmpeg(
         }
     }
 
-    let mut cmd = tokio::process::Command::new(ffmpeg_path);
-    cmd.arg("-hide_banner")
+    let mut child = tokio::process::Command::new(ffmpeg_path)
+        .arg("-hide_banner")
         .args(&args)
         .stdout(Stdio::null())
-        .stderr(Stdio::piped());
-
-    let output = tokio::time::timeout(FFMPEG_TIMEOUT, cmd.output())
-        .await
-        .map_err(|_| GrimoireError::ProcessingFailed {
-            message: format!(
-                "{} timed out after {} minutes",
-                operation,
-                FFMPEG_TIMEOUT.as_secs() / 60
-            ),
-        })?
+        .stderr(Stdio::piped())
+        .spawn()
         .map_err(|e| GrimoireError::ProcessingFailed {
-            message: format!("failed to run ffmpeg for {}: {}", operation, e),
+            message: format!("failed to spawn ffmpeg for {}: {}", operation, e),
         })?;
 
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
+    // read stderr incrementally instead of the one-shot `cmd.output()` -
+    // ffmpeg writes a progress stats line to stderr roughly every
+    // ~0.5-1s while actively encoding, so each successful read below is
+    // proof of forward progress and resets the idle timer. only a real
+    // stall (ffmpeg hung, or genuinely stuck) lets the timeout fire.
+    let mut stderr_pipe = child.stderr.take().expect("stderr was piped");
+    let mut stderr_buf = Vec::new();
+    let mut chunk = [0u8; 4096];
+    loop {
+        match tokio::time::timeout(FFMPEG_IDLE_TIMEOUT, stderr_pipe.read(&mut chunk)).await {
+            Ok(Ok(0)) => break, // EOF - ffmpeg closed stderr, process is exiting
+            Ok(Ok(n)) => stderr_buf.extend_from_slice(&chunk[..n]),
+            Ok(Err(e)) => {
+                let _ = child.kill().await;
+                return Err(GrimoireError::ProcessingFailed {
+                    message: format!("failed to read ffmpeg output for {}: {}", operation, e),
+                });
+            }
+            Err(_) => {
+                let _ = child.kill().await;
+                let _ = child.wait().await;
+                return Err(GrimoireError::ProcessingFailed {
+                    message: format!(
+                        "{} timed out: no ffmpeg output for {} minutes",
+                        operation,
+                        FFMPEG_IDLE_TIMEOUT.as_secs() / 60
+                    ),
+                });
+            }
+        }
+    }
+
+    let status = child
+        .wait()
+        .await
+        .map_err(|e| GrimoireError::ProcessingFailed {
+            message: format!("failed to wait on ffmpeg for {}: {}", operation, e),
+        })?;
+
+    if !status.success() {
+        let stderr = String::from_utf8_lossy(&stderr_buf);
         return Err(GrimoireError::ProcessingFailed {
             message: format!("{} failed: {}", operation, humanize_ffmpeg_error(&stderr)),
         });

@@ -12,8 +12,15 @@ import {
   fetchRemoteStatus,
   remoteSeek,
   remoteTrackPending,
+  remoteTuneRadio,
   resetRemoteStatus,
 } from "./remotePlaybackControl";
+import {
+  leaveRadio,
+  radioCurrentPeerAddr,
+  radioCurrentStationId,
+  radioStatus,
+} from "../radio/radioService";
 import { toast } from "../../../components/feedback/Toast";
 
 /** songs and/or videos from the current queue, starting at whatever's
@@ -31,10 +38,41 @@ export async function selectLocalPlaybackTarget(): Promise<void> {
   setActiveTargetToLocal();
 }
 
+/** hands off the CURRENTLY-TUNED radio station to `player` instead of the
+ * regular queue - radio is a wholly separate playback session (see
+ * radioService.ts), so "what's playing right now" means the tune-in, not
+ * whatever's sitting (paused) in the queue underneath it. mirrors
+ * `selectPlayerPlaybackTarget`'s queue path: stop listening locally right
+ * away (same "don't play in two places at once" reasoning as its `pause()`
+ * call), fall back to local on failure so the picker never gets stuck
+ * pointed at an unreachable target. */
+async function selectPlayerPlaybackTargetForRadio(
+  player: { node_id: string; username: string },
+  peerAddr: string,
+  stationId: string | null
+): Promise<void> {
+  setActiveTargetToPlayer(player);
+  resetRemoteStatus();
+  leaveRadio();
+  try {
+    await remoteTrackPending(remoteTuneRadio(peerAddr, stationId ?? undefined));
+  } catch (e) {
+    toast.error(e instanceof Error ? e.message : "failed to send radio station to player", {
+      title: "remote-player-connection-error",
+    });
+    setActiveTargetToLocal();
+  }
+}
+
 export async function selectPlayerPlaybackTarget(player: {
   node_id: string;
   username: string;
 }): Promise<void> {
+  const radioPeerAddr = radioCurrentPeerAddr();
+  if (radioPeerAddr && radioStatus() !== "idle") {
+    return selectPlayerPlaybackTargetForRadio(player, radioPeerAddr, radioCurrentStationId());
+  }
+
   const items = mediaToHandOff();
   // capture this device's own playback position *before* switching targets,
   // so a song already playing here can hand off mid-track instead of
@@ -101,11 +139,11 @@ export async function selectPlayerPlaybackTarget(player: {
       if (status && status.state !== "stopped") {
         // this device may have been away for a while (played locally, then
         // picked this player again) - don't blindly re-append songs the
-        // player already dealt with this session (played/skipped/removed,
-        // see playbackEngine.ts's recentlyPlayed) or already has queued from
-        // another client in the meantime. videos have no pre-upload hash to
-        // check against, so they're always re-sent here - no cheap way to
-        // tell if this exact video is already remotely queued.
+        // player already dealt with this session (played/skipped/removed)
+        // or already has queued from another client in the meantime.
+        // videos have no pre-upload hash to check against, so they're
+        // always re-sent here - no cheap way to tell if this exact video
+        // is already remotely queued.
         const alreadyKnown = new Set([
           ...status.queue.map((ref) => ref.blake3_hash),
           ...status.recently_played,

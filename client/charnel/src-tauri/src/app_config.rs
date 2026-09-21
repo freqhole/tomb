@@ -151,6 +151,17 @@ pub struct FreqholeAppConfig {
     /// extension is never used while re-encoding anyway.
     #[serde(default = "default_external_storage_reencode_extension")]
     pub external_storage_reencode_extension: String,
+
+    /// which view/route spume lands on at cold app boot, instead of the
+    /// library graph view ("explore", the default). one of: "explore",
+    /// "feed" (aggregate all-feeds view), "local_feed", "albums", "songs",
+    /// "artists", "playlists", "favorites", "videos", "series" (all of
+    /// which browse the local charnel-managed library), or "player" (the
+    /// cenotaph remote-playback-target screen - useful for a device meant
+    /// to sit as a dedicated player). unrecognized values fall back to
+    /// "explore" on the spume side.
+    #[serde(default = "default_initial_view")]
+    pub initial_view: String,
 }
 
 // `#[derive(Default)]` would use each field's own zero value (e.g. `false`,
@@ -179,6 +190,7 @@ impl Default for FreqholeAppConfig {
             external_storage_reencode_args: default_external_storage_reencode_args(),
             external_storage_reencode_extension: default_external_storage_reencode_extension(),
             chromeless_title_bar: default_chromeless_title_bar(),
+            initial_view: default_initial_view(),
         }
     }
 }
@@ -251,6 +263,11 @@ pub fn default_chromeless_title_bar() -> bool {
 /// dogfooded enough to flip everywhere.
 pub fn default_use_rodio_playback() -> bool {
     cfg!(target_os = "linux")
+}
+
+/// default value for initial_view ("explore")
+pub fn default_initial_view() -> String {
+    "explore".to_string()
 }
 
 /// admin user configuration

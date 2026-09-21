@@ -19,6 +19,7 @@ import {
   MIDDEN_WORKER_READY_MESSAGE,
   MIDDEN_WORKER_READY_TIMEOUT_MS,
   type MiddenWorkerApi,
+  type MiddenWorkerInitOptions,
   type StreamInfo,
   type WorkerActiveTransfer,
 } from "./midden-worker-contract.js";
@@ -43,7 +44,7 @@ function toTransferable(bytes: Uint8Array): Uint8Array {
 export class WorkerBiStream {
   constructor(
     private readonly api: Api,
-    private readonly info: StreamInfo
+    private readonly info: StreamInfo,
   ) {}
 
   peer_node_id(): string {
@@ -68,6 +69,17 @@ export class WorkerBiStream {
 
   async write_raw_and_finish(data: Uint8Array): Promise<void> {
     await this.api.streamWriteRawAndFinish(this.info.streamId, toTransferable(data));
+  }
+
+  /** newline-delimited framing (ndjson) - a separate mode from
+   *  write_message/read_message's length-prefixed framing, over the same
+   *  underlying stream. used by the freqhole-events/1 protocol. */
+  async write_line(line: string): Promise<void> {
+    await this.api.streamWriteLine(this.info.streamId, line);
+  }
+
+  async read_line(): Promise<string | null> {
+    return this.api.streamReadLine(this.info.streamId);
   }
 
   /** fire-and-forget, matching a wasm BiStream's sync close(). */
@@ -103,6 +115,25 @@ export class WorkerImportSession {
   }
 }
 
+/** main-thread face of a worker-held RadioHandle. implements RadioHandleLike
+ *  (a plain `.leave()`) - only meaningful against a worker entry that
+ *  implements `tuneRadio`/`radioLeave` (e.g. spume's; skein's doesn't). */
+export class WorkerRadioHandle {
+  constructor(
+    private readonly api: Api,
+    private readonly handleId: number,
+  ) {}
+
+  /** fire-and-forget, matching a wasm RadioHandle's sync leave(). a worker
+   *  entry that doesn't implement radioLeave (skein's doesn't) rejects
+   *  naturally - there's nothing meaningful to do with that error here. */
+  leave(): void {
+    this.api.radioLeave(this.handleId).catch(() => {
+      // worker gone (or doesn't implement this) - nothing to leave
+    });
+  }
+}
+
 /**
  * constructs (or otherwise obtains) the Worker instance hosting the midden
  * worker entry. this package doesn't own that entry file (see
@@ -133,14 +164,17 @@ export class WorkerMiddenNode {
     private readonly api: Api,
     private readonly worker: Worker,
     private readonly nodeId: string,
-    private readonly secretKey: Uint8Array
+    private readonly secretKey: Uint8Array,
   ) {}
 
   /** spawn the worker (via `createWorker`), wait for the ready handshake,
-   *  create the node. */
+   *  create the node. `initOptions` is forwarded to the entry's `init` -
+   *  see `MiddenWorkerInitOptions` for what an entry may choose to do with
+   *  it (skein's own entry ignores it entirely; it's opt-in per entry). */
   static async create(
     secretKey: Uint8Array | null,
-    createWorker: CreateMiddenWorker
+    createWorker: CreateMiddenWorker,
+    initOptions?: MiddenWorkerInitOptions,
   ): Promise<WorkerMiddenNode> {
     const worker = createWorker();
 
@@ -181,7 +215,7 @@ export class WorkerMiddenNode {
 
     const api = Comlink.wrap<MiddenWorkerApi>(worker);
     try {
-      const identity = await api.init(secretKey);
+      const identity = await api.init(secretKey, initOptions);
       log.debug(TAG, "worker node ready:", identity.nodeId.slice(0, 16) + "...");
       return new WorkerMiddenNode(api, worker, identity.nodeId, identity.secretKey);
     } catch (err) {
@@ -277,14 +311,14 @@ export class WorkerMiddenNode {
     blake3Hash: string,
     totalSize: number,
     onProgress: (fraction: number) => void,
-    downloadId?: string
+    downloadId?: string,
   ): Promise<Uint8Array> {
     return this.api.downloadVerifiedWithEnsureProgress(
       peerAddr,
       blake3Hash,
       totalSize,
       Comlink.proxy(onProgress),
-      downloadId
+      downloadId,
     );
   }
 
@@ -296,13 +330,13 @@ export class WorkerMiddenNode {
     peerAddr: string,
     blobId: string,
     totalSize: number,
-    onProgress: (fraction: number) => void
+    onProgress: (fraction: number) => void,
   ): Promise<[Uint8Array, string]> {
     return this.api.downloadVerifiedByIdProgress(
       peerAddr,
       blobId,
       totalSize,
-      Comlink.proxy(onProgress)
+      Comlink.proxy(onProgress),
     );
   }
 
@@ -312,7 +346,7 @@ export class WorkerMiddenNode {
     totalSize: number,
     onChunk: (chunk: Uint8Array, offset: number) => void,
     onProgress: (fraction: number) => void,
-    downloadId?: string
+    downloadId?: string,
   ): Promise<number> {
     return this.api.downloadVerifiedStreamingWithEnsure(
       peerAddr,
@@ -320,7 +354,7 @@ export class WorkerMiddenNode {
       totalSize,
       Comlink.proxy(onChunk),
       Comlink.proxy(onProgress),
-      downloadId
+      downloadId,
     );
   }
 
@@ -358,8 +392,49 @@ export class WorkerMiddenNode {
     peerAddr: string,
     method: string,
     path: string,
-    body?: string | null
+    body?: string | null,
   ): Promise<{ status: number; body: string }> {
     return this.api.proxyRequest(peerAddr, method, path, body ?? null);
+  }
+
+  /** alias for proxy_request, matching the real wasm MiddenNode's method
+   *  name (`api_request`) - callers typed against MiddenNodeLike (which
+   *  mirrors the wasm class) work unchanged against a worker-hosted node. */
+  async api_request(
+    peerAddr: string,
+    method: string,
+    path: string,
+    body?: string | null,
+  ): Promise<{ status: number; body: string }> {
+    return this.proxy_request(peerAddr, method, path, body);
+  }
+
+  // ---- admin / radio ----
+  // only meaningful against a worker entry that implements these (spume's
+  // does; skein's doesn't need to).
+
+  /** dispatches to the connected worker entry's proxyAdmin - rejects
+   *  naturally if that entry doesn't implement it (e.g. skein's). */
+  async proxy_admin(peerAddr: string, command: string, args: string): Promise<unknown> {
+    return this.api.proxyAdmin(peerAddr, command, args);
+  }
+
+  /** dispatches to the connected worker entry's tuneRadio - rejects
+   *  naturally if that entry doesn't implement it (e.g. skein's). */
+  async tune_radio(
+    peerAddr: string,
+    stationId: string | undefined,
+    onHello: (json: string) => void,
+    onMeta: (json: string) => void,
+    onChunk: (seq: number, isInit: boolean, bytes: Uint8Array) => void,
+  ): Promise<WorkerRadioHandle> {
+    const handleId = await this.api.tuneRadio(
+      peerAddr,
+      stationId,
+      Comlink.proxy(onHello),
+      Comlink.proxy(onMeta),
+      Comlink.proxy(onChunk),
+    );
+    return new WorkerRadioHandle(this.api, handleId);
   }
 }

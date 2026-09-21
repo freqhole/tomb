@@ -42,10 +42,51 @@ const SKIP_REQUEST_COOLDOWN_MS: i64 = 5_000;
 /// avoids a redundant transition right as a track is already ending.
 const SKIP_TAIL_IGNORE_MS: i64 = 10_000;
 
-/// number of media chunks to emit at full speed at the start of a
-/// post-skip track. shifts pace_origin backward so the listener's buffer
-/// fills immediately rather than draining in at real-time cadence.
-const SKIP_BURST_CHUNKS: u64 = 3;
+/// shifts pace_origin backward at the start of EVERY track (not just
+/// after an admin skip - generalized per
+/// docs/radio-buffering-retune-plan.md's "feed the ring from the
+/// encoder" discussion, the synchronization-safe alternative: since
+/// listeners don't need to be in lockstep with each other, front-loading
+/// each track's own timeline for everyone at once deepens the catchup
+/// ring faster at every track boundary, not just a skip, without any
+/// listener ever seeing content "from the future" relative to another)
+/// so however many chunks warmed up (see `ENCODER_WARMUP_TIMEOUT_MULTIPLE`'s doc
+/// comment) are emitted immediately (target < now) instead of draining
+/// in at real-time cadence. STEADY-STATE pacing for the rest of the
+/// track (once this initial lead is exhausted) is intentionally left
+/// alone - removing it entirely would let the whole remaining track (or
+/// even the whole remaining playlist) render as fast as the CPU allows,
+/// completely decoupled from real time, which breaks `NowPlaying`/
+/// history/analytics timing (they'd describe content nobody has
+/// actually heard yet) - this is scoped to "give each track a real head
+/// start," not "stop being a live station."
+const ENCODER_WARMUP_POLL_INTERVAL: Duration = Duration::from_millis(100);
+
+/// how much slack, as a multiple of the real-time-equivalent duration
+/// of the warm-up target (`ring_capacity` chunks worth), to allow before
+/// giving up on warm-up and publishing whatever's ready anyway. e.g. for
+/// the default 60s ring, a healthy encoder running at or faster than
+/// real time fills it well under 60s; this gives up to 2x that (120s)
+/// before concluding the encoder can't even sustain real time, which is
+/// itself the diagnostic signal (logged as a `warn!`) - a fixed, small
+/// timeout would false-positive on any encoder running only slightly
+/// slower than real time, which is a normal-ish case this warm-up is
+/// explicitly meant to tolerate (favoring smooth playback over fast
+/// start, per explicit user direction - waiting longer is fine, stalls
+/// are not).
+const ENCODER_WARMUP_TIMEOUT_MULTIPLE: u32 = 2;
+/// floor under the multiple above so a tiny `ring_capacity` (e.g. the
+/// `MIN_RING_CHUNKS` clamp) doesn't produce an unreasonably short
+/// timeout.
+const ENCODER_WARMUP_TIMEOUT_FLOOR: Duration = Duration::from_secs(10);
+
+/// ffmpeg lavfi source used as the "video" for a song played on a mixed
+/// station - see `play_track`'s `synthesize_still_video` branch. always
+/// blank rather than the track's own art: looping a real image needs a
+/// temp file written/cleaned up per track for comparatively little
+/// benefit, since the art still reaches listeners separately via the
+/// NowPlaying control message either way.
+const BLANK_VIDEO_INPUT: &str = "-f lavfi -i color=c=0x1a1a1a:s=1280x720:r=2";
 
 /// maximum upcoming items to maintain in the rolling planner.
 pub const MAX_UPCOMING_ITEMS: usize = 8;
@@ -118,6 +159,15 @@ impl State {
 
 pub struct Broadcaster {
     station_id: String,
+    /// station's `content_mode` at spawn time ('audio_only' |
+    /// 'audio_or_video' | 'video_only') - snapshotted here (rather than
+    /// re-fetched from the db) purely so the concurrent-stream-limit
+    /// check (see `check_concurrency_cap`) can count running broadcasters
+    /// by group without a db round trip per station on every registry
+    /// scan. a station's content_mode change only takes effect for THIS
+    /// purpose on its next restart, same as `encode_args`/other settings
+    /// that `restart_station` exists to apply.
+    content_mode: String,
     state: RwLock<State>,
     chunk_tx: broadcast::Sender<Arc<Chunk>>,
     meta_tx: broadcast::Sender<MetaUpdate>,
@@ -148,11 +198,6 @@ pub struct Broadcaster {
     /// when set, the next pick bypasses planner continuity and forces
     /// album mode to start a new random album from track 1.
     force_new_album_pick: AtomicBool,
-    /// set true when the active track is interrupted by an admin skip;
-    /// consumed by the run loop so the post-skip burst pacing applies to
-    /// the track that actually starts next, not whichever track happened
-    /// to be playing when the flag was toggled.
-    post_skip_pending: AtomicBool,
     /// wakes the run loop when the first listener arrives while the
     /// station is idle.
     listener_notify: Notify,
@@ -170,13 +215,14 @@ pub struct Broadcaster {
 }
 
 impl Broadcaster {
-    fn new(station_id: String) -> Self {
+    fn new(station_id: String, content_mode: String) -> Self {
         let (chunk_tx, _) = broadcast::channel(cfg::CHUNK_CHANNEL_CAPACITY);
         let (meta_tx, _) = broadcast::channel(cfg::META_CHANNEL_CAPACITY);
         let ring_capacity = cfg::ring_capacity(&crate::radio::config::effective());
         Self {
             state: RwLock::new(State::empty(ring_capacity, &station_id)),
             station_id,
+            content_mode,
             chunk_tx,
             meta_tx,
             next_seq: AtomicU32::new(0),
@@ -189,7 +235,6 @@ impl Broadcaster {
             skip_request_generation: AtomicU32::new(0),
             last_skip_requested_at_ms: AtomicI64::new(0),
             force_new_album_pick: AtomicBool::new(false),
-            post_skip_pending: AtomicBool::new(false),
             listener_notify: Notify::new(),
             skip_notify: Notify::new(),
             plan: RwLock::new(VecDeque::new()),
@@ -576,7 +621,6 @@ impl Broadcaster {
             }
 
             let force_new_album = self.force_new_album_pick.swap(false, Ordering::Relaxed);
-            let is_post_skip = self.post_skip_pending.swap(false, Ordering::Relaxed);
 
             // consume from planner if available; fall back to a direct pick.
             // after a skip request, drop stale plan continuity and force
@@ -600,14 +644,7 @@ impl Broadcaster {
                         bc.refill_planner(Some(current_song_id)).await;
                     });
 
-                    if let Err(e) = self
-                        .play_track(
-                            &track,
-                            /*is_bumper=*/ false,
-                            /*is_post_skip=*/ is_post_skip,
-                        )
-                        .await
-                    {
+                    if let Err(e) = self.play_track(&track, /*is_bumper=*/ false).await {
                         warn!(
                             "[radio-broadcaster] station {} song failed: {e}; retrying in {RETRY_PAUSE:?}",
                             self.station_id
@@ -692,8 +729,10 @@ impl Broadcaster {
             Some(b) => b,
             None => return Ok(false),
         };
-        // resolve the underlying playable track (reuses the songz pipeline).
-        let track = match crate::radio::playlist::fetch_track(&bumper.song_id).await {
+        // resolve the underlying playable track (reuses the songz/videoz
+        // pipeline via fetch_track - bumper.item() reports which one).
+        let (kind, item_id) = bumper.item();
+        let track = match crate::radio::playlist::fetch_track(kind, item_id).await {
             Ok(t) => t,
             Err(e) => {
                 warn!(
@@ -710,10 +749,7 @@ impl Broadcaster {
             "[radio-broadcaster] station {} playing bumper '{}' ({})",
             self.station_id, bumper.label, bumper.id
         );
-        self.play_track(
-            &track, /*is_bumper=*/ true, /*is_post_skip=*/ false,
-        )
-        .await?;
+        self.play_track(&track, /*is_bumper=*/ true).await?;
         self.last_bumper_at.store(now, Ordering::Relaxed);
         Ok(true)
     }
@@ -752,7 +788,6 @@ impl Broadcaster {
         self: &Arc<Self>,
         track: &crate::radio::playlist::RadioTrack,
         is_bumper: bool,
-        is_post_skip: bool,
     ) -> GrimoireResult<()> {
         info!(
             "[radio-broadcaster] station {} now playing{}: {} ({})",
@@ -762,18 +797,22 @@ impl Broadcaster {
             track.song_id
         );
 
-        let art = match resolve_track_art(&track.song_id).await {
-            Ok(a) => a,
-            Err(e) => {
-                warn!(
-                    "[radio-broadcaster] station {} art lookup failed: {e}",
-                    self.station_id
-                );
-                None
+        let art = match track.kind {
+            crate::radio::playlist::RadioItemKind::Song => resolve_track_art(&track.song_id).await,
+            crate::radio::playlist::RadioItemKind::Video => {
+                crate::radio::art::resolve_video_poster_art(&track.song_id).await
             }
-        };
+        }
+        .unwrap_or_else(|e| {
+            warn!(
+                "[radio-broadcaster] station {} art lookup failed: {e}",
+                self.station_id
+            );
+            None
+        });
 
         let now_playing = Arc::new(NowPlaying {
+            kind: track.kind,
             song_id: track.song_id.clone(),
             title: if is_bumper {
                 format!("[station id] {}", track.title)
@@ -803,7 +842,55 @@ impl Broadcaster {
             }
         }
 
-        let mut encoder = BufferedEncoder::start(&track.local_path)?;
+        let encoder_setup_started = Instant::now();
+        let mut encoder = {
+            // content_mode-aware: a video-capable station with no
+            // per-station encode_args override must NOT fall back to the
+            // plain audio default (`-vn` strips video entirely) - see
+            // `RadioStation::effective_encode_args`.
+            let station_encode_args = stations::get_station(&self.station_id)
+                .await
+                .ok()
+                .flatten()
+                .map(|s| s.effective_encode_args(&radio_cfg).to_string());
+
+            // a mixed ("audio_or_video") station still needs every track
+            // to come out as the SAME h264+aac stream the client's single
+            // SourceBuffer/mpv pipeline expects, even a plain song with no
+            // video of its own - `-map 0:v:0` (what the video_encode_args
+            // template does) against a pure audio file either matches
+            // nothing, or (worse) grabs an embedded cover-art
+            // "attached_pic" stream and feeds a single still frame into
+            // libx264 as if it were real moving video, which fails at mux
+            // time ("Could not find tag for codec h264..."). for this
+            // specific case, build a one-off command with a synthesized
+            // blank frame as the video input instead - simpler and one
+            // less moving part than looping the track's own art image
+            // (no temp file to write/clean up, no art-resolution
+            // dependency for the video path at all); the art image is
+            // still sent to listeners separately via the NowPlaying
+            // control message either way, so nothing is lost display-wise
+            // for a client that renders it there instead of in-stream.
+            let synthesize_still_video = self.content_mode == "audio_or_video"
+                && track.kind == crate::radio::playlist::RadioItemKind::Song;
+            let synthesized_args = if synthesize_still_video {
+                Some(format!(
+                    "-hide_banner -loglevel error -fflags +genpts {BLANK_VIDEO_INPUT} -i {{input}} \
+                     -map 0:v:0 -map 1:a:0 -c:v libx264 -profile:v main -tune stillimage \
+                     -preset veryfast -b:v 600k -pix_fmt yuv420p -r 2 \
+                     -c:a aac -profile:a aac_low -b:a 192k -ar 48000 -ac 2 \
+                     -movflags frag_keyframe+empty_moov+default_base_moof \
+                     -frag_duration 3000000 -avoid_negative_ts make_zero -shortest -f mp4 pipe:1"
+                ))
+            } else {
+                None
+            };
+
+            let effective_args = synthesized_args
+                .as_deref()
+                .or(station_encode_args.as_deref());
+            BufferedEncoder::start(&track.local_path, effective_args)?
+        };
         let skip_generation = self.skip_request_generation.load(Ordering::Relaxed);
 
         let first = encoder
@@ -816,6 +903,71 @@ impl Broadcaster {
             return Err(GrimoireError::ProcessingFailed {
                 message: "radio: first chunk was not an init segment".to_string(),
             });
+        }
+        let time_to_init_chunk = encoder_setup_started.elapsed();
+        let frag_ms = radio_cfg.frag_ms.max(1) as u64;
+
+        // wait for the encoder to fill (up to) the full ring before
+        // publishing this track to listeners at all, not just a small
+        // fixed handful of chunks - per explicit user direction, smooth
+        // playback matters far more than a fast start, and a shallow
+        // warm-up leaves a track with almost no real cushion the moment
+        // it's more than a few seconds old. `queued_chunks()` is a
+        // non-consuming peek at the encode-ahead buffer (chunks ffmpeg
+        // has already produced beyond the init one, via the background
+        // feeder task), so this doesn't touch/consume anything - it just
+        // delays the moment we start touching `state`/`chunk_tx` below.
+        // bounded by a timeout scaled to how long the target SHOULD take
+        // in real time (see `ENCODER_WARMUP_TIMEOUT_MULTIPLE`'s doc
+        // comment) so a genuinely struggling encoder doesn't hang the
+        // track start forever - hitting it is itself a diagnostic
+        // signal, logged as a `warn!` below.
+        let warmup_target_chunks = cfg::ring_capacity(&radio_cfg) as u64;
+        let warmup_timeout = Duration::from_millis(
+            warmup_target_chunks * frag_ms * ENCODER_WARMUP_TIMEOUT_MULTIPLE as u64,
+        )
+        .max(ENCODER_WARMUP_TIMEOUT_FLOOR);
+        let warmup_started = Instant::now();
+        // a track shorter than `warmup_target_chunks * frag_ms` of real
+        // duration can NEVER reach the target - without this check that
+        // case wastes the entire `warmup_timeout` every single time
+        // (confirmed live: an 11s track spun for the full 120s timeout
+        // before giving up on ever reaching 20 chunks). `is_finished()`
+        // means the encoder has hit clean EOF/error and nothing more is
+        // coming, so whatever's ready right now is genuinely final.
+        while (encoder.queued_chunks() as u64) < warmup_target_chunks
+            && warmup_started.elapsed() < warmup_timeout
+            && !encoder.is_finished()
+        {
+            tokio::time::sleep(ENCODER_WARMUP_POLL_INTERVAL).await;
+        }
+        let warmup_elapsed = warmup_started.elapsed();
+        let warmup_chunks_ready = encoder.queued_chunks() as u64;
+        if warmup_chunks_ready >= warmup_target_chunks {
+            info!(
+                "[radio-broadcaster] station {} encoder warm-up for '{}': {warmup_chunks_ready} chunks ready \
+                 after {warmup_elapsed:?} (init took {time_to_init_chunk:?})",
+                self.station_id, track.title
+            );
+        } else if encoder.is_finished() {
+            // the track's real duration is simply too short to ever
+            // reach the target - not an encode-throughput problem at
+            // all, so this is NOT a warning.
+            info!(
+                "[radio-broadcaster] station {} encoder warm-up for '{}' ended early: track \
+                 finished with only {warmup_chunks_ready}/{warmup_target_chunks} chunks total \
+                 after {warmup_elapsed:?} (init took {time_to_init_chunk:?}) - track is shorter \
+                 than the warm-up target, not an encode-throughput issue",
+                self.station_id, track.title
+            );
+        } else {
+            warn!(
+                "[radio-broadcaster] station {} encoder warm-up timed out on '{}' after {warmup_elapsed:?}: \
+                 only {warmup_chunks_ready}/{warmup_target_chunks} chunks ready (init took {time_to_init_chunk:?}) - \
+                 the encode can't keep up with real time even before the pacer starts; \
+                 consider a cheaper preset/lower bitrate for this content_mode",
+                self.station_id, track.title
+            );
         }
 
         let init_seq = self.next_seq.fetch_add(1, Ordering::Relaxed);
@@ -854,16 +1006,27 @@ impl Broadcaster {
 
         // record this play. failure is non-fatal (history is best-effort).
         // skip for bumpers — they aren't part of the listenable history.
+        // also skip radio_play_historyz specifically for a video pick -
+        // that table's song_id column FKs to songz, so a video id would
+        // violate the constraint (recent-repeat avoidance doesn't apply
+        // to video yet, see playlist.rs). play_eventz has no such
+        // limitation (entity_type is already song|video), so that half
+        // still records normally for video below.
         let listeners = self.listener_count() as i64;
         let play_id = if is_bumper {
             None
         } else {
             // credit each current listener with a play row in
-            // music_play_eventz so radio plays roll up into the unified
-            // top-songs / per-song play count analytics. failure is
+            // play_eventz so radio plays roll up into the unified
+            // top-songs/top-videos play count analytics. failure is
             // non-fatal — best-effort, same as record_play below.
             if listeners > 0 {
+                let entity_type = match track.kind {
+                    crate::radio::playlist::RadioItemKind::Song => "song",
+                    crate::radio::playlist::RadioItemKind::Video => "video",
+                };
                 if let Err(e) = play_events::record_radio_plays(
+                    entity_type,
                     &track.song_id,
                     &self.station_id,
                     listeners as u32,
@@ -877,39 +1040,48 @@ impl Broadcaster {
                 }
             }
 
-            match stations::record_play(&self.station_id, &track.song_id, listeners).await {
-                Ok(id) => Some(id),
-                Err(e) => {
-                    warn!(
-                        "[radio-broadcaster] station {} record_play failed: {e}",
-                        self.station_id
-                    );
-                    None
+            if track.kind == crate::radio::playlist::RadioItemKind::Song {
+                match stations::record_play(&self.station_id, &track.song_id, listeners).await {
+                    Ok(id) => Some(id),
+                    Err(e) => {
+                        warn!(
+                            "[radio-broadcaster] station {} record_play failed: {e}",
+                            self.station_id
+                        );
+                        None
+                    }
                 }
+            } else {
+                None
             }
         };
         let started = std::time::Instant::now();
         let mut silence_since: Option<Instant> = None;
-        let frag_ms = radio_cfg.frag_ms.max(1) as u64;
         // server-side pacing: emit each media chunk at the wall-clock
         // moment its audio should start playing. computed against the
         // track's start instant so error doesn't accumulate. with no
         // `-re` flag on ffmpeg, the buffered encoder runs as fast as
         // the kernel pipe allows and the broadcaster pacer is the only
-        // thing keeping listeners in sync with "now".
+        // thing keeping listeners in sync with "now" for the STEADY
+        // STATE of the track (see `ENCODER_WARMUP_POLL_INTERVAL`'s doc
+        // comment for why steady-state pacing stays real-time even
+        // though the warm-up above doesn't).
         //
-        // after an admin skip, shift pace_origin back by SKIP_BURST_CHUNKS
-        // fragment durations so the first several media chunks are emitted
-        // immediately (target < now), filling the listener's MSE buffer
-        // quickly before real-time pacing resumes.
-        let pace_origin = if is_post_skip {
-            started
-                .checked_sub(Duration::from_millis(SKIP_BURST_CHUNKS * frag_ms))
-                .unwrap_or(started)
-        } else {
-            started
-        };
+        // shifts pace_origin back by however many chunks the warm-up
+        // above actually managed to produce (not a fixed number), so
+        // ALL of that already-produced lead is emitted immediately
+        // (target < now) rather than only releasing part of it and
+        // trickling the rest out at real-time cadence despite it
+        // already existing.
+        let pace_origin = started
+            .checked_sub(Duration::from_millis(warmup_chunks_ready * frag_ms))
+            .unwrap_or(started);
         let mut media_chunks_emitted: u64 = 0;
+        // real-time-factor diagnostic: counts fragments the encoder
+        // delivered a full frag_ms (or more) behind the pacer's schedule -
+        // see the warn! at the point of detection below for what this
+        // means and why it matters more for video than audio.
+        let mut encoder_behind_schedule_events: u32 = 0;
 
         // pull chunks until ffmpeg signals EOF (clean song end). if it
         // errors mid-song we still want to close out the play history row
@@ -987,6 +1159,58 @@ impl Broadcaster {
                                 }
                             }
                         }
+                    } else {
+                        // encoder didn't have this fragment ready by its
+                        // scheduled emission time - the buffer_seconds
+                        // cushion is what's actually protecting listeners
+                        // right now, not the pacer. one-off lateness (a
+                        // slow disk read, a brief CPU spike) is normal and
+                        // not worth logging; falling a FULL fragment or
+                        // more behind schedule means the encode itself
+                        // can't keep up in real time (a real risk for a
+                        // video-capable station's much heavier h264 encode
+                        // vs the cheap audio-only default - see
+                        // `RadioConfig::video_encode_args`) and every
+                        // occurrence erodes that cushion, eventually
+                        // surfacing to listeners as a stall no amount of
+                        // CLIENT-side buffering can mask (the bytes simply
+                        // don't exist yet upstream). logged unthrottled,
+                        // like other broadcaster warnings in this file -
+                        // this should be rare in a healthy setup, so
+                        // volume itself is the diagnostic signal.
+                        //
+                        // chunks still inside the warm-up burst region
+                        // (`media_chunks_emitted < warmup_chunks_ready`)
+                        // are EXPECTED to have `target` in the past - that
+                        // IS the burst (see `pace_origin`'s doc comment
+                        // above) - so `target > now` is already false for
+                        // literally every one of them by design. checking
+                        // "behind schedule" for those isn't a real
+                        // encoder-throughput signal, it's just measuring
+                        // how deep the intentional burst was; skip it
+                        // entirely rather than logging N spurious
+                        // "encoder running Ns behind" warnings per track.
+                        if media_chunks_emitted >= warmup_chunks_ready {
+                            let behind = now.duration_since(target);
+                            if behind >= Duration::from_millis(frag_ms) {
+                                encoder_behind_schedule_events += 1;
+                                // encode-ahead depth at the moment of detection -
+                                // 0 means the lead is fully exhausted (the
+                                // encoder is producing at or slower than real
+                                // time, not just briefly jittery); a healthy
+                                // encoder should show this recovering back up
+                                // toward `ring_capacity` between events.
+                                let queued = encoder.queued_chunks();
+                                warn!(
+                                    "[radio-broadcaster] station {} encoder running {:?} behind \
+                                     real-time schedule on '{}' (event #{encoder_behind_schedule_events} \
+                                     this track, {queued} chunks still queued ahead) - the encode can't \
+                                     keep up with frag_ms={frag_ms}ms; consider a cheaper preset/lower \
+                                     bitrate for this content_mode",
+                                    self.station_id, behind, track.title
+                                );
+                            }
+                        }
                     }
 
                     let seq = self.next_seq.fetch_add(1, Ordering::Relaxed);
@@ -1028,7 +1252,6 @@ impl Broadcaster {
         }
 
         if skipped_by_admin {
-            self.post_skip_pending.store(true, Ordering::Relaxed);
             info!(
                 "[radio-broadcaster] station {} admin-skipped track: {}",
                 self.station_id, track.title
@@ -1037,9 +1260,41 @@ impl Broadcaster {
         }
 
         info!(
-            "[radio-broadcaster] station {} song finished: {}",
-            self.station_id, track.title
+            "[radio-broadcaster] station {} song finished: {} ({} chunks, {} behind-schedule events)",
+            self.station_id, track.title, media_chunks_emitted, encoder_behind_schedule_events
         );
+        // direct, whole-track confirmation (or refutation) of the
+        // "fragments represent less real media time than frag_ms
+        // assumes" hypothesis - temporary, for tuning
+        // docs/radio-buffering-retune-plan.md's chronic-stall
+        // investigation. if a track's real duration is known, compare
+        // it against `media_chunks_emitted * frag_ms` (what the pacing
+        // math IMPLICITLY assumes the total content duration was, given
+        // how many chunks it took): if the implied total is
+        // meaningfully LARGER than the track's real duration, it took
+        // MORE chunks to encode the same real content than a clean
+        // frag_ms-per-chunk assumption predicts - i.e. each chunk
+        // represents LESS than frag_ms of real media on average. this
+        // sidesteps needing to parse per-fragment mp4 box timestamps
+        // (tfdt/trun) entirely by using the one whole-track duration
+        // ground truth already on hand.
+        if let Some(real_duration_ms) = track.duration_ms {
+            let implied_total_ms = media_chunks_emitted as i64 * frag_ms as i64;
+            let drift_ms = implied_total_ms - real_duration_ms;
+            let drift_pct = if real_duration_ms > 0 {
+                (drift_ms as f64 / real_duration_ms as f64) * 100.0
+            } else {
+                0.0
+            };
+            info!(
+                "[radio-broadcaster] station {} fragment-duration check for '{}': \
+                 real_duration={real_duration_ms}ms, implied_total ({media_chunks_emitted} \
+                 chunks * frag_ms={frag_ms}ms)={implied_total_ms}ms, drift={drift_ms}ms \
+                 ({drift_pct:.1}%) - positive drift means fragments are shorter than \
+                 frag_ms on average (more chunks needed than the nominal math predicts)",
+                self.station_id, track.title
+            );
+        }
         Ok(())
     }
 }
@@ -1082,6 +1337,42 @@ fn default_override() -> &'static RwLock<Option<String>> {
     DEFAULT_OVERRIDE.get_or_init(|| RwLock::new(None))
 }
 
+/// true for any content_mode that can carry video (`audio_or_video` /
+/// `video_only`) - these share the smaller `max_concurrent_video_streams`
+/// pool since video encoding is far more cpu-expensive than audio-only.
+/// `audio_only` shares `max_concurrent_audio_streams` instead.
+fn is_video_capable(content_mode: &str) -> bool {
+    content_mode != "audio_only"
+}
+
+/// count currently-registered broadcasters in the given cap group
+/// (video-capable vs audio-only), given an already-borrowed registry map -
+/// used by `init_registry`, which already holds the write lock and would
+/// deadlock re-acquiring it via `running_count_for_group`.
+fn count_group_in_map(reg: &HashMap<String, Arc<Broadcaster>>, video: bool) -> usize {
+    reg.values()
+        .filter(|bc| is_video_capable(&bc.content_mode) == video)
+        .count()
+}
+
+/// same as `count_group_in_map`, but acquires its own read lock - for
+/// callers (`start_station`) that don't already hold one.
+async fn running_count_for_group(video: bool) -> usize {
+    let reg = registry().read().await;
+    count_group_in_map(&reg, video)
+}
+
+fn concurrency_cap_error(video: bool, current: usize, limit: u32) -> GrimoireError {
+    let group = if video { "video" } else { "audio" };
+    GrimoireError::ProcessingFailed {
+        message: format!(
+            "radio: concurrent {group} stream limit reached ({current}/{limit}) - stop \
+             another {group} station first or raise max_concurrent_{group}_streams in the \
+             [radio] config"
+        ),
+    }
+}
+
 /// start a broadcaster for every enabled station in the database. safe
 /// to call multiple times — already-running stations are kept; stations
 /// added since the last call are spawned. stations removed since last
@@ -1103,6 +1394,7 @@ pub async fn init_registry() -> GrimoireResult<()> {
             codec: None,
             play_mode: None,
             timeline_only_mode: None,
+            content_mode: None,
         })
         .await?;
         stations_rows = vec![seed];
@@ -1122,13 +1414,35 @@ pub async fn init_registry() -> GrimoireResult<()> {
     // station_id (single-station deployments + the demo).
     let _ = DEFAULT_STATION_ID.set(enabled[0].id.clone());
 
+    let radio_cfg = crate::radio::config::effective();
     let mut reg = registry().write().await;
     let mut tk = tasks().write().await;
     for st in enabled {
         if reg.contains_key(&st.id) {
             continue;
         }
-        let bc = Arc::new(Broadcaster::new(st.id.clone()));
+        let video = is_video_capable(&st.content_mode);
+        let limit = if video {
+            radio_cfg.max_concurrent_video_streams
+        } else {
+            radio_cfg.max_concurrent_audio_streams
+        };
+        let current = count_group_in_map(&reg, video);
+        if current >= limit as usize {
+            warn!(
+                "[radio-broadcaster] station '{}' ({}) not started at boot: {} concurrent-stream \
+                 limit reached ({}/{}) - raise max_concurrent_{}_streams in [radio] config to \
+                 start more at once",
+                st.name,
+                st.id,
+                if video { "video" } else { "audio" },
+                current,
+                limit,
+                if video { "video" } else { "audio" }
+            );
+            continue;
+        }
+        let bc = Arc::new(Broadcaster::new(st.id.clone(), st.content_mode.clone()));
         // seed runtime flag from db so a server restart picks up the
         // persisted value without an extra admin call.
         if st.timeline_only_mode != 0 {
@@ -1199,6 +1513,23 @@ pub async fn running_station_ids() -> Vec<String> {
     registry().read().await.keys().cloned().collect()
 }
 
+/// find a currently-running broadcaster in the given cap group (video vs
+/// audio) with zero listeners, other than `exclude` - a candidate to stop
+/// and free a concurrency slot for a newly-requested station. the cap
+/// counts running broadcaster PROCESSES, not active listeners, so a
+/// station nobody is listening to (e.g. everyone left minutes ago, or it
+/// was auto-started at boot and never actually tuned into) would
+/// otherwise occupy its slot forever.
+async fn find_idle_broadcaster_in_group(video: bool, exclude: &str) -> Option<String> {
+    let reg = registry().read().await;
+    reg.values()
+        .filter(|bc| bc.station_id() != exclude)
+        .filter(|bc| is_video_capable(&bc.content_mode) == video)
+        .filter(|bc| bc.listener_count() == 0)
+        .map(|bc| bc.station_id().to_string())
+        .next()
+}
+
 /// spawn a broadcaster for `station_id` if not already running. errors
 /// when the station row is missing or marked `is_enabled = 0`. idempotent
 /// on re-call (returns Ok).
@@ -1222,7 +1553,31 @@ pub async fn start_station(station_id: &str) -> GrimoireResult<()> {
             ),
         });
     }
-    let bc = Arc::new(Broadcaster::new(st.id.clone()));
+    let video = is_video_capable(&st.content_mode);
+    let radio_cfg = crate::radio::config::effective();
+    let limit = if video {
+        radio_cfg.max_concurrent_video_streams
+    } else {
+        radio_cfg.max_concurrent_audio_streams
+    };
+    let current = running_count_for_group(video).await;
+    if current >= limit as usize {
+        // don't fail immediately - a running-but-unlistened-to station in
+        // the same group is a better use of the slot than this brand new
+        // request. only surface the cap error if every station in the
+        // group genuinely has listeners.
+        match find_idle_broadcaster_in_group(video, station_id).await {
+            Some(idle_id) => {
+                info!(
+                    "[radio-broadcaster] concurrency cap reached ({current}/{limit}) - \
+                     stopping idle station '{idle_id}' to free a slot for '{station_id}'"
+                );
+                stop_station(&idle_id).await?;
+            }
+            None => return Err(concurrency_cap_error(video, current, limit)),
+        }
+    }
+    let bc = Arc::new(Broadcaster::new(st.id.clone(), st.content_mode.clone()));
     let task_bc = bc.clone();
     let handle = tokio::spawn(async move { task_bc.run().await });
     {

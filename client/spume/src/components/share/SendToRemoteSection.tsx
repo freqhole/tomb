@@ -30,10 +30,47 @@ import {
   type SendProgress,
 } from "../../music/services/send/sendToRemote";
 import { sendToLocalLibrary } from "../../music/services/send/sendToLocalLibrary";
+import {
+  sendVideosToRemote,
+  type SendVideoPayload,
+  type SendVideoProgress,
+} from "../../video/services/send/sendVideoToRemote";
 import { resolveBlobUrl } from "../../music/services/storage/blobResolver";
 import { isCharnelMode } from "../../app/services/charnel";
 import { isP2PRemote, type Remote } from "../../app/services/storage/schemas/remote";
 import { getLocalLibraryName } from "../../app/services/storage/db";
+
+/** every domain's share-modal send payload - a `kind` discriminant lets
+ * this section dispatch to the right sender (music's `sendToRemote`/
+ * `sendToLocalLibrary`, or video's `sendVideosToRemote` - video has no
+ * send-to-local-browser-library counterpart yet, see `runForDest`). */
+export type SendToRemotePayload = SendPayload | SendVideoPayload;
+/** either domain's progress shape - field names differ (`totalSongs` vs
+ * `totalVideos` etc.), see `progressCounts()` below for the normalized
+ * view used by every render site in this file. */
+type AnyProgress = SendProgress | SendVideoProgress;
+
+function progressCounts(p: AnyProgress): {
+  total: number;
+  synced: number;
+  skipped: number;
+  failed: number;
+} {
+  if ("totalVideos" in p) {
+    return {
+      total: p.totalVideos,
+      synced: p.syncedVideos,
+      skipped: p.skippedVideos,
+      failed: p.failedVideos,
+    };
+  }
+  return {
+    total: p.totalSongs,
+    synced: p.syncedSongs,
+    skipped: p.skippedSongs,
+    failed: p.failedSongs,
+  };
+}
 
 export interface SendToRemoteSectionProps {
   /** the source remote — the data being sent originates from here. */
@@ -43,7 +80,7 @@ export interface SendToRemoteSectionProps {
    * song list already loaded) or async (context-menu shares that need to
    * fetch songs first). called once when the section mounts.
    */
-  buildPayload: () => SendPayload | Promise<SendPayload>;
+  buildPayload: () => SendToRemotePayload | Promise<SendToRemotePayload>;
 }
 
 // magic id for the synthetic browser-local destination. used only in
@@ -77,15 +114,23 @@ export const SendToRemoteSection: Component<SendToRemoteSectionProps> = (props) 
   const probeBlake3s = createMemo<string[] | null>(() => {
     const p = payload();
     if (!p) return null;
+    if (p.kind === "video") return p.videos.map((v) => v.blake3).filter((b): b is string => !!b);
     const songs = p.kind === "song" ? [p.song] : p.songs;
     return songs.map((s) => s.blake3).filter((b): b is string => !!b);
   });
 
+  // "music"/"video" for the destination row's blob-presence badge text -
+  // BlobBadge previously always said "music", even for a video payload.
+  const mediaLabel = createMemo<string>(() => (payload()?.kind === "video" ? "video" : "music"));
+
   // richer pairs for the local (idb) probe — needs sha256 to do indexed
-  // lookups on the local songs store (no blake3 index).
+  // lookups on the local songs store (no blake3 index). video has no
+  // send-to-local-browser-library path yet (see runForDest), so this is
+  // always empty for a video payload - the synthetic browser-local
+  // destination row is hidden entirely for video sends anyway.
   const probeSongs = createMemo<ProbeSongHashes[] | null>(() => {
     const p = payload();
-    if (!p) return null;
+    if (!p || p.kind === "video") return null;
     const songs = p.kind === "song" ? [p.song] : p.songs;
     return songs
       .filter((s) => !!s.blake3 && !!s.sha256)
@@ -118,9 +163,15 @@ export const SendToRemoteSection: Component<SendToRemoteSectionProps> = (props) 
         isLocal: true,
         candidate: localFromCandidates,
       });
-    } else if (!charnelMode && props.source.remote_id !== LOCAL_BROWSER_ID) {
+    } else if (
+      !charnelMode &&
+      payload()?.kind !== "video" &&
+      props.source.remote_id !== LOCAL_BROWSER_ID
+    ) {
       // plain browser — no charnel-managed remote in storage; synthesize
-      // a row that drives `sendToLocalLibrary` (idb + opfs).
+      // a row that drives `sendToLocalLibrary` (idb + opfs). video has no
+      // send-to-local-library counterpart yet, so this row never appears
+      // for a video payload.
       out.unshift({
         id: LOCAL_BROWSER_ID,
         name: getLocalLibraryName(),
@@ -131,11 +182,11 @@ export const SendToRemoteSection: Component<SendToRemoteSectionProps> = (props) 
   });
 
   const [activeDestId, setActiveDestId] = createSignal<string | null>(null);
-  const [progress, setProgress] = createSignal<SendProgress | null>(null);
+  const [progress, setProgress] = createSignal<AnyProgress | null>(null);
   const [lastResult, setLastResult] = createSignal<{
     destId: string;
     destName: string;
-    progress: SendProgress;
+    progress: AnyProgress;
   } | null>(null);
 
   const runForDest = async (entry: DestEntry, retryBlake3s?: string[]) => {
@@ -146,20 +197,50 @@ export const SendToRemoteSection: Component<SendToRemoteSectionProps> = (props) 
     }
     setActiveDestId(entry.id);
     setLastResult(null);
-    setProgress({
-      phase: "preparing",
-      totalSongs: 0,
-      syncedSongs: 0,
-      skippedSongs: 0,
-      failedSongs: 0,
-      errors: [],
-      syncedBlake3s: [],
-      failedBlake3s: [],
-    });
+    setProgress(
+      p.kind === "video"
+        ? {
+            phase: "preparing",
+            totalVideos: 0,
+            syncedVideos: 0,
+            skippedVideos: 0,
+            failedVideos: 0,
+            errors: [],
+            syncedBlake3s: [],
+            failedBlake3s: [],
+          }
+        : {
+            phase: "preparing",
+            totalSongs: 0,
+            syncedSongs: 0,
+            skippedSongs: 0,
+            failedSongs: 0,
+            errors: [],
+            syncedBlake3s: [],
+            failedBlake3s: [],
+          }
+    );
     const destName = entry.name;
     try {
-      let final: SendProgress;
-      if (entry.isLocal && entry.id === LOCAL_BROWSER_ID) {
+      let final: AnyProgress;
+      if (p.kind === "video") {
+        // no send-to-local-browser-library counterpart for video yet -
+        // only the synthetic browser-local row (no `.candidate`) lacks a
+        // real destination remote to sync to; a charnel-managed "local"
+        // entry has a real (p2p-eligible) remote and works normally.
+        if (!entry.candidate) {
+          toast.error("sending videos to the local browser library isn't supported yet");
+          setActiveDestId(null);
+          setProgress(null);
+          return;
+        }
+        const videos = retryBlake3s
+          ? p.videos.filter((v) => v.blake3 && retryBlake3s.includes(v.blake3))
+          : p.videos;
+        final = await sendVideosToRemote(videos, props.source, entry.candidate.remote, {
+          onProgress: (pp) => setProgress(pp),
+        });
+      } else if (entry.isLocal && entry.id === LOCAL_BROWSER_ID) {
         final = await sendToLocalLibrary(p, props.source, {
           onProgress: (pp) => setProgress(pp),
           retryBlake3s,
@@ -173,12 +254,13 @@ export const SendToRemoteSection: Component<SendToRemoteSectionProps> = (props) 
       // only report counts that actually happened - a summary like
       // "0 synced, 0 skipped, 3 failed" is just noise around the one
       // number that matters.
+      const counts = progressCounts(final);
       const parts: string[] = [];
-      if (final.syncedSongs > 0) parts.push(`${final.syncedSongs} synced`);
-      if (final.skippedSongs > 0) parts.push(`${final.skippedSongs} skipped`);
-      if (final.failedSongs > 0) parts.push(`${final.failedSongs} failed`);
+      if (counts.synced > 0) parts.push(`${counts.synced} synced`);
+      if (counts.skipped > 0) parts.push(`${counts.skipped} skipped`);
+      if (counts.failed > 0) parts.push(`${counts.failed} failed`);
       const summary = `sent to ${destName}: ${parts.length > 0 ? parts.join(", ") : "nothing to sync"}`;
-      if (final.failedSongs > 0) toast.warning(summary);
+      if (counts.failed > 0) toast.warning(summary);
       else toast.success(summary);
       setLastResult({ destId: entry.id, destName, progress: final });
     } catch (e) {
@@ -236,7 +318,8 @@ export const SendToRemoteSection: Component<SendToRemoteSectionProps> = (props) 
           {(() => {
             const r = lastResult()!;
             const p = r.progress;
-            const ok = p.failedSongs === 0 && p.phase !== "failed";
+            const counts = progressCounts(p);
+            const ok = counts.failed === 0 && p.phase !== "failed";
             return (
               <div class="space-y-2 text-sm border border-[var(--color-border-default)] rounded-md p-3">
                 <div class="text-[var(--color-text-primary)]">
@@ -244,18 +327,18 @@ export const SendToRemoteSection: Component<SendToRemoteSectionProps> = (props) 
                 </div>
                 <div class="text-xs text-[var(--color-text-secondary)] space-y-0.5">
                   <div>
-                    <span class="text-[var(--color-text-tertiary)]">synced:</span> {p.syncedSongs}/
-                    {p.totalSongs}
+                    <span class="text-[var(--color-text-tertiary)]">synced:</span> {counts.synced}/
+                    {counts.total}
                   </div>
-                  <Show when={p.skippedSongs > 0}>
+                  <Show when={counts.skipped > 0}>
                     <div>
                       <span class="text-[var(--color-text-tertiary)]">skipped:</span>{" "}
-                      {p.skippedSongs}
+                      {counts.skipped}
                     </div>
                   </Show>
-                  <Show when={p.failedSongs > 0}>
+                  <Show when={counts.failed > 0}>
                     <div class="text-[var(--color-error,_inherit)]">
-                      <span class="text-[var(--color-text-tertiary)]">failed:</span> {p.failedSongs}
+                      <span class="text-[var(--color-text-tertiary)]">failed:</span> {counts.failed}
                     </div>
                   </Show>
                 </div>
@@ -272,13 +355,13 @@ export const SendToRemoteSection: Component<SendToRemoteSectionProps> = (props) 
                   </details>
                 </Show>
                 <div class="flex items-center gap-2 pt-1">
-                  <Show when={p.failedSongs > 0}>
+                  <Show when={counts.failed > 0}>
                     <button
                       type="button"
                       onClick={handleRetryFailed}
                       class="px-3 py-1 text-xs rounded-md bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-hover)] text-[var(--color-text-primary)] border border-[var(--color-border-default)] transition-colors"
                     >
-                      retry failed ({p.failedSongs})
+                      retry failed ({counts.failed})
                     </button>
                   </Show>
                   <Show when={ok}>
@@ -300,6 +383,7 @@ export const SendToRemoteSection: Component<SendToRemoteSectionProps> = (props) 
                   payloadReady={!payload.loading && !payload.error}
                   probeBlake3s={probeBlake3s}
                   probeSongs={probeSongs}
+                  mediaLabel={mediaLabel}
                   isActive={() => activeDestId() === entry.id}
                   anyActive={() => !!activeDestId()}
                   progress={progress}
@@ -319,9 +403,10 @@ interface DestinationRowProps {
   payloadReady: boolean;
   probeBlake3s: () => string[] | null;
   probeSongs: () => ProbeSongHashes[] | null;
+  mediaLabel: () => string;
   isActive: () => boolean;
   anyActive: () => boolean;
-  progress: () => SendProgress | null;
+  progress: () => AnyProgress | null;
   onSend: () => void;
 }
 
@@ -362,9 +447,11 @@ const DestinationRow: Component<DestinationRowProps> = (props) => {
   const showImg = () => !!imageUrl() && !imgError();
   const pct = () => {
     const prog = props.progress();
-    if (!prog || prog.totalSongs === 0) return 0;
-    const done = prog.syncedSongs + prog.skippedSongs + prog.failedSongs;
-    return Math.min(100, Math.round((done / prog.totalSongs) * 100));
+    if (!prog) return 0;
+    const c = progressCounts(prog);
+    if (c.total === 0) return 0;
+    const done = c.synced + c.skipped + c.failed;
+    return Math.min(100, Math.round((done / c.total) * 100));
   };
 
   return (
@@ -412,19 +499,22 @@ const DestinationRow: Component<DestinationRowProps> = (props) => {
                     show={blobsCount() > 0 && status().kind === "ready"}
                     presence={presence}
                     total={blobsCount}
+                    mediaLabel={props.mediaLabel}
                   />
                 </div>
               </div>
             </div>
             <Show when={props.isActive() && props.progress()}>
               <span class="text-xs text-[var(--color-text-secondary)] whitespace-nowrap">
-                {props.progress()!.phase} {props.progress()!.syncedSongs}/
-                {props.progress()!.totalSongs}
+                {props.progress()!.phase} {progressCounts(props.progress()!).synced}/
+                {progressCounts(props.progress()!).total}
               </span>
             </Show>
           </div>
         </div>
-        <Show when={props.isActive() && props.progress() && props.progress()!.totalSongs > 0}>
+        <Show
+          when={props.isActive() && props.progress() && progressCounts(props.progress()!).total > 0}
+        >
           <div class="h-1 w-full bg-[var(--color-bg-tertiary)] overflow-hidden">
             <div
               class="h-full bg-[var(--color-accent,_currentColor)] transition-[width] duration-150"
@@ -490,6 +580,7 @@ const BlobBadge: Component<{
   show: boolean;
   presence: () => { checking: boolean; presentCount: number; error?: string };
   total: () => number;
+  mediaLabel: () => string;
 }> = (props) => {
   return (
     <Show when={props.show}>
@@ -497,20 +588,21 @@ const BlobBadge: Component<{
         {(() => {
           const pr = props.presence();
           const total = props.total();
+          const label = props.mediaLabel();
           if (pr.checking) {
             return (
               <>
                 <Icon name={IconNames.loader} size={11} className="animate-spin" />
-                <span>checking music</span>
+                <span>checking {label}</span>
               </>
             );
           }
-          if (pr.error) return <span>music unknown</span>;
+          if (pr.error) return <span>{label} unknown</span>;
           if (pr.presentCount >= total) {
             return (
               <>
                 <Icon name={IconNames.checkCircle} size={11} />
-                <span>has this music</span>
+                <span>has this {label}</span>
               </>
             );
           }

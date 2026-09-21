@@ -2,10 +2,7 @@
 // peer addr we got from a query param. used by the /radio root view to
 // build the station grid.
 
-import {
-  type PublicStation,
-  type RadioStationsResponse,
-} from "@freqhole/api-client";
+import { type PublicStation, type RadioStationsResponse } from "@freqhole/api-client";
 import { getClientForRemote, getLocalNodeIdAsync, isCharnelAvailable } from "../../api/client";
 import type { Remote, RemoteRef } from "../../api/client";
 import { isP2PRemote, isHttpRemote } from "../../services/storage/types";
@@ -81,7 +78,7 @@ export async function discoverStations(
     deepTimeoutMs?: number;
     /** bypass per-source cooldown/backoff for this sweep (manual refresh). */
     forceProbeAll?: boolean;
-  } = {},
+  } = {}
 ): Promise<DiscoveredStation[]> {
   const quickTimeoutMs = opts.quickTimeoutMs ?? 1500;
   const deepTimeoutMs = opts.deepTimeoutMs ?? 8000;
@@ -97,7 +94,10 @@ export async function discoverStations(
     if (!forceProbeAll && state.nextProbeAtMs > nowMs) {
       const coolRemaining = Math.ceil((state.nextProbeAtMs - nowMs) / 1000);
       if (src.kind === "pending") {
-        debug("radio-discovery", `pending source ${src.label} in backoff for ${coolRemaining}s (failures=${state.failureCount})`);
+        debug(
+          "radio-discovery",
+          `pending source ${src.label} in backoff for ${coolRemaining}s (failures=${state.failureCount})`
+        );
       }
       coolingDownSources += 1;
       coolingSources.push(src);
@@ -107,17 +107,14 @@ export async function discoverStations(
   }
 
   if (activeSources.length === 0) {
-    debug(
-      "radio-discovery",
-      `sweep skipped: all ${sources.length} sources cooling down`,
-    );
+    debug("radio-discovery", `sweep skipped: all ${sources.length} sources cooling down`);
     return lastDiscoverySnapshot.slice();
   }
 
   if (forceProbeAll) {
     debug(
       "radio-discovery",
-      `manual refresh forcing probe of all ${activeSources.length} sources (cooldown bypassed)`,
+      `manual refresh forcing probe of all ${activeSources.length} sources (cooldown bypassed)`
     );
   }
 
@@ -155,7 +152,7 @@ export async function discoverStations(
       }
 
       return { src, result };
-    }),
+    })
   );
 
   // wrap each slow promise with a quick-window race. winners of the
@@ -163,18 +160,14 @@ export async function discoverStations(
   const quickResults = await Promise.all(
     slowPromises.map((p) =>
       Promise.race<
-        | { kind: "ready"; stations: DiscoveredStation[] }
-        | { kind: "pending"; later: typeof p }
+        { kind: "ready"; stations: DiscoveredStation[] } | { kind: "pending"; later: typeof p }
       >([
         p.then((r) => ({ kind: "ready" as const, stations: r.result.stations })),
         new Promise((resolve) =>
-          setTimeout(
-            () => resolve({ kind: "pending" as const, later: p }),
-            quickTimeoutMs,
-          ),
+          setTimeout(() => resolve({ kind: "pending" as const, later: p }), quickTimeoutMs)
         ),
-      ]),
-    ),
+      ])
+    )
   );
 
   // first pass: collect everything that responded inside the quick window.
@@ -199,21 +192,19 @@ export async function discoverStations(
     slowOnes.map(async (p) => {
       const r = await p;
       pushStations(r.result.stations);
-    }),
+    })
   );
 
   debug(
     "radio-discovery",
-    `sweep complete: total=${sources.length} probed=${activeSources.length} cooldown=${coolingDownSources} reused=${reusedFromCooldown} stations=${cumulative.length}`,
+    `sweep complete: total=${sources.length} probed=${activeSources.length} cooldown=${coolingDownSources} reused=${reusedFromCooldown} stations=${cumulative.length}`
   );
   lastDiscoverySnapshot = cumulative.slice();
 
   return cumulative;
 }
 
-async function collectSources(
-  extraPeerAddrs: string[] | undefined,
-): Promise<SourceRef[]> {
+async function collectSources(extraPeerAddrs: string[] | undefined): Promise<SourceRef[]> {
   const sources: SourceRef[] = [];
 
   // 0. self source (charnel only). lets the app discover + listen to
@@ -248,18 +239,30 @@ async function collectSources(
   // for the knock to be approved on the other side.
   const pending = await getAllPendingRemotes();
   const allowedStages = new Set(["connected", "knock_accepted", "knock_pending"]);
-  debug("radio-discovery", `pending remotes: ${pending.length} total, stages: ${pending.map((p) => p.stage).join(", ") || "none"}`);
+  debug(
+    "radio-discovery",
+    `pending remotes: ${pending.length} total, stages: ${pending.map((p) => p.stage).join(", ") || "none"}`
+  );
   for (const p of pending) {
     if (!allowedStages.has(p.stage)) {
-      debug("radio-discovery", `skipping pending remote ${p.peer_addr.slice(0, 16)}… stage=${p.stage} (not in allowedStages)`);
+      debug(
+        "radio-discovery",
+        `skipping pending remote ${p.peer_addr.slice(0, 16)}… stage=${p.stage} (not in allowedStages)`
+      );
       continue;
     }
     if (sources.some((s) => s.peer_addr === p.peer_addr || s.base_url === p.peer_addr)) {
-      debug("radio-discovery", `skipping pending remote ${p.peer_addr.slice(0, 16)}… already in sources as a full remote`);
+      debug(
+        "radio-discovery",
+        `skipping pending remote ${p.peer_addr.slice(0, 16)}… already in sources as a full remote`
+      );
       continue;
     }
     if (p.transport !== "http" && extractNodeIdStrict(p.peer_addr) === null) {
-      debug("radio-discovery", `skipping pending remote ${p.peer_addr.slice(0, 16)}… invalid peer_addr`);
+      debug(
+        "radio-discovery",
+        `skipping pending remote ${p.peer_addr.slice(0, 16)}… invalid peer_addr`
+      );
       continue;
     }
     sources.push({
@@ -278,7 +281,10 @@ async function collectSources(
       continue;
     }
     if (!addr.startsWith("http") && extractNodeIdStrict(addr) === null) {
-      debug("radio-discovery", `skipping query source with invalid peer_addr: ${addr.slice(0, 16)}…`);
+      debug(
+        "radio-discovery",
+        `skipping query source with invalid peer_addr: ${addr.slice(0, 16)}…`
+      );
       continue;
     }
     sources.push({
@@ -294,10 +300,7 @@ async function collectSources(
   return sources;
 }
 
-async function runSource(
-  src: SourceRef,
-  timeoutMs: number,
-): Promise<SourceRunResult> {
+async function runSource(src: SourceRef, timeoutMs: number): Promise<SourceRunResult> {
   return await Promise.race<SourceRunResult>([
     (async () => {
       try {
@@ -322,31 +325,54 @@ async function runSource(
             reason: `timeout after ${timeoutMs}ms`,
             stations: [],
           }),
-        timeoutMs,
-      ),
+        timeoutMs
+      )
     ),
   ]);
 }
 
-async function fetchStationsForSource(
-  src: SourceRef,
-): Promise<PublicStation[]> {
+async function fetchStationsForSource(src: SourceRef): Promise<PublicStation[]> {
   // build a RemoteRef the api client can talk to without needing a
   // persisted remote row. "self" routes through the charnel-local
   // transport (in-process dispatch — no iroh, no http).
-  const ref: RemoteRef = src.kind === "self"
-    ? { transport: "http", is_charnel_managed: true }
-    : src.base_url
-    ? { transport: "http", base_url: src.base_url }
-    : {
-        transport: isCharnelAvailable() ? "app" : "wasm",
-        peer_addr: src.peer_addr ?? src.id,
-      };
+  const ref: RemoteRef =
+    src.kind === "self"
+      ? { transport: "http", is_charnel_managed: true }
+      : src.base_url
+        ? { transport: "http", base_url: src.base_url }
+        : {
+            transport: isCharnelAvailable() ? "app" : "wasm",
+            peer_addr: src.peer_addr ?? src.id,
+          };
 
   const client = await getClientForRemote(ref);
-  const resp = await client.app.radioStations();
+  // try the authenticated listing first - it includes non-public
+  // stations too, for a caller who actually has standing on this source
+  // (a real session, or a known iroh peer). falls back to the anonymous
+  // listing (public stations only) for a source we have no credentials
+  // for yet, e.g. a bare pending/query-param peer that's never been
+  // added as a remote - `radioStationsFull()` there just 401s.
+  let resp;
+  try {
+    resp = await client.app.radioStationsFull();
+  } catch {
+    resp = undefined;
+  }
+  if (!resp || !resp.success) {
+    resp = await client.app.radioStations();
+  }
   if (!resp.success) {
-    const errs = (resp as { errors?: Array<{ error_type?: string; detail?: string; title?: string }> }).errors;
+    // pin down WHICH source (this device vs. a specific remote) actually
+    // produced an invalid/failed response - the zod warning FreqholeClient
+    // logs doesn't say who it came from, and "self" vs. a stale remote
+    // peer are two very different bugs to chase.
+    console.warn(
+      `[radio-discovery] fetchStationsForSource failed for source kind=${src.kind} id=${src.id}`,
+      resp
+    );
+    const errs = (
+      resp as { errors?: Array<{ error_type?: string; detail?: string; title?: string }> }
+    ).errors;
     const first = errs?.[0];
     const message = first
       ? `error_type=${first.error_type ?? "?"} detail=${first.detail ?? first.title ?? "?"}`
@@ -377,11 +403,7 @@ function getSourceState(src: SourceRef): DiscoverySourceState {
   return fresh;
 }
 
-function updateSourceState(
-  src: SourceRef,
-  result: SourceRunResult,
-  nowMs: number,
-): void {
+function updateSourceState(src: SourceRef, result: SourceRunResult, nowMs: number): void {
   const state = getSourceState(src);
   if (!result.failed) {
     state.failureCount = 0;
@@ -390,25 +412,18 @@ function updateSourceState(
   }
   state.failureCount += 1;
   const step = Math.min(state.failureCount - 1, 6);
-  const backoff = Math.min(
-    FAILURE_BACKOFF_MAX_MS,
-    FAILURE_BACKOFF_BASE_MS * Math.pow(2, step),
-  );
+  const backoff = Math.min(FAILURE_BACKOFF_MAX_MS, FAILURE_BACKOFF_BASE_MS * Math.pow(2, step));
   state.nextProbeAtMs = nowMs + backoff;
 }
 
-function maybeWarnSourceFailure(
-  src: SourceRef,
-  result: SourceRunResult,
-  nowMs: number,
-): void {
+function maybeWarnSourceFailure(src: SourceRef, result: SourceRunResult, nowMs: number): void {
   if (!result.failed) return;
   const state = getSourceState(src);
   if (nowMs - state.lastWarnAtMs < FAILURE_WARN_THROTTLE_MS) return;
   state.lastWarnAtMs = nowMs;
   warn(
     "radio-discovery",
-    `[${src.kind}] ${src.label} failed (${result.reason ?? "unknown"}); retry in ${Math.max(0, state.nextProbeAtMs - nowMs)}ms`,
+    `[${src.kind}] ${src.label} failed (${result.reason ?? "unknown"}); retry in ${Math.max(0, state.nextProbeAtMs - nowMs)}ms`
   );
 }
 

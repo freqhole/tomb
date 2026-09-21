@@ -4,7 +4,11 @@
 import { useNavigate } from "@solidjs/router";
 import { IconNames } from "../../components/icons/registry";
 import type { MenuAction } from "../../components/overlays/ContextMenu";
-import { createFavoriteMenuAction } from "../../music/hooks/contextMenu";
+import { createFavoriteMenuAction, createShareMenuAction } from "../../music/hooks/contextMenu";
+import {
+  buildVideoSendPayload,
+  buildVideosSendPayload,
+} from "../services/send/buildVideoSendPayload";
 import { showPlaylistSelectorForVideos } from "../../music/hooks/playlistSelectorState";
 import { showTagSelector } from "../../music/hooks/modals";
 import { createVideoTagAdapter } from "../../components/modals/tagAdapters/videoTagAdapter";
@@ -157,6 +161,14 @@ export function useVideoContextMenu(
   }
 
   actions.push(createFavoriteMenuAction("video", video.id, options.isFavorite ?? false));
+
+  actions.push(
+    createShareMenuAction(
+      { kind: "video", id: video.id, displayTitle: video.title },
+      () => buildVideoSendPayload(video),
+      video.remote_server_id
+    )
+  );
 
   actions.push({
     label: "add to playlist...",
@@ -326,6 +338,14 @@ export function useVideoSeriesContextMenu(
   actions.push({ type: "separator" });
 
   actions.push(createFavoriteMenuAction("video_series", series.id, options.isFavorite ?? false));
+
+  actions.push(
+    createShareMenuAction(
+      { kind: "video_series", id: series.id, displayTitle: series.title },
+      async () => buildVideosSendPayload(await resolveSeriesVideos(series, allVideos)),
+      series.remote_server_id ?? undefined
+    )
+  );
 
   actions.push({
     label: "add to playlist...",

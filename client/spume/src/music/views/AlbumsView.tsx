@@ -43,6 +43,8 @@ import { startBulkEnrichmentReview } from "../hooks/bulkEnrichmentReview";
 import { getClientForRemote } from "../../app/api/client";
 import { createCurrentRemoteFull } from "../../app/services/remotes/currentRemoteFull";
 import { queryClient } from "../../queryClient";
+import { BulkSendToRemoteModal } from "../../components/modals/BulkSendToRemoteModal";
+import { getLatestBulkSendJobId } from "../../app/services/send/bulkSendJobs";
 import { toast } from "../../components/feedback/Toast";
 
 export interface AlbumsViewProps {
@@ -331,6 +333,14 @@ export function AlbumsView(props: AlbumsViewProps) {
   const [showTagSelectorModal, setShowTagSelectorModal] = createSignal(false);
   const [tagSelectorAlbumIds, setTagSelectorAlbumIds] = createSignal<string[]>([]);
 
+  // bulk send-to-remote modal state - reopens the latest in-flight job (if
+  // any) instead of re-picking a destination for the current selection,
+  // so the button doubles as both "start a send" and "check on the one
+  // that's already running" (see bulkSendJobs.ts's own doc comment).
+  const [showBulkSendModal, setShowBulkSendModal] = createSignal(false);
+  const [bulkSendAlbumIds, setBulkSendAlbumIds] = createSignal<string[]>([]);
+  const latestBulkSendJobId = getLatestBulkSendJobId();
+
   const triggerEnrichment = (albumIds: string[]) => {
     if (albumIds.length === 0) return;
     const remote = currentRemote();
@@ -580,6 +590,14 @@ export function AlbumsView(props: AlbumsViewProps) {
               setTagSelectorAlbumIds(ids);
               setShowTagSelectorModal(true);
             }}
+            onSendToRemote={() => {
+              if (!latestBulkSendJobId()) {
+                const ids = selectedAlbumIds();
+                if (ids.length === 0) return;
+                setBulkSendAlbumIds(ids);
+              }
+              setShowBulkSendModal(true);
+            }}
             onSkip={() => void skipSelected(selectedAlbumIds())}
             onUnskip={() => void unskipSelected(selectedAlbumIds())}
           />
@@ -621,6 +639,17 @@ export function AlbumsView(props: AlbumsViewProps) {
               queryKey: ["library-albums", r.remote_id],
             });
           }}
+        />
+      </Show>
+
+      <Show when={showBulkSendModal() && !!currentRemote()}>
+        <BulkSendToRemoteModal
+          isOpen={true}
+          onClose={() => setShowBulkSendModal(false)}
+          kind="albums"
+          source={currentRemote()!}
+          albumIds={bulkSendAlbumIds()}
+          jobId={latestBulkSendJobId()}
         />
       </Show>
     </div>

@@ -169,6 +169,24 @@ export default defineConfig({
         "../../client-codegen/freqhole-api-client",
       ],
     },
+    // cross-origin isolation headers - matching skein/loam's vite.config.ts:
+    // without these, the new worker-hosted midden node's WASM init can hang
+    // indefinitely in some browsers. CORP is additionally required for iOS
+    // Safari specifically - it refuses to load the module worker's WASM
+    // through a tunneled (ngrok) origin under COEP without it, even though
+    // the resource is same-origin and desktop Safari tolerates the same
+    // setup without CORP.
+    headers: {
+      "Cross-Origin-Opener-Policy": "same-origin",
+      "Cross-Origin-Embedder-Policy": "require-corp",
+      "Cross-Origin-Resource-Policy": "cross-origin",
+      // intermittent COEP-blocked-worker failures on mobile Safari, even
+      // right after a fresh reload with no server-side change, look like a
+      // stale cached response (from before CORP was added, or across a dev
+      // server restart) winning the race on some loads - a dev server
+      // should never be cached anyway.
+      "Cache-Control": "no-store",
+    },
   },
   plugins: [
     // only include WASM plugins for non-Tauri builds

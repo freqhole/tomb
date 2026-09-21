@@ -15,7 +15,7 @@ import { type AdminClient, type RadioSeedSuggestion } from "@freqhole/api-client
 
 export interface SeedSuggestInputProps {
   client: AdminClient;
-  kind: "tag" | "taxon" | "artist" | "album" | "playlist";
+  kind: "tag" | "taxon" | "artist" | "album" | "playlist" | "video" | "video_series";
   value: string;
   onChange: (v: string) => void;
   placeholder?: string;

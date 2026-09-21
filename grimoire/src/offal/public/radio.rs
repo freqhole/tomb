@@ -117,7 +117,20 @@ pub struct PublicStation {
     /// happens to every known peer either way; this just controls the
     /// per-station auth gate in the iroh handler).
     pub is_public: bool,
+    /// false for an enabled station that hasn't been tuned into yet this
+    /// boot (see `broadcaster::init_registry`'s doc comment - only the
+    /// first N stations up to `max_concurrent_*_streams` auto-start at
+    /// boot, the rest sit enabled-but-cold until someone tunes in, which
+    /// lazily starts them - see `radio::handler::run_session`).
+    /// `listener_count`/`now_playing` are meaningless placeholders while
+    /// this is false.
+    #[serde(default = "default_true")]
+    pub is_running: bool,
     pub now_playing: PublicNowPlaying,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 /// the now-playing card without the binary art payload (clients fetch
@@ -129,6 +142,9 @@ pub struct PublicStation {
 /// art fails to encode just return `None`.
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema, Default)]
 pub struct PublicNowPlaying {
+    /// `"song"` | `"video"` - see `radio::playlist::RadioItemKind::as_str`.
+    #[serde(default)]
+    pub kind: String,
     pub song_id: String,
     pub title: String,
     pub artist: Option<String>,
@@ -322,7 +338,9 @@ async fn snapshot_station(
         listener_count: bc.listener_count(),
         is_default: default_id == Some(bc.station_id()),
         is_public,
+        is_running: true,
         now_playing: PublicNowPlaying {
+            kind: np.kind.as_str().to_string(),
             song_id: np.song_id.clone(),
             title: np.title.clone(),
             artist: np.artist.clone(),
@@ -512,6 +530,10 @@ pub async fn info() -> GrimoireResponse<JsonValue> {
             None => None,
         },
     };
+    // anonymous route (`radio_info`, `RouteAuth::Public`) - same rule as
+    // `stations()`: never surface a non-public station to a caller with
+    // no standing on this node.
+    let default_station = default_station.filter(|s| s.is_public);
 
     let resp = RadioInfoResponse {
         enabled: true,
@@ -522,6 +544,22 @@ pub async fn info() -> GrimoireResponse<JsonValue> {
 }
 
 pub async fn stations() -> GrimoireResponse<JsonValue> {
+    build_stations_response(false).await
+}
+
+/// same as [`stations`], but includes non-public stations too - for a
+/// caller whose identity actually resolved (a real HTTP session, or a
+/// registered iroh peer), reached via the `radio_stations_full` route
+/// (`RouteAuth::Authenticated`, see its `ROUTES` entry above) rather than
+/// this module's own anonymous `stations()`. "known peers/members should
+/// see everything" falls out of the ordinary authenticated-route caller
+/// resolution every other domain already uses - no bespoke ACL needed
+/// here.
+pub async fn stations_full() -> GrimoireResponse<JsonValue> {
+    build_stations_response(true).await
+}
+
+async fn build_stations_response(include_private: bool) -> GrimoireResponse<JsonValue> {
     let cfg = crate::radio::config::effective();
     if !cfg.enabled {
         return GrimoireResponse::success(
@@ -537,15 +575,51 @@ pub async fn stations() -> GrimoireResponse<JsonValue> {
     let running = list_running().await;
     let default_id = crate::radio::broadcaster::default_station_id();
     let mut out = Vec::with_capacity(running.len());
+    let mut seen = std::collections::HashSet::with_capacity(running.len());
     for bc in &running {
-        out.push(snapshot_station(bc, default_id).await);
+        seen.insert(bc.station_id().to_string());
+        let snap = snapshot_station(bc, default_id).await;
+        if include_private || snap.is_public {
+            out.push(snap);
+        }
     }
-    // every running station is advertised to every caller. `is_public`
-    // only controls *who can tune in* — peers not in the local peer
-    // list get rejected by the iroh handler when `is_public = 0`. the
-    // discovery surface stays open so peer + non-peer clients alike can
-    // see what stations exist, and ui can render a "peer-only" badge
-    // off the `is_public` field if it wants to.
+    // enabled stations beyond the boot-time `max_concurrent_*_streams`
+    // cutoff never get an auto-started broadcaster (see
+    // `broadcaster::init_registry`) and previously just vanished from
+    // discovery entirely - a station nobody has ever tuned into stays
+    // invisible forever, even though it's enabled and would work fine
+    // once tuned (see `radio::handler::run_session`'s lazy-start). list
+    // them too, as "cold" placeholders, so there's something for a
+    // listener to actually click - the lazy-start in the tune handler
+    // takes it from there.
+    if let Ok(all_stations) = crate::radio::stations::list_stations().await {
+        for s in all_stations {
+            if s.is_enabled == 0 || seen.contains(&s.id) {
+                continue;
+            }
+            if s.is_public == 0 && !include_private {
+                continue;
+            }
+            out.push(PublicStation {
+                station_id: s.id,
+                name: s.name,
+                description: s.description,
+                listener_count: 0,
+                is_default: false,
+                is_public: s.is_public != 0,
+                is_running: false,
+                now_playing: PublicNowPlaying::default(),
+            });
+        }
+    }
+    // `stations()` (anonymous, unauthenticated) only ever advertises
+    // public stations - a non-public station's mere existence/now-playing
+    // metadata is not shown to a caller with no standing on this node.
+    // `stations_full()` (authenticated - real session or known iroh peer)
+    // includes everything; `is_public` there only still controls *who can
+    // tune in* for a peer that DID resolve (the iroh handler independently
+    // re-checks the peer list at connect time regardless of what showed
+    // up in either listing).
 
     let resp = RadioStationsResponse {
         enabled: true,

@@ -1,11 +1,4 @@
-import {
-  createEffect,
-  createSignal,
-  For,
-  onCleanup,
-  onMount,
-  Show,
-} from "solid-js";
+import { createEffect, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { useAdminTransport } from "../admin/context";
 
 interface RadioStation {
@@ -18,8 +11,20 @@ interface RadioStation {
   encode_args: string | null;
   codec: string;
   play_mode: string;
+  content_mode: string; // 'audio_only' | 'audio_or_video' | 'video_only'
+  bumper_frequency_seconds: number | null;
   created_at: number;
   updated_at: number;
+}
+
+interface RadioBumper {
+  id: string;
+  station_id: string;
+  song_id: string | null;
+  video_id: string | null;
+  label: string;
+  weight: number;
+  created_at: number;
 }
 
 interface StationFilter {
@@ -32,14 +37,7 @@ interface StationFilter {
   created_at: number;
 }
 
-const REFERENCE_FILTER_TYPES = [
-  "tag",
-  "taxon",
-  "artist",
-  "album",
-  "playlist",
-  "track",
-] as const;
+const REFERENCE_FILTER_TYPES = ["tag", "taxon", "artist", "album", "playlist", "track"] as const;
 const CRITERIA_FILTER_TYPES = [
   "favorite",
   "rating_gte",
@@ -51,31 +49,58 @@ const CRITERIA_FILTER_TYPES = [
   "added_days_gte",
   "added_days_lte",
 ] as const;
-const FILTER_TYPES = [
-  ...REFERENCE_FILTER_TYPES,
-  ...CRITERIA_FILTER_TYPES,
-] as const;
-type FilterType = (typeof FILTER_TYPES)[number];
+const FILTER_TYPES = [...REFERENCE_FILTER_TYPES, ...CRITERIA_FILTER_TYPES] as const;
 type ReferenceFilterType = (typeof REFERENCE_FILTER_TYPES)[number];
 const FILTER_MODES = ["include", "exclude"];
+
+// radio-station-only video filter types (migrations 081/082) - not
+// offered anywhere outside radio station seeds (no external-storage sync
+// filter-set editor exists in charnel). `video`/`video_series` need a
+// suggest lookup like the other reference types; `all_videos` is a
+// no-value marker (mirrors `favorite`'s shape) - shuffle across every
+// playable video.
+const VIDEO_REFERENCE_FILTER_TYPES = ["video", "video_series"] as const;
+const VIDEO_ONLY_FILTER_TYPES = ["all_videos"] as const;
+const RADIO_FILTER_TYPES = [
+  ...FILTER_TYPES,
+  ...VIDEO_REFERENCE_FILTER_TYPES,
+  ...VIDEO_ONLY_FILTER_TYPES,
+] as const;
+type RadioFilterType = (typeof RADIO_FILTER_TYPES)[number];
+type RadioReferenceFilterType = ReferenceFilterType | (typeof VIDEO_REFERENCE_FILTER_TYPES)[number];
 
 // criteria filters cascade to whole matched albums/artists/playlists (see
 // grimoire's radio/stations/repository.rs) — favorite has no value at
 // all, rating is clamped 1-5, the rest are plain non-negative integers.
-function isReferenceFilterType(t: FilterType): t is ReferenceFilterType {
-  return (REFERENCE_FILTER_TYPES as readonly string[]).includes(t);
+// radio-only counterpart of a plain reference-type check - also matches
+// `video`/`video_series`, which need the same suggest-input treatment as
+// tag/taxon/artist/album/playlist.
+function isRadioReferenceFilterType(t: RadioFilterType): t is RadioReferenceFilterType {
+  return (
+    (REFERENCE_FILTER_TYPES as readonly string[]).includes(t) ||
+    (VIDEO_REFERENCE_FILTER_TYPES as readonly string[]).includes(t)
+  );
 }
 
-function isRatingFilterType(t: FilterType): boolean {
+// filter types that take no value at all (mode + type is the whole
+// clause) - `favorite` (any of the caller's favorited songs/albums/etc.)
+// and `all_videos` (every playable video in the library).
+function isNoValueFilterType(t: RadioFilterType): boolean {
+  return t === "favorite" || t === "all_videos";
+}
+
+function isRatingFilterType(t: RadioFilterType): boolean {
   return t === "rating_gte" || t === "rating_lte";
 }
 
 // friendly label for criteria-type filters, which have no filter_label
 // from the backend (only reference types get a joined name).
 function filterDisplayValue(f: StationFilter): string {
-  switch (f.filter_type as FilterType) {
+  switch (f.filter_type as RadioFilterType) {
     case "favorite":
       return "favorited (any user)";
+    case "all_videos":
+      return "every video in the library";
     case "rating_gte":
       return `rating >= ${f.filter_value}`;
     case "rating_lte":
@@ -93,9 +118,7 @@ function filterDisplayValue(f: StationFilter): string {
     case "added_days_lte":
       return `added at most ${f.filter_value}d ago`;
     default:
-      return f.filter_label && f.filter_label.length > 0
-        ? f.filter_label
-        : f.filter_value;
+      return f.filter_label && f.filter_label.length > 0 ? f.filter_label : f.filter_value;
   }
 }
 
@@ -110,15 +133,13 @@ function stationShallowEqual(a: RadioStation, b: RadioStation): boolean {
     a.encode_args === b.encode_args &&
     a.codec === b.codec &&
     a.play_mode === b.play_mode &&
+    a.content_mode === b.content_mode &&
     a.created_at === b.created_at &&
     a.updated_at === b.updated_at
   );
 }
 
-function mergeStations(
-  previous: RadioStation[],
-  next: RadioStation[],
-): RadioStation[] {
+function mergeStations(previous: RadioStation[], next: RadioStation[]): RadioStation[] {
   const prevById = new Map(previous.map((s) => [s.id, s] as const));
   return next.map((incoming) => {
     const prev = prevById.get(incoming.id);
@@ -144,6 +165,14 @@ export default function RadioView() {
   const [isEnabled, setIsEnabled] = createSignal(true);
   const [playMode, setPlayMode] = createSignal("shuffle");
   const [timelineOnly, setTimelineOnly] = createSignal(false);
+  const [contentMode, setContentMode] = createSignal<
+    "audio_only" | "audio_or_video" | "video_only"
+  >("audio_only");
+  // advanced, per-station ffmpeg override - left blank by default so the
+  // station inherits the node-wide `[radio].encode_args`/`.video_codec`
+  // config (see RadioConfigSection) instead of a value baked in here.
+  const [encodeArgs, setEncodeArgs] = createSignal("");
+  const [codec, setCodec] = createSignal("");
   const [creating, setCreating] = createSignal(false);
 
   // per-station seed editor
@@ -193,10 +222,7 @@ export default function RadioView() {
     try {
       const [result, cfg] = await Promise.all([
         admin.dispatchOrThrow<RadioStation[]>("radio_stations_list", undefined),
-        admin.dispatchOrThrow<RadioConfigPayload>(
-          "radio_config_get",
-          undefined,
-        ),
+        admin.dispatchOrThrow<RadioConfigPayload>("radio_config_get", undefined),
       ]);
       const nextStations = result ?? [];
       setStations((prev) => mergeStations(prev, nextStations));
@@ -330,6 +356,9 @@ export default function RadioView() {
         is_enabled: isEnabled(),
         play_mode: playMode(),
         timeline_only_mode: ffmpegAvailable() ? timelineOnly() : true,
+        content_mode: contentMode(),
+        encode_args: encodeArgs().trim() || undefined,
+        codec: codec().trim() || undefined,
       });
       // reset form
       setName("");
@@ -338,6 +367,9 @@ export default function RadioView() {
       setIsEnabled(true);
       setPlayMode("shuffle");
       setTimelineOnly(!ffmpegAvailable());
+      setContentMode("audio_only");
+      setEncodeArgs("");
+      setCodec("");
       setShowCreate(false);
       await loadStations();
     } catch (e) {
@@ -359,10 +391,7 @@ export default function RadioView() {
         <p class="error">{error()}</p>
       </Show>
 
-      <RadioConfigSection
-        dispatch={admin.dispatchOrThrow}
-        onEnabledChange={setRadioEnabled}
-      />
+      <RadioConfigSection dispatch={admin.dispatchOrThrow} onEnabledChange={setRadioEnabled} />
 
       {/* stations section */}
       <Show
@@ -415,10 +444,7 @@ export default function RadioView() {
                   />
                 </label>
               </div>
-              <div
-                class="form-row"
-                style={{ display: "flex", gap: "1.5rem", "flex-wrap": "wrap" }}
-              >
+              <div class="form-row" style={{ display: "flex", gap: "1.5rem", "flex-wrap": "wrap" }}>
                 <label
                   style={{
                     display: "flex",
@@ -455,10 +481,7 @@ export default function RadioView() {
                   }}
                 >
                   <span>play mode</span>
-                  <select
-                    value={playMode()}
-                    onChange={(e) => setPlayMode(e.currentTarget.value)}
-                  >
+                  <select value={playMode()} onChange={(e) => setPlayMode(e.currentTarget.value)}>
                     <option value="shuffle">shuffle</option>
                     <option value="album">album</option>
                   </select>
@@ -476,23 +499,75 @@ export default function RadioView() {
                     onChange={(e) => setTimelineOnly(!e.currentTarget.checked)}
                     disabled={!ffmpegAvailable()}
                   />
-                  <span>
-                    ffmpeg chunk mode (uncheck for timeline-only mode)
-                  </span>
+                  <span>ffmpeg chunk mode (uncheck for timeline-only mode)</span>
+                </label>
+                <label
+                  style={{
+                    display: "flex",
+                    gap: "0.5rem",
+                    "align-items": "center",
+                  }}
+                >
+                  <span>content</span>
+                  <select
+                    value={contentMode()}
+                    onChange={(e) =>
+                      setContentMode(
+                        e.currentTarget.value as "audio_only" | "audio_or_video" | "video_only",
+                      )
+                    }
+                  >
+                    <option value="audio_only">audio only</option>
+                    <option value="audio_or_video">audio + video</option>
+                    <option value="video_only">video only</option>
+                  </select>
                 </label>
               </div>
               <Show when={!ffmpegAvailable()}>
                 <p class="item-meta">
-                  ffmpeg is not installed on this node; stations will run in
-                  timeline-only mode.
+                  ffmpeg is not installed on this node; stations will run in timeline-only mode.
                 </p>
               </Show>
-              <div class="form-row" style={{ display: "flex", gap: "0.5rem" }}>
-                <button
-                  type="submit"
-                  class="primary small"
-                  disabled={creating()}
+              <details class="card">
+                <summary style={{ cursor: "pointer" }}>
+                  advanced: per-station ffmpeg override
+                </summary>
+                <div
+                  style={{
+                    display: "flex",
+                    "flex-direction": "column",
+                    gap: "0.6rem",
+                    "margin-top": "0.6rem",
+                  }}
                 >
+                  <p class="item-meta">
+                    leave blank to use this node's <code>[radio]</code> config defaults (see "radio
+                    config" above) - a video-capable content mode already gets a video-carrying
+                    encode from there automatically. only set these if THIS station specifically
+                    needs a different ffmpeg encode or codec than the node default.
+                  </p>
+                  <label>
+                    <span class="label">codec (MSE SourceBuffer mime type)</span>
+                    <input
+                      type="text"
+                      value={codec()}
+                      onInput={(e) => setCodec(e.currentTarget.value)}
+                      placeholder="(inherit from node config)"
+                    />
+                  </label>
+                  <label>
+                    <span class="label">encode args (ffmpeg, {"{input}"} placeholder)</span>
+                    <textarea
+                      rows={3}
+                      value={encodeArgs()}
+                      onInput={(e) => setEncodeArgs(e.currentTarget.value)}
+                      placeholder="(inherit from node config)"
+                    />
+                  </label>
+                </div>
+              </details>
+              <div class="form-row" style={{ display: "flex", gap: "0.5rem" }}>
+                <button type="submit" class="primary small" disabled={creating()}>
                   {creating() ? "creating..." : "create station"}
                 </button>
                 <button
@@ -552,10 +627,7 @@ export default function RadioView() {
                           <>
                             <strong>{s.name}</strong>
                             <Show when={s.description}>
-                              <span
-                                class="item-meta"
-                                style={{ "font-size": "0.8rem" }}
-                              >
+                              <span class="item-meta" style={{ "font-size": "0.8rem" }}>
                                 {s.description}
                               </span>
                             </Show>
@@ -585,9 +657,7 @@ export default function RadioView() {
                         <input
                           type="text"
                           value={editDescription()}
-                          onInput={(e) =>
-                            setEditDescription(e.currentTarget.value)
-                          }
+                          onInput={(e) => setEditDescription(e.currentTarget.value)}
                           placeholder="description (optional)"
                           style={{ flex: "2 1 16rem" }}
                           disabled={savingId() === s.id}
@@ -620,9 +690,7 @@ export default function RadioView() {
                       }}
                     >
                       <button
-                        class={
-                          s.is_public ? "primary small" : "secondary small"
-                        }
+                        class={s.is_public ? "primary small" : "secondary small"}
                         onClick={() => togglePublic(s)}
                         disabled={savingId() === s.id}
                         title={s.is_public ? "make private" : "make public"}
@@ -630,31 +698,23 @@ export default function RadioView() {
                         {s.is_public ? "public" : "private"}
                       </button>
                       <button
-                        class={
-                          s.is_enabled ? "primary small" : "secondary small"
-                        }
+                        class={s.is_enabled ? "primary small" : "secondary small"}
                         onClick={() => toggleEnabled(s)}
                         disabled={savingId() === s.id}
-                        title={
-                          s.is_enabled ? "disable station" : "enable station"
-                        }
+                        title={s.is_enabled ? "disable station" : "enable station"}
                       >
                         {s.is_enabled ? "enabled" : "disabled"}
                       </button>
                       <button
-                        class={
-                          !s.timeline_only_mode
-                            ? "primary small"
-                            : "secondary small"
-                        }
+                        class={!s.timeline_only_mode ? "primary small" : "secondary small"}
                         onClick={() => toggleTimelineOnly(s)}
                         disabled={savingId() === s.id}
                         title={
                           !ffmpegAvailable()
                             ? "ffmpeg is unavailable on this node"
                             : s.timeline_only_mode
-                            ? "switch to ffmpeg chunk streaming"
-                            : "switch to timeline-only mode (no ffmpeg)"
+                              ? "switch to ffmpeg chunk streaming"
+                              : "switch to timeline-only mode (no ffmpeg)"
                         }
                       >
                         ffmpeg
@@ -666,13 +726,10 @@ export default function RadioView() {
                         onChange={async (e) => {
                           setSavingId(s.id);
                           try {
-                            await admin.dispatchOrThrow(
-                              "radio_stations_update",
-                              {
-                                id: s.id,
-                                play_mode: e.currentTarget.value,
-                              },
-                            );
+                            await admin.dispatchOrThrow("radio_stations_update", {
+                              id: s.id,
+                              play_mode: e.currentTarget.value,
+                            });
                             await loadStations();
                           } catch (err) {
                             setError(String(err));
@@ -683,6 +740,30 @@ export default function RadioView() {
                       >
                         <option value="shuffle">shuffle</option>
                         <option value="album">album</option>
+                      </select>
+                      <select
+                        style={{ "font-size": "0.78rem" }}
+                        value={s.content_mode || "audio_only"}
+                        disabled={savingId() === s.id}
+                        title="content mode"
+                        onChange={async (e) => {
+                          setSavingId(s.id);
+                          try {
+                            await admin.dispatchOrThrow("radio_stations_update", {
+                              id: s.id,
+                              content_mode: e.currentTarget.value,
+                            });
+                            await loadStations();
+                          } catch (err) {
+                            setError(String(err));
+                          } finally {
+                            setSavingId(null);
+                          }
+                        }}
+                      >
+                        <option value="audio_only">audio only</option>
+                        <option value="audio_or_video">audio + video</option>
+                        <option value="video_only">video only</option>
                       </select>
                       <button
                         class="danger small"
@@ -698,18 +779,25 @@ export default function RadioView() {
                       <button
                         class="secondary small"
                         style={{ "font-size": "0.72rem", opacity: "0.75" }}
-                        onClick={() =>
-                          setExpandedId((cur) => (cur === s.id ? null : s.id))
-                        }
+                        onClick={() => setExpandedId((cur) => (cur === s.id ? null : s.id))}
                       >
                         {expandedId() === s.id ? "▴ hide seed" : "▾ edit seed"}
                       </button>
                     </div>
                   </div>
                   <Show when={expandedId() === s.id}>
-                    <StationSeedEditor
+                    <StationSeedEditor stationId={s.id} dispatch={admin.dispatchOrThrow} />
+                    <StationBumperEditor
                       stationId={s.id}
                       dispatch={admin.dispatchOrThrow}
+                      frequencySeconds={s.bumper_frequency_seconds}
+                    />
+                    <StationEncodeOverrideEditor
+                      stationId={s.id}
+                      dispatch={admin.dispatchOrThrow}
+                      encodeArgs={s.encode_args ?? ""}
+                      codec={s.codec}
+                      onSaved={() => loadStations()}
                     />
                   </Show>
                 </>
@@ -736,7 +824,7 @@ function StationSeedEditor(props: StationSeedEditorProps) {
   const [busy, setBusy] = createSignal(false);
 
   // add-filter form
-  const [fType, setFType] = createSignal<FilterType>("tag");
+  const [fType, setFType] = createSignal<RadioFilterType>("tag");
   const [fValue, setFValue] = createSignal("");
   const [fMode, setFMode] = createSignal("include");
 
@@ -763,7 +851,7 @@ function StationSeedEditor(props: StationSeedEditorProps) {
 
   async function addFilter(e: Event) {
     e.preventDefault();
-    if (fType() !== "favorite" && !fValue().trim()) {
+    if (!isNoValueFilterType(fType()) && !fValue().trim()) {
       setError("filter value required");
       return;
     }
@@ -773,7 +861,7 @@ function StationSeedEditor(props: StationSeedEditorProps) {
       await props.dispatch("radio_filters_add", {
         station_id: props.stationId,
         filter_type: fType(),
-        filter_value: fType() === "favorite" ? "" : fValue().trim(),
+        filter_value: isNoValueFilterType(fType()) ? "" : fValue().trim(),
         mode: fMode(),
       });
       setFValue("");
@@ -868,10 +956,7 @@ function StationSeedEditor(props: StationSeedEditorProps) {
             )}
           </For>
           <Show when={filters().length === 0}>
-            <p
-              class="item-meta"
-              style={{ margin: "0.25rem 0", "font-size": "0.78rem" }}
-            >
+            <p class="item-meta" style={{ margin: "0.25rem 0", "font-size": "0.78rem" }}>
               no filters
             </p>
           </Show>
@@ -891,36 +976,35 @@ function StationSeedEditor(props: StationSeedEditorProps) {
             onChange={(e) => setFMode(e.currentTarget.value)}
             style={{ "font-size": "0.8rem" }}
           >
-            <For each={FILTER_MODES}>
-              {(m) => <option value={m}>{m}</option>}
-            </For>
+            <For each={FILTER_MODES}>{(m) => <option value={m}>{m}</option>}</For>
           </select>
           <select
             value={fType()}
             onChange={(e) => {
-              setFType(e.currentTarget.value as FilterType);
+              setFType(e.currentTarget.value as RadioFilterType);
               setFValue("");
             }}
             style={{ "font-size": "0.8rem" }}
           >
             <optgroup label="reference">
-              <For each={REFERENCE_FILTER_TYPES}>
-                {(t) => <option value={t}>{t}</option>}
-              </For>
+              <For each={REFERENCE_FILTER_TYPES}>{(t) => <option value={t}>{t}</option>}</For>
+              <For each={VIDEO_REFERENCE_FILTER_TYPES}>{(t) => <option value={t}>{t}</option>}</For>
+            </optgroup>
+            <optgroup label="video library">
+              <For each={VIDEO_ONLY_FILTER_TYPES}>{(t) => <option value={t}>{t}</option>}</For>
             </optgroup>
             <optgroup label="criteria (any user)">
-              <For each={CRITERIA_FILTER_TYPES}>
-                {(t) => <option value={t}>{t}</option>}
-              </For>
+              <For each={CRITERIA_FILTER_TYPES}>{(t) => <option value={t}>{t}</option>}</For>
             </optgroup>
           </select>
-          <Show when={isReferenceFilterType(fType())}>
+          <Show when={isRadioReferenceFilterType(fType())}>
             <Show
               when={fType() === "track"}
               fallback={
                 <SeedSuggestInput
                   kind={
-                    fType() as "tag" | "taxon" | "artist" | "album" | "playlist"
+                    fType() as
+                      "tag" | "taxon" | "artist" | "album" | "playlist" | "video" | "video_series"
                   }
                   value={fValue()}
                   onChange={setFValue}
@@ -929,21 +1013,15 @@ function StationSeedEditor(props: StationSeedEditorProps) {
                 />
               }
             >
-              <SongSuggestInput
-                value={fValue()}
-                onChange={setFValue}
-                dispatch={props.dispatch}
-              />
+              <SongSuggestInput value={fValue()} onChange={setFValue} dispatch={props.dispatch} />
             </Show>
           </Show>
-          <Show when={fType() === "favorite"}>
+          <Show when={isNoValueFilterType(fType())}>
             <span class="item-meta" style={{ "font-size": "0.75rem" }}>
               no value needed
             </span>
           </Show>
-          <Show
-            when={!isReferenceFilterType(fType()) && fType() !== "favorite"}
-          >
+          <Show when={!isRadioReferenceFilterType(fType()) && !isNoValueFilterType(fType())}>
             <input
               type="number"
               min={isRatingFilterType(fType()) ? 1 : 0}
@@ -964,6 +1042,343 @@ function StationSeedEditor(props: StationSeedEditorProps) {
   );
 }
 
+interface StationBumperEditorProps {
+  stationId: string;
+  dispatch: Dispatch;
+  frequencySeconds: number | null;
+}
+
+function StationBumperEditor(props: StationBumperEditorProps) {
+  const [bumpers, setBumpers] = createSignal<RadioBumper[]>([]);
+  const [loading, setLoading] = createSignal(true);
+  const [error, setError] = createSignal("");
+  const [busy, setBusy] = createSignal(false);
+
+  const [bKind, setBKind] = createSignal<"song" | "video">("song");
+  const [bValue, setBValue] = createSignal("");
+  const [bLabel, setBLabel] = createSignal("");
+  const [bWeight, setBWeight] = createSignal(1);
+  const [freq, setFreq] = createSignal(props.frequencySeconds?.toString() ?? "");
+  const [freqBusy, setFreqBusy] = createSignal(false);
+
+  createEffect(() => {
+    void props.stationId;
+    void load();
+  });
+
+  async function load() {
+    setLoading(true);
+    setError("");
+    try {
+      const bs = await props.dispatch<RadioBumper[]>("radio_bumpers_list", {
+        station_id: props.stationId,
+      });
+      setBumpers(bs ?? []);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function addBumper(e: Event) {
+    e.preventDefault();
+    if (!bValue().trim()) {
+      setError(`pick a ${bKind()} for this bumper`);
+      return;
+    }
+    if (!bLabel().trim()) {
+      setError("bumper label required");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      await props.dispatch("radio_bumpers_add", {
+        station_id: props.stationId,
+        song_id: bKind() === "song" ? bValue().trim() : null,
+        video_id: bKind() === "video" ? bValue().trim() : null,
+        label: bLabel().trim(),
+        weight: bWeight(),
+      });
+      setBValue("");
+      setBLabel("");
+      setBWeight(1);
+      await load();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function removeBumper(bumperId: string) {
+    setBusy(true);
+    setError("");
+    try {
+      await props.dispatch("radio_bumpers_remove", { bumper_id: bumperId });
+      await load();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveFrequency(e: Event) {
+    e.preventDefault();
+    setFreqBusy(true);
+    setError("");
+    try {
+      const trimmed = freq().trim();
+      const frequency_seconds = trimmed === "" ? null : Number(trimmed);
+      await props.dispatch("radio_bumpers_set_frequency", {
+        station_id: props.stationId,
+        frequency_seconds,
+      });
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setFreqBusy(false);
+    }
+  }
+
+  return (
+    <div
+      class="card"
+      style={{
+        "margin-bottom": "0.5rem",
+        "border-left": "3px solid #bd5f8f",
+        padding: "0.75rem",
+      }}
+    >
+      <Show when={error()}>
+        <p class="error" style={{ "margin-top": 0 }}>
+          {error()}
+        </p>
+      </Show>
+      <Show when={loading()}>
+        <p class="item-meta">loading bumpers...</p>
+      </Show>
+      <Show when={!loading()}>
+        <form
+          onSubmit={saveFrequency}
+          style={{
+            display: "flex",
+            gap: "0.4rem",
+            "align-items": "flex-end",
+            "margin-bottom": "0.6rem",
+          }}
+        >
+          <label style={{ display: "flex", "flex-direction": "column", gap: "0.2rem" }}>
+            <span class="item-meta" style={{ "font-size": "0.72rem" }}>
+              play a bumper every N seconds (blank = off)
+            </span>
+            <input
+              type="number"
+              min="0"
+              value={freq()}
+              onInput={(e) => setFreq(e.currentTarget.value)}
+              style={{ "font-size": "0.8rem", width: "8rem" }}
+            />
+          </label>
+          <button type="submit" class="primary small" disabled={freqBusy()}>
+            save cadence
+          </button>
+        </form>
+
+        <div style={{ "margin-bottom": "0.5rem" }}>
+          <For each={bumpers()}>
+            {(b) => (
+              <div
+                style={{
+                  display: "flex",
+                  "align-items": "center",
+                  gap: "0.4rem",
+                  padding: "0.2rem 0",
+                  "border-bottom": "1px solid #222",
+                }}
+              >
+                <span
+                  class="badge"
+                  style={{
+                    background: b.video_id ? "#4a3a7a" : "#1f4f6f",
+                    color: b.video_id ? "#c7b8ff" : "#a7d5e8",
+                    "font-size": "0.7rem",
+                    padding: "0.1rem 0.35rem",
+                  }}
+                >
+                  {b.video_id ? "video" : "song"}
+                </span>
+                <span style={{ "font-size": "0.78rem", flex: "1" }}>{b.label}</span>
+                <span class="item-meta" style={{ "font-size": "0.72rem" }}>
+                  weight {b.weight}
+                </span>
+                <button
+                  class="danger small"
+                  style={{ padding: "0.1rem 0.4rem", "font-size": "0.75rem" }}
+                  onClick={() => removeBumper(b.id)}
+                  disabled={busy()}
+                >
+                  ×
+                </button>
+              </div>
+            )}
+          </For>
+          <Show when={bumpers().length === 0}>
+            <p class="item-meta" style={{ margin: "0.25rem 0", "font-size": "0.78rem" }}>
+              no bumpers
+            </p>
+          </Show>
+        </div>
+
+        <form
+          onSubmit={addBumper}
+          style={{
+            display: "flex",
+            gap: "0.35rem",
+            "flex-wrap": "wrap",
+            "align-items": "flex-end",
+          }}
+        >
+          <select
+            value={bKind()}
+            onChange={(e) => {
+              setBKind(e.currentTarget.value as "song" | "video");
+              setBValue("");
+            }}
+            style={{ "font-size": "0.8rem" }}
+          >
+            <option value="song">song</option>
+            <option value="video">video</option>
+          </select>
+          <Show
+            when={bKind() === "song"}
+            fallback={
+              <SeedSuggestInput
+                kind="video"
+                value={bValue()}
+                onChange={setBValue}
+                dispatch={props.dispatch}
+                placeholder="video title"
+              />
+            }
+          >
+            <SongSuggestInput value={bValue()} onChange={setBValue} dispatch={props.dispatch} />
+          </Show>
+          <input
+            type="text"
+            placeholder="label (e.g. station id)"
+            value={bLabel()}
+            onInput={(e) => setBLabel(e.currentTarget.value)}
+            style={{ "font-size": "0.8rem" }}
+          />
+          <input
+            type="number"
+            min="1"
+            title="weight (higher = picked more often)"
+            value={bWeight()}
+            onInput={(e) => setBWeight(e.currentTarget.valueAsNumber || 1)}
+            style={{ "font-size": "0.8rem", width: "4rem" }}
+          />
+          <button type="submit" class="primary small" disabled={busy()}>
+            + add bumper
+          </button>
+        </form>
+      </Show>
+    </div>
+  );
+}
+
+interface StationEncodeOverrideEditorProps {
+  stationId: string;
+  dispatch: Dispatch;
+  encodeArgs: string;
+  codec: string;
+  onSaved: () => void | Promise<void>;
+}
+
+// per-station ffmpeg override (codec + encode args) - see
+// `RadioStation.encode_args`'s doc comment in grimoire for why the
+// override is nullable but "clear" from this form sends an empty
+// string (the only way `radio_stations_update`'s COALESCE can revert
+// it to the node-wide default).
+function StationEncodeOverrideEditor(props: StationEncodeOverrideEditorProps) {
+  const [encodeArgs, setEncodeArgs] = createSignal(props.encodeArgs);
+  const [codec, setCodec] = createSignal(props.codec);
+  const [busy, setBusy] = createSignal(false);
+  const [error, setError] = createSignal("");
+
+  async function save(e: Event) {
+    e.preventDefault();
+    if (!codec().trim()) {
+      setError("codec is required (station playback breaks without one)");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      await props.dispatch("radio_stations_update", {
+        id: props.stationId,
+        encode_args: encodeArgs().trim(),
+        codec: codec().trim(),
+      });
+      await props.onSaved();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div
+      class="card"
+      style={{
+        "margin-bottom": "0.5rem",
+        "border-left": "3px solid #bd5f8f",
+        padding: "0.75rem",
+      }}
+    >
+      <p class="item-meta" style={{ "margin-top": 0 }}>
+        per-station ffmpeg override - leave "encode args" blank to inherit this node's default for
+        this station's content mode (see "radio config" above).
+      </p>
+      <Show when={error()}>
+        <p class="error" style={{ "margin-top": 0 }}>
+          {error()}
+        </p>
+      </Show>
+      <form onSubmit={save} style={{ display: "flex", "flex-direction": "column", gap: "0.5rem" }}>
+        <label>
+          <span class="label">codec (MSE SourceBuffer mime type)</span>
+          <input
+            type="text"
+            value={codec()}
+            onInput={(e) => setCodec(e.currentTarget.value)}
+            disabled={busy()}
+          />
+        </label>
+        <label>
+          <span class="label">encode args (ffmpeg, {"{input}"} placeholder)</span>
+          <textarea
+            rows={3}
+            value={encodeArgs()}
+            onInput={(e) => setEncodeArgs(e.currentTarget.value)}
+            placeholder="(inherit from node config)"
+            disabled={busy()}
+          />
+        </label>
+        <div>
+          <button type="submit" class="primary small" disabled={busy()}>
+            {busy() ? "saving..." : "save"}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
 // ------------------------------------------------------------------
 // seed value autocomplete helpers (mirror of spume RadioAdminView)
 // ------------------------------------------------------------------
@@ -979,7 +1394,7 @@ interface RadioSeedSuggestion {
 }
 
 interface SeedSuggestInputProps {
-  kind: "tag" | "taxon" | "artist" | "album" | "playlist";
+  kind: "tag" | "taxon" | "artist" | "album" | "playlist" | "video" | "video_series";
   value: string;
   onChange: (v: string) => void;
   dispatch: Dispatch;
@@ -1006,10 +1421,11 @@ function SeedSuggestInput(props: SeedSuggestInputProps) {
     }
     timer = window.setTimeout(async () => {
       try {
-        const data = await props.dispatch<RadioSeedSuggestion[]>(
-          "radio_seed_suggest",
-          { kind: props.kind, query: q.trim(), limit: 15 },
-        );
+        const data = await props.dispatch<RadioSeedSuggestion[]>("radio_seed_suggest", {
+          kind: props.kind,
+          query: q.trim(),
+          limit: 15,
+        });
         setItems(data ?? []);
       } catch {
         setItems([]);
@@ -1050,9 +1466,7 @@ function SeedSuggestInput(props: SeedSuggestInputProps) {
         onFocus={(e) => fetchSuggestions(e.currentTarget.value)}
       />
       <datalist id={listId}>
-        <For each={items()}>
-          {(it) => <option value={it.name}>{it.subtitle ?? ""}</option>}
-        </For>
+        <For each={items()}>{(it) => <option value={it.name}>{it.subtitle ?? ""}</option>}</For>
       </datalist>
     </>
   );
@@ -1082,10 +1496,11 @@ function SongSuggestInput(props: SongSuggestInputProps) {
     }
     timer = window.setTimeout(async () => {
       try {
-        const data = await props.dispatch<RadioSeedSuggestion[]>(
-          "radio_seed_suggest",
-          { kind: "song", query: q.trim(), limit: 15 },
-        );
+        const data = await props.dispatch<RadioSeedSuggestion[]>("radio_seed_suggest", {
+          kind: "song",
+          query: q.trim(),
+          limit: 15,
+        });
         setItems(data ?? []);
       } catch {
         setItems([]);
@@ -1119,9 +1534,7 @@ function SongSuggestInput(props: SongSuggestInputProps) {
         onFocus={(e) => fetchSuggestions(e.currentTarget.value)}
       />
       <datalist id={listId}>
-        <For each={items()}>
-          {(it) => <option value={it.name}>{it.subtitle ?? ""}</option>}
-        </For>
+        <For each={items()}>{(it) => <option value={it.name}>{it.subtitle ?? ""}</option>}</For>
       </datalist>
     </>
   );
@@ -1133,8 +1546,12 @@ function SongSuggestInput(props: SongSuggestInputProps) {
 
 interface RadioConfigPayload {
   enabled: boolean;
-  encode_args: string;
+  encode_args?: string;
+  video_encode_args?: string;
+  video_codec?: string;
   ffmpeg_available?: boolean;
+  max_concurrent_audio_streams?: number;
+  max_concurrent_video_streams?: number;
 }
 
 interface RadioConfigSectionProps {
@@ -1144,22 +1561,44 @@ interface RadioConfigSectionProps {
 
 function RadioConfigSection(props: RadioConfigSectionProps) {
   const [enabled, setEnabled] = createSignal(false);
-  // loaded silently — still passed through on toggle so encode_args isn't lost
   const [encodeArgs, setEncodeArgs] = createSignal("");
+  const [videoEncodeArgs, setVideoEncodeArgs] = createSignal("");
+  const [videoCodec, setVideoCodec] = createSignal("");
+  // last-loaded values, so a save only sends an encode-arg field the
+  // operator actually edited - otherwise every save (even just toggling
+  // "enabled" or a concurrency limit) would re-freeze whatever's
+  // currently displayed (often just the live default) as a literal toml
+  // override, permanently opting the field out of future default fixes.
+  const [loadedEncodeArgs, setLoadedEncodeArgs] = createSignal("");
+  const [loadedVideoEncodeArgs, setLoadedVideoEncodeArgs] = createSignal("");
+  const [loadedVideoCodec, setLoadedVideoCodec] = createSignal("");
+  const [maxConcurrentAudioStreams, setMaxConcurrentAudioStreams] = createSignal(2);
+  const [maxConcurrentVideoStreams, setMaxConcurrentVideoStreams] = createSignal(1);
   const [loading, setLoading] = createSignal(true);
   const [busy, setBusy] = createSignal(false);
   const [err, setErr] = createSignal("");
+
+  // `undefined` unless the field differs from what was last loaded (and
+  // isn't blank) - see the field-tracking comment above.
+  function dirtyOrUndefined(current: string, loaded: string): string | undefined {
+    const trimmed = current.trim();
+    return trimmed !== "" && trimmed !== loaded ? trimmed : undefined;
+  }
 
   async function load() {
     setLoading(true);
     setErr("");
     try {
-      const cfg = await props.dispatch<RadioConfigPayload>(
-        "radio_config_get",
-        undefined,
-      );
+      const cfg = await props.dispatch<RadioConfigPayload>("radio_config_get", undefined);
       setEnabled(cfg.enabled);
-      setEncodeArgs(cfg.encode_args);
+      setEncodeArgs(cfg.encode_args ?? "");
+      setVideoEncodeArgs(cfg.video_encode_args ?? "");
+      setVideoCodec(cfg.video_codec ?? "");
+      setLoadedEncodeArgs(cfg.encode_args ?? "");
+      setLoadedVideoEncodeArgs(cfg.video_encode_args ?? "");
+      setLoadedVideoCodec(cfg.video_codec ?? "");
+      setMaxConcurrentAudioStreams(cfg.max_concurrent_audio_streams ?? 2);
+      setMaxConcurrentVideoStreams(cfg.max_concurrent_video_streams ?? 1);
       props.onEnabledChange?.(cfg.enabled);
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
@@ -1173,7 +1612,7 @@ function RadioConfigSection(props: RadioConfigSectionProps) {
   });
 
   // toggling the main switch immediately persists the new value to
-  // freqhole-config.toml. encode_args is passed through unchanged.
+  // freqhole-config.toml. everything else is passed through unchanged.
   async function toggleEnabled(next: boolean) {
     const prev = enabled();
     setEnabled(next);
@@ -1182,7 +1621,11 @@ function RadioConfigSection(props: RadioConfigSectionProps) {
     try {
       await props.dispatch<RadioConfigPayload>("radio_config_set", {
         enabled: next,
-        encode_args: encodeArgs(),
+        encode_args: dirtyOrUndefined(encodeArgs(), loadedEncodeArgs()),
+        video_encode_args: dirtyOrUndefined(videoEncodeArgs(), loadedVideoEncodeArgs()),
+        video_codec: dirtyOrUndefined(videoCodec(), loadedVideoCodec()),
+        max_concurrent_audio_streams: maxConcurrentAudioStreams(),
+        max_concurrent_video_streams: maxConcurrentVideoStreams(),
       });
       props.onEnabledChange?.(next);
       await load();
@@ -1192,6 +1635,28 @@ function RadioConfigSection(props: RadioConfigSectionProps) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
+    }
+  }
+
+  const [savingEncode, setSavingEncode] = createSignal(false);
+  async function saveEncode(e?: Event) {
+    e?.preventDefault();
+    setSavingEncode(true);
+    setErr("");
+    try {
+      await props.dispatch<RadioConfigPayload>("radio_config_set", {
+        enabled: enabled(),
+        encode_args: dirtyOrUndefined(encodeArgs(), loadedEncodeArgs()),
+        video_encode_args: dirtyOrUndefined(videoEncodeArgs(), loadedVideoEncodeArgs()),
+        video_codec: dirtyOrUndefined(videoCodec(), loadedVideoCodec()),
+        max_concurrent_audio_streams: maxConcurrentAudioStreams(),
+        max_concurrent_video_streams: maxConcurrentVideoStreams(),
+      });
+      await load();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSavingEncode(false);
     }
   }
 
@@ -1215,6 +1680,7 @@ function RadioConfigSection(props: RadioConfigSectionProps) {
               display: "flex",
               "align-items": "center",
               gap: "0.5rem",
+              "margin-bottom": "0.6rem",
             }}
           >
             <button
@@ -1226,6 +1692,70 @@ function RadioConfigSection(props: RadioConfigSectionProps) {
               {enabled() ? "radio enabled" : "radio disabled"}
             </button>
           </div>
+          <div style={{ display: "flex", gap: "0.75rem", "margin-bottom": "0.6rem" }}>
+            <label style={{ flex: "1" }}>
+              <span class="label">max concurrent audio streams</span>
+              <input
+                type="number"
+                min="0"
+                value={maxConcurrentAudioStreams()}
+                onInput={(e) => setMaxConcurrentAudioStreams(e.currentTarget.valueAsNumber || 0)}
+                onBlur={() => void saveEncode()}
+              />
+            </label>
+            <label style={{ flex: "1" }}>
+              <span class="label">max concurrent video streams</span>
+              <input
+                type="number"
+                min="0"
+                value={maxConcurrentVideoStreams()}
+                onInput={(e) => setMaxConcurrentVideoStreams(e.currentTarget.valueAsNumber || 0)}
+                onBlur={() => void saveEncode()}
+              />
+            </label>
+          </div>
+          <details>
+            <summary style={{ cursor: "pointer" }}>advanced: node-wide ffmpeg defaults</summary>
+            <form
+              onSubmit={saveEncode}
+              style={{
+                display: "flex",
+                "flex-direction": "column",
+                gap: "0.5rem",
+                "margin-top": "0.6rem",
+              }}
+            >
+              <label>
+                <span class="label">audio encode args (audio_only stations)</span>
+                <textarea
+                  rows={3}
+                  value={encodeArgs()}
+                  onInput={(e) => setEncodeArgs(e.currentTarget.value)}
+                />
+              </label>
+              <label>
+                <span class="label">video encode args (audio_or_video/video_only stations)</span>
+                <textarea
+                  rows={3}
+                  value={videoEncodeArgs()}
+                  onInput={(e) => setVideoEncodeArgs(e.currentTarget.value)}
+                />
+              </label>
+              <label>
+                <span class="label">video codec (MSE SourceBuffer mime type)</span>
+                <input
+                  type="text"
+                  value={videoCodec()}
+                  onInput={(e) => setVideoCodec(e.currentTarget.value)}
+                />
+              </label>
+              <div>
+                <button type="submit" class="primary small" disabled={savingEncode()}>
+                  {savingEncode() ? "saving..." : "save"}
+                </button>
+              </div>
+            </form>
+          </details>
         </div>
       </Show>
     </div>

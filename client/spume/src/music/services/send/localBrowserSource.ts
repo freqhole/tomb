@@ -10,6 +10,15 @@ import type { P2PRemote } from "../../../app/services/storage/schemas/remote";
 
 const LOCAL_BROWSER_SOURCE_REMOTE_ID = "__local_browser_source__";
 
+/** true when `remote` is the synthetic source `getLocalBrowserSourceRemote()`
+ *  returns - i.e. a plain (non-charnel) browser's own local library, not a
+ *  real saved remote. */
+export function isLocalBrowserSourceRemote(
+  remote: { remote_id: string } | null | undefined
+): boolean {
+  return remote?.remote_id === LOCAL_BROWSER_SOURCE_REMOTE_ID;
+}
+
 /** resolves to a `Remote` carrying this browser's own midden node id, so
  * `sendToRemote()` can tell the destination who to pull the audio from.
  * throws if this browser's p2p identity isn't up yet (extremely unlikely

@@ -23,10 +23,12 @@ export function updateSongInCache(
     updates,
   });
 
-  // helper to update song in array if found
+  // helper to update song in array if found - `sha256` may be "" for a
+  // freshly-imported local song; only fall back to it when non-empty so
+  // it can't match every OTHER empty-sha256 song too.
   const updateSongInArray = (songs: Song[]): Song[] => {
     return songs.map((song) =>
-      song.id === songId || song.sha256 === sha256 ? { ...song, ...updates } : song
+      song.id === songId || (!!sha256 && song.sha256 === sha256) ? { ...song, ...updates } : song
     );
   };
 

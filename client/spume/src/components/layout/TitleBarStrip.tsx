@@ -16,6 +16,7 @@ import {
   type P2pStatusResponse,
 } from "../../app/services/charnel/commands";
 import { videoMiniPlayerExpanded } from "../player/VideoMiniPlayer";
+import { chromeButtonsSuppressed } from "../../app/shell/chromeSuppression";
 import { ContextMenu, ClickDropdownMenu, type MenuAction } from "../overlays/ContextMenu";
 import { isNarrowViewport } from "../../config/breakpoints";
 
@@ -267,11 +268,19 @@ export function TitleBarStrip() {
             {/* rounded semi-transparent backdrop so the dots keep contrast
               against light/bright window backgrounds behind the strip.
               linux-chrome buttons get nudged down a few px to line up
-              better with the top nav's own items. */}
+              better with the top nav's own items. hidden (opacity, not
+              unmounted - keeps hover/click geometry stable) whenever some
+              full-bleed overlay (e.g. an expanded video player) asks for
+              an unobstructed view via chromeButtonsSuppressed(); hovering
+              the strip always reveals them regardless, same as the
+              resize-grip's own hover reveal below. */}
             <div
-              class={`flex items-center gap-2 px-[7px] py-[5px] rounded-lg bg-black/40 ${
+              class={`flex items-center gap-2 px-[7px] py-[5px] rounded-lg bg-black/40 transition-opacity ${
                 useLinuxChrome() ? "mt-[4px]" : ""
               }`}
+              classList={{
+                "opacity-0 pointer-events-none": chromeButtonsSuppressed() && !hovered(),
+              }}
             >
               <Show
                 when={useLinuxChrome()}

@@ -3,6 +3,7 @@
 import { createVirtualizer } from "@tanstack/solid-virtual";
 import { createEffect, createMemo, createSignal, on, onCleanup, onMount, Show } from "solid-js";
 import type { Song } from "../../music/data/types";
+import { songIdentityKey } from "../../music/services/storage/types";
 import { formatDuration } from "../../utils/formatDuration";
 import { ContextMenu, type MenuAction } from "../overlays/ContextMenu";
 import { MediaThumbnail } from "../media/MediaThumbnail";
@@ -319,7 +320,7 @@ export function VirtualSongList(props: VirtualSongListProps) {
               const song = props.songs[virtualRow.index];
               if (!song) return null;
 
-              const isPlaying = props.playingSongId === song.sha256;
+              const isPlaying = props.playingSongId === songIdentityKey(song);
               const isHovered = () => hoveredRowIndex() === virtualRow.index;
               const isSelected = () =>
                 props.showSelectionHighlight && props.selectedSongIds?.has(song.id);
@@ -414,7 +415,7 @@ export function VirtualSongList(props: VirtualSongListProps) {
                 const song = props.songs[virtualRow.index];
                 if (!song) return null;
 
-                const isPlaying = props.playingSongId === song.sha256;
+                const isPlaying = props.playingSongId === songIdentityKey(song);
                 const isHovered = () => hoveredRowIndex() === virtualRow.index;
                 const isSelected = () =>
                   props.showSelectionHighlight && props.selectedSongIds?.has(song.id);

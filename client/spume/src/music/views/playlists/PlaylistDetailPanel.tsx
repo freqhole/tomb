@@ -33,7 +33,7 @@ import { ShareButton } from "../../../components/buttons/ShareButton";
 import { EntityLinks } from "../../../components/media/EntityLinks";
 import { showStationSelector } from "../../hooks/stationSelectorState";
 import { showShareModal } from "../../hooks/modals";
-import { createCurrentRemoteFull } from "../../../app/services/remotes/currentRemoteFull";
+import { createShareSourceRemote } from "../../../app/services/remotes/shareSource";
 import type { SendPayload } from "../../services/send/sendToRemote";
 import type { RemoteSong } from "../../data/remote/adapters";
 import { canUpdatePlaylist } from "../../data/permissions";
@@ -124,8 +124,10 @@ export function PlaylistDetailPanel(props: PlaylistDetailPanelProps) {
   // check if viewing remote playlists
   const isViewingRemote = createMemo(() => getCurrentRemote() !== null);
 
-  // current remote (full Remote record) — used as the source for "send to remote".
-  const currentRemoteFull = createCurrentRemoteFull();
+  // current remote (full Remote record) — used as the source for "send to
+  // remote". falls back to this device's own local library when there's
+  // no active remote, so sharing a local playlist works too.
+  const currentRemoteFull = createShareSourceRemote();
 
   // build a SendPayload describing the selected playlist for the flyout.
   const buildPlaylistSendPayload = (): SendPayload => {

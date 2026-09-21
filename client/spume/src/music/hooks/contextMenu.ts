@@ -13,6 +13,7 @@ import { showTagSelector, showShareModal } from "./modals";
 import { albumTagAdapter } from "../../components/modals/tagAdapters/albumTagAdapter";
 import { getDataSource, getCurrentRemote, getRemoteClient } from "../data";
 import { getRemoteById } from "../../app/services/remotes/remoteManager";
+import { resolveShareSourceRemote } from "../../app/services/remotes/shareSource";
 import { isCharnelMode } from "../../app/services/charnel";
 import { RemoteMusicDataSource } from "../data/remote/remoteSource";
 import { isP2PRemote } from "../../app/services/storage/schemas/remote";
@@ -20,6 +21,7 @@ import type { Remote } from "../../app/services/storage/schemas/remote";
 import { useRemovePlaylistItemsMutation } from "../../video/queries/playlistItems";
 import type { ShareTarget } from "../../components/share/types";
 import type { SendPayload } from "../services/send/sendToRemote";
+import type { SendToRemotePayload } from "../../components/share/SendToRemoteSection";
 import type { RemoteSong } from "../data/remote/adapters";
 import type { Song } from "../data/types";
 import type { ImageMetadata } from "../services/storage/types";
@@ -116,25 +118,20 @@ export interface ContextMenuOptions {
  */
 export function createShareMenuAction(
   target: ShareTarget,
-  buildSendPayload?: () => SendPayload | Promise<SendPayload>,
+  buildSendPayload?: () => SendToRemotePayload | Promise<SendToRemotePayload>,
   sourceRemoteId?: string
 ): MenuAction {
   return {
     label: "share...",
     icon: IconNames.share,
     onClick: async () => {
-      let remoteId = sourceRemoteId;
-      if (!remoteId || remoteId === "local") {
-        const info = getCurrentRemote();
-        if (!info) {
-          toast.error("share is only available on a remote");
-          return;
-        }
-        remoteId = info.remote_id;
-      }
-      const remote = await getRemoteById(remoteId);
+      // falls back to this device's own local library (charnel-managed
+      // remote row, or a synthetic browser-node source) when there's no
+      // active remote - sharing local content doesn't require currently
+      // browsing a remote.
+      const remote = await resolveShareSourceRemote(sourceRemoteId);
       if (!remote) {
-        toast.error("could not find remote");
+        toast.error("could not determine a source to share from");
         return;
       }
       showShareModal({

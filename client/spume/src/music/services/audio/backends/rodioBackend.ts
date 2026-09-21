@@ -26,6 +26,7 @@ import { addToLoadingSet, removeFromLoadingSet, isSongOnDiskEphemeral } from "..
 import { fetchEphemeralForSong } from "../ephemeralFetch";
 import { clearExternalMediaSession as bridgeClearExternal } from "../mediaSessionBridge";
 import type { Song } from "../../storage/types";
+import { songIdentityKey } from "../../storage/types";
 import type { MediaItem } from "../../../../app/services/storage/mediaItem";
 import { isMediaLoadCurrent } from "../../../../app/services/media/loadGuard";
 import { debug, error as errorLog } from "../../../../utils/logger";
@@ -109,6 +110,9 @@ export class RodioBackend implements PlayerBackend {
       );
     }
     const song: Song = item.song;
+    // keyed by songIdentityKey, not raw sha256 - two different
+    // freshly-imported local songs can both have sha256 "".
+    const songKey = songIdentityKey(song);
 
     // emit a synthetic loading state so the UI shows a spinner
     // before the rust supervisor has a chance to emit its own state
@@ -120,7 +124,7 @@ export class RodioBackend implements PlayerBackend {
     // remember which song we're trying to start so the dispatcher
     // can clear its loading flag on the first `playing` / `paused` /
     // `progress` event from the rust supervisor (see `dispatch`).
-    this.currentLoadingSha256 = song.sha256;
+    this.currentLoadingSha256 = songKey;
 
     // explicitly reset MediaSession position state for a new track.
     // platforms (especially iOS lock screen) cache the position from
@@ -151,12 +155,12 @@ export class RodioBackend implements PlayerBackend {
     if (song.blake3) {
       try {
         path = await this.resolveLocalPathByBlake3(song.blake3);
-        if (!isMediaLoadCurrent(song.sha256, options?.loadGeneration)) {
+        if (!isMediaLoadCurrent(songKey, options?.loadGeneration)) {
           return;
         }
-        debug("player.rodio", `load: "${song.title}" (${song.sha256.slice(0, 8)}) -> ${path}`);
+        debug("player.rodio", `load: "${song.title}" (${songKey.slice(0, 8)}) -> ${path}`);
         bridgeClearExternal();
-        await setCurrentSong(song.sha256);
+        await setCurrentSong(songKey);
         await this.send({ kind: "load", paths: [path] });
         await this.send({ kind: "play" });
         await this.applyInitialPosition(options);
@@ -240,20 +244,20 @@ export class RodioBackend implements PlayerBackend {
           // light up the queue/playerbar spinner for this song while
           // we fetch. mirrors what other audio fetch paths do (see
           // blobResolver / audioAccess / autoDownload).
-          addToLoadingSet(song.sha256);
+          addToLoadingSet(songKey);
         }
         let fetched;
         try {
           fetched = await fetchEphemeralForSong(song);
         } catch (err) {
-          if (!alreadyOnDisk) removeFromLoadingSet(song.sha256);
+          if (!alreadyOnDisk) removeFromLoadingSet(songKey);
           throw new BackendPlaybackError(
             this.kind,
             "ephemeral_fetch_failed",
             `failed to fetch "${song.title}" ephemerally: ${err instanceof Error ? err.message : String(err)}`
           );
         }
-        if (!alreadyOnDisk) removeFromLoadingSet(song.sha256);
+        if (!alreadyOnDisk) removeFromLoadingSet(songKey);
         path = fetched.path;
 
         // skip the regular `setCurrentSong` + `resolveLocalPath`
@@ -261,10 +265,10 @@ export class RodioBackend implements PlayerBackend {
         // the path. but still bridge the media session + reflect the
         // current song in app state for the UI.
         bridgeClearExternal();
-        await setCurrentSong(song.sha256);
+        await setCurrentSong(songKey);
         debug(
           "player.rodio",
-          `ephemeral load: "${song.title}" (${song.sha256.slice(0, 8)}) -> ${path}`
+          `ephemeral load: "${song.title}" (${songKey.slice(0, 8)}) -> ${path}`
         );
         await this.send({ kind: "load", paths: [path] });
         await this.send({ kind: "play" });
@@ -276,7 +280,7 @@ export class RodioBackend implements PlayerBackend {
       // light up the queue/playerbar spinner. paired with
       // `removeFromLoadingSet` after the sync resolves (success or
       // failure) so the UI never gets stuck.
-      addToLoadingSet(song.sha256);
+      addToLoadingSet(songKey);
       let sync;
       try {
         sync = await syncSongToLocal({
@@ -308,7 +312,7 @@ export class RodioBackend implements PlayerBackend {
           skip_feed_events: song.skip_feed_events,
         });
       } finally {
-        removeFromLoadingSet(song.sha256);
+        removeFromLoadingSet(songKey);
       }
       if (!sync.success) {
         throw new BackendPlaybackError(
@@ -344,8 +348,8 @@ export class RodioBackend implements PlayerBackend {
       }
     }
 
-    if (!isMediaLoadCurrent(song.sha256, options?.loadGeneration)) {
-      debug("player.rodio", `skipping cancelled load for ${song.sha256.slice(0, 8)}`);
+    if (!isMediaLoadCurrent(songKey, options?.loadGeneration)) {
+      debug("player.rodio", `skipping cancelled load for ${songKey.slice(0, 8)}`);
       return;
     }
 
@@ -353,13 +357,13 @@ export class RodioBackend implements PlayerBackend {
     // facade callers expect `setCurrentSong` to land before audio
     // begins so the UI doesn't briefly show the wrong track.
     bridgeClearExternal();
-    await setCurrentSong(song.sha256);
+    await setCurrentSong(songKey);
 
-    if (!isMediaLoadCurrent(song.sha256, options?.loadGeneration)) {
+    if (!isMediaLoadCurrent(songKey, options?.loadGeneration)) {
       return;
     }
 
-    debug("player.rodio", `load: "${song.title}" (${song.sha256.slice(0, 8)}) -> ${path}`);
+    debug("player.rodio", `load: "${song.title}" (${songKey.slice(0, 8)}) -> ${path}`);
 
     await this.send({ kind: "load", paths: [path] });
     await this.send({ kind: "play" });

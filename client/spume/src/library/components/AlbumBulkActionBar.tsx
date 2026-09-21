@@ -30,6 +30,8 @@ interface AlbumBulkActionBarProps {
   onSetDiscNumber?: () => void;
   /** opens the album-tag picker for every selected album. */
   onManageTags?: () => void;
+  /** opens the bulk send-to-remote modal for the selected albums. */
+  onSendToRemote?: () => void;
   /** flip `mb_lookup_status='skipped'` on the selected albums: removes
    *  them from future bulk lookups until explicitly un-skipped. */
   onSkip?: () => void;
@@ -166,6 +168,20 @@ export function AlbumBulkActionBar(props: AlbumBulkActionBarProps) {
             <Icon name="tag" size={11} />
             <Show when={!isNarrow()} fallback="">
               tags
+            </Show>
+          </button>
+        </Show>
+
+        <Show when={props.onSendToRemote}>
+          <button
+            type="button"
+            onClick={() => props.onSendToRemote?.()}
+            class="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded border border-[var(--color-border-default)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] cursor-pointer bg-transparent whitespace-nowrap"
+            title="send the selected albums to another remote"
+          >
+            <Icon name="recent" size={11} />
+            <Show when={!isNarrow()} fallback="">
+              send to remote
             </Show>
           </button>
         </Show>

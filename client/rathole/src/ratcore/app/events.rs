@@ -830,6 +830,17 @@ pub enum AppAction {
         track_title: Option<String>,
         track_artist: Option<String>,
     },
+    /// pushed by the running radio session (`tty::radio`) at each
+    /// connect milestone before the first audio chunk arrives
+    /// (\"connecting to peer\u2026\", \"connecting to broadcaster\u2026\",
+    /// \"waiting for stream data\u2026\") - mirrors spume's own
+    /// `radioConnectPhase` signal, since the tty has no MSE-style
+    /// loading indicator of its own. drives `RadioPlaybackState::
+    /// connect_phase` and the repl status line. `None` clears the
+    /// phase (sent once the first chunk starts flowing into mpv)
+    /// without touching the repl status, which by then already shows
+    /// the now-playing line from `RadioStatusUpdate`.
+    RadioConnectPhase(Option<String>),
     /// the running radio session ended - cleanly (`error: None`, e.g.
     /// the broadcaster closed the connection) or with a real failure
     /// (connect error, protocol error, mpv error). a stale session

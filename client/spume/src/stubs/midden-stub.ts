@@ -40,4 +40,17 @@ export class MiddenNodeOptions {
   extra_alpns?: string[];
   opfs_store_dir?: string;
   secret_key?: Uint8Array;
+  relay_urls?: string[];
+  relay_custom_only?: boolean;
+}
+
+// stub for middenWorker.ts's download pause/cancel tokens - never
+// constructed for real (the worker entry never runs in Tauri builds), just
+// needs to satisfy the import so rollup can bundle the worker chunk.
+export class CancelToken {
+  cancel(): void {}
+  clone_token(): CancelToken {
+    return new CancelToken();
+  }
+  free(): void {}
 }

@@ -34,6 +34,20 @@ export interface MiddenWorkerIdentity {
   secretKey: Uint8Array;
 }
 
+/** optional per-instance startup config an embedding app's worker entry may
+ *  read during `init`. none of these fields are interpreted by this
+ *  package itself - the entry decides what, if anything, to do with them
+ *  (e.g. spume's worker merges extraAlpns into its own hardcoded ALPN
+ *  list, and sets relay_urls/relay_custom_only on MiddenNodeOptions when
+ *  given). this just gives the client a typed way to pass through
+ *  instance-specific config without baking any particular app's shape
+ *  into the shared contract. */
+export interface MiddenWorkerInitOptions {
+  relayUrls?: string[];
+  relayCustomOnly?: boolean;
+  extraAlpns?: string[];
+}
+
 /** one outgoing blob transfer in flight on the worker-hosted node - same
  *  shape as a raw wasm MiddenNode's `get_active_transfers()`
  *  (`{peerId, blake3, bytesSent, totalSize}`, see midden/src/transfers.rs). */
@@ -57,7 +71,10 @@ export interface WorkerActiveTransfer {
  */
 export interface MiddenWorkerApi {
   /** create the node (restoring from a persisted secret key when given). */
-  init(secretKey: Uint8Array | null): Promise<MiddenWorkerIdentity>;
+  init(
+    secretKey: Uint8Array | null,
+    options?: MiddenWorkerInitOptions,
+  ): Promise<MiddenWorkerIdentity>;
 
   // ---- streams ----
   openBi(peerAddr: string, alpn: string): Promise<StreamInfo>;
@@ -68,6 +85,11 @@ export interface MiddenWorkerApi {
   streamWriteMessage(streamId: number, data: Uint8Array): Promise<void>;
   streamReadToEnd(streamId: number, maxSize: number): Promise<Uint8Array>;
   streamWriteRawAndFinish(streamId: number, data: Uint8Array): Promise<void>;
+  /** newline-delimited framing (ndjson) - a separate mode from
+   *  streamWriteMessage/streamReadMessage's length-prefixed framing, over
+   *  the same underlying stream. used by the freqhole-events/1 protocol. */
+  streamWriteLine(streamId: number, line: string): Promise<void>;
+  streamReadLine(streamId: number): Promise<string | null>;
   /** idempotent - closing an already-closed/dead stream id is a no-op. */
   streamClose(streamId: number): Promise<void>;
 
@@ -101,14 +123,14 @@ export interface MiddenWorkerApi {
     blake3Hash: string,
     totalSize: number,
     onProgress: (fraction: number) => void,
-    downloadId?: string
+    downloadId?: string,
   ): Promise<Uint8Array>;
   downloadVerifiedById(peerAddr: string, blobId: string): Promise<[Uint8Array, string]>;
   downloadVerifiedByIdProgress(
     peerAddr: string,
     blobId: string,
     totalSize: number,
-    onProgress: (fraction: number) => void
+    onProgress: (fraction: number) => void,
   ): Promise<[Uint8Array, string]>;
   downloadVerifiedStreamingWithEnsure(
     peerAddr: string,
@@ -116,7 +138,7 @@ export interface MiddenWorkerApi {
     totalSize: number,
     onChunk: (chunk: Uint8Array, offset: number) => void,
     onProgress: (fraction: number) => void,
-    downloadId?: string
+    downloadId?: string,
   ): Promise<number>;
   /** pause/cancel an in-flight download by the id passed to the download
    *  call. returns false when the download already settled. the partial
@@ -139,8 +161,33 @@ export interface MiddenWorkerApi {
     peerAddr: string,
     method: string,
     path: string,
-    body: string | null
+    body: string | null,
   ): Promise<{ status: number; body: string }>;
+
+  // ---- admin / radio ----
+  // not every embedding app's worker entry implements these (skein's
+  // doesn't need either) - callers should only invoke them against a node
+  // whose entry is known to support them (e.g. spume's).
+  /** dispatch a freqhole-admin/1 ALPN command to a peer - forwards to the
+   *  wasm node's proxy_admin. args is a json-encoded string (the literal
+   *  string null for no-payload commands). returns the grimoire response
+   *  envelope as a plain object ({ success, message, data, errors }). */
+  proxyAdmin(peerAddr: string, command: string, args: string): Promise<unknown>;
+  /** tune into a freqhole radio broadcaster (freqhole-radio/1 ALPN) -
+   *  forwards to the wasm node's tune_radio. callbacks fire
+   *  fire-and-forget from the entry side, same as the download
+   *  progress/chunk callbacks above. returns an opaque handle id for
+   *  radioLeave. */
+  tuneRadio(
+    peerAddr: string,
+    stationId: string | undefined,
+    onHello: (json: string) => void,
+    onMeta: (json: string) => void,
+    onChunk: (seq: number, isInit: boolean, bytes: Uint8Array) => void,
+  ): Promise<number>;
+  /** close a tuned-in radio session (stops audio + meta callbacks).
+   *  idempotent - closing an already-closed/unknown handle id is a no-op. */
+  radioLeave(handleId: number): Promise<void>;
 }
 
 /** message the entry must `postMessage` immediately after `Comlink.expose()`

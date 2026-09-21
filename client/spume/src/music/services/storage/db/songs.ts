@@ -42,6 +42,19 @@ export async function getSongsByIds(songIds: string[]): Promise<Song[]> {
 }
 
 export async function getSongBySha256(sha256: string): Promise<Song | undefined> {
+  // `by_sha256` is non-unique + sparse as of DB v20 (see db/init.ts's
+  // migration comment) specifically because a locally-imported song can
+  // now leave `sha256` as `""` (never computed - see fileProcessor.ts's
+  // `registerBlake3`/localImport.ts). an empty/falsy `sha256` therefore
+  // does NOT identify one specific song - it can match ANY number of
+  // "unknown sha256" rows. treat it as "no lookup possible" rather than
+  // silently returning an arbitrary one of them (which would cause a
+  // brand-new import to be misdetected as a duplicate of an unrelated
+  // song - see localImport.ts's dedup check for the caller this protects).
+  // callers that have a real content hash to check should prefer
+  // `getSongByBlake3` anyway (see its own doc comment) - this guard is the
+  // safety net for callers that still only have `sha256` in hand.
+  if (!sha256) return undefined;
   const db = await initMusicDB();
   const index = db.transaction(STORE_SONGS).store.index("by_sha256");
   const song = await index.get(sha256);

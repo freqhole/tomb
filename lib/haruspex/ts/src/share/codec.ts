@@ -208,16 +208,28 @@ export function shareFragment(payload: ShareTokenPayload): string {
  */
 export function extractShareToken(input: string): string {
   let raw = input.trim();
+  let matchedPrefix = false;
 
   const hashIdx = raw.indexOf("#share/");
   if (hashIdx !== -1) {
     raw = raw.slice(hashIdx + "#share/".length);
+    matchedPrefix = true;
   } else if (raw.startsWith("share/")) {
     raw = raw.slice("share/".length);
+    matchedPrefix = true;
   }
 
-  const ampIdx = raw.indexOf("&");
-  if (ampIdx !== -1) raw = raw.slice(0, ampIdx);
+  // the trailing-query truncation only makes sense once we know `raw` is
+  // actually sitting right after a real `#share/`/`share/` prefix - doing
+  // it unconditionally previously mangled any input that merely CONTAINS
+  // an unrelated "&" (e.g. a host app's own `?foo=1&bar=2` route in the
+  // same hash), which then silently masqueraded as "a share token was
+  // found here" purely because truncation made the output differ from
+  // the input - see callers that infer "found a token" from that.
+  if (matchedPrefix) {
+    const ampIdx = raw.indexOf("&");
+    if (ampIdx !== -1) raw = raw.slice(0, ampIdx);
+  }
 
   return raw;
 }

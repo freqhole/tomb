@@ -98,16 +98,22 @@ async fn record_play_event_with_conn(
     Ok(result.id)
 }
 
-/// record N anonymous play rows for a song broadcast on a radio station.
+/// record N anonymous play rows for a song OR video broadcast on a radio
+/// station.
 ///
 /// called from the broadcaster's track-end hook: every listener tuned in at
 /// track end gets credited with one row in `play_eventz`. these rows have
 /// no `media_event_id` (no per-listener device info) and no `user_id` (we don't
 /// track listener identity on the broadcaster side).
 ///
+/// `entity_type` must be `"song"` or `"video"` (matches `play_eventz`'s
+/// existing entity_type CHECK constraint - already domain-agnostic from
+/// the video-domain rollout).
+///
 /// returns the number of rows inserted.
 pub async fn record_radio_plays(
-    song_id: &str,
+    entity_type: &str,
+    entity_id: &str,
     station_id: &str,
     listener_count: u32,
 ) -> crate::GrimoireResult<u32> {
@@ -116,7 +122,6 @@ pub async fn record_radio_plays(
     }
 
     let pool = database::connect().await?;
-    let entity_type = "song";
 
     // single transaction, N inserts. for typical small listener counts this is
     // fast enough; if it ever becomes hot we can switch to a single multi-row
@@ -129,7 +134,7 @@ pub async fn record_radio_plays(
             VALUES (?, ?, ?)
             "#,
             entity_type,
-            song_id,
+            entity_id,
             station_id,
         )
         .execute(&mut *tx)

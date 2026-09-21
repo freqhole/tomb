@@ -33,6 +33,19 @@ use tracing::{info, warn};
 /// while the control stream stays alive over QUIC keepalives.
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5);
 
+/// logs how deep a catchup burst was (chunk count + equivalent seconds)
+/// on every tune/lag-reprime - correlates against the client's own
+/// "distance from live edge" diagnostic (see
+/// docs/radio-buffering-retune-plan.md) to see how often listeners
+/// actually get a real head start vs. join right as a track starts.
+fn log_catchup_depth(station_id: &str, context: &str, catchup_chunks: usize) {
+    let frag_ms = crate::radio::config::effective().frag_ms.max(1);
+    let approx_seconds = (catchup_chunks as u32 * frag_ms) as f64 / 1000.0;
+    info!(
+        "[radio-handler] station {station_id} {context}: catchup burst depth = {catchup_chunks} chunks (~{approx_seconds:.1}s)"
+    );
+}
+
 enum SessionEnd {
     Finished,
     Goodbye(String),
@@ -73,20 +86,50 @@ async fn run_session(conn: &Connection) -> GrimoireResult<()> {
         }
     };
 
-    let bc = match requested_station.as_deref() {
-        Some(id) => get_broadcaster(id)
-            .await
-            .ok_or_else(|| GrimoireError::FederationApiError {
-                message: format!("radio: no broadcaster for station '{id}'"),
-            })?,
-        None => {
-            get_default_broadcaster()
-                .await
-                .ok_or_else(|| GrimoireError::FederationApiError {
+    let bc =
+        match requested_station.as_deref() {
+            Some(id) => {
+                // lazily start an enabled-but-not-yet-running station on
+                // first tune request - without this, any station beyond
+                // the boot-time `max_concurrent_*_streams` cutoff (see
+                // `broadcaster::init_registry`, which only starts stations
+                // up to that limit and never retries the rest) is
+                // permanently untunable even though it's enabled, since
+                // nothing else ever spawns it. idempotent / respects the
+                // same concurrency cap `start_station` already enforces -
+                // surfaces a clear "too many concurrent streams" error
+                // instead of this function's generic "no broadcaster"
+                // message when the cap is the actual reason.
+                if get_broadcaster(id).await.is_none() {
+                    if let Err(e) = crate::radio::broadcaster::start_station(id).await {
+                        // without this, the control stream just drops
+                        // silently (no Hello ever sent) and the client can
+                        // only guess why ("station may be private or
+                        // unavailable") - send the real reason first so a
+                        // concurrency-cap failure (or any other
+                        // start_station error) is actually visible.
+                        let _ = write_control_message(
+                            &mut ctrl_send,
+                            &ControlMessage::Goodbye(GoodbyeMessage {
+                                reason: e.to_string(),
+                            }),
+                        )
+                        .await;
+                        return Err(e);
+                    }
+                }
+                get_broadcaster(id)
+                    .await
+                    .ok_or_else(|| GrimoireError::FederationApiError {
+                        message: format!("radio: no broadcaster for station '{id}'"),
+                    })?
+            }
+            None => get_default_broadcaster().await.ok_or_else(|| {
+                GrimoireError::FederationApiError {
                     message: "radio: no default station configured".to_string(),
-                })?
-        }
-    };
+                }
+            })?,
+        };
     info!(
         "[radio-handler] tune request station_id={:?} resolved_station_id={}",
         requested_station,
@@ -95,12 +138,25 @@ async fn run_session(conn: &Connection) -> GrimoireResult<()> {
 
     // 2a. per-station auth gate: when `is_public = 0` the requested
     // station is restricted to peers in the federation peer list.
-    // public stations skip this check entirely.
+    // public stations skip this check entirely. also grabs the
+    // station's own `codec` override for the Hello message below - lets
+    // a station broadcasting a different codec (e.g. a video-carrying
+    // test station) tell listeners the right `MediaSource` codec string
+    // instead of the audio-only default.
     let station_id = bc.station_id().to_string();
-    if let Some(station) = get_station(&station_id).await? {
+    let station_row = get_station(&station_id).await?;
+    if let Some(station) = &station_row {
         if station.is_public == 0 {
             let peer_node = conn.remote_id().to_string();
-            let allowed = is_known_peer(&peer_node).await;
+            // a peer counts as authorized either by being a known/paired
+            // user (`is_known_peer`) OR by being in our OWN remotez list
+            // (a remote we ourselves added and chose to trust) - mirrors
+            // `federation::transport::handler::handle_incoming`'s own
+            // 3-way check, which already treats these as equally valid.
+            // without the second check, adding a server as a remote never
+            // actually granted it access to anything private here.
+            let allowed = is_known_peer(&peer_node).await
+                || crate::remotez::is_known_remote_peer(&peer_node).await;
             if !allowed {
                 return Err(GrimoireError::FederationApiError {
                     message: format!(
@@ -110,6 +166,7 @@ async fn run_session(conn: &Connection) -> GrimoireResult<()> {
             }
         }
     }
+    let station_codec = station_row.map(|s| s.codec);
 
     // 3. subscribe + send Hello.
     let _guard = ListenerGuard::new(bc.clone());
@@ -118,7 +175,7 @@ async fn run_session(conn: &Connection) -> GrimoireResult<()> {
     let is_timeline_only = bc.is_timeline_only();
 
     let hello = ControlMessage::Hello(HelloMessage {
-        codec: RADIO_CODEC.to_string(),
+        codec: station_codec.unwrap_or_else(|| RADIO_CODEC.to_string()),
         now_playing: (*sub.now_playing).clone(),
         listener_count,
         radio_mode_capabilities: bc.radio_mode_capabilities(),
@@ -185,6 +242,7 @@ async fn run_session(conn: &Connection) -> GrimoireResult<()> {
         if let Some(init) = sub.init.as_ref() {
             write_chunk(&mut audio_send, init).await?;
         }
+        log_catchup_depth(&station_id, "tune", sub.catchup.len());
         for chunk in &sub.catchup {
             write_chunk(&mut audio_send, chunk).await?;
         }
@@ -276,6 +334,7 @@ async fn forward_audio(
                 if let Some(init) = sub.init.as_ref() {
                     write_chunk(send, init).await?;
                 }
+                log_catchup_depth(bc.station_id(), "lag-reprime", sub.catchup.len());
                 for chunk in &sub.catchup {
                     write_chunk(send, chunk).await?;
                 }

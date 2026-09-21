@@ -63,6 +63,22 @@ pub struct RadioConfig {
     #[serde(default = "default_encode_args")]
     pub encode_args: String,
 
+    /// ffmpeg command-line template for VIDEO-capable stations
+    /// (`content_mode` != 'audio_only') that don't set their own
+    /// per-station `encode_args` override. `encode_args` (above) strips
+    /// video entirely (`-vn`) - a video/audio_or_video station needs this
+    /// separate template so video streaming "just works" without any
+    /// per-station ffmpeg configuration. see
+    /// `RadioStation::effective_encode_args`.
+    #[serde(default = "default_video_encode_args")]
+    pub video_encode_args: String,
+
+    /// MSE `SourceBuffer` codec string matching `video_encode_args`'s
+    /// output, for the same "no per-station config needed" reason. see
+    /// `RadioStation::effective_codec`.
+    #[serde(default = "default_video_codec")]
+    pub video_codec: String,
+
     /// approximate audio duration of one fragment, in milliseconds. must
     /// match the `-frag_duration` value baked into `encode_args`. the
     /// pacer uses this to compute when each chunk should be emitted.
@@ -87,6 +103,26 @@ pub struct RadioConfig {
     /// retry restarts ffmpeg from scratch.
     #[serde(default = "default_encoder_restart_attempts")]
     pub encoder_restart_attempts: u32,
+
+    /// max number of `audio_only` stations allowed to have a running
+    /// broadcaster (ffmpeg encoder process) at once. `init_registry`
+    /// skips (with a warning) any additional enabled `audio_only`
+    /// stations beyond this cap at boot; `radio_supervisor_start`/
+    /// `stations_create`/`stations_update` (which auto-start a newly
+    /// enabled station) return an error instead of starting one over the
+    /// cap. does not stop an already-running station - lower this and
+    /// restart the ones you want to keep instead.
+    #[serde(default = "default_max_concurrent_audio_streams")]
+    pub max_concurrent_audio_streams: u32,
+
+    /// same as `max_concurrent_audio_streams`, but for any content_mode
+    /// that can carry video (`audio_or_video`/`video_only`, which share
+    /// this one smaller pool) - kept separate and lower by default
+    /// because video encoding is far more cpu-expensive than audio-only,
+    /// and a resource-constrained node (e.g. a Raspberry Pi) is much
+    /// more likely to need a tight cap here specifically.
+    #[serde(default = "default_max_concurrent_video_streams")]
+    pub max_concurrent_video_streams: u32,
 }
 
 impl Default for RadioConfig {
@@ -94,10 +130,14 @@ impl Default for RadioConfig {
         Self {
             enabled: false,
             encode_args: default_encode_args(),
+            video_encode_args: default_video_encode_args(),
+            video_codec: default_video_codec(),
             frag_ms: default_frag_ms(),
             buffer_seconds: default_buffer_seconds(),
             inter_track_silence_ms: default_inter_track_silence_ms(),
             encoder_restart_attempts: default_encoder_restart_attempts(),
+            max_concurrent_audio_streams: default_max_concurrent_audio_streams(),
+            max_concurrent_video_streams: default_max_concurrent_video_streams(),
         }
     }
 }
@@ -141,6 +181,53 @@ fn default_inter_track_silence_ms() -> u32 {
 
 fn default_encoder_restart_attempts() -> u32 {
     3
+}
+
+fn default_max_concurrent_audio_streams() -> u32 {
+    2
+}
+
+fn default_max_concurrent_video_streams() -> u32 {
+    1
+}
+
+/// video-capable default ffmpeg args - same fragmented-mp4/aac tail as
+/// `default_encode_args`, but keeps the video stream (h264 main profile,
+/// libx264) instead of `-vn`-stripping it. an unverified-for-every-
+/// library starting point (bitrate/profile are reasonable defaults, not
+/// guarantees) - operators can override via `[radio].video_encode_args`
+/// or, for one specific station, that station's own `encode_args`.
+///
+/// `-force_key_frames "expr:gte(t,n_forced*3)"` + `-x264-params
+/// scenecut=0`: without these, libx264's default adaptive scene-cut
+/// detection inserts EXTRA keyframes at content-dependent scene changes
+/// (independent of any GOP-size setting), and `frag_keyframe` (below)
+/// then cuts a NEW fragment at every one of them - producing wildly
+/// variable, often much-shorter-than-`frag_duration` fragments for any
+/// video with frequent cuts. confirmed live: fragments as short as
+/// ~300ms mixed with ~3000ms ones on the same "fast cuts" cartoon
+/// content, dragging the AVERAGE real media duration per fragment well
+/// below the `frag_ms` the broadcaster's pacing assumes per chunk -
+/// since pacing releases one chunk per `frag_ms` of WALL CLOCK time
+/// but each chunk was actually contributing LESS real media time on
+/// average, listeners' buffered cushion eroded continuously even
+/// though chunks kept arriving exactly on the server's own schedule.
+/// forcing a keyframe (and thus a fragment cut) at an EXACT, uniform
+/// 3-second cadence and disabling the adaptive scene-cut keyframes
+/// keeps fragment count/duration predictable and aligned with
+/// `frag_duration`/`frag_ms` regardless of the source content.
+fn default_video_encode_args() -> String {
+    "-hide_banner -loglevel error -fflags +genpts -i {input} -map 0:v:0 -map 0:a:0 \
+     -c:v libx264 -profile:v main -preset veryfast -b:v 2500k -pix_fmt yuv420p \
+     -x264-params scenecut=0 -force_key_frames expr:gte(t,n_forced*3) \
+     -c:a aac -profile:a aac_low -b:a 192k -ar 48000 -ac 2 \
+     -movflags frag_keyframe+empty_moov+default_base_moof \
+     -frag_duration 3000000 -avoid_negative_ts make_zero -f mp4 pipe:1"
+        .to_string()
+}
+
+fn default_video_codec() -> String {
+    "video/mp4; codecs=\"avc1.4D401F, mp4a.40.2\"".to_string()
 }
 
 /// derived ring capacity (in chunks) — `buffer_seconds / frag_seconds`,

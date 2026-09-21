@@ -24,6 +24,75 @@ use grimoire::federation::p2p_client::{get_endpoint_arc, parse_peer_address};
 use grimoire::radio::messages::{ControlMessage, TuneMessage};
 use grimoire::radio::protocol::{read_chunk, read_control_message, RADIO_ALPN};
 
+/// the native mpv sink type on platforms that support it (posix named
+/// pipes) - see `radio_mpv.rs`'s header comment for why this is unix-only.
+#[cfg(unix)]
+type MpvSink = crate::radio_mpv::RadioMpvSink;
+
+/// spawns a native mpv radio sink when the "experimental player" config
+/// (`use_rodio_playback`) is on and the station's own codec string
+/// (from `Hello`) is video-capable - `None` otherwise (audio-only
+/// station, config off, or mpv itself failed to start, e.g. not
+/// installed - falls back to the normal browser `<video>`+MediaSource
+/// path exactly as if this feature didn't exist).
+#[cfg(unix)]
+async fn maybe_spawn_mpv_sink(app: &tauri::AppHandle, codec: &str) -> Option<MpvSink> {
+    let use_rodio = crate::app_config::FreqholeAppConfig::load(app)
+        .map(|c| c.use_rodio_playback)
+        .unwrap_or_else(crate::app_config::default_use_rodio_playback);
+    if !use_rodio || !codec.starts_with("video/") {
+        return None;
+    }
+    match crate::radio_mpv::RadioMpvSink::spawn().await {
+        Ok(sink) => Some(sink),
+        Err(e) => {
+            tracing::warn!(error = %e, "[radio-charnel] failed to start mpv radio sink; falling back to browser playback");
+            None
+        }
+    }
+}
+
+/// no native named-pipe support on this platform (e.g. windows) - always
+/// falls back to the normal browser `<video>`+MediaSource path.
+#[cfg(not(unix))]
+type MpvSink = ();
+
+#[cfg(not(unix))]
+async fn maybe_spawn_mpv_sink(_app: &tauri::AppHandle, _codec: &str) -> Option<MpvSink> {
+    None
+}
+
+/// feeds one chunk to the mpv sink and returns `true` (chunk consumed,
+/// don't also forward it to the browser over `events`) - `false` when
+/// there's no active sink (the normal case: audio-only station, or the
+/// experimental player config is off), meaning the caller should fall
+/// through to its usual browser-forwarding path.
+#[cfg(unix)]
+async fn feed_mpv_sink(mpv: &mut Option<MpvSink>, is_init: bool, bytes: &[u8]) -> bool {
+    let Some(sink) = mpv.as_mut() else {
+        return false;
+    };
+    if let Err(e) = sink.feed(is_init, bytes).await {
+        tracing::warn!(error = %e, "[radio-charnel] mpv feed failed");
+    }
+    true
+}
+
+#[cfg(not(unix))]
+async fn feed_mpv_sink(_mpv: &mut Option<MpvSink>, _is_init: bool, _bytes: &[u8]) -> bool {
+    false
+}
+
+#[cfg(unix)]
+async fn close_mpv_sink(mpv: &mut Option<MpvSink>) {
+    if let Some(sink) = mpv.as_mut() {
+        sink.close().await;
+    }
+}
+
+#[cfg(not(unix))]
+async fn close_mpv_sink(_mpv: &mut Option<MpvSink>) {}
+
 /// active radio sessions keyed by opaque session id. dropping the entry
 /// triggers the cancel token; the spawned tasks notice and tear down the
 /// iroh connection on their next await point.
@@ -92,6 +161,7 @@ pub enum RadioEvent {
 /// `radio_leave` to tear down.
 #[tauri::command]
 pub async fn radio_tune(
+    app: tauri::AppHandle,
     peer_addr: String,
     station_id: Option<String>,
     events: Channel<RadioEvent>,
@@ -140,6 +210,7 @@ pub async fn radio_tune(
         }
         None => return Err("control stream closed before Hello".into()),
     };
+    let codec = hello.codec.clone();
     let hello_json =
         serde_json::to_string(&ControlMessage::Hello(hello)).map_err(|e| e.to_string())?;
     let _ = events.send(RadioEvent::Hello { json: hello_json });
@@ -150,6 +221,8 @@ pub async fn radio_tune(
         .await
         .map_err(|e| format!("accept_uni: {e}"))?;
 
+    let mpv_sink = maybe_spawn_mpv_sink(&app, &codec).await;
+
     let session_id = next_session_id();
     let cancel = CancellationToken::new();
 
@@ -159,7 +232,7 @@ pub async fn radio_tune(
         let events = events.clone();
         let session_id = session_id.clone();
         tokio::spawn(async move {
-            let reason = run_audio_loop(&mut audio_recv, &events, &cancel).await;
+            let reason = run_audio_loop(&mut audio_recv, &events, &cancel, mpv_sink).await;
             let _ = events.send(RadioEvent::Closed {
                 reason: reason.clone(),
             });
@@ -273,6 +346,7 @@ fn drop_all_local_sessions() {
 /// stream as `radio_tune`, so the spume side can reuse its event loop.
 #[tauri::command]
 pub async fn radio_tune_local(
+    app: tauri::AppHandle,
     station_id: Option<String>,
     events: Channel<RadioEvent>,
 ) -> Result<String, String> {
@@ -282,22 +356,50 @@ pub async fn radio_tune_local(
 
     use grimoire::radio::broadcaster::{get_default, get_station};
     use grimoire::radio::messages::{ControlMessage, HelloMessage, RADIO_CODEC};
+    use grimoire::radio::stations::get_station as get_station_row;
 
     let bc = match station_id.as_deref() {
-        Some(id) => get_station(id)
-            .await
-            .ok_or_else(|| format!("no broadcaster for station '{id}'"))?,
+        Some(id) => {
+            // lazily start an enabled-but-not-yet-running station on first
+            // tune, same as the iroh ALPN path (`radio::handler::
+            // run_session`) - without this, any station beyond the
+            // boot-time `max_concurrent_*_streams` cutoff is permanently
+            // untunable from charnel's own local-listen shortcut even
+            // though the remote/iroh path already lazy-starts it fine.
+            if get_station(id).await.is_none() {
+                grimoire::radio::broadcaster::start_station(id)
+                    .await
+                    .map_err(|e| e.to_string())?;
+            }
+            get_station(id)
+                .await
+                .ok_or_else(|| format!("no broadcaster for station '{id}'"))?
+        }
         None => get_default()
             .await
             .ok_or_else(|| "no default station available".to_string())?,
     };
+
+    // `Broadcaster` itself doesn't carry the station's actual codec - it's
+    // resolved from the station's db row, same as `radio_tune`'s hello
+    // (built server-side, which already resolves this correctly) does.
+    // this was previously hardcoded to the audio-only `RADIO_CODEC`
+    // constant regardless of the station's real content_mode, which
+    // would have silently reported the wrong (audio) codec for any
+    // video-capable station tuned via this local (in-process) path.
+    let codec = get_station_row(bc.station_id())
+        .await
+        .ok()
+        .flatten()
+        .map(|s| s.codec)
+        .unwrap_or_else(|| RADIO_CODEC.to_string());
 
     // join *before* snapshotting so listener_count in Hello reflects us.
     let new_count = bc.join();
     let sub = bc.subscribe().await;
 
     let hello = ControlMessage::Hello(HelloMessage {
-        codec: RADIO_CODEC.to_string(),
+        codec: codec.clone(),
         now_playing: (*sub.now_playing).clone(),
         listener_count: new_count,
         radio_mode_capabilities: bc.radio_mode_capabilities(),
@@ -309,6 +411,8 @@ pub async fn radio_tune_local(
     });
     let hello_json = serde_json::to_string(&hello).map_err(|e| e.to_string())?;
     let _ = events.send(RadioEvent::Hello { json: hello_json });
+
+    let mpv_sink = maybe_spawn_mpv_sink(&app, &codec).await;
 
     let timeline = ControlMessage::Timeline(bc.timeline_snapshot(/*lookahead_count=*/ 0).await);
     if let Ok(json) = serde_json::to_string(&timeline) {
@@ -346,7 +450,7 @@ pub async fn radio_tune_local(
         let events = events.clone();
         let session_id = session_id.clone();
         tokio::spawn(async move {
-            let reason = run_local_audio_loop(&mut chunk_rx, &events, &cancel).await;
+            let reason = run_local_audio_loop(&mut chunk_rx, &events, &cancel, mpv_sink).await;
             bc_for_leave.leave();
             let _ = events.send(RadioEvent::Closed {
                 reason: reason.clone(),
@@ -379,13 +483,20 @@ async fn run_local_audio_loop(
     rx: &mut tokio::sync::broadcast::Receiver<std::sync::Arc<grimoire::radio::chunk::Chunk>>,
     events: &Channel<RadioEvent>,
     cancel: &CancellationToken,
+    mut mpv: Option<MpvSink>,
 ) -> String {
     use tokio::sync::broadcast::error::RecvError;
     loop {
         tokio::select! {
-            _ = cancel.cancelled() => return "cancelled".into(),
+            _ = cancel.cancelled() => {
+                close_mpv_sink(&mut mpv).await;
+                return "cancelled".into();
+            }
             res = rx.recv() => match res {
                 Ok(chunk) => {
+                    if feed_mpv_sink(&mut mpv, chunk.is_init, &chunk.bytes).await {
+                        continue;
+                    }
                     let bytes_b64 = B64.encode(&chunk.bytes);
                     if events.send(RadioEvent::Chunk {
                         seq: chunk.seq,
@@ -399,7 +510,10 @@ async fn run_local_audio_loop(
                     tracing::warn!("[radio-charnel-local] chunk rx lagged by {n}");
                     // keep going; ring buffer will resync on next init.
                 }
-                Err(RecvError::Closed) => return "broadcaster gone".into(),
+                Err(RecvError::Closed) => {
+                    close_mpv_sink(&mut mpv).await;
+                    return "broadcaster gone".into();
+                }
             },
         }
     }
@@ -468,12 +582,19 @@ async fn run_audio_loop(
     recv: &mut iroh::endpoint::RecvStream,
     events: &Channel<RadioEvent>,
     cancel: &CancellationToken,
+    mut mpv: Option<MpvSink>,
 ) -> String {
     loop {
         tokio::select! {
-            _ = cancel.cancelled() => return "cancelled".into(),
+            _ = cancel.cancelled() => {
+                close_mpv_sink(&mut mpv).await;
+                return "cancelled".into();
+            }
             res = read_chunk(recv) => match res {
                 Ok(Some(chunk)) => {
+                    if feed_mpv_sink(&mut mpv, chunk.is_init, &chunk.bytes).await {
+                        continue;
+                    }
                     let bytes_b64 = B64.encode(&chunk.bytes);
                     if events.send(RadioEvent::Chunk {
                         seq: chunk.seq,
@@ -483,8 +604,14 @@ async fn run_audio_loop(
                         return "channel closed".into();
                     }
                 }
-                Ok(None) => return "audio stream eof".into(),
-                Err(e) => return format!("audio read error: {e}"),
+                Ok(None) => {
+                    close_mpv_sink(&mut mpv).await;
+                    return "audio stream eof".into();
+                }
+                Err(e) => {
+                    close_mpv_sink(&mut mpv).await;
+                    return format!("audio read error: {e}");
+                }
             },
         }
     }

@@ -24,6 +24,8 @@ export const FreqholeConfigSchema = z.object({
   disable_backdrop_blur: z.boolean().optional(),
   /** whether to sync queue songs from remotes to local library (default: true) */
   sync_queue_to_local: z.boolean().optional(),
+  /** which view/route spume should land on at cold app boot (default: "explore") */
+  initial_view: z.string().optional(),
 });
 
 export type FreqholeConfig = z.infer<typeof FreqholeConfigSchema>;

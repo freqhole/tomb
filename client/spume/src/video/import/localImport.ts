@@ -9,7 +9,7 @@ import {
   writeVideoPosterToOPFS,
   writeVideoToOPFS,
 } from "../services/opfs/helpers";
-import { addLocalVideo } from "../services/storage/db/videos";
+import { addLocalVideo, getVideoByBlake3 } from "../services/storage/db/videos";
 import { isCharnelMode } from "../../app/services/charnel";
 import { hashBlake3Streaming } from "@freqhole/reliquary/worker";
 import { debug, warn } from "../../utils/logger";
@@ -18,6 +18,9 @@ import type { LocalImportProgress } from "../../music/import";
 
 export interface VideoImportResult {
   imported: number;
+  /** skipped because a video with the same blake3 already exists locally
+   * (see importVideoFiles's dedup pre-check) - not counted as an error. */
+  skipped: number;
   errors: string[];
 }
 
@@ -134,7 +137,7 @@ export async function importVideoFiles(files: File[]): Promise<VideoImportResult
       skippedCount: 0,
       errorMessage: "opfs not supported in this browser",
     });
-    return { imported: 0, errors: ["opfs not supported in this browser"] };
+    return { imported: 0, skipped: 0, errors: ["opfs not supported in this browser"] };
   }
 
   // tauri's webview (WKWebView on macOS) supports OPFS getFileHandle/
@@ -155,10 +158,11 @@ export async function importVideoFiles(files: File[]): Promise<VideoImportResult
       skippedCount: 0,
       errorMessage: msg,
     });
-    return { imported: 0, errors: [msg] };
+    return { imported: 0, skipped: 0, errors: [msg] };
   }
 
   let imported = 0;
+  let skipped = 0;
   const errors: string[] = [];
 
   setLocalVideoImportProgress({
@@ -178,13 +182,9 @@ export async function importVideoFiles(files: File[]): Promise<VideoImportResult
       current: i + 1,
       currentFile: file.name,
       addedCount: imported,
+      skippedCount: skipped,
     }));
     try {
-      const id = crypto.randomUUID();
-      const extension = guessVideoExtension(file);
-      debug("video/localImport", `writing to opfs: ${file.name}`);
-      const opfsPath = await writeVideoToOPFS(file, id, extension);
-
       // only local uploads need to hash here - videos synced in from a
       // remote already carry a blake3 from that remote's media_blobz
       // record (see syncVideoToLocal.ts). hashed via a streaming worker
@@ -200,6 +200,23 @@ export async function importVideoFiles(files: File[]): Promise<VideoImportResult
       } catch (err) {
         warn("video/localImport", `failed to hash ${file.name}, importing without blake3:`, err);
       }
+
+      // dedup pre-check (mirrors music/import/localImport.ts's phase-0
+      // blake3 check) - done BEFORE writing to OPFS/extracting metadata
+      // so a re-imported file doesn't waste disk space or cpu time. a
+      // null blake3 (hash failed, or a pre-blake3-era existing video)
+      // can never match here - there's nothing to dedup against without
+      // a real hash, same tradeoff music's import accepts.
+      if (blake3 && (await getVideoByBlake3(blake3))) {
+        debug("video/localImport", `skipping duplicate (blake3 match): ${file.name}`);
+        skipped++;
+        continue;
+      }
+
+      const id = crypto.randomUUID();
+      const extension = guessVideoExtension(file);
+      debug("video/localImport", `writing to opfs: ${file.name}`);
+      const opfsPath = await writeVideoToOPFS(file, id, extension);
 
       const { durationSeconds, posterBlob } = await extractVideoMetadata(file);
       let posterOpfsPath: string | null = null;
@@ -241,8 +258,8 @@ export async function importVideoFiles(files: File[]): Promise<VideoImportResult
     total: files.length,
     currentFile: "",
     addedCount: imported,
-    skippedCount: 0,
+    skippedCount: skipped,
   });
 
-  return { imported, errors };
+  return { imported, skipped, errors };
 }

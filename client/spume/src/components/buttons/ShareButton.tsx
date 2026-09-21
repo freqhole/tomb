@@ -9,14 +9,14 @@ import { Icon } from "../icons/registry";
 import { showShareModal } from "../../music/hooks/modals";
 import type { ShareTarget } from "../share/types";
 import type { Remote } from "../../app/services/storage/schemas/remote";
-import type { SendPayload } from "../../music/services/send/sendToRemote";
+import type { SendToRemotePayload } from "../share/SendToRemoteSection";
 
 export interface ShareButtonProps {
   target: ShareTarget;
   /** lazily evaluated source remote. */
   source: () => Remote | null | undefined;
-  /** lazily build the send-to-remote payload (album/playlist scope). */
-  buildSendPayload?: () => SendPayload | Promise<SendPayload>;
+  /** lazily build the send-to-remote payload (album/playlist/video scope). */
+  buildSendPayload?: () => SendToRemotePayload | Promise<SendToRemotePayload>;
   /** trigger button class override. */
   class?: string;
   /** override the default web mirror host. */

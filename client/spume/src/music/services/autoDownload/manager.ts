@@ -17,6 +17,7 @@ import {
   type QueuedVideo,
 } from "../../../app/services/storage/mediaItem";
 import { syncSongToLocal, canSyncSong, type SyncableSong } from "../sync";
+import { songIdentityKey } from "../storage/types";
 import { syncVideoToLocal, canSyncVideo } from "../../../video/services/sync/syncVideoToLocal";
 import { isVideoSyncedLocally } from "../../../video/services/syncState";
 import { videoQueryKeys } from "../../../video/queries/queryKeys";
@@ -393,7 +394,9 @@ export async function resumeAutoDownloadsOnInit(): Promise<void> {
   // keyed off the unified current_sha256/mediaItemKey instead)
   const currentSha256 = state.current_sha256;
   const queueSongs = songsOnly(state.queue);
-  const currentIndex = currentSha256 ? queueSongs.findIndex((s) => s.sha256 === currentSha256) : 0;
+  const currentIndex = currentSha256
+    ? queueSongs.findIndex((s) => songIdentityKey(s) === currentSha256)
+    : 0;
 
   debug("autoDownload", "checking for pending downloads on init...");
   await updateAutoDownloadQueue(Math.max(0, currentIndex));
@@ -422,7 +425,7 @@ export async function downloadAllNow(): Promise<void> {
   const currentIndex = currentSha256
     ? Math.max(
         0,
-        queue.findIndex((s) => s.sha256 === currentSha256)
+        queue.findIndex((s) => songIdentityKey(s) === currentSha256)
       )
     : 0;
   const songsToDownload: SyncableSong[] = [];

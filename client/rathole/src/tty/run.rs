@@ -730,9 +730,20 @@ fn on_peer_input_key(app: &mut App, code: KeyCode) {
             eph.peer_cursor = 0;
             eph.peer_error = None;
             eph.focus = Focus::AdminPalette;
-            // persist into grimoire's remotez table so it sticks
-            // across restarts (and is shared with the rest of
-            // freqhole's clients via the same sqlite db).
+            // record it in `state.persisted.remotes` (and save the
+            // statefile right away) so `/remotes` and `/radio`'s
+            // remote-scan actually see it - previously this only wrote
+            // to grimoire's separate `remotez` sqlite table (below),
+            // which neither of those read, so adding a remote here
+            // looked like it silently did nothing.
+            upsert_persisted_remote(&mut app.state.persisted, &addr);
+            if let Err(e) = super::persist::save(&app.state.persisted) {
+                tracing::warn!("rathole: failed to save state.toml after adding remote: {e}");
+            }
+            app.state.ephemeral.repl.status = Some(ReplStatus::ok(format!("remote added: {addr}")));
+            // also persist into grimoire's remotez table so it's
+            // shared with the rest of freqhole's clients via the same
+            // sqlite db.
             persist_peer_addr(addr);
         }
         KeyCode::Char(c) if !c.is_control() => {
@@ -1578,8 +1589,23 @@ fn on_action(app: &mut App, action: AppAction, action_tx: &mpsc::UnboundedSender
                 if station_name.is_some() {
                     radio.station_name = station_name;
                 }
-                radio.track_title = track_title;
-                radio.track_artist = track_artist;
+                radio.track_title = track_title.clone();
+                radio.track_artist = track_artist.clone();
+                radio.connect_phase = None;
+                app.state.ephemeral.repl.status = Some(ReplStatus::ok(format!(
+                    "now playing: {}{}",
+                    track_title.unwrap_or_else(|| "radio".to_string()),
+                    track_artist.map(|a| format!(" — {a}")).unwrap_or_default()
+                )));
+            }
+        }
+        AppAction::RadioConnectPhase(phase) => {
+            let radio = &mut app.state.ephemeral.radio;
+            if radio.active {
+                radio.connect_phase = phase.clone();
+                if let Some(phase) = phase {
+                    app.state.ephemeral.repl.status = Some(ReplStatus::info(phase));
+                }
             }
         }
         AppAction::RadioEnded { error } => {
@@ -2771,6 +2797,30 @@ fn on_action_menu_key(app: &mut App, code: KeyCode, tx: &mpsc::UnboundedSender<A
                 eph.row_detail_view = Some(pretty);
                 eph.last_dispatch_scroll = 0;
                 eph.focus = Focus::ResultPanel;
+                return;
+            }
+            // tune into a remote station row from a `/radio` scan
+            // result (`peer_addr`/`station_id` were stamped onto the
+            // row by `radio::scan_all_remote_stations`/
+            // `scan_remote_stations` - see their doc comments).
+            if opt.target_command == "__radio_tune_in__" {
+                eph.focus = Focus::ResultPanel;
+                let peer_addr = row
+                    .get("peer_addr")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default()
+                    .to_string();
+                let station_id = row
+                    .get("station_id")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+                if peer_addr.is_empty() {
+                    app.state.ephemeral.repl.status =
+                        Some(ReplStatus::err("row has no peer_addr to tune into"));
+                    return;
+                }
+                super::radio::start(app, peer_addr, station_id, tx.clone());
+                app.state.ephemeral.repl.status = Some(ReplStatus::info("tuning in\u{2026}"));
                 return;
             }
             // music play sentinels: pull the row's id and queue songs
@@ -4766,6 +4816,36 @@ fn execute_slash_with_player(
             rk::leave(&mut app.state);
         }
         SlashAction::Library { kind, query } => {
+            // `/radio` (bare)/`/radio list` shows a merged list: this
+            // device's own local stations (rathole's own db is
+            // frequently a real, populated list, not just an admin-empty
+            // stub) PLUS every known remote's public station list - see
+            // `radio::merge_local_and_remote_stations`'s doc comment.
+            // `/radio <name>` (query some) keeps the existing local
+            // fuzzy-match-and-start behavior below untouched.
+            if kind == "radio" && query.is_none() {
+                let tx_clone = tx.clone();
+                let remotes = app.state.persisted.remotes.clone();
+                let transport = app.transport.clone();
+                tokio::task::spawn_local(async move {
+                    let (local_resp, remote_resp) = tokio::join!(
+                        transport.library_query("radio", None),
+                        super::radio::scan_all_remote_stations(&remotes)
+                    );
+                    let response =
+                        super::radio::merge_local_and_remote_stations(local_resp, remote_resp);
+                    let _ = tx_clone.send(AppAction::AdminDispatchResult {
+                        command: "radio_scan_all_remotes".to_string(),
+                        response,
+                    });
+                });
+                app.state.ephemeral.repl.status =
+                    Some(ReplStatus::info("scanning local + known remotes\u{2026}"));
+                app.state.ephemeral.repl.clear_input();
+                rk::leave(&mut app.state);
+                app.state.ephemeral.focus = Focus::ResultPanel;
+                return;
+            }
             // synthesize an admin-dispatch-shaped result. command name
             // gets prefixed so the result panel labels it nicely.
             let label = match kind {
@@ -4805,6 +4885,37 @@ fn execute_slash_with_player(
             app.state.ephemeral.repl.clear_input();
             rk::leave(&mut app.state);
             // surface the result panel so the rows show up.
+            app.state.ephemeral.focus = Focus::ResultPanel;
+        }
+        SlashAction::RadioListen {
+            peer_addr,
+            station_id,
+        } => {
+            // reuses the exact same session an incoming
+            // `freqhole-player/1` `tune_radio` command runs (see
+            // `AppAction::PairingTuneRadio`'s handler above) - the only
+            // difference is where peer_addr/station_id came from (a
+            // locally-typed `/radio listen` instead of a remote
+            // controller).
+            super::radio::start(app, peer_addr, station_id, tx.clone());
+            app.state.ephemeral.repl.status = Some(ReplStatus::info("tuning in\u{2026}"));
+            app.state.ephemeral.repl.clear_input();
+            rk::leave(&mut app.state);
+        }
+        SlashAction::RadioScan { peer_addr } => {
+            let tx_clone = tx.clone();
+            let peer_addr_clone = peer_addr.clone();
+            tokio::task::spawn_local(async move {
+                let response = super::radio::scan_remote_stations(&peer_addr_clone).await;
+                let _ = tx_clone.send(AppAction::AdminDispatchResult {
+                    command: "radio_scan_remote".to_string(),
+                    response,
+                });
+            });
+            app.state.ephemeral.repl.status =
+                Some(ReplStatus::info(format!("scanning {peer_addr}\u{2026}")));
+            app.state.ephemeral.repl.clear_input();
+            rk::leave(&mut app.state);
             app.state.ephemeral.focus = Focus::ResultPanel;
         }
         // pure-state actions are handled inside apply_navigation.
@@ -5304,6 +5415,35 @@ fn detect_ssh_session() -> bool {
     ["SSH_TTY", "SSH_CONNECTION", "SSH_CLIENT"]
         .iter()
         .any(|var| std::env::var_os(var).is_some())
+}
+
+/// upsert `addr` into `persisted.remotes` (keyed by `peer_addr`, so
+/// re-adding the same peer just refreshes it instead of duplicating a
+/// row) - this is the list `/remotes` and `/radio`'s remote-scan
+/// actually read, unlike grimoire's `remotez` table which only backs
+/// the separate `Focus::RemoteList` modal.
+fn upsert_persisted_remote(persisted: &mut PersistedState, addr: &str) {
+    use crate::ratcore::app::RemoteEntry;
+
+    if let Some(existing) = persisted
+        .remotes
+        .iter_mut()
+        .find(|r| r.peer_addr.as_deref() == Some(addr))
+    {
+        existing.is_active = true;
+        existing.last_connected_at = Some(now_unix_secs());
+        return;
+    }
+    persisted.remotes.push(RemoteEntry {
+        remote_id: format!("rathole:{addr}"),
+        name: addr.to_string(),
+        transport: "app".to_string(),
+        peer_addr: Some(addr.to_string()),
+        base_url: None,
+        is_active: true,
+        last_connected_at: Some(now_unix_secs()),
+        local_ref: None,
+    });
 }
 
 /// upsert a peer_addr into grimoire's remotez table. fire-and-forget

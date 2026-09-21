@@ -362,6 +362,68 @@ pub(in crate::admin_dispatch) async fn seed_suggest(
                 })
                 .collect()
         }
+        "video" => {
+            use crate::video::crud::query::query_videos;
+            let params = QueryParams {
+                q: if q.is_empty() { None } else { Some(q.clone()) },
+                search_fields: None,
+                filters: std::collections::HashMap::new(),
+                sort_by: Some("title".to_string()),
+                sort_direction: Some("asc".to_string()),
+                limit: Some(limit),
+                offset: Some(0),
+                user_id: None,
+                favorites_only: None,
+                min_rating: None,
+                mb_lookup_status: None,
+                pending_review: None,
+                own_or_collaborative_only: None,
+                caller_is_admin: None,
+                caller_user_id: None,
+            };
+            let resp = query_videos(params, None, None, false).await;
+            resp.data
+                .map(|qr| qr.items)
+                .unwrap_or_default()
+                .into_iter()
+                .map(|v| RadioSeedSuggestion {
+                    id: v.id,
+                    name: v.title,
+                    subtitle: None,
+                })
+                .collect()
+        }
+        "video_series" => {
+            use crate::video::crud::query::query_video_seriez;
+            let params = QueryParams {
+                q: if q.is_empty() { None } else { Some(q.clone()) },
+                search_fields: None,
+                filters: std::collections::HashMap::new(),
+                sort_by: Some("title".to_string()),
+                sort_direction: Some("asc".to_string()),
+                limit: Some(limit),
+                offset: Some(0),
+                user_id: None,
+                favorites_only: None,
+                min_rating: None,
+                mb_lookup_status: None,
+                pending_review: None,
+                own_or_collaborative_only: None,
+                caller_is_admin: None,
+                caller_user_id: None,
+            };
+            let resp = query_video_seriez(params).await;
+            resp.data
+                .map(|qr| qr.items)
+                .unwrap_or_default()
+                .into_iter()
+                .map(|s| RadioSeedSuggestion {
+                    id: s.id,
+                    name: s.title,
+                    subtitle: None,
+                })
+                .collect()
+        }
         other => {
             return GrimoireResponse::failure(
                 format!("unknown seed-suggest kind: {}", other),
@@ -381,8 +443,12 @@ pub(in crate::admin_dispatch) async fn config_get() -> GrimoireResponse<JsonValu
     let cfg = crate::radio::config::effective();
     let payload = RadioConfigPayload {
         enabled: cfg.enabled,
-        encode_args: cfg.encode_args,
+        encode_args: Some(cfg.encode_args),
+        video_encode_args: Some(cfg.video_encode_args),
+        video_codec: Some(cfg.video_codec),
         ffmpeg_available: ffmpeg_available(),
+        max_concurrent_audio_streams: cfg.max_concurrent_audio_streams,
+        max_concurrent_video_streams: cfg.max_concurrent_video_streams,
     };
     to_value(GrimoireResponse::success("ok", payload))
 }
@@ -410,16 +476,34 @@ pub(in crate::admin_dispatch) async fn config_set(args: JsonValue) -> GrimoireRe
         Some(t) => t,
         None => return internal("config root is not a table".to_string()),
     };
-    let radio_table = toml::Value::Table({
-        let mut m = toml::map::Map::new();
-        m.insert("enabled".into(), toml::Value::Boolean(req.enabled));
-        m.insert(
-            "encode_args".into(),
-            toml::Value::String(req.encode_args.clone()),
-        );
-        m
-    });
-    table.insert("radio".into(), radio_table);
+    // start from whatever [radio] table is already on disk (not a blank
+    // slate) so any field the caller left as `None` - including keys this
+    // struct doesn't even model - survives untouched, rather than every
+    // save re-freezing the currently-displayed encode args as a literal
+    // override.
+    let mut radio_map = match table.get("radio") {
+        Some(toml::Value::Table(existing)) => existing.clone(),
+        _ => toml::map::Map::new(),
+    };
+    radio_map.insert("enabled".into(), toml::Value::Boolean(req.enabled));
+    if let Some(v) = &req.encode_args {
+        radio_map.insert("encode_args".into(), toml::Value::String(v.clone()));
+    }
+    if let Some(v) = &req.video_encode_args {
+        radio_map.insert("video_encode_args".into(), toml::Value::String(v.clone()));
+    }
+    if let Some(v) = &req.video_codec {
+        radio_map.insert("video_codec".into(), toml::Value::String(v.clone()));
+    }
+    radio_map.insert(
+        "max_concurrent_audio_streams".into(),
+        toml::Value::Integer(req.max_concurrent_audio_streams as i64),
+    );
+    radio_map.insert(
+        "max_concurrent_video_streams".into(),
+        toml::Value::Integer(req.max_concurrent_video_streams as i64),
+    );
+    table.insert("radio".into(), toml::Value::Table(radio_map));
     let new_toml = match toml::to_string_pretty(&doc) {
         Ok(s) => s,
         Err(e) => return internal(format!("failed to serialize config: {}", e)),
@@ -459,8 +543,12 @@ pub(in crate::admin_dispatch) async fn config_set(args: JsonValue) -> GrimoireRe
     }
     let out = RadioConfigPayload {
         enabled: cfg.enabled,
-        encode_args: cfg.encode_args,
+        encode_args: Some(cfg.encode_args),
+        video_encode_args: Some(cfg.video_encode_args),
+        video_codec: Some(cfg.video_codec),
         ffmpeg_available: ffmpeg_available(),
+        max_concurrent_audio_streams: cfg.max_concurrent_audio_streams,
+        max_concurrent_video_streams: cfg.max_concurrent_video_streams,
     };
     to_value(GrimoireResponse::success("config updated", out))
 }
@@ -584,6 +672,7 @@ fn bumper_to_payload(b: crate::radio::bumpers::Bumper) -> RadioBumper {
         id: b.id,
         station_id: b.station_id,
         song_id: b.song_id,
+        video_id: b.video_id,
         label: b.label,
         weight: b.weight,
         created_at: b.created_at,
@@ -612,8 +701,14 @@ pub(in crate::admin_dispatch) async fn bumpers_add(args: JsonValue) -> GrimoireR
         Err(r) => return r,
     };
     let weight = req.weight.unwrap_or(1);
-    match crate::radio::bumpers::add_bumper(&req.station_id, &req.song_id, &req.label, Some(weight))
-        .await
+    match crate::radio::bumpers::add_bumper(
+        &req.station_id,
+        req.song_id.as_deref(),
+        req.video_id.as_deref(),
+        &req.label,
+        Some(weight),
+    )
+    .await
     {
         Ok(b) => {
             let payload = bumper_to_payload(b);

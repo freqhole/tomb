@@ -6,6 +6,7 @@ import {
   createMemo,
   createResource,
   createSignal,
+  ErrorBoundary,
   on,
   onCleanup,
   onMount,
@@ -30,7 +31,7 @@ import { selectLocalPlaybackTarget } from "./services/players/selectPlaybackTarg
 import { openPlayerImageCarousel } from "./services/playerImageCarousel";
 import { createDebouncedBoolean } from "../utils/createDebouncedBoolean";
 import { isTouchDevice } from "../utils/isMobile";
-import { TopNav } from "../components/navigation/TopNav";
+import { TopNav, type TopNavProps } from "../components/navigation/TopNav";
 import {
   topNavRightContent,
   topNavSecondaryRowContent,
@@ -125,11 +126,12 @@ import { useVideoContextMenu } from "../video/hooks/contextMenu";
 import {
   getAllRemotes,
   getRemoteById,
-  onRemoteStatusChange,
   onSwitchToLocal,
+  remoteDataVersion,
 } from "./services/remotes/remoteManager";
 import { seedOnlineMap, wakeAllRemotes } from "./services/remotes/remoteHealth";
 import type { ImageMetadata, Song } from "../music/services/storage/types";
+import { songIdentityKey } from "../music/services/storage/types";
 import {
   mediaItemKey,
   songsOnly,
@@ -198,9 +200,11 @@ import { setHighlightedSongId } from "../music/state/highlightedSong";
 import {
   leaveRadio,
   radioArtUrl,
+  radioConnectPhase,
   radioCurrentFavorite,
   radioCurrentPeerAddr,
   radioCurrentRemoteServerId,
+  radioCurrentStationId,
   radioElapsedMs,
   radioListenerCount,
   radioNowPlaying,
@@ -208,6 +212,7 @@ import {
   radioResume,
   radioStatus,
   radioUseTimelineMode,
+  getRadioVideoElement,
   setRadioAudioSink,
   setRadioFavorite,
   tuneIntoRadio,
@@ -271,6 +276,35 @@ export function AppLayout(props: AppLayoutProps) {
     })
   );
 
+  // radio counterpart of the effects above - un-dismisses only when a
+  // genuinely NEW video-carrying radio SESSION starts (a different
+  // peer_addr/station_id, or transitioning into radio-video from
+  // something else entirely). explicit resume is handled separately in
+  // onPlayPause's radio branch (see below), for parity with the
+  // local-video isPlaying effect above.
+  //
+  // an earlier version of this keyed off radioStatus()/song_id directly
+  // (un-dismissing on every "-> playing" transition, or every track
+  // change while kind stayed "video") - status legitimately cycles
+  // connecting->playing on every ADMIN SKIP even mid-session (see
+  // flushForAdminSkip in radioService.ts), and song_id changes on every
+  // ordinary track transition too - both silently reopened a panel the
+  // user had just explicitly closed, moments (or a track) later, making
+  // the close button look broken.
+  createEffect(
+    on(
+      () =>
+        playbackMode() === "radio" && radioNowPlaying()?.kind === "video"
+          ? `${radioCurrentPeerAddr() ?? ""}:${radioCurrentStationId() ?? ""}`
+          : undefined,
+      (session, prevSession) => {
+        if (session !== undefined && session !== prevSession) {
+          setVideoMiniPlayerDismissed(false);
+        }
+      }
+    )
+  );
+
   // the mini player floats above everything, including modals - hide it
   // (pausing playback first) whenever any modal opens so it doesn't sit
   // on top of the modal. only applies when a video is actually loaded
@@ -278,10 +312,15 @@ export function AppLayout(props: AppLayoutProps) {
   // hide, so opening a modal shouldn't pause music playback).
   const isAnyModalOpenReactive = useIsAnyModalOpen();
   createEffect(() => {
-    if (currentVideoData() && isAnyModalOpenReactive() && !videoMiniPlayerDismissed()) {
-      if (isPlaying()) pause();
-      setVideoMiniPlayerDismissed(true);
+    const radioVideoActive = playbackMode() === "radio" && radioNowPlaying()?.kind === "video";
+    if (!currentVideoData() && !radioVideoActive) return;
+    if (!isAnyModalOpenReactive() || videoMiniPlayerDismissed()) return;
+    if (radioVideoActive) {
+      if (radioStatus() === "playing") radioPause();
+    } else if (isPlaying()) {
+      pause();
     }
+    setVideoMiniPlayerDismissed(true);
   });
 
   // favorite status for the currently-playing video (video summary rows
@@ -316,6 +355,94 @@ export function AppLayout(props: AppLayoutProps) {
   const [storageUsage, setStorageUsage] = createSignal<number>(0);
   const [storageQuota, setStorageQuota] = createSignal<number>(0);
   const [externalStorageMounted, setExternalStorageMounted] = createSignal(false);
+
+  // react to `remoteDataVersion` from component-setup time (not from
+  // inside onMount's own awaited chain below) so this effect is already
+  // subscribed before ANY boot-time write (e.g. App.tsx's
+  // autoSetupRemoteFromTauriBridge -> upsertTauriRemote, which resolves
+  // the local charnel-managed remote's avatar image) could possibly
+  // complete. previously this refresh only ran from an `onRemoteStatusChange`
+  // plain-listener subscription registered inside onMount - a notification
+  // fired before that subscription attached was silently dropped, leaving
+  // the local remote's row stuck on whatever (possibly still-empty)
+  // snapshot the very first `getAllRemotes()` call had captured, until
+  // some LATER, unrelated status change coincidentally forced a refresh
+  // (e.g. an offline<->online health-check transition - which is why this
+  // looked like "clicking in triggers a health check that happens to fix
+  // it").
+  createEffect(
+    on(remoteDataVersion, () => {
+      void getAllRemotes().then(setRemotes);
+    })
+  );
+
+  type TopNavRemoteItem = NonNullable<TopNavProps["remotes"]>[number];
+
+  // TopNav's remote-row list, mapped from `remotes()` and stabilized so
+  // an unrelated health-check poll (onRemoteStatusChange fires on every
+  // offline<->online transition, calling setRemotes(allRemotes) with a
+  // brand-new Remote[]) doesn't hand <For> a brand-new object for every
+  // row on every poll. <For> diffs by reference, so a fresh object per
+  // row - even with identical field values - looks like "remove old row,
+  // add new row" to it, fully remounting each row's TopNav-internal
+  // RemoteServerImage and restarting its async avatar-image resolution
+  // from scratch. that remount is what turned a working avatar into the
+  // fallback icon: the first resolution often succeeds from a warm P2P
+  // blob-url cache, but a remount-triggered re-fetch has no such luck for
+  // an actually-offline peer and permanently fails, unlike the original.
+  // reusing the previous row object (all fields unchanged) keeps <For>
+  // from remounting rows whose displayed content didn't actually change.
+  // `lastChecked` is deliberately excluded from the equality check (it's
+  // only used for a "last checked Ns ago" tooltip, and would otherwise
+  // change on literally every poll, defeating the whole point) but is
+  // still refreshed onto the reused object so that tooltip stays current.
+  let previousTopNavRemotes: TopNavRemoteItem[] = [];
+  const topNavRemotes = createMemo((): TopNavRemoteItem[] => {
+    const mapped = remotes().map((r): TopNavRemoteItem => {
+      // charnel-managed remotes are always local (embedded grimoire)
+      const isCharnelManaged = r.is_charnel_managed === true;
+      const url = isHttpRemote(r) && r.base_url ? r.base_url.toLowerCase() : "";
+      const isLocal =
+        isCharnelManaged ||
+        url.includes("localhost") ||
+        url.includes("127.0.0.1") ||
+        url.includes("[::1]");
+      return {
+        id: r.remote_id,
+        name: r.name,
+        url: isHttpRemote(r) ? (r.base_url ?? "local") : r.peer_addr,
+        imageUrl: r.image_url ?? undefined,
+        imageBlobId: r.image_blob_id ?? undefined,
+        peerAddr: isP2PRemote(r) ? r.peer_addr : undefined,
+        isOffline: r.is_offline,
+        lastChecked: r.last_checked,
+        isCharnelManaged: r.is_charnel_managed,
+        isLocal,
+        updatedAt: r.updated_at,
+      };
+    });
+    const prevById = new Map(previousTopNavRemotes.map((item) => [item.id, item] as const));
+    const stabilized = mapped.map((item) => {
+      const prev = prevById.get(item.id);
+      const unchanged =
+        prev &&
+        prev.name === item.name &&
+        prev.url === item.url &&
+        prev.imageUrl === item.imageUrl &&
+        prev.imageBlobId === item.imageBlobId &&
+        prev.peerAddr === item.peerAddr &&
+        prev.isOffline === item.isOffline &&
+        prev.isCharnelManaged === item.isCharnelManaged &&
+        prev.isLocal === item.isLocal &&
+        prev.updatedAt === item.updatedAt;
+      if (!unchanged) return item;
+      return prev.lastChecked === item.lastChecked
+        ? prev
+        : { ...prev, lastChecked: item.lastChecked };
+    });
+    previousTopNavRemotes = stabilized;
+    return stabilized;
+  });
 
   // phase 6: unified playback target (paired freqhole-player devices) -
   // the "play on" picker itself now lives in QueueSidebar's bottom row.
@@ -567,7 +694,6 @@ export function AppLayout(props: AppLayoutProps) {
     // and triggers "cleanups created outside a `createRoot` or `render`
     // will never be run", so these start undefined and get populated
     // once each piece of async setup resolves.
-    let unsubscribeStatusChange: (() => void) | undefined;
     let unsubscribeSwitchToLocalFn: (() => void) | undefined;
     let interval: ReturnType<typeof setInterval> | undefined;
     let unlistenExternalStorageMounted: (() => void) | undefined;
@@ -576,7 +702,6 @@ export function AppLayout(props: AppLayoutProps) {
     onCleanup(() => {
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("focus", onVisibility);
-      unsubscribeStatusChange?.();
       unsubscribeSwitchToLocalFn?.();
       if (interval !== undefined) clearInterval(interval);
       unlistenExternalStorageMounted?.();
@@ -635,19 +760,6 @@ export function AppLayout(props: AppLayoutProps) {
       // no separate player-presence sweep to run here anymore.
       void seedOnlineMap();
       wakeAllRemotes();
-
-      // listen for remote status changes (offline/online) and refresh remotes list
-      unsubscribeStatusChange = onRemoteStatusChange(async (_remoteId, _isOffline) => {
-        try {
-          const allRemotes = await getAllRemotes();
-          setRemotes(allRemotes);
-          debug("AppLayout", "refreshed remotes after status change", {
-            count: allRemotes.length,
-          });
-        } catch (error) {
-          console.error("failed to refresh remotes after status change:", error);
-        }
-      });
 
       // listen for "switch to local" action from toast
       unsubscribeSwitchToLocalFn = onSwitchToLocal(() => {
@@ -810,7 +922,7 @@ export function AppLayout(props: AppLayoutProps) {
 
     const queueSongs = songsOnly(state.queue);
     const currentIndex = state.current_sha256
-      ? queueSongs.findIndex((s) => s.sha256 === state.current_sha256)
+      ? queueSongs.findIndex((s) => songIdentityKey(s) === state.current_sha256)
       : 0;
 
     // this effect will re-run when queue or current index changes
@@ -1229,29 +1341,7 @@ export function AppLayout(props: AppLayoutProps) {
           currentPath={location.pathname + location.search}
           currentSourceName={currentSourceName()}
           currentSourceId={getCurrentRemote()?.remote_id ?? null}
-          remotes={remotes().map((r) => {
-            // charnel-managed remotes are always local (embedded grimoire)
-            const isCharnelManaged = r.is_charnel_managed === true;
-            const url = isHttpRemote(r) && r.base_url ? r.base_url.toLowerCase() : "";
-            const isLocal =
-              isCharnelManaged ||
-              url.includes("localhost") ||
-              url.includes("127.0.0.1") ||
-              url.includes("[::1]");
-            return {
-              id: r.remote_id,
-              name: r.name,
-              url: isHttpRemote(r) ? (r.base_url ?? "local") : r.peer_addr,
-              imageUrl: r.image_url ?? undefined,
-              imageBlobId: r.image_blob_id ?? undefined,
-              peerAddr: isP2PRemote(r) ? r.peer_addr : undefined,
-              isOffline: r.is_offline,
-              lastChecked: r.last_checked,
-              isCharnelManaged: r.is_charnel_managed,
-              isLocal,
-              updatedAt: r.updated_at,
-            };
-          })}
+          remotes={topNavRemotes()}
           onSwitchToLocal={handleSwitchToLocal}
           onSwitchToRemote={handleSwitchToRemote}
           onRecheckRemote={handleRecheckRemote}
@@ -1712,6 +1802,24 @@ export function AppLayout(props: AppLayoutProps) {
               };
             };
 
+            // radio counterpart of barVideo() - only meaningful once
+            // radioNowPlaying().kind === "video" (see isVideoActive below).
+            // radio's now_playing has no poster/images array of its own
+            // (see PublicNowPlaying in grimoire), just the single
+            // art_blob_id already resolved server-side to the video's
+            // poster_blob_id.
+            const barRadioVideo = (): PlayerBarVideo | null => {
+              const np = radioNowPlaying();
+              if (!np || np.kind !== "video") return null;
+              return {
+                id: np.song_id || "radio-video",
+                title: np.title || "untitled",
+                source_type: "remote",
+                poster_blob_id: np.art_blob_id ?? null,
+                remote_server_id: radioCurrentRemoteServerId() ?? undefined,
+              };
+            };
+
             const barIsPlaying = () =>
               isRemoteTargetActive()
                 ? remoteIsPlaying()
@@ -1763,7 +1871,13 @@ export function AppLayout(props: AppLayoutProps) {
                     acknowledgeTimelineUserStart();
                   }
                   radioResume();
-                } else if (radioStatus() === "playing") radioPause();
+                  // explicit user resume, same as the local-video isPlaying
+                  // effect above - reopens a panel the user closed while
+                  // paused, mirroring VideoMiniPlayer's own "pause + hide,
+                  // reopens once playback resumes" contract.
+                  if (radioNowPlaying()?.kind === "video") setVideoMiniPlayerDismissed(false);
+                } else if (radioStatus() === "playing" || radioStatus() === "connecting")
+                  radioPause();
                 else if (radioStatus() === "error") leaveRadio();
                 else if (radioStatus() === "idle") {
                   const station = currentRadioStation();
@@ -1918,13 +2032,13 @@ export function AppLayout(props: AppLayoutProps) {
                   }}
                   title={radioCurrentPeerAddr() ?? ""}
                 >
-                  <span>
+                  <span class="truncate">
                     {radioStatus() === "playing"
                       ? radioUseTimelineMode()
                         ? "queue"
                         : "live"
                       : radioStatus() === "connecting"
-                        ? "tuning"
+                        ? radioConnectPhase() || "tuning\u2026"
                         : radioStatus() === "paused"
                           ? "paused"
                           : radioStatus() === "idle"
@@ -1932,7 +2046,7 @@ export function AppLayout(props: AppLayoutProps) {
                             : "error"}
                   </span>
                   <span
-                    class="w-1 h-1 rounded-full"
+                    class="w-1 h-1 rounded-full flex-shrink-0"
                     classList={{
                       "bg-violet-400 animate-pulse":
                         radioStatus() === "playing" && radioUseTimelineMode(),
@@ -1943,32 +2057,64 @@ export function AppLayout(props: AppLayoutProps) {
                       "bg-red-500": radioStatus() === "error",
                     }}
                   />
-                  <span class="opacity-70 normal-case font-medium tabular-nums">
-                    {radioListenerCount()} listening
-                  </span>
+                  {/* listener count isn't meaningful yet while tuning - drop
+                      it so the badge has more room for the connect-phase
+                      text above instead (was previously "N listening" even
+                      mid-tune, which just reads as noise). */}
+                  <Show when={radioStatus() !== "connecting"}>
+                    <span class="opacity-70 normal-case font-medium tabular-nums">
+                      {radioListenerCount()} listening
+                    </span>
+                  </Show>
                 </div>
               ) : undefined;
 
             return (
               <>
-                <Show
-                  when={
-                    !videoMiniPlayerDismissed() &&
-                    !isRadio() &&
-                    currentVideoData() &&
-                    // on linux the picture is in its own gstreamer window, so
-                    // there is no element here to mirror
-                    !isVideoWindowActive() &&
-                    getVideoElement()
-                  }
+                {/* ErrorBoundary: a rare solid-js reentrant-dispose bug
+                    (`cleanNode`/`node.owned[i]`) was traced to this panel
+                    mounting/unmounting (via `<Show>`) on every dismiss/
+                    status change while it also owns a live, re-parented
+                    `<video>` element - contain any recurrence here so it
+                    can't take down the rest of the layout. the mount
+                    condition below no longer includes the dismissed flag
+                    (see `hidden` prop) specifically to stop causing that
+                    churn in the first place; this boundary is a backstop,
+                    not the fix. */}
+                <ErrorBoundary
+                  fallback={(err) => {
+                    console.warn("[player.video] mini player crashed, resetting:", err);
+                    return null;
+                  }}
                 >
-                  {(el) => (
-                    <VideoMiniPlayer
-                      videoElement={el()}
-                      onClose={() => setVideoMiniPlayerDismissed(true)}
-                    />
-                  )}
-                </Show>
+                  <Show
+                    when={
+                      (!isRadio() &&
+                        currentVideoData() &&
+                        // on linux the picture is in its own gstreamer window,
+                        // so there is no element here to mirror
+                        !isVideoWindowActive() &&
+                        getVideoElement()) ||
+                      (isRadio() && radioNowPlaying()?.kind === "video" && getRadioVideoElement())
+                    }
+                  >
+                    {(el) => (
+                      <VideoMiniPlayer
+                        videoElement={el()}
+                        hidden={videoMiniPlayerDismissed()}
+                        onClose={() => setVideoMiniPlayerDismissed(true)}
+                        isPlaying={isRadio() ? () => radioStatus() === "playing" : undefined}
+                        onTogglePlayback={
+                          isRadio()
+                            ? () => (radioStatus() === "playing" ? radioPause() : radioResume())
+                            : undefined
+                        }
+                        onPause={isRadio() ? () => radioPause() : undefined}
+                        onElementDetach={isRadio() ? reclaimRadioVideoElement : undefined}
+                      />
+                    )}
+                  </Show>
+                </ErrorBoundary>
                 <PlayerBar
                   song={barSong()}
                   isPlaying={barIsPlaying()}
@@ -2006,13 +2152,18 @@ export function AppLayout(props: AppLayoutProps) {
                   externalStorageProgress={externalStorageSyncProgressSignal()}
                   onExternalStorageIconClick={() => navigate("/storage-overview")}
                   activeTargetIsRemote={isRemoteTargetActive()}
-                  isVideoActive={!isRadio() && !!currentVideoData()}
+                  isVideoActive={
+                    (!isRadio() && !!currentVideoData()) ||
+                    (isRadio() && radioNowPlaying()?.kind === "video")
+                  }
                   videoElement={
                     !isRadio() && currentVideoData() && !isVideoWindowActive()
                       ? getVideoElement()
-                      : null
+                      : isRadio() && radioNowPlaying()?.kind === "video"
+                        ? getRadioVideoElement()
+                        : null
                   }
-                  video={!isRadio() ? barVideo() : null}
+                  video={!isRadio() ? barVideo() : barRadioVideo()}
                   isVideoFavorite={isCurrentVideoFavorite()}
                   onVideoFavoriteToggle={handleVideoFavoriteToggle}
                 />
@@ -2021,8 +2172,9 @@ export function AppLayout(props: AppLayoutProps) {
           })()}
         </Show>
 
-        {/* persistent <audio> for radio playback. hidden; lives at app root
-          so navigation never tears it down. wired into radioService via
+        {/* persistent <video> for radio playback (also carries audio-only
+          stations - see RadioAudioSink's doc comment). lives at app root so
+          navigation never tears it down. wired into radioService via
           setRadioAudioSink in onMount. */}
         <RadioAudioSink />
 
@@ -2082,35 +2234,69 @@ export function AppLayout(props: AppLayoutProps) {
   );
 }
 
+// the hidden mount `RadioAudioSink` appends its `<video>` element into by
+// default - tracked at module scope (singleton, mirrors `audioSink` in
+// radioService.ts) so `reclaimRadioVideoElement` can move the element back
+// here after the floating `VideoMiniPlayer` (which re-parents it elsewhere
+// while a video-kind track is visible) closes. the element must always
+// stay attached to a real, non-`display:none` parent - see the
+// ManagedMediaSource doc comments below - so simply letting it go
+// orphaned when the mini player unmounts is not an option here.
+let radioVideoSinkMount: HTMLDivElement | null = null;
+
+/** moves the radio video element back into its hidden default parent -
+ * passed as `VideoMiniPlayer`'s `onElementDetach` for the radio case. */
+function reclaimRadioVideoElement(el: HTMLVideoElement): void {
+  if (radioVideoSinkMount && el.parentElement !== radioVideoSinkMount) {
+    radioVideoSinkMount.appendChild(el);
+  }
+}
+
 /**
- * persistent <audio> element for radio playback. mounted once at the
- * app root so navigation never re-creates it (which would tear down the
- * MediaSource pipe). registers itself with `setRadioAudioSink` on mount
- * and unregisters on unmount. hidden from layout.
+ * persistent <video> element for radio playback (audio-only stations just
+ * never get real frames painted to it). mounted once at the app root so
+ * navigation never re-creates it (which would tear down the MediaSource
+ * pipe). registers itself with `setRadioAudioSink` on mount and
+ * unregisters on unmount. hidden here by default; the floating
+ * `VideoMiniPlayer` (see AppLayout's render body) re-parents it into a
+ * visible panel via `appendChild` while a video-kind track is playing,
+ * then moves it back here (`reclaimRadioVideoElement`, above) afterward -
+ * same technique as the non-radio video backend's element.
  */
 function RadioAudioSink() {
   let mount!: HTMLDivElement;
-  const audioEl = (() => {
-    const el = document.createElement("audio");
+  const videoEl = (() => {
+    const el = document.createElement("video");
     el.controls = false;
     el.autoplay = false;
     el.preload = "auto";
-    el.style.display = "none";
+    el.playsInline = true;
+    // NOT display:none - confirmed on a real iPhone that a
+    // ManagedMediaSource attached via srcObject never fires sourceopen on
+    // a display:none element (an isolated, visible repro fired it fine).
+    // visually-hidden-but-laid-out keeps it off iOS's suspend heuristics.
+    el.style.position = "absolute";
+    el.style.width = "1px";
+    el.style.height = "1px";
+    el.style.overflow = "hidden";
+    el.style.clip = "rect(0,0,0,0)";
     return el;
   })();
-  setRadioAudioSink(audioEl);
+  setRadioAudioSink(videoEl);
   // initial volume sync — RadioAudioSink mounts after player.ts has
   // restored the persisted volume, so seed the new sink to match.
   try {
-    audioEl.volume = Math.max(0, Math.min(1, volume()));
+    videoEl.volume = Math.max(0, Math.min(1, volume()));
   } catch {
     // ignore — element may not be ready yet.
   }
   onMount(() => {
-    if (mount && audioEl.parentElement !== mount) mount.appendChild(audioEl);
+    if (mount && videoEl.parentElement !== mount) mount.appendChild(videoEl);
+    radioVideoSinkMount = mount;
   });
   onCleanup(() => {
     setRadioAudioSink(null);
+    radioVideoSinkMount = null;
   });
   return <div ref={(el) => (mount = el)} class="hidden" />;
 }

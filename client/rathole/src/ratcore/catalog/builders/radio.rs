@@ -440,11 +440,15 @@ pub(in crate::ratcore::catalog) fn config_set() -> AdminCommand {
             ArgSpec {
                 name: "encode_args".to_string(),
                 kind: ArgKind::Text {
-                    placeholder: "ffmpeg encoder template, e.g. -i {input} -f mp3 pipe:1"
+                    placeholder: "(blank = leave alone) ffmpeg encoder template, e.g. -i {input} -f mp3 pipe:1"
                         .to_string(),
                 },
-                required: true,
-                help: Some("{input} placeholder; output to pipe:1".to_string()),
+                required: false,
+                help: Some(
+                    "{input} placeholder; output to pipe:1 - leave blank to keep whatever's \
+                     already configured (never freezes the live default as an override)"
+                        .to_string(),
+                ),
             },
             // ffmpeg_available is server-derived; send a dummy false
             // so the payload deserializes. server overrides it.

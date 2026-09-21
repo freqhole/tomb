@@ -11,6 +11,7 @@ import { isCharnelMode } from "../../../app/services/charnel";
 import { useSongContextMenu } from "../../hooks/contextMenu";
 import { canRemoveSongsFromPlaylist } from "../../data/permissions";
 import type { Song } from "../../data/types";
+import { songIdentityKey } from "../../services/storage/types";
 import type { MergedPlaylistItem } from "./usePlaylistMergedItems";
 
 export interface PlaylistSongRowProps {
@@ -50,7 +51,7 @@ export function PlaylistSongRow(props: PlaylistSongRowProps) {
       index={props.index}
       isDragging={props.isDragging}
       isDropTarget={props.isDropTarget}
-      isPlaying={appState()?.current_sha256 === song.sha256}
+      isPlaying={appState()?.current_sha256 === songIdentityKey(song)}
       onDragStart={props.onDragStart}
       onDragOver={props.onDragOver}
       onDragLeave={props.onDragLeave}

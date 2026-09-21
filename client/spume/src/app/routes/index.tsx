@@ -45,7 +45,7 @@ import {
   LinkDeviceView,
   PairedPlayersView,
 } from "../../settings";
-import { isCharnelMode } from "../services/charnel";
+import { isCharnelMode, getConfig } from "../services/charnel";
 import { getDefaultRoute } from "../../music/utils/routing";
 import { debug } from "../../utils/logger";
 import { CenotaphPlayerApp } from "../../cenotaph/app/CenotaphPlayerApp";
@@ -62,6 +62,38 @@ function LibraryRedirect() {
   return null;
 }
 
+// maps `charnel-config.toml`'s `initial_view` setting to the actual route
+// spume should land on at cold boot, for the local charnel-managed remote
+// (`remoteId`). unrecognized/missing values fall back to "explore" - the
+// same graph view used before this setting existed.
+function initialRouteForView(view: string | undefined, remoteId: string): string {
+  switch (view) {
+    case "feed":
+      return "/feed";
+    case "local_feed":
+      return `/${remoteId}/feed`;
+    case "albums":
+      return `/${remoteId}/albums`;
+    case "songs":
+      return `/${remoteId}/songs`;
+    case "artists":
+      return `/${remoteId}/artists`;
+    case "playlists":
+      return `/${remoteId}/playlists`;
+    case "favorites":
+      return `/${remoteId}/favorites`;
+    case "videos":
+      return `/${remoteId}/video`;
+    case "series":
+      return `/${remoteId}/video/series`;
+    case "player":
+      return "/player";
+    case "explore":
+    default:
+      return "/explore";
+  }
+}
+
 function RootRedirect() {
   const navigate = useNavigate();
 
@@ -71,12 +103,16 @@ function RootRedirect() {
     if (isCharnelMode()) {
       const tauriRemote = await getTauriManagedRemote();
       if (tauriRemote) {
-        // tauri desktop app — land on the library graph view (cross-remote
-        // browse surface) rather than the single-remote albums grid. the
-        // graph view is the canonical multi-remote browse surface and
-        // shows the user's full library at a glance on cold start.
-        debug("routes", "tauri mode: navigating to /explore (graph view)");
-        navigate("/explore", { replace: true });
+        // land on whichever view `charnel-config.toml`'s `initial_view`
+        // requests (default "explore", the cross-remote library graph
+        // view) - see initialRouteForView above.
+        const config = await getConfig();
+        const target = initialRouteForView(config?.initial_view, tauriRemote.remote_id);
+        debug(
+          "routes",
+          `tauri mode: navigating to ${target} (initial_view=${config?.initial_view ?? "explore"})`
+        );
+        navigate(target, { replace: true });
         return;
       }
       // no tauri remote yet - stay on root (App.tsx will handle setup)

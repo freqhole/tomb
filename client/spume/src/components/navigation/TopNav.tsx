@@ -1,15 +1,5 @@
 import { NavigationMenu as KobalteNav } from "@kobalte/core/navigation-menu";
-import {
-  createEffect,
-  createResource,
-  createSignal,
-  For,
-  on,
-  onCleanup,
-  onMount,
-  Show,
-  type JSX,
-} from "solid-js";
+import { createEffect, createSignal, For, on, onCleanup, onMount, Show, type JSX } from "solid-js";
 import { Portal } from "solid-js/web";
 import { permissions, type UserRoleName } from "@freqhole/api-client";
 import { getLocalNodeId, isCharnelMode } from "../../app/services/charnel";
@@ -23,7 +13,7 @@ import { startDraggingWindow, toggleMaximizeWindow } from "../../app/services/ch
 import { isNarrowViewport } from "../../config/breakpoints";
 import { getDisableBackdropBlur } from "../../app/services/backdropBlur";
 import { canCreatePlaylist, canUploadMusic, isMemberOrHigher } from "../../music/data/permissions";
-import { resolveBlobUrl } from "../../music/services/storage/blobResolver";
+import { useResolvedP2PImageUrl } from "../../music/services/storage/blobResolver";
 import type { ImageMetadata } from "../../music/services/storage/types";
 import { routes } from "../../music/utils/routing";
 import { formatRelativeTime } from "../../utils/dateTime";
@@ -257,37 +247,53 @@ type RemoteItem = NonNullable<TopNavProps["remotes"]>[number];
 // component to render remote server images (handles P2P blob resolution)
 function RemoteServerImage(props: { remote: RemoteItem; class?: string; alt?: string }) {
   const [loadError, setLoadError] = createSignal(false);
+  // bumped on each retry attempt and appended to the url as a
+  // cache-busting query param, so the SAME logical image forces a fresh
+  // `<img>` load attempt rather than being permanently stuck once the
+  // browser marks that exact url string as failed.
+  const [retryNonce, setRetryNonce] = createSignal(0);
   const isP2P = () => !!props.remote.peerAddr;
 
-  // reset the "failed to load" flag on every remote switch - otherwise a
-  // stale true from a PREVIOUS remote's failed image load would force the
-  // fallback icon even once the new remote's own (perfectly fine) image
-  // starts loading.
+  // reset failure/retry state whenever the remote switches or the image
+  // source itself changes.
   createEffect(
     on(
-      () => props.remote.id,
-      () => setLoadError(false)
+      () => `${props.remote.id}:${props.remote.imageUrl ?? ""}:${props.remote.imageBlobId ?? ""}`,
+      () => {
+        setLoadError(false);
+        setRetryNonce(0);
+      }
     )
   );
 
-  // resolve P2P blob URL asynchronously. keyed by remote id (always
-  // truthy) rather than `imageBlobId ? {...} : null` - a falsy
-  // createResource source SKIPS fetching but does NOT clear the
-  // previously resolved value, so switching from a P2P remote that had an
-  // image to one that doesn't left the OLD remote's blob url on screen
-  // (no image ever "unresolves"). keying on the remote id instead means
-  // every switch re-runs the fetcher, which itself returns `null` when
-  // this remote has no image to resolve - so the url actually clears.
-  const [resolvedP2PUrl] = createResource(
-    () => props.remote.id,
-    async () => {
-      if (!isP2P() || !props.remote.imageBlobId) return null;
-      try {
-        return await resolveBlobUrl(props.remote.imageBlobId, props.remote.id);
-      } catch (e) {
-        return null;
-      }
-    }
+  // charnel-managed remotes' images are served via tauri's `asset://`
+  // custom protocol, which is not always ready to handle requests in the
+  // brief window right after the webview is created - a first-paint
+  // `<img>` load can genuinely fail with no fault of the data
+  // (image_url/updated_at were already correct the whole time; only an
+  // UNRELATED incidental full row remount, e.g. from `updated_at`
+  // changing elsewhere, ever happened to retry it before this fix).
+  // retry a few times with backoff before giving up and showing the
+  // permanent fallback icon.
+  const MAX_RETRIES = 5;
+  const RETRY_BASE_MS = 200;
+  let retryTimer: ReturnType<typeof setTimeout> | undefined;
+  onCleanup(() => clearTimeout(retryTimer));
+
+  // reactive + cache-first: checks the in-memory activeBlobUrls store
+  // (itself restored from the persistent Cache API on first resolve, so a
+  // blob fetched in a PREVIOUS app session renders instantly here with no
+  // network round-trip) and kicks off a background fetch/cache-restore
+  // when not yet resolved. crucially, this - unlike a one-shot
+  // createResource keyed only on remote id - re-evaluates whenever
+  // `imageBlobId` itself changes, so a row picks up its avatar the
+  // instant a background health-check probe populates `image_blob_id`
+  // for the first time, instead of only ever loading it after the user
+  // happens to navigate into that remote (which triggers its own probe).
+  const resolvedP2PUrl = useResolvedP2PImageUrl(() =>
+    isP2P() && props.remote.imageBlobId
+      ? { blobId: props.remote.imageBlobId, remoteId: props.remote.id }
+      : undefined
   );
 
   // for HTTP remotes, use direct URL with cache-busting based on updatedAt
@@ -302,24 +308,19 @@ function RemoteServerImage(props: { remote: RemoteItem; class?: string; alt?: st
       props.remote.imageUrl.startsWith("http://") ||
       props.remote.imageUrl.startsWith("https://")
     ) {
-      const url = props.remote.updatedAt
-        ? `${props.remote.imageUrl}?v=${props.remote.updatedAt}`
-        : props.remote.imageUrl;
-      return url;
+      const v = [props.remote.updatedAt, retryNonce() || undefined].filter(Boolean).join("-");
+      return v ? `${props.remote.imageUrl}?v=${v}` : props.remote.imageUrl;
     }
     // relative URL - prepend base URL
     if (!props.remote.url) {
       return null;
     }
     const baseUrl = `${props.remote.url}${props.remote.imageUrl}`;
-    const url = props.remote.updatedAt ? `${baseUrl}?v=${props.remote.updatedAt}` : baseUrl;
-    return url;
+    const v = [props.remote.updatedAt, retryNonce() || undefined].filter(Boolean).join("-");
+    return v ? `${baseUrl}?v=${v}` : baseUrl;
   };
 
-  const imageUrl = () => {
-    const url = isP2P() ? resolvedP2PUrl() : httpImageUrl();
-    return url;
-  };
+  const imageUrl = () => (isP2P() ? (resolvedP2PUrl() ?? null) : httpImageUrl());
 
   // fallback icon component
   const FallbackIcon = () => (
@@ -333,35 +334,23 @@ function RemoteServerImage(props: { remote: RemoteItem; class?: string; alt?: st
 
   return (
     <Show when={imageUrl() && !loadError()} fallback={<FallbackIcon />}>
-      <Show
-        when={!resolvedP2PUrl.loading}
-        fallback={
-          <div
-            class={`bg-[var(--color-bg-tertiary)] flex items-center justify-center animate-pulse ${props.class || ""}`}
-            style={{ "min-width": "28px", "min-height": "28px" }}
-          >
-            <Icon
-              name="freqhole"
-              size={16}
-              color="var(--color-accent-500)"
-              className="opacity-50"
-            />
-          </div>
-        }
-      >
-        <img
-          src={imageUrl()!}
-          alt={props.alt || ""}
-          class={props.class}
-          style={{ "min-width": "28px", "min-height": "28px" }}
-          onError={() => {
+      <img
+        src={imageUrl()!}
+        alt={props.alt || ""}
+        class={props.class}
+        style={{ "min-width": "28px", "min-height": "28px" }}
+        onError={() => {
+          if (retryNonce() < MAX_RETRIES) {
+            const attempt = retryNonce() + 1;
+            retryTimer = setTimeout(() => setRetryNonce(attempt), RETRY_BASE_MS * attempt);
+          } else {
             setLoadError(true);
-          }}
-          onLoad={() => {
-            setLoadError(false);
-          }}
-        />
-      </Show>
+          }
+        }}
+        onLoad={() => {
+          setLoadError(false);
+        }}
+      />
     </Show>
   );
 }
