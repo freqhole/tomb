@@ -1,5 +1,11 @@
 # freqhole-release
 
+## 0.3.7
+
+### Patch Changes
+
+- 15e3847: tv on the radio! so radio can stream video now! and mobile safari can now do proper audio + video streams; rathole + linux uses mpv; and some other minor bug fixes
+
 ## 0.3.6
 
 ### Patch Changes
