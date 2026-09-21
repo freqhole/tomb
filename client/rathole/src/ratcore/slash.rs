@@ -1547,7 +1547,7 @@ fn parse_radio_sub(arg: Option<&str>) -> SlashAction {
 }
 
 /// parses the arg of `/radio scan <arg>` into a [`SlashAction::RadioScan`]
-/// - `arg` is either a share link/token (any kind, only the embedded
+/// `arg` is either a share link/token (any kind, only the embedded
 /// peer/node id is used - unlike `parse_radio_listen` this doesn't need a
 /// `radio_station` entity share specifically, since scanning lists every
 /// station a peer has, not one particular one) or a raw peer_addr.

@@ -68,7 +68,7 @@ fn generation_is_current(generation: u64) -> bool {
 /// superseded immediately (its next chunk/control-message check will
 /// fail and it tears itself down on its own). unlike on-demand queue
 /// video, there's no upfront "no mpv backend in this shell" check here
-/// - `RadioMpv::spawn` is attempted lazily on the first chunk and any
+/// `RadioMpv::spawn` is attempted lazily on the first chunk and any
 /// failure (mpv missing, failed to spawn, etc.) surfaces as a normal
 /// `AppAction::RadioEnded` error through the same path as any other
 /// session failure.
