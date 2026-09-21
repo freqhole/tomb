@@ -58,6 +58,7 @@ import { PlayerDebugOverlay } from "./PlayerDebugOverlay";
 import { PlayerSettingsPanel } from "./PlayerSettingsPanel";
 import { renderPlayerQr } from "./renderPairingQr";
 import { isCharnelMode } from "../../app/services/charnel/mode";
+import { useChromeSuppression } from "../../app/shell/chromeSuppression";
 import {
   currentTime as realCurrentTime,
   duration as realDuration,
@@ -117,6 +118,35 @@ export function CenotaphPlayerApp() {
   const [error, setError] = createSignal<string | null>(null);
   const [settingsOpen, setSettingsOpen] = createSignal(false);
   const [nodeId, setNodeId] = createSignal<string | undefined>(undefined);
+
+  // this route always wants an unobstructed, full-bleed view - hide the
+  // chromeless title-bar's stoplight buttons by default (still revealed
+  // on hover, per useChromeSuppression's own contract).
+  useChromeSuppression("cenotaph-player", () => true);
+
+  // auto-hide the [s]ettings button after a few seconds of no pointer
+  // activity anywhere in this view, revealing it again on any mouse
+  // movement/click/hover - mirrors common video-player control-auto-hide
+  // ux. stays visible whenever the settings panel itself is open.
+  const POINTER_IDLE_HIDE_MS = 3000;
+  const [pointerActive, setPointerActive] = createSignal(true);
+  let pointerIdleTimer: ReturnType<typeof setTimeout> | undefined;
+  const markPointerActive = () => {
+    setPointerActive(true);
+    clearTimeout(pointerIdleTimer);
+    pointerIdleTimer = setTimeout(() => setPointerActive(false), POINTER_IDLE_HIDE_MS);
+  };
+  const settingsButtonVisible = () => pointerActive() || settingsOpen();
+  onMount(() => {
+    markPointerActive();
+    window.addEventListener("pointermove", markPointerActive);
+    window.addEventListener("pointerdown", markPointerActive);
+  });
+  onCleanup(() => {
+    clearTimeout(pointerIdleTimer);
+    window.removeEventListener("pointermove", markPointerActive);
+    window.removeEventListener("pointerdown", markPointerActive);
+  });
   // the qr overlay's spinning logo - speed is driven via this element's
   // live Animation.playbackRate (see the effect below), not via inline
   // `animation-duration` (see that effect's own doc comment for why).
@@ -469,7 +499,8 @@ export function CenotaphPlayerApp() {
         // the linux hamburger flyout underneath it. PlayerSettingsPanel
         // (z-[1800]) still needs to out-rank this tier, which it does
         // either way.
-        class="fixed right-4 z-[90] text-xs text-neutral-500"
+        class="fixed right-4 z-[90] text-xs text-neutral-500 transition-opacity duration-300"
+        classList={{ "opacity-0 pointer-events-none": !settingsButtonVisible() }}
         style={{ top: "calc(1rem + var(--chrome-top-inset, 0px))" }}
         onClick={() => setSettingsOpen(true)}
         data-testid="settings-toggle"

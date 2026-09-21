@@ -729,6 +729,8 @@ pub struct FreqholeConfig {
     pub disable_backdrop_blur: bool,
     /// sync queue songs from remotes to local library (default: true)
     pub sync_queue_to_local: bool,
+    /// which view/route spume should land on at cold app boot (default: "explore")
+    pub initial_view: String,
 }
 
 /// get freqhole server config (for bridge communication with spume)
@@ -760,6 +762,10 @@ pub fn get_freqhole_config(app_handle: tauri::AppHandle) -> Option<FreqholeConfi
         .as_ref()
         .map(|c| c.sync_queue_to_local)
         .unwrap_or(true);
+    let initial_view = app_config
+        .as_ref()
+        .map(|c| c.initial_view.clone())
+        .unwrap_or_else(crate::app_config::default_initial_view);
 
     tracing::debug!(
         server_name = %server.name,
@@ -774,6 +780,7 @@ pub fn get_freqhole_config(app_handle: tauri::AppHandle) -> Option<FreqholeConfi
         server_image_path: server.image_path.as_ref().map(|p| p.display().to_string()),
         disable_backdrop_blur,
         sync_queue_to_local,
+        initial_view,
     })
 }
 
