@@ -1644,6 +1644,20 @@ export async function tuneIntoRadio(
     });
     audio.addEventListener("pause", () => {
       console.info("[radio] media element event: pause");
+      // a genuine external pause (e.g. the native fullscreen video
+      // overlay's own pause button, which calls `.pause()` on this
+      // element directly - entirely bypassing radioPause()/the OS media
+      // session action handler) leaves this tune attempt marked active,
+      // so without this the stall watchdog below sees `audio.paused` and
+      // force-resumes playback within ~1s - exactly the "pauses for a
+      // moment then keeps playing" symptom. `isActiveTune()` already
+      // goes false before OUR OWN teardown path reaches its own
+      // `audio.pause()` call (see radioPause()/leaveRadio()), so it
+      // stays a safe way to tell "we did this" from "something external
+      // paused the element out from under us" apart.
+      if (isActiveTune()) {
+        radioPause();
+      }
     });
     audio.addEventListener("error", () => {
       const mediaError = audio.error;
