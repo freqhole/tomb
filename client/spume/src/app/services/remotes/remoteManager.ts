@@ -8,6 +8,7 @@
 // business logic: slug generation, server-info fetch, image url handling,
 // status listeners, etc.
 
+import { createSignal } from "solid-js";
 import { getClientForRemote, httpRemote, isCharnelAvailable } from "../../api/client";
 import {
   type Remote,
@@ -25,6 +26,24 @@ import { getBackend } from "./backends";
 
 type RemoteStatusChangeListener = (remoteId: string, isOffline: boolean) => void;
 const statusChangeListeners = new Set<RemoteStatusChangeListener>();
+
+// reactive counterpart to the listener set above. a plain `Set`-based
+// listener fired at notify-time is lost forever if nothing had
+// subscribed YET (a real race at boot: `autoSetupRemoteFromTauriBridge`
+// in App.tsx can call `upsertTauriRemote` - which notifies once the
+// local server's image is known - either before or after AppLayout's own
+// onMount has reached its `onRemoteStatusChange` subscription, since both
+// run concurrent, differently-shaped async boot chains). a solid signal
+// doesn't have that failure mode: any effect that reads it, whenever it
+// starts tracking, immediately sees the latest bumped value - so as long
+// as AppLayout creates its consuming effect at component-setup time
+// (not buried inside its own onMount's awaited chain), it can never miss
+// a bump that happened moments earlier during boot.
+const [remoteDataVersion, setRemoteDataVersion] = createSignal(0);
+export { remoteDataVersion };
+function bumpRemoteDataVersion(): void {
+  setRemoteDataVersion((v) => v + 1);
+}
 
 // separate from online/offline - "is this remote currently in player
 // mode" (hello's live `player_device` flag, see remoteHealth.ts's
@@ -79,6 +98,7 @@ function notifyPlayerStatusChange(remoteId: string, isPlayerNow: boolean): void 
 
 // notify all listeners of a status change
 function notifyStatusChange(remoteId: string, isOffline: boolean): void {
+  bumpRemoteDataVersion();
   for (const listener of statusChangeListeners) {
     try {
       listener(remoteId, isOffline);
@@ -241,7 +261,7 @@ export async function upsertTauriRemote(config: {
   base_url: string;
   server_image_path?: string;
 }): Promise<Remote> {
-  console.log("[upsertTauriRemote] called with config:", {
+  console.log(`[upsertTauriRemote] t=${Math.round(performance.now())}ms called with config:`, {
     name: config.name,
     base_url: config.base_url,
     server_image_path: config.server_image_path,
@@ -269,9 +289,18 @@ export async function upsertTauriRemote(config: {
     const updated: Remote = {
       ...existing,
       name: config.name,
-      // for tauri-managed: ONLY use asset:// URL from server_image_path, never HTTP
-      // if no image path provided, clear the image_url (don't keep old HTTP path)
-      image_url: imageUrl,
+      // only overwrite image_url when THIS call actually resolved a new
+      // asset:// url - preserve whatever was already there otherwise.
+      // every caller of upsertTauriRemote re-supplies server_image_path
+      // from whatever config snapshot it currently has in hand (initial
+      // boot, a "config changed" event, etc.) - if that particular
+      // snapshot's image path is momentarily empty/stale (e.g. a race
+      // with the async blob-creation step that populates it after
+      // startup) while a real image is already known-good, blindly
+      // overwriting with null wiped a working avatar for no reason -
+      // this was the actual cause of the topnav remote image
+      // intermittently reverting to the fallback icon.
+      image_url: imageUrl ?? existing.image_url,
       updated_at: Date.now(),
       // clear base_url for charnel-managed remotes (they use IPC dispatch)
       // keep it for regular HTTP remotes
@@ -283,11 +312,14 @@ export async function upsertTauriRemote(config: {
     };
     await backend.put(updated);
     invalidateRemoteCache(updated.remote_id);
-    console.log("[upsertTauriRemote] updated existing remote:", {
-      name: updated.name,
-      image_url: updated.image_url,
-      updated_at: updated.updated_at,
-    });
+    console.log(
+      `[upsertTauriRemote] t=${Math.round(performance.now())}ms updated existing remote:`,
+      {
+        name: updated.name,
+        image_url: updated.image_url,
+        updated_at: updated.updated_at,
+      }
+    );
     notifyStatusChange(updated.remote_id, updated.is_offline ?? false);
     return updated;
   }
@@ -651,6 +683,24 @@ export async function checkRemoteHealth(remote: Remote): Promise<boolean> {
     // player-mode status is never persisted (see remoteHealth.ts's
     // isPlayerNow) - only broadcast, straight from this fresh probe.
     notifyPlayerStatusChange(updated.remote_id, isOnline && result.data?.player_device === true);
+
+    // also broadcast when server-info fields the UI actively renders
+    // (avatar image, name, description) changed, even though the
+    // online/offline status itself didn't transition - AppLayout's
+    // `remotes` signal (which every TopNav row's props ultimately come
+    // from) only ever refreshes in response to this notification, so a
+    // background health check silently self-healing a newly-available
+    // image_blob_id would otherwise never reach the UI at all. without
+    // this, a remote's avatar only ever loaded once the user happened to
+    // navigate into it (a different code path that triggers its own probe).
+    if (
+      updated.image_blob_id !== fresh.image_blob_id ||
+      updated.image_url !== fresh.image_url ||
+      updated.description !== fresh.description ||
+      updated.name !== fresh.name
+    ) {
+      notifyStatusChange(updated.remote_id, updated.is_offline ?? false);
+    }
     return isOnline;
   } catch (error) {
     // network error = offline - re-read before updating

@@ -96,6 +96,7 @@ import {
 import { initDownloadState } from "../music/services/download";
 import { addToQueue } from "../music/services/queue/queue";
 import { initMusicDB } from "../music/services/storage/db";
+import { preCacheP2PBlob } from "../music/services/storage/blobResolver";
 import { recoverLegacyImages } from "../music/services/storage/legacyImageRecovery";
 import type { Song } from "../music/services/storage/types";
 import { debug } from "../utils/logger";
@@ -1097,6 +1098,19 @@ export function App() {
           const httpRemotes = allRemotes.filter((r) => !isP2PRemote(r));
           const p2pRemotes = allRemotes.filter((r) => isP2PRemote(r));
 
+          // proactively warm each remote's avatar image (cache-first: a
+          // blob already fetched in a previous session restores straight
+          // from the persistent Cache API, no network round-trip) so the
+          // sidebar never has to wait for a row to mount before starting
+          // resolution.
+          const prefetchAvatars = (remotes: typeof allRemotes) => {
+            for (const r of remotes) {
+              if (r.image_blob_id) {
+                void preCacheP2PBlob(r.image_blob_id, r.remote_id, undefined, "image");
+              }
+            }
+          };
+
           if (httpRemotes.length > 0) {
             debug("App", `background: checking health of ${httpRemotes.length} http remotes`);
             await Promise.all(httpRemotes.map((r) => checkRemoteHealth(r)));
@@ -1113,8 +1127,18 @@ export function App() {
               );
               await Promise.all(p2pRemotes.map((r) => checkRemoteHealth(r)));
               debug("App", "background: p2p health check complete");
+
+              // re-read after health checks so a freshly self-healed
+              // image_blob_id (from an initially-empty remote row) is
+              // picked up too, not just whatever was already known.
+              prefetchAvatars(await getAllRemotes());
             });
           }
+
+          // http remotes' avatars can be prefetched with whatever
+          // image_blob_id is already known - no need to wait on
+          // midden/p2p readiness.
+          prefetchAvatars(httpRemotes);
         }
       })();
 

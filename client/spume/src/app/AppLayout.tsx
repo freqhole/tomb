@@ -31,7 +31,7 @@ import { selectLocalPlaybackTarget } from "./services/players/selectPlaybackTarg
 import { openPlayerImageCarousel } from "./services/playerImageCarousel";
 import { createDebouncedBoolean } from "../utils/createDebouncedBoolean";
 import { isTouchDevice } from "../utils/isMobile";
-import { TopNav } from "../components/navigation/TopNav";
+import { TopNav, type TopNavProps } from "../components/navigation/TopNav";
 import {
   topNavRightContent,
   topNavSecondaryRowContent,
@@ -126,8 +126,8 @@ import { useVideoContextMenu } from "../video/hooks/contextMenu";
 import {
   getAllRemotes,
   getRemoteById,
-  onRemoteStatusChange,
   onSwitchToLocal,
+  remoteDataVersion,
 } from "./services/remotes/remoteManager";
 import { seedOnlineMap, wakeAllRemotes } from "./services/remotes/remoteHealth";
 import type { ImageMetadata, Song } from "../music/services/storage/types";
@@ -355,6 +355,94 @@ export function AppLayout(props: AppLayoutProps) {
   const [storageUsage, setStorageUsage] = createSignal<number>(0);
   const [storageQuota, setStorageQuota] = createSignal<number>(0);
   const [externalStorageMounted, setExternalStorageMounted] = createSignal(false);
+
+  // react to `remoteDataVersion` from component-setup time (not from
+  // inside onMount's own awaited chain below) so this effect is already
+  // subscribed before ANY boot-time write (e.g. App.tsx's
+  // autoSetupRemoteFromTauriBridge -> upsertTauriRemote, which resolves
+  // the local charnel-managed remote's avatar image) could possibly
+  // complete. previously this refresh only ran from an `onRemoteStatusChange`
+  // plain-listener subscription registered inside onMount - a notification
+  // fired before that subscription attached was silently dropped, leaving
+  // the local remote's row stuck on whatever (possibly still-empty)
+  // snapshot the very first `getAllRemotes()` call had captured, until
+  // some LATER, unrelated status change coincidentally forced a refresh
+  // (e.g. an offline<->online health-check transition - which is why this
+  // looked like "clicking in triggers a health check that happens to fix
+  // it").
+  createEffect(
+    on(remoteDataVersion, () => {
+      void getAllRemotes().then(setRemotes);
+    })
+  );
+
+  type TopNavRemoteItem = NonNullable<TopNavProps["remotes"]>[number];
+
+  // TopNav's remote-row list, mapped from `remotes()` and stabilized so
+  // an unrelated health-check poll (onRemoteStatusChange fires on every
+  // offline<->online transition, calling setRemotes(allRemotes) with a
+  // brand-new Remote[]) doesn't hand <For> a brand-new object for every
+  // row on every poll. <For> diffs by reference, so a fresh object per
+  // row - even with identical field values - looks like "remove old row,
+  // add new row" to it, fully remounting each row's TopNav-internal
+  // RemoteServerImage and restarting its async avatar-image resolution
+  // from scratch. that remount is what turned a working avatar into the
+  // fallback icon: the first resolution often succeeds from a warm P2P
+  // blob-url cache, but a remount-triggered re-fetch has no such luck for
+  // an actually-offline peer and permanently fails, unlike the original.
+  // reusing the previous row object (all fields unchanged) keeps <For>
+  // from remounting rows whose displayed content didn't actually change.
+  // `lastChecked` is deliberately excluded from the equality check (it's
+  // only used for a "last checked Ns ago" tooltip, and would otherwise
+  // change on literally every poll, defeating the whole point) but is
+  // still refreshed onto the reused object so that tooltip stays current.
+  let previousTopNavRemotes: TopNavRemoteItem[] = [];
+  const topNavRemotes = createMemo((): TopNavRemoteItem[] => {
+    const mapped = remotes().map((r): TopNavRemoteItem => {
+      // charnel-managed remotes are always local (embedded grimoire)
+      const isCharnelManaged = r.is_charnel_managed === true;
+      const url = isHttpRemote(r) && r.base_url ? r.base_url.toLowerCase() : "";
+      const isLocal =
+        isCharnelManaged ||
+        url.includes("localhost") ||
+        url.includes("127.0.0.1") ||
+        url.includes("[::1]");
+      return {
+        id: r.remote_id,
+        name: r.name,
+        url: isHttpRemote(r) ? (r.base_url ?? "local") : r.peer_addr,
+        imageUrl: r.image_url ?? undefined,
+        imageBlobId: r.image_blob_id ?? undefined,
+        peerAddr: isP2PRemote(r) ? r.peer_addr : undefined,
+        isOffline: r.is_offline,
+        lastChecked: r.last_checked,
+        isCharnelManaged: r.is_charnel_managed,
+        isLocal,
+        updatedAt: r.updated_at,
+      };
+    });
+    const prevById = new Map(previousTopNavRemotes.map((item) => [item.id, item] as const));
+    const stabilized = mapped.map((item) => {
+      const prev = prevById.get(item.id);
+      const unchanged =
+        prev &&
+        prev.name === item.name &&
+        prev.url === item.url &&
+        prev.imageUrl === item.imageUrl &&
+        prev.imageBlobId === item.imageBlobId &&
+        prev.peerAddr === item.peerAddr &&
+        prev.isOffline === item.isOffline &&
+        prev.isCharnelManaged === item.isCharnelManaged &&
+        prev.isLocal === item.isLocal &&
+        prev.updatedAt === item.updatedAt;
+      if (!unchanged) return item;
+      return prev.lastChecked === item.lastChecked
+        ? prev
+        : { ...prev, lastChecked: item.lastChecked };
+    });
+    previousTopNavRemotes = stabilized;
+    return stabilized;
+  });
 
   // phase 6: unified playback target (paired freqhole-player devices) -
   // the "play on" picker itself now lives in QueueSidebar's bottom row.
@@ -606,7 +694,6 @@ export function AppLayout(props: AppLayoutProps) {
     // and triggers "cleanups created outside a `createRoot` or `render`
     // will never be run", so these start undefined and get populated
     // once each piece of async setup resolves.
-    let unsubscribeStatusChange: (() => void) | undefined;
     let unsubscribeSwitchToLocalFn: (() => void) | undefined;
     let interval: ReturnType<typeof setInterval> | undefined;
     let unlistenExternalStorageMounted: (() => void) | undefined;
@@ -615,7 +702,6 @@ export function AppLayout(props: AppLayoutProps) {
     onCleanup(() => {
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("focus", onVisibility);
-      unsubscribeStatusChange?.();
       unsubscribeSwitchToLocalFn?.();
       if (interval !== undefined) clearInterval(interval);
       unlistenExternalStorageMounted?.();
@@ -674,19 +760,6 @@ export function AppLayout(props: AppLayoutProps) {
       // no separate player-presence sweep to run here anymore.
       void seedOnlineMap();
       wakeAllRemotes();
-
-      // listen for remote status changes (offline/online) and refresh remotes list
-      unsubscribeStatusChange = onRemoteStatusChange(async (_remoteId, _isOffline) => {
-        try {
-          const allRemotes = await getAllRemotes();
-          setRemotes(allRemotes);
-          debug("AppLayout", "refreshed remotes after status change", {
-            count: allRemotes.length,
-          });
-        } catch (error) {
-          console.error("failed to refresh remotes after status change:", error);
-        }
-      });
 
       // listen for "switch to local" action from toast
       unsubscribeSwitchToLocalFn = onSwitchToLocal(() => {
@@ -1268,29 +1341,7 @@ export function AppLayout(props: AppLayoutProps) {
           currentPath={location.pathname + location.search}
           currentSourceName={currentSourceName()}
           currentSourceId={getCurrentRemote()?.remote_id ?? null}
-          remotes={remotes().map((r) => {
-            // charnel-managed remotes are always local (embedded grimoire)
-            const isCharnelManaged = r.is_charnel_managed === true;
-            const url = isHttpRemote(r) && r.base_url ? r.base_url.toLowerCase() : "";
-            const isLocal =
-              isCharnelManaged ||
-              url.includes("localhost") ||
-              url.includes("127.0.0.1") ||
-              url.includes("[::1]");
-            return {
-              id: r.remote_id,
-              name: r.name,
-              url: isHttpRemote(r) ? (r.base_url ?? "local") : r.peer_addr,
-              imageUrl: r.image_url ?? undefined,
-              imageBlobId: r.image_blob_id ?? undefined,
-              peerAddr: isP2PRemote(r) ? r.peer_addr : undefined,
-              isOffline: r.is_offline,
-              lastChecked: r.last_checked,
-              isCharnelManaged: r.is_charnel_managed,
-              isLocal,
-              updatedAt: r.updated_at,
-            };
-          })}
+          remotes={topNavRemotes()}
           onSwitchToLocal={handleSwitchToLocal}
           onSwitchToRemote={handleSwitchToRemote}
           onRecheckRemote={handleRecheckRemote}
