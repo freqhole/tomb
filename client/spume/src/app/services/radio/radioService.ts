@@ -437,10 +437,10 @@ export function handleTimelineAutoplayBlocked(): void {
 // attempts no-op when their id no longer matches this value.
 let activeTuneAttemptId = 0;
 
-const TIMELINE_RECONNECT_BASE_MS = 2_000;
-const TIMELINE_RECONNECT_MAX_MS = 30_000;
-let timelineReconnectTimer: number | null = null;
-let timelineReconnectDelayMs = TIMELINE_RECONNECT_BASE_MS;
+const RECONNECT_BASE_MS = 2_000;
+const RECONNECT_MAX_MS = 30_000;
+let reconnectTimer: number | null = null;
+let reconnectDelayMs = RECONNECT_BASE_MS;
 
 function bumpTuneAttemptId(): number {
   activeTuneAttemptId = (activeTuneAttemptId + 1) >>> 0;
@@ -448,34 +448,36 @@ function bumpTuneAttemptId(): number {
   return activeTuneAttemptId;
 }
 
-function clearTimelineReconnect(): void {
-  if (timelineReconnectTimer !== null) {
-    window.clearTimeout(timelineReconnectTimer);
-    timelineReconnectTimer = null;
+function clearReconnect(): void {
+  if (reconnectTimer !== null) {
+    window.clearTimeout(reconnectTimer);
+    reconnectTimer = null;
   }
-  timelineReconnectDelayMs = TIMELINE_RECONNECT_BASE_MS;
+  reconnectDelayMs = RECONNECT_BASE_MS;
 }
 
-function scheduleTimelineReconnect(peerAddr: string, opts: TuneOptions, reason: string): void {
-  if (!peerAddr || timelineReconnectTimer !== null) return;
+// used by both timeline/queue mode (a clean "goodbye" control message) and
+// chunk/MSE mode (a clean "goodbye", OR the dead-connection watchdog below
+// noticing the control stream went silent - e.g. the remote process
+// restarted without ever getting to send "goodbye") - reconnecting is the
+// same re-tune-with-backoff regardless of which one triggered it.
+function scheduleReconnect(peerAddr: string, opts: TuneOptions, reason: string): void {
+  if (!peerAddr || reconnectTimer !== null) return;
 
-  const delayMs = timelineReconnectDelayMs;
-  timelineReconnectDelayMs = Math.min(
-    TIMELINE_RECONNECT_MAX_MS,
-    Math.floor(timelineReconnectDelayMs * 1.8)
-  );
+  const delayMs = reconnectDelayMs;
+  reconnectDelayMs = Math.min(RECONNECT_MAX_MS, Math.floor(reconnectDelayMs * 1.8));
 
-  console.info(`[radio] timeline session ended (${reason}); reconnecting in ${delayMs}ms`);
+  console.info(`[radio] session ended (${reason}); reconnecting in ${delayMs}ms`);
 
-  timelineReconnectTimer = window.setTimeout(() => {
-    timelineReconnectTimer = null;
+  reconnectTimer = window.setTimeout(() => {
+    reconnectTimer = null;
     void tuneIntoRadio(peerAddr, {
       ...opts,
       userInitiated: false,
       preservePlayback: true,
       autoReconnect: true,
     }).catch((e) => {
-      console.warn("[radio] timeline reconnect attempt failed:", e);
+      console.warn("[radio] reconnect attempt failed:", e);
       // keep trying while this is still the selected station and the
       // user hasn't explicitly gone idle/paused.
       if (currentPeerAddr() !== peerAddr) return;
@@ -484,7 +486,7 @@ function scheduleTimelineReconnect(peerAddr: string, opts: TuneOptions, reason: 
         setStatus("connecting");
         setError(null);
       });
-      scheduleTimelineReconnect(peerAddr, opts, "retry failed");
+      scheduleReconnect(peerAddr, opts, "retry failed");
     });
   }, delayMs);
 }
@@ -553,7 +555,7 @@ export function setRadioVolume(vol: number): void {
 export function radioPause(): void {
   if (status() !== "playing" && status() !== "connecting") return;
   if (!activeSession) return;
-  clearTimelineReconnect();
+  clearReconnect();
   if (useTimelineMode()) {
     try {
       pausePlayerAudio();
@@ -622,7 +624,7 @@ export function leaveRadio(): void {
   // `appState()`-derived effect (mediaSessionBridge's metadata refetch,
   // etc.) even though nothing radio-related had changed.
   if (!activeSession && !isRadioPlayerBarActive()) return;
-  clearTimelineReconnect();
+  clearReconnect();
   // invalidate async callbacks from any in-flight/old tune attempt.
   bumpTuneAttemptId();
   lastConfirmedHistoryTrackKey = null;
@@ -757,7 +759,7 @@ export async function tuneIntoRadio(
   peerAddr: string,
   opts: TuneOptions = {}
 ): Promise<HTMLVideoElement> {
-  clearTimelineReconnect();
+  clearReconnect();
   if (opts.preservePlayback) {
     // reconnect control stream without resetting timeline playback state.
     if (activeSession) {
@@ -998,6 +1000,25 @@ export async function tuneIntoRadio(
   const chunkGapSamplesMs: number[] = [];
   let chunkGapSumMs = 0;
   let lastChunkAtMs: number | null = null;
+  // last time ANY inbound signal arrived on the control/chunk stream -
+  // a real chunk, a hello, or a meta/control message (including the
+  // broadcaster's own `chunk_ready` heartbeat, which arrives every ~5s
+  // even when no track/meta changes are happening - see
+  // grimoire/src/radio/handler.rs's HEARTBEAT_INTERVAL). the local
+  // stall watchdog below only knows about the SourceBuffer/playhead, not
+  // whether the network is still delivering anything at all - without
+  // this, a truly dead connection (e.g. the remote process restarted)
+  // just makes the watchdog re-seek forever within whatever's already
+  // buffered, looping the same few seconds/minutes of stale audio
+  // indefinitely instead of ever reconnecting.
+  let lastControlActivityAtMs = Date.now();
+  const markControlActivity = () => {
+    lastControlActivityAtMs = Date.now();
+  };
+  // generous multiple of the server's own heartbeat cadence, so normal
+  // network jitter (or a broadcaster briefly busy re-encoding) doesn't
+  // false-positive as a dead connection.
+  const CONNECTION_DEAD_AFTER_MS = 15_000;
   // media duration each non-init append actually contributed to
   // `sb.buffered.end()`, vs. the wall-clock gap since the previous chunk
   // (already tracked above). if this consistently runs BELOW the wall-
@@ -1529,8 +1550,50 @@ export async function tuneIntoRadio(
   // a stutter. wait for a small real cushion instead; a moment of silence
   // while the buffer fills is preferable to a string of tiny seeks.
   const MIN_RESUME_AHEAD_S = 1.5;
+  // the control/chunk stream has gone completely silent (no chunk, hello,
+  // meta, or heartbeat for CONNECTION_DEAD_AFTER_MS) - unlike a stall
+  // (data is still coming, just the playhead is momentarily wedged), no
+  // amount of local re-seeking will ever fix this: the remote is gone
+  // (process restarted, network dropped, etc). reconnect the same way a
+  // clean "goodbye" does, rather than let the stall watchdog below keep
+  // re-anchoring into the same stale buffered span forever.
+  const handleDeadConnection = () => {
+    if (!activeSession) return;
+    console.warn(
+      `[radio] no data or heartbeat for over ${CONNECTION_DEAD_AFTER_MS}ms - ` +
+        "connection appears dead, reconnecting"
+    );
+    const reconnectPeer = activeSession.peerAddr;
+    const reconnectOpts: TuneOptions = {
+      stationId: currentStationId() ?? expectedStationId ?? opts.stationId,
+      stationName: activeSession.stationName ?? opts.stationName,
+      isLocal: activeSession.isLocal ?? opts.isLocal,
+      userInitiated: false,
+      preservePlayback: true,
+      autoReconnect: true,
+    };
+    try {
+      activeSession.leave();
+    } catch (e) {
+      console.warn("[radio] dead-connection leave threw:", e);
+    }
+    activeSession = null;
+    guarded(() => {
+      stopElapsedTicker();
+      batch(() => {
+        setStatus("connecting");
+        setError(null);
+      });
+    });
+    scheduleReconnect(reconnectPeer, reconnectOpts, "no data received");
+  };
   const runWatchdog = () => {
-    if (!isActiveTune() || useTimelineMode() || !sb) return;
+    if (!isActiveTune()) return;
+    if (Date.now() - lastControlActivityAtMs > CONNECTION_DEAD_AFTER_MS) {
+      handleDeadConnection();
+      return;
+    }
+    if (useTimelineMode() || !sb) return;
     // apply every boundary the playhead has already reached, in order -
     // not just the first one - so a run of several short tracks (or a
     // burst that queued multiple transitions) doesn't skip straight to
@@ -1905,57 +1968,49 @@ export async function tuneIntoRadio(
           ? bye.reason
           : "radio session ended";
 
-      // timeline mode should keep buffered audio alive and reconnect in
-      // the background. full teardown would revoke object urls and cut
-      // off playback immediately.
-      if (useTimelineMode()) {
-        const reconnectPeer = activeSession?.peerAddr ?? currentPeerAddr();
-        const reconnectOpts: TuneOptions = {
-          stationId: currentStationId() ?? expectedStationId ?? opts.stationId,
-          stationName: activeSession?.stationName ?? opts.stationName,
-          isLocal: activeSession?.isLocal ?? opts.isLocal,
-          userInitiated: false,
-          preservePlayback: true,
-          autoReconnect: true,
-        };
+      // reconnect in the background rather than a full teardown (which
+      // would revoke object urls / reset the displayed station+track and
+      // cut off playback immediately) - same recovery path for both
+      // timeline/queue mode and chunk/MSE mode (see the dead-connection
+      // watchdog below, which reaches the same reconnect call when the
+      // remote disappears WITHOUT ever getting to send "goodbye").
+      const reconnectPeer = activeSession?.peerAddr ?? currentPeerAddr();
+      const reconnectOpts: TuneOptions = {
+        stationId: currentStationId() ?? expectedStationId ?? opts.stationId,
+        stationName: activeSession?.stationName ?? opts.stationName,
+        isLocal: activeSession?.isLocal ?? opts.isLocal,
+        userInitiated: false,
+        preservePlayback: true,
+        autoReconnect: true,
+      };
 
-        if (activeSession) {
-          try {
-            activeSession.leave();
-          } catch (e) {
-            console.warn("[radio] goodbye leave threw:", e);
-          }
-          activeSession = null;
+      if (activeSession) {
+        try {
+          activeSession.leave();
+        } catch (e) {
+          console.warn("[radio] goodbye leave threw:", e);
         }
-
-        guarded(() => {
-          stopElapsedTicker();
-          batch(() => {
-            setStatus("connecting");
-            setError(null);
-          });
-        });
-
-        if (reconnectPeer) {
-          scheduleTimelineReconnect(reconnectPeer, reconnectOpts, reason);
-        } else {
-          guarded(() => {
-            batch(() => {
-              setStatus("error");
-              setError(reason);
-            });
-          });
-        }
-        return true;
+        activeSession = null;
       }
 
-      leaveRadio();
       guarded(() => {
+        stopElapsedTicker();
         batch(() => {
-          setStatus("error");
-          setError(reason);
+          setStatus("connecting");
+          setError(null);
         });
       });
+
+      if (reconnectPeer) {
+        scheduleReconnect(reconnectPeer, reconnectOpts, reason);
+      } else {
+        guarded(() => {
+          batch(() => {
+            setStatus("error");
+            setError(reason);
+          });
+        });
+      }
       return true;
     }
     if (msg.type === "timeline") {
@@ -2081,6 +2136,7 @@ export async function tuneIntoRadio(
 
   const applyHello = (helloJson: string) => {
     if (!isActiveTune()) return;
+    markControlActivity();
     try {
       const msg = JSON.parse(helloJson);
       // the station's real codec only arrives here - addSourceBuffer must
@@ -2198,6 +2254,7 @@ export async function tuneIntoRadio(
 
   const applyMeta = (metaJson: string) => {
     if (!isActiveTune()) return;
+    markControlActivity();
     try {
       const msg = JSON.parse(metaJson);
       // dispatch lag / chunk_ready first — these are not metadata
@@ -2296,6 +2353,7 @@ export async function tuneIntoRadio(
 
   const onChunk = (seq: number, isInit: boolean, bytes: Uint8Array) => {
     if (!isActiveTune() || !ms) return;
+    markControlActivity();
     if (!sawFirstChunk) {
       sawFirstChunk = true;
       if (!useTimelineMode() && !isInit) {
@@ -2437,7 +2495,12 @@ export async function tuneIntoRadio(
     },
   };
   activeSession = session;
-  timelineReconnectDelayMs = TIMELINE_RECONNECT_BASE_MS;
+  reconnectDelayMs = RECONNECT_BASE_MS;
+  // the connect phase itself (dialing the peer, waiting on tune_radio,
+  // etc.) can legitimately take a while and shouldn't count against the
+  // dead-connection watchdog above - reset its clock right as the
+  // session actually goes live.
+  markControlActivity();
 
   // start the queue-mode adapter; it watches useTimelineMode() + the
   // timeline snapshot reactively and is a no-op when MSE streaming is
