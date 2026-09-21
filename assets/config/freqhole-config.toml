@@ -724,6 +724,11 @@ enabled = false
 # OPTIONAL: ffmpeg command-line template. supports `{input}` placeholder.
 # output is always pipe:1 (stdout). default: fragmented MP4 with AAC-LC at
 # 192 kbps and 3-second fragments — what the spume / midden client expect.
+# UNCOMMENT AND EDIT ONLY IF YOU NEED TO CUSTOMIZE THIS - leaving it
+# commented out means the node always tracks the current built-in default
+# (including future bug fixes to it) instead of freezing today's default
+# as a literal override that this file's own `freqhole config upgrade`
+# migration path can no longer improve on for you later.
 # notes:
 #   * the broadcaster paces output server-side, so `-re` is intentionally
 #     OMITTED — ffmpeg eagerly fills an in-memory ring and the pacer
@@ -735,4 +740,14 @@ enabled = false
 #     here — see grimoire/src/radio/config.rs for tuning knobs:
 #     frag_ms, buffer_seconds, inter_track_silence_ms,
 #     encoder_restart_attempts)
-encode_args = "-hide_banner -loglevel error -fflags +genpts -i {input} -vn -map 0:a:0 -c:a aac -profile:a aac_low -b:a 192k -ar 48000 -ac 2 -movflags frag_keyframe+empty_moov+default_base_moof -frag_duration 3000000 -avoid_negative_ts make_zero -f mp4 pipe:1"
+# encode_args = "-hide_banner -loglevel error -fflags +genpts -i {input} -vn -map 0:a:0 -c:a aac -profile:a aac_low -b:a 192k -ar 48000 -ac 2 -movflags frag_keyframe+empty_moov+default_base_moof -frag_duration 3000000 -avoid_negative_ts make_zero -f mp4 pipe:1"
+
+# OPTIONAL: max number of audio_only stations allowed to have a running
+# broadcaster (ffmpeg process) at once. default: 2
+max_concurrent_audio_streams = 2
+
+# OPTIONAL: max number of audio_or_video/video_only stations allowed to
+# have a running broadcaster at once - kept separate and lower than the
+# audio limit above by default since video encoding is far more
+# cpu-expensive. default: 1
+max_concurrent_video_streams = 1

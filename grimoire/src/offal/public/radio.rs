@@ -530,6 +530,10 @@ pub async fn info() -> GrimoireResponse<JsonValue> {
             None => None,
         },
     };
+    // anonymous route (`radio_info`, `RouteAuth::Public`) - same rule as
+    // `stations()`: never surface a non-public station to a caller with
+    // no standing on this node.
+    let default_station = default_station.filter(|s| s.is_public);
 
     let resp = RadioInfoResponse {
         enabled: true,
@@ -540,6 +544,22 @@ pub async fn info() -> GrimoireResponse<JsonValue> {
 }
 
 pub async fn stations() -> GrimoireResponse<JsonValue> {
+    build_stations_response(false).await
+}
+
+/// same as [`stations`], but includes non-public stations too - for a
+/// caller whose identity actually resolved (a real HTTP session, or a
+/// registered iroh peer), reached via the `radio_stations_full` route
+/// (`RouteAuth::Authenticated`, see its `ROUTES` entry above) rather than
+/// this module's own anonymous `stations()`. "known peers/members should
+/// see everything" falls out of the ordinary authenticated-route caller
+/// resolution every other domain already uses - no bespoke ACL needed
+/// here.
+pub async fn stations_full() -> GrimoireResponse<JsonValue> {
+    build_stations_response(true).await
+}
+
+async fn build_stations_response(include_private: bool) -> GrimoireResponse<JsonValue> {
     let cfg = crate::radio::config::effective();
     if !cfg.enabled {
         return GrimoireResponse::success(
@@ -558,7 +578,10 @@ pub async fn stations() -> GrimoireResponse<JsonValue> {
     let mut seen = std::collections::HashSet::with_capacity(running.len());
     for bc in &running {
         seen.insert(bc.station_id().to_string());
-        out.push(snapshot_station(bc, default_id).await);
+        let snap = snapshot_station(bc, default_id).await;
+        if include_private || snap.is_public {
+            out.push(snap);
+        }
     }
     // enabled stations beyond the boot-time `max_concurrent_*_streams`
     // cutoff never get an auto-started broadcaster (see
@@ -574,6 +597,9 @@ pub async fn stations() -> GrimoireResponse<JsonValue> {
             if s.is_enabled == 0 || seen.contains(&s.id) {
                 continue;
             }
+            if s.is_public == 0 && !include_private {
+                continue;
+            }
             out.push(PublicStation {
                 station_id: s.id,
                 name: s.name,
@@ -586,12 +612,14 @@ pub async fn stations() -> GrimoireResponse<JsonValue> {
             });
         }
     }
-    // every running station is advertised to every caller. `is_public`
-    // only controls *who can tune in* — peers not in the local peer
-    // list get rejected by the iroh handler when `is_public = 0`. the
-    // discovery surface stays open so peer + non-peer clients alike can
-    // see what stations exist, and ui can render a "peer-only" badge
-    // off the `is_public` field if it wants to.
+    // `stations()` (anonymous, unauthenticated) only ever advertises
+    // public stations - a non-public station's mere existence/now-playing
+    // metadata is not shown to a caller with no standing on this node.
+    // `stations_full()` (authenticated - real session or known iroh peer)
+    // includes everything; `is_public` there only still controls *who can
+    // tune in* for a peer that DID resolve (the iroh handler independently
+    // re-checks the peer list at connect time regardless of what showed
+    // up in either listing).
 
     let resp = RadioStationsResponse {
         enabled: true,

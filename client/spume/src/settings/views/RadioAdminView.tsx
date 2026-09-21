@@ -172,11 +172,26 @@ function RadioConfigSection(props: {
   const [encodeArgs, setEncodeArgs] = createSignal("");
   const [videoEncodeArgs, setVideoEncodeArgs] = createSignal("");
   const [videoCodec, setVideoCodec] = createSignal("");
+  // last-loaded values, so a save only sends an encode-arg field the
+  // operator actually edited - otherwise every save (even just toggling
+  // "enabled" or a concurrency limit) would re-freeze whatever's
+  // currently displayed (often just the live default) as a literal toml
+  // override, permanently opting the field out of future default fixes.
+  const [loadedEncodeArgs, setLoadedEncodeArgs] = createSignal("");
+  const [loadedVideoEncodeArgs, setLoadedVideoEncodeArgs] = createSignal("");
+  const [loadedVideoCodec, setLoadedVideoCodec] = createSignal("");
   const [maxConcurrentAudioStreams, setMaxConcurrentAudioStreams] = createSignal(2);
   const [maxConcurrentVideoStreams, setMaxConcurrentVideoStreams] = createSignal(1);
   const [ffmpegAvailable, setFfmpegAvailable] = createSignal(true);
   const [busy, setBusy] = createSignal(false);
   const [loadError, setLoadError] = createSignal<string | null>(null);
+
+  // `undefined` unless the field differs from what was last loaded (and
+  // isn't blank) - see the field-tracking comment above.
+  function dirtyOrUndefined(current: string, loaded: string): string | undefined {
+    const trimmed = current.trim();
+    return trimmed !== "" && trimmed !== loaded ? trimmed : undefined;
+  }
 
   // hydrate the form whenever the resource resolves with fresh data.
   createEffect(() => {
@@ -198,9 +213,12 @@ function RadioConfigSection(props: {
     if (c) {
       const ffmpeg = c.ffmpeg_available !== false;
       setEnabled(c.enabled);
-      setEncodeArgs(c.encode_args);
+      setEncodeArgs(c.encode_args ?? "");
       setVideoEncodeArgs(c.video_encode_args ?? "");
       setVideoCodec(c.video_codec ?? "");
+      setLoadedEncodeArgs(c.encode_args ?? "");
+      setLoadedVideoEncodeArgs(c.video_encode_args ?? "");
+      setLoadedVideoCodec(c.video_codec ?? "");
       setMaxConcurrentAudioStreams(c.max_concurrent_audio_streams ?? 2);
       setMaxConcurrentVideoStreams(c.max_concurrent_video_streams ?? 1);
       setFfmpegAvailable(ffmpeg);
@@ -215,9 +233,9 @@ function RadioConfigSection(props: {
     try {
       await props.client.dispatchOrThrow("radio_config_set", {
         enabled: enabled(),
-        encode_args: encodeArgs(),
-        video_encode_args: videoEncodeArgs(),
-        video_codec: videoCodec(),
+        encode_args: dirtyOrUndefined(encodeArgs(), loadedEncodeArgs()),
+        video_encode_args: dirtyOrUndefined(videoEncodeArgs(), loadedVideoEncodeArgs()),
+        video_codec: dirtyOrUndefined(videoCodec(), loadedVideoCodec()),
         ffmpeg_available: ffmpegAvailable(),
         max_concurrent_audio_streams: maxConcurrentAudioStreams(),
         max_concurrent_video_streams: maxConcurrentVideoStreams(),
@@ -261,44 +279,6 @@ function RadioConfigSection(props: {
             />
             <span>enabled</span>
           </label>
-          <label class="flex flex-col gap-1">
-            <span class="text-xs text-[var(--color-text-secondary)]">
-              ffmpeg encode args (use <code>{"{input}"}</code> for the song path) - used by
-              audio-only stations with no per-station override
-            </span>
-            <textarea
-              class="font-mono text-xs px-2 py-1 rounded bg-[var(--color-bg-tertiary)] border border-[var(--color-border-subtle)] text-[var(--color-text-primary)] min-h-[6rem]"
-              value={encodeArgs()}
-              onInput={(e) => setEncodeArgs(e.currentTarget.value)}
-              disabled={busy()}
-              spellcheck={false}
-            />
-          </label>
-          <label class="flex flex-col gap-1">
-            <span class="text-xs text-[var(--color-text-secondary)]">
-              video-capable ffmpeg encode args - used by audio_or_video/video_only stations with no
-              per-station override (keeps the video stream, unlike the args above)
-            </span>
-            <textarea
-              class="font-mono text-xs px-2 py-1 rounded bg-[var(--color-bg-tertiary)] border border-[var(--color-border-subtle)] text-[var(--color-text-primary)] min-h-[6rem]"
-              value={videoEncodeArgs()}
-              onInput={(e) => setVideoEncodeArgs(e.currentTarget.value)}
-              disabled={busy()}
-              spellcheck={false}
-            />
-          </label>
-          <label class="flex flex-col gap-1">
-            <span class="text-xs text-[var(--color-text-secondary)]">
-              video codec (MSE SourceBuffer mime type matching the args above)
-            </span>
-            <input
-              class="font-mono text-xs px-2 py-1 rounded bg-[var(--color-bg-tertiary)] border border-[var(--color-border-subtle)] text-[var(--color-text-primary)]"
-              value={videoCodec()}
-              onInput={(e) => setVideoCodec(e.currentTarget.value)}
-              disabled={busy()}
-              spellcheck={false}
-            />
-          </label>
           <div class="flex gap-3">
             <label class="flex flex-col gap-1 flex-1">
               <span class="text-xs text-[var(--color-text-secondary)]">
@@ -327,6 +307,51 @@ function RadioConfigSection(props: {
               />
             </label>
           </div>
+          <details class="rounded-md border border-[var(--color-border-subtle)] bg-[var(--color-bg-tertiary)]/40 p-3">
+            <summary class="text-xs font-medium text-[var(--color-text-secondary)] cursor-pointer select-none">
+              advanced: node-wide ffmpeg defaults
+            </summary>
+            <div class="flex flex-col gap-3 mt-3">
+              <label class="flex flex-col gap-1">
+                <span class="text-xs text-[var(--color-text-secondary)]">
+                  ffmpeg encode args (use <code>{"{input}"}</code> for the song path) - used by
+                  audio-only stations with no per-station override
+                </span>
+                <textarea
+                  class="font-mono text-xs px-2 py-1 rounded bg-[var(--color-bg-tertiary)] border border-[var(--color-border-subtle)] text-[var(--color-text-primary)] min-h-[6rem]"
+                  value={encodeArgs()}
+                  onInput={(e) => setEncodeArgs(e.currentTarget.value)}
+                  disabled={busy()}
+                  spellcheck={false}
+                />
+              </label>
+              <label class="flex flex-col gap-1">
+                <span class="text-xs text-[var(--color-text-secondary)]">
+                  video-capable ffmpeg encode args - used by audio_or_video/video_only stations with
+                  no per-station override (keeps the video stream, unlike the args above)
+                </span>
+                <textarea
+                  class="font-mono text-xs px-2 py-1 rounded bg-[var(--color-bg-tertiary)] border border-[var(--color-border-subtle)] text-[var(--color-text-primary)] min-h-[6rem]"
+                  value={videoEncodeArgs()}
+                  onInput={(e) => setVideoEncodeArgs(e.currentTarget.value)}
+                  disabled={busy()}
+                  spellcheck={false}
+                />
+              </label>
+              <label class="flex flex-col gap-1">
+                <span class="text-xs text-[var(--color-text-secondary)]">
+                  video codec (MSE SourceBuffer mime type matching the args above)
+                </span>
+                <input
+                  class="font-mono text-xs px-2 py-1 rounded bg-[var(--color-bg-tertiary)] border border-[var(--color-border-subtle)] text-[var(--color-text-primary)]"
+                  value={videoCodec()}
+                  onInput={(e) => setVideoCodec(e.currentTarget.value)}
+                  disabled={busy()}
+                  spellcheck={false}
+                />
+              </label>
+            </div>
+          </details>
           <div>
             <button
               type="submit"

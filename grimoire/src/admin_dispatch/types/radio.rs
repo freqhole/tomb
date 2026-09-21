@@ -92,17 +92,24 @@ pub struct RadioConfigPayload {
     /// and `freqhole radio serve` refuses to run.
     pub enabled: bool,
     /// ffmpeg encoder template (`{input}` placeholder, output to `pipe:1`)
-    /// for `audio_only` stations with no per-station override.
-    pub encode_args: String,
+    /// for `audio_only` stations with no per-station override. `None` on
+    /// a `radio_config_set` request means "leave whatever is (or isn't)
+    /// already in the toml alone" - only `Some(_)` writes/replaces the
+    /// key, so saving unrelated fields (e.g. concurrency limits) never
+    /// freezes the live default into the toml as an accidental override.
+    #[serde(default)]
+    pub encode_args: Option<String>,
     /// ffmpeg encoder template for video-capable stations
     /// (`audio_or_video`/`video_only`) with no per-station override -
-    /// keeps the video stream instead of `-vn`-stripping it.
+    /// keeps the video stream instead of `-vn`-stripping it. same
+    /// `None` = "leave alone" semantics as `encode_args`.
     #[serde(default)]
-    pub video_encode_args: String,
+    pub video_encode_args: Option<String>,
     /// MSE codec string matching `video_encode_args`'s output, for the
-    /// same video-capable-stations-with-no-override case.
+    /// same video-capable-stations-with-no-override case. same `None` =
+    /// "leave alone" semantics as `encode_args`.
     #[serde(default)]
-    pub video_codec: String,
+    pub video_codec: Option<String>,
     /// true when ffmpeg is available on this node.
     #[serde(default)]
     pub ffmpeg_available: bool,

@@ -61,9 +61,6 @@ export const ResolveShareModal: Component<ResolveShareModalProps> = (props) => {
       // node-id match takes precedence — http origin matching could be a
       // future addition (would need to query remotes by base_url).
       const nodeId = payload.s.n;
-      if (payload.k === "radio_station" && nodeId) {
-        await ensurePendingRemoteForNode(nodeId);
-      }
       if (nodeId) {
         const remote = await getRemoteByPeerAddr(nodeId);
         if (remote) {
@@ -83,6 +80,11 @@ export const ResolveShareModal: Component<ResolveShareModalProps> = (props) => {
           }, 250);
           return { kind: "matched", payload, targetUrl };
         }
+        // no remote for this node yet - persist a pending-remote row (for
+        // every share kind, not just radio_station) so this node shows up
+        // in the add-remote modal's "pending connections" list even if the
+        // user dismisses this modal without acting on it right away.
+        await ensurePendingRemoteForNode(nodeId);
       }
       return { kind: "unmatched", payload };
     }
@@ -253,9 +255,14 @@ function entityRouteFor(payload: SharePayloadV1, remoteId: string): string {
 }
 
 // renders the title, artist, and album from a share payload.
-// fields are display-only (not trusted) and all optional.
+// fields are display-only (not trusted) and all optional. for a
+// radio_station share, `a` carries the station's description instead of
+// an artist name (stations have no artist - see RadioView.tsx's
+// openStationShare) so it renders as plain body text instead of the
+// tertiary "artist" styling used for every other kind.
 function ShareEntityInfo(props: { payload: SharePayloadV1 }) {
   const p = () => props.payload;
+  const isRadioStation = () => p().k === "radio_station";
   return (
     <div class="mb-4 space-y-0.5">
       <Show when={p().t}>
@@ -265,7 +272,15 @@ function ShareEntityInfo(props: { payload: SharePayloadV1 }) {
         <p class="text-sm text-[var(--color-text-secondary)]">{p().al}</p>
       </Show>
       <Show when={p().a}>
-        <p class="text-sm text-[var(--color-text-tertiary)]">{p().a}</p>
+        <p
+          class={
+            isRadioStation()
+              ? "text-sm text-[var(--color-text-secondary)]"
+              : "text-sm text-[var(--color-text-tertiary)]"
+          }
+        >
+          {p().a}
+        </p>
       </Show>
     </div>
   );

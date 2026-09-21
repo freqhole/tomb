@@ -626,6 +626,15 @@ export function RadioView() {
         kind: "radio_station",
         id: station.station_id,
         displayTitle: station.name,
+        // stations have no "artist" of their own - reuse this generic,
+        // not-trusted display-only slot to carry the description instead,
+        // so a recipient who can't see this (non-public, unknown-peer)
+        // station in any discovery listing still gets a nice preview
+        // straight from the link (see ResolveShareModal.tsx's
+        // ShareEntityInfo, which renders it as a description for this
+        // kind). actually tuning in still goes through the existing
+        // peer-list gate regardless of what the link carries.
+        artistName: station.description ?? undefined,
       },
       source: () => source,
     });

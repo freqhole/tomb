@@ -14,6 +14,7 @@ pub mod import_review;
 pub mod job_events;
 pub mod jobs;
 pub mod playlists;
+pub mod radio;
 pub mod related_artists;
 pub mod relations;
 pub mod search;
@@ -38,6 +39,7 @@ pub fn routes() -> Vec<RouteInfo> {
     all.extend_from_slice(job_events::ROUTES);
     all.extend_from_slice(jobs::ROUTES);
     all.extend_from_slice(playlists::ROUTES);
+    all.extend_from_slice(radio::ROUTES);
     all.extend_from_slice(related_artists::ROUTES);
     all.extend_from_slice(relations::ROUTES);
     all.extend_from_slice(search::ROUTES);
@@ -319,6 +321,10 @@ pub async fn dispatch(
         "/api/musicbrainz/release" => {
             Some(search::musicbrainz_get_release(caller, body.clone()).await)
         }
+
+        // radio (authenticated - see offal::public::radio for the
+        // anonymous counterpart)
+        "/api/radio/stations/full" => Some(radio::stations_full(caller, body.clone()).await),
 
         // blob metadata
         "/api/blob_metadata" => super::media_blobz::dispatch(path, caller, body).await,

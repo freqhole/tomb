@@ -1546,7 +1546,7 @@ function SongSuggestInput(props: SongSuggestInputProps) {
 
 interface RadioConfigPayload {
   enabled: boolean;
-  encode_args: string;
+  encode_args?: string;
   video_encode_args?: string;
   video_codec?: string;
   ffmpeg_available?: boolean;
@@ -1564,11 +1564,26 @@ function RadioConfigSection(props: RadioConfigSectionProps) {
   const [encodeArgs, setEncodeArgs] = createSignal("");
   const [videoEncodeArgs, setVideoEncodeArgs] = createSignal("");
   const [videoCodec, setVideoCodec] = createSignal("");
+  // last-loaded values, so a save only sends an encode-arg field the
+  // operator actually edited - otherwise every save (even just toggling
+  // "enabled" or a concurrency limit) would re-freeze whatever's
+  // currently displayed (often just the live default) as a literal toml
+  // override, permanently opting the field out of future default fixes.
+  const [loadedEncodeArgs, setLoadedEncodeArgs] = createSignal("");
+  const [loadedVideoEncodeArgs, setLoadedVideoEncodeArgs] = createSignal("");
+  const [loadedVideoCodec, setLoadedVideoCodec] = createSignal("");
   const [maxConcurrentAudioStreams, setMaxConcurrentAudioStreams] = createSignal(2);
   const [maxConcurrentVideoStreams, setMaxConcurrentVideoStreams] = createSignal(1);
   const [loading, setLoading] = createSignal(true);
   const [busy, setBusy] = createSignal(false);
   const [err, setErr] = createSignal("");
+
+  // `undefined` unless the field differs from what was last loaded (and
+  // isn't blank) - see the field-tracking comment above.
+  function dirtyOrUndefined(current: string, loaded: string): string | undefined {
+    const trimmed = current.trim();
+    return trimmed !== "" && trimmed !== loaded ? trimmed : undefined;
+  }
 
   async function load() {
     setLoading(true);
@@ -1576,9 +1591,12 @@ function RadioConfigSection(props: RadioConfigSectionProps) {
     try {
       const cfg = await props.dispatch<RadioConfigPayload>("radio_config_get", undefined);
       setEnabled(cfg.enabled);
-      setEncodeArgs(cfg.encode_args);
+      setEncodeArgs(cfg.encode_args ?? "");
       setVideoEncodeArgs(cfg.video_encode_args ?? "");
       setVideoCodec(cfg.video_codec ?? "");
+      setLoadedEncodeArgs(cfg.encode_args ?? "");
+      setLoadedVideoEncodeArgs(cfg.video_encode_args ?? "");
+      setLoadedVideoCodec(cfg.video_codec ?? "");
       setMaxConcurrentAudioStreams(cfg.max_concurrent_audio_streams ?? 2);
       setMaxConcurrentVideoStreams(cfg.max_concurrent_video_streams ?? 1);
       props.onEnabledChange?.(cfg.enabled);
@@ -1603,9 +1621,9 @@ function RadioConfigSection(props: RadioConfigSectionProps) {
     try {
       await props.dispatch<RadioConfigPayload>("radio_config_set", {
         enabled: next,
-        encode_args: encodeArgs(),
-        video_encode_args: videoEncodeArgs(),
-        video_codec: videoCodec(),
+        encode_args: dirtyOrUndefined(encodeArgs(), loadedEncodeArgs()),
+        video_encode_args: dirtyOrUndefined(videoEncodeArgs(), loadedVideoEncodeArgs()),
+        video_codec: dirtyOrUndefined(videoCodec(), loadedVideoCodec()),
         max_concurrent_audio_streams: maxConcurrentAudioStreams(),
         max_concurrent_video_streams: maxConcurrentVideoStreams(),
       });
@@ -1628,9 +1646,9 @@ function RadioConfigSection(props: RadioConfigSectionProps) {
     try {
       await props.dispatch<RadioConfigPayload>("radio_config_set", {
         enabled: enabled(),
-        encode_args: encodeArgs(),
-        video_encode_args: videoEncodeArgs(),
-        video_codec: videoCodec(),
+        encode_args: dirtyOrUndefined(encodeArgs(), loadedEncodeArgs()),
+        video_encode_args: dirtyOrUndefined(videoEncodeArgs(), loadedVideoEncodeArgs()),
+        video_codec: dirtyOrUndefined(videoCodec(), loadedVideoCodec()),
         max_concurrent_audio_streams: maxConcurrentAudioStreams(),
         max_concurrent_video_streams: maxConcurrentVideoStreams(),
       });

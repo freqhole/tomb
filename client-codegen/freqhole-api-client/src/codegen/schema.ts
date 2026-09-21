@@ -5430,9 +5430,9 @@ export type RadioBumpersSetFrequencyRequest = z.infer<typeof RadioBumpersSetFreq
 
 export const RadioConfigPayloadSchema = z.object({
   enabled: z.boolean(),
-  encode_args: z.string(),
-  video_encode_args: z.string(),
-  video_codec: z.string(),
+  encode_args: z.string().nullish(),
+  video_encode_args: z.string().nullish(),
+  video_codec: z.string().nullish(),
   ffmpeg_available: z.boolean(),
   max_concurrent_audio_streams: z.number(),
   max_concurrent_video_streams: z.number()

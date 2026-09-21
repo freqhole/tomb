@@ -163,7 +163,7 @@ fn parse_version(v: &str) -> Vec<u64> {
 }
 
 /// true when `latest` is a strictly newer version than `current`.
-fn is_newer(latest: &str, current: &str) -> bool {
+pub(crate) fn is_newer(latest: &str, current: &str) -> bool {
     let l = parse_version(latest);
     let c = parse_version(current);
     let len = l.len().max(c.len());

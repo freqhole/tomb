@@ -443,9 +443,9 @@ pub(in crate::admin_dispatch) async fn config_get() -> GrimoireResponse<JsonValu
     let cfg = crate::radio::config::effective();
     let payload = RadioConfigPayload {
         enabled: cfg.enabled,
-        encode_args: cfg.encode_args,
-        video_encode_args: cfg.video_encode_args,
-        video_codec: cfg.video_codec,
+        encode_args: Some(cfg.encode_args),
+        video_encode_args: Some(cfg.video_encode_args),
+        video_codec: Some(cfg.video_codec),
         ffmpeg_available: ffmpeg_available(),
         max_concurrent_audio_streams: cfg.max_concurrent_audio_streams,
         max_concurrent_video_streams: cfg.max_concurrent_video_streams,
@@ -476,32 +476,34 @@ pub(in crate::admin_dispatch) async fn config_set(args: JsonValue) -> GrimoireRe
         Some(t) => t,
         None => return internal("config root is not a table".to_string()),
     };
-    let radio_table = toml::Value::Table({
-        let mut m = toml::map::Map::new();
-        m.insert("enabled".into(), toml::Value::Boolean(req.enabled));
-        m.insert(
-            "encode_args".into(),
-            toml::Value::String(req.encode_args.clone()),
-        );
-        m.insert(
-            "video_encode_args".into(),
-            toml::Value::String(req.video_encode_args.clone()),
-        );
-        m.insert(
-            "video_codec".into(),
-            toml::Value::String(req.video_codec.clone()),
-        );
-        m.insert(
-            "max_concurrent_audio_streams".into(),
-            toml::Value::Integer(req.max_concurrent_audio_streams as i64),
-        );
-        m.insert(
-            "max_concurrent_video_streams".into(),
-            toml::Value::Integer(req.max_concurrent_video_streams as i64),
-        );
-        m
-    });
-    table.insert("radio".into(), radio_table);
+    // start from whatever [radio] table is already on disk (not a blank
+    // slate) so any field the caller left as `None` - including keys this
+    // struct doesn't even model - survives untouched, rather than every
+    // save re-freezing the currently-displayed encode args as a literal
+    // override.
+    let mut radio_map = match table.get("radio") {
+        Some(toml::Value::Table(existing)) => existing.clone(),
+        _ => toml::map::Map::new(),
+    };
+    radio_map.insert("enabled".into(), toml::Value::Boolean(req.enabled));
+    if let Some(v) = &req.encode_args {
+        radio_map.insert("encode_args".into(), toml::Value::String(v.clone()));
+    }
+    if let Some(v) = &req.video_encode_args {
+        radio_map.insert("video_encode_args".into(), toml::Value::String(v.clone()));
+    }
+    if let Some(v) = &req.video_codec {
+        radio_map.insert("video_codec".into(), toml::Value::String(v.clone()));
+    }
+    radio_map.insert(
+        "max_concurrent_audio_streams".into(),
+        toml::Value::Integer(req.max_concurrent_audio_streams as i64),
+    );
+    radio_map.insert(
+        "max_concurrent_video_streams".into(),
+        toml::Value::Integer(req.max_concurrent_video_streams as i64),
+    );
+    table.insert("radio".into(), toml::Value::Table(radio_map));
     let new_toml = match toml::to_string_pretty(&doc) {
         Ok(s) => s,
         Err(e) => return internal(format!("failed to serialize config: {}", e)),
@@ -541,9 +543,9 @@ pub(in crate::admin_dispatch) async fn config_set(args: JsonValue) -> GrimoireRe
     }
     let out = RadioConfigPayload {
         enabled: cfg.enabled,
-        encode_args: cfg.encode_args,
-        video_encode_args: cfg.video_encode_args,
-        video_codec: cfg.video_codec,
+        encode_args: Some(cfg.encode_args),
+        video_encode_args: Some(cfg.video_encode_args),
+        video_codec: Some(cfg.video_codec),
         ffmpeg_available: ffmpeg_available(),
         max_concurrent_audio_streams: cfg.max_concurrent_audio_streams,
         max_concurrent_video_streams: cfg.max_concurrent_video_streams,

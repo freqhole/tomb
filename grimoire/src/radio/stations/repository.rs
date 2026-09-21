@@ -205,6 +205,72 @@ pub async fn delete_station(id: &str) -> GrimoireResult<()> {
     Ok(())
 }
 
+// ---------- one-shot migration: stale per-station encode_args ------------
+//
+// a per-station `encode_args` override that exactly matches one of these
+// previously-shipped node-wide defaults was never an intentional per-
+// station customization - just a snapshot of whatever the node-wide
+// default happened to produce at some point (e.g. round-tripped through
+// `radio_config_get`/`_set`), frozen onto the station row. safe to clear
+// back to NULL ("inherit") since that just makes the station track the
+// live node-wide default again; a genuine customization would not
+// coincidentally match one of these byte-for-byte. see
+// `crate::upgrade::upgrade_config_and_migrate` for the version gate that
+// calls this.
+const KNOWN_STALE_ENCODE_ARGS: &[&str] = &[
+    // pre-server-side-pacing audio default (still had `-re`, from before
+    // the broadcaster started pacing output itself).
+    "-hide_banner -loglevel error -re -i {input} -vn -c:a aac -b:a 192k -movflags frag_keyframe+empty_moov+default_base_moof -frag_duration 3000000 -f mp4 pipe:1",
+    // pre-0.3.7 video default, before `-x264-params scenecut=0` +
+    // `-force_key_frames` fixed variable/short fragment durations caused
+    // by libx264's adaptive scene-cut keyframes.
+    "-hide_banner -loglevel error -fflags +genpts -i {input} -map 0:v:0 -map 0:a:0 -c:v libx264 -profile:v main -preset veryfast -b:v 2500k -pix_fmt yuv420p -c:a aac -profile:a aac_low -b:a 192k -ar 48000 -ac 2 -movflags frag_keyframe+empty_moov+default_base_moof -frag_duration 3000000 -avoid_negative_ts make_zero -f mp4 pipe:1",
+];
+
+/// report for [`clear_stale_default_encode_args`].
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct StaleEncodeArgsMigrationReport {
+    /// number of stations that had any per-station `encode_args` override.
+    pub examined: i64,
+    /// ids of stations whose override exactly matched a known-stale
+    /// default and was cleared back to NULL.
+    pub cleared_station_ids: Vec<String>,
+}
+
+/// clear any per-station `encode_args` override that exactly matches a
+/// previously-shipped node-wide default (see `KNOWN_STALE_ENCODE_ARGS`).
+pub async fn clear_stale_default_encode_args() -> GrimoireResult<StaleEncodeArgsMigrationReport> {
+    let pool = database::connect().await?;
+    let rows = sqlx::query!(
+        r#"SELECT id as "id!", encode_args FROM radio_stationz
+           WHERE encode_args IS NOT NULL AND encode_args != ''"#
+    )
+    .fetch_all(&pool)
+    .await?;
+
+    let examined = rows.len() as i64;
+    let mut cleared_station_ids = Vec::new();
+    for row in rows {
+        let Some(args) = row.encode_args else {
+            continue;
+        };
+        if KNOWN_STALE_ENCODE_ARGS.contains(&args.as_str()) {
+            sqlx::query!(
+                "UPDATE radio_stationz SET encode_args = NULL WHERE id = ?",
+                row.id
+            )
+            .execute(&pool)
+            .await?;
+            cleared_station_ids.push(row.id);
+        }
+    }
+
+    Ok(StaleEncodeArgsMigrationReport {
+        examined,
+        cleared_station_ids,
+    })
+}
+
 // ---------- filter clauses -----------------------------------------------
 //
 // reference-type rows (artist/album/taxon/tag/track/playlist) reference a

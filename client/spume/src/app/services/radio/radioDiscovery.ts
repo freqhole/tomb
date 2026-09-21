@@ -346,7 +346,21 @@ async function fetchStationsForSource(src: SourceRef): Promise<PublicStation[]> 
           };
 
   const client = await getClientForRemote(ref);
-  const resp = await client.app.radioStations();
+  // try the authenticated listing first - it includes non-public
+  // stations too, for a caller who actually has standing on this source
+  // (a real session, or a known iroh peer). falls back to the anonymous
+  // listing (public stations only) for a source we have no credentials
+  // for yet, e.g. a bare pending/query-param peer that's never been
+  // added as a remote - `radioStationsFull()` there just 401s.
+  let resp;
+  try {
+    resp = await client.app.radioStationsFull();
+  } catch {
+    resp = undefined;
+  }
+  if (!resp || !resp.success) {
+    resp = await client.app.radioStations();
+  }
   if (!resp.success) {
     // pin down WHICH source (this device vs. a specific remote) actually
     // produced an invalid/failed response - the zod warning FreqholeClient

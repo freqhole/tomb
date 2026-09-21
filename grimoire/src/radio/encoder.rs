@@ -405,6 +405,29 @@ impl BufferedEncoder {
             .store(true, std::sync::atomic::Ordering::Relaxed);
     }
 
+    /// number of chunks currently sitting in the encode-ahead buffer -
+    /// already produced by ffmpeg (via the background feeder task) but
+    /// not yet pulled by `next_chunk()`. a non-consuming peek (`mpsc::
+    /// Receiver::len`), used both to give the broadcaster a way to wait
+    /// for a real lead to build before publishing a track to listeners,
+    /// and as a diagnostic for how close that lead is to running dry.
+    pub fn queued_chunks(&self) -> usize {
+        self.rx.len()
+    }
+
+    /// true once the feeder task has ended (clean EOF, error, or
+    /// interrupt) and dropped its sender - no more chunks will EVER
+    /// arrive, so whatever `queued_chunks()` reports right now is
+    /// final. lets a caller waiting for a target chunk count (e.g. the
+    /// broadcaster's warm-up) stop as soon as the encoder is genuinely
+    /// done rather than waiting out a full timeout for a target a
+    /// short track can never reach - a track shorter than the target's
+    /// real duration will never produce that many chunks no matter how
+    /// long we wait.
+    pub fn is_finished(&self) -> bool {
+        self.rx.is_closed()
+    }
+
     /// human-readable label (input path) for log messages.
     pub fn label(&self) -> &str {
         &self.label

@@ -2,6 +2,7 @@ import { createEffect, createSignal, onCleanup, onMount, Show } from "solid-js";
 import { Icon, IconNames } from "../icons/registry";
 import { debug } from "../../utils/logger";
 import { isTouchDevice } from "../../utils/isMobile";
+import { useChromeSuppression } from "../../app/shell/chromeSuppression";
 import {
   isPlaying as musicIsPlaying,
   pause as musicPause,
@@ -85,6 +86,12 @@ export function VideoMiniPlayer(props: VideoMiniPlayerProps) {
   const playing = () => (props.isPlaying ?? musicIsPlaying)();
   const doTogglePlayback = () => void (props.onTogglePlayback ?? musicTogglePlayback)();
   const doPause = () => (props.onPause ?? musicPause)();
+
+  // hide the chromeless title-bar strip's stoplight buttons (show on
+  // hover only) while this panel is expanded to fill the screen - an
+  // expanded floating player is the one case that visually competes with
+  // them; "inline" (kiosk) usage never expands, so it never suppresses.
+  useChromeSuppression("video-mini-player", () => !isInline() && expanded());
 
   onCleanup(() => props.onElementDetach?.(videoEl));
 

@@ -33,6 +33,19 @@ use tracing::{info, warn};
 /// while the control stream stays alive over QUIC keepalives.
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5);
 
+/// logs how deep a catchup burst was (chunk count + equivalent seconds)
+/// on every tune/lag-reprime - correlates against the client's own
+/// "distance from live edge" diagnostic (see
+/// docs/radio-buffering-retune-plan.md) to see how often listeners
+/// actually get a real head start vs. join right as a track starts.
+fn log_catchup_depth(station_id: &str, context: &str, catchup_chunks: usize) {
+    let frag_ms = crate::radio::config::effective().frag_ms.max(1);
+    let approx_seconds = (catchup_chunks as u32 * frag_ms) as f64 / 1000.0;
+    info!(
+        "[radio-handler] station {station_id} {context}: catchup burst depth = {catchup_chunks} chunks (~{approx_seconds:.1}s)"
+    );
+}
+
 enum SessionEnd {
     Finished,
     Goodbye(String),
@@ -229,6 +242,7 @@ async fn run_session(conn: &Connection) -> GrimoireResult<()> {
         if let Some(init) = sub.init.as_ref() {
             write_chunk(&mut audio_send, init).await?;
         }
+        log_catchup_depth(&station_id, "tune", sub.catchup.len());
         for chunk in &sub.catchup {
             write_chunk(&mut audio_send, chunk).await?;
         }
@@ -320,6 +334,7 @@ async fn forward_audio(
                 if let Some(init) = sub.init.as_ref() {
                     write_chunk(send, init).await?;
                 }
+                log_catchup_depth(bc.station_id(), "lag-reprime", sub.catchup.len());
                 for chunk in &sub.catchup {
                     write_chunk(send, chunk).await?;
                 }

@@ -411,7 +411,17 @@ pub async fn add_filter_set_filter(
     let (
         kind,
         mode,
-        (artist_id, album_id, taxon_id, tag_id, song_id, playlist_id, video_id, video_series_id, criteria_value),
+        (
+            artist_id,
+            album_id,
+            taxon_id,
+            tag_id,
+            song_id,
+            playlist_id,
+            video_id,
+            video_series_id,
+            criteria_value,
+        ),
     ) = parse_filter_clause("sync filter", filter_type, filter_value, mode)?;
     let kind_str = kind.as_str();
 

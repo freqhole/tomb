@@ -197,9 +197,29 @@ fn default_max_concurrent_video_streams() -> u32 {
 /// library starting point (bitrate/profile are reasonable defaults, not
 /// guarantees) - operators can override via `[radio].video_encode_args`
 /// or, for one specific station, that station's own `encode_args`.
+///
+/// `-force_key_frames "expr:gte(t,n_forced*3)"` + `-x264-params
+/// scenecut=0`: without these, libx264's default adaptive scene-cut
+/// detection inserts EXTRA keyframes at content-dependent scene changes
+/// (independent of any GOP-size setting), and `frag_keyframe` (below)
+/// then cuts a NEW fragment at every one of them - producing wildly
+/// variable, often much-shorter-than-`frag_duration` fragments for any
+/// video with frequent cuts. confirmed live: fragments as short as
+/// ~300ms mixed with ~3000ms ones on the same "fast cuts" cartoon
+/// content, dragging the AVERAGE real media duration per fragment well
+/// below the `frag_ms` the broadcaster's pacing assumes per chunk -
+/// since pacing releases one chunk per `frag_ms` of WALL CLOCK time
+/// but each chunk was actually contributing LESS real media time on
+/// average, listeners' buffered cushion eroded continuously even
+/// though chunks kept arriving exactly on the server's own schedule.
+/// forcing a keyframe (and thus a fragment cut) at an EXACT, uniform
+/// 3-second cadence and disabling the adaptive scene-cut keyframes
+/// keeps fragment count/duration predictable and aligned with
+/// `frag_duration`/`frag_ms` regardless of the source content.
 fn default_video_encode_args() -> String {
     "-hide_banner -loglevel error -fflags +genpts -i {input} -map 0:v:0 -map 0:a:0 \
      -c:v libx264 -profile:v main -preset veryfast -b:v 2500k -pix_fmt yuv420p \
+     -x264-params scenecut=0 -force_key_frames expr:gte(t,n_forced*3) \
      -c:a aac -profile:a aac_low -b:a 192k -ar 48000 -ac 2 \
      -movflags frag_keyframe+empty_moov+default_base_moof \
      -frag_duration 3000000 -avoid_negative_ts make_zero -f mp4 pipe:1"

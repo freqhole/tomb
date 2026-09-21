@@ -417,6 +417,21 @@ async fn run_session(
     // per-track-fifo design's laziness) doesn't pop a window/spawn mpv
     // for nothing.
     let mut mpv: Option<RadioMpv> = None;
+    // pre-buffer: hold received chunks (including the initial catchup/
+    // re-prime burst - see `radio::handler::log_catchup_depth` server
+    // side) WITHOUT writing them to mpv's stdin until a minimum-ready
+    // threshold is met, then flush the whole thing at once and write
+    // every arrival directly from then on. mirrors spume's
+    // `MIN_READY_TO_START_MS` gate: there's no seekable buffer to anchor
+    // into here (mpv just plays a continuous byte stream in order), but
+    // the same steady-state argument applies once mpv starts consuming
+    // at 1x - whatever head start this pre-buffer provides holds steady
+    // rather than eroding (see docs/radio-buffering-retune-plan.md).
+    // reset alongside `mpv`/`discard_until_init` on every Lag/Skip so the
+    // NEXT track's chunks get the same treatment.
+    let mut pre_buffer: Vec<grimoire::radio::chunk::Chunk> = Vec::new();
+    let mut mpv_ready = false;
+    const MIN_READY_CHUNKS: usize = 2;
     // discard bytes until the next init chunk - mirrors the old
     // per-track-fifo design's "close the fifo, wait for next init" on a
     // Lag/Skip control message, just without anything to actually tear
@@ -439,14 +454,30 @@ async fn run_session(
                 if discard_until_init {
                     continue;
                 }
-                let first_chunk_this_process = mpv.is_none();
+                let was_mpv_ready = mpv_ready;
                 if mpv.is_none() {
                     mpv = Some(RadioMpv::spawn().await?);
                 }
-                if let Some(mpv) = mpv.as_mut() {
-                    mpv.write(&chunk.bytes).await?;
+                if mpv_ready {
+                    if let Some(mpv) = mpv.as_mut() {
+                        mpv.write(&chunk.bytes).await?;
+                    }
+                } else {
+                    pre_buffer.push(chunk);
+                    if pre_buffer.len() >= MIN_READY_CHUNKS {
+                        if let Some(mpv) = mpv.as_mut() {
+                            for buffered in pre_buffer.drain(..) {
+                                mpv.write(&buffered.bytes).await?;
+                            }
+                        }
+                        mpv_ready = true;
+                    }
                 }
-                if first_chunk_this_process {
+                // clear the "waiting for stream data…" status once mpv
+                // actually starts receiving bytes, not just once its
+                // process exists - with the pre-buffer above, those are
+                // no longer the same moment.
+                if !was_mpv_ready && mpv_ready {
                     let _ = tx.send(AppAction::RadioConnectPhase(None));
                 }
             }
@@ -478,6 +509,16 @@ async fn run_session(
                     Some(ControlMessage::Lag(_)) | Some(ControlMessage::Skip(_)) => {
                         discard_until_init = true;
                         mpv = None;
+                        // the next track starts its own fresh pre-buffer
+                        // gate, same as session start - a stale one here
+                        // would either flush a mix of two tracks' bytes
+                        // together, or (if `mpv_ready` were left true)
+                        // skip the gate entirely for the next track.
+                        pre_buffer.clear();
+                        mpv_ready = false;
+                        let _ = tx.send(AppAction::RadioConnectPhase(Some(
+                            "waiting for stream data\u{2026}".to_string(),
+                        )));
                     }
                     Some(ControlMessage::Goodbye(g)) => {
                         return Err(format!("station closed the session: {}", g.reason));
@@ -512,6 +553,20 @@ impl RadioMpv {
                 "--vo={}",
                 super::video_player::default_video_output()
             ))
+            // explicit cache/readahead tuning: without these, mpv is left
+            // on its own defaults for a non-seekable stdin pipe, which is
+            // NOT the same as a deliberately-sized cushion (see
+            // docs/radio-buffering-retune-plan.md's rathole/mpv section).
+            // `--cache=yes` forces the demuxer cache on for a stream that
+            // wouldn't otherwise get one by default; the two limits below
+            // give mpv its own internal readahead margin against a
+            // momentary gap in what rathole's own pre-buffer feeds it,
+            // independent of that feed timing. sized generously since
+            // this is a live radio pipe, not a large on-demand file -
+            // may need further tuning from real-world testing.
+            .arg("--cache=yes")
+            .arg("--demuxer-max-bytes=50MiB")
+            .arg("--demuxer-readahead-secs=20")
             .arg("--no-terminal")
             .arg("--msg-level=all=warn")
             .stdin(Stdio::piped())
