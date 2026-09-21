@@ -5,6 +5,7 @@
 //! "mpv isn't installed"), so no other call site needs to change.
 
 use std::rc::Rc;
+use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::sync::mpsc;
 
 use crate::ratcore::app::{AppAction, VideoCommand};
@@ -26,5 +27,32 @@ impl MpvPlayer {
 impl VideoPlayer for MpvPlayer {
     async fn send(&self, _cmd: VideoCommand) -> Result<(), String> {
         Err("mpv video playback isn't supported on this platform".to_string())
+    }
+}
+
+// non-unix counterparts of the real video_player.rs helpers - `tty::radio`
+// spawns its own dedicated mpv process directly (not through `MpvPlayer`)
+// and calls these regardless of platform, so they need to exist here too
+// even though mpv itself isn't expected to be available/supported here.
+pub(super) fn default_video_output() -> &'static str {
+    "gpu-next"
+}
+
+pub(super) async fn log_mpv_output(
+    stream: impl tokio::io::AsyncRead + Unpin,
+    stream_name: &'static str,
+) {
+    let mut lines = BufReader::new(stream).lines();
+    loop {
+        match lines.next_line().await {
+            Ok(Some(line)) => {
+                tracing::warn!(target: "video_player", mpv_stream = stream_name, %line, "mpv output")
+            }
+            Ok(None) => break,
+            Err(e) => {
+                tracing::warn!(target: "video_player", mpv_stream = stream_name, error = %e, "mpv output stream read error");
+                break;
+            }
+        }
     }
 }
