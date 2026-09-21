@@ -629,7 +629,6 @@ pub struct ResolvedPlaylist {
 ///     they always have ("no source", falls back to the full library or
 ///     a global random pick); an empty `video_ids` simply means this
 ///     station has no video content configured (the common case today).
-/// resolve a station's effective playlist across both domains.
 ///
 /// `content_mode` ('audio_only' | 'audio_or_video' | 'video_only', see
 /// migration 082) gates whether either domain is resolved AT ALL -
