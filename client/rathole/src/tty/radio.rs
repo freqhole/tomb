@@ -91,6 +91,7 @@ pub fn start(
         track_title: None,
         track_artist: None,
         last_error: None,
+        connect_phase: Some("connecting to peer\u{2026}".to_string()),
     };
 
     tokio::task::spawn_local(async move {
@@ -309,13 +310,22 @@ async fn run_session(
     station_id: Option<String>,
     tx: mpsc::UnboundedSender<AppAction>,
 ) -> Result<(), String> {
+    let _ = tx.send(AppAction::RadioConnectPhase(Some(
+        "connecting to peer\u{2026}".to_string(),
+    )));
     let endpoint = get_endpoint_arc().map_err(|e| e.to_string())?;
     let addr = parse_peer_address(&peer_addr).map_err(|e| e.to_string())?;
     let conn = endpoint
         .connect(addr, RADIO_ALPN)
         .await
         .map_err(|e| format!("connect: {e}"))?;
+    if !generation_is_current(generation) {
+        return Ok(());
+    }
 
+    let _ = tx.send(AppAction::RadioConnectPhase(Some(
+        "connecting to broadcaster\u{2026}".to_string(),
+    )));
     let (mut ctrl_send, mut ctrl_recv) = conn
         .open_bi()
         .await
@@ -351,11 +361,56 @@ async fn run_session(
         track_title: Some(hello.now_playing.title.clone()),
         track_artist: hello.now_playing.artist.clone(),
     });
+    // Hello resolving only means the CONTROL handshake succeeded - the
+    // audio uni stream (and mpv itself) still need to start up, so keep
+    // showing a phase rather than letting the repl status sit on the
+    // now-playing line prematurely (re-set right above, but about to be
+    // stale until real bytes actually arrive).
+    let _ = tx.send(AppAction::RadioConnectPhase(Some(
+        "waiting for stream data\u{2026}".to_string(),
+    )));
 
     let mut audio_recv = conn
         .accept_uni()
         .await
         .map_err(|e| format!("accept audio stream: {e}"))?;
+
+    // both streams are read from dedicated background tasks that forward
+    // complete messages over an (inherently cancel-safe) mpsc channel,
+    // rather than calling `read_chunk`/`read_control_message` directly as
+    // `tokio::select!` branches below. both of those functions span
+    // MULTIPLE await points internally (read a length header, then read
+    // the body) - a bare `foo().await` used directly as a select! arm
+    // gets a brand new future recreated every loop iteration, so if the
+    // OTHER arm wins while a read is only partway done, tokio drops that
+    // future and silently discards whatever it already consumed from the
+    // stream, permanently desyncing the framing from that point on (the
+    // next read attempt starts mid-message, misreading body bytes as a
+    // fresh length prefix - exactly what "control message too large:
+    // <garbage>" is). a background task's `read_*` calls always run to
+    // completion once started; only the channel `recv()` on the select
+    // side is ever cancelled, and that's safe (an unreceived message just
+    // stays queued for the next `recv()`).
+    let (chunk_tx, mut chunk_rx) = mpsc::unbounded_channel();
+    tokio::task::spawn_local(async move {
+        loop {
+            let result = read_chunk(&mut audio_recv).await;
+            let done = matches!(result, Ok(None) | Err(_));
+            if chunk_tx.send(result).is_err() || done {
+                break;
+            }
+        }
+    });
+    let (ctrl_tx, mut ctrl_rx) = mpsc::unbounded_channel();
+    tokio::task::spawn_local(async move {
+        loop {
+            let result = read_control_message(&mut ctrl_recv).await;
+            let done = matches!(result, Ok(None) | Err(_));
+            if ctrl_tx.send(result).is_err() || done {
+                break;
+            }
+        }
+    });
 
     // spawned lazily on the first chunk (not upfront) so a station that
     // never sends any audio (shouldn't happen, but matches the old
@@ -373,7 +428,8 @@ async fn run_session(
             return Ok(());
         }
         tokio::select! {
-            chunk = read_chunk(&mut audio_recv) => {
+            chunk = chunk_rx.recv() => {
+                let Some(chunk) = chunk else { return Ok(()); }; // reader task ended
                 let Some(chunk) = chunk.map_err(|e| e.to_string())? else {
                     return Ok(()); // clean eof - broadcaster closed the audio stream.
                 };
@@ -383,14 +439,19 @@ async fn run_session(
                 if discard_until_init {
                     continue;
                 }
+                let first_chunk_this_process = mpv.is_none();
                 if mpv.is_none() {
                     mpv = Some(RadioMpv::spawn().await?);
                 }
                 if let Some(mpv) = mpv.as_mut() {
                     mpv.write(&chunk.bytes).await?;
                 }
+                if first_chunk_this_process {
+                    let _ = tx.send(AppAction::RadioConnectPhase(None));
+                }
             }
-            ctrl = read_control_message(&mut ctrl_recv) => {
+            ctrl = ctrl_rx.recv() => {
+                let Some(ctrl) = ctrl else { return Ok(()); }; // reader task ended
                 match ctrl.map_err(|e| e.to_string())? {
                     Some(ControlMessage::Meta(meta)) => {
                         let _ = tx.send(AppAction::RadioStatusUpdate {
@@ -400,9 +461,23 @@ async fn run_session(
                         });
                     }
                     // both mean "discard until the next init chunk" -
-                    // see `discard_until_init`'s doc comment above.
+                    // see `discard_until_init`'s doc comment above. also
+                    // drop the current mpv process rather than keep
+                    // feeding its stdin: mpv's tolerance for a fresh
+                    // ftyp+moov arriving mid-stream (see
+                    // docs/radio-mpv-fifo-stall-investigation.md) was
+                    // only validated for a NATURAL track end, where the
+                    // outgoing fragment sequence runs all the way to its
+                    // own declared duration first. a Lag/Skip cuts the
+                    // outgoing track off early, splicing a brand new moov
+                    // into the middle of a still-open timeline - that's
+                    // the untested case the doc flagged, and empirically
+                    // it confuses mpv's demuxer rather than continuing
+                    // cleanly. respawned lazily on the next chunk via the
+                    // `mpv.is_none()` check below, same as session start.
                     Some(ControlMessage::Lag(_)) | Some(ControlMessage::Skip(_)) => {
                         discard_until_init = true;
+                        mpv = None;
                     }
                     Some(ControlMessage::Goodbye(g)) => {
                         return Err(format!("station closed the session: {}", g.reason));

@@ -135,7 +135,15 @@ async fn run_session(conn: &Connection) -> GrimoireResult<()> {
     if let Some(station) = &station_row {
         if station.is_public == 0 {
             let peer_node = conn.remote_id().to_string();
-            let allowed = is_known_peer(&peer_node).await;
+            // a peer counts as authorized either by being a known/paired
+            // user (`is_known_peer`) OR by being in our OWN remotez list
+            // (a remote we ourselves added and chose to trust) - mirrors
+            // `federation::transport::handler::handle_incoming`'s own
+            // 3-way check, which already treats these as equally valid.
+            // without the second check, adding a server as a remote never
+            // actually granted it access to anything private here.
+            let allowed = is_known_peer(&peer_node).await
+                || crate::remotez::is_known_remote_peer(&peer_node).await;
             if !allowed {
                 return Err(GrimoireError::FederationApiError {
                     message: format!(

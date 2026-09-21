@@ -1840,6 +1840,7 @@ fn on_action(app: &mut App, action: AppAction, action_tx: &mpsc::UnboundedSender
         | AppAction::PairingTuneRadio { .. }
         | AppAction::PairingStopRadio
         | AppAction::RadioStatusUpdate { .. }
+        | AppAction::RadioConnectPhase(..)
         | AppAction::RadioEnded { .. } => {}
     }
 }

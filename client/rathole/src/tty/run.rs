@@ -1589,8 +1589,23 @@ fn on_action(app: &mut App, action: AppAction, action_tx: &mpsc::UnboundedSender
                 if station_name.is_some() {
                     radio.station_name = station_name;
                 }
-                radio.track_title = track_title;
-                radio.track_artist = track_artist;
+                radio.track_title = track_title.clone();
+                radio.track_artist = track_artist.clone();
+                radio.connect_phase = None;
+                app.state.ephemeral.repl.status = Some(ReplStatus::ok(format!(
+                    "now playing: {}{}",
+                    track_title.unwrap_or_else(|| "radio".to_string()),
+                    track_artist.map(|a| format!(" — {a}")).unwrap_or_default()
+                )));
+            }
+        }
+        AppAction::RadioConnectPhase(phase) => {
+            let radio = &mut app.state.ephemeral.radio;
+            if radio.active {
+                radio.connect_phase = phase.clone();
+                if let Some(phase) = phase {
+                    app.state.ephemeral.repl.status = Some(ReplStatus::info(phase));
+                }
             }
         }
         AppAction::RadioEnded { error } => {

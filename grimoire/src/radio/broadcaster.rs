@@ -47,6 +47,14 @@ const SKIP_TAIL_IGNORE_MS: i64 = 10_000;
 /// fills immediately rather than draining in at real-time cadence.
 const SKIP_BURST_CHUNKS: u64 = 3;
 
+/// ffmpeg lavfi source used as the "video" for a song played on a mixed
+/// station - see `play_track`'s `synthesize_still_video` branch. always
+/// blank rather than the track's own art: looping a real image needs a
+/// temp file written/cleaned up per track for comparatively little
+/// benefit, since the art still reaches listeners separately via the
+/// NowPlaying control message either way.
+const BLANK_VIDEO_INPUT: &str = "-f lavfi -i color=c=0x1a1a1a:s=1280x720:r=2";
+
 /// maximum upcoming items to maintain in the rolling planner.
 pub const MAX_UPCOMING_ITEMS: usize = 8;
 /// minimum upcoming items before the horizon check stops filling.
@@ -829,7 +837,43 @@ impl Broadcaster {
                 .ok()
                 .flatten()
                 .map(|s| s.effective_encode_args(&radio_cfg).to_string());
-            BufferedEncoder::start(&track.local_path, station_encode_args.as_deref())?
+
+            // a mixed ("audio_or_video") station still needs every track
+            // to come out as the SAME h264+aac stream the client's single
+            // SourceBuffer/mpv pipeline expects, even a plain song with no
+            // video of its own - `-map 0:v:0` (what the video_encode_args
+            // template does) against a pure audio file either matches
+            // nothing, or (worse) grabs an embedded cover-art
+            // "attached_pic" stream and feeds a single still frame into
+            // libx264 as if it were real moving video, which fails at mux
+            // time ("Could not find tag for codec h264..."). for this
+            // specific case, build a one-off command with a synthesized
+            // blank frame as the video input instead - simpler and one
+            // less moving part than looping the track's own art image
+            // (no temp file to write/clean up, no art-resolution
+            // dependency for the video path at all); the art image is
+            // still sent to listeners separately via the NowPlaying
+            // control message either way, so nothing is lost display-wise
+            // for a client that renders it there instead of in-stream.
+            let synthesize_still_video = self.content_mode == "audio_or_video"
+                && track.kind == crate::radio::playlist::RadioItemKind::Song;
+            let synthesized_args = if synthesize_still_video {
+                Some(format!(
+                    "-hide_banner -loglevel error -fflags +genpts {BLANK_VIDEO_INPUT} -i {{input}} \
+                     -map 0:v:0 -map 1:a:0 -c:v libx264 -profile:v main -tune stillimage \
+                     -preset veryfast -b:v 600k -pix_fmt yuv420p -r 2 \
+                     -c:a aac -profile:a aac_low -b:a 192k -ar 48000 -ac 2 \
+                     -movflags frag_keyframe+empty_moov+default_base_moof \
+                     -frag_duration 3000000 -avoid_negative_ts make_zero -shortest -f mp4 pipe:1"
+                ))
+            } else {
+                None
+            };
+
+            let effective_args = synthesized_args
+                .as_deref()
+                .or(station_encode_args.as_deref());
+            BufferedEncoder::start(&track.local_path, effective_args)?
         };
         let skip_generation = self.skip_request_generation.load(Ordering::Relaxed);
 
