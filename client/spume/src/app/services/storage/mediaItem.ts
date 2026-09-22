@@ -35,11 +35,15 @@ export interface QueuedVideo extends Video {
   opfs_path?: string | null;
   /** local/imported videos: OPFS path for the generated poster thumbnail. */
   poster_opfs_path?: string | null;
-  /** blake3 content hash - mirrors `Song.blake3`. not part of the wire
-   * `Video` schema (only set once synced locally, or when a caller already
-   * knows it up front - e.g. cenotaph's queue-pushed videos, which carry
-   * it on the `MediaRef` itself). lets `getVideoURL()` do verified
-   * iroh-blobs streaming without needing a real remote `media_blob_id`. */
+  /** blake3 content hash - mirrors `Song.blake3`. as of migration 084,
+   * grimoire's wire `Video` schema DOES carry this directly (denormalized
+   * from `media_blobz`, same pattern `Song.blake3` already used) - this
+   * app-local override still matters for a locally-imported (OPFS-backed)
+   * video that has no grimoire row at all, or a caller that already knows
+   * the hash up front (e.g. cenotaph's queue-pushed videos, carried on
+   * the `MediaRef` itself) before a fresh read-back would otherwise
+   * arrive. lets `getVideoURL()` do verified iroh-blobs streaming without
+   * needing a real remote `media_blob_id`. */
   blake3?: string | null;
 }
 

@@ -139,6 +139,13 @@ pub async fn sync_video_by_blake3_impl(
                 title: req.title.clone(),
                 description: req.description.clone(),
                 media_blob_id: pulled.blob.id.clone(),
+                // never inferred here: the sync wire payload carries no
+                // parent identifier, and a cross-remote sync must never
+                // guess/copy a foreign db id into this column (see
+                // docs/backlog.md item 7's cross-remote scoping rule) -
+                // linking a synced extra to its local parent movie is a
+                // separate, not-yet-built resolution step.
+                parent_video_id: None,
                 poster_blob_id: None,
                 duration_seconds: req.duration_seconds,
                 release_date: req.release_date.clone(),
@@ -221,6 +228,9 @@ pub async fn sync_video_by_blake3_impl(
                 updated_by: Some(caller.user_id.clone()),
                 clear_series_id: false,
                 clear_season_id: false,
+                // see the create_video call above - never inferred cross-remote.
+                parent_video_id: None,
+                clear_parent_video_id: false,
             })
             .await;
             if !update.success {
@@ -268,6 +278,9 @@ pub async fn sync_video_by_blake3_impl(
             updated_by: Some(caller.user_id.clone()),
             clear_series_id: false,
             clear_season_id: false,
+            // see the create_video call above - never inferred cross-remote.
+            parent_video_id: None,
+            clear_parent_video_id: false,
         })
         .await;
         if !update.success {

@@ -265,8 +265,10 @@ pub async fn patch_group(caller: &Caller, body: JsonValue) -> GrimoireResponse<J
                 duration_seconds: None,
                 release_date: None,
                 updated_by: Some(caller.user_id.clone()),
+                parent_video_id: None,
                 clear_series_id: false,
                 clear_season_id: false,
+                clear_parent_video_id: false,
             };
             let result = update_videos(update_req).await;
             if !result.success {
@@ -407,8 +409,10 @@ pub async fn move_video(caller: &Caller, body: JsonValue) -> GrimoireResponse<Js
         duration_seconds: None,
         release_date: None,
         updated_by: Some(caller.user_id.clone()),
+        parent_video_id: None,
         clear_series_id,
         clear_season_id,
+        clear_parent_video_id: false,
     };
     let result = update_videos(update_req).await;
     if !result.success {

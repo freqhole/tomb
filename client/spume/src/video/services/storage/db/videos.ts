@@ -281,6 +281,7 @@ export async function updateLocalVideo(
     season_id?: string | null;
     poster_blob_id?: string | null;
     content_type?: string;
+    parent_video_id?: string | null;
     images?: ImageMetadata[];
   }
 ): Promise<void> {

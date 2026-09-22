@@ -3,7 +3,7 @@
 // flex-shrink-0 box on the right, info column first/left, taxon chips,
 // and responsive action buttons.
 import { useNavigate, useParams } from "@solidjs/router";
-import { createSignal, createMemo, createEffect, Show } from "solid-js";
+import { createSignal, createMemo, createEffect, For, Show } from "solid-js";
 import { DetailViewWrapper } from "../../components/layout/DetailViewWrapper";
 import { MediaImage } from "../../components/media/MediaImage";
 import { Button } from "../../components/buttons/Button";
@@ -20,7 +20,7 @@ import { formatDuration } from "../../utils/formatDuration";
 import { buildRoute } from "../../music/utils/routing";
 import { TaxonChips } from "../../components/badges/TaxonChips";
 import { TagChips } from "../../components/badges/TagChips";
-import { useVideoQuery } from "../queries/videos";
+import { useVideoQuery, useVideoExtrasQuery } from "../queries/videos";
 import { useVideoTaxonsQuery } from "../queries/taxons";
 import { useVideoEntityTagsQuery } from "../queries/tags";
 import { videoQueryKeys } from "../queries/queryKeys";
@@ -516,11 +516,69 @@ export function VideoDetailView() {
                   </div>
                 </ContextMenu>
               </div>
+
+              {/* extras: this movie's deleted scenes/bloopers/behind-the-
+                  scenes/trailers (see Video::parent_video_id) - flat,
+                  unordered-by-kind list per the v1 design. */}
+              <Show when={video().content_type === "movie"}>
+                <VideoExtrasSection movieId={video().id} navigate={navigate} />
+              </Show>
+
+              {/* "part of [movie]" back-link for an extra viewing its own
+                  detail page. */}
+              <Show when={video().parent_video_id}>
+                {(parentId) => <ParentMovieLink parentVideoId={parentId()} navigate={navigate} />}
+              </Show>
             </>
           )}
         </Show>
       </div>
     </DetailViewWrapper>
+  );
+}
+
+/** flat list of a movie's extras, linking each to its own detail page. */
+function VideoExtrasSection(props: { movieId: string; navigate: (path: string) => void }) {
+  const extrasQuery = useVideoExtrasQuery(() => props.movieId);
+  return (
+    <Show when={extrasQuery.data && extrasQuery.data.length > 0}>
+      <div class="px-4 wide:px-6 pb-6">
+        <h2 class="text-sm font-medium text-[var(--color-text-secondary)] mb-2">extras</h2>
+        <div class="flex flex-col gap-1">
+          <For each={extrasQuery.data}>
+            {(extra) => (
+              <button
+                type="button"
+                onClick={() => props.navigate(buildRoute(`/video/${extra.id}`))}
+                class="text-left px-3 py-2 rounded bg-[var(--color-bg-elevated)] hover:bg-[var(--color-bg-hover)] text-sm text-[var(--color-text-primary)] transition-colors"
+              >
+                {extra.title}
+              </button>
+            )}
+          </For>
+        </div>
+      </div>
+    </Show>
+  );
+}
+
+/** "part of [movie title]" back-link for an extra's own detail page. */
+function ParentMovieLink(props: { parentVideoId: string; navigate: (path: string) => void }) {
+  const parentQuery = useVideoQuery(() => props.parentVideoId);
+  return (
+    <Show when={parentQuery.data}>
+      {(parent) => (
+        <div class="px-4 wide:px-6 pb-6">
+          <button
+            type="button"
+            onClick={() => props.navigate(buildRoute(`/video/${parent().id}`))}
+            class="text-sm text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] transition-colors"
+          >
+            part of <span class="font-medium">{parent().title}</span>
+          </button>
+        </div>
+      )}
+    </Show>
   );
 }
 

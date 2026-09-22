@@ -107,6 +107,18 @@ export function createVideoMethods(call: CallFn) {
       );
     },
 
+    listVideoExtras: (params: s.ListVideoExtrasRequest) => {
+      return call(
+        "video",
+        "list_video_extras",
+        routes.video.list_video_extras.resp,
+        routes.video.list_video_extras.req,
+        routes.video.list_video_extras.method,
+        routes.video.list_video_extras.path,
+        params,
+      );
+    },
+
     updateVideos: (params: Partial<s.UpdateVideosRequest> & { video_ids: string[] }) => {
       return call(
         "video",

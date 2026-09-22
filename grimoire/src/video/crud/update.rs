@@ -27,6 +27,9 @@ pub struct UpdateVideosRequest {
     pub duration_seconds: Option<f64>,
     pub release_date: Option<String>,
     pub updated_by: Option<String>,
+    /// see `Video::parent_video_id` - applied identically to every video
+    /// in the list.
+    pub parent_video_id: Option<String>,
     /// force `series_id`/`season_id` to `NULL` on every video in the list -
     /// see `UpdateVideoRequest::clear_series_id` for why plain `COALESCE`
     /// can't express this via `series_id: None` alone.
@@ -35,6 +38,9 @@ pub struct UpdateVideosRequest {
     /// force `season_id` to `NULL` on every video in the list.
     #[serde(default)]
     pub clear_season_id: bool,
+    /// force `parent_video_id` to `NULL` on every video in the list.
+    #[serde(default)]
+    pub clear_parent_video_id: bool,
 }
 
 /// a single video's failure reason within a bulk update - preserves the
@@ -119,6 +125,8 @@ pub async fn update_videos(req: UpdateVideosRequest) -> GrimoireResponse<UpdateV
             updated_by: req.updated_by.clone(),
             clear_series_id: req.clear_series_id,
             clear_season_id: req.clear_season_id,
+            parent_video_id: req.parent_video_id.clone(),
+            clear_parent_video_id: req.clear_parent_video_id,
         })
         .await;
 

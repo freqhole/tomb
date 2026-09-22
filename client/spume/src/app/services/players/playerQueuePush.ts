@@ -657,8 +657,11 @@ async function videoToMediaRef(
     return ref;
   }
 
-  // video has no blake3 of its own (the common case, see
-  // QueuedVideo.blake3's doc comment) - the only way to learn one without
+  // video has no blake3 of its own - as of migration 084 this is now the
+  // RARE case (grimoire's wire Video carries blake3 directly for any
+  // synced/backfilled row; see QueuedVideo.blake3's doc comment for the
+  // cases that still land here: a local-only OPFS video, or a blob whose
+  // blake3 hasn't been computed yet). the only way to learn one without
   // fetching+hashing the whole file ourselves is a bridged metadata
   // lookup (a tiny hash+size read, not a blob transfer) - worth keeping,
   // since without it there'd be nothing to send at all.

@@ -10,6 +10,8 @@ import { getVideoDataSource } from "../data";
 import type { VideoQueryParams } from "../data/types";
 import type { TagFilter } from "../../components/forms/TagFilterPicker";
 import { videoQueryKeys } from "./queryKeys";
+import { getCurrentRemote } from "../../music/data";
+import { getClientForRemote } from "../../app/api/client";
 
 interface UseVideosQueryOptions {
   search?: () => string | undefined;
@@ -100,6 +102,27 @@ export function useVideoWithMetadataQuery(videoId: () => string | undefined) {
   }));
 }
 
+/** a movie's "extras" (see `Video::parent_video_id`) - grimoire-only for
+ * now (no remote selected / local-only mode returns an empty list rather
+ * than erroring, mirroring other remote-only lookups in this file). */
+export function useVideoExtrasQuery(parentVideoId: () => string | undefined) {
+  return createQuery(() => ({
+    queryKey: videoQueryKeys.videos.extras(parentVideoId() || ""),
+    queryFn: async () => {
+      const id = parentVideoId();
+      if (!id) return [];
+      const remote = getCurrentRemote();
+      if (!remote) return [];
+      const client = await getClientForRemote(remote);
+      const result = await client.video.listVideoExtras({ parent_video_id: id });
+      return result.success ? result.data : [];
+    },
+    enabled: !!parentVideoId(),
+    staleTime: 5 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
+  }));
+}
+
 export interface UpdateVideoMutationParams {
   video_id: string;
   title?: string;
@@ -109,6 +132,9 @@ export interface UpdateVideoMutationParams {
   series_id?: string | null;
   season_id?: string | null;
   content_type?: string;
+  /** see `Video::parent_video_id` - groups this video as an "extra" under
+   * a movie. */
+  parent_video_id?: string | null;
   /** force series_id (and season_id) to NULL - passing series_id: null
    * alone is NOT enough on the remote data source (COALESCE-on-write
    * can't tell "no change" from "clear"). ignored by the local data
@@ -116,6 +142,8 @@ export interface UpdateVideoMutationParams {
   clear_series_id?: boolean;
   /** force season_id to NULL. */
   clear_season_id?: boolean;
+  /** force parent_video_id to NULL. */
+  clear_parent_video_id?: boolean;
 }
 
 export function useUpdateVideoMutation() {

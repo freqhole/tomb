@@ -246,8 +246,10 @@ export class RemoteVideoDataSource implements VideoDataSource {
     series_id?: string | null;
     season_id?: string | null;
     content_type?: string;
+    parent_video_id?: string | null;
     clear_series_id?: boolean;
     clear_season_id?: boolean;
+    clear_parent_video_id?: boolean;
   }): Promise<void> {
     const client = await this.getClient();
     const result = await client.video.updateVideos({
@@ -259,8 +261,10 @@ export class RemoteVideoDataSource implements VideoDataSource {
       series_id: params.series_id,
       season_id: params.season_id,
       content_type: params.content_type,
+      parent_video_id: params.parent_video_id,
       clear_series_id: params.clear_series_id,
       clear_season_id: params.clear_season_id,
+      clear_parent_video_id: params.clear_parent_video_id,
     });
     if (!result.success) this.failRequest(result);
     if (result.data.videos_failed.length > 0) {

@@ -436,6 +436,7 @@ pub async fn query_videos(
         ),
         Alias::new("play_count"),
     );
+    query.expr_as(Expr::cust("media_blob_blake3"), Alias::new("blake3"));
     apply_filters(&mut query);
 
     let sort_direction = match params.sort_direction.as_deref() {

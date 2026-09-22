@@ -253,6 +253,7 @@ export const routes = {
     import_video_paths: { method: 'POST', path: '/api/upload/video-paths', req: null, resp: s.VideoImportResponseSchema, auth: { type: 'role', role: 'member' } as const },
     list_pending_video_import_review: { method: 'POST', path: '/api/video/import/pending', req: s.ListPendingVideoReviewRequestSchema, resp: s.PendingVideoReviewSessionSchema.array(), auth: { type: 'authenticated' } as const },
     list_playback_progress: { method: 'POST', path: '/api/video/progress/list', req: s.ListPlaybackProgressRequestSchema, resp: s.PlaybackProgressSchema.array(), auth: { type: 'authenticated' } as const },
+    list_video_extras: { method: 'POST', path: '/api/video/videos/list-extras', req: s.ListVideoExtrasRequestSchema, resp: s.VideoSchema.array(), auth: { type: 'authenticated' } as const },
     list_video_seasons: { method: 'POST', path: '/api/video/seasons/list', req: s.ListVideoSeasonsRequestSchema, resp: s.VideoSeasonSchema.array(), auth: { type: 'authenticated' } as const },
     list_video_series: { method: 'POST', path: '/api/video/series/list', req: s.ListVideoSeriesRequestSchema, resp: s.VideoSeriesSchema.array(), auth: { type: 'authenticated' } as const },
     list_videos_by_season: { method: 'POST', path: '/api/video/videos/list-by-season', req: s.ListVideosBySeasonRequestSchema, resp: s.VideoSchema.array(), auth: { type: 'authenticated' } as const },

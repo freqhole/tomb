@@ -7,6 +7,7 @@ import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 import { Button } from "../buttons/Button";
 import { TextInput } from "../forms/TextInput";
 import { VideoSeriesAutocomplete } from "../forms/VideoSeriesAutocomplete";
+import { VideoAutocomplete } from "../forms/VideoAutocomplete";
 import {
   VideoSeasonAutocomplete,
   formatSeasonLabel,
@@ -77,6 +78,9 @@ interface FormData {
   series_id: string | null;
   season_id: string | null;
   content_type: string;
+  /** see `Video::parent_video_id` - null unless this video is an "extra"
+   * attached to a movie. mutually exclusive with series_id. */
+  parent_video_id: string | null;
 }
 
 export function EditVideoModal(props: EditVideoModalProps) {
@@ -107,6 +111,7 @@ export function EditVideoModal(props: EditVideoModalProps) {
     series_id: null,
     season_id: null,
     content_type: "clip",
+    parent_video_id: null,
   });
   const [initialData, setInitialData] = createSignal<FormData | null>(null);
   const [loadedVideoId, setLoadedVideoId] = createSignal<string | null>(null);
@@ -124,6 +129,11 @@ export function EditVideoModal(props: EditVideoModalProps) {
     season_number: number;
     title: string | null;
   } | null>(null);
+
+  // display text for the currently-assigned parent movie (see
+  // `Video::parent_video_id`) - resolved via fetchParentVideoTitle since
+  // formData only stores the id.
+  const [parentVideoInputValue, setParentVideoInputValue] = createSignal("");
 
   // entity url links (admin-managed links, eg. wikipedia/imdb)
   const [entityUrls, setEntityUrls] = createSignal<EntityUrlFormItem[]>([]);
@@ -318,6 +328,7 @@ export function EditVideoModal(props: EditVideoModalProps) {
         series_id: video.series_id ?? null,
         season_id: video.season_id ?? null,
         content_type: video.series_id ? "series" : video.content_type,
+        parent_video_id: video.parent_video_id ?? null,
       };
       setFormData(data);
       setInitialData(data);
@@ -327,6 +338,7 @@ export function EditVideoModal(props: EditVideoModalProps) {
       void fetchEntityUrls(props.videoId);
       void fetchSeriesTitle(video.series_id ?? null);
       void fetchSeasonLabel(video.series_id ?? null, video.season_id ?? null);
+      void fetchParentVideoTitle(video.parent_video_id ?? null);
       void fetchImages(props.videoId);
     }
   });
@@ -348,6 +360,26 @@ export function EditVideoModal(props: EditVideoModalProps) {
     } catch (err) {
       console.error("failed to fetch series title:", err);
       setSeriesInputValue("");
+    }
+  };
+
+  const fetchParentVideoTitle = async (parentVideoId: string | null) => {
+    if (!parentVideoId) {
+      setParentVideoInputValue("");
+      return;
+    }
+    try {
+      const remote = getCurrentRemote();
+      if (!remote) {
+        setParentVideoInputValue("");
+        return;
+      }
+      const client = await getClientForRemote(remote);
+      const result = await client.video.getVideo({ id: parentVideoId });
+      setParentVideoInputValue(result.success ? result.data.title : "");
+    } catch (err) {
+      console.error("failed to fetch parent video title:", err);
+      setParentVideoInputValue("");
     }
   };
 
@@ -459,6 +491,7 @@ export function EditVideoModal(props: EditVideoModalProps) {
       current.series_id !== initial.series_id ||
       current.season_id !== initial.season_id ||
       current.content_type !== initial.content_type ||
+      current.parent_video_id !== initial.parent_video_id ||
       pendingNewSeriesName() !== null ||
       pendingNewSeason() !== null ||
       urlsChanged() ||
@@ -613,12 +646,27 @@ export function EditVideoModal(props: EditVideoModalProps) {
     setFormData((prev) => ({ ...prev, season_id: null }));
   };
 
+  // parent_video_id and series_id are mutually exclusive (see
+  // `Video::parent_video_id`'s doc comment) - selecting a parent movie
+  // here only makes sense while content_type isn't "series", which is
+  // already the only time this section renders (see the JSX below).
+  const handleParentVideoSelect = (selection: { id: string; title: string }) => {
+    setParentVideoInputValue(selection.title);
+    setFormData((prev) => ({ ...prev, parent_video_id: selection.id }));
+  };
+
+  const handleClearParentVideo = () => {
+    setParentVideoInputValue("");
+    setFormData((prev) => ({ ...prev, parent_video_id: null }));
+  };
+
   // switching to "movie"/"clip" clears any series/season assignment (they're
   // hidden for standalone content); switching to "series" just reveals the
   // series picker below and leaves series_id null until one is chosen.
   const handleContentTypeChange = (value: "series" | "movie" | "clip") => {
     if (value === "series") {
-      setFormData((prev) => ({ ...prev, content_type: value }));
+      setParentVideoInputValue("");
+      setFormData((prev) => ({ ...prev, content_type: value, parent_video_id: null }));
       return;
     }
     setSeriesInputValue("");
@@ -658,8 +706,10 @@ export function EditVideoModal(props: EditVideoModalProps) {
         series_id: seriesId,
         season_id: seasonId,
         content_type: seriesId ? "series" : data.content_type,
+        parent_video_id: data.parent_video_id,
         clear_series_id: !seriesId,
         clear_season_id: !seasonId,
+        clear_parent_video_id: !data.parent_video_id,
       });
 
       if (urlsChanged()) {
@@ -881,6 +931,33 @@ export function EditVideoModal(props: EditVideoModalProps) {
                   </Show>
                 </div>
               </Show>
+            </Show>
+
+            {/* extras: attach this video to a movie as a "deleted scene"/
+                "blooper"/"behind the scenes"/"trailer" etc (see
+                `Video::parent_video_id`) - only meaningful for non-series
+                content, mutually exclusive with series_id. */}
+            <Show when={formData().content_type !== "series"}>
+              <div>
+                <VideoAutocomplete
+                  label="part of a movie (optional)"
+                  contentTypes={["movie"]}
+                  excludeIds={[props.videoId]}
+                  value={parentVideoInputValue()}
+                  onSelect={handleParentVideoSelect}
+                  placeholder="search movie by title..."
+                  hint="marks this as an extra (deleted scene, blooper, trailer, etc) attached to that movie"
+                />
+                <Show when={parentVideoInputValue()}>
+                  <button
+                    type="button"
+                    onClick={handleClearParentVideo}
+                    class="mt-1 text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]"
+                  >
+                    remove from movie
+                  </button>
+                </Show>
+              </div>
             </Show>
           </div>
 

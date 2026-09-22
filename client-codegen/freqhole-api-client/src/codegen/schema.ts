@@ -1546,6 +1546,7 @@ export const CreateVideoRequestSchema = z.object({
   title: z.string(),
   description: z.string().nullish(),
   media_blob_id: z.string(),
+  parent_video_id: z.string().nullish(),
   poster_blob_id: z.string().nullish(),
   duration_seconds: z.number().nullish(),
   release_date: z.string().nullish(),
@@ -2395,6 +2396,8 @@ export const FavoriteItemSchema = z.union([z.intersection(z.object({
   title: z.string(),
   description: z.string().nullish(),
   media_blob_id: z.string(),
+  blake3: z.string().nullish(),
+  parent_video_id: z.string().nullish(),
   poster_blob_id: z.string().nullish(),
   duration_seconds: z.number().nullish(),
   release_date: z.string().nullish(),
@@ -3702,6 +3705,8 @@ export const ListFavoritesResponseSchema = z.object({
   title: z.string(),
   description: z.string().nullish(),
   media_blob_id: z.string(),
+  blake3: z.string().nullish(),
+  parent_video_id: z.string().nullish(),
   poster_blob_id: z.string().nullish(),
   duration_seconds: z.number().nullish(),
   release_date: z.string().nullish(),
@@ -3896,6 +3901,11 @@ export const ListTaxonsByKindRequestSchema = z.object({
   kind_slug: z.string()
 });
 export type ListTaxonsByKindRequest = z.infer<typeof ListTaxonsByKindRequestSchema>;
+
+export const ListVideoExtrasRequestSchema = z.object({
+  parent_video_id: z.string()
+});
+export type ListVideoExtrasRequest = z.infer<typeof ListVideoExtrasRequestSchema>;
 
 export const ListVideoSeasonsRequestSchema = z.object({
   series_id: z.string().nullish()
@@ -5703,6 +5713,8 @@ export const RecentlyAddedVideosResponseSchema = z.object({
   title: z.string(),
   description: z.string().nullish(),
   media_blob_id: z.string(),
+  blake3: z.string().nullish(),
+  parent_video_id: z.string().nullish(),
   poster_blob_id: z.string().nullish(),
   duration_seconds: z.number().nullish(),
   release_date: z.string().nullish(),
@@ -6177,6 +6189,8 @@ export const SeasonWithVideosSchema = z.object({
   title: z.string(),
   description: z.string().nullish(),
   media_blob_id: z.string(),
+  blake3: z.string().nullish(),
+  parent_video_id: z.string().nullish(),
   poster_blob_id: z.string().nullish(),
   duration_seconds: z.number().nullish(),
   release_date: z.string().nullish(),
@@ -6236,6 +6250,8 @@ export const SeriesDetailSchema = z.object({
   title: z.string(),
   description: z.string().nullish(),
   media_blob_id: z.string(),
+  blake3: z.string().nullish(),
+  parent_video_id: z.string().nullish(),
   poster_blob_id: z.string().nullish(),
   duration_seconds: z.number().nullish(),
   release_date: z.string().nullish(),
@@ -6262,6 +6278,8 @@ export const SeriesDetailSchema = z.object({
   title: z.string(),
   description: z.string().nullish(),
   media_blob_id: z.string(),
+  blake3: z.string().nullish(),
+  parent_video_id: z.string().nullish(),
   poster_blob_id: z.string().nullish(),
   duration_seconds: z.number().nullish(),
   release_date: z.string().nullish(),
@@ -7319,6 +7337,8 @@ export const UnassignedVideosResponseSchema = z.object({
   title: z.string(),
   description: z.string().nullish(),
   media_blob_id: z.string(),
+  blake3: z.string().nullish(),
+  parent_video_id: z.string().nullish(),
   poster_blob_id: z.string().nullish(),
   duration_seconds: z.number().nullish(),
   release_date: z.string().nullish(),
@@ -7665,12 +7685,14 @@ export const UpdateVideoRequestSchema = z.object({
   content_type: z.string().nullish(),
   title: z.string().nullish(),
   description: z.string().nullish(),
+  parent_video_id: z.string().nullish(),
   poster_blob_id: z.string().nullish(),
   duration_seconds: z.number().nullish(),
   release_date: z.string().nullish(),
   updated_by: z.string().nullish(),
   clear_series_id: z.boolean(),
-  clear_season_id: z.boolean()
+  clear_season_id: z.boolean(),
+  clear_parent_video_id: z.boolean()
 });
 export type UpdateVideoRequest = z.infer<typeof UpdateVideoRequestSchema>;
 
@@ -7704,8 +7726,10 @@ export const UpdateVideosRequestSchema = z.object({
   duration_seconds: z.number().nullish(),
   release_date: z.string().nullish(),
   updated_by: z.string().nullish(),
+  parent_video_id: z.string().nullish(),
   clear_series_id: z.boolean(),
-  clear_season_id: z.boolean()
+  clear_season_id: z.boolean(),
+  clear_parent_video_id: z.boolean()
 });
 export type UpdateVideosRequest = z.infer<typeof UpdateVideosRequestSchema>;
 
@@ -7781,6 +7805,8 @@ export const VideoSchema = z.object({
   title: z.string(),
   description: z.string().nullish(),
   media_blob_id: z.string(),
+  blake3: z.string().nullish(),
+  parent_video_id: z.string().nullish(),
   poster_blob_id: z.string().nullish(),
   duration_seconds: z.number().nullish(),
   release_date: z.string().nullish(),
@@ -7940,6 +7966,8 @@ export const VideoWithMetadataSchema = z.object({
   title: z.string(),
   description: z.string().nullish(),
   media_blob_id: z.string(),
+  blake3: z.string().nullish(),
+  parent_video_id: z.string().nullish(),
   poster_blob_id: z.string().nullish(),
   duration_seconds: z.number().nullish(),
   release_date: z.string().nullish(),
@@ -7988,6 +8016,8 @@ export const VideosByValueResponseSchema = z.object({
   title: z.string(),
   description: z.string().nullish(),
   media_blob_id: z.string(),
+  blake3: z.string().nullish(),
+  parent_video_id: z.string().nullish(),
   poster_blob_id: z.string().nullish(),
   duration_seconds: z.number().nullish(),
   release_date: z.string().nullish(),
@@ -8018,6 +8048,8 @@ export const VideosQueryResultSchema = z.object({
   title: z.string(),
   description: z.string().nullish(),
   media_blob_id: z.string(),
+  blake3: z.string().nullish(),
+  parent_video_id: z.string().nullish(),
   poster_blob_id: z.string().nullish(),
   duration_seconds: z.number().nullish(),
   release_date: z.string().nullish(),

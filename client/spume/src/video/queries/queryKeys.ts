@@ -36,6 +36,9 @@ export const videoQueryKeys = {
         ? ([...videoQueryKeys.videos.all(), "remote", remoteId, id] as const)
         : ([...videoQueryKeys.videos.all(), id] as const),
     taxons: (id: string) => [...videoQueryKeys.videos.all(), "taxons", id] as const,
+    /** a movie's "extras" (see `Video::parent_video_id`). */
+    extras: (parentVideoId: string) =>
+      [...videoQueryKeys.videos.all(), "extras", parentVideoId] as const,
   },
 
   series: {
