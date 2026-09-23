@@ -2477,7 +2477,10 @@ impl MiddenNode {
         peer_addr: &str,
         blake3_hash: &str,
     ) -> Result<(), JsError> {
-        match self.download_verified_to_store(peer_addr, blake3_hash).await {
+        match self
+            .download_verified_to_store(peer_addr, blake3_hash)
+            .await
+        {
             Ok(()) => return Ok(()),
             Err(e) => {
                 warn!(
@@ -2496,7 +2499,8 @@ impl MiddenNode {
             )));
         }
 
-        self.download_verified_to_store(peer_addr, blake3_hash).await
+        self.download_verified_to_store(peer_addr, blake3_hash)
+            .await
     }
 
     /// download with ensure + retry and progress reporting.
