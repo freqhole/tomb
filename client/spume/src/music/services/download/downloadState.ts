@@ -294,7 +294,7 @@ export function resetLoadingState(): void {
  *  guaranteed via `finally`, even on throw) - collapses the ~10 near-
  *  identical hand-rolled copies of this exact dance across audioAccess.ts,
  *  blobCache.ts, blobResolver.ts, rodioBackend.ts, autoDownload/manager.ts,
- *  syncVideoToLocal.ts, videoBackend.ts (see docs/backlog.md item 4).
+ *  syncVideoToLocal.ts, videoBackend.ts.
  *  callers that need a fallthrough-on-failure shape (return a sentinel
  *  from `run` and check it after) still work fine - this only owns the
  *  loading-state bookkeeping, not the caller's own control flow. */

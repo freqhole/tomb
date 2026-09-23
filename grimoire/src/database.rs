@@ -345,7 +345,7 @@ pub(crate) async fn chunked_import() -> &'static reliquary::ChunkedImport {
 /// a blob to a peer over iroh-blobs) - fed by `federation::transport::
 /// endpoint`'s `build_gated_blobs_events` wiring, read by the
 /// `p2p_get_active_transfers` tauri command. mirrors midden's wasm-side
-/// `get_active_transfers()` (see docs/backlog.md item 2). lazily
+/// `get_active_transfers()`. lazily
 /// initialized on first use, like every other singleton in this file.
 pub(crate) async fn transfer_registry() -> std::sync::Arc<reliquary::gate::TransferRegistry> {
     TRANSFER_REGISTRY

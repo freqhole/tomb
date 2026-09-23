@@ -395,7 +395,7 @@ export async function fetchLocalNodeId(): Promise<string | null> {
 /** one outgoing blob transfer in flight, this device serving it to a peer -
  * camelCase mirror of the rust command's snake_case response, matching
  * `ActiveTransferLike` (the wasm-side equivalent) so callers don't need a
- * separate shape per transport. see docs/backlog.md item 2. */
+ * separate shape per transport. */
 export interface ActiveOutgoingTransfer {
   peerId: string;
   blake3: string;
@@ -512,8 +512,7 @@ export async function abortChunkedBlobImport(uploadId: string): Promise<void> {
  * JS). use this whenever the goal is just "make this blob locally
  * servable" (e.g. cenotaph's controller relaying a song/video to a
  * paired player) rather than actually reading the bytes in JS - see
- * docs/backlog.md item 12 and `grimoire::federation::p2p_client::
- * pull_blob_to_local_store_with_ensure`.
+ * `grimoire::federation::p2p_client::pull_blob_to_local_store_with_ensure`.
  *
  * `onProgress`, if given, receives cumulative downloaded byte counts.
  */

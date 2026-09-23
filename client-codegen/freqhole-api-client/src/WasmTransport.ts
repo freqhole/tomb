@@ -98,7 +98,7 @@ export interface MiddenNodeLike {
   // download blob with automatic ensure + retry - optional
   download_verified_with_ensure?(peer_addr: string, blake3_hash: string): Promise<Uint8Array>;
   // download blob DIRECTLY into this node's own local store, never
-  // returning bytes to JS - see docs/backlog.md item 12 and
+  // returning bytes to JS - see
   // `download_verified_to_store_with_ensure`'s doc comment in
   // lib/midden/src/lib.rs. use instead of download_verified_with_ensure
   // whenever the caller only needs the blob to become locally servable.

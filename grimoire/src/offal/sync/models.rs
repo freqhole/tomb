@@ -311,8 +311,8 @@ pub struct SyncVideoByBlake3Request {
     pub season_title: Option<String>,
     /// content hash of the source's parent movie (see `Video::parent_video_id`),
     /// when this video is an "extra" attached to one - NEVER the source's raw
-    /// `parent_video_id` itself, which is a foreign, meaningless-locally db id
-    /// (see docs/backlog.md item 7f). the destination resolves this to its own
+    /// `parent_video_id` itself, which is a foreign, meaningless-locally db id.
+    /// the destination resolves this to its own
     /// local video id by matching `media_blob_blake3` (mirrors the
     /// series/season title-based resolution above); when the parent hasn't
     /// synced/imported to the destination yet, it's stashed as

@@ -16,8 +16,8 @@
 // - the OUTGOING/upload direction (this node SERVING a blob to a peer) is
 //   populated by polling `get_active_transfers()` (wasm) / the
 //   `p2p_get_active_transfers` tauri command (charnel, backed by
-//   grimoire's `reliquary::gate::TransferRegistry` - see docs/backlog.md
-//   item 2) via `startUploadTransferPolling()`. callers never call
+//   grimoire's `reliquary::gate::TransferRegistry`) via
+//   `startUploadTransferPolling()`. callers never call
 //   `registerBlobTransfer`/etc. for uploads themselves - iroh-blobs
 //   already tracks this for us server-side (from this node's point of
 //   view), we just poll and mirror it in here.

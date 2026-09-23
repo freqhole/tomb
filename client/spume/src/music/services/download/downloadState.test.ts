@@ -3,9 +3,7 @@
 // (rodioBackend.ts, autoDownload/manager.ts, blobCache.ts, audioAccess.ts,
 // blobResolver.ts, syncVideoToLocal.ts, videoBackend.ts) that each
 // independently do addToLoadingSet/updateLoadingProgress/
-// removeFromLoadingSet - see docs/backlog.md item 4. this file had ZERO
-// test coverage before, which is exactly why regressions here keep
-// landing silently; this is the cheapest, most isolated place to catch them.
+// removeFromLoadingSet.
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as logger from "../../../utils/logger";

@@ -253,7 +253,7 @@ pub fn p2p_get_node_id() -> Result<String, String> {
 
 /// snapshot of this node's own outgoing blob transfers currently in flight
 /// (this node serving a blob to a peer) - mirrors midden's wasm-side
-/// `get_active_transfers()` binding. see docs/backlog.md item 2.
+/// `get_active_transfers()` binding.
 #[tauri::command]
 pub async fn p2p_get_active_transfers(
 ) -> Vec<grimoire::federation::transport::ActiveOutgoingTransfer> {
@@ -390,7 +390,7 @@ pub async fn p2p_fetch_blob_verified_by_id(
 /// needing to re-serve a song/video to a paired player) rather than
 /// actually reading its bytes - avoids a wasteful base64 round trip to JS
 /// followed immediately by another base64 round trip back into rust via
-/// `p2p_import_blob_bytes`/the chunked importer. see docs/backlog.md item 12.
+/// `p2p_import_blob_bytes`/the chunked importer.
 #[tauri::command]
 pub async fn p2p_pull_blob_to_local_store(
     app_handle: tauri::AppHandle,

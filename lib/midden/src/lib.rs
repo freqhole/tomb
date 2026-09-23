@@ -2407,8 +2407,8 @@ impl MiddenNode {
     /// download a blob DIRECTLY into this node's own OPFS-backed store,
     /// without ever reading the bytes back out to return to JS - the
     /// wasm-side counterpart of grimoire's
-    /// `pull_blob_to_local_store_with_ensure` (see docs/backlog.md item
-    /// 12). `download_verified` above already downloads into
+    /// `pull_blob_to_local_store_with_ensure`;
+    /// `download_verified` above already downloads into
     /// `self.blobs_store` (the SAME store this node serves blobs FROM)
     /// before wastefully reading it back out into a `Uint8Array` - once
     /// the download loop below completes, the blob is already locally

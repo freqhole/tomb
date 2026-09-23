@@ -80,7 +80,7 @@ async fn validate_parent_video_id(
 /// backfill any locally-pending "extra" videos whose stashed
 /// `pending_parent_blake3` (see migration 087) now matches a real parent
 /// video that just got created/updated - closes the "extra arrived before
-/// its movie" cross-remote sync ordering gap (docs/backlog.md item 7f).
+/// its movie" cross-remote sync ordering gap.
 /// best-effort: logged, never fails the caller's create/update.
 async fn reconcile_pending_extras(pool: &sqlx::SqlitePool, parent_id: &str, parent_blake3: &str) {
     match sqlx::query!(
@@ -1302,7 +1302,7 @@ level = "warn"
     #[ignore = "needs its own process: touches the real db pool singleton"]
     async fn test_pending_parent_blake3_reconciliation() {
         // an extra synced in before its parent movie (cross-remote sync
-        // ordering gap, docs/backlog.md item 7f / migration 087) should get
+        // ordering gap, migration 087) should get
         // retroactively linked the first time that movie is created locally
         // by ANY path (sync, local import, manual upload all go through
         // create_video) - mirrors what `set_pending_parent_blake3` +

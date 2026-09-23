@@ -325,8 +325,7 @@ impl FederationEndpoint {
 /// `peer_id`) - json-friendly mirror of `reliquary::gate::ActiveTransfer`,
 /// same field names as midden's wasm-side `get_active_transfers()` binding
 /// (`peerId`/`blake3`/`bytesSent`/`totalSize`) so callers (e.g. a tauri
-/// command) don't need a separate shape per platform. see docs/backlog.md
-/// item 2.
+/// command) don't need a separate shape per platform.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ActiveOutgoingTransfer {
     pub peer_id: String,

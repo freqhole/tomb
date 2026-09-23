@@ -82,7 +82,7 @@ function videoImages(video: QueuedVideo): InlinableImage[] {
 }
 
 /** the source's parent movie's own content hash (see
- * `Video::parent_video_id` / docs/backlog.md item 7f) - never the source's
+ * `Video::parent_video_id`) - never the source's
  * raw `parent_video_id` itself, which is a foreign, meaningless-locally db
  * id on the destination. the destination resolves this blake3 to its own
  * local video id (or stashes it for later, if that movie hasn't

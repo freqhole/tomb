@@ -441,12 +441,11 @@ describe("withTransferStatus's bucket-A registry wiring (relay/proxy path)", () 
 });
 
 describe("handleUnresolvedItems: direct P2P pull vs js fetch+import relay", () => {
-  // regression coverage for docs/backlog.md item 12: when bridging fails
-  // but a P2P source remote (peer_addr) is still known, this device must
-  // pull the blob DIRECTLY from that peer (charnel/tauri:
-  // `pullBlobToLocalStore`, entirely rust-side) instead of falling back
-  // to the js fetch()+chunked-import relay - see `tryDirectP2PPull` in
-  // playerQueuePush.ts.
+  // regression coverage, when bridging fails but a P2P source remote
+  // (peer_addr) is still known, this device must pull the blob DIRECTLY
+  // from that peer (charnel/tauri: `pullBlobToLocalStore`, entirely rust-side)
+  // instead of falling back to the js fetch()+chunked-import relay -
+  // see `tryDirectP2PPull` in playerQueuePush.ts.
   const p2pRemote = {
     remote_id: "remote-1",
     name: "source remote",

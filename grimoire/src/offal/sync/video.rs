@@ -142,7 +142,7 @@ pub async fn sync_video_by_blake3_impl(
                 // resolved (or stashed for later) in the unified parent-
                 // linking block below, after `video_id` is known for both
                 // this new-row path and the existing-row path alike - see
-                // docs/backlog.md item 7f / migration 087.
+                // migration 087.
                 parent_video_id: None,
                 poster_blob_id: None,
                 duration_seconds: req.duration_seconds,
@@ -248,7 +248,7 @@ pub async fn sync_video_by_blake3_impl(
 
     // resolve this video's parent movie (see `Video::parent_video_id`) by
     // matching the SOURCE'S parent's own content hash - never its raw,
-    // foreign-remote `parent_video_id` (docs/backlog.md item 7f). runs for
+    // foreign-remote `parent_video_id`. runs for
     // both the new-row and existing-row paths, same as series/season above,
     // so a video that arrived earlier with an unresolved parent still gets
     // linked up on a later re-sync. best-effort: a failure here never

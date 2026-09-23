@@ -1016,7 +1016,7 @@ pub async fn fetch_blob_verified_to_file_with_ensure_and_progress(
 /// else" use cases (e.g. cenotaph's controller-proxy relay in
 /// `playerQueuePush.ts`, which used to `fetch()` the bytes in JS and
 /// re-import them via chunked/base64 tauri IPC even when a P2P source
-/// peer was already known - see docs/backlog.md item 12) - once
+/// peer was already known) - once
 /// `download_blob_to_store` returns, the blob is already sitting in the
 /// FsStore this node serves other peers from, so there is nothing left
 /// to do. mirrors `fetch_blob_verified_to_file_with_ensure_and_progress`'s

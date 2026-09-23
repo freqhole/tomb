@@ -347,8 +347,8 @@ async function downloadVerifiedWithEnsure(
 
 /** pulls a blob directly into this node's own OPFS-backed store, never
  * returning bytes to JS at all - see `download_verified_to_store_with_
- * ensure`'s doc comment in lib/midden/src/lib.rs and docs/backlog.md
- * item 12. use this instead of `downloadVerifiedWithEnsure` whenever the
+ * ensure`'s doc comment in lib/midden/src/lib.rs.
+ * use this instead of `downloadVerifiedWithEnsure` whenever the
  * caller only needs the blob to become locally servable. */
 async function downloadVerifiedToStoreWithEnsure(
   peerAddr: string,

@@ -5,8 +5,7 @@
 // /api/blobz/has pre-check, the peer_unauthorized error message). the
 // state machines and per-domain sync flows (album/playlist envelopes vs.
 // video's flat item list) stay in their own files - only the genuinely
-// identical, side-effect-light pieces live here. see docs/backlog.md
-// item 12 / docs/transfer-unification-plan.md phase 3e.
+// identical, side-effect-light pieces live here.
 
 import { schema } from "@freqhole/api-client";
 import type { Transport } from "@freqhole/api-client";
