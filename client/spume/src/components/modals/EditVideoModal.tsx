@@ -673,7 +673,13 @@ export function EditVideoModal(props: EditVideoModalProps) {
     setPendingNewSeriesName(null);
     setSeasonInputValue("");
     setPendingNewSeason(null);
-    setFormData((prev) => ({ ...prev, content_type: value, series_id: null, season_id: null }));
+    setFormData((prev) => ({
+      ...prev,
+      content_type: value,
+      series_id: null,
+      season_id: null,
+      episode_number: null,
+    }));
   };
 
   const handleSave = async () => {
@@ -813,24 +819,26 @@ export function EditVideoModal(props: EditVideoModalProps) {
             </div>
 
             <div class="flex gap-2">
-              <div class="flex-1">
-                <label class="block text-sm text-[var(--color-text-secondary)] mb-1">
-                  episode number
-                </label>
-                <input
-                  type="number"
-                  value={formData().episode_number ?? ""}
-                  oninput={(e) =>
-                    handleFieldChange(
-                      "episode_number",
-                      e.currentTarget.value === "" ? null : parseInt(e.currentTarget.value, 10)
-                    )
-                  }
-                  min="1"
-                  placeholder="—"
-                  class="w-full px-2 py-2 bg-[var(--color-bg-elevated)] text-[var(--color-text-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--color-accent-500)]"
-                />
-              </div>
+              <Show when={formData().content_type === "series"}>
+                <div class="flex-1">
+                  <label class="block text-sm text-[var(--color-text-secondary)] mb-1">
+                    episode number
+                  </label>
+                  <input
+                    type="number"
+                    value={formData().episode_number ?? ""}
+                    oninput={(e) =>
+                      handleFieldChange(
+                        "episode_number",
+                        e.currentTarget.value === "" ? null : parseInt(e.currentTarget.value, 10)
+                      )
+                    }
+                    min="1"
+                    placeholder="—"
+                    class="w-full px-2 py-2 bg-[var(--color-bg-elevated)] text-[var(--color-text-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--color-accent-500)]"
+                  />
+                </div>
+              </Show>
               <div class="flex-1">
                 <label class="block text-sm text-[var(--color-text-secondary)] mb-1">
                   release date

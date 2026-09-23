@@ -28,7 +28,7 @@ import { canSyncSong, syncSongToLocal } from "../sync/syncSongToLocal";
 import { getSyncQueueToLocal } from "../../../app/services/storage/db";
 import { isCharnelMode } from "../../../app/services/charnel";
 import { resolveCharnelLocalBlobPath } from "../../../app/services/media/resolveCharnelLocalBlobPath";
-import type { Song } from "./types";
+import { songIdentityKey, type Song } from "./types";
 import { debug, warn, error as errorLog } from "../../../utils/logger";
 import { resolveBlobUrl, isP2PRemote, usesBlobResolver, revokeBlobUrl } from "./blobResolver";
 import type { BlobProgressCallback } from "@freqhole/api-client";
@@ -175,7 +175,17 @@ export async function getAudioURL(song: Song): Promise<string> {
     // download once, write to the library, then play from there. falls through
     // to streaming if the sync fails so playback never hard-fails on it.
     if (getSyncQueueToLocal() && canSyncSong(song)) {
-      const syncedUrl = await withLoadingProgress(key, async (onProgress) => {
+      // progress must be keyed by `songIdentityKey` (sha256 || id), NOT
+      // `key` (`songTrackingKey`, blake3-preferring) - every consumer
+      // (AppLayout.tsx's mediaTransferProgress, QueueSongRow.tsx's row
+      // fill) checks progress by the identity key. a typical song has
+      // BOTH sha256 and blake3 set, so `key` resolves to blake3 while
+      // consumers look up sha256 - a silent key mismatch that made the
+      // CURRENT/about-to-play song's own download never show progress,
+      // even though a queue-ahead prefetch (keyed correctly elsewhere)
+      // did.
+      const progressKey = songIdentityKey(song);
+      const syncedUrl = await withLoadingProgress(progressKey, async (onProgress) => {
         onProgress(null);
         const result = await syncSongToLocal(song, (received, total) => {
           if (total > 0) onProgress(received / total);
@@ -202,7 +212,10 @@ export async function getAudioURL(song: Song): Promise<string> {
       debug("audioAccess", `using blobResolver for remote song: ${key}`);
       const remoteServerId = song.remote_server_id;
 
-      return await withLoadingProgress(key, async (onProgress) => {
+      // see the sync-to-local block above for why this is `songIdentityKey`,
+      // not `key`.
+      const progressKey = songIdentityKey(song);
+      return await withLoadingProgress(progressKey, async (onProgress) => {
         onProgress(null); // indeterminate until we get total size
         try {
           // use blobResolver which handles P2P/Tauri transports and caching

@@ -7092,6 +7092,7 @@ export const SyncVideoByBlake3RequestSchema = z.object({
   series_description: z.string().nullish(),
   season_number: z.number().nullish(),
   season_title: z.string().nullish(),
+  parent_blake3: z.string().nullish(),
   video_images: z.array(z.object({
   content_sha256: z.string(),
   data_base64: z.string().nullish(),

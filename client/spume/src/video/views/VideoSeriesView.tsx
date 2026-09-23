@@ -344,7 +344,10 @@ export function VideoSeriesView() {
                 </div>
               }
             >
-              <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 wide:grid-cols-6 gap-4">
+              <div
+                class="grid gap-4"
+                style={{ "grid-template-columns": "repeat(auto-fill, minmax(220px, 1fr))" }}
+              >
                 <For each={sortedSeries()}>
                   {(series) => (
                     <ContextMenu

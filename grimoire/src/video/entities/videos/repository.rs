@@ -77,6 +77,41 @@ async fn validate_parent_video_id(
     }
 }
 
+/// backfill any locally-pending "extra" videos whose stashed
+/// `pending_parent_blake3` (see migration 087) now matches a real parent
+/// video that just got created/updated - closes the "extra arrived before
+/// its movie" cross-remote sync ordering gap (docs/backlog.md item 7f).
+/// best-effort: logged, never fails the caller's create/update.
+async fn reconcile_pending_extras(pool: &sqlx::SqlitePool, parent_id: &str, parent_blake3: &str) {
+    match sqlx::query!(
+        "UPDATE videoz
+         SET parent_video_id = ?, pending_parent_blake3 = NULL, updated_at = unixepoch()
+         WHERE pending_parent_blake3 = ? AND parent_video_id IS NULL
+           AND series_id IS NULL AND deleted_at IS NULL",
+        parent_id,
+        parent_blake3
+    )
+    .execute(pool)
+    .await
+    {
+        Ok(result) if result.rows_affected() > 0 => {
+            tracing::info!(
+                "reconcile_pending_extras: linked {} pending extra(s) to parent video {}",
+                result.rows_affected(),
+                parent_id
+            );
+        }
+        Ok(_) => {}
+        Err(e) => {
+            tracing::warn!(
+                "reconcile_pending_extras: query failed for parent {}: {}",
+                parent_id,
+                e
+            );
+        }
+    }
+}
+
 /// create a new video
 pub async fn create_video(req: CreateVideoRequest) -> GrimoireResponse<Video> {
     let pool = match database::connect().await {
@@ -173,6 +208,15 @@ pub async fn create_video(req: CreateVideoRequest) -> GrimoireResponse<Video> {
             return GrimoireResponse::failure("Failed to create video", vec![ErrorDetail::from(e)]);
         }
     };
+
+    // a freshly created movie may already have extras waiting on it (see
+    // migration 087's doc comment) - a plain clip/series episode can never
+    // be somebody's stashed parent, so skip the lookup entirely for those.
+    if video.content_type == "movie" && video.parent_video_id.is_none() {
+        if let Some(blake3) = &video.blake3 {
+            reconcile_pending_extras(&pool, &video.id, blake3).await;
+        }
+    }
 
     GrimoireResponse::success("Video created successfully", video)
 }
@@ -956,6 +1000,15 @@ pub async fn update_video(req: UpdateVideoRequest) -> GrimoireResponse<Video> {
         }
     };
 
+    // e.g. a clip retroactively reclassified as this movie, or a re-sync
+    // that just resolved series/season for a row that's actually a movie -
+    // either way, check for extras waiting on it (see migration 087).
+    if video.content_type == "movie" && video.parent_video_id.is_none() {
+        if let Some(blake3) = &video.blake3 {
+            reconcile_pending_extras(&pool, &video.id, blake3).await;
+        }
+    }
+
     GrimoireResponse::success("Video updated successfully", video)
 }
 
@@ -1243,5 +1296,100 @@ level = "warn"
         })
         .await;
         assert!(!self_ref.is_success());
+    }
+
+    #[tokio::test]
+    #[ignore = "needs its own process: touches the real db pool singleton"]
+    async fn test_pending_parent_blake3_reconciliation() {
+        // an extra synced in before its parent movie (cross-remote sync
+        // ordering gap, docs/backlog.md item 7f / migration 087) should get
+        // retroactively linked the first time that movie is created locally
+        // by ANY path (sync, local import, manual upload all go through
+        // create_video) - mirrors what `set_pending_parent_blake3` +
+        // `resolve_sync_parent_video` do in grimoire/src/offal/sync/video.rs.
+        let tmp = tempfile::tempdir().expect("tempdir");
+        init_test_env(tmp.path()).await;
+
+        let pool = database::connect().await.expect("connect");
+        for (i, (blob_id, blake3)) in [
+            ("blob-extra2", "extra2-blake3"),
+            ("blob-movie2", "movie2-blake3"),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let sha256 = format!("{i:064x}");
+            sqlx::query(
+                "INSERT INTO media_blobz (id, sha256, size, mime, blob_type, blake3)
+                 VALUES (?, ?, 123, 'video/mp4', 'original', ?)",
+            )
+            .bind(blob_id)
+            .bind(sha256)
+            .bind(blake3)
+            .execute(&pool)
+            .await
+            .expect("insert media_blobz row");
+        }
+
+        let extra = create_video(CreateVideoRequest {
+            series_id: None,
+            season_id: None,
+            episode_number: None,
+            content_type: Some("clip".to_string()),
+            title: "deleted scene (extra arrives first)".to_string(),
+            description: None,
+            media_blob_id: "blob-extra2".to_string(),
+            parent_video_id: None,
+            poster_blob_id: None,
+            duration_seconds: None,
+            release_date: None,
+            created_by: None,
+        })
+        .await
+        .data
+        .expect("create_video (extra) should succeed");
+
+        sqlx::query("UPDATE videoz SET pending_parent_blake3 = ? WHERE id = ?")
+            .bind("movie2-blake3")
+            .bind(&extra.id)
+            .execute(&pool)
+            .await
+            .expect("stash pending_parent_blake3");
+
+        let movie = create_video(CreateVideoRequest {
+            series_id: None,
+            season_id: None,
+            episode_number: None,
+            content_type: Some("movie".to_string()),
+            title: "the movie (arrives second)".to_string(),
+            description: None,
+            media_blob_id: "blob-movie2".to_string(),
+            parent_video_id: None,
+            poster_blob_id: None,
+            duration_seconds: None,
+            release_date: None,
+            created_by: None,
+        })
+        .await
+        .data
+        .expect("create_video (movie) should succeed");
+
+        let relinked = get_video(&extra.id).await.data.expect("get_video (extra)");
+        assert_eq!(
+            relinked.parent_video_id.as_deref(),
+            Some(movie.id.as_str()),
+            "extra should have been retroactively linked to its parent movie"
+        );
+
+        let pending: Option<String> =
+            sqlx::query_scalar("SELECT pending_parent_blake3 FROM videoz WHERE id = ?")
+                .bind(&extra.id)
+                .fetch_one(&pool)
+                .await
+                .expect("read back pending_parent_blake3");
+        assert_eq!(
+            pending, None,
+            "pending_parent_blake3 should be cleared once resolved"
+        );
     }
 }

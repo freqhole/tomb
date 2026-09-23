@@ -4,13 +4,12 @@
 // routed view (VideoSeriesDetailView.tsx); folded in here so the series
 // list + detail can live side-by-side like artists/albums do.
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
-import { useNavigate } from "@solidjs/router";
 import { useQueryClient } from "@tanstack/solid-query";
 import { LoadingState } from "../../components/feedback";
 import { MediaImage } from "../../components/media/MediaImage";
 import { ContextMenu } from "../../components/overlays/ContextMenu";
 import { Button } from "../../components/buttons/Button";
-import { Icon, IconNames, PlayIcon } from "../../components/icons/registry";
+import { Icon, IconNames } from "../../components/icons/registry";
 import { HeadingSection } from "../../components/layout/HeadingSection";
 import { MarqueeText } from "../../components/text/MarqueeText";
 import { TagChips } from "../../components/badges/TagChips";
@@ -19,8 +18,7 @@ import { ShareButton } from "../../components/buttons/ShareButton";
 import type { SendVideoPayload } from "../services/send/sendVideoToRemote";
 import type { QueuedVideo } from "../../app/services/storage/mediaItem";
 import { FavoriteHeart } from "../../components/ratings/FavoriteHeart";
-import { formatDuration, formatLongDuration } from "../../utils/formatDuration";
-import { buildRoute } from "../../music/utils/routing";
+import { formatLongDuration } from "../../utils/formatDuration";
 import { createShareSourceRemote } from "../../app/services/remotes/shareSource";
 import { useVideoSeriesDetailQuery } from "../queries/series";
 import { useVideoSeriesAggregateTagsQuery } from "../queries/tags";
@@ -30,10 +28,10 @@ import { useVideoSeriesFavoriteStatuses } from "../hooks/useVideoSeriesFavoriteS
 import { useToggleFavoriteMutation } from "../../music/queries/favorites";
 import { playVideoQueue } from "../services/queue/playVideoQueue";
 import { addVideosToQueue, shuffleVideos } from "../services/videoQueueActions";
-import { useLocalVideoPosterUrl } from "./VideoCard";
+import { VideoListRow } from "./VideoListRow";
 import { showEditVideoSeries } from "../hooks/modals";
 import { showStationSelector } from "../../music/hooks/stationSelectorState";
-import { useVideoContextMenu, useVideoSeriesContextMenu } from "../hooks/contextMenu";
+import { useVideoSeriesContextMenu } from "../hooks/contextMenu";
 import { canUpdateVideo } from "../data/permissions";
 import { getVideoDataSource } from "../data";
 import {
@@ -52,104 +50,6 @@ import {
 import { getBlobObjectURL } from "../../music/services/storage/blobs";
 import type { ImageMetadata } from "../../music/services/storage/types";
 import type { VideoSeason, VideoSummary } from "../data/types";
-
-/** a single episode row - thumbnail (with a hover play button), title,
- * duration, and a right-click context menu. clicking the row itself
- * navigates to the episode's detail page; the thumbnail's play button
- * plays it directly (mirrors VideoCard's poster/hover-play split). */
-function EpisodeRow(props: {
-  video: VideoSummary;
-  index: number;
-  onPlay: () => void;
-  onTagsSaved?: () => void;
-}) {
-  const navigate = useNavigate();
-  const contextMenuActions = createMemo(() =>
-    useVideoContextMenu(props.video, { showPlayActions: true, onSave: props.onTagsSaved })
-  );
-  // mirrors VideoCard.tsx's local-poster handling: a local video's
-  // auto-imported poster lives in OPFS (poster_opfs_path), not the
-  // reliquary blob store poster_blob_id points at.
-  const localPosterUrl = useLocalVideoPosterUrl(() =>
-    props.video.source_type === "local" ? props.video.poster_opfs_path : null
-  );
-
-  return (
-    <ContextMenu actions={contextMenuActions()}>
-      <div
-        onClick={() => navigate(buildRoute(`/video/${props.video.id}`))}
-        class="flex items-center gap-3 px-2 py-2 rounded cursor-pointer hover:bg-[var(--color-bg-elevated)] transition-colors group"
-      >
-        <span class="w-8 text-sm text-[var(--color-text-tertiary)] text-right flex-shrink-0">
-          {props.video.episode_number ?? props.index + 1}
-        </span>
-        <div class="relative w-16 h-9 flex-shrink-0 rounded overflow-hidden bg-[var(--color-bg-elevated)]">
-          <Show
-            when={props.video.source_type === "remote"}
-            fallback={
-              <Show
-                when={localPosterUrl()}
-                fallback={
-                  <MediaImage
-                    blobId={props.video.poster_blob_id}
-                    alt={props.video.title}
-                    showFallback={true}
-                    thumbnailSize={50}
-                    domainType="video"
-                    objectFit="cover"
-                    class="w-full h-full"
-                  />
-                }
-              >
-                {(url) => (
-                  <img src={url()} alt={props.video.title} class="w-full h-full object-cover" />
-                )}
-              </Show>
-            }
-          >
-            <MediaImage
-              remoteBlobId={props.video.poster_blob_id}
-              remoteServerId={props.video.remote_server_id}
-              alt={props.video.title}
-              showFallback={true}
-              thumbnailSize={50}
-              domainType="video"
-              objectFit="cover"
-              class="w-full h-full"
-            />
-          </Show>
-          <div class="absolute inset-0 z-40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/40">
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                props.onPlay();
-              }}
-              class="w-6 h-6 rounded-full bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] text-[var(--color-text-on-accent)] flex items-center justify-center transition-colors"
-              title="play episode"
-              aria-label="play episode"
-            >
-              <PlayIcon size={12} className="ml-0.5" />
-            </button>
-          </div>
-        </div>
-        <span class="flex-1 min-w-0 truncate text-sm text-[var(--color-text-primary)] group-hover:text-[var(--color-accent-500)] transition-colors">
-          {props.video.title}
-        </span>
-        <Show when={props.video.play_count != null && props.video.play_count > 0}>
-          <span
-            class="text-xs text-[var(--color-text-muted)] flex-shrink-0"
-            title={`${props.video.play_count} plays`}
-          >
-            {props.video.play_count}×
-          </span>
-        </Show>
-        <span class="text-xs text-[var(--color-text-tertiary)] flex-shrink-0">
-          {formatDuration(props.video.duration_seconds)}
-        </span>
-      </div>
-    </ContextMenu>
-  );
-}
 
 export interface VideoSeriesDetailPanelProps {
   seriesId: string;
@@ -867,7 +767,7 @@ export function VideoSeriesDetailPanel(props: VideoSeriesDetailPanelProps) {
                               <div class="space-y-1 mt-1">
                                 <For each={season.videos}>
                                   {(video, index) => (
-                                    <EpisodeRow
+                                    <VideoListRow
                                       video={video}
                                       index={index()}
                                       onPlay={() => handleEpisodeClick(season, index())}
@@ -898,7 +798,7 @@ export function VideoSeriesDetailPanel(props: VideoSeriesDetailPanelProps) {
                         <div class="space-y-1 mt-1">
                           <For each={unassignedVideos()}>
                             {(video, index) => (
-                              <EpisodeRow
+                              <VideoListRow
                                 video={video}
                                 index={index()}
                                 onPlay={() => handleUnassignedClick(index())}

@@ -81,6 +81,28 @@ function videoImages(video: QueuedVideo): InlinableImage[] {
   return images;
 }
 
+/** the source's parent movie's own content hash (see
+ * `Video::parent_video_id` / docs/backlog.md item 7f) - never the source's
+ * raw `parent_video_id` itself, which is a foreign, meaningless-locally db
+ * id on the destination. the destination resolves this blake3 to its own
+ * local video id (or stashes it for later, if that movie hasn't
+ * synced/imported there yet) - see grimoire's `resolve_sync_parent_video`. */
+async function resolveParentBlake3(
+  video: QueuedVideo,
+  metadataRemote: Remote
+): Promise<string | null> {
+  if (!video.parent_video_id) return null;
+  try {
+    const client = await getClientForRemote(metadataRemote);
+    const result = await client.video.getVideo({ id: video.parent_video_id });
+    if (!result.success || !result.data) return null;
+    return result.data.blake3 ?? null;
+  } catch (e) {
+    warn("buildSyncVideoRequest", `parent lookup failed for ${video.parent_video_id}:`, e);
+    return null;
+  }
+}
+
 export interface BuildSyncVideoByBlake3Options {
   video: QueuedVideo;
   /** remote holding the video's current metadata - used to resolve its
@@ -107,7 +129,10 @@ export async function buildSyncVideoByBlake3Body(
   const { video, metadataRemote, sourceTransport } = opts;
   const inlineCache: InlineImageCache = new Map();
   const label = `[video "${video.title}"]`;
-  const series = await resolveSeriesContext(video, metadataRemote);
+  const [series, parentBlake3] = await Promise.all([
+    resolveSeriesContext(video, metadataRemote),
+    resolveParentBlake3(video, metadataRemote),
+  ]);
 
   const [videoImagesBody, seriesImagesBody, seasonImagesBody] = await Promise.all([
     inlineImagesForSync(videoImages(video), sourceTransport, inlineCache, label),
@@ -133,6 +158,7 @@ export async function buildSyncVideoByBlake3Body(
     series_description: series.seriesDescription ?? null,
     season_number: series.seasonNumber ?? null,
     season_title: series.seasonTitle ?? null,
+    parent_blake3: parentBlake3,
     video_images: videoImagesBody,
     series_images: seriesImagesBody,
     season_images: seasonImagesBody,

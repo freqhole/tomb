@@ -139,12 +139,10 @@ pub async fn sync_video_by_blake3_impl(
                 title: req.title.clone(),
                 description: req.description.clone(),
                 media_blob_id: pulled.blob.id.clone(),
-                // never inferred here: the sync wire payload carries no
-                // parent identifier, and a cross-remote sync must never
-                // guess/copy a foreign db id into this column (see
-                // docs/backlog.md item 7's cross-remote scoping rule) -
-                // linking a synced extra to its local parent movie is a
-                // separate, not-yet-built resolution step.
+                // resolved (or stashed for later) in the unified parent-
+                // linking block below, after `video_id` is known for both
+                // this new-row path and the existing-row path alike - see
+                // docs/backlog.md item 7f / migration 087.
                 parent_video_id: None,
                 poster_blob_id: None,
                 duration_seconds: req.duration_seconds,
@@ -228,7 +226,8 @@ pub async fn sync_video_by_blake3_impl(
                 updated_by: Some(caller.user_id.clone()),
                 clear_series_id: false,
                 clear_season_id: false,
-                // see the create_video call above - never inferred cross-remote.
+                // see the parent-linking block below - handled uniformly
+                // for both the new-row and existing-row paths.
                 parent_video_id: None,
                 clear_parent_video_id: false,
             })
@@ -246,6 +245,53 @@ pub async fn sync_video_by_blake3_impl(
         // already applied at create time - re-resolve is cheap and idempotent
         resolve_sync_series_season(&req, Some(caller.user_id.clone())).await
     };
+
+    // resolve this video's parent movie (see `Video::parent_video_id`) by
+    // matching the SOURCE'S parent's own content hash - never its raw,
+    // foreign-remote `parent_video_id` (docs/backlog.md item 7f). runs for
+    // both the new-row and existing-row paths, same as series/season above,
+    // so a video that arrived earlier with an unresolved parent still gets
+    // linked up on a later re-sync. best-effort: a failure here never
+    // fails the overall sync.
+    let resolved_parent_video_id = match resolve_sync_parent_video(&req).await {
+        Ok(id) => id,
+        Err(e) => {
+            tracing::warn!("sync_video_by_blake3: parent resolution failed: {}", e);
+            None
+        }
+    };
+    if let Some(parent_id) = &resolved_parent_video_id {
+        let update = crate::video::update_video(crate::video::UpdateVideoRequest {
+            video_id: video_id.clone(),
+            series_id: None,
+            season_id: None,
+            episode_number: None,
+            content_type: None,
+            title: None,
+            description: None,
+            poster_blob_id: None,
+            duration_seconds: None,
+            release_date: None,
+            updated_by: Some(caller.user_id.clone()),
+            clear_series_id: false,
+            clear_season_id: false,
+            parent_video_id: Some(parent_id.clone()),
+            clear_parent_video_id: false,
+        })
+        .await;
+        if !update.success {
+            tracing::warn!(
+                "sync_video_by_blake3: failed to link parent {} to video {}: {}",
+                parent_id,
+                video_id,
+                update.message
+            );
+        }
+    } else if let Some(parent_blake3) = req.parent_blake3.as_deref().filter(|b| !b.is_empty()) {
+        // parent hasn't synced/imported to this instance yet - stash for
+        // retroactive linking (see migration 087, reconcile_pending_extras).
+        set_pending_parent_blake3(&video_id, parent_blake3).await;
+    }
 
     // images: video poster first (it also becomes videoz.poster_blob_id),
     // then series/season posters.
@@ -278,7 +324,7 @@ pub async fn sync_video_by_blake3_impl(
             updated_by: Some(caller.user_id.clone()),
             clear_series_id: false,
             clear_season_id: false,
-            // see the create_video call above - never inferred cross-remote.
+            // see the parent-linking block above - never re-cleared here.
             parent_video_id: None,
             clear_parent_video_id: false,
         })
@@ -484,4 +530,58 @@ async fn find_video_id_by_media_blob_id(media_blob_id: &str) -> GrimoireResult<O
         message: format!("failed to check for existing video: {}", e),
     })?;
     Ok(id.flatten())
+}
+
+/// resolve `req.parent_blake3` (the source's parent movie's own content
+/// hash, see `SyncVideoByBlake3Request::parent_blake3`'s doc comment) to a
+/// LOCAL video id, when that movie has already been synced/imported here.
+/// `Ok(None)` covers both "no parent to resolve" and "parent not local
+/// yet" - callers distinguish the latter via `req.parent_blake3` itself
+/// (see `set_pending_parent_blake3`).
+async fn resolve_sync_parent_video(
+    req: &SyncVideoByBlake3Request,
+) -> GrimoireResult<Option<String>> {
+    let Some(parent_blake3) = req.parent_blake3.as_deref().filter(|b| !b.is_empty()) else {
+        return Ok(None);
+    };
+    let pool = crate::database::connect().await?;
+    let id = sqlx::query_scalar!(
+        "SELECT id FROM videoz
+         WHERE media_blob_blake3 = ? AND content_type = 'movie'
+           AND parent_video_id IS NULL AND deleted_at IS NULL
+         LIMIT 1",
+        parent_blake3
+    )
+    .fetch_optional(&pool)
+    .await
+    .map_err(|e| GrimoireError::ProcessingFailed {
+        message: format!("failed to resolve sync parent video: {}", e),
+    })?;
+    Ok(id.flatten())
+}
+
+/// stash the source's parent movie's blake3 on `video_id` (migration 087) -
+/// the parent hasn't synced/imported to this instance yet, so
+/// `reconcile_pending_extras` (in `video::entities::videos::repository`)
+/// links it retroactively the first time that movie's own `create_video`/
+/// `update_video` call runs locally. best-effort/fire-and-forget: a
+/// failure here just means the extra stays unlinked until a future re-sync.
+async fn set_pending_parent_blake3(video_id: &str, parent_blake3: &str) {
+    let Ok(pool) = crate::database::connect().await else {
+        return;
+    };
+    if let Err(e) = sqlx::query!(
+        "UPDATE videoz SET pending_parent_blake3 = ? WHERE id = ? AND deleted_at IS NULL",
+        parent_blake3,
+        video_id
+    )
+    .execute(&pool)
+    .await
+    {
+        tracing::warn!(
+            "sync_video_by_blake3: failed to stash pending_parent_blake3 for {}: {}",
+            video_id,
+            e
+        );
+    }
 }
