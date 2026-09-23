@@ -919,9 +919,6 @@ export function RadioView() {
               return (
                 <div class="max-w-3xl mx-auto">
                   <div class="flex items-center justify-between mb-4">
-                    <div class="text-xs uppercase tracking-wide text-neutral-500">
-                      station preview
-                    </div>
                     <Show when={isNarrow()}>
                       <button
                         class="text-xs px-2 py-1 rounded bg-neutral-800 hover:bg-neutral-700 flex items-center gap-1 flex-shrink-0"
