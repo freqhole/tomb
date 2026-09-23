@@ -605,6 +605,16 @@ export function AppLayout(props: AppLayoutProps) {
   const canAdminSkipRadioTrack = createMemo(() => {
     const station = currentRadioStation();
     if (!station?.station_id) return false;
+    // a request station spends real, common stretches of time genuinely
+    // idle ("waiting for requests…" between tracks) - the broadcaster
+    // correctly rejects a skip with "no active track to skip" then, but
+    // this button had no way to know that and stayed enabled regardless,
+    // producing a confusing error on click. `song_id` is empty by
+    // construction for every idle/interstitial placeholder (see
+    // grimoire's announce_idle/announce_interstitial) and non-empty for
+    // any real track - the same reliable signal already used to fix
+    // now-playing's own apply timing.
+    if (!radioNowPlaying()?.song_id?.trim()) return false;
     if (station.is_local) return isCharnelMode();
     const remoteId = radioCurrentRemoteServerId();
     if (!remoteId) return false;

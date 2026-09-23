@@ -14,6 +14,7 @@ pub mod config;
 pub mod encoder;
 pub mod handler;
 pub mod messages;
+pub mod mp4_duration;
 pub mod playlist;
 pub mod protocol;
 pub mod radio_protocol;

@@ -217,7 +217,11 @@ pub async fn list_requests(_caller: &Caller, body: JsonValue) -> GrimoireRespons
         Err(e) => {
             return GrimoireResponse::failure(
                 "bad request",
-                vec![ErrorDetail::new("bad_request", "bad request", e.to_string())],
+                vec![ErrorDetail::new(
+                    "bad_request",
+                    "bad request",
+                    e.to_string(),
+                )],
             )
         }
     };
@@ -275,7 +279,11 @@ pub async fn remove_request(_caller: &Caller, body: JsonValue) -> GrimoireRespon
         Err(e) => {
             return GrimoireResponse::failure(
                 "bad request",
-                vec![ErrorDetail::new("bad_request", "bad request", e.to_string())],
+                vec![ErrorDetail::new(
+                    "bad_request",
+                    "bad request",
+                    e.to_string(),
+                )],
             )
         }
     };
@@ -305,7 +313,11 @@ pub async fn clear_requests(_caller: &Caller, body: JsonValue) -> GrimoireRespon
         Err(e) => {
             return GrimoireResponse::failure(
                 "bad request",
-                vec![ErrorDetail::new("bad_request", "bad request", e.to_string())],
+                vec![ErrorDetail::new(
+                    "bad_request",
+                    "bad request",
+                    e.to_string(),
+                )],
             )
         }
     };
@@ -313,4 +325,3 @@ pub async fn clear_requests(_caller: &Caller, body: JsonValue) -> GrimoireRespon
     crate::radio::requests::clear(&req.station_id).await;
     GrimoireResponse::success("queue cleared", JsonValue::Null)
 }
-

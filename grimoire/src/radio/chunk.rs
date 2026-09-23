@@ -6,7 +6,9 @@
 //! deliberately dumb — it only inspects 4-byte length + 4-byte type headers
 //! and delegates "is this an init?" to the type tag.
 
+use crate::radio::mp4_duration::{self, Mp4TrackInfo};
 use bytes::{Bytes, BytesMut};
+use tracing::warn;
 
 /// one self-contained fMP4 unit ready to be pushed to listeners.
 ///
@@ -25,6 +27,14 @@ pub struct Chunk {
 
     /// raw fMP4 bytes. for an init: `ftyp` + `moov`. for media: `moof` + `mdat`.
     pub bytes: Bytes,
+
+    /// this fragment's real media duration, parsed from its own
+    /// `moof`/`traf`/`tfhd`/`trun` boxes (see `mp4_duration`) - `None`
+    /// for an init chunk, or when the fragment's structure couldn't be
+    /// parsed. the broadcaster's pacer uses this (falling back to the
+    /// nominal `frag_ms` when absent) instead of assuming every chunk
+    /// covers exactly `frag_ms` of real playback time.
+    pub duration_ms: Option<u32>,
 }
 
 /// fMP4 box header — 4 bytes big-endian length followed by 4 ASCII chars.
@@ -59,6 +69,16 @@ pub struct BoxParser {
     /// have we emitted the init segment yet? if false, we're collecting
     /// `ftyp` + `moov`; first emitted chunk will be marked `is_init = true`.
     init_done: bool,
+    /// per-track timescale/default-duration info, resolved once from the
+    /// init segment's `moov` box - empty until the init chunk is emitted,
+    /// after which every media chunk's `duration_ms` is computed against it.
+    tracks: Vec<Mp4TrackInfo>,
+    /// true once a "couldn't parse this fragment's real duration" warning
+    /// has already been logged for the CURRENT track - avoids one warning
+    /// per chunk (every ~3s) when a whole track's fragments are
+    /// unparseable, while still surfacing the problem immediately instead
+    /// of only via the end-of-track summary log.
+    warned_unparseable_this_track: bool,
 }
 
 impl BoxParser {
@@ -119,12 +139,24 @@ impl BoxParser {
                 if &kind == b"moov" {
                     let chunk_bytes = self.buf.split_to(next).freeze();
                     self.init_done = true;
+                    self.tracks = mp4_duration::find_box(&chunk_bytes, b"moov")
+                        .map(mp4_duration::parse_moov_tracks)
+                        .unwrap_or_default();
+                    self.warned_unparseable_this_track = false;
+                    if self.tracks.is_empty() {
+                        warn!(
+                            "[radio-chunk] init segment yielded no parseable tracks (moov/trak/\
+                             mdia/mdhd) - every fragment's duration will fall back to the \
+                             nominal frag_ms for this track"
+                        );
+                    }
                     let seq = *seq_counter;
                     *seq_counter = seq.wrapping_add(1);
                     return Some(Chunk {
                         seq,
                         is_init: true,
                         bytes: chunk_bytes,
+                        duration_ms: None,
                     });
                 }
             } else {
@@ -134,12 +166,28 @@ impl BoxParser {
                     saw_moof = true;
                 } else if &kind == b"mdat" && saw_moof {
                     let chunk_bytes = self.buf.split_to(next).freeze();
+                    let duration_ms = mp4_duration::find_box(&chunk_bytes, b"moof")
+                        .and_then(|moof| mp4_duration::fragment_duration_ms(moof, &self.tracks));
+                    if duration_ms.is_none()
+                        && !self.tracks.is_empty()
+                        && !self.warned_unparseable_this_track
+                    {
+                        self.warned_unparseable_this_track = true;
+                        warn!(
+                            "[radio-chunk] fragment's real duration couldn't be parsed (moof/\
+                             traf/tfhd/trun) despite {} known track(s) - falling back to the \
+                             nominal frag_ms for this and any further unparseable fragment in \
+                             this track",
+                            self.tracks.len()
+                        );
+                    }
                     let seq = *seq_counter;
                     *seq_counter = seq.wrapping_add(1);
                     return Some(Chunk {
                         seq,
                         is_init: false,
                         bytes: chunk_bytes,
+                        duration_ms,
                     });
                 }
             }
@@ -204,5 +252,41 @@ mod tests {
         let chunk = parser.next_chunk(&mut seq).unwrap();
         assert!(chunk.is_init);
         assert_eq!(chunk.bytes.len(), init.len());
+    }
+
+    /// diagnostic against REAL ffmpeg output (not hand-built fake boxes) -
+    /// generate with: `ffmpeg -y -f lavfi -i "sine=frequency=440:duration=10" \
+    /// -c:a aac -b:a 192k -ar 44100 -ac 2 -movflags \
+    /// frag_keyframe+empty_moov+default_base_moof -frag_duration 3000000 \
+    /// -avoid_negative_ts make_zero -f mp4 /tmp/radio_test.mp4`. requires
+    /// that file to exist; not run in CI.
+    #[test]
+    #[ignore]
+    fn real_ffmpeg_output_parses_real_durations() {
+        let bytes = std::fs::read("/tmp/radio_test.mp4").expect("run the ffmpeg command first");
+        let mut parser = BoxParser::new();
+        let mut seq = 0u32;
+        parser.feed(&bytes);
+        let mut count = 0;
+        let mut parsed = 0;
+        while let Some(chunk) = parser.next_chunk(&mut seq) {
+            println!(
+                "chunk seq={} is_init={} bytes={} duration_ms={:?}",
+                chunk.seq,
+                chunk.is_init,
+                chunk.bytes.len(),
+                chunk.duration_ms
+            );
+            if !chunk.is_init {
+                count += 1;
+                if chunk.duration_ms.is_some() {
+                    parsed += 1;
+                }
+            }
+        }
+        println!("tracks resolved: {:?}", parser.tracks);
+        println!("{parsed}/{count} media chunks had a parsed duration");
+        assert!(count > 0, "expected at least one media chunk");
+        assert!(parsed > 0, "expected at least one parsed duration");
     }
 }

@@ -443,6 +443,7 @@ pub async fn radio_tune_local(
     let mut meta_rx = sub.meta_rx;
     let bc_for_leave = bc.clone();
     let bc_for_meta = bc.clone();
+    let bc_for_heartbeat = bc.clone();
 
     // audio loop
     {
@@ -468,6 +469,23 @@ pub async fn radio_tune_local(
         tokio::spawn(async move {
             let reason = run_local_meta_loop(&mut meta_rx, &events, &cancel, bc_for_meta).await;
             tracing::debug!(session = %session_id, reason, "[radio-charnel-local] meta loop ended");
+        });
+    }
+
+    // heartbeat loop - the remote/iroh path (grimoire::radio::handler::
+    // run_session) has its own independent `heartbeat()` task that keeps
+    // ticking regardless of whether the broadcaster's play loop is stuck
+    // idle (e.g. a request-only station waiting on an empty queue); this
+    // local (in-process, "self") tune path had NO equivalent at all, so
+    // any stretch with no real chunk/meta traffic ran straight into
+    // spume's `CONNECTION_DEAD_AFTER_MS` (15s) watchdog, tearing down and
+    // reconnecting into the exact same stuck state on a loop - the
+    // "listener just loops the last buffer of sound" symptom.
+    {
+        let cancel = cancel.clone();
+        let events = events.clone();
+        tokio::spawn(async move {
+            run_local_heartbeat_loop(&events, &cancel, bc_for_heartbeat).await;
         });
     }
 
@@ -574,6 +592,44 @@ async fn run_local_meta_loop(
                 }
                 Err(RecvError::Closed) => return "broadcaster gone".into(),
             },
+        }
+    }
+}
+
+/// mirrors grimoire::radio::handler's own per-connection `heartbeat()`
+/// task for the remote/iroh path - ticks independently of whatever the
+/// broadcaster's play loop is doing (including sitting idle in
+/// `wait_for_request`), so a listener's connection is never mistaken for
+/// dead just because no new track/meta happens to be playing right now.
+async fn run_local_heartbeat_loop(
+    events: &Channel<RadioEvent>,
+    cancel: &CancellationToken,
+    bc: std::sync::Arc<grimoire::radio::broadcaster::Broadcaster>,
+) {
+    use grimoire::radio::messages::{ChunkReadyMessage, ControlMessage};
+    const HEARTBEAT_INTERVAL: std::time::Duration = std::time::Duration::from_secs(5);
+    let mut tick = tokio::time::interval(HEARTBEAT_INTERVAL);
+    tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    tick.tick().await; // skip the immediate initial tick, same as the remote path.
+    loop {
+        tokio::select! {
+            _ = cancel.cancelled() => return,
+            _ = tick.tick() => {
+                let msg = ControlMessage::ChunkReady(ChunkReadyMessage {
+                    seq: bc.current_seq(),
+                    listener_count: bc.listener_count(),
+                });
+                match serde_json::to_string(&msg) {
+                    Ok(json) => {
+                        if events.send(RadioEvent::ChunkReady { json }).is_err() {
+                            return;
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!(error = %e, "[radio-charnel-local] heartbeat serialize failed");
+                    }
+                }
+            }
         }
     }
 }

@@ -145,12 +145,19 @@ export function RadioHistoryList(props: RadioHistoryListProps) {
   );
 
   // reset + reload when the station filter changes so the detail
-  // view always shows the right station's history.
+  // view always shows the right station's history. guarded against the
+  // caller's `stationId` prop being reactively re-derived (from a
+  // station-list refresh) to the SAME id via a freshly-allocated object
+  // upstream - without this, every unrelated re-render this effect
+  // happens to observe would blow away and reload the whole list, an
+  // unmistakable "history blinks" symptom despite nothing actually
+  // changing.
   createEffect(
     on(
       () => props.stationId,
-      () => {
+      (stationId, prevStationId) => {
         if (!hasLoadedFirstPage) return;
+        if (stationId === prevStationId) return;
         setEntries([]);
         setExhausted(false);
         void loadFirstPage();

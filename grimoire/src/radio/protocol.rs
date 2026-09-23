@@ -109,6 +109,10 @@ pub async fn read_chunk(stream: &mut RecvStream) -> GrimoireResult<Option<Chunk>
         seq,
         is_init,
         bytes: body.into(),
+        // real duration is a broadcaster-internal pacing concern - it
+        // never crosses the wire, listeners measure their own buffered
+        // growth directly once they append the bytes.
+        duration_ms: None,
     }))
 }
 

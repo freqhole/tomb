@@ -85,6 +85,13 @@ export function RadioQueueList(props: RadioQueueListProps) {
     }
   };
 
+  // guarded against `props.remoteRef` being reactively re-derived to an
+  // EQUAL-BY-VALUE but freshly-allocated object upstream (e.g. a station-
+  // list refresh recomputing the station this panel is for) - without
+  // this, every such incidental re-render refetches the whole queue from
+  // the server and replaces every row's object identity, which `<For>`
+  // then treats as an entirely new list - a "queue blinks" symptom with
+  // nothing actually having changed.
   createEffect(
     on(
       () =>
@@ -95,7 +102,10 @@ export function RadioQueueList(props: RadioQueueListProps) {
           props.remoteRef.base_url,
           props.remoteRef.is_charnel_managed,
         ] as const,
-      () => void load(),
+      (deps, prevDeps) => {
+        if (prevDeps && deps.every((v, i) => v === prevDeps[i])) return;
+        void load();
+      },
       { defer: false }
     )
   );

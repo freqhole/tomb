@@ -25,14 +25,56 @@ import { getClientForRemote } from "../../app/api/client";
 import { getCurrentRemote, getDataSource } from "../../music/data";
 import { RemoteMusicDataSource } from "../../music/data/remote/remoteSource";
 import { getRemoteById } from "../../app/services/remotes/remoteManager";
+import { tuneIntoRadio } from "../../app/services/radio/radioService";
 import type { RemoteRef } from "../../app/services/storage/types";
 import { getVideoDataSource } from "../../video/data";
-import { toast } from "../feedback/Toast";
+import { toast, type ToastAction } from "../feedback/Toast";
 import {
   closeStationSelector,
   stationSelectorState,
   type StationSelectorTarget,
 } from "../../music/hooks/stationSelectorState";
+
+interface TuneTarget {
+  peerAddr: string;
+  isLocal: boolean;
+}
+
+// derives tuneIntoRadio's (peerAddr, isLocal) from anything shaped like a
+// Remote/CurrentRemoteInfo - both share these same optional field names,
+// so no type-guard narrowing is needed. mirrors RadioView.tsx's handleTune
+// peer-resolution logic for a `self` source.
+function tuneTargetFor(remote: {
+  is_charnel_managed?: boolean;
+  peer_addr?: string;
+  base_url?: string;
+}): TuneTarget | null {
+  if (remote.is_charnel_managed) return { peerAddr: "self", isLocal: true };
+  if (remote.peer_addr) return { peerAddr: remote.peer_addr, isLocal: false };
+  if (remote.base_url) return { peerAddr: remote.base_url, isLocal: false };
+  return null;
+}
+
+// "listen" toast action for a just-added/created/requested station -
+// undefined (no action button) when the tune target couldn't be resolved,
+// rather than wiring a button that would silently no-op.
+function listenAction(
+  target: TuneTarget | null,
+  stationId: string,
+  stationName: string
+): ToastAction | undefined {
+  if (!target) return undefined;
+  return {
+    label: "listen",
+    onClick: () => {
+      void tuneIntoRadio(target.peerAddr, {
+        stationId,
+        stationName,
+        isLocal: target.isLocal,
+      });
+    },
+  };
+}
 
 // dispatch the add operation for a given target. every clause is now a
 // real filter row keyed by FK id (track / artist / album / taxon / video
@@ -211,6 +253,10 @@ export function AddToStationModal() {
   const [busy, setBusy] = createSignal(false);
   const [resolvedClient, setResolvedClient] = createSignal<AdminClient | null>(null);
   const [remoteName, setRemoteName] = createSignal<string | null>(null);
+  // where the "listen" action on an admin add/create success toast should
+  // tune to - derived once alongside `resolvedClient` above (same local vs.
+  // remoteServerId branching), not re-resolved per station.
+  const [adminTuneTarget, setAdminTuneTarget] = createSignal<TuneTarget | null>(null);
   // stations that accept member requests, for the (possibly non-admin)
   // caller's current remote - fetched via the regular authenticated
   // client, entirely independent of whether the admin fetch below
@@ -241,6 +287,7 @@ export function AddToStationModal() {
       setRequestStations([]);
       setCreating(false);
       setNewName("");
+      setAdminTuneTarget(null);
       if (!isOpen) return [];
 
       const remoteServerId = state().remoteServerId;
@@ -280,6 +327,7 @@ export function AddToStationModal() {
           return [];
         }
         setRemoteName(remote.name);
+        setAdminTuneTarget(tuneTargetFor(remote));
         try {
           // charnel-managed self is an HTTP-only remote record (no
           // peer_addr) representing "the local library" - route it
@@ -292,6 +340,7 @@ export function AddToStationModal() {
         }
       } else {
         client = getLocalAdminClient();
+        setAdminTuneTarget({ peerAddr: "self", isLocal: true });
       }
 
       if (!client) return [];
@@ -346,7 +395,9 @@ export function AddToStationModal() {
     setBusy(true);
     try {
       await addTargetToStation(client, station.id, target);
-      toast.success(`added ${targetLabel(target)} to "${station.name}"`);
+      toast.success(`added ${targetLabel(target)} to "${station.name}"`, {
+        action: listenAction(adminTuneTarget(), station.id, station.name),
+      });
       closeStationSelector();
     } catch (e) {
       const msg =
@@ -404,7 +455,9 @@ export function AddToStationModal() {
         items.length > 1
           ? `${submitted}/${items.length} songs from ` + targetLabel(target)
           : targetLabel(target);
-      toast.success(`requested ${label} on "${station.name}"`);
+      toast.success(`requested ${label} on "${station.name}"`, {
+        action: listenAction(tuneTargetFor(remote), station.station_id, station.name),
+      });
       closeStationSelector();
     } catch (e) {
       toast.error(`failed to submit request: ${e instanceof Error ? e.message : String(e)}`);
@@ -432,7 +485,9 @@ export function AddToStationModal() {
         name,
       })) as RadioStation;
       await addTargetToStation(client, station.id, target);
-      toast.success(`created station "${station.name}" with ${targetLabel(target)}`);
+      toast.success(`created station "${station.name}" with ${targetLabel(target)}`, {
+        action: listenAction(adminTuneTarget(), station.id, station.name),
+      });
       closeStationSelector();
     } catch (err) {
       const msg =
