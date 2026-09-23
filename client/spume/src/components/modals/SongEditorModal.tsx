@@ -824,7 +824,7 @@ export function SongEditorModal(props: SongEditorModalProps) {
             title="song images"
             images={songImages()}
             onUpload={(file) => handleImageUpload({ file })}
-            onUploadPath={pickRemote() ? handleImageSelectPath : undefined}
+            onUploadPath={pickRemote()?.is_charnel_managed ? handleImageSelectPath : undefined}
             onDelete={handleRemoveImage}
             onSetPrimary={handleTogglePrimary}
             uploading={!!processingJob()}
