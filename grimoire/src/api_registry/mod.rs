@@ -341,6 +341,12 @@ pub mod type_registry {
         PublicTimelineManifestItem, RadioInfoResponse, RadioStationsResponse,
     };
 
+    // radio member-request type (authenticated, non-admin)
+    use crate::offal::music::radio::{
+        RadioQueuedRequestInfo, RadioRequestsListResponse, RadioStationRequestsRequest,
+        RemoveRadioRequestRequest, SubmitRadioRequestRequest,
+    };
+
     // radio admin types
     use crate::radio::stations::models::{
         CreateStationRequest, RadioStation, StationFilter, UpdateStationRequest,
@@ -394,9 +400,9 @@ pub mod type_registry {
     };
     use crate::offal::video::videos::{
         BulkDeleteVideosRequest, DeleteVideoRenditionRequest, DeleteVideoRequest,
-        GetVideoRenditionsRequest, GetVideoRequest, ListVideosBySeasonRequest,
-        ListVideosBySeriesRequest, ListVideosUnattachedRequest, QueryVideosRequest,
-        ReprocessVideoRequest, VideoRendition,
+        GetVideoRenditionsRequest, GetVideoRequest, ListVideoExtrasRequest,
+        ListVideosBySeasonRequest, ListVideosBySeriesRequest, ListVideosUnattachedRequest,
+        QueryVideosRequest, ReprocessVideoRequest, VideoRendition,
     };
 
     pub fn register_all_types(gen: &mut ZodGenerator, registered: &mut HashSet<String>) {
@@ -458,6 +464,16 @@ pub mod type_registry {
         registered.insert("PublicTimelineManifestItem".to_string());
         gen.add_schema::<PublicTimelineManifest>("PublicTimelineManifest");
         registered.insert("PublicTimelineManifest".to_string());
+        gen.add_schema::<SubmitRadioRequestRequest>("SubmitRadioRequestRequest");
+        registered.insert("SubmitRadioRequestRequest".to_string());
+        gen.add_schema::<RadioStationRequestsRequest>("RadioStationRequestsRequest");
+        registered.insert("RadioStationRequestsRequest".to_string());
+        gen.add_schema::<RemoveRadioRequestRequest>("RemoveRadioRequestRequest");
+        registered.insert("RemoveRadioRequestRequest".to_string());
+        gen.add_schema::<RadioQueuedRequestInfo>("RadioQueuedRequestInfo");
+        registered.insert("RadioQueuedRequestInfo".to_string());
+        gen.add_schema::<RadioRequestsListResponse>("RadioRequestsListResponse");
+        registered.insert("RadioRequestsListResponse".to_string());
 
         gen.add_schema::<ApiKeyStatusResponse>("ApiKeyStatusResponse");
         registered.insert("ApiKeyStatusResponse".to_string());
@@ -910,6 +926,8 @@ pub mod type_registry {
         registered.insert("ListVideosBySeasonRequest".to_string());
         gen.add_schema::<ListVideosUnattachedRequest>("ListVideosUnattachedRequest");
         registered.insert("ListVideosUnattachedRequest".to_string());
+        gen.add_schema::<ListVideoExtrasRequest>("ListVideoExtrasRequest");
+        registered.insert("ListVideoExtrasRequest".to_string());
         gen.add_schema::<DeleteVideoRequest>("DeleteVideoRequest");
         registered.insert("DeleteVideoRequest".to_string());
         gen.add_schema::<BulkDeleteVideosRequest>("BulkDeleteVideosRequest");

@@ -16,16 +16,27 @@ import {
 } from "../../app/services/radio/radioHistory";
 import { getClientForRemote } from "../../app/api/client";
 import { getRemoteByPeerAddr } from "../../app/services/remotes/remoteManager";
+import { getTauriManagedRemote } from "../../app/services/remotes/remoteManager";
 import { resolveBlobUrl } from "../services/storage/blobResolver";
-import type { RadioHistoryEntry } from "../../app/services/storage/types";
+import type { RadioHistoryEntry, RemoteRef } from "../../app/services/storage/types";
 import { setHighlightedSongId } from "../state/highlightedSong";
 import { debug } from "../../utils/logger";
+import { routes } from "../utils/routing";
 
 const PAGE_SIZE = 50;
 
 interface RadioHistoryListProps {
   /** optional station filter; pass `null` to show all stations. */
   stationId?: string | null;
+  /** the SAME station-grouping remote reference `StationDetailPanel` already
+   *  resolves for `RadioQueueList` (via `sourceToRemoteRef(station.source)`)
+   *  - authoritative for "which remote hosts this station's library", unlike
+   *  reverse-resolving from a history entry's own `peer_addr` (the peer that
+   *  served the STREAM, which can coincidentally match an unrelated saved
+   *  remote, e.g. a paired cenotaph player). omitted when showing all
+   *  history across every station, where there's no single remote to use. */
+  remoteRef?: RemoteRef;
+  remoteId?: string;
 }
 
 export function RadioHistoryList(props: RadioHistoryListProps) {
@@ -33,7 +44,7 @@ export function RadioHistoryList(props: RadioHistoryListProps) {
   const [entries, setEntries] = createSignal<RadioHistoryEntry[]>([]);
   const [loading, setLoading] = createSignal(false);
   const [exhausted, setExhausted] = createSignal(false);
-  const [total, setTotal] = createSignal(0);
+  const [, setTotal] = createSignal(0);
   const [confirmingClear, setConfirmingClear] = createSignal(false);
   const [resolvedThumbUrls, setResolvedThumbUrls] = createStore<Record<string, string>>({});
   // cache of inline-thumb blob URLs keyed by entry id; revoked on cleanup.
@@ -145,12 +156,19 @@ export function RadioHistoryList(props: RadioHistoryListProps) {
   );
 
   // reset + reload when the station filter changes so the detail
-  // view always shows the right station's history.
+  // view always shows the right station's history. guarded against the
+  // caller's `stationId` prop being reactively re-derived (from a
+  // station-list refresh) to the SAME id via a freshly-allocated object
+  // upstream - without this, every unrelated re-render this effect
+  // happens to observe would blow away and reload the whole list, an
+  // unmistakable "history blinks" symptom despite nothing actually
+  // changing.
   createEffect(
     on(
       () => props.stationId,
-      () => {
+      (stationId, prevStationId) => {
         if (!hasLoadedFirstPage) return;
+        if (stationId === prevStationId) return;
         setEntries([]);
         setExhausted(false);
         void loadFirstPage();
@@ -232,6 +250,23 @@ export function RadioHistoryList(props: RadioHistoryListProps) {
     });
   };
 
+  // prefer the station-scoped remote (see RadioHistoryListProps.remoteRef's
+  // doc comment) - only fall back to reverse-resolving from the entry's own
+  // peer_addr when viewing all history with no single station selected.
+  const resolveHistoryRemote = async (
+    e: RadioHistoryEntry
+  ): Promise<{ remoteId: string; ref: RemoteRef } | null> => {
+    if (props.remoteRef && props.remoteId) {
+      return { remoteId: props.remoteId, ref: props.remoteRef };
+    }
+    if (!e.peer_addr) {
+      return null;
+    }
+    const byPeerAddr = await getRemoteByPeerAddr(e.peer_addr);
+    const remote = byPeerAddr ?? (await getTauriManagedRemote());
+    return remote ? { remoteId: remote.remote_id, ref: remote } : null;
+  };
+
   const resolveRemoteSongTargets = async (
     e: RadioHistoryEntry
   ): Promise<{
@@ -239,15 +274,16 @@ export function RadioHistoryList(props: RadioHistoryListProps) {
     albumId?: string;
     artistId?: string;
   } | null> => {
-    if (!e.peer_addr) return null;
-    const remote = await getRemoteByPeerAddr(e.peer_addr);
-    if (!remote) return null;
+    const resolved = await resolveHistoryRemote(e);
+    if (!resolved) {
+      return null;
+    }
 
-    const base = { remoteId: remote.remote_id };
+    const base = { remoteId: resolved.remoteId };
     if (!e.song_id) return base;
 
     try {
-      const client = await getClientForRemote(remote);
+      const client = await getClientForRemote(resolved.ref);
       const result = await client.music.querySongs({
         q: null,
         search_fields: null,
@@ -276,30 +312,46 @@ export function RadioHistoryList(props: RadioHistoryListProps) {
   };
 
   const openSongView = async (e: RadioHistoryEntry) => {
-    if (!e.song_id) return;
+    if (!e.song_id) {
+      return;
+    }
     const targets = await resolveRemoteSongTargets(e);
-    if (!targets?.remoteId || !targets.albumId) return;
+    if (!targets?.remoteId || !targets.albumId) {
+      return;
+    }
     setHighlightedSongId(e.song_id);
-    navigate(
-      `/${targets.remoteId}/albums/${encodeURIComponent(targets.albumId)}?song_id=${encodeURIComponent(e.song_id)}`
-    );
+    const path = `/${targets.remoteId}/albums/${encodeURIComponent(targets.albumId)}?song_id=${encodeURIComponent(e.song_id)}`;
+    navigate(path);
   };
 
   const openArtistView = async (e: RadioHistoryEntry) => {
     const targets = await resolveRemoteSongTargets(e);
-    if (!targets?.remoteId || !targets.artistId) return;
-    navigate(`/${targets.remoteId}/artists/${encodeURIComponent(targets.artistId)}`);
+    if (!targets?.remoteId || !targets.artistId) {
+      return;
+    }
+    const path = `/${targets.remoteId}/artists/${encodeURIComponent(targets.artistId)}`;
+    navigate(path);
+  };
+
+  /** video entries store the video's own id in `song_id` - same
+   *  overloaded-field convention `PublicNowPlaying`/`RadioTrack` use on
+   *  the wire (see grimoire's `radio::playlist::RadioTrack` doc comment). */
+  const openVideoView = async (e: RadioHistoryEntry) => {
+    if (!e.song_id) {
+      return;
+    }
+    const resolved = await resolveHistoryRemote(e);
+    if (!resolved) {
+      return;
+    }
+    const path = routes.videoDetailOn(resolved.remoteId, e.song_id);
+    navigate(path);
   };
 
   return (
     <div class="flex flex-col gap-2 w-full">
       <header class="flex items-center justify-between px-1">
-        <div class="text-xs uppercase tracking-wide text-neutral-500">
-          history
-          <Show when={total() > 0}>
-            <span class="ml-2 text-neutral-600 normal-case">{total()}</span>
-          </Show>
-        </div>
+        <div class="text-xs uppercase tracking-wide text-neutral-500">history</div>
         <Show when={entries().length > 0}>
           <button
             class="text-xs px-2 py-0.5 rounded border border-neutral-700 hover:border-neutral-500 hover:bg-neutral-800"
@@ -324,19 +376,19 @@ export function RadioHistoryList(props: RadioHistoryListProps) {
         <ul class="flex flex-col gap-1">
           <For each={entries()}>
             {(e) => {
-              const thumb = buildThumbUrl(e) ?? resolvedThumbUrls[e.id] ?? null;
+              const thumb = () => buildThumbUrl(e) ?? resolvedThumbUrls[e.id] ?? null;
               return (
                 <li class="flex items-center gap-3 p-2 rounded hover:bg-neutral-900/50">
                   <div class="flex-shrink-0 w-10 h-10 rounded bg-gradient-to-br from-purple-700 to-indigo-900 flex items-center justify-center overflow-hidden">
                     <Show
-                      when={thumb}
+                      when={thumb()}
                       fallback={
                         <span class="text-[8px] font-bold tracking-widest opacity-60 text-white">
                           radio
                         </span>
                       }
                     >
-                      <img src={thumb!} alt="" class="w-full h-full object-cover" />
+                      <img src={thumb()!} alt="" class="w-full h-full object-cover" />
                     </Show>
                   </div>
                   <div class="flex-1 min-w-0">
@@ -347,9 +399,11 @@ export function RadioHistoryList(props: RadioHistoryListProps) {
                           !!e.song_id,
                       }}
                       onClick={() => {
-                        void openSongView(e);
+                        void (e.kind === "video" ? openVideoView(e) : openSongView(e));
                       }}
-                      title={e.song_id ? "open album" : undefined}
+                      title={
+                        e.song_id ? (e.kind === "video" ? "open video" : "open album") : undefined
+                      }
                     >
                       {e.title}
                     </div>
@@ -357,12 +411,13 @@ export function RadioHistoryList(props: RadioHistoryListProps) {
                       <span
                         classList={{
                           "cursor-pointer hover:underline decoration-[1px] underline-offset-2":
-                            !!e.song_id,
+                            e.kind !== "video" && !!e.song_id,
                         }}
                         onClick={() => {
+                          if (e.kind === "video") return;
                           void openArtistView(e);
                         }}
-                        title={e.song_id ? "open artist" : undefined}
+                        title={e.kind !== "video" && e.song_id ? "open artist" : undefined}
                       >
                         {e.artist ?? "unknown artist"}
                       </span>

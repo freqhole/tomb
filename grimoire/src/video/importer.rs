@@ -196,6 +196,9 @@ pub async fn import_video_file(
         title,
         description: None,
         media_blob_id: media_blob_id.to_string(),
+        // the filename scanner has no way to detect a movie/extras
+        // relationship - always attached manually after import.
+        parent_video_id: None,
         poster_blob_id: None,
         duration_seconds: props.duration_seconds,
         release_date: None,
@@ -359,6 +362,8 @@ pub async fn import_video_file(
                 updated_by: created_by.clone(),
                 clear_series_id: false,
                 clear_season_id: false,
+                parent_video_id: None,
+                clear_parent_video_id: false,
             })
             .await;
             if update_resp.success {
@@ -675,6 +680,8 @@ pub async fn reprocess_video(
             updated_by: updated_by.clone(),
             clear_series_id: false,
             clear_season_id: false,
+            parent_video_id: None,
+            clear_parent_video_id: false,
         })
         .await;
         if !update_resp.success {

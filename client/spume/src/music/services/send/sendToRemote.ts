@@ -49,10 +49,14 @@ const {
   SyncPlaylistResponseSchema,
   SyncSongByBlake3ResponseSchema,
 } = schema;
-import { getTransportForRemote, isP2PTransportType } from "../../../app/api/client";
-import { extractNodeIdStrict } from "../../../app/services/remotes/peerAddr";
-import { getLocalNodeId } from "../../../app/services/charnel";
+import { getTransportForRemote } from "../../../app/api/client";
 import { isP2PRemote, type Remote } from "../../../app/services/storage/schemas/remote";
+import {
+  isValidSendDestination,
+  resolveSourceNodeId,
+  checkBlobsPresentOnDest,
+  peerUnauthorizedMessage,
+} from "../../../app/services/send/sendValidation";
 import { debug, info, warn, error as logError } from "../../../utils/logger";
 import type { RemoteSong } from "../../data/remote/adapters";
 import type { ImageMetadata } from "../storage/types";
@@ -277,8 +281,7 @@ export async function sendToRemote(
   emit();
 
   // validate transports + node id up front.
-  const destOk = isP2PTransportType(dest) || dest.is_charnel_managed === true;
-  if (!destOk) {
+  if (!isValidSendDestination(dest)) {
     logError(
       TAG,
       `${lp} invalid dest transport: dest=${dest.remote_id} is_charnel=${dest.is_charnel_managed}`
@@ -288,13 +291,7 @@ export async function sendToRemote(
       progress
     );
   }
-  let sourceNodeId: string | null = null;
-  if (isP2PRemote(source)) {
-    sourceNodeId = extractNodeIdStrict(source.peer_addr);
-  }
-  if (!sourceNodeId && source.is_charnel_managed) {
-    sourceNodeId = getLocalNodeId();
-  }
+  const sourceNodeId = resolveSourceNodeId(source);
   if (!sourceNodeId) {
     logError(
       TAG,
@@ -336,29 +333,10 @@ export async function sendToRemote(
   // optional pre-check: ask dest which blobs it already has.
   let alreadyPresent: Set<string> = new Set();
   if (skipExisting && eligibleSongs.length > 0) {
-    try {
-      const blake3s = eligibleSongs.map((s) => s.blake3 as string);
-      debug(TAG, `${lp} POST /api/blobz/has (${blake3s.length} hashes)`);
-      const resp = await destTransport.request(
-        "POST",
-        "/api/blobz/has",
-        JSON.stringify({ blake3s })
-      );
-      debug(TAG, `${lp} /api/blobz/has -> http ${resp.status}`);
-      if (resp.status >= 200 && resp.status < 300) {
-        const rawJson = JSON.parse(resp.body) as { data?: unknown };
-        const inner = rawJson?.data ?? rawJson;
-        const parsed = HasBlobsResponseSchema.safeParse(inner);
-        if (parsed.success) {
-          alreadyPresent = new Set(parsed.data.blake3s_present);
-          info(TAG, `${lp} dest already has ${alreadyPresent.size}/${blake3s.length} blobs`);
-        } else {
-          warn(TAG, `${lp} /api/blobz/has returned invalid shape: ${parsed.error.message}`);
-        }
-      }
-    } catch (e) {
-      warn(TAG, `${lp} /api/blobz/has pre-check failed: ${String(e)}`);
-    }
+    const blake3s = eligibleSongs.map((s) => s.blake3 as string);
+    debug(TAG, `${lp} POST /api/blobz/has (${blake3s.length} hashes)`);
+    alreadyPresent = await checkBlobsPresentOnDest(destTransport, blake3s, TAG, lp);
+    info(TAG, `${lp} dest already has ${alreadyPresent.size}/${blake3s.length} blobs`);
   }
 
   // ---- ALBUM envelope + images ----
@@ -533,9 +511,7 @@ export async function sendToRemote(
       progress.failedBlake3s.push(blake3);
       const et = e instanceof EnvelopeError ? e.errorType : undefined;
       if (et === "peer_unauthorized") {
-        progress.errors.unshift(
-          `access required: ${source.name ?? "source"} has not authorized ${dest.name ?? "dest"} — an access request was sent automatically. accept it on ${source.name ?? "the source"}, then retry the send.`
-        );
+        progress.errors.unshift(peerUnauthorizedMessage(source, dest));
         logError(
           TAG,
           `${lp} song sync blocked by peer_unauthorized for "${song.title}" (${shortHash}); knock sent by dest.`

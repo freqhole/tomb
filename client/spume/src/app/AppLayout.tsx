@@ -228,6 +228,23 @@ interface AppLayoutProps {
   children?: JSX.Element;
 }
 
+// `queue_max_progress` is bumped on the currently-playing song every ~5s
+// during playback (queueProgress.ts's saveProgressToIDB flush) - nothing
+// this comparison feeds (PlayerBar, queue rows) displays that field, so
+// treat two songs as "the same" for display purposes when only it differs.
+// keeps `currentSongData()` reference-stable across those flushes instead
+// of handing every subscriber (barSong(), MediaImage, etc.) a brand-new
+// object every few seconds while something is playing.
+function sameSongForDisplay(a: Song, b: Song): boolean {
+  if (a === b) return true;
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)]) as Set<keyof Song>;
+  keys.delete("queue_max_progress");
+  for (const key of keys) {
+    if (a[key] !== b[key]) return false;
+  }
+  return true;
+}
+
 export function AppLayout(props: AppLayoutProps) {
   const navigate = useNavigate();
   const location = useLocation();
@@ -605,6 +622,16 @@ export function AppLayout(props: AppLayoutProps) {
   const canAdminSkipRadioTrack = createMemo(() => {
     const station = currentRadioStation();
     if (!station?.station_id) return false;
+    // a request station spends real, common stretches of time genuinely
+    // idle ("waiting for requests…" between tracks) - the broadcaster
+    // correctly rejects a skip with "no active track to skip" then, but
+    // this button had no way to know that and stayed enabled regardless,
+    // producing a confusing error on click. `song_id` is empty by
+    // construction for every idle/interstitial placeholder (see
+    // grimoire's announce_idle/announce_interstitial) and non-empty for
+    // any real track - the same reliable signal already used to fix
+    // now-playing's own apply timing.
+    if (!radioNowPlaying()?.song_id?.trim()) return false;
     if (station.is_local) return isCharnelMode();
     const remoteId = radioCurrentRemoteServerId();
     if (!remoteId) return false;
@@ -865,7 +892,9 @@ export function AppLayout(props: AppLayoutProps) {
       }
       if (itemInQueue?.kind === "song") {
         setCurrentVideoData(null);
-        setCurrentSongData(itemInQueue.song);
+        setCurrentSongData((prev) =>
+          prev && sameSongForDisplay(prev, itemInQueue.song) ? prev : itemInQueue.song
+        );
         // keep a local artist's images fresh when streaming from a remote,
         // so the playerbar's artist-image fallback also works for remote
         // plays (already works for local-library plays). no-ops entirely

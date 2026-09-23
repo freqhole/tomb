@@ -2404,6 +2404,105 @@ impl MiddenNode {
         self.download_verified(peer_addr, blake3_hash).await
     }
 
+    /// download a blob DIRECTLY into this node's own OPFS-backed store,
+    /// without ever reading the bytes back out to return to JS - the
+    /// wasm-side counterpart of grimoire's
+    /// `pull_blob_to_local_store_with_ensure`;
+    /// `download_verified` above already downloads into
+    /// `self.blobs_store` (the SAME store this node serves blobs FROM)
+    /// before wastefully reading it back out into a `Uint8Array` - once
+    /// the download loop below completes, the blob is already locally
+    /// servable and there is nothing left to do. use this whenever the
+    /// caller only needs the blob to become locally servable (e.g.
+    /// cenotaph's controller relaying a song/video to a paired player)
+    /// rather than actually reading the bytes in JS.
+    pub async fn download_verified_to_store(
+        &self,
+        peer_addr: &str,
+        blake3_hash: &str,
+    ) -> Result<(), JsError> {
+        let addr =
+            parse_peer_addr(peer_addr, &self.own_relay_urls).map_err(|e| JsError::new(&e))?;
+
+        let hash: Hash = blake3_hash
+            .parse()
+            .map_err(|e| JsError::new(&format!("invalid blake3 hash: {}", e)))?;
+
+        // protect from gc for the whole download lifecycle
+        let _guard = ProtectGuard::new(self.protected_hashes.clone(), hash);
+
+        let hash_and_format = HashAndFormat::raw(hash);
+        let progress = self.blobs_downloader.download(hash_and_format, [addr.id]);
+
+        use iroh_blobs::api::downloader::DownloadProgressItem;
+        use n0_future::StreamExt;
+
+        let mut stream = progress
+            .stream()
+            .await
+            .map_err(|e| JsError::new(&format!("download stream failed: {}", e)))?;
+
+        let mut had_error = false;
+        let mut last_error: Option<String> = None;
+
+        while let Some(event) = stream.next().await {
+            match &event {
+                DownloadProgressItem::Error(e) => {
+                    had_error = true;
+                    last_error = Some(format!("{:?}", e));
+                }
+                DownloadProgressItem::DownloadError => {
+                    had_error = true;
+                    last_error = Some("download error".to_string());
+                }
+                _ => {}
+            }
+        }
+
+        if had_error {
+            return Err(JsError::new(&format!(
+                "download failed: {}",
+                last_error.unwrap_or_else(|| "unknown error".to_string())
+            )));
+        }
+
+        Ok(())
+    }
+
+    /// `download_verified_to_store` with automatic ensure + retry -
+    /// mirrors `download_verified_with_ensure`'s structure exactly, minus
+    /// the materialization step.
+    pub async fn download_verified_to_store_with_ensure(
+        &self,
+        peer_addr: &str,
+        blake3_hash: &str,
+    ) -> Result<(), JsError> {
+        match self
+            .download_verified_to_store(peer_addr, blake3_hash)
+            .await
+        {
+            Ok(()) => return Ok(()),
+            Err(e) => {
+                warn!(
+                    "download_verified_to_store_with_ensure: first attempt failed for {}, calling ensure_blob: {:?}",
+                    &blake3_hash[..16.min(blake3_hash.len())],
+                    e
+                );
+            }
+        }
+
+        let available = self.ensure_blob(peer_addr, blake3_hash).await?;
+        if !available {
+            return Err(JsError::new(&format!(
+                "blob {} not available on peer",
+                &blake3_hash[..16.min(blake3_hash.len())]
+            )));
+        }
+
+        self.download_verified_to_store(peer_addr, blake3_hash)
+            .await
+    }
+
     /// download with ensure + retry and progress reporting.
     ///
     /// tries download first; if blob not in peer's FsStore, calls ensure_blob

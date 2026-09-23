@@ -404,10 +404,11 @@ export async function resolveMediaRefToVideo(item: MediaRef): Promise<QueuedVide
     // has nothing for this hash.
     const full = await fetchFullVideoFromSource(remote, item.blake3_hash);
     const queuedVideo: QueuedVideo = full
-      ? // grimoire's wire `Video` type has no `blake3` field at all (see
-        // the charnel-branch comment below) - re-attach the hash we
-        // already know from the wire `MediaRef` so `syncVideoViaCharnel`'s
-        // "prefer an already-known hash" optimization applies here too.
+      ? // grimoire's wire `Video` type now carries its own `blake3` (migration
+        // 084) but re-assert the hash we already know from the wire
+        // `MediaRef` anyway as defense-in-depth (covers a not-yet-backfilled
+        // blob) so `syncVideoViaCharnel`'s "prefer an already-known hash"
+        // optimization always has one to use.
         { ...full, blake3: item.blake3_hash }
       : {
           id: item.blake3_hash,
@@ -436,14 +437,14 @@ export async function resolveMediaRefToVideo(item: MediaRef): Promise<QueuedVide
     if (isCharnelAvailable()) {
       if (!syncResult.videoId) return null;
       const local = await getLocalVideoById(syncResult.videoId);
-      // grimoire's wire `Video` type has no `blake3` field at all (unlike
-      // `Song`, which does carry one) - `getLocalVideoById`'s read-back
-      // can never recover it, so it must be re-attached here from the
-      // wire `MediaRef`'s own value. without this, every charnel-resolved
-      // video silently lost its content hash, breaking both
-      // controller-side queue drain and this player's own already-queued
-      // dedup (`currentQueueHashes()` in `charnelPlaybackAdapter.ts`),
-      // since both match by `mediaItemBlake3()`.
+      // grimoire's wire `Video` type now carries its own `blake3` (migration
+      // 084, mirrors `Song`) - re-asserting it from the wire `MediaRef`'s
+      // own value here is defense-in-depth (covers a not-yet-backfilled
+      // blob), not the only source of truth anymore. without SOME value
+      // here, a charnel-resolved video would lose its content hash,
+      // breaking both controller-side queue drain and this player's own
+      // already-queued dedup (`currentQueueHashes()` in
+      // `charnelPlaybackAdapter.ts`), since both match by `mediaItemBlake3()`.
       return local ? { ...local, blake3: item.blake3_hash } : null;
     }
 

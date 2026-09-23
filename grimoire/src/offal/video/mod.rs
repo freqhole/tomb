@@ -68,6 +68,7 @@ pub async fn dispatch(
         "/api/video/videos/list-unattached" => {
             Some(videos::list_unattached(caller, body.clone()).await)
         }
+        "/api/video/videos/list-extras" => Some(videos::list_extras(caller, body.clone()).await),
         "/api/video/videos/update" => Some(videos::update(caller, body.clone()).await),
         "/api/video/videos/delete" => Some(videos::delete(caller, body.clone()).await),
         "/api/video/videos/bulk-delete" => Some(videos::bulk_delete(caller, body.clone()).await),

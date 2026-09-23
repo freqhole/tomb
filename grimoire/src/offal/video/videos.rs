@@ -12,7 +12,7 @@ use crate::response::GrimoireResponse;
 use crate::users::UserRole;
 use crate::video::{
     bulk_delete_videos as grimoire_bulk_delete_videos, create_video,
-    delete_video as grimoire_delete_video, get_video, get_video_with_metadata,
+    delete_video as grimoire_delete_video, get_video, get_video_with_metadata, list_video_extras,
     list_videos_by_season, list_videos_by_series, list_videos_unattached,
     query_videos as grimoire_query_videos, reprocess_video as grimoire_reprocess_video,
     update_videos as grimoire_update_videos, CreateVideoRequest, UpdateVideosRequest,
@@ -42,6 +42,12 @@ pub struct ListVideosBySeasonRequest {
 pub struct ListVideosUnattachedRequest {
     pub limit: Option<u32>,
     pub offset: Option<u32>,
+}
+
+/// request for listing a movie's "extras" (see `Video::parent_video_id`)
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct ListVideoExtrasRequest {
+    pub parent_video_id: String,
 }
 
 /// request for deleting a video
@@ -176,6 +182,15 @@ pub const ROUTES: &[RouteInfo] = &[
         method: Method::POST,
         domain: Domain::Video,
         request_type: "ListVideosUnattachedRequest",
+        response_type: "Vec<Video>",
+        auth: RouteAuth::Authenticated,
+    },
+    RouteInfo {
+        name: "list_video_extras",
+        path: "/api/video/videos/list-extras",
+        method: Method::POST,
+        domain: Domain::Video,
+        request_type: "ListVideoExtrasRequest",
         response_type: "Vec<Video>",
         auth: RouteAuth::Authenticated,
     },
@@ -369,6 +384,28 @@ pub async fn list_unattached(_caller: &Caller, body: JsonValue) -> GrimoireRespo
     };
 
     let response = list_videos_unattached(req.limit, req.offset).await;
+    response.map(|data| serde_json::to_value(data).unwrap())
+}
+
+/// list a movie's "extras" (see `Video::parent_video_id`)
+///
+/// path: POST /api/video/videos/list-extras
+pub async fn list_extras(_caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
+    let req: ListVideoExtrasRequest = match serde_json::from_value(body) {
+        Ok(r) => r,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "bad request",
+                vec![ErrorDetail::new(
+                    "bad_request",
+                    "bad request",
+                    e.to_string(),
+                )],
+            )
+        }
+    };
+
+    let response = list_video_extras(&req.parent_video_id).await;
     response.map(|data| serde_json::to_value(data).unwrap())
 }
 

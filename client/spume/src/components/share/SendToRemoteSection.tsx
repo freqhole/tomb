@@ -12,7 +12,16 @@
 // list before sending). while it loads we render a "preparing..."
 // indicator inline; nothing blocks the modal's other sections.
 
-import { createMemo, createResource, createSignal, For, Show, type Component } from "solid-js";
+import {
+  createMemo,
+  createResource,
+  createSignal,
+  For,
+  onCleanup,
+  onMount,
+  Show,
+  type Component,
+} from "solid-js";
 import { toast } from "../feedback/Toast";
 import { Icon, IconNames } from "../icons/registry";
 import {
@@ -35,6 +44,18 @@ import {
   type SendVideoPayload,
   type SendVideoProgress,
 } from "../../video/services/send/sendVideoToRemote";
+import {
+  blobTransfers,
+  startUploadTransferPolling,
+} from "../../app/services/transfers/blobTransferRegistry";
+import {
+  clearTransferQueue,
+  createTransferQueue,
+  transferQueues,
+  type TransferQueue,
+  type TransferQueueItem,
+  type TransferQueueItemContext,
+} from "../../app/services/transfers/transferQueue";
 import { resolveBlobUrl } from "../../music/services/storage/blobResolver";
 import { isCharnelMode } from "../../app/services/charnel";
 import { isP2PRemote, type Remote } from "../../app/services/storage/schemas/remote";
@@ -99,6 +120,21 @@ interface DestEntry {
 export const SendToRemoteSection: Component<SendToRemoteSectionProps> = (props) => {
   const candidates = createCandidateDestinations({
     sourceRemoteId: () => props.source.remote_id,
+  });
+
+  // this device is the SOURCE (serving side) for every destination a send
+  // targets, local or remote alike - no cross-network report-back is
+  // needed for transfer progress, since bucket A's registry already
+  // mirrors get_active_transfers() (wasm) for exactly this - just needed
+  // something to actually start polling while a send can be in flight,
+  // which nothing did before this.
+  onMount(() => {
+    const stop = startUploadTransferPolling();
+    onCleanup(stop);
+  });
+  onCleanup(() => {
+    const id = currentQueueId();
+    if (id) clearTransferQueue(id);
   });
 
   // resolve the payload eagerly — the modal user can be confident the
@@ -181,108 +217,129 @@ export const SendToRemoteSection: Component<SendToRemoteSectionProps> = (props) 
     return out;
   });
 
-  const [activeDestId, setActiveDestId] = createSignal<string | null>(null);
-  const [progress, setProgress] = createSignal<AnyProgress | null>(null);
-  const [lastResult, setLastResult] = createSignal<{
-    destId: string;
-    destName: string;
-    progress: AnyProgress;
-  } | null>(null);
+  // ONE lifecycle/status source of truth per send attempt (a fresh
+  // single-item queue per click - initial send or retry), replacing the
+  // old activeDestId/lastResult signal pair: `currentQueue()?.done` and
+  // the item's own `status` say everything "is a send running" /
+  // "did it finish, how" used to require reasoning about two separately-
+  // toggled signals for. `lastProgress` stays a plain signal alongside it
+  // - it just caches the richest available `AnyProgress` snapshot for
+  // rendering (item counts, per-item errors), including the LAST snapshot
+  // seen before a hard failure, which bucket B's own item.result doesn't
+  // retain on the failed path.
+  const [currentQueueId, setCurrentQueueId] = createSignal<string | null>(null);
+  const currentQueue = createMemo(() => {
+    const id = currentQueueId();
+    return id ? (transferQueues().get(id) as TransferQueue<AnyProgress> | undefined) : undefined;
+  });
+  const currentItem = createMemo(() => currentQueue()?.items[0]);
+  const [lastProgress, setLastProgress] = createSignal<AnyProgress | null>(null);
+  const activeDestId = () =>
+    currentQueue() && !currentQueue()!.done ? (currentItem()?.id ?? null) : null;
 
-  const runForDest = async (entry: DestEntry, retryBlake3s?: string[]) => {
+  const runForDest = (entry: DestEntry, retryBlake3s?: string[]) => {
     const p = payload();
     if (!p) {
       toast.error("payload not ready yet");
       return;
     }
-    setActiveDestId(entry.id);
-    setLastResult(null);
-    setProgress(
-      p.kind === "video"
-        ? {
-            phase: "preparing",
-            totalVideos: 0,
-            syncedVideos: 0,
-            skippedVideos: 0,
-            failedVideos: 0,
-            errors: [],
-            syncedBlake3s: [],
-            failedBlake3s: [],
-          }
-        : {
-            phase: "preparing",
-            totalSongs: 0,
-            syncedSongs: 0,
-            skippedSongs: 0,
-            failedSongs: 0,
-            errors: [],
-            syncedBlake3s: [],
-            failedBlake3s: [],
-          }
-    );
+    const prevId = currentQueueId();
+    if (prevId) clearTransferQueue(prevId);
+    setLastProgress(null);
     const destName = entry.name;
-    try {
-      let final: AnyProgress;
-      if (p.kind === "video") {
+
+    const onProgress = (pp: AnyProgress, ctx: TransferQueueItemContext) => {
+      setLastProgress(pp);
+      const c = progressCounts(pp);
+      if (c.total === 0) {
+        ctx.reportProgress(0);
+        return;
+      }
+      const done = c.synced + c.skipped + c.failed;
+      // in-flight byte-level bonus from bucket A's registry, capped at
+      // "one whole item's worth of credit" - fills the gap between two
+      // item-count ticks, never pushes done above the still-in-progress
+      // item's own count.
+      const blake3s = probeBlake3s();
+      let bonus = 0;
+      if (blake3s) {
+        const transfers = blobTransfers();
+        for (const b3 of blake3s) {
+          const t = transfers.get(b3);
+          if (t?.direction === "upload" && t.bytesTotal && t.bytesTotal > 0) {
+            bonus += t.bytesTransferred / t.bytesTotal;
+          }
+        }
+      }
+      ctx.reportProgress(Math.min(1, (done + Math.min(1, bonus)) / c.total));
+      ctx.reportLabel(`${pp.phase} ${done}/${c.total}`);
+    };
+
+    const queueId = createTransferQueue<DestEntry, AnyProgress>({
+      kind: "share-modal-send",
+      destName,
+      items: [entry],
+      itemId: (item) => item.id,
+      itemLabel: () => destName,
+      sendOne: async (_item, ctx) => {
         // no send-to-local-browser-library counterpart for video yet -
         // only the synthetic browser-local row (no `.candidate`) lacks a
         // real destination remote to sync to; a charnel-managed "local"
         // entry has a real (p2p-eligible) remote and works normally.
-        if (!entry.candidate) {
-          toast.error("sending videos to the local browser library isn't supported yet");
-          setActiveDestId(null);
-          setProgress(null);
+        if (p.kind === "video" && !entry.candidate) {
+          return { error: "sending videos to the local browser library isn't supported yet" };
+        }
+        let final: AnyProgress;
+        if (p.kind === "video") {
+          const videos = retryBlake3s
+            ? p.videos.filter((v) => v.blake3 && retryBlake3s.includes(v.blake3))
+            : p.videos;
+          final = await sendVideosToRemote(videos, props.source, entry.candidate!.remote, {
+            onProgress: (pp) => onProgress(pp, ctx),
+          });
+        } else if (entry.isLocal && entry.id === LOCAL_BROWSER_ID) {
+          final = await sendToLocalLibrary(p, props.source, {
+            onProgress: (pp) => onProgress(pp, ctx),
+            retryBlake3s,
+          });
+        } else {
+          final = await sendToRemote(p, props.source, entry.candidate!.remote, {
+            onProgress: (pp) => onProgress(pp, ctx),
+            retryBlake3s,
+          });
+        }
+        return { result: final };
+      },
+      onDone: (queue) => {
+        const item = queue.items[0];
+        if (item.status === "failed") {
+          toast.error(`send to ${destName} failed: ${item.error}`);
           return;
         }
-        const videos = retryBlake3s
-          ? p.videos.filter((v) => v.blake3 && retryBlake3s.includes(v.blake3))
-          : p.videos;
-        final = await sendVideosToRemote(videos, props.source, entry.candidate.remote, {
-          onProgress: (pp) => setProgress(pp),
-        });
-      } else if (entry.isLocal && entry.id === LOCAL_BROWSER_ID) {
-        final = await sendToLocalLibrary(p, props.source, {
-          onProgress: (pp) => setProgress(pp),
-          retryBlake3s,
-        });
-      } else {
-        final = await sendToRemote(p, props.source, entry.candidate!.remote, {
-          onProgress: (pp) => setProgress(pp),
-          retryBlake3s,
-        });
-      }
-      // only report counts that actually happened - a summary like
-      // "0 synced, 0 skipped, 3 failed" is just noise around the one
-      // number that matters.
-      const counts = progressCounts(final);
-      const parts: string[] = [];
-      if (counts.synced > 0) parts.push(`${counts.synced} synced`);
-      if (counts.skipped > 0) parts.push(`${counts.skipped} skipped`);
-      if (counts.failed > 0) parts.push(`${counts.failed} failed`);
-      const summary = `sent to ${destName}: ${parts.length > 0 ? parts.join(", ") : "nothing to sync"}`;
-      if (counts.failed > 0) toast.warning(summary);
-      else toast.success(summary);
-      setLastResult({ destId: entry.id, destName, progress: final });
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      toast.error(`send to ${destName} failed: ${msg}`);
-      const snapshot = progress();
-      if (snapshot) setLastResult({ destId: entry.id, destName, progress: snapshot });
-    } finally {
-      setActiveDestId(null);
-      setProgress(null);
-    }
+        // only report counts that actually happened - a summary like
+        // "0 synced, 0 skipped, 3 failed" is just noise around the one
+        // number that matters.
+        const counts = progressCounts(item.result ?? lastProgress()!);
+        const parts: string[] = [];
+        if (counts.synced > 0) parts.push(`${counts.synced} synced`);
+        if (counts.skipped > 0) parts.push(`${counts.skipped} skipped`);
+        if (counts.failed > 0) parts.push(`${counts.failed} failed`);
+        const summary = `sent to ${destName}: ${parts.length > 0 ? parts.join(", ") : "nothing to sync"}`;
+        if (counts.failed > 0) toast.warning(summary);
+        else toast.success(summary);
+      },
+    });
+    setCurrentQueueId(queueId);
   };
 
-  const handleSend = (entry: DestEntry) => void runForDest(entry);
+  const handleSend = (entry: DestEntry) => runForDest(entry);
   const handleRetryFailed = () => {
-    const last = lastResult();
-    if (!last) return;
-    const failed = last.progress.failedBlake3s;
-    if (failed.length === 0) return;
-    const entry = destinations().find((e) => e.id === last.destId);
+    const item = currentItem();
+    const snapshot = lastProgress();
+    if (!item || !snapshot || snapshot.failedBlake3s.length === 0) return;
+    const entry = destinations().find((e) => e.id === item.id);
     if (!entry) return;
-    void runForDest(entry, failed);
+    runForDest(entry, snapshot.failedBlake3s);
   };
 
   return (
@@ -290,11 +347,11 @@ export const SendToRemoteSection: Component<SendToRemoteSectionProps> = (props) 
       <section class="space-y-3">
         <div class="flex items-center justify-between gap-2">
           <h3 class="text-sm font-semibold text-[var(--color-text-primary)]">send to remote</h3>
-          <Show when={lastResult() && !activeDestId()}>
+          <Show when={currentQueue()?.done && lastProgress() && !activeDestId()}>
             <button
               type="button"
               class="text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]"
-              onClick={() => setLastResult(null)}
+              onClick={() => setCurrentQueueId(null)}
             >
               start over
             </button>
@@ -314,16 +371,17 @@ export const SendToRemoteSection: Component<SendToRemoteSectionProps> = (props) 
         </Show>
 
         {/* RESULTS VIEW: rendered after a run completes (success or failure). */}
-        <Show when={lastResult() && !activeDestId()}>
+        <Show when={currentQueue()?.done && lastProgress() && !activeDestId()}>
           {(() => {
-            const r = lastResult()!;
-            const p = r.progress;
+            const destName = currentQueue()!.destName;
+            const p = lastProgress()!;
             const counts = progressCounts(p);
-            const ok = counts.failed === 0 && p.phase !== "failed";
+            const ok =
+              currentItem()?.status !== "failed" && counts.failed === 0 && p.phase !== "failed";
             return (
               <div class="space-y-2 text-sm border border-[var(--color-border-default)] rounded-md p-3">
                 <div class="text-[var(--color-text-primary)]">
-                  <span class="font-medium">{r.destName}</span>
+                  <span class="font-medium">{destName}</span>
                 </div>
                 <div class="text-xs text-[var(--color-text-secondary)] space-y-0.5">
                   <div>
@@ -374,7 +432,7 @@ export const SendToRemoteSection: Component<SendToRemoteSectionProps> = (props) 
         </Show>
 
         {/* LIST VIEW: default + during an active run. */}
-        <Show when={!lastResult() || activeDestId()}>
+        <Show when={!(currentQueue()?.done && lastProgress()) || activeDestId()}>
           <ul class="space-y-1">
             <For each={destinations()}>
               {(entry) => (
@@ -386,7 +444,7 @@ export const SendToRemoteSection: Component<SendToRemoteSectionProps> = (props) 
                   mediaLabel={mediaLabel}
                   isActive={() => activeDestId() === entry.id}
                   anyActive={() => !!activeDestId()}
-                  progress={progress}
+                  item={() => (activeDestId() === entry.id ? currentItem() : undefined)}
                   onSend={() => handleSend(entry)}
                 />
               )}
@@ -406,7 +464,7 @@ interface DestinationRowProps {
   mediaLabel: () => string;
   isActive: () => boolean;
   anyActive: () => boolean;
-  progress: () => AnyProgress | null;
+  item: () => TransferQueueItem<AnyProgress> | undefined;
   onSend: () => void;
 }
 
@@ -445,14 +503,12 @@ const DestinationRow: Component<DestinationRowProps> = (props) => {
   const imageUrl = createImageUrl(props.entry);
   const [imgError, setImgError] = createSignal(false);
   const showImg = () => !!imageUrl() && !imgError();
-  const pct = () => {
-    const prog = props.progress();
-    if (!prog) return 0;
-    const c = progressCounts(prog);
-    if (c.total === 0) return 0;
-    const done = c.synced + c.skipped + c.failed;
-    return Math.min(100, Math.round((done / c.total) * 100));
-  };
+
+  // `item().progress` already carries the blended item-count + bucket-A
+  // in-flight-byte fraction (folded in once, upstream, at the point
+  // where the send callback reports it - see SendToRemoteSection's
+  // `onProgress`), so this row just displays it as a percentage.
+  const pct = () => Math.round((props.item()?.progress ?? 0) * 100);
 
   return (
     <li>
@@ -504,17 +560,14 @@ const DestinationRow: Component<DestinationRowProps> = (props) => {
                 </div>
               </div>
             </div>
-            <Show when={props.isActive() && props.progress()}>
+            <Show when={props.isActive() && props.item()}>
               <span class="text-xs text-[var(--color-text-secondary)] whitespace-nowrap">
-                {props.progress()!.phase} {progressCounts(props.progress()!).synced}/
-                {progressCounts(props.progress()!).total}
+                {props.item()!.label}
               </span>
             </Show>
           </div>
         </div>
-        <Show
-          when={props.isActive() && props.progress() && progressCounts(props.progress()!).total > 0}
-        >
+        <Show when={props.isActive() && props.item()}>
           <div class="h-1 w-full bg-[var(--color-bg-tertiary)] overflow-hidden">
             <div
               class="h-full bg-[var(--color-accent,_currentColor)] transition-[width] duration-150"

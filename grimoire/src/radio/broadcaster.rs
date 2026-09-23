@@ -42,6 +42,13 @@ const SKIP_REQUEST_COOLDOWN_MS: i64 = 5_000;
 /// avoids a redundant transition right as a track is already ending.
 const SKIP_TAIL_IGNORE_MS: i64 = 10_000;
 
+/// how often `wait_for_request` re-checks a request-only station's queue
+/// while idle. polling (not a `Notify`) keeps this decoupled from the
+/// request registry's own lock lifetime - the queue is tiny and
+/// rarely-touched, so a short interval is both simple and plenty
+/// responsive for "pick up the next request shortly after it's submitted".
+const REQUEST_WAIT_POLL_INTERVAL: Duration = Duration::from_secs(2);
+
 /// shifts pace_origin backward at the start of EVERY track (not just
 /// after an admin skip - generalized per
 /// docs/radio-buffering-retune-plan.md's "feed the ring from the
@@ -79,6 +86,22 @@ const ENCODER_WARMUP_TIMEOUT_MULTIPLE: u32 = 2;
 /// `MIN_RING_CHUNKS` clamp) doesn't produce an unreasonably short
 /// timeout.
 const ENCODER_WARMUP_TIMEOUT_FLOOR: Duration = Duration::from_secs(10);
+
+/// permanent steady-state lead the pacer maintains over strict real
+/// time, on top of the one-time warm-up burst. without this, steady-
+/// state pacing tracks real time exactly (see `pace_origin`'s own doc
+/// comment) - the warm-up burst is a ONE-TIME head start that a listener
+/// who stays tuned in slowly spends down (each stall-recovery seek uses
+/// some of it) with nothing to replenish it, eventually leaving only a
+/// razor-thin, easily-exhausted margin for the rest of a long session.
+/// shifting `pace_origin` earlier by a fixed amount makes every
+/// subsequent target that much earlier too - since the pacer now paces
+/// off each chunk's REAL measured duration (see `cumulative_media_ms`),
+/// the release RATE already exactly matches real content, so this
+/// constant offset doesn't decay over time the way it would have
+/// against the old nominal-frag_ms-based schedule - it's a genuine,
+/// permanent cushion, not just a bigger one-time burst.
+const STEADY_STATE_LEAD_MS: u64 = 20_000;
 
 /// ffmpeg lavfi source used as the "video" for a song played on a mixed
 /// station - see `play_track`'s `synthesize_still_video` branch. always
@@ -312,6 +335,25 @@ impl Broadcaster {
     /// spawned as a background task after each track boundary so upcoming
     /// items are ready for timeline_snapshot() calls during the current song.
     async fn refill_planner(self: &Arc<Self>, seed_anchor_song_id: Option<String>) {
+        // request-accepting stations must never speculatively pop MORE
+        // than one item ahead - popping into this planner's own internal
+        // `plan` buffer silently drains items out of the member-visible
+        // request queue (crate::radio::requests) before they're actually
+        // about to play, which both hides them from radio_list_requests
+        // and looks like requests are being reordered ("shuffled") - the
+        // planner's own buffer is still FIFO internally, it just no
+        // longer matches what list()/the UI shows once several items get
+        // pulled ahead of time in one shot. a request-only station is
+        // exactly the case where ONE-at-a-time, just-in-time picking
+        // (consume_planner_head's own empty-plan fallback branch,
+        // `pick_for_station`, which re-checks accepts_requests and pops
+        // exactly one real item right when it's needed) is both correct
+        // and sufficient.
+        let accepts_requests = self.station_accepts_requests().await;
+        if accepts_requests {
+            return;
+        }
+
         self.sync_plan_mode().await;
 
         let (existing_ids, current_count, horizon_end_from_plan) = {
@@ -498,13 +540,20 @@ impl Broadcaster {
         let next = self.listener_count.fetch_add(1, Ordering::Relaxed) + 1;
         if next == 1 {
             self.listener_notify.notify_waiters();
+            let station_id = self.station_id.clone();
+            tokio::spawn(async move { crate::radio::requests::mark_active(&station_id).await });
         }
         next
     }
 
     pub fn leave(&self) -> u32 {
         let prev = self.listener_count.fetch_sub(1, Ordering::Relaxed);
-        prev.saturating_sub(1)
+        let next = prev.saturating_sub(1);
+        if next == 0 {
+            let station_id = self.station_id.clone();
+            tokio::spawn(async move { crate::radio::requests::mark_idle(&station_id).await });
+        }
+        next
     }
 
     pub fn listener_count(&self) -> u32 {
@@ -620,6 +669,22 @@ impl Broadcaster {
                 continue;
             }
 
+            // request-only stations must not silently fall back to
+            // filter-based/shuffle picking once their queue empties -
+            // "no requests queued" is a deliberate stop-and-wait state
+            // for these stations, not "play something else in the
+            // meantime". `wait_for_request` re-checks both conditions
+            // (still accepting requests, still has a listener) as it
+            // polls, so toggling either off while waiting unsticks it.
+            if self.station_accepts_requests().await
+                && crate::radio::requests::list(&self.station_id)
+                    .await
+                    .is_empty()
+            {
+                self.wait_for_request().await;
+                continue;
+            }
+
             let force_new_album = self.force_new_album_pick.swap(false, Ordering::Relaxed);
 
             // consume from planner if available; fall back to a direct pick.
@@ -689,6 +754,45 @@ impl Broadcaster {
                 return;
             }
             self.listener_notify.notified().await;
+        }
+    }
+
+    /// true when this station currently has `accepts_requests` set.
+    /// shared by `run()`'s empty-queue check and `refill_planner`'s own
+    /// lookahead skip, so both places agree on exactly the same lookup.
+    async fn station_accepts_requests(&self) -> bool {
+        matches!(
+            stations::get_station(&self.station_id).await,
+            Ok(Some(s)) if s.accepts_requests != 0
+        )
+    }
+
+    /// block until a request-only station's queue has something in it
+    /// again (or the wait should stop for another reason - no listeners
+    /// left, or requests were turned off while waiting). called from
+    /// `run()` instead of falling through to filter-based picking, which
+    /// would otherwise silently start shuffling library content the
+    /// moment the last queued request plays out.
+    async fn wait_for_request(&self) {
+        self.announce_idle("waiting for requests…").await;
+        info!(
+            "[radio-broadcaster] station {} accepts requests but its queue is empty; waiting",
+            self.station_id
+        );
+        loop {
+            if self.listener_count() == 0 {
+                return;
+            }
+            if !crate::radio::requests::list(&self.station_id)
+                .await
+                .is_empty()
+            {
+                return;
+            }
+            if !self.station_accepts_requests().await {
+                return;
+            }
+            tokio::time::sleep(REQUEST_WAIT_POLL_INTERVAL).await;
         }
     }
 
@@ -975,6 +1079,7 @@ impl Broadcaster {
             seq: init_seq,
             is_init: true,
             bytes: first.bytes,
+            duration_ms: None,
         });
 
         // stamp the track start *before* publishing the init chunk so
@@ -1072,11 +1177,38 @@ impl Broadcaster {
         // ALL of that already-produced lead is emitted immediately
         // (target < now) rather than only releasing part of it and
         // trickling the rest out at real-time cadence despite it
-        // already existing.
+        // already existing. also shifts back by `STEADY_STATE_LEAD_MS`
+        // (see its own doc comment) so the schedule keeps a permanent
+        // cushion ahead of strict real time, not just this one-time
+        // burst.
         let pace_origin = started
-            .checked_sub(Duration::from_millis(warmup_chunks_ready * frag_ms))
+            .checked_sub(Duration::from_millis(
+                warmup_chunks_ready * frag_ms + STEADY_STATE_LEAD_MS,
+            ))
             .unwrap_or(started);
         let mut media_chunks_emitted: u64 = 0;
+        // cumulative REAL media duration emitted so far, per-chunk from
+        // `Chunk::duration_ms` (falling back to the nominal `frag_ms` for
+        // any chunk whose fragment structure couldn't be parsed) - paces
+        // off this instead of `media_chunks_emitted * frag_ms`, which
+        // assumed every fragment covers exactly `frag_ms` of real media.
+        // real fragments don't always land exactly on that nominal value
+        // (sample-duration quantization etc); pacing off an assumption
+        // that's persistently even slightly wrong compounds over a whole
+        // track into the client's ahead-of-playhead cushion eroding away
+        // and eventually stalling, even though delivery stays perfectly
+        // on the server's own schedule the whole time.
+        let mut cumulative_media_ms: u64 = 0;
+        // wall-clock instant the previous chunk was actually sent (after
+        // any pacing wait) - lets the per-chunk diagnostic log below
+        // report the REAL measured gap between sends, directly comparable
+        // to the client's own `avg`/`p95_chunk_gap_ms` session-summary
+        // metric, instead of only the pacer's intended target.
+        let mut last_chunk_sent_at: Option<Instant> = None;
+        // how many chunks had a real parsed duration vs fell back to the
+        // nominal frag_ms - purely a diagnostic (logged at track end
+        // below), doesn't affect pacing itself.
+        let mut chunks_with_parsed_duration: u32 = 0;
         // real-time-factor diagnostic: counts fragments the encoder
         // delivered a full frag_ms (or more) behind the pacer's schedule -
         // see the warn! at the point of detection below for what this
@@ -1136,12 +1268,43 @@ impl Broadcaster {
             match next {
                 Ok(None) => break None,
                 Ok(Some(chunk)) => {
+                    // this chunk's real media duration, captured before
+                    // `chunk.bytes` moves into the outgoing `Arc<Chunk>`
+                    // below - falls back to the nominal frag_ms when the
+                    // fragment's own structure couldn't be parsed.
+                    let this_chunk_ms = match chunk.duration_ms {
+                        Some(ms) => {
+                            chunks_with_parsed_duration += 1;
+                            ms as u64
+                        }
+                        None => frag_ms,
+                    };
+                    // a fragment's real duration landing FAR off nominal
+                    // (not the routine +/-10ms AAC-frame-count rounding
+                    // seen on almost every fragment) is itself worth
+                    // flagging loudly - it directly causes a matching
+                    // pacing jolt (this chunk's own release, and the
+                    // NEXT chunk's target, both shift by the same
+                    // amount), which is a concrete, measurable stall
+                    // trigger distinct from the routine small quantization
+                    // drift the cumulative-duration pacing above already
+                    // absorbs smoothly.
+                    let deviation_ms = this_chunk_ms as i64 - frag_ms as i64;
+                    if deviation_ms.unsigned_abs() > frag_ms / 5 {
+                        warn!(
+                            "[radio-pacer] station {} seq={} anomalous fragment duration: \
+                             this_chunk_ms={this_chunk_ms} vs nominal frag_ms={frag_ms} \
+                             (deviation={deviation_ms}ms) - this alone shifts this chunk's \
+                             own release and every later chunk's target by the same amount",
+                            self.station_id,
+                            self.next_seq.load(Ordering::Relaxed)
+                        );
+                    }
                     // pace: wait until this chunk's audio "starts" before
                     // pushing it. the buffered encoder has likely already
                     // produced the next several chunks; that backlog is
                     // exactly the crash-recovery cushion we want.
-                    let target =
-                        pace_origin + Duration::from_millis(media_chunks_emitted * frag_ms);
+                    let target = pace_origin + Duration::from_millis(cumulative_media_ms);
                     let now = Instant::now();
                     if target > now {
                         // wake on skip too — admins shouldn't have to wait
@@ -1213,11 +1376,70 @@ impl Broadcaster {
                         }
                     }
 
+                    // runtime-scheduling jitter: how much LATER than the
+                    // intended `target` this task actually woke up and
+                    // resumed, distinct from either a fragment-duration
+                    // anomaly or the encoder falling behind - this is the
+                    // tokio runtime itself not polling this task promptly
+                    // (e.g. contention from other concurrent work), which
+                    // would shift this chunk's ACTUAL send time even with
+                    // perfectly accurate pacing math above it. chunks
+                    // still inside the warm-up burst region are EXPECTED
+                    // to "wake up late" relative to `target` (their
+                    // `target` is deliberately backdated into the past by
+                    // `pace_origin`'s own doc comment above, so the burst
+                    // dumps immediately) - checking this for them isn't a
+                    // real scheduling signal, it's just measuring how deep
+                    // the intentional burst backdating was, same reasoning
+                    // as the "encoder behind schedule" check below.
+                    let woke_at = Instant::now();
+                    let scheduling_jitter_ms =
+                        woke_at.saturating_duration_since(target).as_millis();
+                    if media_chunks_emitted >= warmup_chunks_ready && scheduling_jitter_ms > 50 {
+                        warn!(
+                            "[radio-pacer] station {} seq-to-be={} woke up {scheduling_jitter_ms}ms \
+                             later than its pacing target - the tokio runtime didn't poll this \
+                             task promptly (other concurrent work contending for it), not a \
+                             fragment-duration or encoder-throughput issue",
+                            self.station_id,
+                            self.next_seq.load(Ordering::Relaxed)
+                        );
+                    }
+
                     let seq = self.next_seq.fetch_add(1, Ordering::Relaxed);
+                    // loud, unthrottled per-chunk pacing diagnostic - the
+                    // single log line to check to confirm real-duration
+                    // pacing is actually active in a running build (vs a
+                    // stale one) and to correlate server-side timing
+                    // directly against the client's own chunk-gap/media-
+                    // growth session-summary numbers. `send_gap_ms` is the
+                    // REAL measured wall-clock gap since the previous
+                    // chunk was sent - this is the server-side number that
+                    // should track the client's `chunk_gap_ms`; if it
+                    // stays pinned at `frag_ms` regardless of
+                    // `this_chunk_ms`, the fix isn't actually changing the
+                    // release cadence despite parsing succeeding.
+                    let send_now = woke_at;
+                    let _send_gap_ms =
+                        last_chunk_sent_at.map(|t| send_now.duration_since(t).as_millis());
+                    let _nominal_cumulative_ms = (media_chunks_emitted + 1) * frag_ms;
+                    let _new_cumulative_ms = cumulative_media_ms + this_chunk_ms;
+                    // info!(
+                    //     "[radio-pacer] station {} seq={seq} duration_ms={:?} \
+                    //      this_chunk_ms={this_chunk_ms} send_gap_ms={send_gap_ms:?} \
+                    //      cumulative_media_ms={new_cumulative_ms} \
+                    //      nominal_cumulative_ms={nominal_cumulative_ms} \
+                    //      drift_vs_nominal_ms={} scheduling_jitter_ms={scheduling_jitter_ms}",
+                    //     self.station_id,
+                    //     chunk.duration_ms,
+                    //     new_cumulative_ms as i64 - nominal_cumulative_ms as i64
+                    // );
+                    last_chunk_sent_at = Some(send_now);
                     let arc = Arc::new(Chunk {
                         seq,
                         is_init: false,
                         bytes: chunk.bytes,
+                        duration_ms: chunk.duration_ms,
                     });
                     {
                         let mut s = self.state.write().await;
@@ -1228,6 +1450,7 @@ impl Broadcaster {
                     }
                     let _ = self.chunk_tx.send(arc);
                     media_chunks_emitted += 1;
+                    cumulative_media_ms += this_chunk_ms;
                 }
                 Err(e) => break Some(e),
             }
@@ -1263,24 +1486,15 @@ impl Broadcaster {
             "[radio-broadcaster] station {} song finished: {} ({} chunks, {} behind-schedule events)",
             self.station_id, track.title, media_chunks_emitted, encoder_behind_schedule_events
         );
-        // direct, whole-track confirmation (or refutation) of the
-        // "fragments represent less real media time than frag_ms
-        // assumes" hypothesis - temporary, for tuning
-        // docs/radio-buffering-retune-plan.md's chronic-stall
-        // investigation. if a track's real duration is known, compare
-        // it against `media_chunks_emitted * frag_ms` (what the pacing
-        // math IMPLICITLY assumes the total content duration was, given
-        // how many chunks it took): if the implied total is
-        // meaningfully LARGER than the track's real duration, it took
-        // MORE chunks to encode the same real content than a clean
-        // frag_ms-per-chunk assumption predicts - i.e. each chunk
-        // represents LESS than frag_ms of real media on average. this
-        // sidesteps needing to parse per-fragment mp4 box timestamps
-        // (tfdt/trun) entirely by using the one whole-track duration
-        // ground truth already on hand.
+        // whole-track confirmation that the pacer's cumulative REAL
+        // media duration (summed per-chunk, see `cumulative_media_ms`'s
+        // own doc comment above) actually matches the track's known real
+        // duration - any residual drift here now only reflects chunks
+        // whose fragment structure couldn't be parsed (falling back to
+        // the nominal frag_ms), not the systematic per-fragment
+        // shortfall this pacer rework was meant to eliminate.
         if let Some(real_duration_ms) = track.duration_ms {
-            let implied_total_ms = media_chunks_emitted as i64 * frag_ms as i64;
-            let drift_ms = implied_total_ms - real_duration_ms;
+            let drift_ms = cumulative_media_ms as i64 - real_duration_ms;
             let drift_pct = if real_duration_ms > 0 {
                 (drift_ms as f64 / real_duration_ms as f64) * 100.0
             } else {
@@ -1288,10 +1502,9 @@ impl Broadcaster {
             };
             info!(
                 "[radio-broadcaster] station {} fragment-duration check for '{}': \
-                 real_duration={real_duration_ms}ms, implied_total ({media_chunks_emitted} \
-                 chunks * frag_ms={frag_ms}ms)={implied_total_ms}ms, drift={drift_ms}ms \
-                 ({drift_pct:.1}%) - positive drift means fragments are shorter than \
-                 frag_ms on average (more chunks needed than the nominal math predicts)",
+                 real_duration={real_duration_ms}ms, cumulative_media_ms={cumulative_media_ms}ms \
+                 ({chunks_with_parsed_duration}/{media_chunks_emitted} chunks had a parsed \
+                 duration), drift={drift_ms}ms ({drift_pct:.1}%)",
                 self.station_id, track.title
             );
         }
@@ -1395,6 +1608,7 @@ pub async fn init_registry() -> GrimoireResult<()> {
             play_mode: None,
             timeline_only_mode: None,
             content_mode: None,
+            accepts_requests: None,
         })
         .await?;
         stations_rows = vec![seed];

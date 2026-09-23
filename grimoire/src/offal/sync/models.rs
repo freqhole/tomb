@@ -309,6 +309,17 @@ pub struct SyncVideoByBlake3Request {
     pub season_number: Option<i64>,
     #[serde(default)]
     pub season_title: Option<String>,
+    /// content hash of the source's parent movie (see `Video::parent_video_id`),
+    /// when this video is an "extra" attached to one - NEVER the source's raw
+    /// `parent_video_id` itself, which is a foreign, meaningless-locally db id.
+    /// the destination resolves this to its own
+    /// local video id by matching `media_blob_blake3` (mirrors the
+    /// series/season title-based resolution above); when the parent hasn't
+    /// synced/imported to the destination yet, it's stashed as
+    /// `pending_parent_blake3` (migration 087) and linked retroactively the
+    /// first time that movie does land locally.
+    #[serde(default)]
+    pub parent_blake3: Option<String>,
     /// poster/thumbnail images for the video itself
     #[serde(default)]
     pub video_images: Vec<SyncImageRef>,

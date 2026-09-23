@@ -24,7 +24,7 @@ use crate::radio::protocol::{read_control_message, write_chunk, write_control_me
 use crate::radio::stations::get_station;
 use iroh::endpoint::{Connection, SendStream};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::sync::broadcast::error::RecvError;
 use tokio::sync::mpsc;
 use tracing::{info, warn};
@@ -32,6 +32,38 @@ use tracing::{info, warn};
 /// optional heartbeat cadence. lets clients detect a wedged uni stream
 /// while the control stream stays alive over QUIC keepalives.
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5);
+
+/// how long a single `write_chunk` call may take before it's flagged as
+/// suspiciously slow - loopback/local QUIC writes should complete in low
+/// single-digit milliseconds; anything crossing this is either genuine
+/// QUIC flow-control backpressure (the peer isn't reading fast enough) or
+/// OS-level scheduling contention, either of which delays delivery
+/// independent of how accurately the broadcaster paced the send.
+const SLOW_WRITE_THRESHOLD: Duration = Duration::from_millis(200);
+
+/// write one chunk and log loudly if the write itself took suspiciously
+/// long - isolates transport-level delay from the broadcaster's own
+/// pacing, which by this point has already decided WHEN to send.
+async fn write_chunk_timed(
+    stream: &mut SendStream,
+    chunk: &Chunk,
+    station_id: &str,
+    context: &str,
+) -> GrimoireResult<()> {
+    let started = Instant::now();
+    let result = write_chunk(stream, chunk).await;
+    let elapsed = started.elapsed();
+    if elapsed >= SLOW_WRITE_THRESHOLD {
+        warn!(
+            "[radio-handler] station {station_id} slow write_chunk ({context}): seq={} \
+             bytes={} took {elapsed:?} - QUIC flow-control backpressure (peer not reading \
+             fast enough) or OS scheduling contention, not a pacing issue",
+            chunk.seq,
+            chunk.bytes.len()
+        );
+    }
+    result
+}
 
 /// logs how deep a catchup burst was (chunk count + equivalent seconds)
 /// on every tune/lag-reprime - correlates against the client's own
@@ -240,11 +272,11 @@ async fn run_session(conn: &Connection) -> GrimoireResult<()> {
 
         // 5. write current init + catchup chunks.
         if let Some(init) = sub.init.as_ref() {
-            write_chunk(&mut audio_send, init).await?;
+            write_chunk_timed(&mut audio_send, init, &station_id, "tune-init").await?;
         }
         log_catchup_depth(&station_id, "tune", sub.catchup.len());
         for chunk in &sub.catchup {
-            write_chunk(&mut audio_send, chunk).await?;
+            write_chunk_timed(&mut audio_send, chunk, &station_id, "tune-catchup").await?;
         }
 
         let bc_audio = bc.clone();
@@ -316,7 +348,7 @@ async fn forward_audio(
 ) -> GrimoireResult<SessionEnd> {
     loop {
         match rx.recv().await {
-            Ok(chunk) => write_chunk(send, &chunk).await?,
+            Ok(chunk) => write_chunk_timed(send, &chunk, bc.station_id(), "steady-state").await?,
             Err(RecvError::Lagged(n)) => {
                 // we fell behind by `n` chunks. tell the client where to
                 // resume by reading the broadcaster's current init seq.
@@ -332,11 +364,11 @@ async fn forward_audio(
                 // catchup ring so the listener can pick up immediately
                 // without reconnecting.
                 if let Some(init) = sub.init.as_ref() {
-                    write_chunk(send, init).await?;
+                    write_chunk_timed(send, init, bc.station_id(), "lag-reprime-init").await?;
                 }
                 log_catchup_depth(bc.station_id(), "lag-reprime", sub.catchup.len());
                 for chunk in &sub.catchup {
-                    write_chunk(send, chunk).await?;
+                    write_chunk_timed(send, chunk, bc.station_id(), "lag-reprime-catchup").await?;
                 }
                 // swap in the fresh receiver so subsequent recvs aren't
                 // immediately lagged on the same buffer.

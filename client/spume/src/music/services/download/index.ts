@@ -23,6 +23,7 @@ export {
   addToLoadingSet,
   updateLoadingProgress,
   removeFromLoadingSet,
+  withLoadingProgress,
 
   // in-progress tracking
   isDownloadInProgress,

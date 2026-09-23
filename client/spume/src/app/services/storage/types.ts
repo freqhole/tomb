@@ -280,6 +280,11 @@ export interface RadioHistoryEntry {
   station_id: string | null;
   station_name: string | null;
   peer_addr: string; // remote that served the stream
+  /** "song" | "video" - mirrors `PublicNowPlaying.kind`; `song_id` holds a
+   *  video's id when this is "video" (same overloaded-field convention the
+   *  wire protocol itself uses). undefined on rows recorded before this
+   *  field existed - treat as "song". */
+  kind?: "song" | "video";
   song_id: string | null;
   title: string;
   artist: string | null;

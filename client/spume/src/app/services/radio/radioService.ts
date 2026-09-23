@@ -68,6 +68,10 @@ function stopQueueModeAdapter(): void {
   queueAdapter?.stopQueueModeAdapter();
 }
 
+// periodic "[radio] session summary" console logging - flip to true only
+// while actively chasing a buffering issue; noisy for normal listening.
+const RADIO_DIAGNOSTICS_ENABLED = false;
+
 // fallback only - the real codec for a SourceBuffer always comes from
 // the station's own Hello.codec (see applyHello), which may differ for
 // a video-carrying station. used only if Hello is somehow missing one.
@@ -97,6 +101,21 @@ const hasMSE =
     typeof (window as unknown as { MediaSource?: unknown }).MediaSource === "function") ||
   managedMediaSourceCtor !== null;
 
+// dumps every disjoint buffered range (not just the overall first-start/
+// last-end envelope) - a chronic-stall investigation found the recovery
+// logic's "start(0)/end(length-1)" envelope assumption can badly
+// misdescribe reality whenever `buffered` holds more than one range (a
+// gap), so every stall/recovery/eviction log below includes this instead
+// of guessing from the envelope alone.
+function describeBufferedRanges(ranges: TimeRanges): string {
+  if (ranges.length === 0) return "(empty)";
+  const parts: string[] = [];
+  for (let i = 0; i < ranges.length; i++) {
+    parts.push(`${ranges.start(i).toFixed(2)}-${ranges.end(i).toFixed(2)}`);
+  }
+  return parts.join(",");
+}
+
 export type RadioStatus = "idle" | "connecting" | "playing" | "paused" | "error";
 
 interface RadioSession {
@@ -124,7 +143,35 @@ let pausedContext: PausedContext | null = null;
 // module-level singletons. only one radio session at a time.
 const [status, setStatus] = createSignal<RadioStatus>("idle");
 const [error, setError] = createSignal<string | null>(null);
-const [nowPlaying, setNowPlaying] = createSignal<PublicNowPlaying | null>(null);
+// custom `equals`: several call sites below (applyHello/applyMeta's
+// "refresh for the track already showing" branch in particular) call
+// setNowPlaying(np) with a BRAND NEW parsed object on every periodic
+// keepalive/refresh meta message, even when the track hasn't actually
+// changed - without this, every downstream reader (barSong() -> PlayerBar
+// -> MediaImage, radio history/queue rows, etc) sees a fresh reference on
+// that same cadence and re-renders/re-resolves for no reason (the exact
+// "flashes every few seconds while playing" bug already fixed once for
+// the local queue's own equivalent churn - see
+// /memories/repo/tomb-spume-appstate-identity-churn-flicker.md).
+function sameNowPlaying(a: PublicNowPlaying | null, b: PublicNowPlaying | null): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return (
+    a.song_id === b.song_id &&
+    a.title === b.title &&
+    a.artist === b.artist &&
+    a.album === b.album &&
+    a.art_blob_id === b.art_blob_id &&
+    a.waveform_blob_id === b.waveform_blob_id &&
+    a.audio_blob_id === b.audio_blob_id &&
+    a.duration_ms === b.duration_ms &&
+    a.art_thumb_b64 === b.art_thumb_b64 &&
+    a.art_thumb_mime === b.art_thumb_mime
+  );
+}
+const [nowPlaying, setNowPlaying] = createSignal<PublicNowPlaying | null>(null, {
+  equals: sameNowPlaying,
+});
 // blob URL for the current track's inline album art (Hello/Meta `art` field).
 // null when the track has no art or it hasn't been received yet. revoked
 // whenever a new url replaces it so we don't leak URL.createObjectURL refs.
@@ -147,11 +194,11 @@ const [connectPhase, setConnectPhase] = createSignal<string>("");
 // user; reset on every track transition. null = unknown / not yet
 // fetched (also covers "no registered remote for this peer" case where
 // we can't talk to a favorites endpoint at all).
-// conservative buffering (slower resync triggers, bigger stall-recovery
-// baseline — see STALL_RECOVERY_BASELINE_MS et al below) defaults on
-// now: nothing ever called setRadioStabilityMode to flip this true, so
-// every listener has always run on the smaller/tighter baseline
-// regardless of link quality.
+// conservative buffering (slower resync triggers, bigger initial-ready
+// threshold - see `minReadyToStartMs()` below) defaults on now: nothing
+// ever called setRadioStabilityMode to flip this true, so every
+// listener has always run on the smaller/tighter baseline regardless of
+// link quality.
 const [stabilityMode, setStabilityMode] = createSignal<boolean>(true);
 const [modeCapabilities, setModeCapabilities] = createSignal<RadioModeCapability[]>([]);
 const [timelineSeedActive, setTimelineSeedActive] = createSignal<boolean>(false);
@@ -304,6 +351,7 @@ export function isRadioPlayerBarActive(): boolean {
 
 export function recordCurrentRadioTrackHistory(track: {
   songId: string | null;
+  kind: "song" | "video";
   title: string;
   artist?: string | null;
   album?: string | null;
@@ -314,8 +362,7 @@ export function recordCurrentRadioTrackHistory(track: {
 }): void {
   const songId = track.songId?.trim() ? track.songId.trim() : null;
   const np = {
-    // history recording only handles songs today - see plan doc.
-    kind: "song",
+    kind: track.kind,
     song_id: songId ?? "",
     title: track.title,
     artist: track.artist ?? null,
@@ -334,7 +381,7 @@ export function recordCurrentRadioTrackHistory(track: {
 
   lastConfirmedHistoryTrackKey = track.historyKey;
   setCurrentFavorite(null);
-  if (songId) {
+  if (songId && track.kind === "song") {
     void fetchRadioFavorite(songId, peerAddr);
   }
 
@@ -342,6 +389,7 @@ export function recordCurrentRadioTrackHistory(track: {
     station_id: currentStationId(),
     station_name: activeSession?.stationName ?? pausedContext?.stationName ?? null,
     peer_addr: peerAddr,
+    kind: track.kind,
     song_id: songId,
     title: track.title,
     artist: track.artist ?? null,
@@ -643,6 +691,8 @@ export function leaveRadio(): void {
     setError(null);
     setNowPlaying(null);
     swapArtUrl(null);
+    lastArtRawKey = null;
+    lastArtRawUrl = null;
     setListenerCount(0);
     setCurrentPeerAddr(null);
     setCurrentStationId(null);
@@ -677,6 +727,36 @@ function swapArtUrl(next: string | null): void {
     }
   }
   setArtUrl(next);
+}
+
+// `art_thumb_b64`/`art_thumb_mime` on `now_playing` get re-sent verbatim on
+// every periodic keepalive/refresh meta message for the SAME track, not
+// just on a real track change (see applyMeta's "refresh for the track
+// already showing" branch) - `artUrlFromRaw` itself always mints a brand
+// new `URL.createObjectURL()` string on every call, even for byte-for-byte
+// identical art, so calling it unconditionally on every such refresh swaps
+// `artUrl()` to a genuinely different (but visually identical) blob url
+// each time, forcing every `<img src>` reader to reload - the "art
+// thumbnail flashes every few seconds while playing" bug. this caches by
+// the raw (mime, base64 data) pair and only mints a new object url when
+// that pair actually changes.
+let lastArtRawKey: string | null = null;
+let lastArtRawUrl: string | null = null;
+function resolveArtUrl(raw: unknown): string | null {
+  const meta = rawArtMetaFrom(raw);
+  if (!meta) {
+    lastArtRawKey = null;
+    lastArtRawUrl = null;
+    return null;
+  }
+  const key = `${meta.mime}:${meta.data}`;
+  if (key === lastArtRawKey && lastArtRawUrl) {
+    return lastArtRawUrl;
+  }
+  const url = artUrlFromRaw(raw);
+  lastArtRawKey = key;
+  lastArtRawUrl = url;
+  return url;
 }
 
 interface TuneOptions {
@@ -737,6 +817,7 @@ function maybeRecordImmediateMetaHistory(
 
   recordCurrentRadioTrackHistory({
     songId,
+    kind: np.kind === "video" ? "video" : "song",
     title: np.title,
     artist: np.artist ?? null,
     album: np.album ?? null,
@@ -996,7 +1077,9 @@ export async function tuneIntoRadio(
   // design (see docs/radio-buffering-retune-plan.md's MSE quota notes).
   let quotaErrorCount = 0;
   let resyncCount = 0;
-  let maxLiveEdgeBufferMs = 0;
+  // worst (smallest) ahead-of-playhead cushion observed at any stall -
+  // a direct, honest measurement instead of a separately-tracked target.
+  let minAheadS: number | null = null;
   const chunkGapSamplesMs: number[] = [];
   let chunkGapSumMs = 0;
   let lastChunkAtMs: number | null = null;
@@ -1084,13 +1167,19 @@ export async function tuneIntoRadio(
           resync_count: resyncCount,
           sourcebuffer_reset_count: sourceBufferResetCount,
           quota_error_count: quotaErrorCount,
-          max_live_edge_buffer_ms: maxLiveEdgeBufferMs,
+          min_ahead_s: minAheadS === null ? null : Math.round(minAheadS * 10) / 10,
           distance_from_live_edge_s: distanceFromLiveEdgeS,
           avg_chunk_gap_ms: Math.round(avgChunkGapMs),
           p95_chunk_gap_ms: Math.round(p95ChunkGapMs),
           avg_media_growth_per_chunk_ms: Math.round(avgMediaGrowthMs),
           p95_media_growth_per_chunk_ms: Math.round(p95MediaGrowthMs),
           queue_depth: queue.length,
+          // ground truth for the "was this actually a thin-buffer stall,
+          // a real gap in `buffered`, or a throttled/backgrounded tab"
+          // question - see describeBufferedRanges' doc comment.
+          buffered_ranges: sb ? describeBufferedRanges(sb.buffered) : "(no sb)",
+          document_visibility: typeof document !== "undefined" ? document.visibilityState : "n/a",
+          watchdog_tick_delay_ms: Date.now() - lastWatchdogWallClockMs,
         })
       );
     }, 30_000);
@@ -1102,12 +1191,22 @@ export async function tuneIntoRadio(
     }
   };
 
-  // how far behind currentTime we keep buffered media before evicting.
-  // bounded so the SourceBuffer doesn't grow unbounded across tracks
-  // and eventually trip MSE's per-element quota (which manifests as
-  // appendBuffer throwing QuotaExceededError mid-stream).
-  const BUFFER_BEHIND_LIMIT_S = 30;
-  const BUFFER_BEHIND_TARGET_S = 10;
+  // diagnostic-only threshold - see the removed opportunistic-eviction
+  // writeup in docs/radio-buffering-retune-plan.md for why this file no
+  // longer calls `sb.remove()` on its own: the eviction diagnostics
+  // added to chase chronic stalls showed every single stall in a real
+  // session immediately followed one of these `remove()` calls, with a
+  // consistent ~0.5s gap appearing right where the surviving range
+  // should have continued - `remove()` on a "sequence"-mode SourceBuffer
+  // appears to disrupt where the NEXT appended chunk gets placed. MSE
+  // requires browsers to evict on their own before throwing
+  // QuotaExceededError anyway, and an audio-only (or even video) radio
+  // station's bitrate is nowhere near the quota that would require IT
+  // to be evicted with tighter margins than the browser's own default -
+  // so this is now purely informational (logs once if a session's
+  // buffered span grows implausibly large; takes no action).
+  const REASONABLE_BUFFER_SPAN_S = 1800; // 30 minutes
+  let warnedOversizedBuffer = false;
   const drain = () => {
     if (!isActiveTune()) return;
     if (!canStream) return;
@@ -1151,17 +1250,25 @@ export async function tuneIntoRadio(
       // computing it earlier (at arrival) could be wrong by however much
       // backlog was still queued ahead of this chunk at the time -
       // exactly the case a burst of catchup chunks creates.
-      if (next.isInit && pendingMeta.has(next.seq)) {
-        const m = pendingMeta.get(next.seq)!;
-        pendingMeta.delete(next.seq);
-        if (useTimelineMode() || sb.buffered.length === 0) {
-          applyPendingTrackMeta(m, next.seq);
-        } else {
-          pendingTrackBoundaries.push({
-            seq: next.seq,
-            boundaryTime: sb.buffered.end(sb.buffered.length - 1),
-            data: m,
-          });
+      if (next.isInit) {
+        const boundaryTime = sb.buffered.length > 0 ? sb.buffered.end(sb.buffered.length - 1) : 0;
+        initChunkBoundaries.set(next.seq, boundaryTime);
+        if (initChunkBoundaries.size > 50) {
+          const oldestKey = initChunkBoundaries.keys().next().value;
+          if (oldestKey !== undefined) initChunkBoundaries.delete(oldestKey);
+        }
+        if (pendingMeta.has(next.seq)) {
+          const m = pendingMeta.get(next.seq)!;
+          pendingMeta.delete(next.seq);
+          if (useTimelineMode() || sb.buffered.length === 0) {
+            applyPendingTrackMeta(m, next.seq);
+          } else {
+            pendingTrackBoundaries.push({
+              seq: next.seq,
+              boundaryTime,
+              data: m,
+            });
+          }
         }
       }
       // measure this specific append's real contribution to buffered
@@ -1189,10 +1296,7 @@ export async function tuneIntoRadio(
         if (isQuotaError) {
           quotaErrorCount += 1;
           // log the buffered span size at the moment of failure - the
-          // one piece of context a generic catch-all can't tell you,
-          // needed to actually tune the proactive trim threshold
-          // mentioned in docs/radio-buffering-retune-plan.md instead of
-          // guessing at one.
+          // one piece of context a generic catch-all can't tell you.
           console.warn(
             "[radio] appendBuffer hit QuotaExceededError; resetting SourceBuffer to recover:",
             {
@@ -1212,23 +1316,19 @@ export async function tuneIntoRadio(
       }
       return;
     }
-    // opportunistic eviction: trim media that's well behind the playhead
-    // so the buffered range doesn't grow forever across track changes.
+    // no more proactive `sb.remove()` here - see REASONABLE_BUFFER_SPAN_S's
+    // doc comment above for why. purely informational: flag (once) if a
+    // session's buffered span grows implausibly large, without acting on it.
     if (
+      !warnedOversizedBuffer &&
       sb.buffered.length > 0 &&
-      audio.currentTime <= sb.buffered.end(sb.buffered.length - 1) &&
-      audio.currentTime - sb.buffered.start(0) > BUFFER_BEHIND_LIMIT_S
+      sb.buffered.end(sb.buffered.length - 1) - sb.buffered.start(0) > REASONABLE_BUFFER_SPAN_S
     ) {
-      const removeUpTo = audio.currentTime - BUFFER_BEHIND_TARGET_S;
-      if (removeUpTo > sb.buffered.start(0)) {
-        try {
-          sb.remove(sb.buffered.start(0), removeUpTo);
-          // remove triggers updateend → drain reruns naturally.
-          return;
-        } catch (e) {
-          console.warn("[radio] sb.remove failed:", e);
-        }
-      }
+      warnedOversizedBuffer = true;
+      console.warn(
+        `[radio] buffered span exceeds ${REASONABLE_BUFFER_SPAN_S}s ` +
+          `(${describeBufferedRanges(sb.buffered)}) - relying on the browser's own MSE quota eviction`
+      );
     }
     // start as far from the live edge as whatever's already caught up
     // will allow, instead of anchoring a small fixed distance back from
@@ -1467,68 +1567,39 @@ export async function tuneIntoRadio(
     if (kind === "video") return stabilityMode() ? 20000 : 16000;
     return stabilityMode() ? 16000 : 12000;
   };
-  // stall-RECOVERY baseline/ceiling only - NOT the initial anchor
-  // anymore (that's now derived from catchup depth via
-  // `minReadyToStartMs()` + drain()'s seek-to-`start` logic, not a
-  // fixed constant). used by the watchdog to re-anchor after a GENUINE
-  // stall (the ahead-of-playhead buffer actually ran dry), and grown
-  // per repeated stall via `LIVE_EDGE_BUMP_MS` up to
-  // `MAX_LIVE_EDGE_BUFFER_MS`.
-  //
-  // doubled from an earlier 6-8s/1.5-2s/12-20s baseline per real-world
-  // testing feedback (see docs/radio-audio-video-unification-plan.md's
-  // buffering section for that history) - kept here since it still
-  // governs recovery after a real stall, even though it no longer
-  // governs the initial cushion.
-  const STALL_RECOVERY_BASELINE_MS = stabilityMode() ? 16000 : 12000;
-  let liveEdgeBufferMs = STALL_RECOVERY_BASELINE_MS;
-  const LIVE_EDGE_BUMP_MS = stabilityMode() ? 4000 : 3000;
-  const MAX_LIVE_EDGE_BUFFER_MS = stabilityMode() ? 30000 : 20000;
+  // stall recovery reuses whatever's ALREADY buffered as the lead -
+  // reusing `buffer_seconds`/the broadcaster's own catchup ring rather
+  // than inventing a separate reactive target (a previous version grew
+  // a `liveEdgeBufferMs` value on every stall, up to a fixed ceiling -
+  // this doubled up with the same "how much lead should exist" question
+  // `buffer_seconds` already answers server-side, and its own recovery
+  // math actively fought the "anchor to buffered start, let the gap
+  // hold steady" design used everywhere else in this file). see
+  // `runWatchdog`'s two recovery branches below, both of which now just
+  // re-anchor to `sb.buffered.start(0)`.
   let stallCount = 0;
   const onStall = () => {
     if (!isActiveTune()) return;
     stallCount += 1;
-    // buffer state at the EXACT moment of the stall - temporary, for
-    // tuning docs/radio-buffering-retune-plan.md's chronic-stall
-    // investigation. distinguishes "stalled because the buffer was
-    // genuinely thin" (aheadS near 0) from "stalled for some other
-    // reason despite plenty being buffered" (aheadS healthy) - the 30s
-    // session summary only shows this averaged out, not at the instant
-    // it actually happened.
+    // buffer state at the EXACT moment of the stall - distinguishes
+    // "stalled because the buffer was genuinely thin" (aheadS near 0)
+    // from "stalled for some other reason despite plenty being
+    // buffered" (aheadS healthy) - the 30s session summary only shows
+    // this averaged out, not at the instant it actually happened.
     const aheadS =
       sb && sb.buffered.length > 0
         ? sb.buffered.end(sb.buffered.length - 1) - audio.currentTime
         : null;
+    if (aheadS !== null && (minAheadS === null || aheadS < minAheadS)) {
+      minAheadS = aheadS;
+    }
     console.info(
       `[radio] stall #${stallCount} at t=${audio.currentTime.toFixed(2)}s, ` +
-        `aheadS=${aheadS === null ? "n/a" : aheadS.toFixed(2)}, rebufferMuteActive=${rebufferMuteActive}`
+        `aheadS=${aheadS === null ? "n/a" : aheadS.toFixed(2)}, rebufferMuteActive=${rebufferMuteActive}, ` +
+        `readyState=${audio.readyState} networkState=${audio.networkState} ` +
+        `visibility=${typeof document !== "undefined" ? document.visibilityState : "n/a"} ` +
+        `buffered=${sb ? describeBufferedRanges(sb.buffered) : "(no sb)"}`
     );
-    // stalls during a deliberate rebuffer-mute window (post-skip or
-    // post-lag-resync) are expected - the buffer is refilling from
-    // empty on purpose - and shouldn't inflate the headroom the way a
-    // genuine mid-track network stall does. bumping it here anyway
-    // defeats the reset to baseline those paths already do and quickly
-    // re-creates the same inflated-headroom problem that reset avoids.
-    if (!rebufferMuteActive && liveEdgeBufferMs < MAX_LIVE_EDGE_BUFFER_MS) {
-      liveEdgeBufferMs = Math.min(MAX_LIVE_EDGE_BUFFER_MS, liveEdgeBufferMs + LIVE_EDGE_BUMP_MS);
-      if (liveEdgeBufferMs > maxLiveEdgeBufferMs) {
-        maxLiveEdgeBufferMs = liveEdgeBufferMs;
-      }
-      console.info(
-        `[radio] stall #${stallCount} — bumping live-edge buffer to ${liveEdgeBufferMs}ms`
-      );
-    }
-    // no independent seek here: this handler and the watchdog (which
-    // runs every 500ms with properly clamped headroom, see
-    // MIN_RESUME_AHEAD_S / the headroomS clamp below) used to both try
-    // to recover from the same underflow with different math — this
-    // one didn't clamp `end - liveEdgeBufferMs / 1000` at all, so once
-    // liveEdgeBufferMs grew close to (or past) the total buffered
-    // duration, the computed target landed back near the *start* of the
-    // buffer instead of near the live edge, yanking playback backward
-    // by several seconds right before the watchdog's next tick jumped
-    // it forward again — a visible/audible skip-back-then-skip-forward.
-    // leaving recovery solely to the watchdog avoids the conflict.
   };
 
   // ---- stall watchdog --------------------------------------------------
@@ -1542,6 +1613,13 @@ export async function tuneIntoRadio(
   let lastWatchdogTime = 0;
   let lastWatchdogProgressMs = Date.now();
   let watchdogTick: number | null = null;
+  // real wall-clock time of the previous tick - the interval is 500ms,
+  // but a backgrounded tab's timers can be throttled to a tiny fraction
+  // of their normal rate (chrome's background-tab throttling can stretch
+  // this to tens of seconds), which would masquerade as a huge, sudden
+  // stall right when the tab is foregrounded again. logging the REAL gap
+  // between ticks tells the two apart instead of guessing.
+  let lastWatchdogWallClockMs = Date.now();
   const STALL_RECOVERY_AFTER_MS = 1000;
   // don't force a corrective seek into a buffer that's barely ahead of the
   // playhead (e.g. right after an admin skip resets the buffer) — landing
@@ -1550,6 +1628,18 @@ export async function tuneIntoRadio(
   // a stutter. wait for a small real cushion instead; a moment of silence
   // while the buffer fills is preferable to a string of tiny seeks.
   const MIN_RESUME_AHEAD_S = 1.5;
+  // how far past the wedge point to jump when data exists ahead but the
+  // playhead isn't advancing (see the `end - t > 0.25` branch below) -
+  // deliberately small so a recovery preserves nearly all of the
+  // already-buffered cushion instead of throwing most of it away.
+  const STALL_RECOVERY_NUDGE_S = 1;
+  // a gap jump past this size gets a brief protective mute (see the
+  // `gapDetected` branch below) - small in-range nudges never cross
+  // this and are inaudible on their own.
+  const GAP_JUMP_MUTE_THRESHOLD_S = 3;
+  // short on purpose - just long enough to mask the decoder resync pop
+  // from an abrupt seek, not a full rebuild's worth of rebuffering.
+  const GAP_JUMP_MUTE_MS = 1200;
   // the control/chunk stream has gone completely silent (no chunk, hello,
   // meta, or heartbeat for CONNECTION_DEAD_AFTER_MS) - unlike a stall
   // (data is still coming, just the playhead is momentarily wedged), no
@@ -1589,6 +1679,18 @@ export async function tuneIntoRadio(
   };
   const runWatchdog = () => {
     if (!isActiveTune()) return;
+    const wallClockNow = Date.now();
+    const tickDelayMs = wallClockNow - lastWatchdogWallClockMs;
+    lastWatchdogWallClockMs = wallClockNow;
+    // expected gap is 500ms (this interval's own period) - a wildly
+    // larger gap means the interval itself was starved (most likely
+    // background-tab timer throttling), not a real playback stall.
+    if (tickDelayMs > 2_000) {
+      console.warn(
+        `[radio] watchdog tick delayed by ${tickDelayMs}ms (expected ~500ms) - ` +
+          `likely a throttled/backgrounded tab, not a genuine playback stall`
+      );
+    }
     if (Date.now() - lastControlActivityAtMs > CONNECTION_DEAD_AFTER_MS) {
       handleDeadConnection();
       return;
@@ -1625,44 +1727,109 @@ export async function tuneIntoRadio(
       if (audio.paused) void audio.play().catch(() => {});
       return;
     }
-    const start = sb.buffered.start(0);
-    const end = sb.buffered.end(sb.buffered.length - 1);
+    // `sb.buffered` can hold more than one disjoint range (a genuine
+    // gap - e.g. quota-driven eviction, or a browser-internal eviction
+    // ahead of what our own opportunistic trim above would ever do).
+    // assuming a single start(0)/end(length-1) envelope silently
+    // mistakes "there's a huge amount of buffer ahead" for cases where
+    // the playhead actually sits in a SEPARATE, much smaller range with
+    // a real gap before the next one - so find the range that actually
+    // CONTAINS the playhead (if any) and reason from that, not the
+    // overall envelope.
+    let containingStart: number | null = null;
+    let containingEnd: number | null = null;
+    for (let i = 0; i < sb.buffered.length; i++) {
+      const rs = sb.buffered.start(i);
+      const re = sb.buffered.end(i);
+      if (t >= rs - 0.05 && t <= re + 0.05) {
+        containingStart = rs;
+        containingEnd = re;
+        break; // ranges are sorted + non-overlapping - first match wins
+      }
+    }
+    // smallest range start reachable from here: past the containing
+    // range's own end when one was found (a real stall ALWAYS happens at
+    // or near the end of whatever range currently holds the playhead, so
+    // searching from `t` itself would just re-find the containing range
+    // via the epsilon tolerance above and never see the gap after it),
+    // otherwise the nearest range at/after the playhead itself.
+    const searchFrom = containingEnd ?? t;
+    let nextRangeStart: number | null = null;
+    for (let i = 0; i < sb.buffered.length; i++) {
+      const rs = sb.buffered.start(i);
+      if (rs > searchFrom + 0.1 && (nextRangeStart === null || rs < nextRangeStart)) {
+        nextRangeStart = rs;
+      }
+    }
     let seekTarget: number | null = null;
-    if (t > end + 0.05 || t < start - 0.05) {
-      // playhead stranded outside the buffered span (e.g. after a buffer
-      // rebuild); re-anchor to the trailing live-edge target.
-      seekTarget = Math.max(start, end - liveEdgeBufferMs / 1000);
-    } else if (end - t > 0.25) {
-      // data exists ahead but the playhead is wedged (track-boundary gap);
-      // cross to the live-edge target so playback resumes into the new
-      // track. clamp the requested headroom to half of what's actually
-      // buffered ahead of the playhead rather than blindly subtracting
-      // `liveEdgeBufferMs` from `end` — right after a buffer reset (e.g.
-      // an admin skip) there may only be a couple seconds buffered while
-      // `liveEdgeBufferMs` can still be inflated from earlier stalls, and
-      // `end - liveEdgeBufferMs / 1000` landing before `start` used to
-      // collapse this to a ~50ms nudge that took dozens of watchdog
-      // cycles to converge. this always lands meaningfully ahead of `t`.
-      const aheadS = end - t;
+    let gapDetected = false;
+    if (containingStart === null || containingEnd === null) {
+      // playhead isn't inside ANY buffered range - either stranded
+      // entirely outside the buffered span (e.g. after a buffer
+      // rebuild) or stuck in a real gap between two ranges. prefer the
+      // next reachable range ahead of us (skips straight over the gap);
+      // fall back to the very first range's start only if nothing
+      // exists at/after the playhead.
+      gapDetected = true;
+      seekTarget = nextRangeStart ?? sb.buffered.start(0);
+    } else if (containingEnd - t > 0.25) {
+      // data exists ahead WITHIN THIS SAME RANGE but the playhead is
+      // wedged (track-boundary gap); nudge just past the wedge instead
+      // of jumping toward the live edge. previously this computed
+      // `headroomS = min(liveEdgeBufferMs, aheadS / 2)` and seeked to
+      // `end - headroomS` - since aheadS/2 is almost always the smaller
+      // operand, every recovery threw away HALF of whatever cushion
+      // already existed, no matter how large `liveEdgeBufferMs` had
+      // grown - which made that reactive buffer-growth mechanism
+      // completely inert: the target kept growing but recovery never
+      // used more than a shrinking fraction of the thin margin already
+      // on hand, producing a permanent, self-inflicted oscillation
+      // around a razor-thin cushion. a small fixed forward nudge
+      // escapes the wedge while preserving virtually all of the
+      // existing buffered margin for continued playback.
+      const aheadS = containingEnd - t;
       if (aheadS < MIN_RESUME_AHEAD_S) {
         // not enough of a real cushion yet to resume without immediately
         // re-stalling — hold off this tick and let the buffer build.
         return;
       }
-      const headroomS = Math.min(liveEdgeBufferMs / 1000, aheadS / 2);
-      seekTarget = end - headroomS;
+      seekTarget = Math.min(containingEnd, t + STALL_RECOVERY_NUDGE_S);
+    } else if (nextRangeStart !== null) {
+      // playhead is genuinely at (or a hair from) the end of its
+      // containing range AND a separate, later range already exists -
+      // a real gap sits immediately ahead, not just "caught up to
+      // whatever's been buffered so far". this is the exact case a
+      // fully-stranded playhead is treated as above; a playhead stuck
+      // right at its own range's edge needs the identical treatment,
+      // not silence, or it never recovers (this range's own `aheadS` is
+      // ~0 forever - nudging within it can't ever produce progress).
+      gapDetected = true;
+      seekTarget = nextRangeStart;
     }
+    // else: genuinely caught up to the live edge with nothing else
+    // buffered anywhere yet - correctly do nothing and let it grow.
     if (seekTarget !== null && Math.abs(seekTarget - t) > 0.05) {
-      // buffered span at the moment of recovery - temporary, for tuning
-      // docs/radio-buffering-retune-plan.md's chronic-stall
-      // investigation. small `end - t` here (vs. a healthy
-      // `liveEdgeBufferMs`) means the ahead-of-playhead buffer had
-      // genuinely run thin by the time recovery kicked in, not just
-      // that playback itself hiccuped with plenty of data still on hand.
+      // small ahead-of-playhead margin (within the CONTAINING range,
+      // not the overall envelope) means the buffer had genuinely run
+      // thin by the time recovery kicked in, not just that playback
+      // hiccuped with plenty of data still on hand.
       console.info(
         `[radio] watchdog recovering stall: ${t.toFixed(2)}s -> ${seekTarget.toFixed(2)}s ` +
-          `(bufferedEnd=${end.toFixed(2)}s, aheadOfPlayhead=${(end - t).toFixed(2)}s)`
+          `(gapDetected=${gapDetected}, containing=${containingStart !== null ? `${containingStart.toFixed(2)}-${containingEnd!.toFixed(2)}` : "none"}, ` +
+          `buffered=${describeBufferedRanges(sb.buffered)}, ` +
+          `visibility=${typeof document !== "undefined" ? document.visibilityState : "n/a"}, ` +
+          `tickDelayMs=${now - lastWatchdogWallClockMs})`
       );
+      // a large gap jump (e.g. a browser evicting a huge lead while
+      // backgrounded) abruptly relocates the decoder mid-track - brief
+      // muting masks the resulting pop/glitch instead of exposing it,
+      // the same way a full rebuffer already does. small in-range
+      // nudges are inaudible on their own and skip this.
+      if (gapDetected && Math.abs(seekTarget - t) > GAP_JUMP_MUTE_THRESHOLD_S) {
+        audio.muted = true;
+        rebufferMuteActive = true;
+        rebufferMuteDeadlineMs = Date.now() + GAP_JUMP_MUTE_MS;
+      }
       try {
         audio.currentTime = seekTarget;
       } catch (e) {
@@ -1676,6 +1843,7 @@ export async function tuneIntoRadio(
     if (watchdogTick !== null) return;
     lastWatchdogTime = audio.currentTime;
     lastWatchdogProgressMs = Date.now();
+    lastWatchdogWallClockMs = Date.now();
     watchdogTick = window.setInterval(runWatchdog, 500);
   };
   const stopWatchdog = () => {
@@ -1835,10 +2003,9 @@ export async function tuneIntoRadio(
     // re-fills the buffer from empty too, so it gets the identical
     // quiet-rebuffer treatment (mute now, unmute via drain()'s
     // seekedToLive gate) rather than letting the reset itself glitch
-    // audibly, and the same baseline reset (not a separate target).
-    if (liveEdgeBufferMs > STALL_RECOVERY_BASELINE_MS) {
-      liveEdgeBufferMs = STALL_RECOVERY_BASELINE_MS;
-    }
+    // audibly - seekedToLive=false already makes drain() re-anchor to
+    // whatever's freshly buffered once it arrives, no separate target
+    // to reset here.
     audio.muted = true;
     rebufferMuteActive = true;
     rebufferMuteDeadlineMs = Date.now() + REBUFFER_MUTE_MAX_MS;
@@ -1884,20 +2051,11 @@ export async function tuneIntoRadio(
     seekedToLive = false;
     awaitingSkipResync = true;
     resyncAtSeq = (lastAppliedInit ?? -1) + 1;
-    // a fresh (empty) buffer follows this flush, so any inflated headroom
-    // demand accumulated from earlier stalls in the outgoing track no
-    // longer applies here — carrying it forward asked for more data than
-    // the freshly-refilling buffer could possibly have yet, which made
-    // the stall watchdog's gap-crossing seek collapse toward a no-op and
-    // took many cycles to recover from. resetting to the session's
-    // baseline still lets it grow back up if this track's connection is
-    // genuinely struggling too. a full stop + genuine re-buffer here is
-    // expected and fine (per explicit user direction) - this no longer
-    // resets to a SEPARATE, smaller post-skip target, just the same
-    // baseline every fresh tune/lag-resync starts from.
-    if (liveEdgeBufferMs > STALL_RECOVERY_BASELINE_MS) {
-      liveEdgeBufferMs = STALL_RECOVERY_BASELINE_MS;
-    }
+    // a fresh (empty) buffer follows this flush - a full stop + genuine
+    // re-buffer here is expected and fine (per explicit user direction).
+    // `seekedToLive = false` above already makes drain() re-anchor to
+    // whatever's freshly buffered once it arrives, same as any other
+    // fresh tune/resync - no separate target to reset here.
     // mute rather than pause: keeps the media element's playback state
     // machine (and the browser's own auto-resume-on-data behavior) alone,
     // it just silences whatever it produces until drain()'s normal
@@ -2064,6 +2222,20 @@ export async function tuneIntoRadio(
       listener_count: number;
     }
   >();
+  // records every init chunk's own append-time boundary position, keyed
+  // by seq, REGARDLESS of whether `pendingMeta` already has a matching
+  // entry - meta and chunks arrive on separate channels/tasks with no
+  // cross-channel ordering guarantee (confirmed: the server sends meta
+  // before its chunk, but the two are consumed by independent tokio
+  // tasks on the client's transport, so either can win the race). when
+  // the CHUNK wins (drains before its own meta arrives), the original
+  // design - `pendingMeta` checked only once, at that exact drain() call
+  // - silently and PERMANENTLY lost that track's metadata forever, since
+  // no future chunk would ever carry the same seq again. `applyMeta`
+  // consults this map when meta shows up "late" (after its chunk already
+  // drained) instead of uselessly storing into `pendingMeta`, where
+  // nothing would ever match it. bounded the same way `pendingMeta` is.
+  const initChunkBoundaries = new Map<number, number>();
   // most recent init_seq we've actually applied. interstitial / banner
   // meta updates from the broadcaster (e.g. "switching tracks…") arrive
   // tagged with the current init_seq so listeners see them immediately
@@ -2116,6 +2288,14 @@ export async function tuneIntoRadio(
     },
     seq: number
   ) => {
+    // this is the moment the track actually becomes audible (either
+    // applied immediately by drain() when there was nothing buffered
+    // yet, or once the watchdog's boundary-crossing loop confirms the
+    // playhead reached it) - `lastAppliedInit` must track THIS moment,
+    // not chunk arrival, or a same-track control message arriving
+    // shortly after the chunk (before the playhead gets there) reads as
+    // "for the current track" and jumps the visible now-playing early.
+    lastAppliedInit = seq;
     pendingInitialNowPlaying = null;
     setNowPlaying(data.now_playing);
     swapArtUrl(data.art_url ?? null);
@@ -2123,6 +2303,7 @@ export async function tuneIntoRadio(
     if (!useTimelineMode()) {
       recordCurrentRadioTrackHistory({
         songId: data.now_playing.song_id?.trim() || null,
+        kind: data.now_playing.kind === "video" ? "video" : "song",
         title: data.now_playing.title,
         artist: data.now_playing.artist ?? null,
         album: data.now_playing.album ?? null,
@@ -2191,11 +2372,11 @@ export async function tuneIntoRadio(
             // read here since the mode-switch below happens after this
             // block runs.)
             setNowPlaying(np);
-            swapArtUrl(artUrlFromRaw(msg.now_playing));
+            swapArtUrl(resolveArtUrl(msg.now_playing));
           } else {
             pendingInitialNowPlaying = {
               now_playing: np,
-              art_url: artUrlFromRaw(msg.now_playing),
+              art_url: resolveArtUrl(msg.now_playing),
             };
           }
           synthesizeTimelineFromNowPlaying(np, "hello");
@@ -2246,7 +2427,11 @@ export async function tuneIntoRadio(
         stopElapsedTicker();
         setStatus("connecting");
       }
-      startDiagnostics();
+      // periodic session-summary logging - flip RADIO_DIAGNOSTICS_ENABLED
+      // to true when actively chasing a buffering issue; noisy in normal
+      // use, so off by default (a `const` here, not a commented-out call,
+      // so it stays referenced and doesn't trip noUnusedLocals).
+      if (RADIO_DIAGNOSTICS_ENABLED) startDiagnostics();
     } catch (e) {
       console.warn("[radio] hello parse failed:", e);
     }
@@ -2279,7 +2464,7 @@ export async function tuneIntoRadio(
         pendingInitialNowPlaying = null;
         setNowPlaying(np);
         synthesizeTimelineFromNowPlaying(np, "meta");
-        swapArtUrl(artUrlFromRaw(msg.now_playing));
+        swapArtUrl(resolveArtUrl(msg.now_playing));
         if (typeof msg?.listener_count === "number") {
           setListenerCount(msg.listener_count);
         }
@@ -2296,43 +2481,84 @@ export async function tuneIntoRadio(
           pendingInitialNowPlaying = null;
           setNowPlaying(np);
           synthesizeTimelineFromNowPlaying(np, "meta");
-          swapArtUrl(artUrlFromRaw(msg.now_playing));
+          swapArtUrl(resolveArtUrl(msg.now_playing));
           if (typeof msg?.listener_count === "number") {
             setListenerCount(msg.listener_count);
           }
           lastAppliedInit = initSeq;
           return;
         }
-        // interstitial / late-binding update for an already-playing track:
-        // server tags it with the *current* init_seq so we apply it now.
-        if (lastAppliedInit !== null && initSeq <= lastAppliedInit) {
-          // only apply immediately when this is a metadata refresh for the
-          // same song. if song_id changes here, applying early would make
-          // the playerbar jump to the next track before its init chunk is
-          // actually rendered.
-          const currentSongId = nowPlaying()?.song_id ?? null;
-          const incomingSongId = np.song_id ?? null;
-          if (!currentSongId || !incomingSongId || incomingSongId === currentSongId) {
-            pendingInitialNowPlaying = null;
-            setNowPlaying(np);
-            synthesizeTimelineFromNowPlaying(np, "meta");
-            swapArtUrl(artUrlFromRaw(msg.now_playing));
-            if (typeof msg?.listener_count === "number") {
-              setListenerCount(msg.listener_count);
-            }
-            maybeRecordImmediateMetaHistory(np, previousSongId, initSeq, msg.now_playing);
-          } else {
-            console.info(
-              `[radio] deferring early meta for new song_id ${incomingSongId} (current ${currentSongId})`
-            );
+        // decide immediate-apply vs defer using the DATA itself (song_id)
+        // rather than the `initSeq <= lastAppliedInit` numbering - that
+        // numeric comparison proved unreliable once gap-recovery seeks
+        // (see docs/radio-buffering-retune-plan.md) can cross several
+        // queued `pendingTrackBoundaries` in a single watchdog tick:
+        // `lastAppliedInit` can land ahead of where audio has genuinely
+        // reached, which previously caused a real, different track's
+        // announcement to either get silently dropped forever (an
+        // earlier bug) or applied far too early (this fix's own first,
+        // now-reverted attempt), depending on which side of that race
+        // won. an interstitial placeholder (`announce_idle`/
+        // `announce_interstitial`, server-side) always carries an EMPTY
+        // song_id by construction - that's the reliable signal for "safe
+        // to show immediately", not the init_seq math.
+        const incomingSongId = np.song_id?.trim() || null;
+        if (!incomingSongId || incomingSongId === previousSongId) {
+          // interstitial placeholder, or a refresh (art/listener_count)
+          // for the track already showing - nothing the listener hasn't
+          // already been told about changes here, safe to apply now.
+          pendingInitialNowPlaying = null;
+          setNowPlaying(np);
+          synthesizeTimelineFromNowPlaying(np, "meta");
+          swapArtUrl(resolveArtUrl(msg.now_playing));
+          if (typeof msg?.listener_count === "number") {
+            setListenerCount(msg.listener_count);
           }
+          maybeRecordImmediateMetaHistory(np, previousSongId, initSeq, msg.now_playing);
         } else {
-          pendingMeta.set(initSeq, {
-            now_playing: np,
-            art_url: artUrlFromRaw(msg.now_playing),
-            raw_art: rawArtMetaFrom(msg.now_playing),
-            listener_count: msg.listener_count ?? listenerCount(),
-          });
+          // a genuinely different, not-yet-shown track. meta and chunks
+          // arrive via separate channels/tasks with no ordering
+          // guarantee between them - if this track's own init chunk
+          // already drained before this meta arrived, `pendingMeta`
+          // would never get matched again (drain()'s lookup is a
+          // one-shot check made exactly once, at append time) and this
+          // update would be lost forever. `initChunkBoundaries` records
+          // every drained init chunk's boundary independent of whether
+          // metadata for it existed yet, so a late-arriving meta can
+          // still find where to attach instead of silently vanishing.
+          const recordedBoundary = initChunkBoundaries.get(initSeq);
+          if (recordedBoundary !== undefined) {
+            initChunkBoundaries.delete(initSeq);
+            const data = {
+              now_playing: np,
+              art_url: resolveArtUrl(msg.now_playing),
+              raw_art: rawArtMetaFrom(msg.now_playing),
+              listener_count: msg.listener_count ?? listenerCount(),
+            };
+            if (useTimelineMode() || !sb || sb.buffered.length === 0) {
+              applyPendingTrackMeta(data, initSeq);
+            } else {
+              pendingTrackBoundaries.push({ seq: initSeq, boundaryTime: recordedBoundary, data });
+            }
+          } else {
+            // normal case: the chunk hasn't arrived/drained yet - defer
+            // to drain()/pendingTrackBoundaries so the swap waits for the
+            // playhead to actually reach it.
+            pendingMeta.set(initSeq, {
+              now_playing: np,
+              art_url: resolveArtUrl(msg.now_playing),
+              raw_art: rawArtMetaFrom(msg.now_playing),
+              listener_count: msg.listener_count ?? listenerCount(),
+            });
+            // bound growth: an entry only ever lingers unconsumed when
+            // the corresponding chunk never actually shows up with this
+            // exact seq (shouldn't normally happen, but not worth an
+            // unbounded map over a very long session).
+            if (pendingMeta.size > 50) {
+              const oldestKey = pendingMeta.keys().next().value;
+              if (oldestKey !== undefined) pendingMeta.delete(oldestKey);
+            }
+          }
         }
       } else if (np) {
         const previousSongId = nowPlaying()?.song_id?.trim() || null;
@@ -2340,7 +2566,7 @@ export async function tuneIntoRadio(
         pendingInitialNowPlaying = null;
         setNowPlaying(np);
         synthesizeTimelineFromNowPlaying(np, "meta");
-        swapArtUrl(artUrlFromRaw(msg.now_playing));
+        swapArtUrl(resolveArtUrl(msg.now_playing));
         if (typeof msg?.listener_count === "number") {
           setListenerCount(msg.listener_count);
         }
@@ -2391,7 +2617,12 @@ export async function tuneIntoRadio(
     // drain(), right before this exact chunk is actually appended - see
     // its doc comment for why that timing matters (arrival-time here can
     // have other not-yet-appended chunks still queued ahead of it).
-    if (isInit) lastAppliedInit = seq;
+    // NOTE: `lastAppliedInit` is deliberately NOT bumped here on chunk
+    // arrival - it must only advance once this track's metadata is
+    // actually applied (see applyPendingTrackMeta's doc comment), or a
+    // same-track control message arriving shortly after this chunk
+    // would misread as "for the current track" and jump the visible
+    // now-playing before the playhead ever gets there.
     queue.push({ bytes, seq, isInit });
     drain();
   };

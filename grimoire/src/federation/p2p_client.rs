@@ -1010,6 +1010,100 @@ pub async fn fetch_blob_verified_to_file_with_ensure_and_progress(
     result
 }
 
+/// pull a blob from a peer DIRECTLY into this node's own local iroh-blobs
+/// store, without ever reading the bytes back into memory or a file at
+/// all. the correct primitive for "make this blob servable to someone
+/// else" use cases (e.g. cenotaph's controller-proxy relay in
+/// `playerQueuePush.ts`, which used to `fetch()` the bytes in JS and
+/// re-import them via chunked/base64 tauri IPC even when a P2P source
+/// peer was already known) - once
+/// `download_blob_to_store` returns, the blob is already sitting in the
+/// FsStore this node serves other peers from, so there is nothing left
+/// to do. mirrors `fetch_blob_verified_to_file_with_ensure_and_progress`'s
+/// self-peer short-circuit + ensure/retry structure, just without a
+/// materialization step at the end.
+pub async fn pull_blob_to_local_store_with_ensure(
+    peer_addr: &str,
+    blake3_hash: &str,
+    on_progress: Option<&BlobProgressFn>,
+) -> GrimoireResult<()> {
+    // self-peer: the blob (if we have it at all) is already in our own
+    // store by definition - nothing to pull. see try_export_local_blob's
+    // sibling callers for the same short-circuit reasoning.
+    if is_self_peer(peer_addr) {
+        if try_has_local_blob(blake3_hash).await == Some(true) {
+            info!(
+                hash = %&blake3_hash[..16.min(blake3_hash.len())],
+                "pull_blob_to_local_store: self-peer, already in local store"
+            );
+            return Ok(());
+        }
+        return Err(GrimoireError::FederationApiError {
+            message: format!(
+                "{} is this instance's own node id, but no local copy of blob {} was found - nothing to pull",
+                &peer_addr[..16.min(peer_addr.len())],
+                &blake3_hash[..16.min(blake3_hash.len())],
+            ),
+        });
+    }
+
+    info!(
+        "pull_blob_to_local_store: starting for {} from {}",
+        &blake3_hash[..16.min(blake3_hash.len())],
+        &peer_addr[..16.min(peer_addr.len())],
+    );
+
+    // first attempt
+    match download_blob_to_store(peer_addr, blake3_hash, on_progress).await {
+        Ok(_) => return Ok(()),
+        Err(e) => {
+            tracing::warn!(
+                "pull_blob_to_local_store: first attempt FAILED for {} from {} -- will try ensure+retry. error: {}",
+                &blake3_hash[..16.min(blake3_hash.len())],
+                &peer_addr[..16.min(peer_addr.len())],
+                e,
+            );
+        }
+    }
+
+    // ensure blob is loaded into the SOURCE peer's own FsStore, then retry.
+    let outcome = ensure_blob(peer_addr, blake3_hash).await?;
+
+    use crate::federation::transport::EnsureBlobOutcome;
+    match outcome {
+        EnsureBlobOutcome::Available => {}
+        EnsureBlobOutcome::NotAvailable => {
+            return Err(GrimoireError::BlobNotFoundOnPeer {
+                peer: peer_addr.to_string(),
+                blake3: blake3_hash.to_string(),
+            });
+        }
+        EnsureBlobOutcome::Unauthorized => {
+            return Err(GrimoireError::PeerUnauthorized {
+                peer: peer_addr.to_string(),
+                blake3: blake3_hash.to_string(),
+            });
+        }
+    }
+
+    tokio::time::sleep(RETRY_BACKOFF).await;
+    info!(
+        "pull_blob_to_local_store: retrying for {}",
+        &blake3_hash[..16.min(blake3_hash.len())],
+    );
+    download_blob_to_store(peer_addr, blake3_hash, on_progress)
+        .await
+        .map(|_| ())
+}
+
+/// true if `blake3_hash` is already present in this node's own iroh-blobs
+/// store - `None` if the hash doesn't parse or the store isn't up.
+async fn try_has_local_blob(blake3_hash: &str) -> Option<bool> {
+    let store = crate::database::storage_node().await.ok()?.fs_store;
+    let hash: Hash = blake3_hash.parse().ok()?;
+    store.has(hash).await.ok()
+}
+
 /// fetch a blob by blob_id using verified streaming with on-demand blake3 computation
 ///
 /// use this when the client doesn't have the blake3 hash yet (not in API response).

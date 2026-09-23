@@ -15,13 +15,22 @@ import { schema, type PublicTimelineManifestItem } from "@freqhole/api-client";
 import { localDataSource } from "../../../music/data/local/localSource";
 import type { RemoteSong } from "../../../music/data/remote/adapters";
 import { RemoteMusicDataSource } from "../../../music/data/remote/remoteSource";
-import { allowTimelineAutoplay, isPlaying, pause, playSong } from "../../../music/services/audio/player";
+import {
+  allowTimelineAutoplay,
+  isPlaying,
+  pause,
+  playSong,
+} from "../../../music/services/audio/player";
 import { cleanupAllAudioURLs } from "../../../music/services/storage/audioAccess";
 import { getBlobObjectURL } from "../../../music/services/storage/blobs";
 import { preCacheP2PBlob, resolveBlobUrl } from "../../../music/services/storage/blobResolver";
 import { getFileExtension, writeAudioToOPFS } from "../../../music/services/opfs/helpers";
 import { getTransportForRemote } from "../../api/client";
-import { getRemoteByPeerAddr, getRemoteById, getTauriManagedRemote } from "../remotes/remoteManager";
+import {
+  getRemoteByPeerAddr,
+  getRemoteById,
+  getTauriManagedRemote,
+} from "../remotes/remoteManager";
 import { getPendingRemoteByPeerAddr } from "../storage/db";
 import {
   applyTimelineNowPlaying,
@@ -97,7 +106,7 @@ export function startQueueModeAdapter(): void {
     adapterGeneration,
     "requiresExplicitStart:",
     requiresExplicitStart,
-    ")",
+    ")"
   );
 
   // createRoot gives the effect a reactive owner so it tracks dependencies
@@ -112,7 +121,10 @@ export function startQueueModeAdapter(): void {
           console.info(
             "[radio-queue-adapter] effect triggered — inTimelineMode:",
             inTimelineMode,
-            "snapshot:", snapshot ? `seq=${snapshot.timeline_seq} current=${snapshot.current?.song_id ?? "null"}` : "null",
+            "snapshot:",
+            snapshot
+              ? `seq=${snapshot.timeline_seq} current=${snapshot.current?.song_id ?? "null"}`
+              : "null"
           );
           if (!inTimelineMode || !snapshot) return;
           const current = snapshot.current;
@@ -122,7 +134,10 @@ export function startQueueModeAdapter(): void {
           }
           // only transition when the item id changes (track boundary).
           if (current.timeline_item_id === currentTimelineItemId) {
-            console.info("[radio-queue-adapter] same timeline_item_id, no-op:", current.timeline_item_id);
+            console.info(
+              "[radio-queue-adapter] same timeline_item_id, no-op:",
+              current.timeline_item_id
+            );
             return;
           }
           const fallbackToRealSameSong =
@@ -131,7 +146,7 @@ export function startQueueModeAdapter(): void {
           if (fallbackToRealSameSong) {
             console.info(
               "[radio-queue-adapter] replacing fallback timeline item with broadcaster item for same song:",
-              current.timeline_item_id,
+              current.timeline_item_id
             );
             currentTimelineItemId = current.timeline_item_id;
             return;
@@ -141,10 +156,15 @@ export function startQueueModeAdapter(): void {
           currentTimelineItemId = current.timeline_item_id;
           currentTimelineSongId = current.song_id;
           const gen = adapterGeneration;
-          console.info("[radio-queue-adapter] track transition → item", current.timeline_item_id, "song", current.song_id);
+          console.info(
+            "[radio-queue-adapter] track transition → item",
+            current.timeline_item_id,
+            "song",
+            current.song_id
+          );
           void handleTrackTransition(current, snapshot, gen);
-        },
-      ),
+        }
+      )
     );
     return dispose;
   });
@@ -157,7 +177,7 @@ export function stopQueueModeAdapter(): void {
     "[radio-queue-adapter] stopping generation:",
     adapterGeneration,
     "wasActive:",
-    wasActive,
+    wasActive
   );
   active = false;
   // increment generation first so any in-flight preCacheUpcoming loops
@@ -233,7 +253,7 @@ function asRelativeApiPath(urlOrPath: string): string {
 async function tryLoadPublicTimelineSong(
   remote: Remote,
   current: TimelineCurrentLike,
-  stationIdHint?: string,
+  stationIdHint?: string
 ): Promise<{ song: Song; item: PublicTimelineManifestItem } | null> {
   const stationId = radioCurrentStationId()?.trim() || stationIdHint?.trim() || "";
   if (!stationId) {
@@ -248,7 +268,7 @@ async function tryLoadPublicTimelineSong(
     console.warn(
       "[radio-queue-adapter] public fallback: timeline fetch failed",
       timelineResp.status,
-      timelinePath,
+      timelinePath
     );
     return null;
   }
@@ -262,7 +282,9 @@ async function tryLoadPublicTimelineSong(
   }
 
   const timelinePayload =
-    timelineJson && typeof timelineJson === "object" && "data" in (timelineJson as Record<string, unknown>)
+    timelineJson &&
+    typeof timelineJson === "object" &&
+    "data" in (timelineJson as Record<string, unknown>)
       ? (timelineJson as { data?: unknown }).data
       : timelineJson;
   const timelineParsed = schema.PublicTimelineManifestSchema.safeParse(timelinePayload);
@@ -280,7 +302,7 @@ async function tryLoadPublicTimelineSong(
     console.warn(
       "[radio-queue-adapter] public fallback: timeline item not found",
       current.timeline_item_id,
-      current.song_id,
+      current.song_id
     );
     return null;
   }
@@ -288,7 +310,7 @@ async function tryLoadPublicTimelineSong(
     console.warn(
       "[radio-queue-adapter] public fallback: timeline item missing audio url",
       item.timeline_item_id,
-      item.song_id,
+      item.song_id
     );
     return null;
   }
@@ -299,7 +321,7 @@ async function tryLoadPublicTimelineSong(
     console.warn(
       "[radio-queue-adapter] public fallback: audio data fetch failed",
       audioResp.status,
-      dataPath,
+      dataPath
     );
     return null;
   }
@@ -326,7 +348,7 @@ async function tryLoadPublicTimelineSong(
   const bytes = decodeBase64ToBytes(base64);
   const byteBuffer = bytes.buffer.slice(
     bytes.byteOffset,
-    bytes.byteOffset + bytes.byteLength,
+    bytes.byteOffset + bytes.byteLength
   ) as ArrayBuffer;
   const blob = new Blob([byteBuffer], { type: mime });
   const extension = getFileExtension(mime);
@@ -375,7 +397,7 @@ async function tryLoadPublicTimelineSong(
 }
 
 async function resolveTimelineArt(
-  song: Song,
+  song: Song
 ): Promise<{ artBlobId: string | null; artUrl: string | null }> {
   const bestImage =
     pickBestImage(getSongDisplayImages(song) ?? song.album_images ?? song.artist_images) ??
@@ -408,11 +430,14 @@ async function resolveTimelineArt(
   };
 }
 
-function buildRemoteFromPending(peerAddr: string, pending: {
-  id: string;
-  transport: "http" | "wasm" | "app";
-  server_name: string | null;
-}): Remote {
+function buildRemoteFromPending(
+  peerAddr: string,
+  pending: {
+    id: string;
+    transport: "http" | "wasm" | "app";
+    server_name: string | null;
+  }
+): Remote {
   const now = Date.now();
   const remoteId = `pending-${pending.id}`;
   const name = pending.server_name ?? `pending ${peerAddr.slice(0, 10)}`;
@@ -457,7 +482,12 @@ async function resolveRemote(): Promise<Remote | null> {
   // prefer the resolved remote_id (stored once the remote is known), then
   // fall back to the peer addr lookup.
   const remoteId = radioCurrentRemoteServerId();
-  console.info("[radio-queue-adapter] resolveRemote — remoteId:", remoteId, "peerAddr:", radioCurrentPeerAddr());
+  console.info(
+    "[radio-queue-adapter] resolveRemote — remoteId:",
+    remoteId,
+    "peerAddr:",
+    radioCurrentPeerAddr()
+  );
   if (remoteId) {
     const remote = await getRemoteById(remoteId);
     if (remote) return remote;
@@ -482,7 +512,7 @@ async function resolveRemote(): Promise<Remote | null> {
   console.info(
     "[radio-queue-adapter] using pending remote fallback:",
     pending.id,
-    pending.transport,
+    pending.transport
   );
   return transientRemote;
 }
@@ -490,7 +520,7 @@ async function resolveRemote(): Promise<Remote | null> {
 async function handleTrackTransition(
   current: TimelineCurrentLike,
   snapshot: TimelineSnapshotLike,
-  gen: number,
+  gen: number
 ): Promise<void> {
   if (gen !== adapterGeneration) return;
 
@@ -498,10 +528,14 @@ async function handleTrackTransition(
   // compare timestamp vs. audio error/ended to see which fired first.
   console.info(
     "[radio-skip-debug] handleTrackTransition",
-    "timeline_item_id=", current.timeline_item_id,
-    "song_id=", current.song_id,
-    "gen=", gen,
-    "t=", Date.now(),
+    "timeline_item_id=",
+    current.timeline_item_id,
+    "song_id=",
+    current.song_id,
+    "gen=",
+    gen,
+    "t=",
+    Date.now()
   );
 
   const localSession = radioCurrentIsLocal();
@@ -513,16 +547,21 @@ async function handleTrackTransition(
       "[radio-queue-adapter] fetching song",
       current.song_id,
       "from tauri local transport",
-      remote.remote_id,
+      remote.remote_id
     );
   } else if (localSession) {
     console.info("[radio-queue-adapter] fetching song", current.song_id, "from local source");
   } else if (remote) {
-    console.info("[radio-queue-adapter] fetching song", current.song_id, "from remote", remote.remote_id);
+    console.info(
+      "[radio-queue-adapter] fetching song",
+      current.song_id,
+      "from remote",
+      remote.remote_id
+    );
   } else {
     console.info(
       "[radio-queue-adapter] no remote resolved; trying local source fallback for song",
-      current.song_id,
+      current.song_id
     );
   }
   let song: Song | null = null;
@@ -547,7 +586,7 @@ async function handleTrackTransition(
           song = fallback.song;
           console.info(
             "[radio-queue-adapter] using public timeline fallback after remote song lookup failed:",
-            current.song_id,
+            current.song_id
           );
         }
       } catch (fallbackErr) {
@@ -558,7 +597,7 @@ async function handleTrackTransition(
       markTimelinePlaybackBlocked(
         localSession || !remote
           ? "failed to fetch current radio song from local library"
-          : "failed to fetch current radio song from remote",
+          : "failed to fetch current radio song from remote"
       );
       return;
     }
@@ -567,11 +606,11 @@ async function handleTrackTransition(
     console.warn(
       "[radio-queue-adapter] getSongById returned null for song_id:",
       current.song_id,
-      localSession || !remote ? "(local lookup)" : "(remote lookup)",
+      localSession || !remote ? "(local lookup)" : "(remote lookup)"
     );
     if (!localSession && !remote) {
       markTimelinePlaybackBlocked(
-        "timeline mode needs a configured remote for this broadcaster (add it in remotes)",
+        "timeline mode needs a configured remote for this broadcaster (add it in remotes)"
       );
     } else {
       if (!localSession && remote) {
@@ -581,7 +620,7 @@ async function handleTrackTransition(
             song = fallback.song;
             console.info(
               "[radio-queue-adapter] recovered null song via public timeline fallback:",
-              current.song_id,
+              current.song_id
             );
           }
         } catch (fallbackErr) {
@@ -611,14 +650,17 @@ async function handleTrackTransition(
 
   console.info(
     `[radio-queue-adapter] playing "${playbackSong.title}" at ${Math.round(initialPosition)}s` +
-      ` (item ${current.timeline_item_id}, duration_ms=${current.duration_ms})`,
+      ` (item ${current.timeline_item_id}, duration_ms=${current.duration_ms})`
   );
 
   console.info(
     "[radio-queue-adapter] calling applyTimelineNowPlaying with:",
-    "song_id:", playbackSong.id,
-    "title:", playbackSong.title,
-    "artist:", playbackSong.artist_name
+    "song_id:",
+    playbackSong.id,
+    "title:",
+    playbackSong.title,
+    "artist:",
+    playbackSong.artist_name
   );
 
   applyTimelineNowPlaying({
@@ -659,7 +701,7 @@ async function handleTrackTransition(
       /not allowed by the user agent|denied permission/i.test(errMessage);
     if (autoplayBlocked) {
       console.warn(
-        "[radio-queue-adapter] autoplay blocked by platform policy; pausing session and waiting for explicit play",
+        "[radio-queue-adapter] autoplay blocked by platform policy; pausing session and waiting for explicit play"
       );
       handleTimelineAutoplayBlocked();
       return;
@@ -673,6 +715,7 @@ async function handleTrackTransition(
     // explicit user action.
     recordCurrentRadioTrackHistory({
       songId: playbackSong.id ?? null,
+      kind: "song",
       title: playbackSong.title,
       artist: playbackSong.artist_name ?? null,
       album: playbackSong.album_title ?? null,
@@ -689,6 +732,7 @@ async function handleTrackTransition(
     }
     recordCurrentRadioTrackHistory({
       songId: playbackSong.id ?? null,
+      kind: "song",
       title: playbackSong.title,
       artist: playbackSong.artist_name ?? null,
       album: playbackSong.album_title ?? null,
@@ -710,11 +754,7 @@ async function handleTrackTransition(
   }
 }
 
-async function preCacheUpcoming(
-  songIds: string[],
-  remote: Remote,
-  gen: number,
-): Promise<void> {
+async function preCacheUpcoming(songIds: string[], remote: Remote, gen: number): Promise<void> {
   if (!remote.remote_id) return;
   const remoteId = remote.remote_id;
   const ds = new RemoteMusicDataSource(remote);
@@ -734,9 +774,7 @@ async function preCacheUpcoming(
     if (song.media_blob_id) {
       // await each pre-cache so only one blob transfer is in-flight at a
       // time. failures are swallowed — the main play path fetches on demand.
-      await preCacheP2PBlob(song.media_blob_id, remoteId, song.sha256, "audio").catch(
-        () => {},
-      );
+      await preCacheP2PBlob(song.media_blob_id, remoteId, song.sha256, "audio").catch(() => {});
     }
   }
 }

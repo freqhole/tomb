@@ -279,6 +279,37 @@ export function removeFromLoadingSet(id: string): void {
   });
 }
 
+/** clear all loading-set/progress/reveal-timer state (test-only reset,
+ *  mirrors clearSyncedSha256s/clearEphemeralOnDisk/clearAllFailures above). */
+export function resetLoadingState(): void {
+  setLoadingIds(new Set<string>());
+  setLoadingProgress(new Map<string, number | null>());
+  setVisibleLoadingIds(new Set<string>());
+  for (const timer of pendingRevealTimers.values()) clearTimeout(timer);
+  pendingRevealTimers.clear();
+}
+
+/** runs `run(onProgress)`, wrapping it in the standard addToLoadingSet /
+ *  updateLoadingProgress / removeFromLoadingSet lifecycle (cleanup
+ *  guaranteed via `finally`, even on throw) - collapses the ~10 near-
+ *  identical hand-rolled copies of this exact dance across audioAccess.ts,
+ *  blobCache.ts, blobResolver.ts, rodioBackend.ts, autoDownload/manager.ts,
+ *  syncVideoToLocal.ts, videoBackend.ts.
+ *  callers that need a fallthrough-on-failure shape (return a sentinel
+ *  from `run` and check it after) still work fine - this only owns the
+ *  loading-state bookkeeping, not the caller's own control flow. */
+export async function withLoadingProgress<T>(
+  id: string,
+  run: (onProgress: (progress: number | null) => void) => Promise<T>
+): Promise<T> {
+  addToLoadingSet(id);
+  try {
+    return await run((progress) => updateLoadingProgress(id, progress));
+  } finally {
+    removeFromLoadingSet(id);
+  }
+}
+
 // ===== in-progress download tracking =====
 // tracks downloads currently in flight to prevent duplicates
 // keyed by sha256 (universal identifier)

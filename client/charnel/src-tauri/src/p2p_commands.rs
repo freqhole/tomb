@@ -251,6 +251,15 @@ pub fn p2p_get_node_id() -> Result<String, String> {
     grimoire::federation::p2p_client::get_node_id().map_err(|e| e.to_string())
 }
 
+/// snapshot of this node's own outgoing blob transfers currently in flight
+/// (this node serving a blob to a peer) - mirrors midden's wasm-side
+/// `get_active_transfers()` binding.
+#[tauri::command]
+pub async fn p2p_get_active_transfers(
+) -> Vec<grimoire::federation::transport::ActiveOutgoingTransfer> {
+    grimoire::federation::transport::active_outgoing_transfers().await
+}
+
 /// send an API request to a remote peer via P2P
 ///
 /// peer_addr: node_id (64 hex chars) or full endpoint JSON
@@ -370,6 +379,42 @@ pub async fn p2p_fetch_blob_verified_by_id(
         content_type: Some("audio/mpeg".to_string()),
         size: data.len() as u64,
         blake3,
+    })
+}
+
+/// pull a blob from a remote peer DIRECTLY into this node's own local
+/// iroh-blobs store, without ever handing the bytes back to JS.
+///
+/// use this instead of `p2p_fetch_blob_verified` whenever the caller only
+/// needs the blob to become locally servable (e.g. cenotaph's controller
+/// needing to re-serve a song/video to a paired player) rather than
+/// actually reading its bytes - avoids a wasteful base64 round trip to JS
+/// followed immediately by another base64 round trip back into rust via
+/// `p2p_import_blob_bytes`/the chunked importer.
+#[tauri::command]
+pub async fn p2p_pull_blob_to_local_store(
+    app_handle: tauri::AppHandle,
+    peer_addr: String,
+    blake3_hash: String,
+    on_progress: tauri::ipc::Channel<BlobDownloadProgress>,
+) -> Result<(), String> {
+    tracing::info!(peer = %peer_addr, blake3 = %blake3_hash, "pulling blob directly to local store");
+
+    let progress_cb = progress_forwarder(on_progress);
+
+    grimoire::federation::p2p_client::pull_blob_to_local_store_with_ensure(
+        &peer_addr,
+        &blake3_hash,
+        Some(progress_cb.as_ref()),
+    )
+    .await
+    .map_err(|e| {
+        let error_msg = e.to_string();
+        tracing::warn!(peer = %peer_addr, blake3 = %blake3_hash, error = %error_msg, "pull blob to local store failed");
+        if is_connection_error(&e) {
+            let _ = notify_peer_offline(&app_handle, &peer_addr, &error_msg);
+        }
+        error_msg
     })
 }
 

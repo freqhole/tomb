@@ -43,6 +43,7 @@ function makeFakeApi(overrides: Partial<MiddenWorkerApi> = {}): MiddenWorkerApi 
     importAbort: vi.fn(async () => undefined),
     ensureBlob: vi.fn(),
     downloadVerifiedWithEnsure: vi.fn(),
+    downloadVerifiedToStoreWithEnsure: vi.fn(),
     downloadVerifiedWithEnsureProgress: vi.fn(),
     downloadVerifiedById: vi.fn(),
     downloadVerifiedByIdProgress: vi.fn(),

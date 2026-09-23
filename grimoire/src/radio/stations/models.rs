@@ -43,6 +43,14 @@ pub struct RadioStation {
     /// exposed here so listing/getting a station doesn't need a second
     /// round trip just to show the current cadence).
     pub bumper_frequency_seconds: Option<i64>,
+    /// when true, this station draws its "next up" from a member-
+    /// submitted request queue (see `crate::radio::requests`) instead of
+    /// purely `resolve_playlist`'s filter-resolved candidates. mutually
+    /// exclusive with `is_public` (enforced in `create_station`/
+    /// `update_station`, not a SQL CHECK - matches this table's existing
+    /// convention-over-constraint style) - a request-taking station is
+    /// members/admins-only for now, see migration 086's doc comment.
+    pub accepts_requests: i64,
     pub created_at: i64,
     pub updated_at: i64,
 }
@@ -97,6 +105,7 @@ mod tests {
             timeline_only_mode: 0,
             content_mode: content_mode.to_string(),
             bumper_frequency_seconds: None,
+            accepts_requests: 0,
             created_at: 0,
             updated_at: 0,
         }
@@ -159,6 +168,10 @@ pub struct CreateStationRequest {
     /// 'audio_only' (default) | 'audio_or_video' | 'video_only'.
     #[serde(default)]
     pub content_mode: Option<String>,
+    /// see `RadioStation::accepts_requests` - mutually exclusive with
+    /// `is_public` (enforced in `create_station`).
+    #[serde(default)]
+    pub accepts_requests: Option<bool>,
 }
 
 /// partial update — only present fields are written.
@@ -186,6 +199,10 @@ pub struct UpdateStationRequest {
     /// 'audio_only' | 'audio_or_video' | 'video_only'.
     #[serde(default)]
     pub content_mode: Option<String>,
+    /// see `RadioStation::accepts_requests` - mutually exclusive with
+    /// `is_public` (enforced in `update_station`).
+    #[serde(default)]
+    pub accepts_requests: Option<bool>,
 }
 
 /// one filter clause attached to a station.

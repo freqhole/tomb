@@ -306,6 +306,16 @@ export class WorkerMiddenNode {
     return this.api.downloadVerifiedWithEnsure(peerAddr, blake3Hash);
   }
 
+  /** pulls a blob directly into this node's own OPFS-backed store, never
+   * returning bytes to JS - see `downloadVerifiedToStoreWithEnsure`'s doc
+   * comment in middenWorker.ts. */
+  async download_verified_to_store_with_ensure(
+    peerAddr: string,
+    blake3Hash: string,
+  ): Promise<void> {
+    return this.api.downloadVerifiedToStoreWithEnsure(peerAddr, blake3Hash);
+  }
+
   async download_verified_with_ensure_progress(
     peerAddr: string,
     blake3Hash: string,

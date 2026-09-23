@@ -320,7 +320,7 @@ export function VirtualSongList(props: VirtualSongListProps) {
               const song = props.songs[virtualRow.index];
               if (!song) return null;
 
-              const isPlaying = props.playingSongId === songIdentityKey(song);
+              const isPlaying = () => props.playingSongId === songIdentityKey(song);
               const isHovered = () => hoveredRowIndex() === virtualRow.index;
               const isSelected = () =>
                 props.showSelectionHighlight && props.selectedSongIds?.has(song.id);
@@ -331,7 +331,7 @@ export function VirtualSongList(props: VirtualSongListProps) {
                   class={`absolute left-0 right-0 flex items-center gap-3 px-3 cursor-pointer ${
                     isSelected()
                       ? "bg-[var(--color-accent-500)]/30"
-                      : isPlaying
+                      : isPlaying()
                         ? "bg-[#66003b]/20 border-l-2 border-l-[var(--color-accent-500)]"
                         : "hover:bg-[var(--color-bg-tertiary)] active:bg-[var(--color-bg-elevated)]"
                   }`}
@@ -356,7 +356,7 @@ export function VirtualSongList(props: VirtualSongListProps) {
                   {/* title + artist/album on two lines */}
                   <div class="flex-1 min-w-0">
                     <div
-                      class={`text-sm font-medium truncate ${isPlaying ? "text-[var(--color-accent-500)]" : "text-[var(--color-text-primary)]"}`}
+                      class={`text-sm font-medium truncate ${isPlaying() ? "text-[var(--color-accent-500)]" : "text-[var(--color-text-primary)]"}`}
                     >
                       {song.title || "untitled"}
                     </div>
@@ -415,7 +415,7 @@ export function VirtualSongList(props: VirtualSongListProps) {
                 const song = props.songs[virtualRow.index];
                 if (!song) return null;
 
-                const isPlaying = props.playingSongId === songIdentityKey(song);
+                const isPlaying = () => props.playingSongId === songIdentityKey(song);
                 const isHovered = () => hoveredRowIndex() === virtualRow.index;
                 const isSelected = () =>
                   props.showSelectionHighlight && props.selectedSongIds?.has(song.id);
@@ -426,7 +426,7 @@ export function VirtualSongList(props: VirtualSongListProps) {
                     class={`absolute left-0 right-0 flex items-center px-4 cursor-pointer ${
                       isSelected()
                         ? "bg-[var(--color-accent-500)]/30"
-                        : isPlaying
+                        : isPlaying()
                           ? "bg-[#66003b]/20 border-l-2 border-l-[var(--color-accent-500)]"
                           : "hover:bg-[var(--color-bg-tertiary)]"
                     }`}

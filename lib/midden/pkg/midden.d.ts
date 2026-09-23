@@ -375,6 +375,27 @@ export class MiddenNode {
      */
     download_verified_streaming_with_ensure(peer_addr: string, blake3_hash: string, total_size: number, on_chunk: Function, on_progress: Function, cancel?: CancelToken | null): Promise<number>;
     /**
+     * download a blob DIRECTLY into this node's own OPFS-backed store,
+     * without ever reading the bytes back out to return to JS - the
+     * wasm-side counterpart of grimoire's
+     * `pull_blob_to_local_store_with_ensure` (see docs/backlog.md item
+     * 12). `download_verified` above already downloads into
+     * `self.blobs_store` (the SAME store this node serves blobs FROM)
+     * before wastefully reading it back out into a `Uint8Array` - once
+     * the download loop below completes, the blob is already locally
+     * servable and there is nothing left to do. use this whenever the
+     * caller only needs the blob to become locally servable (e.g.
+     * cenotaph's controller relaying a song/video to a paired player)
+     * rather than actually reading the bytes in JS.
+     */
+    download_verified_to_store(peer_addr: string, blake3_hash: string): Promise<void>;
+    /**
+     * `download_verified_to_store` with automatic ensure + retry -
+     * mirrors `download_verified_with_ensure`'s structure exactly, minus
+     * the materialization step.
+     */
+    download_verified_to_store_with_ensure(peer_addr: string, blake3_hash: string): Promise<void>;
+    /**
      * download a blob using iroh-blobs with automatic ensure + retry
      *
      * tries download_verified first. if blob not in peer's FsStore,

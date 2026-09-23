@@ -412,6 +412,26 @@ function StationsSection(props: {
     }
   };
 
+  // mutually exclusive with is_public (server-enforced) - see togglePublic
+  // above and repository.rs's effective-value check.
+  const toggleAcceptsRequests = async (s: RadioStation) => {
+    setSavingId(s.id);
+    try {
+      const req: UpdateStationRequest = { id: s.id, accepts_requests: !s.accepts_requests };
+      await props.client.dispatchOrThrow("radio_stations_update", req);
+      toast.success(
+        `station ${!s.accepts_requests ? "now accepts member requests" : "no longer accepts member requests"}`
+      );
+      await refetch();
+    } catch (e) {
+      const msg =
+        e instanceof AdminCommandError ? e.message : e instanceof Error ? e.message : String(e);
+      toast.error(`failed to update: ${msg}`);
+    } finally {
+      setSavingId(null);
+    }
+  };
+
   const toggleEnabled = async (s: RadioStation) => {
     setSavingId(s.id);
     try {
@@ -500,6 +520,7 @@ function StationsSection(props: {
               <tr class="text-left text-xs uppercase tracking-wide text-[var(--color-text-muted)]">
                 <th class="py-2 pr-4">name</th>
                 <th class="py-2 pr-4">public</th>
+                <th class="py-2 pr-4">requests</th>
                 <th class="py-2 pr-4">enabled</th>
                 <th class="py-2 pr-4">content</th>
                 <th class="py-2 pr-4">codec</th>
@@ -528,6 +549,17 @@ function StationsSection(props: {
                           }
                         >
                           {s.is_public ? "public" : "private"}
+                        </span>
+                      </td>
+                      <td class="py-2 pr-4">
+                        <span
+                          class={
+                            s.accepts_requests
+                              ? "px-2 py-0.5 text-xs rounded-full bg-sky-600/20 text-sky-400"
+                              : "px-2 py-0.5 text-xs rounded-full bg-neutral-700/40 text-neutral-400"
+                          }
+                        >
+                          {s.accepts_requests ? "on" : "off"}
                         </span>
                       </td>
                       <td class="py-2 pr-4">
@@ -589,9 +621,26 @@ function StationsSection(props: {
                           <button
                             class="px-2 py-1 text-xs rounded bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-quaternary)] text-[var(--color-text-secondary)] disabled:opacity-50"
                             onClick={() => togglePublic(s)}
-                            disabled={savingId() === s.id}
+                            disabled={savingId() === s.id || (!s.is_public && !!s.accepts_requests)}
+                            title={
+                              !s.is_public && s.accepts_requests
+                                ? "a request-taking station can't also be public"
+                                : undefined
+                            }
                           >
                             {s.is_public ? "make private" : "make public"}
+                          </button>
+                          <button
+                            class="px-2 py-1 text-xs rounded bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-quaternary)] text-[var(--color-text-secondary)] disabled:opacity-50"
+                            onClick={() => toggleAcceptsRequests(s)}
+                            disabled={savingId() === s.id || (!s.accepts_requests && !!s.is_public)}
+                            title={
+                              !s.accepts_requests && s.is_public
+                                ? "a public station can't also take member requests"
+                                : undefined
+                            }
+                          >
+                            {s.accepts_requests ? "stop taking requests" : "accept requests"}
                           </button>
                           <button
                             class="px-2 py-1 text-xs rounded bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-quaternary)] text-[var(--color-text-secondary)] disabled:opacity-50"
@@ -633,7 +682,7 @@ function StationsSection(props: {
                     </tr>
                     <Show when={expandedId() === s.id}>
                       <tr class="border-t border-[var(--color-border-subtle)]">
-                        <td colspan={7} class="py-3 pr-4">
+                        <td colspan={8} class="py-3 pr-4">
                           <div class="flex flex-col gap-3">
                             <StationSeedEditor stationId={s.id} client={props.client} />
                             <StationBumperEditor
@@ -678,6 +727,7 @@ function CreateStationSection(props: {
   const [description, setDescription] = createSignal("");
   const [isPublic, setIsPublic] = createSignal(false);
   const [isEnabled, setIsEnabled] = createSignal(true);
+  const [acceptsRequests, setAcceptsRequests] = createSignal(false);
   const [playMode, setPlayMode] = createSignal("shuffle");
   const [timelineOnly, setTimelineOnly] = createSignal(false);
   const [contentMode, setContentMode] = createSignal<
@@ -710,6 +760,7 @@ function CreateStationSection(props: {
         description: description().trim() || undefined,
         is_public: isPublic(),
         is_enabled: isEnabled(),
+        accepts_requests: acceptsRequests(),
         play_mode: playMode(),
         timeline_only_mode: props.ffmpegAvailable() ? timelineOnly() : true,
         content_mode: contentMode(),
@@ -726,6 +777,7 @@ function CreateStationSection(props: {
       setDescription("");
       setIsPublic(false);
       setIsEnabled(true);
+      setAcceptsRequests(false);
       setPlayMode("shuffle");
       setTimelineOnly(!props.ffmpegAvailable());
       setContentMode("audio_only");
@@ -777,9 +829,25 @@ function CreateStationSection(props: {
             <input
               type="checkbox"
               checked={isPublic()}
-              onChange={(e) => setIsPublic(e.currentTarget.checked)}
+              onChange={(e) => {
+                const checked = e.currentTarget.checked;
+                setIsPublic(checked);
+                if (checked) setAcceptsRequests(false);
+              }}
             />
             public (visible to peers via discovery)
+          </label>
+          <label
+            class="flex items-center gap-2 text-sm text-[var(--color-text-secondary)]"
+            title={isPublic() ? "a public station can't also take member requests" : undefined}
+          >
+            <input
+              type="checkbox"
+              checked={acceptsRequests()}
+              disabled={isPublic()}
+              onChange={(e) => setAcceptsRequests(e.currentTarget.checked)}
+            />
+            accepts member requests (mutually exclusive with public)
           </label>
           <label class="flex items-center gap-2 text-sm text-[var(--color-text-secondary)]">
             <input

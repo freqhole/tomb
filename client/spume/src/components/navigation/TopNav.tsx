@@ -252,7 +252,16 @@ function RemoteServerImage(props: { remote: RemoteItem; class?: string; alt?: st
   // `<img>` load attempt rather than being permanently stuck once the
   // browser marks that exact url string as failed.
   const [retryNonce, setRetryNonce] = createSignal(0);
-  const isP2P = () => !!props.remote.peerAddr;
+  // the embedded local sidecar ("local library") has no `peerAddr` (it's
+  // this same device, not a dialed peer) but its image still needs to go
+  // through the SAME cache-first blob-resolver path as a real P2P
+  // remote (`resolveBlobUrl` already branches on `is_charnel_managed`
+  // exactly like this, see blobResolver.ts) - treating it as "just http"
+  // instead sent it down the raw `asset://` + manual `<img onError>`
+  // retry branch below, which is far less reliable and is what made the
+  // local library's image show blank and re-resolve on every top-nav
+  // open instead of loading instantly from cache like other sources.
+  const isP2P = () => !!props.remote.peerAddr || !!props.remote.isCharnelManaged;
 
   // reset failure/retry state whenever the remote switches or the image
   // source itself changes.

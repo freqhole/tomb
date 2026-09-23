@@ -392,6 +392,32 @@ export async function fetchLocalNodeId(): Promise<string | null> {
   }
 }
 
+/** one outgoing blob transfer in flight, this device serving it to a peer -
+ * camelCase mirror of the rust command's snake_case response, matching
+ * `ActiveTransferLike` (the wasm-side equivalent) so callers don't need a
+ * separate shape per transport. */
+export interface ActiveOutgoingTransfer {
+  peerId: string;
+  blake3: string;
+  bytesSent: number;
+  totalSize: number;
+}
+
+/** snapshot of this device's own outgoing blob transfers (serving a blob
+ * to a peer) - mirrors midden's wasm-side `get_active_transfers()`. */
+export async function getActiveOutgoingTransfers(): Promise<ActiveOutgoingTransfer[]> {
+  const invoke = await getInvoke();
+  const rows = await invoke<
+    Array<{ peer_id: string; blake3: string; bytes_sent: number; total_size: number }>
+  >("p2p_get_active_transfers");
+  return rows.map((r) => ({
+    peerId: r.peer_id,
+    blake3: r.blake3,
+    bytesSent: r.bytes_sent,
+    totalSize: r.total_size,
+  }));
+}
+
 // base64 inflates raw bytes ~4/3x - a whole-file single-shot import (the
 // entire file held in JS memory as one base64 string, JSON-serialized
 // across tauri IPC in one call) is fine for a tiny payload but is exactly
@@ -476,6 +502,35 @@ export async function finishChunkedBlobImport(uploadId: string): Promise<string>
 export async function abortChunkedBlobImport(uploadId: string): Promise<void> {
   const invoke = await getInvoke();
   await invoke("p2p_import_abort", { uploadId });
+}
+
+/**
+ * pull a blob DIRECTLY from a P2P source peer into this device's own
+ * local iroh-blobs store, entirely rust-side - no bytes ever cross into
+ * JS memory at all (not even once), unlike `p2p_fetch_blob_verified`
+ * (which pulls rust-side too, but then base64-encodes the result back to
+ * JS). use this whenever the goal is just "make this blob locally
+ * servable" (e.g. cenotaph's controller relaying a song/video to a
+ * paired player) rather than actually reading the bytes in JS - see
+ * `grimoire::federation::p2p_client::pull_blob_to_local_store_with_ensure`.
+ *
+ * `onProgress`, if given, receives cumulative downloaded byte counts.
+ */
+export async function pullBlobToLocalStore(
+  peerAddr: string,
+  blake3Hash: string,
+  onProgress?: (bytesDownloaded: number) => void
+): Promise<void> {
+  // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
+  const tauri = await import("@tauri-apps/api/core");
+  const channel = new tauri.Channel<{ bytes_downloaded: number }>();
+  channel.onmessage = (message) => onProgress?.(message?.bytes_downloaded ?? 0);
+  const invoke = await getInvoke();
+  await invoke("p2p_pull_blob_to_local_store", {
+    peerAddr,
+    blake3Hash,
+    onProgress: channel,
+  });
 }
 
 /**

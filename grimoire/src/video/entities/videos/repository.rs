@@ -7,10 +7,110 @@
 
 use super::models::{CreateVideoRequest, UpdateVideoRequest, Video};
 use crate::database;
-use crate::error::{ErrorDetail, GrimoireError};
+use crate::error::{ErrorDetail, GrimoireError, GrimoireResult};
 use crate::music::crud::ImageMetadata;
 use crate::response::GrimoireResponse;
 use crate::JsonVec;
+
+/// validates a video's `parent_video_id` (see `Video::parent_video_id`'s
+/// doc comment) before it's written - shared by `create_video` and
+/// `update_video`. rust-side validation, not a SQL CHECK, matching this
+/// table's existing convention-over-constraint style (`content_type` is
+/// validated the same way).
+///
+/// `own_id` is the video being created/updated (`None` for a brand new
+/// video, which can't be its own parent yet) - used to reject a video
+/// pointing at itself.
+async fn validate_parent_video_id(
+    pool: &sqlx::SqlitePool,
+    parent_video_id: Option<&str>,
+    series_id: Option<&str>,
+    own_id: Option<&str>,
+) -> GrimoireResult<()> {
+    let Some(parent_id) = parent_video_id else {
+        return Ok(());
+    };
+
+    if series_id.is_some() {
+        return Err(GrimoireError::Validation {
+            field: "parent_video_id".to_string(),
+            message: "a video cannot have both parent_video_id and series_id set - it's either \
+                      series-attached or movie-with-extras-attached, not both"
+                .to_string(),
+        });
+    }
+
+    if own_id == Some(parent_id) {
+        return Err(GrimoireError::Validation {
+            field: "parent_video_id".to_string(),
+            message: "a video cannot be its own parent".to_string(),
+        });
+    }
+
+    let parent = sqlx::query!(
+        r#"SELECT content_type as "content_type!", parent_video_id
+           FROM videoz WHERE id = ? AND deleted_at IS NULL"#,
+        parent_id
+    )
+    .fetch_optional(pool)
+    .await?;
+
+    match parent {
+        None => Err(GrimoireError::Validation {
+            field: "parent_video_id".to_string(),
+            message: format!("parent_video_id {parent_id} does not reference an existing video"),
+        }),
+        Some(p) if p.content_type != "movie" => Err(GrimoireError::Validation {
+            field: "parent_video_id".to_string(),
+            message: format!(
+                "parent video {parent_id} must have content_type 'movie' (has '{}')",
+                p.content_type
+            ),
+        }),
+        Some(p) if p.parent_video_id.is_some() => Err(GrimoireError::Validation {
+            field: "parent_video_id".to_string(),
+            message: "cannot attach an extra to another extra (no chaining) - parent_video_id \
+                      must point at a video with no parent of its own"
+                .to_string(),
+        }),
+        Some(_) => Ok(()),
+    }
+}
+
+/// backfill any locally-pending "extra" videos whose stashed
+/// `pending_parent_blake3` (see migration 087) now matches a real parent
+/// video that just got created/updated - closes the "extra arrived before
+/// its movie" cross-remote sync ordering gap.
+/// best-effort: logged, never fails the caller's create/update.
+async fn reconcile_pending_extras(pool: &sqlx::SqlitePool, parent_id: &str, parent_blake3: &str) {
+    match sqlx::query!(
+        "UPDATE videoz
+         SET parent_video_id = ?, pending_parent_blake3 = NULL, updated_at = unixepoch()
+         WHERE pending_parent_blake3 = ? AND parent_video_id IS NULL
+           AND series_id IS NULL AND deleted_at IS NULL",
+        parent_id,
+        parent_blake3
+    )
+    .execute(pool)
+    .await
+    {
+        Ok(result) if result.rows_affected() > 0 => {
+            tracing::info!(
+                "reconcile_pending_extras: linked {} pending extra(s) to parent video {}",
+                result.rows_affected(),
+                parent_id
+            );
+        }
+        Ok(_) => {}
+        Err(e) => {
+            tracing::warn!(
+                "reconcile_pending_extras: query failed for parent {}: {}",
+                parent_id,
+                e
+            );
+        }
+    }
+}
 
 /// create a new video
 pub async fn create_video(req: CreateVideoRequest) -> GrimoireResponse<Video> {
@@ -23,6 +123,17 @@ pub async fn create_video(req: CreateVideoRequest) -> GrimoireResponse<Video> {
             )
         }
     };
+
+    if let Err(e) = validate_parent_video_id(
+        &pool,
+        req.parent_video_id.as_deref(),
+        req.series_id.as_deref(),
+        None,
+    )
+    .await
+    {
+        return GrimoireResponse::failure("Invalid parent_video_id", vec![ErrorDetail::from(e)]);
+    }
 
     // defaults content_type to "series" when series_id is set, else "movie",
     // if the caller didn't specify one.
@@ -38,8 +149,9 @@ pub async fn create_video(req: CreateVideoRequest) -> GrimoireResponse<Video> {
         Video,
         r#"INSERT INTO videoz (
             series_id, season_id, episode_number, content_type, title, description, media_blob_id,
-            poster_blob_id, duration_seconds, release_date, created_by, updated_by
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            poster_blob_id, duration_seconds, release_date, created_by, updated_by, media_blob_blake3,
+            parent_video_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT blake3 FROM media_blobz WHERE id = ?), ?)
         RETURNING
             id as "id!",
             series_id,
@@ -49,6 +161,8 @@ pub async fn create_video(req: CreateVideoRequest) -> GrimoireResponse<Video> {
             title as "title!",
             description,
             media_blob_id as "media_blob_id!",
+            media_blob_blake3 as "blake3?",
+            parent_video_id,
             poster_blob_id,
             duration_seconds,
             release_date,
@@ -71,7 +185,9 @@ pub async fn create_video(req: CreateVideoRequest) -> GrimoireResponse<Video> {
         req.duration_seconds,
         req.release_date,
         req.created_by,
-        req.created_by
+        req.created_by,
+        req.media_blob_id,
+        req.parent_video_id
     )
     .fetch_one(&pool)
     .await
@@ -92,6 +208,15 @@ pub async fn create_video(req: CreateVideoRequest) -> GrimoireResponse<Video> {
             return GrimoireResponse::failure("Failed to create video", vec![ErrorDetail::from(e)]);
         }
     };
+
+    // a freshly created movie may already have extras waiting on it (see
+    // migration 087's doc comment) - a plain clip/series episode can never
+    // be somebody's stashed parent, so skip the lookup entirely for those.
+    if video.content_type == "movie" && video.parent_video_id.is_none() {
+        if let Some(blake3) = &video.blake3 {
+            reconcile_pending_extras(&pool, &video.id, blake3).await;
+        }
+    }
 
     GrimoireResponse::success("Video created successfully", video)
 }
@@ -119,6 +244,8 @@ pub async fn get_video(id: &str) -> GrimoireResponse<Video> {
             title as "title!",
             description,
             media_blob_id as "media_blob_id!",
+            media_blob_blake3 as "blake3?",
+            parent_video_id,
             poster_blob_id,
             duration_seconds,
             release_date,
@@ -128,12 +255,9 @@ pub async fn get_video(id: &str) -> GrimoireResponse<Video> {
             created_by,
             updated_by,
             deleted_by,
-            (SELECT COALESCE(json_group_array(json_object('blob_id', media_blob_id, 'is_primary', is_primary, 'blob_type', blob_type)), '[]')
-             FROM (SELECT media_blob_id, is_primary, blob_type FROM entity_imagez
-                   WHERE entity_type = 'video' AND entity_id = videoz.id
-                   ORDER BY is_primary DESC, created_at DESC)) as "images: JsonVec<ImageMetadata>",
-            (SELECT COUNT(*) FROM play_eventz WHERE entity_type = 'video' AND entity_id = videoz.id) as "play_count: i64"
-         FROM videoz
+            images as "images: JsonVec<ImageMetadata>",
+            play_count as "play_count: i64"
+         FROM video_query_view
          WHERE id = ? AND deleted_at IS NULL"#,
         id
     )
@@ -180,6 +304,8 @@ pub async fn get_video_with_metadata(
         video_title: String,
         description: Option<String>,
         media_blob_id: String,
+        blake3: Option<String>,
+        parent_video_id: Option<String>,
         poster_blob_id: Option<String>,
         duration_seconds: Option<f64>,
         release_date: Option<String>,
@@ -209,6 +335,8 @@ pub async fn get_video_with_metadata(
             v.title as video_title,
             v.description,
             v.media_blob_id,
+            v.media_blob_blake3 as blake3,
+            v.parent_video_id,
             v.poster_blob_id,
             v.duration_seconds,
             v.release_date,
@@ -275,6 +403,8 @@ pub async fn get_video_with_metadata(
         title: row.video_title,
         description: row.description,
         media_blob_id: row.media_blob_id,
+        blake3: row.blake3,
+        parent_video_id: row.parent_video_id,
         poster_blob_id: row.poster_blob_id,
         duration_seconds: row.duration_seconds,
         release_date: row.release_date,
@@ -328,6 +458,8 @@ pub async fn list_videos_by_series(series_id: &str) -> GrimoireResponse<Vec<Vide
             title as "title!",
             description,
             media_blob_id as "media_blob_id!",
+            media_blob_blake3 as "blake3?",
+            parent_video_id,
             poster_blob_id,
             duration_seconds,
             release_date,
@@ -337,16 +469,13 @@ pub async fn list_videos_by_series(series_id: &str) -> GrimoireResponse<Vec<Vide
             created_by,
             updated_by,
             deleted_by,
-            (SELECT COALESCE(json_group_array(json_object('blob_id', media_blob_id, 'is_primary', is_primary, 'blob_type', blob_type)), '[]')
-             FROM (SELECT media_blob_id, is_primary, blob_type FROM entity_imagez
-                   WHERE entity_type = 'video' AND entity_id = videoz.id
-                   ORDER BY is_primary DESC, created_at DESC)) as "images: JsonVec<ImageMetadata>",
-            (SELECT COUNT(*) FROM play_eventz WHERE entity_type = 'video' AND entity_id = videoz.id) as "play_count: i64"
-         FROM videoz
+            images as "images: JsonVec<ImageMetadata>",
+            play_count as "play_count: i64"
+         FROM video_query_view
          WHERE series_id = ? AND deleted_at IS NULL
          ORDER BY
-           (SELECT season_number FROM video_seasonz WHERE id = videoz.season_id) IS NULL,
-           (SELECT season_number FROM video_seasonz WHERE id = videoz.season_id) ASC,
+           (SELECT season_number FROM video_seasonz WHERE id = season_id) IS NULL,
+           (SELECT season_number FROM video_seasonz WHERE id = season_id) ASC,
            episode_number ASC,
            created_at ASC"#,
         series_id
@@ -386,6 +515,8 @@ pub async fn list_videos_by_season(season_id: &str) -> GrimoireResponse<Vec<Vide
             title as "title!",
             description,
             media_blob_id as "media_blob_id!",
+            media_blob_blake3 as "blake3?",
+            parent_video_id,
             poster_blob_id,
             duration_seconds,
             release_date,
@@ -395,12 +526,9 @@ pub async fn list_videos_by_season(season_id: &str) -> GrimoireResponse<Vec<Vide
             created_by,
             updated_by,
             deleted_by,
-            (SELECT COALESCE(json_group_array(json_object('blob_id', media_blob_id, 'is_primary', is_primary, 'blob_type', blob_type)), '[]')
-             FROM (SELECT media_blob_id, is_primary, blob_type FROM entity_imagez
-                   WHERE entity_type = 'video' AND entity_id = videoz.id
-                   ORDER BY is_primary DESC, created_at DESC)) as "images: JsonVec<ImageMetadata>",
-            (SELECT COUNT(*) FROM play_eventz WHERE entity_type = 'video' AND entity_id = videoz.id) as "play_count: i64"
-         FROM videoz
+            images as "images: JsonVec<ImageMetadata>",
+            play_count as "play_count: i64"
+         FROM video_query_view
          WHERE season_id = ? AND deleted_at IS NULL
          ORDER BY episode_number ASC, created_at ASC"#,
         season_id
@@ -415,6 +543,62 @@ pub async fn list_videos_by_season(season_id: &str) -> GrimoireResponse<Vec<Vide
     };
 
     GrimoireResponse::success("Videos retrieved successfully", videos)
+}
+
+/// list every "extra" (deleted scene, blooper, behind-the-scenes, trailer)
+/// attached to a movie via `parent_video_id`, non-deleted only. see
+/// `Video::parent_video_id`'s doc comment - this is intentionally a flat,
+/// unordered-by-kind list (no `extra_kind` grouping in v1, oldest first).
+pub async fn list_video_extras(parent_video_id: &str) -> GrimoireResponse<Vec<Video>> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
+
+    let videos = match sqlx::query_as!(
+        Video,
+        r#"SELECT
+            id as "id!",
+            series_id,
+            season_id,
+            episode_number,
+            content_type as "content_type!",
+            title as "title!",
+            description,
+            media_blob_id as "media_blob_id!",
+            media_blob_blake3 as "blake3?",
+            parent_video_id,
+            poster_blob_id,
+            duration_seconds,
+            release_date,
+            created_at as "created_at!",
+            updated_at as "updated_at!",
+            deleted_at,
+            created_by,
+            updated_by,
+            deleted_by,
+            images as "images: JsonVec<ImageMetadata>",
+            play_count as "play_count: i64"
+         FROM video_query_view
+         WHERE parent_video_id = ? AND deleted_at IS NULL
+         ORDER BY created_at ASC"#,
+        parent_video_id
+    )
+    .fetch_all(&pool)
+    .await
+    {
+        Ok(videos) => videos,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to list extras", vec![ErrorDetail::from(e)])
+        }
+    };
+
+    GrimoireResponse::success("Extras retrieved successfully", videos)
 }
 
 /// list standalone videos (no series at all - movies/clips), non-deleted only
@@ -445,6 +629,8 @@ pub async fn list_videos_unattached(
             title as "title!",
             description,
             media_blob_id as "media_blob_id!",
+            media_blob_blake3 as "blake3?",
+            parent_video_id,
             poster_blob_id,
             duration_seconds,
             release_date,
@@ -454,12 +640,9 @@ pub async fn list_videos_unattached(
             created_by,
             updated_by,
             deleted_by,
-            (SELECT COALESCE(json_group_array(json_object('blob_id', media_blob_id, 'is_primary', is_primary, 'blob_type', blob_type)), '[]')
-             FROM (SELECT media_blob_id, is_primary, blob_type FROM entity_imagez
-                   WHERE entity_type = 'video' AND entity_id = videoz.id
-                   ORDER BY is_primary DESC, created_at DESC)) as "images: JsonVec<ImageMetadata>",
-            (SELECT COUNT(*) FROM play_eventz WHERE entity_type = 'video' AND entity_id = videoz.id) as "play_count: i64"
-         FROM videoz
+            images as "images: JsonVec<ImageMetadata>",
+            play_count as "play_count: i64"
+         FROM video_query_view
          WHERE series_id IS NULL AND deleted_at IS NULL
          ORDER BY created_at DESC
          LIMIT ? OFFSET ?"#,
@@ -505,6 +688,8 @@ pub async fn list_recently_added_videos(limit: Option<u32>) -> GrimoireResponse<
             title as "title!",
             description,
             media_blob_id as "media_blob_id!",
+            media_blob_blake3 as "blake3?",
+            parent_video_id,
             poster_blob_id,
             duration_seconds,
             release_date,
@@ -514,12 +699,9 @@ pub async fn list_recently_added_videos(limit: Option<u32>) -> GrimoireResponse<
             created_by,
             updated_by,
             deleted_by,
-            (SELECT COALESCE(json_group_array(json_object('blob_id', media_blob_id, 'is_primary', is_primary, 'blob_type', blob_type)), '[]')
-             FROM (SELECT media_blob_id, is_primary, blob_type FROM entity_imagez
-                   WHERE entity_type = 'video' AND entity_id = videoz.id
-                   ORDER BY is_primary DESC, created_at DESC)) as "images: JsonVec<ImageMetadata>",
-            (SELECT COUNT(*) FROM play_eventz WHERE entity_type = 'video' AND entity_id = videoz.id) as "play_count: i64"
-         FROM videoz
+            images as "images: JsonVec<ImageMetadata>",
+            play_count as "play_count: i64"
+         FROM video_query_view
          WHERE deleted_at IS NULL
          ORDER BY created_at DESC
          LIMIT ?"#,
@@ -570,6 +752,8 @@ pub async fn list_unassigned_videos(
             title as "title!",
             description,
             media_blob_id as "media_blob_id!",
+            media_blob_blake3 as "blake3?",
+            parent_video_id,
             poster_blob_id,
             duration_seconds,
             release_date,
@@ -579,17 +763,14 @@ pub async fn list_unassigned_videos(
             created_by,
             updated_by,
             deleted_by,
-            (SELECT COALESCE(json_group_array(json_object('blob_id', media_blob_id, 'is_primary', is_primary, 'blob_type', blob_type)), '[]')
-             FROM (SELECT media_blob_id, is_primary, blob_type FROM entity_imagez
-                   WHERE entity_type = 'video' AND entity_id = videoz.id
-                   ORDER BY is_primary DESC, created_at DESC)) as "images: JsonVec<ImageMetadata>",
-            (SELECT COUNT(*) FROM play_eventz WHERE entity_type = 'video' AND entity_id = videoz.id) as "play_count: i64"
-         FROM videoz
+            images as "images: JsonVec<ImageMetadata>",
+            play_count as "play_count: i64"
+         FROM video_query_view
          WHERE deleted_at IS NULL
            AND NOT EXISTS (
              SELECT 1 FROM entity_taxonz et
              JOIN taxonz t ON t.id = et.taxon_id
-             WHERE et.entity_type = 'video' AND et.entity_id = videoz.id AND t.deleted_at IS NULL
+             WHERE et.entity_type = 'video' AND et.entity_id = video_query_view.id AND t.deleted_at IS NULL
            )
          ORDER BY created_at DESC
          LIMIT ? OFFSET ?"#,
@@ -642,6 +823,8 @@ pub async fn list_videos_by_taxon_value(
             title as "title!",
             description,
             media_blob_id as "media_blob_id!",
+            media_blob_blake3 as "blake3?",
+            parent_video_id,
             poster_blob_id,
             duration_seconds,
             release_date,
@@ -651,12 +834,9 @@ pub async fn list_videos_by_taxon_value(
             created_by,
             updated_by,
             deleted_by,
-            (SELECT COALESCE(json_group_array(json_object('blob_id', media_blob_id, 'is_primary', is_primary, 'blob_type', blob_type)), '[]')
-             FROM (SELECT media_blob_id, is_primary, blob_type FROM entity_imagez
-                   WHERE entity_type = 'video' AND entity_id = videoz.id
-                   ORDER BY is_primary DESC, created_at DESC)) as "images: JsonVec<ImageMetadata>",
-            (SELECT COUNT(*) FROM play_eventz WHERE entity_type = 'video' AND entity_id = videoz.id) as "play_count: i64"
-         FROM videoz
+            images as "images: JsonVec<ImageMetadata>",
+            play_count as "play_count: i64"
+         FROM video_query_view
          WHERE deleted_at IS NULL
            AND id IN (
              SELECT DISTINCT et.entity_id
@@ -700,8 +880,56 @@ pub async fn update_video(req: UpdateVideoRequest) -> GrimoireResponse<Video> {
         }
     };
 
+    // fetch the current series_id/parent_video_id so validate_parent_video_id
+    // sees the EFFECTIVE post-update values (mirrors the UPDATE's own
+    // clear-flag-or-COALESCE semantics below) rather than just this
+    // request's raw fields - a caller changing only one of the two
+    // mutually-exclusive fields must still be validated against the
+    // other's current value.
+    let current = match sqlx::query!(
+        "SELECT series_id, parent_video_id FROM videoz WHERE id = ? AND deleted_at IS NULL",
+        req.video_id
+    )
+    .fetch_optional(&pool)
+    .await
+    {
+        Ok(Some(r)) => r,
+        Ok(None) => {
+            let err = GrimoireError::VideoNotFound {
+                id: req.video_id.clone(),
+            };
+            return GrimoireResponse::failure("Video not found", vec![ErrorDetail::from(&err)]);
+        }
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to update video", vec![ErrorDetail::from(e)])
+        }
+    };
+
+    let effective_series_id = if req.clear_series_id {
+        None
+    } else {
+        req.series_id.clone().or(current.series_id)
+    };
+    let effective_parent_video_id = if req.clear_parent_video_id {
+        None
+    } else {
+        req.parent_video_id.clone().or(current.parent_video_id)
+    };
+
+    if let Err(e) = validate_parent_video_id(
+        &pool,
+        effective_parent_video_id.as_deref(),
+        effective_series_id.as_deref(),
+        Some(&req.video_id),
+    )
+    .await
+    {
+        return GrimoireResponse::failure("Invalid parent_video_id", vec![ErrorDetail::from(e)]);
+    }
+
     let clear_series_flag = req.clear_series_id as i64;
     let clear_season_flag = (req.clear_series_id || req.clear_season_id) as i64;
+    let clear_parent_video_flag = req.clear_parent_video_id as i64;
 
     let video = match sqlx::query_as!(
         Video,
@@ -712,6 +940,7 @@ pub async fn update_video(req: UpdateVideoRequest) -> GrimoireResponse<Video> {
                 content_type = COALESCE(?, content_type),
                 title = COALESCE(?, title),
                 description = COALESCE(?, description),
+                parent_video_id = CASE WHEN ? = 1 THEN NULL ELSE COALESCE(?, parent_video_id) END,
                 poster_blob_id = COALESCE(?, poster_blob_id),
                 duration_seconds = COALESCE(?, duration_seconds),
                 release_date = COALESCE(?, release_date),
@@ -727,6 +956,8 @@ pub async fn update_video(req: UpdateVideoRequest) -> GrimoireResponse<Video> {
                 title as "title!",
                 description,
                 media_blob_id as "media_blob_id!",
+                media_blob_blake3 as "blake3?",
+                parent_video_id,
                 poster_blob_id,
                 duration_seconds,
                 release_date,
@@ -746,6 +977,8 @@ pub async fn update_video(req: UpdateVideoRequest) -> GrimoireResponse<Video> {
         req.content_type,
         req.title,
         req.description,
+        clear_parent_video_flag,
+        req.parent_video_id,
         req.poster_blob_id,
         req.duration_seconds,
         req.release_date,
@@ -766,6 +999,15 @@ pub async fn update_video(req: UpdateVideoRequest) -> GrimoireResponse<Video> {
             return GrimoireResponse::failure("Failed to update video", vec![ErrorDetail::from(e)])
         }
     };
+
+    // e.g. a clip retroactively reclassified as this movie, or a re-sync
+    // that just resolved series/season for a row that's actually a movie -
+    // either way, check for extras waiting on it (see migration 087).
+    if video.content_type == "movie" && video.parent_video_id.is_none() {
+        if let Some(blake3) = &video.blake3 {
+            reconcile_pending_extras(&pool, &video.id, blake3).await;
+        }
+    }
 
     GrimoireResponse::success("Video updated successfully", video)
 }
@@ -804,4 +1046,350 @@ pub async fn delete_video(id: &str, deleted_by: Option<String>) -> GrimoireRespo
     }
 
     GrimoireResponse::success_unit("Video deleted successfully")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // touches the real db pool singleton - run one at a time, own process:
+    // cargo test -p grimoire --lib -- --ignored --exact video::entities::videos::repository::tests::test_create_and_get_video_carries_blake3_through_the_view
+    async fn init_test_env(data_dir: &std::path::Path) {
+        let config_toml = format!(
+            r#"data_dir = "{data_dir}"
+
+[database]
+filename = "grimoire.db"
+
+[media]
+max_fs_file_size = 104857600
+supported_audio_formats = ["mp3", "flac"]
+
+[musicbrainz]
+enabled = false
+
+[logging]
+level = "warn"
+"#,
+            data_dir = data_dir.display()
+        );
+        let config_path = data_dir.join("freqhole-config.toml");
+        std::fs::write(&config_path, config_toml).expect("write config");
+        std::fs::write(data_dir.join("grimoire.db"), b"").expect("touch grimoire.db");
+
+        crate::config::init_config(Some(config_path)).expect("init config");
+        crate::database::run_migrations()
+            .await
+            .expect("run migrations");
+    }
+
+    #[tokio::test]
+    #[ignore = "needs its own process: touches the real db pool singleton"]
+    async fn test_create_and_get_video_carries_blake3_through_the_view() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        init_test_env(tmp.path()).await;
+
+        let pool = database::connect().await.expect("connect");
+        sqlx::query(
+            "INSERT INTO media_blobz (id, sha256, size, mime, blob_type, blake3)
+             VALUES ('blob-with-hash', ?, 123, 'video/mp4', 'original', 'the-video-blake3')",
+        )
+        .bind("b".repeat(64))
+        .execute(&pool)
+        .await
+        .expect("insert media_blobz row");
+
+        let created = create_video(CreateVideoRequest {
+            series_id: None,
+            season_id: None,
+            episode_number: None,
+            content_type: Some("movie".to_string()),
+            title: "test movie".to_string(),
+            description: None,
+            media_blob_id: "blob-with-hash".to_string(),
+            parent_video_id: None,
+            poster_blob_id: None,
+            duration_seconds: None,
+            release_date: None,
+            created_by: None,
+        })
+        .await;
+        assert!(created.is_success(), "create_video failed: {created:?}");
+        let created_video = created.data.expect("created video data");
+        assert_eq!(created_video.blake3.as_deref(), Some("the-video-blake3"));
+
+        // get_video reads via video_query_view - confirms the view rewiring
+        // (not just the insert path) surfaces the denormalized column.
+        let fetched = get_video(&created_video.id).await;
+        assert!(fetched.is_success(), "get_video failed: {fetched:?}");
+        let fetched_video = fetched.data.expect("fetched video data");
+        assert_eq!(fetched_video.blake3.as_deref(), Some("the-video-blake3"));
+
+        // list_videos_unattached also reads via video_query_view - a second
+        // independent code path exercising the same column/view plumbing.
+        let listed = list_videos_unattached(Some(50), Some(0)).await;
+        assert!(
+            listed.is_success(),
+            "list_videos_unattached failed: {listed:?}"
+        );
+        let listed_videos = listed.data.expect("listed videos");
+        let listed_match = listed_videos
+            .iter()
+            .find(|v| v.id == created_video.id)
+            .expect("created video present in unattached list");
+        assert_eq!(listed_match.blake3.as_deref(), Some("the-video-blake3"));
+    }
+
+    #[tokio::test]
+    #[ignore = "needs its own process: touches the real db pool singleton"]
+    async fn test_parent_video_id_validation_and_extras_grouping() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        init_test_env(tmp.path()).await;
+
+        let pool = database::connect().await.expect("connect");
+        for (i, (blob_id, blake3)) in [
+            ("blob-movie", "movie-blake3"),
+            ("blob-extra", "extra-blake3"),
+            ("blob-clip", "clip-blake3"),
+            ("blob-series-ep", "series-ep-blake3"),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let sha256 = format!("{i:064x}");
+            sqlx::query(
+                "INSERT INTO media_blobz (id, sha256, size, mime, blob_type, blake3)
+                 VALUES (?, ?, 123, 'video/mp4', 'original', ?)",
+            )
+            .bind(blob_id)
+            .bind(sha256)
+            .bind(blake3)
+            .execute(&pool)
+            .await
+            .expect("insert media_blobz row");
+        }
+
+        async fn make(content_type: &str, media_blob_id: &str) -> Video {
+            create_video(CreateVideoRequest {
+                series_id: None,
+                season_id: None,
+                episode_number: None,
+                content_type: Some(content_type.to_string()),
+                title: format!("test {content_type}"),
+                description: None,
+                media_blob_id: media_blob_id.to_string(),
+                parent_video_id: None,
+                poster_blob_id: None,
+                duration_seconds: None,
+                release_date: None,
+                created_by: None,
+            })
+            .await
+            .data
+            .expect("create_video should succeed")
+        }
+
+        let movie = make("movie", "blob-movie").await;
+        let clip = make("clip", "blob-clip").await;
+
+        // happy path: an extra attached to a real movie succeeds and reads
+        // back through both create_video's RETURNING and get_video's view.
+        let extra = create_video(CreateVideoRequest {
+            series_id: None,
+            season_id: None,
+            episode_number: None,
+            content_type: Some("clip".to_string()),
+            title: "deleted scene".to_string(),
+            description: None,
+            media_blob_id: "blob-extra".to_string(),
+            parent_video_id: Some(movie.id.clone()),
+            poster_blob_id: None,
+            duration_seconds: None,
+            release_date: None,
+            created_by: None,
+        })
+        .await;
+        assert!(extra.is_success(), "create_video (extra) failed: {extra:?}");
+        let extra = extra.data.expect("extra data");
+        assert_eq!(extra.parent_video_id.as_deref(), Some(movie.id.as_str()));
+        let fetched = get_video(&extra.id).await.data.expect("get_video");
+        assert_eq!(fetched.parent_video_id.as_deref(), Some(movie.id.as_str()));
+
+        // reject: parent's content_type isn't "movie".
+        let bad_parent_kind = create_video(CreateVideoRequest {
+            series_id: None,
+            season_id: None,
+            episode_number: None,
+            content_type: Some("clip".to_string()),
+            title: "invalid parent kind".to_string(),
+            description: None,
+            media_blob_id: "blob-series-ep".to_string(),
+            parent_video_id: Some(clip.id.clone()),
+            poster_blob_id: None,
+            duration_seconds: None,
+            release_date: None,
+            created_by: None,
+        })
+        .await;
+        assert!(!bad_parent_kind.is_success());
+        assert_eq!(bad_parent_kind.errors[0].error_type, "validation");
+
+        // reject: chaining an extra onto another extra.
+        let chained = update_video(UpdateVideoRequest {
+            video_id: clip.id.clone(),
+            series_id: None,
+            season_id: None,
+            episode_number: None,
+            content_type: None,
+            title: None,
+            description: None,
+            parent_video_id: Some(extra.id.clone()),
+            poster_blob_id: None,
+            duration_seconds: None,
+            release_date: None,
+            updated_by: None,
+            clear_series_id: false,
+            clear_season_id: false,
+            clear_parent_video_id: false,
+        })
+        .await;
+        assert!(!chained.is_success());
+
+        // reject: series_id and parent_video_id both set.
+        let both_set = update_video(UpdateVideoRequest {
+            video_id: clip.id.clone(),
+            series_id: Some("some-series-id".to_string()),
+            season_id: None,
+            episode_number: None,
+            content_type: None,
+            title: None,
+            description: None,
+            parent_video_id: Some(movie.id.clone()),
+            poster_blob_id: None,
+            duration_seconds: None,
+            release_date: None,
+            updated_by: None,
+            clear_series_id: false,
+            clear_season_id: false,
+            clear_parent_video_id: false,
+        })
+        .await;
+        assert!(!both_set.is_success());
+
+        // reject: self-reference.
+        let self_ref = update_video(UpdateVideoRequest {
+            video_id: movie.id.clone(),
+            series_id: None,
+            season_id: None,
+            episode_number: None,
+            content_type: None,
+            title: None,
+            description: None,
+            parent_video_id: Some(movie.id.clone()),
+            poster_blob_id: None,
+            duration_seconds: None,
+            release_date: None,
+            updated_by: None,
+            clear_series_id: false,
+            clear_season_id: false,
+            clear_parent_video_id: false,
+        })
+        .await;
+        assert!(!self_ref.is_success());
+    }
+
+    #[tokio::test]
+    #[ignore = "needs its own process: touches the real db pool singleton"]
+    async fn test_pending_parent_blake3_reconciliation() {
+        // an extra synced in before its parent movie (cross-remote sync
+        // ordering gap, migration 087) should get
+        // retroactively linked the first time that movie is created locally
+        // by ANY path (sync, local import, manual upload all go through
+        // create_video) - mirrors what `set_pending_parent_blake3` +
+        // `resolve_sync_parent_video` do in grimoire/src/offal/sync/video.rs.
+        let tmp = tempfile::tempdir().expect("tempdir");
+        init_test_env(tmp.path()).await;
+
+        let pool = database::connect().await.expect("connect");
+        for (i, (blob_id, blake3)) in [
+            ("blob-extra2", "extra2-blake3"),
+            ("blob-movie2", "movie2-blake3"),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let sha256 = format!("{i:064x}");
+            sqlx::query(
+                "INSERT INTO media_blobz (id, sha256, size, mime, blob_type, blake3)
+                 VALUES (?, ?, 123, 'video/mp4', 'original', ?)",
+            )
+            .bind(blob_id)
+            .bind(sha256)
+            .bind(blake3)
+            .execute(&pool)
+            .await
+            .expect("insert media_blobz row");
+        }
+
+        let extra = create_video(CreateVideoRequest {
+            series_id: None,
+            season_id: None,
+            episode_number: None,
+            content_type: Some("clip".to_string()),
+            title: "deleted scene (extra arrives first)".to_string(),
+            description: None,
+            media_blob_id: "blob-extra2".to_string(),
+            parent_video_id: None,
+            poster_blob_id: None,
+            duration_seconds: None,
+            release_date: None,
+            created_by: None,
+        })
+        .await
+        .data
+        .expect("create_video (extra) should succeed");
+
+        sqlx::query("UPDATE videoz SET pending_parent_blake3 = ? WHERE id = ?")
+            .bind("movie2-blake3")
+            .bind(&extra.id)
+            .execute(&pool)
+            .await
+            .expect("stash pending_parent_blake3");
+
+        let movie = create_video(CreateVideoRequest {
+            series_id: None,
+            season_id: None,
+            episode_number: None,
+            content_type: Some("movie".to_string()),
+            title: "the movie (arrives second)".to_string(),
+            description: None,
+            media_blob_id: "blob-movie2".to_string(),
+            parent_video_id: None,
+            poster_blob_id: None,
+            duration_seconds: None,
+            release_date: None,
+            created_by: None,
+        })
+        .await
+        .data
+        .expect("create_video (movie) should succeed");
+
+        let relinked = get_video(&extra.id).await.data.expect("get_video (extra)");
+        assert_eq!(
+            relinked.parent_video_id.as_deref(),
+            Some(movie.id.as_str()),
+            "extra should have been retroactively linked to its parent movie"
+        );
+
+        let pending: Option<String> =
+            sqlx::query_scalar("SELECT pending_parent_blake3 FROM videoz WHERE id = ?")
+                .bind(&extra.id)
+                .fetch_one(&pool)
+                .await
+                .expect("read back pending_parent_blake3");
+        assert_eq!(
+            pending, None,
+            "pending_parent_blake3 should be cleared once resolved"
+        );
+    }
 }

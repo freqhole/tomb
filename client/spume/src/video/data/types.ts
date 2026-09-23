@@ -108,8 +108,10 @@ export interface VideoDataSource {
     series_id?: string | null;
     season_id?: string | null;
     content_type?: string;
+    parent_video_id?: string | null;
     clear_series_id?: boolean;
     clear_season_id?: boolean;
+    clear_parent_video_id?: boolean;
   }): Promise<void>;
   deleteVideo?(videoId: string): Promise<void>;
   createVideoSeries?(params: {

@@ -71,6 +71,7 @@ import {
   togglePlayback as realTogglePlayback,
   getVideoElement,
   isVideoWindowActive,
+  seek as realSeek,
 } from "../../music/services/audio/player";
 import {
   clearQueue as clearRealQueue,
@@ -82,11 +83,12 @@ import {
   mediaItemTitle,
   type MediaItem,
 } from "../../app/services/storage/mediaItem";
-import { getSongDisplayImages } from "../../utils/images";
+import { getSongDisplayImages, getWaveformImage } from "../../utils/images";
 import { isTouchDevice } from "../../utils/isMobile";
 import MediaImage from "../../components/media/MediaImage";
 import { Icon, IconNames } from "../../components/icons/registry";
 import { VideoMiniPlayer } from "../../components/player/VideoMiniPlayer";
+import { PlaybackProgressBar } from "../../components/player/PlaybackProgressBar";
 import { QueueSongRow } from "../../components/player/QueueSongRow";
 import { VideoQueueRow } from "../../components/player/VideoQueueRow";
 import { getQueueItemProgress } from "../../music/services/queue/queueProgress";
@@ -104,13 +106,6 @@ const ROW_HEIGHT = 68;
 // call, not by copy-pasting it a second time - tracked as a follow-up in
 // docs/cenotaph-player-queue-unification-plan.md.
 const noDrag = () => {};
-
-function formatTime(seconds: number): string {
-  if (!Number.isFinite(seconds) || seconds < 0) seconds = 0;
-  const mins = Math.floor(seconds / 60);
-  const secs = Math.floor(seconds % 60);
-  return `${mins}:${secs.toString().padStart(2, "0")}`;
-}
 
 export function CenotaphPlayerApp() {
   const navigate = useNavigate();
@@ -431,6 +426,7 @@ export function CenotaphPlayerApp() {
         isVideo: false,
         artworkImages: undefined as ImageMetadata[] | undefined,
         artworkUrl: undefined as string | undefined,
+        waveformImage: undefined as ImageMetadata | undefined,
         title: first?.title ?? "resolving\u2026",
         artist: first?.artist ?? "",
         positionSeconds: 0,
@@ -450,6 +446,7 @@ export function CenotaphPlayerApp() {
       isVideo: current.kind === "video",
       artworkImages: current.kind === "song" ? getSongDisplayImages(current.song) : undefined,
       artworkUrl: undefined as string | undefined,
+      waveformImage: current.kind === "song" ? getWaveformImage(current.song.images) : undefined,
       title: mediaItemTitle(current),
       artist: mediaItemSubtitle(current) ?? "",
       positionSeconds: realCurrentTime(),
@@ -709,9 +706,16 @@ export function CenotaphPlayerApp() {
                 </p>
               }
             >
-              <p class="font-mono text-xs text-neutral-500" data-testid="now-playing-time">
-                {formatTime(view().positionSeconds)} / {formatTime(view().durationSeconds)}
-              </p>
+              <div class="w-full" data-testid="now-playing-time">
+                <PlaybackProgressBar
+                  currentTime={view().positionSeconds}
+                  duration={view().durationSeconds}
+                  waveformImage={view().waveformImage}
+                  onSeek={(pct) => realSeek((pct / 100) * view().durationSeconds)}
+                  showPlayhead={false}
+                  class="w-full"
+                />
+              </div>
             </Show>
 
             <div

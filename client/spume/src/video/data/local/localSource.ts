@@ -155,10 +155,13 @@ export class LocalVideoDataSource implements VideoDataSource {
     series_id?: string | null;
     season_id?: string | null;
     content_type?: string;
+    parent_video_id?: string | null;
     clear_series_id?: boolean;
     clear_season_id?: boolean;
+    clear_parent_video_id?: boolean;
   }): Promise<void> {
-    const { video_id, clear_series_id, clear_season_id, ...updates } = params;
+    const { video_id, clear_series_id, clear_season_id, clear_parent_video_id, ...updates } =
+      params;
     // the local (indexeddb) store always applies fields as given (no
     // COALESCE ambiguity), so an explicit clear is just passing null -
     // the flags only matter for the remote/SQL data source.
@@ -166,6 +169,7 @@ export class LocalVideoDataSource implements VideoDataSource {
       ...updates,
       series_id: clear_series_id ? null : updates.series_id,
       season_id: clear_series_id || clear_season_id ? null : updates.season_id,
+      parent_video_id: clear_parent_video_id ? null : updates.parent_video_id,
     });
   }
 

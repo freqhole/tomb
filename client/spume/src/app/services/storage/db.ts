@@ -241,12 +241,33 @@ async function setQueue(items: MediaItem[]): Promise<void> {
   // queue wholesale used to drop their bytes silently.
   const previous = appState()?.queue ?? [];
 
-  // unwrap proxy objects before storing in IndexedDB; assign a
-  // queue_entry_id to items that don't have one yet (progress tracking).
-  const plainItems = items.map((item) => {
-    const withId = withQueueEntryId(item, generateUUID());
-    if (withId.kind === "song") {
-      const song = withId.song;
+  // assign a queue_entry_id to items that don't have one yet (progress
+  // tracking) - `withQueueEntryId` returns the SAME reference when one is
+  // already set, so this is a no-op identity-wise for the (vastly more
+  // common) case of an already-queued item passing back through here
+  // unchanged, e.g. queueProgress.ts's `saveProgressToIDB` (runs every 5s
+  // during playback, see listenProgress.ts's FLUSH_INTERVAL_MS) already
+  // carefully returns the SAME song object for every queue item except the
+  // one whose progress actually changed.
+  const withIds = items.map((item) => withQueueEntryId(item, generateUUID()));
+
+  // `withIds` is what the REACTIVE signal below exposes to the rest of the
+  // app - keeping item identity stable for anything that didn't actually
+  // change is what lets solid's fine-grained reactivity skip re-rendering
+  // unrelated rows/thumbnails/the player bar. `plainItems` is a SEPARATE,
+  // fully unwrapped, indexeddb-safe deep clone used ONLY for the `db.put()`
+  // write below (a caller-owned store/proxy object can't be structured-
+  // cloned otherwise). previously these were the same array, so every
+  // periodic progress-only flush rebuilt every song's images/tags arrays
+  // from scratch regardless of which single song's progress changed - that
+  // fresh identity propagated into `currentSongData`/`barSong()` (see
+  // AppLayout.tsx) and defeated the reference-equality checks
+  // QueueSidebar.tsx/CenotaphPlayerApp.tsx already rely on, causing the
+  // player bar/context menus/thumbnails to flicker every few seconds while
+  // something was playing.
+  const plainItems = withIds.map((item) => {
+    if (item.kind === "song") {
+      const song = item.song;
       const plain: Song = { ...song };
       if (song.album_tags) plain.album_tags = [...song.album_tags];
       if (song.album_taxons) plain.album_taxons = song.album_taxons.map((t) => ({ ...t }));
@@ -258,13 +279,23 @@ async function setQueue(items: MediaItem[]): Promise<void> {
     }
     return {
       kind: "video" as const,
-      video: { ...withId.video, images: withId.video.images?.map((img) => ({ ...img })) },
+      video: { ...item.video, images: item.video.images?.map((img) => ({ ...img })) },
     };
   });
 
-  await updateAppState({ queue: plainItems });
+  const db = await initAppDB();
+  const current = appState() || (await loadAppState());
+  const updated: AppState = {
+    ...current,
+    queue: withIds,
+    id: "app_state",
+    last_updated: Date.now(),
+  };
+  setAppState(updated);
+  await db.put(STORE_APP_STATE, { ...updated, queue: plainItems });
+
   clearInProgressTracking();
-  notifyQueueDepartures(previous, plainItems);
+  notifyQueueDepartures(previous, withIds);
 }
 
 // update a specific song in the queue (for metadata changes like favorites, ratings)

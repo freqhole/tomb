@@ -55,10 +55,16 @@ import {
   appendChunkedBlobImport,
   finishChunkedBlobImport,
   abortChunkedBlobImport,
+  pullBlobToLocalStore,
 } from "../charnel/commands";
 import { resolveCharnelLocalBlobPath } from "../media/resolveCharnelLocalBlobPath";
 import { getAudioURL } from "../../../music/services/storage/audioAccess";
 import type { Song } from "../../../music/services/storage/types";
+import {
+  registerBlobTransfer,
+  updateBlobTransferProgress,
+  completeBlobTransfer,
+} from "../transfers/blobTransferRegistry";
 
 /** bounded-concurrency counterpart to `Promise.all(items.map(fn))` - runs
  * at most `limit` calls to `fn` at once instead of firing all of them
@@ -169,9 +175,99 @@ function setTransferStatus(key: string, status: QueueItemTransferStatus | null):
   });
 }
 
+/** runs `run` (a fetch+import relay operation), tracking its status in
+ *  `QueueItemTransferStatus` (this file's own "fetching from X"/"sending
+ *  to Y" row display) AND mirroring the same real byte counts into bucket
+ *  A's shared blob-transfer registry (`blobTransferRegistry.ts`) for the
+ *  "fetching" phase - unifies the 3 near-identical try/setTransferStatus/
+ *  finally blocks previously hand-duplicated across
+ *  `ensureSongServableInBackground`, `ensureVideoServableInBackground`,
+ *  and `videoToMediaRef`'s last-resort branch. `key` is whatever those
+ *  callers already key `QueueItemTransferStatus` by (a real blake3, or the
+ *  `pending:${video.id}` placeholder for a video with no hash yet) - bucket
+ *  A's registry just treats it as an opaque tracking key here, same as
+ *  this file's own map already does; not every entry in bucket A's
+ *  registry is guaranteed to be a literal blake3 because of this. */
+async function withTransferStatus<T>(
+  key: string,
+  names: { fromRemoteName?: string; toPlayerName?: string },
+  run: (
+    onProgress: (phase: "fetching" | "sending", transferred: number, total: number) => void
+  ) => Promise<T>
+): Promise<T> {
+  setTransferStatus(key, { phase: "fetching", fromRemoteName: names.fromRemoteName });
+  let registeredWithBucketA = false;
+  try {
+    return await run((phase, transferred, total) => {
+      const progress = total > 0 ? Math.min(1, transferred / total) : undefined;
+      setTransferStatus(
+        key,
+        phase === "fetching"
+          ? { phase: "fetching", fromRemoteName: names.fromRemoteName, progress }
+          : { phase: "sending", toPlayerName: names.toPlayerName, progress }
+      );
+      // bucket A only models the download/"fetching" direction here - see
+      // this file's own header comment on why "sending" (the local
+      // import step) has no real transport-level analog to register.
+      if (phase === "fetching") {
+        if (!registeredWithBucketA) {
+          registerBlobTransfer(key, "download", { bytesTotal: total > 0 ? total : undefined });
+          registeredWithBucketA = true;
+        }
+        updateBlobTransferProgress(key, transferred, total > 0 ? total : undefined);
+      }
+    });
+  } finally {
+    setTransferStatus(key, null);
+    if (registeredWithBucketA) completeBlobTransfer(key);
+  }
+}
+
 async function resolveRemoteName(remoteId: string | null | undefined): Promise<string | undefined> {
   if (!remoteId) return undefined;
   return (await getRemoteById(remoteId))?.name;
+}
+
+/** try to pull the blob DIRECTLY from a known P2P source peer into this
+ * device's own local blob store, entirely without JS ever touching the
+ * bytes (charnel: `pullBlobToLocalStore`, a tauri command wrapping
+ * grimoire's `pull_blob_to_local_store_with_ensure`; browser/wasm:
+ * midden's own `download_verified_to_store_with_ensure`, which writes
+ * straight into its OPFS-backed store) - no JS fetch, no base64
+ * double-hop through this device's own memory. this is the fix for the
+ * case `tryBridgeToSourceRemote` alone doesn't cover: bridging only
+ * grants the PLAYER direct access to the source remote (an admin
+ * `peers_allow` grant), which fails whenever this device isn't an admin
+ * there - but that failure says nothing about whether THIS device can
+ * still reach that same peer itself. it almost always can, since it's
+ * the peer_addr already sitting right there in `remote`. returns true on
+ * success (this device is now the genuine holder and callers should
+ * declare themselves as such), false if the underlying node build lacks
+ * the primitive (older wasm build with no `download_verified_to_store_
+ * with_ensure`) or if the pull itself failed (peer offline, unauthorized,
+ * etc.) - callers fall back to the JS fetch+import relay
+ * (ensureSong/VideoServableInBackground) in either case. */
+async function tryDirectP2PPull(peerAddr: string, hash: string): Promise<boolean> {
+  try {
+    if (isCharnelMode()) {
+      await pullBlobToLocalStore(peerAddr, hash);
+    } else {
+      const node = await getMiddenNode();
+      if (!node.download_verified_to_store_with_ensure) return false;
+      await node.download_verified_to_store_with_ensure(peerAddr, hash);
+    }
+    debug(
+      "playerQueuePush",
+      `${CENOTAPH_QUEUE_TRACE} tryDirectP2PPull: pulled ${hash.slice(0, 8)}... directly from ${peerAddr.slice(0, 8)}... into local store - no js fetch/import relay needed`
+    );
+    return true;
+  } catch (err) {
+    debug(
+      "playerQueuePush",
+      `${CENOTAPH_QUEUE_TRACE} tryDirectP2PPull: direct pull of ${hash.slice(0, 8)}... from ${peerAddr.slice(0, 8)}... failed, falling back to fetch+import relay: ${err}`
+    );
+    return false;
+  }
 }
 
 async function resolvePlayerName(peerAddr: string): Promise<string | undefined> {
@@ -199,12 +295,12 @@ const IMPORT_CHUNK_SIZE = 4 * 1024 * 1024;
  * remote-only content this device has to relay through JS. streams bytes
  * into the p2p blob store in bounded chunks instead of base64-ing the
  * whole file into one JS string/IPC call (the now-deprecated, 1MB-gated
- * `importBlobBytes` in charnel/commands.ts). `onProgress` (0..1), if
- * given, is called after every chunk - the "sending to $player" progress
- * shown on a proxied queue row. */
+ * `importBlobBytes` in charnel/commands.ts). `onProgress`, if given, is
+ * called with real (sent, total) byte counts after every chunk - the
+ * "sending to $player" progress shown on a proxied queue row. */
 async function importBytesChunked(
   bytes: Uint8Array,
-  onProgress?: (fraction: number) => void
+  onProgress?: (sent: number, total: number) => void
 ): Promise<string> {
   const uploadId = await beginChunkedBlobImport();
   try {
@@ -213,7 +309,7 @@ async function importBytesChunked(
       const chunk = bytes.subarray(offset, Math.min(offset + IMPORT_CHUNK_SIZE, bytes.byteLength));
       await appendChunkedBlobImport(uploadId, bytesToBase64(chunk));
       sent += chunk.byteLength;
-      onProgress?.(sent / bytes.byteLength);
+      onProgress?.(sent, bytes.byteLength);
     }
     return await finishChunkedBlobImport(uploadId);
   } catch (err) {
@@ -235,7 +331,7 @@ async function importBytesChunked(
  * single in-memory call with nothing to chunk/report between). */
 async function importMediaBytes(
   bytes: Uint8Array,
-  onProgress?: (fraction: number) => void
+  onProgress?: (sent: number, total: number) => void
 ): Promise<{ sourcePeerAddr: string; blake3Hash: string }> {
   if (isCharnelMode()) {
     const [nodeId, blake3Hash] = await Promise.all([
@@ -261,9 +357,9 @@ async function importMediaBytes(
   return { sourcePeerAddr: node.node_id(), blake3Hash };
 }
 
-/** `fetch(url)` that reports download progress (0..1) as bytes stream in,
- * via `onProgress` - the "fetching from $remote" progress shown on a
- * proxied queue row. falls back to a plain, progress-less
+/** `fetch(url)` that reports real (received, total) byte counts as bytes
+ * stream in, via `onProgress` - the "fetching from $remote" progress shown
+ * on a proxied queue row. falls back to a plain, progress-less
  * `res.arrayBuffer()` if the runtime doesn't support streaming response
  * bodies (`res.body` missing) or the total size can't be determined
  * (no `content-length` header and no `sizeHint`) - progress just stays
@@ -273,7 +369,7 @@ async function importMediaBytes(
 async function fetchBytesWithProgress(
   url: string,
   sizeHint: number | undefined,
-  onProgress?: (fraction: number) => void
+  onProgress?: (received: number, total: number) => void
 ): Promise<{ bytes: Uint8Array; contentType: string | null }> {
   const res = await fetch(url);
   const contentType = res.headers.get("content-type");
@@ -289,7 +385,7 @@ async function fetchBytesWithProgress(
     if (done) break;
     chunks.push(value);
     received += value.byteLength;
-    onProgress?.(Math.min(1, received / total));
+    onProgress?.(received, total);
   }
   const bytes = new Uint8Array(received);
   let offset = 0;
@@ -326,24 +422,28 @@ async function fetchBytesWithProgress(
  * via its own tauri IPC session (`importBytesChunked`/`importMediaBytes`'s
  * charnel branch), which has nothing to do with wasm's `ImportSession`.
  *
- * `onProgress` is phase-tagged so callers can keep showing the queue
- * row's real "fetching from X"/"sending to Y" distinction (RemoteQueueRow.
- * tsx) instead of collapsing both into one misleading label: the wasm
- * streaming branch reports "fetching" throughout (network read is the
- * real bottleneck; each chunk's `session.push()` is a fast local step
- * riding along with it, not a separate wait), while charnel/the
- * whole-buffer fallback genuinely have two sequential phases and report
- * "fetching" then "sending" accordingly. */
+ * `onProgress` is phase-tagged and carries real (transferred, total) byte
+ * counts (total may be 0/unknown when no size could be determined) so
+ * callers can keep showing the queue row's real "fetching from X"/
+ * "sending to Y" distinction (RemoteQueueRow.tsx) instead of collapsing
+ * both into one misleading label: the wasm streaming branch reports
+ * "fetching" throughout (network read is the real bottleneck; each
+ * chunk's `session.push()` is a fast local step riding along with it, not
+ * a separate wait), while charnel/the whole-buffer fallback genuinely
+ * have two sequential phases and report "fetching" then "sending"
+ * accordingly. */
 async function fetchAndImportStreaming(
   url: string,
   sizeHint: number | undefined,
-  onProgress?: (phase: "fetching" | "sending", fraction: number) => void
+  onProgress?: (phase: "fetching" | "sending", transferred: number, total: number) => void
 ): Promise<{ sourcePeerAddr: string; blake3Hash: string; contentType: string | null }> {
   if (isCharnelMode()) {
-    const { bytes, contentType } = await fetchBytesWithProgress(url, sizeHint, (fraction) =>
-      onProgress?.("fetching", fraction)
+    const { bytes, contentType } = await fetchBytesWithProgress(url, sizeHint, (received, total) =>
+      onProgress?.("fetching", received, total)
     );
-    const imported = await importMediaBytes(bytes, (fraction) => onProgress?.("sending", fraction));
+    const imported = await importMediaBytes(bytes, (sent, total) =>
+      onProgress?.("sending", sent, total)
+    );
     return { ...imported, contentType };
   }
 
@@ -359,7 +459,9 @@ async function fetchAndImportStreaming(
     // too (the whole file must finish downloading before import_blob can
     // start), same reporting as the charnel branch above.
     const bytes = new Uint8Array(await res.arrayBuffer());
-    const imported = await importMediaBytes(bytes, (fraction) => onProgress?.("sending", fraction));
+    const imported = await importMediaBytes(bytes, (sent, total) =>
+      onProgress?.("sending", sent, total)
+    );
     return { ...imported, contentType };
   }
 
@@ -372,7 +474,7 @@ async function fetchAndImportStreaming(
       if (done) break;
       await session.push(value);
       received += value.byteLength;
-      if (total > 0) onProgress?.("fetching", Math.min(1, received / total));
+      onProgress?.("fetching", received, total);
     }
     const blake3Hash = await session.finish();
     debug(
@@ -565,33 +667,24 @@ async function ensureSongServableInBackground(
   }
   warn(
     "playerQueuePush",
-    `${CENOTAPH_QUEUE_TRACE} CONTROLLER_BLOB_PROXY: relaying "${song.title}" (blake3=${hash.slice(0, 8)}..., remote_server_id=${song.remote_server_id ?? "(none)"}) through THIS device as a last resort - no known P2P source remote and nothing already on disk. if this fires often, something is misclassifying a song's remote_server_id.`
+    `${CENOTAPH_QUEUE_TRACE} CONTROLLER_BLOB_PROXY: relaying "${song.title}" (blake3=${hash.slice(0, 8)}..., remote_server_id=${song.remote_server_id ?? "(none)"}) through THIS device as a genuine last resort - nothing already on disk, and either no known P2P source remote or a direct rust-side pull from it already failed (tryDirectP2PPull). if this fires often, something is misclassifying a song's remote_server_id.`
   );
   const [fromRemoteName, toPlayerName] = await Promise.all([
     resolveRemoteName(song.remote_server_id),
     resolvePlayerName(playerNodeId),
   ]);
-  try {
-    setTransferStatus(hash, { phase: "fetching", fromRemoteName });
-    const url = await getAudioURL(song);
-    const { blake3Hash } = await fetchAndImportStreaming(
-      url,
-      song.file_size ?? undefined,
-      (phase, fraction) =>
-        setTransferStatus(
-          hash,
-          phase === "fetching"
-            ? { phase: "fetching", fromRemoteName, progress: fraction }
-            : { phase: "sending", toPlayerName, progress: fraction }
-        )
-    );
-    warn(
-      "playerQueuePush",
-      `${CENOTAPH_QUEUE_TRACE} CONTROLLER_BLOB_PROXY: fetched+imported "${song.title}" (blake3=${blake3Hash.slice(0, 8)}...) in ${Date.now() - t0}ms (command was already sent before this started), sourcePeerAddr=${nodeId}`
-    );
-  } finally {
-    setTransferStatus(hash, null);
-  }
+  const { blake3Hash } = await withTransferStatus(
+    hash,
+    { fromRemoteName, toPlayerName },
+    async (onProgress) => {
+      const url = await getAudioURL(song);
+      return fetchAndImportStreaming(url, song.file_size ?? undefined, onProgress);
+    }
+  );
+  warn(
+    "playerQueuePush",
+    `${CENOTAPH_QUEUE_TRACE} CONTROLLER_BLOB_PROXY: fetched+imported "${song.title}" (blake3=${blake3Hash.slice(0, 8)}...) in ${Date.now() - t0}ms (command was already sent before this started), sourcePeerAddr=${nodeId}`
+  );
 }
 
 /** looks up already-transcoded renditions for a video's source media blob
@@ -657,8 +750,11 @@ async function videoToMediaRef(
     return ref;
   }
 
-  // video has no blake3 of its own (the common case, see
-  // QueuedVideo.blake3's doc comment) - the only way to learn one without
+  // video has no blake3 of its own - as of migration 084 this is now the
+  // RARE case (grimoire's wire Video carries blake3 directly for any
+  // synced/backfilled row; see QueuedVideo.blake3's doc comment for the
+  // cases that still land here: a local-only OPFS video, or a blob whose
+  // blake3 hasn't been computed yet). the only way to learn one without
   // fetching+hashing the whole file ourselves is a bridged metadata
   // lookup (a tiny hash+size read, not a blob transfer) - worth keeping,
   // since without it there'd be nothing to send at all.
@@ -710,33 +806,24 @@ async function videoToMediaRef(
     resolveRemoteName(video.remote_server_id),
     resolvePlayerName(playerNodeId),
   ]);
-  try {
-    setTransferStatus(transferKey, { phase: "fetching", fromRemoteName });
-    const fetchStart = Date.now();
-    const url = await getVideoURL(video);
-    const { sourcePeerAddr, blake3Hash, contentType } = await fetchAndImportStreaming(
-      url,
-      undefined,
-      (phase, fraction) =>
-        setTransferStatus(
-          transferKey,
-          phase === "fetching"
-            ? { phase: "fetching", fromRemoteName, progress: fraction }
-            : { phase: "sending", toPlayerName, progress: fraction }
-        )
-    );
-    debug(
-      "playerQueuePush",
-      `${CENOTAPH_QUEUE_TRACE} videoToMediaRef(${video.title}): fetchAndImportStreaming (relay path, no known blake3) took ${Date.now() - fetchStart}ms`
-    );
-    const ref = buildVideoRef(video, sourcePeerAddr, blake3Hash, {
-      mime_type: contentType || "video/mp4",
-    });
-    rememberPushedItem(blake3Hash, videoToMediaItem(video));
-    return ref;
-  } finally {
-    setTransferStatus(transferKey, null);
-  }
+  const fetchStart = Date.now();
+  const { sourcePeerAddr, blake3Hash, contentType } = await withTransferStatus(
+    transferKey,
+    { fromRemoteName, toPlayerName },
+    async (onProgress) => {
+      const url = await getVideoURL(video);
+      return fetchAndImportStreaming(url, undefined, onProgress);
+    }
+  );
+  debug(
+    "playerQueuePush",
+    `${CENOTAPH_QUEUE_TRACE} videoToMediaRef(${video.title}): fetchAndImportStreaming (relay path, no known blake3) took ${Date.now() - fetchStart}ms`
+  );
+  const ref = buildVideoRef(video, sourcePeerAddr, blake3Hash, {
+    mime_type: contentType || "video/mp4",
+  });
+  rememberPushedItem(blake3Hash, videoToMediaItem(video));
+  return ref;
 }
 
 /** shared field-builder for a video's `RemoteMediaRef` - see
@@ -781,30 +868,24 @@ async function ensureVideoServableInBackground(
   }
   warn(
     "playerQueuePush",
-    `${CENOTAPH_QUEUE_TRACE} CONTROLLER_BLOB_PROXY: relaying "${video.title}" (blake3=${video.blake3?.slice(0, 8) ?? "(none)"}..., remote_server_id=${video.remote_server_id ?? "(none)"}) through THIS device as a last resort - no known P2P source remote and nothing already on disk. if this fires often, something is misclassifying a video's remote_server_id.`
+    `${CENOTAPH_QUEUE_TRACE} CONTROLLER_BLOB_PROXY: relaying "${video.title}" (blake3=${video.blake3?.slice(0, 8) ?? "(none)"}..., remote_server_id=${video.remote_server_id ?? "(none)"}) through THIS device as a genuine last resort - nothing already on disk, and either no known P2P source remote or a direct rust-side pull from it already failed (tryDirectP2PPull). if this fires often, something is misclassifying a video's remote_server_id.`
   );
   const [fromRemoteName, toPlayerName] = await Promise.all([
     resolveRemoteName(video.remote_server_id),
     resolvePlayerName(playerNodeId),
   ]);
-  try {
-    setTransferStatus(hash, { phase: "fetching", fromRemoteName });
-    const url = await getVideoURL(video);
-    const { blake3Hash } = await fetchAndImportStreaming(url, undefined, (phase, fraction) =>
-      setTransferStatus(
-        hash,
-        phase === "fetching"
-          ? { phase: "fetching", fromRemoteName, progress: fraction }
-          : { phase: "sending", toPlayerName, progress: fraction }
-      )
-    );
-    warn(
-      "playerQueuePush",
-      `${CENOTAPH_QUEUE_TRACE} CONTROLLER_BLOB_PROXY: fetched+imported "${video.title}" (blake3=${blake3Hash.slice(0, 8)}...) in ${Date.now() - t0}ms (command was already sent before this started), sourcePeerAddr=${nodeId}`
-    );
-  } finally {
-    setTransferStatus(hash, null);
-  }
+  const { blake3Hash } = await withTransferStatus(
+    hash,
+    { fromRemoteName, toPlayerName },
+    async (onProgress) => {
+      const url = await getVideoURL(video);
+      return fetchAndImportStreaming(url, undefined, onProgress);
+    }
+  );
+  warn(
+    "playerQueuePush",
+    `${CENOTAPH_QUEUE_TRACE} CONTROLLER_BLOB_PROXY: fetched+imported "${video.title}" (blake3=${blake3Hash.slice(0, 8)}...) in ${Date.now() - t0}ms (command was already sent before this started), sourcePeerAddr=${nodeId}`
+  );
 }
 
 /** does the actual reactive work (bridge grant, or fetch+import) for one
@@ -833,6 +914,9 @@ async function forceServeMediaItem(
       if (bridged) return buildSongRef(song, remote.peer_addr, hash);
     }
     const nodeId = await ownNodeIdOrThrow();
+    if (remote && isP2PRemote(remote) && (await tryDirectP2PPull(remote.peer_addr, hash))) {
+      return buildSongRef(song, nodeId, hash);
+    }
     await ensureSongServableInBackground(song, nodeId, playerNodeId, hash);
     return buildSongRef(song, nodeId, hash);
   }
@@ -847,6 +931,9 @@ async function forceServeMediaItem(
     if (bridged) return buildVideoRef(video, remote.peer_addr, hash);
   }
   const nodeId = await ownNodeIdOrThrow();
+  if (remote && isP2PRemote(remote) && (await tryDirectP2PPull(remote.peer_addr, hash))) {
+    return buildVideoRef(video, nodeId, hash);
+  }
   await ensureVideoServableInBackground(video, nodeId, playerNodeId, hash);
   return buildVideoRef(video, nodeId, hash);
 }

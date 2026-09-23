@@ -186,6 +186,10 @@ export class RodioBackend implements PlayerBackend {
         e.error_type === "no_local_path" ||
         e.error_type === "not_found" ||
         e.error_type === "media_blob_not_found" ||
+        // db's local_path points at a file that's gone (moved/deleted/
+        // unmounted external storage) - re-fetch from remote same as a
+        // never-synced song, rather than hard-failing playback.
+        e.error_type === "blob_local_file_missing" ||
         // grimoire's media_blobz returns a generic "database: blob
         // not found" string for unknown ids; treat that as missing.
         e.message.includes("blob not found");

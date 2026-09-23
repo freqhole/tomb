@@ -45,6 +45,7 @@ fn main() {
         "song_query_view.sql",
         "playlist_query_view.sql",
         "playlist_song_query_view.sql",
+        "video_query_view.sql",
     ] {
         let sql_path = views_dir.join(view_file);
         let Ok(sql) = std::fs::read_to_string(&sql_path) else {

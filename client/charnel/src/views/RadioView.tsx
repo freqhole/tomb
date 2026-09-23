@@ -13,6 +13,7 @@ interface RadioStation {
   play_mode: string;
   content_mode: string; // 'audio_only' | 'audio_or_video' | 'video_only'
   bumper_frequency_seconds: number | null;
+  accepts_requests: number; // sqlite bool - mutually exclusive with is_public
   created_at: number;
   updated_at: number;
 }
@@ -134,6 +135,7 @@ function stationShallowEqual(a: RadioStation, b: RadioStation): boolean {
     a.codec === b.codec &&
     a.play_mode === b.play_mode &&
     a.content_mode === b.content_mode &&
+    a.accepts_requests === b.accepts_requests &&
     a.created_at === b.created_at &&
     a.updated_at === b.updated_at
   );
@@ -163,6 +165,7 @@ export default function RadioView() {
   const [description, setDescription] = createSignal("");
   const [isPublic, setIsPublic] = createSignal(false);
   const [isEnabled, setIsEnabled] = createSignal(true);
+  const [acceptsRequests, setAcceptsRequests] = createSignal(false);
   const [playMode, setPlayMode] = createSignal("shuffle");
   const [timelineOnly, setTimelineOnly] = createSignal(false);
   const [contentMode, setContentMode] = createSignal<
@@ -244,6 +247,23 @@ export default function RadioView() {
       await admin.dispatchOrThrow("radio_stations_update", {
         id: s.id,
         is_public: !s.is_public,
+      });
+      await loadStations();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setSavingId(null);
+    }
+  }
+
+  // mutually exclusive with is_public (server-enforced) - see
+  // togglePublic above and repository.rs's effective-value check.
+  async function toggleAcceptsRequests(s: RadioStation) {
+    setSavingId(s.id);
+    try {
+      await admin.dispatchOrThrow("radio_stations_update", {
+        id: s.id,
+        accepts_requests: !s.accepts_requests,
       });
       await loadStations();
     } catch (e) {
@@ -354,6 +374,7 @@ export default function RadioView() {
         description: description().trim() || undefined,
         is_public: isPublic(),
         is_enabled: isEnabled(),
+        accepts_requests: acceptsRequests(),
         play_mode: playMode(),
         timeline_only_mode: ffmpegAvailable() ? timelineOnly() : true,
         content_mode: contentMode(),
@@ -365,6 +386,7 @@ export default function RadioView() {
       setDescription("");
       setIsPublic(false);
       setIsEnabled(true);
+      setAcceptsRequests(false);
       setPlayMode("shuffle");
       setTimelineOnly(!ffmpegAvailable());
       setContentMode("audio_only");
@@ -455,9 +477,31 @@ export default function RadioView() {
                   <input
                     type="checkbox"
                     checked={isPublic()}
-                    onChange={(e) => setIsPublic(e.currentTarget.checked)}
+                    onChange={(e) => {
+                      const checked = e.currentTarget.checked;
+                      setIsPublic(checked);
+                      if (checked) setAcceptsRequests(false);
+                    }}
                   />
                   <span>public (visible to anyone who has the link)</span>
+                </label>
+                <label
+                  style={{
+                    display: "flex",
+                    gap: "0.5rem",
+                    "align-items": "center",
+                  }}
+                  title={
+                    isPublic() ? "a public station can't also take member requests" : undefined
+                  }
+                >
+                  <input
+                    type="checkbox"
+                    checked={acceptsRequests()}
+                    disabled={isPublic()}
+                    onChange={(e) => setAcceptsRequests(e.currentTarget.checked)}
+                  />
+                  <span>accepts member requests (mutually exclusive with public)</span>
                 </label>
                 <label
                   style={{
@@ -692,10 +736,30 @@ export default function RadioView() {
                       <button
                         class={s.is_public ? "primary small" : "secondary small"}
                         onClick={() => togglePublic(s)}
-                        disabled={savingId() === s.id}
-                        title={s.is_public ? "make private" : "make public"}
+                        disabled={savingId() === s.id || (!s.is_public && !!s.accepts_requests)}
+                        title={
+                          !s.is_public && s.accepts_requests
+                            ? "a request-taking station can't also be public"
+                            : s.is_public
+                              ? "make private"
+                              : "make public"
+                        }
                       >
                         {s.is_public ? "public" : "private"}
+                      </button>
+                      <button
+                        class={s.accepts_requests ? "primary small" : "secondary small"}
+                        onClick={() => toggleAcceptsRequests(s)}
+                        disabled={savingId() === s.id || (!s.accepts_requests && !!s.is_public)}
+                        title={
+                          !s.accepts_requests && s.is_public
+                            ? "a public station can't also take member requests"
+                            : s.accepts_requests
+                              ? "stop taking member requests"
+                              : "start taking member requests"
+                        }
+                      >
+                        {s.accepts_requests ? "requests on" : "requests off"}
                       </button>
                       <button
                         class={s.is_enabled ? "primary small" : "secondary small"}

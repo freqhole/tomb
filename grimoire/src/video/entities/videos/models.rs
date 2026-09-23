@@ -22,6 +22,18 @@ pub struct Video {
     pub title: String,
     pub description: Option<String>,
     pub media_blob_id: String,
+    /// denormalized content hash of `media_blob_id`'s blob (mirrors
+    /// `Song::media_blob_blake3` in spirit, field just named `blake3` here) -
+    /// `#[sqlx(default)]` so a query that doesn't select it falls back to
+    /// `None` instead of failing at runtime.
+    #[sqlx(default)]
+    pub blake3: Option<String>,
+    /// this video's parent movie, when it's an "extra" (deleted scene,
+    /// blooper, behind-the-scenes, trailer) - always a row in THIS SAME
+    /// database (never a foreign remote's id, see repository.rs's
+    /// validation). mutually exclusive with `series_id` - a video is
+    /// either series-attached or movie-with-extras-attached, not both.
+    pub parent_video_id: Option<String>,
     pub poster_blob_id: Option<String>,
     pub duration_seconds: Option<f64>,
     pub release_date: Option<String>,
@@ -55,6 +67,10 @@ pub struct CreateVideoRequest {
     pub title: String,
     pub description: Option<String>,
     pub media_blob_id: String,
+    /// see `Video::parent_video_id` - validated in `create_video`
+    /// (parent must exist, be `content_type = "movie"`, have no parent of
+    /// its own, and not be combined with `series_id`).
+    pub parent_video_id: Option<String>,
     pub poster_blob_id: Option<String>,
     pub duration_seconds: Option<f64>,
     pub release_date: Option<String>,
@@ -71,6 +87,9 @@ pub struct UpdateVideoRequest {
     pub content_type: Option<String>,
     pub title: Option<String>,
     pub description: Option<String>,
+    /// see `Video::parent_video_id` - validated in `update_video` the same
+    /// way `create_video` validates it.
+    pub parent_video_id: Option<String>,
     pub poster_blob_id: Option<String>,
     pub duration_seconds: Option<f64>,
     pub release_date: Option<String>,
@@ -88,6 +107,11 @@ pub struct UpdateVideoRequest {
     /// entry). implied by `clear_series_id` as well.
     #[serde(default)]
     pub clear_season_id: bool,
+    /// force `parent_video_id` to `NULL` regardless of its value (same
+    /// "COALESCE can't distinguish no-change from clear" reason as the
+    /// two flags above) - e.g. un-marking a video as an extra.
+    #[serde(default)]
+    pub clear_parent_video_id: bool,
 }
 
 /// video with enriched metadata from the media blob (codec, container, bitrate, etc.)

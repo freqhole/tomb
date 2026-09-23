@@ -27,6 +27,8 @@ static HARUSPEX_POOL: OnceCell<SqlitePool> = OnceCell::const_new();
 static RELIQUARY_POOL: OnceCell<SqlitePool> = OnceCell::const_new();
 static STORAGE_NODE: OnceCell<reliquary::StorageNode> = OnceCell::const_new();
 static CHUNKED_IMPORT: OnceCell<reliquary::ChunkedImport> = OnceCell::const_new();
+static TRANSFER_REGISTRY: OnceCell<std::sync::Arc<reliquary::gate::TransferRegistry>> =
+    OnceCell::const_new();
 
 // view SQL files embedded at compile time, in dependency order
 // (drop runs in reverse, create runs forward).
@@ -50,6 +52,9 @@ mod views {
         },
         View {
             sql: include_str!("../../migrations/views/playlist_song_query_view.sql"),
+        },
+        View {
+            sql: include_str!("../../migrations/views/video_query_view.sql"),
         },
     ];
 }
@@ -334,4 +339,17 @@ pub(crate) async fn chunked_import() -> &'static reliquary::ChunkedImport {
             reliquary::ChunkedImport::new(get_config().temp_dir().join("uploads"))
         })
         .await
+}
+
+/// this node's live registry of OUTGOING blob transfers (this node serving
+/// a blob to a peer over iroh-blobs) - fed by `federation::transport::
+/// endpoint`'s `build_gated_blobs_events` wiring, read by the
+/// `p2p_get_active_transfers` tauri command. mirrors midden's wasm-side
+/// `get_active_transfers()`. lazily
+/// initialized on first use, like every other singleton in this file.
+pub(crate) async fn transfer_registry() -> std::sync::Arc<reliquary::gate::TransferRegistry> {
+    TRANSFER_REGISTRY
+        .get_or_init(|| async { reliquary::gate::TransferRegistry::new() })
+        .await
+        .clone()
 }

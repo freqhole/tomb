@@ -3,7 +3,7 @@
 // flex-shrink-0 box on the right, info column first/left, taxon chips,
 // and responsive action buttons.
 import { useNavigate, useParams } from "@solidjs/router";
-import { createSignal, createMemo, createEffect, Show } from "solid-js";
+import { createSignal, createMemo, createEffect, For, Show } from "solid-js";
 import { DetailViewWrapper } from "../../components/layout/DetailViewWrapper";
 import { MediaImage } from "../../components/media/MediaImage";
 import { Button } from "../../components/buttons/Button";
@@ -20,7 +20,7 @@ import { formatDuration } from "../../utils/formatDuration";
 import { buildRoute } from "../../music/utils/routing";
 import { TaxonChips } from "../../components/badges/TaxonChips";
 import { TagChips } from "../../components/badges/TagChips";
-import { useVideoQuery } from "../queries/videos";
+import { useVideoQuery, useVideoExtrasQuery } from "../queries/videos";
 import { useVideoTaxonsQuery } from "../queries/taxons";
 import { useVideoEntityTagsQuery } from "../queries/tags";
 import { videoQueryKeys } from "../queries/queryKeys";
@@ -28,14 +28,17 @@ import { useQueryClient } from "@tanstack/solid-query";
 import { playVideoQueue } from "../services/queue/playVideoQueue";
 import { addVideoToQueue } from "../services/videoQueueActions";
 import { useLocalVideoPosterUrl } from "../components/VideoCard";
+import { VideoListRow } from "../components/VideoListRow";
 import { useToggleFavoriteMutation } from "../../music/queries/favorites";
 import { useSetRatingMutation } from "../../music/queries/ratings";
 import { useVideoFavoriteStatuses } from "../hooks/useVideoFavoriteStatuses";
 import { useVideoRatingStatuses } from "../hooks/useVideoRatingStatuses";
 import { useVideoContextMenu } from "../hooks/contextMenu";
 import { showEditVideo } from "../hooks/modals";
+import { showStationSelector } from "../../music/hooks/stationSelectorState";
 import { canUpdateVideo } from "../data/permissions";
 import { getVideoDataSource } from "../data";
+import { getCurrentRemote } from "../../music/data";
 import {
   formatImageCarouselTitle,
   beginImageCarouselLoading,
@@ -51,6 +54,7 @@ import {
 } from "../../music/services/storage/blobResolver";
 import { getBlobObjectURL } from "../../music/services/storage/blobs";
 import type { ImageMetadata } from "../../music/services/storage/types";
+import type { VideoSummary } from "../data/types";
 
 export function VideoDetailView() {
   const params = useParams<{ videoId: string }>();
@@ -389,6 +393,19 @@ export function VideoDetailView() {
                       source={currentRemoteFull}
                       buildSendPayload={buildSendPayload}
                     />
+                    <button
+                      onClick={() =>
+                        void showStationSelector(
+                          { kind: "video", videoId: video().id, videoTitle: video().title },
+                          video().remote_server_id ?? undefined
+                        )
+                      }
+                      class="p-2 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded transition-colors"
+                      title="add to station..."
+                      aria-label="add to station..."
+                    >
+                      <Icon name={IconNames.headphones} />
+                    </button>
                     <Rating rating={userRating()} size="md" onRatingChange={handleRatingChange} />
                   </div>
                 </div>
@@ -474,6 +491,19 @@ export function VideoDetailView() {
                       source={currentRemoteFull}
                       buildSendPayload={buildSendPayload}
                     />
+                    <button
+                      onClick={() =>
+                        void showStationSelector(
+                          { kind: "video", videoId: video().id, videoTitle: video().title },
+                          video().remote_server_id ?? undefined
+                        )
+                      }
+                      class="p-2 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded transition-colors"
+                      title="add to station..."
+                      aria-label="add to station..."
+                    >
+                      <Icon name={IconNames.headphones} />
+                    </button>
                     <Rating rating={userRating()} size="md" onRatingChange={handleRatingChange} />
                   </div>
                 </div>
@@ -516,11 +546,90 @@ export function VideoDetailView() {
                   </div>
                 </ContextMenu>
               </div>
+
+              {/* extras: this movie's deleted scenes/bloopers/behind-the-
+                  scenes/trailers (see Video::parent_video_id) - flat,
+                  unordered-by-kind list per the v1 design. */}
+              <Show when={video().content_type === "movie"}>
+                <VideoExtrasSection movieId={video().id} />
+              </Show>
+
+              {/* "part of [movie]" back-link for an extra viewing its own
+                  detail page. */}
+              <Show when={video().parent_video_id}>
+                {(parentId) => <ParentMovieLink parentVideoId={parentId()} navigate={navigate} />}
+              </Show>
             </>
           )}
         </Show>
       </div>
     </DetailViewWrapper>
+  );
+}
+
+/** a movie's extras (deleted scenes, bloopers, behind-the-scenes,
+ * trailers) - same thumbnail/play/play-count/context-menu row used for a
+ * series' episodes (`VideoListRow`), just unnumbered (no natural order). */
+function VideoExtrasSection(props: { movieId: string }) {
+  const extrasQuery = useVideoExtrasQuery(() => props.movieId);
+  const queryClient = useQueryClient();
+  // useVideoExtrasQuery is grimoire-only for now (see its doc comment) -
+  // every result came from the currently-selected remote, so it's safe
+  // to stamp source_type/remote_server_id onto the wire `Video` to get
+  // a `VideoSummary` VideoListRow can consume.
+  const extrasAsSummaries = (): VideoSummary[] =>
+    (extrasQuery.data ?? []).map((extra) => ({
+      ...extra,
+      source_type: "remote",
+      remote_server_id: getCurrentRemote()?.remote_id,
+      added_at: 0,
+    }));
+  const handlePlayExtra = async (extra: VideoSummary) => {
+    await playVideoQueue([extra], 0, {
+      type: "video",
+      label: extra.title,
+      entity_id: extra.id,
+    });
+  };
+  return (
+    <Show when={extrasQuery.data && extrasQuery.data.length > 0}>
+      <div class="px-4 wide:px-6 pb-6">
+        <h2 class="text-sm font-medium text-[var(--color-text-secondary)] mb-2">extras</h2>
+        <div class="flex flex-col gap-1">
+          <For each={extrasAsSummaries()}>
+            {(extra) => (
+              <VideoListRow
+                video={extra}
+                onPlay={() => void handlePlayExtra(extra)}
+                onTagsSaved={() => {
+                  void queryClient.invalidateQueries({ queryKey: videoQueryKeys.tags.all() });
+                }}
+              />
+            )}
+          </For>
+        </div>
+      </div>
+    </Show>
+  );
+}
+
+/** "part of [movie title]" back-link for an extra's own detail page. */
+function ParentMovieLink(props: { parentVideoId: string; navigate: (path: string) => void }) {
+  const parentQuery = useVideoQuery(() => props.parentVideoId);
+  return (
+    <Show when={parentQuery.data}>
+      {(parent) => (
+        <div class="px-4 wide:px-6 pb-6">
+          <button
+            type="button"
+            onClick={() => props.navigate(buildRoute(`/video/${parent().id}`))}
+            class="text-sm text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] transition-colors"
+          >
+            part of <span class="font-medium">{parent().title}</span>
+          </button>
+        </div>
+      )}
+    </Show>
   );
 }
 
