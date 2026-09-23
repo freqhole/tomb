@@ -336,7 +336,7 @@ pub struct ActiveOutgoingTransfer {
 }
 
 /// snapshot of every outgoing blob transfer this node is currently serving
-/// - fed by the `build_gated_blobs_events` wiring in
+/// fed by the `build_gated_blobs_events` wiring in
 /// `FederationEndpoint::start_router_with` above. exposed to charnel via a
 /// new tauri command mirroring midden's wasm-side `get_active_transfers()`.
 pub async fn active_outgoing_transfers() -> Vec<ActiveOutgoingTransfer> {

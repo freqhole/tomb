@@ -1420,10 +1420,10 @@ impl Broadcaster {
                     // `this_chunk_ms`, the fix isn't actually changing the
                     // release cadence despite parsing succeeding.
                     let send_now = woke_at;
-                    let send_gap_ms =
+                    let _send_gap_ms =
                         last_chunk_sent_at.map(|t| send_now.duration_since(t).as_millis());
-                    let nominal_cumulative_ms = (media_chunks_emitted + 1) * frag_ms;
-                    let new_cumulative_ms = cumulative_media_ms + this_chunk_ms;
+                    let _nominal_cumulative_ms = (media_chunks_emitted + 1) * frag_ms;
+                    let _new_cumulative_ms = cumulative_media_ms + this_chunk_ms;
                     // info!(
                     //     "[radio-pacer] station {} seq={seq} duration_ms={:?} \
                     //      this_chunk_ms={this_chunk_ms} send_gap_ms={send_gap_ms:?} \
