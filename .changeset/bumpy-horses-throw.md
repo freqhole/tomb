@@ -7,3 +7,4 @@
 2. bunch of refactoring to try and unify blob transferz;
 3. a bunch more work on the radio streams to try and avoid stalls and dropouts and also try to show the currently playing song better
 4. fix some lingering issues: transfer progress for currently playing song; video series grid min size; edit video modal logic; improve movie detail page extra relationz;
+5. try to fix some rendering instability; try to improve radio history links back to music or video detail viewz; try to fix top nav local library image lookup; add progress bar ui to cenotaph player;

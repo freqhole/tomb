@@ -890,20 +890,25 @@ export function QueueSidebar(props: QueueSidebarProps) {
                     };
 
                     return (
-                      // `keyed`: the children callback below only re-runs
-                      // (and thus only reconstructs `<QueueSongRow>`/
-                      // `<VideoQueueRow>`) when `item()`'s memoized value
-                      // actually changes reference - individual props
-                      // (isCurrentlyPlaying, progress, etc.) still update
-                      // live via Solid's per-attribute getter reactivity,
-                      // since those are read fresh on each JSX prop access
-                      // regardless of how often this outer callback reruns.
-                      <Show when={item()} keyed>
-                        {(it) => {
+                      // keyed on `item()?.kind`, NOT the whole item: a
+                      // song<->video swap at this slot still gets a fresh
+                      // component instance, but a progress-only rewrite of
+                      // the SAME song (queueProgress.ts's saveProgressToIDB
+                      // flush, every 5s while playing - see db.ts's
+                      // setQueue) no longer does. `song`/`video` below
+                      // re-read `item()` directly as their own dynamic JSX
+                      // expressions, so solid still updates them live
+                      // without remounting - keying on the whole object
+                      // reference here previously tore down and rebuilt the
+                      // CURRENTLY PLAYING row's thumbnail/context-menu every
+                      // few seconds, since that's the one item whose
+                      // progress genuinely changes.
+                      <Show when={item()?.kind} keyed>
+                        {(kind) => {
                           const row =
-                            it.kind === "song" ? (
+                            kind === "song" ? (
                               <QueueSongRow
-                                song={it.song}
+                                song={(item() as Extract<MediaItem, { kind: "song" }>).song}
                                 index={itemIndex}
                                 isCurrentlyPlaying={isCurrentlyPlaying()}
                                 isUpNext={isUpNext()}
@@ -919,7 +924,7 @@ export function QueueSidebar(props: QueueSidebarProps) {
                               />
                             ) : (
                               <VideoQueueRow
-                                video={it.video}
+                                video={(item() as Extract<MediaItem, { kind: "video" }>).video}
                                 index={itemIndex}
                                 isCurrentlyPlaying={isCurrentlyPlaying()}
                                 isUpNext={isUpNext()}
@@ -935,7 +940,12 @@ export function QueueSidebar(props: QueueSidebarProps) {
                               />
                             );
 
-                          const actions = () => props.getContextMenuActions?.(itemIndex, it);
+                          const actions = () => {
+                            const current = item();
+                            return current
+                              ? props.getContextMenuActions?.(itemIndex, current)
+                              : undefined;
+                          };
 
                           return (
                             <Show when={actions()} fallback={row}>

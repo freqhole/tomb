@@ -228,6 +228,23 @@ interface AppLayoutProps {
   children?: JSX.Element;
 }
 
+// `queue_max_progress` is bumped on the currently-playing song every ~5s
+// during playback (queueProgress.ts's saveProgressToIDB flush) - nothing
+// this comparison feeds (PlayerBar, queue rows) displays that field, so
+// treat two songs as "the same" for display purposes when only it differs.
+// keeps `currentSongData()` reference-stable across those flushes instead
+// of handing every subscriber (barSong(), MediaImage, etc.) a brand-new
+// object every few seconds while something is playing.
+function sameSongForDisplay(a: Song, b: Song): boolean {
+  if (a === b) return true;
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)]) as Set<keyof Song>;
+  keys.delete("queue_max_progress");
+  for (const key of keys) {
+    if (a[key] !== b[key]) return false;
+  }
+  return true;
+}
+
 export function AppLayout(props: AppLayoutProps) {
   const navigate = useNavigate();
   const location = useLocation();
@@ -875,7 +892,9 @@ export function AppLayout(props: AppLayoutProps) {
       }
       if (itemInQueue?.kind === "song") {
         setCurrentVideoData(null);
-        setCurrentSongData(itemInQueue.song);
+        setCurrentSongData((prev) =>
+          prev && sameSongForDisplay(prev, itemInQueue.song) ? prev : itemInQueue.song
+        );
         // keep a local artist's images fresh when streaming from a remote,
         // so the playerbar's artist-image fallback also works for remote
         // plays (already works for local-library plays). no-ops entirely

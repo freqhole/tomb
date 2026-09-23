@@ -143,7 +143,35 @@ let pausedContext: PausedContext | null = null;
 // module-level singletons. only one radio session at a time.
 const [status, setStatus] = createSignal<RadioStatus>("idle");
 const [error, setError] = createSignal<string | null>(null);
-const [nowPlaying, setNowPlaying] = createSignal<PublicNowPlaying | null>(null);
+// custom `equals`: several call sites below (applyHello/applyMeta's
+// "refresh for the track already showing" branch in particular) call
+// setNowPlaying(np) with a BRAND NEW parsed object on every periodic
+// keepalive/refresh meta message, even when the track hasn't actually
+// changed - without this, every downstream reader (barSong() -> PlayerBar
+// -> MediaImage, radio history/queue rows, etc) sees a fresh reference on
+// that same cadence and re-renders/re-resolves for no reason (the exact
+// "flashes every few seconds while playing" bug already fixed once for
+// the local queue's own equivalent churn - see
+// /memories/repo/tomb-spume-appstate-identity-churn-flicker.md).
+function sameNowPlaying(a: PublicNowPlaying | null, b: PublicNowPlaying | null): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return (
+    a.song_id === b.song_id &&
+    a.title === b.title &&
+    a.artist === b.artist &&
+    a.album === b.album &&
+    a.art_blob_id === b.art_blob_id &&
+    a.waveform_blob_id === b.waveform_blob_id &&
+    a.audio_blob_id === b.audio_blob_id &&
+    a.duration_ms === b.duration_ms &&
+    a.art_thumb_b64 === b.art_thumb_b64 &&
+    a.art_thumb_mime === b.art_thumb_mime
+  );
+}
+const [nowPlaying, setNowPlaying] = createSignal<PublicNowPlaying | null>(null, {
+  equals: sameNowPlaying,
+});
 // blob URL for the current track's inline album art (Hello/Meta `art` field).
 // null when the track has no art or it hasn't been received yet. revoked
 // whenever a new url replaces it so we don't leak URL.createObjectURL refs.
@@ -323,6 +351,7 @@ export function isRadioPlayerBarActive(): boolean {
 
 export function recordCurrentRadioTrackHistory(track: {
   songId: string | null;
+  kind: "song" | "video";
   title: string;
   artist?: string | null;
   album?: string | null;
@@ -333,8 +362,7 @@ export function recordCurrentRadioTrackHistory(track: {
 }): void {
   const songId = track.songId?.trim() ? track.songId.trim() : null;
   const np = {
-    // history recording only handles songs today - see plan doc.
-    kind: "song",
+    kind: track.kind,
     song_id: songId ?? "",
     title: track.title,
     artist: track.artist ?? null,
@@ -353,7 +381,7 @@ export function recordCurrentRadioTrackHistory(track: {
 
   lastConfirmedHistoryTrackKey = track.historyKey;
   setCurrentFavorite(null);
-  if (songId) {
+  if (songId && track.kind === "song") {
     void fetchRadioFavorite(songId, peerAddr);
   }
 
@@ -361,6 +389,7 @@ export function recordCurrentRadioTrackHistory(track: {
     station_id: currentStationId(),
     station_name: activeSession?.stationName ?? pausedContext?.stationName ?? null,
     peer_addr: peerAddr,
+    kind: track.kind,
     song_id: songId,
     title: track.title,
     artist: track.artist ?? null,
@@ -662,6 +691,8 @@ export function leaveRadio(): void {
     setError(null);
     setNowPlaying(null);
     swapArtUrl(null);
+    lastArtRawKey = null;
+    lastArtRawUrl = null;
     setListenerCount(0);
     setCurrentPeerAddr(null);
     setCurrentStationId(null);
@@ -696,6 +727,36 @@ function swapArtUrl(next: string | null): void {
     }
   }
   setArtUrl(next);
+}
+
+// `art_thumb_b64`/`art_thumb_mime` on `now_playing` get re-sent verbatim on
+// every periodic keepalive/refresh meta message for the SAME track, not
+// just on a real track change (see applyMeta's "refresh for the track
+// already showing" branch) - `artUrlFromRaw` itself always mints a brand
+// new `URL.createObjectURL()` string on every call, even for byte-for-byte
+// identical art, so calling it unconditionally on every such refresh swaps
+// `artUrl()` to a genuinely different (but visually identical) blob url
+// each time, forcing every `<img src>` reader to reload - the "art
+// thumbnail flashes every few seconds while playing" bug. this caches by
+// the raw (mime, base64 data) pair and only mints a new object url when
+// that pair actually changes.
+let lastArtRawKey: string | null = null;
+let lastArtRawUrl: string | null = null;
+function resolveArtUrl(raw: unknown): string | null {
+  const meta = rawArtMetaFrom(raw);
+  if (!meta) {
+    lastArtRawKey = null;
+    lastArtRawUrl = null;
+    return null;
+  }
+  const key = `${meta.mime}:${meta.data}`;
+  if (key === lastArtRawKey && lastArtRawUrl) {
+    return lastArtRawUrl;
+  }
+  const url = artUrlFromRaw(raw);
+  lastArtRawKey = key;
+  lastArtRawUrl = url;
+  return url;
 }
 
 interface TuneOptions {
@@ -756,6 +817,7 @@ function maybeRecordImmediateMetaHistory(
 
   recordCurrentRadioTrackHistory({
     songId,
+    kind: np.kind === "video" ? "video" : "song",
     title: np.title,
     artist: np.artist ?? null,
     album: np.album ?? null,
@@ -2241,6 +2303,7 @@ export async function tuneIntoRadio(
     if (!useTimelineMode()) {
       recordCurrentRadioTrackHistory({
         songId: data.now_playing.song_id?.trim() || null,
+        kind: data.now_playing.kind === "video" ? "video" : "song",
         title: data.now_playing.title,
         artist: data.now_playing.artist ?? null,
         album: data.now_playing.album ?? null,
@@ -2309,11 +2372,11 @@ export async function tuneIntoRadio(
             // read here since the mode-switch below happens after this
             // block runs.)
             setNowPlaying(np);
-            swapArtUrl(artUrlFromRaw(msg.now_playing));
+            swapArtUrl(resolveArtUrl(msg.now_playing));
           } else {
             pendingInitialNowPlaying = {
               now_playing: np,
-              art_url: artUrlFromRaw(msg.now_playing),
+              art_url: resolveArtUrl(msg.now_playing),
             };
           }
           synthesizeTimelineFromNowPlaying(np, "hello");
@@ -2401,7 +2464,7 @@ export async function tuneIntoRadio(
         pendingInitialNowPlaying = null;
         setNowPlaying(np);
         synthesizeTimelineFromNowPlaying(np, "meta");
-        swapArtUrl(artUrlFromRaw(msg.now_playing));
+        swapArtUrl(resolveArtUrl(msg.now_playing));
         if (typeof msg?.listener_count === "number") {
           setListenerCount(msg.listener_count);
         }
@@ -2418,7 +2481,7 @@ export async function tuneIntoRadio(
           pendingInitialNowPlaying = null;
           setNowPlaying(np);
           synthesizeTimelineFromNowPlaying(np, "meta");
-          swapArtUrl(artUrlFromRaw(msg.now_playing));
+          swapArtUrl(resolveArtUrl(msg.now_playing));
           if (typeof msg?.listener_count === "number") {
             setListenerCount(msg.listener_count);
           }
@@ -2447,7 +2510,7 @@ export async function tuneIntoRadio(
           pendingInitialNowPlaying = null;
           setNowPlaying(np);
           synthesizeTimelineFromNowPlaying(np, "meta");
-          swapArtUrl(artUrlFromRaw(msg.now_playing));
+          swapArtUrl(resolveArtUrl(msg.now_playing));
           if (typeof msg?.listener_count === "number") {
             setListenerCount(msg.listener_count);
           }
@@ -2468,7 +2531,7 @@ export async function tuneIntoRadio(
             initChunkBoundaries.delete(initSeq);
             const data = {
               now_playing: np,
-              art_url: artUrlFromRaw(msg.now_playing),
+              art_url: resolveArtUrl(msg.now_playing),
               raw_art: rawArtMetaFrom(msg.now_playing),
               listener_count: msg.listener_count ?? listenerCount(),
             };
@@ -2483,7 +2546,7 @@ export async function tuneIntoRadio(
             // playhead to actually reach it.
             pendingMeta.set(initSeq, {
               now_playing: np,
-              art_url: artUrlFromRaw(msg.now_playing),
+              art_url: resolveArtUrl(msg.now_playing),
               raw_art: rawArtMetaFrom(msg.now_playing),
               listener_count: msg.listener_count ?? listenerCount(),
             });
@@ -2503,7 +2566,7 @@ export async function tuneIntoRadio(
         pendingInitialNowPlaying = null;
         setNowPlaying(np);
         synthesizeTimelineFromNowPlaying(np, "meta");
-        swapArtUrl(artUrlFromRaw(msg.now_playing));
+        swapArtUrl(resolveArtUrl(msg.now_playing));
         if (typeof msg?.listener_count === "number") {
           setListenerCount(msg.listener_count);
         }

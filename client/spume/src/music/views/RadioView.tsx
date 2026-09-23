@@ -97,7 +97,11 @@ function StationDetailPanel(props: {
         </div>
       </Show>
       <Show when={!showTabs() || tab() === "history"}>
-        <RadioHistoryList stationId={props.stationId} />
+        <RadioHistoryList
+          stationId={props.stationId}
+          remoteRef={props.remoteRef}
+          remoteId={props.remoteId}
+        />
       </Show>
       <Show when={showTabs() && tab() === "queue"}>
         <RadioQueueList
