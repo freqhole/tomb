@@ -331,19 +331,29 @@ async function runSource(src: SourceRef, timeoutMs: number): Promise<SourceRunRe
   ]);
 }
 
+/**
+ * build a RemoteRef the api client can talk to without needing a
+ * persisted remote row. "self" routes through the charnel-local
+ * transport (in-process dispatch — no iroh, no http). unlike looking a
+ * source up in a saved `knownRemotes()` list (see RadioView.tsx's
+ * `remoteForSource`), this always succeeds for every SourceRef kind —
+ * use it for anything that just needs to make an api call against the
+ * source (station list/queue calls), not for things that need a real,
+ * persisted `remote_id` (sharing, image-fallback lookups).
+ */
+export function sourceToRemoteRef(src: SourceRef): RemoteRef {
+  return src.kind === "self"
+    ? { transport: "http", is_charnel_managed: true }
+    : src.base_url
+      ? { transport: "http", base_url: src.base_url }
+      : {
+          transport: isCharnelAvailable() ? "app" : "wasm",
+          peer_addr: src.peer_addr ?? src.id,
+        };
+}
+
 async function fetchStationsForSource(src: SourceRef): Promise<PublicStation[]> {
-  // build a RemoteRef the api client can talk to without needing a
-  // persisted remote row. "self" routes through the charnel-local
-  // transport (in-process dispatch — no iroh, no http).
-  const ref: RemoteRef =
-    src.kind === "self"
-      ? { transport: "http", is_charnel_managed: true }
-      : src.base_url
-        ? { transport: "http", base_url: src.base_url }
-        : {
-            transport: isCharnelAvailable() ? "app" : "wasm",
-            peer_addr: src.peer_addr ?? src.id,
-          };
+  const ref = sourceToRemoteRef(src);
 
   const client = await getClientForRemote(ref);
   // try the authenticated listing first - it includes non-public

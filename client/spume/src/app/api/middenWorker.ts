@@ -345,6 +345,18 @@ async function downloadVerifiedWithEnsure(
   return Comlink.transfer(result, [result.buffer as ArrayBuffer]);
 }
 
+/** pulls a blob directly into this node's own OPFS-backed store, never
+ * returning bytes to JS at all - see `download_verified_to_store_with_
+ * ensure`'s doc comment in lib/midden/src/lib.rs and docs/backlog.md
+ * item 12. use this instead of `downloadVerifiedWithEnsure` whenever the
+ * caller only needs the blob to become locally servable. */
+async function downloadVerifiedToStoreWithEnsure(
+  peerAddr: string,
+  blake3Hash: string
+): Promise<void> {
+  return requireNode().download_verified_to_store_with_ensure(peerAddr, blake3Hash);
+}
+
 async function downloadVerifiedWithEnsureProgress(
   peerAddr: string,
   blake3Hash: string,
@@ -534,6 +546,7 @@ const api = {
   importAbort,
   ensureBlob,
   downloadVerifiedWithEnsure,
+  downloadVerifiedToStoreWithEnsure,
   downloadVerifiedWithEnsureProgress,
   downloadVerifiedById,
   downloadVerifiedByIdProgress,

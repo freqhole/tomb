@@ -259,6 +259,47 @@ async fn pick_for_station_after_with_options(
     // station's resolve_playlist call below never even RUNS a video
     // query, let alone returns one.
     let content_mode = station.content_mode.trim().to_ascii_lowercase();
+
+    // request-taking stations draw from the member-submitted queue first
+    // (see crate::radio::requests) - falls through to the normal
+    // filter-based picker below once the queue is empty. an incompatible-
+    // with-content_mode or now-unfetchable item is dropped (logged) and
+    // the next one tried instead - the submit route already checks
+    // content_mode compatibility up front, so this loop is just a safety
+    // net, not the primary enforcement.
+    if station.accepts_requests != 0 {
+        loop {
+            let Some(req) = crate::radio::requests::pop_next(station_id).await else {
+                break;
+            };
+            let compatible = !matches!(
+                (req.kind, content_mode.as_str()),
+                (RadioItemKind::Song, "video_only") | (RadioItemKind::Video, "audio_only")
+            );
+            if !compatible {
+                tracing::warn!(
+                    "[radio-picker] station {station_id} dropped a queued request for {:?} {} \
+                     - incompatible with content_mode {content_mode}",
+                    req.kind,
+                    req.item_id
+                );
+                continue;
+            }
+            match fetch_track(req.kind, &req.item_id).await {
+                Ok(track) => return Ok(track),
+                Err(e) => {
+                    tracing::warn!(
+                        "[radio-picker] station {station_id} dropped a queued request for {:?} \
+                         {} - failed to fetch: {e}",
+                        req.kind,
+                        req.item_id
+                    );
+                    continue;
+                }
+            }
+        }
+    }
+
     let resolved = stations::resolve_playlist(station_id, &content_mode).await?;
     let mut song_candidates = if content_mode == "video_only" {
         Vec::new()

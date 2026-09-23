@@ -39,6 +39,7 @@ export type {
   BlobProgressCallback,
   RadioHandleLike,
   BiStreamLike,
+  ActiveTransferLike,
 } from "./WasmTransport.js";
 export type { Transport, TransportResponse, BlobData } from "./transport.js";
 

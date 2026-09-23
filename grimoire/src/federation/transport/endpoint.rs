@@ -19,8 +19,9 @@ use crate::federation::transport::protocol::FREQHOLE_ALPN;
 use iroh::endpoint::{presets, RelayMode};
 use iroh::protocol::{Router, RouterBuilder};
 use iroh::{Endpoint, EndpointAddr, PublicKey, RelayMap, RelayUrl, SecretKey};
-use iroh_blobs::provider::events::{EventMask, EventSender};
+use reliquary::gate::{build_gated_blobs_events, AllowAll};
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
+use std::sync::Arc;
 use tracing::{info, warn};
 
 /// resolve the iroh relay mode from federation config.
@@ -207,12 +208,17 @@ impl FederationEndpoint {
         // create freqhole/1 protocol handler
         let freqhole_handler = FreqholeProtocol::new();
 
-        // create iroh-blobs protocol handler with event tracing enabled,
-        // sourced from the shared storage node. attach this endpoint to the
-        // node's downloader too, so it can drive verified peer-to-peer
-        // fetches for any future consumer (e.g. the snatch engine).
+        // create iroh-blobs protocol handler, gated via reliquary's shared
+        // AccessGate seam (AllowAll here - grimoire's own auth already
+        // happens at the transport/caller layer elsewhere, this doesn't add
+        // new gating) and also feeding this node's outgoing transfer
+        // registry (`active_outgoing_transfers()` below), sourced from the
+        // shared storage node. attach this endpoint to the node's downloader
+        // too, so it can drive verified peer-to-peer fetches for any future
+        // consumer (e.g. the snatch engine).
         let storage_node = crate::database::storage_node().await?;
-        let event_sender = EventSender::DEFAULT.tracing(EventMask::default());
+        let registry = crate::database::transfer_registry().await;
+        let event_sender = build_gated_blobs_events(Arc::new(AllowAll), Some(registry));
         let blobs_handler = storage_node.blobs_protocol(Some(event_sender));
         storage_node.attach_endpoint(&self.endpoint);
 
@@ -313,6 +319,38 @@ impl FederationEndpoint {
 
         self.endpoint.close().await;
     }
+}
+
+/// one outgoing blob transfer in progress (this node serving `blake3` to
+/// `peer_id`) - json-friendly mirror of `reliquary::gate::ActiveTransfer`,
+/// same field names as midden's wasm-side `get_active_transfers()` binding
+/// (`peerId`/`blake3`/`bytesSent`/`totalSize`) so callers (e.g. a tauri
+/// command) don't need a separate shape per platform. see docs/backlog.md
+/// item 2.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ActiveOutgoingTransfer {
+    pub peer_id: String,
+    pub blake3: String,
+    pub bytes_sent: u64,
+    pub total_size: u64,
+}
+
+/// snapshot of every outgoing blob transfer this node is currently serving
+/// - fed by the `build_gated_blobs_events` wiring in
+/// `FederationEndpoint::start_router_with` above. exposed to charnel via a
+/// new tauri command mirroring midden's wasm-side `get_active_transfers()`.
+pub async fn active_outgoing_transfers() -> Vec<ActiveOutgoingTransfer> {
+    crate::database::transfer_registry()
+        .await
+        .snapshot()
+        .into_iter()
+        .map(|t| ActiveOutgoingTransfer {
+            peer_id: t.peer,
+            blake3: t.blake3,
+            bytes_sent: t.bytes_sent,
+            total_size: t.total_size,
+        })
+        .collect()
 }
 
 #[cfg(test)]

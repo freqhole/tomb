@@ -25,6 +25,10 @@ vi.mock("../download", () => ({
   addToLoadingSet: vi.fn(),
   updateLoadingProgress: vi.fn(),
   removeFromLoadingSet: vi.fn(),
+  withLoadingProgress: async (
+    _id: string,
+    run: (onProgress: (p: number | null) => void) => Promise<unknown>
+  ) => run(() => {}),
 }));
 vi.mock("./localAudio", () => ({
   resolveLocalAudioUrl: (...a: unknown[]) => resolveLocalAudioUrl(...(a as [])),

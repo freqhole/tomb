@@ -41,6 +41,7 @@ pub async fn list_stations() -> GrimoireResult<Vec<RadioStation>> {
                   timeline_only_mode as "timeline_only_mode!: i64",
                   content_mode as "content_mode!",
                   bumper_frequency_seconds,
+                  accepts_requests as "accepts_requests!: i64",
                   created_at as "created_at!", updated_at as "updated_at!"
            FROM radio_stationz
            ORDER BY created_at ASC"#
@@ -61,6 +62,7 @@ pub async fn get_station(id: &str) -> GrimoireResult<Option<RadioStation>> {
                   timeline_only_mode as "timeline_only_mode!: i64",
                   content_mode as "content_mode!",
                   bumper_frequency_seconds,
+                  accepts_requests as "accepts_requests!: i64",
                   created_at as "created_at!", updated_at as "updated_at!"
            FROM radio_stationz WHERE id = ?"#,
         id
@@ -91,6 +93,15 @@ pub async fn create_station(req: CreateStationRequest) -> GrimoireResult<RadioSt
     let is_public = req.is_public.unwrap_or(false) as i64;
     let is_enabled = req.is_enabled.unwrap_or(true) as i64;
     let timeline_only_mode = req.timeline_only_mode.unwrap_or(false) as i64;
+    let accepts_requests = req.accepts_requests.unwrap_or(false) as i64;
+    if is_public != 0 && accepts_requests != 0 {
+        return Err(GrimoireError::Validation {
+            field: "accepts_requests".to_string(),
+            message: "a request-taking station cannot be public - accepts_requests and \
+                      is_public are mutually exclusive"
+                .to_string(),
+        });
+    }
     let play_mode = normalize_play_mode(req.play_mode);
     let content_mode = normalize_content_mode(req.content_mode);
     // codec always gets a concrete, content_mode-appropriate value at
@@ -103,8 +114,8 @@ pub async fn create_station(req: CreateStationRequest) -> GrimoireResult<RadioSt
     // sqlite generates id via DEFAULT (lower(hex(randomblob(8))))
     let id: String = sqlx::query_scalar!(
         r#"INSERT INTO radio_stationz
-                  (name, description, is_public, is_enabled, encode_args, codec, play_mode, timeline_only_mode, content_mode)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                  (name, description, is_public, is_enabled, encode_args, codec, play_mode, timeline_only_mode, content_mode, accepts_requests)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
            RETURNING id"#,
         req.name,
         req.description,
@@ -115,6 +126,7 @@ pub async fn create_station(req: CreateStationRequest) -> GrimoireResult<RadioSt
         play_mode,
           timeline_only_mode,
         content_mode,
+        accepts_requests,
     )
     .fetch_one(&pool)
     .await?;
@@ -129,12 +141,39 @@ pub async fn create_station(req: CreateStationRequest) -> GrimoireResult<RadioSt
 pub async fn update_station(req: UpdateStationRequest) -> GrimoireResult<RadioStation> {
     let pool = database::connect().await?;
 
+    // validate the EFFECTIVE post-update is_public/accepts_requests
+    // combination (fetch the current row so a caller changing only ONE
+    // of the two mutually-exclusive fields is still checked against the
+    // other's current value - mirrors the same pattern used for
+    // video's parent_video_id/series_id validation).
+    if req.is_public.is_some() || req.accepts_requests.is_some() {
+        let current =
+            get_station(&req.id)
+                .await?
+                .ok_or_else(|| GrimoireError::ProcessingFailed {
+                    message: format!("radio station not found: {}", req.id),
+                })?;
+        let effective_is_public = req.is_public.unwrap_or(current.is_public != 0);
+        let effective_accepts_requests = req
+            .accepts_requests
+            .unwrap_or(current.accepts_requests != 0);
+        if effective_is_public && effective_accepts_requests {
+            return Err(GrimoireError::Validation {
+                field: "accepts_requests".to_string(),
+                message: "a request-taking station cannot be public - accepts_requests and \
+                          is_public are mutually exclusive"
+                    .to_string(),
+            });
+        }
+    }
+
     // do partial-update via COALESCE — keeps the query static (so query!
     // works) but lets nullable fields preserve existing values when not
     // provided.
     let is_public = req.is_public.map(|b| b as i64);
     let is_enabled = req.is_enabled.map(|b| b as i64);
     let timeline_only_mode = req.timeline_only_mode.map(|b| b as i64);
+    let accepts_requests = req.accepts_requests.map(|b| b as i64);
 
     let play_mode = req.play_mode.map(|m| normalize_play_mode(Some(m)));
     let content_mode = req.content_mode.map(|m| normalize_content_mode(Some(m)));
@@ -162,6 +201,7 @@ pub async fn update_station(req: UpdateStationRequest) -> GrimoireResult<RadioSt
               play_mode          = COALESCE(?, play_mode),
               timeline_only_mode = COALESCE(?, timeline_only_mode),
               content_mode       = COALESCE(?, content_mode),
+              accepts_requests   = COALESCE(?, accepts_requests),
               updated_at         = unixepoch()
            WHERE id = ?"#,
         req.name,
@@ -173,6 +213,7 @@ pub async fn update_station(req: UpdateStationRequest) -> GrimoireResult<RadioSt
         play_mode,
         timeline_only_mode,
         content_mode,
+        accepts_requests,
         req.id,
     )
     .execute(&pool)
@@ -1602,4 +1643,105 @@ pub async fn list_play_history(
     .fetch_all(&pool)
     .await
     .map_err(GrimoireError::from)
+}
+
+#[cfg(test)]
+mod accepts_requests_validation_tests {
+    use super::*;
+
+    // touches the real db pool singleton - run one at a time, own process:
+    // cargo test -p grimoire --lib -- --ignored --exact radio::stations::repository::accepts_requests_validation_tests::test_accepts_requests_and_is_public_are_mutually_exclusive
+    async fn init_test_env(data_dir: &std::path::Path) {
+        let config_toml = format!(
+            r#"data_dir = "{data_dir}"
+
+[database]
+filename = "grimoire.db"
+
+[media]
+max_fs_file_size = 104857600
+supported_audio_formats = ["mp3", "flac"]
+
+[musicbrainz]
+enabled = false
+
+[logging]
+level = "warn"
+"#,
+            data_dir = data_dir.display()
+        );
+        let config_path = data_dir.join("freqhole-config.toml");
+        std::fs::write(&config_path, config_toml).expect("write config");
+        std::fs::write(data_dir.join("grimoire.db"), b"").expect("touch grimoire.db");
+
+        crate::config::init_config(Some(config_path)).expect("init config");
+        crate::database::run_migrations()
+            .await
+            .expect("run migrations");
+    }
+
+    #[tokio::test]
+    #[ignore = "needs its own process: touches the real db pool singleton"]
+    async fn test_accepts_requests_and_is_public_are_mutually_exclusive() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        init_test_env(tmp.path()).await;
+
+        // reject at creation: both set together.
+        let created = create_station(CreateStationRequest {
+            name: "public request station".to_string(),
+            description: None,
+            is_public: Some(true),
+            is_enabled: Some(true),
+            encode_args: None,
+            codec: None,
+            play_mode: None,
+            timeline_only_mode: None,
+            content_mode: None,
+            accepts_requests: Some(true),
+        })
+        .await;
+        assert!(created.is_err(), "expected rejection, got: {created:?}");
+
+        // valid creation: accepts_requests without is_public.
+        let station = create_station(CreateStationRequest {
+            name: "members-only requests".to_string(),
+            description: None,
+            is_public: Some(false),
+            is_enabled: Some(true),
+            encode_args: None,
+            codec: None,
+            play_mode: None,
+            timeline_only_mode: None,
+            content_mode: None,
+            accepts_requests: Some(true),
+        })
+        .await
+        .expect("valid station should create fine");
+        assert_eq!(station.accepts_requests, 1);
+        assert_eq!(station.is_public, 0);
+
+        // reject at update: flipping is_public on a request-taking
+        // station - confirms the EFFECTIVE-value check (fetches the
+        // current row) catches a caller changing only ONE of the two
+        // mutually-exclusive fields.
+        let updated = update_station(UpdateStationRequest {
+            id: station.id.clone(),
+            is_public: Some(true),
+            ..Default::default()
+        })
+        .await;
+        assert!(updated.is_err(), "expected rejection, got: {updated:?}");
+
+        // sanity: an unrelated field update still succeeds (proves the
+        // rejection above isn't just "update_station always errors").
+        let renamed = update_station(UpdateStationRequest {
+            id: station.id.clone(),
+            name: Some("renamed".to_string()),
+            ..Default::default()
+        })
+        .await
+        .expect("unrelated field update should succeed");
+        assert_eq!(renamed.name, "renamed");
+        assert_eq!(renamed.accepts_requests, 1);
+    }
 }

@@ -325,6 +325,10 @@ pub async fn dispatch(
         // radio (authenticated - see offal::public::radio for the
         // anonymous counterpart)
         "/api/radio/stations/full" => Some(radio::stations_full(caller, body.clone()).await),
+        "/api/radio/requests/submit" => Some(radio::submit_request(caller, body.clone()).await),
+        "/api/radio/requests/list" => Some(radio::list_requests(caller, body.clone()).await),
+        "/api/radio/requests/remove" => Some(radio::remove_request(caller, body.clone()).await),
+        "/api/radio/requests/clear" => Some(radio::clear_requests(caller, body.clone()).await),
 
         // blob metadata
         "/api/blob_metadata" => super::media_blobz::dispatch(path, caller, body).await,

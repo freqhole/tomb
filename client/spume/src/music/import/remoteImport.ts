@@ -1,12 +1,12 @@
 // remote import service - handles uploading music files and fetching urls on a remote server
 // tracks upload/fetch jobs reactively so the UI can show progress
-import { createStore, produce } from "solid-js/store";
 import type { FreqholeClient } from "@freqhole/api-client";
 import { getClientForRemote, type RemoteLike } from "../../app/api/client";
 import { JobPoller } from "../../app/services/jobs/jobService";
 import { toast } from "../../components/feedback/Toast";
 import { getCurrentRemote, getCurrentUser } from "../data";
 import { warn as logWarn } from "../../utils/logger";
+import { createTrackedJobStore } from "../../app/services/transfers/trackedJobStore";
 import {
   humanizeJobError as humanizeJobErrorShared,
   extractTransportErrorType,
@@ -73,45 +73,43 @@ export interface UploadJob {
   retryFailedBlake3s?: string[];
 }
 
-// reactive store for all tracked upload jobs
-const [uploadJobs, setUploadJobs] = createStore<UploadJob[]>([]);
-
-// counter for generating unique ids
-let nextJobId = 1;
+// reactive store for all tracked upload jobs - shared mechanism, see
+// app/services/transfers/trackedJobStore.ts's own header comment for why
+// this isn't built on the bucket-B queue primitive.
+const jobStore = createTrackedJobStore<UploadJob>();
 
 /** get the reactive upload jobs list */
 export function getUploadJobs() {
-  return uploadJobs;
+  return jobStore.getJobs();
 }
 
 /** clear completed jobs (call when modal is closed) */
 export function clearCompletedJobs() {
-  setUploadJobs((jobs) => jobs.filter((j) => j.status !== "completed"));
+  jobStore.clearJobsWhere((j) => j.status === "completed");
 }
 
 /** remove a single job (e.g. dismissing a failed row) */
 export function removeJob(id: string) {
-  setUploadJobs((jobs) => jobs.filter((j) => j.id !== id));
+  jobStore.removeJob(id);
 }
 
 /** clear all jobs */
 export function clearAllJobs() {
-  setUploadJobs([]);
+  jobStore.clearAllJobs();
 }
 
 // add a new tracked job and return its client-side id - exported so
 // sendReviewedSessionToRemote.ts can show "sending to remote" in the same
 // job list instead of running invisibly (see docs on that call site).
 export function addTrackedJob(label: string, type: UploadJobType): string {
-  const id = `upload-${nextJobId++}`;
-  const job: UploadJob = {
+  const id = jobStore.nextId("upload");
+  jobStore.addJob({
     id,
     label,
     type,
     status: "uploading",
     createdAt: Date.now(),
-  };
-  setUploadJobs((prev) => [...prev, job]);
+  });
   return id;
 }
 
@@ -121,35 +119,26 @@ export function updateJobStatus(
   status: UploadJobStatus,
   extra?: { jobId?: string; error?: string; errorFull?: string }
 ) {
-  setUploadJobs(
-    (j) => j.id === id,
-    produce((j) => {
-      j.status = status;
-      if (extra?.jobId) j.jobId = extra.jobId;
-      if (extra?.error) j.error = extra.error;
-      if (extra?.errorFull) j.errorFull = extra.errorFull;
-    })
-  );
+  jobStore.updateJob(id, (j) => {
+    j.status = status;
+    if (extra?.jobId) j.jobId = extra.jobId;
+    if (extra?.error) j.error = extra.error;
+    if (extra?.errorFull) j.errorFull = extra.errorFull;
+  });
 }
 
 // update a tracked job's stage label (concise human-readable line).
 export function updateJobStage(id: string, stage: string | undefined) {
-  setUploadJobs(
-    (j) => j.id === id,
-    produce((j) => {
-      j.stage = stage;
-    })
-  );
+  jobStore.updateJob(id, (j) => {
+    j.stage = stage;
+  });
 }
 
 // update a tracked job's upload transfer progress (0..1).
 export function updateJobProgress(id: string, progress: number) {
-  setUploadJobs(
-    (j) => j.id === id,
-    produce((j) => {
-      j.progress = progress;
-    })
-  );
+  jobStore.updateJob(id, (j) => {
+    j.progress = progress;
+  });
 }
 
 // merge entity ids onto a tracked job once we've resolved them from the
@@ -170,19 +159,16 @@ export function updateJobEntities(
     retryFailedBlake3s?: string[];
   }
 ) {
-  setUploadJobs(
-    (j) => j.id === id,
-    produce((j) => {
-      if (ids.albumId) j.albumId = ids.albumId;
-      if (ids.artistId) j.artistId = ids.artistId;
-      if (ids.songId) j.songId = ids.songId;
-      if (ids.remoteId) j.remoteId = ids.remoteId;
-      if (ids.sessionId) j.sessionId = ids.sessionId;
-      if (ids.isDuplicate !== undefined) j.isDuplicate = ids.isDuplicate;
-      if (ids.resultSummary) j.resultSummary = ids.resultSummary;
-      if (ids.retryFailedBlake3s) j.retryFailedBlake3s = ids.retryFailedBlake3s;
-    })
-  );
+  jobStore.updateJob(id, (j) => {
+    if (ids.albumId) j.albumId = ids.albumId;
+    if (ids.artistId) j.artistId = ids.artistId;
+    if (ids.songId) j.songId = ids.songId;
+    if (ids.remoteId) j.remoteId = ids.remoteId;
+    if (ids.sessionId) j.sessionId = ids.sessionId;
+    if (ids.isDuplicate !== undefined) j.isDuplicate = ids.isDuplicate;
+    if (ids.resultSummary) j.resultSummary = ids.resultSummary;
+    if (ids.retryFailedBlake3s) j.retryFailedBlake3s = ids.retryFailedBlake3s;
+  });
 }
 
 // fetch a job's result JSON from the server and resolve its produced
@@ -717,7 +703,7 @@ export async function importPathsToLocal(
       // have none, or whose own job hasn't resolved yet).
       for (let i = 0; i < trackIds.length; i++) {
         const trackId = trackIds[i];
-        const j = uploadJobs.find((j) => j.id === trackId);
+        const j = jobStore.getJobs().find((j) => j.id === trackId);
         if (!j) continue;
         if (j.status !== "completed" && j.status !== "failed" && j.status !== "timeout") {
           const existing = existingByPath.get(paths[i]);

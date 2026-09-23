@@ -341,6 +341,12 @@ pub mod type_registry {
         PublicTimelineManifestItem, RadioInfoResponse, RadioStationsResponse,
     };
 
+    // radio member-request type (authenticated, non-admin)
+    use crate::offal::music::radio::{
+        RadioQueuedRequestInfo, RadioRequestsListResponse, RadioStationRequestsRequest,
+        RemoveRadioRequestRequest, SubmitRadioRequestRequest,
+    };
+
     // radio admin types
     use crate::radio::stations::models::{
         CreateStationRequest, RadioStation, StationFilter, UpdateStationRequest,
@@ -458,6 +464,16 @@ pub mod type_registry {
         registered.insert("PublicTimelineManifestItem".to_string());
         gen.add_schema::<PublicTimelineManifest>("PublicTimelineManifest");
         registered.insert("PublicTimelineManifest".to_string());
+        gen.add_schema::<SubmitRadioRequestRequest>("SubmitRadioRequestRequest");
+        registered.insert("SubmitRadioRequestRequest".to_string());
+        gen.add_schema::<RadioStationRequestsRequest>("RadioStationRequestsRequest");
+        registered.insert("RadioStationRequestsRequest".to_string());
+        gen.add_schema::<RemoveRadioRequestRequest>("RemoveRadioRequestRequest");
+        registered.insert("RemoveRadioRequestRequest".to_string());
+        gen.add_schema::<RadioQueuedRequestInfo>("RadioQueuedRequestInfo");
+        registered.insert("RadioQueuedRequestInfo".to_string());
+        gen.add_schema::<RadioRequestsListResponse>("RadioRequestsListResponse");
+        registered.insert("RadioRequestsListResponse".to_string());
 
         gen.add_schema::<ApiKeyStatusResponse>("ApiKeyStatusResponse");
         registered.insert("ApiKeyStatusResponse".to_string());

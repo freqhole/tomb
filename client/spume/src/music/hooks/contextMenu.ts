@@ -856,6 +856,20 @@ export function usePlaylistContextMenu(
   // favorites
   actions.push(createFavoriteMenuAction("playlist", playlist.id, options.isFavorite ?? false));
 
+  // radio station: local (charnel) or remote (if browsing a remote)
+  if (isCharnelMode() || !!getCurrentRemote()) {
+    actions.push({
+      label: "add to station...",
+      icon: IconNames.headphones,
+      onClick: () => {
+        void showStationSelector(
+          { kind: "playlist", playlistId: playlist.id, playlistTitle: playlist.title },
+          getCurrentRemote()?.remote_id
+        );
+      },
+    });
+  }
+
   // share — permalink + send-to. send-to builder fetches the playlist's
   // song list lazily so the menu click stays snappy.
   actions.push(

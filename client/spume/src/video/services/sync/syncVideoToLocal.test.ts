@@ -60,6 +60,10 @@ vi.mock("../../../music/services/download", () => ({
   addToLoadingSet: vi.fn(),
   updateLoadingProgress: vi.fn(),
   removeFromLoadingSet: vi.fn(),
+  withLoadingProgress: async (
+    _id: string,
+    run: (onProgress: (p: number | null) => void) => Promise<unknown>
+  ) => run(() => {}),
 }));
 vi.mock("../../../app/services/storage/db", () => ({
   getSyncQueueToLocal: vi.fn(() => true),

@@ -19,6 +19,7 @@ import { ContextMenu, type MenuAction } from "../../components/overlays/ContextM
 import { isNarrowViewport } from "../../config/breakpoints";
 import {
   discoverStations,
+  sourceToRemoteRef,
   type DiscoveredStation,
   type SourceRef,
 } from "../../app/services/radio/radioDiscovery";
@@ -42,13 +43,72 @@ import { createRemote, getAllRemotes } from "../../app/services/remotes/remoteMa
 import { isCharnelMode } from "../../app/services/charnel";
 import { debug } from "../../utils/logger";
 import { RadioHistoryList } from "./RadioHistoryList";
+import { RadioQueueList } from "./RadioQueueList";
 import { showShareModal } from "../hooks/modals";
 import { addRadioStationHistoryEntry } from "../services/queue/queueHistory";
-import { type Remote, isHttpRemote, isP2PRemote } from "../../app/services/storage/types";
+import {
+  type Remote,
+  type RemoteRef,
+  isHttpRemote,
+  isP2PRemote,
+} from "../../app/services/storage/types";
 import type { ImageMetadata } from "../services/storage/types";
 import { Icon } from "../../components/icons/registry";
 import { useTopNavSlots } from "../../app/shell/topNavSlots";
 import { CrossRemoteTopNavSearch } from "../../library/views/graph/CrossRemoteTopNavSearch";
+
+/** history/queue tabs for a specific station's detail panel - the queue
+ * tab (pending member requests) only makes sense for a station that
+ * actually accepts requests; every other station just shows history,
+ * unchanged from before this existed. */
+function StationDetailPanel(props: {
+  stationId: string | null | undefined;
+  remoteRef: RemoteRef;
+  remoteId?: string;
+  acceptsRequests: boolean;
+}) {
+  const [tab, setTab] = createSignal<"history" | "queue">("history");
+  const showTabs = () => props.acceptsRequests && !!props.stationId;
+
+  return (
+    <div>
+      <Show when={showTabs()}>
+        <div class="flex items-center gap-1 mb-3 px-1 text-xs">
+          <button
+            class="px-2 py-1 rounded-t border-b-2 transition-colors"
+            classList={{
+              "border-fuchsia-500 text-neutral-100": tab() === "history",
+              "border-transparent text-neutral-500 hover:text-neutral-300": tab() !== "history",
+            }}
+            onClick={() => setTab("history")}
+          >
+            history
+          </button>
+          <button
+            class="px-2 py-1 rounded-t border-b-2 transition-colors"
+            classList={{
+              "border-fuchsia-500 text-neutral-100": tab() === "queue",
+              "border-transparent text-neutral-500 hover:text-neutral-300": tab() !== "queue",
+            }}
+            onClick={() => setTab("queue")}
+          >
+            queue
+          </button>
+        </div>
+      </Show>
+      <Show when={!showTabs() || tab() === "history"}>
+        <RadioHistoryList stationId={props.stationId} />
+      </Show>
+      <Show when={showTabs() && tab() === "queue"}>
+        <RadioQueueList
+          stationId={props.stationId!}
+          remoteRef={props.remoteRef}
+          remoteId={props.remoteId}
+        />
+      </Show>
+    </div>
+  );
+}
 
 export function RadioView() {
   const MIN_HISTORY_SCROLL_HEIGHT = 220;
@@ -952,7 +1012,12 @@ export function RadioView() {
                   </header>
                   <Show when={station.station_id}>
                     <div class="mt-6">
-                      <RadioHistoryList stationId={station.station_id} />
+                      <StationDetailPanel
+                        stationId={station.station_id}
+                        remoteRef={sourceToRemoteRef(station.source)}
+                        remoteId={remoteForSource(station.source)?.remote_id}
+                        acceptsRequests={station.accepts_requests}
+                      />
                     </div>
                   </Show>
                 </div>
@@ -1122,8 +1187,19 @@ export function RadioView() {
                   "pb-6": useStickyDetailLayout(),
                 }}
               >
-                <RadioHistoryList
+                <StationDetailPanel
                   stationId={currentStationObj()?.station_id ?? radioCurrentStationId() ?? null}
+                  remoteRef={
+                    currentStationObj()
+                      ? sourceToRemoteRef(currentStationObj()!.source)
+                      : { transport: "http", is_charnel_managed: true }
+                  }
+                  remoteId={
+                    currentStationObj()
+                      ? remoteForSource(currentStationObj()!.source)?.remote_id
+                      : undefined
+                  }
+                  acceptsRequests={currentStationObj()?.accepts_requests ?? false}
                 />
               </div>
             </div>

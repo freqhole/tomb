@@ -1,14 +1,32 @@
-// modal for adding an artist / album / genre / song(s) to a radio station.
-// lists the local station roster and calls the appropriate admin command on
-// the selected station.
+// modal for adding an artist / album / genre / song(s) / video(s) to a
+// radio station's filter criteria (admin-only), AND for submitting a
+// member "request" (queue a specific song/video next) to any station
+// that has `accepts_requests` set - one shared modal/trigger action for
+// both, per the user's explicit preference: don't fork this into two
+// separate modals, just show whichever section(s) apply. a non-admin
+// caller simply never sees the "add to station" section (its fetch
+// fails with a `forbidden` error, handled silently below, NOT a toast -
+// that's an expected, common case here, not a real error) - if there
+// are also no request-taking stations, the modal is just empty, which is
+// fine (nothing for this user to do here).
 //
 // this is the charnel-mode companion to the RadioAdminView seed editor —
 // same admin commands, different entry point.
 
-import { createResource, createSignal, For, onCleanup, onMount, Show } from "solid-js";
-import { AdminClient, AdminCommandError, type RadioStation } from "@freqhole/api-client";
+import { createMemo, createResource, createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import {
+  AdminClient,
+  AdminCommandError,
+  type PublicStation,
+  type RadioStation,
+} from "@freqhole/api-client";
 import { adminClientFor, getLocalAdminClient } from "../../app/api/adminClient";
+import { getClientForRemote } from "../../app/api/client";
+import { getCurrentRemote, getDataSource } from "../../music/data";
+import { RemoteMusicDataSource } from "../../music/data/remote/remoteSource";
 import { getRemoteById } from "../../app/services/remotes/remoteManager";
+import type { RemoteRef } from "../../app/services/storage/types";
+import { getVideoDataSource } from "../../video/data";
 import { toast } from "../feedback/Toast";
 import {
   closeStationSelector,
@@ -17,7 +35,8 @@ import {
 } from "../../music/hooks/stationSelectorState";
 
 // dispatch the add operation for a given target. every clause is now a
-// real filter row keyed by FK id (track / artist / album / taxon).
+// real filter row keyed by FK id (track / artist / album / taxon / video
+// / video_series).
 async function addTargetToStation(
   client: AdminClient,
   stationId: string,
@@ -63,6 +82,20 @@ async function addTargetToStation(
       filter_value: target.playlistId,
       mode: "include",
     });
+  } else if (target.kind === "video") {
+    await client.dispatchOrThrow("radio_filters_add", {
+      station_id: stationId,
+      filter_type: "video",
+      filter_value: target.videoId,
+      mode: "include",
+    });
+  } else if (target.kind === "video_series") {
+    await client.dispatchOrThrow("radio_filters_add", {
+      station_id: stationId,
+      filter_type: "video_series",
+      filter_value: target.seriesId,
+      mode: "include",
+    });
   }
 }
 
@@ -78,6 +111,10 @@ function targetLabel(target: StationSelectorTarget): string {
       return `genre "${target.genreName}"`;
     case "playlist":
       return `playlist "${target.playlistTitle}"`;
+    case "video":
+      return `video "${target.videoTitle}"`;
+    case "video_series":
+      return `series "${target.seriesTitle}"`;
   }
 }
 
@@ -95,7 +132,77 @@ function defaultStationName(target: StationSelectorTarget): string {
       return target.genreName;
     case "playlist":
       return target.playlistTitle;
+    case "video":
+      return target.videoTitle;
+    case "video_series":
+      return target.seriesTitle;
   }
+}
+
+// a "request" needs one or more concrete playable items - unambiguous
+// for a single song, a video, a series (resolved to its first episode on
+// demand below), or a whole album/playlist (queues every song in order).
+// skipped for a multi-song selection or a collection/criteria target
+// that has no well-defined play order (artist/genre).
+function canRequest(target: StationSelectorTarget): boolean {
+  if (target.kind === "songs") return target.songIds.length === 1;
+  return (
+    target.kind === "video" ||
+    target.kind === "video_series" ||
+    target.kind === "album" ||
+    target.kind === "playlist"
+  );
+}
+
+/** resolves `target` down to the ordered list of song/video ids a
+ * request actually queues - only called for a target `canRequest()`
+ * already approved. an album/playlist resolves to every one of its
+ * songs, in track/playlist order, so they queue and play back-to-back
+ * in the right order; every other kind resolves to exactly one item. */
+async function resolveRequestItems(
+  target: StationSelectorTarget,
+  remote: RemoteRef | null
+): Promise<{ kind: "song" | "video"; itemId: string }[] | null> {
+  if (target.kind === "songs") {
+    return target.songIds[0] ? [{ kind: "song", itemId: target.songIds[0] }] : null;
+  }
+  if (target.kind === "video") {
+    return [{ kind: "video", itemId: target.videoId }];
+  }
+  if (target.kind === "album") {
+    try {
+      const dataSource = remote ? new RemoteMusicDataSource(remote) : getDataSource();
+      const response = await dataSource.getAlbumSongs?.(target.albumId, { limit: 1000 });
+      const items = response?.items.map((s) => ({ kind: "song" as const, itemId: s.id })) ?? [];
+      return items.length > 0 ? items : null;
+    } catch (err) {
+      console.error("failed to resolve album songs for a request:", err);
+      return null;
+    }
+  }
+  if (target.kind === "playlist") {
+    try {
+      const dataSource = remote ? new RemoteMusicDataSource(remote) : getDataSource();
+      const response = await dataSource.getPlaylistSongs?.(target.playlistId, { limit: 1000 });
+      const items = response?.items.map((s) => ({ kind: "song" as const, itemId: s.id })) ?? [];
+      return items.length > 0 ? items : null;
+    } catch (err) {
+      console.error("failed to resolve playlist songs for a request:", err);
+      return null;
+    }
+  }
+  if (target.kind === "video_series") {
+    try {
+      const detail = await getVideoDataSource().getVideoSeriesDetail(target.seriesId);
+      if (!detail) return null;
+      const first = [...detail.seasons.flatMap((s) => s.videos), ...detail.unassignedVideos][0];
+      return first ? [{ kind: "video", itemId: first.id }] : null;
+    } catch (err) {
+      console.error("failed to resolve series' first episode for a request:", err);
+      return null;
+    }
+  }
+  return null;
 }
 
 export function AddToStationModal() {
@@ -104,6 +211,11 @@ export function AddToStationModal() {
   const [busy, setBusy] = createSignal(false);
   const [resolvedClient, setResolvedClient] = createSignal<AdminClient | null>(null);
   const [remoteName, setRemoteName] = createSignal<string | null>(null);
+  // stations that accept member requests, for the (possibly non-admin)
+  // caller's current remote - fetched via the regular authenticated
+  // client, entirely independent of whether the admin fetch below
+  // succeeds.
+  const [requestStations, setRequestStations] = createSignal<PublicStation[]>([]);
   // create-new branch state. when `creating` is true the modal swaps
   // its body to a name-input form; the user can still flip back to the
   // station list with the "cancel" button.
@@ -126,13 +238,41 @@ export function AddToStationModal() {
     async (isOpen) => {
       setResolvedClient(null);
       setRemoteName(null);
+      setRequestStations([]);
       setCreating(false);
       setNewName("");
       if (!isOpen) return [];
 
-      let client: AdminClient | null = null;
       const remoteServerId = state().remoteServerId;
+      // request-taking-station lookup is happy with the lighter
+      // `getCurrentRemote()` shape (only `getClientForRemote` needs it),
+      // but the admin flow below needs the full `Remote` record (only
+      // `getRemoteById` returns one) - kept as two separate lookups
+      // rather than one shared variable so each stays correctly typed.
+      const requestRemote = remoteServerId
+        ? await getRemoteById(remoteServerId)
+        : getCurrentRemote();
 
+      // request-taking stations: always attempted via the regular
+      // (non-admin) client, regardless of whether the caller is an
+      // admin - any authenticated member can request.
+      const target = state().target;
+      if (requestRemote && target && canRequest(target)) {
+        try {
+          const regularClient = await getClientForRemote(requestRemote);
+          const result = await regularClient.app.radioStationsFull();
+          if (result.success) {
+            setRequestStations(result.data.stations.filter((s) => s.accepts_requests));
+          }
+        } catch (err) {
+          // non-fatal: request-taking stations are a bonus section, and
+          // a failure here (e.g. offline remote) shouldn't block the
+          // admin section below from still rendering.
+          console.error("failed to load request-taking stations:", err);
+        }
+      }
+
+      let client: AdminClient | null = null;
       if (remoteServerId) {
         const remote = await getRemoteById(remoteServerId);
         if (!remote) {
@@ -161,12 +301,33 @@ export function AddToStationModal() {
         const data = await client.dispatchOrThrow("radio_stations_list", undefined);
         return (data ?? []) as RadioStation[];
       } catch (e) {
+        // "forbidden" here just means "this caller isn't an admin" - a
+        // common, expected case for any non-admin member opening this
+        // modal, not a real error. silently treat as "no admin stations
+        // to show" (the request-taking section above may still have
+        // something) rather than surfacing a confusing error toast.
+        if (e instanceof AdminCommandError && e.errorType === "forbidden") {
+          setResolvedClient(null);
+          return [];
+        }
         const msg =
           e instanceof AdminCommandError ? e.message : e instanceof Error ? e.message : String(e);
         toast.error(`failed to load stations: ${msg}`);
         return [];
       }
     }
+  );
+
+  // admin "add to station" (persistent filter criteria) section
+  // deliberately excludes any station that accepts member requests -
+  // otherwise an admin who's ALSO a member sees the same
+  // accepts_requests station listed twice (once per section here, for
+  // the same underlying station). requests already have their own
+  // dedicated section below; admins can still manage a request
+  // station's filter criteria from the station settings/admin view,
+  // just not from this shared modal.
+  const filterableStations = createMemo(() =>
+    (stations() ?? []).filter((s) => !s.accepts_requests)
   );
 
   // close on Escape
@@ -191,6 +352,62 @@ export function AddToStationModal() {
       const msg =
         e instanceof AdminCommandError ? e.message : e instanceof Error ? e.message : String(e);
       toast.error(`failed to add to station: ${msg}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // submit a member request (queue a specific song/video, or every song
+  // in an album back-to-back, next) to a station that accepts them -
+  // regular authenticated client, not AdminClient (see the module doc
+  // comment at the top of this file).
+  const handleRequestSelect = async (station: PublicStation) => {
+    const target = state().target;
+    const remoteServerId = state().remoteServerId;
+    if (!target) return;
+    const remote = remoteServerId ? await getRemoteById(remoteServerId) : getCurrentRemote();
+    if (!remote) return;
+
+    const items = await resolveRequestItems(target, remote);
+    if (!items || items.length === 0) {
+      toast.error("could not resolve an item to request");
+      return;
+    }
+
+    setBusy(true);
+    try {
+      const client = await getClientForRemote(remote);
+      let submitted = 0;
+      for (const item of items) {
+        // awaited one at a time (not Promise.all) so multi-item targets
+        // (an album) land in the station's FIFO queue in track order.
+        const result = await client.app.radioSubmitRequest({
+          station_id: station.station_id,
+          kind: item.kind,
+          item_id: item.itemId,
+        });
+        if (result.success) {
+          submitted += 1;
+        } else if (items.length === 1) {
+          const msg = result.error.issues[0]?.message || "failed to submit request";
+          toast.error(msg);
+          return;
+        }
+        // for a multi-item (album) request, one failed song shouldn't
+        // abort the rest - just tally it and keep going.
+      }
+      if (submitted === 0) {
+        toast.error("failed to submit request");
+        return;
+      }
+      const label =
+        items.length > 1
+          ? `${submitted}/${items.length} songs from ` + targetLabel(target)
+          : targetLabel(target);
+      toast.success(`requested ${label} on "${station.name}"`);
+      closeStationSelector();
+    } catch (e) {
+      toast.error(`failed to submit request: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       setBusy(false);
     }
@@ -315,33 +532,62 @@ export function AddToStationModal() {
                 <p class="text-xs text-[var(--color-text-muted)] p-3">loading stations…</p>
               </Show>
 
-              <Show when={!stations.loading && (stations() ?? []).length === 0}>
-                <p class="text-xs text-[var(--color-text-muted)] p-3">
-                  no stations yet. use "+ new station" below to create one.
-                </p>
-              </Show>
-
-              <For each={stations() ?? []}>
-                {(station) => (
-                  <button
-                    class="w-full text-left flex items-center gap-3 px-3 py-2 rounded hover:bg-[var(--color-accent-500)]/10 transition-colors disabled:opacity-50"
-                    onClick={() => handleSelect(station)}
-                    disabled={busy()}
-                  >
-                    <div class="w-8 h-8 rounded bg-gradient-to-br from-purple-700 to-indigo-900 flex-shrink-0" />
-                    <div class="flex-1 min-w-0">
-                      <div class="text-sm font-medium text-[var(--color-text-primary)] truncate">
-                        {station.name}
-                      </div>
-                      <Show when={(station as any).description}>
-                        <div class="text-xs text-[var(--color-text-muted)] truncate">
-                          {(station as any).description}
+              <Show when={!stations.loading}>
+                <Show when={filterableStations().length > 0}>
+                  <div class="px-3 pt-2 pb-1 text-[10px] uppercase tracking-wide text-[var(--color-text-muted)]">
+                    add to station
+                  </div>
+                  <For each={filterableStations()}>
+                    {(station) => (
+                      <button
+                        class="w-full text-left flex items-center gap-3 px-3 py-2 rounded hover:bg-[var(--color-accent-500)]/10 transition-colors disabled:opacity-50"
+                        onClick={() => handleSelect(station)}
+                        disabled={busy()}
+                      >
+                        <div class="w-8 h-8 rounded bg-gradient-to-br from-purple-700 to-indigo-900 flex-shrink-0" />
+                        <div class="flex-1 min-w-0">
+                          <div class="text-sm font-medium text-[var(--color-text-primary)] truncate">
+                            {station.name}
+                          </div>
+                          <Show when={(station as any).description}>
+                            <div class="text-xs text-[var(--color-text-muted)] truncate">
+                              {(station as any).description}
+                            </div>
+                          </Show>
                         </div>
-                      </Show>
-                    </div>
-                  </button>
-                )}
-              </For>
+                      </button>
+                    )}
+                  </For>
+                </Show>
+
+                <Show when={requestStations().length > 0}>
+                  <div class="px-3 pt-3 pb-1 text-[10px] uppercase tracking-wide text-[var(--color-text-muted)]">
+                    request on station
+                  </div>
+                  <For each={requestStations()}>
+                    {(station) => (
+                      <button
+                        class="w-full text-left flex items-center gap-3 px-3 py-2 rounded hover:bg-[var(--color-accent-500)]/10 transition-colors disabled:opacity-50"
+                        onClick={() => handleRequestSelect(station)}
+                        disabled={busy()}
+                      >
+                        <div class="w-8 h-8 rounded bg-gradient-to-br from-emerald-700 to-teal-900 flex-shrink-0" />
+                        <div class="flex-1 min-w-0">
+                          <div class="text-sm font-medium text-[var(--color-text-primary)] truncate">
+                            {station.name}
+                          </div>
+                        </div>
+                      </button>
+                    )}
+                  </For>
+                </Show>
+
+                <Show when={filterableStations().length === 0 && requestStations().length === 0}>
+                  <p class="text-xs text-[var(--color-text-muted)] p-3">
+                    no stations available for this item.
+                  </p>
+                </Show>
+              </Show>
             </Show>
           </div>
 

@@ -97,6 +97,12 @@ export interface MiddenNodeLike {
   download_verified?(peer_addr: string, blake3_hash: string): Promise<Uint8Array>;
   // download blob with automatic ensure + retry - optional
   download_verified_with_ensure?(peer_addr: string, blake3_hash: string): Promise<Uint8Array>;
+  // download blob DIRECTLY into this node's own local store, never
+  // returning bytes to JS - see docs/backlog.md item 12 and
+  // `download_verified_to_store_with_ensure`'s doc comment in
+  // lib/midden/src/lib.rs. use instead of download_verified_with_ensure
+  // whenever the caller only needs the blob to become locally servable.
+  download_verified_to_store_with_ensure?(peer_addr: string, blake3_hash: string): Promise<void>;
   // download blob by ID with on-demand blake3 computation - optional
   // returns [Uint8Array, string] but typed as any[] for wasm-bindgen compatibility
   download_verified_by_id?(peer_addr: string, blob_id: string): Promise<any[]>;
@@ -153,6 +159,35 @@ export interface MiddenNodeLike {
   // phase 1. optional because charnel's CharnelTransport has no wasm
   // accept-loop equivalent (yet).
   accept?(): Promise<BiStreamLike | null>;
+  // snapshot of this node's own OUTGOING blob transfers currently in
+  // flight (this node serving a blob to a peer) - see
+  // docs/transfer-unification-plan.md phase 1 (bucket A). does NOT cover
+  // incoming/download transfers - iroh-blobs only instruments the serving
+  // side; downloads are tracked via the on_progress callbacks the
+  // download_verified_* methods above already take.
+  get_active_transfers?(): Promise<ActiveTransferLike[]>;
+  // pause every in-flight DOWNLOAD of this blake3 hash (no effect on
+  // outgoing/serving transfers - only the puller can pace a pull).
+  // the partial stays pinned in the local store; resuming just means
+  // calling a download_verified_* method again with the same hash.
+  // returns how many downloads were flagged (0 = none in flight).
+  download_cancel_by_blake3?(blake3_hash: string): Promise<number>;
+  // pin a hash against gc (keep a paused partial download alive).
+  protect_blob?(blake3_hash: string): Promise<void>;
+  // remove a gc pin added by protect_blob or a cancelled download.
+  unprotect_blob?(blake3_hash: string): Promise<void>;
+}
+
+/**
+ * one outgoing blob transfer in flight, as returned by
+ * `get_active_transfers()` - see `ActiveTransfer` in reliquary's
+ * `gate.rs` / `WorkerActiveTransfer` in reliquary's worker contract.
+ */
+export interface ActiveTransferLike {
+  peerId: string;
+  blake3: string;
+  bytesSent: number;
+  totalSize: number;
 }
 
 /**
@@ -392,14 +427,9 @@ export class WasmTransport implements Transport {
   async upload(
     path: string,
     formData: FormData,
-    _onProgress?: (loaded: number, total: number) => void,
+    onProgress?: (loaded: number, total: number) => void,
     metadata?: UploadMetadata,
   ): Promise<TransportResponse> {
-    // no byte-level progress possible here - unlike CharnelTransport's tauri
-    // IPC path (which self-chunks and can report per-chunk progress), the
-    // midden wasm binding's `import_blob(bytes)` is a single opaque call
-    // with no progress callback exposed, and the base64 fallback also sends
-    // one JSON request.
     const file = formData.get("file") as File | null;
     if (!file) {
       return {
@@ -422,7 +452,7 @@ export class WasmTransport implements Transport {
     // available - chunked/verified streaming, no base64/raw-bytes framing.
     const blobPullPaths = ["/api/upload/music", "/api/upload/video"];
     if (blobPullPaths.includes(path) && this.node.import_blob) {
-      return this.uploadViaIrohBlobs(path, file, metadata);
+      return this.uploadViaIrohBlobs(path, file, onProgress, metadata);
     }
 
     // fallback: base64 encode and send via api_request (works for image uploads)
@@ -435,21 +465,55 @@ export class WasmTransport implements Transport {
    * 2. tell remote peer the hash via `${path}-by-blake3` (e.g. /api/upload/music-by-blake3)
    * 3. remote peer pulls the blob from us via iroh-blobs verified streaming
    * 4. release the TempTag so local GC can reclaim the blob
+   *
+   * streams the file into `start_import()`'s chunked `ImportSession` in
+   * bounded slices (mirrors `CharnelTransport.uploadMediaViaBytes`'s same
+   * chunk size) instead of reading the whole file into one buffer via
+   * `file.arrayBuffer()` - this is a direct wasm-bindgen call (`push`
+   * takes a `Uint8Array` straight through, no JSON/IPC boundary to cross),
+   * so there's no base64 involved at any point, unlike the tauri-IPC
+   * chunked path. this also yields real per-chunk progress, previously
+   * unavailable here (a single opaque `import_blob(wholeBytes)` call had
+   * nothing to report between start and finish). falls back to the old
+   * whole-buffer `import_blob` call only if this node build predates
+   * `start_import` (progress-less in that case, matching prior behavior).
    */
   private async uploadViaIrohBlobs(
     path: string,
     file: File,
+    onProgress?: (loaded: number, total: number) => void,
     metadata?: UploadMetadata,
   ): Promise<TransportResponse> {
+    // ~4MB per chunk - same size CharnelTransport's tauri IPC chunking
+    // uses, though the reason differs (there it bounds IPC payload size;
+    // here it just bounds how much of the file is held at once).
+    const CHUNK_SIZE = 4 * 1024 * 1024;
     try {
-      const fileBytes = new Uint8Array(await file.arrayBuffer());
-      const hash = await this.node.import_blob!(fileBytes);
+      const hash = await (async () => {
+        if (!this.node.start_import) {
+          // old node build - no chunked import session available.
+          return this.node.import_blob!(new Uint8Array(await file.arrayBuffer()));
+        }
+        const session = this.node.start_import();
+        try {
+          for (let offset = 0; offset < file.size; offset += CHUNK_SIZE) {
+            const slice = file.slice(offset, Math.min(offset + CHUNK_SIZE, file.size));
+            const chunk = new Uint8Array(await slice.arrayBuffer());
+            await session.push(chunk);
+            onProgress?.(Math.min(offset + chunk.byteLength, file.size), file.size);
+          }
+          return await session.finish();
+        } catch (err) {
+          session.abort();
+          throw err;
+        }
+      })();
 
       try {
         const body: Record<string, unknown> = {
           blake3: hash,
           filename: file.name,
-          size: fileBytes.length,
+          size: file.size,
           ...metadata,
         };
 

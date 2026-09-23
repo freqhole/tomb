@@ -1,17 +1,17 @@
 // remote import service — handles uploading video files (and P2P path-based
 // transfer) to the active remote server. mirrors music/import/remoteImport.ts's
-// job-tracking pattern, but keeps its own private store: the music module's
-// `uploadJobs` store is a private singleton scoped to that file, so reusing it
-// directly would mix video jobs into the music modal's progress list (and vice
-// versa) — a new instance is required, though the generic `UploadJobStatus`
-// union is reused rather than redefined.
-import { createStore, produce } from "solid-js/store";
+// job-tracking pattern, sharing its underlying store mechanism
+// (createTrackedJobStore) but its own store INSTANCE: reusing music's
+// literal instance directly would mix video jobs into the music modal's
+// progress list (and vice versa) — a new instance is required, though the
+// generic `UploadJobStatus` union is reused rather than redefined.
 import type { FreqholeClient } from "@freqhole/api-client";
 import { getClientForRemote, type RemoteLike } from "../../app/api/client";
 import { JobPoller } from "../../app/services/jobs/jobService";
 import { toast } from "../../components/feedback/Toast";
 import { getCurrentRemote, getCurrentUser } from "../../music/data";
 import type { UploadJobStatus } from "../../music/import";
+import { createTrackedJobStore } from "../../app/services/transfers/trackedJobStore";
 import { humanizeJobError as humanizeJobErrorShared } from "../../utils/humanizeJobError";
 import { extractTransportErrorType, errorMessageFrom } from "../../utils/humanizeJobError";
 
@@ -62,28 +62,26 @@ export interface VideoUploadJob {
 }
 
 // reactive store for all tracked video upload jobs (own instance — see module note above)
-const [videoUploadJobs, setVideoUploadJobs] = createStore<VideoUploadJob[]>([]);
-
-let nextVideoJobId = 1;
+const jobStore = createTrackedJobStore<VideoUploadJob>();
 
 /** get the reactive video upload jobs list */
 export function getVideoUploadJobs() {
-  return videoUploadJobs;
+  return jobStore.getJobs();
 }
 
 /** clear completed jobs (call when modal is closed) */
 export function clearCompletedVideoJobs() {
-  setVideoUploadJobs((jobs) => jobs.filter((j) => j.status !== "completed"));
+  jobStore.clearJobsWhere((j) => j.status === "completed");
 }
 
 /** remove a single job (e.g. dismissing a failed row) */
 export function removeVideoJob(id: string) {
-  setVideoUploadJobs((jobs) => jobs.filter((j) => j.id !== id));
+  jobStore.removeJob(id);
 }
 
 /** clear all jobs */
 export function clearAllVideoJobs() {
-  setVideoUploadJobs([]);
+  jobStore.clearAllJobs();
 }
 
 // add a new tracked job and return its client-side id - exported so
@@ -91,15 +89,14 @@ export function clearAllVideoJobs() {
 // same job list instead of running invisibly (mirrors music's identical
 // export for the same reason).
 export function addTrackedJob(label: string, remoteId: string): string {
-  const id = `video-upload-${nextVideoJobId++}`;
-  const job: VideoUploadJob = {
+  const id = jobStore.nextId("video-upload");
+  jobStore.addJob({
     id,
     label,
     status: "uploading",
     createdAt: Date.now(),
     remoteId,
-  };
-  setVideoUploadJobs((prev) => [...prev, job]);
+  });
   return id;
 }
 
@@ -108,15 +105,12 @@ export function updateJobStatus(
   status: UploadJobStatus,
   extra?: { jobId?: string; error?: string; errorFull?: string }
 ) {
-  setVideoUploadJobs(
-    (j) => j.id === id,
-    produce((j) => {
-      j.status = status;
-      if (extra?.jobId) j.jobId = extra.jobId;
-      if (extra?.error) j.error = extra.error;
-      if (extra?.errorFull) j.errorFull = extra.errorFull;
-    })
-  );
+  jobStore.updateJob(id, (j) => {
+    j.status = status;
+    if (extra?.jobId) j.jobId = extra.jobId;
+    if (extra?.error) j.error = extra.error;
+    if (extra?.errorFull) j.errorFull = extra.errorFull;
+  });
 }
 
 // resolve a completed job's session_id/video_id/duplicate flag from its
@@ -169,35 +163,26 @@ export function updateJobEntities(
     isRemoteSend?: boolean;
   }
 ) {
-  setVideoUploadJobs(
-    (j) => j.id === id,
-    produce((j) => {
-      if (ids.remoteId) j.remoteId = ids.remoteId;
-      if (ids.sessionId) j.sessionId = ids.sessionId;
-      if (ids.videoId) j.videoId = ids.videoId;
-      if (ids.resultSummary) j.resultSummary = ids.resultSummary;
-      if (ids.isRemoteSend !== undefined) j.isRemoteSend = ids.isRemoteSend;
-    })
-  );
+  jobStore.updateJob(id, (j) => {
+    if (ids.remoteId) j.remoteId = ids.remoteId;
+    if (ids.sessionId) j.sessionId = ids.sessionId;
+    if (ids.videoId) j.videoId = ids.videoId;
+    if (ids.resultSummary) j.resultSummary = ids.resultSummary;
+    if (ids.isRemoteSend !== undefined) j.isRemoteSend = ids.isRemoteSend;
+  });
 }
 
 export function updateJobStage(id: string, stage: string | undefined) {
-  setVideoUploadJobs(
-    (j) => j.id === id,
-    produce((j) => {
-      j.stage = stage;
-    })
-  );
+  jobStore.updateJob(id, (j) => {
+    j.stage = stage;
+  });
 }
 
 // update a tracked job's upload transfer progress (0..1).
 export function updateJobProgress(id: string, progress: number) {
-  setVideoUploadJobs(
-    (j) => j.id === id,
-    produce((j) => {
-      j.progress = progress;
-    })
-  );
+  jobStore.updateJob(id, (j) => {
+    j.progress = progress;
+  });
 }
 
 // poster/waveform extraction failures are reported as "stage" events too
@@ -211,12 +196,9 @@ function isWarningStage(stage: string | undefined): boolean {
 }
 
 function updateJobWarning(id: string, message: string | undefined) {
-  setVideoUploadJobs(
-    (j) => j.id === id,
-    produce((j) => {
-      j.warning = message;
-    })
-  );
+  jobStore.updateJob(id, (j) => {
+    j.warning = message;
+  });
 }
 
 // turn a raw server failure into a short, user-friendly line; full detail
@@ -591,7 +573,7 @@ export async function importVideoPathsToLocal(
       // "polling" forever - see importPathsToLocal's identical reasoning.
       for (let i = 0; i < trackIds.length; i++) {
         const trackId = trackIds[i];
-        const j = videoUploadJobs.find((j) => j.id === trackId);
+        const j = jobStore.getJobs().find((j) => j.id === trackId);
         if (!j) continue;
         if (j.status !== "completed" && j.status !== "failed" && j.status !== "timeout") {
           const existing = existingByPath.get(paths[i]);

@@ -34,13 +34,17 @@ export const routes = {
   },
   app: {
     health_check: { method: 'GET', path: '/health', req: null, resp: s.HealthResponseSchema, auth: { type: 'public' } as const },
+    radio_clear_requests: { method: 'POST', path: '/api/radio/requests/clear', req: s.RadioStationRequestsRequestSchema, resp: s.EmptyResponseSchema, auth: { type: 'authenticated' } as const },
     radio_info: { method: 'GET', path: '/api/radio/info', req: null, resp: s.RadioInfoResponseSchema, auth: { type: 'public' } as const },
+    radio_list_requests: { method: 'POST', path: '/api/radio/requests/list', req: s.RadioStationRequestsRequestSchema, resp: s.RadioRequestsListResponseSchema, auth: { type: 'authenticated' } as const },
     radio_public_blob: { method: 'GET', path: '/api/radio/stations/{station_id}/blobs/{blob_id}', req: null, resp: null, auth: { type: 'public' } as const },
     radio_public_blob_data: { method: 'GET', path: '/api/radio/stations/{station_id}/blobs/{blob_id}/data', req: null, resp: null, auth: { type: 'public' } as const },
     radio_public_blob_thumbnail: { method: 'GET', path: '/api/radio/stations/{station_id}/blobs/{blob_id}/thumb/{size}', req: null, resp: null, auth: { type: 'public' } as const },
     radio_public_timeline: { method: 'GET', path: '/api/radio/stations/{station_id}/timeline', req: null, resp: s.PublicTimelineManifestSchema, auth: { type: 'public' } as const },
+    radio_remove_request: { method: 'POST', path: '/api/radio/requests/remove', req: s.RemoveRadioRequestRequestSchema, resp: s.EmptyResponseSchema, auth: { type: 'authenticated' } as const },
     radio_stations: { method: 'GET', path: '/api/radio/stations', req: null, resp: s.RadioStationsResponseSchema, auth: { type: 'public' } as const },
     radio_stations_full: { method: 'GET', path: '/api/radio/stations/full', req: null, resp: s.RadioStationsResponseSchema, auth: { type: 'authenticated' } as const },
+    radio_submit_request: { method: 'POST', path: '/api/radio/requests/submit', req: s.SubmitRadioRequestRequestSchema, resp: s.EmptyResponseSchema, auth: { type: 'authenticated' } as const },
     server_info: { method: 'GET', path: '/api/hello', req: null, resp: s.ServerInfoResponseSchema, auth: { type: 'public' } as const },
   },
   auth: {

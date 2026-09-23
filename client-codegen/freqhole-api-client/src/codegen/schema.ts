@@ -1509,7 +1509,8 @@ export const CreateStationRequestSchema = z.object({
   codec: z.string().nullish(),
   play_mode: z.string().nullish(),
   timeline_only_mode: z.boolean().nullish(),
-  content_mode: z.string().nullish()
+  content_mode: z.string().nullish(),
+  accepts_requests: z.boolean().nullish()
 });
 export type CreateStationRequest = z.infer<typeof CreateStationRequestSchema>;
 
@@ -5223,6 +5224,7 @@ export const PublicStationSchema = z.object({
   is_default: z.boolean(),
   is_public: z.boolean(),
   is_running: z.boolean(),
+  accepts_requests: z.boolean(),
   now_playing: z.object({
   kind: z.string(),
   song_id: z.string(),
@@ -5472,6 +5474,7 @@ export const RadioInfoResponseSchema = z.object({
   is_default: z.boolean(),
   is_public: z.boolean(),
   is_running: z.boolean(),
+  accepts_requests: z.boolean(),
   now_playing: z.object({
   kind: z.string(),
   song_id: z.string(),
@@ -5489,6 +5492,34 @@ export const RadioInfoResponseSchema = z.object({
   station_count: z.number()
 });
 export type RadioInfoResponse = z.infer<typeof RadioInfoResponseSchema>;
+
+export const RadioQueuedRequestInfoSchema = z.object({
+  id: z.string(),
+  kind: z.string(),
+  item_id: z.string(),
+  requested_by: z.string(),
+  title: z.string(),
+  artist: z.string().nullish(),
+  album: z.string().nullish(),
+  duration_ms: z.number().nullish(),
+  art_blob_id: z.string().nullish()
+});
+export type RadioQueuedRequestInfo = z.infer<typeof RadioQueuedRequestInfoSchema>;
+
+export const RadioRequestsListResponseSchema = z.object({
+  requests: z.array(z.object({
+  id: z.string(),
+  kind: z.string(),
+  item_id: z.string(),
+  requested_by: z.string(),
+  title: z.string(),
+  artist: z.string().nullish(),
+  album: z.string().nullish(),
+  duration_ms: z.number().nullish(),
+  art_blob_id: z.string().nullish()
+}))
+});
+export type RadioRequestsListResponse = z.infer<typeof RadioRequestsListResponseSchema>;
 
 export const RadioSeedSuggestRequestSchema = z.object({
   kind: z.string(),
@@ -5517,6 +5548,7 @@ export const RadioStationSchema = z.object({
   timeline_only_mode: z.number(),
   content_mode: z.string(),
   bumper_frequency_seconds: z.number().nullish(),
+  accepts_requests: z.number(),
   created_at: z.number(),
   updated_at: z.number()
 });
@@ -5526,6 +5558,11 @@ export const RadioStationByStationIdRequestSchema = z.object({
   station_id: z.string()
 });
 export type RadioStationByStationIdRequest = z.infer<typeof RadioStationByStationIdRequestSchema>;
+
+export const RadioStationRequestsRequestSchema = z.object({
+  station_id: z.string()
+});
+export type RadioStationRequestsRequest = z.infer<typeof RadioStationRequestsRequestSchema>;
 
 export const RadioStationSupervisorStatusSchema = z.object({
   station_id: z.string(),
@@ -5555,6 +5592,7 @@ export const RadioStationsResponseSchema = z.object({
   is_default: z.boolean(),
   is_public: z.boolean(),
   is_running: z.boolean(),
+  accepts_requests: z.boolean(),
   now_playing: z.object({
   kind: z.string(),
   song_id: z.string(),
@@ -5927,6 +5965,12 @@ export const RemovePlaylistThumbnailRequestSchema = z.object({
   deleted_by: z.string().nullish()
 });
 export type RemovePlaylistThumbnailRequest = z.infer<typeof RemovePlaylistThumbnailRequestSchema>;
+
+export const RemoveRadioRequestRequestSchema = z.object({
+  station_id: z.string(),
+  request_id: z.string()
+});
+export type RemoveRadioRequestRequest = z.infer<typeof RemoveRadioRequestRequestSchema>;
 
 export const RemoveRatingRequestSchema = z.object({
   user_id: z.string().nullish(),
@@ -6843,6 +6887,13 @@ export const StationFilterSchema = z.object({
 });
 export type StationFilter = z.infer<typeof StationFilterSchema>;
 
+export const SubmitRadioRequestRequestSchema = z.object({
+  station_id: z.string(),
+  kind: z.string(),
+  item_id: z.string()
+});
+export type SubmitRadioRequestRequest = z.infer<typeof SubmitRadioRequestRequestSchema>;
+
 export const SuggestionSchema = z.object({
   value: z.string(),
   display: z.string(),
@@ -7668,7 +7719,8 @@ export const UpdateStationRequestSchema = z.object({
   codec: z.string().nullish(),
   play_mode: z.string().nullish(),
   timeline_only_mode: z.boolean().nullish(),
-  content_mode: z.string().nullish()
+  content_mode: z.string().nullish(),
+  accepts_requests: z.boolean().nullish()
 });
 export type UpdateStationRequest = z.infer<typeof UpdateStationRequestSchema>;
 

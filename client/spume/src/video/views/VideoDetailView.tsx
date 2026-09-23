@@ -34,6 +34,7 @@ import { useVideoFavoriteStatuses } from "../hooks/useVideoFavoriteStatuses";
 import { useVideoRatingStatuses } from "../hooks/useVideoRatingStatuses";
 import { useVideoContextMenu } from "../hooks/contextMenu";
 import { showEditVideo } from "../hooks/modals";
+import { showStationSelector } from "../../music/hooks/stationSelectorState";
 import { canUpdateVideo } from "../data/permissions";
 import { getVideoDataSource } from "../data";
 import {
@@ -389,6 +390,19 @@ export function VideoDetailView() {
                       source={currentRemoteFull}
                       buildSendPayload={buildSendPayload}
                     />
+                    <button
+                      onClick={() =>
+                        void showStationSelector(
+                          { kind: "video", videoId: video().id, videoTitle: video().title },
+                          video().remote_server_id ?? undefined
+                        )
+                      }
+                      class="p-2 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded transition-colors"
+                      title="add to station..."
+                      aria-label="add to station..."
+                    >
+                      <Icon name={IconNames.headphones} />
+                    </button>
                     <Rating rating={userRating()} size="md" onRatingChange={handleRatingChange} />
                   </div>
                 </div>
@@ -474,6 +488,19 @@ export function VideoDetailView() {
                       source={currentRemoteFull}
                       buildSendPayload={buildSendPayload}
                     />
+                    <button
+                      onClick={() =>
+                        void showStationSelector(
+                          { kind: "video", videoId: video().id, videoTitle: video().title },
+                          video().remote_server_id ?? undefined
+                        )
+                      }
+                      class="p-2 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded transition-colors"
+                      title="add to station..."
+                      aria-label="add to station..."
+                    >
+                      <Icon name={IconNames.headphones} />
+                    </button>
                     <Rating rating={userRating()} size="md" onRatingChange={handleRatingChange} />
                   </div>
                 </div>

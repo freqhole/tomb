@@ -41,9 +41,14 @@ vi.mock("../../api/client", () => ({
   getMiddenNode: () => getMiddenNode(),
   getLocalNodeIdAsync: () => getLocalNodeIdAsync(),
 }));
-vi.mock("../../api/adminClient", () => ({ adminClientFor: vi.fn() }));
+const adminDispatchOrThrow = vi.fn();
+const adminClientFor = vi.fn(async () => ({ dispatchOrThrow: adminDispatchOrThrow }));
+vi.mock("../../api/adminClient", () => ({
+  adminClientFor: (...a: unknown[]) => adminClientFor(...(a as [])),
+}));
+const getRemoteById = vi.fn(async () => null as unknown);
 vi.mock("../remotes/remoteManager", () => ({
-  getRemoteById: vi.fn(async () => null),
+  getRemoteById: (...a: unknown[]) => getRemoteById(...(a as [])),
   getRemoteByPeerAddr: vi.fn(async () => null),
   onRemoteStatusChange: vi.fn(),
 }));
@@ -71,11 +76,33 @@ vi.mock("../../../video/services/localVideo", () => ({
   resolveLocalVideoPath: vi.fn(async () => null),
 }));
 
+const pullBlobToLocalStore = vi.fn();
+vi.mock("../charnel/commands", () => ({
+  fetchLocalNodeId: vi.fn(async () => "this-device"),
+  importBlobByPath: vi.fn(async () => "b3-1"),
+  beginChunkedBlobImport: vi.fn(async () => "upload-1"),
+  appendChunkedBlobImport: vi.fn(async () => 0),
+  finishChunkedBlobImport: vi.fn(async () => "b3-1"),
+  abortChunkedBlobImport: vi.fn(async () => {}),
+  pullBlobToLocalStore: (...a: unknown[]) => pullBlobToLocalStore(...a),
+}));
+
+const registerBlobTransfer = vi.fn();
+const updateBlobTransferProgress = vi.fn();
+const completeBlobTransfer = vi.fn();
+vi.mock("../transfers/blobTransferRegistry", () => ({
+  registerBlobTransfer: (...a: unknown[]) => registerBlobTransfer(...a),
+  updateBlobTransferProgress: (...a: unknown[]) => updateBlobTransferProgress(...a),
+  completeBlobTransfer: (...a: unknown[]) => completeBlobTransfer(...a),
+}));
+
 import {
   pushSongsToPlayer,
   appendSongsToPlayer,
   pushVideosToPlayer,
   appendVideosToPlayer,
+  queueItemTransferStatus,
+  handleUnresolvedItems,
 } from "./playerQueuePush";
 import { resetRemoteStatus } from "./remotePlaybackControl";
 
@@ -334,5 +361,186 @@ describe("video queueing (drain-on-ack for videos)", () => {
 
     const kept = setQueueMock.mock.calls[0][0] as MediaItem[];
     expect(kept.map((i) => (i.kind === "song" ? i.song.sha256 : i.video.id))).toEqual(["vid-2"]);
+  });
+});
+
+describe("withTransferStatus's bucket-A registry wiring (relay/proxy path)", () => {
+  // a video with no local blake3 and no remote_server_id can't take the
+  // optimistic/bridged fast paths in videoToMediaRef - it falls all the
+  // way to the last-resort fetch+import relay, exercising
+  // withTransferStatus exactly like the "no local blake3" drain tests
+  // above already do (this just adds assertions on the NEW bucket-A
+  // wiring + queueItemTransferStatus, not the drain behavior).
+  it("registers and completes a bucket-A transfer, and clears queueItemTransferStatus once done", async () => {
+    // needs a genuinely streamed/chunked fetch+import to ever produce a
+    // "fetching" progress call at all - the suite's default fetch/
+    // getMiddenNode mocks (no content-length, no start_import) hit the
+    // whole-buffer fallback, which reports no progress in either phase
+    // (matches production behavior for that same fallback).
+    const total = 8;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        let sent = false;
+        return {
+          headers: { get: (name: string) => (name === "content-length" ? String(total) : null) },
+          body: {
+            getReader: () => ({
+              read: async () => {
+                if (sent) return { done: true, value: undefined };
+                sent = true;
+                return { done: false, value: new Uint8Array(total) };
+              },
+            }),
+          },
+        } as unknown as Response;
+      })
+    );
+    getMiddenNode.mockResolvedValue({
+      node_id: () => "this-device",
+      start_import: () => ({
+        push: async () => {},
+        finish: async () => "b3-1",
+        abort: () => {},
+      }),
+    });
+
+    const v = video({ blake3: undefined });
+    state = { queue: [{ kind: "video", video: v }], current_sha256: "vid-1" } as AppState;
+    sendPlayerCommand.mockResolvedValue({ type: "command_ack", ok: true });
+
+    await appendVideosToPlayer("player-peer", [v]);
+
+    expect(registerBlobTransfer).toHaveBeenCalledWith("pending:vid-1", "download", {
+      bytesTotal: total,
+    });
+    expect(updateBlobTransferProgress).toHaveBeenCalledWith("pending:vid-1", total, total);
+    expect(completeBlobTransfer).toHaveBeenCalledWith("pending:vid-1");
+    // status is cleared once the relay finishes - no stale "fetching"/
+    // "sending" row left behind for a transfer that's already done.
+    expect(queueItemTransferStatus("pending:vid-1")).toBeUndefined();
+  });
+
+  it("still completes bucket A and clears status even when the relay fails", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new Error("network unreachable");
+      })
+    );
+    const v = video({ blake3: undefined });
+    state = { queue: [{ kind: "video", video: v }], current_sha256: "vid-1" } as AppState;
+
+    await expect(appendVideosToPlayer("player-peer", [v])).rejects.toThrow();
+
+    // registerBlobTransfer never got called at all here (the fetch throws
+    // before any progress callback fires), so there's nothing for bucket A
+    // to complete - the important assertion is that status still cleaned up.
+    expect(queueItemTransferStatus("pending:vid-1")).toBeUndefined();
+  });
+});
+
+describe("handleUnresolvedItems: direct P2P pull vs js fetch+import relay", () => {
+  // regression coverage for docs/backlog.md item 12: when bridging fails
+  // but a P2P source remote (peer_addr) is still known, this device must
+  // pull the blob DIRECTLY from that peer (charnel/tauri:
+  // `pullBlobToLocalStore`, entirely rust-side) instead of falling back
+  // to the js fetch()+chunked-import relay - see `tryDirectP2PPull` in
+  // playerQueuePush.ts.
+  const p2pRemote = {
+    remote_id: "remote-1",
+    name: "source remote",
+    transport: "app",
+    peer_addr: "source-peer-node-id",
+    is_active: true,
+    last_connected_at: null,
+    created_at: 0,
+    updated_at: 0,
+    description: null,
+    image_url: null,
+    image_blob_id: null,
+    version: null,
+    last_info_check: null,
+  } as unknown as Awaited<ReturnType<typeof getRemoteById>>;
+
+  beforeEach(() => {
+    isCharnelMode.mockReturnValue(true);
+    getRemoteById.mockResolvedValue(p2pRemote);
+    // bridging fails - this device isn't admin on the source remote.
+    adminDispatchOrThrow.mockRejectedValue(new Error("not admin"));
+  });
+
+  it("pulls directly from the known P2P source peer instead of relaying through js fetch", async () => {
+    const s = song({ remote_server_id: "remote-1" });
+    state = { queue: [{ kind: "song", song: s }], current_sha256: "hash-1" } as AppState;
+    sendPlayerCommand.mockResolvedValue({ type: "command_ack", ok: true });
+    pullBlobToLocalStore.mockResolvedValue(undefined);
+
+    // populate pushedItemsByHash so handleUnresolvedItems has something
+    // to retry.
+    await pushSongsToPlayer("player-peer", [s]);
+
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await handleUnresolvedItems("player-peer", [
+      { blake3_hash: "b3-1", source_peer_addr: "source-peer-node-id" },
+    ]);
+
+    expect(pullBlobToLocalStore).toHaveBeenCalledWith("source-peer-node-id", "b3-1");
+    // the js fetch+import relay must never run once the direct pull
+    // succeeds - no bytes should cross into js memory at all.
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("falls back to the js fetch+import relay if the direct pull itself fails", async () => {
+    const s = song({ remote_server_id: "remote-1" });
+    state = { queue: [{ kind: "song", song: s }], current_sha256: "hash-1" } as AppState;
+    sendPlayerCommand.mockResolvedValue({ type: "command_ack", ok: true });
+    pullBlobToLocalStore.mockRejectedValue(new Error("peer offline"));
+
+    await pushSongsToPlayer("player-peer", [s]);
+
+    const fetchSpy = vi.fn(
+      async () =>
+        ({
+          headers: { get: () => null },
+          arrayBuffer: async () => new ArrayBuffer(4),
+        }) as unknown as Response
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await handleUnresolvedItems("player-peer", [
+      { blake3_hash: "b3-1", source_peer_addr: "source-peer-node-id" },
+    ]);
+
+    expect(pullBlobToLocalStore).toHaveBeenCalledWith("source-peer-node-id", "b3-1");
+    expect(fetchSpy).toHaveBeenCalled();
+  });
+
+  it("browser/wasm mode: pulls directly via the midden node instead of relaying through js fetch", async () => {
+    isCharnelMode.mockReturnValue(false);
+    const downloadVerifiedToStoreWithEnsure = vi.fn().mockResolvedValue(undefined);
+    getMiddenNode.mockResolvedValue({
+      node_id: () => "this-device",
+      download_verified_to_store_with_ensure: downloadVerifiedToStoreWithEnsure,
+    });
+
+    const s = song({ remote_server_id: "remote-1" });
+    state = { queue: [{ kind: "song", song: s }], current_sha256: "hash-1" } as AppState;
+    sendPlayerCommand.mockResolvedValue({ type: "command_ack", ok: true });
+
+    await pushSongsToPlayer("player-peer", [s]);
+
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await handleUnresolvedItems("player-peer", [
+      { blake3_hash: "b3-1", source_peer_addr: "source-peer-node-id" },
+    ]);
+
+    expect(downloadVerifiedToStoreWithEnsure).toHaveBeenCalledWith("source-peer-node-id", "b3-1");
+    expect(pullBlobToLocalStore).not.toHaveBeenCalled();
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 });

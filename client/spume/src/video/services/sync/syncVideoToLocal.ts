@@ -12,11 +12,7 @@
 // video is played and the "sync queue to local" setting is on.
 
 import { usesBlobResolver } from "../../../music/services/storage/blobResolver";
-import {
-  addToLoadingSet,
-  updateLoadingProgress,
-  removeFromLoadingSet,
-} from "../../../music/services/download";
+import { withLoadingProgress } from "../../../music/services/download";
 import { getSyncQueueToLocal } from "../../../app/services/storage/db";
 import { isCharnelMode } from "../../../app/services/charnel";
 import { getRemoteById } from "../../../app/services/remotes/remoteManager";
@@ -93,13 +89,8 @@ async function fetchP2PVideoBlob(
   if (!remote) throw new Error(`remote ${remoteId} not found`);
   const transport = await getTransportForRemote(remote);
 
-  addToLoadingSet(video.id);
-  updateLoadingProgress(video.id, null);
-  try {
-    const onProgress = (received: number, total: number) => {
-      if (total > 0) updateLoadingProgress(video.id, received / total);
-    };
-
+  return withLoadingProgress(video.id, async (onProgress) => {
+    onProgress(null);
     if (transport.streamBlobToSink && meta.blake3) {
       const mimeType = meta.mime ?? "video/mp4";
       const extension = extensionFromMime(mimeType);
@@ -109,7 +100,9 @@ async function fetchP2PVideoBlob(
         await transport.streamBlobToSink(
           blobId,
           (chunk) => sink.writeChunk(chunk),
-          onProgress,
+          (received, total) => {
+            if (total > 0) onProgress(received / total);
+          },
           meta.blake3,
           meta.size ?? undefined,
           mimeType
@@ -123,7 +116,9 @@ async function fetchP2PVideoBlob(
     if (transport.getBlobUrlWithProgress) {
       const url = await transport.getBlobUrlWithProgress(
         blobId,
-        onProgress,
+        (received, total) => {
+          if (total > 0) onProgress(received / total);
+        },
         meta.blake3 ?? undefined,
         meta.size ?? undefined,
         meta.mime ?? undefined,
@@ -150,9 +145,7 @@ async function fetchP2PVideoBlob(
       size: blob.size,
       mimeType: blob.type || "video/mp4",
     };
-  } finally {
-    removeFromLoadingSet(video.id);
-  }
+  });
 }
 
 /** map the source remote's series/season onto local rows.
@@ -297,9 +290,8 @@ async function syncVideoViaCharnel(
   // resolving in charnel mode.
   const blake3 = video.blake3 ?? meta.blake3 ?? null;
 
-  addToLoadingSet(video.id);
-  updateLoadingProgress(video.id, null);
-  try {
+  return withLoadingProgress(video.id, async (onProgress) => {
+    onProgress(null);
     const result = await syncVideoViaLocalGrimoire(
       video,
       remote,
@@ -307,7 +299,7 @@ async function syncVideoViaCharnel(
       blake3,
       meta.size,
       meta.mime,
-      (received, total) => updateLoadingProgress(video.id, total > 0 ? received / total : null)
+      (received, total) => onProgress(total > 0 ? received / total : null)
     );
     if (!result.success) {
       warn("videoSync", `charnel sync failed for video ${video.id}: ${result.error}`);
@@ -320,9 +312,7 @@ async function syncVideoViaCharnel(
     );
     invalidateVideoLibraryQueries();
     return { success: true, videoId: result.videoId, localPath: result.localPath };
-  } finally {
-    removeFromLoadingSet(video.id);
-  }
+  });
 }
 
 /** sync the currently-playing remote video to the local OPFS-backed video
@@ -423,28 +413,34 @@ export async function syncVideoToLocal(
       blake3 = meta.blake3 ?? null;
 
       const directUrl = `${remote.base_url}/api/blobs/${blobId}`;
-      addToLoadingSet(video.id);
-      updateLoadingProgress(video.id, null);
-      try {
-        const result = await streamVideoToOPFSWithResume(
-          directUrl,
-          video.id,
-          extension,
-          meta.size ?? null,
-          (received, total) => updateLoadingProgress(video.id, total ? received / total : null)
-        );
-        opfsPath = result.opfsPath;
-        fileSize = result.size;
-      } catch (err) {
-        warn(
-          "videoSync",
-          `fetch failed for video ${video.id}, skipping sync (bytes written so far are kept on disk for the next attempt to resume from):`,
-          err
-        );
-        return { success: false, error: err instanceof Error ? err.message : String(err) };
-      } finally {
-        removeFromLoadingSet(video.id);
+      const streamResult = await withLoadingProgress(video.id, async (onProgress) => {
+        onProgress(null);
+        try {
+          const result = await streamVideoToOPFSWithResume(
+            directUrl,
+            video.id,
+            extension,
+            meta.size ?? null,
+            (received, total) => onProgress(total ? received / total : null)
+          );
+          return { ok: true as const, opfsPath: result.opfsPath, size: result.size };
+        } catch (err) {
+          warn(
+            "videoSync",
+            `fetch failed for video ${video.id}, skipping sync (bytes written so far are kept on disk for the next attempt to resume from):`,
+            err
+          );
+          return {
+            ok: false as const,
+            error: err instanceof Error ? err.message : String(err),
+          };
+        }
+      });
+      if (!streamResult.ok) {
+        return { success: false, error: streamResult.error };
       }
+      opfsPath = streamResult.opfsPath;
+      fileSize = streamResult.size;
     }
 
     // a video synced in from a remote already has a blake3 on its

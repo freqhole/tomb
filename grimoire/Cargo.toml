@@ -58,6 +58,7 @@ reliquary = { path = "../lib/reliquary/rust", default-features = false, features
     "blobz",
     "node",
     "chunked_import",
+    "gate",
 ] }
 
 clap = { version = "4.4", features = ["derive"] }

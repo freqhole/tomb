@@ -17,6 +17,7 @@ pub mod messages;
 pub mod playlist;
 pub mod protocol;
 pub mod radio_protocol;
+pub mod requests;
 pub mod stations;
 
 pub use art::{resolve_track_art, ResolvedArt};

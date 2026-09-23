@@ -312,6 +312,28 @@ impl Broadcaster {
     /// spawned as a background task after each track boundary so upcoming
     /// items are ready for timeline_snapshot() calls during the current song.
     async fn refill_planner(self: &Arc<Self>, seed_anchor_song_id: Option<String>) {
+        // request-accepting stations must never speculatively pop MORE
+        // than one item ahead - popping into this planner's own internal
+        // `plan` buffer silently drains items out of the member-visible
+        // request queue (crate::radio::requests) before they're actually
+        // about to play, which both hides them from radio_list_requests
+        // and looks like requests are being reordered ("shuffled") - the
+        // planner's own buffer is still FIFO internally, it just no
+        // longer matches what list()/the UI shows once several items get
+        // pulled ahead of time in one shot. a request-only station is
+        // exactly the case where ONE-at-a-time, just-in-time picking
+        // (consume_planner_head's own empty-plan fallback branch,
+        // `pick_for_station`, which re-checks accepts_requests and pops
+        // exactly one real item right when it's needed) is both correct
+        // and sufficient.
+        let accepts_requests = matches!(
+            stations::get_station(&self.station_id).await,
+            Ok(Some(s)) if s.accepts_requests != 0
+        );
+        if accepts_requests {
+            return;
+        }
+
         self.sync_plan_mode().await;
 
         let (existing_ids, current_count, horizon_end_from_plan) = {
@@ -498,13 +520,20 @@ impl Broadcaster {
         let next = self.listener_count.fetch_add(1, Ordering::Relaxed) + 1;
         if next == 1 {
             self.listener_notify.notify_waiters();
+            let station_id = self.station_id.clone();
+            tokio::spawn(async move { crate::radio::requests::mark_active(&station_id).await });
         }
         next
     }
 
     pub fn leave(&self) -> u32 {
         let prev = self.listener_count.fetch_sub(1, Ordering::Relaxed);
-        prev.saturating_sub(1)
+        let next = prev.saturating_sub(1);
+        if next == 0 {
+            let station_id = self.station_id.clone();
+            tokio::spawn(async move { crate::radio::requests::mark_idle(&station_id).await });
+        }
+        next
     }
 
     pub fn listener_count(&self) -> u32 {
@@ -1395,6 +1424,7 @@ pub async fn init_registry() -> GrimoireResult<()> {
             play_mode: None,
             timeline_only_mode: None,
             content_mode: None,
+            accepts_requests: None,
         })
         .await?;
         stations_rows = vec![seed];

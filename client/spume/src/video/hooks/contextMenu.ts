@@ -5,6 +5,7 @@ import { useNavigate } from "@solidjs/router";
 import { IconNames } from "../../components/icons/registry";
 import type { MenuAction } from "../../components/overlays/ContextMenu";
 import { createFavoriteMenuAction, createShareMenuAction } from "../../music/hooks/contextMenu";
+import { showStationSelector } from "../../music/hooks/stationSelectorState";
 import {
   buildVideoSendPayload,
   buildVideosSendPayload,
@@ -197,6 +198,21 @@ export function useVideoContextMenu(
     });
   }
 
+  // reuses the same modal music's "add to station..." opens - see
+  // AddToStationModal.tsx, which now handles both admin filter-adding and
+  // member song/video requests depending on what the target station(s)
+  // support.
+  actions.push({
+    label: "add to station...",
+    icon: IconNames.headphones,
+    onClick: () => {
+      void showStationSelector(
+        { kind: "video", videoId: video.id, videoTitle: video.title },
+        video.remote_server_id ?? undefined
+      );
+    },
+  });
+
   if (canUpdateVideo()) {
     actions.push({ type: "separator" });
 
@@ -354,6 +370,21 @@ export function useVideoSeriesContextMenu(
       const videos = await resolveSeriesVideos(series, allVideos);
       if (videos.length === 0) return;
       void showPlaylistSelectorForVideos(videos.map((v) => v.id));
+    },
+  });
+
+  // reuses the same modal used everywhere else - see AddToStationModal.tsx.
+  // "request" (for stations that take requests) resolves the series'
+  // first episode on demand inside the modal itself, since a request
+  // needs one concrete playable item - see the modal's own comment.
+  actions.push({
+    label: "add to station...",
+    icon: IconNames.headphones,
+    onClick: () => {
+      void showStationSelector(
+        { kind: "video_series", seriesId: series.id, seriesTitle: series.title },
+        series.remote_server_id ?? undefined
+      );
     },
   });
 

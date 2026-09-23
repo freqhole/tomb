@@ -126,6 +126,13 @@ pub struct PublicStation {
     /// this is false.
     #[serde(default = "default_true")]
     pub is_running: bool,
+    /// see `RadioStation::accepts_requests` - lets an authenticated
+    /// client (via `stations_full`) build a "request a song/video" picker
+    /// scoped to stations that actually accept them, without a second
+    /// round trip. always `false` on the anonymous `stations()` route in
+    /// practice (request-taking stations are never public).
+    #[serde(default)]
+    pub accepts_requests: bool,
     pub now_playing: PublicNowPlaying,
 }
 
@@ -320,10 +327,15 @@ async fn snapshot_station(
     // the row vanished. private (is_public = 0) defaults to true on
     // the orphan-row path because the iroh handler can no longer find
     // the row to gate on either, so we err toward visible-but-private.
-    let (name, description, is_public) =
+    let (name, description, is_public, accepts_requests) =
         match crate::radio::stations::get_station(bc.station_id()).await {
-            Ok(Some(s)) => (s.name, s.description, s.is_public != 0),
-            _ => (bc.station_id().to_string(), None, false),
+            Ok(Some(s)) => (
+                s.name,
+                s.description,
+                s.is_public != 0,
+                s.accepts_requests != 0,
+            ),
+            _ => (bc.station_id().to_string(), None, false, false),
         };
     let (art_thumb_b64, art_thumb_mime) = np
         .art
@@ -339,6 +351,7 @@ async fn snapshot_station(
         is_default: default_id == Some(bc.station_id()),
         is_public,
         is_running: true,
+        accepts_requests,
         now_playing: PublicNowPlaying {
             kind: np.kind.as_str().to_string(),
             song_id: np.song_id.clone(),
@@ -608,6 +621,7 @@ async fn build_stations_response(include_private: bool) -> GrimoireResponse<Json
                 is_default: false,
                 is_public: s.is_public != 0,
                 is_running: false,
+                accepts_requests: s.accepts_requests != 0,
                 now_playing: PublicNowPlaying::default(),
             });
         }

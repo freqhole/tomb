@@ -8,7 +8,9 @@ export type StationSelectorTarget =
   | { kind: "artist"; artistId: string; artistName: string }
   | { kind: "album"; albumId: string; albumTitle: string }
   | { kind: "genre"; genreId: string; genreName: string }
-  | { kind: "playlist"; playlistId: string; playlistTitle: string };
+  | { kind: "playlist"; playlistId: string; playlistTitle: string }
+  | { kind: "video"; videoId: string; videoTitle: string }
+  | { kind: "video_series"; seriesId: string; seriesTitle: string };
 
 interface StationSelectorState {
   isOpen: boolean;
@@ -36,7 +38,7 @@ export { stationSelectorState };
  */
 export function showStationSelector(
   target: StationSelectorTarget,
-  remoteServerId?: string | null,
+  remoteServerId?: string | null
 ): Promise<void> {
   return new Promise((resolve) => {
     setStationSelectorState({ isOpen: true, target, resolve, remoteServerId });

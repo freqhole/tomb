@@ -118,6 +118,7 @@ export interface MiddenWorkerApi {
   // ---- downloads ----
   ensureBlob(peerAddr: string, blake3Hash: string): Promise<boolean>;
   downloadVerifiedWithEnsure(peerAddr: string, blake3Hash: string): Promise<Uint8Array>;
+  downloadVerifiedToStoreWithEnsure(peerAddr: string, blake3Hash: string): Promise<void>;
   downloadVerifiedWithEnsureProgress(
     peerAddr: string,
     blake3Hash: string,

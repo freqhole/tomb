@@ -21,13 +21,7 @@
 // not a mechanical find/replace) rather than pulled into this one.
 import { createSignal } from "solid-js";
 import { getCachedBlob, preCacheBlob } from "../cache/blobCache";
-import {
-  addToLoadingSet,
-  updateLoadingProgress,
-  removeFromLoadingSet,
-  isSongSyncedLocally,
-  markSongSynced,
-} from "../download";
+import { withLoadingProgress, isSongSyncedLocally, markSongSynced } from "../download";
 import { readAudioFromOPFS } from "../opfs/helpers";
 import { resolveLocalAudioUrl } from "./localAudio";
 import { canSyncSong, syncSongToLocal } from "../sync/syncSongToLocal";
@@ -181,11 +175,10 @@ export async function getAudioURL(song: Song): Promise<string> {
     // download once, write to the library, then play from there. falls through
     // to streaming if the sync fails so playback never hard-fails on it.
     if (getSyncQueueToLocal() && canSyncSong(song)) {
-      addToLoadingSet(key);
-      updateLoadingProgress(key, null);
-      try {
+      const syncedUrl = await withLoadingProgress(key, async (onProgress) => {
+        onProgress(null);
         const result = await syncSongToLocal(song, (received, total) => {
-          if (total > 0) updateLoadingProgress(key, received / total);
+          if (total > 0) onProgress(received / total);
         });
         if (result.success) {
           const localUrl = await resolveLocalAudioUrl(key, result.localPath);
@@ -199,67 +192,64 @@ export async function getAudioURL(song: Song): Promise<string> {
           "audioAccess",
           `sync-to-local failed for ${key.slice(0, 8)} (${result.error ?? "no local copy"}), streaming instead`
         );
-      } finally {
-        removeFromLoadingSet(key);
-      }
+        return null;
+      });
+      if (syncedUrl) return syncedUrl;
     }
 
     // check if this remote uses blobResolver (P2P or Tauri-managed)
     if (song.remote_server_id && (await usesBlobResolver(song.remote_server_id))) {
       debug("audioAccess", `using blobResolver for remote song: ${key}`);
+      const remoteServerId = song.remote_server_id;
 
-      // track loading state for UI feedback
-      addToLoadingSet(key);
-      updateLoadingProgress(key, null); // indeterminate until we get total size
-
-      try {
-        // use blobResolver which handles P2P/Tauri transports and caching
-        // pass progress callback for 0-100% loading indicator
-        const onProgress: BlobProgressCallback = (received, total) => {
-          if (total > 0) {
-            updateLoadingProgress(key, received / total);
+      return await withLoadingProgress(key, async (onProgress) => {
+        onProgress(null); // indeterminate until we get total size
+        try {
+          // use blobResolver which handles P2P/Tauri transports and caching
+          // pass progress callback for 0-100% loading indicator
+          const blobProgress: BlobProgressCallback = (received, total) => {
+            if (total > 0) {
+              onProgress(received / total);
+            }
+          };
+          // id types here:
+          //   - blobId  = song.media_blob_id, the *remote's*
+          //     `media_blobz.id` short pk. only valid input to
+          //     `/api/blobs/{id}/*` routes on that remote.
+          //   - key (songTrackingKey(song)) is this file's own tracking
+          //     identity; used for loading-set / activeBlobURLs keys,
+          //     never as a route param.
+          // if media_blob_id is missing, bail rather than send the tracking
+          // key (which would just produce "blob not found").
+          const blobId = song.media_blob_id;
+          if (!blobId) {
+            throw new Error(`song has no media_blob_id (key=${key})`);
           }
-        };
-        // id types here:
-        //   - blobId  = song.media_blob_id, the *remote's*
-        //     `media_blobz.id` short pk. only valid input to
-        //     `/api/blobs/{id}/*` routes on that remote.
-        //   - key (songTrackingKey(song)) is this file's own tracking
-        //     identity; used for loading-set / activeBlobURLs keys,
-        //     never as a route param.
-        // if media_blob_id is missing, bail rather than send the tracking
-        // key (which would just produce "blob not found").
-        const blobId = song.media_blob_id;
-        if (!blobId) {
-          removeFromLoadingSet(key);
-          throw new Error(`song has no media_blob_id (key=${key})`);
+          // pass blake3 for verified streaming via iroh-blobs.
+          // pass file_size so the progress callback can report a real
+          // received/total ratio (iroh-blobs streaming doesn't supply size up front).
+          // pass mime_type so the assembled Blob/URL gets the right content type.
+          const url = await resolveBlobUrl(
+            blobId,
+            remoteServerId,
+            "audio",
+            blobProgress,
+            undefined,
+            song.blake3 ?? undefined,
+            song.file_size ?? undefined,
+            song.mime_type ?? undefined
+          );
+          activeBlobURLs.set(key, { url, remoteId: remoteServerId, blobId });
+          return url;
+        } catch (error) {
+          errorLog(
+            "audioAccess",
+            `blob fetch failed for ${key.slice(0, 8)} via ${remoteServerId}:`,
+            error
+          );
+          throw new Error(`failed to fetch audio from remote`);
         }
-        // pass blake3 for verified streaming via iroh-blobs.
-        // pass file_size so the progress callback can report a real
-        // received/total ratio (iroh-blobs streaming doesn't supply size up front).
-        // pass mime_type so the assembled Blob/URL gets the right content type.
-        const url = await resolveBlobUrl(
-          blobId,
-          song.remote_server_id,
-          "audio",
-          onProgress,
-          undefined,
-          song.blake3 ?? undefined,
-          song.file_size ?? undefined,
-          song.mime_type ?? undefined
-        );
-        activeBlobURLs.set(key, { url, remoteId: song.remote_server_id, blobId });
-        return url;
-      } catch (error) {
-        errorLog(
-          "audioAccess",
-          `blob fetch failed for ${key.slice(0, 8)} via ${song.remote_server_id}:`,
-          error
-        );
-        throw new Error(`failed to fetch audio from remote`);
-      } finally {
-        removeFromLoadingSet(key);
-      }
+      });
     }
 
     // HTTP remote: use direct URL approach

@@ -32,6 +32,7 @@ import { playVideoQueue } from "../services/queue/playVideoQueue";
 import { addVideosToQueue, shuffleVideos } from "../services/videoQueueActions";
 import { useLocalVideoPosterUrl } from "./VideoCard";
 import { showEditVideoSeries } from "../hooks/modals";
+import { showStationSelector } from "../../music/hooks/stationSelectorState";
 import { useVideoContextMenu, useVideoSeriesContextMenu } from "../hooks/contextMenu";
 import { canUpdateVideo } from "../data/permissions";
 import { getVideoDataSource } from "../data";
@@ -621,6 +622,23 @@ export function VideoSeriesDetailPanel(props: VideoSeriesDetailPanelProps) {
                           source={currentRemoteFull}
                           buildSendPayload={buildSeriesSendPayload}
                         />
+                        <button
+                          onClick={() =>
+                            void showStationSelector(
+                              {
+                                kind: "video_series",
+                                seriesId: data().series.id,
+                                seriesTitle: data().series.title,
+                              },
+                              data().series.remote_server_id ?? undefined
+                            )
+                          }
+                          class="p-2 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded transition-colors"
+                          title="add to station..."
+                          aria-label="add to station..."
+                        >
+                          <Icon name={IconNames.headphones} />
+                        </button>
                       </div>
                     </div>
                   </div>
@@ -728,6 +746,23 @@ export function VideoSeriesDetailPanel(props: VideoSeriesDetailPanelProps) {
                           source={currentRemoteFull}
                           buildSendPayload={buildSeriesSendPayload}
                         />
+                        <button
+                          onClick={() =>
+                            void showStationSelector(
+                              {
+                                kind: "video_series",
+                                seriesId: data().series.id,
+                                seriesTitle: data().series.title,
+                              },
+                              data().series.remote_server_id ?? undefined
+                            )
+                          }
+                          class="p-2 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded transition-colors"
+                          title="add to station..."
+                          aria-label="add to station..."
+                        >
+                          <Icon name={IconNames.headphones} />
+                        </button>
                       </div>
                     </div>
                   </div>
