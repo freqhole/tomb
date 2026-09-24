@@ -268,7 +268,7 @@ export function VideoDetailView() {
       documentTitle={videoQuery.data?.title}
       onBack={buildRoute("/video")}
     >
-      <div class="flex flex-col h-full">
+      <div class="flex flex-col h-full overflow-y-auto">
         <Show when={videoQuery.data} fallback={<LoadingState class="flex-1" />}>
           {(video) => (
             <>
