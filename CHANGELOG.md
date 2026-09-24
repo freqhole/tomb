@@ -1,5 +1,11 @@
 # freqhole-release
 
+## 0.3.9
+
+### Patch Changes
+
+- 971f431: fix some video playback issues and manual image uploadz
+
 ## 0.3.8
 
 ### Patch Changes
