@@ -858,7 +858,9 @@ export function EditVideoModal(props: EditVideoModalProps) {
             <EntityImages
               images={images()}
               onUpload={(file) => handleImageUpload({ file })}
-              onUploadPath={handleImageSelectPath}
+              onUploadPath={
+                getCurrentRemote()?.is_charnel_managed ? handleImageSelectPath : undefined
+              }
               onSetPrimary={handleTogglePrimary}
               onDelete={handleRemoveImage}
               uploading={imageProcessing() !== null}

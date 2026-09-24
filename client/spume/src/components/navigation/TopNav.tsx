@@ -942,7 +942,7 @@ export function TopNav(props: TopNavProps) {
     // real backdrop-dismiss behaviour without adding a visual overlay above
     // the app or changing desktop hover flyouts.
     const dismissNarrowFlyouts = (event: PointerEvent) => {
-      if (!isNarrow() || !navEl?.contains(event.target as Node)) {
+      if (isNarrow() && !navEl?.contains(event.target as Node)) {
         closeTopNavFlyouts();
       }
     };

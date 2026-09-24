@@ -207,6 +207,33 @@ async function loadAppState(): Promise<AppState> {
   return state;
 }
 
+// mirrors setQueue's own "unwrap proxy objects" step - a caller-owned
+// store/proxy object can't be structured-cloned, so anything written to
+// indexeddb must go through this first. `appState().queue` is the
+// reference-preserving `withIds` array (see setQueue), so ANY db.put of
+// the whole app state - not just setQueue's own write - needs this, or
+// a plain updateAppState() call (setCurrentSong, setQueueOpen, etc) can
+// throw DataCloneError while a non-empty queue is loaded.
+function toPlainQueueItems(items: MediaItem[]): MediaItem[] {
+  return items.map((item) => {
+    if (item.kind === "song") {
+      const song = item.song;
+      const plain: Song = { ...song };
+      if (song.album_tags) plain.album_tags = [...song.album_tags];
+      if (song.album_taxons) plain.album_taxons = song.album_taxons.map((t) => ({ ...t }));
+      if (song.album_images) plain.album_images = song.album_images.map((img) => ({ ...img }));
+      if (song.artist_images) plain.artist_images = song.artist_images.map((img) => ({ ...img }));
+      if (song.images) plain.images = song.images.map((img) => ({ ...img }));
+      if (song.urls) plain.urls = song.urls.map((url) => ({ ...url }));
+      return { kind: "song" as const, song: plain };
+    }
+    return {
+      kind: "video" as const,
+      video: { ...item.video, images: item.video.images?.map((img) => ({ ...img })) },
+    };
+  });
+}
+
 // update app state
 async function updateAppState(updates: Partial<Omit<AppState, "id">>): Promise<AppState> {
   const db = await initAppDB();
@@ -224,7 +251,7 @@ async function updateAppState(updates: Partial<Omit<AppState, "id">>): Promise<A
   // the indexeddb write below (can take a noticeable amount of time for a
   // large queue, especially on a slower device) has committed.
   setAppState(updated);
-  await db.put(STORE_APP_STATE, updated);
+  await db.put(STORE_APP_STATE, { ...updated, queue: toPlainQueueItems(updated.queue) });
 
   return updated;
 }
@@ -265,23 +292,7 @@ async function setQueue(items: MediaItem[]): Promise<void> {
   // QueueSidebar.tsx/CenotaphPlayerApp.tsx already rely on, causing the
   // player bar/context menus/thumbnails to flicker every few seconds while
   // something was playing.
-  const plainItems = withIds.map((item) => {
-    if (item.kind === "song") {
-      const song = item.song;
-      const plain: Song = { ...song };
-      if (song.album_tags) plain.album_tags = [...song.album_tags];
-      if (song.album_taxons) plain.album_taxons = song.album_taxons.map((t) => ({ ...t }));
-      if (song.album_images) plain.album_images = song.album_images.map((img) => ({ ...img }));
-      if (song.artist_images) plain.artist_images = song.artist_images.map((img) => ({ ...img }));
-      if (song.images) plain.images = song.images.map((img) => ({ ...img }));
-      if (song.urls) plain.urls = song.urls.map((url) => ({ ...url }));
-      return { kind: "song" as const, song: plain };
-    }
-    return {
-      kind: "video" as const,
-      video: { ...item.video, images: item.video.images?.map((img) => ({ ...img })) },
-    };
-  });
+  const plainItems = toPlainQueueItems(withIds);
 
   const db = await initAppDB();
   const current = appState() || (await loadAppState());

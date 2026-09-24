@@ -288,7 +288,19 @@ async function syncVideoViaCharnel(
   // has no blake3" even though one was known the entire time - the
   // actual root cause of "queue a video from a remote controller" never
   // resolving in charnel mode.
-  const blake3 = video.blake3 ?? meta.blake3 ?? null;
+  //
+  // BUT `video.blake3` is always the ORIGINAL blob's hash - if
+  // `resolvePlaybackBlobId` picked a transcoded rendition instead (a
+  // different blob, almost always a different size), pairing that
+  // rendition's blobId with the original's blake3 pulls the ORIGINAL's
+  // bytes (iroh-blobs fetches by blake3, not blobId) while validating
+  // against the rendition's `meta.size` - a guaranteed size mismatch,
+  // and on successful pulls (no size check) silently plays back the
+  // original (often web-incompatible, e.g. raw DVD MPEG-2) file instead
+  // of the compatible rendition. only take the shortcut when blobId IS
+  // the original blob.
+  const isOriginalBlob = blobId === video.media_blob_id;
+  const blake3 = isOriginalBlob ? (video.blake3 ?? meta.blake3 ?? null) : (meta.blake3 ?? null);
 
   return withLoadingProgress(video.id, async (onProgress) => {
     onProgress(null);

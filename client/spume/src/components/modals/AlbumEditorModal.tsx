@@ -1190,7 +1190,7 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
             <EntityImages
               images={images()}
               onUpload={(file) => handleImageUpload({ file })}
-              onUploadPath={currentRemote() ? handleImageSelectPath : undefined}
+              onUploadPath={currentRemote()?.is_charnel_managed ? handleImageSelectPath : undefined}
               onDelete={handleRemoveImage}
               onSetPrimary={handleTogglePrimary}
               uploading={!!processingJob()}

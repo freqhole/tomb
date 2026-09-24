@@ -100,11 +100,22 @@ export async function getVideoURL(
   // `getAudioURL`'s blake3-first resolution. otherwise fall back to the
   // metadata round-trip (needs a real `media_blob_id` the remote
   // recognizes), which also gets totalBytes/mimeType for progress.
+  //
+  // `video.blake3` is always the ORIGINAL blob's hash, though - if
+  // `blobId` above resolved to a transcoded rendition instead (a
+  // different blob, almost always a different size/content), the
+  // shortcut must not apply: iroh-blobs fetches by blake3, not blobId,
+  // so pairing the rendition's blobId with the original's blake3 pulls
+  // the wrong (often web-incompatible, e.g. raw DVD mpeg-2) file while
+  // labeling it as the rendition - plays with audio but a black video
+  // frame, or size-mismatches entirely elsewhere (see syncVideoToLocal.ts's
+  // identical fix). always resolve the rendition's own blake3 fresh.
   if (await usesBlobResolver(remoteId)) {
-    let blake3: string | undefined = video.blake3 ?? undefined;
+    const isOriginalBlob = blobId === video.media_blob_id;
+    let blake3: string | undefined = isOriginalBlob ? (video.blake3 ?? undefined) : undefined;
     let totalBytes: number | undefined;
     let mimeType: string | undefined;
-    if (onProgress && !blake3) {
+    if (!blake3) {
       try {
         const remote = await getRemoteById(remoteId);
         if (remote) {

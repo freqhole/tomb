@@ -46,6 +46,8 @@ vi.mock("../playbackBlobId", () => ({
   resolvePlaybackBlobId: (...a: unknown[]) => resolvePlaybackBlobId(...a),
 }));
 
+const RENDITION_BLOB_ID = "rendition-blob-1";
+
 const syncVideoViaLocalGrimoire = vi.fn(
   async (...args: unknown[]): Promise<{ success: boolean; videoId?: string; error?: string }> => {
     void args;
@@ -118,7 +120,14 @@ beforeEach(() => {
   vi.clearAllMocks();
   isCharnelMode.mockReturnValue(true);
   getRemoteById.mockResolvedValue(remote);
-  resolvePlaybackBlobId.mockResolvedValue("blob-1");
+  // no rendition selected by default - mirrors resolvePlaybackBlobId's own
+  // real fallback (returns the video's own media_blob_id when there's no
+  // rendition), so these tests exercise the "original blob" blake3-shortcut
+  // path rather than accidentally simulating a rendition being played.
+  resolvePlaybackBlobId.mockImplementation(async (...args: unknown[]) => {
+    const v = args[0] as QueuedVideo;
+    return v.media_blob_id;
+  });
   // blobMetadata fetch is best-effort and swallows failures into an empty
   // object - simulate the exact live case (unreachable/timed-out peer).
   getClientForRemote.mockResolvedValue({
@@ -142,6 +151,31 @@ describe("syncVideoToLocal (charnel mode)", () => {
       string | null,
     ];
     expect(blake3Arg).toBe("b3-video-1");
+  });
+
+  it("ignores the video's own blake3 when a rendition (different blob) is selected, using the rendition's own metadata blake3 instead", async () => {
+    resolvePlaybackBlobId.mockResolvedValue(RENDITION_BLOB_ID);
+    getClientForRemote.mockResolvedValue({
+      music: {
+        blobMetadata: vi.fn(async () => ({ success: true, data: { blake3: "rendition-blake3" } })),
+      },
+    });
+    // the video's OWN blake3 is for the original blob - must not be reused
+    // for a different (rendition) blobId, or the wrong bytes get pulled/
+    // played while validated/labeled as the rendition.
+    const v = video({ blake3: "original-blake3" } as Partial<QueuedVideo>);
+
+    const result = await syncVideoToLocal(v, remote);
+
+    expect(result.success).toBe(true);
+    const [, , blobIdArg, blake3Arg] = syncVideoViaLocalGrimoire.mock.calls[0] as [
+      unknown,
+      unknown,
+      string,
+      string | null,
+    ];
+    expect(blobIdArg).toBe(RENDITION_BLOB_ID);
+    expect(blake3Arg).toBe("rendition-blake3");
   });
 
   it("falls back to the metadata fetch's blake3 when the video has no already-known one", async () => {
