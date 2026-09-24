@@ -13,6 +13,7 @@
 // indicator inline; nothing blocks the modal's other sections.
 
 import {
+  createEffect,
   createMemo,
   createResource,
   createSignal,
@@ -51,6 +52,7 @@ import {
 import {
   clearTransferQueue,
   createTransferQueue,
+  reportTransferQueueItemProgress,
   transferQueues,
   type TransferQueue,
   type TransferQueueItem,
@@ -237,6 +239,51 @@ export const SendToRemoteSection: Component<SendToRemoteSectionProps> = (props) 
   const activeDestId = () =>
     currentQueue() && !currentQueue()!.done ? (currentItem()?.id ?? null) : null;
 
+  // blends item-count progress (`pp`) with bucket A's in-flight byte-level
+  // registry, capped at "one whole item's worth of credit" - fills the gap
+  // between two item-count ticks, never pushes `done` above the still-in-
+  // progress item's own count.
+  const blendedProgress = (pp: AnyProgress): number => {
+    const c = progressCounts(pp);
+    if (c.total === 0) return 0;
+    const done = c.synced + c.skipped + c.failed;
+    const blake3s = probeBlake3s();
+    let bonus = 0;
+    if (blake3s) {
+      const transfers = blobTransfers();
+      for (const b3 of blake3s) {
+        const t = transfers.get(b3);
+        if (t?.direction === "upload" && t.bytesTotal && t.bytesTotal > 0) {
+          bonus += t.bytesTransferred / t.bytesTotal;
+        }
+      }
+    }
+    return Math.min(1, (done + Math.min(1, bonus)) / c.total);
+  };
+
+  // `sendToRemote`/`sendVideosToRemote` only call `onProgress` at item-
+  // count transitions (start, and once per item as it fully settles) -
+  // for a single (or small) item send, that leaves the bar frozen for the
+  // entire, possibly long, in-flight transfer. bucket A's registry ticks
+  // on its own ~1s poll independently of those calls - re-blend and
+  // re-report whenever it changes so the bar actually moves meanwhile.
+  createEffect(() => {
+    blobTransfers(); // reactive dependency - re-run on every registry tick
+    const queueId = currentQueueId();
+    const item = currentItem();
+    const pp = lastProgress();
+    if (!queueId || !item || !pp || currentQueue()?.done) return;
+    // `reportTransferQueueItemProgress` always writes a fresh object/Map
+    // (see `updateItem`), so re-reporting an unchanged value would just
+    // retrigger this same effect via `currentItem()`'s new reference -
+    // infinite synchronous recursion ("Maximum call stack size exceeded"
+    // inside solid's own scheduler). `blendedProgress` is pure/deterministic
+    // over unchanged inputs, so this equality check reliably breaks the loop.
+    const next = blendedProgress(pp);
+    if (item.progress === next) return;
+    reportTransferQueueItemProgress(queueId, item.id, next);
+  });
+
   const runForDest = (entry: DestEntry, retryBlake3s?: string[]) => {
     const p = payload();
     if (!p) {
@@ -255,23 +302,8 @@ export const SendToRemoteSection: Component<SendToRemoteSectionProps> = (props) 
         ctx.reportProgress(0);
         return;
       }
+      ctx.reportProgress(blendedProgress(pp));
       const done = c.synced + c.skipped + c.failed;
-      // in-flight byte-level bonus from bucket A's registry, capped at
-      // "one whole item's worth of credit" - fills the gap between two
-      // item-count ticks, never pushes done above the still-in-progress
-      // item's own count.
-      const blake3s = probeBlake3s();
-      let bonus = 0;
-      if (blake3s) {
-        const transfers = blobTransfers();
-        for (const b3 of blake3s) {
-          const t = transfers.get(b3);
-          if (t?.direction === "upload" && t.bytesTotal && t.bytesTotal > 0) {
-            bonus += t.bytesTransferred / t.bytesTotal;
-          }
-        }
-      }
-      ctx.reportProgress(Math.min(1, (done + Math.min(1, bonus)) / c.total));
       ctx.reportLabel(`${pp.phase} ${done}/${c.total}`);
     };
 

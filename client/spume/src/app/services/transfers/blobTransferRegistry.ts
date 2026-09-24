@@ -183,7 +183,15 @@ async function fetchActiveOutgoingTransfers(): Promise<
   Array<{ peerId: string; blake3: string; bytesSent: number; totalSize: number }>
 > {
   if (isCharnelAvailable()) {
-    return getActiveOutgoingTransfers();
+    try {
+      return await getActiveOutgoingTransfers();
+    } catch (err) {
+      // a transient tauri IPC hiccup shouldn't spam an unhandled rejection
+      // on every 1s poll tick - mirrors the wasm branch's own silent
+      // fallback below.
+      debug("blobTransferRegistry", "getActiveOutgoingTransfers failed:", err);
+      return [];
+    }
   }
   let node;
   try {
