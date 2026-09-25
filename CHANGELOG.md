@@ -1,5 +1,14 @@
 # freqhole-release
 
+## 0.3.10
+
+### Patch Changes
+
+- 3a16cce: bump default_max_upload_size_mb to 5gb; if a video rendition isn't available, get the original; handle video fetch config during setup;
+- 07bb258: fix some issues with send to remote transfer progress
+- ba49371: make the video detail page scroll its overflow
+- 82d0d23: add new transfer progress fn to app acl (does up+download progress stuff)
+
 ## 0.3.9
 
 ### Patch Changes
