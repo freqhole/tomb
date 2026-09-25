@@ -346,6 +346,17 @@ fn ytdlp_fetch_command(ytdlp_path: &str) -> String {
     )
 }
 
+/// yt-dlp video fetch command template - the `[server.fetch_video]`
+/// counterpart of `ytdlp_fetch_command` (downloads full video+audio
+/// instead of extracting audio only). used by `generate_config_template`
+/// and `set_ytdlp_path`, so both stay in sync.
+fn ytdlp_video_fetch_command(ytdlp_path: &str) -> String {
+    format!(
+        "{} --ignore-errors --format bestvideo+bestaudio/best --merge-output-format mp4 --add-metadata --no-overwrites --output %(uploader)s-%(title)s-[%(id)s].%(ext)s --newline --progress --progress-template \"download:%(info.id)s|%(progress.status)s|%(progress.downloaded_bytes)s|%(progress.total_bytes_estimate)s|%(progress.filename)s\" --progress-template \"postprocess:%(info.id)s|%(progress.status)s\" --print after_move:filepath",
+        ytdlp_path
+    )
+}
+
 fn default_ffprobe_duration_args() -> String {
     "-v quiet -show_entries format=duration -of csv=p=0 {input}".to_string()
 }
@@ -532,7 +543,7 @@ pub struct FederationConfig {
     /// this does not apply to blob streaming, only json message payloads.
     #[serde(default = "default_max_message_size_mb")]
     pub max_message_size_mb: u32,
-    /// maximum upload size in mb for p2p file uploads (default: 500)
+    /// maximum upload size in mb for p2p file uploads (default: 2500)
     /// larger files will be rejected with an error response.
     #[serde(default = "default_max_upload_size_mb")]
     pub max_upload_size_mb: u32,
@@ -613,7 +624,7 @@ fn default_max_message_size_mb() -> u32 {
 }
 
 fn default_max_upload_size_mb() -> u32 {
-    500
+    5000
 }
 
 impl FederationConfig {
@@ -1463,12 +1474,23 @@ fn generate_config_template(
     doc["server"]["fetch_music"]["enabled"] = value(fetch_music_enabled.unwrap_or(ytdlp_available));
     doc["server"]["fetch_music"]["output_dir"] = value(fetch_dir.display().to_string());
 
+    // update fetch_video the same way - same toggle/directory as
+    // fetch_music (one "enable fetching" setup step turns both on), since
+    // it was previously left off and unconfigured (empty output_dir)
+    // regardless of the music fetch setting, making it hard to discover.
+    doc["server"]["fetch_video"]["enabled"] = value(fetch_music_enabled.unwrap_or(ytdlp_available));
+    doc["server"]["fetch_video"]["output_dir"] = value(fetch_dir.display().to_string());
+
     // update fetch commands with absolute yt-dlp path if provided
     if let Some(ytdlp) = ytdlp_path {
         let ytdlp_str = ytdlp.display().to_string();
         if let Some(fetch_music) = doc["server"]["fetch_music"].as_table_mut() {
             fetch_music["precheck_command"] = value(ytdlp_precheck_command(&ytdlp_str));
             fetch_music["fetch_command"] = value(ytdlp_fetch_command(&ytdlp_str));
+        }
+        if let Some(fetch_video) = doc["server"]["fetch_video"].as_table_mut() {
+            fetch_video["precheck_command"] = value(ytdlp_precheck_command(&ytdlp_str));
+            fetch_video["fetch_command"] = value(ytdlp_video_fetch_command(&ytdlp_str));
         }
     }
 
@@ -1585,11 +1607,12 @@ pub fn set_ffmpeg_path(
 /// used by the settings UI's "select yt-dlp binary" flow when the
 /// configured yt-dlp can't be found on `PATH` anymore. yt-dlp's path
 /// isn't its own config field (see `ytdlp_precheck_command`/
-/// `ytdlp_fetch_command`) - it's baked into `server.fetch_music`'s
-/// `precheck_command`/`fetch_command` templates, so this regenerates
-/// both from the canonical templates with the new path. this mirrors
-/// what `generate_config_template` does for a fresh config, which means
-/// any hand-customized args in those two commands get reset to the
+/// `ytdlp_fetch_command`/`ytdlp_video_fetch_command`) - it's baked into
+/// `server.fetch_music` and `server.fetch_video`'s `precheck_command`/
+/// `fetch_command` templates, so this regenerates all four from the
+/// canonical templates with the new path. this mirrors what
+/// `generate_config_template` does for a fresh config, which means
+/// any hand-customized args in those four commands get reset to the
 /// defaults - acceptable since this is only invoked when yt-dlp
 /// couldn't be found at all (nothing was working anyway).
 pub fn set_ytdlp_path(config_path: &Path, ytdlp_path: &Path) -> Result<(), ConfigError> {
@@ -1604,6 +1627,14 @@ pub fn set_ytdlp_path(config_path: &Path, ytdlp_path: &Path) -> Result<(), Confi
             (
                 "server.fetch_music.fetch_command",
                 ytdlp_fetch_command(&ytdlp_str).into(),
+            ),
+            (
+                "server.fetch_video.precheck_command",
+                ytdlp_precheck_command(&ytdlp_str).into(),
+            ),
+            (
+                "server.fetch_video.fetch_command",
+                ytdlp_video_fetch_command(&ytdlp_str).into(),
             ),
         ],
     )

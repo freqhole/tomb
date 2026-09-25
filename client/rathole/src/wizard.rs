@@ -90,7 +90,7 @@ impl FieldId {
             FieldId::EnableKnocking => "knocking       ",
             FieldId::EnableRemoteAdmin => "remote admin   ",
             FieldId::EnableRadio => "radio          ",
-            FieldId::EnableFetchMusic => "fetch music    ",
+            FieldId::EnableFetchMusic => "fetch media    ",
         }
     }
 }
@@ -222,7 +222,8 @@ struct WizardApp {
     enable_remote_admin: bool,
     /// enable radio subsystem.
     enable_radio: bool,
-    /// enable server.fetch_music routes.
+    /// enable server.fetch_music and server.fetch_video routes (one toggle
+    /// controls both - see grimoire::config::generate_config_template).
     enable_fetch_music: bool,
     selected: usize,
     status: Status,
@@ -1375,7 +1376,7 @@ fn draw_form(f: &mut Frame, area: Rect, app: &WizardApp) {
             }
             FieldId::EnableFetchMusic => {
                 if app.enable_fetch_music {
-                    "[x] enabled (download/upload routes)".to_string()
+                    "[x] enabled (music + video download/upload routes)".to_string()
                 } else {
                     "[ ] disabled".to_string()
                 }

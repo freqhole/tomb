@@ -633,11 +633,11 @@ default_role = "viewer"
 # decrease if you want to limit memory usage on constrained devices.
 # max_message_size_mb = 10
 
-# OPTIONAL: maximum upload size in MB for P2P file uploads (default: 500)
+# OPTIONAL: maximum upload size in MB for P2P file uploads (default: 5000 (5gb))
 # this limits the maximum file size that can be uploaded via P2P.
 # note: this is a separate limit from max_message_size_mb since uploads are streamed
 # differently than regular API messages.
-# max_upload_size_mb = 500
+# max_upload_size_mb = 5000
 
 # OPTIONAL: allow unknown peers to "knock" and request access (default: false)
 # when true: unauthenticated P2P peers can send a knock request with username/message

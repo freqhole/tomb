@@ -125,10 +125,6 @@ export class RemoteVideoDataSource implements VideoDataSource {
     const result = await client.video.queryVideos(builtParams);
     if (!result.success) this.failRequest(result);
 
-    // temporary diagnostic for the tauri tag-filter bug: confirm the
-    // sent filters actually changed the returned total_count.
-    console.info("[remoteSource.getVideos] filters=", builtParams.params.filters, "total_count=", result.data.total_count);
-
     return {
       items: result.data.items.map((v) => this.mapVideo(v)),
       total_count: result.data.total_count,

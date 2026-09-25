@@ -211,4 +211,32 @@ describe("syncVideoToLocal (charnel mode)", () => {
     ];
     expect(blake3Arg).toBeNull();
   });
+
+  it("falls back to the original blob when the rendition sync fails", async () => {
+    resolvePlaybackBlobId.mockResolvedValue(RENDITION_BLOB_ID);
+    getClientForRemote.mockResolvedValue({
+      music: {
+        blobMetadata: vi.fn(async () => ({ success: true, data: { blake3: "rendition-blake3" } })),
+      },
+    });
+    syncVideoViaLocalGrimoire
+      .mockResolvedValueOnce({ success: false, error: "rendition unavailable" })
+      .mockResolvedValueOnce({ success: true, videoId: "row-1" });
+    const v = video({ blake3: "original-blake3" } as Partial<QueuedVideo>);
+
+    const result = await syncVideoToLocal(v, remote);
+
+    expect(result.success).toBe(true);
+    expect(syncVideoViaLocalGrimoire).toHaveBeenCalledTimes(2);
+    const [, , firstBlobId] = syncVideoViaLocalGrimoire.mock.calls[0] as [unknown, unknown, string];
+    const [, , secondBlobId, secondBlake3] = syncVideoViaLocalGrimoire.mock.calls[1] as [
+      unknown,
+      unknown,
+      string,
+      string | null,
+    ];
+    expect(firstBlobId).toBe(RENDITION_BLOB_ID);
+    expect(secondBlobId).toBe(v.media_blob_id);
+    expect(secondBlake3).toBe("original-blake3");
+  });
 });

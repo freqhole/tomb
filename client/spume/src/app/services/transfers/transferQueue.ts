@@ -294,6 +294,19 @@ export function resetTransferQueues(): void {
   controls.clear();
 }
 
+/** update an item's progress from outside its own `sendOne` callback -
+ *  for a caller blending in a separately-polled signal (e.g. bucket A's
+ *  byte-level transfer registry) that ticks on its own schedule, not just
+ *  whenever `sendOne` itself calls `ctx.reportProgress`. no-op if the
+ *  queue/item no longer exists (finished/cleared). */
+export function reportTransferQueueItemProgress(
+  queueId: string,
+  itemId: string,
+  progress: number
+): void {
+  updateItem(queueId, itemId, { progress });
+}
+
 // ---------------------------------------------------------------------------
 // item-level pause/resume - delegates to bucket A, see module doc's nuance
 // ---------------------------------------------------------------------------

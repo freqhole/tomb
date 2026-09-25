@@ -64,7 +64,8 @@ export default function SetupView() {
   const [appDataDir, setAppDataDir] = createSignal("");
   // dataDir is customizable - where database/cache/media live (defaults to appDataDir)
   const [dataDir, setDataDir] = createSignal("");
-  // fetchMusicDir is where fetched/uploaded music filez are stored
+  // fetchMusicDir backs both fetch_music and fetch_video's output_dir -
+  // where fetched/uploaded music AND video filez are stored
   const [fetchMusicDir, setFetchMusicDir] = createSignal("");
   const [serverName, setServerName] = createSignal("my music server");
   const [serverImage, setServerImage] = createSignal<string | null>(null);
@@ -608,7 +609,7 @@ export default function SetupView() {
           </div>
 
           <div class="form-group">
-            <label for="fetch-music-dir">fetched music storage directory</label>
+            <label for="fetch-music-dir">fetched media storage directory</label>
             <div class="input-with-button">
               <input
                 type="text"
@@ -625,7 +626,7 @@ export default function SetupView() {
             <p class="hint">
               {isFlatpak()
                 ? "under flatpak, only folders chosen via 'browse' are writable - use the button above."
-                : "where fetched music filez are stored."}
+                : "where fetched music and video filez are stored."}
             </p>
           </div>
 
@@ -727,8 +728,10 @@ export default function SetupView() {
                 </svg>
               </span>
               <span class="checkbox-content">
-                <span class="checkbox-label">enable fetch music routes</span>
-                <span class="checkbox-hint">controls [server.fetch_music].enabled in config.</span>
+                <span class="checkbox-label">enable fetch (music + video)</span>
+                <span class="checkbox-hint">
+                  controls [server.fetch_music] and [server.fetch_video].enabled in config.
+                </span>
               </span>
             </label>
           </div>

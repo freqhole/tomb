@@ -86,6 +86,7 @@ commands.allow = [
     "p2p_fetch_blob_verified_by_id",
     "p2p_probe_blob",
     "p2p_fetch_hello_image",
+    "p2p_get_active_transfers",
     "p2p_import_blob",
     "p2p_import_blob_bytes",
     "p2p_import_begin",
