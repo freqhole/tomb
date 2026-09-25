@@ -35,7 +35,7 @@ import {
   openVideoOPFSChunkSink,
 } from "../opfs/helpers";
 import { resolvePlaybackBlobId } from "../playbackBlobId";
-import { syncVideoViaLocalGrimoire } from "./syncVideoViaLocalGrimoire";
+import { syncVideoViaLocalGrimoire, type VideoSyncResult } from "./syncVideoViaLocalGrimoire";
 import { extensionFromMime } from "../videoMime";
 import type { QueuedVideo } from "../../../app/services/storage/mediaItem";
 import type { BlobMetadataResponse } from "@freqhole/api-client";
@@ -276,55 +276,72 @@ async function syncVideoViaCharnel(
   }
 
   const blobId = await resolvePlaybackBlobId(video, remoteId);
-  const meta = await fetchBlobMetadata(remoteId, blobId, remoteOverride);
-  // prefer a blake3 the caller already knows (e.g. cenotaph's
-  // mediaRefResolve.ts sets `video.blake3` directly from the wire
-  // MediaRef's own hash, computed once by the peer that imported the
-  // bytes) over re-deriving one from this metadata fetch - which is
-  // explicitly best-effort and swallows ANY failure (unreachable peer,
-  // timeout, etc.) into an empty `{}`. blindly trusting `meta.blake3`
-  // meant a flaky/slow metadata round trip could throw away a perfectly
-  // good, already-known hash and fail the whole sync with "video blob
-  // has no blake3" even though one was known the entire time - the
-  // actual root cause of "queue a video from a remote controller" never
-  // resolving in charnel mode.
-  //
-  // BUT `video.blake3` is always the ORIGINAL blob's hash - if
-  // `resolvePlaybackBlobId` picked a transcoded rendition instead (a
-  // different blob, almost always a different size), pairing that
-  // rendition's blobId with the original's blake3 pulls the ORIGINAL's
-  // bytes (iroh-blobs fetches by blake3, not blobId) while validating
-  // against the rendition's `meta.size` - a guaranteed size mismatch,
-  // and on successful pulls (no size check) silently plays back the
-  // original (often web-incompatible, e.g. raw DVD MPEG-2) file instead
-  // of the compatible rendition. only take the shortcut when blobId IS
-  // the original blob.
-  const isOriginalBlob = blobId === video.media_blob_id;
-  const blake3 = isOriginalBlob ? (video.blake3 ?? meta.blake3 ?? null) : (meta.blake3 ?? null);
 
-  return withLoadingProgress(video.id, async (onProgress) => {
-    onProgress(null);
-    const result = await syncVideoViaLocalGrimoire(
-      video,
-      remote,
-      blobId,
-      blake3,
-      meta.size,
-      meta.mime,
-      (received, total) => onProgress(total > 0 ? received / total : null)
-    );
-    if (!result.success) {
-      warn("videoSync", `charnel sync failed for video ${video.id}: ${result.error}`);
-      return { success: false, error: result.error };
-    }
-    markVideoSynced(video.id);
-    debug(
+  // resolves+pulls a specific blob id - factored out so a rendition
+  // attempt can fall back to the original below without duplicating the
+  // blake3-shortcut/metadata-fetch logic.
+  const attemptSync = (id: string): Promise<VideoSyncResult> =>
+    withLoadingProgress(video.id, async (onProgress) => {
+      const meta = await fetchBlobMetadata(remoteId, id, remoteOverride);
+      // prefer a blake3 the caller already knows (e.g. cenotaph's
+      // mediaRefResolve.ts sets `video.blake3` directly from the wire
+      // MediaRef's own hash, computed once by the peer that imported the
+      // bytes) over re-deriving one from this metadata fetch - which is
+      // explicitly best-effort and swallows ANY failure (unreachable peer,
+      // timeout, etc.) into an empty `{}`. blindly trusting `meta.blake3`
+      // meant a flaky/slow metadata round trip could throw away a
+      // perfectly good, already-known hash and fail the whole sync with
+      // "video blob has no blake3" even though one was known the entire
+      // time - the actual root cause of "queue a video from a remote
+      // controller" never resolving in charnel mode.
+      //
+      // BUT `video.blake3` is always the ORIGINAL blob's hash - if `id`
+      // is a transcoded rendition instead (a different blob, almost
+      // always a different size), pairing that rendition's blobId with
+      // the original's blake3 pulls the ORIGINAL's bytes (iroh-blobs
+      // fetches by blake3, not blobId) while validating against the
+      // rendition's `meta.size` - a guaranteed size mismatch, and on
+      // successful pulls (no size check) silently plays back the
+      // original (often web-incompatible, e.g. raw DVD MPEG-2) file
+      // instead of the compatible rendition. only take the shortcut
+      // when `id` IS the original blob.
+      const isOriginalBlob = id === video.media_blob_id;
+      const blake3 = isOriginalBlob ? (video.blake3 ?? meta.blake3 ?? null) : (meta.blake3 ?? null);
+      onProgress(null);
+      return syncVideoViaLocalGrimoire(
+        video,
+        remote,
+        id,
+        blake3,
+        meta.size,
+        meta.mime,
+        (received, total) => onProgress(total > 0 ? received / total : null)
+      );
+    });
+
+  let result = await attemptSync(blobId);
+  if (!result.success && blobId !== video.media_blob_id) {
+    // rendition unavailable (never transcoded on the source, or its
+    // local_path file went missing on disk there) - fall back to the
+    // original rather than failing the sync outright.
+    warn(
       "videoSync",
-      `synced video "${video.title}" (${video.id}) into the local library via grimoire (existing=${result.skipped})`
+      `rendition ${blobId} unavailable for video ${video.id} (${result.error}), falling back to original ${video.media_blob_id}`
     );
-    invalidateVideoLibraryQueries();
-    return { success: true, videoId: result.videoId, localPath: result.localPath };
-  });
+    result = await attemptSync(video.media_blob_id);
+  }
+
+  if (!result.success) {
+    warn("videoSync", `charnel sync failed for video ${video.id}: ${result.error}`);
+    return { success: false, error: result.error };
+  }
+  markVideoSynced(video.id);
+  debug(
+    "videoSync",
+    `synced video "${video.title}" (${video.id}) into the local library via grimoire (existing=${result.skipped})`
+  );
+  invalidateVideoLibraryQueries();
+  return { success: true, videoId: result.videoId, localPath: result.localPath };
 }
 
 /** sync the currently-playing remote video to the local OPFS-backed video
@@ -380,52 +397,59 @@ export async function syncVideoToLocal(
 
     const blobId = await resolvePlaybackBlobId(video, video.remote_server_id);
 
-    let opfsPath: string;
-    let fileSize: number;
-    let mimeType: string;
-    let blake3: string | null = null;
-
-    if (await usesBlobResolver(video.remote_server_id)) {
-      // P2P/charnel: fetch the bytes directly, without caching them.
-      // metadata comes first so the fetch can report real progress (blake3 +
-      // size) rather than sitting on an indeterminate indicator.
-      const meta = await fetchBlobMetadata(video.remote_server_id, blobId, remoteOverride);
-      try {
-        const result = await fetchP2PVideoBlob(
-          video,
-          video.remote_server_id,
-          blobId,
-          meta,
-          remoteOverride
-        );
-        opfsPath = result.opfsPath;
-        fileSize = result.size;
-        mimeType = result.mimeType;
-      } catch (err) {
-        warn("videoSync", `fetch failed for video ${video.id}, skipping sync:`, err);
-        return { success: false, error: err instanceof Error ? err.message : String(err) };
+    // fetches bytes for a specific blob id into OPFS - factored out so a
+    // rendition attempt can fall back to the original below. keyed by
+    // `video.id` (not blob id) for the HTTP resume path, so a fallback
+    // retry after a partial rendition download starts that resume state
+    // over for the original's (likely different-sized) bytes - fine in
+    // practice since renditions are a P2P/charnel-managed pairing today,
+    // not a plain-HTTP one.
+    const fetchVideoBytes = async (
+      id: string
+    ): Promise<
+      | { ok: true; opfsPath: string; fileSize: number; mimeType: string; blake3: string | null }
+      | { ok: false; error: string }
+    > => {
+      if (await usesBlobResolver(video.remote_server_id!)) {
+        // P2P/charnel: fetch the bytes directly, without caching them.
+        // metadata comes first so the fetch can report real progress
+        // (blake3 + size) rather than sitting on an indeterminate indicator.
+        const meta = await fetchBlobMetadata(video.remote_server_id!, id, remoteOverride);
+        try {
+          const result = await fetchP2PVideoBlob(
+            video,
+            video.remote_server_id!,
+            id,
+            meta,
+            remoteOverride
+          );
+          return {
+            ok: true,
+            opfsPath: result.opfsPath,
+            fileSize: result.size,
+            mimeType: result.mimeType,
+            blake3: meta.blake3 ?? null,
+          };
+        } catch (err) {
+          return { ok: false, error: err instanceof Error ? err.message : String(err) };
+        }
       }
-      blake3 = meta.blake3 ?? null;
-    } else {
+
       // plain http remote: stream straight to opfs, resuming a previously
       // interrupted download instead of restarting from byte 0 - critical
       // for large videos, which are otherwise prone to failing partway
       // through and starting over on every retry/replay.
-      const remote = remoteOverride ?? (await getRemoteById(video.remote_server_id));
+      const remote = remoteOverride ?? (await getRemoteById(video.remote_server_id!));
       if (!remote?.base_url) {
-        warn(
-          "videoSync",
-          `remote ${video.remote_server_id} has no base_url, skipping sync for ${video.id}`
-        );
-        return { success: false, error: "remote has no base_url" };
+        return { ok: false, error: "remote has no base_url" };
       }
-      const meta = await fetchBlobMetadata(video.remote_server_id, blobId, remoteOverride);
+      const meta = await fetchBlobMetadata(video.remote_server_id!, id, remoteOverride);
       const extension = extensionFromMime(meta.mime ?? "video/mp4");
-      mimeType = meta.mime ?? "video/mp4";
-      blake3 = meta.blake3 ?? null;
+      const mimeType = meta.mime ?? "video/mp4";
+      const blake3 = meta.blake3 ?? null;
 
-      const directUrl = `${remote.base_url}/api/blobs/${blobId}`;
-      const streamResult = await withLoadingProgress(video.id, async (onProgress) => {
+      const directUrl = `${remote.base_url}/api/blobs/${id}`;
+      return withLoadingProgress(video.id, async (onProgress) => {
         onProgress(null);
         try {
           const result = await streamVideoToOPFSWithResume(
@@ -435,25 +459,41 @@ export async function syncVideoToLocal(
             meta.size ?? null,
             (received, total) => onProgress(total ? received / total : null)
           );
-          return { ok: true as const, opfsPath: result.opfsPath, size: result.size };
+          return {
+            ok: true as const,
+            opfsPath: result.opfsPath,
+            fileSize: result.size,
+            mimeType,
+            blake3,
+          };
         } catch (err) {
-          warn(
-            "videoSync",
-            `fetch failed for video ${video.id}, skipping sync (bytes written so far are kept on disk for the next attempt to resume from):`,
-            err
-          );
           return {
             ok: false as const,
             error: err instanceof Error ? err.message : String(err),
           };
         }
       });
-      if (!streamResult.ok) {
-        return { success: false, error: streamResult.error };
-      }
-      opfsPath = streamResult.opfsPath;
-      fileSize = streamResult.size;
+    };
+
+    let fetched = await fetchVideoBytes(blobId);
+    if (!fetched.ok && blobId !== video.media_blob_id) {
+      // rendition unavailable (never transcoded on the source, or its
+      // local_path file went missing on disk there) - fall back to the
+      // original rather than failing the sync outright.
+      warn(
+        "videoSync",
+        `rendition ${blobId} unavailable for video ${video.id} (${fetched.error}), falling back to original ${video.media_blob_id}`
+      );
+      fetched = await fetchVideoBytes(video.media_blob_id);
     }
+    if (!fetched.ok) {
+      warn(
+        "videoSync",
+        `fetch failed for video ${video.id}, skipping sync (bytes written so far, if any, are kept on disk for the next attempt to resume from): ${fetched.error}`
+      );
+      return { success: false, error: fetched.error };
+    }
+    const { opfsPath, fileSize, mimeType, blake3 } = fetched;
 
     // a video synced in from a remote already has a blake3 on its
     // media_blobz record there - never hash client-side for a remote video
