@@ -6,7 +6,6 @@
 // trust store and library-name concept instead of cenotaph's defaults.
 
 import { createEffect, createResource, createSignal, onMount, For, Show } from "solid-js";
-import { useNavigate } from "@solidjs/router";
 import {
   connectedControllers,
   currentPin,
@@ -46,8 +45,11 @@ import {
   charnelSetSessionMode,
 } from "../adapters/charnelAcceptBridge";
 
-export function PlayerSettingsPanel(props: { onClose: () => void; nodeId?: string }) {
-  const navigate = useNavigate();
+export function PlayerSettingsPanel(props: {
+  onClose: () => void;
+  onBack: () => void;
+  nodeId?: string;
+}) {
   const [nameInput, setNameInput] = createSignal(getLocalLibraryName());
   const [controllers, { refetch: refetchControllers }] = createResource(
     spumeTrustStore.listTrustedControllers
@@ -169,7 +171,7 @@ export function PlayerSettingsPanel(props: { onClose: () => void; nodeId?: strin
               type="button"
               class="text-neutral-400"
               title="back to spume"
-              onClick={() => navigate(-1)}
+              onClick={() => props.onBack()}
               data-testid="back-to-spume-link"
             >
               &#8592;

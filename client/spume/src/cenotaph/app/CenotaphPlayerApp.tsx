@@ -109,6 +109,19 @@ const noDrag = () => {};
 
 export function CenotaphPlayerApp() {
   const navigate = useNavigate();
+  // `navigate(-1)` is a no-op when the player was the initial route (e.g.
+  // `initial_view = "player"` in charnel-config.toml replaces the root
+  // entry, leaving nothing to go back to) - history.length stays at
+  // whatever it was at boot unless something in THIS session actually
+  // pushed a new entry, so it's a reliable enough signal here (single-
+  // window tauri app, not a multi-tab browser) to fall back to explore.
+  const goBackOrExplore = () => {
+    if (window.history.length > 1) {
+      navigate(-1);
+    } else {
+      navigate("/explore", { replace: true });
+    }
+  };
   const [qrDataUrl, setQrDataUrl] = createSignal<string | null>(null);
   const [error, setError] = createSignal<string | null>(null);
   const [settingsOpen, setSettingsOpen] = createSignal(false);
@@ -247,7 +260,7 @@ export function CenotaphPlayerApp() {
         if (settingsOpen()) {
           setSettingsOpen(false);
         } else {
-          navigate(-1);
+          goBackOrExplore();
         }
         return;
       }
@@ -506,7 +519,11 @@ export function CenotaphPlayerApp() {
       </button>
 
       <Show when={settingsOpen()}>
-        <PlayerSettingsPanel onClose={() => setSettingsOpen(false)} nodeId={nodeId()} />
+        <PlayerSettingsPanel
+          onClose={() => setSettingsOpen(false)}
+          onBack={goBackOrExplore}
+          nodeId={nodeId()}
+        />
       </Show>
 
       <Show when={connectedControllers().length > 0}>
