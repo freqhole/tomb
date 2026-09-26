@@ -78,8 +78,20 @@ pub struct ControlSocketRequest {
 /// whether the caller's runtime is a `LocalSet` (rathole) or an
 /// ordinary multi-threaded runtime (charnel) - nothing this module
 /// captures is `!Send`.
+///
+/// safe to call before `init_config()` has run - unlike a bare
+/// `get_config()` call, this checks `is_config_initialized()` first
+/// and just skips (logging a warning) rather than panicking, since
+/// callers may be wired up before config load order is fully settled.
 #[cfg(unix)]
 pub fn maybe_spawn(request_tx: mpsc::UnboundedSender<ControlSocketRequest>) {
+    if !crate::config::is_config_initialized() {
+        tracing::warn!(
+            target: "grimoire::control_socket",
+            "maybe_spawn called before config init - control socket not started"
+        );
+        return;
+    }
     let cfg = crate::config::get_config().control_socket;
     if !cfg.enabled {
         return;
