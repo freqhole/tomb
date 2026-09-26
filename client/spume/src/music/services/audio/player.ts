@@ -98,6 +98,27 @@ const DECODE_ELEMENT_ERROR_TYPES = new Set([
   "audio_element_error_decode",
   "video_element_error_decode",
 ]);
+// error_types the rodio backend (grimoire's `player::supervisor`/`rodio`)
+// emits when the audio SUBSYSTEM itself is broken, not just the current
+// track - e.g. no audio output device could be opened at all. treating
+// these like a per-track decode error and calling `playNext()` would
+// just hit the exact same fatal error on every remaining queue item,
+// cascading through the whole queue (or looping indefinitely on repeated
+// manual plays) in a burst of toasts, since every subsequent command
+// fails identically until the app is restarted with working audio. see
+// grimoire/src/player/{rodio,supervisor}.rs for where these originate.
+const BACKEND_FATAL_ERROR_TYPES = new Set([
+  "audio_device_open_failed",
+  "audio_thread_spawn_failed",
+  "command_forward_failed",
+  "audio_supervisor_gave_up",
+]);
+// only surface one toast per user-initiated play attempt, even though a
+// single attempt can produce multiple fatal error events in quick
+// succession (e.g. a dropped `load` AND a dropped `play` command each
+// emit their own event) - reset in `playMediaItem` so a later retry
+// (after the user fixes their audio setup) still gets its own toast.
+let backendFatalNotified = false;
 // delay before retrying a network-error track once, so a transient
 // blip has a moment to clear before we hammer the same request again.
 const NETWORK_RETRY_DELAY_MS = 1500;
@@ -259,6 +280,20 @@ function bindAutoAdvance(backend: PlayerBackend): void {
     if (event.kind === "error") {
       const errorType = event.detail?.error_type;
       const reason = event.detail?.detail ?? event.detail?.title ?? "unknown";
+
+      // the audio subsystem itself is broken (not this specific track) -
+      // stop here instead of advancing the queue, which would just hit
+      // the same fatal error on every remaining item.
+      if (errorType && BACKEND_FATAL_ERROR_TYPES.has(errorType)) {
+        warn("player", `backend "${backend.kind}" fatal error, stopping playback: ${reason}`);
+        if (!backendFatalNotified) {
+          backendFatalNotified = true;
+          toast.error(`audio playback is unavailable: ${reason}`, { title: "playback error" });
+        }
+        markPlaybackEnded();
+        void stopServerSession("completed");
+        return;
+      }
 
       // NETWORK element errors are often transient — retry the same
       // track once (after a short delay) before giving up on it.
@@ -599,6 +634,10 @@ export async function playMediaItem(
     initialDuration?: number;
   }
 ): Promise<void> {
+  // a fresh attempt (manual retry, next-track, whatever) deserves its
+  // own chance to surface the fatal-backend toast again - see
+  // `BACKEND_FATAL_ERROR_TYPES` above.
+  backendFatalNotified = false;
   if (item.kind === "song") {
     await playSong(item.song, options);
     return;
