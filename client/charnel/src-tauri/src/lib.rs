@@ -74,7 +74,18 @@ mod media_session {
     ) {
     }
 }
+#[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
+mod control_socket_bridge;
 mod jobs_events_commands;
+#[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+mod control_socket_bridge {
+    //! mobile stub - the unix control socket is a desktop/pi feature
+    //! (physical GPIO buttons), and depends on `media_session`'s own
+    //! desktop-only `MediaSessionAction`/`emit_action` (mobile's stub
+    //! module doesn't define them) - see that module's own mobile stub
+    //! for the identical split.
+    pub fn init(_app: tauri::AppHandle) {}
+}
 mod player_pairing_accept;
 mod radio_commands;
 #[cfg(unix)]
@@ -455,6 +466,10 @@ pub fn run() {
             // from a spawned task with no AppHandle of its own to emit
             // events through.
             player_pairing_accept::set_app_handle(app.handle().clone());
+            // unix control socket (physical buttons, e.g. a raspberry pi's
+            // GPIO pins) - shared with rathole via grimoire::control_socket.
+            // no-ops unless `[control_socket].enabled` is set.
+            control_socket_bridge::init(app.handle().clone());
             // ---- deep-link plugin -----------------------------------------
             // register `freqhole://` handler. on_open_url fires for runtime
             // url opens; cold-start urls are drained from the pending queue
