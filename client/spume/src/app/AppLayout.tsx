@@ -258,6 +258,24 @@ export function AppLayout(props: AppLayoutProps) {
   const [currentVideoData, setCurrentVideoData] = createSignal<QueuedVideo | null>(null);
   const toggleFavoriteMutation = useToggleFavoriteMutation();
 
+  // charnel's unix control socket bridge (show_admin_pin/rotate_pin/
+  // show_player commands - see control_socket_bridge.rs) tells us to
+  // show the player-pairing route this way, since it has no other way
+  // to drive spume's own router from rust.
+  onMount(() => {
+    let unlisten: (() => void) | undefined;
+    void (async () => {
+      try {
+        // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
+        const { listen } = await import("@tauri-apps/api/event");
+        unlisten = await listen("freqhole:show-player", () => navigate("/player"));
+      } catch {
+        // non-tauri - nothing to listen for.
+      }
+    })();
+    onCleanup(() => unlisten?.());
+  });
+
   // mini video player's "closed" state - the x button pauses + hides the
   // panel without touching the queue (see VideoMiniPlayer's onClose).
   // starts dismissed so a video restored from persisted state on app

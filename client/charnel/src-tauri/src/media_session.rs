@@ -73,7 +73,7 @@ static UNAVAILABLE_REASON: OnceLock<String> = OnceLock::new();
 /// aren't meaningful concepts here.
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
-enum MediaSessionAction {
+pub(crate) enum MediaSessionAction {
     Play,
     Pause,
     PlayPause,
@@ -82,6 +82,18 @@ enum MediaSessionAction {
     Previous,
     SeekTo { ms: u64 },
     SetVolume { volume: f64 },
+}
+
+/// emit a media-session-style action directly to spume, bypassing the
+/// OS media-controls integration entirely (`ensure_started`/`SESSION`
+/// below) - used by the unix control socket bridge, which needs to
+/// reach spume's existing queue-aware action handler (already wired for
+/// OS media keys) regardless of whether OS media session integration
+/// itself is enabled/available.
+pub(crate) fn emit_action(app: &AppHandle, action: MediaSessionAction) {
+    if let Err(e) = app.emit(MEDIA_SESSION_ACTION_EVENT, &action) {
+        warn!(error = %e, "failed to emit media session action to webview");
+    }
 }
 
 /// get-or-init the session, constructing `MediaControls` lazily on first
@@ -168,9 +180,7 @@ fn handle_action(app: &AppHandle, event: Event) {
         Event::SetVolume(v) => MediaSessionAction::SetVolume { volume: v },
         _ => return,
     };
-    if let Err(e) = app.emit(MEDIA_SESSION_ACTION_EVENT, &action) {
-        warn!(error = %e, "failed to emit media session action to webview");
-    }
+    emit_action(app, action);
 }
 
 /// republish the merged state to the OS. cheap to call often - playwire

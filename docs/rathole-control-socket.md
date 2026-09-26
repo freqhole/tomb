@@ -1,15 +1,27 @@
-# rathole unix control socket
+# unix control socket (rathole + charnel)
 
-a local unix domain socket rathole can listen on for simple media-control
-commands - e.g. physical buttons wired to a raspberry pi's GPIO pins,
-forwarded to rathole by a small script that writes a line to the socket.
-off by default. no network exposure risk: unix sockets are local-machine,
-filesystem-permission-gated only.
+a local unix domain socket rathole and charnel can both listen on for
+simple media-control commands - e.g. physical buttons wired to a
+raspberry pi's GPIO pins, forwarded by a small script that writes a
+line to the socket. off by default. no network exposure risk: unix
+sockets are local-machine, filesystem-permission-gated only.
 
-implementation: [`client/rathole/src/tty/control_socket.rs`](../client/rathole/src/tty/control_socket.rs).
-tty-only (the web/wasm build has no listener) and unix-only (`#[cfg(unix)]`
+implementation: the shared listener/wire-protocol lives in
+[`grimoire::control_socket`](../grimoire/src/control_socket.rs) - unix-
+only (`#[cfg(unix)]` - a no-op on any other target, including the web/
+wasm build, which has no listener at all). each app supplies its own
+dispatch for the commands it receives, since rathole (native rodio/mpv
+playback) and charnel (playback lives in the spume webview) have very
+different implementations:
 
-- a no-op on any other target).
+- rathole: [`client/rathole/src/tty/control_socket.rs`](../client/rathole/src/tty/control_socket.rs)
+  (now a thin re-export) dispatches into its own tty `App`/pairing state
+  - see `apply_control_socket_command`/`handle_control_socket_request` in
+    [`client/rathole/src/tty/run.rs`](../client/rathole/src/tty/run.rs).
+- charnel: [`client/charnel/src-tauri/src/control_socket_bridge.rs`](../client/charnel/src-tauri/src/control_socket_bridge.rs)
+  reuses two already-existing bridges instead of building its own
+  playback backend - see that file's own doc comment for the full
+  breakdown, and "charnel-specific notes" below for what's simplified.
 
 ## enabling it
 
@@ -24,7 +36,9 @@ enabled = true
 - `enabled` - default `false`. can also be toggled from rathole's
   player-pairing settings screen (`u`) - like the `p`/`i` toggles there,
   this only persists the config; it takes effect on the next launch
-  (the listener isn't live start/stop-able mid-session today).
+  (the listener isn't live start/stop-able mid-session today). charnel
+  has no equivalent settings-screen toggle yet - edit the config file
+  directly and restart.
 - `socket_path` - default `~/rathole-control.sock` (home dir) when
   unset - deliberately outside the grimoire data dir so an external
   button-wiring script can find it regardless of which config/data dir
@@ -119,3 +133,38 @@ displayed "admin pin" value in the data model. this split is a reasonable
 first interpretation of "show admin pin" / "rotate pin" as two distinct
 physical-button actions, not a confirmed design decision - revisit if it
 doesn't match the intended raspberry-pi remote-control workflow.
+
+## charnel-specific notes
+
+charnel has no playback backend of its own in rust - audio/video always
+live in the spume webview - so its dispatcher (`control_socket_bridge.rs`)
+reuses two already-existing bridges instead of a third implementation:
+
+- `play_pause`/`next`/`previous`/`stop` go out over the existing
+  `freqhole:media_session_action` event (the same path OS media keys
+  already use) - spume's own queue-aware handler decides what each means.
+- `volume_up`/`volume_down`/`get_state` go through the same
+  `PlayerCommand`/`CommandAck` pipeline a real paired remote controller
+  uses (`player_pairing_accept.rs`'s dispatch bridge) - always reflects
+  live state, whichever backend is actually playing. volume steps by the
+  same `±0.05` as rathole, but clamped to `0.0..=1.0` (spume's real
+  volume range) rather than rathole's `0.0..=2.0`.
+- `show_admin_pin`/`rotate_pin`/`show_player` act on the same shared
+  pairing state the pairing screen and real controllers see, then bring
+  charnel's main window forward and emit a `freqhole:show-player` event
+  spume listens for to navigate to `/player`.
+- `get_state`'s `"idle"` `kind` is reported more often than rathole's own
+  reply - `PlayerStatus::Paused`/`Buffering`/`Stopped`/`Error` carry no
+  media reference at all in cenotaph's wire protocol (only `NowPlaying`/
+  `PlayingRadio` do), so a paused song still reports as idle (with
+  whatever position/volume IS known) rather than with its real title.
+- `list_audio_devices`/`set_audio_device` are unimplemented in charnel -
+  no audio-output-device enumeration exists anywhere in charnel/spume
+  today, for any backend. `list_audio_devices` replies with an empty
+  device list (an honest answer, not an error); `set_audio_device` is
+  logged and ignored.
+- these commands only work once `[player_pairing].enabled` is on and
+  federation has actually started this launch - `volume_up`/`volume_down`/
+  `get_state`/pin commands log a warning and no-op otherwise (`play_pause`/
+  `next`/`previous`/`stop` work regardless, since the media-session event
+  doesn't depend on pairing at all).

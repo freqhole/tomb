@@ -27,8 +27,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 
 use grimoire::cenotaph::{
-    command_summary, CommandAck, CommandAckReason, PairingCode, PairingDispatchRx, PlayerCommand,
-    PlayerProtocol, PlayerSession, PlayerStatus, SessionMode, SharedPairingState, StatusCommon,
+    command_summary, CommandAck, CommandAckReason, PairingCode, PairingDispatchRequest,
+    PairingDispatchRx, PairingDispatchTx, PlayerCommand, PlayerProtocol, PlayerSession,
+    PlayerStatus, SessionMode, SharedPairingState, StatusCommon,
 };
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
@@ -37,6 +38,7 @@ use tokio::sync::oneshot;
 static APP_HANDLE: OnceLock<AppHandle> = OnceLock::new();
 static STATE: OnceLock<SharedPairingState> = OnceLock::new();
 static STATUS_TX: OnceLock<tokio::sync::watch::Sender<PlayerStatus>> = OnceLock::new();
+static DISPATCH_TX: OnceLock<PairingDispatchTx> = OnceLock::new();
 static PENDING_REPLIES: Mutex<Option<HashMap<String, oneshot::Sender<CommandAck>>>> =
     Mutex::new(None);
 static NEXT_REQUEST_ID: AtomicU64 = AtomicU64::new(0);
@@ -88,6 +90,7 @@ pub fn build_player_protocol() -> PlayerProtocol {
     });
     let _ = STATE.set(state.clone());
     let _ = STATUS_TX.set(status_tx.clone());
+    let _ = DISPATCH_TX.set(dispatch_tx.clone());
 
     let state_for_bootstrap = state.clone();
     tauri::async_runtime::spawn(async move {
@@ -107,6 +110,40 @@ pub fn set_node_id(node_id: String) {
         let mut guard = state.lock().unwrap_or_else(|p| p.into_inner());
         guard.node_id = Some(node_id);
     }
+}
+
+/// the shared pairing state, for other in-process callers that need to
+/// act on the SAME state the pairing screen and real remote controllers
+/// see - e.g. `control_socket_bridge.rs`'s pin-rotation commands. `None`
+/// before `build_player_protocol()` has run (player pairing never
+/// started this launch).
+pub fn shared_state() -> Option<SharedPairingState> {
+    STATE.get().cloned()
+}
+
+/// dispatch a `PlayerCommand` as if it arrived from an already-connected,
+/// trusted controller - reuses the exact same command pipeline real
+/// remote controllers use (the webview's `charnelPlaybackAdapter.ts`),
+/// instead of duplicating play/pause/volume/status logic for another
+/// local caller (the unix control socket bridge). `Err` before
+/// `build_player_protocol()` has run, or if the dispatch bridge task has
+/// since stopped.
+pub async fn dispatch_local_command(command: PlayerCommand) -> Result<CommandAck, String> {
+    let tx = DISPATCH_TX
+        .get()
+        .ok_or_else(|| "player pairing not started".to_string())?;
+    let (reply_tx, reply_rx) = oneshot::channel();
+    tx.send(PairingDispatchRequest {
+        // fixed sentinel, never a real iroh node id - `spawn_dispatch_bridge`
+        // treats every dispatch uniformly regardless of source.
+        peer_id: "control-socket".to_string(),
+        command,
+        reply: reply_tx,
+    })
+    .map_err(|_| "dispatch bridge closed".to_string())?;
+    reply_rx
+        .await
+        .map_err(|_| "no reply from dispatch bridge".to_string())
 }
 
 fn spawn_dispatch_bridge(mut rx: PairingDispatchRx) {

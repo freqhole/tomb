@@ -60,6 +60,18 @@ fn find_executable(name: &str) -> Option<PathBuf> {
         }
     }
 
+    // `~/.local/bin` - where `pip install --user`/`pipx install` (the most
+    // common way people get yt-dlp) puts its binary on linux/macOS. not a
+    // literal in `COMMON_PATHS` above since it depends on `$HOME` - a GUI
+    // app launched from a dock/menu (not a login shell) won't have this on
+    // its inherited `PATH` even if the user's own shell does.
+    if let Some(home) = dirs::home_dir() {
+        let candidate = home.join(".local").join("bin").join(name);
+        if candidate.exists() && candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+
     None
 }
 

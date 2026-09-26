@@ -13,6 +13,7 @@ pub mod blob_data;
 pub mod blobz;
 pub mod cenotaph;
 pub mod config;
+pub mod control_socket;
 pub mod database;
 pub mod dbinfo;
 pub mod entities;
