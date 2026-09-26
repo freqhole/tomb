@@ -218,7 +218,13 @@ async fn run_inner(
             crate::ratcore::app::ImageMode::Framebuffer
         }
     };
-    super::control_socket::maybe_spawn(control_tx);
+    let control_socket_token = grimoire::jobs::CancellationToken::new();
+    let control_socket_handle = {
+        let token = control_socket_token.clone();
+        tokio::spawn(async move {
+            super::control_socket::maybe_run(control_tx, token).await;
+        })
+    };
     if opts.player {
         app.state.ephemeral.focus = Focus::PlayerPairing;
         // permanent for the life of this process - never toggled off by
@@ -560,6 +566,8 @@ async fn run_inner(
     if let Err(e) = tokio::time::timeout(Duration::from_secs(5), job_proc_handle).await {
         tracing::warn!("rathole: job processor did not stop within 5s ({e}); abandoning");
     }
+    control_socket_token.cancel();
+    control_socket_handle.abort();
     grimoire_events_handle.abort();
     job_events_handle.abort();
     Ok(())

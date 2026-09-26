@@ -25,6 +25,7 @@
 //! shouldn't need a reconnect.
 
 use tokio::sync::{mpsc, oneshot};
+use tokio_util::sync::CancellationToken;
 
 /// the fixed vocabulary of media-control commands the unix control
 /// socket accepts, one per newline-delimited line (see this module's
@@ -68,27 +69,37 @@ pub struct ControlSocketRequest {
     pub reply: Option<oneshot::Sender<String>>,
 }
 
-/// starts the listener if `[control_socket].enabled` is `true` in the
-/// loaded config; otherwise does nothing (also a no-op on non-unix
-/// targets, where `tokio::net::UnixListener` doesn't exist). best-
-/// effort: a bind/remove failure is logged and leaves the feature
-/// unavailable rather than failing the whole app's startup.
+/// runs the listener (if `[control_socket].enabled` is `true` in the
+/// loaded config; otherwise returns immediately) until either it fails
+/// or `shutdown` is cancelled, cleaning up the socket file either way.
+/// a no-op on non-unix targets, where `tokio::net::UnixListener`
+/// doesn't exist. best-effort: a bind/remove failure is logged and
+/// leaves the feature unavailable rather than failing the whole app's
+/// startup.
 ///
-/// uses a plain `tokio::spawn` (not `spawn_local`) so this works
-/// whether the caller's runtime is a `LocalSet` (rathole) or an
-/// ordinary multi-threaded runtime (charnel) - nothing this module
-/// captures is `!Send`.
+/// mirrors `crate::jobs::run_job_processor_with_token`'s convention:
+/// this is a plain async fn, not something that spawns its own task -
+/// the caller spawns it (`tokio::spawn`/`tauri::async_runtime::spawn`)
+/// on whatever runtime it's already using (a `LocalSet` for rathole, an
+/// ordinary multi-threaded runtime for charnel - nothing this module
+/// captures is `!Send`, so either works). doing it this way (rather
+/// than this fn spawning internally) means it only ever runs with an
+/// ambient tokio context already established by the caller's own spawn
+/// - no manual `Handle::enter()` needed.
 ///
 /// safe to call before `init_config()` has run - unlike a bare
 /// `get_config()` call, this checks `is_config_initialized()` first
 /// and just skips (logging a warning) rather than panicking, since
 /// callers may be wired up before config load order is fully settled.
 #[cfg(unix)]
-pub fn maybe_spawn(request_tx: mpsc::UnboundedSender<ControlSocketRequest>) {
+pub async fn maybe_run(
+    request_tx: mpsc::UnboundedSender<ControlSocketRequest>,
+    shutdown: CancellationToken,
+) {
     if !crate::config::is_config_initialized() {
         tracing::warn!(
             target: "grimoire::control_socket",
-            "maybe_spawn called before config init - control socket not started"
+            "maybe_run called before config init - control socket not started"
         );
         return;
     }
@@ -97,15 +108,25 @@ pub fn maybe_spawn(request_tx: mpsc::UnboundedSender<ControlSocketRequest>) {
         return;
     }
     let path = resolve_socket_path(cfg.socket_path);
-    tokio::spawn(async move {
-        if let Err(e) = run(path, request_tx).await {
-            tracing::warn!(target: "grimoire::control_socket", error = %e, "control socket listener failed");
+    tokio::select! {
+        _ = shutdown.cancelled() => {
+            tracing::info!(target: "grimoire::control_socket", "control socket listener stopping (shutdown requested)");
         }
-    });
+        result = run(path.clone(), request_tx) => {
+            if let Err(e) = result {
+                tracing::warn!(target: "grimoire::control_socket", error = %e, "control socket listener failed");
+            }
+        }
+    }
+    let _ = tokio::fs::remove_file(&path).await;
 }
 
 #[cfg(not(unix))]
-pub fn maybe_spawn(_request_tx: mpsc::UnboundedSender<ControlSocketRequest>) {}
+pub async fn maybe_run(
+    _request_tx: mpsc::UnboundedSender<ControlSocketRequest>,
+    _shutdown: CancellationToken,
+) {
+}
 
 /// default socket path is `~/rathole-control.sock` (home dir, not the
 /// grimoire data dir - deliberately outside the library so it's easy

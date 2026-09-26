@@ -26,8 +26,9 @@
 //! charnel/spume today, for any backend.
 
 use grimoire::cenotaph::{PlayerCommand, PlayerStatus, StatusCommon};
-use grimoire::control_socket::{maybe_spawn, ControlSocketCommand, ControlSocketRequest};
+use grimoire::control_socket::{maybe_run, ControlSocketCommand, ControlSocketRequest};
 use tauri::{AppHandle, Emitter, Manager};
+use tokio_util::sync::CancellationToken;
 use tracing::warn;
 
 use crate::media_session::{emit_action, MediaSessionAction};
@@ -48,11 +49,22 @@ const VOLUME_STEP: f64 = 0.05;
 /// starts the shared control socket listener (if `[control_socket].enabled`)
 /// and spawns the dispatcher that routes each command into whichever
 /// existing bridge above handles it. call once from `lib.rs`'s `setup()`,
-/// after `player_pairing_accept::set_app_handle` - safe to call
-/// unconditionally, `maybe_spawn` itself checks config.
-pub fn init(app: AppHandle) {
+/// after both `player_pairing_accept::set_app_handle` and
+/// `grimoire::config::init_config` - safe to call unconditionally,
+/// `maybe_run` itself checks config. `shutdown` mirrors the job runner's
+/// own `ShutdownToken` convention (see `lib.rs`) so the listener stops
+/// and unlinks its socket file when the app exits, instead of leaking a
+/// detached task for the process lifetime.
+pub fn init(app: AppHandle, shutdown: CancellationToken) {
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<ControlSocketRequest>();
-    maybe_spawn(tx);
+    // `maybe_run` is a plain async fn (like `grimoire::jobs::
+    // run_job_processor_with_token`) - spawning it here, rather than
+    // having it spawn itself, means its internal `tokio::spawn` calls
+    // always run with the ambient runtime context this task is already
+    // being polled under, no manual `Handle::enter()` needed.
+    tauri::async_runtime::spawn(async move {
+        maybe_run(tx, shutdown).await;
+    });
     tauri::async_runtime::spawn(async move {
         while let Some(req) = rx.recv().await {
             let ControlSocketRequest { command, reply } = req;
