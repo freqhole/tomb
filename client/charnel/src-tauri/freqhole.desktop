@@ -6,7 +6,7 @@ Exec=env WEBKIT_DISABLE_COMPOSITING_MODE=1 {{exec}} %u
 Icon={{icon}}
 Terminal=false
 Type=Application
-Categories=AudioVideo;Audio;Player;Music;Network;
+Categories=AudioVideo;Audio;Player;Music;
 Keywords=music;audio;library;server;streaming;p2p;self-hosted;player;collection;freqhole;
 MimeType=x-scheme-handler/freqhole;
 StartupNotify=true
