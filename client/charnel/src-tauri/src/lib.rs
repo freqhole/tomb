@@ -466,10 +466,6 @@ pub fn run() {
             // from a spawned task with no AppHandle of its own to emit
             // events through.
             player_pairing_accept::set_app_handle(app.handle().clone());
-            // unix control socket (physical buttons, e.g. a raspberry pi's
-            // GPIO pins) - shared with rathole via grimoire::control_socket.
-            // no-ops unless `[control_socket].enabled` is set.
-            control_socket_bridge::init(app.handle().clone());
             // ---- deep-link plugin -----------------------------------------
             // register `freqhole://` handler. on_open_url fires for runtime
             // url opens; cold-start urls are drained from the pending queue
@@ -652,6 +648,12 @@ pub fn run() {
                 grimoire::config::init_config(Some(config_path.clone()))
                     .map_err(|e| format!("failed to load config: {}", e))?;
                 tracing::info!(elapsed_ms = %boot_start.elapsed().as_millis(), "boot: grimoire config initialized, starting migrations");
+                // unix control socket (physical buttons, e.g. a raspberry
+                // pi's GPIO pins) - shared with rathole via
+                // grimoire::control_socket. requires config to already be
+                // initialized (it reads `[control_socket]` synchronously);
+                // no-ops unless `.enabled` is set.
+                control_socket_bridge::init(app.handle().clone());
                 tauri::async_runtime::block_on(async {
                     if let Err(e) = grimoire::database::run_migrations().await {
                         tracing::warn!(error = %e, "migration warning");
