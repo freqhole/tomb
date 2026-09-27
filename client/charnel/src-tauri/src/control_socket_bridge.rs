@@ -125,19 +125,16 @@ async fn dispatch(app: &AppHandle, command: ControlSocketCommand) -> Option<Stri
             None
         }
         ControlSocketCommand::GetState => Some(get_state_json().await),
-        ControlSocketCommand::ListAudioDevices => {
-            // known gap - see this module's own doc comment. an empty
-            // list is a real, honest answer ("nothing to pick from"),
-            // matching every spume backend's own convention for
-            // platforms/elements with no output-device concept.
-            Some(r#"{"backend":"audio","devices":[]}"#.to_string())
-        }
+        ControlSocketCommand::ListAudioDevices => Some(list_audio_devices_json().await),
         ControlSocketCommand::SetAudioDevice(name) => {
-            warn!(
-                target: "charnel::control_socket",
-                device = %name,
-                "set_audio_device: not supported yet in charnel (no output-device switching exists for any backend)"
-            );
+            if let Err(e) =
+                player_pairing_accept::dispatch_local_command(PlayerCommand::SetOutputDevice {
+                    name,
+                })
+                .await
+            {
+                warn!(target: "charnel::control_socket", error = %e, "set_audio_device failed");
+            }
             None
         }
     }
@@ -271,6 +268,37 @@ fn media_kind_str(kind: grimoire::cenotaph::MediaKind) -> &'static str {
         grimoire::cenotaph::MediaKind::Audio => "song",
         grimoire::cenotaph::MediaKind::Video => "video",
     }
+}
+
+/// builds the `{"backend":"audio","devices":[...]}` reply
+/// docs/rathole-control-socket.md documents, via the same real dispatch
+/// pipeline `get_state_json` uses - always a fresh query (never cached),
+/// since devices can be plugged/unplugged at any time. `"backend"` is
+/// always `"audio"` here (unlike rathole's mpv-vs-rodio split) - charnel
+/// has no equivalent native video backend reachable through cenotaph's
+/// `PlayerCommand` (gst video playback is a separate, local-only system -
+/// see `video_window/`), so every device query through this pipeline is
+/// necessarily about whichever backend `charnelPlaybackAdapter.ts` is
+/// using for audio.
+async fn list_audio_devices_json() -> String {
+    let ack = match player_pairing_accept::dispatch_local_command(PlayerCommand::ListOutputDevices)
+        .await
+    {
+        Ok(ack) if ack.ok => ack,
+        Ok(ack) => {
+            warn!(target: "charnel::control_socket", reason = ?ack.reason, "list_audio_devices rejected");
+            return serde_json::json!({ "backend": "audio", "devices": [] }).to_string();
+        }
+        Err(e) => {
+            warn!(target: "charnel::control_socket", error = %e, "list_audio_devices failed");
+            return serde_json::json!({ "backend": "audio", "devices": [] }).to_string();
+        }
+    };
+    serde_json::json!({
+        "backend": "audio",
+        "devices": ack.devices.unwrap_or_default(),
+    })
+    .to_string()
 }
 
 /// rotates the pairing session pin on the SAME shared state the pairing

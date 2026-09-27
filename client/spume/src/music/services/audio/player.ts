@@ -30,6 +30,7 @@
 
 import { HtmlAudioBackend } from "./backends/htmlAudio";
 import { BackendPlaybackError, type PlayerBackend } from "./backend";
+import type { AudioDeviceInfo } from "@freqhole/api-client";
 import { VideoBackend } from "../../../video/services/videoBackend";
 import { VideoWindowBackend } from "../../../video/services/videoWindowBackend";
 import { selectVideoBackend } from "./selectVideo";
@@ -823,6 +824,48 @@ export function setPlayerVolume(vol: number): void {
   if (activeBackend !== htmlBackend) {
     void activeBackend.send({ kind: "set_volume", v: vol });
   }
+}
+
+// how long to wait for a `list_output_devices` reply before giving up and
+// reporting an empty list - every backend answers `list_output_devices`
+// synchronously in practice (html/dummy emit an immediate empty reply,
+// rodio's reply is a same-process ipc round trip), so this is purely a
+// safety net against a future backend that never replies at all.
+const LIST_DEVICES_TIMEOUT_MS = 3000;
+
+/** queries the ACTIVE backend's current audio output devices - always a
+ * fresh query (never cached), since devices can be plugged/unplugged at
+ * any time and a stale list would offer a device that no longer exists.
+ * every backend answers `list_output_devices` (see `PlayerBackend.send`'s
+ * own doc comment on this not being a hard requirement, but this one
+ * command IS answered unconditionally by every backend - html/dummy just
+ * reply with an empty list, since neither has a native device concept). */
+export function listOutputDevices(): Promise<AudioDeviceInfo[]> {
+  const backend = activeBackend;
+  return new Promise((resolve) => {
+    let settled = false;
+    const unsubscribe = backend.subscribe((event) => {
+      if (settled || event.kind !== "output_devices") return;
+      settled = true;
+      unsubscribe();
+      resolve(event.devices);
+    });
+    void backend.send({ kind: "list_output_devices" });
+    setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      unsubscribe();
+      warn("player", `backend "${backend.kind}" didn't reply to list_output_devices in time`);
+      resolve([]);
+    }, LIST_DEVICES_TIMEOUT_MS);
+  });
+}
+
+/** switches the active backend's audio output device - `name` must come
+ * from a device `listOutputDevices()` just reported (see
+ * `AudioDeviceInfo.name`). a no-op on backends with no device concept. */
+export function setOutputDevice(name: string): void {
+  void activeBackend.send({ kind: "set_output_device", name });
 }
 
 // unified queue traversal. both backends emit `kind: "ended"` when a

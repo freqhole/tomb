@@ -201,11 +201,20 @@ export const remoteVolume = (): number => remoteStatus()?.volume ?? 1;
  * like a live stream by callers, same as radio). */
 export const remoteDurationMs = (): number | undefined => remoteCurrentItem()?.duration_ms;
 
+/** one audio output device the remote target reported, mirroring
+ * grimoire's `player::control::AudioDeviceInfo` (the rust wire type this
+ * has to match exactly). */
+export interface RemoteAudioDeviceInfo {
+  name: string;
+  description: string;
+}
+
 interface CommandAck {
   type: "command_ack";
   ok: boolean;
   reason?: string;
   status?: RemoteStatus;
+  devices?: RemoteAudioDeviceInfo[];
 }
 
 /** turns a command_ack's machine-readable `reason` into something worth
@@ -710,6 +719,22 @@ export async function remoteSetVolume(volume: number): Promise<void> {
 
 export async function remoteGetStatus(): Promise<void> {
   await sendControl({ command: "get_status" });
+}
+
+/** queries the active remote target's current audio output devices -
+ * always a fresh query (never cached on either end), since devices can
+ * be plugged/unplugged at any time. empty when nothing's active, or the
+ * remote has no native device concept (see `PlaybackBackend.
+ * listOutputDevices`'s own doc comment). */
+export async function remoteListOutputDevices(): Promise<RemoteAudioDeviceInfo[]> {
+  const ack = await sendControl({ command: "list_output_devices" });
+  return ack?.devices ?? [];
+}
+
+/** switches the active remote target's audio output device - `name` must
+ * come from a device `remoteListOutputDevices()` just reported. */
+export async function remoteSetOutputDevice(name: string): Promise<void> {
+  await sendControl({ command: "set_output_device", name }, { trackPending: true });
 }
 
 /** fetches the active target's current status directly, without relying

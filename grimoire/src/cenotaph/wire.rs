@@ -339,6 +339,19 @@ pub enum PlayerCommand {
         station_id: Option<String>,
     },
     StopRadio,
+    /// request a one-shot list of the player's currently-available audio
+    /// output devices (e.g. a pi's hdmi vs. 3.5mm jack vs. a usb dac) -
+    /// replied with on [`CommandAck::devices`], since device names have
+    /// no natural home on [`PlayerStatus`] (they're not part of "what's
+    /// playing", and refreshing on every status push would be wasted
+    /// work for something a controller only needs when its device-
+    /// picker ui is actually open).
+    ListOutputDevices,
+    /// switch the player's audio output to a specific device (the `name`
+    /// from a previously-reported [`AudioDeviceInfo`]).
+    SetOutputDevice {
+        name: String,
+    },
 }
 
 /// short, log-safe summary of a command - `{:?}` on the real value would
@@ -375,6 +388,10 @@ pub fn command_summary(command: &PlayerCommand) -> String {
             station_id,
         } => format!("TuneRadio {{ peer_addr: {peer_addr}, station_id: {station_id:?} }}"),
         PlayerCommand::StopRadio => "StopRadio".to_string(),
+        PlayerCommand::ListOutputDevices => "ListOutputDevices".to_string(),
+        PlayerCommand::SetOutputDevice { name } => {
+            format!("SetOutputDevice {{ name: {name:?} }}")
+        }
     }
 }
 
@@ -571,6 +588,13 @@ pub struct CommandAck {
     pub reason: Option<CommandAckReason>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub status: Option<PlayerStatus>,
+    /// reply to [`PlayerCommand::ListOutputDevices`] - `None` for every
+    /// other command. devices change over time (unplug/replug), so this
+    /// is never cached beyond a single ack - a controller wanting a fresh
+    /// list sends a fresh `list_output_devices` command each time (e.g.
+    /// whenever its device-picker ui opens).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub devices: Option<Vec<crate::player::control::AudioDeviceInfo>>,
 }
 
 fn command_ack_kind() -> &'static str {
@@ -584,6 +608,21 @@ impl CommandAck {
             ok: true,
             reason: None,
             status: Some(status),
+            devices: None,
+        }
+    }
+    /// like `ok`, but also carries the reply to a `ListOutputDevices`
+    /// request - see `CommandAck::devices`'s own doc comment.
+    pub fn ok_devices(
+        status: PlayerStatus,
+        devices: Vec<crate::player::control::AudioDeviceInfo>,
+    ) -> Self {
+        Self {
+            kind: "command_ack",
+            ok: true,
+            reason: None,
+            status: Some(status),
+            devices: Some(devices),
         }
     }
     pub fn err(reason: CommandAckReason) -> Self {
@@ -592,6 +631,7 @@ impl CommandAck {
             ok: false,
             reason: Some(reason),
             status: None,
+            devices: None,
         }
     }
 }

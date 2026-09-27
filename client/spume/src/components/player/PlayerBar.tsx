@@ -91,6 +91,12 @@ export interface PlayerBarProps {
   onSeek: (percentage: number) => void;
   /** callback when volume changes */
   onVolumeChange: (volume: number) => void;
+  /** queries the active playback target's current audio output devices -
+   * omitted (no device-picker button at all) when the target has no
+   * native device concept. see `VolumeControlProps` for details. */
+  onListOutputDevices?: () => Promise<{ name: string; description: string }[]>;
+  /** switches the active playback target's audio output device. */
+  onSetOutputDevice?: (name: string) => void;
   /** callback when queue toggle clicked */
   onQueueToggle: () => void;
   /** whether previous button is disabled */
@@ -816,6 +822,8 @@ export function PlayerBar(props: PlayerBarProps) {
         <VolumeControl
           volume={props.volume}
           onVolumeChange={props.onVolumeChange}
+          onListOutputDevices={props.onListOutputDevices}
+          onSetOutputDevice={props.onSetOutputDevice}
           class="flex-shrink-0"
         />
 

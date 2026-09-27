@@ -23,6 +23,13 @@ different implementations:
   playback backend - see that file's own doc comment for the full
   breakdown, and "charnel-specific notes" below for what's simplified.
 
+`list_audio_devices`/`set_audio_device` are also reachable over
+cenotaph's remote-pairing `/player` protocol now (not just this local
+socket) - see `PlayerCommand::ListOutputDevices`/`SetOutputDevice` in
+[`grimoire::cenotaph::wire`](../grimoire/src/cenotaph/wire.rs), and
+spume's playerbar volume control, which surfaces a device picker for
+whichever target (local or a remote paired player) is currently active.
+
 ## enabling it
 
 add to `freqhole-config.toml`:
@@ -149,6 +156,16 @@ reuses two already-existing bridges instead of a third implementation:
   live state, whichever backend is actually playing. volume steps by the
   same `±0.05` as rathole, but clamped to `0.0..=1.0` (spume's real
   volume range) rather than rathole's `0.0..=2.0`.
+- `list_audio_devices`/`set_audio_device` go through the SAME
+  `PlayerCommand`/`CommandAck` pipeline as volume/get_state -
+  `PlayerCommand::ListOutputDevices`/`SetOutputDevice` and
+  `CommandAck.devices` were added to cenotaph's wire protocol
+  specifically for this (see
+  [`grimoire::cenotaph::wire`](../grimoire/src/cenotaph/wire.rs)) - always
+  a fresh query, never cached on either end. `"backend"` in the reply is
+  always `"audio"` for charnel (unlike rathole's mpv-vs-rodio split) -
+  charnel's gst video window is a separate, local-only system never
+  reachable through cenotaph's `PlayerCommand` at all.
 - `show_admin_pin`/`rotate_pin`/`show_player` act on the same shared
   pairing state the pairing screen and real controllers see, then bring
   charnel's main window forward and emit a `freqhole:show-player` event
@@ -158,11 +175,6 @@ reuses two already-existing bridges instead of a third implementation:
   media reference at all in cenotaph's wire protocol (only `NowPlaying`/
   `PlayingRadio` do), so a paused song still reports as idle (with
   whatever position/volume IS known) rather than with its real title.
-- `list_audio_devices`/`set_audio_device` are unimplemented in charnel -
-  no audio-output-device enumeration exists anywhere in charnel/spume
-  today, for any backend. `list_audio_devices` replies with an empty
-  device list (an honest answer, not an error); `set_audio_device` is
-  logged and ignored.
 - these commands only work once `[player_pairing].enabled` is on and
   federation has actually started this launch - `volume_up`/`volume_down`/
   `get_state`/pin commands log a warning and no-op otherwise (`play_pause`/

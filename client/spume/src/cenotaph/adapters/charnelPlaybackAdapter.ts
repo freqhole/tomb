@@ -10,7 +10,7 @@
 // different reasons (a queueable domain object here vs. raw bytes
 // there).
 
-import type { MediaRef, PlaybackBackend, PlayerStatus } from "../index";
+import type { AudioDeviceInfo, MediaRef, PlaybackBackend, PlayerStatus } from "../index";
 import { createEffect, createRoot, createSignal, on } from "solid-js";
 import {
   addToQueue,
@@ -20,10 +20,12 @@ import {
   reorderQueue as queueReorderQueue,
 } from "../../music/services/queue/queue";
 import {
+  listOutputDevices,
   pause as pausePlayback,
   play as resumePlayback,
   playNext,
   seek as seekPlayback,
+  setOutputDevice,
   setPlayerVolume,
 } from "../../music/services/audio/player";
 import { currentTime, isPlaying, volume } from "../../music/services/audio/playerState";
@@ -583,6 +585,12 @@ export const charnelPlaybackAdapter: PlaybackBackend<unknown> = {
   },
   setAutoDownloadEnabled(enabled) {
     void persistAutoDownloadEnabled(enabled);
+  },
+  listOutputDevices(): Promise<AudioDeviceInfo[]> {
+    return listOutputDevices();
+  },
+  setOutputDevice(name) {
+    setOutputDevice(name);
   },
   currentStatus,
 };

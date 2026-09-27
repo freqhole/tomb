@@ -68,6 +68,18 @@ const UnresolvedItemRefSchema = z.object({
 });
 export type UnresolvedItemRef = z.infer<typeof UnresolvedItemRefSchema>;
 
+/** one audio output device, as reported by whichever native backend is
+ * actually playing (e.g. rodio/cpal on charnel) - `name` is what a
+ * `set_output_device` command sends back to select it; `description` is
+ * a human-readable label for a device-picker ui. mirrors grimoire's
+ * `player::control::AudioDeviceInfo` (the rust wire type this schema has
+ * to match exactly). */
+const AudioDeviceInfoSchema = z.object({
+  name: z.string(),
+  description: z.string(),
+});
+export type AudioDeviceInfo = z.infer<typeof AudioDeviceInfoSchema>;
+
 export const PlayerCommandSchema = z.discriminatedUnion("command", [
   z.object({ type: z.literal("control"), command: z.literal("play"), item: MediaRefSchema }),
   z.object({
@@ -118,6 +130,12 @@ export const PlayerCommandSchema = z.discriminatedUnion("command", [
     station_id: z.string().optional(),
   }),
   z.object({ type: z.literal("control"), command: z.literal("stop_radio") }),
+  z.object({ type: z.literal("control"), command: z.literal("list_output_devices") }),
+  z.object({
+    type: z.literal("control"),
+    command: z.literal("set_output_device"),
+    name: z.string(),
+  }),
 ]);
 export type PlayerCommand = z.infer<typeof PlayerCommandSchema>;
 
@@ -263,5 +281,9 @@ export const CommandAckSchema = z.object({
   ok: z.boolean(),
   reason: z.enum(["untrusted", "invalid_command", "not_in_session"]).optional(),
   status: PlayerStatusSchema.optional(),
+  /** reply to `list_output_devices` - omitted for every other command.
+   * never cached beyond a single ack, since devices can be plugged/
+   * unplugged at any time - see `AudioDeviceInfoSchema`'s doc comment. */
+  devices: z.array(AudioDeviceInfoSchema).optional(),
 });
 export type CommandAck = z.infer<typeof CommandAckSchema>;

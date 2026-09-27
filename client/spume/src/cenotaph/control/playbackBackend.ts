@@ -7,7 +7,7 @@
 // `charnelPlaybackAdapter.ts`, the only implementation of this interface
 // in use.
 
-import type { MediaRef, PlayerStatus } from "./schema";
+import type { AudioDeviceInfo, MediaRef, PlayerStatus } from "./schema";
 
 // generic over the host's own node/identity handle type (`TNode`) -
 // cenotaph's dispatcher never calls any method on `node` itself, it's
@@ -31,4 +31,11 @@ export interface PlaybackBackend<TNode = unknown> {
   stopRadio(): void;
   setAutoDownloadEnabled(enabled: boolean): void;
   currentStatus(): PlayerStatus;
+  /** fresh (never cached) query of the host's current audio output
+   * devices - empty for a host with no native device concept (e.g. a
+   * plain browser tab). */
+  listOutputDevices(): Promise<AudioDeviceInfo[]>;
+  /** switches audio output to `name` (from a previously-reported
+   * `AudioDeviceInfo`) - a no-op on a host with no device concept. */
+  setOutputDevice(name: string): Promise<void> | void;
 }

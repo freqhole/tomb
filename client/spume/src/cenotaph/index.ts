@@ -29,6 +29,7 @@ export {
   type PresenceQuery,
   type PresenceAnnouncement,
   type MediaRef,
+  type AudioDeviceInfo,
 } from "./control/schema";
 export {
   registerSubscriber,

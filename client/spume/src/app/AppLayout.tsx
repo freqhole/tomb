@@ -65,6 +65,8 @@ import {
   remoteStatusKnown,
   remoteCurrentItem,
   remoteTargetOffline,
+  remoteListOutputDevices,
+  remoteSetOutputDevice,
   setRemoteStatusPolling,
   forceResyncRemoteStatus,
 } from "./services/players/remotePlaybackControl";
@@ -81,12 +83,14 @@ import {
   isVideoWindowActive,
   isLoading,
   isPlaying,
+  listOutputDevices,
   pause,
   pendingUpNextSha256,
   playMediaItem,
   playNext,
   playPrevious,
   seek,
+  setOutputDevice,
   setPlayerVolume,
   togglePlayback,
   volume,
@@ -1979,6 +1983,21 @@ export function AppLayout(props: AppLayoutProps) {
               }
               setPlayerVolume(vol);
             };
+            const onListOutputDevicesCb = () => {
+              if (isRemoteTargetActive()) {
+                if (remoteTargetOffline()) return Promise.resolve([]);
+                return remoteListOutputDevices();
+              }
+              return listOutputDevices();
+            };
+            const onSetOutputDeviceCb = (name: string) => {
+              if (isRemoteTargetActive()) {
+                if (remoteTargetOffline()) return;
+                void remoteSetOutputDevice(name);
+                return;
+              }
+              setOutputDevice(name);
+            };
             const onFavToggle = (songId: string) => {
               if (isRadio()) {
                 // toggle favorite for the currently-playing radio track on
@@ -2177,6 +2196,8 @@ export function AppLayout(props: AppLayoutProps) {
                   onNext={onNext}
                   onSeek={onSeekCb}
                   onVolumeChange={onVolumeChangeCb}
+                  onListOutputDevices={onListOutputDevicesCb}
+                  onSetOutputDevice={onSetOutputDeviceCb}
                   onQueueToggle={handleQueueToggle}
                   onFavoriteToggle={onFavToggle}
                   onImageClick={onImageClick}
