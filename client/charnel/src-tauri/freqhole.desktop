@@ -10,5 +10,5 @@ Categories=AudioVideo;Audio;Player;Music;
 Keywords=music;audio;library;server;streaming;p2p;self-hosted;player;collection;freqhole;
 MimeType=x-scheme-handler/freqhole;
 StartupNotify=true
-StartupWMClass={{name}}
+StartupWMClass=net.freqhole.charnel
 X-GNOME-UsesNotifications=true

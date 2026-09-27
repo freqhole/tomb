@@ -12,6 +12,7 @@
   "app": {
     "windows": [],
     "macOSPrivateApi": true,
+    "enableGTKAppId": true,
     "security": {
       "csp": null,
       "assetProtocol": {
