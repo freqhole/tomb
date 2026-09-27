@@ -8,7 +8,7 @@
 // never clips inside the sidebar's scroll container) - no inline-pills/
 // modal split by player count, since that added an extra component +
 // counting threshold for no real benefit.
-import { createResource, Show } from "solid-js";
+import { createResource, createSignal, Show } from "solid-js";
 import {
   currentPlayersVersion,
   listCurrentPlayers,
@@ -21,8 +21,13 @@ import {
 import {
   remoteStatusKnown,
   remoteCommandPending,
+  remoteListOutputDevices,
+  remoteSetOutputDevice,
+  remoteTargetOffline,
 } from "../../app/services/players/remotePlaybackControl";
+import { listOutputDevices, setOutputDevice } from "../../music/services/audio/player";
 import { isOnline, refreshPlayerStatus } from "../../app/services/remotes/remoteHealth";
+import { isMobile } from "../../utils/isMobile";
 import { Icon } from "../icons/registry";
 import { ClickDropdownMenu, type MenuAction } from "../overlays/ContextMenu";
 import { CometBorderRing } from "../feedback";
@@ -77,6 +82,37 @@ export function QueuePlayerTargetRow() {
     }),
   ];
 
+  // narrow mobile playerbar has no room for VolumeControl's own headphones
+  // button (see its doc comment), so the active target's output-device
+  // picker moves down here instead - same "this device" vs "player" split
+  // as `actions()` above, just for audio devices instead of playback
+  // targets. always re-queried fresh on open, never cached (devices can be
+  // plugged/unplugged at any time).
+  const [selectedDevice, setSelectedDevice] = createSignal<string | null>(null);
+  const [devices, { refetch: refetchDevices }] = createResource(async () => {
+    if (activeTarget().kind === "player") {
+      if (remoteTargetOffline()) return [];
+      return remoteListOutputDevices();
+    }
+    return listOutputDevices();
+  });
+
+  const pickDevice = (name: string) => {
+    setSelectedDevice(name);
+    if (activeTarget().kind === "player") {
+      void remoteSetOutputDevice(name);
+    } else {
+      setOutputDevice(name);
+    }
+  };
+
+  const deviceActions = (): MenuAction[] =>
+    (devices() ?? []).map((d) => ({
+      label: d.description,
+      icon: selectedDevice() === d.name ? "check" : undefined,
+      onClick: () => pickDevice(d.name),
+    }));
+
   return (
     // also shown whenever the active target is already a player, even if
     // it hasn't been health-probed as one yet (e.g. right after pairing,
@@ -84,7 +120,27 @@ export function QueuePlayerTargetRow() {
     // otherwise a brand-new pairing hides this row entirely, with no way
     // back to "this device".
     <Show when={(pairedPlayers()?.length ?? 0) > 0 || activeTarget().kind === "player"}>
-      <div class="flex justify-end px-3 py-2">
+      <div class="flex justify-end items-center gap-2 px-3 py-2">
+        <Show when={isMobile()}>
+          <ClickDropdownMenu
+            trigger={
+              <button
+                type="button"
+                class="flex items-center justify-center w-8 h-8 rounded-full bg-[var(--color-accent-500)]/10 text-[var(--color-text-secondary)] hover:bg-[var(--color-accent-500)]/20 transition-colors focus:outline-none border"
+                data-testid="queue-output-device-picker"
+                title="audio output device"
+                aria-label="audio output device"
+              >
+                <Icon name="headphones" size={16} />
+              </button>
+            }
+            actions={deviceActions()}
+            onOpen={() => {
+              setSelectedDevice(null);
+              void refetchDevices();
+            }}
+          />
+        </Show>
         <CometBorderRing active={showSyncRing()}>
           <ClickDropdownMenu
             trigger={

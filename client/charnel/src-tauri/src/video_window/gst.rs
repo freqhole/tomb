@@ -17,7 +17,7 @@ use gstreamer as gst;
 // single targeted trait import (not the full gst::prelude::*) so this
 // doesn't reintroduce the ambiguous-Cast collision with gtk's own prelude
 // noted below.
-use gstreamer::prelude::GstBinExt as _;
+use gstreamer::prelude::{ElementExt as _, GstBinExt as _};
 use gstreamer_play::{Play, PlaySignalAdapter, PlayState, PlayVideoRenderer};
 // gdk/glib come from gtk's re-exports so their versions can never drift from
 // gtk's own. importing only gtk's prelude also avoids the ambiguous `Cast`
@@ -38,6 +38,11 @@ thread_local! {
     /// `set_fullscreen` call, so the next video always starts however the
     /// user last left it rather than always resetting to windowed.
     static DEFAULT_FULLSCREEN: std::cell::Cell<bool> = const { std::cell::Cell::new(true) };
+    /// the user's last explicitly-chosen audio sink device (a cpal
+    /// `DeviceId` string, same as the rodio music backend uses), or `None`
+    /// for gstreamer's own `autoaudiosink` choice. remembered across loads
+    /// and window recreation, same convention as `DEFAULT_FULLSCREEN`.
+    static SELECTED_AUDIO_DEVICE: RefCell<Option<String>> = const { RefCell::new(None) };
 }
 
 struct VideoWindow {
@@ -115,6 +120,14 @@ fn handle_on_main(app: &AppHandle<Wry>, command: VideoCommand) -> Result<(), Str
             title,
             start_seconds,
         } => open_or_reuse(app, &path, title.as_deref(), start_seconds),
+        // no window needed to enumerate - lets the picker query devices
+        // before any video has ever been loaded.
+        VideoCommand::ListOutputDevices => {
+            let devices = grimoire::player::rodio::list_output_devices();
+            emit_event(app, &VideoEvent::OutputDevices { devices });
+            Ok(())
+        }
+        VideoCommand::SetOutputDevice { name } => set_output_device(app, name),
         other => with_window(|w| {
             // resolve toggles against real state before touching the pipeline
             let resolved = match other {
@@ -158,8 +171,13 @@ fn apply(w: &mut VideoWindow, command: &VideoCommand) -> Result<(), String> {
         VideoCommand::SetVolume { volume } => w.play.set_volume(*volume),
         VideoCommand::SetFullscreen { fullscreen } => set_fullscreen(w, *fullscreen),
         VideoCommand::Close => {}
-        // Load is handled before this point; toggles are resolved by the caller
-        VideoCommand::Load { .. } | VideoCommand::TogglePlay | VideoCommand::ToggleFullscreen => {}
+        // Load/device commands are handled before this point; toggles are
+        // resolved by the caller.
+        VideoCommand::Load { .. }
+        | VideoCommand::TogglePlay
+        | VideoCommand::ToggleFullscreen
+        | VideoCommand::ListOutputDevices
+        | VideoCommand::SetOutputDevice { .. } => {}
     }
     Ok(())
 }
@@ -267,14 +285,20 @@ fn open_or_reuse(
         });
         // `apply_command`'s Load arm resets `fullscreen` to `false` via its
         // own `..PlayerState::default()` spread - reapply the user's
-        // remembered choice (and actually tell the real gtk window about
-        // it, not just the tracked state) AFTER that reset, or every load
-        // would silently drop back to windowed regardless of what the user
-        // last chose.
+        // remembered choice after that reset, or every load would silently
+        // drop back to windowed regardless of what the user last chose.
+        // the actual `w.window.fullscreen()` call is deferred until after
+        // `show_all()`/`present()` below: on a brand-new, not-yet-mapped
+        // window (first launch only - a reused window is already mapped
+        // from its previous load) some window managers silently ignore a
+        // fullscreen request made before the window is shown.
         let fullscreen = DEFAULT_FULLSCREEN.with(|c| c.get());
         w.state.fullscreen = fullscreen;
-        set_fullscreen(w, fullscreen);
         w.window.set_title(title.unwrap_or("video"));
+        // re-applied on every load (not just window creation) so a device
+        // chosen mid-session survives onto whatever plays next.
+        let device = SELECTED_AUDIO_DEVICE.with(|c| c.borrow().clone());
+        apply_audio_sink(&w.play, device.as_deref())?;
         w.play.set_uri(Some(uri.as_str()));
         w.play.play();
         if let Some(start) = start_seconds.filter(|s| *s > 0.0) {
@@ -286,6 +310,7 @@ fn open_or_reuse(
             control.hide();
         }
         w.window.present();
+        set_fullscreen(w, fullscreen);
         // present() *asks* the window manager for input focus but some
         // wms/compositors ignore or delay that - grab_focus() is a second,
         // more direct request GTK makes of itself. logged so a future "space
@@ -298,34 +323,44 @@ fn open_or_reuse(
     })
 }
 
-/// prefers `gtkglsink` (GL-accelerated compositing, wrapped in a
-/// `glsinkbin` - which inserts the `glupload`/`glcolorconvert` elements it
-/// needs to receive whatever raw format the decoder produces) over plain
-/// `gtksink` (cairo/software compositing). on constrained hardware like a
-/// raspberry pi, plain gtksink is CPU-bound and can visibly stutter even on
-/// a short clip that a GL-composited path handles easily - see
-/// docs/linux-video-window-plan.md's own "start with gtksink, switch if
-/// performance demands it" note. falls back to gtksink if gtkglsink/
-/// glsinkbin aren't installed (`diagnostics()`'s `gtkglsink_available`
-/// reflects the same check).
-///
-/// NOT verified against real raspberry pi hardware yet - if this causes a
-/// NEW regression (black window, crash, worse stutter) rather than fixing
-/// the existing one, that's the first thing to suspect; forcing the
-/// gtksink branch below (skip the `if let` entirely) is the quick revert.
-fn make_video_sink() -> Result<(gst::Element, gtk::Widget), String> {
-    if let (Ok(gl_sink), Ok(sink_bin)) = (
-        gst::ElementFactory::make("gtkglsink").build(),
-        gst::ElementFactory::make("glsinkbin").build(),
-    ) {
-        sink_bin.set_property("sink", &gl_sink);
-        let widget: gtk::Widget = gl_sink.property("widget");
-        tracing::info!("video_window: using gtkglsink (GL-accelerated) via glsinkbin");
-        return Ok((sink_bin, widget));
+/// switch the audio sink and, if a video is already loaded, reload it at the
+/// same position so the new device takes effect immediately - `audio-sink`
+/// is only honored by playbin3 while (re)configuring for a uri, there's no
+/// live hot-swap while PLAYING.
+fn set_output_device(app: &AppHandle<Wry>, name: String) -> Result<(), String> {
+    tracing::info!(device = %name, "video_window: set_output_device");
+    SELECTED_AUDIO_DEVICE.with(|c| *c.borrow_mut() = Some(name));
+    let reload = WINDOW.with(|cell| {
+        cell.borrow().as_ref().and_then(|w| {
+            w.state
+                .path
+                .clone()
+                .map(|path| (path, w.state.title.clone(), w.state.position))
+        })
+    });
+    match reload {
+        Some((path, title, position)) => {
+            open_or_reuse(app, &path, title.as_deref(), Some(position))
+        }
+        // nothing loaded yet - the choice is remembered for the next Load.
+        None => Ok(()),
     }
-    tracing::info!(
-        "video_window: gtkglsink/glsinkbin unavailable, falling back to gtksink (software compositing)"
-    );
+}
+
+/// reverted (2026-09-27): tried preferring `gtkglsink` (GL-accelerated
+/// compositing via `glsinkbin`) over plain `gtksink` to address video
+/// stutter on a raspberry pi - see docs/linux-video-window-plan.md's
+/// "start with gtksink, switch if performance demands it" note. NOT
+/// actually an improvement in practice: on real pi hardware it produced
+/// "No available configurations for the given pixel format" (an EGL/GL
+/// config-negotiation failure) for some videos, which also got
+/// misclassified by `classify_error()`'s crude substring matching as a
+/// misleading "file not found" error (the file was never missing - the
+/// GL pipeline just couldn't negotiate a config for that video's pixel
+/// format). back to plain gtksink until a real fix (e.g. actually
+/// probing available EGL configs before committing to the GL path, or a
+/// v4l2-based hardware decoder) is investigated.
+fn make_video_sink() -> Result<(gst::Element, gtk::Widget), String> {
     let sink = gst::ElementFactory::make("gtksink")
         .build()
         // gtksink ships in its own package (links GTK3) separately from
@@ -333,6 +368,40 @@ fn make_video_sink() -> Result<(gst::Element, gtk::Widget), String> {
         .map_err(|_| "gtksink is unavailable (install gstreamer1.0-gtk3)".to_string())?;
     let widget: gtk::Widget = sink.property("widget");
     Ok((sink, widget))
+}
+
+/// build an explicit `alsasink` for `device` (a cpal `DeviceId` string, e.g.
+/// `alsa:hw:1,0` - see `rodio.rs::list_output_devices`'s doc comment for why
+/// that's also a valid raw ALSA pcm name once the `alsa:` host prefix is
+/// stripped), or fall back to plain `autoaudiosink` when no device is
+/// selected (or the requested one no longer exists). without this,
+/// `playbin3` never gets an explicit `audio-sink` and always lets
+/// `autoaudiosink` pick internally - which is the whole reason there was no
+/// way to test whether its choice is the cause of stuttery audio.
+fn make_audio_sink(device: Option<&str>) -> Result<gst::Element, String> {
+    if let Some(raw) = device {
+        let pcm_id = raw.strip_prefix("alsa:").unwrap_or(raw);
+        match gst::ElementFactory::make("alsasink")
+            .property("device", pcm_id)
+            .build()
+        {
+            Ok(sink) => return Ok(sink),
+            Err(e) => tracing::warn!(
+                pcm_id,
+                error = %e,
+                "video_window: alsasink unavailable for requested device, falling back to autoaudiosink"
+            ),
+        }
+    }
+    gst::ElementFactory::make("autoaudiosink")
+        .build()
+        .map_err(|e| format!("autoaudiosink is unavailable: {e}"))
+}
+
+fn apply_audio_sink(play: &Play, device: Option<&str>) -> Result<(), String> {
+    let sink = make_audio_sink(device)?;
+    play.pipeline().set_property("audio-sink", &sink);
+    Ok(())
 }
 
 fn build_window(app: &AppHandle<Wry>) -> Result<VideoWindow, String> {
@@ -413,11 +482,81 @@ fn build_window(app: &AppHandle<Wry>) -> Result<VideoWindow, String> {
 /// fires again on every subsequent `Load` (a fresh audio sink is created per
 /// uri), so hooking it once here at window-build time is enough for the
 /// window's whole lifetime.
+///
+/// also bumps decodebin3's internal `multiqueue` limits (see the
+/// `GstMultiQueue` branch below) - despite the name, this is no longer
+/// audio-only, kept in one function since both fixes share the same
+/// `deep-element-added` hook.
 fn apply_audio_buffer_tuning(play: &Play) {
     let Ok(bin) = play.pipeline().downcast::<gst::Bin>() else {
         return;
     };
     bin.connect_deep_element_added(|_bin, _sub_bin, element| {
+        // diagnostic only (no behavior change): logs which decoder element
+        // playbin3 actually picked for this video - the most direct way to
+        // tell a software decoder (`libav h.264/h.265 decoder`, cpu-bound)
+        // from a hardware-accelerated one (klass containing "Hardware")
+        // without needing a separate `gst-inspect-1.0` pass on the pi.
+        // `klass()`/`longname()` are plain inherent methods on
+        // `ElementFactory` (no extra prelude trait needed), unlike
+        // `GstObjectExt::name()`'s short registered name.
+        if let Some(factory) = element.factory() {
+            let klass = factory.klass();
+            if klass.contains("Decoder") {
+                tracing::info!(
+                    klass,
+                    longname = factory.longname(),
+                    "video_window: decoder element added to pipeline"
+                );
+            }
+            // diagnostic only: `autoaudiosink` picks its real child sink
+            // (pulsesink/pipewiresink/alsasink) internally and silently -
+            // this is the only place that's ever visible from the app's
+            // own logs, and is the first thing to check when suspecting
+            // the "auto" choice picked a bad device. `device`/`device-name`
+            // are read back (not just requested) since some sinks default
+            // to whatever the daemon considers "default" rather than
+            // reporting an explicit device string.
+            if klass.contains("Sink/Audio") {
+                let device = element
+                    .has_property("device", None)
+                    .then(|| element.property::<String>("device"));
+                let device_name = element
+                    .has_property("device-name", None)
+                    .then(|| element.property::<String>("device-name"));
+                tracing::info!(
+                    klass,
+                    longname = factory.longname(),
+                    ?device,
+                    ?device_name,
+                    "video_window: audio sink element added to pipeline"
+                );
+            }
+        }
+        // decodebin3's internal multiqueue (sitting between demux and
+        // decode) defaults to whichever of 5 buffers / 10MB / 2s hits
+        // first (confirmed via gstreamer's own coreelements docs) - 5
+        // compressed video buffers is a thin cushion against a bursty
+        // demux read (uneven frame sizes, a slow sd card, momentary cpu
+        // contention), and unlike `buffer-time` this queue sits upstream
+        // of decode entirely, so it can starve video AND audio alike.
+        // `type_().name()` is a plain glib method (no gst-specific trait
+        // needed) - used instead of the factory's klass ("Generic",
+        // useless here) to identify this element precisely.
+        if element.type_().name() == "GstMultiQueue" {
+            const MAX_SIZE_BUFFERS: u32 = 64; // was 5
+            const MAX_SIZE_BYTES: u32 = 32 * 1024 * 1024; // was 10MB
+            const MAX_SIZE_TIME_NS: u64 = 6_000_000_000; // was 2s
+            element.set_property("max-size-buffers", MAX_SIZE_BUFFERS);
+            element.set_property("max-size-bytes", MAX_SIZE_BYTES);
+            element.set_property("max-size-time", MAX_SIZE_TIME_NS);
+            tracing::info!(
+                MAX_SIZE_BUFFERS,
+                MAX_SIZE_BYTES,
+                MAX_SIZE_TIME_NS,
+                "video_window: bumped multiqueue limits"
+            );
+        }
         // GstAudioBaseSink (alsasink/pulsesink/pipewiresink) exposes
         // `buffer-time` as a gint64 in microseconds; elements without it
         // (video sinks, decoders, etc.) are silently skipped.
@@ -436,6 +575,21 @@ fn apply_audio_buffer_tuning(play: &Play) {
             "video_window: applying audio buffer tuning"
         );
         element.set_property("buffer-time", buffer_time_us);
+        // read back what the sink actually applied - some sinks clamp a
+        // too-large request to their own max rather than erroring, and
+        // that clamp is reported only via a GLib warning on stderr (never
+        // through `tracing`), which is the likely explanation for the
+        // silent failure to start seen at very large `linux_buffer_frames`
+        // values. logging the readback here makes that visible in
+        // charnel.log without needing to capture stderr separately.
+        let applied: i64 = element.property("buffer-time");
+        if applied != buffer_time_us {
+            tracing::warn!(
+                requested_us = buffer_time_us,
+                applied_us = applied,
+                "video_window: sink clamped requested buffer-time"
+            );
+        }
     });
 }
 
@@ -861,7 +1015,14 @@ fn connect_play_signals(app: &AppHandle<Wry>, play: &Play) -> PlaySignalAdapter 
                     message,
                 },
             );
+            return;
         }
+        // every other warning was previously silently dropped - queue/decoder
+        // underrun warnings ("there may be a timestamping problem", "a lot of
+        // buffers are being dropped", etc) surface here too, and are the most
+        // direct signal for diagnosing stutter/glitchy playback - log them
+        // rather than losing them.
+        tracing::warn!(message = %message, "video_window: pipeline warning");
     });
 
     adapter
@@ -874,13 +1035,6 @@ fn emit_state(app: &AppHandle<Wry>, event: VideoEvent) {
         Some(w) => {
             let before = w.state.state;
             let changed = w.state.apply(&event);
-            tracing::info!(
-                ?before,
-                after = ?w.state.state,
-                ?event,
-                changed,
-                "video_window: emit_state folded event"
-            );
             changed
         }
         // events can arrive after the window is gone; forward them so the

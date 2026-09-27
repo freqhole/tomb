@@ -200,9 +200,11 @@ fn republish(session: &SessionState) {
     );
 
     if track.id.is_empty() {
-        // info, not debug: this being the ONLY thing in the log for a whole
-        // session would mean spume never called set_track at all.
-        info!("media-session: republish skipped, no track id set yet");
+        // debug, not info: this fires on every republish attempt before the
+        // first `set_track` call (e.g. every position tick), which floods
+        // the default info-level log - a real "spume never called
+        // set_track" bug is still visible with debug logging turned on.
+        debug!("media-session: republish skipped, no track id set yet");
         return;
     }
 

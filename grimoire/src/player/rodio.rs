@@ -744,7 +744,7 @@ fn open_device_sink() -> Result<MixerDeviceSink, rodio::stream::DeviceSinkError>
 /// round-trips through [`PlayerCommand::SetOutputDevice`]; the human
 /// `description` comes from `cpal::Device::description()`, falling
 /// back to the id string if a backend doesn't provide one.
-fn list_output_devices() -> Vec<AudioDeviceInfo> {
+pub fn list_output_devices() -> Vec<AudioDeviceInfo> {
     use cpal::traits::{DeviceTrait, HostTrait};
     let host = cpal::default_host();
     match host.output_devices() {
