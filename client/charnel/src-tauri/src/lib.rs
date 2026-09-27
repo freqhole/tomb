@@ -74,7 +74,18 @@ mod media_session {
     ) {
     }
 }
+#[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
+mod control_socket_bridge;
 mod jobs_events_commands;
+#[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+mod control_socket_bridge {
+    //! mobile stub - the unix control socket is a desktop/pi feature
+    //! (physical GPIO buttons), and depends on `media_session`'s own
+    //! desktop-only `MediaSessionAction`/`emit_action` (mobile's stub
+    //! module doesn't define them) - see that module's own mobile stub
+    //! for the identical split.
+    pub fn init(_app: tauri::AppHandle, _shutdown: tokio_util::sync::CancellationToken) {}
+}
 mod player_pairing_accept;
 mod radio_commands;
 #[cfg(unix)]
@@ -637,6 +648,14 @@ pub fn run() {
                 grimoire::config::init_config(Some(config_path.clone()))
                     .map_err(|e| format!("failed to load config: {}", e))?;
                 tracing::info!(elapsed_ms = %boot_start.elapsed().as_millis(), "boot: grimoire config initialized, starting migrations");
+                // unix control socket (physical buttons, e.g. a raspberry
+                // pi's GPIO pins) - shared with rathole via
+                // grimoire::control_socket. requires config to already be
+                // initialized (it reads `[control_socket]` synchronously);
+                // no-ops unless `.enabled` is set. shares the same
+                // ShutdownToken as the job runner so it stops cleanly.
+                let control_socket_token = app.state::<ShutdownToken>().inner().0.as_ref().clone();
+                control_socket_bridge::init(app.handle().clone(), control_socket_token);
                 tauri::async_runtime::block_on(async {
                     if let Err(e) = grimoire::database::run_migrations().await {
                         tracing::warn!(error = %e, "migration warning");

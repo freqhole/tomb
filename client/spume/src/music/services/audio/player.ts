@@ -30,6 +30,7 @@
 
 import { HtmlAudioBackend } from "./backends/htmlAudio";
 import { BackendPlaybackError, type PlayerBackend } from "./backend";
+import type { AudioDeviceInfo } from "@freqhole/api-client";
 import { VideoBackend } from "../../../video/services/videoBackend";
 import { VideoWindowBackend } from "../../../video/services/videoWindowBackend";
 import { selectVideoBackend } from "./selectVideo";
@@ -98,6 +99,27 @@ const DECODE_ELEMENT_ERROR_TYPES = new Set([
   "audio_element_error_decode",
   "video_element_error_decode",
 ]);
+// error_types the rodio backend (grimoire's `player::supervisor`/`rodio`)
+// emits when the audio SUBSYSTEM itself is broken, not just the current
+// track - e.g. no audio output device could be opened at all. treating
+// these like a per-track decode error and calling `playNext()` would
+// just hit the exact same fatal error on every remaining queue item,
+// cascading through the whole queue (or looping indefinitely on repeated
+// manual plays) in a burst of toasts, since every subsequent command
+// fails identically until the app is restarted with working audio. see
+// grimoire/src/player/{rodio,supervisor}.rs for where these originate.
+const BACKEND_FATAL_ERROR_TYPES = new Set([
+  "audio_device_open_failed",
+  "audio_thread_spawn_failed",
+  "command_forward_failed",
+  "audio_supervisor_gave_up",
+]);
+// only surface one toast per user-initiated play attempt, even though a
+// single attempt can produce multiple fatal error events in quick
+// succession (e.g. a dropped `load` AND a dropped `play` command each
+// emit their own event) - reset in `playMediaItem` so a later retry
+// (after the user fixes their audio setup) still gets its own toast.
+let backendFatalNotified = false;
 // delay before retrying a network-error track once, so a transient
 // blip has a moment to clear before we hammer the same request again.
 const NETWORK_RETRY_DELAY_MS = 1500;
@@ -259,6 +281,20 @@ function bindAutoAdvance(backend: PlayerBackend): void {
     if (event.kind === "error") {
       const errorType = event.detail?.error_type;
       const reason = event.detail?.detail ?? event.detail?.title ?? "unknown";
+
+      // the audio subsystem itself is broken (not this specific track) -
+      // stop here instead of advancing the queue, which would just hit
+      // the same fatal error on every remaining item.
+      if (errorType && BACKEND_FATAL_ERROR_TYPES.has(errorType)) {
+        warn("player", `backend "${backend.kind}" fatal error, stopping playback: ${reason}`);
+        if (!backendFatalNotified) {
+          backendFatalNotified = true;
+          toast.error(`audio playback is unavailable: ${reason}`, { title: "playback error" });
+        }
+        markPlaybackEnded();
+        void stopServerSession("completed");
+        return;
+      }
 
       // NETWORK element errors are often transient — retry the same
       // track once (after a short delay) before giving up on it.
@@ -599,6 +635,10 @@ export async function playMediaItem(
     initialDuration?: number;
   }
 ): Promise<void> {
+  // a fresh attempt (manual retry, next-track, whatever) deserves its
+  // own chance to surface the fatal-backend toast again - see
+  // `BACKEND_FATAL_ERROR_TYPES` above.
+  backendFatalNotified = false;
   if (item.kind === "song") {
     await playSong(item.song, options);
     return;
@@ -784,6 +824,48 @@ export function setPlayerVolume(vol: number): void {
   if (activeBackend !== htmlBackend) {
     void activeBackend.send({ kind: "set_volume", v: vol });
   }
+}
+
+// how long to wait for a `list_output_devices` reply before giving up and
+// reporting an empty list - every backend answers `list_output_devices`
+// synchronously in practice (html/dummy emit an immediate empty reply,
+// rodio's reply is a same-process ipc round trip), so this is purely a
+// safety net against a future backend that never replies at all.
+const LIST_DEVICES_TIMEOUT_MS = 3000;
+
+/** queries the ACTIVE backend's current audio output devices - always a
+ * fresh query (never cached), since devices can be plugged/unplugged at
+ * any time and a stale list would offer a device that no longer exists.
+ * every backend answers `list_output_devices` (see `PlayerBackend.send`'s
+ * own doc comment on this not being a hard requirement, but this one
+ * command IS answered unconditionally by every backend - html/dummy just
+ * reply with an empty list, since neither has a native device concept). */
+export function listOutputDevices(): Promise<AudioDeviceInfo[]> {
+  const backend = activeBackend;
+  return new Promise((resolve) => {
+    let settled = false;
+    const unsubscribe = backend.subscribe((event) => {
+      if (settled || event.kind !== "output_devices") return;
+      settled = true;
+      unsubscribe();
+      resolve(event.devices);
+    });
+    void backend.send({ kind: "list_output_devices" });
+    setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      unsubscribe();
+      warn("player", `backend "${backend.kind}" didn't reply to list_output_devices in time`);
+      resolve([]);
+    }, LIST_DEVICES_TIMEOUT_MS);
+  });
+}
+
+/** switches the active backend's audio output device - `name` must come
+ * from a device `listOutputDevices()` just reported (see
+ * `AudioDeviceInfo.name`). a no-op on backends with no device concept. */
+export function setOutputDevice(name: string): void {
+  void activeBackend.send({ kind: "set_output_device", name });
 }
 
 // unified queue traversal. both backends emit `kind: "ended"` when a

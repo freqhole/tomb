@@ -12,6 +12,7 @@
   "app": {
     "windows": [],
     "macOSPrivateApi": true,
+    "enableGTKAppId": true,
     "security": {
       "csp": null,
       "assetProtocol": {
@@ -49,7 +50,8 @@
       "deb": {
         "depends": [
           "libayatana-appindicator3-1",
-          "ffmpeg"
+          "ffmpeg",
+          "pipewire-alsa"
         ],
         "section": "sound",
         "priority": "optional",
@@ -60,7 +62,8 @@
       },
       "rpm": {
         "depends": [
-          "libayatana-appindicator-gtk3"
+          "libayatana-appindicator-gtk3",
+          "pipewire-alsa"
         ],
         "desktopTemplate": "freqhole.desktop",
         "files": {

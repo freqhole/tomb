@@ -182,7 +182,8 @@ pub struct ControlSocketConfig {
     /// enable the unix domain socket media-control listener (default `false`).
     #[serde(default)]
     pub enabled: bool,
-    /// socket path - defaults to `{data_dir}/rathole/control.sock` when unset.
+    /// socket path - defaults to `~/rathole-control.sock` (home dir) when
+    /// unset - see `grimoire::control_socket::resolve_socket_path`.
     #[serde(default)]
     pub socket_path: Option<String>,
 }

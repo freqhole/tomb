@@ -4,7 +4,7 @@
 // playbackBackend.ts.
 
 import { createSignal } from "solid-js";
-import { PlayerCommandSchema, type CommandAck } from "./schema";
+import { PlayerCommandSchema, type AudioDeviceInfo, type CommandAck } from "./schema";
 import { broadcastStatus } from "./statusSubscribers";
 import { markActivity } from "./activityIndicator";
 import type { PlaybackBackend } from "./playbackBackend";
@@ -53,6 +53,10 @@ export async function dispatchCommand<TNode = unknown>(
   const tracksLoading = QR_HIDING_COMMANDS.has(command.command);
   if (command.command !== "get_status") markActivity();
   if (tracksLoading) setCommandInFlight(true);
+  // only populated by `list_output_devices` below - included in the
+  // returned ack alongside the usual `status` (see `CommandAck.devices`'s
+  // own doc comment).
+  let devices: AudioDeviceInfo[] | undefined;
   try {
     switch (command.command) {
       case "play":
@@ -97,6 +101,12 @@ export async function dispatchCommand<TNode = unknown>(
       case "set_auto_download_enabled":
         backend.setAutoDownloadEnabled(command.enabled);
         break;
+      case "list_output_devices":
+        devices = await backend.listOutputDevices();
+        break;
+      case "set_output_device":
+        await backend.setOutputDevice(command.name);
+        break;
       case "get_status":
         break;
     }
@@ -112,7 +122,7 @@ export async function dispatchCommand<TNode = unknown>(
         `${CENOTAPH_QUEUE_TRACE} dispatchCommand: "${command.command}" acked ok=true after ${Date.now() - dispatchStart}ms, queue.length=${status.queue.length}`
       );
     }
-    return { type: "command_ack", ok: true, status };
+    return { type: "command_ack", ok: true, status, devices };
   } catch (err) {
     // a thrown backend method (e.g. queue.ts's addToQueue/playQueue
     // rejecting for a resolved video/song item) previously propagated

@@ -218,7 +218,13 @@ async fn run_inner(
             crate::ratcore::app::ImageMode::Framebuffer
         }
     };
-    super::control_socket::maybe_spawn(control_tx);
+    let control_socket_token = grimoire::jobs::CancellationToken::new();
+    let control_socket_handle = {
+        let token = control_socket_token.clone();
+        tokio::spawn(async move {
+            super::control_socket::maybe_run(control_tx, token).await;
+        })
+    };
     if opts.player {
         app.state.ephemeral.focus = Focus::PlayerPairing;
         // permanent for the life of this process - never toggled off by
@@ -560,6 +566,8 @@ async fn run_inner(
     if let Err(e) = tokio::time::timeout(Duration::from_secs(5), job_proc_handle).await {
         tracing::warn!("rathole: job processor did not stop within 5s ({e}); abandoning");
     }
+    control_socket_token.cancel();
+    control_socket_handle.abort();
     grimoire_events_handle.abort();
     job_events_handle.abort();
     Ok(())
@@ -1990,6 +1998,21 @@ fn handle_pairing_dispatch(
         .iter()
         .map(|e| super::pairing::queue_entry_to_media_ref(e).blake3_hash)
         .collect();
+    // AudioDeviceInfo shape is identical between ratcore's own type and
+    // grimoire::cenotaph's wire type (see that type's own doc comment) -
+    // still a manual field-by-field conversion since they're distinct
+    // rust types (ratcore's copy also has to compile for the wasm shell,
+    // which can't depend on grimoire at all).
+    let output_devices_snapshot = match active_backend {
+        super::pairing::ActiveBackend::Audio => &m.output_devices,
+        super::pairing::ActiveBackend::Video => &vp.audio_devices,
+    }
+    .iter()
+    .map(|d| grimoire::cenotaph::AudioDeviceInfo {
+        name: d.name.clone(),
+        description: d.description.clone(),
+    })
+    .collect();
     let ctx = super::pairing::DispatchContext {
         active_backend,
         player: app.player.clone(),
@@ -2002,6 +2025,7 @@ fn handle_pairing_dispatch(
         is_playing,
         recently_played,
         unresolved_items: app.state.ephemeral.player_pairing.unresolved_items.clone(),
+        output_devices_snapshot,
     };
     tokio::task::spawn_local(async move {
         tracing::info!(target: "player_protocol", "handle_pairing_dispatch: request received from pairing_rx, dispatching");

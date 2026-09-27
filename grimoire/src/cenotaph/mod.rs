@@ -39,3 +39,7 @@ pub use endpoint::{
 pub use import::{import_pushed_media, ImportedMedia};
 pub use state::{ensure_current_pairing_code, PairingRuntimeState, SharedPairingState};
 pub use wire::*;
+// convenience re-export so callers importing the rest of the wire protocol
+// from `cenotaph` don't also need a separate `crate::player::control` import
+// just for `CommandAck::devices`'s element type.
+pub use crate::player::control::AudioDeviceInfo;

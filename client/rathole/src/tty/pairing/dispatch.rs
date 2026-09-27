@@ -69,6 +69,13 @@ pub struct DispatchContext {
     /// `resolve_queue_items` (via `AppAction::PairingItemUnresolved`/
     /// `PairingItemResolved`) actually mutates the real, persisted list.
     pub unresolved_items: Vec<UnresolvedItemRef>,
+    /// last-known audio output devices for `active_backend` (rodio's
+    /// `MusicState::output_devices` or mpv's `VideoPlayerState::
+    /// audio_devices`, whichever is relevant) - built synchronously by
+    /// `run.rs` before dispatch, same as every other field here. see
+    /// `dispatch_pairing_command_inner`'s `ListOutputDevices` arm for
+    /// why this is a cached snapshot rather than a live query.
+    pub output_devices_snapshot: Vec<grimoire::cenotaph::AudioDeviceInfo>,
 }
 
 /// converts a unified queue entry into the wire `MediaRef` shape -
@@ -242,6 +249,10 @@ pub(crate) fn command_summary(command: &PairingCommand) -> String {
             station_id,
         } => format!("TuneRadio {{ peer_addr: {peer_addr}, station_id: {station_id:?} }}"),
         PairingCommand::StopRadio => "StopRadio".to_string(),
+        PairingCommand::ListOutputDevices => "ListOutputDevices".to_string(),
+        PairingCommand::SetOutputDevice { name } => {
+            format!("SetOutputDevice {{ name: {name:?} }}")
+        }
     }
 }
 
@@ -382,6 +393,33 @@ async fn dispatch_pairing_command_inner(
         // not yet supported - see module doc / plan doc follow-ups.
         PairingCommand::SetAutoDownloadEnabled { .. } => {
             CommandAck::err(CommandAckReason::InvalidCommand)
+        }
+        PairingCommand::ListOutputDevices => {
+            // fire a refresh so the NEXT query's cache is fresher (see
+            // `DispatchContext::output_devices_snapshot`'s doc comment) -
+            // none of rathole's backend command channels support a real
+            // awaited round trip from here (fire-and-forget `send()`
+            // only, same as every other generic command), so this
+            // reports the last known snapshot immediately rather than
+            // blocking dispatch on one.
+            send_generic(
+                &ctx,
+                PlayerCmd::ListOutputDevices,
+                crate::ratcore::app::VideoCommand::ListAudioDevices,
+            )
+            .await;
+            let mut ack = status_ack(&ctx, None);
+            ack.devices = Some(ctx.output_devices_snapshot.clone());
+            ack
+        }
+        PairingCommand::SetOutputDevice { name } => {
+            send_generic(
+                &ctx,
+                PlayerCmd::SetOutputDevice(name.clone()),
+                crate::ratcore::app::VideoCommand::SetAudioDevice { name },
+            )
+            .await;
+            status_ack(&ctx, None)
         }
     }
 }
@@ -818,6 +856,7 @@ mod tests {
             is_playing: false,
             recently_played: vec![],
             unresolved_items: vec![],
+            output_devices_snapshot: vec![],
         }
     }
 

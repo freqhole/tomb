@@ -65,6 +65,8 @@ import {
   remoteStatusKnown,
   remoteCurrentItem,
   remoteTargetOffline,
+  remoteListOutputDevices,
+  remoteSetOutputDevice,
   setRemoteStatusPolling,
   forceResyncRemoteStatus,
 } from "./services/players/remotePlaybackControl";
@@ -81,12 +83,14 @@ import {
   isVideoWindowActive,
   isLoading,
   isPlaying,
+  listOutputDevices,
   pause,
   pendingUpNextSha256,
   playMediaItem,
   playNext,
   playPrevious,
   seek,
+  setOutputDevice,
   setPlayerVolume,
   togglePlayback,
   volume,
@@ -257,6 +261,24 @@ export function AppLayout(props: AppLayoutProps) {
   const [currentSongData, setCurrentSongData] = createSignal<Song | null>(null);
   const [currentVideoData, setCurrentVideoData] = createSignal<QueuedVideo | null>(null);
   const toggleFavoriteMutation = useToggleFavoriteMutation();
+
+  // charnel's unix control socket bridge (show_admin_pin/rotate_pin/
+  // show_player commands - see control_socket_bridge.rs) tells us to
+  // show the player-pairing route this way, since it has no other way
+  // to drive spume's own router from rust.
+  onMount(() => {
+    let unlisten: (() => void) | undefined;
+    void (async () => {
+      try {
+        // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
+        const { listen } = await import("@tauri-apps/api/event");
+        unlisten = await listen("freqhole:show-player", () => navigate("/player"));
+      } catch {
+        // non-tauri - nothing to listen for.
+      }
+    })();
+    onCleanup(() => unlisten?.());
+  });
 
   // mini video player's "closed" state - the x button pauses + hides the
   // panel without touching the queue (see VideoMiniPlayer's onClose).
@@ -1961,6 +1983,21 @@ export function AppLayout(props: AppLayoutProps) {
               }
               setPlayerVolume(vol);
             };
+            const onListOutputDevicesCb = () => {
+              if (isRemoteTargetActive()) {
+                if (remoteTargetOffline()) return Promise.resolve([]);
+                return remoteListOutputDevices();
+              }
+              return listOutputDevices();
+            };
+            const onSetOutputDeviceCb = (name: string) => {
+              if (isRemoteTargetActive()) {
+                if (remoteTargetOffline()) return;
+                void remoteSetOutputDevice(name);
+                return;
+              }
+              setOutputDevice(name);
+            };
             const onFavToggle = (songId: string) => {
               if (isRadio()) {
                 // toggle favorite for the currently-playing radio track on
@@ -2159,6 +2196,8 @@ export function AppLayout(props: AppLayoutProps) {
                   onNext={onNext}
                   onSeek={onSeekCb}
                   onVolumeChange={onVolumeChangeCb}
+                  onListOutputDevices={onListOutputDevicesCb}
+                  onSetOutputDevice={onSetOutputDeviceCb}
                   onQueueToggle={handleQueueToggle}
                   onFavoriteToggle={onFavToggle}
                   onImageClick={onImageClick}
