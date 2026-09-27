@@ -65,6 +65,14 @@ export function VolumeControl(props: VolumeControlProps) {
       hideTimeout = null;
     }
     setShowPanel(true);
+    // queried up front (not just when the device dropdown itself opens)
+    // so the headphones button can be hidden entirely when there's
+    // nothing to pick from - see its own `Show` guard below.
+    if (!props.onListOutputDevices) return;
+    void props
+      .onListOutputDevices()
+      .then((list) => setDevices(list))
+      .catch(() => setDevices([]));
   };
 
   const closePanel = (immediate = false) => {
@@ -148,7 +156,7 @@ export function VolumeControl(props: VolumeControlProps) {
 
       <Show when={showPanel()}>
         <div
-          class="absolute right-full top-1/2 -translate-y-1/2 mr-2 flex items-center gap-3 rounded-full bg-[var(--color-bg-primary)]/95 backdrop-blur-xl border border-[var(--color-accent-500)]/30 shadow-lg z-20 px-4 py-2 whitespace-nowrap"
+          class="absolute right-full top-1/2 -translate-y-1/2 mr-2 flex items-center gap-3 rounded-full bg-[var(--color-bg-primary)]/95 backdrop-blur-xl border border-[var(--color-accent-500)]/30 shadow-lg z-[2000] px-4 py-2 whitespace-nowrap"
           data-testid="volume-flyout"
         >
           <span class="text-xs text-[var(--color-accent-500)] font-medium tabular-nums w-8 text-right">
@@ -169,7 +177,7 @@ export function VolumeControl(props: VolumeControlProps) {
             }}
             aria-label="volume slider"
           />
-          <Show when={props.onListOutputDevices}>
+          <Show when={(devices()?.length ?? 0) > 0}>
             <div class="relative flex items-center">
               <button
                 type="button"
@@ -190,7 +198,7 @@ export function VolumeControl(props: VolumeControlProps) {
 
               <Show when={showDevices()}>
                 <div
-                  class="absolute right-0 top-full mt-2 min-w-[12rem] max-w-[16rem] max-h-56 overflow-y-auto rounded-lg bg-[var(--color-bg-primary)]/95 backdrop-blur-xl border border-[var(--color-accent-500)]/30 shadow-lg z-20 py-1"
+                  class="absolute right-0 bottom-full mb-2 min-w-[12rem] max-w-[16rem] max-h-56 overflow-y-auto rounded-lg bg-[var(--color-bg-primary)]/95 backdrop-blur-xl border border-[var(--color-accent-500)]/30 shadow-lg z-[2001] py-1"
                   data-testid="device-picker-list"
                 >
                   <Show when={devicesLoading()}>
