@@ -32,6 +32,12 @@ use super::{emit_event, VideoWindowDiagnostics};
 thread_local! {
     /// the single live video window, if any. main-thread only.
     static WINDOW: RefCell<Option<VideoWindow>> = const { RefCell::new(None) };
+    /// the user's last explicit fullscreen/windowed choice, remembered
+    /// across video loads (including a brand new window after the
+    /// previous one closed) - defaults to fullscreen. updated by every
+    /// `set_fullscreen` call, so the next video always starts however the
+    /// user last left it rather than always resetting to windowed.
+    static DEFAULT_FULLSCREEN: std::cell::Cell<bool> = const { std::cell::Cell::new(true) };
 }
 
 struct VideoWindow {
@@ -164,6 +170,7 @@ fn set_fullscreen(w: &mut VideoWindow, fullscreen: bool) {
     } else {
         w.window.unfullscreen();
     }
+    DEFAULT_FULLSCREEN.with(|c| c.set(fullscreen));
 }
 
 /// show the centered play/pause icon at full opacity, hold briefly, then
@@ -258,6 +265,15 @@ fn open_or_reuse(
             title: title.map(str::to_string),
             start_seconds,
         });
+        // `apply_command`'s Load arm resets `fullscreen` to `false` via its
+        // own `..PlayerState::default()` spread - reapply the user's
+        // remembered choice (and actually tell the real gtk window about
+        // it, not just the tracked state) AFTER that reset, or every load
+        // would silently drop back to windowed regardless of what the user
+        // last chose.
+        let fullscreen = DEFAULT_FULLSCREEN.with(|c| c.get());
+        w.state.fullscreen = fullscreen;
+        set_fullscreen(w, fullscreen);
         w.window.set_title(title.unwrap_or("video"));
         w.play.set_uri(Some(uri.as_str()));
         w.play.play();
@@ -282,19 +298,53 @@ fn open_or_reuse(
     })
 }
 
-fn build_window(app: &AppHandle<Wry>) -> Result<VideoWindow, String> {
-    // gtksink gives us a real GTK widget, so GTK owns the surface and x11 and
-    // wayland behave identically - the reason gstreamer won over libmpv, whose
-    // `--wid` embedding is x11-only.
+/// prefers `gtkglsink` (GL-accelerated compositing, wrapped in a
+/// `glsinkbin` - which inserts the `glupload`/`glcolorconvert` elements it
+/// needs to receive whatever raw format the decoder produces) over plain
+/// `gtksink` (cairo/software compositing). on constrained hardware like a
+/// raspberry pi, plain gtksink is CPU-bound and can visibly stutter even on
+/// a short clip that a GL-composited path handles easily - see
+/// docs/linux-video-window-plan.md's own "start with gtksink, switch if
+/// performance demands it" note. falls back to gtksink if gtkglsink/
+/// glsinkbin aren't installed (`diagnostics()`'s `gtkglsink_available`
+/// reflects the same check).
+///
+/// NOT verified against real raspberry pi hardware yet - if this causes a
+/// NEW regression (black window, crash, worse stutter) rather than fixing
+/// the existing one, that's the first thing to suspect; forcing the
+/// gtksink branch below (skip the `if let` entirely) is the quick revert.
+fn make_video_sink() -> Result<(gst::Element, gtk::Widget), String> {
+    if let (Ok(gl_sink), Ok(sink_bin)) = (
+        gst::ElementFactory::make("gtkglsink").build(),
+        gst::ElementFactory::make("glsinkbin").build(),
+    ) {
+        sink_bin.set_property("sink", &gl_sink);
+        let widget: gtk::Widget = gl_sink.property("widget");
+        tracing::info!("video_window: using gtkglsink (GL-accelerated) via glsinkbin");
+        return Ok((sink_bin, widget));
+    }
+    tracing::info!(
+        "video_window: gtkglsink/glsinkbin unavailable, falling back to gtksink (software compositing)"
+    );
     let sink = gst::ElementFactory::make("gtksink")
         .build()
-        .map_err(|_| "gtksink is unavailable (install gstreamer1.0-plugins-good)".to_string())?;
-    let video_widget: gtk::Widget = sink.property("widget");
+        // gtksink ships in its own package (links GTK3) separately from
+        // gst-plugins-good, unlike most "good" elements.
+        .map_err(|_| "gtksink is unavailable (install gstreamer1.0-gtk3)".to_string())?;
+    let widget: gtk::Widget = sink.property("widget");
+    Ok((sink, widget))
+}
+
+fn build_window(app: &AppHandle<Wry>) -> Result<VideoWindow, String> {
+    // gtksink/gtkglsink give us a real GTK widget, so GTK owns the surface
+    // and x11 and wayland behave identically - the reason gstreamer won
+    // over libmpv, whose `--wid` embedding is x11-only.
+    let (sink, video_widget) = make_video_sink()?;
 
     let play = Play::new(None::<PlayVideoRenderer>);
     // attach our sink to the underlying pipeline. PlayVideoOverlayVideoRenderer
     // is the documented route but is built around GstVideoOverlay, which
-    // gtksink does not implement.
+    // neither gtksink nor gtkglsink implement.
     play.pipeline().set_property("video-sink", &sink);
     apply_audio_buffer_tuning(&play);
 
