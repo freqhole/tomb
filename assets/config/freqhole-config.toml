@@ -751,3 +751,26 @@ max_concurrent_audio_streams = 2
 # audio limit above by default since video encoding is far more
 # cpu-expensive. default: 1
 max_concurrent_video_streams = 1
+
+# ============================================================================
+# control_socket: local unix domain socket for simple media-control
+# commands (play/pause/next/volume/etc) - e.g. physical buttons wired to
+# a raspberry pi's GPIO pins, forwarded by a small script that writes a
+# line to the socket. shared by rathole and charnel; off by default. no
+# network exposure risk: unix sockets are local-machine, filesystem-
+# permission-gated only. see docs/rathole-control-socket.md for the full
+# wire protocol (commands, query replies) and how each app dispatches it.
+# ============================================================================
+[control_socket]
+# REQUIRED when section exists: main switch (default: false). rathole can
+# also toggle this from its player-pairing settings screen (`u`) - either
+# way it only persists this config value and takes effect on next launch.
+enabled = false
+
+# OPTIONAL: path to the socket file. default when unset: `~/rathole-
+# control.sock` (home dir, NOT data_dir) - deliberately outside the
+# grimoire data dir so an external button-wiring script can find it
+# regardless of which config/data dir is active. the parent directory is
+# created automatically; a stale socket file left behind by a previous,
+# uncleanly-exited run is removed before binding.
+# socket_path = "/custom/path.sock"
