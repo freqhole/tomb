@@ -4,7 +4,7 @@ import { createSignal } from "solid-js";
 import { persistIdentity, resolveIdentity, type IdentityStore } from "@freqhole/haruspex/identity";
 import { clearInProgressTracking } from "../../../music/services/cache/inProgressTracking";
 import type { Song } from "../../../music/services/storage/types";
-import { withQueueEntryId, type MediaItem } from "./mediaItem";
+import { withQueueEntryId, type MediaItem, type QueuedVideo } from "./mediaItem";
 import { notifyQueueDepartures } from "../media/queueDeparture";
 import {
   APP_DB_NAME,
@@ -229,7 +229,11 @@ function toPlainQueueItems(items: MediaItem[]): MediaItem[] {
     }
     return {
       kind: "video" as const,
-      video: { ...item.video, images: item.video.images?.map((img) => ({ ...img })) },
+      video: {
+        ...item.video,
+        images: item.video.images?.map((img) => ({ ...img })),
+        renditions: item.video.renditions?.map((r) => ({ ...r })),
+      },
     };
   });
 }
@@ -329,6 +333,34 @@ async function updateSongInQueue(
   );
 
   // only update if something changed
+  const hasChanges = updatedQueue.some((item, index) => item !== state.queue[index]);
+
+  if (hasChanges) {
+    await setQueue(updatedQueue);
+  }
+}
+
+// refresh a video's `renditions` in place in the queue, if (and only if)
+// it's currently queued - a no-op otherwise. called after a reprocess/
+// transcode job completes so an already-queued video picks up a freshly
+// generated rendition without needing to be removed and re-queued from
+// scratch (playback resolution reads `renditions` straight off the queued
+// item, not a fresh fetch - see playbackBlobId.ts's resolvePlaybackTarget).
+// only ever touches the `renditions` field of a single matching item;
+// every other field (and every other queue item) is left byte-identical.
+async function updateVideoRenditionsInQueue(
+  videoId: string,
+  renditions: QueuedVideo["renditions"]
+): Promise<void> {
+  const state = appState();
+  if (!state?.queue) return;
+
+  const updatedQueue = state.queue.map((item) =>
+    item.kind === "video" && item.video.id === videoId
+      ? { kind: "video" as const, video: { ...item.video, renditions } }
+      : item
+  );
+
   const hasChanges = updatedQueue.some((item, index) => item !== state.queue[index]);
 
   if (hasChanges) {
@@ -605,4 +637,5 @@ export {
   updateAppState,
   updatePendingRemote,
   updateSongInQueue,
+  updateVideoRenditionsInQueue,
 };

@@ -167,14 +167,94 @@ pub fn detect_media_mime_type(filename: &str, data: &[u8]) -> String {
     if image != "application/octet-stream" {
         return image;
     }
-    if let Some(audio) = sniff_audio_mime_type(filename, data) {
-        return audio;
+
+    // an extension mime_guess actually recognizes as audio or video is a
+    // real, unambiguous signal - trust it before any magic-byte guessing
+    // below, so a properly-named .mp4/.mkv file is never relabeled by the
+    // audio-leaning fallback further down.
+    if let Some(mime) = mime_guess::from_path(filename).first() {
+        let mime_str = mime.to_string();
+        if mime_str.starts_with("audio/") || mime_str.starts_with("video/") {
+            return mime_str;
+        }
+    }
+
+    // ftyp (mp4 family) and EBML (mkv/webm family) containers can hold
+    // either audio-only or video content, and the magic bytes alone don't
+    // say which - `sniff_audio_mime_type`'s own fallback below assumes
+    // audio unconditionally for both, which is only safe for a caller
+    // that already knows the domain (`detect_audio_mime_type`'s callers
+    // do). here the domain is unknown, and this same domain-agnostic path
+    // now serves both audio AND video playback (charnel's
+    // `freqhole-media://` handler, used by both `localAudio.ts` and
+    // `localVideo.ts`) - so an unlabeled/`.bin` file with one of these two
+    // magic headers is checked as video first instead: a real audio-only
+    // file mislabeled `video/*` still visibly plays in an `<audio>`
+    // element (the browser probes actual codecs, not just the label),
+    // but a real video file mislabeled `audio/*` is flatly refused by
+    // `<video>` (confirmed live: `NotSupportedError`/media error 4 for
+    // exactly this misidentification - a `.bin`-extensioned mp4/mkv video
+    // sniffed as audio). the one real, non-guessed signal here - an mp4
+    // ftyp box's major brand explicitly declaring itself audio (`M4A `/
+    // `M4B `) - is still honored ahead of the video-first default.
+    if data.len() >= 12 && &data[4..8] == b"ftyp" && matches!(&data[8..12], b"M4A " | b"M4B ") {
+        return "audio/mp4".to_string();
     }
     if let Some(video) = sniff_video_mime_type(filename, data) {
         return video;
     }
+    if let Some(audio) = sniff_audio_mime_type(filename, data) {
+        return audio;
+    }
     tracing::warn!("detect_media_mime_type: could not identify '{filename}' by extension or magic bytes - guessing audio/mpeg");
     "audio/mpeg".to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // a minimal ftyp box: size(4) + "ftyp" + major_brand(4) + minor_version(4)
+    fn ftyp_box(major_brand: &[u8; 4]) -> Vec<u8> {
+        let mut data = vec![0, 0, 0, 32, b'f', b't', b'y', b'p'];
+        data.extend_from_slice(major_brand);
+        data.extend_from_slice(&[0, 0, 0, 0]);
+        data
+    }
+
+    const EBML_HEADER: [u8; 4] = [0x1A, 0x45, 0xDF, 0xA3];
+
+    #[test]
+    fn generic_mp4_ftyp_with_no_extension_is_video_not_audio() {
+        let data = ftyp_box(b"isom");
+        assert_eq!(detect_media_mime_type("abc123.bin", &data), "video/mp4");
+    }
+
+    #[test]
+    fn m4a_branded_ftyp_with_no_extension_is_audio() {
+        let data = ftyp_box(b"M4A ");
+        assert_eq!(detect_media_mime_type("abc123.bin", &data), "audio/mp4");
+    }
+
+    #[test]
+    fn properly_extensioned_mp4_stays_video_regardless_of_ftyp_brand() {
+        let data = ftyp_box(b"isom");
+        assert_eq!(detect_media_mime_type("movie.mp4", &data), "video/mp4");
+    }
+
+    #[test]
+    fn ebml_header_with_no_extension_is_video_not_audio() {
+        assert_eq!(
+            detect_media_mime_type("abc123.bin", &EBML_HEADER),
+            "video/x-matroska"
+        );
+    }
+
+    #[test]
+    fn mp3_still_detected_as_audio() {
+        let data = [b'I', b'D', b'3', 0];
+        assert_eq!(detect_media_mime_type("abc123.bin", &data), "audio/mpeg");
+    }
 }
 
 /// detect file extension from mime type or filename.

@@ -38,14 +38,6 @@ vi.mock("../../../app/api/client", () => ({
   getTransportForRemote: (...a: unknown[]) => getTransportForRemote(...a),
 }));
 
-const resolvePlaybackBlobId = vi.fn(async (...args: unknown[]) => {
-  void args;
-  return "blob-1";
-});
-vi.mock("../playbackBlobId", () => ({
-  resolvePlaybackBlobId: (...a: unknown[]) => resolvePlaybackBlobId(...a),
-}));
-
 const RENDITION_BLOB_ID = "rendition-blob-1";
 
 const syncVideoViaLocalGrimoire = vi.fn(
@@ -120,14 +112,6 @@ beforeEach(() => {
   vi.clearAllMocks();
   isCharnelMode.mockReturnValue(true);
   getRemoteById.mockResolvedValue(remote);
-  // no rendition selected by default - mirrors resolvePlaybackBlobId's own
-  // real fallback (returns the video's own media_blob_id when there's no
-  // rendition), so these tests exercise the "original blob" blake3-shortcut
-  // path rather than accidentally simulating a rendition being played.
-  resolvePlaybackBlobId.mockImplementation(async (...args: unknown[]) => {
-    const v = args[0] as QueuedVideo;
-    return v.media_blob_id;
-  });
   // blobMetadata fetch is best-effort and swallows failures into an empty
   // object - simulate the exact live case (unreachable/timed-out peer).
   getClientForRemote.mockResolvedValue({
@@ -154,7 +138,6 @@ describe("syncVideoToLocal (charnel mode)", () => {
   });
 
   it("ignores the video's own blake3 when a rendition (different blob) is selected, using the rendition's own metadata blake3 instead", async () => {
-    resolvePlaybackBlobId.mockResolvedValue(RENDITION_BLOB_ID);
     getClientForRemote.mockResolvedValue({
       music: {
         blobMetadata: vi.fn(async () => ({ success: true, data: { blake3: "rendition-blake3" } })),
@@ -163,7 +146,19 @@ describe("syncVideoToLocal (charnel mode)", () => {
     // the video's OWN blake3 is for the original blob - must not be reused
     // for a different (rendition) blobId, or the wrong bytes get pulled/
     // played while validated/labeled as the rendition.
-    const v = video({ blake3: "original-blake3" } as Partial<QueuedVideo>);
+    const v = video({
+      blake3: "original-blake3",
+      renditions: [
+        {
+          blob_id: RENDITION_BLOB_ID,
+          label: "compatible",
+          mime: null,
+          blake3: null,
+          width: null,
+          height: null,
+        },
+      ],
+    } as Partial<QueuedVideo>);
 
     const result = await syncVideoToLocal(v, remote);
 
@@ -213,7 +208,6 @@ describe("syncVideoToLocal (charnel mode)", () => {
   });
 
   it("falls back to the original blob when the rendition sync fails", async () => {
-    resolvePlaybackBlobId.mockResolvedValue(RENDITION_BLOB_ID);
     getClientForRemote.mockResolvedValue({
       music: {
         blobMetadata: vi.fn(async () => ({ success: true, data: { blake3: "rendition-blake3" } })),
@@ -222,7 +216,19 @@ describe("syncVideoToLocal (charnel mode)", () => {
     syncVideoViaLocalGrimoire
       .mockResolvedValueOnce({ success: false, error: "rendition unavailable" })
       .mockResolvedValueOnce({ success: true, videoId: "row-1" });
-    const v = video({ blake3: "original-blake3" } as Partial<QueuedVideo>);
+    const v = video({
+      blake3: "original-blake3",
+      renditions: [
+        {
+          blob_id: RENDITION_BLOB_ID,
+          label: "compatible",
+          mime: null,
+          blake3: null,
+          width: null,
+          height: null,
+        },
+      ],
+    } as Partial<QueuedVideo>);
 
     const result = await syncVideoToLocal(v, remote);
 

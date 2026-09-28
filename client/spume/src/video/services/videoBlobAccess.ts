@@ -23,8 +23,9 @@ import { canSyncVideo, syncVideoToLocal } from "./sync/syncVideoToLocal";
 import { getSyncQueueToLocal } from "../../app/services/storage/db";
 import { useVideoWindow } from "../../music/services/audio/selectVideo";
 import { isVideoSyncedLocally } from "./syncState";
-import { resolvePlaybackBlobId } from "./playbackBlobId";
-import { warn } from "../../utils/logger";
+import { resolvePlaybackTarget } from "./playbackBlobId";
+import { isCharnelManagedRemoteSync } from "../../music/services/storage/transportCache";
+import { warn, error as errorLog } from "../../utils/logger";
 
 export async function getVideoURL(
   video: QueuedVideo,
@@ -49,7 +50,32 @@ export async function getVideoURL(
   // straight back to it) without ever dialing out - iroh refuses a
   // self-connect outright, so skipping straight to a local lookup here
   // is required, not just an optimization.
-  const charnelLocalPath = await resolveCharnelLocalBlobPath(video.blake3);
+  //
+  // resolved via `resolvePlaybackTarget` (a rendition if one exists,
+  // else the original) FIRST, and keyed on THAT blob's own blake3 - not
+  // `video.blake3`, which is always the original's hash regardless of
+  // whether a rendition is preferred. checking the original's blake3
+  // unconditionally here was the actual bug behind playback picking the
+  // original even when an already-local, web-compatible rendition
+  // existed right next to it (confirmed live: an AV1/Opus original
+  // served instead of its already-local h264/aac rendition).
+  const target = resolvePlaybackTarget(video);
+  let charnelLocalPath = target.blake3 ? await resolveCharnelLocalBlobPath(target.blake3) : null;
+  // the resolved target (most often a rendition) may have no local copy -
+  // never synced down, or its file went missing from disk - even though
+  // the ORIGINAL is still sitting right there. `resolveCharnelLocalBlobPath`
+  // itself already confirms the file actually exists on disk (not just
+  // that a db row mentions a path - see `local_file_missing_response` in
+  // grimoire's media_blobz/access.rs), so a `null` here specifically means
+  // "not really there", not just "never checked" - worth a real fallback
+  // to the original rather than silently giving up on this blob entirely.
+  if (!charnelLocalPath && target.blobId !== video.media_blob_id && video.blake3) {
+    errorLog(
+      "videoBlobAccess",
+      `"${video.title}": rendition ${target.blobId} has no local file, falling back to original ${video.media_blob_id}`
+    );
+    charnelLocalPath = await resolveCharnelLocalBlobPath(video.blake3);
+  }
   if (charnelLocalPath) {
     const localUrl = await resolveLocalVideoUrl(video.id, charnelLocalPath, !useVideoWindow());
     if (localUrl) return localUrl;
@@ -88,38 +114,41 @@ export async function getVideoURL(
     throw new Error(`remote video has no remote_server_id (id=${video.id})`);
   }
   const remoteId = video.remote_server_id;
+  // a charnel-managed "remote" is really just this device's own library -
+  // both local checks above already covered every file this device could
+  // possibly have (rendition, then original), and iroh flatly refuses a
+  // self-dial anyway, so falling through to `fetchForBlobId` below would
+  // just fail slowly (a pointless P2P timeout) instead of reporting the
+  // real, simple problem: neither file exists on disk right now.
+  if (isCharnelManagedRemoteSync(remoteId)) {
+    throw new Error(
+      `no local file found for "${video.title}" - checked ${target.blobId !== video.media_blob_id ? "its rendition and the original" : "the original"}, neither exists on disk`
+    );
+  }
   const originalBlobId = video.media_blob_id;
-  const blobId = await resolvePlaybackBlobId(video, remoteId);
+  const blobId = target.blobId;
 
   // resolves a specific blob id to a playable url - factored out so a
   // rendition attempt can fall back to the original (see below) without
   // duplicating the P2P/HTTP branching.
   const fetchForBlobId = async (id: string): Promise<string> => {
     // P2P/tauri-managed remotes: resolveBlobUrl already checks the Cache
-    // API before fetching from the peer. a video usually carries no
-    // blake3/size/mime of its own (only set once synced locally, or by a
-    // caller that already knows it up front - e.g. cenotaph's queue-pushed
-    // videos, which carry it straight off the wire `MediaRef` and have no
-    // real remote `media_blob_id` to look anything up by at all) - prefer
-    // that known blake3 for verified streaming when present, same as
-    // `getAudioURL`'s blake3-first resolution. otherwise fall back to the
-    // metadata round-trip (needs a real `media_blob_id` the remote
-    // recognizes), which also gets totalBytes/mimeType for progress.
-    //
-    // `video.blake3` is always the ORIGINAL blob's hash, though - if `id`
-    // is a transcoded rendition instead (a different blob, almost always
-    // a different size/content), the shortcut must not apply: iroh-blobs
-    // fetches by blake3, not blobId, so pairing the rendition's blobId
-    // with the original's blake3 pulls the wrong (often web-incompatible,
-    // e.g. raw DVD mpeg-2) file while labeling it as the rendition - plays
-    // with audio but a black video frame, or size-mismatches entirely
-    // elsewhere (see syncVideoToLocal.ts's identical fix). always resolve
-    // the rendition's own blake3 fresh.
+    // API before fetching from the peer. `target` (whichever blob
+    // `resolvePlaybackTarget` picked above - the rendition or the
+    // original) already carries its own real blake3/mime for free (both
+    // are embedded directly on `video`/`video.renditions`, see
+    // `playbackBlobId.ts`) - no metadata round trip needed for the
+    // common case. the fallback-to-original retry below (after a
+    // rendition attempt fails) still resolves `video.blake3` directly
+    // for the same reason, so the network metadata lookup only ever
+    // kicks in for content this client genuinely knows nothing about yet.
     if (await usesBlobResolver(remoteId)) {
-      const isOriginalBlob = id === originalBlobId;
-      let blake3: string | undefined = isOriginalBlob ? (video.blake3 ?? undefined) : undefined;
+      const knownBlake3 =
+        id === blobId ? target.blake3 : id === originalBlobId ? video.blake3 : null;
+      const knownMime = id === blobId ? target.mime : null;
+      let blake3: string | undefined = knownBlake3 ?? undefined;
       let totalBytes: number | undefined;
-      let mimeType: string | undefined;
+      let mimeType: string | undefined = knownMime ?? undefined;
       if (!blake3) {
         try {
           const remote = await getRemoteById(remoteId);

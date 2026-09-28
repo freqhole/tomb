@@ -6,6 +6,25 @@ use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use zod_gen_derive::ZodSchema;
 
+/// a single transcoded rendition of a video's original media blob -
+/// embedded directly on `Video::renditions` (see its doc comment) so a
+/// client always has every rendition's own blob id + blake3 + mime
+/// alongside the original's, without a separate round trip or the server
+/// trying to be clever about picking one on the client's behalf.
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema, PartialEq, FromRow)]
+pub struct VideoRendition {
+    pub blob_id: String,
+    pub label: String,
+    pub mime: Option<String>,
+    /// content-addressed hash of this rendition's own bytes - lets a
+    /// remote peer (e.g. a `--player`'s `freqhole-player/1` queue-push
+    /// receiver) pull THIS smaller/pre-transcoded file directly by hash
+    /// instead of the (possibly much larger) original.
+    pub blake3: Option<String>,
+    pub width: Option<i64>,
+    pub height: Option<i64>,
+}
+
 /// video model (~ songz for the video domain). covers a standalone
 /// movie/clip (`series_id`/`season_id` both `None`), a season-less
 /// docuseries episode (`series_id` set, `season_id` `None`), and a full tv
@@ -48,6 +67,21 @@ pub struct Video {
     /// select it falls back to `None` instead of failing at runtime.
     #[sqlx(default)]
     pub images: Option<JsonVec<ImageMetadata>>,
+    /// every transcoded rendition of `media_blob_id` (empty if none exist
+    /// yet/transcoding is disabled) - embedded the same way `images` is,
+    /// so any caller (playback, pre-cache, sync) can pick a rendition (or
+    /// fall back to the original's own `media_blob_id`/`blake3` above)
+    /// using its own real blake3, with no separate `get_video_renditions`
+    /// round trip and no server-side guessing about which one a client
+    /// wants. does NOT include synthesized "skipped" placeholder entries
+    /// (see `VideoRendition`'s sibling in `offal::video::videos` -
+    /// `get_renditions`'s response still does, for a quality-picker UI
+    /// that wants to show every configured target) - a caller here just
+    /// needs to know what's actually playable. `#[sqlx(default)]` so any
+    /// query that forgets to select it falls back to `None` instead of
+    /// failing at runtime.
+    #[sqlx(default)]
+    pub renditions: Option<JsonVec<VideoRendition>>,
     /// total play count from `play_eventz` (entity_type = 'video') -
     /// mirrors `Song::play_count`. `#[sqlx(default)]` so any query that
     /// forgets to select it falls back to `None` instead of failing.

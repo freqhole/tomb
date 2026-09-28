@@ -26,6 +26,32 @@ use tokio::io::AsyncReadExt;
 /// worth a config knob for this.
 const FFMPEG_IDLE_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 
+/// minimum gap between `on_progress` callback invocations in `run_ffmpeg` -
+/// ffmpeg's own stats line arrives every ~0.5-1s, far more often than any
+/// job-progress UI needs.
+const PROGRESS_MIN_INTERVAL: Duration = Duration::from_secs(2);
+
+/// parse the LAST `time=HH:MM:SS.ss` stat ffmpeg printed in this chunk of
+/// its stderr, if any - ffmpeg repeats the full stats line (`frame=...
+/// time=... bitrate=...`) every time it flushes progress, so only the most
+/// recent match in a given read is worth reporting.
+fn parse_last_ffmpeg_time(buf: &[u8]) -> Option<Duration> {
+    let text = String::from_utf8_lossy(buf);
+    let last = text.rmatch_indices("time=").next()?.0;
+    let rest = &text[last + "time=".len()..];
+    let stamp = rest.split_whitespace().next()?;
+    let mut parts = stamp.split(':');
+    let hours: u64 = parts.next()?.parse().ok()?;
+    let minutes: u64 = parts.next()?.parse().ok()?;
+    let seconds: f64 = parts.next()?.parse().ok()?;
+    if seconds.is_sign_negative() {
+        return None; // ffmpeg prints "time=-00:00:00.00" before the first real stat
+    }
+    Some(Duration::from_secs_f64(
+        (hours * 3600 + minutes * 60) as f64 + seconds,
+    ))
+}
+
 /// turn a raw ffmpeg/ffprobe stderr blob into a short, human-readable
 /// summary suitable for surfacing in the client's job-progress UI. the raw
 /// text is often a multi-line tool banner plus a single relevant error line.
@@ -84,11 +110,19 @@ pub fn humanize_ffmpeg_error(raw: &str) -> String {
 /// it exits non-zero. `operation` is a short human label (e.g. "poster
 /// extraction", "transcode rendition 720p") included in any error message
 /// so failures/timeouts are identifiable without needing to correlate logs.
+///
+/// `on_progress`, when given, is called with the elapsed encode time
+/// ffmpeg itself reports (parsed from its own periodic `time=HH:MM:SS.ss`
+/// stderr stats line) - throttled to at most once every `PROGRESS_MIN_INTERVAL`
+/// so a caller wiring this into a job-progress event doesn't flood it.
+/// `None` (the default for callers that don't need live progress, e.g. the
+/// short poster/subtitle extractions) skips parsing entirely.
 pub async fn run_ffmpeg(
     operation: &str,
     args_template: &str,
     substitutions: &[(&str, &str)],
     ffmpeg_path: &str,
+    on_progress: Option<&(dyn Fn(Duration) + Send + Sync)>,
 ) -> Result<(), GrimoireError> {
     // parse the template into argv FIRST, then substitute placeholders
     // per-arg — substituting into the whole string before splitting would
@@ -128,10 +162,27 @@ pub async fn run_ffmpeg(
     let mut stderr_pipe = child.stderr.take().expect("stderr was piped");
     let mut stderr_buf = Vec::new();
     let mut chunk = [0u8; 4096];
+    // how far into stderr_buf we've already scanned for a `time=` stat -
+    // avoids re-parsing the whole (potentially multi-KB) buffer on every
+    // single chunk read.
+    let mut scanned_up_to = 0usize;
+    let mut last_progress_at = std::time::Instant::now() - PROGRESS_MIN_INTERVAL;
     loop {
         match tokio::time::timeout(FFMPEG_IDLE_TIMEOUT, stderr_pipe.read(&mut chunk)).await {
             Ok(Ok(0)) => break, // EOF - ffmpeg closed stderr, process is exiting
-            Ok(Ok(n)) => stderr_buf.extend_from_slice(&chunk[..n]),
+            Ok(Ok(n)) => {
+                stderr_buf.extend_from_slice(&chunk[..n]);
+                if let Some(cb) = on_progress {
+                    if last_progress_at.elapsed() >= PROGRESS_MIN_INTERVAL {
+                        if let Some(elapsed) = parse_last_ffmpeg_time(&stderr_buf[scanned_up_to..])
+                        {
+                            cb(elapsed);
+                            last_progress_at = std::time::Instant::now();
+                        }
+                    }
+                    scanned_up_to = stderr_buf.len();
+                }
+            }
             Ok(Err(e)) => {
                 let _ = child.kill().await;
                 return Err(GrimoireError::ProcessingFailed {

@@ -1116,6 +1116,7 @@ async fn extract_video_poster(
             ("{output}", temp_file.as_str()),
         ],
         &config.media.ffmpeg_path,
+        None,
     )
     .await?;
 
@@ -1222,6 +1223,7 @@ async fn extract_subtitle_track(
             ("{output}", temp_file.as_str()),
         ],
         &config.media.ffmpeg_path,
+        None,
     )
     .await?;
 

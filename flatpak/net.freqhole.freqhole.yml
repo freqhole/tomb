@@ -33,6 +33,13 @@ finish-args:
   - --filesystem=~/.config/dconf:ro
   - --talk-name=ca.desrt.dconf
   - --env=DCONF_USER_CONFIG_DIR=.config/dconf
+  # gtk tries to dbus-activate the accessibility bus (org.a11y.Bus) during
+  # gtk_init - not covered by any --talk-name above, so the sandbox's
+  # filtered dbus proxy reports it as ServiceUnknown, which crashes gtk
+  # init outright on some hosts ("Failed to initialize gtk backend!").
+  # this skips that connection attempt entirely rather than granting a11y
+  # bus access just to silence it.
+  - --env=NO_AT_BRIDGE=1
   # system tray icon
   - --talk-name=org.kde.StatusNotifierWatcher
   - --talk-name=org.freedesktop.Notifications

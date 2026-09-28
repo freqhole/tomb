@@ -432,6 +432,20 @@ pub async fn query_videos(
     );
     query.expr_as(
         Expr::cust(
+            "(SELECT COALESCE(json_group_array(json_object( \
+                        'blob_id', id, \
+                        'label', COALESCE(json_extract(metadata, '$.rendition'), 'rendition'), \
+                        'mime', mime, \
+                        'blake3', blake3, \
+                        'width', width, \
+                        'height', height)), '[]') \
+             FROM media_blobz \
+             WHERE parent_blob_id = videoz.media_blob_id AND blob_type = 'rendition')",
+        ),
+        Alias::new("renditions"),
+    );
+    query.expr_as(
+        Expr::cust(
             "(SELECT COUNT(*) FROM play_eventz WHERE entity_type = 'video' AND entity_id = videoz.id)",
         ),
         Alias::new("play_count"),

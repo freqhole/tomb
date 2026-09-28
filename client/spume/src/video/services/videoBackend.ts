@@ -310,6 +310,15 @@ export class VideoBackend implements PlayerBackend {
           `video.play() rejected for "${video.title}":`,
           playError instanceof Error ? playError.message : playError
         );
+        // the rejection reason alone doesn't say whether the element ever
+        // recorded a MediaError, or what src/network/ready state it
+        // actually landed in - surface that too since it's the difference
+        // between "a network fetch failed" and "the codec/container isn't
+        // supported at all" (MediaError.code 4).
+        errorLog(
+          "player.video",
+          `play() rejection detail for "${video.title}": currentSrc=${el.currentSrc} networkState=${el.networkState} readyState=${el.readyState} error.code=${el.error?.code} error.message=${el.error?.message}`
+        );
         this.emit({
           kind: "state",
           state: el.paused ? (el.currentTime > 0 ? "paused" : "stopped") : "playing",
@@ -403,6 +412,13 @@ export class VideoBackend implements PlayerBackend {
 
     video.addEventListener("error", () => {
       const error = video.error;
+      // the raw MediaError - classifyMediaElementError below folds this
+      // into an `error_type` string for the queue-advance logic, but
+      // doesn't print the actual code/message anywhere on its own.
+      errorLog(
+        "player.video",
+        `video element error: code=${error?.code} message=${error?.message} currentSrc=${video.currentSrc}`
+      );
       this.emit({
         kind: "error",
         detail: classifyMediaElementError(

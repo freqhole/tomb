@@ -159,7 +159,11 @@ transcode_video_enabled = true
 # own size/bitrate, just swaps codecs/container for compatibility).
 [[media.video_transcode_renditions]]
 label = "compatible"
-args = "-i {input} -map 0:v:0 -map 0:a:0? -c:v libx264 -preset veryfast -crf 23 -c:a aac -b:a 192k -movflags +faststart -f mp4 -y {output}"
+# -pix_fmt yuv420p is load-bearing: without it, a 10-bit source (common
+# for HEVC/HDR rips) produces "H.264 High 10" output instead of standard
+# 8-bit H.264 - a valid h264 stream by every check this job does, but not
+# a profile any browser's decoder actually supports.
+args = "-i {input} -map 0:v:0 -map 0:a:0? -c:v libx264 -preset veryfast -crf 23 -pix_fmt yuv420p -c:a aac -b:a 192k -movflags +faststart -f mp4 -y {output}"
 # OPTIONAL: output file extension (no leading dot) - must match whatever
 # container/muxer `args` actually produces (e.g. `-f mp4` -> "mp4", `-f
 # webm` -> "webm"). used for the rendition's stored filename/mime, and

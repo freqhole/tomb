@@ -115,6 +115,7 @@ flatpak build-finish "$BUILD_DIR" \
     --filesystem=~/.config/dconf:ro \
     --talk-name=ca.desrt.dconf \
     --env=DCONF_USER_CONFIG_DIR=.config/dconf \
+    --env=NO_AT_BRIDGE=1 \
     --talk-name=org.kde.StatusNotifierWatcher \
     --talk-name=org.freedesktop.Notifications \
     --talk-name=org.freedesktop.portal.* \

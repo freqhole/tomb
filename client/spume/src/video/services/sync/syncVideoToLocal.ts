@@ -34,7 +34,7 @@ import {
   streamVideoToOPFSWithResume,
   openVideoOPFSChunkSink,
 } from "../opfs/helpers";
-import { resolvePlaybackBlobId } from "../playbackBlobId";
+import { resolvePlaybackTarget } from "../playbackBlobId";
 import { syncVideoViaLocalGrimoire, type VideoSyncResult } from "./syncVideoViaLocalGrimoire";
 import { extensionFromMime } from "../videoMime";
 import type { QueuedVideo } from "../../../app/services/storage/mediaItem";
@@ -275,7 +275,7 @@ async function syncVideoViaCharnel(
     return { success: false, error: `remote ${remoteId} not found` };
   }
 
-  const blobId = await resolvePlaybackBlobId(video, remoteId);
+  const blobId = resolvePlaybackTarget(video).blobId;
 
   // resolves+pulls a specific blob id - factored out so a rendition
   // attempt can fall back to the original below without duplicating the
@@ -395,7 +395,7 @@ export async function syncVideoToLocal(
       return { success: true };
     }
 
-    const blobId = await resolvePlaybackBlobId(video, video.remote_server_id);
+    const blobId = resolvePlaybackTarget(video).blobId;
 
     // fetches bytes for a specific blob id into OPFS - factored out so a
     // rendition attempt can fall back to the original below. keyed by

@@ -53,9 +53,6 @@ export async function resolveLocalVideoUrl(
         throw new Error(`asset fetch returned ${response.status}`);
       }
       const blob = await response.blob();
-      // TEMP(video-window): confirms the fallback handed WebKitGTK a blob:
-      // URL and reports the memory cost that this compatibility mode accepts.
-      console.info(`[video-window] buffered ${videoId} bytes=${blob.size}`);
       return URL.createObjectURL(blob);
     } catch (err) {
       warn("localVideo", `failed to buffer local video ${videoId}:`, err);
