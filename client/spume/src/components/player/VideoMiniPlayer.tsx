@@ -3,6 +3,7 @@ import { Icon, IconNames } from "../icons/registry";
 import { debug } from "../../utils/logger";
 import { isTouchDevice } from "../../utils/isMobile";
 import { useChromeSuppression } from "../../app/shell/chromeSuppression";
+import { getTargetOs, setWindowFullscreen } from "../../app/services/charnel/commands";
 import {
   isPlaying as musicIsPlaying,
   pause as musicPause,
@@ -157,14 +158,46 @@ export function VideoMiniPlayer(props: VideoMiniPlayerProps) {
     const handleEscape = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         setExpanded(false);
+        setWindowsFullscreen(false);
       }
     };
     window.addEventListener("keydown", handleEscape);
     onCleanup(() => window.removeEventListener("keydown", handleEscape));
   });
 
+  // windows: `Element.requestFullscreen()` alone only affects the
+  // webview's own content, not the real OS window - WebView2 doesn't keep
+  // the actual window in sync with a page-level fullscreen request, so it
+  // visually engages for a moment then reverts, and the native window's
+  // own chrome (menu bar included) never actually leaves. rather than try
+  // to make the DOM-level API reliable, drive the real window off a
+  // dedicated signal instead - deliberately NOT `expanded` (that's a
+  // module-level signal documented to survive an incidental remount, and
+  // also independently toggled by the plain "expand panel" button; tying
+  // real OS fullscreen to it would fire on mount whenever `expanded`
+  // already happened to be true, and would make the unrelated expand
+  // button also fullscreen the window). macOS/Linux are untouched, they
+  // don't hit this issue.
+  const [isWindows, setIsWindows] = createSignal(false);
+  const [windowsFullscreen, setWindowsFullscreen] = createSignal(false);
+  onMount(() => {
+    void getTargetOs().then((os) => setIsWindows(os === "windows"));
+  });
+  createEffect(() => {
+    if (!isWindows()) return;
+    void setWindowFullscreen(windowsFullscreen());
+  });
+
   const requestFullscreen = () => {
     const el = videoEl;
+    if (isWindows()) {
+      // expand the panel content too (so the video itself fills the now-
+      // fullscreen window), but the real fullscreen call is driven by its
+      // own signal above - not `expanded` itself.
+      setExpanded(true);
+      setWindowsFullscreen(true);
+      return;
+    }
     console.info(
       "[player.video] requestFullscreen fired, has requestFullscreen:",
       !!el.requestFullscreen,
@@ -185,6 +218,7 @@ export function VideoMiniPlayer(props: VideoMiniPlayerProps) {
   const toggleExpand = () => {
     console.info("[player.video] toggleExpand fired, was", expanded());
     setExpanded((was) => !was);
+    if (isWindows()) setWindowsFullscreen(false);
   };
 
   // pause (if playing) and hide the panel - does NOT touch the queue, so
@@ -192,6 +226,7 @@ export function VideoMiniPlayer(props: VideoMiniPlayerProps) {
   const handleClose = () => {
     console.info("[player.video] handleClose fired, playing:", playing());
     if (playing()) doPause();
+    if (isWindows()) setWindowsFullscreen(false);
     props.onClose?.();
   };
 
