@@ -48,25 +48,38 @@ export function clearAllQueueProgress(): void {
 // save progress to IDB by syncing to songs and persisting the queue.
 // video items are scoped out of progress tracking for now (see phase 9
 // MVP scope note) — they pass through unmodified.
+//
+// skips the setQueue() write entirely when nothing actually changed (e.g.
+// an all-video queue, or a song whose progress hasn't advanced since the
+// last flush) - setQueue()/updateAppState() rebuild the whole queue array
+// and AppState object unconditionally, so calling them on every periodic
+// tick regardless of content churns appState()'s reference for no reason.
+// that reference change is broadly observed (anything reading appState()
+// directly, not just this queue's own progress bars), so a needless tick
+// here was tearing down and rebuilding unrelated UI every few seconds -
+// e.g. VideoMiniPlayer, whose live re-parented <video> element loses
+// fullscreen the instant it gets reparented.
 export async function saveProgressToIDB(): Promise<void> {
   const state = appState();
   if (!state?.queue) return;
 
   try {
     const map = progressMap();
+    let changed = false;
     // sync progress map to song items only
     const updatedQueue = state.queue.map((item) => {
       if (item.kind !== "song") return item;
       const song = item.song;
-      if (song.queue_entry_id && map.has(song.queue_entry_id)) {
-        return {
-          kind: "song" as const,
-          song: { ...song, queue_max_progress: map.get(song.queue_entry_id) },
-        };
-      }
-      return item;
+      const newProgress = song.queue_entry_id ? map.get(song.queue_entry_id) : undefined;
+      if (newProgress === undefined || newProgress === song.queue_max_progress) return item;
+      changed = true;
+      return {
+        kind: "song" as const,
+        song: { ...song, queue_max_progress: newProgress },
+      };
     });
 
+    if (!changed) return;
     await setQueue(updatedQueue);
   } catch (err) {
     errorLog("queue.progress", "save failed:", err);
