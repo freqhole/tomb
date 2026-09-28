@@ -44,6 +44,11 @@ export interface VideoWindowDiagnostics {
   gtksinkAvailable: boolean;
   gtkglsinkAvailable: boolean;
   error?: string | null;
+  /** every audio sink factory name registered on this system (gst backend
+   * only - always empty for mpv). a name from this list is what the
+   * `[video].linux_audio_sink` config option (server-side, not settable
+   * from here) expects. */
+  availableAudioSinks: string[];
 }
 
 const EVENT_NAME = "video-window-event";

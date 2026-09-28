@@ -13,6 +13,8 @@ pub mod backend;
 
 #[cfg(target_os = "linux")]
 mod gst;
+#[cfg(target_os = "linux")]
+mod mpv;
 
 use backend::{VideoCommand, VideoEvent};
 use serde::Serialize;
@@ -33,6 +35,14 @@ pub struct VideoWindowDiagnostics {
     pub gtksink_available: bool,
     pub gtkglsink_available: bool,
     pub error: Option<String>,
+    /// every audio sink element factory actually registered on this
+    /// system (gst backend only; always empty for mpv) - a name from
+    /// this list is what `[video].linux_audio_sink` expects. surfaced
+    /// here (logged to the webview console as `[video-window]
+    /// diagnostics` on every boot) so finding what's available doesn't
+    /// need a separate `gst-inspect-1.0` pass on the target machine.
+    #[serde(default)]
+    pub available_audio_sinks: Vec<String>,
 }
 
 /// emit a `VideoEvent` to the webview. lives here rather than in the linux
@@ -50,6 +60,15 @@ pub fn emit_event(app: &AppHandle<Wry>, event: &VideoEvent) {
     }
 }
 
+/// kill any live mpv subprocess on app shutdown - a no-op when the mpv
+/// backend was never used (gst's own window is in-process GTK, which dies
+/// with the process on its own, so needs no equivalent call). called from
+/// `RunEvent::Exit` in `lib.rs`.
+pub fn shutdown() {
+    #[cfg(target_os = "linux")]
+    mpv::shutdown();
+}
+
 /// true when this build can play video in a separate window.
 #[tauri::command]
 pub fn video_window_available() -> bool {
@@ -60,7 +79,11 @@ pub fn video_window_available() -> bool {
 pub fn video_window_diagnostics() -> VideoWindowDiagnostics {
     #[cfg(target_os = "linux")]
     {
-        gst::diagnostics()
+        if grimoire::config::get_config().video.linux_use_mpv {
+            mpv::diagnostics()
+        } else {
+            gst::diagnostics()
+        }
     }
     #[cfg(not(target_os = "linux"))]
     {
@@ -71,6 +94,7 @@ pub fn video_window_diagnostics() -> VideoWindowDiagnostics {
             gtksink_available: false,
             gtkglsink_available: false,
             error: Some("the separate video window is linux-only".to_string()),
+            available_audio_sinks: Vec::new(),
         }
     }
 }
@@ -88,7 +112,11 @@ pub async fn video_window_command(
 ) -> Result<(), String> {
     #[cfg(target_os = "linux")]
     {
-        gst::dispatch(app, command)
+        if grimoire::config::get_config().video.linux_use_mpv {
+            mpv::dispatch(app, command)
+        } else {
+            gst::dispatch(app, command)
+        }
     }
     #[cfg(not(target_os = "linux"))]
     {

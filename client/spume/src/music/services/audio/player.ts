@@ -883,6 +883,10 @@ export async function playNext(): Promise<void> {
   if (!canGoNext()) {
     debug("player", "playNext: queue empty — marking playback ended");
     markPlaybackEnded();
+    // nothing left to advance to - tell the backend to actually stop
+    // (for the video window backends this tears the window down, rather
+    // than leaving it sitting open/idle indefinitely).
+    void activeBackend.send({ kind: "stop" });
     void stopServerSession("completed");
     return;
   }
@@ -936,6 +940,7 @@ export async function playNext(): Promise<void> {
     if (nextIdx >= queue.length - 1) {
       warn("player", "playNext: end of queue, no playable songs found");
       markPlaybackEnded();
+      void activeBackend.send({ kind: "stop" });
       void stopServerSession("completed");
       return;
     }

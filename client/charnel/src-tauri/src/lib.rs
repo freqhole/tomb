@@ -1059,6 +1059,12 @@ pub fn run() {
             if let RunEvent::Exit = event {
                 tracing::info!("shutdown: RunEvent::Exit received");
 
+                // kill any live mpv subprocess - it's a real separate OS
+                // process (unlike gst's in-process gtk window), observed
+                // staying open after charnel itself quit.
+                video_window::shutdown();
+                tracing::info!("shutdown: video window closed");
+
                 // cancel all background tasks first
                 let shutdown_token = app.state::<ShutdownToken>().inner().clone();
                 shutdown_token.cancel();

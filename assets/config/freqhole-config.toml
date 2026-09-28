@@ -288,19 +288,70 @@ max_concurrency = 0
 linux_buffer_frames = 8192
 
 # ============================================================================
-# OPTIONAL: gst-based video window tuning (linux only, charnel desktop app)
-# separate from [audio] above - the video window's own audio sink commonly
-# wants a different (usually larger) buffer than the dedicated music player,
-# since video's software decode path is more prone to scheduler-jitter
-# underruns. the whole section is optional; omit it to accept defaults.
+# OPTIONAL: video window player choice (linux only, charnel desktop app)
+# the whole section is optional; omit it to accept defaults.
 # ============================================================================
 [video]
-# OPTIONAL (linux only): same convention as [audio].linux_buffer_frames
-# above (converted to a buffer-time in microseconds assuming 48k), but
-# applied only to the gst video window's audio sink.
-# default when unset: 8192 (~170ms @ 48k). try 4096/16384/32768 if still
-# getting glitchz during video playback.
-linux_buffer_frames = 8192
+# OPTIONAL (linux only, default: false): use `mpv` (spawned as a subprocess,
+# controlled over its own json ipc socket) instead of the built-in
+# gstreamer/gtk video window. an escape hatch for systems where
+# gstreamer's pipewire audio sink stutters no matter how the pipeline is
+# tuned - mpv owns its own audio/video path entirely, sidestepping the
+# issue outright. requires `mpv` to be installed and on PATH. output
+# device selection isn't wired up for this backend yet.
+linux_use_mpv = false
+
+# OPTIONAL (linux only, gst backend only, default: unset): force a
+# specific GStreamer audio sink, optionally with explicit properties -
+# same syntax as `gst-launch-1.0`'s own `audio-sink="..."` argument (e.g.
+# what you'd type after `gst-launch-1.0 playbin3 uri=... audio-sink=`),
+# parsed via gstreamer's own `gst_parse_launch`. a bare factory name
+# (e.g. "alsasink", "pulsesink", "jackaudiosink", "pipewiresink") works
+# fine too, with no properties set - this replaces the built-in
+# pipewiresink-first/autoaudiosink-fallback logic entirely either way.
+# useful to debug/compare sinks on a system where the default stutters,
+# or to pin whatever actually behaves well on your own hardware. every
+# sink factory actually registered on your system is logged (and shown
+# in the webview devtools console as `[video-window] diagnostics`) on
+# every boot - check there for what's available before picking a name.
+# falls back to the normal logic if the description fails to parse/build
+# (typo, or a named element that's genuinely not installed).
+#
+# examples actually tried live against real pipewiresink audio stutter
+# on a raspberry pi (in rough order of how invasive/risky they are):
+#   linux_audio_sink = "pipewiresink qos=false"
+#   linux_audio_sink = "pipewiresink processing-deadline=0"
+#   linux_audio_sink = "pipewiresink slave-method=resample"
+#   linux_audio_sink = "pipewiresink sync=false"
+# `sync=false` stopped the stutter outright in testing, but it makes the
+# sink render buffers immediately instead of scheduling them against the
+# pipeline clock - audio can then drift out of sync with video over a
+# long enough clip, since only the audio branch stops obeying the shared
+# clock. worth the tradeoff to test/compare, but not a substitute for
+# actually fixing the underlying scheduling/latency issue.
+# linux_audio_sink = "alsasink"
+
+# OPTIONAL (linux only, ignored unless linux_audio_sink is set): sets the
+# forced sink's `device` property to this value, if it has one. the
+# common case is a raw ALSA device string for alsasink, e.g.
+# "hw:CARD=Headphones,DEV=0" to target hardware directly, bypassing
+# pipewire/pulseaudio entirely.
+#
+# find the exact string to use with `aplay -L | grep -A1 '^hw:'` - this
+# prints only the raw hw: device lines (skipping default/dmix/plughw/etc)
+# paired with a one-line friendly description, e.g.:
+#   hw:CARD=vc4hdmi1,DEV=0
+#       vc4-hdmi-1, MAI PCM i2s-hifi-0
+#   hw:CARD=Headphones,DEV=0
+#       bcm2835 Headphones, bcm2835 Headphones
+# -> copy the "hw:CARD=...,DEV=..." line verbatim for the device you want
+# (plain `aplay -l` also works but only gives numeric card/device indices,
+# e.g. "card 2, device 0" -> "hw:2,0" - equivalent, just more to type/verify).
+#
+# for `linux_audio_sink = "pulsesink"` instead, use a pulseaudio/pipewire-pulse
+# sink name from `pactl list sinks short` (second column) instead, e.g.
+# "alsa_output.platform-fe00b840.mailbox.stereo-fallback".
+# linux_audio_sink_device = "hw:CARD=Headphones,DEV=0"
 
 # ============================================================================
 # OPTIONAL: new-version update checks
