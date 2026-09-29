@@ -105,6 +105,7 @@ flatpak build-finish "$BUILD_DIR" \
     --device=dri \
     --socket=pulseaudio \
     --own-name=org.mpris.MediaPlayer2.freqhole \
+    --own-name=net.freqhole.charnel \
     --share=network \
     --filesystem=xdg-music:ro \
     --filesystem=home:ro \
@@ -115,6 +116,7 @@ flatpak build-finish "$BUILD_DIR" \
     --filesystem=~/.config/dconf:ro \
     --talk-name=ca.desrt.dconf \
     --env=DCONF_USER_CONFIG_DIR=.config/dconf \
+    --env=NO_AT_BRIDGE=1 \
     --talk-name=org.kde.StatusNotifierWatcher \
     --talk-name=org.freedesktop.Notifications \
     --talk-name=org.freedesktop.portal.* \

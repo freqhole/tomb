@@ -31,9 +31,10 @@ import {
 import { getVideoDataSource } from "../../video/data";
 import { getClientForRemote } from "../../app/api/client";
 import { getCurrentRemote } from "../../music/data";
+import { updateVideoRenditionsInQueue } from "../../app/services/storage/db";
 import { pollJobUntilComplete } from "../../app/services/jobs/jobService";
 import type { ImageMetadata } from "../../music/services/storage/types";
-import type { VideoRendition } from "@freqhole/api-client";
+import type { VideoRenditionOption } from "@freqhole/api-client";
 import { queryClient } from "../../queryClient";
 import { videoQueryKeys } from "../../video/queries/queryKeys";
 import { Modal } from "./Modal";
@@ -145,7 +146,7 @@ export function EditVideoModal(props: EditVideoModalProps) {
   const [taxonsDirty, setTaxonsDirty] = createSignal(false);
 
   // renditions list state
-  const [renditions, setRenditions] = createSignal<VideoRendition[]>([]);
+  const [renditions, setRenditions] = createSignal<VideoRenditionOption[]>([]);
   const [renditionsLoading, setRenditionsLoading] = createSignal(false);
   const [deletingRendition, setDeletingRendition] = createSignal<string | null>(null);
   const [reprocessing, setReprocessing] = createSignal(false);
@@ -268,6 +269,22 @@ export function EditVideoModal(props: EditVideoModalProps) {
         await fetchRenditions(video.media_blob_id);
       }
       invalidateVideoQueries();
+
+      // the video may already be sitting in the play queue with a
+      // snapshot of its OLD renditions (queue items aren't reactively
+      // bound to this modal's query cache - see playbackBlobId.ts's
+      // resolvePlaybackTarget, which reads renditions straight off the
+      // queued item) - patch it in place so playback picks up the
+      // freshly (re)generated rendition without needing to be removed
+      // and re-queued. no-ops if this video isn't currently queued.
+      try {
+        const freshVideo = await getVideoDataSource().getVideoById(props.videoId);
+        if (freshVideo) {
+          await updateVideoRenditionsInQueue(props.videoId, freshVideo.renditions);
+        }
+      } catch (err) {
+        console.error("failed to refresh queued video renditions:", err);
+      }
     } catch (err) {
       console.error("failed to reprocess video:", err);
       toast.error("failed to reprocess video");
@@ -1136,8 +1153,21 @@ export function EditVideoModal(props: EditVideoModalProps) {
             </Show>
 
             <Show when={!renditionsLoading() && renditions().length === 0}>
-              <div class="text-xs text-[var(--color-text-tertiary)]">
-                no transcoded renditions yet
+              <div class="flex items-center justify-between gap-2">
+                <div class="text-xs text-[var(--color-text-tertiary)]">
+                  no transcoded renditions yet
+                </div>
+                <Show when={canUpdateVideo()}>
+                  <button
+                    type="button"
+                    onClick={() => void handleReprocess()}
+                    disabled={reprocessing()}
+                    class="flex items-center gap-1 px-2 py-1 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-elevated)] rounded border border-[var(--color-border-default)] disabled:opacity-50"
+                    title="generate a web-compatible rendition for this video"
+                  >
+                    {reprocessing() ? (reprocessStatus() ?? "generating...") : "generate rendition"}
+                  </button>
+                </Show>
               </div>
             </Show>
 

@@ -145,12 +145,9 @@ export class VideoWindowBackend implements PlayerBackend {
         this.emit({ kind: "state", state: this.snap.state ?? "stopped" });
         return;
       case "list_output_devices":
-        // the separate video window has no output-device concept to
-        // enumerate - empty list, not an error.
-        this.emit({ kind: "output_devices", devices: [] });
-        return;
+        return sendVideoWindowCommand({ kind: "list_output_devices" });
       case "set_output_device":
-        return;
+        return sendVideoWindowCommand({ kind: "set_output_device", name: command.name });
       case "next":
       case "previous":
       case "load":
@@ -241,6 +238,9 @@ export class VideoWindowBackend implements PlayerBackend {
         });
         return;
       case "fullscreen":
+        return;
+      case "output_devices":
+        this.emit({ kind: "output_devices", devices: e.devices });
         return;
       default: {
         const _exhaustive: never = e;

@@ -18,6 +18,24 @@ import { songIdentityKey } from "../storage/types";
 const [activeHistoryEntryId, setActiveHistoryEntryId] = createSignal<string | null>(null);
 export { activeHistoryEntryId };
 
+// a reconnected-on-boot history entry's server-session info, held here
+// instead of reconnecting immediately - restoring a queue from a previous
+// session is UI-state-only (position/local tracking) until the user
+// actually resumes playback; reconnecting the remote session eagerly on
+// every app boot pinged (and visibly updated) the remote's feed even when
+// nothing was actually being listened to. consumed once by
+// `installPlaybackOrchestrator`'s effect on the first real forward tick.
+let pendingServerReconnect: Parameters<typeof reconnectServerSession>[0] | null = null;
+
+// fires the deferred reconnect for `historyEntryId`, if one is pending -
+// a no-op otherwise (already consumed, or this isn't the reconnected entry).
+export function consumePendingServerReconnect(historyEntryId: string): void {
+  if (pendingServerReconnect?.id !== historyEntryId) return;
+  const pending = pendingServerReconnect;
+  pendingServerReconnect = null;
+  void reconnectServerSession(pending);
+}
+
 // in-memory accumulator (flushed to IDB periodically)
 let accumulatedSeconds = 0;
 let currentSongIndex = 0;
@@ -219,9 +237,11 @@ export function reconnectProgressTracking(): void {
     current_song_position: entry.current_song_position,
   });
 
-  // also reconnect server session if the entry has server session info
+  // also reconnect server session if the entry has server session info -
+  // deferred until the user actually resumes playback (see
+  // `pendingServerReconnect`'s doc comment above), not fired here.
   if (entry.server_session_id && entry.server_remote_id) {
-    void reconnectServerSession({
+    pendingServerReconnect = {
       id: entry.id,
       server_session_id: entry.server_session_id,
       server_remote_id: entry.server_remote_id,
@@ -230,6 +250,6 @@ export function reconnectProgressTracking(): void {
       entity_id: entry.entity_id,
       songs_completed: entry.songs_completed,
       songs: entry.songs,
-    });
+    };
   }
 }

@@ -21,7 +21,9 @@ export type VideoWindowCommand =
   | { kind: "set_volume"; volume: number }
   | { kind: "set_fullscreen"; fullscreen: boolean }
   | { kind: "toggle_fullscreen" }
-  | { kind: "close" };
+  | { kind: "close" }
+  | { kind: "list_output_devices" }
+  | { kind: "set_output_device"; name: string };
 
 /** mirrors `VideoEvent` in charnel's `video_window/backend.rs`. */
 export type VideoWindowEvent =
@@ -32,7 +34,8 @@ export type VideoWindowEvent =
   | { kind: "ended" }
   | { kind: "fullscreen"; fullscreen: boolean }
   | { kind: "closed" }
-  | { kind: "error"; error_type: string; message: string };
+  | { kind: "error"; error_type: string; message: string }
+  | { kind: "output_devices"; devices: { name: string; description: string }[] };
 
 export interface VideoWindowDiagnostics {
   available: boolean;
@@ -41,6 +44,11 @@ export interface VideoWindowDiagnostics {
   gtksinkAvailable: boolean;
   gtkglsinkAvailable: boolean;
   error?: string | null;
+  /** every audio sink factory name registered on this system (gst backend
+   * only - always empty for mpv). a name from this list is what the
+   * `[video].linux_audio_sink` config option (server-side, not settable
+   * from here) expects. */
+  availableAudioSinks: string[];
 }
 
 const EVENT_NAME = "video-window-event";

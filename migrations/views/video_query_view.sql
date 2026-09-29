@@ -37,5 +37,17 @@ SELECT
                ORDER BY is_primary DESC, created_at DESC)),
         '[]'
     ) as images,
+    COALESCE(
+        (SELECT json_group_array(json_object(
+                    'blob_id', id,
+                    'label', COALESCE(json_extract(metadata, '$.rendition'), 'rendition'),
+                    'mime', mime,
+                    'blake3', blake3,
+                    'width', width,
+                    'height', height))
+         FROM media_blobz
+         WHERE parent_blob_id = v.media_blob_id AND blob_type = 'rendition'),
+        '[]'
+    ) as renditions,
     (SELECT COUNT(*) FROM play_eventz WHERE entity_type = 'video' AND entity_id = v.id) as play_count
 FROM videoz v;

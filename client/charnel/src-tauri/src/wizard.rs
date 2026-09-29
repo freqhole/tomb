@@ -93,6 +93,17 @@ pub fn open_setup_wizard_at_route(app: AppHandle<Wry>, route: &str) -> Result<()
         win_builder
     };
 
+    // lxpanel/wf-panel-pi (raspberry pi os's taskbar) reads the window's
+    // own icon property directly rather than matching WM_CLASS against an
+    // installed .desktop file - see the matching comment in lib.rs.
+    #[cfg(target_os = "linux")]
+    let win_builder = match app.default_window_icon() {
+        Some(icon) => win_builder
+            .icon(icon.clone())
+            .map_err(|e: tauri::Error| e.to_string())?,
+        None => win_builder,
+    };
+
     #[cfg_attr(not(target_os = "macos"), allow(unused_variables))]
     let window = win_builder
         .build()
@@ -351,6 +362,17 @@ pub async fn close_setup_wizard(
             win_builder.decorations(false)
         } else {
             win_builder
+        };
+        // lxpanel/wf-panel-pi (raspberry pi os's taskbar) reads the
+        // window's own icon property directly rather than matching
+        // WM_CLASS against an installed .desktop file - see the matching
+        // comment in lib.rs.
+        #[cfg(target_os = "linux")]
+        let win_builder = match app.default_window_icon() {
+            Some(icon) => win_builder
+                .icon(icon.clone())
+                .map_err(|e: tauri::Error| e.to_string())?,
+            None => win_builder,
         };
 
         let window = win_builder

@@ -80,7 +80,11 @@ pub struct ReprocessVideoRequest {
     pub id: String,
 }
 
-/// a single transcoded rendition of a video's original media blob.
+/// a single transcoded rendition OPTION for a video's original media
+/// blob, as surfaced by the explicit `get_video_renditions` endpoint (a
+/// quality-picker UI concern) - distinct from `video::VideoRendition`
+/// (embedded directly on `Video::renditions` for playback resolution),
+/// which only ever lists renditions that actually exist.
 ///
 /// a "skipped" entry (`skipped: true`, `blob_id: ""`) is synthesized for
 /// any still-configured rendition target the transcode job decided NOT
@@ -89,7 +93,7 @@ pub struct ReprocessVideoRequest {
 /// skipping creates no blob row at all, so without this the modal would
 /// have nothing to show for that rendition slot.
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
-pub struct VideoRendition {
+pub struct VideoRenditionOption {
     pub blob_id: String,
     pub label: String,
     pub extension: String,
@@ -227,7 +231,7 @@ pub const ROUTES: &[RouteInfo] = &[
         method: Method::POST,
         domain: Domain::Video,
         request_type: "GetVideoRenditionsRequest",
-        response_type: "Vec<VideoRendition>",
+        response_type: "Vec<VideoRenditionOption>",
         auth: RouteAuth::Authenticated,
     },
     RouteInfo {
@@ -551,7 +555,7 @@ pub async fn get_renditions(_caller: &Caller, body: JsonValue) -> GrimoireRespon
         }
     };
 
-    let mut renditions: Vec<VideoRendition> = blobs
+    let mut renditions: Vec<VideoRenditionOption> = blobs
         .into_iter()
         .map(|blob| {
             let label = blob
@@ -566,7 +570,7 @@ pub async fn get_renditions(_caller: &Caller, body: JsonValue) -> GrimoireRespon
                 .and_then(|f| f.rsplit('.').next())
                 .unwrap_or("mp4")
                 .to_string();
-            VideoRendition {
+            VideoRenditionOption {
                 blob_id: blob.id,
                 label,
                 extension,
@@ -592,7 +596,7 @@ pub async fn get_renditions(_caller: &Caller, body: JsonValue) -> GrimoireRespon
                     continue;
                 }
                 if crate::jobs::should_skip_transcode(&source_blob, rendition) {
-                    renditions.push(VideoRendition {
+                    renditions.push(VideoRenditionOption {
                         blob_id: String::new(),
                         label: rendition.label.clone(),
                         extension: rendition.extension.clone(),

@@ -15,6 +15,13 @@ finish-args:
   - --socket=pulseaudio
   # MPRIS media controls
   - --own-name=org.mpris.MediaPlayer2.freqhole
+  # tauri's GApplication id (see tauri.conf.json's "identifier") differs
+  # from this flatpak's own app id above - gtk_init's app.register() tries
+  # to own it on the session bus for single-instance activation, which the
+  # sandbox's dbus-proxy blocked (unauthorized own-name attempt) as
+  # ServiceUnknown, crashing gtk init outright ("Failed to initialize gtk
+  # backend!")
+  - --own-name=net.freqhole.charnel
   # network access (for connecting to remotes)
   - --share=network
   # file access for music directories
@@ -33,6 +40,13 @@ finish-args:
   - --filesystem=~/.config/dconf:ro
   - --talk-name=ca.desrt.dconf
   - --env=DCONF_USER_CONFIG_DIR=.config/dconf
+  # gtk tries to dbus-activate the accessibility bus (org.a11y.Bus) during
+  # gtk_init - not covered by any --talk-name above, so the sandbox's
+  # filtered dbus proxy reports it as ServiceUnknown, which crashes gtk
+  # init outright on some hosts ("Failed to initialize gtk backend!").
+  # this skips that connection attempt entirely rather than granting a11y
+  # bus access just to silence it.
+  - --env=NO_AT_BRIDGE=1
   # system tray icon
   - --talk-name=org.kde.StatusNotifierWatcher
   - --talk-name=org.freedesktop.Notifications

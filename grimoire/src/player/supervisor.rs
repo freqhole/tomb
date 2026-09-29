@@ -107,29 +107,42 @@ pub fn spawn_player(policy: RestartPolicy) -> RodioController {
     }
 }
 
+/// bounded retry window `bridge_commands` gives the audio thread to come
+/// up before reporting a real failure - covers the cold-start race (the
+/// very first command of a session can arrive before `supervise()`'s
+/// first loop iteration has published a sender) and a quick crash+restart,
+/// without masking a genuinely dead backend for long (see `bridge_commands`
+/// itself for the actual gap this closes).
+const FORWARD_RETRY_ATTEMPTS: u32 = 8;
+const FORWARD_RETRY_DELAY: Duration = Duration::from_millis(50);
+
 /// forward each tokio mpsc command to the std mpsc the audio thread
-/// consumes. emits a structured error if forwarding fails (e.g. the
-/// audio thread is between restart attempts and the std rx is gone).
+/// consumes. emits a structured error if forwarding still fails after a
+/// short retry window (e.g. the audio thread crashed and exhausted its
+/// restart budget, not just mid-startup).
 async fn bridge_commands(
     mut rx: tokio_mpsc::Receiver<PlayerCommand>,
     shared_std_tx: SharedStdTx,
     events: broadcast::Sender<PlayerEvent>,
 ) {
     while let Some(cmd) = rx.recv().await {
-        let send_result = {
-            let guard = match shared_std_tx.lock() {
-                Ok(g) => g,
-                Err(_) => {
-                    warn!("rodio bridge: shared sender mutex poisoned; dropping command");
-                    continue;
-                }
-            };
-            match guard.as_ref() {
-                Some(tx) => tx.send(cmd).map_err(|_| ()),
-                None => Err(()),
-            }
-        };
-        if send_result.is_err() {
+        let mut pending = try_forward(&shared_std_tx, cmd);
+        // `spawn_player()` returns as soon as the bridge/watchdog tasks are
+        // SPAWNED, not once the audio thread has actually started (thread
+        // spawn + publishing its sender into `shared_std_tx` happens
+        // asynchronously in `supervise()`'s first loop iteration). a
+        // command sent immediately after the controller's first use (the
+        // common case: rodio is spawned lazily on first `player_send`)
+        // can easily race that - without this retry, the very first
+        // command of a session routinely hit this as a false
+        // "audio thread is not running" error even though playback then
+        // worked fine moments later once the thread caught up.
+        for _ in 0..FORWARD_RETRY_ATTEMPTS {
+            let Err(cmd) = pending else { break };
+            tokio::time::sleep(FORWARD_RETRY_DELAY).await;
+            pending = try_forward(&shared_std_tx, cmd);
+        }
+        if pending.is_err() {
             let _ = events.send(PlayerEvent::Error {
                 detail: ErrorDetail::new(
                     "command_forward_failed",
@@ -140,6 +153,25 @@ async fn bridge_commands(
         }
     }
     debug!("rodio bridge: command sender closed; bridge exiting");
+}
+
+/// attempts one forward; returns the command back on failure (no live
+/// audio thread yet/anymore) so the caller can retry it. a poisoned mutex
+/// is a different, non-transient failure mode - logged once and treated
+/// as handled (not retried, matches the pre-existing behavior for this
+/// case).
+fn try_forward(shared_std_tx: &SharedStdTx, cmd: PlayerCommand) -> Result<(), PlayerCommand> {
+    let guard = match shared_std_tx.lock() {
+        Ok(g) => g,
+        Err(_) => {
+            warn!("rodio bridge: shared sender mutex poisoned; dropping command");
+            return Ok(());
+        }
+    };
+    match guard.as_ref() {
+        Some(tx) => tx.send(cmd).map_err(|e| e.0),
+        None => Err(cmd),
+    }
 }
 
 /// supervise the audio thread. each iteration:

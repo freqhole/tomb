@@ -155,12 +155,14 @@ export function AddMediaModal(props: AddMediaModalProps) {
   // online/checking store the top nav and RemotePicker use
   // (app/services/remotes/remoteHealth.ts) rather than a one-off probe here.
   // local (charnel-managed) is always "online" - no network involved.
-  // non-forced: probeRemote's own backoff means reopening the modal
-  // repeatedly against the same still-offline remote doesn't re-hammer it.
+  // forced: opening this modal is an explicit "am I actually online right
+  // now" moment - a stale backoff window from an earlier, possibly
+  // transient blip shouldn't make this show "offline" when the remote may
+  // have already recovered.
   createEffect(() => {
     const target = props.targetRemote;
     if (!props.isOpen || !target || target.is_charnel_managed) return;
-    void probeRemote(target as unknown as Remote);
+    void probeRemote(target as unknown as Remote, { force: true });
   });
   const targetStatus = (): "online" | "offline" | "checking" => {
     const target = props.targetRemote;

@@ -301,7 +301,12 @@ export function VideoSeriesDetailPanel(props: VideoSeriesDetailPanelProps) {
     if (videos.length === 0) return;
     setSeriesActionPending("queue");
     try {
-      await addVideosToQueue(videos);
+      const series = detailQuery.data?.series;
+      await addVideosToQueue(videos, {
+        type: "series",
+        label: series?.title ?? "series",
+        entity_id: series?.id,
+      });
     } finally {
       setSeriesActionPending(null);
     }
@@ -332,7 +337,11 @@ export function VideoSeriesDetailPanel(props: VideoSeriesDetailPanelProps) {
     if (seasonActionPending() || season.videos.length === 0) return;
     setSeasonActionPending({ seasonId: season.id, action: "queue" });
     try {
-      await addVideosToQueue(season.videos);
+      await addVideosToQueue(season.videos, {
+        type: "season",
+        label: seasonLabel(season),
+        entity_id: season.id,
+      });
     } finally {
       setSeasonActionPending(null);
     }

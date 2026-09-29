@@ -4,7 +4,9 @@
 mod models;
 mod repository;
 
-pub use models::{CreateVideoRequest, UpdateVideoRequest, Video, VideoWithMetadata};
+pub use models::{
+    CreateVideoRequest, UpdateVideoRequest, Video, VideoRendition, VideoWithMetadata,
+};
 pub use repository::{
     create_video, delete_video, get_video, get_video_with_metadata, list_recently_added_videos,
     list_unassigned_videos, list_video_extras, list_videos_by_season, list_videos_by_series,

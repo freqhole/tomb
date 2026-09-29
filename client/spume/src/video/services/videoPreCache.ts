@@ -14,11 +14,14 @@
 // charnel-local blob ahead of time, same as `preCacheP2PBlob` already
 // does generically for `type: "video"`.
 
-import { isP2PRemote } from "../../music/services/storage/transportCache";
+import {
+  isP2PRemote,
+  isCharnelManagedRemoteSync,
+} from "../../music/services/storage/transportCache";
 import { preCacheP2PBlob } from "../../music/services/storage/blobResolver";
 import { preCacheBlob, isCached } from "../../music/services/cache/blobCache";
 import { getRemoteById } from "../../app/services/remotes/remoteManager";
-import { resolvePlaybackBlobId } from "./playbackBlobId";
+import { resolvePlaybackTarget } from "./playbackBlobId";
 import type { QueuedVideo } from "../../app/services/storage/mediaItem";
 import { debug, warn } from "../../utils/logger";
 
@@ -65,10 +68,20 @@ async function preCacheOneVideo(video: QueuedVideo): Promise<void> {
   if (!video.media_blob_id || !video.remote_server_id) return;
 
   const remoteId = video.remote_server_id;
+  // charnel-managed remotes (charnel's own local instance, tracked with a
+  // real remote_server_id anyway) are already on disk and resolved via
+  // `resolveCharnelLocalBlobPath` at actual play time - the song pre-cache
+  // pipeline (`blobResolver.ts`'s `preCacheNextP2PSongs`) already skips
+  // these via `isCharnelManagedRemoteSync`; without the same guard here,
+  // this pipeline used to unconditionally P2P-dial a peer for content
+  // that's already local (surfacing as `on_demand_blake3` failures).
+  if (isCharnelManagedRemoteSync(remoteId)) {
+    return;
+  }
   try {
     // resolve the same blob (original or transcoded rendition) that will
     // actually be played, so what's pre-cached is what's played.
-    const blobId = await resolvePlaybackBlobId(video, remoteId);
+    const blobId = resolvePlaybackTarget(video).blobId;
 
     if (await isP2PRemote(remoteId)) {
       void preCacheP2PBlob(blobId, remoteId, video.id, "video");

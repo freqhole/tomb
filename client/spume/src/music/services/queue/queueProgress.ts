@@ -45,46 +45,56 @@ export function clearAllQueueProgress(): void {
   setProgressMap(new Map());
 }
 
-// save progress to IDB by syncing to songs and persisting the queue.
-// video items are scoped out of progress tracking for now (see phase 9
-// MVP scope note) — they pass through unmodified.
+// save progress to IDB by syncing to songs/videos and persisting the queue.
+//
+// skips the setQueue() write entirely when nothing actually changed (e.g.
+// a queue whose progress hasn't advanced since the last flush) -
+// setQueue()/updateAppState() rebuild the whole queue array and AppState
+// object unconditionally, so calling them on every periodic tick
+// regardless of content churns appState()'s reference for no reason. that
+// reference change is broadly observed (anything reading appState()
+// directly, not just this queue's own progress bars), so a needless tick
+// here was tearing down and rebuilding unrelated UI every few seconds -
+// e.g. VideoMiniPlayer, whose live re-parented <video> element loses
+// fullscreen the instant it gets reparented.
 export async function saveProgressToIDB(): Promise<void> {
   const state = appState();
   if (!state?.queue) return;
 
   try {
     const map = progressMap();
-    // sync progress map to song items only
+    let changed = false;
     const updatedQueue = state.queue.map((item) => {
-      if (item.kind !== "song") return item;
-      const song = item.song;
-      if (song.queue_entry_id && map.has(song.queue_entry_id)) {
-        return {
-          kind: "song" as const,
-          song: { ...song, queue_max_progress: map.get(song.queue_entry_id) },
-        };
-      }
-      return item;
+      const entryId = item.kind === "song" ? item.song.queue_entry_id : item.video.queue_entry_id;
+      const currentProgress =
+        item.kind === "song" ? item.song.queue_max_progress : item.video.queue_max_progress;
+      const newProgress = entryId ? map.get(entryId) : undefined;
+      if (newProgress === undefined || newProgress === currentProgress) return item;
+      changed = true;
+      return item.kind === "song"
+        ? { kind: "song" as const, song: { ...item.song, queue_max_progress: newProgress } }
+        : { kind: "video" as const, video: { ...item.video, queue_max_progress: newProgress } };
     });
 
+    if (!changed) return;
     await setQueue(updatedQueue);
   } catch (err) {
     errorLog("queue.progress", "save failed:", err);
   }
 }
 
-// load progress from IDB - populate signal from song items' queue_max_progress.
-// video items don't participate in progress tracking yet.
+// load progress from IDB - populate signal from songs'/videos' queue_max_progress.
 export function loadProgressFromStorage(): void {
   const state = appState();
   if (!state?.queue) return;
 
   const map = new Map<string, number>();
   for (const item of state.queue) {
-    if (item.kind !== "song") continue;
-    const song = item.song;
-    if (song.queue_entry_id && song.queue_max_progress !== undefined) {
-      map.set(song.queue_entry_id, song.queue_max_progress);
+    const entryId = item.kind === "song" ? item.song.queue_entry_id : item.video.queue_entry_id;
+    const progress =
+      item.kind === "song" ? item.song.queue_max_progress : item.video.queue_max_progress;
+    if (entryId && progress !== undefined) {
+      map.set(entryId, progress);
     }
   }
 

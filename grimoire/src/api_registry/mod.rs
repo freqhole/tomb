@@ -363,8 +363,8 @@ pub mod type_registry {
         PlaybackProgress, ReprocessVideoResult, SeasonWithVideos, SeriesDetail, SeriesQueryResult,
         UpdateVideoRequest, UpdateVideoSeasonRequest, UpdateVideoSeriesRequest,
         UpdateVideosRequest, UpdateVideosResult, Video, VideoImportReviewOk, VideoPendingRequest,
-        VideoPendingResponse, VideoReviewPatch, VideoSearchResult, VideoSeason, VideoSeries,
-        VideoSeriesSearchResult, VideoWithMetadata, VideosQueryResult,
+        VideoPendingResponse, VideoRendition, VideoReviewPatch, VideoSearchResult, VideoSeason,
+        VideoSeries, VideoSeriesSearchResult, VideoWithMetadata, VideosQueryResult,
     };
 
     // video domain offal request/response types (phase 2-3)
@@ -402,7 +402,7 @@ pub mod type_registry {
         BulkDeleteVideosRequest, DeleteVideoRenditionRequest, DeleteVideoRequest,
         GetVideoRenditionsRequest, GetVideoRequest, ListVideoExtrasRequest,
         ListVideosBySeasonRequest, ListVideosBySeriesRequest, ListVideosUnattachedRequest,
-        QueryVideosRequest, ReprocessVideoRequest, VideoRendition,
+        QueryVideosRequest, ReprocessVideoRequest, VideoRenditionOption,
     };
 
     pub fn register_all_types(gen: &mut ZodGenerator, registered: &mut HashSet<String>) {
@@ -866,6 +866,9 @@ pub mod type_registry {
         gen.add_schema::<UpdateVideoSeasonRequest>("UpdateVideoSeasonRequest");
         registered.insert("UpdateVideoSeasonRequest".to_string());
 
+        // Video::renditions embeds VideoRendition - must register first.
+        gen.add_schema::<VideoRendition>("VideoRendition");
+        registered.insert("VideoRendition".to_string());
         gen.add_schema::<Video>("Video");
         registered.insert("Video".to_string());
         gen.add_schema::<VideoWithMetadata>("VideoWithMetadata");
@@ -934,8 +937,8 @@ pub mod type_registry {
         registered.insert("BulkDeleteVideosRequest".to_string());
         gen.add_schema::<QueryVideosRequest>("QueryVideosRequest");
         registered.insert("QueryVideosRequest".to_string());
-        gen.add_schema::<VideoRendition>("VideoRendition");
-        registered.insert("VideoRendition".to_string());
+        gen.add_schema::<VideoRenditionOption>("VideoRenditionOption");
+        registered.insert("VideoRenditionOption".to_string());
         gen.add_schema::<GetVideoRenditionsRequest>("GetVideoRenditionsRequest");
         registered.insert("GetVideoRenditionsRequest".to_string());
         gen.add_schema::<DeleteVideoRenditionRequest>("DeleteVideoRenditionRequest");

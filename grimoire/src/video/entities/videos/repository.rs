@@ -5,7 +5,7 @@
 //! cascading workflow that also cleans up `entity_taxonz`/`playlist_itemz`/
 //! `playback_progressz` rows lives in `crate::video::crud::delete`.
 
-use super::models::{CreateVideoRequest, UpdateVideoRequest, Video};
+use super::models::{CreateVideoRequest, UpdateVideoRequest, Video, VideoRendition};
 use crate::database;
 use crate::error::{ErrorDetail, GrimoireError, GrimoireResult};
 use crate::music::crud::ImageMetadata;
@@ -173,6 +173,7 @@ pub async fn create_video(req: CreateVideoRequest) -> GrimoireResponse<Video> {
             updated_by,
             deleted_by,
             '[]' as "images: JsonVec<ImageMetadata>",
+            '[]' as "renditions: JsonVec<VideoRendition>",
             NULL as "play_count: i64""#,
         req.series_id,
         req.season_id,
@@ -256,6 +257,7 @@ pub async fn get_video(id: &str) -> GrimoireResponse<Video> {
             updated_by,
             deleted_by,
             images as "images: JsonVec<ImageMetadata>",
+            renditions as "renditions: JsonVec<VideoRendition>",
             play_count as "play_count: i64"
          FROM video_query_view
          WHERE id = ? AND deleted_at IS NULL"#,
@@ -322,6 +324,7 @@ pub async fn get_video_with_metadata(
         created_by_username: Option<String>,
         updated_by_username: Option<String>,
         images: String,
+        renditions: String,
         play_count: Option<i64>,
     }
 
@@ -356,6 +359,15 @@ pub async fn get_video_with_metadata(
              FROM (SELECT media_blob_id, is_primary, blob_type FROM entity_imagez
                    WHERE entity_type = 'video' AND entity_id = v.id
                    ORDER BY is_primary DESC, created_at DESC)), '[]') as images,
+            COALESCE((SELECT json_group_array(json_object(
+                        'blob_id', id,
+                        'label', COALESCE(json_extract(metadata, '$.rendition'), 'rendition'),
+                        'mime', mime,
+                        'blake3', blake3,
+                        'width', width,
+                        'height', height))
+             FROM media_blobz
+             WHERE parent_blob_id = v.media_blob_id AND blob_type = 'rendition'), '[]') as renditions,
             (SELECT COUNT(*) FROM play_eventz WHERE entity_type = 'video' AND entity_id = v.id) as play_count
          FROM videoz v
          LEFT JOIN media_blobz b ON v.media_blob_id = b.id
@@ -393,6 +405,7 @@ pub async fn get_video_with_metadata(
     let frame_rate = metadata.get("frame_rate").and_then(|f| f.as_f64());
 
     let images: Vec<ImageMetadata> = serde_json::from_str(&row.images).unwrap_or_default();
+    let renditions: Vec<VideoRendition> = serde_json::from_str(&row.renditions).unwrap_or_default();
 
     let video = Video {
         id: row.video_id,
@@ -415,6 +428,7 @@ pub async fn get_video_with_metadata(
         updated_by: row.updated_by,
         deleted_by: row.deleted_by,
         images: Some(JsonVec(images)),
+        renditions: Some(JsonVec(renditions)),
         play_count: row.play_count,
     };
 
@@ -470,6 +484,7 @@ pub async fn list_videos_by_series(series_id: &str) -> GrimoireResponse<Vec<Vide
             updated_by,
             deleted_by,
             images as "images: JsonVec<ImageMetadata>",
+            renditions as "renditions: JsonVec<VideoRendition>",
             play_count as "play_count: i64"
          FROM video_query_view
          WHERE series_id = ? AND deleted_at IS NULL
@@ -527,6 +542,7 @@ pub async fn list_videos_by_season(season_id: &str) -> GrimoireResponse<Vec<Vide
             updated_by,
             deleted_by,
             images as "images: JsonVec<ImageMetadata>",
+            renditions as "renditions: JsonVec<VideoRendition>",
             play_count as "play_count: i64"
          FROM video_query_view
          WHERE season_id = ? AND deleted_at IS NULL
@@ -583,6 +599,7 @@ pub async fn list_video_extras(parent_video_id: &str) -> GrimoireResponse<Vec<Vi
             updated_by,
             deleted_by,
             images as "images: JsonVec<ImageMetadata>",
+            renditions as "renditions: JsonVec<VideoRendition>",
             play_count as "play_count: i64"
          FROM video_query_view
          WHERE parent_video_id = ? AND deleted_at IS NULL
@@ -641,6 +658,7 @@ pub async fn list_videos_unattached(
             updated_by,
             deleted_by,
             images as "images: JsonVec<ImageMetadata>",
+            renditions as "renditions: JsonVec<VideoRendition>",
             play_count as "play_count: i64"
          FROM video_query_view
          WHERE series_id IS NULL AND deleted_at IS NULL
@@ -700,6 +718,7 @@ pub async fn list_recently_added_videos(limit: Option<u32>) -> GrimoireResponse<
             updated_by,
             deleted_by,
             images as "images: JsonVec<ImageMetadata>",
+            renditions as "renditions: JsonVec<VideoRendition>",
             play_count as "play_count: i64"
          FROM video_query_view
          WHERE deleted_at IS NULL
@@ -764,6 +783,7 @@ pub async fn list_unassigned_videos(
             updated_by,
             deleted_by,
             images as "images: JsonVec<ImageMetadata>",
+            renditions as "renditions: JsonVec<VideoRendition>",
             play_count as "play_count: i64"
          FROM video_query_view
          WHERE deleted_at IS NULL
@@ -835,6 +855,7 @@ pub async fn list_videos_by_taxon_value(
             updated_by,
             deleted_by,
             images as "images: JsonVec<ImageMetadata>",
+            renditions as "renditions: JsonVec<VideoRendition>",
             play_count as "play_count: i64"
          FROM video_query_view
          WHERE deleted_at IS NULL
@@ -968,6 +989,16 @@ pub async fn update_video(req: UpdateVideoRequest) -> GrimoireResponse<Video> {
                 updated_by,
                 deleted_by,
                 '[]' as "images: JsonVec<ImageMetadata>",
+                COALESCE((SELECT json_group_array(json_object(
+                            'blob_id', id,
+                            'label', COALESCE(json_extract(metadata, '$.rendition'), 'rendition'),
+                            'mime', mime,
+                            'blake3', blake3,
+                            'width', width,
+                            'height', height))
+                 FROM media_blobz
+                 WHERE parent_blob_id = videoz.media_blob_id AND blob_type = 'rendition'), '[]')
+                    as "renditions: JsonVec<VideoRendition>",
                 (SELECT COUNT(*) FROM play_eventz WHERE entity_type = 'video' AND entity_id = videoz.id) as "play_count: i64""#,
         clear_series_flag,
         req.series_id,

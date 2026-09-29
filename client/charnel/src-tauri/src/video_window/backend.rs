@@ -8,6 +8,8 @@
 
 use serde::{Deserialize, Serialize};
 
+pub use grimoire::player::AudioDeviceInfo;
+
 /// what the webview asks the video window to do.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -32,6 +34,14 @@ pub enum VideoCommand {
     },
     ToggleFullscreen,
     Close,
+    /// query the audio sinks gstreamer can use for this window (mirrors
+    /// `PlayerCommand::ListOutputDevices` for the rodio music backend).
+    ListOutputDevices,
+    /// switch the window's audio sink to the named device (`name` is a
+    /// value previously reported via `VideoEvent::OutputDevices`).
+    SetOutputDevice {
+        name: String,
+    },
 }
 
 /// what the video window reports back. mirrors the subset of html media events
@@ -59,6 +69,10 @@ pub enum VideoEvent {
     Error {
         error_type: String,
         message: String,
+    },
+    /// reply to `VideoCommand::ListOutputDevices`.
+    OutputDevices {
+        devices: Vec<AudioDeviceInfo>,
     },
 }
 
@@ -139,6 +153,9 @@ impl PlayerState {
             VideoEvent::Error { .. } => {
                 self.state = PlaybackState::Error;
             }
+            // no local state to mirror - the picker re-queries fresh every
+            // time it opens rather than trusting a cached list.
+            VideoEvent::OutputDevices { .. } => {}
         }
         *self != before
     }
@@ -222,7 +239,11 @@ pub fn classify_error(message: &str) -> &'static str {
     let m = message.to_ascii_lowercase();
     if m.contains("no decoder") || m.contains("missing") || m.contains("not-linked") {
         "missing_plugin"
-    } else if m.contains("no such file") || m.contains("not found") {
+    } else if m.contains("no such file") || m.contains("no such device") {
+        // deliberately NOT a broad `contains("not found")` - that also
+        // matched unrelated failures (e.g. a GL/EGL pixel-format
+        // negotiation error) and misreported them as a missing file, when
+        // the file was never the problem. see the test below.
         "file_not_found"
     } else if m.contains("permission") {
         "permission_denied"
@@ -390,6 +411,19 @@ mod tests {
         assert_eq!(classify_error("Permission denied"), "permission_denied");
         assert_eq!(
             classify_error("Internal data stream error"),
+            "playback_failed"
+        );
+    }
+
+    #[test]
+    fn a_negotiation_failure_is_not_misreported_as_a_missing_file() {
+        // real-world case: a GL/EGL config-negotiation failure ("No
+        // available configurations for the given pixel format") contains
+        // neither "no such file" nor "no such device" - a prior, broader
+        // `contains("not found")` check incorrectly matched this and told
+        // the user their (perfectly present) file couldn't be found.
+        assert_eq!(
+            classify_error("No available configurations for the given pixel format"),
             "playback_failed"
         );
     }

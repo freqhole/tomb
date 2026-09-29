@@ -29,6 +29,7 @@ import {
   resumeServerSession,
 } from "../../../music/services/queue/serverSession";
 import { getRemoteById } from "../../../app/services/remotes/remoteManager";
+import { toast } from "../../../components/feedback/Toast";
 
 export async function playVideoQueue(
   videos: (VideoSummary | QueuedVideo)[],
@@ -44,7 +45,15 @@ export async function playVideoQueue(
   // its own instant optimistic overlay) isn't serialized behind it.
   mirrorReplaceVideosToQueue(videosOnly(items));
   await setQueue(items);
-  await playMediaItem(items[startIndex], { userInitiated: true });
+  try {
+    await playMediaItem(items[startIndex], { userInitiated: true });
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    toast.error(`couldn't play "${videos[startIndex].title}": ${detail}`, {
+      title: "playback error",
+    });
+    return;
+  }
   void preCacheNextVideos(videosOnly(items), 30, startIndex + 1);
 
   if (source) {

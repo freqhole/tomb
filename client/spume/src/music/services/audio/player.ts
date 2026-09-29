@@ -665,6 +665,14 @@ async function loadCurrentQueueItemAndPlay(caller: string): Promise<void> {
   const dur = duration();
   const initialPosition = ct > 0 ? ct : undefined;
   const initialDuration = dur > 0 ? dur : undefined;
+  console.info("[video-resume-diag] loadCurrentQueueItemAndPlay", {
+    caller,
+    current_sha256,
+    ct,
+    dur,
+    initialPosition,
+    initialDuration,
+  });
 
   if (current_sha256) {
     const currentItem = queue.find((i) => mediaItemKey(i) === current_sha256);
@@ -883,6 +891,10 @@ export async function playNext(): Promise<void> {
   if (!canGoNext()) {
     debug("player", "playNext: queue empty — marking playback ended");
     markPlaybackEnded();
+    // nothing left to advance to - tell the backend to actually stop
+    // (for the video window backends this tears the window down, rather
+    // than leaving it sitting open/idle indefinitely).
+    void activeBackend.send({ kind: "stop" });
     void stopServerSession("completed");
     return;
   }
@@ -936,6 +948,7 @@ export async function playNext(): Promise<void> {
     if (nextIdx >= queue.length - 1) {
       warn("player", "playNext: end of queue, no playable songs found");
       markPlaybackEnded();
+      void activeBackend.send({ kind: "stop" });
       void stopServerSession("completed");
       return;
     }

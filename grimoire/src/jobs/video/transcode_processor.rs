@@ -19,6 +19,19 @@ use crate::media_blobz::{
 use std::path::Path;
 use tracing::{info, warn};
 
+/// "MM:SS" (or "H:MM:SS" past an hour) for a progress message - not worth
+/// pulling in a whole duration-formatting crate for this one job's UI text.
+fn humanize_seconds(total_seconds: u64) -> String {
+    let hours = total_seconds / 3600;
+    let minutes = (total_seconds % 3600) / 60;
+    let seconds = total_seconds % 60;
+    if hours > 0 {
+        format!("{hours}:{minutes:02}:{seconds:02}")
+    } else {
+        format!("{minutes}:{seconds:02}")
+    }
+}
+
 /// true when `blob`'s `local_path` points at a real, non-empty file on
 /// disk - used to decide whether an already-existing rendition blob can be
 /// reused as-is, or needs to be regenerated (missing/zero-byte local file,
@@ -84,6 +97,16 @@ pub async fn process_transcode_video_job(job: &Job) -> Result<Option<serde_json:
                 params.media_blob_id
             ),
         })?;
+
+    // known up front (not per-rendition) purely so the progress callback
+    // below can show a "12s / 3m24s (6%)" style estimate instead of just
+    // a bare elapsed-time counter - best-effort, missing/zero duration
+    // just falls back to elapsed-only reporting.
+    let total_duration_seconds = crate::video::get_video(&params.video_id)
+        .await
+        .data
+        .and_then(|v| v.duration_seconds)
+        .filter(|d| *d > 0.0);
 
     let mut rendition_blob_ids = Vec::new();
     let mut partial_failures: Vec<ErrorDetail> = Vec::new();
@@ -179,6 +202,32 @@ pub async fn process_transcode_video_job(job: &Job) -> Result<Option<serde_json:
                 ("{output}", output_path.as_str()),
             ],
             &config.media.ffmpeg_path,
+            Some(&|elapsed: std::time::Duration| {
+                let elapsed_secs = elapsed.as_secs();
+                let progress_text = match total_duration_seconds {
+                    Some(total) if total > 0.0 => {
+                        let pct = ((elapsed.as_secs_f64() / total) * 100.0).clamp(0.0, 100.0);
+                        format!(
+                            "{}/{} ({:.0}%)",
+                            humanize_seconds(elapsed_secs),
+                            humanize_seconds(total as u64),
+                            pct
+                        )
+                    }
+                    _ => format!("{} encoded", humanize_seconds(elapsed_secs)),
+                };
+                job_events::emit_stage_from_job(
+                    job,
+                    "transcoding",
+                    Some(&format!(
+                        "rendition {}/{}: {} - {}",
+                        i + 1,
+                        total,
+                        rendition.label,
+                        progress_text
+                    )),
+                );
+            }),
         )
         .await
         {

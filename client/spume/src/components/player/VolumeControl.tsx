@@ -1,4 +1,5 @@
 import { createSignal, onCleanup, createEffect, For, Show } from "solid-js";
+import { Portal } from "solid-js/web";
 import { Icon } from "../icons/registry";
 
 /** one audio output device, as reported by whichever backend is actually
@@ -52,6 +53,23 @@ export function VolumeControl(props: VolumeControlProps) {
   // authoritative. resets whenever the picker is reopened fresh.
   const [selectedDevice, setSelectedDevice] = createSignal<string | null>(null);
   let hideTimeout: number | null = null;
+  // the flyout is portaled to document.body (see the render below for why -
+  // PlayerBar's own root is `position: fixed` + `z-50`, which makes it a
+  // stacking context that traps every descendant z-index, including this
+  // panel's z-[2000], underneath anything outside PlayerBar with a higher
+  // z-index of its own - e.g. QueueSidebar's z-1140 fixed drawer). since a
+  // portaled element is no longer a DOM descendant of `triggerRef`, its
+  // screen position has to be computed from the trigger's own rect instead
+  // of relying on `absolute`/`top-1/2` anchoring.
+  let triggerRef: HTMLDivElement | undefined;
+  const [flyoutPos, setFlyoutPos] = createSignal<{ top: number; right: number } | null>(null);
+
+  const cancelHideTimeout = () => {
+    if (hideTimeout) {
+      clearTimeout(hideTimeout);
+      hideTimeout = null;
+    }
+  };
 
   // adopt external volume changes (e.g. from another synced client) as
   // long as the user isn't actively dragging this slider right now.
@@ -60,9 +78,12 @@ export function VolumeControl(props: VolumeControlProps) {
   });
 
   const openPanel = () => {
-    if (hideTimeout) {
-      clearTimeout(hideTimeout);
-      hideTimeout = null;
+    cancelHideTimeout();
+    if (triggerRef) {
+      const rect = triggerRef.getBoundingClientRect();
+      // mirrors the old `right-full ... mr-2` anchor: flyout's right edge
+      // sits 8px left of the trigger, vertically centered on it.
+      setFlyoutPos({ top: rect.top + rect.height / 2, right: window.innerWidth - rect.left + 8 });
     }
     setShowPanel(true);
     // queried up front (not just when the device dropdown itself opens)
@@ -136,6 +157,7 @@ export function VolumeControl(props: VolumeControlProps) {
 
   return (
     <div
+      ref={(el) => (triggerRef = el)}
       class={`relative flex items-center ${props.class || ""}`}
       onMouseEnter={openPanel}
       onMouseLeave={() => closePanel()}
@@ -154,88 +176,99 @@ export function VolumeControl(props: VolumeControlProps) {
         />
       </button>
 
-      <Show when={showPanel()}>
-        <div
-          class="absolute right-full top-1/2 -translate-y-1/2 mr-2 flex items-center gap-3 rounded-full bg-[var(--color-bg-primary)]/95 backdrop-blur-xl border border-[var(--color-accent-500)]/30 shadow-lg z-[2000] px-4 py-2 whitespace-nowrap"
-          data-testid="volume-flyout"
-        >
-          <span class="text-xs text-[var(--color-accent-500)] font-medium tabular-nums w-8 text-right">
-            {volumePercentage()}%
-          </span>
-          <input
-            type="range"
-            min="0"
-            max="1"
-            step="0.01"
-            value={displayVolume()}
-            onPointerDown={() => setDragging(true)}
-            onInput={handleVolumeInput}
-            onChange={handleVolumeCommit}
-            class="w-28 h-1.5 rounded-full outline-none cursor-pointer appearance-none"
-            style={{
-              background: `linear-gradient(to right, var(--color-accent-500) 0%, var(--color-accent-500) ${displayVolume() * 100}%, rgba(255, 26, 158, 0.2) ${displayVolume() * 100}%, rgba(255, 26, 158, 0.2) 100%)`,
-            }}
-            aria-label="volume slider"
-          />
-          <Show when={(devices()?.length ?? 0) > 0}>
-            <div class="relative flex items-center">
-              <button
-                type="button"
-                class="p-1.5 rounded-full hover:bg-[var(--color-accent-500)]/20 transition-colors"
-                classList={{ "bg-[var(--color-accent-500)]/20": showDevices() }}
-                onClick={toggleDevices}
-                title="output device"
-                aria-label="choose output device"
-                data-testid="device-picker-toggle"
-              >
-                <Icon
-                  name="headphones"
-                  size={16}
-                  color="var(--color-accent-500)"
-                  className="hover:text-[var(--color-text-primary)] transition-colors"
-                />
-              </button>
+      <Show when={showPanel() && flyoutPos()}>
+        {(pos) => (
+          <Portal mount={document.body}>
+            <div
+              class="fixed flex items-center gap-3 rounded-full bg-[var(--color-bg-primary)]/95 backdrop-blur-xl border border-[var(--color-accent-500)]/30 shadow-lg z-[2000] px-4 py-2 whitespace-nowrap"
+              style={{
+                top: `${pos().top}px`,
+                right: `${pos().right}px`,
+                transform: "translateY(-50%)",
+              }}
+              data-testid="volume-flyout"
+              onMouseEnter={cancelHideTimeout}
+              onMouseLeave={() => closePanel()}
+            >
+              <span class="text-xs text-[var(--color-accent-500)] font-medium tabular-nums w-8 text-right">
+                {volumePercentage()}%
+              </span>
+              <input
+                type="range"
+                min="0"
+                max="1"
+                step="0.01"
+                value={displayVolume()}
+                onPointerDown={() => setDragging(true)}
+                onInput={handleVolumeInput}
+                onChange={handleVolumeCommit}
+                class="w-28 h-1.5 rounded-full outline-none cursor-pointer appearance-none"
+                style={{
+                  background: `linear-gradient(to right, var(--color-accent-500) 0%, var(--color-accent-500) ${displayVolume() * 100}%, rgba(255, 26, 158, 0.2) ${displayVolume() * 100}%, rgba(255, 26, 158, 0.2) 100%)`,
+                }}
+                aria-label="volume slider"
+              />
+              <Show when={(devices()?.length ?? 0) > 0}>
+                <div class="relative flex items-center">
+                  <button
+                    type="button"
+                    class="p-1.5 rounded-full hover:bg-[var(--color-accent-500)]/20 transition-colors"
+                    classList={{ "bg-[var(--color-accent-500)]/20": showDevices() }}
+                    onClick={toggleDevices}
+                    title="output device"
+                    aria-label="choose output device"
+                    data-testid="device-picker-toggle"
+                  >
+                    <Icon
+                      name="headphones"
+                      size={16}
+                      color="var(--color-accent-500)"
+                      className="hover:text-[var(--color-text-primary)] transition-colors"
+                    />
+                  </button>
 
-              <Show when={showDevices()}>
-                <div
-                  class="absolute right-0 bottom-full mb-2 min-w-[12rem] max-w-[16rem] max-h-56 overflow-y-auto rounded-lg bg-[var(--color-bg-primary)]/95 backdrop-blur-xl border border-[var(--color-accent-500)]/30 shadow-lg z-[2001] py-1"
-                  data-testid="device-picker-list"
-                >
-                  <Show when={devicesLoading()}>
-                    <div class="px-3 py-2 text-xs text-[var(--color-text-secondary)]">
-                      loading devices…
+                  <Show when={showDevices()}>
+                    <div
+                      class="absolute right-0 bottom-full mb-2 min-w-[12rem] max-w-[16rem] max-h-56 overflow-y-auto rounded-lg bg-[var(--color-bg-primary)]/95 backdrop-blur-xl border border-[var(--color-accent-500)]/30 shadow-lg z-[2001] py-1"
+                      data-testid="device-picker-list"
+                    >
+                      <Show when={devicesLoading()}>
+                        <div class="px-3 py-2 text-xs text-[var(--color-text-secondary)]">
+                          loading devices…
+                        </div>
+                      </Show>
+                      <Show when={!devicesLoading() && (devices()?.length ?? 0) === 0}>
+                        <div class="px-3 py-2 text-xs text-[var(--color-text-secondary)]">
+                          no output devices available
+                        </div>
+                      </Show>
+                      <For each={devicesLoading() ? [] : (devices() ?? [])}>
+                        {(device) => (
+                          <button
+                            type="button"
+                            class="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-left hover:bg-[var(--color-accent-500)]/20 transition-colors"
+                            classList={{
+                              "text-[var(--color-accent-500)] font-medium":
+                                selectedDevice() === device.name,
+                              "text-[var(--color-text-primary)]": selectedDevice() !== device.name,
+                            }}
+                            onClick={() => pickDevice(device.name)}
+                            title={device.description}
+                          >
+                            <Show when={selectedDevice() === device.name}>
+                              <Icon name="check" size={12} color="var(--color-accent-500)" />
+                            </Show>
+                            <span class="truncate">{device.description}</span>
+                          </button>
+                        )}
+                      </For>
                     </div>
                   </Show>
-                  <Show when={!devicesLoading() && (devices()?.length ?? 0) === 0}>
-                    <div class="px-3 py-2 text-xs text-[var(--color-text-secondary)]">
-                      no output devices available
-                    </div>
-                  </Show>
-                  <For each={devicesLoading() ? [] : (devices() ?? [])}>
-                    {(device) => (
-                      <button
-                        type="button"
-                        class="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-left hover:bg-[var(--color-accent-500)]/20 transition-colors"
-                        classList={{
-                          "text-[var(--color-accent-500)] font-medium":
-                            selectedDevice() === device.name,
-                          "text-[var(--color-text-primary)]": selectedDevice() !== device.name,
-                        }}
-                        onClick={() => pickDevice(device.name)}
-                        title={device.description}
-                      >
-                        <Show when={selectedDevice() === device.name}>
-                          <Icon name="check" size={12} color="var(--color-accent-500)" />
-                        </Show>
-                        <span class="truncate">{device.description}</span>
-                      </button>
-                    )}
-                  </For>
                 </div>
               </Show>
             </div>
-          </Show>
-        </div>
+          </Portal>
+        )}
       </Show>
     </div>
   );

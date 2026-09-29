@@ -105,35 +105,45 @@ pub struct AudioConfig {
     pub linux_buffer_frames: Option<u32>,
 }
 
-fn default_video_linux_buffer_frames() -> Option<u32> {
-    Some(8192)
-}
-
-/// gst-based video window tuning (linux-only, charnel desktop app). all
-/// fields are optional — omit the `[video]` section to accept the
+/// video window tuning + player choice (linux-only, charnel desktop app).
+/// all fields are optional — omit the `[video]` section to accept the
 /// built-in defaults.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct VideoConfig {
-    /// linux-only: buffer-time (converted to frames-at-48k, same
-    /// convention as `[audio].linux_buffer_frames`) for the gst video
-    /// window's own audio sink. kept separate from `[audio]` since video
-    /// playback's audio path differs from the dedicated music player's
-    /// rodio/cpal backend and commonly wants a larger buffer to avoid
-    /// stutters. defaults to 8192 (~170ms @ 48k) when unset - higher
-    /// than `[audio]`'s own 2048 default, since video's software decode
-    /// path is more prone to scheduler-jitter-induced underruns than
-    /// simple audio playback. try 4096/16384/32768 if still glitchy.
-    /// ignored on macos / windows.
-    #[serde(default = "default_video_linux_buffer_frames")]
-    pub linux_buffer_frames: Option<u32>,
-}
-
-impl Default for VideoConfig {
-    fn default() -> Self {
-        Self {
-            linux_buffer_frames: default_video_linux_buffer_frames(),
-        }
-    }
+    /// linux-only: use `mpv` (spawned as a subprocess, controlled over its
+    /// own json ipc socket) instead of the built-in gstreamer/gtk video
+    /// window. an escape hatch for systems where gstreamer's pipewire
+    /// audio sink stutters no matter how the pipeline is tuned - mpv owns
+    /// its own audio/video path entirely, sidestepping the issue outright.
+    /// requires `mpv` to be installed and on `PATH`. output device
+    /// selection isn't wired up for this backend yet (mpv just follows
+    /// whatever the system/pipewire default sink is). ignored on
+    /// macos / windows (the built-in webview `<video>` element is used
+    /// there regardless of this setting).
+    #[serde(default)]
+    pub linux_use_mpv: bool,
+    /// linux-only: force a specific GStreamer audio sink element by its
+    /// registered factory name (e.g. "alsasink", "pulsesink", "jackaudiosink",
+    /// "pipewiresink") instead of the built-in pipewiresink-first/
+    /// autoaudiosink-fallback logic in `make_audio_sink`. useful both to
+    /// debug/compare sinks on a system where the default stutters, and for
+    /// a user to pin whichever sink actually behaves well on their own
+    /// hardware. the video window's own diagnostics (surfaced in the
+    /// webview console as `[video-window] diagnostics`) list every audio
+    /// sink factory actually registered on the system to choose from.
+    /// falls back to the normal logic if the named element fails to build
+    /// (e.g. a typo, or a sink that's not actually installed). ignored on
+    /// macos / windows.
+    #[serde(default)]
+    pub linux_audio_sink: Option<String>,
+    /// linux-only: sets the forced `linux_audio_sink`'s `device` property
+    /// to this value, if it has one - the common case is a raw ALSA
+    /// device string for `alsasink`, e.g. `"hw:2,0"` (card 2, device 0)
+    /// to target hardware directly, bypassing pipewire/pulseaudio
+    /// entirely. ignored when `linux_audio_sink` is unset, or when the
+    /// forced sink has no `device` property.
+    #[serde(default)]
+    pub linux_audio_sink_device: Option<String>,
 }
 
 /// how rathole's `--player`/`/player` pairing screen renders the QR
@@ -432,9 +442,20 @@ fn default_rendition_extension() -> String {
 fn default_video_transcode_renditions() -> Vec<VideoRenditionConfig> {
     // single widely-compatible profile: h264 + aac, no forced resolution
     // or bitrate (keeps the source's own size/bitrate, just swaps codecs).
+    //
+    // `-pix_fmt yuv420p` is load-bearing, not cosmetic: without it, a
+    // 10-bit source (common for HEVC/HDR rips - `libx264` otherwise just
+    // inherits the source's bit depth) silently produces "H.264 High 10"
+    // output instead of standard 8-bit H.264. that's a real, valid h264
+    // stream by every check this job already does (codec name, container,
+    // exit code, non-empty file) - it just isn't a profile any browser's
+    // decoder (hardware or software) actually supports, so playback still
+    // fails with the exact same NotSupportedError/media-error-4 a fully
+    // incompatible codec would - confirmed live via `ffprobe` on a
+    // generated rendition that still wouldn't play.
     vec![VideoRenditionConfig {
         label: "compatible".to_string(),
-        args: "-i {input} -map 0:v:0 -map 0:a:0? -c:v libx264 -preset veryfast -crf 23 -c:a aac -b:a 192k -movflags +faststart -f mp4 -y {output}".to_string(),
+        args: "-i {input} -map 0:v:0 -map 0:a:0? -c:v libx264 -preset veryfast -crf 23 -pix_fmt yuv420p -c:a aac -b:a 192k -movflags +faststart -f mp4 -y {output}".to_string(),
         extension: default_rendition_extension(),
         target_codec: Some("h264".to_string()),
         target_container: Some("mp4".to_string()),
@@ -1945,6 +1966,12 @@ pub fn upgrade_config(config_path: &Path) -> Result<ConfigUpgradeResult, ConfigE
         merge_values_into_doc(&mut template_doc, &user_table, "");
     }
 
+    // one-time fix for a known-stale auto-generated default (video
+    // transcode args missing `-pix_fmt yuv420p` - see its own doc comment)
+    // - must run AFTER the merge above, which otherwise carries the
+    // user's stale value straight over the template's corrected one.
+    fix_stale_video_transcode_args(&mut template_doc, &old_version);
+
     // always set server.version from binary (don't keep user's old version)
     if let Some(server) = template_doc.get_mut("server") {
         if let Some(server_table) = server.as_table_mut() {
@@ -2050,6 +2077,84 @@ fn get_item_at_path<'a>(doc: &'a DocumentMut, path: &str) -> Option<&'a toml_edi
     Some(current)
 }
 
+/// pre-0.3.10 auto-generated default transcode args - lacked `-pix_fmt
+/// yuv420p`, which silently produced "H.264 High 10" output for any
+/// 10-bit source (common HEVC/HDR rips) instead of standard 8-bit H.264 -
+/// a technically valid h264 stream (passes every check this job does)
+/// that no browser decoder actually accepts. confirmed live via `ffprobe`
+/// on a generated rendition that still wouldn't play. nobody is known to
+/// have hand-customized this specific default, so a one-time fix on
+/// upgrade corrects it in place - see `fix_stale_video_transcode_args`.
+const STALE_VIDEO_TRANSCODE_ARGS_PRE_0_3_10: &str = "-i {input} -map 0:v:0 -map 0:a:0? -c:v libx264 -preset veryfast -crf 23 -c:a aac -b:a 192k -movflags +faststart -f mp4 -y {output}";
+
+/// corrected replacement for `STALE_VIDEO_TRANSCODE_ARGS_PRE_0_3_10` - adds
+/// `-pix_fmt yuv420p`, otherwise identical.
+const FIXED_VIDEO_TRANSCODE_ARGS: &str = "-i {input} -map 0:v:0 -map 0:a:0? -c:v libx264 -preset veryfast -crf 23 -pix_fmt yuv420p -c:a aac -b:a 192k -movflags +faststart -f mp4 -y {output}";
+
+/// parse "x.y.z" into a comparable tuple - unparseable components fall
+/// back to 0, matching `config_needs_upgrade`'s own "0.0.0" fallback for a
+/// config with no recorded version at all (so a never-versioned config is
+/// correctly treated as "very old" here too).
+fn parse_version_tuple(v: &str) -> (u32, u32, u32) {
+    let mut parts = v.split('.').map(|p| p.parse::<u32>().unwrap_or(0));
+    (
+        parts.next().unwrap_or(0),
+        parts.next().unwrap_or(0),
+        parts.next().unwrap_or(0),
+    )
+}
+
+/// one-time repair for `STALE_VIDEO_TRANSCODE_ARGS_PRE_0_3_10` (see its own
+/// doc comment) - only touches anything when upgrading FROM 0.3.9 or
+/// earlier, and even then only replaces the `args` field of the
+/// "compatible" rendition if it still exactly matches the known-stale
+/// string, never a genuinely hand-edited value. a config already past
+/// 0.3.9 (including one this same function already fixed once) is never
+/// touched again - this is a one-time migration, not a standing rule.
+fn fix_stale_video_transcode_args(doc: &mut DocumentMut, old_version: &str) {
+    if parse_version_tuple(old_version) > (0, 3, 9) {
+        return;
+    }
+    let Some(item) = doc
+        .get_mut("media")
+        .and_then(|m| m.as_table_mut())
+        .and_then(|t| t.get_mut("video_transcode_renditions"))
+    else {
+        return;
+    };
+    match item {
+        // `[[media.video_transcode_renditions]]` block-array style (the
+        // shipped template's own syntax).
+        toml_edit::Item::ArrayOfTables(aot) => {
+            for table in aot.iter_mut() {
+                if table.get("label").and_then(|v| v.as_str()) == Some("compatible")
+                    && table.get("args").and_then(|v| v.as_str())
+                        == Some(STALE_VIDEO_TRANSCODE_ARGS_PRE_0_3_10)
+                {
+                    table.insert("args", value(FIXED_VIDEO_TRANSCODE_ARGS));
+                }
+            }
+        }
+        // `video_transcode_renditions = [{ ... }]` inline-array style (how
+        // a real generated user config - and the merge step above when
+        // the user config had this key at all - actually writes it).
+        toml_edit::Item::Value(toml_edit::Value::Array(arr)) => {
+            for entry in arr.iter_mut() {
+                let toml_edit::Value::InlineTable(it) = entry else {
+                    continue;
+                };
+                if it.get("label").and_then(|v| v.as_str()) == Some("compatible")
+                    && it.get("args").and_then(|v| v.as_str())
+                        == Some(STALE_VIDEO_TRANSCODE_ARGS_PRE_0_3_10)
+                {
+                    it.insert("args", toml_edit::Value::from(FIXED_VIDEO_TRANSCODE_ARGS));
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
 /// convert toml::Value to toml_edit::Value
 fn toml_value_to_edit_value(v: &toml::Value) -> toml_edit::Value {
     match v {
@@ -2109,6 +2214,76 @@ mod tests {
         assert_eq!(
             get_item_at_path(&doc, "server.fetch_music.output_dir").and_then(|item| item.as_str()),
             Some("")
+        );
+    }
+
+    #[test]
+    fn config_upgrade_fixes_stale_video_transcode_args_from_pre_0_3_10() {
+        let mut doc = format!(
+            "[media]\nvideo_transcode_renditions = [{{ label = \"compatible\", extension = \"mp4\", args = {:?} }}]\n",
+            STALE_VIDEO_TRANSCODE_ARGS_PRE_0_3_10
+        )
+        .parse::<DocumentMut>()
+        .unwrap();
+
+        fix_stale_video_transcode_args(&mut doc, "0.3.9");
+
+        assert_eq!(
+            get_item_at_path(&doc, "media.video_transcode_renditions")
+                .and_then(|item| item.as_value())
+                .and_then(|v| v.as_array())
+                .and_then(|arr| arr.iter().next())
+                .and_then(|v| v.as_inline_table())
+                .and_then(|t| t.get("args"))
+                .and_then(|v| v.as_str()),
+            Some(FIXED_VIDEO_TRANSCODE_ARGS)
+        );
+    }
+
+    #[test]
+    fn config_upgrade_leaves_video_transcode_args_alone_once_past_0_3_9() {
+        let mut doc = format!(
+            "[media]\nvideo_transcode_renditions = [{{ label = \"compatible\", extension = \"mp4\", args = {:?} }}]\n",
+            STALE_VIDEO_TRANSCODE_ARGS_PRE_0_3_10
+        )
+        .parse::<DocumentMut>()
+        .unwrap();
+
+        // already on 0.3.10+ - a later upgrade must never re-touch this,
+        // even if (hypothetically) it still matched the old string.
+        fix_stale_video_transcode_args(&mut doc, "0.3.10");
+
+        assert_eq!(
+            get_item_at_path(&doc, "media.video_transcode_renditions")
+                .and_then(|item| item.as_value())
+                .and_then(|v| v.as_array())
+                .and_then(|arr| arr.iter().next())
+                .and_then(|v| v.as_inline_table())
+                .and_then(|t| t.get("args"))
+                .and_then(|v| v.as_str()),
+            Some(STALE_VIDEO_TRANSCODE_ARGS_PRE_0_3_10)
+        );
+    }
+
+    #[test]
+    fn config_upgrade_never_touches_a_genuinely_customized_video_transcode_args() {
+        let mut doc = "[media]\nvideo_transcode_renditions = [{ label = \"compatible\", extension = \"mp4\", args = \"-i {input} -c:v copy -c:a copy -y {output}\" }]\n"
+            .parse::<DocumentMut>()
+            .unwrap();
+
+        // old enough to qualify, but the value itself isn't the known
+        // stale default - must be left exactly as the user wrote it.
+        fix_stale_video_transcode_args(&mut doc, "0.3.5");
+
+        assert_eq!(
+            get_item_at_path(&doc, "media.video_transcode_renditions")
+                .and_then(|item| item.as_value())
+                .and_then(|v| v.as_array())
+                .and_then(|arr| arr.iter().next())
+                .and_then(|v| v.as_inline_table())
+                .and_then(|t| t.get("args"))
+                .and_then(|v| v.as_str()),
+            Some("-i {input} -c:v copy -c:a copy -y {output}")
         );
     }
 

@@ -264,6 +264,26 @@ export async function toggleMaximizeWindow(): Promise<void> {
 }
 
 /**
+ * set the current (real, OS-level) window's fullscreen state - windows-only
+ * escape hatch for video playback. `Element.requestFullscreen()` alone
+ * (used everywhere else, see VideoMiniPlayer.tsx) only affects the content
+ * rendered inside the webview's own viewport, never the actual native
+ * window - on WebView2 this can visually appear to work for a moment but
+ * doesn't keep the real window (and whatever native chrome it has) in
+ * sync, so it silently reverts. calling the real window API directly
+ * sidesteps that entirely.
+ */
+export async function setWindowFullscreen(fullscreen: boolean): Promise<void> {
+  try {
+    // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
+    const { getCurrentWindow } = await import("@tauri-apps/api/window");
+    await getCurrentWindow().setFullscreen(fullscreen);
+  } catch (error) {
+    // silently fail - not critical
+  }
+}
+
+/**
  * close the current window.
  */
 export async function closeWindow(): Promise<void> {

@@ -123,6 +123,11 @@ fn get_response(request: Request<Vec<u8>>) -> Result<Response<Cow<'static, [u8]>
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
     let mime_type = grimoire::offal::upload::mime::detect_media_mime_type(&path, &peek_buf);
+    // only the initial whole-file request (not every range chunk) so it
+    // doesn't spam per-seek - opt in with RUST_LOG=charnel=debug.
+    if range_header.is_none() {
+        tracing::debug!(path = %path, mime_type, "freqhole-media: serving with detected mime type");
+    }
 
     let mut resp = Response::builder()
         .header(CONTENT_TYPE, mime_type)

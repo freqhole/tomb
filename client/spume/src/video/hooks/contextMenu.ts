@@ -128,7 +128,7 @@ export function useVideoContextMenu(
       label: "play next",
       icon: IconNames.queue,
       onClick: async () => {
-        await playVideoNext(video);
+        await playVideoNext(video, { type: "video", label: video.title, entity_id: video.id });
       },
     });
 
@@ -136,7 +136,7 @@ export function useVideoContextMenu(
       label: "add to queue",
       icon: IconNames.queue,
       onClick: async () => {
-        await addVideoToQueue(video);
+        await addVideoToQueue(video, { type: "video", label: video.title, entity_id: video.id });
       },
     });
 
@@ -333,7 +333,7 @@ export function useVideoSeriesContextMenu(
     icon: IconNames.queue,
     onClick: async () => {
       const videos = await resolveSeriesVideos(series, allVideos);
-      await addVideosToQueue(videos);
+      await addVideosToQueue(videos, { type: "series", label: series.title, entity_id: series.id });
     },
   });
 

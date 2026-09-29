@@ -2413,6 +2413,14 @@ export const FavoriteItemSchema = z.union([z.intersection(z.object({
   is_primary: z.number(),
   blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
+  renditions: z.array(z.object({
+  blob_id: z.string(),
+  label: z.string(),
+  mime: z.string().nullish(),
+  blake3: z.string().nullish(),
+  width: z.number().nullish(),
+  height: z.number().nullish()
+})).nullish(),
   play_count: z.number().nullish()
 })
 })), z.intersection(z.object({
@@ -3721,6 +3729,14 @@ export const ListFavoritesResponseSchema = z.object({
   blob_id: z.string(),
   is_primary: z.number(),
   blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
+})).nullish(),
+  renditions: z.array(z.object({
+  blob_id: z.string(),
+  label: z.string(),
+  mime: z.string().nullish(),
+  blake3: z.string().nullish(),
+  width: z.number().nullish(),
+  height: z.number().nullish()
 })).nullish(),
   play_count: z.number().nullish()
 })
@@ -5767,6 +5783,14 @@ export const RecentlyAddedVideosResponseSchema = z.object({
   is_primary: z.number(),
   blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
+  renditions: z.array(z.object({
+  blob_id: z.string(),
+  label: z.string(),
+  mime: z.string().nullish(),
+  blake3: z.string().nullish(),
+  width: z.number().nullish(),
+  height: z.number().nullish()
+})).nullish(),
   play_count: z.number().nullish()
 })),
   count: z.number()
@@ -6249,6 +6273,14 @@ export const SeasonWithVideosSchema = z.object({
   is_primary: z.number(),
   blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
+  renditions: z.array(z.object({
+  blob_id: z.string(),
+  label: z.string(),
+  mime: z.string().nullish(),
+  blake3: z.string().nullish(),
+  width: z.number().nullish(),
+  height: z.number().nullish()
+})).nullish(),
   play_count: z.number().nullish()
 }))
 });
@@ -6310,6 +6342,14 @@ export const SeriesDetailSchema = z.object({
   is_primary: z.number(),
   blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
+  renditions: z.array(z.object({
+  blob_id: z.string(),
+  label: z.string(),
+  mime: z.string().nullish(),
+  blake3: z.string().nullish(),
+  width: z.number().nullish(),
+  height: z.number().nullish()
+})).nullish(),
   play_count: z.number().nullish()
 }))
 })),
@@ -6337,6 +6377,14 @@ export const SeriesDetailSchema = z.object({
   blob_id: z.string(),
   is_primary: z.number(),
   blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
+})).nullish(),
+  renditions: z.array(z.object({
+  blob_id: z.string(),
+  label: z.string(),
+  mime: z.string().nullish(),
+  blake3: z.string().nullish(),
+  width: z.number().nullish(),
+  height: z.number().nullish()
 })).nullish(),
   play_count: z.number().nullish()
 }))
@@ -7405,6 +7453,14 @@ export const UnassignedVideosResponseSchema = z.object({
   is_primary: z.number(),
   blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
+  renditions: z.array(z.object({
+  blob_id: z.string(),
+  label: z.string(),
+  mime: z.string().nullish(),
+  blake3: z.string().nullish(),
+  width: z.number().nullish(),
+  height: z.number().nullish()
+})).nullish(),
   play_count: z.number().nullish()
 })),
   count: z.number()
@@ -7874,6 +7930,14 @@ export const VideoSchema = z.object({
   is_primary: z.number(),
   blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
+  renditions: z.array(z.object({
+  blob_id: z.string(),
+  label: z.string(),
+  mime: z.string().nullish(),
+  blake3: z.string().nullish(),
+  width: z.number().nullish(),
+  height: z.number().nullish()
+})).nullish(),
   play_count: z.number().nullish()
 });
 export type Video = z.infer<typeof VideoSchema>;
@@ -7921,6 +7985,16 @@ export type VideoPendingResponse = z.infer<typeof VideoPendingResponseSchema>;
 export const VideoRenditionSchema = z.object({
   blob_id: z.string(),
   label: z.string(),
+  mime: z.string().nullish(),
+  blake3: z.string().nullish(),
+  width: z.number().nullish(),
+  height: z.number().nullish()
+});
+export type VideoRendition = z.infer<typeof VideoRenditionSchema>;
+
+export const VideoRenditionOptionSchema = z.object({
+  blob_id: z.string(),
+  label: z.string(),
   extension: z.string(),
   mime: z.string().nullish(),
   skipped: z.boolean(),
@@ -7928,7 +8002,7 @@ export const VideoRenditionSchema = z.object({
   width: z.number().nullish(),
   height: z.number().nullish()
 });
-export type VideoRendition = z.infer<typeof VideoRenditionSchema>;
+export type VideoRenditionOption = z.infer<typeof VideoRenditionOptionSchema>;
 
 export const VideoReviewPatchSchema = z.object({
   video_id: z.string(),
@@ -8035,6 +8109,14 @@ export const VideoWithMetadataSchema = z.object({
   is_primary: z.number(),
   blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
+  renditions: z.array(z.object({
+  blob_id: z.string(),
+  label: z.string(),
+  mime: z.string().nullish(),
+  blake3: z.string().nullish(),
+  width: z.number().nullish(),
+  height: z.number().nullish()
+})).nullish(),
   play_count: z.number().nullish()
 }),
   created_by_username: z.string().nullish(),
@@ -8085,6 +8167,14 @@ export const VideosByValueResponseSchema = z.object({
   is_primary: z.number(),
   blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
 })).nullish(),
+  renditions: z.array(z.object({
+  blob_id: z.string(),
+  label: z.string(),
+  mime: z.string().nullish(),
+  blake3: z.string().nullish(),
+  width: z.number().nullish(),
+  height: z.number().nullish()
+})).nullish(),
   play_count: z.number().nullish()
 })),
   count: z.number()
@@ -8116,6 +8206,14 @@ export const VideosQueryResultSchema = z.object({
   blob_id: z.string(),
   is_primary: z.number(),
   blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
+})).nullish(),
+  renditions: z.array(z.object({
+  blob_id: z.string(),
+  label: z.string(),
+  mime: z.string().nullish(),
+  blake3: z.string().nullish(),
+  width: z.number().nullish(),
+  height: z.number().nullish()
 })).nullish(),
   play_count: z.number().nullish()
 })),

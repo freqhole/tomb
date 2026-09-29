@@ -1,5 +1,16 @@
 # freqhole-release
 
+## 0.3.10
+
+### Patch Changes
+
+- 999f190: add audio device picker; rework volume control ui;
+- 3a16cce: bump default_max_upload_size_mb to 5gb; if a video rendition isn't available, get the original; handle video fetch config during setup;
+- 07bb258: fix some issues with send to remote transfer progress
+- b6a2cd0: wire rathole unix sockets into charnel; check ~/.local/bin/ for yt-dlp;
+- ba49371: make the video detail page scroll its overflow
+- 82d0d23: add new transfer progress fn to app acl (does up+download progress stuff)
+
 ## 0.3.9
 
 ### Patch Changes

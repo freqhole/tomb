@@ -622,6 +622,13 @@ pub fn run() {
                     wizard_builder
                 };
 
+                #[cfg(target_os = "linux")]
+                let wizard_builder = if let Some(icon) = app.default_window_icon() {
+                    wizard_builder.icon(icon.clone())?
+                } else {
+                    wizard_builder
+                };
+
                 #[cfg_attr(not(target_os = "macos"), allow(unused_variables))]
                 let wizard = wizard_builder.build()?;
 
@@ -799,6 +806,18 @@ pub fn run() {
                 #[cfg(target_os = "linux")]
                 let win_builder = if app_config.chromeless_title_bar {
                     win_builder.decorations(false)
+                } else {
+                    win_builder
+                };
+
+                // lxpanel/wf-panel-pi (raspberry pi os's taskbar) reads the
+                // window's own icon property directly rather than matching
+                // WM_CLASS against an installed .desktop file - without this
+                // the taskbar shows a generic icon even though the launcher
+                // (which just lists .desktop files) shows the right one.
+                #[cfg(target_os = "linux")]
+                let win_builder = if let Some(icon) = app.default_window_icon() {
+                    win_builder.icon(icon.clone())?
                 } else {
                     win_builder
                 };
@@ -1039,6 +1058,12 @@ pub fn run() {
         .run(|app, event| {
             if let RunEvent::Exit = event {
                 tracing::info!("shutdown: RunEvent::Exit received");
+
+                // kill any live mpv subprocess - it's a real separate OS
+                // process (unlike gst's in-process gtk window), observed
+                // staying open after charnel itself quit.
+                video_window::shutdown();
+                tracing::info!("shutdown: video window closed");
 
                 // cancel all background tasks first
                 let shutdown_token = app.state::<ShutdownToken>().inner().clone();
