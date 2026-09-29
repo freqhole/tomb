@@ -627,6 +627,25 @@ export function isP2PTransport(remote: Remote): boolean {
   return isP2PRemote(remote);
 }
 
+// bound a promise to a max wait - a hung p2p dial/request otherwise has no
+// application-level timeout at all (see remote-connectivity-fixes-plan.md).
+const HEALTH_CHECK_TIMEOUT_MS = 5_000;
+function withTimeout<T>(p: Promise<T>, ms = HEALTH_CHECK_TIMEOUT_MS): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error("health check timed out")), ms);
+    p.then(
+      (v) => {
+        clearTimeout(t);
+        resolve(v);
+      },
+      (e) => {
+        clearTimeout(t);
+        reject(e);
+      }
+    );
+  });
+}
+
 // check if a remote is online (quick health check via /api/hello).
 // returns true if online, false if offline. also updates server info
 // (image_url, version, etc.) when online.
@@ -637,7 +656,7 @@ export async function checkRemoteHealth(remote: Remote): Promise<boolean> {
   try {
     // use async client getter for P2P remotes (starts midden node if needed)
     const client = await getClientForRemote(remote);
-    const result = await client.app.serverInfo();
+    const result = await withTimeout(client.app.serverInfo());
     const isOnline = result.success && !!result.data;
 
     // re-read remote to get latest data (avoids overwriting with stale data)

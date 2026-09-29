@@ -228,6 +228,8 @@ export async function probeRemote(
  *
  * `force` propagates to every probe and bypasses backoff.
  */
+const WAKE_BATCH_SIZE = 2;
+
 export function wakeAllRemotes(options: { force?: boolean } = {}): void {
   void (async () => {
     let all: Remote[];
@@ -236,11 +238,14 @@ export function wakeAllRemotes(options: { force?: boolean } = {}): void {
     } catch {
       return;
     }
-    for (const r of all) {
-      if (r.is_charnel_managed) continue;
-      if (r.is_offline !== true) continue;
-      // probeRemote handles its own backoff + dedupe.
-      void probeRemote(r, options);
+    const toWake = all.filter((r) => !r.is_charnel_managed && r.is_offline === true);
+    // batched rather than firing every probe at once - an unthrottled
+    // burst piles concurrent p2p dial attempts onto the same shared
+    // connection endpoint (see remote-connectivity-fixes-plan.md), which
+    // can starve out an unrelated, healthy remote's own probe.
+    for (let i = 0; i < toWake.length; i += WAKE_BATCH_SIZE) {
+      const batch = toWake.slice(i, i + WAKE_BATCH_SIZE);
+      await Promise.allSettled(batch.map((r) => probeRemote(r, options)));
     }
   })();
 }
