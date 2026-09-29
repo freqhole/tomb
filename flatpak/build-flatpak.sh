@@ -105,6 +105,7 @@ flatpak build-finish "$BUILD_DIR" \
     --device=dri \
     --socket=pulseaudio \
     --own-name=org.mpris.MediaPlayer2.freqhole \
+    --own-name=net.freqhole.charnel \
     --share=network \
     --filesystem=xdg-music:ro \
     --filesystem=home:ro \
