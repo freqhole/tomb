@@ -159,6 +159,15 @@ export interface VideoQueueHistoryEntry {
   server_remote_id?: string; // remote_server_id the session is on
 }
 
+// unified history-list display type — the song and video history stores
+// stay fully separate (see VideoQueueHistoryEntry's doc comment above),
+// but the UI shows one merged, chronologically-interleaved list. tagging
+// with `kind` (rather than merging the two shapes into one) lets display
+// code stay generic while dispatch code (resume/replay/remove) still
+// routes to the right store's functions.
+export type HistoryDisplayEntry =
+  ({ kind: "song" } & QueueHistoryEntry) | ({ kind: "video" } & VideoQueueHistoryEntry);
+
 // remote types - re-export from centralized zod schemas
 export {
   type TransportType,

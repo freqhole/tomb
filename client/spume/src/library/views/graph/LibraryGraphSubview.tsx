@@ -4509,7 +4509,11 @@ function Inner(props: {
                     toast.error("video not found");
                     return;
                   }
-                  await addVideosToQueue([full]);
+                  await addVideosToQueue([full], {
+                    type: "video",
+                    label: full.title,
+                    entity_id: full.id,
+                  });
                 } catch (err) {
                   toast.error(`failed to enqueue video: ${(err as Error).message}`);
                 } finally {
@@ -4646,7 +4650,11 @@ function Inner(props: {
                     toast.error("no videos found in this series");
                     return;
                   }
-                  await addVideosToQueue(videos);
+                  await addVideosToQueue(videos, {
+                    type: "series",
+                    label: series.title,
+                    entity_id: series.seriesId,
+                  });
                 } catch (err) {
                   toast.error(`failed to enqueue series: ${(err as Error).message}`);
                 } finally {
@@ -4771,7 +4779,11 @@ function Inner(props: {
                     toast.error("no videos found in this season");
                     return;
                   }
-                  await addVideosToQueue(videos);
+                  await addVideosToQueue(videos, {
+                    type: "season",
+                    label: season.title,
+                    entity_id: season.seasonId,
+                  });
                 } catch (err) {
                   toast.error(`failed to enqueue season: ${(err as Error).message}`);
                 } finally {

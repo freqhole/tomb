@@ -770,6 +770,10 @@ pub async fn upsert_session_feed_event(session_id: &str) -> GrimoireResponse<Fee
                     (SELECT json_group_array(json_object('blob_id', pi.media_blob_id, 'is_primary', pi.is_primary, 'blob_type', mb.blob_type))
                      FROM playlist_imagez pi JOIN media_blobz mb ON pi.media_blob_id = mb.id
                      WHERE pi.playlist_id = ls.entity_id AND mb.blob_type NOT IN ('waveform'))
+                WHEN ls.session_type IN ('video', 'video_series', 'video_season') AND ls.entity_id IS NOT NULL THEN
+                    (SELECT json_group_array(json_object('blob_id', ei.media_blob_id, 'is_primary', ei.is_primary, 'blob_type', mb.blob_type))
+                     FROM entity_imagez ei JOIN media_blobz mb ON ei.media_blob_id = mb.id
+                     WHERE ei.entity_type IN ('video', 'video_series') AND ei.entity_id = ls.entity_id AND mb.blob_type NOT IN ('waveform'))
                 ELSE '[]'
             END as "images!: String",
             CASE
@@ -784,6 +788,17 @@ pub async fn upsert_session_feed_event(session_id: &str) -> GrimoireResponse<Fee
                      ) distinct_albums
                      JOIN album_imagez ai ON ai.album_id = distinct_albums.album_id AND ai.is_primary = 1
                      JOIN media_blobz mb ON mb.id = ai.media_blob_id
+                     WHERE mb.blob_type NOT IN ('waveform'))
+                WHEN ls.session_type IN ('video', 'video_series', 'video_season', 'mixed') THEN
+                    (SELECT json_group_array(json_object('blob_id', ei.media_blob_id, 'is_primary', 1, 'blob_type', mb.blob_type))
+                     FROM (
+                         SELECT DISTINCT json_extract(je.value, '$.entity_id') as video_id
+                         FROM json_each(ls.items) je
+                         WHERE json_extract(je.value, '$.entity_type') = 'video'
+                         LIMIT 4
+                     ) distinct_videos
+                     JOIN entity_imagez ei ON ei.entity_type = 'video' AND ei.entity_id = distinct_videos.video_id AND ei.is_primary = 1
+                     JOIN media_blobz mb ON mb.id = ei.media_blob_id
                      WHERE mb.blob_type NOT IN ('waveform'))
                 ELSE NULL
             END as "collage_images?: String",

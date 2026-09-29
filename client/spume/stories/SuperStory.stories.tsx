@@ -3142,7 +3142,9 @@ export function FullAppDemoBody() {
               onItemClick={handleQueueSongClick}
               onRemoveItem={handleRemoveFromQueue}
               onClearAll={() => setQueueSongs([])}
-              historyEntries={generateQueueHistory(12, generatedSongs as DomainSong[])}
+              historyEntries={generateQueueHistory(12, generatedSongs as DomainSong[]).map(
+                (entry) => ({ kind: "song" as const, ...entry })
+              )}
               onReplayHistoryEntry={(entry) => console.log("replay history entry:", entry.label)}
             />
           </div>

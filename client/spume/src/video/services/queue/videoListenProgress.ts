@@ -177,6 +177,16 @@ export function reconnectVideoProgressTracking(): void {
     return h.videos.every((v, i) => v.id === queueIds[i]);
   });
 
+  // TEMP DIAGNOSTIC (video-resumes-from-0 investigation)
+  console.info("[video-resume-diag] reconnectVideoProgressTracking", {
+    current_sha256: state.current_sha256,
+    queueIds,
+    historyCount: history.length,
+    historyVideoIdLists: history.slice(0, 5).map((h) => h.videos.map((v) => v.id)),
+    matchedEntryId: entry?.id ?? null,
+    matchedEntryPosition: entry?.current_video_position ?? null,
+  });
+
   if (!entry) return;
 
   // set the visual position in the player bar (without affecting playback)
@@ -184,6 +194,11 @@ export function reconnectVideoProgressTracking(): void {
   if (currentVideo && entry.current_video_position > 0) {
     setVisualPosition(entry.current_video_position, currentVideo.duration_seconds ?? undefined);
   }
+  console.info("[video-resume-diag] setVisualPosition applied?", {
+    hasCurrentVideo: !!currentVideo,
+    position: entry.current_video_position,
+    willApply: !!currentVideo && entry.current_video_position > 0,
+  });
 
   resumeVideoTracking(entry.id, {
     watched_seconds: entry.watched_seconds,

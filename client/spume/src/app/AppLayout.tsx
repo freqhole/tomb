@@ -144,7 +144,7 @@ import {
 } from "./services/storage/mediaItem";
 import {
   type Remote,
-  type QueueHistoryEntry,
+  type HistoryDisplayEntry,
   type RadioStationRef,
   isHttpRemote,
   isP2PRemote,
@@ -175,7 +175,13 @@ import { addToQueue, resumeHistoryEntry } from "../music/services/queue/queue";
 import { loadProgressFromStorage, progressMap } from "../music/services/queue/queueProgress";
 import { startAnalyticsSync, stopAnalyticsSync } from "../music/services/analytics/analyticsQueue";
 import { reconnectProgressTracking } from "../music/services/queue/listenProgress";
-import { loadVideoQueueHistory } from "../video/services/queue/videoQueueHistory";
+import {
+  loadVideoQueueHistory,
+  videoQueueHistory,
+  removeVideoHistoryEntry,
+  clearVideoQueueHistory,
+} from "../video/services/queue/videoQueueHistory";
+import { playVideoQueue, resumeVideoHistoryEntry } from "../video/services/queue/playVideoQueue";
 import { reconnectVideoProgressTracking } from "../video/services/queue/videoListenProgress";
 import {
   isCharnelMode,
@@ -249,6 +255,20 @@ function sameSongForDisplay(a: Song, b: Song): boolean {
   return true;
 }
 
+// mirrors sameSongForDisplay above, for the same reason: queue_max_progress
+// is now bumped on the currently-playing video too (queueProgress.ts's
+// saveProgressToIDB flush), and nothing reading currentVideoData()
+// displays that field.
+function sameVideoForDisplay(a: QueuedVideo, b: QueuedVideo): boolean {
+  if (a === b) return true;
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)]) as Set<keyof QueuedVideo>;
+  keys.delete("queue_max_progress");
+  for (const key of keys) {
+    if (a[key] !== b[key]) return false;
+  }
+  return true;
+}
+
 export function AppLayout(props: AppLayoutProps) {
   const navigate = useNavigate();
   const location = useLocation();
@@ -287,6 +307,62 @@ export function AppLayout(props: AppLayoutProps) {
   // - only a real switch to a different video *during* the session, or
   // actual playback starting, un-dismisses it (see the two effects below).
   const [videoMiniPlayerDismissed, setVideoMiniPlayerDismissed] = createSignal(true);
+
+  // isolated deliberately: the giant player-bar IIFE further down re-runs
+  // (fully disposing and reconstructing everything inside it, including a
+  // live re-parented <video> element) whenever ANY signal it reads
+  // changes - even something as unrelated as a queue-progress-only
+  // appState() update. that reparent silently ends the video's fullscreen
+  // session every time it happens. mounting this as a real, standalone
+  // sibling component (see its render call before that IIFE's <Show>
+  // below) instead of inline JSX inside it means it only re-renders for
+  // its own actual dependencies.
+  function VideoMiniPlayerHost() {
+    const isRadio = () => playbackMode() === "radio";
+
+    return (
+      // a rare solid-js reentrant-dispose bug (`cleanNode`/`node.owned[i]`)
+      // was traced to this panel mounting/unmounting (via `<Show>`) on
+      // every dismiss/status change while it also owns a live, re-parented
+      // `<video>` element - contain any recurrence here so it can't take
+      // down the rest of the layout.
+      <ErrorBoundary
+        fallback={(err) => {
+          console.warn("[player.video] mini player crashed, resetting:", err);
+          return null;
+        }}
+      >
+        <Show
+          when={
+            (!isRadio() &&
+              currentVideoData() &&
+              // on linux the picture is in its own gstreamer window,
+              // so there is no element here to mirror
+              !isVideoWindowActive() &&
+              getVideoElement()) ||
+            (isRadio() && radioNowPlaying()?.kind === "video" && getRadioVideoElement())
+          }
+        >
+          {(el) => (
+            <VideoMiniPlayer
+              videoElement={el()}
+              hidden={videoMiniPlayerDismissed()}
+              onClose={() => setVideoMiniPlayerDismissed(true)}
+              isPlaying={isRadio() ? () => radioStatus() === "playing" : undefined}
+              onTogglePlayback={
+                isRadio()
+                  ? () => (radioStatus() === "playing" ? radioPause() : radioResume())
+                  : undefined
+              }
+              onPause={isRadio() ? () => radioPause() : undefined}
+              onElementDetach={isRadio() ? reclaimRadioVideoElement : undefined}
+            />
+          )}
+        </Show>
+      </ErrorBoundary>
+    );
+  }
+
   // only fires for an actual video-to-video switch (prevId defined and
   // different) - going from no-id to an id (boot restore, or a user
   // picking their first video of the session) is intentionally ignored
@@ -883,6 +959,21 @@ export function AppLayout(props: AppLayoutProps) {
     return remote ? remote.name : getLocalLibraryName();
   });
 
+  // unified, chronologically-interleaved history list - song and video
+  // history stay fully separate stores/signals (see HistoryDisplayEntry's
+  // doc comment), merged only here for display.
+  const mergedHistoryEntries = createMemo<HistoryDisplayEntry[]>(() => {
+    const songs: HistoryDisplayEntry[] = queueHistory().map((entry) => ({
+      kind: "song",
+      ...entry,
+    }));
+    const videos: HistoryDisplayEntry[] = videoQueueHistory().map((entry) => ({
+      kind: "video",
+      ...entry,
+    }));
+    return [...songs, ...videos].sort((a, b) => b.queued_at - a.queued_at);
+  });
+
   // handle navigate to playlists view
   const handleViewAllPlaylists = () => {
     navigate(routes.playlists());
@@ -908,7 +999,9 @@ export function AppLayout(props: AppLayoutProps) {
       // first check if the item is in queue (avoids fetching from wrong remote)
       const itemInQueue = state.queue.find((i) => mediaItemKey(i) === sha256);
       if (itemInQueue?.kind === "video") {
-        setCurrentVideoData(itemInQueue.video);
+        setCurrentVideoData((prev) =>
+          prev && sameVideoForDisplay(prev, itemInQueue.video) ? prev : itemInQueue.video
+        );
         setCurrentSongData(null);
         return;
       }
@@ -1195,7 +1288,41 @@ export function AppLayout(props: AppLayoutProps) {
   ];
 
   // build context menu actions for a history entry
-  const getHistoryContextMenuActions = (entry: QueueHistoryEntry): MenuAction[] => {
+  const getHistoryContextMenuActions = (entry: HistoryDisplayEntry): MenuAction[] => {
+    if (entry.kind === "video") {
+      // video history entries get a simpler menu - no album/artist/
+      // playlist navigation (doesn't map onto video's entity types the
+      // same way), just resume/replay/remove.
+      const actions: MenuAction[] = [];
+      const hasProgress = (entry.watched_seconds || 0) > 0;
+      if (hasProgress) {
+        actions.push({
+          label: "resume",
+          icon: IconNames.play,
+          onClick: () => void resumeVideoHistoryEntry(entry),
+        });
+      }
+      actions.push({
+        label: "play again",
+        icon: hasProgress ? IconNames.recent : IconNames.play,
+        onClick: () =>
+          void playVideoQueue(entry.videos, 0, {
+            type: entry.type,
+            label: entry.label,
+            entity_id: entry.entity_id,
+            image: entry.image,
+          }),
+      });
+      actions.push({ type: "separator" });
+      actions.push({
+        label: "remove from history",
+        icon: IconNames.delete,
+        destructive: true,
+        onClick: () => void removeVideoHistoryEntry(entry.id),
+      });
+      return actions;
+    }
+
     const actions: MenuAction[] = [];
     const hasProgress = (entry.listened_seconds || 0) > 0;
 
@@ -1605,8 +1732,22 @@ export function AppLayout(props: AppLayoutProps) {
                 },
               });
             }}
-            historyEntries={queueHistory()}
+            historyEntries={mergedHistoryEntries()}
             onReplayHistoryEntry={(entry) => {
+              if (entry.kind === "video") {
+                const hasProgress = (entry.watched_seconds || 0) > 0;
+                if (hasProgress) {
+                  void resumeVideoHistoryEntry(entry);
+                } else {
+                  void playVideoQueue(entry.videos, 0, {
+                    type: entry.type,
+                    label: entry.label,
+                    entity_id: entry.entity_id,
+                    image: entry.image,
+                  });
+                }
+                return;
+              }
               if (entry.type === "radio_station" && entry.radio_station_ref) {
                 const ref = entry.radio_station_ref;
                 void tuneIntoRadio(ref.peer_addr, {
@@ -1633,8 +1774,12 @@ export function AppLayout(props: AppLayoutProps) {
                 });
               }
             }}
-            onRemoveHistoryEntry={(id) => {
-              void removeHistoryEntry(id);
+            onRemoveHistoryEntry={(entry) => {
+              if (entry.kind === "video") {
+                void removeVideoHistoryEntry(entry.id);
+              } else {
+                void removeHistoryEntry(entry.id);
+              }
             }}
             onClearHistory={async () => {
               const confirmed = await confirm({
@@ -1645,6 +1790,7 @@ export function AppLayout(props: AppLayoutProps) {
               });
               if (confirmed) {
                 void clearQueueHistory();
+                void clearVideoQueueHistory();
               }
             }}
             getHistoryContextMenuActions={getHistoryContextMenuActions}
@@ -1653,6 +1799,11 @@ export function AppLayout(props: AppLayoutProps) {
             currentRadioRemoteImage={currentRadioRemoteImage()}
           />
         </div>
+
+        {/* rendered as a standalone sibling, deliberately OUTSIDE the
+          player-bar <Show>/IIFE below - see VideoMiniPlayerHost's doc
+          comment for why. */}
+        <VideoMiniPlayerHost />
 
         {/* unified player bar — handles both music (queue) and radio modes.
           radio audio element lives here so playback survives navigation;
@@ -2137,50 +2288,6 @@ export function AppLayout(props: AppLayoutProps) {
 
             return (
               <>
-                {/* ErrorBoundary: a rare solid-js reentrant-dispose bug
-                    (`cleanNode`/`node.owned[i]`) was traced to this panel
-                    mounting/unmounting (via `<Show>`) on every dismiss/
-                    status change while it also owns a live, re-parented
-                    `<video>` element - contain any recurrence here so it
-                    can't take down the rest of the layout. the mount
-                    condition below no longer includes the dismissed flag
-                    (see `hidden` prop) specifically to stop causing that
-                    churn in the first place; this boundary is a backstop,
-                    not the fix. */}
-                <ErrorBoundary
-                  fallback={(err) => {
-                    console.warn("[player.video] mini player crashed, resetting:", err);
-                    return null;
-                  }}
-                >
-                  <Show
-                    when={
-                      (!isRadio() &&
-                        currentVideoData() &&
-                        // on linux the picture is in its own gstreamer window,
-                        // so there is no element here to mirror
-                        !isVideoWindowActive() &&
-                        getVideoElement()) ||
-                      (isRadio() && radioNowPlaying()?.kind === "video" && getRadioVideoElement())
-                    }
-                  >
-                    {(el) => (
-                      <VideoMiniPlayer
-                        videoElement={el()}
-                        hidden={videoMiniPlayerDismissed()}
-                        onClose={() => setVideoMiniPlayerDismissed(true)}
-                        isPlaying={isRadio() ? () => radioStatus() === "playing" : undefined}
-                        onTogglePlayback={
-                          isRadio()
-                            ? () => (radioStatus() === "playing" ? radioPause() : radioResume())
-                            : undefined
-                        }
-                        onPause={isRadio() ? () => radioPause() : undefined}
-                        onElementDetach={isRadio() ? reclaimRadioVideoElement : undefined}
-                      />
-                    )}
-                  </Show>
-                </ErrorBoundary>
                 <PlayerBar
                   song={barSong()}
                   isPlaying={barIsPlaying()}

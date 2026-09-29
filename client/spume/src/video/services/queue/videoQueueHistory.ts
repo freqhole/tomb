@@ -13,6 +13,8 @@ import {
 } from "../../../app/services/storage/types";
 import type { QueuedVideo } from "../../../app/services/storage/mediaItem";
 import { getCurrentRemote } from "../../../music/data";
+import { pickBestEntryImage } from "../../../utils/images";
+import type { ImageMetadata } from "../../../music/services/storage/types";
 
 const MAX_HISTORY_ENTRIES = 200;
 
@@ -24,14 +26,30 @@ function generateId(): string {
   return crypto.randomUUID();
 }
 
+// video's raw images use a different shape (blob_id/is_primary: number)
+// than the app's ImageMetadata - mirrors the same mapping already done in
+// AppLayout.tsx's barVideo()/VideoQueueRow.tsx's waveformImg().
+function toImageMetadata(video: QueuedVideo): ImageMetadata[] | undefined {
+  return video.images?.map((img) => ({
+    remote_blob_id: img.blob_id,
+    remote_server_id: video.remote_server_id,
+    is_primary: !!img.is_primary,
+    blob_type: img.blob_type,
+  }));
+}
+
 // unwrap proxy objects before storing videos in IndexedDB or passing through
-// IPC — mirrors queueHistory.ts's unwrapSongs(). `images` is the one
-// nested array field QueuedVideo carries (added alongside Video.images),
-// so it needs its own deep copy the same way a shallow spread doesn't
-// unwrap a solid-store-proxied array — see app/services/storage/db.ts's
-// `setQueue` for the sibling fix and the DataCloneError it was causing.
+// IPC — mirrors queueHistory.ts's unwrapSongs(). `images`/`renditions` are
+// the nested array fields QueuedVideo carries, so they need their own deep
+// copy the same way a shallow spread doesn't unwrap a solid-store-proxied
+// array — see app/services/storage/db.ts's `setQueue`/`toPlainQueueItems`
+// for the sibling fix and the DataCloneError it was causing there too.
 export function unwrapVideos(videos: QueuedVideo[]): QueuedVideo[] {
-  return videos.map((v) => ({ ...v, images: v.images?.map((img) => ({ ...img })) }));
+  return videos.map((v) => ({
+    ...v,
+    images: v.images?.map((img) => ({ ...img })),
+    renditions: v.renditions?.map((r) => ({ ...r })),
+  }));
 }
 
 // load history from idb into reactive signal
@@ -63,6 +81,16 @@ export async function addVideoHistoryEntry(
   try {
     const db = await initAppDB();
 
+    // pick the best available image - prefers an explicit source image,
+    // falls back to scanning the videos' own images (posters) otherwise.
+    // mirrors queueHistory.ts's addHistoryEntry - without this, a source
+    // without an explicit image (the common case - see the video queue
+    // action call sites) always fell back to the plain icon in the UI.
+    const bestImage = pickBestEntryImage(
+      videos.map((v) => ({ images: toImageMetadata(v) })),
+      source.image
+    );
+
     const entry: VideoQueueHistoryEntry = {
       id: generateId(),
       type: source.type,
@@ -72,7 +100,7 @@ export async function addVideoHistoryEntry(
       video_count: videos.length,
       videos: unwrapVideos(videos),
       queued_at: Date.now(),
-      image: source.image ? { ...source.image } : undefined,
+      image: bestImage ? { ...bestImage } : undefined,
       watched_seconds: resumeProgress?.watched_seconds ?? 0,
       total_seconds: videos.reduce((sum, v) => sum + (v.duration_seconds || 0), 0),
       videos_completed: resumeProgress?.videos_completed ?? 0,
@@ -111,6 +139,45 @@ export async function removeVideoHistoryEntry(id: string): Promise<void> {
     await loadVideoQueueHistory();
   } catch (error) {
     errorLog("video/queueHistory", "remove entry failed:", error);
+  }
+}
+
+// update the video list on an existing history entry - mirrors
+// queueHistory.ts's updateHistoryEntrySongs, used when a video is added to
+// an already-tracked queue (add to queue/play next) instead of starting a
+// fresh playVideoQueue() batch.
+export async function updateVideoHistoryEntryVideos(
+  id: string,
+  videos: QueuedVideo[]
+): Promise<void> {
+  try {
+    const db = await initAppDB();
+    const entry = await db.get(STORE_VIDEO_QUEUE_HISTORY, id);
+    if (!entry) return;
+
+    const updated: VideoQueueHistoryEntry = {
+      ...entry,
+      videos: unwrapVideos(videos),
+      video_count: videos.length,
+      total_seconds: videos.reduce((sum, v) => sum + (v.duration_seconds || 0), 0),
+    };
+
+    await db.put(STORE_VIDEO_QUEUE_HISTORY, updated);
+
+    setVideoQueueHistory((prev) =>
+      prev.map((e) =>
+        e.id === id
+          ? {
+              ...e,
+              videos: updated.videos,
+              video_count: updated.video_count,
+              total_seconds: updated.total_seconds,
+            }
+          : e
+      )
+    );
+  } catch (error) {
+    errorLog("video/queueHistory", "update videos failed:", error);
   }
 }
 

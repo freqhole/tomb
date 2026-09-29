@@ -241,7 +241,7 @@ export function VideoDetailView() {
     if (!video || queuePending()) return;
     setQueuePending(true);
     try {
-      await addVideoToQueue(video);
+      await addVideoToQueue(video, { type: "video", label: video.title, entity_id: video.id });
     } finally {
       setQueuePending(false);
     }
@@ -325,6 +325,11 @@ export function VideoDetailView() {
                     </Show>
                     <Show when={video().duration_seconds != null}>
                       <span>{formatDuration(video().duration_seconds)}</span>
+                    </Show>
+                    <Show when={video().play_count != null && video().play_count! > 0}>
+                      <span>
+                        {video().play_count} {video().play_count === 1 ? "play" : "plays"}
+                      </span>
                     </Show>
                   </div>
 
@@ -426,6 +431,11 @@ export function VideoDetailView() {
                     </Show>
                     <Show when={video().duration_seconds != null}>
                       <span>{formatDuration(video().duration_seconds)}</span>
+                    </Show>
+                    <Show when={video().play_count != null && video().play_count! > 0}>
+                      <span>
+                        {video().play_count} {video().play_count === 1 ? "play" : "plays"}
+                      </span>
                     </Show>
                   </div>
 

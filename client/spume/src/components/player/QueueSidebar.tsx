@@ -15,7 +15,7 @@ import { QueueSongRow } from "./QueueSongRow";
 import { VideoQueueRow } from "./VideoQueueRow";
 import { RemoteQueueRow } from "./RemoteQueueRow";
 import { QueuePlayerTargetRow } from "./QueuePlayerTargetRow";
-import type { QueueHistoryEntry, RadioStationRef } from "../../app/services/storage/types";
+import type { HistoryDisplayEntry, RadioStationRef } from "../../app/services/storage/types";
 import type { ImageMetadata } from "../../music/services/storage/types";
 import { isMobile } from "../../utils/isMobile";
 import { isCharnelMode } from "../../app/services/charnel";
@@ -68,9 +68,20 @@ function timeAgo(timestamp: number): string {
   return `${weeks}w ago`;
 }
 
-// icon name for history entry type
-function historyTypeIcon(type: QueueHistoryEntry["type"]): IconName {
-  switch (type) {
+// icon name for a history entry - video entries reuse the "video"/"queue"
+// icons since VideoQueueHistorySourceType has no icon mapping of its own.
+function historyTypeIcon(entry: HistoryDisplayEntry): IconName {
+  if (entry.kind === "video") {
+    switch (entry.type) {
+      case "series":
+        return "tv";
+      case "season":
+        return "tv";
+      default:
+        return "video";
+    }
+  }
+  switch (entry.type) {
     case "song":
       return "music";
     case "album":
@@ -88,6 +99,26 @@ function historyTypeIcon(type: QueueHistoryEntry["type"]): IconName {
     default:
       return "queue";
   }
+}
+
+// item count/completed/listened-seconds all differ by field name between
+// the song and video shapes (song_count vs video_count, etc.) - small
+// generic accessors keep the row-rendering JSX below kind-agnostic.
+function historyItemCount(entry: HistoryDisplayEntry): number {
+  return entry.kind === "video" ? entry.video_count : entry.song_count;
+}
+function historyCompletedCount(entry: HistoryDisplayEntry): number {
+  return entry.kind === "video" ? entry.videos_completed : entry.songs_completed;
+}
+function historyListenedSeconds(entry: HistoryDisplayEntry): number {
+  return entry.kind === "video" ? entry.watched_seconds : entry.listened_seconds;
+}
+function historyItemNoun(entry: HistoryDisplayEntry, count: number): string {
+  if (entry.kind === "video") return count === 1 ? "video" : "videos";
+  return count === 1 ? "song" : "songs";
+}
+function historyRadioRef(entry: HistoryDisplayEntry): RadioStationRef | undefined {
+  return entry.kind === "song" ? entry.radio_station_ref : undefined;
 }
 
 export interface QueueSidebarProps {
@@ -116,12 +147,14 @@ export interface QueueSidebarProps {
   variant?: "overlay" | "inline";
   /** callback when queue is reordered */
   onReorder?: (fromIndex: number, toIndex: number) => void;
-  /** history entries */
-  historyEntries: QueueHistoryEntry[];
+  /** history entries - a unified, chronologically-interleaved list of
+   * song and video history (see HistoryDisplayEntry's doc comment). */
+  historyEntries: HistoryDisplayEntry[];
   /** callback to replay a history entry */
-  onReplayHistoryEntry?: (entry: QueueHistoryEntry) => void;
-  /** callback to remove a history entry */
-  onRemoveHistoryEntry?: (id: string) => void;
+  onReplayHistoryEntry?: (entry: HistoryDisplayEntry) => void;
+  /** callback to remove a history entry - receives the whole entry (not
+   * just its id) since song/video entries live in different stores. */
+  onRemoveHistoryEntry?: (entry: HistoryDisplayEntry) => void;
   /** callback to clear all history */
   onClearHistory?: () => void;
   /** currently tuned radio station (if any) */
@@ -135,7 +168,7 @@ export interface QueueSidebarProps {
   /** callback to get context menu actions for the radio queue entry */
   getRadioQueueContextMenuActions?: (station: RadioStationRef) => MenuAction[];
   /** callback to get context menu actions for a history entry */
-  getHistoryContextMenuActions?: (entry: QueueHistoryEntry) => MenuAction[];
+  getHistoryContextMenuActions?: (entry: HistoryDisplayEntry) => MenuAction[];
   /** additional classes */
   class?: string;
   /** current playback time in seconds (for progress fill) */
@@ -848,10 +881,9 @@ export function QueueSidebar(props: QueueSidebarProps) {
                     const isDragging = () => effectiveDraggedIndex() === itemIndex;
                     const isDropTarget = () => dropTargetIndex() === itemIndex;
 
-                    // calculate progress for currently-relevant rows. songs
-                    // have a stored per-queue-entry max progress; videos
-                    // don't (yet) - only their live currently-playing
-                    // progress is shown.
+                    // calculate progress for currently-relevant rows. both
+                    // songs and videos carry a stored per-queue-entry max
+                    // progress (see queueProgress.ts).
                     const progress = (): number => {
                       const it = item();
                       if (!it) return 0;
@@ -860,11 +892,10 @@ export function QueueSidebar(props: QueueSidebarProps) {
                         const ct = props.currentTime ?? 0;
                         return dur > 0 ? ct / dur : 0;
                       }
-                      if (it.kind === "song") {
-                        const queueEntryId = it.song.queue_entry_id;
-                        if (queueEntryId && props.progressMap) {
-                          return props.progressMap.get(queueEntryId) ?? 0;
-                        }
+                      const queueEntryId =
+                        it.kind === "song" ? it.song.queue_entry_id : it.video.queue_entry_id;
+                      if (queueEntryId && props.progressMap) {
+                        return props.progressMap.get(queueEntryId) ?? 0;
                       }
                       return 0;
                     };
@@ -983,7 +1014,7 @@ export function QueueSidebar(props: QueueSidebarProps) {
                 </div>
                 <p class="text-[var(--color-text-secondary)] text-sm m-0 mb-2">no history yet</p>
                 <p class="text-[var(--color-text-muted)] text-xs m-0">
-                  songs you queue will appear here
+                  songs and videos you queue will appear here
                 </p>
               </div>
             }
@@ -998,15 +1029,15 @@ export function QueueSidebar(props: QueueSidebarProps) {
                 {(virtualItem) => {
                   const entry = () => props.historyEntries[virtualItem.index];
                   const [isRowHovered, setIsRowHovered] = createSignal(false);
-                  const isArtist = () => entry().type === "artist";
-                  const isRadio = () => entry().type === "radio_station";
+                  const isArtist = () => entry().kind === "song" && entry().type === "artist";
+                  const isRadio = () => entry().kind === "song" && entry().type === "radio_station";
                   const progressPercent = () => {
                     const total = entry().total_seconds || 0;
                     if (total === 0) return 0;
-                    return Math.min(100, ((entry().listened_seconds || 0) / total) * 100);
+                    return Math.min(100, (historyListenedSeconds(entry()) / total) * 100);
                   };
                   const hasProgress = () =>
-                    (entry().listened_seconds || 0) > 0 && progressPercent() < 100;
+                    historyListenedSeconds(entry()) > 0 && progressPercent() < 100;
 
                   const historyRow = (
                     <div
@@ -1046,13 +1077,13 @@ export function QueueSidebar(props: QueueSidebarProps) {
                         class={`w-10 h-10 flex-shrink-0 mr-3 flex items-center justify-center ${isArtist() ? "rounded-full" : "rounded"} bg-[var(--color-accent-500)]/10 overflow-hidden relative`}
                       >
                         <Show
-                          when={isRadio() && entry().radio_station_ref?.art_thumb_b64}
+                          when={isRadio() && historyRadioRef(entry())?.art_thumb_b64}
                           fallback={
                             <Show
                               when={entry().image}
                               fallback={
                                 <Icon
-                                  name={historyTypeIcon(entry().type)}
+                                  name={historyTypeIcon(entry())}
                                   size={20}
                                   color="var(--color-accent-500)"
                                 />
@@ -1067,7 +1098,7 @@ export function QueueSidebar(props: QueueSidebarProps) {
                           }
                         >
                           {(_b64) => {
-                            const ref = entry().radio_station_ref!;
+                            const ref = historyRadioRef(entry())!;
                             return (
                               <img
                                 src={`data:${ref.art_thumb_mime ?? "image/jpeg"};base64,${ref.art_thumb_b64}`}
@@ -1094,13 +1125,13 @@ export function QueueSidebar(props: QueueSidebarProps) {
                                   when={hasProgress()}
                                   fallback={
                                     <>
-                                      {entry().song_count}{" "}
-                                      {entry().song_count === 1 ? "song" : "songs"}
+                                      {historyItemCount(entry())}{" "}
+                                      {historyItemNoun(entry(), historyItemCount(entry()))}
                                     </>
                                   }
                                 >
-                                  {entry().songs_completed}/{entry().song_count}{" "}
-                                  {entry().song_count === 1 ? "song" : "songs"} &middot;{" "}
+                                  {historyCompletedCount(entry())}/{historyItemCount(entry())}{" "}
+                                  {historyItemNoun(entry(), historyItemCount(entry()))} &middot;{" "}
                                   {Math.round(progressPercent())}%
                                 </Show>
                               </>
@@ -1137,7 +1168,7 @@ export function QueueSidebar(props: QueueSidebarProps) {
                         class={`${isMobile() ? "" : "opacity-0 group-hover:opacity-100 "}p-1.5 ml-1 text-[var(--color-text-muted)] hover:text-red-400 hover:bg-red-500/20 transition-all duration-200 flex-shrink-0`}
                         onClick={(e) => {
                           e.stopPropagation();
-                          props.onRemoveHistoryEntry?.(entry().id);
+                          props.onRemoveHistoryEntry?.(entry());
                         }}
                         title="remove from history"
                         aria-label="remove from history"

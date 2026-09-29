@@ -282,10 +282,19 @@ export class VideoBackend implements PlayerBackend {
     await setCurrentSong(video.id);
 
     const initialPositionSec = options?.initialPosition ?? 0;
+    console.info("[video-resume-diag] videoBackend.loadAndPlay", {
+      videoId: video.id,
+      initialPositionSec,
+      willSeek: initialPositionSec > 0,
+    });
     if (initialPositionSec > 0) {
       const seekOnMetadata = () => {
         try {
           el.currentTime = initialPositionSec;
+          console.info("[video-resume-diag] seekOnMetadata applied", {
+            videoId: video.id,
+            currentTime: el.currentTime,
+          });
         } catch {
           // ignore — invalid duration / browser quirk
         }

@@ -45,6 +45,10 @@ export interface QueuedVideo extends Video {
    * arrive. lets `getVideoURL()` do verified iroh-blobs streaming without
    * needing a real remote `media_blob_id`. */
   blake3?: string | null;
+  /** max watch-progress fraction (0-1) reached for this queue entry —
+   * mirrors `Song.queue_max_progress`, feeds the queue sidebar's
+   * progress-fill bar for a video that isn't the currently-playing row. */
+  queue_max_progress?: number;
 }
 
 export type MediaItem = { kind: "song"; song: Song } | { kind: "video"; video: QueuedVideo };

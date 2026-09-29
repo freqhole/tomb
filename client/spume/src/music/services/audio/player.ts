@@ -665,6 +665,14 @@ async function loadCurrentQueueItemAndPlay(caller: string): Promise<void> {
   const dur = duration();
   const initialPosition = ct > 0 ? ct : undefined;
   const initialDuration = dur > 0 ? dur : undefined;
+  console.info("[video-resume-diag] loadCurrentQueueItemAndPlay", {
+    caller,
+    current_sha256,
+    ct,
+    dur,
+    initialPosition,
+    initialDuration,
+  });
 
   if (current_sha256) {
     const currentItem = queue.find((i) => mediaItemKey(i) === current_sha256);

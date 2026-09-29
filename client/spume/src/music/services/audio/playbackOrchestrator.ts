@@ -27,10 +27,11 @@
 
 import { createEffect, createRoot } from "solid-js";
 import { appState } from "../../../app/services/storage/db";
-import { songsOnly } from "../../../app/services/storage/mediaItem";
+import { mediaItemKey, songsOnly } from "../../../app/services/storage/mediaItem";
 import { songIdentityKey } from "../storage/types";
 import {
   activeHistoryEntryId,
+  consumePendingServerReconnect,
   markSongCompleted,
   recordTimeProgress,
 } from "../queue/listenProgress";
@@ -77,19 +78,22 @@ export function installPlaybackOrchestrator(): void {
         return;
       }
 
-      // video items don't participate in listen-history/analytics
-      // progress tracking yet (phase 9 MVP scope note) — resolve
-      // against the song-only subset and bail if the current item
-      // isn't a song.
+      // song-only listen-history/analytics tracking (phase 9 MVP scope
+      // note) - resolved against the song-only subset; null for a
+      // currently-playing video, which just skips section 1 and 3 below.
       const queueSongs = songsOnly(queue);
       const songIdx = queueSongs.findIndex((s) => songIdentityKey(s) === current_sha256);
       const currentSong = songIdx >= 0 ? queueSongs[songIdx] : null;
-      if (!currentSong) return;
 
       // 1. listen-history progress accumulation. only counts forward
       //    motion within the small-delta window so seeks don't pad
       //    the listen tally.
-      if (activeHistoryEntryId() && ct > lastTimeValue) {
+      if (currentSong && activeHistoryEntryId() && ct > lastTimeValue) {
+        // a reconnected-on-boot entry's remote session reconnect was
+        // deferred until now - this is the first real forward tick,
+        // proof the user is actually playing, not just that the queue
+        // was restored (see listenProgress.ts's pendingServerReconnect).
+        consumePendingServerReconnect(activeHistoryEntryId()!);
         const delta = ct - lastTimeValue;
         if (delta > 0 && delta < MAX_DELTA_SECONDS) {
           recordTimeProgress(delta, songIdx >= 0 ? songIdx : 0, ct, currentSong);
@@ -102,9 +106,16 @@ export function installPlaybackOrchestrator(): void {
 
       const progress = ct / dur;
 
-      // 2. per-queue-row visual fill.
-      if (currentSong?.queue_entry_id) {
-        updateQueueItemProgress(currentSong.queue_entry_id, progress);
+      // 2. per-queue-row visual fill - songs and videos both participate
+      //    (queue_entry_id is assigned to every queue item regardless of
+      //    kind; see withQueueEntryId in db.ts).
+      const currentItem = queue.find((i) => mediaItemKey(i) === current_sha256);
+      const currentQueueEntryId =
+        currentItem?.kind === "song"
+          ? currentItem.song.queue_entry_id
+          : currentItem?.video.queue_entry_id;
+      if (currentQueueEntryId) {
+        updateQueueItemProgress(currentQueueEntryId, progress);
       }
 
       // 3. completion marker — fires once per song at the threshold.
@@ -115,7 +126,13 @@ export function installPlaybackOrchestrator(): void {
       //    queue context, so no history entry) should still record
       //    a play. this used to be inside the same gate, which
       //    silently dropped analytics for single-song listens.
-      if (completionRecordedFor !== current_sha256 && progress >= COMPLETION_THRESHOLD) {
+      //    video completion isn't tracked here yet - videos have their
+      //    own history/completion mechanism (videoListenProgress.ts).
+      if (
+        currentSong &&
+        completionRecordedFor !== current_sha256 &&
+        progress >= COMPLETION_THRESHOLD
+      ) {
         completionRecordedFor = current_sha256;
         if (activeHistoryEntryId()) {
           markSongCompleted(songIdx >= 0 ? songIdx : 0, currentSong);
