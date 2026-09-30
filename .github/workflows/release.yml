@@ -116,6 +116,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
+      # exposes dumpbin.exe/lib.exe on PATH - needed by
+      # scripts\windows\fetch-mpv-runtime.ps1 to generate mpv.lib from
+      # mpv-libre-runtime's dll-only windows archive (no import lib shipped).
+      - uses: ilammy/msvc-dev-cmd@v1
       - name: install sqlx-cli
         run: cargo install sqlx-cli --no-default-features --features sqlite,rustls --locked
       # windows-latest ships winget but not the sqlite3 cli build.ps1 needs

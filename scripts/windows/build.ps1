@@ -79,6 +79,11 @@ if (-not $env:DATABASE_URL) {
 }
 Write-Host "DATABASE_URL=$($env:DATABASE_URL)"
 
+Write-Host ""
+Write-Host "== fetching libmpv (portable runtime, bundled into the app) ==" -ForegroundColor Cyan
+& (Join-Path $PSScriptRoot "fetch-mpv-runtime.ps1")
+$env:CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS = "-L $(Join-Path $repoRoot 'target\mpv-import-lib')"
+
 if (-not $SkipSpume) {
     Write-Host ""
     Write-Host "== setting up local sqlite db (migrations + views + blob_data) ==" -ForegroundColor Cyan

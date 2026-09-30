@@ -111,6 +111,33 @@ use tokio_util::sync::CancellationToken;
 
 use p2p_state::P2pState;
 
+/// libmpv-2.dll (and its 2 sibling dlls) are bundled via `bundle.resources`
+/// (see tauri.conf.json) since mpv-libre-runtime's windows archive ships no
+/// import lib we could bake an absolute path into at link time. windows only
+/// searches the exe's own directory + PATH for dlls by default, not
+/// $RESOURCE, so register it explicitly - resolving the path at runtime
+/// (rather than assuming a fixed layout) keeps this correct regardless of
+/// exactly where tauri's installer places $RESOURCE.
+#[cfg(target_os = "windows")]
+fn register_bundled_dll_search_path(app: &tauri::AppHandle) {
+    use std::os::windows::ffi::OsStrExt;
+
+    let Ok(resource_dir) = app.path().resolve("", tauri::path::BaseDirectory::Resource) else {
+        tracing::warn!("could not resolve resource dir, libmpv-2.dll may not be found");
+        return;
+    };
+    let wide: Vec<u16> = resource_dir
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    // SAFETY: `wide` is a valid, null-terminated UTF-16 string that outlives
+    // the call (SetDllDirectoryW copies it internally).
+    unsafe {
+        windows_sys::Win32::System::LibraryLoader::SetDllDirectoryW(wide.as_ptr());
+    }
+}
+
 /// pending deep-link URLs received before the main window's JS listeners were
 /// ready. spume drains this on startup via the `take_pending_deep_links`
 /// command. urls received after the window is up are emitted as
@@ -462,6 +489,8 @@ pub fn run() {
     let builder = builder
         .setup(move |app| {
             tracing::info!(elapsed_ms = %boot_start.elapsed().as_millis(), "boot: setup() entered");
+            #[cfg(target_os = "windows")]
+            register_bundled_dll_search_path(app.handle());
             // needed by player_pairing_accept's dispatch bridge, which runs
             // from a spawned task with no AppHandle of its own to emit
             // events through.
