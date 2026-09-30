@@ -25,10 +25,9 @@
 //! module's local-only surface (tauri commands driving the same-host
 //! libmpv backend) is unaffected and remains the real, load-bearing use.
 //!
-//! rodio (the original audio backend) and its supervisor were removed
-//! 2026-09-29 once libmpv reached parity on every platform (audio +
+//! libmpv is this module's only backend, on every platform (audio +
 //! video, charnel and rathole) - see
-//! `docs/libmpv-experimental-player-plan.md`'s ripout phase.
+//! `docs/libmpv-experimental-player-plan.md`.
 
 pub mod control;
 #[cfg(feature = "libmpv-playback")]
@@ -46,9 +45,8 @@ use tokio::sync::broadcast;
 
 /// frontend-facing player surface.
 ///
-/// implementations supervise an audio backend (rodio in v1; possibly
-/// a subprocess in v2) and broadcast [`PlayerEvent`]s to any number
-/// of subscribers.
+/// implementations drive an audio backend (libmpv, in-process) and
+/// broadcast [`PlayerEvent`]s to any number of subscribers.
 ///
 /// callers send commands via [`Self::send`], subscribe to events
 /// via [`Self::subscribe`], and read the last-known state cheaply

@@ -1,12 +1,12 @@
 //! libmpv audio backend.
 //!
-//! deliberately simpler than `rodio.rs`'s supervised backend: no
-//! watchdog/auto-restart-on-crash machinery yet. that's rodio's own
-//! crash-recovery mechanism for a hand-rolled cpal pipeline; libmpv
-//! itself is a far more battle-tested engine, and this is a first
-//! working pass to prove the "experimental player" toggle out
-//! end-to-end - add supervision later if libmpv audio turns out to
-//! need it in practice.
+//! no watchdog/auto-restart-on-crash supervisor: that kind of machinery
+//! existed for the earlier hand-rolled cpal+symphonia backend, whose
+//! pipeline could genuinely panic on malformed input. libmpv is a
+//! single mature in-process library that reports errors instead of
+//! crashing - there's no "worker thread died, respawn it" failure mode
+//! to recover from, so a respawn supervisor would have nothing real to
+//! do here.
 //!
 //! two threads, mirroring charnel's `video_window/libmpv_backend.rs`
 //! split: one owns an `Mpv` handle and just applies `PlayerCommand`s to
@@ -267,8 +267,8 @@ fn apply_command(
             .map_err(|e| mpv_err("set volume", e)),
         // real state/duration/position come from the event thread's
         // property-change stream, not a one-shot query - nothing to do
-        // synchronously here yet (matches rodio's own `Status` handling
-        // being folded into its periodic progress emission).
+        // synchronously here; status is folded into the periodic
+        // progress emission instead.
         PlayerCommand::Status => Ok(()),
         PlayerCommand::ListOutputDevices => {
             emit(
@@ -280,8 +280,8 @@ fn apply_command(
             Ok(())
         }
         // hot-swappable at runtime - mpv reinitializes its audio output
-        // against the new device without needing a reload, unlike rodio's
-        // manual stream-rebuild dance.
+        // against the new device without needing a reload or manual
+        // stream-rebuild.
         PlayerCommand::SetOutputDevice { name } => mpv
             .set_property("audio-device", name.as_str())
             .map_err(|e| mpv_err("set audio-device", e)),

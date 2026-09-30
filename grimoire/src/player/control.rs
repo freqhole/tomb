@@ -1,7 +1,7 @@
 //! shared control api: [`PlayerCommand`] and [`PlayerEvent`].
 //!
 //! these enums are the wire format consumed by every frontend (tauri
-//! ipc, iroh ALPN, cli daemon) and produced by every backend (rodio
+//! ipc, iroh ALPN, cli daemon) and produced by every backend (libmpv
 //! today; possibly a subprocess wrapper later). they derive
 //! `Serialize + Deserialize + ZodSchema` so they round-trip cleanly
 //! over json _and_ feed the typescript codegen.
@@ -26,9 +26,9 @@ pub enum PlayerCommand {
     /// replace the queue with the given file paths and start
     /// playing from the first one.
     ///
-    /// path-based (not bytes-based) per phase-0 decision: rodio
-    /// reads files freqhole already knows the location of via
-    /// grimoire. paths are wire-encoded as strings so the type
+    /// path-based (not bytes-based) per the original design decision:
+    /// the backend reads files freqhole already knows the location of
+    /// via grimoire. paths are wire-encoded as strings so the type
     /// round-trips through json + zod codegen cleanly.
     ///
     /// `start_ms`: seek to this position in the first track as part

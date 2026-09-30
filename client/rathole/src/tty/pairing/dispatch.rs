@@ -71,8 +71,8 @@ pub struct DispatchContext {
     pub unresolved_items: Vec<UnresolvedItemRef>,
     /// last-known audio output devices for `active_backend` (the
     /// in-process libmpv backend's `MusicState::output_devices` or
-    /// mpv's `VideoPlayerState::audio_devices`, whichever is relevant)
-    /// - built synchronously by `run.rs` before dispatch, same as
+    /// mpv's `VideoPlayerState::audio_devices`, whichever is relevant),
+    /// built synchronously by `run.rs` before dispatch, same as
     /// every other field here. see `dispatch_pairing_command_inner`'s
     /// `ListOutputDevices` arm for why this is a cached snapshot
     /// rather than a live query.

@@ -128,13 +128,10 @@ impl PlayerState {
 
 /// background task: forward every [`PlayerEvent`] to the webview, and fold
 /// play/pause/position/duration into the OS media session (see
-/// `media_session.rs` - it has no other way to learn these, since neither
-/// audio backend ever knows song metadata). `on_rodio_event`'s name
-/// predates libmpv but the function itself only depends on the
-/// backend-agnostic `PlayerEvent` wire format, so it works unchanged for
-/// either backend. runs for the life of the app; aborts when its broadcast
-/// receiver closes (which only happens when the controller is dropped,
-/// which only happens at process exit).
+/// `media_session.rs` - it has no other way to learn these, since the
+/// audio backend never knows song metadata). runs for the life of the
+/// app; aborts when its broadcast receiver closes (which only happens
+/// when the controller is dropped, which only happens at process exit).
 fn spawn_event_pump(app: AppHandle, controller: Arc<dyn PlayerController>) {
     let mut rx = controller.subscribe();
     tauri::async_runtime::spawn(async move {

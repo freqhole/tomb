@@ -4,11 +4,11 @@
 //! channel.
 //!
 //! deliberately consumer-agnostic: this module never touches an actual
-//! playback backend (rodio, mpv, tauri events, ...) - it only knows how
+//! playback backend (libmpv, mpv, tauri events, ...) - it only knows how
 //! to authenticate/authorize a peer (via `crate::users::UserService`)
 //! and frame the wire protocol. an authorized `PlayerCommand` is handed
 //! to whichever consumer owns the other end of `PairingDispatchTx`
-//! (rathole's own rodio/mpv dispatch, or charnel's tauri-event dispatch),
+//! (rathole's own libmpv/mpv dispatch, or charnel's tauri-event dispatch),
 //! which replies with a `CommandAck` via the paired oneshot channel.
 
 use iroh::endpoint::Connection;

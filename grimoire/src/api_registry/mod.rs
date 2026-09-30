@@ -249,9 +249,9 @@ pub mod type_registry {
     // error types
     use crate::error::ErrorDetail;
 
-    // player control types (rodio plan phase 1 — no http route consumes
-    // these yet, but the typescript codegen needs them so the spume
-    // PlayerBackend interface can import generated zod schemas.)
+    // player control types - no http route consumes these yet, but the
+    // typescript codegen needs them so the spume PlayerBackend interface
+    // can import generated zod schemas.
     use crate::player::{AudioDeviceInfo, PlayerCommand, PlayerEvent, PlayerSnapshot, PlayerState};
 
     // search types

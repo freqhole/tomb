@@ -34,8 +34,8 @@ pub enum VideoCommand {
     },
     ToggleFullscreen,
     Close,
-    /// query the audio sinks gstreamer can use for this window (mirrors
-    /// `PlayerCommand::ListOutputDevices` for the rodio music backend).
+    /// query the audio output devices mpv can use for this window (mirrors
+    /// `PlayerCommand::ListOutputDevices` for the libmpv music backend).
     ListOutputDevices,
     /// switch the window's audio sink to the named device (`name` is a
     /// value previously reported via `VideoEvent::OutputDevices`).

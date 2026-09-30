@@ -9,7 +9,7 @@ there are three ways to run a player:
 
 ## rathole (`--player` / `/player`)
 
-freqhole's terminal client, ideal for a raspberry pi wired up to a screen and speakers. `rathole --player` starts directly in the pairing screen; typing `/player` mid-session switches to it too. runs natively (rodio for audio, mpv for video) — no browser involved. see [rathole on a pi](/guides/rathole-on-a-pi/) for a full systemd setup.
+freqhole's terminal client, ideal for a raspberry pi wired up to a screen and speakers. `rathole --player` starts directly in the pairing screen; typing `/player` mid-session switches to it too. runs with libmpv — no browser involved. see [rathole on a pi](/guides/rathole-on-a-pi/) for a full systemd setup.
 
 ## web browser
 
@@ -17,7 +17,7 @@ spume's own `/player` route (e.g. `https://spume.freqhole.net/#/player`) turns a
 
 ## charnel (desktop/mobile app)
 
-the charnel app can act as a player too, via the same `/player` screen rendered in its embedded webview — works out of the box, identical to the web-browser option. desktop builds also have an experimental native player config (opt-in, uses rodio/mpv directly instead of the webview) for platforms that want it.
+the charnel app can act as a player too, via the same `/player` screen rendered in its embedded webview — works out of the box, identical to the web-browser option. desktop builds also have an experimental player config (opt-in, uses mpv directly instead of the webview) for platforms that want it.
 
 ---
 

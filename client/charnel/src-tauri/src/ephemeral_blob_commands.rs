@@ -1,7 +1,7 @@
 //! ephemeral blob fetch + cleanup tauri commands.
 //!
-//! when the user has `sync_queue_to_local` disabled, the rodio backend
-//! still needs the audio file on disk (rodio decodes from a fs path;
+//! when the user has `sync_queue_to_local` disabled, the libmpv backend
+//! still needs the audio file on disk (libmpv decodes from a fs path;
 //! it can't stream http urls). these commands provide a scoped
 //! "fetch the audio, play it, throw it away" lifecycle without ever
 //! touching the regular sqlite-backed media library.

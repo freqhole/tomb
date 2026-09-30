@@ -274,9 +274,10 @@ fn media_kind_str(kind: grimoire::cenotaph::MediaKind) -> &'static str {
 /// docs/rathole-control-socket.md documents, via the same real dispatch
 /// pipeline `get_state_json` uses - always a fresh query (never cached),
 /// since devices can be plugged/unplugged at any time. `"backend"` is
-/// always `"audio"` here (unlike rathole's mpv-vs-rodio split) - charnel
-/// has no equivalent native video backend reachable through cenotaph's
-/// `PlayerCommand` (gst video playback is a separate, local-only system -
+/// always `"audio"` here (unlike rathole, which routes both audio and
+/// video pairing/dispatch commands through the same queue) - charnel
+/// has no equivalent video backend reachable through cenotaph's
+/// `PlayerCommand` (video playback is a separate, local-only system -
 /// see `video_window/`), so every device query through this pipeline is
 /// necessarily about whichever backend `charnelPlaybackAdapter.ts` is
 /// using for audio.

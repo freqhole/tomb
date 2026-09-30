@@ -516,7 +516,7 @@ pub async fn resolve_blob_path(blob_id: String) -> Result<serde_json::Value, Str
 /// already got this on disk" lookup on. every song that's ever been
 /// synced locally via iroh-blobs is guaranteed to have a blake3 (the sync
 /// itself hard-requires one), so callers can try this unconditionally for
-/// any queue item that has one. see rodioBackend.ts's
+/// any queue item that has one. see libmpvBackend.ts's
 /// `resolveLocalPathByBlake3` and audioAccess.ts's
 /// `resolveCharnelLocalPath` for the callers.
 ///

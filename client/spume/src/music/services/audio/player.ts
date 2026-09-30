@@ -100,7 +100,7 @@ const DECODE_ELEMENT_ERROR_TYPES = new Set([
   "video_element_error_decode",
 ]);
 // error_types the libmpv backend used to emit (back when grimoire's now-
-// deleted `player::supervisor`/`rodio` owned audio) when the audio
+// deleted `player::supervisor`/`libmpv` owned audio) when the audio
 // SUBSYSTEM itself was broken, not just the current track - e.g. no audio
 // output device could be opened at all. treating these like a per-track
 // decode error and calling `playNext()` would just hit the exact same

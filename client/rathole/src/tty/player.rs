@@ -28,7 +28,9 @@ pub struct LibmpvPlayer {
 impl LibmpvPlayer {
     /// spawn the libmpv backend and a forwarding task that converts
     /// `grimoire::player::PlayerEvent` -> `AppAction::MusicEvent`.
-    pub fn spawn(action_tx: mpsc::UnboundedSender<AppAction>) -> grimoire::error::GrimoireResult<Rc<Self>> {
+    pub fn spawn(
+        action_tx: mpsc::UnboundedSender<AppAction>,
+    ) -> grimoire::error::GrimoireResult<Rc<Self>> {
         let controller = spawn_libmpv_player()?;
         let mut events = controller.subscribe();
         // forward events; on the LocalSet so we don't need Send.

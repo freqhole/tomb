@@ -7,12 +7,6 @@
 // service) talk to a `PlayerBackend` and never to a specific
 // implementation.
 //
-// **why now**: this was the keystone of the original libmpv-backend
-// integration plan (see `docs/rodio-into-freqhole-plan.md`). by getting
-// the surface right at ~50 loc, the later work — runtime backend
-// selection, the libmpv adapter, mediasession routing — became
-// mechanical.
-//
 // **wire types**: `PlayerCommand` and `PlayerEvent` come from the
 // generated zod client (`@freqhole/api-client`). they're the same
 // types the rust backend consumes/emits, so this interface is
