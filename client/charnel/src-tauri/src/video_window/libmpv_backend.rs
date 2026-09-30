@@ -285,16 +285,10 @@ fn spawn_mpv(app: &AppHandle<Wry>) -> Result<(), String> {
         // opens a window immediately rather than only once a video track
         // decodes. NOTE: NOT "immediate" - that specific choice value is
         // rejected with `Raw(-4)` (MPV_ERROR_INVALID_PARAMETER) when set
-        // pre-init, only working as a post-init `set_property` - but
-        // doing it that way silently never actually opens a window in
-        // practice (confirmed 2026-09-30: no crash, no error, just no
-        // video player - likely because mpv only actually acts on a
-        // force-window property change during its own internal vo
-        // reconfigure pass, which nothing then drives before this
-        // function returns). `yes` has no such issue pre-init and forces
-        // the window the same way, just once the file's been probed
-        // rather than the instant loading starts - a minor UX difference,
-        // not a functional one.
+        // pre-init, only working as a post-init `set_property`. `yes`
+        // has no such issue pre-init and forces the window the same way,
+        // just once the file's been probed rather than the instant
+        // loading starts - a minor UX difference, not a functional one.
         init.set_option("force-window", "yes")?;
         // macOS only: mpv's Cocoa backend defaults to registering itself
         // as its own regular application (`NSApplicationActivationPolicy

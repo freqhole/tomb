@@ -17,5 +17,18 @@
 	<true/>
 	<key>com.apple.security.cs.allow-unsigned-executable-memory</key>
 	<true/>
+	<!-- mpv's vulkan vo (gpu-next/libplacebo, the only gpu context macOS
+	     "auto" probing actually tries - no opengl/cocoa fallback) loads
+	     MoltenVK via the system's vulkan loader/ICD mechanism at its real
+	     homebrew path (not bundled - see fetch-mpv-runtime.sh comments).
+	     that dylib is ad-hoc signed, not signed by our own team ID -
+	     hardened runtime's library validation blocks dlopen-ing it,
+	     which the vulkan loader reports as VK_ERROR_INCOMPATIBLE_DRIVER
+	     (confirmed 2026-09-30 via mpv's own verbose log: every vulkan
+	     context - macvk, displayvk, both gpu and gpu-next - fails
+	     identically; this is why the window shows in unsigned `tauri dev`
+	     but never in a signed/notarized build). -->
+	<key>com.apple.security.cs.disable-library-validation</key>
+	<true/>
 </dict>
 </plist>
