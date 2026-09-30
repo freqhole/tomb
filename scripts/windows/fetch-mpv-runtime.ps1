@@ -32,7 +32,12 @@ $url = "https://github.com/Zencok/mpv-libre-runtime/releases/download/$releaseTa
 
 $bundleDest = Join-Path $repoRoot "client\charnel\src-tauri\mpv-runtime"
 $libDest = Join-Path $repoRoot "target\mpv-import-lib"
-$stamp = Join-Path $bundleDest ".fetched-$releaseTag"
+# "-defv2" suffix: bump this whenever the generated .def/mpv.lib logic
+# changes, so a stale cached mpv.lib (e.g. from Swatinem/rust-cache
+# persisting target\mpv-import-lib across CI runs) gets regenerated
+# instead of silently reused - defv2 adds the LIBRARY directive fixing
+# the wrong-dll-name-embedded-in-the-import-table bug.
+$stamp = Join-Path $bundleDest ".fetched-$releaseTag-defv2"
 
 if ((Test-Path $stamp) -and (Test-Path (Join-Path $libDest "mpv.lib"))) {
     Write-Host "fetch-mpv-runtime: already staged at this release, skipping download"
@@ -78,14 +83,21 @@ try {
     # let lib.exe build the true MSVC import library from it.
     Write-Host "fetch-mpv-runtime: generating mpv.lib import library..."
     $exports = & dumpbin /exports $dll
-    $defLines = @("EXPORTS")
+    # without an explicit LIBRARY statement, lib.exe assumes the runtime dll
+    # is named after /out:'s own base name ("mpv.dll") instead of the real
+    # file ("libmpv-2.dll") - bakes the wrong expected filename into the
+    # import table, so windows looks for "mpv.dll" at runtime and fails
+    # with "the code execution cannot proceed because mpv.dll was not
+    # found" (confirmed for real: renaming the dll to mpv.dll "fixed" it,
+    # which is exactly the symptom of this missing directive).
+    $defLines = @("LIBRARY libmpv-2.dll", "EXPORTS")
     foreach ($line in $exports) {
         # matches lines like: "   123   7A 00012340 mpv_create"
         if ($line -match '^\s*\d+\s+[0-9A-Fa-f]+\s+[0-9A-Fa-f]+\s+(\S+)\s*$') {
             $defLines += "  $($matches[1])"
         }
     }
-    if ($defLines.Count -le 1) {
+    if ($defLines.Count -le 2) {
         throw "no exported symbols parsed from dumpbin output - dumpbin's export table format may have changed"
     }
 
