@@ -2,7 +2,7 @@
 //
 // split out of select.ts for the same reason blobResolver.ts needs it:
 // blobResolver.ts can read isLibmpvEnabled() without statically importing
-// select.ts's RodioBackend import chain.
+// select.ts's LibmpvBackend import chain.
 //
 // source of truth: charnel's `FreqholeAppConfig.use_libmpv_playback`.
 // this module caches the value synchronously so callers can stay
@@ -20,7 +20,7 @@ const LIBMPV_LOCAL_FALLBACK_KEY = "freqhole.audio.useLibmpv";
 
 /// cached value, populated by `initLibmpvPreference()` on app boot and
 /// refreshed when the wizard fires `config_changed`. defaults to false
-/// so we never hand back a native backend before the cache has been
+/// so we never hand back a libmpv backend before the cache has been
 /// hydrated (failing closed to the html path is safer).
 let cachedLibmpvEnabled = false;
 

@@ -13,7 +13,7 @@ import {
   type PlaybackHost,
 } from "./mediaTier";
 
-const HOSTS: PlaybackHost[] = ["webview", "rodio"];
+const HOSTS: PlaybackHost[] = ["webview", "libmpv"];
 
 describe("resolveStorageTarget", () => {
   it("sends media to the library when sync-to-local is on, on every host", () => {
@@ -41,8 +41,8 @@ describe("resolveStorageTarget", () => {
     });
   });
 
-  it("uses the _ephemeral dir for rodio with sync off (rodio cannot read the Cache API)", () => {
-    expect(resolveStorageTarget({ syncToLocal: false, host: "rodio" })).toEqual({
+  it("uses the _ephemeral dir for the libmpv backend with sync off (it cannot read the Cache API)", () => {
+    expect(resolveStorageTarget({ syncToLocal: false, host: "libmpv" })).toEqual({
       tier: "ephemeral",
       store: "ephemeral_dir",
     });
@@ -50,8 +50,8 @@ describe("resolveStorageTarget", () => {
 });
 
 describe("ephemeralStoreFor", () => {
-  it("maps rodio to the on-disk ephemeral dir", () => {
-    expect(ephemeralStoreFor("rodio")).toBe("ephemeral_dir");
+  it("maps the libmpv backend to the on-disk ephemeral dir", () => {
+    expect(ephemeralStoreFor("libmpv")).toBe("ephemeral_dir");
   });
 
   it("maps webview to the api cache", () => {
@@ -66,8 +66,8 @@ describe("shouldSkipApiCache", () => {
     }
   });
 
-  it("skips the api cache for rodio even with sync off (bytes go to disk instead)", () => {
-    expect(shouldSkipApiCache({ syncToLocal: false, host: "rodio" })).toBe(true);
+  it("skips the api cache for the libmpv backend even with sync off (bytes go to disk instead)", () => {
+    expect(shouldSkipApiCache({ syncToLocal: false, host: "libmpv" })).toBe(true);
   });
 
   it("permits the api cache only for webview playback with sync off", () => {

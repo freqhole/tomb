@@ -90,7 +90,7 @@ export async function resolveLocalVideoPath(video: QueuedVideo): Promise<string 
 
   // Charnel's library rows are served by grimoire and normally have no
   // browser-only opfs_path. Their local media_blob_id is the stable bridge to
-  // the filesystem, exactly as RodioBackend resolves local audio paths.
+  // the filesystem, exactly as LibmpvBackend resolves local audio paths.
   // checked before the remote-sync branch below: a video whose bytes are
   // already resident locally (prior sync, or already-local-in-grimoire)
   // must never re-trigger a remote pull, which can pick a not-yet-ready
@@ -120,8 +120,9 @@ export async function resolveLocalVideoPath(video: QueuedVideo): Promise<string 
   // to a db lookup when already local); sync-off lands them in
   // `_ephemeral/` instead - no db rows, thrown away once the item leaves
   // the queue (see `ephemeralFetch.ts`'s shared reconciler) - same split
-  // `rodioBackend.ts` uses for audio, just without a fs-decode-only
-  // backend to gate it on (gstreamer, like rodio, only opens real files).
+  // `libmpvBackend.ts` uses for audio, just without a fs-decode-only
+  // backend to gate it on (the video window, like the libmpv audio
+  // audio backend, only opens real files).
   if (video.source_type === "remote") {
     if (!getSyncQueueToLocal()) {
       try {

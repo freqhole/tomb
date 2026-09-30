@@ -1,7 +1,8 @@
-// client for charnel's separate gstreamer video window (linux only).
+// client for charnel's separate video window (linux/macOS/windows,
+// libmpv-backed, gated behind the "experimental player" toggle).
 //
 // webkitgtk cannot play video in a `<video>` element, so on linux video plays
-// in its own window driven by gstreamer. this module is the IPC surface: it
+// in its own window driven by libmpv. this module is the IPC surface: it
 // sends commands and turns the window's events back into the shape
 // `VideoWindowBackend` needs.
 //
@@ -39,16 +40,9 @@ export type VideoWindowEvent =
 
 export interface VideoWindowDiagnostics {
   available: boolean;
-  gstreamerVersion?: string | null;
-  playbin3Available: boolean;
-  gtksinkAvailable: boolean;
-  gtkglsinkAvailable: boolean;
+  /** libmpv's own version string (e.g. "0.35.1"), when available. */
+  version?: string | null;
   error?: string | null;
-  /** every audio sink factory name registered on this system (gst backend
-   * only - always empty for mpv). a name from this list is what the
-   * `[video].linux_audio_sink` config option (server-side, not settable
-   * from here) expects. */
-  availableAudioSinks: string[];
 }
 
 const EVENT_NAME = "video-window-event";
@@ -89,13 +83,11 @@ export async function isVideoWindowAvailable(): Promise<boolean> {
 }
 
 export async function sendVideoWindowCommand(command: VideoWindowCommand): Promise<void> {
-  // TEMP(video-window): command boundaries identify whether a failed playback
-  // reached Rust before any GStreamer event could be emitted.
   console.info(`[video-window] command=${command.kind}`);
   await tauriInvoke("video_window_command", { command });
 }
 
-/** query the Linux GStreamer runtime without opening a window or loading media. */
+/** query the video window's libmpv runtime without opening a window or loading media. */
 export async function getVideoWindowDiagnostics(): Promise<VideoWindowDiagnostics | null> {
   if (!isCharnelMode()) return null;
   try {

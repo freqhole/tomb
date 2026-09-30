@@ -1,17 +1,14 @@
 // separate video window, backed by libmpv (in-process, via the `libmpv2`
-// crate) instead of gstreamer/gtk (`gst.rs`) or a shelled-out `mpv`
-// subprocess + json ipc (`mpv.rs`). unlike both siblings this isn't
-// linux-only - libmpv2 is a desktop-wide dependency (see Cargo.toml) - but
-// for now only linux actually dispatches to it (`mod.rs`); mac/windows
-// wiring is tracked separately (docs/libmpv-experimental-player-plan.md,
-// phase 3). compiled on every desktop target so it can be built/tested from
-// any dev machine, not just linux.
+// crate) - the only video window backend now that gstreamer/gtk and the
+// shelled-out `mpv` subprocess variants have been removed. dispatched to
+// on every desktop platform (linux, macOS, windows) whenever the
+// experimental player toggle is on - see `mod.rs`.
 //
-// threading: like `mpv.rs`, libmpv owns its own native window entirely
-// outside this process's gtk setup, so there's no gtk-main-thread affinity
-// to respect - state lives behind a plain `Mutex`. unlike `mpv.rs`, libmpv
-// delivers every lifecycle signal (including a user closing the window) as
-// one unified in-process event stream (`Event::Shutdown`), so there's no
+// threading: libmpv owns its own native window entirely outside this
+// process's gtk setup, so there's no gtk-main-thread affinity to respect -
+// state lives behind a plain `Mutex`. libmpv delivers every lifecycle
+// signal (including a user closing the window) as one unified in-process
+// event stream (`Event::Shutdown`), so there's no
 // "socket EOF vs. our own close() raced" ambiguity to special-case - the
 // event-reading thread is the single place that clears `WINDOW` and emits
 // `VideoEvent::Closed`, whether the quit was user- or command-initiated. a
@@ -22,8 +19,6 @@
 // see `docs/libmpv-experimental-player-plan.md` for the spike that proved
 // this approach out (own native window with no `wid` set, fullscreen
 // toggle, close detection - all confirmed working on macOS 2026-09-29).
-
-#![cfg_attr(not(target_os = "linux"), allow(dead_code))]
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Mutex;
@@ -89,23 +84,13 @@ pub fn diagnostics() -> VideoWindowDiagnostics {
     match Mpv::new() {
         Ok(mpv) => VideoWindowDiagnostics {
             available: true,
-            // reused field name (predates this backend) - libmpv's own
-            // version string.
-            gstreamer_version: mpv.get_property::<String>("mpv-version").ok(),
-            playbin3_available: false,
-            gtksink_available: false,
-            gtkglsink_available: false,
+            version: mpv.get_property::<String>("mpv-version").ok(),
             error: None,
-            available_audio_sinks: Vec::new(),
         },
         Err(e) => VideoWindowDiagnostics {
             available: false,
-            gstreamer_version: None,
-            playbin3_available: false,
-            gtksink_available: false,
-            gtkglsink_available: false,
+            version: None,
             error: Some(format!("libmpv init failed: {e}")),
-            available_audio_sinks: Vec::new(),
         },
     }
 }
@@ -296,6 +281,15 @@ fn spawn_mpv(app: &AppHandle<Wry>) -> Result<(), String> {
         // window).
         init.set_option("force-window", "immediate")?;
         init.set_option("geometry", "960x540")?;
+        // macOS only: mpv's Cocoa backend defaults to registering itself
+        // as its own regular application (`NSApplicationActivationPolicy
+        // Regular`) - since libmpv runs in-process here, that gives mpv's
+        // own bundled icon a SEPARATE entry in the dock and cmd+tab
+        // switcher, distinct from charnel's own. `accessory` keeps the
+        // window itself fully visible/usable without mpv claiming its
+        // own top-level app identity.
+        #[cfg(target_os = "macos")]
+        init.set_option("macos-app-activation-policy", "accessory")?;
         Ok(())
     })
     .map_err(|e| format!("failed to start libmpv: {e}"))?;
@@ -396,6 +390,24 @@ fn read_libmpv_events(app: AppHandle<Wry>, events: Mpv, generation: u64) {
             })) => {
                 ever_loaded = true;
                 emit_state(&app, VideoEvent::Duration { seconds });
+                // `pause` stays at its already-observed default (`false`)
+                // for a load that starts playing immediately - no further
+                // PropertyChange for it ever fires, since mpv only
+                // notifies on actual value CHANGES past the initial one
+                // (suppressed above via `ever_loaded`). query it directly
+                // here, on the first signal a real file has loaded, so
+                // the playerbar actually learns playback started instead
+                // of waiting forever for a pause toggle that may never
+                // come.
+                let paused = events.get_property::<bool>("pause").unwrap_or(false);
+                emit_state(
+                    &app,
+                    if paused {
+                        VideoEvent::Paused
+                    } else {
+                        VideoEvent::Playing
+                    },
+                );
             }
             Some(Ok(MpvEvent::PropertyChange {
                 name: "pause",

@@ -77,7 +77,7 @@ export function clearSyncedSha256s(): void {
 }
 
 // ===== ephemeral-on-disk tracking =====
-// rodio backend's `sync_queue_to_local = off` path lands audio in
+// the libmpv backend's `sync_queue_to_local = off` path lands audio in
 // `<fetch_dir>/_ephemeral/<blake3>.<ext>` without writing any sqlite
 // rows (see client/charnel/src-tauri/src/ephemeral_blob_commands.rs).
 // those files are real on-disk audio that the player can replay
@@ -87,14 +87,15 @@ export function clearSyncedSha256s(): void {
 // up for songs that exist as ephemeral files.
 //
 // keyed by **blake3** (not sha256) because that's what's literally
-// on disk — survives across app restarts when the rodio backend
+// on disk — survives across app restarts when the libmpv backend
 // reconciles `_ephemeral/` against the persisted queue and seeds
 // this set from the survivors.
 
 const [ephemeralOnDiskBlake3s, setEphemeralOnDiskBlake3sSig] = createSignal<Set<string>>(new Set());
 
-/** check if a song has an ephemeral file on disk (rodio + sync-off path). reactive.
- *  pass the song's `blake3` (not sha256) — that's the disk identifier. */
+/** check if a song has an ephemeral file on disk (libmpv backend + sync-off
+ *  path). reactive. pass the song's `blake3` (not sha256) — that's the disk
+ *  identifier. */
 export function isSongOnDiskEphemeral(blake3: string | null | undefined): boolean {
   if (!blake3) return false;
   return ephemeralOnDiskBlake3s().has(blake3);
@@ -293,7 +294,7 @@ export function resetLoadingState(): void {
  *  updateLoadingProgress / removeFromLoadingSet lifecycle (cleanup
  *  guaranteed via `finally`, even on throw) - collapses the ~10 near-
  *  identical hand-rolled copies of this exact dance across audioAccess.ts,
- *  blobCache.ts, blobResolver.ts, rodioBackend.ts, autoDownload/manager.ts,
+ *  blobCache.ts, blobResolver.ts, libmpvBackend.ts, autoDownload/manager.ts,
  *  syncVideoToLocal.ts, videoBackend.ts.
  *  callers that need a fallthrough-on-failure shape (return a sentinel
  *  from `run` and check it after) still work fine - this only owns the

@@ -108,7 +108,8 @@ initQueueDeparturePurge();
 
 // `clearSongsAbove`/`clearSongsBelow` can remove the playing item without
 // taking the removeFromQueue branch. The departure stream is the exhaustive
-// place to stop HTML, Rodio, or the separate video window in that case.
+// place to stop HTML, the libmpv backend, or the separate video window in
+// that case.
 registerQueueDeparture((departed) => {
   const current = appState()?.current_sha256;
   if (current && departed.some((item) => mediaItemKey(item) === current)) {

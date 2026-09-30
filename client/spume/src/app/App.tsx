@@ -1040,8 +1040,8 @@ export function App() {
       // paired with the libmpv opt-in, which also gates the video window.
       await initVideoWindowPreference();
       mark("initVideoWindowPreference done");
-      // one shared `_ephemeral/` reconciler for both audio (rodio) and
-      // video (gstreamer window) `sync_queue_to_local = off` playback -
+      // one shared `_ephemeral/` reconciler for both audio (libmpv) and
+      // video (libmpv window) `sync_queue_to_local = off` playback -
       // see ephemeralFetch.ts's own doc comment for why this can't be
       // done per-backend. no-op outside charnel.
       installEphemeralReconciler();

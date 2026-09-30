@@ -1,4 +1,5 @@
-// PlayerBackend that plays video in charnel's separate gstreamer window.
+// PlayerBackend that plays video in charnel's separate libmpv-backed
+// window.
 //
 // linux only. the window owns decoding and display; this class is the adapter
 // between spume's `PlayerBackend` surface (which the playerbar drives) and the
@@ -25,10 +26,9 @@ import {
   type VideoWindowEvent,
 } from "./videoWindowClient";
 
-// turns gstreamer's own error text (rarely more than "No such file or
-// directory" / "Your GStreamer installation is missing a plug-in.") into a
-// sentence naming the actual video and, where we have one, the path that
-// was tried - `error_type` here is `classify_error()`'s output from
+// turns the libmpv backend's own error text into a sentence naming the
+// actual video and, where we have one, the path that was tried -
+// `error_type` here is `classify_error()`'s output from
 // `client/charnel/src-tauri/src/video_window/backend.rs`.
 function friendlyErrorDetail(
   errorType: string,
@@ -47,7 +47,7 @@ function friendlyErrorDetail(
         ? `couldn't open ${name} — permission denied reading ${path}`
         : `couldn't open ${name} — permission denied`;
     case "missing_plugin":
-      return `playing ${name} needs a GStreamer plugin that isn't installed (${rawMessage})`;
+      return `playing ${name} needs a codec that isn't installed (${rawMessage})`;
     default:
       return `couldn't play ${name}: ${rawMessage}`;
   }
@@ -62,8 +62,9 @@ export class VideoWindowBackend implements PlayerBackend {
   private snap: PlayerSnapshot = { ...emptySnapshot };
   private durationMs = 0;
   // title/path of whatever is currently loaded, kept only so an `error`
-  // event (which carries just `error_type` + gstreamer's own raw message)
-  // can be turned into a readable sentence - see `friendlyErrorDetail`.
+  // event (which carries just `error_type` + the libmpv backend's own raw
+  // message) can be turned into a readable sentence - see
+  // `friendlyErrorDetail`.
   private currentTitle: string | null = null;
   private currentPath: string | null = null;
 
@@ -81,16 +82,14 @@ export class VideoWindowBackend implements PlayerBackend {
       );
     }
 
-    // gstreamer reads from the filesystem, so a browser blob/object url is no
-    // use here - the item has to exist as a real file.
+    // the libmpv backend reads from the filesystem, so a browser
+    // blob/object url is no use here - the item has to exist as a real file.
     const path = await resolveLocalVideoPath(item.video);
     if (!isMediaLoadCurrent(item.video.id, options?.loadGeneration)) {
       debug("videoWindowBackend", `skipping cancelled load for ${item.video.id}`);
       return;
     }
     if (!path) {
-      // TEMP(video-window): distinguish a selector problem from an unavailable
-      // local path in the next Linux playback log.
       console.info(`[video-window] load rejected: no local path for ${item.video.id}`);
       throw new BackendPlaybackError(
         this.kind,
@@ -102,19 +101,14 @@ export class VideoWindowBackend implements PlayerBackend {
     this.durationMs = 0;
     this.currentTitle = item.video.title;
     this.currentPath = path;
-    // TEMP(video-window): proves the GStreamer branch received the video.
     console.info(`[video-window] loading ${item.video.id} from ${path}`);
     this.emit({ kind: "state", state: "loading" });
 
     // update app state - AppLayout/PlayerBar watch `current_sha256` to
     // decide whether the video-aware bar UI (title/images/waveform/"no song
     // playing") shows up; `videoBackend.ts` (the inline <video> path) already
-    // does this, but this gstreamer-window path never did, so the playerbar
-    // never knew a video was playing at all. see videoBackend.ts's identical
-    // call for the full rationale.
-    // TEMP(video-window): confirms current_sha256 actually gets set for the
-    // gst path on the next linux build - remove once confirmed fixed.
-    console.info(`[video-window] setCurrentSong(${item.video.id})`);
+    // does this, and this libmpv-window path mirrors it - see videoBackend.ts's
+    // identical call for the full rationale.
     await setCurrentSong(item.video.id);
 
     await sendVideoWindowCommand({
@@ -124,11 +118,11 @@ export class VideoWindowBackend implements PlayerBackend {
       start_seconds: options?.initialPosition ? options.initialPosition / 1000 : null,
     });
 
-    // `load` itself always starts playback on the rust side (mpv/gst both
-    // start immediately on a successful load, by design) - a caller that
+    // `load` itself always starts playback on the rust side (mpv starts
+    // immediately on a successful load, by design) - a caller that
     // asked for `autoPlay: false` (e.g. a non-user-initiated "resume
     // without audibly playing" load) needs an explicit follow-up `pause`,
-    // same as `rodioBackend.ts`'s `sendLoadAndPlay`. previously missing
+    // same as `libmpvBackend.ts`'s `sendLoadAndPlay`. previously missing
     // here entirely, so autoPlay was silently ignored for every video load.
     if (options?.autoPlay === false) {
       await sendVideoWindowCommand({ kind: "pause" });

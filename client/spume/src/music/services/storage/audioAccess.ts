@@ -4,7 +4,7 @@
 // `activeBlobURLs`/`directURLSongs`/`directURLSet` are keyed by
 // `songTrackingKey(song)` (blake3 || sha256 || id) everywhere in THIS
 // file. but `appState().current_sha256` - written by htmlAudio.ts/
-// rodioBackend.ts and read by mediaSessionBridge.ts, playbackOrchestrator.ts,
+// libmpvBackend.ts and read by mediaSessionBridge.ts, playbackOrchestrator.ts,
 // player.ts, queue/*, mediaItemKey, and the "currently playing" row
 // highlight in VirtualSongList/PlaylistSongRow/AlbumDetailView/ArtistsView -
 // deliberately uses the DIFFERENT `songIdentityKey(song)` (sha256 || id,

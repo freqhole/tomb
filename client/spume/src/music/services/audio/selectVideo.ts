@@ -1,13 +1,14 @@
 // runtime selection between the two video backends.
 //
 // - `VideoBackend` — html `<video>` element. correct everywhere except linux.
-// - `VideoWindowBackend` — charnel's separate native window (libmpv, or on
-//   linux, gstreamer/mpv-shell). linux always has one available (webkitgtk
-//   cannot play video in a `<video>` element at all there); mac/windows only
-//   when the experimental player (libmpv) toggle is on.
+// - `VideoWindowBackend` — charnel's separate libmpv-backed window, on
+//   every platform. only available when the experimental player (libmpv)
+//   toggle is on - linux defaults it on (webkitgtk cannot play video in a
+//   `<video>` element at all there, so there's no working fallback without
+//   it); mac/windows default it off.
 //
 // gated behind the same experimental-player (libmpv) opt-in that drives the
-// native audio path, so a linux user can fall back to the (broken, but
+// libmpv audio path, so a linux user can fall back to the (broken, but
 // familiar) html path if the video window misbehaves.
 //
 // availability is resolved once, asynchronously, at boot — `selectVideoBackend`
@@ -63,7 +64,7 @@ export function selectVideoBackend(
   // TEMP(video-window): establishes whether a Linux playback attempt took the
   // intended branch before any media URL is resolved.
   console.info(
-    `[video-window] select=${selected === windowBackend ? "native" : "html"} ` +
+    `[video-window] select=${selected === windowBackend ? "libmpv" : "html"} ` +
       `availability=${windowBackendAvailable} experimental=${isLibmpvEnabled()}`
   );
   return selected;

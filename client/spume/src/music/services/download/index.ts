@@ -7,7 +7,7 @@ export {
   loadSyncedSha256s,
   clearSyncedSha256s,
 
-  // ephemeral-on-disk (rodio + sync_queue_to_local=off)
+  // ephemeral-on-disk (libmpv backend + sync_queue_to_local=off)
   isSongOnDiskEphemeral,
   markEphemeralOnDisk,
   unmarkEphemeralOnDisk,

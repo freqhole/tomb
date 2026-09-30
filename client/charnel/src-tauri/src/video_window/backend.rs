@@ -65,7 +65,7 @@ pub enum VideoEvent {
     /// the window was closed by the user (not by a `Close` command).
     Closed,
     /// playback failed. `error_type` is a stable identifier for programmatic
-    /// handling; `missing_plugin` is the case the setup wizard can act on.
+    /// handling; `missing_plugin` covers a missing codec/decoder.
     Error {
         error_type: String,
         message: String,
@@ -233,8 +233,9 @@ pub fn fit_initial_window(source_width: i32, source_height: i32) -> (i32, i32) {
     )
 }
 
-/// map a gstreamer error into a stable `error_type`. kept here (rather than in
-/// the linux-only module) so the classification is testable everywhere.
+/// map an mpv error into a stable `error_type`. kept here (rather
+/// than in the platform-specific module) so the classification is testable
+/// everywhere.
 pub fn classify_error(message: &str) -> &'static str {
     let m = message.to_ascii_lowercase();
     if m.contains("no decoder") || m.contains("missing") || m.contains("not-linked") {

@@ -31,18 +31,9 @@ pub const VIDEO_EVENT: &str = "video-window-event";
 #[serde(rename_all = "camelCase")]
 pub struct VideoWindowDiagnostics {
     pub available: bool,
-    pub gstreamer_version: Option<String>,
-    pub playbin3_available: bool,
-    pub gtksink_available: bool,
-    pub gtkglsink_available: bool,
+    /// libmpv's own version string (e.g. "0.35.1"), when available.
+    pub version: Option<String>,
     pub error: Option<String>,
-    /// every audio sink element factory actually registered on this
-    /// system - a name from this list is what `[video].linux_audio_sink`
-    /// expects. surfaced here (logged to the webview console as
-    /// `[video-window] diagnostics` on every boot) so finding what's
-    /// available doesn't need a separate pass on the target machine.
-    #[serde(default)]
-    pub available_audio_sinks: Vec<String>,
 }
 
 /// emit a `VideoEvent` to the webview. lives here rather than in the linux
@@ -80,12 +71,8 @@ fn use_libmpv(app: &AppHandle<Wry>) -> bool {
 fn unavailable(reason: &str) -> VideoWindowDiagnostics {
     VideoWindowDiagnostics {
         available: false,
-        gstreamer_version: None,
-        playbin3_available: false,
-        gtksink_available: false,
-        gtkglsink_available: false,
+        version: None,
         error: Some(reason.to_string()),
-        available_audio_sinks: Vec::new(),
     }
 }
 

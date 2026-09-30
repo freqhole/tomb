@@ -1,7 +1,7 @@
 // PlaybackBackend<MiddenNodeLike> adapter that delegates cenotaph's
-// `/player/` remote-control commands to spume's REAL player (rodio/gst-
-// aware via `select.ts`/`selectVideo.ts`) - the only playback backend
-// spume uses for this route, browser and charnel alike.
+// `/player/` remote-control commands to spume's REAL player (libmpv
+// audio + video aware via `select.ts`/`selectVideo.ts`) - the only
+// playback backend spume uses for this route, browser and charnel alike.
 //
 // resolving an incoming `MediaRef` to a real local `Song`/`QueuedVideo`
 // reuses the exact same logic `localLibraryHooks.ts` uses elsewhere in
@@ -343,8 +343,8 @@ function recordRecentlyPlayed(hash: string | null | undefined): void {
 // above - spume's own queue/player services have no such tracking on
 // their own (unlike cenotaph's own engine, which calls this from a
 // single `skip()` chokepoint). runs once at module load, for the
-// lifetime of the app (this adapter is only ever active in charnel/
-// rodio mode - see this module's header comment).
+// lifetime of the app (this adapter is only ever active in charnel
+// mode - see this module's header comment).
 let previousCurrentKey: string | null = null;
 createRoot(() => {
   createEffect(

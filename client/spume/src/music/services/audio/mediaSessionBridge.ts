@@ -226,7 +226,7 @@ export function installMediaSessionBridge(): void {
   });
 
   // OS media session (MPRIS/SMTC/MPNowPlayingInfoCenter, via the rust
-  // `playwire` crate) actions - only relevant for the rodio audio + gst
+  // `playwire` crate) actions - only relevant for the libmpv audio +
   // video paths, which don't get a `navigator.mediaSession` action
   // handler for free. reuses the same registered actions as the browser
   // handlers above, so a media key does the same thing regardless of
@@ -528,10 +528,11 @@ async function refreshMetadata(): Promise<void> {
     artwork,
   });
 
-  // OS media session (rodio/gst paths only get metadata this way, since
-  // they don't have their own `navigator.mediaSession`). the widget
-  // fetches artwork itself and can't reach a same-process `blob:` url, so
-  // try a real on-disk path first - best-effort, falls back to nothing.
+  // OS media session (libmpv audio/video paths only get metadata this
+  // way, since they don't have their own `navigator.mediaSession`). the
+  // widget fetches artwork itself and can't reach a same-process `blob:`
+  // url, so try a real on-disk path first - best-effort, falls back to
+  // nothing.
   const osArtworkUrl = song
     ? await getLocalArtworkFilePath(song)
     : await getLocalPosterFilePathForVideo(video as QueuedVideo);

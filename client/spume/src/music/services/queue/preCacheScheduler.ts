@@ -5,7 +5,8 @@
 // once per item when the listener crosses the 50% mark. extracted from
 // `audio/player.ts` (was `HtmlAudioBackend.handlePreCacheNext`) so it's
 // backend-agnostic — same threshold logic applies whether playback is
-// going through the html `<audio>` element, rodio, or the video backend.
+// going through the html `<audio>` element, the libmpv backend, or the
+// video backend.
 //
 // **why a separate module**: pre-caching is a queue concern, not a
 // playback concern. the backend just plays bytes. moving this out of

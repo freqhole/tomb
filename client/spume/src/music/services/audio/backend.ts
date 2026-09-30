@@ -2,19 +2,20 @@
 //
 // **what this is**: the typescript-side mirror of grimoire's
 // `PlayerController` rust trait. every audio backend (the existing
-// html-element one, the future tauri+rodio one, the eventual sibyl
+// html-element one, the tauri+libmpv one, the eventual sibyl
 // one) implements this interface. consumers (queue, ui, radio
 // service) talk to a `PlayerBackend` and never to a specific
 // implementation.
 //
-// **why now**: this is the keystone of the rodio integration plan
-// (see `docs/rodio-into-freqhole-plan.md`). by getting the surface
-// right at ~50 loc, the later work — runtime backend selection, the
-// rodio adapter, mediasession routing — becomes mechanical.
+// **why now**: this was the keystone of the original libmpv-backend
+// integration plan (see `docs/rodio-into-freqhole-plan.md`). by getting
+// the surface right at ~50 loc, the later work — runtime backend
+// selection, the libmpv adapter, mediasession routing — became
+// mechanical.
 //
 // **wire types**: `PlayerCommand` and `PlayerEvent` come from the
 // generated zod client (`@freqhole/api-client`). they're the same
-// types the rust supervisor consumes/emits, so this interface is
+// types the rust backend consumes/emits, so this interface is
 // literally "send a command, observe the event stream."
 //
 // **important non-rule**: backends do NOT have to implement every
@@ -63,7 +64,7 @@ export interface LoadAndPlayOptions {
 /// without surprise). actual init happens on the first command.
 export interface PlayerBackend {
   /// the wire-format identifier — useful for logging + telemetry.
-  /// one of: "html_audio" | "rodio" | "sibyl" | "dummy".
+  /// one of: "html_audio" | "libmpv" | "sibyl" | "dummy".
   readonly kind: BackendKind;
 
   /// load a media item (song or video) and start playing it. spume's
@@ -100,8 +101,8 @@ export interface PlayerBackend {
 
 /// thrown by `PlayerBackend.loadAndPlay` when the backend can't
 /// play the song it was given. the `error_type` discriminant lets
-/// callers branch on the reason (e.g. fall back to html when rodio
-/// reports `no_local_path`).
+/// callers branch on the reason (e.g. fall back to html when the
+/// libmpv backend reports `no_local_path`).
 export class BackendPlaybackError extends Error {
   readonly error_type: string;
   readonly backend: BackendKind;
@@ -114,7 +115,7 @@ export class BackendPlaybackError extends Error {
   }
 }
 
-export type BackendKind = "html_audio" | "rodio" | "sibyl" | "dummy" | "video";
+export type BackendKind = "html_audio" | "libmpv" | "sibyl" | "dummy" | "video";
 
 /**
  * classify a native `<audio>`/`<video>` element error (`HTMLMediaElement.

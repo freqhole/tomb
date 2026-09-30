@@ -1,7 +1,6 @@
-// native backend — talks to the audio thread inside the charnel tauri
+// libmpv backend — talks to the audio thread inside the charnel tauri
 // host (in-process libmpv on the rust side - see grimoire's
-// `player::libmpv` - but this file's own name is deliberately
-// engine-agnostic; it's just the wire-protocol IPC client).
+// `player::libmpv`).
 //
 // commands go out via `invoke("player_send", { cmd })`, events come
 // in via `listen("freqhole:player_event", ...)`. the wire types are
@@ -39,14 +38,14 @@ const TAURI_EVENT = "freqhole:player_event";
 
 type UnlistenFn = () => void;
 
-/// native-via-tauri backend.
+/// libmpv-via-tauri backend.
 ///
 /// the constructor is cheap (no ipc); the tauri `listen` subscription
 /// is set up lazily on the first `subscribe()` call so a backend that
 /// was constructed but never used (e.g. by an aborted backend swap)
 /// doesn't leak an event handler.
-export class NativeBackend implements PlayerBackend {
-  readonly kind: BackendKind = "native";
+export class LibmpvBackend implements PlayerBackend {
+  readonly kind: BackendKind = "libmpv";
 
   private listeners = new Set<PlayerEventListener>();
   private snap: PlayerSnapshot = emptySnapshot;
@@ -72,9 +71,9 @@ export class NativeBackend implements PlayerBackend {
 
   async send(cmd: PlayerCommand): Promise<void> {
     if (this.disposed) {
-      throw new Error("native backend: send called after dispose");
+      throw new Error("libmpv backend: send called after dispose");
     }
-    debug("player.native", `send: ${cmd.kind}`);
+    debug("player.libmpv", `send: ${cmd.kind}`);
     // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
     const { invoke } = await import("@tauri-apps/api/core");
     // tauri serializes the second arg as a json object; we need the
@@ -104,7 +103,7 @@ export class NativeBackend implements PlayerBackend {
   /// `resolve_blob_path` tauri command, then send `Load` + `Play`
   /// to the rust backend.
   ///
-  /// remote songs need to be on disk before the native backend can
+  /// remote songs need to be on disk before the libmpv backend can
   /// play them (the decoder reads from a fs path; it can't stream
   /// from an http url). when `resolve_blob_path` returns
   /// `no_local_path`
@@ -121,13 +120,13 @@ export class NativeBackend implements PlayerBackend {
   ///      file for cleanup on the next track / stop / dispose.
   async loadAndPlay(item: MediaItem, options?: LoadAndPlayOptions): Promise<void> {
     if (this.disposed) {
-      throw new Error("native backend: loadAndPlay called after dispose");
+      throw new Error("libmpv backend: loadAndPlay called after dispose");
     }
     if (item.kind !== "song") {
       throw new BackendPlaybackError(
         this.kind,
         "unsupported_media_kind",
-        "the native backend can't play video items"
+        "the libmpv backend can't play video items"
       );
     }
     const song: Song = item.song;
@@ -179,7 +178,7 @@ export class NativeBackend implements PlayerBackend {
         if (!isMediaLoadCurrent(songKey, options?.loadGeneration)) {
           return;
         }
-        debug("player.native", `load: "${song.title}" (${songKey.slice(0, 8)}) -> ${path}`);
+        debug("player.libmpv", `load: "${song.title}" (${songKey.slice(0, 8)}) -> ${path}`);
         bridgeClearExternal();
         await setCurrentSong(songKey);
         await this.sendLoadAndPlay(path, options);
@@ -263,7 +262,7 @@ export class NativeBackend implements PlayerBackend {
         const alreadyOnDisk = isSongOnDiskEphemeral(song.blake3);
 
         if (!alreadyOnDisk) {
-          debug("player.native", `"${song.title}" not on disk — fetching ephemerally`);
+          debug("player.libmpv", `"${song.title}" not on disk — fetching ephemerally`);
           // light up the queue/playerbar spinner for this song while
           // we fetch. mirrors what other audio fetch paths do (see
           // blobResolver / audioAccess / autoDownload).
@@ -290,14 +289,14 @@ export class NativeBackend implements PlayerBackend {
         bridgeClearExternal();
         await setCurrentSong(songKey);
         debug(
-          "player.native",
+          "player.libmpv",
           `ephemeral load: "${song.title}" (${songKey.slice(0, 8)}) -> ${path}`
         );
         await this.sendLoadAndPlay(path, options);
         return;
       }
 
-      debug("player.native", `"${song.title}" not on disk — syncing before play`);
+      debug("player.libmpv", `"${song.title}" not on disk — syncing before play`);
       // light up the queue/playerbar spinner. paired with
       // `removeFromLoadingSet` after the sync resolves (success or
       // failure) so the UI never gets stuck.
@@ -339,7 +338,7 @@ export class NativeBackend implements PlayerBackend {
         throw new BackendPlaybackError(
           this.kind,
           "sync_failed",
-          `failed to sync "${song.title}" before native playback: ${sync.error ?? "unknown error"}`
+          `failed to sync "${song.title}" before libmpv playback: ${sync.error ?? "unknown error"}`
         );
       }
       // prefer the local path the sync returned directly — it's the
@@ -370,7 +369,7 @@ export class NativeBackend implements PlayerBackend {
     }
 
     if (!isMediaLoadCurrent(songKey, options?.loadGeneration)) {
-      debug("player.native", `skipping cancelled load for ${songKey.slice(0, 8)}`);
+      debug("player.libmpv", `skipping cancelled load for ${songKey.slice(0, 8)}`);
       return;
     }
 
@@ -384,7 +383,7 @@ export class NativeBackend implements PlayerBackend {
       return;
     }
 
-    debug("player.native", `load: "${song.title}" (${songKey.slice(0, 8)}) -> ${path}`);
+    debug("player.libmpv", `load: "${song.title}" (${songKey.slice(0, 8)}) -> ${path}`);
 
     await this.sendLoadAndPlay(path, options);
   }
@@ -555,7 +554,7 @@ export class NativeBackend implements PlayerBackend {
       try {
         l(event);
       } catch (e) {
-        errorLog("player.native", "event listener threw:", e);
+        errorLog("player.libmpv", "event listener threw:", e);
       }
     }
   }

@@ -418,11 +418,11 @@ export function CenotaphPlayerApp() {
    * spume's own real queue/playback state. `null` hides the now-playing
    * section entirely (nothing queued). `isVideo` tells the JSX to swap
    * the artwork slot for the shared `<video>` element (via
-   * `VideoMiniPlayer`'s inline variant) instead - unless the gst window
-   * is showing it instead (linux + rodio), in which case that OS-level
-   * window is the actual display and this slot stays empty, matching how
-   * the mini player skips its own inline video too (see AppLayout.tsx's
-   * `isVideoWindowActive()` check). */
+   * `VideoMiniPlayer`'s inline variant) instead - unless the libmpv video
+   * window is showing it instead (linux + libmpv backend), in which case
+   * that OS-level window is the actual display and this slot stays empty,
+   * matching how the mini player skips its own inline video too (see
+   * AppLayout.tsx's `isVideoWindowActive()` check). */
   const nowPlayingView = () => {
     const state = appState();
     const pending = pendingQueuePreviews();
@@ -654,9 +654,10 @@ export function CenotaphPlayerApp() {
           only playback backend now, browser and charnel alike. a playing
           video renders inline here (the same shared `<video>` element
           normal spume playback uses, via `VideoMiniPlayer`'s inline
-          variant) UNLESS the gst window is showing it instead (linux +
-          rodio) - that's its own OS-level surface and already the actual
-          display, so this slot stays empty then (docs/linux-video-window-plan.md). */}
+          variant) UNLESS the libmpv video window is showing it instead
+          (linux + libmpv backend) - that's its own OS-level surface and
+          already the actual display, so this slot stays empty then
+          (docs/linux-video-window-plan.md). */}
       <Show when={nowPlayingView()}>
         {(view) => (
           <div

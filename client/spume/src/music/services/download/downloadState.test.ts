@@ -1,6 +1,6 @@
 // unit tests for downloadState.ts's loading-set/progress/reveal-debounce
 // tracking - the shared module underlying ~10 hand-rolled call sites
-// (rodioBackend.ts, autoDownload/manager.ts, blobCache.ts, audioAccess.ts,
+// (libmpvBackend.ts, autoDownload/manager.ts, blobCache.ts, audioAccess.ts,
 // blobResolver.ts, syncVideoToLocal.ts, videoBackend.ts) that each
 // independently do addToLoadingSet/updateLoadingProgress/
 // removeFromLoadingSet.

@@ -275,7 +275,7 @@ export function QueueSongRow(props: QueueSongRowProps) {
                   return "underline";
                 }
 
-                // rodio + sync_queue_to_local=off lands audio in
+                // the libmpv backend + sync_queue_to_local=off lands audio in
                 // `<fetch_dir>/_ephemeral/` without writing any sqlite
                 // rows; flip the underline on for those songs too so the
                 // row reflects what's actually playable instantly. keyed
