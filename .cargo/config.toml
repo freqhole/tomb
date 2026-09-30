@@ -22,11 +22,15 @@
 [target.aarch64-apple-darwin]
 # libmpv2-sys emits a bare `-lmpv` with no search path (see
 # docs/libmpv-experimental-player-plan.md); homebrew's ARM prefix isn't a
-# default linker search dir, so add it explicitly.
-rustflags = ["-L", "/opt/homebrew/lib"]
+# default linker search dir, so add it explicitly. /usr/local/lib is a
+# second search path for CI/release builds, which stage a portable
+# mpv-libre-runtime build there instead (see scripts/fetch-mpv-runtime.sh) -
+# local dev keeps working unchanged via the homebrew path above.
+rustflags = ["-L", "/opt/homebrew/lib", "-L", "/usr/local/lib"]
 
 [target.x86_64-apple-darwin]
-# same as above, homebrew's Intel prefix.
+# homebrew has no x86_64 macOS mpv bottle at all anymore, so this is always
+# a portable mpv-libre-runtime build staged by scripts/fetch-mpv-runtime.sh.
 rustflags = ["-L", "/usr/local/lib"]
 
 # Raspberry Pi targets
