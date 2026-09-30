@@ -51,7 +51,49 @@ struct Inner {
 
 /// spawn a libmpv-backed player. must be called from inside a tokio
 /// runtime (spawns the snapshot-pump task).
+/// checks whether libmpv is actually loadable on this system, without
+/// crashing if it isn't. needed because macOS x86_64 links mpv *weakly*
+/// (`-weak-lmpv`, no bundled or otherwise guaranteed-present dylib - see
+/// `scripts/fetch-mpv-runtime.sh`'s x86_64 branch): there's no portable,
+/// working prebuilt mpv for that architecture (homebrew dropped its
+/// x86_64 macOS bottle, and the `mpv-libre-runtime` alternative turned
+/// out to have a broken macOS GPU renderer), so x86_64 users only get
+/// native playback if they happen to already have a working mpv
+/// installed at `/usr/local/lib/libmpv.2.dylib` themselves.
+///
+/// calling ANY libmpv2 function when the weak symbol wasn't actually
+/// resolved at launch segfaults immediately (the standard, documented
+/// contract of weak linking - the caller must check availability first,
+/// dyld doesn't turn a missing weak symbol into a graceful error) rather
+/// than returning a normal error - so this must be called before
+/// anything else in this module touches libmpv2 at all.
+#[cfg(target_os = "macos")]
+pub fn is_libmpv_available() -> bool {
+    use std::ffi::CString;
+    let sym = CString::new("mpv_create").expect("no interior nul");
+    !unsafe { libc::dlsym(libc::RTLD_DEFAULT, sym.as_ptr()) }.is_null()
+}
+
+/// this whole module only compiles in when the `libmpv-playback` feature
+/// is on, which charnel only enables for desktop targets (macOS/linux/
+/// windows) - android never builds this in at all (still uses the html
+/// audio/video path there), so it's not a "hard dependency, always
+/// present" case there either; it's simply not a case this function
+/// needs to handle, since it doesn't exist for android builds. among the
+/// desktop targets that DO compile this in, only macOS x86_64 currently
+/// uses weak linking (see above) - linux and windows link mpv normally
+/// (a hard dependency, always present if the binary launched at all).
+#[cfg(not(target_os = "macos"))]
+pub fn is_libmpv_available() -> bool {
+    true
+}
+
 pub fn spawn_libmpv_player() -> GrimoireResult<LibmpvController> {
+    if !is_libmpv_available() {
+        return Err(GrimoireError::ProcessingFailed {
+            message: "failed to start libmpv: not installed on this system".to_string(),
+        });
+    }
     // mpv_create() returns NULL (surfaces here as Error::Null) if
     // LC_NUMERIC isn't "C" - GTK's setlocale(LC_ALL, "") during window
     // init adopts the user's locale, which breaks mpv's internal

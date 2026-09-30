@@ -1,27 +1,35 @@
 #!/usr/bin/env bash
-# rewrites charnel's compiled binary so it looks for libmpv.2.dylib in
-# Contents/Frameworks (where tauri's `bundle.macOS.frameworks` config
-# copies it) instead of wherever libmpv2-sys's bare `-lmpv` happened to
-# resolve it at link time.
+# rewrites charnel's compiled binary's libmpv.2.dylib reference to wherever
+# it needs to be found AT RUNTIME - which differs per architecture:
 #
-# that "wherever" isn't a single fixed string: it depends entirely on
-# whatever -L search path / dylib satisfied the linker for the arch being
-# built (see .cargo/config.toml + scripts/fetch-mpv-runtime.sh) - arm64
-# currently links against homebrew's REAL mpv, whose own install name is
-# an absolute path (/opt/homebrew/opt/mpv/lib/libmpv.2.dylib), while
-# x86_64 links against the portable mpv-libre-runtime build, whose own
-# install name is already @loader_path-relative. hardcoding one specific
-# old value here silently no-ops (and ships a broken binary) the moment
-# either side changes - confirmed for real 2026-09-30 when switching arm64
-# from mpv-libre-runtime to homebrew did exactly that. so: read the
-# binary's OWN current reference via otool instead of assuming it.
+#   - arm64: bundled, hard-linked. rewritten to Contents/Frameworks (where
+#     tauri's `bundle.macOS.frameworks` config copies it, via
+#     scripts/fetch-mpv-runtime.sh's dylibbundler-based homebrew bundling).
+#   - x86_64: NOT bundled, weakly linked (see .cargo/config.toml's
+#     `-weak-lmpv`) - there's no working portable/bundleable mpv build for
+#     this architecture (homebrew dropped its x86_64 bottle; the
+#     alternative, mpv-libre-runtime, turned out to have a broken macOS
+#     GPU renderer - confirmed 2026-09-30). rewritten to an absolute
+#     /usr/local/lib path instead, matching where a user's own separately-
+#     installed mpv would realistically live - `grimoire::player::libmpv::
+#     is_libmpv_available()` checks for this at runtime before ever
+#     touching libmpv2, so charnel boots and runs fine either way.
+#
+# whatever the target, the binary's CURRENT reference isn't a fixed
+# string to hardcode - it depends entirely on whatever -L search path /
+# dylib satisfied the linker at build time (see .cargo/config.toml +
+# scripts/fetch-mpv-runtime.sh), which has changed more than once this
+# project's history. so: read the binary's OWN current reference via
+# otool instead of assuming it - confirmed necessary for real 2026-09-30
+# when switching arm64 from mpv-libre-runtime to homebrew silently broke
+# a hardcoded old value here.
 #
 # run as tauri's `build.beforeBundleCommand` hook - fires after `cargo
-# build` produces the binary but before tauri-bundler copies it (and the
-# frameworks) into the .app, so the fixed-up load command is what actually
-# ships. libmpv.2.dylib's own references to its sibling dylibs need no
-# fixup: those stay @loader_path-relative, and every dylib ends up in the
-# same Contents/Frameworks directory together.
+# build` produces the binary but before tauri-bundler copies it (and, for
+# arm64, the frameworks) into the .app, so the fixed-up load command is
+# what actually ships. libmpv.2.dylib's own references to its sibling
+# dylibs need no fixup: those stay @loader_path-relative, and (for arm64)
+# every dylib ends up in the same Contents/Frameworks directory together.
 set -euo pipefail
 
 TARGET_TRIPLE="${TAURI_ENV_TARGET_TRIPLE:?TAURI_ENV_TARGET_TRIPLE not set - run this via the beforeBundleCommand hook}"
@@ -39,10 +47,19 @@ if [ -z "$CURRENT_REF" ]; then
   exit 0
 fi
 
+case "$TARGET_TRIPLE" in
+  x86_64-apple-darwin)
+    NEW_REF="/usr/local/lib/libmpv.2.dylib"
+    ;;
+  *)
+    NEW_REF="@executable_path/../Frameworks/libmpv.2.dylib"
+    ;;
+esac
+
 install_name_tool -change \
   "$CURRENT_REF" \
-  "@executable_path/../Frameworks/libmpv.2.dylib" \
+  "$NEW_REF" \
   "$BINARY"
 
-echo "fixup-mpv-install-name: rewrote libmpv.2.dylib reference ($CURRENT_REF -> @executable_path/../Frameworks/libmpv.2.dylib) in $BINARY"
+echo "fixup-mpv-install-name: rewrote libmpv.2.dylib reference ($CURRENT_REF -> $NEW_REF) in $BINARY"
 

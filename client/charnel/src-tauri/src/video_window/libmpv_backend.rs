@@ -260,6 +260,9 @@ fn open_or_reuse(
 /// `diagnostics()`'s doc comment) that's dropped immediately after reading
 /// the property.
 fn query_devices_headless() -> Vec<grimoire::player::AudioDeviceInfo> {
+    if !grimoire::player::libmpv::is_libmpv_available() {
+        return Vec::new();
+    }
     reset_locale_for_mpv();
     match Mpv::new() {
         Ok(mpv) => grimoire::player::libmpv::list_audio_devices(&mpv),
@@ -273,6 +276,9 @@ fn query_devices_headless() -> Vec<grimoire::player::AudioDeviceInfo> {
 /// spawn libmpv (creating its context on first use) and start the
 /// background thread that turns its event stream into `VideoEvent`s.
 fn spawn_mpv(app: &AppHandle<Wry>) -> Result<(), String> {
+    if !grimoire::player::libmpv::is_libmpv_available() {
+        return Err("failed to start libmpv: not installed on this system".to_string());
+    }
     reset_locale_for_mpv();
     let mpv = Mpv::with_initializer(|init| {
         init.set_option("geometry", "960x540")?;
