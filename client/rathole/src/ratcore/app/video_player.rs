@@ -12,7 +12,7 @@
 //! `super::super::transport::VideoPlayer`) that actually drives mpv;
 //! this module only holds the portable command/event/state shapes so
 //! they compile and unit-test on every platform, same as
-//! `super::music`'s relationship to grimoire's rodio player.
+//! `super::music`'s relationship to grimoire's libmpv player.
 
 use serde::{Deserialize, Serialize};
 
@@ -102,9 +102,9 @@ pub enum VideoEvent {
 }
 
 /// one audio output device, as reported by the backend (mpv's
-/// `audio-device-list` property, or grimoire/cpal's device list for
-/// the rodio audio path). `name` is the identifier to send back in
-/// `VideoCommand::SetAudioDevice`/the rodio equivalent (e.g. mpv's
+/// `audio-device-list` property, or grimoire/libmpv's device list for
+/// the in-process audio path). `name` is the identifier to send back
+/// in `VideoCommand::SetAudioDevice`/the audio equivalent (e.g. mpv's
 /// `"alsa/hw:1,0"`); `description` is a human-readable label for the
 /// controller's ui (e.g. `"bcm2835 HDMI 1"`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

@@ -1,6 +1,6 @@
 //! the unified play queue - audio and video items sit together with a
 //! single "current" index, so exactly one item is ever the active
-//! thing playing (audio via rodio, video via mpv) - mirrors cenotaph's
+//! thing playing (audio via libmpv, video via mpv) - mirrors cenotaph's
 //! own single-active-item queue model (one `<video>` element, only
 //! `queue[0]` ever loaded). distinct from `MusicState::results`
 //! (search/browse results, always audio) and from `VideoState` (video

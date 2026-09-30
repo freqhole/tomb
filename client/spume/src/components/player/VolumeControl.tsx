@@ -3,8 +3,8 @@ import { Portal } from "solid-js/web";
 import { Icon } from "../icons/registry";
 
 /** one audio output device, as reported by whichever backend is actually
- * playing (local rodio, or a paired remote player) - duck-typed to match
- * both `@freqhole/api-client`'s `AudioDeviceInfo` (local) and
+ * playing (local libmpv backend, or a paired remote player) - duck-typed
+ * to match both `@freqhole/api-client`'s `AudioDeviceInfo` (local) and
  * `remotePlaybackControl.ts`'s `RemoteAudioDeviceInfo` (remote) without
  * this generic ui component depending on either source module. */
 export interface AudioDeviceInfo {

@@ -80,17 +80,17 @@ pub struct FreqholeAppConfig {
     #[serde(default = "default_sync_queue_to_local")]
     pub sync_queue_to_local: bool,
 
-    /// route audio playback through the supervised rust rodio backend
-    /// inside the tauri host instead of the html5 `<audio>` element.
-    /// defaults to `true` on linux (where webkitgtk's html `<audio>`
-    /// is unreliable enough that we previously needed an embedded
-    /// loopback http server to work around it; rodio bypasses that
-    /// path entirely) and `false` elsewhere until we've burned in the
-    /// rodio pipeline. opt in via the wizard's settings view to
-    /// dogfood it everywhere. only meaningful on desktop targets
-    /// where the `rodio-playback` cargo feature is enabled.
-    #[serde(default = "default_use_rodio_playback")]
-    pub use_rodio_playback: bool,
+    /// route audio + video playback through the in-process libmpv backend
+    /// (via the `libmpv2` crate) inside the tauri host instead of the
+    /// html5 `<audio>`/`<video>` elements - see `docs/libmpv-experimental-player-plan.md`. defaults
+    /// to `true` on linux (where webkitgtk's html `<audio>`/`<video>` is
+    /// unreliable enough that we previously needed workarounds; libmpv
+    /// bypasses that path entirely) and `false` elsewhere until we've
+    /// burned in the pipeline. opt in via the wizard's settings view to
+    /// dogfood it everywhere. only meaningful on desktop targets where
+    /// the `libmpv-playback` cargo feature is enabled.
+    #[serde(default = "default_use_libmpv_playback")]
+    pub use_libmpv_playback: bool,
 
     /// known removable/mounted storage devices configured for music sync
     /// (tauri desktop only). an empty list means the feature has never been
@@ -180,7 +180,7 @@ impl Default for FreqholeAppConfig {
             disable_backdrop_blur: false,
             tray_enabled: false,
             sync_queue_to_local: default_sync_queue_to_local(),
-            use_rodio_playback: default_use_rodio_playback(),
+            use_libmpv_playback: default_use_libmpv_playback(),
             external_storage_devices: Vec::new(),
             active_external_storage_device_id: None,
             external_storage_default_subpath: default_external_storage_subpath(),
@@ -258,10 +258,10 @@ pub fn default_chromeless_title_bar() -> bool {
     true
 }
 
-/// default value for use_rodio_playback: on for linux (replaces the
+/// default value for use_libmpv_playback: on for linux (replaces the
 /// embedded loopback http media server hack), off elsewhere until
 /// dogfooded enough to flip everywhere.
-pub fn default_use_rodio_playback() -> bool {
+pub fn default_use_libmpv_playback() -> bool {
     cfg!(target_os = "linux")
 }
 

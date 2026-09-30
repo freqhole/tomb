@@ -32,8 +32,8 @@ import {
 import { canSyncSong, syncSongToLocal } from "../sync";
 import type { SyncableSong } from "../sync";
 // import directly from the leaf module (not select.ts) - select.ts pulls
-// in RodioBackend's own import chain, which would close a cycle back here.
-import { isRodioEnabled } from "../audio/rodioPreference";
+// in LibmpvBackend's own import chain, which would close a cycle back here.
+import { isLibmpvEnabled } from "../audio/libmpvPreference";
 import { isCharnelMode } from "../../../app/services/charnel/mode";
 import { fetchEphemeralForSong } from "../audio/ephemeralFetch";
 import type { Song } from "./types";
@@ -742,12 +742,12 @@ export async function preCacheNextP2PSongs(
   // check if sync mode is enabled - syncSongToLocal handles charnel vs browser mode internally
   const shouldSync = getSyncQueueToLocal();
 
-  // when running rodio (charnel desktop opted-in) AND sync is OFF,
-  // the html cache-API path is useless: rodio decodes from a fs path
-  // and never reads the Cache API. instead, pre-warm the ephemeral
-  // dir so the next track is already on disk by the time `loadAndPlay`
-  // calls `fetchEphemeralForSong`.
-  const useEphemeralPreFetch = !shouldSync && isCharnelMode() && isRodioEnabled();
+  // when running the libmpv backend (charnel desktop opted-in)
+  // AND sync is OFF, the html cache-API path is useless: the libmpv
+  // backend decodes from a fs path and never reads the Cache API. instead,
+  // pre-warm the ephemeral dir so the next track is already on disk by the
+  // time `loadAndPlay` calls `fetchEphemeralForSong`.
+  const useEphemeralPreFetch = !shouldSync && isCharnelMode() && isLibmpvEnabled();
 
   let currentIdx: number;
   if (startIndexOverride !== undefined) {
@@ -908,20 +908,22 @@ export async function preCacheNextP2PSongs(
         warn("blobResolver", `sync failed for ${firstEntry.sha256.slice(0, 8)}: ${result.error}`);
       }
     } else if (isCharnelManagedRemoteSync(firstEntry.remoteId)) {
-      // charnel-managed local remote: audio is already on disk. rodio
-      // resolves the fs path at play time and the html backend fetches
-      // via charnel ipc on demand, so there's nothing to ephemerally
-      // pre-fetch or cache for audio. waveform + thumbnail warm below.
+      // charnel-managed local remote: audio is already on disk. the
+      // libmpv backend resolves the fs path at play time and the html
+      // backend fetches via charnel ipc on demand, so there's nothing to
+      // ephemerally pre-fetch or cache for audio. waveform + thumbnail
+      // warm below.
       debug(
         "blobResolver",
         `first song audio is local (charnel-managed): ${firstEntry.sha256.slice(0, 8)}...`
       );
     } else if (useEphemeralPreFetch && firstEntry.song.blake3) {
-      // rodio + sync_queue_to_local=off: warm `<fetch_dir>/_ephemeral/`
-      // so the next track is already on disk for `loadAndPlay`. the
-      // tauri command is idempotent — already-present files return
-      // their path immediately. addToLoadingSet pairs with the
-      // underline progress bar in the queue row.
+      // libmpv backend + sync_queue_to_local=off: warm
+      // `<fetch_dir>/_ephemeral/` so the next track is already on disk
+      // for `loadAndPlay`. the tauri command is idempotent —
+      // already-present files return their path immediately.
+      // addToLoadingSet pairs with the underline progress bar in the
+      // queue row.
       //
       // skip both the loading flag *and* the rust round-trip if
       // the file is already accounted for on disk — avoids a
@@ -995,9 +997,9 @@ export async function preCacheNextP2PSongs(
   // concurrently. cache-mode audio and image pre-caches stay parallel
   // (fire-and-forget) since they're cheaper and don't share the same code path.
   const syncEntries: { sha256: string; song: Song & SyncableSong }[] = [];
-  // rodio + sync-off pre-fetches also run sequentially (same iroh-blobs
-  // contention concern + saves cleaning up half-finished files on the
-  // next track switch).
+  // libmpv backend + sync-off pre-fetches also run sequentially (same
+  // iroh-blobs contention concern + saves cleaning up half-finished
+  // files on the next track switch).
   const ephemeralEntries: { sha256: string; song: Song }[] = [];
   for (const entry of restEntries) {
     if (shouldSync && canSyncSong(entry.song)) {
@@ -1071,8 +1073,8 @@ export async function preCacheNextP2PSongs(
     })();
   }
 
-  // process rodio + sync-off pre-fetches sequentially. each call is
-  // idempotent on the rust side so re-fires across overlapping
+  // process libmpv backend + sync-off pre-fetches sequentially. each
+  // call is idempotent on the rust side so re-fires across overlapping
   // pre-cache passes are cheap.
   if (ephemeralEntries.length > 0) {
     void (async () => {

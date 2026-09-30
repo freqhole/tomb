@@ -249,12 +249,10 @@ pub mod type_registry {
     // error types
     use crate::error::ErrorDetail;
 
-    // player control types (rodio plan phase 1 — no http route consumes
-    // these yet, but the typescript codegen needs them so the spume
-    // PlayerBackend interface can import generated zod schemas.)
-    use crate::player::{
-        AudioDeviceInfo, PlayerCommand, PlayerEvent, PlayerSnapshot, PlayerState, RestartPolicy,
-    };
+    // player control types - no http route consumes these yet, but the
+    // typescript codegen needs them so the spume PlayerBackend interface
+    // can import generated zod schemas.
+    use crate::player::{AudioDeviceInfo, PlayerCommand, PlayerEvent, PlayerSnapshot, PlayerState};
 
     // search types
     use crate::search::{
@@ -421,8 +419,6 @@ pub mod type_registry {
         registered.insert("PlayerState".to_string());
         gen.add_schema::<PlayerSnapshot>("PlayerSnapshot");
         registered.insert("PlayerSnapshot".to_string());
-        gen.add_schema::<RestartPolicy>("RestartPolicy");
-        registered.insert("RestartPolicy".to_string());
         gen.add_schema::<PlayerCommand>("PlayerCommand");
         registered.insert("PlayerCommand".to_string());
         // leaf type referenced by PlayerEvent's manual zod schema string

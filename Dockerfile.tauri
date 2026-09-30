@@ -8,7 +8,7 @@ FROM node:24-bookworm
 # trixie (not bookworm) for a much newer webkitgtk (2.52.5-1~deb13u1 vs
 # bookworm's 2.50.6-1~deb12u2, confirmed via trixie-security on both amd64
 # and arm64) - webkitgtk's html <audio> reliability was the original driver,
-# though most audio now goes through the rodio backend instead.
+# though most audio now goes through the libmpv backend instead.
 # FROM node:24-trixie
 
 ARG TARGET_ARCH
@@ -28,19 +28,20 @@ RUN apt-get update && apt-get install -y \
     libgtk-3-dev \
     libayatana-appindicator3-dev \
     librsvg2-dev \
-    # alsa headers — required by cpal (pulled in via grimoire's
-    # `rodio-playback` feature) for audio output on linux.
+    # alsa headers — required by libmpv (pulled in via grimoire's
+    # `libmpv-playback` feature) for audio output on linux.
     libasound2-dev \
     # libudev.pc — required by the linux-only `udev` crate used by
     # charnel's external-storage device watcher.
     libudev-dev \
-    # gstreamer — video plays in a separate gstreamer window on linux since
-    # webkitgtk cannot play video in a <video> element. `-bad` supplies
-    # libgstplay-1.0, which GstPlay (the gstreamer-play crate) lives in;
-    # base/good supply playbin3 and gtksink respectively.
-    libgstreamer1.0-dev \
-    libgstreamer-plugins-base1.0-dev \
-    libgstreamer-plugins-bad1.0-dev \
+    # libmpv - the "experimental player" (libmpv) audio + video backend,
+    # see docs/libmpv-experimental-player-plan.md. build-time headers only -
+    # the actual runtime `libmpv.so.2` dependency is auto-detected and
+    # added to the .deb/.rpm by dpkg-shlibdeps/rpm's find-requires, which
+    # is why it isn't hand-listed in tauri.conf.json's `deb`/`rpm`
+    # "depends" either - only non-linked runtime deps like
+    # `ffmpeg`/`pipewire-alsa` need to be listed there.
+    libmpv-dev \
     # for rpm builds
     rpm \
     && rm -rf /var/lib/apt/lists/*

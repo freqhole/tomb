@@ -73,12 +73,16 @@ RUN if grep -qi bullseye /etc/apt/sources.list 2>/dev/null || grep -Rqi bullseye
     fi
 
 # install cross-compilation tools for ARM64 (aarch64)
+# libmpv-dev:arm64 - verified via a real dry-run against this exact base
+# image (2026-09-29) that its full ~15-package dependency chain resolves
+# cleanly from the live bookworm mirror, same as libasound2-dev below.
 RUN if [ "$TARGET_ARCH" = "aarch64-unknown-linux-gnu" ]; then \
     dpkg --add-architecture arm64 && \
     apt-get update && \
     apt-get install -y \
     libssl-dev:arm64 \
     libasound2-dev:arm64 \
+    libmpv-dev:arm64 \
     gcc-aarch64-linux-gnu; \
     fi
 
@@ -89,10 +93,11 @@ RUN if [ "$TARGET_ARCH" = "aarch64-unknown-linux-gnu" ]; then \
 # so openssl/openssl-sys/webauthn-rs never enter the dependency graph for
 # this target (verified via `cargo tree -p server -p cli
 # --no-default-features --target armv7-unknown-linux-gnueabihf -i
-# openssl-sys` returning no matches). libasound2-dev:armhf stays: cpal/alsa
-# still get pulled in unconditionally via `client/rathole`'s own default
-# features (cli depends on rathole as a normal, non-optional dependency,
-# so cli's own --no-default-features doesn't reach it).
+# openssl-sys` returning no matches). libasound2-dev:armhf/libmpv-dev:armhf
+# stay: rathole's own libmpv-playback (audio + radio + video) pulls both
+# in unconditionally via `client/rathole`'s own dependency on grimoire
+# (cli depends on rathole as a normal, non-optional dependency, so cli's
+# own --no-default-features doesn't reach it).
 #
 # bullseye is now oldoldstable and its -security pool's newest armhf
 # builds of alsa-lib (libasound2/-data/-dev, deb11u1 security patch) have
@@ -112,6 +117,7 @@ RUN if [ "$TARGET_ARCH" = "armv7-unknown-linux-gnueabihf" ]; then \
     libasound2-data=1.2.4-1.1 \
     libasound2:armhf=1.2.4-1.1 \
     libasound2-dev:armhf=1.2.4-1.1 \
+    libmpv-dev:armhf \
     gcc-arm-linux-gnueabihf; \
     fi
 

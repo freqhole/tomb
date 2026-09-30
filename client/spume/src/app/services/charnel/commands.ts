@@ -334,9 +334,9 @@ export async function startResizingWindow(
 /**
  * push "now playing" metadata to the OS media session (MPRIS/SMTC/
  * MPNowPlayingInfoCenter via the rust `playwire` crate) - only meaningful
- * for the rodio audio + gst video paths, since the webview's own
+ * for the libmpv audio + video paths, since the webview's own
  * `<audio>`/`<video>` elements already get a `navigator.mediaSession` for
- * free. safe to call unconditionally; a no-op when `use_rodio_playback`
+ * free. safe to call unconditionally; a no-op when `use_libmpv_playback`
  * is off or outside tauri.
  */
 export async function pushMediaSessionTrack(track: {

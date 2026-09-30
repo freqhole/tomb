@@ -63,7 +63,7 @@ build-all:
 .PHONY: build-mac-arm
 build-mac-arm:
 	@echo "building rathole CLI (cli crate) for macOS arm64 (no webauthn)..."
-	cargo build --package cli --release --target $(MAC_ARM_TARGET) --no-default-features --features rodio-playback
+	cargo build --package cli --release --target $(MAC_ARM_TARGET) --no-default-features --features libmpv-playback
 	@mkdir -p $(BUILD_DIR)/$(VERSION)
 	cp target/$(MAC_ARM_TARGET)/release/rathole $(BUILD_DIR)/$(VERSION)/rathole_$(VERSION)_darwin-aarch64
 	@echo "built: $(BUILD_DIR)/$(VERSION)/rathole_$(VERSION)_darwin-aarch64"
@@ -89,7 +89,7 @@ build-mac-arm:
 .PHONY: build-mac-intel
 build-mac-intel:
 	@echo "building rathole CLI (cli crate) for macOS x86_64 (no webauthn)..."
-	cargo build --package cli --release --target $(MAC_INTEL_TARGET) --no-default-features --features rodio-playback
+	cargo build --package cli --release --target $(MAC_INTEL_TARGET) --no-default-features --features libmpv-playback
 	@mkdir -p $(BUILD_DIR)/$(VERSION)
 	cp target/$(MAC_INTEL_TARGET)/release/rathole $(BUILD_DIR)/$(VERSION)/rathole_$(VERSION)_darwin-x86_64
 	@echo "built: $(BUILD_DIR)/$(VERSION)/rathole_$(VERSION)_darwin-x86_64"
@@ -452,7 +452,12 @@ build-flatpak-builder:
 
 build-flatpak-intel: $(BUILD_DIR)/$(VERSION)/freqhole_charnel_$(VERSION)_x86_64.deb build-flatpak-builder
 	@echo "building Flatpak for x86_64..."
-	docker run --rm --privileged \
+	# --security-opt seccomp=unconfined: flatpak-builder's bwrap needs to
+	# install its own nested seccomp filter for every module build -
+	# --privileged should already imply this, but some docker setups don't
+	# fully honor that, so it's spelled out explicitly too (see
+	# docs/libmpv-experimental-player-plan.md's flatpak session notes).
+	docker run --rm --privileged --security-opt seccomp=unconfined \
 		-v $(PWD)/$(BUILD_DIR)/$(VERSION):/debs:ro \
 		-v $(PWD)/$(BUILD_DIR)/$(VERSION):/output \
 		freqhole-flatpak-builder \
@@ -463,7 +468,7 @@ build-flatpak-intel: $(BUILD_DIR)/$(VERSION)/freqhole_charnel_$(VERSION)_x86_64.
 build-flatpak-arm64: $(BUILD_DIR)/$(VERSION)/freqhole_charnel_$(VERSION)_aarch64.deb
 	@echo "building Flatpak for aarch64..."
 	docker build -f Dockerfile.flatpak -t freqhole-flatpak-builder-arm64 --platform linux/arm64 .
-	docker run --rm --privileged \
+	docker run --rm --privileged --security-opt seccomp=unconfined \
 		-v $(PWD)/$(BUILD_DIR)/$(VERSION):/debs:ro \
 		-v $(PWD)/$(BUILD_DIR)/$(VERSION):/output \
 		freqhole-flatpak-builder-arm64 \

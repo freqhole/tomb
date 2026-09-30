@@ -95,8 +95,9 @@ describe("resolveLocalVideoUrl under charnel", () => {
   });
 });
 
-// gstreamer opens a real file, so an asset:// url or an OPFS object url is no
-// use to it - the video window needs a filesystem path or nothing.
+// the libmpv-backed video window opens a real file, so an asset:// url or an
+// OPFS
+// object url is no use to it - it needs a filesystem path or nothing.
 describe("resolveLocalVideoPath", () => {
   function video(over: Record<string, unknown> = {}) {
     return { id: "v1", title: "v", source_type: "remote", ...over } as never;

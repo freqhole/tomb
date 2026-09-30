@@ -336,7 +336,7 @@ export function AppLayout(props: AppLayoutProps) {
           when={
             (!isRadio() &&
               currentVideoData() &&
-              // on linux the picture is in its own gstreamer window,
+              // on linux the picture is in its own libmpv-backed window,
               // so there is no element here to mirror
               !isVideoWindowActive() &&
               getVideoElement()) ||

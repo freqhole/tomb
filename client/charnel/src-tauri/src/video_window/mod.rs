@@ -2,19 +2,20 @@
 //
 // linux only: webkitgtk cannot play video in a `<video>` element (asset:// is
 // unsupported, blob: buffers the whole file, and a localhost http server was
-// already tried and rejected). video therefore plays in a separate gstreamer
-// window while spume's playerbar stays the control surface, mirroring how rodio
-// owns audio playback on linux.
+// already tried and rejected). video therefore plays in a separate libmpv-
+// backed window while spume's playerbar stays the control surface, mirroring
+// how libmpv owns audio playback on linux.
 //
 // every other platform gets a stub: the html backend works fine there, so the
 // commands exist but report unsupported.
 
 pub mod backend;
 
-#[cfg(target_os = "linux")]
-mod gst;
-#[cfg(target_os = "linux")]
-mod mpv;
+// libmpv2 is a desktop-wide dependency (see Cargo.toml), so this compiles
+// on every desktop target for build/test purposes - but is only actually
+// *dispatched to* when `use_libmpv_playback` is on (see `use_libmpv` below).
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
+mod libmpv_backend;
 
 use backend::{VideoCommand, VideoEvent};
 use serde::Serialize;
@@ -23,32 +24,22 @@ use tauri::{AppHandle, Wry};
 /// name of the tauri event the webview subscribes to for playback updates.
 pub const VIDEO_EVENT: &str = "video-window-event";
 
-/// startup diagnostic for the separate Linux video window. this deliberately
+/// startup diagnostic for the separate video window. this deliberately
 /// opens no window and loads no media; it verifies only that the runtime has
-/// the exact GStreamer pieces the playback implementation will request.
+/// the libmpv pieces the playback implementation will request.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VideoWindowDiagnostics {
     pub available: bool,
-    pub gstreamer_version: Option<String>,
-    pub playbin3_available: bool,
-    pub gtksink_available: bool,
-    pub gtkglsink_available: bool,
+    /// libmpv's own version string (e.g. "0.35.1"), when available.
+    pub version: Option<String>,
     pub error: Option<String>,
-    /// every audio sink element factory actually registered on this
-    /// system (gst backend only; always empty for mpv) - a name from
-    /// this list is what `[video].linux_audio_sink` expects. surfaced
-    /// here (logged to the webview console as `[video-window]
-    /// diagnostics` on every boot) so finding what's available doesn't
-    /// need a separate `gst-inspect-1.0` pass on the target machine.
-    #[serde(default)]
-    pub available_audio_sinks: Vec<String>,
 }
 
 /// emit a `VideoEvent` to the webview. lives here rather than in the linux
 /// module so the event name has a single definition. also folds
 /// play/pause/position/duration into the OS media session (see
-/// `media_session.rs`) - the gst window only knows what spume told it to
+/// `media_session.rs`) - the libmpv window only knows what spume told it to
 /// load, never song/artist metadata, so this is the only signal it can
 /// contribute on its own.
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
@@ -60,49 +51,70 @@ pub fn emit_event(app: &AppHandle<Wry>, event: &VideoEvent) {
     }
 }
 
-/// kill any live mpv subprocess on app shutdown - a no-op when the mpv
-/// backend was never used (gst's own window is in-process GTK, which dies
-/// with the process on its own, so needs no equivalent call). called from
-/// `RunEvent::Exit` in `lib.rs`.
+/// ask libmpv to quit on app shutdown - a no-op when it was never used.
+/// called from `RunEvent::Exit` in `lib.rs`.
 pub fn shutdown() {
-    #[cfg(target_os = "linux")]
-    mpv::shutdown();
+    #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
+    libmpv_backend::shutdown();
 }
 
-/// true when this build can play video in a separate window.
-#[tauri::command]
-pub fn video_window_available() -> bool {
-    cfg!(target_os = "linux")
+/// reads the "experimental player" toggle (`FreqholeAppConfig::
+/// use_libmpv_playback`) - see `docs/libmpv-experimental-player-plan.md`'s
+/// "config placement decision". shared by every platform branch below.
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
+fn use_libmpv(app: &AppHandle<Wry>) -> bool {
+    crate::app_config::FreqholeAppConfig::load(app)
+        .map(|c| c.use_libmpv_playback)
+        .unwrap_or_else(crate::app_config::default_use_libmpv_playback)
 }
 
+fn unavailable(reason: &str) -> VideoWindowDiagnostics {
+    VideoWindowDiagnostics {
+        available: false,
+        version: None,
+        error: Some(reason.to_string()),
+    }
+}
+
+/// true when this build can play video in a separate window right now.
+/// only when the experimental player (libmpv) toggle is on - when it's
+/// off the html `<video>` element is the (already-working) fallback.
 #[tauri::command]
-pub fn video_window_diagnostics() -> VideoWindowDiagnostics {
-    #[cfg(target_os = "linux")]
+pub fn video_window_available(app: AppHandle<Wry>) -> bool {
+    #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
     {
-        if grimoire::config::get_config().video.linux_use_mpv {
-            mpv::diagnostics()
+        use_libmpv(&app)
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+    {
+        let _ = app;
+        false
+    }
+}
+
+#[tauri::command]
+pub fn video_window_diagnostics(app: AppHandle<Wry>) -> VideoWindowDiagnostics {
+    #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
+    {
+        if use_libmpv(&app) {
+            libmpv_backend::diagnostics()
         } else {
-            gst::diagnostics()
+            unavailable(
+                "enable the experimental player in settings to use the separate video window",
+            )
         }
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
     {
-        VideoWindowDiagnostics {
-            available: false,
-            gstreamer_version: None,
-            playbin3_available: false,
-            gtksink_available: false,
-            gtkglsink_available: false,
-            error: Some("the separate video window is linux-only".to_string()),
-            available_audio_sinks: Vec::new(),
-        }
+        let _ = app;
+        unavailable("the separate video window is desktop-only")
     }
 }
 
 /// compatibility alias for development builds made before the command rename.
 #[tauri::command]
-pub fn system_video_available() -> bool {
-    video_window_available()
+pub fn system_video_available(app: AppHandle<Wry>) -> bool {
+    video_window_available(app)
 }
 
 #[tauri::command]
@@ -110,18 +122,21 @@ pub async fn video_window_command(
     app: AppHandle<Wry>,
     command: VideoCommand,
 ) -> Result<(), String> {
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
     {
-        if grimoire::config::get_config().video.linux_use_mpv {
-            mpv::dispatch(app, command)
+        if use_libmpv(&app) {
+            libmpv_backend::dispatch(app, command)
         } else {
-            gst::dispatch(app, command)
+            Err(
+                "enable the experimental player in settings to use the separate video window"
+                    .to_string(),
+            )
         }
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
     {
         let _ = (app, command);
-        Err("the separate video window is linux-only".to_string())
+        Err("the separate video window is desktop-only".to_string())
     }
 }
 

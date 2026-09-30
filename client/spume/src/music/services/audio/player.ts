@@ -99,15 +99,24 @@ const DECODE_ELEMENT_ERROR_TYPES = new Set([
   "audio_element_error_decode",
   "video_element_error_decode",
 ]);
-// error_types the rodio backend (grimoire's `player::supervisor`/`rodio`)
-// emits when the audio SUBSYSTEM itself is broken, not just the current
-// track - e.g. no audio output device could be opened at all. treating
-// these like a per-track decode error and calling `playNext()` would
-// just hit the exact same fatal error on every remaining queue item,
-// cascading through the whole queue (or looping indefinitely on repeated
-// manual plays) in a burst of toasts, since every subsequent command
-// fails identically until the app is restarted with working audio. see
-// grimoire/src/player/{rodio,supervisor}.rs for where these originate.
+// error_types the libmpv backend used to emit (back when grimoire's now-
+// deleted `player::supervisor`/`libmpv` owned audio) when the audio
+// SUBSYSTEM itself was broken, not just the current track - e.g. no audio
+// output device could be opened at all. treating these like a per-track
+// decode error and calling `playNext()` would just hit the exact same
+// fatal error on every remaining queue item, cascading through the whole
+// queue (or looping indefinitely on repeated manual plays) in a burst of
+// toasts, since every subsequent command fails identically until the app
+// is restarted with working audio.
+//
+// KNOWN GAP (2026-09-29): grimoire's libmpv backend (`player/libmpv.rs`)
+// doesn't emit any of these error_types today - it only ever emits
+// per-command (`libmpv_command_failed`) or per-track (`playback_failed`)
+// errors, and a libmpv init failure at startup silently falls back to a
+// `NoopPlayerController` that never errors at all (see
+// `player_commands.rs::get_or_init_global`). this set is effectively
+// inert until libmpv gets an equivalent subsystem-fatal signal - tracked
+// as part of the "does libmpv need a supervisor" discussion.
 const BACKEND_FATAL_ERROR_TYPES = new Set([
   "audio_device_open_failed",
   "audio_thread_spawn_failed",
@@ -145,7 +154,7 @@ installPreCacheScheduler();
 // install the playback orchestrator. observes currentTime / duration
 // + appState and runs the per-tick app-level side effects (listen-
 // history accumulation, queue-row progress fill, >=90% completion +
-// analytics). backend-agnostic — works for both html and rodio.
+// analytics). backend-agnostic — works for both html and libmpv.
 installPlaybackOrchestrator();
 
 // always-allocated. owns the `<audio>` element + dom handlers + the
@@ -206,7 +215,7 @@ async function toggleCurrentSongFavorite(): Promise<void> {
 }
 
 // runtime-selected. either `htmlBackend` (same instance!) or a
-// fresh `RodioBackend` / `DummyBackend`. callers should NEVER
+// fresh `LibmpvBackend` / `DummyBackend`. callers should NEVER
 // reach for `htmlBackend` directly when they could go through
 // `activeBackend` — that's how we accidentally end up with two
 // players running in parallel.
@@ -217,7 +226,7 @@ let activeBackend: PlayerBackend = selectBackend(htmlBackend);
 // while the current queue item is a video — see `ensureBackendForKind`.
 const videoBackend = new VideoBackend();
 
-// linux-only alternative that plays in charnel's separate gstreamer window.
+// linux-only alternative that plays in charnel's separate libmpv window.
 // constructed unconditionally (it opens no window until told to load) so the
 // selector can swap without async setup.
 const videoWindowBackend = new VideoWindowBackend();
@@ -246,9 +255,9 @@ export function isVideoBackendActive(): boolean {
 // active backend at boot, and re-bind whenever the backend swaps.
 // without this, the signals never update and the UI stays frozen.
 // auto-advance: every backend emits `kind: "ended"` when the current
-// song finishes (html via its `<audio>.ended` dom listener; rodio via
-// the supervisor). the facade subscribes once and runs unified queue
-// traversal regardless of backend.
+// song finishes (html via its `<audio>.ended` dom listener; the libmpv
+// backend via its own event stream). the facade subscribes once and runs
+// unified queue traversal regardless of backend.
 let autoAdvanceUnsubscribe: (() => void) | null = null;
 // sha256/id of the track we've already retried once for a network
 // element error — cleared implicitly once the current track changes
@@ -404,7 +413,7 @@ if (typeof console !== "undefined") {
 /**
  * re-evaluate `selectBackend()` and replace the active backend if
  * the chosen kind changed. wired into `App.tsx`'s `onConfigChanged`
- * handler so the wizard's rodio toggle takes effect.
+ * handler so the wizard's libmpv-player toggle takes effect.
  *
  * **safe disposal**: the previous active backend is disposed only
  * if it isn't `htmlBackend` — that instance is always-allocated and
@@ -420,7 +429,7 @@ export async function swapPlayerBackend(): Promise<void> {
   }
   if (next.kind === activeBackend.kind) {
     // same kind, different instance (only possible when both are
-    // RodioBackend, which constructs anew each call). dispose the
+    // LibmpvBackend, which constructs anew each call). dispose the
     // candidate so we don't leak its tauri event listener.
     await next.dispose();
     return;
@@ -429,12 +438,12 @@ export async function swapPlayerBackend(): Promise<void> {
   debug("player", `backend swap: ${activeBackend.kind} -> ${next.kind}`);
 
   // STOP whatever the previous backend was doing. without this,
-  // swapping rodio -> html (or vice versa) leaves the previous
+  // swapping libmpv -> html (or vice versa) leaves the previous
   // player audibly running until something else interrupts it.
   void activeBackend.send({ kind: "stop" });
 
   // dispose the previous active backend — but never dispose the
-  // shared html instance. the rodio backend, on the other hand,
+  // shared html instance. the libmpv backend, on the other hand,
   // owns a tauri event listener that should be torn down.
   if (activeBackend !== htmlBackend) {
     void activeBackend.dispose();
@@ -474,7 +483,7 @@ registerStopMusic(() => {
 // aware orchestration) route through `activeBackend.loadAndPlay`,
 // which is the polymorphic entry point. wire-format methods
 // (play/pause/seek/set_volume/stop/next/previous) route through
-// `activeBackend.send` so the active backend (html or rodio) actually
+// `activeBackend.send` so the active backend (html or libmpv) actually
 // receives them.
 //
 // **pause gate**: lives at this level only. user-initiated playback
@@ -549,8 +558,8 @@ export async function playSong(
   // wrongly force-starts playback over an already-playing song. this is
   // the one place every play path (queue advance, direct playSong calls
   // from radio/search/etc.) funnels through - previously only
-  // htmlAudio.ts reset this, so rodio (desktop) left it stuck forever
-  // after the first full queue completion.
+  // htmlAudio.ts reset this, so the libmpv backend (desktop) left it
+  // stuck forever after the first full queue completion.
   resetPlaybackEnded();
 
   try {
@@ -559,18 +568,18 @@ export async function playSong(
   } catch (err) {
     if (
       err instanceof BackendPlaybackError &&
-      activeBackend.kind === "rodio" &&
+      activeBackend.kind === "libmpv" &&
       err.error_type === "no_local_path"
     ) {
-      // rodio can't stream remote files — it needs a path on disk.
-      // surface this clearly so the user understands the toggle's
-      // current limitation. no automatic fallback to html: that
+      // the libmpv backend can't stream remote files — it needs a path
+      // on disk. surface this clearly so the user understands the
+      // toggle's current limitation. no automatic fallback to html: that
       // would require multiplexing playerStateSync across both
       // backends and quickly spirals into the kind of complexity
       // this refactor is trying to avoid. phase 5 may revisit.
       warn(
         "player",
-        `rodio cannot play "${song.title}" (${song.sha256.slice(0, 8)}) — no local path; disable rodio in settings to stream remote files`
+        `libmpv backend cannot play "${song.title}" (${song.sha256.slice(0, 8)}) — no local path; disable it in settings to stream remote files`
       );
     }
     // make sure the pending-up-next spinner doesn't get stuck.
@@ -823,12 +832,12 @@ export function seek(seconds: number): void {
 export function setPlayerVolume(vol: number): void {
   // always update the html backend's audio element + the radio sink
   // mirror so the volume slider stays in sync with the html `<audio>`
-  // even when rodio is active (the html backend may be re-activated
-  // by a backend swap and we want its element pre-set).
+  // even when the libmpv backend is active (the html backend may be
+  // re-activated by a backend swap and we want its element pre-set).
   htmlBackend.setVolume(vol);
-  // forward to the active backend's wire surface so rodio receives
-  // it; when html is active this is a no-op (the call above already
-  // touched the element).
+  // forward to the active backend's wire surface so the libmpv backend
+  // receives it; when html is active this is a no-op (the call above
+  // already touched the element).
   if (activeBackend !== htmlBackend) {
     void activeBackend.send({ kind: "set_volume", v: vol });
   }
@@ -837,8 +846,9 @@ export function setPlayerVolume(vol: number): void {
 // how long to wait for a `list_output_devices` reply before giving up and
 // reporting an empty list - every backend answers `list_output_devices`
 // synchronously in practice (html/dummy emit an immediate empty reply,
-// rodio's reply is a same-process ipc round trip), so this is purely a
-// safety net against a future backend that never replies at all.
+// the libmpv backend's reply is a same-process ipc round trip), so this
+// is purely a safety net against a future backend that never replies at
+// all.
 const LIST_DEVICES_TIMEOUT_MS = 3000;
 
 /** queries the ACTIVE backend's current audio output devices - always a
@@ -847,7 +857,7 @@ const LIST_DEVICES_TIMEOUT_MS = 3000;
  * every backend answers `list_output_devices` (see `PlayerBackend.send`'s
  * own doc comment on this not being a hard requirement, but this one
  * command IS answered unconditionally by every backend - html/dummy just
- * reply with an empty list, since neither has a native device concept). */
+ * reply with an empty list, since neither has an os-level device concept). */
 export function listOutputDevices(): Promise<AudioDeviceInfo[]> {
   const backend = activeBackend;
   return new Promise((resolve) => {
@@ -978,7 +988,7 @@ export async function dispose(): Promise<void> {
   // view — but exists for tests + intentional shutdown paths.
   await activeBackend.dispose();
   // ensure the html backend's dom resources are also released even when
-  // a different backend (rodio/dummy) is currently active.
+  // a different backend (libmpv/dummy) is currently active.
   if (activeBackend !== htmlBackend) {
     await htmlBackend.dispose();
   }

@@ -1,17 +1,15 @@
 //! OS media session integration (MPRIS on linux, SMTC on windows,
 //! `MPNowPlayingInfoCenter` on macOS) via the `playwire` crate, for the
-//! rodio audio and gstreamer video paths - neither gets a
-//! `navigator.mediaSession` for free the way the webview's own
-//! `<audio>`/`<video>` elements do. only constructed when
-//! `use_rodio_playback` is on (that flag also gates the gst video window,
-//! despite its name - see `app_config.rs`).
+//! libmpv audio and video paths - neither gets a `navigator.mediaSession`
+//! for free the way the webview's own `<audio>`/`<video>` elements do.
+//! only constructed when `use_libmpv_playback` is on (see `app_config.rs`).
 //!
-//! grimoire's rodio player and the gst video window both only ever know
-//! file paths/commands, never song/video metadata - spume is the only
-//! thing that knows titles/artists/artwork, so it pushes that via the
-//! `media_session_set_track` command whenever the "now playing" item
+//! grimoire's libmpv player and the libmpv video window both only ever
+//! know file paths/commands, never song/video metadata - spume is the
+//! only thing that knows titles/artists/artwork, so it pushes that via
+//! the `media_session_set_track` command whenever the "now playing" item
 //! changes. play/pause/position/duration fold in automatically from each
-//! backend's own event stream (`on_rodio_event` / `on_video_event`,
+//! backend's own event stream (`on_player_event` / `on_video_event`,
 //! called from `player_commands.rs`'s event pump and
 //! `video_window::emit_event` respectively).
 //!
@@ -26,7 +24,7 @@
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
-use grimoire::player::{PlayerEvent, PlayerState as RodioPlayerState};
+use grimoire::player::{PlayerEvent, PlayerState as GrimoirePlayerState};
 use playwire::{Capabilities, Event, MediaControls, PlaybackState, PlayerConfig, Repeat, Track};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
@@ -97,25 +95,39 @@ pub(crate) fn emit_action(app: &AppHandle, action: MediaSessionAction) {
 }
 
 /// get-or-init the session, constructing `MediaControls` lazily on first
-/// use. `None` if `use_rodio_playback` is off, or if the platform's media
-/// service is unavailable - playwire's own docs recommend treating every
-/// `MediaControls::new` error as "run without media controls" rather than
-/// a fatal condition, so a missing d-bus session (linux ssh sessions,
-/// some ci sandboxes) or similar just quietly disables this feature.
+/// use. `None` if `use_libmpv_playback` is off, or if the platform's
+/// media service is unavailable - playwire's own docs recommend treating
+/// every `MediaControls::new` error as "run without media controls"
+/// rather than a fatal condition, so a missing d-bus session (linux ssh
+/// sessions, some ci sandboxes) or similar just quietly disables this
+/// feature.
+///
+/// the enabled-check is re-read from config on **every** call, outside
+/// the `OnceLock` - only a successfully-constructed `SessionState` is
+/// memoized there. this matters because the toggle can flip live (the
+/// wizard's settings view calls `set_libmpv_playback` mid-session, no
+/// restart) - `SESSION.get_or_init` only ever runs its closure once, so
+/// if the enabled-check lived inside it, the very first call (e.g. at
+/// cold boot, before the user ever touches the toggle, with the flag at
+/// its off-by-default-on-mac state) would permanently cache "disabled"
+/// for the rest of the process's life, and no amount of toggling
+/// afterward would ever re-enable it without a full app restart.
+/// confirmed as the actual cause of "media session doesn't work" after
+/// enabling libmpv mid-session (2026-09-29).
 fn ensure_started(app: &AppHandle) -> Option<&'static SessionState> {
+    let config = crate::app_config::FreqholeAppConfig::load(app);
+    let use_libmpv = config
+        .map(|c| c.use_libmpv_playback)
+        .unwrap_or_else(crate::app_config::default_use_libmpv_playback);
+    if !use_libmpv {
+        let reason = "disabled by config (use_libmpv_playback is off)".to_string();
+        info!("media-session: {reason}");
+        let _ = UNAVAILABLE_REASON.set(reason);
+        return None;
+    }
+
     SESSION
         .get_or_init(|| {
-            let enabled = crate::app_config::FreqholeAppConfig::load(app)
-                .map(|c| c.use_rodio_playback)
-                .unwrap_or_else(crate::app_config::default_use_rodio_playback);
-            info!(enabled, "media-session: ensure_started");
-            if !enabled {
-                let reason = "disabled by config (use_rodio_playback is off)".to_string();
-                info!("media-session: {reason}");
-                let _ = UNAVAILABLE_REASON.set(reason);
-                return None;
-            }
-
             let config = PlayerConfig::new("freqhole").desktop_entry("net.freqhole.freqhole");
             let app_for_events = app.clone();
             let controls = match MediaControls::new(config, move |event| {
@@ -157,7 +169,7 @@ fn ensure_started(app: &AppHandle) -> Option<&'static SessionState> {
 /// main run loop on macOS). must not block and must not call back into
 /// `set_state` here (playwire's own docs warn against this) - just hand
 /// the action off to spume, which already knows how to route it to
-/// whichever backend (rodio or gst video) is actually playing.
+/// whichever backend (libmpv audio or libmpv video window) is actually playing.
 fn handle_action(app: &AppHandle, event: Event) {
     let action = match event {
         Event::Play => MediaSessionAction::Play,
@@ -269,25 +281,40 @@ pub fn set_track(
 }
 
 /// clears the current track (nothing playing) - e.g. queue emptied,
-/// player stopped.
+/// player stopped. publishes `track: None` directly (playwire's own docs:
+/// "`None` reports `Stopped` to the OS and clears the widget") rather than
+/// going through `republish()`, whose "no track id set yet" guard exists
+/// for the startup case (nothing published *yet*) and would otherwise
+/// silently no-op this - the exact bug that meant the OS media widget
+/// never actually cleared when the queue was emptied (found 2026-09-29).
 pub fn clear_track(app: &AppHandle) {
     let Some(session) = ensure_started(app) else {
         return;
     };
     *session.track.lock().unwrap() = TrackMeta::default();
     *session.playing.lock().unwrap() = false;
-    republish(session);
+    *session.position.lock().unwrap() = Duration::ZERO;
+    *session.duration.lock().unwrap() = None;
+
+    let state = PlaybackState::default();
+    if let Ok(mut controls) = session.controls.lock() {
+        if let Err(e) = controls.set_state(&state) {
+            warn!(error = %e, "failed to clear media session state");
+        } else {
+            debug!("media-session: clear_track ok");
+        }
+    }
 }
 
-/// fold a rodio `PlayerEvent` into the merged playback state.
-pub fn on_rodio_event(app: &AppHandle, event: &PlayerEvent) {
+/// fold a `PlayerEvent` from the audio backend into the merged playback state.
+pub fn on_player_event(app: &AppHandle, event: &PlayerEvent) {
     let Some(session) = ensure_started(app) else {
         return;
     };
     match event {
         PlayerEvent::State { state } => {
-            let playing = *state == RodioPlayerState::Playing;
-            info!(playing, "media-session: on_rodio_event folding State");
+            let playing = *state == GrimoirePlayerState::Playing;
+            info!(playing, "media-session: on_player_event folding State");
             *session.playing.lock().unwrap() = playing;
         }
         PlayerEvent::Progress { ms, total_ms } => {
@@ -295,7 +322,7 @@ pub fn on_rodio_event(app: &AppHandle, event: &PlayerEvent) {
             *session.duration.lock().unwrap() = Some(Duration::from_millis(*total_ms));
         }
         PlayerEvent::Ended => {
-            info!("media-session: on_rodio_event folding Ended");
+            info!("media-session: on_player_event folding Ended");
             *session.playing.lock().unwrap() = false;
         }
         _ => return,

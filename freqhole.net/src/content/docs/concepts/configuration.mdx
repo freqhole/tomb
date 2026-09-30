@@ -134,21 +134,6 @@ fetches artist bios, artist images (thumbnails, banners, fanart), album artwork,
 
 see the [metadata enrichment](/guides/metadata-enrichment/) guide for details.
 
-### audio (rodio/cpal buffer)
-
-```toml
-[audio]
-linux_buffer_frames = 4096
-```
-
-improved audio backend tuning + configuration. only consumed when the `rodio-playback` cargo feature is on (charnel desktop app, cli `serve`). web-only builds ignore this section.
-
-`linux_buffer_frames` is **linux only** — cpal output period size in frames. raise this if you hear stutters or xruns under load (typical culprits: pipewire/pulseaudio on busy desktops, vm guests, low-power boards). each doubling roughly doubles output latency but adds proportional headroom against scheduler jitter.
-
-- default when unset: `2048` (~43ms @ 48kHz)
-- try `4096` (~85ms) if 2048 still glitches
-- try `8192` (~170ms) for the heaviest cases
-
 ---
 
 ## desktop app: charnel-config.toml

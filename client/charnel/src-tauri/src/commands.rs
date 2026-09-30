@@ -476,7 +476,7 @@ pub fn resolve_path(path: String) -> Result<String, String> {
 /// `local_path` (i.e. the file lives on disk — true for songs synced
 /// via the local importer or downloaded over p2p), and an `Err` with
 /// a structured `error_type` discriminant otherwise. spume callers
-/// (both the desktop rodio backend and the cross-platform html
+/// (both the desktop libmpv backend and the cross-platform html
 /// `<audio>` backend) can introspect the error to decide whether to
 /// fall back to streaming on a per-song basis. NOT gated to desktop -
 /// android/ios need this too (see `resolve_blob_path_by_blake3`'s
@@ -516,12 +516,12 @@ pub async fn resolve_blob_path(blob_id: String) -> Result<serde_json::Value, Str
 /// already got this on disk" lookup on. every song that's ever been
 /// synced locally via iroh-blobs is guaranteed to have a blake3 (the sync
 /// itself hard-requires one), so callers can try this unconditionally for
-/// any queue item that has one. see rodioBackend.ts's
+/// any queue item that has one. see libmpvBackend.ts's
 /// `resolveLocalPathByBlake3` and audioAccess.ts's
 /// `resolveCharnelLocalPath` for the callers.
 ///
 /// this and `resolve_blob_path` used to live in the desktop-only
-/// `player_commands.rs` (rodio is desktop-only), but the html `<audio>`
+/// `player_commands.rs` (libmpv is desktop-only), but the html `<audio>`
 /// backend's `resolveCharnelLocalPath` needs it on every platform
 /// including android/ios - that fast-path check was previously a
 /// guaranteed no-op on mobile since the command didn't exist there at
@@ -547,6 +547,30 @@ pub async fn resolve_blob_path_by_blake3(blake3: String) -> Result<serde_json::V
             Err(format!("{kind}: {}", resp.message))
         }
     }
+}
+
+/// write arbitrary image bytes to a reused, fixed-name temp file and
+/// return its path - for handing the OS media session (lock screen /
+/// control center / MPRIS widget) a real `file://` path it can open
+/// directly, when the source image only exists as in-memory bytes (e.g.
+/// a video poster read from OPFS, which has no path Rust can reach at
+/// all). always overwrites the same file rather than allocating a new
+/// one per call - only one track is ever "now playing" at a time, so
+/// there is nothing to disambiguate between calls, and no cleanup to
+/// track. songs don't need this at all: their artwork already lives in
+/// grimoire's blob store, resolved directly via `resolve_blob_path`
+/// (a real path, no bytes to copy) - see spume's
+/// `getLocalArtworkFilePath` vs. `getLocalPosterFilePathForVideo`.
+#[tauri::command]
+pub fn write_media_session_artwork(bytes: Vec<u8>) -> Result<String, String> {
+    let path = std::env::temp_dir().join("freqhole-media-session-artwork");
+    std::fs::write(&path, &bytes).map_err(|e| {
+        format!(
+            "failed to write media session artwork to {}: {e}",
+            path.display()
+        )
+    })?;
+    Ok(path.display().to_string())
 }
 
 /// get the default app data directory path
@@ -2161,14 +2185,14 @@ pub fn set_sync_queue_to_local(app_handle: tauri::AppHandle, enabled: bool) -> R
     Ok(())
 }
 
-/// get the use_rodio_playback setting (default: on for linux). when on,
-/// spume's `selectBackend()` returns the rodio backend instead of the
-/// html `<audio>` element path.
+/// get the use_libmpv_playback setting (default: on for linux). drives
+/// both audio and video - see `FreqholeAppConfig::use_libmpv_playback`'s
+/// doc comment and `docs/libmpv-experimental-player-plan.md`.
 #[tauri::command]
-pub fn get_rodio_playback(app_handle: tauri::AppHandle) -> bool {
+pub fn get_libmpv_playback(app_handle: tauri::AppHandle) -> bool {
     FreqholeAppConfig::load(&app_handle)
-        .map(|c| c.use_rodio_playback)
-        .unwrap_or_else(crate::app_config::default_use_rodio_playback)
+        .map(|c| c.use_libmpv_playback)
+        .unwrap_or_else(crate::app_config::default_use_libmpv_playback)
 }
 
 /// get the chromeless_title_bar setting (default: true). read by both the
@@ -2190,17 +2214,20 @@ pub fn get_chromeless_title_bar(app_handle: tauri::AppHandle) -> bool {
         .unwrap_or_else(crate::app_config::default_chromeless_title_bar)
 }
 
-/// set the use_rodio_playback setting. fires `config_changed` so spume can
+/// set the use_libmpv_playback setting. fires `config_changed` so spume can
 /// re-read it without a restart. does NOT swap any in-flight backend; the
 /// new value takes effect when the playback session next reconstructs its
-/// `PlayerBackend` (typically next page reload or next track).
+/// `PlayerBackend` (typically next page reload or next track). also does
+/// not hot-swap an in-flight backend, and the linux video window backend
+/// (`video_window::mod.rs`) re-reads this on the next `Load`, not
+/// mid-playback either.
 #[tauri::command]
-pub fn set_rodio_playback(app_handle: tauri::AppHandle, enabled: bool) -> Result<(), String> {
+pub fn set_libmpv_playback(app_handle: tauri::AppHandle, enabled: bool) -> Result<(), String> {
     let mut config = FreqholeAppConfig::load(&app_handle).unwrap_or_default();
-    config.use_rodio_playback = enabled;
+    config.use_libmpv_playback = enabled;
     config.save(&app_handle)?;
 
-    let _ = notify_config_changed(&app_handle, "use_rodio_playback changed");
+    let _ = notify_config_changed(&app_handle, "use_libmpv_playback changed");
 
     Ok(())
 }
@@ -2216,7 +2243,7 @@ pub fn supports_chromeless_title_bar() -> bool {
 /// set the chromeless_title_bar setting. the system window is only ever
 /// built with decorations on/off once, at window-creation time (see
 /// lib.rs/wizard.rs), so this just persists the preference - it takes
-/// effect the next time the app is restarted, same as `use_rodio_playback`.
+/// effect the next time the app is restarted, same as `use_libmpv_playback`.
 #[tauri::command]
 pub fn set_chromeless_title_bar(app_handle: tauri::AppHandle, enabled: bool) -> Result<(), String> {
     let mut config = FreqholeAppConfig::load(&app_handle).unwrap_or_default();

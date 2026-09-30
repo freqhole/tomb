@@ -232,7 +232,7 @@ pub trait Transport {
 
 /// commands the music view sends to a backend audio player. ratcore
 /// holds an `Option<Rc<dyn MusicPlayer>>`; shells fill it in if they
-/// have a backend (tty: rodio via grimoire; web: noop today).
+/// have a backend (tty: libmpv via grimoire; web: noop today).
 #[derive(Debug, Clone)]
 pub enum PlayerCmd {
     /// load a queue of audio file paths and start from the first.

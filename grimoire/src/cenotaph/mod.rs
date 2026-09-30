@@ -23,7 +23,7 @@
 //!    into real playback backend calls and replying with a [`wire::CommandAck`]
 //!    via the request's own oneshot `reply` sender - this consumer-specific
 //!    translation is intentionally NOT part of this module (rathole:
-//!    rodio/mpv; charnel: tauri events into spume's playback adapter).
+//!    libmpv/mpv; charnel: tauri events into spume's playback adapter).
 //! 5. call `.broadcast_status()` whenever playback state changes, so
 //!    subscribed controllers see live updates.
 

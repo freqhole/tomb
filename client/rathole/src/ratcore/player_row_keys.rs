@@ -4,7 +4,7 @@
 //! handlers. the helpers operate on `AppState` and return a tagged
 //! [`PlayerRowAction`] when the user actuates a control with enter;
 //! the calling shell then dispatches the action to its
-//! `MusicPlayer` (tty: rodio over `send_player`; web: noop until
+//! `MusicPlayer` (tty: libmpv over `send_player`; web: noop until
 //! the html-audio runtime lands — see RATHOLE_TUI_PLAN §10).
 
 use super::app::{AppState, Focus};

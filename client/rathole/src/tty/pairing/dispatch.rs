@@ -69,12 +69,13 @@ pub struct DispatchContext {
     /// `resolve_queue_items` (via `AppAction::PairingItemUnresolved`/
     /// `PairingItemResolved`) actually mutates the real, persisted list.
     pub unresolved_items: Vec<UnresolvedItemRef>,
-    /// last-known audio output devices for `active_backend` (rodio's
-    /// `MusicState::output_devices` or mpv's `VideoPlayerState::
-    /// audio_devices`, whichever is relevant) - built synchronously by
-    /// `run.rs` before dispatch, same as every other field here. see
-    /// `dispatch_pairing_command_inner`'s `ListOutputDevices` arm for
-    /// why this is a cached snapshot rather than a live query.
+    /// last-known audio output devices for `active_backend` (the
+    /// in-process libmpv backend's `MusicState::output_devices` or
+    /// mpv's `VideoPlayerState::audio_devices`, whichever is relevant),
+    /// built synchronously by `run.rs` before dispatch, same as
+    /// every other field here. see `dispatch_pairing_command_inner`'s
+    /// `ListOutputDevices` arm for why this is a cached snapshot
+    /// rather than a live query.
     pub output_devices_snapshot: Vec<grimoire::cenotaph::AudioDeviceInfo>,
 }
 
@@ -338,9 +339,9 @@ async fn dispatch_pairing_command_inner(
         PairingCommand::Skip => {
             // route through the unified queue's own advance logic
             // (see `AppAction::PairingSkip`'s doc comment) rather than
-            // a backend "next" - neither rodio nor mpv ever
-            // have more than one track loaded at once, so their own
-            // Next/skip primitives are a no-op.
+            // a backend "next" - neither the in-process libmpv backend
+            // nor mpv ever have more than one track loaded at once, so
+            // their own Next/skip primitives are a no-op.
             if let Some(tx) = &ctx.action_tx {
                 let _ = tx.send(AppAction::PairingSkip);
             }

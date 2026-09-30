@@ -51,7 +51,8 @@
         "depends": [
           "libayatana-appindicator3-1",
           "ffmpeg",
-          "pipewire-alsa"
+          "pipewire-alsa",
+          "libmpv2"
         ],
         "section": "sound",
         "priority": "optional",
@@ -63,7 +64,8 @@
       "rpm": {
         "depends": [
           "libayatana-appindicator-gtk3",
-          "pipewire-alsa"
+          "pipewire-alsa",
+          "mpv-libs"
         ],
         "desktopTemplate": "freqhole.desktop",
         "files": {

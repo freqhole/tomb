@@ -20,10 +20,14 @@
 # Linux-specific settings if needed
 
 [target.aarch64-apple-darwin]
-# macOS ARM-specific settings if needed
+# libmpv2-sys emits a bare `-lmpv` with no search path (see
+# docs/libmpv-experimental-player-plan.md); homebrew's ARM prefix isn't a
+# default linker search dir, so add it explicitly.
+rustflags = ["-L", "/opt/homebrew/lib"]
 
 [target.x86_64-apple-darwin]
-# macOS Intel-specific settings if needed
+# same as above, homebrew's Intel prefix.
+rustflags = ["-L", "/usr/local/lib"]
 
 # Raspberry Pi targets
 [target.armv7-unknown-linux-gnueabihf]

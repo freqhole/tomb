@@ -8,14 +8,14 @@
 // this applies uniformly to audio, video, images, waveforms and posters —
 // there is deliberately no media-kind parameter.
 //
-// tier 2 has two physical stores because `RodioBackend` is a rust-side
+// tier 2 has two physical stores because `LibmpvBackend` is a rust-side
 // decoder that plays from a filesystem path and cannot read the Cache API
 // (a webview api) or a `blob:` url. that is a *host* detail, not a policy
 // one: both stores get the same lifecycle and the same eviction rules.
 
-/** which playback host will consume the bytes. `rodio` is charnel's
+/** which playback host will consume the bytes. `libmpv` is charnel's
  * audio path (default on linux); everything else plays in the webview. */
-export type PlaybackHost = "webview" | "rodio";
+export type PlaybackHost = "webview" | "libmpv";
 
 /** tier 1 survives queue exit and is user-visible; tier 2 is evictable. */
 export type MediaTier = "library" | "ephemeral";
@@ -37,7 +37,7 @@ export interface StorageTargetInput {
 
 /** tier 2's physical store is chosen by which player can actually read it. */
 export function ephemeralStoreFor(host: PlaybackHost): EphemeralStore {
-  return host === "rodio" ? "ephemeral_dir" : "cache_api";
+  return host === "libmpv" ? "ephemeral_dir" : "cache_api";
 }
 
 /** the one place the storage rule is expressed. */

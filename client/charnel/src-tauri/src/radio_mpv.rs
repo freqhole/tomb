@@ -1,5 +1,5 @@
 //! native mpv playback for a video-capable radio station, used when the
-//! "experimental player" (`use_rodio_playback`) config is on - an
+//! "experimental player" (`use_libmpv_playback`) config is on - an
 //! alternative to the browser's own `<video>`+MediaSource element.
 //!
 //! mirrors rathole's already-working radio playback

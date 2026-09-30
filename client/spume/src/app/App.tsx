@@ -81,7 +81,7 @@ import {
   uploadVideoFilesToRemote,
 } from "../video/import/remoteImport";
 import { togglePlayback } from "../music/services/audio/player";
-import { initRodioPreference } from "../music/services/audio/select";
+import { initLibmpvPreference } from "../music/services/audio/select";
 import { initVideoWindowPreference } from "../music/services/audio/selectVideo";
 import { installEphemeralReconciler } from "../music/services/audio/ephemeralFetch";
 import { installRelayRateLimitWatcher } from "./services/relayHealthWarnings";
@@ -833,6 +833,18 @@ export function App() {
         })();
         break;
 
+      case "libmpv-unavailable":
+        // rust already persisted the toggle back off - just tell the
+        // user and re-select the backend live, no reload needed.
+        toast.error(`libmpv unavailable, using standard audio playback: ${event.data.reason}`, {
+          title: "experimental player disabled",
+        });
+        void (async () => {
+          await initLibmpvPreference();
+          await swapPlayerBackend();
+        })();
+        break;
+
       case "share-link-received": {
         // os handed off a `freqhole://o/<token>` url. extract token and
         // route through the same ResolveShareModal flow used for web urls.
@@ -913,11 +925,11 @@ export function App() {
       // subscribe to config changes (server restarts) - refetch config when notified
       const unlistenConfigChanged = await onConfigChanged(async () => {
         debug("tauri: config changed event received, refetching...");
-        // re-read the rodio opt-in flag — the wizard's settings view
-        // toggles `use_rodio_playback` in `FreqholeAppConfig`, and we
+        // re-read the libmpv opt-in flag — the wizard's settings view
+        // toggles `use_libmpv_playback` in `FreqholeAppConfig`, and we
         // want spume's `selectBackend()` to pick that up without a
         // page reload.
-        await initRodioPreference();
+        await initLibmpvPreference();
         await initVideoWindowPreference();
         // re-read the queue size limit too in case the user edited
         // `[client] queue_size_limit` in their toml.
@@ -1030,17 +1042,18 @@ export function App() {
       initRemotePlaybackBootstrap();
       mark("initRemotePlaybackBootstrap done");
 
-      // hydrate the rodio opt-in cache early so the very first
-      // `selectBackend()` call observes the user's preference. safe
-      // outside tauri (falls back to localStorage / defaults to false).
-      await initRodioPreference();
-      mark("initRodioPreference done");
+      // hydrate the libmpv ("experimental player") opt-in cache early so
+      // the very first `selectBackend()` call observes the user's
+      // preference. safe outside tauri (falls back to localStorage /
+      // defaults to false).
+      await initLibmpvPreference();
+      mark("initLibmpvPreference done");
       // resolve whether video can play in charnel's separate window (linux).
-      // paired with the rodio opt-in, which also gates the video window.
+      // paired with the libmpv opt-in, which also gates the video window.
       await initVideoWindowPreference();
       mark("initVideoWindowPreference done");
-      // one shared `_ephemeral/` reconciler for both audio (rodio) and
-      // video (gstreamer window) `sync_queue_to_local = off` playback -
+      // one shared `_ephemeral/` reconciler for both audio (libmpv) and
+      // video (libmpv window) `sync_queue_to_local = off` playback -
       // see ephemeralFetch.ts's own doc comment for why this can't be
       // done per-backend. no-op outside charnel.
       installEphemeralReconciler();

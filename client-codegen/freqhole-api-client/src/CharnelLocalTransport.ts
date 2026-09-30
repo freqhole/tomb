@@ -99,7 +99,7 @@ export class CharnelLocalTransport implements Transport {
   constructor(_baseUrl: string) {
     // baseUrl no longer needed - all requests go through IPC.
     // (used to also kick off an embedded http loopback server probe
-    // here; that server has been removed in favor of the rodio backend.)
+    // here; that server has been removed in favor of the libmpv backend.)
   }
 
   /**
@@ -429,7 +429,7 @@ export class CharnelLocalTransport implements Transport {
    * 1. cached object URL (db-stored blobs)
    * 2. tauri asset:// (via `convertFileSrc`), for any blob with a local path
    *
-   * note: when the rodio audio backend is enabled (charnel + opt-in)
+   * note: when the libmpv audio backend is enabled (charnel + opt-in)
    * playback bypasses html `<audio>` entirely and reads files via
    * filesystem path — this method is unused for that path.
    */

@@ -55,14 +55,15 @@ export default function SettingsView() {
   // sync settings
   const [syncQueueToLocal, setSyncQueueToLocal] = createSignal(true);
 
-  // rust rodio audio backend opt-in. when on, spume's
-  // `selectBackend()` returns the supervised rust audio thread
-  // instead of the html `<audio>` element path. defaults on for
-  // linux (replaces the embedded loopback http server hack) and off
-  // elsewhere until we've burned it in.
-  const [useRodioPlayback, setUseRodioPlayback] = createSignal(false);
-  const [rodioBusy, setRodioBusy] = createSignal(false);
-  const [rodioError, setRodioError] = createSignal("");
+  // libmpv opt-in ("experimental player"). when on, spume's
+  // `selectBackend()`/`selectVideoBackend()` route audio AND video
+  // through libmpv instead of the html `<audio>`/`<video>` elements.
+  // defaults on for linux (replaces the embedded loopback http server
+  // hack for audio, and is the only way to get working video at all
+  // there) and off elsewhere until we've burned it in.
+  const [useLibmpvPlayback, setUseLibmpvPlayback] = createSignal(false);
+  const [libmpvBusy, setLibmpvBusy] = createSignal(false);
+  const [libmpvError, setLibmpvError] = createSignal("");
 
   // chromeless (in-webview) title bar opt-out. macOS + linux only -
   // hidden entirely elsewhere (see `supports_chromeless_title_bar`).
@@ -93,7 +94,7 @@ export default function SettingsView() {
         setImageMessage("");
         setInfoMessage("");
         loadServerConfig();
-        // app-local settings (rodio, chromeless title bar) are skipped while
+        // app-local settings (libmpv, chromeless title bar) are skipped while
         // scoped remote - reload them when scope returns to local, or their
         // toggles stay hidden/stale for the rest of the session.
         loadSyncSettings();
@@ -112,10 +113,10 @@ export default function SettingsView() {
       console.error("failed to load sync settings:", e);
     }
     try {
-      const enabled = await invoke<boolean>("get_rodio_playback");
-      setUseRodioPlayback(enabled);
+      const enabled = await invoke<boolean>("get_libmpv_playback");
+      setUseLibmpvPlayback(enabled);
     } catch (e) {
-      console.error("failed to load rodio playback setting:", e);
+      console.error("failed to load libmpv playback setting:", e);
     }
     try {
       setChromelessSupported(await invoke<boolean>("supports_chromeless_title_bar"));
@@ -137,21 +138,21 @@ export default function SettingsView() {
     }
   }
 
-  async function toggleRodioPlayback() {
-    if (rodioBusy()) return;
-    const newValue = !useRodioPlayback();
-    setUseRodioPlayback(newValue);
-    setRodioBusy(true);
-    setRodioError("");
+  async function toggleLibmpvPlayback() {
+    if (libmpvBusy()) return;
+    const newValue = !useLibmpvPlayback();
+    setUseLibmpvPlayback(newValue);
+    setLibmpvBusy(true);
+    setLibmpvError("");
     try {
-      await invoke("set_rodio_playback", { enabled: newValue });
+      await invoke("set_libmpv_playback", { enabled: newValue });
     } catch (e) {
-      console.error("failed to toggle rodio playback:", e);
-      setRodioError(String(e));
+      console.error("failed to toggle libmpv playback:", e);
+      setLibmpvError(String(e));
       // revert on error
-      setUseRodioPlayback(!newValue);
+      setUseLibmpvPlayback(!newValue);
     } finally {
-      setRodioBusy(false);
+      setLibmpvBusy(false);
     }
   }
 
@@ -610,9 +611,9 @@ export default function SettingsView() {
                 }}
               >
                 <button
-                  class={`toggle-button ${useRodioPlayback() ? "active" : ""}`}
-                  onClick={toggleRodioPlayback}
-                  disabled={rodioBusy()}
+                  class={`toggle-button ${useLibmpvPlayback() ? "active" : ""}`}
+                  onClick={toggleLibmpvPlayback}
+                  disabled={libmpvBusy()}
                   style={{
                     flex: "none",
                     width: "44px",
@@ -620,21 +621,21 @@ export default function SettingsView() {
                     "border-radius": "12px",
                     border: "none",
                     padding: "0",
-                    background: useRodioPlayback()
+                    background: useLibmpvPlayback()
                       ? "var(--color-accent-500, #ff69b4)"
                       : "var(--color-bg-tertiary, #333)",
-                    cursor: rodioBusy() ? "wait" : "pointer",
+                    cursor: libmpvBusy() ? "wait" : "pointer",
                     position: "relative",
                     transition: "background 0.2s",
                     "flex-shrink": "0",
-                    opacity: rodioBusy() ? "0.6" : "1",
+                    opacity: libmpvBusy() ? "0.6" : "1",
                   }}
                 >
                   <div
                     style={{
                       position: "absolute",
                       top: "4px",
-                      left: useRodioPlayback() ? "24px" : "4px",
+                      left: useLibmpvPlayback() ? "24px" : "4px",
                       width: "16px",
                       height: "16px",
                       "border-radius": "50%",
@@ -652,11 +653,12 @@ export default function SettingsView() {
                       "margin-top": "0.25rem",
                     }}
                   >
-                    route audio through the lower-level audio engine instead of the web audio
-                    element. experimental! you will lose system media player controls. use this if
-                    you are having playback issues (most likely on linux).
+                    route audio and video through libmpv instead of the web browser's built-in
+                    audio/video elements. off uses your browser's normal html player, same as any
+                    web page. experimental! use this if you are having playback issues (most likely
+                    on linux), or want to play more audio/video formats than the browser supports.
                   </div>
-                  <Show when={rodioError()}>
+                  <Show when={libmpvError()}>
                     <div
                       style={{
                         "font-size": "0.8125rem",
@@ -664,7 +666,7 @@ export default function SettingsView() {
                         "margin-top": "0.25rem",
                       }}
                     >
-                      {rodioError()}
+                      {libmpvError()}
                     </div>
                   </Show>
                 </div>

@@ -8,11 +8,12 @@
 //! the raw fMP4 chunk stream straight into a DEDICATED mpv process's
 //! own stdin, as one continuous byte stream for the whole session.
 //!
-//! mpv (not rodio) drives radio playback: rodio's `PlayerCommand::Load`
-//! only ever opens a real `std::fs::File` (needs `Read + Seek`, since
-//! rodio/symphonia's `Decoder::new` requires `Seek`), and a live stream
-//! isn't seekable. mpv already handles exactly this (it's built for
-//! HLS/live streams).
+//! a DEDICATED mpv process drives radio playback rather than grimoire's
+//! in-process libmpv audio backend (`tty::player::LibmpvPlayer`):
+//! that backend's `PlayerCommand::Load` only ever takes filesystem
+//! paths (`loadfile <path>`), not an arbitrary live byte stream fed
+//! over stdin - a live radio feed isn't a seekable file on disk, so it
+//! needs mpv's own stdin-as-input-stream support directly.
 //!
 //! this is a DEDICATED mpv process (`RadioMpv`, spawned fresh per
 //! session), NOT the shared `app.video_player` used for on-demand queue

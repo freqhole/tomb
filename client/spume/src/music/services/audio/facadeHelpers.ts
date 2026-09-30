@@ -10,7 +10,7 @@ import type { Song } from "../storage/types";
  * resolve a `string | Song` into a materialized `Song`. throws if
  * the id can't be found in the local data source. used by the
  * facade's `playSong` to make sure backends always get a Song
- * object (the rodio backend in particular needs `media_blob_id` to
+ * object (the libmpv backend in particular needs `media_blob_id` to
  * resolve a filesystem path).
  */
 export async function resolveSongOrId(songOrId: string | Song): Promise<Song> {

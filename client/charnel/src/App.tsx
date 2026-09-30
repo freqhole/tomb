@@ -220,22 +220,20 @@ function App(props: ParentProps) {
                     </div>
                   </Show>
 
-                  <p class="version">version {VERSION}</p>
                   <p
-                    class="version build-sha"
-                    title={`ui bundle: ${UI_GIT_SHA}\napp binary: ${
+                    class="version"
+                    title={`${
                       buildInfo()?.git_sha ?? "?"
                     }${buildInfo() ? ` (${buildInfo()!.target_os}, ${buildInfo()!.debug ? "debug" : "release"})` : ""}`}
                   >
-                    ui {UI_GIT_SHA}
+                    v{VERSION}{" "}
                     <Show when={buildInfo()}>
-                      {" · "}
                       <span
                         style={{
                           color: buildInfo()!.git_sha === UI_GIT_SHA ? undefined : "#ff9f1c",
                         }}
                       >
-                        app {buildInfo()!.git_sha}
+                        {buildInfo()!.git_sha}
                       </span>
                     </Show>
                   </p>

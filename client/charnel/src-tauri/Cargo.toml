@@ -17,6 +17,13 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
+[dev-dependencies]
+# libmpv spike only (examples/libmpv_probe.rs, libmpv_window_probe.rs) - same
+# tao version tauri-runtime-wry 2.10.1 pulls in, so it pumps the exact same
+# native event loop charnel's real process runs, without needing a full
+# tauri/wry build for the spike. see docs/libmpv-experimental-player-plan.md.
+tao = "=0.34.8"
+
 [dependencies]
 tauri = { version = "=2.10.3", features = ["macos-private-api",
     "protocol-asset",
@@ -77,26 +84,27 @@ tauri-plugin-android-media-session = { path = "plugins/tauri-plugin-android-medi
 [target."cfg(any(target_os = \"macos\", target_os = \"linux\", target_os = \"windows\"))".dependencies.cli]
 path = "../../../cli"
 default-features = false
-features = ["rodio-playback"]
+features = ["libmpv-playback"]
 
 [target."cfg(unix)".dependencies]
 nix = { version = "0.29", features = ["signal", "fs"] }
 
-# rust rodio playback is desktop-only — android can technically use cpal
+# libmpv playback is desktop-only — android can technically use it too
 # but we don't want the extra build cost there yet, and the existing html
-# audio path keeps working. cargo unions features across target tables, so
-# this just adds `rodio-playback` to the base grimoire dep on desktop.
+# audio path keeps working.
 [target."cfg(any(target_os = \"macos\", target_os = \"linux\", target_os = \"windows\"))".dependencies]
 grimoire = { path = "../../../grimoire", default-features = false, features = [
     "webauthn",
     "vendored-openssl",
-    "rodio-playback",
+    "libmpv-playback",
 ] }
+
+libmpv2 = "6"
 # OS media session / now-playing controls (MPRIS on linux via zbus, SMTC on
-# windows, MPNowPlayingInfoCenter on macOS) for the rodio audio + gstreamer
-# video paths, neither of which get a `navigator.mediaSession` for free the
-# way the webview's own `<audio>`/`<video>` elements do. only constructed
-# when `use_rodio_playback` is on - see `media_session.rs`.
+# windows, MPNowPlayingInfoCenter on macOS) for the libmpv audio + video
+# paths, which don't get a `navigator.mediaSession` for free the way the
+# webview's own `<audio>`/`<video>` elements do. only constructed when
+# `use_libmpv_playback` is on - see `media_session.rs`.
 playwire = "1.0.0"
 
 # android only: wry's android WebViewClient.handleRequest builds a reqwest
@@ -117,17 +125,3 @@ objc2-disk-arbitration = "0.3.2"
 [target.'cfg(target_os = "linux")'.dependencies]
 libc = "0.2.189"
 udev = "0.9.3"
-# linux video plays in a separate gstreamer window. gstreamer itself is already
-# in-process - webkitgtk depends on it - so this adds bindings, not a new
-# runtime dep.
-# note: gstreamer-play (GstPlay) lives in gst-plugins-bad, unlike playbin3.
-#
-# VERSION LOCK: these must be the gstreamer-rs line built on **glib 0.18**,
-# because tauri 2.11 pins gtk 0.18 which is also glib 0.18. gstreamer 0.25 uses
-# glib 0.22, and mixing the two makes gtksink's `widget` property (a glib-0.18
-# gtk::Widget) untypeable against gstreamer's glib-0.22 objects. gdk/glib are
-# deliberately *not* separate deps - use gtk::gdk / gtk::glib so the versions
-# can never drift apart.
-gstreamer = "0.21"
-gstreamer-play = "0.21"
-gtk = "0.18"

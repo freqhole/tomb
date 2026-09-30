@@ -69,14 +69,13 @@ pub async fn run(opts: LaunchOpts) -> color_eyre::Result<()> {
     maybe_upgrade_config().await;
 
     // install a panic hook that routes panics to tracing instead of
-    // stderr. background threads (notably `freqhole-rodio`) panic
-    // inside rodio's symphonia decoder on malformed inputs; the
-    // default hook writes the panic message + backtrace to stderr,
-    // which lands directly inside the alt-screen and corrupts the
-    // tui (e.g. printing decoder gibberish onto the player seek
-    // bar). we still log the full panic via tracing for diagnosis
-    // and only suppress the stderr output. color_eyre's hook
-    // installed at binary entry is preserved for the main thread.
+    // stderr. the default hook writes the panic message + backtrace
+    // directly to stderr, which lands inside the alt-screen and
+    // corrupts the tui (e.g. printing panic gibberish onto the player
+    // seek bar) if any background thread ever panics. we still log the
+    // full panic via tracing for diagnosis and only suppress the
+    // stderr output. color_eyre's hook installed at binary entry is
+    // preserved for the main thread.
     install_tui_panic_hook();
     let mut terminal = ratatui::init();
     let mut stdout = std::io::stdout();
@@ -182,13 +181,14 @@ fn install_tui_panic_hook() {
             payload = %payload,
             "panic intercepted by tui hook"
         );
-        // for non-rodio background-thread panics, still defer to the
-        // previous (color_eyre) hook so backtraces land in the log.
-        // the rodio thread is special-cased: its panics are recovered
-        // via catch_unwind in load_source(), and chaining the prev
-        // hook would re-print a long backtrace that color_eyre tries
-        // to send to stderr.
-        if name != "freqhole-rodio" {
+        // only the main thread chains to the previous (color_eyre)
+        // hook - a background thread panicking would otherwise print a
+        // long backtrace straight to stderr, corrupting the tui (see
+        // this fn's doc comment). tracing already captured everything
+        // needed for diagnosis above; the main thread still aborts the
+        // process via the default behaviour so `Result::Err` semantics
+        // aren't masked there.
+        if name == "main" {
             prev(info);
         }
     }));

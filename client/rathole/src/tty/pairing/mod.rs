@@ -1,7 +1,7 @@
 //! `freqhole-player/1` ALPN handler: pairing handshake + command
 //! dispatch, bridging `grimoire::cenotaph`'s shared accept-loop
-//! (protocol/session/import) to rathole's real playback backends (rodio
-//! via `PlayerCmd`, mpv via `VideoCommand`).
+//! (protocol/session/import) to rathole's real playback backends
+//! (libmpv via `PlayerCmd`, mpv via `VideoCommand`).
 //!
 //! mirrors (wire-compatible, not code-shared) cenotaph's
 //! `control/playerConnectionHandler.ts` + `control/dispatcher.ts` — see

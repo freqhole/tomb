@@ -8,7 +8,7 @@
 // dom event handlers do not write to the playback signals
 // (`isPlaying`/`currentTime`/`duration`/`isLoading`) directly; they
 // emit `PlayerEvent`s and let `playerStateSync` translate. that
-// makes this backend symmetric with `RodioBackend` — both emit
+// makes this backend symmetric with `LibmpvBackend` — both emit
 // events; one (the active one) drives the signals.
 //
 // app-level orchestration triggered by audio progress (analytics,
@@ -20,9 +20,9 @@
 // android `expectedend` watchdog is registered with the bridge from
 // the constructor via `registerWatchdog()`.
 //
-// **load command**: rodio's `PlayerCommand::Load { paths }` doesn't
-// fit the html-element model, which takes a `Song` and resolves the
-// blob/http url itself. callers should use `loadAndPlay()` (the
+// **load command**: the libmpv backend's `PlayerCommand::Load { paths }`
+// doesn't fit the html-element model, which takes a `Song` and resolves
+// the blob/http url itself. callers should use `loadAndPlay()` (the
 // public PlayerBackend method on this class) for the html backend;
 // `send({ kind: "load", ... })` emits a structured error event.
 
@@ -155,8 +155,8 @@ export class HtmlAudioBackend implements PlayerBackend {
         });
         return;
       case "seek":
-        // rodio reports + accepts position in milliseconds; the html
-        // path uses seconds. round-trip via division.
+        // the libmpv backend reports + accepts position in milliseconds;
+        // the html path uses seconds. round-trip via division.
         this.seek(command.ms / 1000);
         return;
       case "set_volume":
@@ -168,8 +168,8 @@ export class HtmlAudioBackend implements PlayerBackend {
         this.emit({ kind: "state", state: this.snap.state ?? "stopped" });
         return;
       case "list_output_devices":
-        // browsers have no rodio/cpal-style output-device concept for
-        // this backend to enumerate - empty list, not an error (a
+        // browsers have no libmpv-style output-device concept for this
+        // backend to enumerate - empty list, not an error (a
         // caller asking "what can I pick from" gets a real, if empty,
         // answer instead of a scary error toast).
         this.emit({ kind: "output_devices", devices: [] });
@@ -188,7 +188,7 @@ export class HtmlAudioBackend implements PlayerBackend {
             detail:
               "the html audio backend doesn't accept raw file paths; " +
               "use loadAndPlay() with a Song object, or switch " +
-              "to the rodio backend in settings.",
+              "to the libmpv backend in settings.",
           },
         });
         return;
@@ -205,7 +205,7 @@ export class HtmlAudioBackend implements PlayerBackend {
             detail:
               "the html audio backend doesn't accept raw file paths; " +
               "use the queue facade (queueState/queueActions) or switch " +
-              "to the rodio backend in settings.",
+              "to the libmpv backend in settings.",
           },
         });
         return;
@@ -731,7 +731,7 @@ export class HtmlAudioBackend implements PlayerBackend {
     // side effects (listen-history, queue-row fill, >=90% completion)
     // are owned by `playbackOrchestrator`, which observes the same
     // signals `playerStateSync` writes from this event. that keeps
-    // the orchestration backend-agnostic so rodio benefits too.
+    // the orchestration backend-agnostic so the libmpv backend benefits too.
     audio.addEventListener("timeupdate", () => {
       const ct = audio.currentTime;
       const dur = Number.isFinite(audio.duration) ? audio.duration : 0;

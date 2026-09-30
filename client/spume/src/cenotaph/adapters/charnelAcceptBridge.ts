@@ -8,7 +8,7 @@
 // (`charnelPlaybackAdapter.ts`, the same one already used for the
 // dial-out/controller side) and send the resulting ack back.
 //
-// scope: charnel's "experimental player config" (mpv/rodio via
+// scope: charnel's "experimental player config" (libmpv audio + video via
 // charnelPlaybackAdapter.ts) - the only playback backend this protocol
 // ever dispatches to.
 

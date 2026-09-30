@@ -12,9 +12,9 @@
 //
 // **why a separate module**: these are queue/analytics concerns,
 // not playback concerns. extracting them lets both the html and
-// rodio backends benefit from the same orchestration without
-// duplicating logic in each backend's event handlers. when rodio
-// is the active backend, it emits `progress` PlayerEvents which
+// libmpv backends benefit from the same orchestration without
+// duplicating logic in each backend's event handlers. when the
+// libmpv backend is active, it emits `progress` PlayerEvents which
 // `playerStateSync` mirrors onto the same signals this orchestrator
 // observes, so everything just works.
 //

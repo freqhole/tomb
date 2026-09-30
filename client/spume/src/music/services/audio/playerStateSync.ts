@@ -91,13 +91,13 @@ function applyEvent(event: PlayerEvent): void {
       if (event.total_ms > 0) {
         setDuration(event.total_ms / 1000);
       }
-      // a progress event means the supervisor is decoding audio -
+      // a progress event means the backend is decoding audio -
       // by definition no longer "loading". some backends emit this
       // before any explicit `state: playing` (or never emit one at
       // all if the load was instant), so without this clear the
       // playerbar circle + queue-row spinner can stick on for the
       // rest of the track. mirrors the dispatch-level loading-set
-      // clear in the rodio backend. we deliberately don't touch
+      // clear in the libmpv backend. we deliberately don't touch
       // `isPlaying` here - a paused track can still emit a trailing
       // progress event and we'd flip the play button incorrectly.
       setIsLoading(false);
@@ -114,7 +114,7 @@ function applyEvent(event: PlayerEvent): void {
       // anyway, and for the LAST song in the queue (no successor)
       // resetting to 0 leaves the playerbar visually rewound to the
       // beginning of a song that just finished — a regression
-      // introduced during the rodio backend split. leaving the
+      // introduced during the libmpv backend split. leaving the
       // signal at its last value (≈duration) keeps the bar at the
       // end where the user expects it.
       return;

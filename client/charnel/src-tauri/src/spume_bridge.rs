@@ -96,6 +96,14 @@ pub enum SpumeEvent {
         #[serde(skip_serializing_if = "Option::is_none")]
         error: Option<String>,
     },
+
+    /// libmpv failed to start (missing system library, etc.) - the audio
+    /// backend fell back to the html `<audio>` element and the
+    /// experimental player toggle was turned back off so future launches
+    /// don't keep hitting the same failure. spume shows a one-time toast
+    /// and re-reads the toggle to swap backends live (no reload needed).
+    #[serde(rename = "libmpv-unavailable")]
+    LibmpvUnavailable { reason: String },
 }
 
 /// emit an event to spume via tauri's event system
@@ -118,6 +126,17 @@ pub fn notify_config_changed(app: &AppHandle<Wry>, message: &str) -> Result<(), 
 /// notify spume that server image was updated (silent refresh)
 pub fn notify_server_image_updated(app: &AppHandle<Wry>) -> Result<(), String> {
     emit_event(app, SpumeEvent::ServerImageUpdated {})
+}
+
+/// notify spume that libmpv failed to start and playback fell back to the
+/// html `<audio>` element.
+pub fn notify_libmpv_unavailable(app: &AppHandle<Wry>, reason: &str) -> Result<(), String> {
+    emit_event(
+        app,
+        SpumeEvent::LibmpvUnavailable {
+            reason: reason.to_string(),
+        },
+    )
 }
 
 /// notify spume of scan progress (called during scan)

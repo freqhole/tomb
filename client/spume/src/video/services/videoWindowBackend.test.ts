@@ -60,7 +60,7 @@ describe("loadAndPlay", () => {
     );
   });
 
-  // gstreamer opens a real file; without one there is nothing to play
+  // the libmpv backend opens a real file; without one there is nothing to play
   it("throws no_local_path when the file cannot be resolved", async () => {
     resolveLocalVideoPath.mockResolvedValue(null);
     await expect(backend.loadAndPlay(videoItem())).rejects.toMatchObject({

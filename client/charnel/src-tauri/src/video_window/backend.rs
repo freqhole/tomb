@@ -34,8 +34,8 @@ pub enum VideoCommand {
     },
     ToggleFullscreen,
     Close,
-    /// query the audio sinks gstreamer can use for this window (mirrors
-    /// `PlayerCommand::ListOutputDevices` for the rodio music backend).
+    /// query the audio output devices mpv can use for this window (mirrors
+    /// `PlayerCommand::ListOutputDevices` for the libmpv music backend).
     ListOutputDevices,
     /// switch the window's audio sink to the named device (`name` is a
     /// value previously reported via `VideoEvent::OutputDevices`).
@@ -65,7 +65,7 @@ pub enum VideoEvent {
     /// the window was closed by the user (not by a `Close` command).
     Closed,
     /// playback failed. `error_type` is a stable identifier for programmatic
-    /// handling; `missing_plugin` is the case the setup wizard can act on.
+    /// handling; `missing_plugin` covers a missing codec/decoder.
     Error {
         error_type: String,
         message: String,
@@ -221,20 +221,9 @@ pub fn clamp_seek(seconds: f64, duration: Option<f64>) -> f64 {
     }
 }
 
-/// fit a video's source dimensions within the initial GST window bounds while
-/// preserving its aspect ratio. later user resizing is never constrained.
-pub fn fit_initial_window(source_width: i32, source_height: i32) -> (i32, i32) {
-    const MAX_WIDTH: f64 = 960.0;
-    const MAX_HEIGHT: f64 = 720.0;
-    let scale = (MAX_WIDTH / source_width as f64).min(MAX_HEIGHT / source_height as f64);
-    (
-        (source_width as f64 * scale).round() as i32,
-        (source_height as f64 * scale).round() as i32,
-    )
-}
-
-/// map a gstreamer error into a stable `error_type`. kept here (rather than in
-/// the linux-only module) so the classification is testable everywhere.
+/// map an mpv error into a stable `error_type`. kept here (rather
+/// than in the platform-specific module) so the classification is testable
+/// everywhere.
 pub fn classify_error(message: &str) -> &'static str {
     let m = message.to_ascii_lowercase();
     if m.contains("no decoder") || m.contains("missing") || m.contains("not-linked") {
@@ -277,13 +266,6 @@ mod tests {
     #[test]
     fn allows_any_seek_when_duration_is_unknown() {
         assert_eq!(clamp_seek(42.0, None), 42.0);
-    }
-
-    #[test]
-    fn initial_window_preserves_landscape_and_portrait_aspect_ratios() {
-        assert_eq!(fit_initial_window(1920, 1080), (960, 540));
-        assert_eq!(fit_initial_window(1080, 1920), (405, 720));
-        assert_eq!(fit_initial_window(320, 240), (960, 720));
     }
 
     #[test]

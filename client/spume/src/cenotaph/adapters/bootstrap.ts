@@ -8,7 +8,7 @@
 // and the remotePlayback module, but nothing imports THIS module except
 // App.tsx, so no cycle.
 //
-// call once from App.tsx's boot sequence (mirrors initRodioPreference()).
+// call once from App.tsx's boot sequence (mirrors initLibmpvPreference()).
 
 import { getMiddenNode, onMiddenReady } from "../../app/api/client";
 import { initRemotePlaybackAcceptMode } from "./acceptModeBootstrap";

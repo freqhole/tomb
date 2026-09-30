@@ -776,9 +776,9 @@ fn draw_settings(frame: &mut Frame, area: Rect, app: &mut App) {
     }
 }
 
-/// centered overlay listing rodio's known output devices - opened from
-/// the "audio output device" settings row (enter), closed with esc or
-/// by picking a device (enter).
+/// centered overlay listing the audio backend's known output devices -
+/// opened from the "audio output device" settings row (enter), closed
+/// with esc or by picking a device (enter).
 fn draw_device_picker(frame: &mut Frame, area: Rect, app: &App) {
     let popup_w = (area.width.saturating_sub(4)).min(50);
     let popup_h = (area.height.saturating_sub(4)).clamp(3, 12);

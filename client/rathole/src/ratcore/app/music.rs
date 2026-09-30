@@ -1,9 +1,9 @@
-//! music view state + types — portable, no rodio/grimoire deps.
+//! music view state + types — portable, no libmpv/grimoire deps.
 //!
 //! shells provide:
 //! - `Transport::search_songs(...)` to fill in [`MusicState::results`]
 //! - a `MusicPlayer` impl (see `super::super::transport::MusicPlayer`)
-//!   to drive playback. tty wraps grimoire's rodio backend; web is a
+//!   to drive playback. tty wraps grimoire's libmpv backend; web is a
 //!   noop today.
 //!
 //! the ui has three sub-modes (the `Focus` enum stays simple: just
@@ -30,7 +30,7 @@ pub struct SongRow {
     pub artist_id: Option<String>,
     pub duration_ms: Option<u64>,
     /// id of the row in `media_blobz`; tty resolves this to a local
-    /// file path before handing to rodio.
+    /// file path before handing to libmpv.
     pub media_blob_id: Option<String>,
     /// if the shell already knows a usable filesystem path, set it
     /// here so the player skips another lookup.
@@ -92,10 +92,10 @@ pub enum MusicEvent {
     },
     Ended,
     Error(String),
-    /// reply to a rodio `ListOutputDevices` request (audio output
-    /// devices - e.g. a pi's hdmi vs. 3.5mm jack). shares
-    /// `video_player`'s `AudioDeviceInfo` shape since it's the same
-    /// concept, just from the audio-only backend.
+    /// reply to a `ListOutputDevices` request (audio output devices -
+    /// e.g. a pi's hdmi vs. 3.5mm jack). shares `video_player`'s
+    /// `AudioDeviceInfo` shape since it's the same concept, just from
+    /// the audio-only backend.
     OutputDevices {
         devices: Vec<AudioDeviceInfo>,
     },
@@ -148,11 +148,11 @@ pub struct MusicState {
     /// refreshes via [`Transport::is_favorited`] on track-change and
     /// flips locally on `f`-keybind toggles.
     pub current_favorited: bool,
-    /// most recently reported rodio output-device list (from
+    /// most recently reported output-device list (from
     /// `MusicEvent::OutputDevices`); empty until a `ListOutputDevices`
     /// round trip completes at least once.
     pub output_devices: Vec<AudioDeviceInfo>,
-    /// name of the device we last asked rodio to switch to
+    /// name of the device we last asked the audio backend to switch to
     /// (optimistic - mirrors `VideoPlayerState::selected_audio_device`;
     /// the backend doesn't currently confirm which device ended up
     /// active).
@@ -163,21 +163,21 @@ pub struct MusicState {
     /// video preview started from the video browse view (`p` key),
     /// which must NOT trigger the queue to auto-advance when it ends.
     pub queue_video_active: bool,
-    /// set right before sending a song to rodio (`PlayerCmd::Load`),
-    /// cleared as soon as we see a genuine success signal
-    /// (`MusicEvent::State(Playing)`) for it. if `MusicEvent::Ended`
-    /// fires while this is still `Some` and matches the current
-    /// entry's song id, rodio produced zero playable output (couldn't
-    /// decode/init the file) rather than a real end-of-track - see
-    /// `audio_fallback_active`.
-    pub pending_rodio_song_id: Option<String>,
-    /// true while mpv is being used as an audio-only fallback player
-    /// for the current queue entry because rodio couldn't decode it
-    /// (e.g. opus-in-webm, which rodio's symphonia backend doesn't
-    /// support). distinct from `queue_video_active` (a real
-    /// `QueueEntry::Video`): mpv is spawned with `--force-window=no`
-    /// and this file has no video track, so no window shows - but
-    /// mpv's Ended/Closed/Error still needs to advance the queue, and
+    /// set right before sending a song to the audio backend
+    /// (`PlayerCmd::Load`), cleared as soon as we see a genuine success
+    /// signal (`MusicEvent::State(Playing)`) for it. if
+    /// `MusicEvent::Ended` fires while this is still `Some` and matches
+    /// the current entry's song id, the backend produced zero playable
+    /// output (couldn't decode/init the file) rather than a real
+    /// end-of-track - see `audio_fallback_active`.
+    pub pending_song_id: Option<String>,
+    /// true while a second mpv instance is being used as an audio-only
+    /// fallback player for the current queue entry because the
+    /// in-process libmpv backend couldn't decode/init it. distinct from
+    /// `queue_video_active` (a real `QueueEntry::Video`): mpv is spawned
+    /// with `--force-window=no` and this file has no video track, so no
+    /// window shows - but mpv's Ended/Closed/Error still needs to
+    /// advance the queue, and
     /// the qr/art framebuffer sync needs to back off while it's active,
     /// same as it already does for a real video.
     pub audio_fallback_active: bool,

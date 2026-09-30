@@ -30,17 +30,17 @@ use grimoire::radio::protocol::{read_chunk, read_control_message, RADIO_ALPN};
 type MpvSink = crate::radio_mpv::RadioMpvSink;
 
 /// spawns a native mpv radio sink when the "experimental player" config
-/// (`use_rodio_playback`) is on and the station's own codec string
+/// (`use_libmpv_playback`) is on and the station's own codec string
 /// (from `Hello`) is video-capable - `None` otherwise (audio-only
 /// station, config off, or mpv itself failed to start, e.g. not
 /// installed - falls back to the normal browser `<video>`+MediaSource
 /// path exactly as if this feature didn't exist).
 #[cfg(unix)]
 async fn maybe_spawn_mpv_sink(app: &tauri::AppHandle, codec: &str) -> Option<MpvSink> {
-    let use_rodio = crate::app_config::FreqholeAppConfig::load(app)
-        .map(|c| c.use_rodio_playback)
-        .unwrap_or_else(crate::app_config::default_use_rodio_playback);
-    if !use_rodio || !codec.starts_with("video/") {
+    let use_libmpv = crate::app_config::FreqholeAppConfig::load(app)
+        .map(|c| c.use_libmpv_playback)
+        .unwrap_or_else(crate::app_config::default_use_libmpv_playback);
+    if !use_libmpv || !codec.starts_with("video/") {
         return None;
     }
     match crate::radio_mpv::RadioMpvSink::spawn().await {

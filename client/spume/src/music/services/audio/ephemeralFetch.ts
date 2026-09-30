@@ -1,5 +1,5 @@
 // ephemeral blob fetch + cleanup for playback with `sync_queue_to_local =
-// false` - shared by rodio (audio) and the gstreamer video window (video),
+// false` - shared by the libmpv audio backend and the libmpv video window,
 // which both decode from a real fs path and can't stream a url directly.
 //
 // when the user has chosen NOT to populate their library on play, we
@@ -12,7 +12,7 @@
 // detection helper and the caller's own domain type differ between
 // `fetchEphemeralForSong`/`fetchEphemeralForVideo` below.
 //
-// lifecycle (called from rodioBackend / the video window backend):
+// lifecycle (called from libmpvBackend.ts / the video window backend):
 //   - once at app boot: `installEphemeralReconciler()` (below) watches
 //     the WHOLE queue (both kinds together - see its own doc comment for
 //     why they can't reconcile independently) and keeps `_ephemeral/` in
@@ -108,8 +108,8 @@ function extensionForSong(song: Song): string {
 }
 
 /// fetch a remote song into `<fetch_dir>/_ephemeral/` and return its
-/// fs path. throws on any failure (caller is rodio's loadAndPlay,
-/// which translates to a `BackendPlaybackError`).
+/// fs path. throws on any failure (caller is the libmpv backend's
+/// loadAndPlay, which translates to a `BackendPlaybackError`).
 export async function fetchEphemeralForSong(song: Song): Promise<{
   path: string;
   entry: EphemeralEntry;
@@ -128,9 +128,10 @@ export async function fetchEphemeralForSong(song: Song): Promise<{
   if (!isP2PRemote(remote)) {
     // ephemeral fetch only supports p2p remotes today. http-only
     // remotes would need a separate `reqwest::get` path on the rust
-    // side; rodio + http-only is rare enough that we punt for now.
+    // side; the libmpv backend + http-only is rare enough that we punt
+    // for now.
     throw new Error(
-      `ephemeral fetch requires a p2p remote (${remote.name} is http-only). enable "sync queue to local" or disable rodio.`
+      `ephemeral fetch requires a p2p remote (${remote.name} is http-only). enable "sync queue to local" or disable the libmpv player.`
     );
   }
 
@@ -178,7 +179,7 @@ export async function fetchEphemeralForVideo(video: QueuedVideo): Promise<{
     );
   }
 
-  // `Video` carries no mime field of its own (unlike `Song`) - gstreamer
+  // `Video` carries no mime field of its own (unlike `Song`) - mpv
   // typefinds from the actual bytes, not the filename extension, so this
   // is cosmetic only (matches `videoExtensionFromMime`'s own fallback).
   const ext = videoExtensionFromMime("");

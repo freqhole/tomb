@@ -1,5 +1,6 @@
-// rodio backend — talks to the supervised rust audio thread
-// inside the charnel tauri host.
+// libmpv backend — talks to the audio thread inside the charnel tauri
+// host (in-process libmpv on the rust side - see grimoire's
+// `player::libmpv`).
 //
 // commands go out via `invoke("player_send", { cmd })`, events come
 // in via `listen("freqhole:player_event", ...)`. the wire types are
@@ -37,14 +38,14 @@ const TAURI_EVENT = "freqhole:player_event";
 
 type UnlistenFn = () => void;
 
-/// rodio-via-tauri backend.
+/// libmpv-via-tauri backend.
 ///
 /// the constructor is cheap (no ipc); the tauri `listen` subscription
 /// is set up lazily on the first `subscribe()` call so a backend that
 /// was constructed but never used (e.g. by an aborted backend swap)
 /// doesn't leak an event handler.
-export class RodioBackend implements PlayerBackend {
-  readonly kind: BackendKind = "rodio";
+export class LibmpvBackend implements PlayerBackend {
+  readonly kind: BackendKind = "libmpv";
 
   private listeners = new Set<PlayerEventListener>();
   private snap: PlayerSnapshot = emptySnapshot;
@@ -53,7 +54,7 @@ export class RodioBackend implements PlayerBackend {
 
   /// sha256 of the song most recently passed to `loadAndPlay`. used
   /// by the event dispatcher to clear that song from the loading set
-  /// the moment the rust supervisor reports it as playable — so the
+  /// the moment the rust backend reports it as playable — so the
   /// row spinner / playerbar spinner never outlive the audio actually
   /// starting, regardless of which fetch path got us there.
   private currentLoadingSha256: string | null = null;
@@ -70,9 +71,9 @@ export class RodioBackend implements PlayerBackend {
 
   async send(cmd: PlayerCommand): Promise<void> {
     if (this.disposed) {
-      throw new Error("rodio backend: send called after dispose");
+      throw new Error("libmpv backend: send called after dispose");
     }
-    debug("player.rodio", `send: ${cmd.kind}`);
+    debug("player.libmpv", `send: ${cmd.kind}`);
     // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
     const { invoke } = await import("@tauri-apps/api/core");
     // tauri serializes the second arg as a json object; we need the
@@ -80,13 +81,32 @@ export class RodioBackend implements PlayerBackend {
     await invoke("player_send", { cmd });
   }
 
+  /// send `Load` with the resume position (`start_ms`) and pause intent
+  /// (`start_paused`) folded into the same atomic command, rather than
+  /// separate follow-up `Seek`/`Pause` commands - both can race the rust
+  /// side still opening the file. **previously a real bug**: a separate
+  /// follow-up `Play`/`Pause` pair ignored `options.autoPlay` entirely
+  /// (always sent `Play`), and a separate follow-up `Seek` sent fast
+  /// enough after `Pause` could leave the file unable to seek at all
+  /// until playback had actually started once.
+  private async sendLoadAndPlay(path: string, options?: LoadAndPlayOptions): Promise<void> {
+    const pos = options?.initialPosition ?? 0;
+    await this.send({
+      kind: "load",
+      paths: [path],
+      start_ms: pos > 0 ? Math.round(pos * 1000) : null,
+      start_paused: options?.autoPlay === false,
+    });
+  }
+
   /// resolve a song to a local filesystem path via the
   /// `resolve_blob_path` tauri command, then send `Load` + `Play`
-  /// to the rust supervisor.
+  /// to the rust backend.
   ///
-  /// remote songs need to be on disk before rodio can play them
-  /// (the decoder reads from a fs path; it can't stream from an
-  /// http url). when `resolve_blob_path` returns `no_local_path`
+  /// remote songs need to be on disk before the libmpv backend can
+  /// play them (the decoder reads from a fs path; it can't stream
+  /// from an http url). when `resolve_blob_path` returns
+  /// `no_local_path`
   /// or `not_found` for a remote song, this method:
   ///   1. checks the user's `sync_queue_to_local` setting.
   ///   2. if ON: awaits `syncSongToLocal(song)` — which uses iroh-
@@ -100,13 +120,13 @@ export class RodioBackend implements PlayerBackend {
   ///      file for cleanup on the next track / stop / dispose.
   async loadAndPlay(item: MediaItem, options?: LoadAndPlayOptions): Promise<void> {
     if (this.disposed) {
-      throw new Error("rodio backend: loadAndPlay called after dispose");
+      throw new Error("libmpv backend: loadAndPlay called after dispose");
     }
     if (item.kind !== "song") {
       throw new BackendPlaybackError(
         this.kind,
         "unsupported_media_kind",
-        "the rodio backend can't play video items"
+        "the libmpv backend can't play video items"
       );
     }
     const song: Song = item.song;
@@ -115,7 +135,7 @@ export class RodioBackend implements PlayerBackend {
     const songKey = songIdentityKey(song);
 
     // emit a synthetic loading state so the UI shows a spinner
-    // before the rust supervisor has a chance to emit its own state
+    // before the rust backend has a chance to emit its own state
     // event. mirrors the equivalent emit in `HtmlAudioBackend.playSong`
     // — without it the playerbar can sit on "paused"/"stopped" for
     // the full duration of a remote sync.
@@ -123,7 +143,7 @@ export class RodioBackend implements PlayerBackend {
 
     // remember which song we're trying to start so the dispatcher
     // can clear its loading flag on the first `playing` / `paused` /
-    // `progress` event from the rust supervisor (see `dispatch`).
+    // `progress` event from the rust backend (see `dispatch`).
     this.currentLoadingSha256 = songKey;
 
     // explicitly reset MediaSession position state for a new track.
@@ -158,12 +178,10 @@ export class RodioBackend implements PlayerBackend {
         if (!isMediaLoadCurrent(songKey, options?.loadGeneration)) {
           return;
         }
-        debug("player.rodio", `load: "${song.title}" (${songKey.slice(0, 8)}) -> ${path}`);
+        debug("player.libmpv", `load: "${song.title}" (${songKey.slice(0, 8)}) -> ${path}`);
         bridgeClearExternal();
         await setCurrentSong(songKey);
-        await this.send({ kind: "load", paths: [path] });
-        await this.send({ kind: "play" });
-        await this.applyInitialPosition(options);
+        await this.sendLoadAndPlay(path, options);
         return;
       } catch {
         // fall through to the original media_blob_id-based flow below.
@@ -244,7 +262,7 @@ export class RodioBackend implements PlayerBackend {
         const alreadyOnDisk = isSongOnDiskEphemeral(song.blake3);
 
         if (!alreadyOnDisk) {
-          debug("player.rodio", `"${song.title}" not on disk — fetching ephemerally`);
+          debug("player.libmpv", `"${song.title}" not on disk — fetching ephemerally`);
           // light up the queue/playerbar spinner for this song while
           // we fetch. mirrors what other audio fetch paths do (see
           // blobResolver / audioAccess / autoDownload).
@@ -271,16 +289,14 @@ export class RodioBackend implements PlayerBackend {
         bridgeClearExternal();
         await setCurrentSong(songKey);
         debug(
-          "player.rodio",
+          "player.libmpv",
           `ephemeral load: "${song.title}" (${songKey.slice(0, 8)}) -> ${path}`
         );
-        await this.send({ kind: "load", paths: [path] });
-        await this.send({ kind: "play" });
-        await this.applyInitialPosition(options);
+        await this.sendLoadAndPlay(path, options);
         return;
       }
 
-      debug("player.rodio", `"${song.title}" not on disk — syncing before play`);
+      debug("player.libmpv", `"${song.title}" not on disk — syncing before play`);
       // light up the queue/playerbar spinner. paired with
       // `removeFromLoadingSet` after the sync resolves (success or
       // failure) so the UI never gets stuck.
@@ -322,7 +338,7 @@ export class RodioBackend implements PlayerBackend {
         throw new BackendPlaybackError(
           this.kind,
           "sync_failed",
-          `failed to sync "${song.title}" before rodio playback: ${sync.error ?? "unknown error"}`
+          `failed to sync "${song.title}" before libmpv playback: ${sync.error ?? "unknown error"}`
         );
       }
       // prefer the local path the sync returned directly — it's the
@@ -353,7 +369,7 @@ export class RodioBackend implements PlayerBackend {
     }
 
     if (!isMediaLoadCurrent(songKey, options?.loadGeneration)) {
-      debug("player.rodio", `skipping cancelled load for ${songKey.slice(0, 8)}`);
+      debug("player.libmpv", `skipping cancelled load for ${songKey.slice(0, 8)}`);
       return;
     }
 
@@ -367,21 +383,9 @@ export class RodioBackend implements PlayerBackend {
       return;
     }
 
-    debug("player.rodio", `load: "${song.title}" (${songKey.slice(0, 8)}) -> ${path}`);
+    debug("player.libmpv", `load: "${song.title}" (${songKey.slice(0, 8)}) -> ${path}`);
 
-    await this.send({ kind: "load", paths: [path] });
-    await this.send({ kind: "play" });
-    await this.applyInitialPosition(options);
-  }
-
-  /// if the caller passed an `initialPosition` (seconds), seek the
-  /// supervisor there. used to resume a paused session on page
-  /// reload — the rust side starts every load at 0, so without
-  /// this seek the persisted position is lost.
-  private async applyInitialPosition(options?: LoadAndPlayOptions): Promise<void> {
-    const pos = options?.initialPosition ?? 0;
-    if (pos <= 0) return;
-    await this.send({ kind: "seek", ms: Math.round(pos * 1000) });
+    await this.sendLoadAndPlay(path, options);
   }
 
   /// look up the local fs path for a blob via the
@@ -513,7 +517,7 @@ export class RodioBackend implements PlayerBackend {
   }
 
   /// internal `emit` for facade-side synthetic events (e.g. the
-  /// pre-load `loading` state that the rust supervisor doesn't
+  /// pre-load `loading` state that the rust backend doesn't
   /// emit). updates the cached snapshot then notifies subscribers,
   /// matching the path tauri events take through `dispatch`.
   private emit(event: PlayerEvent): void {
@@ -526,7 +530,7 @@ export class RodioBackend implements PlayerBackend {
   /// bad subscriber doesn't break the chain.
   private dispatch(event: PlayerEvent): void {
     this.applyToSnapshot(event);
-    // if the supervisor reports the current track as playable, the
+    // if the backend reports the current track as playable, the
     // user can hear audio — there's no point still showing a row
     // spinner. covers every loadAndPlay branch (ephemeral, sync,
     // already-local, future paths) without each one having to
@@ -550,7 +554,7 @@ export class RodioBackend implements PlayerBackend {
       try {
         l(event);
       } catch (e) {
-        errorLog("player.rodio", "event listener threw:", e);
+        errorLog("player.libmpv", "event listener threw:", e);
       }
     }
   }

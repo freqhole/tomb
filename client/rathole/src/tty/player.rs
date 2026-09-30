@@ -1,6 +1,7 @@
-//! rodio-backed `MusicPlayer` impl for the tty shell. wraps
-//! grimoire's player supervisor and resolves `media_blob_id`s to
-//! filesystem paths via grimoire's media_blobz service.
+//! libmpv-backed `MusicPlayer` impl for the tty shell. wraps
+//! grimoire's in-process libmpv audio backend and resolves
+//! `media_blob_id`s to filesystem paths via grimoire's media_blobz
+//! service.
 //!
 //! events from the player are forwarded onto the app's `AppAction`
 //! channel as [`AppAction::MusicEvent`] so the music view can react
@@ -8,8 +9,8 @@
 
 use async_trait::async_trait;
 use grimoire::player::{
-    spawn_player, PlayerCommand, PlayerController, PlayerEvent, PlayerState as GrimoirePlayerState,
-    RestartPolicy, RodioController,
+    spawn_libmpv_player, LibmpvController, PlayerCommand, PlayerController, PlayerEvent,
+    PlayerState as GrimoirePlayerState,
 };
 use std::rc::Rc;
 use tokio::sync::mpsc;
@@ -17,18 +18,20 @@ use tokio::sync::mpsc;
 use crate::ratcore::app::{AppAction, MusicEvent, PlayerState};
 use crate::ratcore::transport::{MusicPlayer, PlayerCmd};
 
-/// rodio player wired into rathole. construct once at shell start;
+/// libmpv player wired into rathole. construct once at shell start;
 /// it spawns a background task that pumps `PlayerEvent`s onto
 /// `action_tx` so the ui sees them.
-pub struct RodioPlayer {
-    controller: RodioController,
+pub struct LibmpvPlayer {
+    controller: LibmpvController,
 }
 
-impl RodioPlayer {
-    /// spawn the rodio backend and a forwarding task that converts
+impl LibmpvPlayer {
+    /// spawn the libmpv backend and a forwarding task that converts
     /// `grimoire::player::PlayerEvent` -> `AppAction::MusicEvent`.
-    pub fn spawn(action_tx: mpsc::UnboundedSender<AppAction>) -> Rc<Self> {
-        let controller = spawn_player(RestartPolicy::default());
+    pub fn spawn(
+        action_tx: mpsc::UnboundedSender<AppAction>,
+    ) -> grimoire::error::GrimoireResult<Rc<Self>> {
+        let controller = spawn_libmpv_player()?;
         let mut events = controller.subscribe();
         // forward events; on the LocalSet so we don't need Send.
         tokio::task::spawn_local(async move {
@@ -49,7 +52,7 @@ impl RodioPlayer {
                 }
             }
         });
-        Rc::new(Self { controller })
+        Ok(Rc::new(Self { controller }))
     }
 }
 
@@ -87,10 +90,14 @@ fn map_event(ev: PlayerEvent) -> Option<MusicEvent> {
 }
 
 #[async_trait(?Send)]
-impl MusicPlayer for RodioPlayer {
+impl MusicPlayer for LibmpvPlayer {
     async fn send(&self, cmd: PlayerCmd) -> Result<(), String> {
         let mapped = match cmd {
-            PlayerCmd::Load(paths) => PlayerCommand::Load { paths },
+            PlayerCmd::Load(paths) => PlayerCommand::Load {
+                paths,
+                start_ms: None,
+                start_paused: false,
+            },
             PlayerCmd::Enqueue(paths) => PlayerCommand::Enqueue { paths },
             PlayerCmd::Play => PlayerCommand::Play,
             PlayerCmd::Pause => PlayerCommand::Pause,
@@ -111,7 +118,7 @@ impl MusicPlayer for RodioPlayer {
 
 /// resolve a list of `media_blob_id`s to local filesystem paths via
 /// grimoire's media_blobz service. ids without a `local_path` are
-/// skipped (rodio needs files on disk; in-memory bytes aren't
+/// skipped (libmpv needs files on disk; in-memory bytes aren't
 /// supported by grimoire's player today).
 pub async fn resolve_paths(blob_ids: &[String]) -> Vec<String> {
     let mut out = Vec::with_capacity(blob_ids.len());

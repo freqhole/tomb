@@ -277,7 +277,7 @@ export interface SyncResult {
   /// grimoire DB, so there's no media_blob row to point at.
   localMediaBlobId?: string;
   /// absolute fs path the local grimoire wrote the audio to. only
-  /// populated by the charnel path. callers (e.g. rodioBackend) can
+  /// populated by the charnel path. callers (e.g. libmpvBackend) can
   /// use this directly without re-resolving via `resolve_blob_path`.
   localPath?: string;
   error?: string;
@@ -552,9 +552,9 @@ export async function syncSongToLocal(
     }
     // song is already marked as synced locally. in browser mode the caller
     // uses sha256 as the IDB key so no path lookup is needed. in charnel
-    // mode rodio requires a filesystem path — skip the full download but
-    // still ask grimoire for the local blob path via the fast existing-song
-    // shortcut (db lookup only, no network transfer).
+    // mode the libmpv backend requires a filesystem path — skip the full
+    // download but still ask grimoire for the local blob path via the fast
+    // existing-song shortcut (db lookup only, no network transfer).
     if (!isCharnelMode()) {
       debug("syncSongToLocal", `skipping ${downloadKey.slice(0, 8)}... (already synced)`);
       return { success: true, localSongId: sha256, skipped: true };

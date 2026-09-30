@@ -12,7 +12,7 @@ import { z } from "zod";
  * by hash instead of the (possibly much larger, or already-compatible-
  * anyway) original - e.g. a raspberry pi `--player` pulling a 480p
  * rendition of a 4k source. no equivalent exists for audio (rathole's
- * mpv/rodio backends already handle virtually any audio codec/container
+ * libmpv/mpv backends already handle virtually any audio codec/container
  * directly - there's nothing to gain from a lower-bitrate rendition the
  * way there is for video's much heavier decode cost). */
 const RenditionRefSchema = z.object({
@@ -68,8 +68,8 @@ const UnresolvedItemRefSchema = z.object({
 });
 export type UnresolvedItemRef = z.infer<typeof UnresolvedItemRefSchema>;
 
-/** one audio output device, as reported by whichever native backend is
- * actually playing (e.g. rodio/cpal on charnel) - `name` is what a
+/** one audio output device, as reported by whichever libmpv backend is
+ * actually playing (e.g. libmpv on charnel) - `name` is what a
  * `set_output_device` command sends back to select it; `description` is
  * a human-readable label for a device-picker ui. mirrors grimoire's
  * `player::control::AudioDeviceInfo` (the rust wire type this schema has
