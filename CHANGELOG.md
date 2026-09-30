@@ -1,5 +1,11 @@
 # freqhole-release
 
+## 0.3.11
+
+### Patch Changes
+
+- 7b8b549: libmpv is the new experimental player! much better than rodio and gst stuff; supports many more audio + video formats
+
 ## 0.3.10
 
 ### Patch Changes
