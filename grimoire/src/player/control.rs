@@ -30,7 +30,29 @@ pub enum PlayerCommand {
     /// reads files freqhole already knows the location of via
     /// grimoire. paths are wire-encoded as strings so the type
     /// round-trips through json + zod codegen cleanly.
-    Load { paths: Vec<String> },
+    ///
+    /// `start_ms`: seek to this position in the first track as part
+    /// of the same load, rather than a separate follow-up `Seek`
+    /// command - avoids a race where the seek arrives before the
+    /// backend has actually finished opening the file (observed as
+    /// spurious seek failures, especially when paired with an
+    /// immediate `Pause` for a "resume without audibly playing"
+    /// load). mirrors `VideoCommand::Load`'s `start_seconds`, which
+    /// never had this problem for the same reason.
+    ///
+    /// `start_paused`: start loaded-but-paused instead of playing,
+    /// as part of the same atomic load - same rationale as
+    /// `start_ms`. a separate follow-up `Pause` sent fast enough can
+    /// land before the backend has finished opening the file, which
+    /// can leave it unable to seek at all until playback has
+    /// actually started at least once (confirmed 2026-09-29: exactly
+    /// this sequence - load, immediate pause, immediate seek -
+    /// reliably errored on libmpv).
+    Load {
+        paths: Vec<String>,
+        start_ms: Option<u64>,
+        start_paused: bool,
+    },
 
     /// append `paths` to the existing queue without interrupting
     /// the currently-playing track. if the sink is empty, behaves
@@ -158,7 +180,7 @@ impl ZodSchemaTrait for PlayerState {
 impl ZodSchemaTrait for PlayerCommand {
     fn zod_schema() -> String {
         r#"z.discriminatedUnion("kind", [
-z.object({ kind: z.literal("load"), paths: z.array(z.string()) }),
+z.object({ kind: z.literal("load"), paths: z.array(z.string()), start_ms: z.number().nullable(), start_paused: z.boolean() }),
 z.object({ kind: z.literal("enqueue"), paths: z.array(z.string()) }),
 z.object({ kind: z.literal("play") }),
 z.object({ kind: z.literal("pause") }),
@@ -328,11 +350,13 @@ mod tests {
     fn command_roundtrip_via_json() {
         let cmd = PlayerCommand::Load {
             paths: vec!["/tmp/a.mp3".to_string(), "/tmp/b.mp3".to_string()],
+            start_ms: None,
+            start_paused: false,
         };
         let s = serde_json::to_string(&cmd).expect("serialize");
         let back: PlayerCommand = serde_json::from_str(&s).expect("deserialize");
         match back {
-            PlayerCommand::Load { paths } => assert_eq!(paths.len(), 2),
+            PlayerCommand::Load { paths, .. } => assert_eq!(paths.len(), 2),
             other => panic!("unexpected variant: {other:?}"),
         }
     }

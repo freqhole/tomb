@@ -1,3 +1,27 @@
+# real, active flatpak manifest, built via `flatpak-builder` (see
+# build-flatpak.sh) - this file used to be dormant/unused (a previous
+# comment here said so); that's no longer true as of 2026-09-29.
+#
+# libmpv (the "experimental player" backend - see
+# docs/libmpv-experimental-player-plan.md) is built from source here,
+# not bundled from Fedora's system `mpv-libs` package. that package is
+# built with every optional feature enabled (samba, kerberos, LDAP, X11,
+# OpenGL, JACK, Python...) for general desktop use, and naively bundling
+# its full runtime dependency closure duplicated libraries this flatpak
+# runtime already provides (glib, gtk, X11, the TLS stack), causing a
+# real crash: `libsecret-1.so.0: undefined symbol:
+# g_variant_builder_init_static` (the bundled glib didn't match the one
+# libsecret - itself part of org.gnome.Platform - was built against).
+#
+# building from source instead avoids this by construction: a vanilla
+# mpv/ffmpeg build doesn't request samba/kerberos/X11/JACK/python unless
+# you explicitly ask for them, so none of that dependency class appears
+# at all. adapted directly (2026-09-29) from flathub's own
+# io.github.celluloid_player.Celluloid manifest - a GTK app built on
+# libmpv, on this exact org.gnome.Platform runtime, that already solves
+# this exact problem in production. dropped celluloid's own lua/JS
+# scripting (mujs/lua5.1) and yt-dlp modules - freqhole doesn't run mpv
+# scripts, so `-Dlua=disabled` and no JS engine at all.
 id: net.freqhole.freqhole
 runtime: org.gnome.Platform
 runtime-version: "50"
@@ -9,7 +33,7 @@ finish-args:
   - --share=ipc
   - --socket=fallback-x11
   - --socket=wayland
-  # GPU acceleration for WebKit
+  # GPU acceleration for WebKit + libmpv's own gpu vo
   - --device=dri
   # audio playback
   - --socket=pulseaudio
@@ -58,25 +82,144 @@ finish-args:
   - --persist=.local/share/net.freqhole.charnel
 
 modules:
+  # libmpv, built from source - see the file-level comment above for why.
+  - name: libmpv
+    cleanup:
+      - /include
+      - /lib/pkgconfig
+      - /share/applications
+      - /share/bash-completion
+      - /share/doc
+      - /share/icons
+      - /share/man
+      - /share/zsh
+    buildsystem: meson
+    config-opts:
+      # libmpv.so is what freqhole links against - no need for the `mpv`
+      # cli binary itself.
+      - -Dlibmpv=true
+      - -Dcplayer=false
+      - -Dbuild-date=false
+      - -Dalsa=disabled
+      # freqhole never runs mpv lua scripts - skips the lua5.1 dependency
+      # celluloid's own manifest needs for its own scripting features.
+      - -Dlua=disabled
+    sources:
+      - type: archive
+        url: https://github.com/mpv-player/mpv/archive/v0.41.0.tar.gz
+        sha256: ee21092a5ee427353392360929dc64645c54479aefdb5babc5cfbb5fad626209
+
+    modules:
+      - name: libopenmpt
+        config-opts:
+          - --disable-static
+          - --disable-tests
+          - --disable-examples
+          - --disable-openmpt123
+          - --disable-doxygen-doc
+          - --without-portaudio
+        cleanup:
+          - /include
+          - /lib/pkgconfig
+          - /lib/*.la
+          - /share/doc
+        sources:
+          - type: archive
+            url: https://lib.openmpt.org/files/libopenmpt/src/libopenmpt-0.8.9+release.autotools.tar.gz
+            sha256: d7ce84fd05d686c4bcf66af40eae857afa371442db60eeda3f874bd6cf6fc318
+
+      - name: ffmpeg
+        cleanup:
+          - /include
+          - /lib/pkgconfig
+          - /share/ffmpeg/examples
+        config-opts:
+          - --enable-shared
+          - --disable-static
+          - --enable-gnutls
+          - --enable-gpl
+          - --disable-doc
+          - --disable-programs
+          - --disable-encoders
+          - --disable-muxers
+          - --enable-encoder=png
+          - --enable-encoder=libjxl
+          - --enable-libv4l2
+          - --enable-libdav1d
+          - --enable-libjxl
+          - --enable-libopenmpt
+        sources:
+          - type: archive
+            url: https://ffmpeg.org/releases/ffmpeg-9.0.2.tar.xz
+            sha256: 8c3850283eb25fa026482078a04051e0be17347b09ef81a0849bec15a96e002e
+
+      - name: libass
+        cleanup:
+          - /include
+          - /lib/*.la
+          - /lib/pkgconfig
+        config-opts:
+          - --disable-static
+        sources:
+          - type: archive
+            url: https://github.com/libass/libass/releases/download/0.17.5/libass-0.17.5.tar.xz
+            sha256: 2dca25c0e0c837ddf00b52011b3f82cac1e4ddd3ad018227806b0c2288864acc
+
+      - name: uchardet
+        buildsystem: cmake-ninja
+        config-opts:
+          - -DCMAKE_BUILD_TYPE=Release
+          - -DBUILD_STATIC=0
+          - -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+        cleanup:
+          - /bin
+          - /include
+          - /lib/pkgconfig
+          - /share/man
+          - /lib/cmake
+        sources:
+          - type: archive
+            url: https://www.freedesktop.org/software/uchardet/releases/uchardet-0.0.8.tar.xz
+            sha256: e97a60cfc00a1c147a674b097bb1422abd9fa78a2d9ce3f3fdcc2e78a34ac5f0
+
+      - name: rubberband
+        buildsystem: meson
+        config-opts:
+          - -Ddefault_library=shared
+        cleanup:
+          - /bin
+          - /include
+          - /lib/pkgconfig
+          - /lib/ladspa
+        sources:
+          - type: archive
+            url: https://breakfastquay.com/files/releases/rubberband-4.0.0.tar.bz2
+            sha256: af050313ee63bc18b35b2e064e5dce05b276aaf6d1aa2b8a82ced1fe2f8028e9
+
+      - name: libplacebo
+        buildsystem: meson
+        cleanup:
+          - /include
+          - /lib/pkgconfig
+        sources:
+          - type: git
+            url: https://github.com/haasn/libplacebo.git
+            tag: v7.360.1
+            commit: cee9b076f2c63104ccfd497fa79c39a867293ec4
+
+  # freqhole's own already-built binary/desktop-file/icons, extracted
+  # from the .deb produced by `make build-tauri-linux-intel`/`-arm64`
+  # (Dockerfile.tauri) - see install-freqhole.sh. does not rebuild the
+  # app itself, only libmpv above is actually compiled here.
   - name: freqhole
     buildsystem: simple
     build-commands:
-      # extract binary and resources from pre-built deb
-      - ar x freqhole.deb
-      - tar xf data.tar.*
-      - install -Dm755 usr/bin/freqhole ${FLATPAK_DEST}/bin/freqhole
-      - install -Dm644 usr/share/applications/freqhole.desktop ${FLATPAK_DEST}/share/applications/net.freqhole.freqhole.desktop
-      # fix desktop file for flatpak
-      - desktop-file-edit --set-key=Icon --set-value=net.freqhole.freqhole ${FLATPAK_DEST}/share/applications/net.freqhole.freqhole.desktop
-      - desktop-file-edit --set-key=Exec --set-value="freqhole %U" ${FLATPAK_DEST}/share/applications/net.freqhole.freqhole.desktop
-      # install icons
-      - install -Dm644 usr/share/icons/hicolor/32x32/apps/freqhole.png ${FLATPAK_DEST}/share/icons/hicolor/32x32/apps/net.freqhole.freqhole.png
-      - install -Dm644 usr/share/icons/hicolor/128x128/apps/freqhole.png ${FLATPAK_DEST}/share/icons/hicolor/128x128/apps/net.freqhole.freqhole.png
-      - install -Dm644 usr/share/icons/hicolor/256x256@2/apps/freqhole.png ${FLATPAK_DEST}/share/icons/hicolor/256x256/apps/net.freqhole.freqhole.png || true
-      # install metainfo
-      - install -Dm644 net.freqhole.freqhole.metainfo.xml ${FLATPAK_DEST}/share/metainfo/net.freqhole.freqhole.metainfo.xml
+      - chmod +x install-freqhole.sh
+      - ./install-freqhole.sh
     sources:
       - type: file
         path: freqhole.deb
       - type: file
         path: net.freqhole.freqhole.metainfo.xml
+      - type: file
+        path: install-freqhole.sh

@@ -17,6 +17,13 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
+[dev-dependencies]
+# libmpv spike only (examples/libmpv_probe.rs, libmpv_window_probe.rs) - same
+# tao version tauri-runtime-wry 2.10.1 pulls in, so it pumps the exact same
+# native event loop charnel's real process runs, without needing a full
+# tauri/wry build for the spike. see docs/libmpv-experimental-player-plan.md.
+tao = "=0.34.8"
+
 [dependencies]
 tauri = { version = "=2.10.3", features = ["macos-private-api",
     "protocol-asset",
@@ -91,12 +98,16 @@ grimoire = { path = "../../../grimoire", default-features = false, features = [
     "webauthn",
     "vendored-openssl",
     "rodio-playback",
+    "libmpv-playback",
 ] }
+
+libmpv2 = "6"
 # OS media session / now-playing controls (MPRIS on linux via zbus, SMTC on
-# windows, MPNowPlayingInfoCenter on macOS) for the rodio audio + gstreamer
-# video paths, neither of which get a `navigator.mediaSession` for free the
-# way the webview's own `<audio>`/`<video>` elements do. only constructed
-# when `use_rodio_playback` is on - see `media_session.rs`.
+# windows, MPNowPlayingInfoCenter on macOS) for the rodio/libmpv audio +
+# gstreamer/libmpv video paths, neither of which get a
+# `navigator.mediaSession` for free the way the webview's own
+# `<audio>`/`<video>` elements do. only constructed when `use_rodio_playback`
+# or `use_libmpv_playback` is on - see `media_session.rs`.
 playwire = "1.0.0"
 
 # android only: wry's android WebViewClient.handleRequest builds a reqwest

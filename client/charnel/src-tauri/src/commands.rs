@@ -549,6 +549,30 @@ pub async fn resolve_blob_path_by_blake3(blake3: String) -> Result<serde_json::V
     }
 }
 
+/// write arbitrary image bytes to a reused, fixed-name temp file and
+/// return its path - for handing the OS media session (lock screen /
+/// control center / MPRIS widget) a real `file://` path it can open
+/// directly, when the source image only exists as in-memory bytes (e.g.
+/// a video poster read from OPFS, which has no path Rust can reach at
+/// all). always overwrites the same file rather than allocating a new
+/// one per call - only one track is ever "now playing" at a time, so
+/// there is nothing to disambiguate between calls, and no cleanup to
+/// track. songs don't need this at all: their artwork already lives in
+/// grimoire's blob store, resolved directly via `resolve_blob_path`
+/// (a real path, no bytes to copy) - see spume's
+/// `getLocalArtworkFilePath` vs. `getLocalPosterFilePathForVideo`.
+#[tauri::command]
+pub fn write_media_session_artwork(bytes: Vec<u8>) -> Result<String, String> {
+    let path = std::env::temp_dir().join("freqhole-media-session-artwork");
+    std::fs::write(&path, &bytes).map_err(|e| {
+        format!(
+            "failed to write media session artwork to {}: {e}",
+            path.display()
+        )
+    })?;
+    Ok(path.display().to_string())
+}
+
 /// get the default app data directory path
 #[tauri::command]
 pub fn get_default_data_dir(app_handle: tauri::AppHandle) -> Option<String> {
@@ -2171,6 +2195,16 @@ pub fn get_rodio_playback(app_handle: tauri::AppHandle) -> bool {
         .unwrap_or_else(crate::app_config::default_use_rodio_playback)
 }
 
+/// get the use_libmpv_playback setting (default: on for linux). drives
+/// both audio and video - see `FreqholeAppConfig::use_libmpv_playback`'s
+/// doc comment and `docs/libmpv-experimental-player-plan.md`.
+#[tauri::command]
+pub fn get_libmpv_playback(app_handle: tauri::AppHandle) -> bool {
+    FreqholeAppConfig::load(&app_handle)
+        .map(|c| c.use_libmpv_playback)
+        .unwrap_or_else(crate::app_config::default_use_libmpv_playback)
+}
+
 /// get the chromeless_title_bar setting (default: true). read by both the
 /// main (spume) and setup-wizard frontends to decide whether to render
 /// their own drag-strip + traffic-light buttons, mirroring whatever the
@@ -2201,6 +2235,21 @@ pub fn set_rodio_playback(app_handle: tauri::AppHandle, enabled: bool) -> Result
     config.save(&app_handle)?;
 
     let _ = notify_config_changed(&app_handle, "use_rodio_playback changed");
+
+    Ok(())
+}
+
+/// set the use_libmpv_playback setting. same shape/effect-timing as
+/// `set_rodio_playback` above - also does not hot-swap an in-flight
+/// backend, and the linux video window backend (`video_window::mod.rs`)
+/// re-reads this on the next `Load`, not mid-playback either.
+#[tauri::command]
+pub fn set_libmpv_playback(app_handle: tauri::AppHandle, enabled: bool) -> Result<(), String> {
+    let mut config = FreqholeAppConfig::load(&app_handle).unwrap_or_default();
+    config.use_libmpv_playback = enabled;
+    config.save(&app_handle)?;
+
+    let _ = notify_config_changed(&app_handle, "use_libmpv_playback changed");
 
     Ok(())
 }

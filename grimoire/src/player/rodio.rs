@@ -207,7 +207,11 @@ fn handle_command(
     last_state: &mut PlayerState,
 ) {
     match cmd {
-        PlayerCommand::Load { paths } => {
+        PlayerCommand::Load {
+            paths,
+            start_ms,
+            start_paused,
+        } => {
             let new_sink = Player::connect_new(mixer);
             new_sink.set_volume(*volume);
 
@@ -292,7 +296,25 @@ fn handle_command(
                 return;
             }
 
-            new_sink.play();
+            // seek to the resume position (if any) before starting playback -
+            // as part of the same command as the `Player::connect_new`/
+            // `append` above, not a separate follow-up `Seek` sent later by
+            // the caller. avoids a race where a "resume paused, don't
+            // audibly play" load sends `Pause` immediately after this and a
+            // separately-issued seek then lands on a not-yet-ready sink.
+            if let Some(ms) = start_ms {
+                if let Err(e) = new_sink.try_seek(Duration::from_millis(ms)) {
+                    warn!(target: "player", error = ?e, ms, "[player] rodio Load: initial seek failed");
+                }
+            }
+
+            // no async file-open step to race here (unlike libmpv) - just
+            // don't call play() at all if the caller wants to start paused.
+            if start_paused {
+                new_sink.pause();
+            } else {
+                new_sink.play();
+            }
             *queue = loaded_paths.clone();
             *total_per_track = loaded_totals;
             *current_index = Some(0);
@@ -317,13 +339,26 @@ fn handle_command(
                     },
                 );
             }
-            emit_state(events, last_state, PlayerState::Playing);
+            emit_state(
+                events,
+                last_state,
+                if start_paused {
+                    PlayerState::Paused
+                } else {
+                    PlayerState::Playing
+                },
+            );
         }
         PlayerCommand::Enqueue { paths } => {
-            // if no sink exists yet, treat enqueue as load.
+            // if no sink exists yet, treat enqueue as load. no resume
+            // position - only an explicit `Load` ever carries one.
             if sink.is_none() {
                 handle_command(
-                    PlayerCommand::Load { paths },
+                    PlayerCommand::Load {
+                        paths,
+                        start_ms: None,
+                        start_paused: false,
+                    },
                     mixer,
                     events,
                     sink,

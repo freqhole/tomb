@@ -92,6 +92,17 @@ pub struct FreqholeAppConfig {
     #[serde(default = "default_use_rodio_playback")]
     pub use_rodio_playback: bool,
 
+    /// use libmpv (in-process, via the `libmpv2` crate) instead of rodio
+    /// (audio) + gstreamer/mpv-shell (linux video) - see
+    /// `docs/libmpv-experimental-player-plan.md`. drives **both** audio and
+    /// video for this app; kept independent from `use_rodio_playback`
+    /// (not removed, not migrated - see that plan doc's "config placement
+    /// decision") so switching back and forth never loses either
+    /// preference. defaults to `true` on linux, same as
+    /// `use_rodio_playback`.
+    #[serde(default = "default_use_libmpv_playback")]
+    pub use_libmpv_playback: bool,
+
     /// known removable/mounted storage devices configured for music sync
     /// (tauri desktop only). an empty list means the feature has never been
     /// set up. multiple devices can be remembered (e.g. several usb drives
@@ -181,6 +192,7 @@ impl Default for FreqholeAppConfig {
             tray_enabled: false,
             sync_queue_to_local: default_sync_queue_to_local(),
             use_rodio_playback: default_use_rodio_playback(),
+            use_libmpv_playback: default_use_libmpv_playback(),
             external_storage_devices: Vec::new(),
             active_external_storage_device_id: None,
             external_storage_default_subpath: default_external_storage_subpath(),
@@ -262,6 +274,12 @@ pub fn default_chromeless_title_bar() -> bool {
 /// embedded loopback http media server hack), off elsewhere until
 /// dogfooded enough to flip everywhere.
 pub fn default_use_rodio_playback() -> bool {
+    cfg!(target_os = "linux")
+}
+
+/// default value for use_libmpv_playback: on for linux, same as
+/// `default_use_rodio_playback` - see `use_libmpv_playback`'s doc comment.
+pub fn default_use_libmpv_playback() -> bool {
     cfg!(target_os = "linux")
 }
 

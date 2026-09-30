@@ -1,26 +1,48 @@
-# Dockerfile for building Flatpak from pre-built .deb
-# Uses flatpak build-* commands directly, avoiding flatpak-builder's sandbox requirements
+# Dockerfile for building Flatpak via real flatpak-builder.
+#
+# builds libmpv (the "experimental player" backend - see
+# docs/libmpv-experimental-player-plan.md) from source as a flatpak
+# module (net.freqhole.freqhole.yml) rather than bundling Fedora's
+# system `mpv-libs` package - that package's huge "everything enabled"
+# dependency closure duplicated libraries org.gnome.Platform already
+# provides (glib among them), causing a real runtime crash. see that
+# manifest's own comments, and build-flatpak.sh's, for the full story.
 #
 # Usage:
 #   docker build -f Dockerfile.flatpak -t freqhole-flatpak-builder .
-#   docker run --rm -v $(pwd)/build/0.1.12:/debs -v $(pwd)/build/0.1.12:/output \
+#   docker run --rm --privileged -v $(pwd)/build/0.1.12:/debs -v $(pwd)/build/0.1.12:/output \
 #       freqhole-flatpak-builder /debs/freqhole_0.1.12_amd64.deb /output/freqhole.flatpak x86_64
+#
+# --privileged is required (not optional) - flatpak-builder always runs
+# each module's build inside a bubblewrap sandbox, which needs nested
+# user-namespace/mount permissions Docker doesn't grant by default.
+#
+# NOTE: this image's own working directory must never be /app -
+# flatpak-builder defaults its state/cache dir (.flatpak-builder) to
+# somewhere relative to the CWD, and `/app` is a reserved path inside
+# flatpak's own build sandbox (it's the app's install root) - bubblewrap
+# refuses to bind-mount anything nested under it, which fails every
+# module's build with "Path \"/app\" is reserved by Flatpak". learned the
+# hard way 2026-09-29 - don't reintroduce it.
 
 FROM fedora:40
 
-# install flatpak (not flatpak-builder - we don't need it!)
 RUN dnf install -y \
     flatpak \
-    binutils \
+    flatpak-builder \
     && dnf clean all
 
-# add flathub and install runtime (required for build-finish to validate)
+# add flathub and install the runtime + sdk (the sdk provides the actual
+# compilers/meson/cmake etc. used to build libmpv+ffmpeg+libass from
+# source inside the sandbox - the fedora host itself doesn't need them)
 RUN flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo && \
     flatpak install -y --noninteractive flathub org.gnome.Platform//50 org.gnome.Sdk//50
 
-WORKDIR /app
-COPY flatpak/build-flatpak.sh /app/build-flatpak.sh
-COPY flatpak/net.freqhole.freqhole.metainfo.xml /app/net.freqhole.freqhole.metainfo.xml
-RUN chmod +x /app/build-flatpak.sh
+WORKDIR /builder
+COPY flatpak/build-flatpak.sh /builder/build-flatpak.sh
+COPY flatpak/install-freqhole.sh /builder/install-freqhole.sh
+COPY flatpak/net.freqhole.freqhole.yml /builder/net.freqhole.freqhole.yml
+COPY flatpak/net.freqhole.freqhole.metainfo.xml /builder/net.freqhole.freqhole.metainfo.xml
+RUN chmod +x /builder/build-flatpak.sh /builder/install-freqhole.sh
 
-ENTRYPOINT ["/app/build-flatpak.sh"]
+ENTRYPOINT ["/builder/build-flatpak.sh"]

@@ -1,7 +1,8 @@
-//! tauri commands + event bridge for the rodio player.
+//! tauri commands + event bridge for the audio player.
 //!
-//! desktop-only. wraps the supervised
-//! [`grimoire::player::RodioController`] with two surfaces:
+//! desktop-only. wraps whichever [`grimoire::player::PlayerController`]
+//! impl is active (rodio or libmpv, picked per `use_libmpv_playback` -
+//! see `get_or_init_global`) with two surfaces:
 //!
 //! - `player_send(cmd)` — invoke handler that forwards a
 //!   [`PlayerCommand`] into the supervised audio thread.
@@ -20,7 +21,8 @@
 use std::sync::Arc;
 
 use grimoire::player::{
-    spawn_player, PlayerCommand, PlayerController, RestartPolicy, RodioController,
+    spawn_libmpv_player, spawn_player, NoopPlayerController, PlayerCommand, PlayerController,
+    RestartPolicy,
 };
 use tauri::{AppHandle, Emitter, State};
 use tokio::sync::OnceCell;
@@ -30,22 +32,45 @@ use tracing::{debug, warn};
 /// `client/spume/src/music/services/audio/backends/rodioBackend.ts`.
 pub const PLAYER_EVENT: &str = "freqhole:player_event";
 
-/// process-global supervised player. lazily spawned on first use
-/// from a tauri command (`player_send` / `player_init` / `player_snapshot`).
+/// process-global player, behind a trait object so the concrete
+/// backend (rodio vs. libmpv, picked at first use per
+/// `FreqholeAppConfig::use_libmpv_playback`) can vary without any
+/// other code in this file - or spume's `RodioBackend` TS client -
+/// needing to know or care which one is live. lazily spawned on
+/// first use from a tauri command (`player_send` / `player_init` /
+/// `player_snapshot`).
 ///
 /// having a single instance ensures every local-control command
 /// drives the same audio device. clone the `Arc` freely.
-static GLOBAL_PLAYER: OnceCell<Arc<RodioController>> = OnceCell::const_new();
+static GLOBAL_PLAYER: OnceCell<Arc<dyn PlayerController>> = OnceCell::const_new();
 
 /// get-or-init the process-global controller. safe to call from any
 /// async context. **does not** wire the tauri event pump — that's
 /// the responsibility of [`PlayerState::ensure_event_pump`] (which
 /// needs an `AppHandle`).
-async fn get_or_init_global() -> Arc<RodioController> {
+///
+/// picks libmpv when `use_libmpv_playback` is on (the "experimental
+/// player" toggle - see `app_config.rs`), else rodio. a runtime failure
+/// starting libmpv falls back to a silent no-op controller rather than
+/// panicking - same "never fatal" posture `media_session.rs` already
+/// takes for a missing platform media service.
+async fn get_or_init_global(app: &AppHandle) -> Arc<dyn PlayerController> {
     GLOBAL_PLAYER
         .get_or_init(|| async {
+            let use_libmpv = crate::app_config::FreqholeAppConfig::load(app)
+                .map(|c| c.use_libmpv_playback)
+                .unwrap_or_else(crate::app_config::default_use_libmpv_playback);
+            if use_libmpv {
+                return match spawn_libmpv_player() {
+                    Ok(ctl) => Arc::new(ctl) as Arc<dyn PlayerController>,
+                    Err(e) => {
+                        warn!(error = %e, "failed to start libmpv audio backend; falling back to no-op");
+                        Arc::new(NoopPlayerController::new()) as Arc<dyn PlayerController>
+                    }
+                };
+            }
             let ctl = spawn_player(RestartPolicy::default());
-            Arc::new(ctl)
+            Arc::new(ctl) as Arc<dyn PlayerController>
         })
         .await
         .clone()
@@ -67,14 +92,14 @@ impl PlayerState {
     /// get-or-init the controller and (idempotently) wire its event
     /// stream into a tauri emitter. safe to call from any tauri
     /// command handler.
-    async fn get_or_init(&self, app: &AppHandle) -> Arc<RodioController> {
-        let arc = get_or_init_global().await;
+    async fn get_or_init(&self, app: &AppHandle) -> Arc<dyn PlayerController> {
+        let arc = get_or_init_global(app).await;
         self.ensure_event_pump(app, &arc).await;
         arc
     }
 
     /// wire the broadcast subscriber → tauri emit pump exactly once.
-    async fn ensure_event_pump(&self, app: &AppHandle, controller: &Arc<RodioController>) {
+    async fn ensure_event_pump(&self, app: &AppHandle, controller: &Arc<dyn PlayerController>) {
         let app = app.clone();
         let controller = controller.clone();
         self.pump_started
@@ -87,12 +112,14 @@ impl PlayerState {
 
 /// background task: forward every [`PlayerEvent`] to the webview, and fold
 /// play/pause/position/duration into the OS media session (see
-/// `media_session.rs` - it has no other way to learn these, since the
-/// rodio backend only ever knows file paths, never song metadata).
-/// runs for the life of the app; aborts when its broadcast receiver
-/// closes (which only happens when the controller is dropped, which
-/// only happens at process exit).
-fn spawn_event_pump(app: AppHandle, controller: Arc<RodioController>) {
+/// `media_session.rs` - it has no other way to learn these, since neither
+/// audio backend ever knows song metadata). `on_rodio_event`'s name
+/// predates libmpv but the function itself only depends on the
+/// backend-agnostic `PlayerEvent` wire format, so it works unchanged for
+/// either backend. runs for the life of the app; aborts when its broadcast
+/// receiver closes (which only happens when the controller is dropped,
+/// which only happens at process exit).
+fn spawn_event_pump(app: AppHandle, controller: Arc<dyn PlayerController>) {
     let mut rx = controller.subscribe();
     tauri::async_runtime::spawn(async move {
         loop {

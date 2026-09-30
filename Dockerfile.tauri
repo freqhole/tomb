@@ -36,11 +36,25 @@ RUN apt-get update && apt-get install -y \
     libudev-dev \
     # gstreamer — video plays in a separate gstreamer window on linux since
     # webkitgtk cannot play video in a <video> element. `-bad` supplies
-    # libgstplay-1.0, which GstPlay (the gstreamer-play crate) lives in;
-    # base/good supply playbin3 and gtksink respectively.
+    # libgstplay-1.0, which GstPlay (the gstreamer-play crate) lives in.
+    # these are build-time headers only (linking the rust bindings) - the
+    # actual runtime plugins (playbin3/decoders/gtksink) are separate
+    # system packages installed on the end-user's machine (see tauri.conf.
+    # json's deb/rpm `depends` - gtksink specifically ships in
+    # gstreamer1.0-gtk3, NOT gst-plugins-good, despite what its own name
+    # suggests).
     libgstreamer1.0-dev \
     libgstreamer-plugins-base1.0-dev \
     libgstreamer-plugins-bad1.0-dev \
+    # libmpv - the "experimental player" (libmpv) audio + video backend,
+    # see docs/libmpv-experimental-player-plan.md. build-time headers only,
+    # same as the gstreamer packages above - the actual runtime
+    # `libmpv.so.2` dependency is auto-detected and added to the .deb/.rpm
+    # by dpkg-shlibdeps/rpm's find-requires (same as libgstreamer1.0-0
+    # already is, which is why it isn't hand-listed in tauri.conf.json's
+    # `deb`/`rpm` "depends" either - only non-linked runtime deps like
+    # `ffmpeg`/`pipewire-alsa` need to be listed there).
+    libmpv-dev \
     # for rpm builds
     rpm \
     && rm -rf /var/lib/apt/lists/*

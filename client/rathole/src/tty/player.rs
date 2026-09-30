@@ -90,7 +90,11 @@ fn map_event(ev: PlayerEvent) -> Option<MusicEvent> {
 impl MusicPlayer for RodioPlayer {
     async fn send(&self, cmd: PlayerCmd) -> Result<(), String> {
         let mapped = match cmd {
-            PlayerCmd::Load(paths) => PlayerCommand::Load { paths },
+            PlayerCmd::Load(paths) => PlayerCommand::Load {
+                paths,
+                start_ms: None,
+                start_paused: false,
+            },
             PlayerCmd::Enqueue(paths) => PlayerCommand::Enqueue { paths },
             PlayerCmd::Play => PlayerCommand::Play,
             PlayerCmd::Pause => PlayerCommand::Pause,

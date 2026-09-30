@@ -33,7 +33,7 @@ import { canSyncSong, syncSongToLocal } from "../sync";
 import type { SyncableSong } from "../sync";
 // import directly from the leaf module (not select.ts) - select.ts pulls
 // in RodioBackend's own import chain, which would close a cycle back here.
-import { isRodioEnabled } from "../audio/rodioPreference";
+import { isLibmpvEnabled } from "../audio/libmpvPreference";
 import { isCharnelMode } from "../../../app/services/charnel/mode";
 import { fetchEphemeralForSong } from "../audio/ephemeralFetch";
 import type { Song } from "./types";
@@ -742,12 +742,12 @@ export async function preCacheNextP2PSongs(
   // check if sync mode is enabled - syncSongToLocal handles charnel vs browser mode internally
   const shouldSync = getSyncQueueToLocal();
 
-  // when running rodio (charnel desktop opted-in) AND sync is OFF,
-  // the html cache-API path is useless: rodio decodes from a fs path
-  // and never reads the Cache API. instead, pre-warm the ephemeral
-  // dir so the next track is already on disk by the time `loadAndPlay`
-  // calls `fetchEphemeralForSong`.
-  const useEphemeralPreFetch = !shouldSync && isCharnelMode() && isRodioEnabled();
+  // when running the native (libmpv) backend (charnel desktop opted-in)
+  // AND sync is OFF, the html cache-API path is useless: the native
+  // backend decodes from a fs path and never reads the Cache API. instead,
+  // pre-warm the ephemeral dir so the next track is already on disk by the
+  // time `loadAndPlay` calls `fetchEphemeralForSong`.
+  const useEphemeralPreFetch = !shouldSync && isCharnelMode() && isLibmpvEnabled();
 
   let currentIdx: number;
   if (startIndexOverride !== undefined) {

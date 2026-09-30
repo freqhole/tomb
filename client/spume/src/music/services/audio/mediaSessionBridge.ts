@@ -33,7 +33,7 @@ import { currentTime, duration, isPlaying } from "../audio/playerState";
 import type { Song } from "../storage/types";
 import { songIdentityKey } from "../storage/types";
 import { getMediaSessionArtworkForVideo } from "./mediaSessionArtwork";
-import { getLocalArtworkFilePath } from "./mediaSessionArtwork";
+import { getLocalArtworkFilePath, getLocalPosterFilePathForVideo } from "./mediaSessionArtwork";
 import {
   pushMediaSessionTrack,
   clearMediaSessionTrack,
@@ -532,7 +532,9 @@ async function refreshMetadata(): Promise<void> {
   // they don't have their own `navigator.mediaSession`). the widget
   // fetches artwork itself and can't reach a same-process `blob:` url, so
   // try a real on-disk path first - best-effort, falls back to nothing.
-  const osArtworkUrl = song ? await getLocalArtworkFilePath(song) : null;
+  const osArtworkUrl = song
+    ? await getLocalArtworkFilePath(song)
+    : await getLocalPosterFilePathForVideo(video as QueuedVideo);
   void pushMediaSessionTrack({
     id: current_sha256,
     title: song ? song.title : (video as QueuedVideo).title,

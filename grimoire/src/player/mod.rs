@@ -26,6 +26,8 @@
 //! rodio backend) is unaffected and remains the real, load-bearing use.
 
 pub mod control;
+#[cfg(feature = "libmpv-playback")]
+pub mod libmpv;
 pub mod noop;
 
 #[cfg(feature = "rodio-playback")]
@@ -36,6 +38,8 @@ pub mod supervisor;
 pub use control::{
     AudioDeviceInfo, PlayerCommand, PlayerEvent, PlayerSnapshot, PlayerState, RestartPolicy,
 };
+#[cfg(feature = "libmpv-playback")]
+pub use libmpv::{spawn_libmpv_player, LibmpvController};
 pub use noop::NoopPlayerController;
 
 #[cfg(feature = "rodio-playback")]

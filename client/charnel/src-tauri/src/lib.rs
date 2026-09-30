@@ -951,6 +951,8 @@ pub fn run() {
             commands::supports_chromeless_title_bar,
             commands::get_rodio_playback,
             commands::set_rodio_playback,
+            commands::get_libmpv_playback,
+            commands::set_libmpv_playback,
             external_storage::commands::external_storage_command,
             commands::check_config_needs_upgrade,
             commands::upgrade_config,
@@ -1026,6 +1028,7 @@ pub fn run() {
             // desktop rodio - see commands.rs's doc comments)
             commands::resolve_blob_path,
             commands::resolve_blob_path_by_blake3,
+            commands::write_media_session_artwork,
             // OS media session / now-playing controls for the rodio +
             // gst video paths (desktop-real, mobile-stub - android has
             // its own plugin instead)

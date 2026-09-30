@@ -1,9 +1,27 @@
 #!/bin/bash
-# build-flatpak.sh - creates flatpak from pre-built .deb without flatpak-builder
-# this avoids the sandbox/privilege issues of flatpak-builder in Docker
+# build-flatpak.sh - builds the real flatpak via `flatpak-builder`, using
+# net.freqhole.freqhole.yml (which builds libmpv from source - see that
+# file's own comments for why).
+#
+# replaces an earlier version of this script that called `flatpak
+# build-init`/`build-finish`/`build-export` directly (to avoid
+# flatpak-builder's sandbox requirements) and bundled a prebuilt system
+# `mpv-libs` package's full `ldd` dependency closure by hand. abandoned
+# 2026-09-29 after that approach caused a runtime crash (`libsecret-1.so.0:
+# undefined symbol: g_variant_builder_init_static`) from duplicating
+# libraries (glib among them) that org.gnome.Platform already provides -
+# see docs/libmpv-experimental-player-plan.md for the full story.
 #
 # usage: ./build-flatpak.sh <input.deb> <output.flatpak> [arch]
 # arch: x86_64 (default) or aarch64
+#
+# note: this compiles mpv + ffmpeg + libass (+ their own small dependency
+# set) from source on first run - expect a genuinely long build (tens of
+# minutes), not the near-instant "just repackage a prebuilt .deb" this
+# used to be. flatpak-builder caches per-module results in
+# .flatpak-builder/ (left inside the container, so it only helps within a
+# single `docker run`) - see this repo's Makefile for how the container
+# itself gets rebuilt/reused across invocations.
 
 set -e
 
@@ -22,113 +40,39 @@ if [ ! -f "$DEB_FILE" ]; then
 fi
 
 APP_ID="net.freqhole.freqhole"
-RUNTIME="org.gnome.Platform"
-RUNTIME_VERSION="50"
-SDK="org.gnome.Sdk"
-
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORK_DIR=$(mktemp -d)
-BUILD_DIR="$WORK_DIR/build"
-REPO_DIR="$WORK_DIR/repo"
 
 cleanup() {
-    rm -rf "$WORK_DIR"
+    rm -f "$SCRIPT_DIR/freqhole.deb"
+    # flatpak-builder's rofiles-fuse cache mount can still be briefly busy
+    # right after it exits ("Device or resource busy") - don't let that
+    # turn an otherwise-successful build into a reported failure. this
+    # whole dir is thrown away regardless once the (--rm) container exits.
+    rm -rf "$WORK_DIR" 2>/dev/null || true
 }
 trap cleanup EXIT
 
-echo "extracting deb..."
-mkdir -p "$WORK_DIR/deb"
-cd "$WORK_DIR/deb"
-ar x "$DEB_FILE"
-tar xf data.tar.* || tar xf data.tar
+# the manifest's `freqhole` module references `path: freqhole.deb`,
+# resolved relative to the manifest's own directory - stage the real
+# .deb there under that exact name (cleaned up on exit via the trap
+# above, so this doesn't leave a stray file around).
+cp "$DEB_FILE" "$SCRIPT_DIR/freqhole.deb"
 
-echo "initializing flatpak build..."
-flatpak build-init "$BUILD_DIR" "$APP_ID" "$SDK" "$RUNTIME" "$RUNTIME_VERSION"
-
-echo "copying files..."
-# copy binary (tauri app is named charnel internally, rename to freqhole)
-if [ -f "$WORK_DIR/deb/usr/bin/charnel" ]; then
-    install -Dm755 "$WORK_DIR/deb/usr/bin/charnel" "$BUILD_DIR/files/bin/freqhole"
-elif [ -f "$WORK_DIR/deb/usr/bin/freqhole" ]; then
-    install -Dm755 "$WORK_DIR/deb/usr/bin/freqhole" "$BUILD_DIR/files/bin/freqhole"
-else
-    echo "error: could not find binary (tried charnel, freqhole)"
-    ls -la "$WORK_DIR/deb/usr/bin/" 2>/dev/null || echo "usr/bin not found"
-    exit 1
-fi
-
-# copy desktop file (rename to match app id)
-# tauri may name it charnel.desktop or freqhole.desktop
-for desktop_name in freqhole charnel; do
-    if [ -f "$WORK_DIR/deb/usr/share/applications/${desktop_name}.desktop" ]; then
-        install -Dm644 "$WORK_DIR/deb/usr/share/applications/${desktop_name}.desktop" \
-            "$BUILD_DIR/files/share/applications/$APP_ID.desktop"
-        # fix Icon and Exec paths
-        sed -i "s|^Icon=.*|Icon=$APP_ID|" "$BUILD_DIR/files/share/applications/$APP_ID.desktop"
-        sed -i "s|^Exec=.*|Exec=freqhole %U|" "$BUILD_DIR/files/share/applications/$APP_ID.desktop"
-        break
-    fi
-done
-
-# copy icons (may be named freqhole or charnel)
-for icon_name in freqhole charnel; do
-    for size in 32x32 128x128 256x256; do
-        icon="$WORK_DIR/deb/usr/share/icons/hicolor/$size/apps/${icon_name}.png"
-        if [ -f "$icon" ]; then
-            install -Dm644 "$icon" "$BUILD_DIR/files/share/icons/hicolor/$size/apps/$APP_ID.png"
-        fi
-    done
-    # also check for @2x icons
-    for size in 128x128@2x 256x256@2; do
-        icon="$WORK_DIR/deb/usr/share/icons/hicolor/$size/apps/${icon_name}.png"
-        if [ -f "$icon" ]; then
-            base_size=$(echo "$size" | sed 's/@2x$//' | sed 's/@2$//')
-            install -Dm644 "$icon" "$BUILD_DIR/files/share/icons/hicolor/$base_size/apps/$APP_ID.png"
-        fi
-    done
-done
-
-# copy metainfo
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-if [ -f "$SCRIPT_DIR/net.freqhole.freqhole.metainfo.xml" ]; then
-    install -Dm644 "$SCRIPT_DIR/net.freqhole.freqhole.metainfo.xml" \
-        "$BUILD_DIR/files/share/metainfo/$APP_ID.metainfo.xml"
-fi
-
-echo "finishing flatpak build..."
-# keep this list in sync with net.freqhole.freqhole.yml's finish-args - this
-# script (not the .yml) is what actually reaches the built package, since we
-# skip flatpak-builder (which would read the .yml's finish-args itself).
-flatpak build-finish "$BUILD_DIR" \
-    --share=ipc \
-    --socket=fallback-x11 \
-    --socket=wayland \
-    --device=dri \
-    --socket=pulseaudio \
-    --own-name=org.mpris.MediaPlayer2.freqhole \
-    --own-name=net.freqhole.charnel \
-    --share=network \
-    --filesystem=xdg-music:ro \
-    --filesystem=home:ro \
-    --filesystem=/run/media \
-    --filesystem=/media \
-    --talk-name=org.freedesktop.Flatpak \
-    --filesystem=xdg-run/dconf \
-    --filesystem=~/.config/dconf:ro \
-    --talk-name=ca.desrt.dconf \
-    --env=DCONF_USER_CONFIG_DIR=.config/dconf \
-    --env=NO_AT_BRIDGE=1 \
-    --talk-name=org.kde.StatusNotifierWatcher \
-    --talk-name=org.freedesktop.Notifications \
-    --talk-name=org.freedesktop.portal.* \
-    --talk-name=org.freedesktop.secrets \
-    --persist=.local/share/net.freqhole.charnel \
-    --command=freqhole
-
-echo "exporting to repo..."
-mkdir -p "$REPO_DIR"
-flatpak build-export "$REPO_DIR" "$BUILD_DIR"
+echo "building flatpak via flatpak-builder (compiles mpv+ffmpeg+libass from source - this takes a while, especially the first time)..."
+# --state-dir: flatpak-builder defaults this to .flatpak-builder relative
+# to the CWD, not the (already-safe) $WORK_DIR/build below - pin it
+# explicitly so it can never accidentally land under a reserved path
+# like /app again (see Dockerfile.flatpak's WORKDIR comment).
+flatpak-builder \
+    --arch="$ARCH" \
+    --state-dir="$WORK_DIR/state" \
+    --repo="$WORK_DIR/repo" \
+    --force-clean \
+    "$WORK_DIR/build" \
+    "$SCRIPT_DIR/net.freqhole.freqhole.yml"
 
 echo "creating bundle..."
-flatpak build-bundle "$REPO_DIR" "$OUTPUT_FLATPAK" "$APP_ID" --arch="$ARCH"
+flatpak build-bundle --arch="$ARCH" "$WORK_DIR/repo" "$OUTPUT_FLATPAK" "$APP_ID"
 
 echo "done: $OUTPUT_FLATPAK"

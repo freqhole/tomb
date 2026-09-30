@@ -80,6 +80,24 @@ export class RodioBackend implements PlayerBackend {
     await invoke("player_send", { cmd });
   }
 
+  /// send `Load` with the resume position (`start_ms`) and pause intent
+  /// (`start_paused`) folded into the same atomic command, rather than
+  /// separate follow-up `Seek`/`Pause` commands - both can race the rust
+  /// side still opening the file. **previously a real bug**: a separate
+  /// follow-up `Play`/`Pause` pair ignored `options.autoPlay` entirely
+  /// (always sent `Play`), and a separate follow-up `Seek` sent fast
+  /// enough after `Pause` could leave the file unable to seek at all
+  /// until playback had actually started once.
+  private async sendLoadAndPlay(path: string, options?: LoadAndPlayOptions): Promise<void> {
+    const pos = options?.initialPosition ?? 0;
+    await this.send({
+      kind: "load",
+      paths: [path],
+      start_ms: pos > 0 ? Math.round(pos * 1000) : null,
+      start_paused: options?.autoPlay === false,
+    });
+  }
+
   /// resolve a song to a local filesystem path via the
   /// `resolve_blob_path` tauri command, then send `Load` + `Play`
   /// to the rust supervisor.
@@ -161,9 +179,7 @@ export class RodioBackend implements PlayerBackend {
         debug("player.rodio", `load: "${song.title}" (${songKey.slice(0, 8)}) -> ${path}`);
         bridgeClearExternal();
         await setCurrentSong(songKey);
-        await this.send({ kind: "load", paths: [path] });
-        await this.send({ kind: "play" });
-        await this.applyInitialPosition(options);
+        await this.sendLoadAndPlay(path, options);
         return;
       } catch {
         // fall through to the original media_blob_id-based flow below.
@@ -274,9 +290,7 @@ export class RodioBackend implements PlayerBackend {
           "player.rodio",
           `ephemeral load: "${song.title}" (${songKey.slice(0, 8)}) -> ${path}`
         );
-        await this.send({ kind: "load", paths: [path] });
-        await this.send({ kind: "play" });
-        await this.applyInitialPosition(options);
+        await this.sendLoadAndPlay(path, options);
         return;
       }
 
@@ -369,19 +383,7 @@ export class RodioBackend implements PlayerBackend {
 
     debug("player.rodio", `load: "${song.title}" (${songKey.slice(0, 8)}) -> ${path}`);
 
-    await this.send({ kind: "load", paths: [path] });
-    await this.send({ kind: "play" });
-    await this.applyInitialPosition(options);
-  }
-
-  /// if the caller passed an `initialPosition` (seconds), seek the
-  /// supervisor there. used to resume a paused session on page
-  /// reload — the rust side starts every load at 0, so without
-  /// this seek the persisted position is lost.
-  private async applyInitialPosition(options?: LoadAndPlayOptions): Promise<void> {
-    const pos = options?.initialPosition ?? 0;
-    if (pos <= 0) return;
-    await this.send({ kind: "seek", ms: Math.round(pos * 1000) });
+    await this.sendLoadAndPlay(path, options);
   }
 
   /// look up the local fs path for a blob via the

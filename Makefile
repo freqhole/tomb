@@ -452,7 +452,12 @@ build-flatpak-builder:
 
 build-flatpak-intel: $(BUILD_DIR)/$(VERSION)/freqhole_charnel_$(VERSION)_x86_64.deb build-flatpak-builder
 	@echo "building Flatpak for x86_64..."
-	docker run --rm --privileged \
+	# --security-opt seccomp=unconfined: flatpak-builder's bwrap needs to
+	# install its own nested seccomp filter for every module build -
+	# --privileged should already imply this, but some docker setups don't
+	# fully honor that, so it's spelled out explicitly too (see
+	# docs/libmpv-experimental-player-plan.md's flatpak session notes).
+	docker run --rm --privileged --security-opt seccomp=unconfined \
 		-v $(PWD)/$(BUILD_DIR)/$(VERSION):/debs:ro \
 		-v $(PWD)/$(BUILD_DIR)/$(VERSION):/output \
 		freqhole-flatpak-builder \
@@ -463,7 +468,7 @@ build-flatpak-intel: $(BUILD_DIR)/$(VERSION)/freqhole_charnel_$(VERSION)_x86_64.
 build-flatpak-arm64: $(BUILD_DIR)/$(VERSION)/freqhole_charnel_$(VERSION)_aarch64.deb
 	@echo "building Flatpak for aarch64..."
 	docker build -f Dockerfile.flatpak -t freqhole-flatpak-builder-arm64 --platform linux/arm64 .
-	docker run --rm --privileged \
+	docker run --rm --privileged --security-opt seccomp=unconfined \
 		-v $(PWD)/$(BUILD_DIR)/$(VERSION):/debs:ro \
 		-v $(PWD)/$(BUILD_DIR)/$(VERSION):/output \
 		freqhole-flatpak-builder-arm64 \

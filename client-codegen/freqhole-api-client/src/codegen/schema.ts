@@ -4658,7 +4658,7 @@ export const PlaybackSessionTypeSchema = z.union([z.literal("song"), z.literal("
 export type PlaybackSessionType = z.infer<typeof PlaybackSessionTypeSchema>;
 
 export const PlayerCommandSchema = z.union([
-z.object({ kind: z.literal("load"), paths: z.array(z.string()) }),
+z.object({ kind: z.literal("load"), paths: z.array(z.string()), start_ms: z.number().nullish(), start_paused: z.boolean() }),
 z.object({ kind: z.literal("enqueue"), paths: z.array(z.string()) }),
 z.object({ kind: z.literal("play") }),
 z.object({ kind: z.literal("pause") }),

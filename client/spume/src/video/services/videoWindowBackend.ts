@@ -123,6 +123,16 @@ export class VideoWindowBackend implements PlayerBackend {
       title: item.video.title,
       start_seconds: options?.initialPosition ? options.initialPosition / 1000 : null,
     });
+
+    // `load` itself always starts playback on the rust side (mpv/gst both
+    // start immediately on a successful load, by design) - a caller that
+    // asked for `autoPlay: false` (e.g. a non-user-initiated "resume
+    // without audibly playing" load) needs an explicit follow-up `pause`,
+    // same as `rodioBackend.ts`'s `sendLoadAndPlay`. previously missing
+    // here entirely, so autoPlay was silently ignored for every video load.
+    if (options?.autoPlay === false) {
+      await sendVideoWindowCommand({ kind: "pause" });
+    }
   }
 
   async send(command: PlayerCommand): Promise<void> {

@@ -1,19 +1,21 @@
 // runtime selection between the two video backends.
 //
 // - `VideoBackend` — html `<video>` element. correct everywhere except linux.
-// - `VideoWindowBackend` — charnel's separate gstreamer window. linux only,
-//   because webkitgtk cannot play video in a `<video>` element at all.
+// - `VideoWindowBackend` — charnel's separate native window (libmpv, or on
+//   linux, gstreamer/mpv-shell). linux always has one available (webkitgtk
+//   cannot play video in a `<video>` element at all there); mac/windows only
+//   when the experimental player (libmpv) toggle is on.
 //
-// gated behind the same experimental-player opt-in that drives rodio for audio,
-// so a linux user can fall back to the (broken, but familiar) html path if the
-// video window misbehaves.
+// gated behind the same experimental-player (libmpv) opt-in that drives the
+// native audio path, so a linux user can fall back to the (broken, but
+// familiar) html path if the video window misbehaves.
 //
 // availability is resolved once, asynchronously, at boot — `selectVideoBackend`
 // itself stays synchronous so the player facade's backend swap does not have to
 // become async.
 
 import { isCharnelMode } from "../../../app/services/charnel/mode";
-import { isRodioEnabled } from "./rodioPreference";
+import { isLibmpvEnabled } from "./libmpvPreference";
 import { debug } from "../../../utils/logger";
 import {
   getVideoWindowDiagnostics,
@@ -33,7 +35,7 @@ export async function initVideoWindowPreference(): Promise<void> {
   // TEMP(video-window): visible at the default error-only logger level while
   // validating the first Linux builds.
   console.info(
-    `[video-window] availability=${windowBackendAvailable} experimental=${isRodioEnabled()}`
+    `[video-window] availability=${windowBackendAvailable} experimental=${isLibmpvEnabled()}`
   );
   if (windowBackendAvailable) {
     void getVideoWindowDiagnostics();
@@ -43,7 +45,7 @@ export async function initVideoWindowPreference(): Promise<void> {
 
 /** true when video should play in the separate window rather than a `<video>`. */
 export function useVideoWindow(): boolean {
-  return windowBackendAvailable && isRodioEnabled();
+  return windowBackendAvailable && isLibmpvEnabled();
 }
 
 /**
@@ -61,8 +63,8 @@ export function selectVideoBackend(
   // TEMP(video-window): establishes whether a Linux playback attempt took the
   // intended branch before any media URL is resolved.
   console.info(
-    `[video-window] select=${selected === windowBackend ? "gstreamer" : "html"} ` +
-      `availability=${windowBackendAvailable} experimental=${isRodioEnabled()}`
+    `[video-window] select=${selected === windowBackend ? "native" : "html"} ` +
+      `availability=${windowBackendAvailable} experimental=${isLibmpvEnabled()}`
   );
   return selected;
 }

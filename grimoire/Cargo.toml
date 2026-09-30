@@ -82,6 +82,20 @@ rodio = { version = "0.22", default-features = false, features = [
 # no `pulseaudio` feature yet \u2014 that lands in cpal 0.18 / rodio 0.23.
 # once rodio publishes against cpal 0.18 we should enable it here.
 cpal = { version = "0.17", default-features = false, optional = true }
+# libmpv audio backend (see docs/libmpv-experimental-player-plan.md) -
+# same crate charnel's video window uses, in-process, no subprocess.
+# optional/gated the same way rodio is: needs system libmpv at link
+# time, so headless/cross-compile targets can omit it.
+libmpv2 = { version = "6", optional = true }
+# raw FFI types (mpv_node/mpv_node_list) - libmpv2's safe `GetData` trait
+# has no typed getter for MPV_FORMAT_NODE properties (e.g.
+# `audio-device-list`) yet, so we implement our own against these directly.
+libmpv2-sys = { version = "4.0.1", optional = true }
+# mpv_create() returns NULL if LC_NUMERIC isn't "C" - GTK/tao's own
+# setlocale(LC_ALL, "") during window init can leave it as whatever the
+# user's locale is, so we reset it ourselves right before creating an
+# Mpv instance.
+libc = { version = "0.2", optional = true }
 
 # api codegen support
 zod_gen = "1.0"
@@ -95,6 +109,9 @@ vendored-openssl = ["openssl"]
 # rodio audio backend (uses cpal). disable for headless / cross-
 # compile targets without an audio system available at link time.
 rodio-playback = ["dep:rodio", "dep:cpal"]
+# libmpv audio backend. disable for headless / cross-compile targets
+# without system libmpv available at link time.
+libmpv-playback = ["dep:libmpv2", "dep:libmpv2-sys", "dep:libc"]
 
 [dependencies.webauthn-rs]
 workspace = true
