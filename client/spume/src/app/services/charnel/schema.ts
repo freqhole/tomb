@@ -185,6 +185,18 @@ export const ExternalStorageSyncProgressEventSchema = z.object({
 });
 
 /**
+ * libmpv-unavailable event - libmpv failed to start; playback fell back
+ * to the html `<audio>` element and the experimental player toggle was
+ * turned back off.
+ */
+export const LibmpvUnavailableEventSchema = z.object({
+  type: z.literal("libmpv-unavailable"),
+  data: z.object({
+    reason: z.string(),
+  }),
+});
+
+/**
  * discriminated union of all event types
  */
 export const UpdateCheckResultEventSchema = z.object({
@@ -211,6 +223,7 @@ export const TauriEventSchema = z.discriminatedUnion("type", [
   UpdateCheckResultEventSchema,
   ExternalStorageMountedChangedEventSchema,
   ExternalStorageSyncProgressEventSchema,
+  LibmpvUnavailableEventSchema,
 ]);
 
 export type TauriEvent = z.infer<typeof TauriEventSchema>;
@@ -230,3 +243,4 @@ export type ExternalStorageMountedChangedEvent = z.infer<
 export type ExternalStorageSyncProgressEvent = z.infer<
   typeof ExternalStorageSyncProgressEventSchema
 >;
+export type LibmpvUnavailableEvent = z.infer<typeof LibmpvUnavailableEventSchema>;

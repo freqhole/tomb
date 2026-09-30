@@ -26,6 +26,7 @@ export {
   PeerOfflineEventSchema,
   ExternalStorageMountedChangedEventSchema,
   ExternalStorageSyncProgressEventSchema,
+  LibmpvUnavailableEventSchema,
   type FreqholeConfig,
   type TauriEvent,
   type ConfigChangedEvent,
@@ -34,6 +35,7 @@ export {
   type PeerOfflineEvent,
   type ExternalStorageMountedChangedEvent,
   type ExternalStorageSyncProgressEvent,
+  type LibmpvUnavailableEvent,
 } from "./schema";
 
 // re-export commands

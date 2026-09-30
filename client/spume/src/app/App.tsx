@@ -833,6 +833,18 @@ export function App() {
         })();
         break;
 
+      case "libmpv-unavailable":
+        // rust already persisted the toggle back off - just tell the
+        // user and re-select the backend live, no reload needed.
+        toast.error(`libmpv unavailable, using standard audio playback: ${event.data.reason}`, {
+          title: "experimental player disabled",
+        });
+        void (async () => {
+          await initLibmpvPreference();
+          await swapPlayerBackend();
+        })();
+        break;
+
       case "share-link-received": {
         // os handed off a `freqhole://o/<token>` url. extract token and
         // route through the same ResolveShareModal flow used for web urls.

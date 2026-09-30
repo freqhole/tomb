@@ -9,7 +9,7 @@
 //!   [`PlayerCommand`] into the audio thread.
 //! - `player_event` tauri event — every [`PlayerEvent`] the
 //!   backend emits is re-emitted through the webview so spume's
-//!   `RodioBackend` can `listen()` for it.
+//!   `LibmpvBackend` can `listen()` for it.
 //!
 //! the controller is lazily constructed on first use via a
 //! [`tokio::sync::OnceCell`] held in tauri-managed state. this
@@ -29,11 +29,11 @@ use tokio::sync::OnceCell;
 use tracing::{debug, warn};
 
 /// the tauri event name spume listens on. keep in sync with
-/// `client/spume/src/music/services/audio/backends/rodioBackend.ts`.
+/// `client/spume/src/music/services/audio/backends/libmpvBackend.ts`.
 pub const PLAYER_EVENT: &str = "freqhole:player_event";
 
 /// process-global player, behind a trait object so callers - or spume's
-/// `RodioBackend` TS client - never need to know or care about the
+/// `LibmpvBackend` TS client - never need to know or care about the
 /// concrete backend type. lazily spawned on first use from a tauri
 /// command (`player_send` / `player_init` / `player_snapshot`).
 ///
@@ -51,7 +51,9 @@ static GLOBAL_PLAYER: OnceCell<Arc<dyn PlayerController>> = OnceCell::const_new(
 /// on a runtime failure starting libmpv) falls back to a silent no-op
 /// controller rather than panicking - same "never fatal" posture
 /// `media_session.rs` already takes for a missing platform media
-/// service.
+/// service. a runtime failure also persists the toggle back off and
+/// notifies spume (a one-time toast + live backend swap, no reload) so
+/// the user isn't stuck relaunching into the same broken backend.
 async fn get_or_init_global(app: &AppHandle) -> Arc<dyn PlayerController> {
     GLOBAL_PLAYER
         .get_or_init(|| async {
@@ -65,12 +67,29 @@ async fn get_or_init_global(app: &AppHandle) -> Arc<dyn PlayerController> {
                 Ok(ctl) => Arc::new(ctl) as Arc<dyn PlayerController>,
                 Err(e) => {
                     warn!(error = %e, "failed to start libmpv audio backend; falling back to no-op");
+                    disable_libmpv_after_failure(app, &e.to_string());
                     Arc::new(NoopPlayerController::new()) as Arc<dyn PlayerController>
                 }
             }
         })
         .await
         .clone()
+}
+
+/// persists `use_libmpv_playback = false` and notifies spume, so a
+/// broken libmpv install doesn't keep silently no-opping playback on
+/// every future launch. best-effort: a failure to save/notify here is
+/// logged, not propagated - the caller already has a working (no-op)
+/// controller either way.
+fn disable_libmpv_after_failure(app: &AppHandle, reason: &str) {
+    let mut config = crate::app_config::FreqholeAppConfig::load(app).unwrap_or_default();
+    config.use_libmpv_playback = false;
+    if let Err(e) = config.save(app) {
+        warn!(error = %e, "failed to persist use_libmpv_playback=false after a startup failure");
+    }
+    if let Err(e) = crate::spume_bridge::notify_libmpv_unavailable(app, reason) {
+        warn!(error = %e, "failed to notify spume of libmpv startup failure");
+    }
 }
 
 /// tauri-managed state. the controller itself lives in
