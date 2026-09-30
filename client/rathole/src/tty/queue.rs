@@ -1,11 +1,10 @@
 //! unified play-queue manager — rathole owns the queue (see
-//! `ratcore::app::queue::QueueEntry`); rodio and mpv are each treated
-//! as single-track players, so every entry switch is a fresh
-//! `PlayerCmd::Load`/`VideoCommand::Load` against `m.queue[m.current]`.
-//! see docs/architecture-decisions for the rodio rationale (remove/
-//! reorder/skip-forward would need multi-thread coordination against
-//! rodio's own internal queue, and preloading N tracks is N chances to
-//! hit rodio 0.20's m4a init-seek panic).
+//! `ratcore::app::queue::QueueEntry`); the audio backend (libmpv) and
+//! mpv (video) are each treated as single-track players, so every entry
+//! switch is a fresh `PlayerCmd::Load`/`VideoCommand::Load` against
+//! `m.queue[m.current]`. see docs/architecture-decisions for the
+//! rationale (remove/reorder/skip-forward would need multi-thread
+//! coordination against the backend's own internal queue).
 //!
 //! the queue can mix audio and video entries (a controller's
 //! `replace_queue`/`append_queue` push isn't required to be one kind),
@@ -33,7 +32,7 @@ const HISTORY_CAP: usize = 50;
 /// finished first), matching cenotaph/web's queue model, where the
 /// queue only ever holds "currently playing + upcoming", not every
 /// past track. clears any prior position state; audio entries resolve
-/// then `PlayerCmd::Load` (rodio), video entries resolve then
+/// then `PlayerCmd::Load` (libmpv), video entries resolve then
 /// `VideoCommand::Load` (mpv). on resolve failure the task emits an
 /// error event followed by `MusicEvent::Ended` so the auto-advance
 /// handler skips past the broken entry, same for both kinds.
@@ -56,14 +55,15 @@ pub fn play_index(app: &mut App, idx: usize, tx: &mpsc::UnboundedSender<AppActio
         m.player_state = PlayerState::Stopped;
         m.queue_video_active = false;
         m.audio_fallback_active = false;
-        m.pending_rodio_song_id = None;
+        m.pending_song_id = None;
         app.state.ephemeral.player_pairing.art_paths.clear();
         if was_video_active || was_audio_fallback_active {
             close_video(app);
         } else if let Some(player) = app.player.clone() {
-            // the last entry was a plain rodio song - close_video (above)
-            // only stops mpv, so without this rodio just kept playing the
-            // final track forever once the queue ran out from under it.
+            // the last entry was a plain audio song - close_video (above)
+            // only stops mpv, so without this the audio backend just
+            // kept playing the final track forever once the queue ran
+            // out from under it.
             tokio::task::spawn_local(async move {
                 let _ = player.send(PlayerCmd::Stop).await;
             });
@@ -85,7 +85,7 @@ pub fn play_index(app: &mut App, idx: usize, tx: &mpsc::UnboundedSender<AppActio
             app.state.ephemeral.music.player_state = PlayerState::Loading;
             app.state.ephemeral.music.queue_video_active = false;
             app.state.ephemeral.music.audio_fallback_active = false;
-            app.state.ephemeral.music.pending_rodio_song_id = Some(row.id.clone());
+            app.state.ephemeral.music.pending_song_id = Some(row.id.clone());
             // clear immediately (optimistic) so the previous song's art
             // doesn't linger until this one's resolves.
             app.state.ephemeral.player_pairing.art_paths.clear();
@@ -94,7 +94,8 @@ pub fn play_index(app: &mut App, idx: usize, tx: &mpsc::UnboundedSender<AppActio
             // were two independent fire-and-forget spawns with no
             // ordering guarantee between them, so under adverse
             // scheduling the old video/mpv backend could still be
-            // playing when rodio started ("multiple things playing").
+            // playing when the audio backend started ("multiple things
+            // playing").
             let close_first = if was_video_active || was_audio_fallback_active {
                 app.state
                     .ephemeral
@@ -111,11 +112,11 @@ pub fn play_index(app: &mut App, idx: usize, tx: &mpsc::UnboundedSender<AppActio
             app.state.ephemeral.music.player_state = PlayerState::Stopped;
             app.state.ephemeral.music.queue_video_active = true;
             app.state.ephemeral.music.audio_fallback_active = false;
-            app.state.ephemeral.music.pending_rodio_song_id = None;
+            app.state.ephemeral.music.pending_song_id = None;
             app.state.ephemeral.player_pairing.art_paths.clear();
-            // stop rodio (if it was the active backend) and load the
-            // video as ONE ordered task - see the song-entry branch
-            // above for why this must be sequenced rather than two
+            // stop the audio backend (if it was the active backend) and
+            // load the video as ONE ordered task - see the song-entry
+            // branch above for why this must be sequenced rather than two
             // independent fire-and-forget spawns.
             let stop_first = app.player.clone();
             play_video_entry(app, video, stop_first, tx);
@@ -134,15 +135,14 @@ fn push_history(m: &mut crate::ratcore::app::MusicState, mut played: Vec<QueueEn
     m.history.truncate(HISTORY_CAP);
 }
 
-/// rodio couldn't decode the current queue entry's song (e.g. opus-in-
-/// webm, or `.m4a` - blocked outright for rodio, see
-/// `is_known_unplayable` - unsupported by rodio's symphonia backend),
-/// so try it through mpv instead (audio-only: mpv was spawned with
-/// `--force-window=no` and this file has no video track, so no window
-/// opens). advances to the next queue entry instead if there's no mpv
-/// backend, no current song, or resolving the path fails again.
+/// libmpv couldn't decode the current queue entry's song, so try it
+/// through a second, shelled mpv instance instead (audio-only: mpv was
+/// spawned with `--force-window=no` and this file has no video track,
+/// so no window opens). advances to the next queue entry instead if
+/// there's no mpv backend, no current song, or resolving the path
+/// fails again.
 pub fn try_mpv_audio_fallback(app: &mut App, tx: &mpsc::UnboundedSender<AppAction>) {
-    app.state.ephemeral.music.pending_rodio_song_id = None;
+    app.state.ephemeral.music.pending_song_id = None;
     let Some(row) = app
         .state
         .ephemeral
@@ -158,7 +158,7 @@ pub fn try_mpv_audio_fallback(app: &mut App, tx: &mpsc::UnboundedSender<AppActio
         tracing::warn!(
             target: "rathole::tty::player",
             song = %row.title,
-            "rodio couldn't decode this track and no mpv backend is available; skipping"
+            "libmpv couldn't decode this track and no mpv fallback backend is available; skipping"
         );
         play_next(app, tx);
         return;
@@ -273,11 +273,12 @@ fn play_song_entry(
     let tx = tx.clone();
     tokio::task::spawn_local(async move {
         // await the old video/mpv backend's close BEFORE loading the
-        // new song into rodio, so the two are never both active.
+        // new song into the audio backend, so the two are never both
+        // active.
         if let Some(video_player) = close_first {
             let _ = video_player.send(VideoCommand::Close).await;
         }
-        let Some(path) = resolve_playable_path(&row).await else {
+        let Some(path) = resolve_song_path(&row).await else {
             let _ = tx.send(AppAction::MusicEvent(MusicEvent::Error(format!(
                 "no playable file for {title} (skipping)"
             ))));
@@ -317,9 +318,9 @@ fn play_video_entry(
     let title = video.title.clone();
     let tx = tx.clone();
     tokio::task::spawn_local(async move {
-        // await rodio's stop BEFORE loading the video into mpv, so the
-        // two are never both active (audio wouldn't visibly overlap a
-        // video, but it WOULD keep playing under it otherwise).
+        // await the audio backend's stop BEFORE loading the video into
+        // mpv, so the two are never both active (audio wouldn't visibly
+        // overlap a video, but it WOULD keep playing under it otherwise).
         if let Some(player) = stop_first {
             let _ = player.send(PlayerCmd::Stop).await;
         }
@@ -352,7 +353,7 @@ fn play_video_entry(
     });
 }
 
-/// stops whichever regular queue-playback backend (rodio or mpv) was
+/// stops whichever regular queue-playback backend (libmpv or mpv) was
 /// active, without touching the queue itself - used when radio starts
 /// (see `tty::radio::start`), which is mutually exclusive with regular
 /// queue playback but must leave the queue's contents alone (unlike
@@ -516,12 +517,7 @@ pub fn append_queue_entries(
 }
 
 /// resolve a row's playable file path (local_path or media_blob),
-/// with no rodio-specific filtering - shared by `resolve_playable_path`
-/// (rodio path, applies the blocklist below) and the mpv fallback
-/// (mpv doesn't have rodio's m4a bug, so it must NOT apply that
-/// blocklist too - `try_mpv_audio_fallback` calling the blocklisted
-/// version here was a real bug: it made an m4a track un-fallback-able,
-/// blocked twice in a row instead of once).
+/// shared by the song-load path and the mpv fallback.
 async fn resolve_song_path(s: &SongRow) -> Option<String> {
     if let Some(p) = s.local_path.clone() {
         return Some(p);
@@ -533,35 +529,8 @@ async fn resolve_song_path(s: &SongRow) -> Option<String> {
         .next()
 }
 
-/// resolve a row's playable file path (local_path or media_blob).
-/// also filters out file extensions known to crash rodio 0.20's
-/// symphonia adapter on init seek (currently `.m4a`).
-async fn resolve_playable_path(s: &SongRow) -> Option<String> {
-    let path = resolve_song_path(s).await?;
-    if is_known_unplayable(&path) {
-        tracing::warn!(
-            target: "rathole::tty::player",
-            path = %path,
-            "skipping unplayable file (known rodio/symphonia panic on init seek)"
-        );
-        return None;
-    }
-    Some(path)
-}
-
-/// extension-based blocklist. rodio 0.20 + symphonia's m4a demuxer
-/// hits `unreachable!("Seek errors should not occur during init")`
-/// on a meaningful fraction of real-world files; we'd rather skip
-/// them than spam the panic hook.
-fn is_known_unplayable(path: &str) -> bool {
-    let lower = path.to_ascii_lowercase();
-    lower.ends_with(".m4a")
-}
-
 /// resolve a queued video row's playable file path - same
-/// local_path/media_blob_id fallback as `resolve_playable_path`, no
-/// unplayable-extension blocklist (that's an rodio/symphonia-specific
-/// issue).
+/// local_path/media_blob_id fallback as `resolve_song_path`.
 async fn resolve_video_path(v: &QueuedVideoRow) -> Option<String> {
     if let Some(p) = v.local_path.clone() {
         return Some(p);
@@ -610,11 +579,11 @@ pub fn send_player(app: &App, cmd: PlayerCmd, tx: &mpsc::UnboundedSender<AppActi
     });
 }
 
-/// true when a real queued video, an mpv audio-fallback (rodio
+/// true when a real queued video, an mpv audio-fallback (libmpv
 /// couldn't decode the current song - see `try_mpv_audio_fallback`),
 /// or an active radio session (`tty::radio`, also mpv-driven - see its
-/// module doc) means mpv, not rodio, is actually driving playback
-/// right now.
+/// module doc) means mpv, not the in-process libmpv backend, is
+/// actually driving playback right now.
 pub fn active_playback_is_video(app: &App) -> bool {
     app.state.ephemeral.music.queue_video_active
         || app.state.ephemeral.music.audio_fallback_active
@@ -633,9 +602,10 @@ pub fn is_currently_playing(app: &App) -> bool {
 
 /// current playback position/duration in ms from whichever backend is
 /// actually active (see `active_playback_is_video`) - mpv reports its
-/// own position/duration separately from rodio's `MusicState` fields,
-/// which otherwise sit frozen at whatever they last held while a
-/// video (or an mpv audio-fallback) is playing.
+/// own position/duration separately from the in-process libmpv
+/// backend's `MusicState` fields, which otherwise sit frozen at
+/// whatever they last held while a video (or an mpv audio-fallback) is
+/// playing.
 pub fn current_position_and_duration_ms(app: &App) -> (u64, u64) {
     if active_playback_is_video(app) {
         let vp = &app.state.ephemeral.video_player;
@@ -655,9 +625,10 @@ pub fn current_position_and_duration_ms(app: &App) -> (u64, u64) {
 /// volume - to whichever backend is actually active (see
 /// `active_playback_is_video`). shared by every local key handler
 /// (`on_player_row_key`/`on_player_pairing_key`) so pause etc. behave
-/// the same regardless of whether rodio or an mpv audio-fallback is
-/// currently driving the song - mirrors `tty::pairing::dispatch`'s own
-/// `send_generic` (the wire-command equivalent).
+/// the same regardless of whether the in-process libmpv backend or an
+/// mpv audio-fallback is currently driving the song - mirrors
+/// `tty::pairing::dispatch`'s own `send_generic` (the wire-command
+/// equivalent).
 pub fn send_generic_local(
     app: &App,
     tx: &mpsc::UnboundedSender<AppAction>,

@@ -157,8 +157,14 @@ async fn run_inner(
     state.ephemeral.is_ssh_session = detect_ssh_session();
     let transport: Rc<dyn Transport> = Rc::new(LocalTransport::from_first_root().await?);
     let (action_tx, mut action_rx) = mpsc::unbounded_channel::<AppAction>();
-    let player = super::player::RodioPlayer::spawn(action_tx.clone());
-    let mut app = App::new(state, transport, commands).with_player(player);
+    let mut app = App::new(state, transport, commands);
+    // best-effort: same degrade-to-read-only-browse pattern as the mpv
+    // video player just below - a libmpv init failure (e.g. missing
+    // system libmpv) shouldn't crash the whole shell.
+    match super::player::LibmpvPlayer::spawn(action_tx.clone()) {
+        Ok(player) => app = app.with_player(player),
+        Err(e) => tracing::warn!("rathole: libmpv audio player unavailable: {e}"),
+    }
     // best-effort: mpv may not be installed (e.g. a dev machine that
     // hasn't set it up yet). video playback / still-image display
     // just stays unavailable in that case, same as the music view
@@ -1951,13 +1957,14 @@ fn handle_pairing_dispatch(
 ) {
     let m = &app.state.ephemeral.music;
     let vp = &app.state.ephemeral.video_player;
-    // an mpv audio-fallback song (rodio couldn't decode it - see
+    // an mpv audio-fallback song (libmpv couldn't decode it - see
     // tty::queue::try_mpv_audio_fallback) is still a `MediaKind::Audio`
-    // queue entry, but mpv (not rodio) is what's actually playing it -
-    // generic commands (pause/resume/seek/volume/status) need to
-    // target mpv in that case, or they'd silently hit rodio's idle
-    // sink instead and appear to do nothing. shared with the local key
-    // handlers (`send_generic_local`) so this is derived one way.
+    // queue entry, but mpv (not the in-process libmpv backend) is what's
+    // actually playing it - generic commands (pause/resume/seek/volume/
+    // status) need to target mpv in that case, or they'd silently hit
+    // the idle in-process backend instead and appear to do nothing.
+    // shared with the local key handlers (`send_generic_local`) so this
+    // is derived one way.
     let active_backend = if active_playback_is_video(app) {
         super::pairing::ActiveBackend::Video
     } else {
@@ -2044,10 +2051,10 @@ fn apply_music_event(
     match ev {
         MusicEvent::State(s) => {
             if s == crate::ratcore::app::PlayerState::Playing {
-                // genuine success signal - rodio actually started
-                // playing what we sent it, so it's no longer a
+                // genuine success signal - the audio backend actually
+                // started playing what we sent it, so it's no longer a
                 // candidate for the mpv audio-fallback path.
-                app.state.ephemeral.music.pending_rodio_song_id = None;
+                app.state.ephemeral.music.pending_song_id = None;
             }
             app.state.ephemeral.music.player_state = s;
         }
@@ -2057,22 +2064,22 @@ fn apply_music_event(
             m.duration_ms = total_ms;
         }
         MusicEvent::TrackChanged { .. } => {
-            // rodio's internal queue is single-track now, so its
-            // TrackChanged is just "loaded the one track we sent".
-            // m.current is already authoritative on the rathole side;
-            // ignore the index from the event.
+            // the audio backend's internal queue is single-track now,
+            // so its TrackChanged is just "loaded the one track we
+            // sent". m.current is already authoritative on the rathole
+            // side; ignore the index from the event.
             app.state.ephemeral.music.position_ms = 0;
         }
         MusicEvent::QueueResolveProgress { remaining } => {
             app.state.ephemeral.music.queue_resolving = remaining;
         }
         MusicEvent::Ended => {
-            // rodio finished the single track we loaded - OR it never
-            // actually started (couldn't decode/init it) and this is
-            // the immediate `Ended` that follows: `pending_rodio_song_id`
-            // is only still set in that latter case (cleared on a real
-            // `State(Playing)` success signal above), so check it
-            // before assuming a normal end-of-track.
+            // the audio backend finished the single track we loaded -
+            // OR it never actually started (couldn't decode/init it)
+            // and this is the immediate `Ended` that follows:
+            // `pending_song_id` is only still set in that latter case
+            // (cleared on a real `State(Playing)` success signal
+            // above), so check it before assuming a normal end-of-track.
             let current_song_id = app
                 .state
                 .ephemeral
@@ -2080,13 +2087,13 @@ fn apply_music_event(
                 .currently_playing()
                 .and_then(|e| e.song_id())
                 .map(str::to_string);
-            let rodio_failed = app.state.ephemeral.music.pending_rodio_song_id.is_some()
-                && app.state.ephemeral.music.pending_rodio_song_id == current_song_id;
-            if rodio_failed {
+            let load_failed = app.state.ephemeral.music.pending_song_id.is_some()
+                && app.state.ephemeral.music.pending_song_id == current_song_id;
+            if load_failed {
                 tracing::warn!(
                     target: "rathole::tty::player",
                     song = current_song_id.as_deref().unwrap_or("?"),
-                    "rodio failed to decode/play this track; falling back to mpv"
+                    "audio backend failed to decode/play this track; falling back to mpv"
                 );
                 try_mpv_audio_fallback(app, tx);
             } else {
@@ -2974,7 +2981,7 @@ fn on_action_menu_key(app: &mut App, code: KeyCode, tx: &mpsc::UnboundedSender<A
             // mutates the local queue state and re-issues a Load to
             // keep the player in sync (this briefly stops + restarts
             // playback, which is the simplest correct implementation
-            // until we plumb finer-grained queue ops into rodio).
+            // until we plumb finer-grained queue ops into the backend).
             if opt.target_command.starts_with("__queue_") {
                 let position = row
                     .get("position")
@@ -3360,7 +3367,7 @@ fn on_music_key(app: &mut App, code: KeyCode, tx: &mpsc::UnboundedSender<AppActi
         (MusicMode::Results, KeyCode::Enter) => play_one_at_cursor(app, tx),
         // shift-A: play the row at cursor and queue everything
         // after it. distinct from bare Enter so /local + Enter on a
-        // 200-row dump doesn't silently bury the rodio thread under
+        // 200-row dump doesn't silently bury the audio backend under
         // 200 decode-init attempts.
         (MusicMode::Results, KeyCode::Char('A')) => play_from_cursor(app, tx),
         (MusicMode::Results, KeyCode::Char('f')) => {
@@ -4233,7 +4240,7 @@ fn resolve_then_goto(
 /// apply a queue-management action triggered from the result-panel
 /// action menu when the source command is the synthesized `queue`
 /// panel. mutates the local queue + reissues `PlayerCmd::Load` to
-/// keep the rodio sink in sync. position is the row's `position`
+/// keep the audio backend in sync. position is the row's `position`
 /// field as captured by the repl_keys queue synthesizer.
 fn handle_queue_action(
     app: &mut App,
@@ -4265,7 +4272,7 @@ fn handle_queue_action(
     }
     match sentinel {
         "__queue_jump__" => {
-            // re-queue starting from `pos` so rodio's sink replays
+            // re-queue starting from `pos` so the audio backend replays
             // from the requested track. preserves the rest of the
             // queue order. local_path/blob_id resolution mirrors
             // play_collection's path-collect step.
@@ -4371,8 +4378,9 @@ fn adjust_volume(app: &mut App, delta: f32, tx: &mpsc::UnboundedSender<AppAction
 /// applies one command received over the unix control socket (see
 /// `tty::control_socket`) - reuses the exact same helpers the local
 /// player-row key handler does, so a physical button behaves
-/// identically to its keyboard equivalent regardless of whether rodio
-/// or mpv is actually driving playback right now.
+/// identically to its keyboard equivalent regardless of whether the
+/// in-process libmpv backend or mpv is actually driving playback right
+/// now.
 fn apply_control_socket_command(
     app: &mut App,
     cmd: super::control_socket::ControlSocketCommand,
@@ -4541,7 +4549,8 @@ fn control_socket_state_json(app: &App) -> String {
 }
 
 /// builds the `list_audio_devices` reply for whichever backend is
-/// actually active (rodio, or mpv for video/audio-fallback) -
+/// actually active (the in-process libmpv backend, or mpv for
+/// video/audio-fallback) -
 /// `{"backend":"audio"|"video","devices":[{"name":...,"description":...}]}`.
 fn control_socket_devices_json(app: &App) -> String {
     let (backend, devices): (&str, &[crate::ratcore::app::AudioDeviceInfo]) =
@@ -4725,7 +4734,7 @@ fn on_repl_key(
     }
 }
 
-/// run a slash action that needs the tty's audio player (rodio) or
+/// run a slash action that needs the tty's audio player (libmpv) or
 /// transport (search). called by `on_repl_key` when
 /// [`apply_navigation`] returns `Run(_)`.
 fn execute_slash_with_player(

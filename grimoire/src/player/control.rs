@@ -265,37 +265,6 @@ impl PlayerSnapshot {
     }
 }
 
-/// supervisor restart policy.
-///
-/// applied by the rodio supervisor (phase 2) — captured here so the
-/// types live next to the rest of the control surface and don't
-/// drift.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ZodSchema)]
-pub struct RestartPolicy {
-    /// max number of restart attempts within `window_ms`. exceeding
-    /// this emits a terminal `BackendDown` and waits for a fresh
-    /// command before trying again.
-    pub max_restarts: u32,
-    /// rolling window for `max_restarts` accounting.
-    pub window_ms: u64,
-    /// initial backoff between restart attempts.
-    pub initial_backoff_ms: u64,
-    /// upper bound for the exponential backoff.
-    pub max_backoff_ms: u64,
-}
-
-impl Default for RestartPolicy {
-    /// 5 restarts in 30s, 100ms..=2s exponential backoff.
-    fn default() -> Self {
-        Self {
-            max_restarts: 5,
-            window_ms: 30_000,
-            initial_backoff_ms: 100,
-            max_backoff_ms: 2_000,
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -336,14 +305,6 @@ mod tests {
         assert_eq!(snap.state, Some(PlayerState::Stopped));
         assert_eq!(snap.position_ms, 0);
         assert!(snap.current_index.is_none());
-    }
-
-    #[test]
-    fn restart_policy_defaults_are_sensible() {
-        let p = RestartPolicy::default();
-        assert!(p.max_restarts >= 1);
-        assert!(p.window_ms > p.initial_backoff_ms);
-        assert!(p.max_backoff_ms >= p.initial_backoff_ms);
     }
 
     #[test]

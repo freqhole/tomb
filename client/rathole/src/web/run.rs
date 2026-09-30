@@ -1627,7 +1627,7 @@ fn on_action(app: &mut App, action: AppAction, action_tx: &mpsc::UnboundedSender
                 _ => return,
             }
         }
-        // music view is browse-only on web today (no rodio in wasm).
+        // music view is browse-only on web today (no libmpv in wasm).
         // search results would arrive via a public-route fetch in a
         // future change; just no-op for now.
         AppAction::MusicSearchResults { query, result } => {
@@ -1878,7 +1878,7 @@ fn request_pending_knocks(transport: Rc<dyn Transport>, tx: mpsc::UnboundedSende
 }
 
 /// minimal music-view key handler for the web shell. supports the
-/// search box + browse mode but no playback (no rodio in wasm).
+/// search box + browse mode but no playback (no libmpv in wasm).
 fn on_music_key_web(app: &mut App, code: KeyCode, action_tx: &mpsc::UnboundedSender<AppAction>) {
     use crate::ratcore::app::MusicMode;
     use crate::ratcore::text_input as ti;

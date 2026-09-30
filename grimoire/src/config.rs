@@ -48,18 +48,6 @@ pub struct GrimoireConfig {
     /// background job processor configuration (concurrency, etc.)
     #[serde(default)]
     pub jobs: JobsConfig,
-    /// native audio backend tuning (rodio/cpal). all fields optional;
-    /// omit the whole section to accept defaults.
-    #[serde(default)]
-    pub audio: AudioConfig,
-
-    /// gst-based video window tuning (linux-only, charnel desktop app).
-    /// separate from `[audio]` since the video window's own audio sink
-    /// commonly wants a different (usually larger) buffer than the
-    /// dedicated music player. all fields optional; omit the whole
-    /// section to accept defaults.
-    #[serde(default)]
-    pub video: VideoConfig,
 
     /// rathole's `--player`/`/player` pairing-screen image rendering
     /// (qr code, now-playing album art). all fields optional; omit the
@@ -86,64 +74,6 @@ pub struct GrimoireConfig {
     /// back to disk without re-running cwd-based config discovery.
     #[serde(default, skip)]
     pub loaded_from: Option<PathBuf>,
-}
-
-/// native audio backend (rodio/cpal) tuning. used by the
-/// `rodio-playback` feature; ignored when the feature is off. all
-/// fields are optional — omit the `[audio]` section to accept the
-/// built-in defaults.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct AudioConfig {
-    /// linux-only: cpal output period size, in frames. raise on
-    /// pipewire/pulseaudio systems that still glitch under load
-    /// (vm guests, busy desktops). when unset, the backend uses
-    /// 2048 (~43ms @ 48k). try 4096 or 8192 if 2048 still stutters;
-    /// each doubling roughly doubles output latency but adds
-    /// proportional headroom against scheduler jitter. ignored on
-    /// macos / windows.
-    #[serde(default)]
-    pub linux_buffer_frames: Option<u32>,
-}
-
-/// video window tuning + player choice (linux-only, charnel desktop app).
-/// all fields are optional — omit the `[video]` section to accept the
-/// built-in defaults.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct VideoConfig {
-    /// linux-only: use `mpv` (spawned as a subprocess, controlled over its
-    /// own json ipc socket) instead of the built-in gstreamer/gtk video
-    /// window. an escape hatch for systems where gstreamer's pipewire
-    /// audio sink stutters no matter how the pipeline is tuned - mpv owns
-    /// its own audio/video path entirely, sidestepping the issue outright.
-    /// requires `mpv` to be installed and on `PATH`. output device
-    /// selection isn't wired up for this backend yet (mpv just follows
-    /// whatever the system/pipewire default sink is). ignored on
-    /// macos / windows (the built-in webview `<video>` element is used
-    /// there regardless of this setting).
-    #[serde(default)]
-    pub linux_use_mpv: bool,
-    /// linux-only: force a specific GStreamer audio sink element by its
-    /// registered factory name (e.g. "alsasink", "pulsesink", "jackaudiosink",
-    /// "pipewiresink") instead of the built-in pipewiresink-first/
-    /// autoaudiosink-fallback logic in `make_audio_sink`. useful both to
-    /// debug/compare sinks on a system where the default stutters, and for
-    /// a user to pin whichever sink actually behaves well on their own
-    /// hardware. the video window's own diagnostics (surfaced in the
-    /// webview console as `[video-window] diagnostics`) list every audio
-    /// sink factory actually registered on the system to choose from.
-    /// falls back to the normal logic if the named element fails to build
-    /// (e.g. a typo, or a sink that's not actually installed). ignored on
-    /// macos / windows.
-    #[serde(default)]
-    pub linux_audio_sink: Option<String>,
-    /// linux-only: sets the forced `linux_audio_sink`'s `device` property
-    /// to this value, if it has one - the common case is a raw ALSA
-    /// device string for `alsasink`, e.g. `"hw:2,0"` (card 2, device 0)
-    /// to target hardware directly, bypassing pipewire/pulseaudio
-    /// entirely. ignored when `linux_audio_sink` is unset, or when the
-    /// forced sink has no `device` property.
-    #[serde(default)]
-    pub linux_audio_sink_device: Option<String>,
 }
 
 /// how rathole's `--player`/`/player` pairing screen renders the QR
@@ -1139,8 +1069,6 @@ pub fn init_config_for_tests() {
         radio: None,
         client: None,
         jobs: JobsConfig::default(),
-        audio: AudioConfig::default(),
-        video: VideoConfig::default(),
         player_pairing: PlayerPairingConfig::default(),
         control_socket: ControlSocketConfig::default(),
         updates: UpdatesConfig::default(),
@@ -2329,8 +2257,6 @@ mod tests {
             radio: None,
             client: None,
             jobs: JobsConfig::default(),
-            audio: AudioConfig::default(),
-            video: VideoConfig::default(),
             player_pairing: PlayerPairingConfig::default(),
             control_socket: ControlSocketConfig::default(),
             updates: UpdatesConfig::default(),
@@ -2384,8 +2310,6 @@ mod tests {
             radio: None,
             client: None,
             jobs: JobsConfig::default(),
-            audio: AudioConfig::default(),
-            video: VideoConfig::default(),
             player_pairing: PlayerPairingConfig::default(),
             control_socket: ControlSocketConfig::default(),
             updates: UpdatesConfig::default(),
@@ -2437,8 +2361,6 @@ mod tests {
             radio: None,
             client: None,
             jobs: JobsConfig::default(),
-            audio: AudioConfig::default(),
-            video: VideoConfig::default(),
             player_pairing: PlayerPairingConfig::default(),
             control_socket: ControlSocketConfig::default(),
             updates: UpdatesConfig::default(),

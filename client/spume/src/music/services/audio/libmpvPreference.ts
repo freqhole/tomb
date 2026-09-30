@@ -1,9 +1,8 @@
-// libmpv opt-in preference state - the "experimental player" toggle, now
-// pointed at libmpv instead of rodio (see
-// docs/libmpv-experimental-player-plan.md's "config placement decision").
-// split out the same way rodioPreference.ts is, for the same reason
-// (blobResolver.ts can read isLibmpvEnabled() without statically importing
-// select.ts's RodioBackend import chain).
+// libmpv opt-in preference state - the "experimental player" toggle.
+//
+// split out of select.ts for the same reason blobResolver.ts needs it:
+// blobResolver.ts can read isLibmpvEnabled() without statically importing
+// select.ts's RodioBackend import chain.
 //
 // source of truth: charnel's `FreqholeAppConfig.use_libmpv_playback`.
 // this module caches the value synchronously so callers can stay

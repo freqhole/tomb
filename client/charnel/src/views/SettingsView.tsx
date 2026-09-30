@@ -60,9 +60,7 @@ export default function SettingsView() {
   // through libmpv instead of the html `<audio>`/`<video>` elements.
   // defaults on for linux (replaces the embedded loopback http server
   // hack for audio, and is the only way to get working video at all
-  // there) and off elsewhere until we've burned it in. the older
-  // rodio-only toggle (`use_rodio_playback`) still exists in config but
-  // is no longer surfaced here - see docs/libmpv-experimental-player-plan.md.
+  // there) and off elsewhere until we've burned it in.
   const [useLibmpvPlayback, setUseLibmpvPlayback] = createSignal(false);
   const [libmpvBusy, setLibmpvBusy] = createSignal(false);
   const [libmpvError, setLibmpvError] = createSignal("");

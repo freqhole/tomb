@@ -2,7 +2,7 @@
 //!
 //! kept ui- and shell-agnostic: parses raw input into a typed
 //! [`SlashAction`], and shells decide how to execute each variant
-//! (e.g. tty fires player commands directly via the rodio handle,
+//! (e.g. tty fires player commands directly via the libmpv handle,
 //! web routes through the html-audio runtime when it lands).
 //!
 //! the parser is permissive: leading/trailing whitespace is

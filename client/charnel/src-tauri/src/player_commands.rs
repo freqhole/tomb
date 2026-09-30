@@ -1,19 +1,20 @@
 //! tauri commands + event bridge for the audio player.
 //!
-//! desktop-only. wraps whichever [`grimoire::player::PlayerController`]
-//! impl is active (rodio or libmpv, picked per `use_libmpv_playback` -
-//! see `get_or_init_global`) with two surfaces:
+//! desktop-only. wraps the in-process [`grimoire::player::LibmpvController`]
+//! (a [`grimoire::player::PlayerController`] impl), active whenever
+//! `use_libmpv_playback` is on - see `get_or_init_global` - with two
+//! surfaces:
 //!
 //! - `player_send(cmd)` — invoke handler that forwards a
-//!   [`PlayerCommand`] into the supervised audio thread.
+//!   [`PlayerCommand`] into the audio thread.
 //! - `player_event` tauri event — every [`PlayerEvent`] the
-//!   supervisor emits is re-emitted through the webview so spume's
+//!   backend emits is re-emitted through the webview so spume's
 //!   `RodioBackend` can `listen()` for it.
 //!
 //! the controller is lazily constructed on first use via a
 //! [`tokio::sync::OnceCell`] held in tauri-managed state. this
 //! avoids paying the audio-device init cost during app startup
-//! (and avoids spamming logs on machines where rodio fails to
+//! (and avoids spamming logs on machines where libmpv fails to
 //! open).
 //!
 //! gated to desktop targets via `#[cfg(...)]` in `lib.rs`.
@@ -21,8 +22,7 @@
 use std::sync::Arc;
 
 use grimoire::player::{
-    spawn_libmpv_player, spawn_player, NoopPlayerController, PlayerCommand, PlayerController,
-    RestartPolicy,
+    spawn_libmpv_player, NoopPlayerController, PlayerCommand, PlayerController,
 };
 use tauri::{AppHandle, Emitter, State};
 use tokio::sync::OnceCell;
@@ -32,13 +32,10 @@ use tracing::{debug, warn};
 /// `client/spume/src/music/services/audio/backends/rodioBackend.ts`.
 pub const PLAYER_EVENT: &str = "freqhole:player_event";
 
-/// process-global player, behind a trait object so the concrete
-/// backend (rodio vs. libmpv, picked at first use per
-/// `FreqholeAppConfig::use_libmpv_playback`) can vary without any
-/// other code in this file - or spume's `RodioBackend` TS client -
-/// needing to know or care which one is live. lazily spawned on
-/// first use from a tauri command (`player_send` / `player_init` /
-/// `player_snapshot`).
+/// process-global player, behind a trait object so callers - or spume's
+/// `RodioBackend` TS client - never need to know or care about the
+/// concrete backend type. lazily spawned on first use from a tauri
+/// command (`player_send` / `player_init` / `player_snapshot`).
 ///
 /// having a single instance ensures every local-control command
 /// drives the same audio device. clone the `Arc` freely.
@@ -49,28 +46,28 @@ static GLOBAL_PLAYER: OnceCell<Arc<dyn PlayerController>> = OnceCell::const_new(
 /// the responsibility of [`PlayerState::ensure_event_pump`] (which
 /// needs an `AppHandle`).
 ///
-/// picks libmpv when `use_libmpv_playback` is on (the "experimental
-/// player" toggle - see `app_config.rs`), else rodio. a runtime failure
-/// starting libmpv falls back to a silent no-op controller rather than
-/// panicking - same "never fatal" posture `media_session.rs` already
-/// takes for a missing platform media service.
+/// only starts libmpv when `use_libmpv_playback` is on (the
+/// "experimental player" toggle - see `app_config.rs`); otherwise (or
+/// on a runtime failure starting libmpv) falls back to a silent no-op
+/// controller rather than panicking - same "never fatal" posture
+/// `media_session.rs` already takes for a missing platform media
+/// service.
 async fn get_or_init_global(app: &AppHandle) -> Arc<dyn PlayerController> {
     GLOBAL_PLAYER
         .get_or_init(|| async {
             let use_libmpv = crate::app_config::FreqholeAppConfig::load(app)
                 .map(|c| c.use_libmpv_playback)
                 .unwrap_or_else(crate::app_config::default_use_libmpv_playback);
-            if use_libmpv {
-                return match spawn_libmpv_player() {
-                    Ok(ctl) => Arc::new(ctl) as Arc<dyn PlayerController>,
-                    Err(e) => {
-                        warn!(error = %e, "failed to start libmpv audio backend; falling back to no-op");
-                        Arc::new(NoopPlayerController::new()) as Arc<dyn PlayerController>
-                    }
-                };
+            if !use_libmpv {
+                return Arc::new(NoopPlayerController::new()) as Arc<dyn PlayerController>;
             }
-            let ctl = spawn_player(RestartPolicy::default());
-            Arc::new(ctl) as Arc<dyn PlayerController>
+            match spawn_libmpv_player() {
+                Ok(ctl) => Arc::new(ctl) as Arc<dyn PlayerController>,
+                Err(e) => {
+                    warn!(error = %e, "failed to start libmpv audio backend; falling back to no-op");
+                    Arc::new(NoopPlayerController::new()) as Arc<dyn PlayerController>
+                }
+            }
         })
         .await
         .clone()
@@ -125,7 +122,7 @@ fn spawn_event_pump(app: AppHandle, controller: Arc<dyn PlayerController>) {
         loop {
             match rx.recv().await {
                 Ok(ev) => {
-                    crate::media_session::on_rodio_event(&app, &ev);
+                    crate::media_session::on_player_event(&app, &ev);
                     if let Err(e) = app.emit(PLAYER_EVENT, &ev) {
                         warn!(error = %e, "failed to emit player event to webview");
                     }

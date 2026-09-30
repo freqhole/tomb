@@ -26,7 +26,7 @@ mod maintenance;
 mod migrate_to_haruspex;
 mod migrate_to_reliquary;
 mod music;
-#[cfg(feature = "rodio-playback")]
+#[cfg(feature = "libmpv-playback")]
 mod radio;
 mod rathole_remote;
 mod sync;
@@ -45,7 +45,7 @@ pub use federation::FederationAction;
 pub use jobs::JobAction;
 pub use maintenance::MaintenanceAction;
 pub use music::MusicAction;
-#[cfg(feature = "rodio-playback")]
+#[cfg(feature = "libmpv-playback")]
 pub use radio::RadioAction;
 pub use rathole_remote::RatholeRemoteAction;
 pub use sync::SyncAction;
@@ -268,7 +268,7 @@ pub async fn handle_sync(action: SyncAction, json_output: bool) -> anyhow::Resul
     utils::print_and_exit(output, format);
 }
 
-#[cfg(feature = "rodio-playback")]
+#[cfg(feature = "libmpv-playback")]
 pub async fn handle_radio(action: RadioAction, json_output: bool) -> anyhow::Result<()> {
     let format = OutputFormat::from_json_flag(json_output);
     let output = radio::handle_command(action).await;

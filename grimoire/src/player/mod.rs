@@ -10,8 +10,8 @@
 //!   (tauri commands) ever depend on.
 //! - a [`NoopPlayerController`] for tests + headless callers.
 //!
-//! the actual rodio backend + supervisor live behind the
-//! `rodio-playback` cargo feature.
+//! the actual libmpv backend lives behind the `libmpv-playback` cargo
+//! feature.
 //!
 //! design rule: **the shared core has zero knowledge of which
 //! frontend is calling it.** nothing in this module imports tauri,
@@ -23,27 +23,22 @@
 //! tests, no config example ever shipped, no docs) - see repo memory
 //! `tomb-grimoire-player-alpn-half-baked.md` for the full trace. this
 //! module's local-only surface (tauri commands driving the same-host
-//! rodio backend) is unaffected and remains the real, load-bearing use.
+//! libmpv backend) is unaffected and remains the real, load-bearing use.
+//!
+//! rodio (the original audio backend) and its supervisor were removed
+//! 2026-09-29 once libmpv reached parity on every platform (audio +
+//! video, charnel and rathole) - see
+//! `docs/libmpv-experimental-player-plan.md`'s ripout phase.
 
 pub mod control;
 #[cfg(feature = "libmpv-playback")]
 pub mod libmpv;
 pub mod noop;
 
-#[cfg(feature = "rodio-playback")]
-pub mod rodio;
-#[cfg(feature = "rodio-playback")]
-pub mod supervisor;
-
-pub use control::{
-    AudioDeviceInfo, PlayerCommand, PlayerEvent, PlayerSnapshot, PlayerState, RestartPolicy,
-};
+pub use control::{AudioDeviceInfo, PlayerCommand, PlayerEvent, PlayerSnapshot, PlayerState};
 #[cfg(feature = "libmpv-playback")]
 pub use libmpv::{spawn_libmpv_player, LibmpvController};
 pub use noop::NoopPlayerController;
-
-#[cfg(feature = "rodio-playback")]
-pub use supervisor::{spawn_player, RodioController};
 
 use crate::error::GrimoireResult;
 use async_trait::async_trait;

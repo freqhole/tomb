@@ -16,7 +16,7 @@ mod player_commands;
 mod player_pairing_commands;
 #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
 mod player_commands {
-    //! mobile fallback: rodio is desktop-only. these stubs satisfy the
+    //! mobile fallback: libmpv is desktop-only. these stubs satisfy the
     //! single `invoke_handler!` list so spume can call them on every
     //! target; on mobile they reply with a structured "unsupported"
     //! error and the frontend falls back to the html backend.
@@ -32,17 +32,17 @@ mod player_commands {
 
     #[tauri::command]
     pub async fn player_send(_cmd: Value) -> Result<(), String> {
-        Err("rodio backend is desktop-only".to_string())
+        Err("libmpv backend is desktop-only".to_string())
     }
 
     #[tauri::command]
     pub async fn player_snapshot() -> Result<Value, String> {
-        Err("rodio backend is desktop-only".to_string())
+        Err("libmpv backend is desktop-only".to_string())
     }
 
     #[tauri::command]
     pub async fn player_init() -> Result<(), String> {
-        Err("rodio backend is desktop-only".to_string())
+        Err("libmpv backend is desktop-only".to_string())
     }
 }
 #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
@@ -454,9 +454,9 @@ pub fn run() {
         .manage(PendingDeepLinks::default())
         .register_uri_scheme_protocol(media_protocol::SCHEME, media_protocol::handler);
 
-    // rodio player state. on desktop this is the real supervised
-    // controller-holder; on mobile it's a zero-sized stub so the
-    // single invoke_handler list works on every target.
+    // libmpv player state. on desktop this is the real controller-holder;
+    // on mobile it's a zero-sized stub so the single invoke_handler list
+    // works on every target.
     let builder = builder.manage(player_commands::PlayerState::new());
 
     let builder = builder
@@ -671,7 +671,7 @@ pub fn run() {
                 tracing::info!(elapsed_ms = %boot_start.elapsed().as_millis(), "boot: migrations done");
 
                 // (the embedded http loopback media server used to be
-                // spawned here. it's been removed in favor of the rodio
+                // spawned here. it's been removed in favor of the libmpv
                 // backend, which bypasses html `<audio>` entirely on linux.
                 // see `client/spume/src/music/services/audio/`.)
 
@@ -949,8 +949,6 @@ pub fn run() {
             commands::get_chromeless_title_bar,
             commands::set_chromeless_title_bar,
             commands::supports_chromeless_title_bar,
-            commands::get_rodio_playback,
-            commands::set_rodio_playback,
             commands::get_libmpv_playback,
             commands::set_libmpv_playback,
             external_storage::commands::external_storage_command,
@@ -1019,18 +1017,18 @@ pub fn run() {
             // single dispatch entry-point for wizard / settings admin ops
             admin_commands::admin_dispatch,
             admin_commands::admin_dispatch_remote,
-            // rust rodio player (desktop-real, mobile-stub)
+            // libmpv player (desktop-real, mobile-stub)
             player_commands::player_send,
             player_commands::player_snapshot,
             player_commands::player_init,
             // blob-to-local-path resolution (always compiled - the html
             // <audio> backend needs this on every platform, not just
-            // desktop rodio - see commands.rs's doc comments)
+            // desktop libmpv - see commands.rs's doc comments)
             commands::resolve_blob_path,
             commands::resolve_blob_path_by_blake3,
             commands::write_media_session_artwork,
-            // OS media session / now-playing controls for the rodio +
-            // gst video paths (desktop-real, mobile-stub - android has
+            // OS media session / now-playing controls for the libmpv
+            // audio + video paths (desktop-real, mobile-stub - android has
             // its own plugin instead)
             media_session::media_session_set_track,
             media_session::media_session_clear_track,

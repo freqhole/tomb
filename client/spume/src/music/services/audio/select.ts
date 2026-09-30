@@ -28,10 +28,6 @@
 // the wizard flips the toggle. in non-charnel mode there's a tiny
 // localStorage fallback so dev/test code can still exercise the path,
 // but there is no ui to set it.
-//
-// note: `use_rodio_playback`/`isRodioEnabled()` still exist (rust and ts
-// both) but are no longer wired to the visible toggle - see
-// docs/libmpv-experimental-player-plan.md.
 
 import { isCharnelMode } from "../../../app/services/charnel/mode";
 import type { PlayerBackend } from "./backend";

@@ -56,10 +56,12 @@ pub fn draw(frame: &mut Frame, area: Rect, app: &App) {
     let m = &app.state.ephemeral.music;
     let now = m.currently_playing();
 
-    // mpv (real video, or an audio-fallback for a song rodio couldn't
-    // decode - see `tty::queue::try_mpv_audio_fallback`) reports its
-    // own state/position/duration separately from rodio's `MusicState`
-    // fields, which otherwise sit frozen at whatever they last held.
+    // mpv (real video, or an audio-fallback for a song the in-process
+    // libmpv backend couldn't decode - see
+    // `tty::queue::try_mpv_audio_fallback`) reports its own
+    // state/position/duration separately from the audio backend's
+    // `MusicState` fields, which otherwise sit frozen at whatever they
+    // last held.
     let video_active = m.queue_video_active || m.audio_fallback_active;
     let vp = &app.state.ephemeral.video_player;
     let ascii = use_ascii_glyphs();

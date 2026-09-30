@@ -4,7 +4,9 @@
 //! (`--input-ipc-server`), sends `VideoCommand`s as ipc requests, and
 //! translates mpv's own event/property-change stream back into
 //! `AppAction::VideoPlayerEvent`s — mirrors exactly how
-//! `tty::player::RodioPlayer` bridges grimoire's rodio controller.
+//! `tty::player::LibmpvPlayer` bridges grimoire's in-process libmpv
+//! controller (this one shells out instead, since it's rendering to
+//! its own window rather than audio-only).
 //!
 //! kept as a single long-lived `mpv --idle=yes` process rather than
 //! respawning per file, so video playback and still-image display
@@ -404,7 +406,7 @@ impl VideoPlayer for MpvPlayer {
             }
             VideoCommand::Enqueue { paths } => {
                 // plain `append` (never `append-play`): mpv's own "was the
-                // playlist empty" idle check has no idea rathole's rodio
+                // playlist empty" idle check has no idea rathole's audio
                 // backend might already be playing audio concurrently -
                 // `append-play` would start this video immediately even
                 // while a song is actively playing. whether a genuinely

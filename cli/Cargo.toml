@@ -12,14 +12,14 @@ name = "cli"
 path = "src/lib.rs"
 
 [features]
-default = ["server/webauthn", "rodio-playback"]
+default = ["server/webauthn", "libmpv-playback"]
 webauthn = ["server/webauthn"]
 # enable platform audio playback for the `freqhole player daemon`
-# subcommand. propagates to grimoire's `rodio-playback` feature so
-# `grimoire::player::spawn_player` is available. headless cross-
-# compile targets without cpal can disable this with
+# subcommand. propagates to grimoire's `libmpv-playback` feature so
+# `grimoire::player::spawn_libmpv_player` is available. headless cross-
+# compile targets without system libmpv can disable this with
 # `--no-default-features --features webauthn`.
-rodio-playback = ["grimoire/rodio-playback"]
+libmpv-playback = ["grimoire/libmpv-playback"]
 
 [dependencies]
 grimoire = { path = "../grimoire", default-features = false }
