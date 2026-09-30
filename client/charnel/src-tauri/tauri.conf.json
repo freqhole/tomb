@@ -72,13 +72,6 @@
           "/usr/share/metainfo/net.freqhole.freqhole.metainfo.xml": "../../../flatpak/net.freqhole.freqhole.metainfo.xml"
         }
       }
-    },
-    "macOS": {
-      "frameworks": [
-        "mpv-runtime/lib/libmpv.2.dylib",
-        "mpv-runtime/lib/libgraphite2.3.dylib",
-        "mpv-runtime/lib/libvulkan.1.dylib"
-      ]
     }
   },
   "plugins": {
