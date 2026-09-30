@@ -7,7 +7,6 @@
     "beforeDevCommand": "npm run dev:all",
     "devUrl": "http://localhost:1420",
     "beforeBuildCommand": "npm run build:wizard && node scripts/build-spume-for-charnel.mjs",
-    "beforeBundleCommand": "scripts/fixup-mpv-install-name.sh",
     "frontendDist": "../../spume/dist"
   },
   "app": {

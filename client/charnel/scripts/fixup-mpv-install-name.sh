@@ -14,7 +14,7 @@
 # and all three end up in the same Contents/Frameworks directory together.
 set -euo pipefail
 
-TARGET_TRIPLE="${TAURI_ENV_TARGET_TRIPLE:?TAURI_ENV_TARGET_TRIPLE not set - run this via tauri's beforeBundleCommand hook}"
+TARGET_TRIPLE="${TAURI_ENV_TARGET_TRIPLE:?TAURI_ENV_TARGET_TRIPLE not set - run this via the beforeBundleCommand hook}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 BINARY="$REPO_ROOT/target/$TARGET_TRIPLE/release/charnel"
 

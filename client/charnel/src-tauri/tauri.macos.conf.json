@@ -1,0 +1,5 @@
+{
+    "build": {
+        "beforeBundleCommand": "scripts/fixup-mpv-install-name.sh"
+    }
+}
