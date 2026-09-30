@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- bundled libmpv runs its built-in stats/console/auto_profiles/etc
+	     scripts through LuaJIT, which JITs code into raw mmap(PROT_EXEC)
+	     pages rather than using Apple's MAP_JIT/pthread_jit_write_protect_np
+	     convention - hardened runtime's default executable-memory
+	     protection kills the process the first time one of those scripts
+	     actually runs, with a misleading "Code Signature Invalid"/SIGKILL
+	     (confirmed 2026-09-30 via a real crash report: fault address sat
+	     inside an anonymous VM_ALLOCATE r-x region, not any mapped dylib).
+	     allow-jit alone (WKWebView's own JS engine already gets this) is
+	     not enough for LuaJIT's style of codegen - needs the stronger
+	     unsigned-executable-memory entitlement too. -->
+	<key>com.apple.security.cs.allow-jit</key>
+	<true/>
+	<key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+	<true/>
+</dict>
+</plist>
