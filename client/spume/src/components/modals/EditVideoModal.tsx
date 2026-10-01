@@ -750,6 +750,13 @@ export function EditVideoModal(props: EditVideoModalProps) {
 
       setPendingNewSeriesName(null);
       setPendingNewSeason(null);
+      // invalidate before closing so series detail / season rows / grid
+      // tiles all refresh even if the modal unmounts right after - the
+      // update mutation's own onSuccess only covers videos.all()/detail(),
+      // missing series.all() (and, via tanstack's prefix matching, every
+      // series.detail()/series.seasons() under it) whenever the save
+      // changed series/season membership.
+      invalidateVideoQueries();
       toast.success("video updated");
       props.onSave?.();
     } catch (err) {
