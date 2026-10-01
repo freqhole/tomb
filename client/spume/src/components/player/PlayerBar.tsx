@@ -12,6 +12,21 @@ import { VolumeControl } from "./VolumeControl";
 import { PlaybackProgressBar } from "./PlaybackProgressBar";
 import { useLocalVideoPosterUrl } from "../../video/components/VideoCard";
 
+// identity signature for an image list - two lists are "the same" for
+// display purposes if every entry resolves to the same underlying blob in
+// the same order, regardless of array/object reference.
+function imageSignature(img: ImageMetadata): string {
+  return `${img.local_blob_id ?? ""}|${img.remote_blob_id ?? ""}|${img.remote_url ?? ""}|${img.blob_type ?? ""}|${img.is_primary ? 1 : 0}`;
+}
+function imagesEqual(a: ImageMetadata[] | undefined, b: ImageMetadata[] | undefined): boolean {
+  if (a === b) return true;
+  if (!a || !b || a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (imageSignature(a[i]) !== imageSignature(b[i])) return false;
+  }
+  return true;
+}
+
 /** poster fields the bar's thumbnail slot needs - a subset of `QueuedVideo`. */
 export interface PlayerBarVideo {
   /** video id, needed for the favorite toggle callback */
@@ -204,6 +219,18 @@ export function PlayerBar(props: PlayerBarProps) {
   const showNext = () => props.showNext ?? true;
   const isLiveStream = () => props.isLiveStream ?? false;
   const songMetaClickable = () => !!props.onSongMetaClick && !!props.song;
+  // `props.song` can get a fresh object reference for reasons that don't
+  // affect which image should show (e.g. an async artist_images patch
+  // landing, or any other field-only update) - getSongDisplayImages()
+  // rebuilds a new merged array every call, which otherwise retriggers
+  // MediaImage's resolution effect and flickers the art. compare by the
+  // actual image identities instead of array/object reference so the
+  // bar's artwork only changes when the images themselves actually did.
+  const songImages = createMemo(
+    () => (props.song ? getSongDisplayImages(props.song) : undefined),
+    undefined,
+    { equals: imagesEqual }
+  );
   // fraction complete for the removable-storage sync ring, or null while
   // busy but no per-song progress has arrived yet (falls back to a plain
   // indeterminate spin).
@@ -381,7 +408,7 @@ export function PlayerBar(props: PlayerBarProps) {
                 onClick={() => props.onImageClick?.()}
               >
                 <MediaImage
-                  images={props.song ? getSongDisplayImages(props.song) : undefined}
+                  images={songImages()}
                   blobId={props.song?.thumbnailBlobId}
                   imageUrl={props.song?.thumbnailUrl}
                   alt={props.song?.title || "song artwork"}
@@ -626,7 +653,7 @@ export function PlayerBar(props: PlayerBarProps) {
                   onClick={() => props.onImageClick?.()}
                 >
                   <MediaImage
-                    images={props.song ? getSongDisplayImages(props.song) : undefined}
+                    images={songImages()}
                     blobId={props.song?.thumbnailBlobId}
                     imageUrl={props.song?.thumbnailUrl}
                     alt={props.song?.title || "song artwork"}
