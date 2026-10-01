@@ -477,6 +477,27 @@ fn read_libmpv_events(events_client: Mpv, events: broadcast::Sender<PlayerEvent>
     // pair causes phantom playback and an auto-advance to the next
     // queue item on every app boot.
     let mut ever_loaded = false;
+
+    // stall watchdog: confirmed for real (2026-10-01, a freshly-synced
+    // remote song) that mpv can report `pause=false` right after a Load
+    // (and `apply_command`'s own optimistic `Playing` emit agrees) while
+    // never actually producing audio - no error, no EndFile, nothing -
+    // because `time-pos` only sends a PropertyChange notification when
+    // the value actually changes, so a stalled decoder/AO that never
+    // advances past 0 never generates ANY event to correct the
+    // now-permanently-wrong "Playing" state. fixed by the user manually
+    // pausing then unpausing, which kicks mpv's AO into actually
+    // starting - this watchdog automates exactly that, once, per track,
+    // only if nothing has genuinely progressed within a grace window.
+    // deliberately NOT a loop/retry: a single nudge mirrors the known
+    // manual fix; if the file is genuinely unplayable, the nudge is a
+    // harmless no-op and the existing EndFile/Error path still fires
+    // normally afterward.
+    const STALL_GRACE: std::time::Duration = std::time::Duration::from_millis(2_500);
+    let mut loaded_at: Option<std::time::Instant> = None;
+    let mut seen_progress = false;
+    let mut nudged_this_track = false;
+
     loop {
         match events_client.wait_event(1.0) {
             Some(Ok(MpvEvent::PropertyChange {
@@ -484,6 +505,9 @@ fn read_libmpv_events(events_client: Mpv, events: broadcast::Sender<PlayerEvent>
                 change: PropertyData::Double(position),
                 ..
             })) => {
+                if position > 0.0 {
+                    seen_progress = true;
+                }
                 let total = events_client.get_property::<f64>("duration").unwrap_or(0.0);
                 emit(
                     &events,
@@ -520,6 +544,9 @@ fn read_libmpv_events(events_client: Mpv, events: broadcast::Sender<PlayerEvent>
                     .unwrap_or_default();
                 if index >= 0 && !path.is_empty() {
                     ever_loaded = true;
+                    loaded_at = Some(std::time::Instant::now());
+                    seen_progress = false;
+                    nudged_this_track = false;
                     emit(
                         &events,
                         PlayerEvent::TrackChanged {
@@ -537,9 +564,11 @@ fn read_libmpv_events(events_client: Mpv, events: broadcast::Sender<PlayerEvent>
                 if !ever_loaded {
                     continue;
                 }
+                loaded_at = None;
                 emit(&events, PlayerEvent::Ended);
             }
             Some(Ok(MpvEvent::EndFile(reason))) if reason == mpv_end_file_reason::Error => {
+                loaded_at = None;
                 emit(
                     &events,
                     PlayerEvent::Error {
@@ -556,6 +585,27 @@ fn read_libmpv_events(events_client: Mpv, events: broadcast::Sender<PlayerEvent>
                 tracing::warn!(error = ?e, "[player] libmpv event error");
             }
             Some(Ok(_)) | None => {}
+        }
+
+        // checked every loop iteration (including the ~1s `None`
+        // timeout case, which is what actually gives this a real tick
+        // when nothing else is happening) rather than only in response
+        // to a specific event - a stall is defined by the ABSENCE of an
+        // event, so there's nothing to react to otherwise.
+        if let Some(since) = loaded_at {
+            if !seen_progress
+                && !nudged_this_track
+                && since.elapsed() >= STALL_GRACE
+                && events_client.get_property::<bool>("pause") == Ok(false)
+            {
+                nudged_this_track = true;
+                tracing::warn!(
+                    "[player] libmpv reported playing but time-pos never advanced after {:?} - nudging via pause/unpause",
+                    STALL_GRACE
+                );
+                let _ = events_client.set_property("pause", true);
+                let _ = events_client.set_property("pause", false);
+            }
         }
     }
 }
