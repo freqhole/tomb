@@ -85,6 +85,10 @@ pub struct SyncSongByBlake3Response {
     pub song_id: String,
     /// destination media blob id
     pub media_blob_id: String,
+    /// destination artist id the song is linked to - lets callers (e.g.
+    /// send-to-remote's per-song artist-image upload) attach artist images
+    /// without a separate lookup round-trip.
+    pub artist_id: String,
     /// final on-disk path of the audio file
     pub file_path: String,
     /// computed sha256 of the downloaded bytes

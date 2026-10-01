@@ -59,6 +59,7 @@ import {
 } from "../../../app/services/send/sendValidation";
 import { debug, info, warn, error as logError } from "../../../utils/logger";
 import type { RemoteSong } from "../../data/remote/adapters";
+import { RemoteMusicDataSource } from "../../data/remote/remoteSource";
 import type { ImageMetadata } from "../storage/types";
 import { readAudioFromOPFS } from "../opfs/helpers";
 import { ensureBlobServable } from "../../../lib/api/blobServing";
@@ -325,10 +326,51 @@ export async function sendToRemote(
   }
   info(TAG, `${lp} eligible songs: ${eligibleSongs.length}`);
 
+  // refresh every eligible song's images directly from the source backend
+  // before sending anything - whatever cache fed `songs` originally isn't
+  // guaranteed to reflect images added after the song was first loaded
+  // (e.g. a waveform generated well after import, or artist photos that
+  // were never fetched at all by this view). goes through the same
+  // Remote -> Transport abstraction as every other call in this file, so
+  // it works regardless of what source/dest actually are underneath.
+  // only `images`/`album_images`/`artist_images` are overwritten - other
+  // song fields (e.g. `opfs_path`, local-only) are left untouched.
+  if (eligibleSongs.length > 0) {
+    try {
+      const sourceDataSource = new RemoteMusicDataSource(source);
+      const fresh = await sourceDataSource.getSongsByIds(eligibleSongs.map((s) => s.id));
+      const freshById = new Map(fresh.map((s) => [s.id, s]));
+      eligibleSongs = eligibleSongs.map((s) => {
+        const freshSong = freshById.get(s.id);
+        if (!freshSong) return s;
+        return {
+          ...s,
+          images: freshSong.images,
+          album_images: freshSong.album_images,
+          artist_images: freshSong.artist_images,
+        };
+      });
+      info(
+        TAG,
+        `${lp} refreshed images for ${freshById.size}/${eligibleSongs.length} song(s) from source`
+      );
+    } catch (e) {
+      warn(
+        TAG,
+        `${lp} failed to refresh song images from source, using cached copies: ${String(e)}`
+      );
+    }
+  }
+
   // shared per-send cache: source-image bytes are fetched once and reused
   // across album / song / playlist uploads. dramatically cuts redundant
   // source-bandwidth when embedded artwork is repeated across N tracks.
   const imageCache = createImageBlobCache();
+
+  // artist images are keyed by dest artist_id, not by song/album - the same
+  // artist usually shows up across many songs (and the album itself), so
+  // this avoids re-uploading the same photo once per song.
+  const uploadedArtistIds = new Set<string>();
 
   // optional pre-check: ask dest which blobs it already has.
   let alreadyPresent: Set<string> = new Set();
@@ -341,6 +383,7 @@ export async function sendToRemote(
 
   // ---- ALBUM envelope + images ----
   let destAlbumId: string | null = null;
+  let destArtistIdFromAlbum: string | null = null;
   if (payload.kind === "album" && !retrySet) {
     progress.phase = "syncing-album";
     emit();
@@ -372,6 +415,7 @@ export async function sendToRemote(
         SyncAlbumResponseSchema.safeParse(v)
       );
       destAlbumId = data.album_id;
+      destArtistIdFromAlbum = data.artist_id;
       info(
         TAG,
         `${lp} sync_album ok: album_id=${data.album_id} artist_id=${data.artist_id} existing=${data.existing}`
@@ -397,6 +441,33 @@ export async function sendToRemote(
         destRemote: dest,
       }).catch((e) => {
         warn(TAG, `${lp} album image upload threw: ${String(e)}`);
+        return { attempted: 0, uploaded: 0, skipped: 0, failed: 0 };
+      });
+    }
+
+    // upload artist images too, keyed off the artist_id sync_album already
+    // resolved/created - representative artist images come from the first
+    // eligible song (all songs on an album share the same primary artist).
+    const albumArtistId = destArtistIdFromAlbum;
+    const albumArtistImages = eligibleSongs[0]?.artist_images;
+    if (
+      albumArtistId &&
+      !uploadedArtistIds.has(albumArtistId) &&
+      albumArtistImages &&
+      albumArtistImages.length > 0
+    ) {
+      uploadedArtistIds.add(albumArtistId);
+      await uploadImagesToDest({
+        sourceTransport,
+        destTransport,
+        entityType: "artist",
+        entityId: albumArtistId,
+        images: albumArtistImages,
+        logPrefix: lp,
+        imageCache,
+        destRemote: dest,
+      }).catch((e) => {
+        warn(TAG, `${lp} artist image upload threw: ${String(e)}`);
         return { attempted: 0, uploaded: 0, skipped: 0, failed: 0 };
       });
     }
@@ -482,6 +553,7 @@ export async function sendToRemote(
     }
 
     let destSongId: string | null = null;
+    let destArtistId: string | null = null;
     try {
       info(
         TAG,
@@ -500,6 +572,7 @@ export async function sendToRemote(
         (v) => SyncSongByBlake3ResponseSchema.safeParse(v)
       );
       destSongId = data.song_id;
+      destArtistId = data.artist_id;
       progress.syncedSongs += 1;
       progress.syncedBlake3s.push(blake3);
       info(
@@ -540,6 +613,31 @@ export async function sendToRemote(
         destRemote: dest,
       }).catch((e) => {
         warn(TAG, `${lp} song image upload threw for "${song.title}": ${String(e)}`);
+        return { attempted: 0, uploaded: 0, skipped: 0, failed: 0 };
+      });
+    }
+
+    // upload this song's artist images too, keyed off the dest artist_id
+    // the song sync just resolved/created - deduped per run since many
+    // songs (and the album itself) typically share one artist.
+    if (
+      destArtistId &&
+      !uploadedArtistIds.has(destArtistId) &&
+      song.artist_images &&
+      song.artist_images.length > 0
+    ) {
+      uploadedArtistIds.add(destArtistId);
+      await uploadImagesToDest({
+        sourceTransport,
+        destTransport,
+        entityType: "artist",
+        entityId: destArtistId,
+        images: song.artist_images,
+        logPrefix: `${lp} "${song.title}"`,
+        imageCache,
+        destRemote: dest,
+      }).catch((e) => {
+        warn(TAG, `${lp} artist image upload threw for "${song.title}": ${String(e)}`);
         return { attempted: 0, uploaded: 0, skipped: 0, failed: 0 };
       });
     }

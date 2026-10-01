@@ -6079,14 +6079,6 @@ export const RequeryOverrideSchema = z.object({
 });
 export type RequeryOverride = z.infer<typeof RequeryOverrideSchema>;
 
-export const RestartPolicySchema = z.object({
-  max_restarts: z.number(),
-  window_ms: z.number(),
-  initial_backoff_ms: z.number(),
-  max_backoff_ms: z.number()
-});
-export type RestartPolicy = z.infer<typeof RestartPolicySchema>;
-
 export const RevokeOwnInviteRequestSchema = z.object({
   code: z.string()
 });
@@ -7113,6 +7105,7 @@ export type SyncSongByBlake3Request = z.infer<typeof SyncSongByBlake3RequestSche
 export const SyncSongByBlake3ResponseSchema = z.object({
   song_id: z.string(),
   media_blob_id: z.string(),
+  artist_id: z.string(),
   file_path: z.string(),
   sha256: z.string(),
   blake3: z.string(),

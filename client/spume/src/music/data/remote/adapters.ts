@@ -20,7 +20,7 @@ export type RemoteSong = Required<Pick<Song,
   | 'images' | 'urls'
   // user-specific metadata (always present: boolean/arrays)
   | 'is_favorite' | 'album_is_favorite'
-  | 'album_tags' | 'album_taxons' | 'album_images'
+  | 'album_tags' | 'album_taxons' | 'album_images' | 'artist_images'
   // source type and metadata
   | 'source_type' | 'opfs_path' | 'file_name' | 'file_size'
   | 'last_modified' | 'mime_type' | 'source_url' | 'downloaded_at'
