@@ -59,7 +59,7 @@ export async function getVideoURL(
   // original even when an already-local, web-compatible rendition
   // existed right next to it (confirmed live: an AV1/Opus original
   // served instead of its already-local h264/aac rendition).
-  const target = resolvePlaybackTarget(video);
+  const target = resolvePlaybackTarget(video, useVideoWindow());
   let charnelLocalPath = target.blake3 ? await resolveCharnelLocalBlobPath(target.blake3) : null;
   // the resolved target (most often a rendition) may have no local copy -
   // never synced down, or its file went missing from disk - even though
@@ -75,6 +75,19 @@ export async function getVideoURL(
       `"${video.title}": rendition ${target.blobId} has no local file, falling back to original ${video.media_blob_id}`
     );
     charnelLocalPath = await resolveCharnelLocalBlobPath(video.blake3);
+  }
+  // symmetric case: the experimental player prefers the original, but if
+  // THAT has no local copy, a rendition sitting right there is still a
+  // better bet than falling through to a remote re-fetch of the original.
+  if (!charnelLocalPath && target.blobId === video.media_blob_id) {
+    const rendition = video.renditions?.[0];
+    if (rendition?.blake3) {
+      errorLog(
+        "videoBlobAccess",
+        `"${video.title}": original ${video.media_blob_id} has no local file, falling back to rendition ${rendition.blob_id}`
+      );
+      charnelLocalPath = await resolveCharnelLocalBlobPath(rendition.blake3);
+    }
   }
   if (charnelLocalPath) {
     const localUrl = await resolveLocalVideoUrl(video.id, charnelLocalPath, !useVideoWindow());

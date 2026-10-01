@@ -66,7 +66,7 @@ export default function LibraryView() {
   const [showAddModal, setShowAddModal] = createSignal(false);
   const [pendingPath, setPendingPath] = createSignal("");
   const [pendingTags, setPendingTags] = createSignal("");
-  const [pendingDomain, setPendingDomain] = createSignal<"music" | "video">("music");
+  const [pendingDomain, setPendingDomain] = createSignal<"music" | "video" | "both">("music");
   const [pathValidating, setPathValidating] = createSignal(false);
   const [pathValidation, setPathValidation] = createSignal<ValidatePathResult | null>(null);
   const [confirmRemove, setConfirmRemove] = createSignal<string | null>(null);
@@ -444,7 +444,7 @@ export default function LibraryView() {
     }
   }
 
-  async function scanDirectory(path: string, tags: string[], domain?: "music" | "video") {
+  async function scanDirectory(path: string, tags: string[], domain?: "music" | "video" | "both") {
     setScanning(path);
     setLastResult("");
     setLastError("");
@@ -623,12 +623,11 @@ export default function LibraryView() {
             const total = () => p().jobs_total || 0;
             const done = () => Math.max(0, total() - (p().jobs_pending || 0));
             const pct = () => (total() > 0 ? Math.round((done() / total()) * 100) : 0);
-            const noun = () => (p().domain === "video" ? "video" : "music");
             return (
               <div class="scan-progress-card">
                 <div class="scan-progress-header">
                   <div class="spinner" />
-                  <span>importing {noun()}...</span>
+                  <span>importing media...</span>
                   <span class="scan-progress-counts">
                     {done()} / {total()} jobs
                   </span>
@@ -762,6 +761,15 @@ export default function LibraryView() {
                     onChange={() => setPendingDomain("video")}
                   />{" "}
                   video
+                </label>
+                <label>
+                  <input
+                    type="radio"
+                    name="pending-domain"
+                    checked={pendingDomain() === "both"}
+                    onChange={() => setPendingDomain("both")}
+                  />{" "}
+                  both
                 </label>
               </div>
             </div>

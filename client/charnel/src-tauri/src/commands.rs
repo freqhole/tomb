@@ -1163,11 +1163,13 @@ pub struct ScanResult {
 /// which in turn creates ProcessFile jobs for each file found)
 ///
 /// `domain` selects which media pipeline to scan for: `"music"`, `"video"`,
-/// or omitted. a JSON-absent `domain` defaults to music-only (matching
-/// `media_domain::default_music_domain`), preserving today's behavior for
-/// any call site that hasn't been updated to pass it explicitly - `None`
-/// itself would mean "scan for both", which is a UI-visible behavior change
-/// we don't want to apply silently.
+/// `"both"`, or omitted. a JSON-absent `domain` defaults to music-only
+/// (matching `media_domain::default_music_domain`), preserving today's
+/// behavior for any call site that hasn't been updated to pass it
+/// explicitly. `"both"` is a distinct, explicit choice (maps to
+/// `ScanDirectoryParams.domain: None`, which the job processor already
+/// treats as "detect per-file by extension") - kept separate from the
+/// absent-field case so that case's meaning can't silently change later.
 #[tauri::command]
 pub async fn scan_directory(
     app_handle: tauri::AppHandle,
@@ -1198,8 +1200,9 @@ pub async fn scan_directory(
         };
     }
 
-    let domain = match domain {
-        Some(s) => match grimoire::MediaDomain::from_str(&s) {
+    let domain = match domain.as_deref() {
+        Some("both") => None,
+        Some(s) => match grimoire::MediaDomain::from_str(s) {
             Ok(d) => Some(d),
             Err(e) => {
                 return ScanResult {

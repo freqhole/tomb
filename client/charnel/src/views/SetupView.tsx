@@ -45,7 +45,7 @@ interface ScanResult {
 interface MusicDir {
   path: string;
   tags: string[];
-  domain: "music" | "video";
+  domain: "music" | "video" | "both";
   scanned: boolean;
 }
 
@@ -330,7 +330,7 @@ export default function SetupView() {
     setMusicDirs(musicDirs().map((d) => (d.path === oldPath ? { ...d, path: trimmed } : d)));
   }
 
-  function updateMusicDirDomain(path: string, domain: "music" | "video") {
+  function updateMusicDirDomain(path: string, domain: "music" | "video" | "both") {
     setMusicDirs(musicDirs().map((d) => (d.path === path ? { ...d, domain } : d)));
   }
 
@@ -883,6 +883,16 @@ export default function SetupView() {
                           onChange={() => updateMusicDirDomain(dir.path, "video")}
                         />{" "}
                         video
+                      </label>
+                      <label>
+                        <input
+                          type="radio"
+                          name={`domain-${dir.path}`}
+                          checked={dir.domain === "both"}
+                          disabled={dir.scanned}
+                          onChange={() => updateMusicDirDomain(dir.path, "both")}
+                        />{" "}
+                        both
                       </label>
                     </div>
                     <div class="tag-input-row">

@@ -268,7 +268,7 @@ pub async fn create_media_blob(mut req: CreateMediaBlobRequest) -> GrimoireResul
     }
 
     // Create new blob if none exists
-    let blob = sqlx::query_as!(
+    let blob = match sqlx::query_as!(
         MediaBlob,
         "INSERT INTO media_blobz (
             sha256, size, mime, source_client_id, local_path, filename,
@@ -311,7 +311,30 @@ pub async fn create_media_blob(mut req: CreateMediaBlobRequest) -> GrimoireResul
         req.blake3
     )
     .fetch_one(&pool)
-    .await?;
+    .await
+    {
+        Ok(b) => b,
+        Err(e) => {
+            // a parallel request for this exact sha256 can win the race
+            // between our own duplicate-check SELECT above and this
+            // INSERT (e.g. two directory-scan jobs discovering the same
+            // new file at the same time) - sha256's existing UNIQUE
+            // constraint is what actually prevents a duplicate row here,
+            // this just makes the LOSING side resolve gracefully to the
+            // winner's row instead of surfacing a raw db error. mirrors
+            // `songz.media_blob_id` / `videoz.media_blob_id`'s identical
+            // race-handling pattern in their own create functions.
+            let err_str = e.to_string();
+            if err_str.contains("UNIQUE constraint failed: media_blobz.sha256") {
+                tracing::info!(
+                    "create_blob: lost sha256 insert race for {}, returning winner's row",
+                    req.sha256
+                );
+                return get_media_blob_by_sha256(&req.sha256).await;
+            }
+            return Err(e.into());
+        }
+    };
 
     // Parse the metadata JSON from the returned string
     let mut blob_with_metadata = blob;
