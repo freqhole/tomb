@@ -45,10 +45,7 @@ export interface PlaybackTarget {
  * support it doesn't need. still falls back to a rendition if the
  * video has no original blob/blake3 for some reason (shouldn't happen
  * in practice, but cheaper to guard than assume). */
-export function resolvePlaybackTarget(
-  video: QueuedVideo,
-  preferOriginal = false
-): PlaybackTarget {
+export function resolvePlaybackTarget(video: QueuedVideo, preferOriginal = false): PlaybackTarget {
   if (preferOriginal && video.media_blob_id) {
     return { blobId: video.media_blob_id, blake3: video.blake3 ?? null, mime: null };
   }
