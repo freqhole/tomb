@@ -69,7 +69,8 @@ RUN if grep -qi bullseye /etc/apt/sources.list 2>/dev/null || grep -Rqi bullseye
     build-essential \
     pkg-config \
     libssl-dev \
-    libasound2-dev; \
+    libasound2-dev \
+    libmpv-dev; \
     fi
 
 # install cross-compilation tools for ARM64 (aarch64)

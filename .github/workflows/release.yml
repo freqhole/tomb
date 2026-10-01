@@ -116,6 +116,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
+      # exposes dumpbin.exe/lib.exe on PATH - needed by
+      # scripts\windows\fetch-mpv-runtime.ps1 to generate mpv.lib from
+      # mpv-libre-runtime's dll-only windows archive (no import lib shipped).
+      - uses: ilammy/msvc-dev-cmd@v1
       - name: install sqlx-cli
         run: cargo install sqlx-cli --no-default-features --features sqlite,rustls --locked
       # windows-latest ships winget but not the sqlite3 cli build.ps1 needs
@@ -173,8 +177,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      - name: install mpv (libmpv - experimental player backend)
-        run: brew install mpv
+      - name: install mpv (portable libmpv runtime, bundled into the app)
+        run: ./scripts/fetch-mpv-runtime.sh arm64
       - name: install sqlx-cli
         run: cargo install sqlx-cli --no-default-features --features sqlite,rustls --locked
       - name: set up database
@@ -243,21 +247,14 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      # NOTE: this job cross-compiles x86_64 from an arm64 runner (github
-      # retired hosted intel macos images) - `brew install mpv` alone
-      # installs the arm64 build under /opt/homebrew, which the
-      # x86_64-apple-darwin target can't link against. installs a
-      # Rosetta-based x86_64 homebrew under /usr/local instead, matching
-      # `.cargo/config.toml`'s `[target.x86_64-apple-darwin]` `-L
-      # /usr/local/lib`. unverified in real CI as of 2026-09-29 - watch
-      # this step on the first release build that includes it.
-      - name: install mpv (libmpv - experimental player backend, x86_64 via Rosetta)
-        run: |
-          softwareupdate --install-rosetta --agree-to-license || true
-          if [ ! -x /usr/local/bin/brew ]; then
-            arch -x86_64 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-          fi
-          arch -x86_64 /usr/local/bin/brew install mpv
+      # this job cross-compiles x86_64 from an arm64 runner (github retired
+      # hosted intel macos images). homebrew has no x86_64 macOS bottle for
+      # mpv anymore and modern homebrew's installer refuses fresh x86_64
+      # installs outright (even under Rosetta) - so this pulls a portable,
+      # prebuilt libmpv (mpv-libre-runtime) instead. see
+      # scripts/fetch-mpv-runtime.sh for the full story.
+      - name: install mpv (portable libmpv runtime, bundled into the app)
+        run: ./scripts/fetch-mpv-runtime.sh x86_64
       - name: install sqlx-cli
         run: cargo install sqlx-cli --no-default-features --features sqlite,rustls --locked
       - name: set up database

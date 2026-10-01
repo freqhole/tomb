@@ -125,3 +125,10 @@ objc2-disk-arbitration = "0.3.2"
 [target.'cfg(target_os = "linux")'.dependencies]
 libc = "0.2.189"
 udev = "0.9.3"
+
+# libmpv-2.dll is bundled via `bundle.resources` (see tauri.conf.json) since
+# mpv-libre-runtime's windows archive ships no import lib we can bake an
+# absolute path into at link time - registering $RESOURCE as a DLL search
+# directory at startup (src/lib.rs) is what actually finds it at runtime.
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_System_LibraryLoader"] }

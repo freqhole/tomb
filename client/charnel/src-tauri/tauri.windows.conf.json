@@ -1,0 +1,7 @@
+{
+  "bundle": {
+    "resources": {
+      "mpv-runtime/libmpv-2.dll": "libmpv-2.dll"
+    }
+  }
+}

@@ -63,6 +63,7 @@ build-all:
 .PHONY: build-mac-arm
 build-mac-arm:
 	@echo "building rathole CLI (cli crate) for macOS arm64 (no webauthn)..."
+	./scripts/fetch-mpv-runtime.sh arm64
 	cargo build --package cli --release --target $(MAC_ARM_TARGET) --no-default-features --features libmpv-playback
 	@mkdir -p $(BUILD_DIR)/$(VERSION)
 	cp target/$(MAC_ARM_TARGET)/release/rathole $(BUILD_DIR)/$(VERSION)/rathole_$(VERSION)_darwin-aarch64
@@ -89,7 +90,8 @@ build-mac-arm:
 .PHONY: build-mac-intel
 build-mac-intel:
 	@echo "building rathole CLI (cli crate) for macOS x86_64 (no webauthn)..."
-	cargo build --package cli --release --target $(MAC_INTEL_TARGET) --no-default-features --features libmpv-playback
+	./scripts/fetch-mpv-runtime.sh x86_64
+	MACOSX_DEPLOYMENT_TARGET=14.0 cargo build --package cli --release --target $(MAC_INTEL_TARGET) --no-default-features --features libmpv-playback
 	@mkdir -p $(BUILD_DIR)/$(VERSION)
 	cp target/$(MAC_INTEL_TARGET)/release/rathole $(BUILD_DIR)/$(VERSION)/rathole_$(VERSION)_darwin-x86_64
 	@echo "built: $(BUILD_DIR)/$(VERSION)/rathole_$(VERSION)_darwin-x86_64"
@@ -307,6 +309,7 @@ build-spume: build-libs
 build-tauri-mac-arm:
 	@echo "building spume client..."
 	FREQHOLE_GIT_SHA=$(GIT_SHA) cd client/spume && npm run build
+	./scripts/fetch-mpv-runtime.sh arm64
 	@echo "building Tauri app for macOS arm64..."
 	@if [ -n "$(APPLE_SIGNING_IDENTITY)" ]; then \
 		echo "  signing enabled (APPLE_SIGNING_IDENTITY set)"; \
@@ -330,13 +333,14 @@ build-tauri-mac-arm:
 build-tauri-mac-intel:
 	@echo "building spume client..."
 	FREQHOLE_GIT_SHA=$(GIT_SHA) cd client/spume && npm run build
+	./scripts/fetch-mpv-runtime.sh x86_64
 	@echo "building Tauri app for macOS x86_64..."
 	@if [ -n "$(APPLE_SIGNING_IDENTITY)" ]; then \
 		echo "  signing enabled (APPLE_SIGNING_IDENTITY set)"; \
-		cd $(TAURI_DIR) && APPLE_SIGNING_IDENTITY="$(APPLE_SIGNING_IDENTITY)" npm run tauri build -- --target x86_64-apple-darwin; \
+		cd $(TAURI_DIR) && APPLE_SIGNING_IDENTITY="$(APPLE_SIGNING_IDENTITY)" MACOSX_DEPLOYMENT_TARGET=14.0 npm run tauri build -- --target x86_64-apple-darwin; \
 	else \
 		echo "  no signing identity - ad-hoc signing (runs locally; not distributable or notarizable)"; \
-		cd $(TAURI_DIR) && APPLE_SIGNING_IDENTITY=- npm run tauri build -- --target x86_64-apple-darwin; \
+		cd $(TAURI_DIR) && APPLE_SIGNING_IDENTITY=- MACOSX_DEPLOYMENT_TARGET=14.0 npm run tauri build -- --target x86_64-apple-darwin; \
 	fi
 	@mkdir -p $(BUILD_DIR)/$(VERSION)
 	cp target/x86_64-apple-darwin/release/bundle/dmg/freqhole_$(VERSION)_x64.dmg $(BUILD_DIR)/$(VERSION)/freqhole_charnel_$(VERSION)_x86_64.dmg

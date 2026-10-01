@@ -4,11 +4,7 @@
 //! (libmpv via `PlayerCmd`, mpv via `VideoCommand`).
 //!
 //! mirrors (wire-compatible, not code-shared) cenotaph's
-//! `control/playerConnectionHandler.ts` + `control/dispatcher.ts` — see
-//! docs/rathole-headless-player-plan.md phase 4 and
-//! docs/cenotaph-migration-plan.md's "front 3" section (this module used
-//! to own the full accept-loop + import logic itself; both now live in
-//! `grimoire::cenotaph`, shared with charnel's own accept-side).
+//! `control/playerConnectionHandler.ts` + `control/dispatcher.ts`
 //!
 //! split into submodules:
 //! - [`state`] — translation shim between `ratcore::app::pairing`'s
@@ -36,10 +32,11 @@
 //!   needs a stable identifier for its own dedup/diffing here, not the
 //!   real hash).
 //! - `replace_queue`/`append_queue`/`play` for **video** items load
-//!   the fetched file into mpv but don't yet flip rathole into the
-//!   "fullscreen video, suppress console" state from phase 3 — that
-//!   transition is still unimplemented pending the console/ssh
-//!   decision tracked in the plan doc.
+//!   the fetched file into mpv, which is expected to just work without
+//!   any explicit console-suppression step (the kernel's own DRM
+//!   master handoff hides/restores the text console automatically -
+//!   see docs/rathole-headless-player-plan.md's phase 3 note, updated
+//!   2026-09-30) - still needs real pi hardware confirmation.
 //! - a `replace_queue`/`append_queue` ack's `status` is built directly
 //!   from the entries just resolved (accurate immediately), but the
 //!   real `music.queue` mutation happens asynchronously once `run.rs`

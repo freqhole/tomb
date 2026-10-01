@@ -260,6 +260,9 @@ fn open_or_reuse(
 /// `diagnostics()`'s doc comment) that's dropped immediately after reading
 /// the property.
 fn query_devices_headless() -> Vec<grimoire::player::AudioDeviceInfo> {
+    if !grimoire::player::libmpv::is_libmpv_available() {
+        return Vec::new();
+    }
     reset_locale_for_mpv();
     match Mpv::new() {
         Ok(mpv) => grimoire::player::libmpv::list_audio_devices(&mpv),
@@ -273,14 +276,20 @@ fn query_devices_headless() -> Vec<grimoire::player::AudioDeviceInfo> {
 /// spawn libmpv (creating its context on first use) and start the
 /// background thread that turns its event stream into `VideoEvent`s.
 fn spawn_mpv(app: &AppHandle<Wry>) -> Result<(), String> {
+    if !grimoire::player::libmpv::is_libmpv_available() {
+        return Err("failed to start libmpv: not installed on this system".to_string());
+    }
     reset_locale_for_mpv();
     let mpv = Mpv::with_initializer(|init| {
-        // opens a window immediately rather than only once a video track
-        // decodes, matching mpv.rs's `--force-window=immediate` (a
-        // consistent "loading" window rather than nothing-then-suddenly-a-
-        // window).
-        init.set_option("force-window", "immediate")?;
         init.set_option("geometry", "960x540")?;
+        // opens a window immediately rather than only once a video track
+        // decodes. NOTE: NOT "immediate" - that specific choice value is
+        // rejected with `Raw(-4)` (MPV_ERROR_INVALID_PARAMETER) when set
+        // pre-init, only working as a post-init `set_property`. `yes`
+        // has no such issue pre-init and forces the window the same way,
+        // just once the file's been probed rather than the instant
+        // loading starts - a minor UX difference, not a functional one.
+        init.set_option("force-window", "yes")?;
         // macOS only: mpv's Cocoa backend defaults to registering itself
         // as its own regular application (`NSApplicationActivationPolicy
         // Regular`) - since libmpv runs in-process here, that gives mpv's
