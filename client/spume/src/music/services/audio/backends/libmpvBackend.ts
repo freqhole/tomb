@@ -160,232 +160,252 @@ export class LibmpvBackend implements PlayerBackend {
 
     const blobId = song.media_blob_id ?? song.sha256;
     let path: string;
-    // try the stable blake3 first (when known): `song.media_blob_id` is
-    // often the REMOTE server's id, which gets replaced by a freshly-
-    // generated LOCAL media_blobz.id every time this song is
-    // (re-)synced/fetched - so a queue snapshot carrying the original
-    // remote id can never find an already-synced local copy through
-    // `blobId` below, and this backend would otherwise re-sync/re-fetch
-    // on every replay even though the song is already on disk. every
-    // song that's ever been successfully synced locally is guaranteed
-    // to have a blake3 (syncSongToLocal hard-requires one to pull via
-    // iroh-blobs), so a missing blake3 here just means "never synced
-    // yet" - falls through to the existing `blobId`-based attempt
-    // unchanged either way.
-    if (song.blake3) {
-      try {
-        path = await this.resolveLocalPathByBlake3(song.blake3);
-        if (!isMediaLoadCurrent(songKey, options?.loadGeneration)) {
-          return;
-        }
-        debug("player.libmpv", `load: "${song.title}" (${songKey.slice(0, 8)}) -> ${path}`);
-        bridgeClearExternal();
-        await setCurrentSong(songKey);
-        await this.sendLoadAndPlay(path, options);
-        return;
-      } catch {
-        // fall through to the original media_blob_id-based flow below.
-      }
-    }
+    // everything below can throw before ever reaching the rust backend
+    // (a sync/ephemeral-fetch failure, a resolve_blob_path rejection,
+    // even a thrown error from a tauri `invoke()` itself) - `dispatch()`
+    // only clears `currentLoadingSha256` in response to a rust-emitted
+    // event, so without this catch a pre-load failure leaves it stuck on
+    // this songKey forever. that then silently breaks every SUBSEQUENT
+    // play attempt too: dispatch() keeps comparing incoming events
+    // against this now-stale songKey instead of whatever's actually
+    // loading next, with no visible error (matches a real bug report:
+    // remote libmpv playback silently stopped working until the whole
+    // app was restarted). only clear it if it's still OURS - a newer
+    // overlapping load may have already moved it on to a different
+    // songKey, which must not be clobbered here.
     try {
-      path = await this.resolveLocalPath(blobId);
-    } catch (e) {
-      if (!(e instanceof BackendPlaybackError)) throw e;
-      // only the "missing on disk" discriminants are recoverable
-      // by syncing. database/io errors should bubble up.
-      //
-      // "media_blob_not_found" is the real `error_type` grimoire's
-      // `GrimoireError::MediaBlobNotFound` auto-derives (snake_case
-      // of the variant name) — "not_found" alone is kept for
-      // back-compat with any older/differently-shaped rejection, but
-      // was never actually produced by this path; the `message.includes`
-      // fallback below was doing the real work before this fix.
-      const recoverable =
-        e.error_type === "no_local_path" ||
-        e.error_type === "not_found" ||
-        e.error_type === "media_blob_not_found" ||
-        // db's local_path points at a file that's gone (moved/deleted/
-        // unmounted external storage) - re-fetch from remote same as a
-        // never-synced song, rather than hard-failing playback.
-        e.error_type === "blob_local_file_missing" ||
-        // grimoire's media_blobz returns a generic "database: blob
-        // not found" string for unknown ids; treat that as missing.
-        e.message.includes("blob not found");
-      if (!recoverable) throw e;
-      // NOTE on a p2p transient-failure retry allowlist: considered
-      // adding one here (e.g. `error_type === "peer_offline"`) per a
-      // prior review pass, but a full grep of the rust commands this
-      // path can throw through (`resolve_blob_path` in
-      // client/charnel/src-tauri/src/player_commands.rs, backed by
-      // grimoire's `build_blob_path_response`) shows it never touches
-      // the network — it's a pure local-db lookup, so no p2p
-      // error_type can ever reach this specific catch. the p2p paths
-      // this backend actually uses (`fetch_ephemeral_blob` in
-      // ephemeral_blob_commands.rs, and `syncSongToLocal`) don't
-      // currently emit a structured `error_type` prefix at all (bare
-      // `Err(format!("fetch failed: {e}"))` / `"fetch timeout (120s)"`
-      // strings) — see docs/error-handling-tasks.md tracks P0-D/P1-B
-      // for the pending rust-side work to add one. adding a guessed
-      // string here would silently never match anything real, so
-      // this is deliberately left as-is until those tracks land a
-      // real, grep-confirmed error_type to key off.
-
-      // local songs that fail to resolve are a real bug — don't try
-      // to "sync" a song that has no remote source.
-      if (song.source_type !== "remote" || !song.remote_server_id) {
-        throw new BackendPlaybackError(
-          this.kind,
-          "local_blob_missing",
-          `local song "${song.title}" has no resolvable blob (sha256=${song.sha256.slice(0, 8)})`
-        );
-      }
-
-      if (!getSyncQueueToLocal()) {
-        // OFF path: fetch the audio into `<fetch_dir>/_ephemeral/`
-        // (idempotent — the rust command short-circuits if the file
-        // is already on disk) and play it directly from there. no
-        // DB rows are written — mirrors the OFF behavior of
-        // `syncSongToLocal` (which also early-returns when the
-        // setting is off).
-        //
-        // we deliberately do NOT delete the previous song's file
-        // here: the queue-watching reconciler installed in the
-        // constructor handles eviction when songs leave the queue,
-        // so files for songs the user might replay (or that survive
-        // an app restart in the persisted queue) stay on disk.
-
-        // if the ephemeral file is already on disk (tracked by the
-        // signal that the queue-row underline reads from), skip the
-        // loading-set flicker entirely. the rust command will
-        // fast-path return the existing path, so there's no real
-        // wait to spinner-over.
-        const alreadyOnDisk = isSongOnDiskEphemeral(song.blake3);
-
-        if (!alreadyOnDisk) {
-          debug("player.libmpv", `"${song.title}" not on disk — fetching ephemerally`);
-          // light up the queue/playerbar spinner for this song while
-          // we fetch. mirrors what other audio fetch paths do (see
-          // blobResolver / audioAccess / autoDownload).
-          addToLoadingSet(songKey);
-        }
-        let fetched;
+      // try the stable blake3 first (when known): `song.media_blob_id` is
+      // often the REMOTE server's id, which gets replaced by a freshly-
+      // generated LOCAL media_blobz.id every time this song is
+      // (re-)synced/fetched - so a queue snapshot carrying the original
+      // remote id can never find an already-synced local copy through
+      // `blobId` below, and this backend would otherwise re-sync/re-fetch
+      // on every replay even though the song is already on disk. every
+      // song that's ever been successfully synced locally is guaranteed
+      // to have a blake3 (syncSongToLocal hard-requires one to pull via
+      // iroh-blobs), so a missing blake3 here just means "never synced
+      // yet" - falls through to the existing `blobId`-based attempt
+      // unchanged either way.
+      if (song.blake3) {
         try {
-          fetched = await fetchEphemeralForSong(song);
-        } catch (err) {
-          if (!alreadyOnDisk) removeFromLoadingSet(songKey);
+          path = await this.resolveLocalPathByBlake3(song.blake3);
+          if (!isMediaLoadCurrent(songKey, options?.loadGeneration)) {
+            return;
+          }
+          debug("player.libmpv", `load: "${song.title}" (${songKey.slice(0, 8)}) -> ${path}`);
+          bridgeClearExternal();
+          await setCurrentSong(songKey);
+          await this.sendLoadAndPlay(path, options);
+          return;
+        } catch {
+          // fall through to the original media_blob_id-based flow below.
+        }
+      }
+      try {
+        path = await this.resolveLocalPath(blobId);
+      } catch (e) {
+        if (!(e instanceof BackendPlaybackError)) throw e;
+        // only the "missing on disk" discriminants are recoverable
+        // by syncing. database/io errors should bubble up.
+        //
+        // "media_blob_not_found" is the real `error_type` grimoire's
+        // `GrimoireError::MediaBlobNotFound` auto-derives (snake_case
+        // of the variant name) — "not_found" alone is kept for
+        // back-compat with any older/differently-shaped rejection, but
+        // was never actually produced by this path; the `message.includes`
+        // fallback below was doing the real work before this fix.
+        const recoverable =
+          e.error_type === "no_local_path" ||
+          e.error_type === "not_found" ||
+          e.error_type === "media_blob_not_found" ||
+          // db's local_path points at a file that's gone (moved/deleted/
+          // unmounted external storage) - re-fetch from remote same as a
+          // never-synced song, rather than hard-failing playback.
+          e.error_type === "blob_local_file_missing" ||
+          // grimoire's media_blobz returns a generic "database: blob
+          // not found" string for unknown ids; treat that as missing.
+          e.message.includes("blob not found");
+        if (!recoverable) throw e;
+        // NOTE on a p2p transient-failure retry allowlist: considered
+        // adding one here (e.g. `error_type === "peer_offline"`) per a
+        // prior review pass, but a full grep of the rust commands this
+        // path can throw through (`resolve_blob_path` in
+        // client/charnel/src-tauri/src/player_commands.rs, backed by
+        // grimoire's `build_blob_path_response`) shows it never touches
+        // the network — it's a pure local-db lookup, so no p2p
+        // error_type can ever reach this specific catch. the p2p paths
+        // this backend actually uses (`fetch_ephemeral_blob` in
+        // ephemeral_blob_commands.rs, and `syncSongToLocal`) don't
+        // currently emit a structured `error_type` prefix at all (bare
+        // `Err(format!("fetch failed: {e}"))` / `"fetch timeout (120s)"`
+        // strings) — see docs/error-handling-tasks.md tracks P0-D/P1-B
+        // for the pending rust-side work to add one. adding a guessed
+        // string here would silently never match anything real, so
+        // this is deliberately left as-is until those tracks land a
+        // real, grep-confirmed error_type to key off.
+
+        // local songs that fail to resolve are a real bug — don't try
+        // to "sync" a song that has no remote source.
+        if (song.source_type !== "remote" || !song.remote_server_id) {
           throw new BackendPlaybackError(
             this.kind,
-            "ephemeral_fetch_failed",
-            `failed to fetch "${song.title}" ephemerally: ${err instanceof Error ? err.message : String(err)}`
+            "local_blob_missing",
+            `local song "${song.title}" has no resolvable blob (sha256=${song.sha256.slice(0, 8)})`
           );
         }
-        if (!alreadyOnDisk) removeFromLoadingSet(songKey);
-        path = fetched.path;
 
-        // skip the regular `setCurrentSong` + `resolveLocalPath`
-        // dance — there's no DB row to look up, and we already have
-        // the path. but still bridge the media session + reflect the
-        // current song in app state for the UI.
-        bridgeClearExternal();
-        await setCurrentSong(songKey);
-        debug(
-          "player.libmpv",
-          `ephemeral load: "${song.title}" (${songKey.slice(0, 8)}) -> ${path}`
-        );
-        await this.sendLoadAndPlay(path, options);
+        if (!getSyncQueueToLocal()) {
+          // OFF path: fetch the audio into `<fetch_dir>/_ephemeral/`
+          // (idempotent — the rust command short-circuits if the file
+          // is already on disk) and play it directly from there. no
+          // DB rows are written — mirrors the OFF behavior of
+          // `syncSongToLocal` (which also early-returns when the
+          // setting is off).
+          //
+          // we deliberately do NOT delete the previous song's file
+          // here: the queue-watching reconciler installed in the
+          // constructor handles eviction when songs leave the queue,
+          // so files for songs the user might replay (or that survive
+          // an app restart in the persisted queue) stay on disk.
+
+          // if the ephemeral file is already on disk (tracked by the
+          // signal that the queue-row underline reads from), skip the
+          // loading-set flicker entirely. the rust command will
+          // fast-path return the existing path, so there's no real
+          // wait to spinner-over.
+          const alreadyOnDisk = isSongOnDiskEphemeral(song.blake3);
+
+          if (!alreadyOnDisk) {
+            debug("player.libmpv", `"${song.title}" not on disk — fetching ephemerally`);
+            // light up the queue/playerbar spinner for this song while
+            // we fetch. mirrors what other audio fetch paths do (see
+            // blobResolver / audioAccess / autoDownload).
+            addToLoadingSet(songKey);
+          }
+          let fetched;
+          try {
+            fetched = await fetchEphemeralForSong(song);
+          } catch (err) {
+            if (!alreadyOnDisk) removeFromLoadingSet(songKey);
+            throw new BackendPlaybackError(
+              this.kind,
+              "ephemeral_fetch_failed",
+              `failed to fetch "${song.title}" ephemerally: ${err instanceof Error ? err.message : String(err)}`
+            );
+          }
+          if (!alreadyOnDisk) removeFromLoadingSet(songKey);
+          path = fetched.path;
+
+          // skip the regular `setCurrentSong` + `resolveLocalPath`
+          // dance — there's no DB row to look up, and we already have
+          // the path. but still bridge the media session + reflect the
+          // current song in app state for the UI.
+          bridgeClearExternal();
+          await setCurrentSong(songKey);
+          debug(
+            "player.libmpv",
+            `ephemeral load: "${song.title}" (${songKey.slice(0, 8)}) -> ${path}`
+          );
+          await this.sendLoadAndPlay(path, options);
+          return;
+        }
+
+        debug("player.libmpv", `"${song.title}" not on disk — syncing before play`);
+        // light up the queue/playerbar spinner. paired with
+        // `removeFromLoadingSet` after the sync resolves (success or
+        // failure) so the UI never gets stuck.
+        addToLoadingSet(songKey);
+        let sync;
+        try {
+          sync = await syncSongToLocal({
+            sha256: song.sha256,
+            media_blob_id: song.media_blob_id,
+            title: song.title,
+            artist_name: song.artist_name,
+            artist_id: song.artist_id,
+            album_title: song.album_title,
+            track_number: song.track_number,
+            disc_number: song.disc_number,
+            duration_seconds: song.duration_seconds,
+            year: song.year,
+            bpm: song.bpm,
+            track_artist: song.track_artist,
+            lyrics: song.lyrics,
+            metadata: song.metadata,
+            images: song.images,
+            urls: song.urls,
+            album_taxons: song.album_taxons,
+            album_images: song.album_images,
+            album_tags: song.album_tags,
+            artist_images: song.artist_images,
+            // narrowed by the guard above (`song.source_type === "remote"
+            // && song.remote_server_id`).
+            remote_server_id: song.remote_server_id,
+            remote_song_id: song.remote_song_id,
+            blake3: song.blake3,
+            skip_feed_events: song.skip_feed_events,
+          });
+        } finally {
+          removeFromLoadingSet(songKey);
+        }
+        if (!sync.success) {
+          throw new BackendPlaybackError(
+            this.kind,
+            "sync_failed",
+            `failed to sync "${song.title}" before libmpv playback: ${sync.error ?? "unknown error"}`
+          );
+        }
+        // prefer the local path the sync returned directly — it's the
+        // freshly-written file the local grimoire just produced and
+        // doesn't require another db round-trip. fall back to a
+        // resolve_blob_path lookup keyed on the *local* media_blob_id
+        // (not `song.media_blob_id`, which is the *remote* server's
+        // id and won't exist in the local db).
+        if (sync.localPath) {
+          path = sync.localPath;
+        } else if (sync.localMediaBlobId) {
+          path = await this.resolveLocalPath(sync.localMediaBlobId);
+        } else {
+          // last resort: the existing-song shortcut returns no path
+          // info, but the song is supposedly already in the db.
+          // try the original blob id; if that fails fall back to a
+          // proper blake3-keyed lookup (not `resolveLocalPath`, which
+          // treats its argument as a media_blobz.id and would never
+          // match a 64-char blake3 string). `song.blake3` is guaranteed
+          // present here - this branch only runs after a successful
+          // sync, which itself requires a blake3 to pull via iroh-blobs.
+          try {
+            path = await this.resolveLocalPath(blobId);
+          } catch {
+            path = await this.resolveLocalPathByBlake3(song.blake3!);
+          }
+        }
+      }
+
+      if (!isMediaLoadCurrent(songKey, options?.loadGeneration)) {
+        debug("player.libmpv", `skipping cancelled load for ${songKey.slice(0, 8)}`);
         return;
       }
 
-      debug("player.libmpv", `"${song.title}" not on disk — syncing before play`);
-      // light up the queue/playerbar spinner. paired with
-      // `removeFromLoadingSet` after the sync resolves (success or
-      // failure) so the UI never gets stuck.
-      addToLoadingSet(songKey);
-      let sync;
-      try {
-        sync = await syncSongToLocal({
-          sha256: song.sha256,
-          media_blob_id: song.media_blob_id,
-          title: song.title,
-          artist_name: song.artist_name,
-          artist_id: song.artist_id,
-          album_title: song.album_title,
-          track_number: song.track_number,
-          disc_number: song.disc_number,
-          duration_seconds: song.duration_seconds,
-          year: song.year,
-          bpm: song.bpm,
-          track_artist: song.track_artist,
-          lyrics: song.lyrics,
-          metadata: song.metadata,
-          images: song.images,
-          urls: song.urls,
-          album_taxons: song.album_taxons,
-          album_images: song.album_images,
-          album_tags: song.album_tags,
-          artist_images: song.artist_images,
-          // narrowed by the guard above (`song.source_type === "remote"
-          // && song.remote_server_id`).
-          remote_server_id: song.remote_server_id,
-          remote_song_id: song.remote_song_id,
-          blake3: song.blake3,
-          skip_feed_events: song.skip_feed_events,
-        });
-      } finally {
-        removeFromLoadingSet(songKey);
+      // optimistically reflect the new song in spume's app state. the
+      // facade callers expect `setCurrentSong` to land before audio
+      // begins so the UI doesn't briefly show the wrong track.
+      bridgeClearExternal();
+      await setCurrentSong(songKey);
+
+      if (!isMediaLoadCurrent(songKey, options?.loadGeneration)) {
+        return;
       }
-      if (!sync.success) {
-        throw new BackendPlaybackError(
-          this.kind,
-          "sync_failed",
-          `failed to sync "${song.title}" before libmpv playback: ${sync.error ?? "unknown error"}`
-        );
+
+      debug("player.libmpv", `load: "${song.title}" (${songKey.slice(0, 8)}) -> ${path}`);
+
+      await this.sendLoadAndPlay(path, options);
+    } catch (e) {
+      if (this.currentLoadingSha256 === songKey) {
+        this.currentLoadingSha256 = null;
       }
-      // prefer the local path the sync returned directly — it's the
-      // freshly-written file the local grimoire just produced and
-      // doesn't require another db round-trip. fall back to a
-      // resolve_blob_path lookup keyed on the *local* media_blob_id
-      // (not `song.media_blob_id`, which is the *remote* server's
-      // id and won't exist in the local db).
-      if (sync.localPath) {
-        path = sync.localPath;
-      } else if (sync.localMediaBlobId) {
-        path = await this.resolveLocalPath(sync.localMediaBlobId);
-      } else {
-        // last resort: the existing-song shortcut returns no path
-        // info, but the song is supposedly already in the db.
-        // try the original blob id; if that fails fall back to a
-        // proper blake3-keyed lookup (not `resolveLocalPath`, which
-        // treats its argument as a media_blobz.id and would never
-        // match a 64-char blake3 string). `song.blake3` is guaranteed
-        // present here - this branch only runs after a successful
-        // sync, which itself requires a blake3 to pull via iroh-blobs.
-        try {
-          path = await this.resolveLocalPath(blobId);
-        } catch {
-          path = await this.resolveLocalPathByBlake3(song.blake3!);
-        }
-      }
+      throw e;
     }
-
-    if (!isMediaLoadCurrent(songKey, options?.loadGeneration)) {
-      debug("player.libmpv", `skipping cancelled load for ${songKey.slice(0, 8)}`);
-      return;
-    }
-
-    // optimistically reflect the new song in spume's app state. the
-    // facade callers expect `setCurrentSong` to land before audio
-    // begins so the UI doesn't briefly show the wrong track.
-    bridgeClearExternal();
-    await setCurrentSong(songKey);
-
-    if (!isMediaLoadCurrent(songKey, options?.loadGeneration)) {
-      return;
-    }
-
-    debug("player.libmpv", `load: "${song.title}" (${songKey.slice(0, 8)}) -> ${path}`);
-
-    await this.sendLoadAndPlay(path, options);
   }
 
   /// look up the local fs path for a blob via the

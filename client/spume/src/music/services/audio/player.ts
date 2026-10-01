@@ -566,6 +566,41 @@ export async function playSong(
     const backend = ensureBackendForKind("song");
     await backend.loadAndPlay(songToMediaItem(song), { ...options, autoPlay, loadGeneration });
   } catch (err) {
+    // libmpv's pre-load failures (remote fetch/sync, not a rust-side
+    // playback error) throw instead of going through the normal
+    // backend.subscribe() event stream that `bindAutoAdvance`'s network-
+    // error retry watches - so that existing retry never sees them. a
+    // transient peer blip is common enough to deserve the same
+    // one-shot-retry treatment rather than just giving up immediately.
+    if (
+      err instanceof BackendPlaybackError &&
+      activeBackend.kind === "libmpv" &&
+      (err.error_type === "sync_failed" || err.error_type === "ephemeral_fetch_failed")
+    ) {
+      const retryKey = songIdentityKey(song);
+      if (networkRetriedKey !== retryKey) {
+        networkRetriedKey = retryKey;
+        warn(
+          "player",
+          `libmpv remote fetch failed for "${song.title}" — retrying once before giving up: ${err.message}`
+        );
+        setPendingUpNextSha256(null);
+        setTimeout(() => {
+          void playSong(song, { ...options, userInitiated: false }).catch((retryErr) => {
+            warn(
+              "player",
+              `libmpv retry failed for "${song.title}", advancing queue: ${retryErr instanceof Error ? retryErr.message : retryErr}`
+            );
+            void playNext();
+          });
+        }, NETWORK_RETRY_DELAY_MS);
+        return;
+      }
+      warn(
+        "player",
+        `libmpv remote fetch failed for "${song.title}" after retry — giving up: ${err.message}`
+      );
+    }
     if (
       err instanceof BackendPlaybackError &&
       activeBackend.kind === "libmpv" &&
