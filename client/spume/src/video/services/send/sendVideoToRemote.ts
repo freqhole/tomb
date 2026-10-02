@@ -163,34 +163,64 @@ export async function sendVideosToRemote(
       );
     }
     try {
-      const body = await buildSyncVideoByBlake3Body({
-        video: item.video,
-        metadataRemote: source,
-        sourceTransport,
-        blake3,
-        sha256: item.sha256,
-        size: item.size,
-        filename: item.video.title || item.blobId,
-        sourceNodeId,
-        sourceRemoteId,
-        remoteName,
-      });
-      info(
-        TAG,
-        `${lp} POST /api/sync/video-by-blake3 "${item.video.title}" blake3=${shortHash} source_node_id=${sourceNodeId}${alreadyPresent.has(blake3) ? " (blob already on dest, reconciling links)" : ""}`
-      );
-      const resp = await destTransport.request(
-        "POST",
-        "/api/sync/video-by-blake3",
-        JSON.stringify(body)
-      );
-      debug(TAG, `${lp} /api/sync/video-by-blake3 -> http ${resp.status}`);
-      const data = unwrapEnvelope<SyncVideoByBlake3Response>(
-        "sync_video_by_blake3",
-        resp.body,
-        resp.status,
-        (v) => SyncVideoByBlake3ResponseSchema.safeParse(v)
-      );
+      const attemptSyncVideo = async (
+        attemptBlake3: string,
+        attemptSha256: string | null | undefined,
+        attemptSize: number | null | undefined
+      ) => {
+        const body = await buildSyncVideoByBlake3Body({
+          video: item.video,
+          metadataRemote: source,
+          sourceTransport,
+          blake3: attemptBlake3,
+          sha256: attemptSha256,
+          size: attemptSize,
+          filename: item.video.title || item.blobId,
+          sourceNodeId,
+          sourceRemoteId,
+          remoteName,
+        });
+        info(
+          TAG,
+          `${lp} POST /api/sync/video-by-blake3 "${item.video.title}" blake3=${attemptBlake3.slice(0, 16)} source_node_id=${sourceNodeId}${alreadyPresent.has(attemptBlake3) ? " (blob already on dest, reconciling links)" : ""}`
+        );
+        const resp = await destTransport.request(
+          "POST",
+          "/api/sync/video-by-blake3",
+          JSON.stringify(body)
+        );
+        debug(TAG, `${lp} /api/sync/video-by-blake3 -> http ${resp.status}`);
+        return unwrapEnvelope<SyncVideoByBlake3Response>(
+          "sync_video_by_blake3",
+          resp.body,
+          resp.status,
+          (v) => SyncVideoByBlake3ResponseSchema.safeParse(v)
+        );
+      };
+
+      let data: SyncVideoByBlake3Response;
+      try {
+        data = await attemptSyncVideo(blake3, item.sha256, item.size);
+      } catch (e) {
+        // the source peer genuinely doesn't have bytes for the original
+        // (moved/deleted off its disk, never fully transferred there,
+        // etc - this is someone else's library, not something we can fix
+        // from here) - a rendition is still real content from the same
+        // video, so it's a reasonable quiet fallback rather than failing
+        // the whole send outright. one attempt only, not a loop.
+        const isMissingBlob = e instanceof EnvelopeError && e.errorType === "fetch_failed";
+        const rendition = item.video.renditions?.[0];
+        if (isMissingBlob && rendition?.blake3 && rendition.blake3 !== blake3) {
+          debug(
+            TAG,
+            `${lp} original unavailable on source for "${item.video.title}", quietly retrying with rendition ${rendition.blob_id.slice(0, 16)}`
+          );
+          data = await attemptSyncVideo(rendition.blake3, null, null);
+        } else {
+          throw e;
+        }
+      }
+
       progress.syncedVideos += 1;
       progress.syncedBlake3s.push(blake3);
       info(

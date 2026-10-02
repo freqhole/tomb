@@ -35,6 +35,7 @@ import {
   openVideoOPFSChunkSink,
 } from "../opfs/helpers";
 import { resolvePlaybackTarget } from "../playbackBlobId";
+import { useVideoWindow } from "../../../music/services/audio/selectVideo";
 import { syncVideoViaLocalGrimoire, type VideoSyncResult } from "./syncVideoViaLocalGrimoire";
 import { extensionFromMime } from "../videoMime";
 import type { QueuedVideo } from "../../../app/services/storage/mediaItem";
@@ -275,11 +276,11 @@ async function syncVideoViaCharnel(
     return { success: false, error: `remote ${remoteId} not found` };
   }
 
-  const blobId = resolvePlaybackTarget(video).blobId;
+  const blobId = resolvePlaybackTarget(video, useVideoWindow()).blobId;
 
   // resolves+pulls a specific blob id - factored out so a rendition
-  // attempt can fall back to the original below without duplicating the
-  // blake3-shortcut/metadata-fetch logic.
+  // attempt can fall back to the original (or vice versa) below without
+  // duplicating the blake3-shortcut/metadata-fetch logic.
   const attemptSync = (id: string): Promise<VideoSyncResult> =>
     withLoadingProgress(video.id, async (onProgress) => {
       const meta = await fetchBlobMetadata(remoteId, id, remoteOverride);
@@ -329,6 +330,18 @@ async function syncVideoViaCharnel(
       `rendition ${blobId} unavailable for video ${video.id} (${result.error}), falling back to original ${video.media_blob_id}`
     );
     result = await attemptSync(video.media_blob_id);
+  } else if (!result.success && blobId === video.media_blob_id) {
+    // symmetric case (experimental player prefers the original): if
+    // THAT'S unavailable but a rendition exists, it's still a better bet
+    // than failing outright.
+    const rendition = video.renditions?.[0];
+    if (rendition?.blob_id) {
+      warn(
+        "videoSync",
+        `original unavailable for video ${video.id} (${result.error}), falling back to rendition ${rendition.blob_id}`
+      );
+      result = await attemptSync(rendition.blob_id);
+    }
   }
 
   if (!result.success) {
@@ -395,7 +408,7 @@ export async function syncVideoToLocal(
       return { success: true };
     }
 
-    const blobId = resolvePlaybackTarget(video).blobId;
+    const blobId = resolvePlaybackTarget(video, useVideoWindow()).blobId;
 
     // fetches bytes for a specific blob id into OPFS - factored out so a
     // rendition attempt can fall back to the original below. keyed by
@@ -485,6 +498,18 @@ export async function syncVideoToLocal(
         `rendition ${blobId} unavailable for video ${video.id} (${fetched.error}), falling back to original ${video.media_blob_id}`
       );
       fetched = await fetchVideoBytes(video.media_blob_id);
+    } else if (!fetched.ok && blobId === video.media_blob_id) {
+      // symmetric case (experimental player prefers the original): if
+      // THAT'S unavailable but a rendition exists, it's still a better
+      // bet than failing outright.
+      const rendition = video.renditions?.[0];
+      if (rendition?.blob_id) {
+        warn(
+          "videoSync",
+          `original unavailable for video ${video.id} (${fetched.error}), falling back to rendition ${rendition.blob_id}`
+        );
+        fetched = await fetchVideoBytes(rendition.blob_id);
+      }
     }
     if (!fetched.ok) {
       warn(
