@@ -46,6 +46,15 @@ pub struct VideoWindowDiagnostics {
 pub fn emit_event(app: &AppHandle<Wry>, event: &VideoEvent) {
     use tauri::Emitter;
     crate::media_session::on_video_event(app, event);
+    match event {
+        VideoEvent::Playing | VideoEvent::Paused => {
+            crate::menu::update_show_video_window_item(app, true)
+        }
+        VideoEvent::Closed | VideoEvent::Ended | VideoEvent::Error { .. } => {
+            crate::menu::update_show_video_window_item(app, false)
+        }
+        _ => {}
+    }
     if let Err(e) = app.emit(VIDEO_EVENT, event) {
         tracing::warn!(error = %e, "failed to emit video window event");
     }
@@ -56,6 +65,19 @@ pub fn emit_event(app: &AppHandle<Wry>, event: &VideoEvent) {
 pub fn shutdown() {
     #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
     libmpv_backend::shutdown();
+}
+
+/// bring an already-open video window to front - used by the app menu's
+/// "show video window" item to recover a window the user lost track of
+/// (e.g. cmd+tabbed away from fullscreen on macOS). a no-op (not an error)
+/// when no window is currently open.
+pub fn show_video_window(app: &AppHandle<Wry>) {
+    #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
+    if use_libmpv(app) {
+        let _ = libmpv_backend::dispatch(app.clone(), VideoCommand::Show);
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+    let _ = app;
 }
 
 /// reads the "experimental player" toggle (`FreqholeAppConfig::

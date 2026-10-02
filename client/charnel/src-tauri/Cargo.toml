@@ -131,4 +131,8 @@ udev = "0.9.3"
 # absolute path into at link time - registering $RESOURCE as a DLL search
 # directory at startup (src/lib.rs) is what actually finds it at runtime.
 [target.'cfg(target_os = "windows")'.dependencies]
-windows-sys = { version = "0.59", features = ["Win32_System_LibraryLoader"] }
+windows-sys = { version = "0.59", features = [
+    "Win32_System_LibraryLoader",
+    "Win32_Foundation",
+    "Win32_UI_WindowsAndMessaging",
+] }
