@@ -162,7 +162,7 @@ export function AddMediaModal(props: AddMediaModalProps) {
   createEffect(() => {
     const target = props.targetRemote;
     if (!props.isOpen || !target || target.is_charnel_managed) return;
-    void probeRemote(target as unknown as Remote, { force: true });
+    void probeRemote(target as unknown as Remote, { force: true, timeoutMs: 0 });
   });
   const targetStatus = (): "online" | "offline" | "checking" => {
     const target = props.targetRemote;
@@ -173,13 +173,14 @@ export function AddMediaModal(props: AddMediaModalProps) {
     return online ? "online" : "offline";
   };
 
-  // manual retry for the offline fallback panel - same forced, bounded
-  // probe as the auto-check above (NOT a short-timeout reachability
-  // ping), just re-triggered on demand instead of only on modal open.
+  // manual retry for the offline fallback panel - same forced, patient
+  // probe as the auto-check above (NOT a short-timeout reachability ping -
+  // `timeoutMs: 0` waits as long as the p2p transport takes, since this is
+  // an explicit user-initiated retry, not a background triage check).
   const handleRetryTargetHealth = () => {
     const target = props.targetRemote;
     if (!target || target.is_charnel_managed) return;
-    void probeRemote(target as unknown as Remote, { force: true });
+    void probeRemote(target as unknown as Remote, { force: true, timeoutMs: 0 });
   };
 
   // in charnel mode, music's path-based imports always redirect through the

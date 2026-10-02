@@ -535,19 +535,21 @@ const DestinationRow: Component<DestinationRowProps> = (props) => {
     props.anyActive() || !props.payloadReady || status().kind !== "ready" || allAlreadyPresent();
 
   // clicking an "offline" row retries the connection instead of sending -
-  // `probeRemote(..., {force:true})` bypasses the backoff gate and does a
-  // real connection attempt (bounded by `checkRemoteHealth`'s timeout),
-  // unlike the auth store's normal resolveOne which just skips known-
-  // offline remotes outright. once the probe comes back online,
-  // `refreshOne` re-runs the whoami check so the row's status flips to
-  // "ready" (or needs-login/view-only) reactively.
+  // `probeRemote(..., {force:true, timeoutMs:0})` bypasses both the backoff
+  // gate AND the usual 5s app-level health-check timeout, since this is an
+  // explicit user-initiated retry: a p2p connection can legitimately take a
+  // while, and the user already chose to wait by clicking retry (unlike the
+  // auth store's normal resolveOne which just skips known-offline remotes
+  // outright). once the probe comes back online, `refreshOne` re-runs the
+  // whoami check so the row's status flips to "ready" (or needs-login/
+  // view-only) reactively.
   const [retrying, setRetrying] = createSignal(false);
   const handleRetry = async () => {
     const remote = props.entry.candidate?.remote;
     if (!remote || retrying()) return;
     setRetrying(true);
     try {
-      const online = await probeRemote(remote, { force: true });
+      const online = await probeRemote(remote, { force: true, timeoutMs: 0 });
       if (online) {
         await refreshOne(remote);
       } else {

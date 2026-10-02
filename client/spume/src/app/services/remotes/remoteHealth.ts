@@ -173,12 +173,16 @@ export async function seedOnlineMap(): Promise<void> {
  * - if the remote is in a backoff window, returns the last known state
  *   without probing.
  * - `force` skips the backoff gate (use for explicit "retry now" buttons).
+ * - `timeoutMs: 0` skips the app-level health-check timeout too (see
+ *   `checkRemoteHealth`) - pair with `force` for a patient, user-initiated
+ *   retry that waits as long as the p2p transport itself allows instead of
+ *   giving up after a few seconds.
  *
  * returns `true` if online (or just came online), `false` otherwise.
  */
 export async function probeRemote(
   remote: Remote,
-  options: { force?: boolean } = {}
+  options: { force?: boolean; timeoutMs?: number } = {}
 ): Promise<boolean> {
   const id = remote.remote_id;
 
@@ -205,7 +209,7 @@ export async function probeRemote(
   const p = (async () => {
     markProbing(id, true);
     try {
-      const online = await checkRemoteHealth(remote);
+      const online = await checkRemoteHealth(remote, { timeoutMs: options.timeoutMs });
       if (online) recordSuccess(id);
       else recordFailure(id);
       return online;
