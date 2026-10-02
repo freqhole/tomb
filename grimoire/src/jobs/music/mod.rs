@@ -25,6 +25,7 @@ mod precheck_processor;
 mod rescan_processor;
 mod scan_processor;
 mod scanned_directories;
+mod sync_song_processor;
 mod upload_processors;
 
 // re-export public processor functions
@@ -45,6 +46,7 @@ pub use rescan_processor::{
     purge_missing_scanned_directories, repair_library_orphans, restore_reappeared_blobs_and_songs,
 };
 pub use scan_processor::process_scan_directory_job;
+pub use sync_song_processor::process_sync_song_by_blake3_job;
 pub use upload_processors::{process_convert_webp_job, process_import_music_job};
 
 // re-export music job models

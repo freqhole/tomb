@@ -9,13 +9,15 @@ use super::music::{
     process_convert_webp_job, process_directory_job, process_fetch_media_job, process_file_job,
     process_import_music_job, process_lastfm_album_detail_job, process_lastfm_artist_detail_job,
     process_mb_album_detail_job, process_mb_album_search_job, process_precheck_fetch_job,
-    process_rescan_directories_job, process_scan_directory_job,
+    process_rescan_directories_job, process_scan_directory_job, process_sync_song_by_blake3_job,
 };
 use super::service::{
     delete_job, get_job_session, get_next_pending_job, get_session_job_counts, mark_job_completed,
     mark_job_failed, peek_pending_jobs, try_claim_pending_job,
 };
-use super::video::{process_import_video_job, process_transcode_video_job};
+use super::video::{
+    process_import_video_job, process_sync_video_by_blake3_job, process_transcode_video_job,
+};
 use crate::error::ErrorDetail;
 use crate::jobs::job_events::{self, JobEvent, JobStatusWire};
 use crate::response::GrimoireResponse;
@@ -142,6 +144,8 @@ pub async fn process_job(job: Job) -> GrimoireResponse<JobResult> {
         JobType::AutoApplyAlbumEnrichment => process_auto_apply_album_enrichment_job(&job).await,
         JobType::ImportVideo => process_import_video_job(&job).await,
         JobType::TranscodeVideo => process_transcode_video_job(&job).await,
+        JobType::SyncSongByBlake3 => process_sync_song_by_blake3_job(&job).await,
+        JobType::SyncVideoByBlake3 => process_sync_video_by_blake3_job(&job).await,
     };
 
     let processing_time = start_time.elapsed().as_millis() as u64;

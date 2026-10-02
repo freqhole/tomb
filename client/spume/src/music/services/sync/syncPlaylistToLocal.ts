@@ -18,10 +18,6 @@ import { debug, error as errorLog } from "../../../utils/logger";
  * (the local grimoire pulls each blake3 directly from the source remote).
  * the playlist is then created via /api/sync/playlist with the list of
  * synced song blake3s — no audio bytes cross the IPC boundary.
- *
- * image refs in the playlist request are sha256-only today (ImageMetadata
- * has no sha256); the dest will report missing image sha256s in the
- * response. step 11 of the send-to-remote plan plumbs sha256 through.
  */
 async function syncPlaylistViaLocalGrimoire(
   songs: Song[],
@@ -48,14 +44,18 @@ async function syncPlaylistViaLocalGrimoire(
       }
     }
 
-    // collect blake3s for the playlist body. songs without blake3 cannot be
-    // referenced; the dest will report any missing ones in the response.
+    // collect blake3s for the playlist body (song members only — this call
+    // site only ever receives `songs: Song[]`; videos aren't part of the
+    // queue-sync path yet). songs without blake3 cannot be referenced; the
+    // dest will report any missing ones in the response.
     const songBlake3s = songs.map((s) => s.blake3).filter((b): b is string => !!b);
 
     if (songBlake3s.length === 0) {
       debug("syncPlaylistViaLocalGrimoire", "no songs with blake3 to include in playlist");
       return;
     }
+
+    const members = songBlake3s.map((blake3) => ({ kind: "song", blake3 }));
 
     const response = (await invoke("api_call", {
       path: "/api/sync/playlist",
@@ -64,10 +64,9 @@ async function syncPlaylistViaLocalGrimoire(
         remote_playlist_id: source.entity_id,
         title: source.label,
         description: null,
-        song_blake3s: songBlake3s,
+        members,
         images: [] as Array<{
-          content_sha256: string;
-          data_base64: string | null;
+          blake3: string;
           mime_type: string;
           is_primary: boolean;
           blob_type: string | null;
@@ -79,11 +78,11 @@ async function syncPlaylistViaLocalGrimoire(
       message: string;
       data?: {
         playlist_id: string;
-        songs_added: number;
-        missing_song_blake3s: string[];
+        members_added: number;
+        missing_member_blake3s: string[];
         song_stubs_created: number;
         images_linked: number;
-        missing_image_sha256s: string[];
+        missing_image_blake3s: string[];
       };
     };
 
@@ -95,9 +94,9 @@ async function syncPlaylistViaLocalGrimoire(
     const data = response.data;
     debug(
       "syncPlaylistViaLocalGrimoire",
-      `synced playlist "${source.label}" — ${data?.songs_added ?? 0} added, ` +
+      `synced playlist "${source.label}" — ${data?.members_added ?? 0} added, ` +
         `${data?.song_stubs_created ?? 0} stubs created, ` +
-        `${data?.missing_song_blake3s.length ?? 0} missing`
+        `${data?.missing_member_blake3s.length ?? 0} missing`
     );
     invalidateMusicLibraryQueries();
     void queryClient.invalidateQueries({ queryKey: queryKeys.playlists.all() });

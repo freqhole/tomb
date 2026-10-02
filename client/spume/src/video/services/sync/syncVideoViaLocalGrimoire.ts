@@ -112,7 +112,7 @@ export async function syncVideoViaLocalGrimoire(
         season_id: string | null;
         existing: boolean;
         images_linked: number;
-        missing_image_sha256s: string[];
+        missing_image_blake3s: string[];
       };
     };
 

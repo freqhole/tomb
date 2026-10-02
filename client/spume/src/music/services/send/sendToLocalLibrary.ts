@@ -16,11 +16,7 @@ import { upsertLocalPlaylistWithSongs } from "../storage/playlists";
 import { debug, error as logError } from "../../../utils/logger";
 import type { Remote } from "../../../app/services/storage/schemas/remote";
 import type { Song } from "../storage/types";
-import type {
-  SendOptions,
-  SendPayload,
-  SendProgress,
-} from "./sendToRemote";
+import type { SendOptions, SendPayload, SendProgress } from "./sendToRemote";
 import { SendToRemoteError } from "./sendToRemote";
 
 /**
@@ -30,13 +26,12 @@ import { SendToRemoteError } from "./sendToRemote";
 export async function sendToLocalLibrary(
   payload: SendPayload,
   source: Remote,
-  opts: SendOptions = {},
+  opts: SendOptions = {}
 ): Promise<SendProgress> {
   const concurrency = Math.max(1, opts.concurrency ?? 2);
   const retrySet = opts.retryBlake3s ? new Set(opts.retryBlake3s) : null;
 
-  const songs =
-    payload.kind === "song" ? [payload.song] : payload.songs;
+  const songs = payload.kind === "song" ? [payload.song] : payload.songs;
 
   const progress: SendProgress = {
     phase: "preparing",
@@ -47,16 +42,19 @@ export async function sendToLocalLibrary(
     errors: [],
     syncedBlake3s: [],
     failedBlake3s: [],
+    totalVideos: 0,
+    syncedVideos: 0,
+    skippedVideos: 0,
+    failedVideos: 0,
+    syncedVideoBlake3s: [],
+    failedVideoBlake3s: [],
   };
   const emit = () => opts.onProgress?.({ ...progress });
   emit();
 
   // require a source remote_id so syncSongToLocal can resolve the source.
   if (!source.remote_id) {
-    throw new SendToRemoteError(
-      "source remote is missing remote_id",
-      progress,
-    );
+    throw new SendToRemoteError("source remote is missing remote_id", progress);
   }
 
   // tag each song with the source remote_id (syncSongToLocal needs this
@@ -69,17 +67,13 @@ export async function sendToLocalLibrary(
   const skippedNotSyncable = songs.length - syncable.length;
   if (skippedNotSyncable > 0) {
     progress.skippedSongs += skippedNotSyncable;
-    progress.errors.push(
-      `${skippedNotSyncable} song(s) skipped — missing required fields`,
-    );
+    progress.errors.push(`${skippedNotSyncable} song(s) skipped — missing required fields`);
   }
 
   // when retrying, narrow to the requested blake3 subset.
   let eligibleSongs = syncable;
   if (retrySet) {
-    eligibleSongs = eligibleSongs.filter(
-      (s) => s.blake3 && retrySet.has(s.blake3),
-    );
+    eligibleSongs = eligibleSongs.filter((s) => s.blake3 && retrySet.has(s.blake3));
   }
   // totalSongs reflects what THIS run will attempt (matters for retries).
   progress.totalSongs = eligibleSongs.length;
@@ -105,16 +99,12 @@ export async function sendToLocalLibrary(
       } else {
         progress.failedSongs += 1;
         if (blake3) progress.failedBlake3s.push(blake3);
-        progress.errors.unshift(
-          `sync ${song.title} failed: ${result.error ?? "unknown"}`,
-        );
+        progress.errors.unshift(`sync ${song.title} failed: ${result.error ?? "unknown"}`);
       }
     } catch (e) {
       progress.failedSongs += 1;
       if (blake3) progress.failedBlake3s.push(blake3);
-      progress.errors.unshift(
-        `sync ${song.title} failed: ${String(e)}`,
-      );
+      progress.errors.unshift(`sync ${song.title} failed: ${String(e)}`);
       logError("sendToLocalLibrary", `song sync failed: ${String(e)}`);
     } finally {
       emit();
@@ -130,16 +120,14 @@ export async function sendToLocalLibrary(
       const db = await initMusicDB();
       // pull source images from the first song's album/song images.
       const firstWithImg = payload.songs.find(
-        (s) =>
-          (s.album_images && s.album_images.length > 0) ||
-          (s.images && s.images.length > 0),
+        (s) => (s.album_images && s.album_images.length > 0) || (s.images && s.images.length > 0)
       );
       const sourceImages = firstWithImg
-        ? (firstWithImg.album_images && firstWithImg.album_images.length > 0
-            ? [firstWithImg.album_images[0]]
-            : firstWithImg.images && firstWithImg.images.length > 0
-              ? [firstWithImg.images[0]]
-              : undefined)
+        ? firstWithImg.album_images && firstWithImg.album_images.length > 0
+          ? [firstWithImg.album_images[0]]
+          : firstWithImg.images && firstWithImg.images.length > 0
+            ? [firstWithImg.images[0]]
+            : undefined
         : undefined;
       // use the prefixed id pattern that mirrors syncPlaylistToLocalFromQueue.
       const localPlaylistId = `synced-${payload.playlistId}`;
@@ -151,20 +139,17 @@ export async function sendToLocalLibrary(
           description: payload.description ?? null,
           images: sourceImages,
         },
-        payload.songs as unknown as Song[],
+        payload.songs as unknown as Song[]
       );
       debug(
         "sendToLocalLibrary",
-        `local playlist '${payload.title}' upserted with ${payload.songs.length} songs`,
+        `local playlist '${payload.title}' upserted with ${payload.songs.length} songs`
       );
     } catch (e) {
       progress.errors.unshift(`playlist envelope failed: ${String(e)}`);
       progress.phase = "failed";
       emit();
-      throw new SendToRemoteError(
-        `playlist envelope failed: ${String(e)}`,
-        progress,
-      );
+      throw new SendToRemoteError(`playlist envelope failed: ${String(e)}`, progress);
     }
   }
 
@@ -177,7 +162,7 @@ export async function sendToLocalLibrary(
 async function runWithConcurrency<T>(
   items: T[],
   limit: number,
-  worker: (item: T) => Promise<void>,
+  worker: (item: T) => Promise<void>
 ): Promise<void> {
   let nextIndex = 0;
   const runners: Promise<void>[] = [];
@@ -190,7 +175,7 @@ async function runWithConcurrency<T>(
           if (idx >= total) return;
           await worker(items[idx]);
         }
-      })(),
+      })()
     );
   }
   await Promise.all(runners);

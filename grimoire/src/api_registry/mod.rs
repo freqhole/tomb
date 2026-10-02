@@ -310,9 +310,9 @@ pub mod type_registry {
 
     // sync types
     use crate::offal::sync::{
-        SyncAlbumRequest, SyncAlbumResponse, SyncImageRef, SyncPlaylistRequest,
-        SyncPlaylistResponse, SyncSongByBlake3Request, SyncSongByBlake3Response,
-        SyncVideoByBlake3Request, SyncVideoByBlake3Response,
+        SyncAlbumRequest, SyncAlbumResponse, SyncImageRef, SyncJobNotify, SyncJobQueuedResponse,
+        SyncPlaylistMember, SyncPlaylistRequest, SyncPlaylistResponse, SyncSongByBlake3Request,
+        SyncSongByBlake3Response, SyncVideoByBlake3Request, SyncVideoByBlake3Response,
     };
 
     // related artists (phase 13h)
@@ -1735,6 +1735,8 @@ pub mod type_registry {
         registered.insert("SyncSongByBlake3Response".to_string());
         gen.add_schema::<SyncPlaylistRequest>("SyncPlaylistRequest");
         registered.insert("SyncPlaylistRequest".to_string());
+        gen.add_schema::<SyncPlaylistMember>("SyncPlaylistMember");
+        registered.insert("SyncPlaylistMember".to_string());
         gen.add_schema::<SyncPlaylistResponse>("SyncPlaylistResponse");
         registered.insert("SyncPlaylistResponse".to_string());
         gen.add_schema::<SyncImageRef>("SyncImageRef");
@@ -1747,6 +1749,10 @@ pub mod type_registry {
         registered.insert("SyncVideoByBlake3Request".to_string());
         gen.add_schema::<SyncVideoByBlake3Response>("SyncVideoByBlake3Response");
         registered.insert("SyncVideoByBlake3Response".to_string());
+        gen.add_schema::<SyncJobQueuedResponse>("SyncJobQueuedResponse");
+        registered.insert("SyncJobQueuedResponse".to_string());
+        gen.add_schema::<SyncJobNotify>("SyncJobNotify");
+        registered.insert("SyncJobNotify".to_string());
 
         // import review types
         gen.add_schema::<ListPendingReviewRequest>("ListPendingReviewRequest");

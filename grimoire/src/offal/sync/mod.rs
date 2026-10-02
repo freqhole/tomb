@@ -15,12 +15,14 @@ use crate::users::UserRole;
 
 mod album;
 mod images;
+mod job_notify;
 mod models;
 mod playlist;
 mod song;
 mod video;
 
 pub use album::sync_album;
+pub use job_notify::sync_job_notify;
 pub use models::*;
 pub use playlist::sync_playlist;
 pub use song::{get_synced_sha256s, sync_song_by_blake3, sync_song_by_blake3_impl};
@@ -34,7 +36,7 @@ pub const ROUTES: &[RouteInfo] = &[
         method: Method::POST,
         domain: Domain::Music,
         request_type: "SyncSongByBlake3Request",
-        response_type: "SyncSongByBlake3Response",
+        response_type: "SyncJobQueuedResponse",
         auth: RouteAuth::Role(UserRole::Member),
     },
     RouteInfo {
@@ -70,8 +72,21 @@ pub const ROUTES: &[RouteInfo] = &[
         method: Method::POST,
         domain: Domain::Video,
         request_type: "SyncVideoByBlake3Request",
-        response_type: "SyncVideoByBlake3Response",
+        response_type: "SyncJobQueuedResponse",
         auth: RouteAuth::Role(UserRole::Member),
+    },
+    RouteInfo {
+        name: "sync_job_notify",
+        path: "/api/sync/job-notify",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "SyncJobNotify",
+        response_type: "bool",
+        // best-effort completion push between peers - see SyncJobNotify's
+        // doc comment. public: the peer sending this isn't necessarily
+        // symmetrically registered as a known peer of the recipient (the
+        // recipient dialed the sender first, not the other way around).
+        auth: RouteAuth::Public,
     },
 ];
 
@@ -88,6 +103,7 @@ pub async fn dispatch(
 ) -> Option<GrimoireResponse<JsonValue>> {
     match path {
         "/api/sync/song-by-blake3" => Some(sync_song_by_blake3(caller, body.clone()).await),
+        "/api/sync/job-notify" => Some(sync_job_notify(caller, body.clone()).await),
         "/api/sync/playlist" => Some(sync_playlist(caller, body.clone()).await),
         "/api/sync/sha256s" => Some(get_synced_sha256s(caller).await),
         "/api/sync/album" => Some(sync_album(caller, body.clone()).await),

@@ -28,19 +28,16 @@ pub async fn get_synced_sha256s(_caller: &Caller) -> GrimoireResponse<JsonValue>
 ///
 /// path: POST /api/sync/song-by-blake3
 ///
-/// flow:
-///   1. parse + validate request
-///   2. shortcut: if a song row already exists keyed by `blake3`, skip the pull entirely
-///   3. otherwise, call `pull_audio_blob_to_local_storage_with_progress` (verified streaming + dedupe)
-///   4. write a complete song row via `import_song_with_metadata` (no async ImportMusic job)
-///   5. attach song images by `SyncImageRef` (inline base64 OR existing-by-sha256)
-///
-/// thin wrapper over `sync_song_by_blake3_impl` for the generic offal route
-/// dispatch (HTTP, CLI, remote ALPN) - none of those transports have a side
-/// channel for progress, so this always passes `None`. `charnel_lib`'s
-/// `sync_song_by_blake3_with_progress` tauri command calls the same impl
-/// with a real callback wired to a `tauri::ipc::Channel` instead - see its
-/// doc comment for why this couldn't just be added here.
+/// enqueues a `SyncSongByBlake3` background job and returns immediately
+/// (see `SyncJobQueuedResponse`'s doc comment) - the actual work (pull +
+/// import, previously done inline here) now runs in
+/// `jobs::music::process_sync_song_by_blake3_job`, so the peer that
+/// triggered this doesn't need to keep a connection open for the whole
+/// transfer. `charnel_lib`'s `sync_song_by_blake3_with_progress` tauri
+/// command is unaffected - it calls `sync_song_by_blake3_impl` directly
+/// (synchronously, with a real progress callback) for the LOCAL
+/// charnel-to-its-own-grimoire case, which has no connection-lifetime
+/// concern to begin with.
 pub async fn sync_song_by_blake3(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
     let req: SyncSongByBlake3Request = match serde_json::from_value(body) {
         Ok(r) => r,
@@ -60,7 +57,74 @@ pub async fn sync_song_by_blake3(caller: &Caller, body: JsonValue) -> GrimoireRe
             );
         }
     };
-    sync_song_by_blake3_impl(caller, req, None).await
+
+    // resolve (or create) the artist synchronously, before enqueuing the
+    // slow part - idempotent (the job's own later pull+import resolves the
+    // same artist by name again, just finds this same row) and cheap (a
+    // local-only db write, no network). this is what lets the caller
+    // upload artist images immediately instead of needing to wait for the
+    // background job to finish and report back - see `SyncJobQueuedResponse`.
+    use crate::music::crud::create_or_update::find_or_create_artist;
+    use crate::music::crud::ArtistImportRequest;
+    let artist_resp = find_or_create_artist(ArtistImportRequest {
+        name: req.artist_name.clone(),
+        created_by: Some(caller.user_id.clone()),
+    })
+    .await;
+    let artist_id = match artist_resp.data {
+        Some((artist, _was_new)) => Some(artist.id),
+        None => {
+            tracing::warn!(
+                "sync_song_by_blake3: failed to resolve artist \"{}\" for {} - continuing without a synchronous artist_id: {}",
+                req.artist_name,
+                caller.username,
+                artist_resp.message,
+            );
+            None
+        }
+    };
+
+    let params = crate::jobs::SyncSongByBlake3JobParams {
+        caller: caller.clone(),
+        request: req,
+    };
+    let parameters = match serde_json::to_value(&params) {
+        Ok(v) => v,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "failed to queue sync job",
+                vec![ErrorDetail::new(
+                    "internal_error",
+                    "failed to queue sync job",
+                    e.to_string(),
+                )],
+            )
+        }
+    };
+
+    let job_response = crate::jobs::create_job(crate::jobs::CreateJobRequest {
+        job_type: crate::jobs::JobType::SyncSongByBlake3,
+        session_id: None,
+        parameters,
+        max_retries: Some(0),
+        scheduled_at: None,
+        created_by: Some(caller.username.clone()),
+        priority: Some(10),
+    })
+    .await;
+
+    let Some(job) = job_response.data else {
+        return GrimoireResponse::failure("failed to queue sync job", job_response.errors);
+    };
+
+    GrimoireResponse::success(
+        "sync queued",
+        serde_json::to_value(super::models::SyncJobQueuedResponse {
+            job_id: job.id,
+            artist_id,
+        })
+        .unwrap_or(JsonValue::Null),
+    )
 }
 
 /// same as `sync_song_by_blake3` but takes an already-parsed request and an
@@ -149,7 +213,7 @@ pub async fn sync_song_by_blake3_impl(
                 blake3: req.blake3.clone(),
                 existing: true,
                 images_linked: 0,
-                missing_image_sha256s: Vec::new(),
+                missing_image_blake3s: Vec::new(),
             };
             return GrimoireResponse::success(
                 "song already existed",
@@ -308,14 +372,16 @@ pub async fn sync_song_by_blake3_impl(
     let import_existing = import_result.existing;
     let song_id = import_result.song.id.clone();
 
-    // 5. link song images. each ref is either inline base64 (decode + dedupe by
-    //    sha256) or a pure reference (look up existing blob by sha256). missing
-    //    referenced blobs are recorded but not fatal.
+    // 5. link song images. each ref carries a blake3 hash - pulled from
+    //    source_node_id (deduped against anything already local first), no
+    //    bytes ever ride in the request itself. missing/unpullable images
+    //    are recorded but not fatal.
     let mut images_linked: i64 = 0;
-    let mut missing_image_sha256s: Vec<String> = Vec::new();
+    let mut missing_image_blake3s: Vec<String> = Vec::new();
     for (idx, img) in req.song_images.iter().enumerate() {
         let blob_id_opt = match resolve_sync_image_ref(
             img,
+            &req.source_node_id,
             &format!("song-{}-{}", song_id, idx),
             Some(&pulled.blob.id),
         )
@@ -323,13 +389,13 @@ pub async fn sync_song_by_blake3_impl(
         {
             Ok(Some(id)) => Some(id),
             Ok(None) => {
-                missing_image_sha256s.push(img.content_sha256.clone());
+                missing_image_blake3s.push(img.blake3.clone());
                 None
             }
             Err(e) => {
                 tracing::warn!(
                     "sync_song_by_blake3: failed to import image {} for song {}: {}",
-                    img.content_sha256,
+                    img.blake3,
                     song_id,
                     e
                 );
@@ -348,10 +414,10 @@ pub async fn sync_song_by_blake3_impl(
     }
 
     // 5b. link album images. look up the album_id that was just associated
-    // with the imported song and attach each album image. inline-base64 refs
-    // are deduped via sha256, so an album cover that's byte-identical to a
-    // song cover already linked above will resolve to the same blob_id and
-    // simply create the album_imagez row.
+    // with the imported song and attach each album image. refs are deduped
+    // by blake3, so an album cover that's byte-identical to a song cover
+    // already linked above will resolve to the same blob_id and simply
+    // create the album_imagez row.
     if !req.album_images.is_empty() {
         let album_id_opt: Option<String> = match crate::database::connect().await {
             Ok(pool) => sqlx::query_scalar!(
@@ -371,6 +437,7 @@ pub async fn sync_song_by_blake3_impl(
                 // derived blob_type slips through (better than a CHECK panic).
                 let blob_id_opt = match resolve_sync_image_ref(
                     img,
+                    &req.source_node_id,
                     &format!("album-{}-{}", album_id, idx),
                     Some(&pulled.blob.id),
                 )
@@ -378,13 +445,13 @@ pub async fn sync_song_by_blake3_impl(
                 {
                     Ok(Some(id)) => Some(id),
                     Ok(None) => {
-                        missing_image_sha256s.push(img.content_sha256.clone());
+                        missing_image_blake3s.push(img.blake3.clone());
                         None
                     }
                     Err(e) => {
                         tracing::warn!(
                             "sync_song_by_blake3: failed to import album image {} for album {}: {}",
-                            img.content_sha256,
+                            img.blake3,
                             album_id,
                             e
                         );
@@ -429,7 +496,7 @@ pub async fn sync_song_by_blake3_impl(
         song_id,
         pulled.blob.id,
         images_linked,
-        missing_image_sha256s.len(),
+        missing_image_blake3s.len(),
     );
 
     let response = SyncSongByBlake3Response {
@@ -441,7 +508,7 @@ pub async fn sync_song_by_blake3_impl(
         blake3: req.blake3.clone(),
         existing: import_existing,
         images_linked,
-        missing_image_sha256s,
+        missing_image_blake3s,
     };
 
     GrimoireResponse::success(

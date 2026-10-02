@@ -55,8 +55,9 @@ pub enum PullAudioBlobError {
     /// source peer refused because we aren't a registered federation peer.
     /// caller should create a knock request before retrying.
     PeerUnauthorized { peer: String, blake3: String },
-    /// iroh-blobs fetch took longer than 120s wall-clock
-    Timeout,
+    /// exhausted every retry attempt without finishing in time - see
+    /// `MAX_ATTEMPTS_WITH_PROGRESS`/`MAX_ATTEMPTS_NO_PROGRESS`/`OVERALL_TIME_BUDGET`.
+    Timeout { attempts: u32, elapsed_secs: u64 },
     /// downloaded byte count didn't match the declared size
     SizeMismatch { expected: u64, got: u64 },
     /// failed to read back the downloaded file
@@ -137,12 +138,14 @@ impl PullAudioBlobError {
                     )],
                 )
             }
-            PullAudioBlobError::Timeout => GrimoireResponse::failure(
+            PullAudioBlobError::Timeout { attempts, elapsed_secs } => GrimoireResponse::failure(
                 "blob fetch timed out",
                 vec![ErrorDetail::new(
                     "timeout",
                     "blob fetch timed out",
-                    "failed to download blob from peer within 120 seconds. the peer may not be serving blobs (browser needs blob server running) or the connection may have dropped.",
+                    format!(
+                        "failed to download blob from peer after {attempts} attempt(s) over {elapsed_secs}s. the peer may not be serving blobs (browser needs blob server running) or the connection may have dropped."
+                    ),
                 )],
             ),
             PullAudioBlobError::SizeMismatch { expected, got } => GrimoireResponse::failure(
@@ -317,15 +320,8 @@ pub async fn pull_audio_blob_to_local_storage_with_progress(
     }
 
     // pull the blob from the source peer via iroh-blobs verified streaming.
-    // streams directly to disk via FsStore export — no full-file memory buffering.
-    // timeout after 120 seconds to prevent indefinite hangs.
-    tracing::info!(
-        "pulling blob {} from peer {} for {} (full_node_id={})",
-        &blake3[..16],
-        &source_node_id[..16.min(source_node_id.len())],
-        caller.username,
-        source_node_id,
-    );
+    // streams directly to disk via FsStore export — no full-file memory
+    // buffering - see the retry loop below for per-attempt logging/timeout.
 
     // determine output path before downloading so we can stream directly to it
     let output_dir = match domain {
@@ -368,68 +364,147 @@ pub async fn pull_audio_blob_to_local_storage_with_progress(
     // second concurrent pull's rename onto it is a harmless same-content
     // overwrite, since `create_media_blob` already dedupes by sha256.
     static TEMP_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
-    let disambiguator = TEMP_FILE_COUNTER.fetch_add(1, Ordering::Relaxed);
-    let temp_filename = format!(
-        "{}-{}-{}.{}",
-        &blake3[..16],
-        std::process::id(),
-        disambiguator,
-        ext
-    );
-    // join each segment separately - a single format!() string with embedded
-    // "/" produces a mixed \ and / path on windows once joined onto output_dir.
-    let temp_path = output_dir
-        .join(format!("{:04}", year))
-        .join(format!("{:02}", month))
-        .join(temp_filename);
 
-    // ensure directory exists
-    if let Some(parent) = temp_path.parent() {
-        if let Err(e) = tokio::fs::create_dir_all(parent).await {
-            return Err(PullAudioBlobError::CreateDirFailed {
-                path: parent.to_string_lossy().into_owned(),
-                message: e.to_string(),
-            });
-        }
+    // retry policy: a retry resumes from whatever's already verified in the
+    // real, disk-backed FsStore (see p2p_client.rs) rather than starting
+    // over, so an attempt that actually moved bytes before failing/timing
+    // out is worth retrying generously - that's what smooths over a shoddy
+    // connection. an attempt that transferred zero bytes (peer unreachable/
+    // refused outright) is a different class of failure a retry won't fix,
+    // so it only gets one extra try in case it was a one-off connect hiccup.
+    const MAX_ATTEMPTS_WITH_PROGRESS: u32 = 5;
+    const MAX_ATTEMPTS_NO_PROGRESS: u32 = 2;
+    const PER_ATTEMPT_TIMEOUT: Duration = Duration::from_secs(120);
+    const OVERALL_TIME_BUDGET: Duration = Duration::from_secs(600);
+
+    fn backoff_for(attempt: u32) -> Duration {
+        Duration::from_secs(match attempt {
+            1 => 2,
+            2 => 5,
+            _ => 10,
+        })
     }
 
-    let fetch_future = p2p_client::fetch_blob_verified_to_file_with_ensure_and_progress(
-        source_node_id,
-        blake3,
-        &temp_path,
-        on_progress,
-    );
-    let file_size = match tokio::time::timeout(Duration::from_secs(120), fetch_future).await {
-        Ok(Ok(size)) => {
-            tracing::info!(
-                "exported {} bytes for blob {} from peer {} to {}",
-                size,
-                &blake3[..16],
-                &source_node_id[..16.min(source_node_id.len())],
-                temp_path.display(),
-            );
-            size
-        }
-        Ok(Err(e)) => {
-            tracing::error!(
-                "failed to fetch blob {} from peer {}: {}",
-                &blake3[..16],
-                &source_node_id[..16.min(source_node_id.len())],
-                e,
-            );
-            if let GrimoireError::PeerUnauthorized { peer, blake3: b } = e {
-                return Err(PullAudioBlobError::PeerUnauthorized { peer, blake3: b });
+    let overall_start = std::time::Instant::now();
+    let mut attempt: u32 = 0;
+    let (file_size, temp_path) = loop {
+        attempt += 1;
+        let disambiguator = TEMP_FILE_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let temp_filename = format!(
+            "{}-{}-{}.{}",
+            &blake3[..16],
+            std::process::id(),
+            disambiguator,
+            ext
+        );
+        // join each segment separately - a single format!() string with embedded
+        // "/" produces a mixed \ and / path on windows once joined onto output_dir.
+        let temp_path = output_dir
+            .join(format!("{:04}", year))
+            .join(format!("{:02}", month))
+            .join(temp_filename);
+
+        // ensure directory exists
+        if let Some(parent) = temp_path.parent() {
+            if let Err(e) = tokio::fs::create_dir_all(parent).await {
+                return Err(PullAudioBlobError::CreateDirFailed {
+                    path: parent.to_string_lossy().into_owned(),
+                    message: e.to_string(),
+                });
             }
-            return Err(PullAudioBlobError::FetchFailed(e.to_string()));
         }
-        Err(_) => {
-            tracing::error!(
-                "timeout fetching blob {} from peer {} (120s)",
-                &blake3[..16],
-                &source_node_id[..16.min(source_node_id.len())],
+
+        // tracks cumulative bytes reported THIS attempt, independent of the
+        // caller's own on_progress - lets the retry policy below tell "never
+        // connected" apart from "was transferring, then dropped". a plain
+        // `Arc<AtomicU64>` (not a wrapping closure) specifically so this
+        // doesn't require `on_progress` itself to be `'static` - some real
+        // callers (e.g. rathole's player tui) hold a genuinely stack-scoped
+        // progress reporter.
+        let attempt_bytes = AtomicU64::new(0);
+
+        tracing::info!(
+            "pulling blob {} from peer {} for {} (full_node_id={}, attempt={})",
+            &blake3[..16],
+            &source_node_id[..16.min(source_node_id.len())],
+            caller.username,
+            source_node_id,
+            attempt,
+        );
+
+        let fetch_future =
+            p2p_client::fetch_blob_verified_to_file_with_ensure_and_progress_and_sink(
+                source_node_id,
+                blake3,
+                &temp_path,
+                on_progress,
+                Some(&attempt_bytes),
             );
-            return Err(PullAudioBlobError::Timeout);
+        let outcome = tokio::time::timeout(PER_ATTEMPT_TIMEOUT, fetch_future).await;
+        let bytes_this_attempt = attempt_bytes.load(Ordering::Relaxed);
+        let max_attempts = if bytes_this_attempt > 0 {
+            MAX_ATTEMPTS_WITH_PROGRESS
+        } else {
+            MAX_ATTEMPTS_NO_PROGRESS
+        };
+        let budget_exhausted =
+            attempt >= max_attempts || overall_start.elapsed() >= OVERALL_TIME_BUDGET;
+
+        match outcome {
+            Ok(Ok(size)) => {
+                tracing::info!(
+                    "exported {} bytes for blob {} from peer {} to {} (attempt {})",
+                    size,
+                    &blake3[..16],
+                    &source_node_id[..16.min(source_node_id.len())],
+                    temp_path.display(),
+                    attempt,
+                );
+                break (size, temp_path);
+            }
+            Ok(Err(e)) => {
+                if let GrimoireError::PeerUnauthorized { peer, blake3: b } = e {
+                    // not retryable - needs a knock request, not more attempts.
+                    return Err(PullAudioBlobError::PeerUnauthorized { peer, blake3: b });
+                }
+                tracing::error!(
+                    "failed to fetch blob {} from peer {} (attempt {}, {} bytes transferred): {}",
+                    &blake3[..16],
+                    &source_node_id[..16.min(source_node_id.len())],
+                    attempt,
+                    bytes_this_attempt,
+                    e,
+                );
+                if budget_exhausted {
+                    return Err(PullAudioBlobError::FetchFailed(e.to_string()));
+                }
+            }
+            Err(_) => {
+                tracing::error!(
+                    "timeout fetching blob {} from peer {} (attempt {}, {}s, {} bytes transferred)",
+                    &blake3[..16],
+                    &source_node_id[..16.min(source_node_id.len())],
+                    attempt,
+                    PER_ATTEMPT_TIMEOUT.as_secs(),
+                    bytes_this_attempt,
+                );
+                if budget_exhausted {
+                    return Err(PullAudioBlobError::Timeout {
+                        attempts: attempt,
+                        elapsed_secs: overall_start.elapsed().as_secs(),
+                    });
+                }
+            }
         }
+
+        tracing::warn!(
+            "retrying blob {} from peer {} ({} bytes transferred before last attempt failed, {} attempt(s) so far)",
+            &blake3[..16],
+            &source_node_id[..16.min(source_node_id.len())],
+            bytes_this_attempt,
+            attempt,
+        );
+        tokio::time::sleep(backoff_for(attempt)).await;
     };
 
     // 4. validate size if provided

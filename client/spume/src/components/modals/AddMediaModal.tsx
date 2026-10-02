@@ -173,6 +173,15 @@ export function AddMediaModal(props: AddMediaModalProps) {
     return online ? "online" : "offline";
   };
 
+  // manual retry for the offline fallback panel - same forced, bounded
+  // probe as the auto-check above (NOT a short-timeout reachability
+  // ping), just re-triggered on demand instead of only on modal open.
+  const handleRetryTargetHealth = () => {
+    const target = props.targetRemote;
+    if (!target || target.is_charnel_managed) return;
+    void probeRemote(target as unknown as Remote, { force: true });
+  };
+
   // in charnel mode, music's path-based imports always redirect through the
   // local library first (review-before-send flow) - so "review" always means
   // reviewing local (grimoire) sessions there, regardless of which remote is
@@ -945,6 +954,9 @@ export function AddMediaModal(props: AddMediaModalProps) {
                             pick a different remote above to continue, or wait for it to come back
                             online
                           </p>
+                          <Button variant="secondary" onClick={handleRetryTargetHealth}>
+                            retry
+                          </Button>
                         </>
                       }
                     >

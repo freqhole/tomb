@@ -5,8 +5,10 @@
 //!   music's `process_import_music_job`
 
 mod transcode_processor;
+mod sync_video_processor;
 mod upload_processor;
 
 pub use transcode_processor::process_transcode_video_job;
 pub(crate) use transcode_processor::should_skip_transcode;
+pub use sync_video_processor::process_sync_video_by_blake3_job;
 pub use upload_processor::process_import_video_job;

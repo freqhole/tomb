@@ -6,13 +6,15 @@
 // already carries series/season context inline (no separate "shell" call
 // needed before per-item syncs, unlike music's album-then-song two-step),
 // and there is no playlist-equivalent grouping for video yet. audio bytes
-// never touch the client - dest receives `POST /api/sync/video-by-blake3`
-// and pulls the video directly from the source peer via iroh-blobs
-// (`source_node_id` + blake3), exactly like music's song sync.
+// never touch the client - dest receives `POST /api/sync/video-by-blake3`,
+// enqueues a background job, and returns immediately; the actual pull from
+// the source peer via iroh-blobs (`source_node_id` + blake3) runs
+// unattended on dest, so this client's connection doesn't need to stay
+// open for the whole transfer - exactly like music's song sync.
 
 import { schema } from "@freqhole/api-client";
-const { SyncVideoByBlake3ResponseSchema } = schema;
-import type { SyncVideoByBlake3Response } from "@freqhole/api-client";
+const { SyncJobQueuedResponseSchema } = schema;
+import type { SyncJobQueuedResponse } from "@freqhole/api-client";
 import { getTransportForRemote } from "../../../app/api/client";
 import type { Remote } from "../../../app/services/storage/schemas/remote";
 import {
@@ -33,6 +35,9 @@ const TAG = "sendVideoToRemote";
 export interface SendVideoProgress {
   phase: "preparing" | "syncing" | "done" | "failed";
   totalVideos: number;
+  /** successfully QUEUED on dest (job accepted) - not a confirmation the
+   * actual pull/import finished, which now runs as an unattended background
+   * job on dest. see `SyncJobQueuedResponse`'s doc comment. */
   syncedVideos: number;
   skippedVideos: number;
   failedVideos: number;
@@ -190,15 +195,19 @@ export async function sendVideosToRemote(
           JSON.stringify(body)
         );
         debug(TAG, `${lp} /api/sync/video-by-blake3 -> http ${resp.status}`);
-        return unwrapEnvelope<SyncVideoByBlake3Response>(
+        // dest enqueues a background job and returns immediately (see
+        // SyncJobQueuedResponse's doc comment) - the actual pull/import
+        // runs unattended on dest, so this request no longer needs to stay
+        // open for the whole transfer.
+        return unwrapEnvelope<SyncJobQueuedResponse>(
           "sync_video_by_blake3",
           resp.body,
           resp.status,
-          (v) => SyncVideoByBlake3ResponseSchema.safeParse(v)
+          (v) => SyncJobQueuedResponseSchema.safeParse(v)
         );
       };
 
-      let data: SyncVideoByBlake3Response;
+      let data: SyncJobQueuedResponse;
       try {
         data = await attemptSyncVideo(blake3, item.sha256, item.size);
       } catch (e) {
@@ -225,7 +234,7 @@ export async function sendVideosToRemote(
       progress.syncedBlake3s.push(blake3);
       info(
         TAG,
-        `${lp} sync_video ok: "${item.video.title}" video_id=${data.video_id} blob_id=${data.media_blob_id} existing=${data.existing}`
+        `${lp} sync_video queued: "${item.video.title}" job_id=${data.job_id} (dest will finish this unattended)`
       );
     } catch (e) {
       progress.failedVideos += 1;

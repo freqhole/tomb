@@ -13,7 +13,6 @@
 use std::sync::{Arc, Mutex};
 
 use iroh::{Endpoint, EndpointAddr, PublicKey};
-use iroh_blobs::api::downloader::Downloader;
 use iroh_blobs::api::Store;
 use iroh_blobs::{Hash, HashAndFormat};
 use serde::{Deserialize, Serialize};
@@ -24,15 +23,6 @@ use crate::federation::transport::{PeerConnection, FREQHOLE_ALPN};
 
 /// global federation endpoint for P2P client operations
 static FEDERATION_ENDPOINT: Mutex<Option<Arc<Endpoint>>> = Mutex::new(None);
-
-/// iroh-blobs store and downloader for verified blob fetching
-static BLOBS_STATE: Mutex<Option<BlobsState>> = Mutex::new(None);
-
-/// state for iroh-blobs verified downloads
-struct BlobsState {
-    store: Store,
-    downloader: Downloader,
-}
 
 /// response from a P2P api request
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -52,41 +42,23 @@ pub struct P2pBlobData {
 /// set the federation endpoint for client operations
 ///
 /// call this after creating the federation endpoint in the server.
-/// can be called multiple times (e.g., after restart).
-/// also initializes the iroh-blobs downloader for verified blob fetching.
+/// can be called multiple times (e.g., after restart). the iroh-blobs
+/// downloader itself lives on the shared `reliquary::StorageNode` (real,
+/// disk-backed `FsStore` - see `database::storage_node()`), bound via
+/// `attach_endpoint` as part of `FederationEndpoint::start_router_with` -
+/// this function only needs to publish the endpoint for non-blob P2P API
+/// calls (`get_endpoint`/`connect_to_peer` etc).
 pub fn set_federation_endpoint(endpoint: &Endpoint) {
-    // set endpoint
-    {
-        let mut guard = FEDERATION_ENDPOINT.lock().unwrap();
-        *guard = Some(Arc::new(endpoint.clone()));
-    }
-
-    // initialize iroh-blobs downloader with MemStore (no persistence on client)
-    // blobs are returned to JS which caches in Cache API
-    let mem_store = iroh_blobs::store::mem::MemStore::default();
-    let downloader = Downloader::new(&mem_store, endpoint);
-    let store = mem_store.as_ref().clone();
-
-    {
-        let mut guard = BLOBS_STATE.lock().unwrap();
-        *guard = Some(BlobsState { store, downloader });
-    }
-
-    info!("P2P client endpoint and blobs downloader initialized");
+    let mut guard = FEDERATION_ENDPOINT.lock().unwrap();
+    *guard = Some(Arc::new(endpoint.clone()));
+    info!("P2P client endpoint initialized");
 }
 
 /// clear and close the federation endpoint
 ///
 /// actually closes the iroh endpoint (which stops the accept loop),
 /// then clears the global so a new one can be created.
-/// also clears the iroh-blobs downloader state.
 pub async fn clear_federation_endpoint() {
-    // clear blobs state first
-    {
-        let mut guard = BLOBS_STATE.lock().unwrap();
-        *guard = None;
-    }
-
     // take the endpoint out of the global while holding the lock briefly
     let endpoint = {
         let mut guard = FEDERATION_ENDPOINT.lock().unwrap();
@@ -386,7 +358,7 @@ pub async fn fetch_blob_verified_with_progress(
     on_progress: Option<&BlobProgressFn>,
 ) -> GrimoireResult<Vec<u8>> {
     let (store, hash, hash_short, node_id_short) =
-        download_blob_to_store(peer_addr, blake3_hash, on_progress).await?;
+        download_blob_to_store(peer_addr, blake3_hash, on_progress, None).await?;
 
     // read the blob from store
     let bytes = store
@@ -429,8 +401,34 @@ pub async fn fetch_blob_verified_to_file_with_progress(
     target: &std::path::Path,
     on_progress: Option<&BlobProgressFn>,
 ) -> GrimoireResult<u64> {
+    fetch_blob_verified_to_file_with_progress_and_sink(
+        peer_addr,
+        blake3_hash,
+        target,
+        on_progress,
+        None,
+    )
+    .await
+}
+
+/// `fetch_blob_verified_to_file_with_progress` plus an optional
+/// `Arc<AtomicU64>` that mirrors every reported byte count - a plain value
+/// handle (not a trait object), so callers that need to read "how far did
+/// this specific attempt get" (e.g. `pull_audio_blob_to_local_storage`'s
+/// retry loop) can do so without constructing a new closure around their
+/// own `on_progress` reference, which would require it to be `'static`
+/// (`BlobProgressFn` has no lifetime param, so it defaults to one) - a
+/// bound real callers (e.g. rathole's player tui, which holds a genuinely
+/// stack-scoped reporter) can't always satisfy.
+pub async fn fetch_blob_verified_to_file_with_progress_and_sink(
+    peer_addr: &str,
+    blake3_hash: &str,
+    target: &std::path::Path,
+    on_progress: Option<&BlobProgressFn>,
+    bytes_sink: Option<&std::sync::atomic::AtomicU64>,
+) -> GrimoireResult<u64> {
     let (store, hash, hash_short, node_id_short) =
-        download_blob_to_store(peer_addr, blake3_hash, on_progress).await?;
+        download_blob_to_store(peer_addr, blake3_hash, on_progress, bytes_sink).await?;
 
     // export from store directly to target file (no memory buffering)
     store
@@ -472,6 +470,7 @@ async fn download_blob_to_store(
     peer_addr: &str,
     blake3_hash: &str,
     on_progress: Option<&BlobProgressFn>,
+    bytes_sink: Option<&std::sync::atomic::AtomicU64>,
 ) -> GrimoireResult<(iroh_blobs::api::Store, Hash, String, String)> {
     let addr = parse_peer_address(peer_addr)?;
     let node_id_short = addr.id.to_string()[..16].to_string();
@@ -482,16 +481,17 @@ async fn download_blob_to_store(
         hash_short, node_id_short, peer_addr,
     );
 
-    // get blobs state (downloader + store)
-    let (downloader, store) = {
-        let guard = BLOBS_STATE.lock().unwrap();
-        let state = guard
-            .as_ref()
-            .ok_or_else(|| GrimoireError::FederationApiError {
-                message: "blobs downloader not initialized".to_string(),
-            })?;
-        (state.downloader.clone(), state.store.clone())
-    };
+    // real, disk-backed store + downloader (reliquary's StorageNode) -
+    // streams verified chunks straight to the on-disk FsStore, never
+    // buffers a whole blob in memory, and persists across retries/restarts
+    // (unlike the ad-hoc in-memory MemStore this used to spin up per-endpoint).
+    let node = crate::database::storage_node().await?;
+    let downloader = node
+        .downloader()
+        .ok_or_else(|| GrimoireError::FederationApiError {
+            message: "blobs downloader not initialized (no endpoint attached yet)".to_string(),
+        })?;
+    let store: Store = node.fs_store.as_ref().clone();
 
     // parse blake3 hash
     let hash: Hash = blake3_hash
@@ -591,6 +591,9 @@ async fn download_blob_to_store(
             }
             DownloadProgressItem::Progress(bytes) => {
                 bytes_before_failure = bytes;
+                if let Some(sink) = bytes_sink {
+                    sink.store(bytes, std::sync::atomic::Ordering::Relaxed);
+                }
                 if let Some(cb) = on_progress {
                     cb(bytes);
                 }
@@ -899,6 +902,27 @@ pub async fn fetch_blob_verified_to_file_with_ensure_and_progress(
     target: &std::path::Path,
     on_progress: Option<&BlobProgressFn>,
 ) -> GrimoireResult<u64> {
+    fetch_blob_verified_to_file_with_ensure_and_progress_and_sink(
+        peer_addr,
+        blake3_hash,
+        target,
+        on_progress,
+        None,
+    )
+    .await
+}
+
+/// `fetch_blob_verified_to_file_with_ensure_and_progress` plus an optional
+/// byte-count sink - see `fetch_blob_verified_to_file_with_progress_and_sink`'s
+/// doc comment for why this is a separate `Arc`/plain-reference parameter
+/// rather than folded into `on_progress` itself.
+pub async fn fetch_blob_verified_to_file_with_ensure_and_progress_and_sink(
+    peer_addr: &str,
+    blake3_hash: &str,
+    target: &std::path::Path,
+    on_progress: Option<&BlobProgressFn>,
+    bytes_sink: Option<&std::sync::atomic::AtomicU64>,
+) -> GrimoireResult<u64> {
     // a queued MediaRef can legitimately name this same instance as its
     // own source (e.g. content browsed from this player's own library and
     // queued straight back to it - see `is_self_peer`'s doc comment).
@@ -931,8 +955,14 @@ pub async fn fetch_blob_verified_to_file_with_ensure_and_progress(
     );
 
     // first attempt
-    match fetch_blob_verified_to_file_with_progress(peer_addr, blake3_hash, target, on_progress)
-        .await
+    match fetch_blob_verified_to_file_with_progress_and_sink(
+        peer_addr,
+        blake3_hash,
+        target,
+        on_progress,
+        bytes_sink,
+    )
+    .await
     {
         Ok(size) => return Ok(size),
         Err(e) => {
@@ -995,9 +1025,14 @@ pub async fn fetch_blob_verified_to_file_with_ensure_and_progress(
         &blake3_hash[..16.min(blake3_hash.len())],
     );
 
-    let result =
-        fetch_blob_verified_to_file_with_progress(peer_addr, blake3_hash, target, on_progress)
-            .await;
+    let result = fetch_blob_verified_to_file_with_progress_and_sink(
+        peer_addr,
+        blake3_hash,
+        target,
+        on_progress,
+        bytes_sink,
+    )
+    .await;
     if let Err(ref e) = result {
         error!(
             hash = %&blake3_hash[..16.min(blake3_hash.len())],
@@ -1054,7 +1089,7 @@ pub async fn pull_blob_to_local_store_with_ensure(
     );
 
     // first attempt
-    match download_blob_to_store(peer_addr, blake3_hash, on_progress).await {
+    match download_blob_to_store(peer_addr, blake3_hash, on_progress, None).await {
         Ok(_) => return Ok(()),
         Err(e) => {
             tracing::warn!(
@@ -1091,7 +1126,7 @@ pub async fn pull_blob_to_local_store_with_ensure(
         "pull_blob_to_local_store: retrying for {}",
         &blake3_hash[..16.min(blake3_hash.len())],
     );
-    download_blob_to_store(peer_addr, blake3_hash, on_progress)
+    download_blob_to_store(peer_addr, blake3_hash, on_progress, None)
         .await
         .map(|_| ())
 }

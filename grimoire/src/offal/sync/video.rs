@@ -21,11 +21,9 @@ use super::models::{SyncImageRef, SyncVideoByBlake3Request, SyncVideoByBlake3Res
 ///
 /// path: POST /api/sync/video-by-blake3
 ///
-/// thin wrapper over `sync_video_by_blake3_impl` for the generic offal route
-/// dispatch (HTTP, CLI, remote ALPN) - see `song::sync_song_by_blake3`'s
-/// doc comment for why this always passes `None`; `charnel_lib`'s
-/// `sync_video_by_blake3_with_progress` tauri command calls the impl with a
-/// real callback instead.
+/// enqueues a `SyncVideoByBlake3` background job and returns immediately -
+/// see `song::sync_song_by_blake3`'s doc comment for the full rationale,
+/// this is the video counterpart.
 pub async fn sync_video_by_blake3(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
     let req: SyncVideoByBlake3Request = match serde_json::from_value(body) {
         Ok(r) => r,
@@ -45,7 +43,48 @@ pub async fn sync_video_by_blake3(caller: &Caller, body: JsonValue) -> GrimoireR
             );
         }
     };
-    sync_video_by_blake3_impl(caller, req, None).await
+
+    let params = crate::jobs::SyncVideoByBlake3JobParams {
+        caller: caller.clone(),
+        request: req,
+    };
+    let parameters = match serde_json::to_value(&params) {
+        Ok(v) => v,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "failed to queue sync job",
+                vec![ErrorDetail::new(
+                    "internal_error",
+                    "failed to queue sync job",
+                    e.to_string(),
+                )],
+            )
+        }
+    };
+
+    let job_response = crate::jobs::create_job(crate::jobs::CreateJobRequest {
+        job_type: crate::jobs::JobType::SyncVideoByBlake3,
+        session_id: None,
+        parameters,
+        max_retries: Some(0),
+        scheduled_at: None,
+        created_by: Some(caller.username.clone()),
+        priority: Some(10),
+    })
+    .await;
+
+    let Some(job) = job_response.data else {
+        return GrimoireResponse::failure("failed to queue sync job", job_response.errors);
+    };
+
+    GrimoireResponse::success(
+        "sync queued",
+        serde_json::to_value(super::models::SyncJobQueuedResponse {
+            job_id: job.id,
+            artist_id: None,
+        })
+        .unwrap_or(JsonValue::Null),
+    )
 }
 
 /// same as `sync_video_by_blake3` but takes an already-parsed request and an
@@ -296,16 +335,17 @@ pub async fn sync_video_by_blake3_impl(
     // images: video poster first (it also becomes videoz.poster_blob_id),
     // then series/season posters.
     let mut images_linked = 0i64;
-    let mut missing_image_sha256s = Vec::new();
+    let mut missing_image_blake3s = Vec::new();
 
     let video_poster = link_sync_entity_images(
         crate::video::VideoEntityType::Video,
         &video_id,
         &req.video_images,
         &media_blob_id,
+        &req.source_node_id,
         caller,
         &mut images_linked,
-        &mut missing_image_sha256s,
+        &mut missing_image_blake3s,
     )
     .await;
 
@@ -344,9 +384,10 @@ pub async fn sync_video_by_blake3_impl(
             series_id,
             &req.series_images,
             &media_blob_id,
+            &req.source_node_id,
             caller,
             &mut images_linked,
-            &mut missing_image_sha256s,
+            &mut missing_image_blake3s,
         )
         .await;
     }
@@ -356,9 +397,10 @@ pub async fn sync_video_by_blake3_impl(
             season_id,
             &req.season_images,
             &media_blob_id,
+            &req.source_node_id,
             caller,
             &mut images_linked,
-            &mut missing_image_sha256s,
+            &mut missing_image_blake3s,
         )
         .await;
     }
@@ -388,7 +430,7 @@ pub async fn sync_video_by_blake3_impl(
         season_id,
         existing,
         images_linked,
-        missing_image_sha256s,
+        missing_image_blake3s,
     };
     GrimoireResponse::success(
         if existing {
@@ -466,30 +508,34 @@ async fn link_sync_entity_images(
     entity_id: &str,
     images: &[SyncImageRef],
     parent_blob_id: &str,
+    source_node_id: &str,
     caller: &Caller,
     images_linked: &mut i64,
-    missing_image_sha256s: &mut Vec<String>,
+    missing_image_blake3s: &mut Vec<String>,
 ) -> Option<String> {
     let mut primary_blob_id = None;
 
     for img in images {
         let name_prefix = format!("{}-{}", entity_type.as_str(), entity_id);
-        let resolved = match resolve_sync_image_ref(img, &name_prefix, Some(parent_blob_id)).await {
-            Ok(Some(blob_id)) => blob_id,
-            Ok(None) => {
-                missing_image_sha256s.push(img.content_sha256.clone());
-                continue;
-            }
-            Err(e) => {
-                tracing::warn!(
-                    "sync_video_by_blake3: image {} for {} failed: {}",
-                    &img.content_sha256[..16.min(img.content_sha256.len())],
-                    entity_id,
-                    e
-                );
-                continue;
-            }
-        };
+        let resolved =
+            match resolve_sync_image_ref(img, source_node_id, &name_prefix, Some(parent_blob_id))
+                .await
+            {
+                Ok(Some(blob_id)) => blob_id,
+                Ok(None) => {
+                    missing_image_blake3s.push(img.blake3.clone());
+                    continue;
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "sync_video_by_blake3: image {} for {} failed: {}",
+                        &img.blake3[..16.min(img.blake3.len())],
+                        entity_id,
+                        e
+                    );
+                    continue;
+                }
+            };
 
         let blob_type = match img.blob_type.as_deref() {
             Some("thumbnail") => BlobType::Thumbnail,

@@ -24,7 +24,8 @@ pub use models::{
     CancelJobRequest, CreateJobRequest, CreateJobSessionRequest, EnrichmentSource, GetJobRequest,
     GetJobsStatusRequest, GetJobsStatusResponse, Job, JobError, JobListResponse, JobProgress,
     JobResponse, JobResult, JobSession, JobStatsResponse, JobStatus, JobType, ListJobsRequest,
-    ProcessorResponse, QueueStats, SessionStatus, TranscodeVideoParams, TranscodeVideoResult,
+    ProcessorResponse, QueueStats, SyncSongByBlake3JobParams, SyncVideoByBlake3JobParams,
+    TranscodeVideoParams, TranscodeVideoResult,
 };
 pub(crate) use video::should_skip_transcode;
 
