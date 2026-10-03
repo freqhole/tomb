@@ -5,6 +5,12 @@
 //!
 //! see [docs/TUI_PLAN.md](../../docs/TUI_PLAN.md).
 
+// async_trait's macro expansion adds a bare #[must_use] to every trait
+// method, which newer clippy flags as redundant on top of the already-
+// must_use Pin<Box<dyn Future>> it returns - a known false positive in
+// the macro itself, not a real issue in any of this crate's traits.
+#![allow(clippy::double_must_use)]
+
 pub mod ratcore;
 
 pub mod share;
