@@ -19,9 +19,14 @@
 # at all. adapted directly (2026-09-29) from flathub's own
 # io.github.celluloid_player.Celluloid manifest - a GTK app built on
 # libmpv, on this exact org.gnome.Platform runtime, that already solves
-# this exact problem in production. dropped celluloid's own lua/JS
-# scripting (mujs/lua5.1) and yt-dlp modules - freqhole doesn't run mpv
-# scripts, so `-Dlua=disabled` and no JS engine at all.
+# this exact problem in production. dropped celluloid's own JS scripting
+# (mujs) and yt-dlp modules - freqhole doesn't run mpv JS scripts or
+# yt-dlp. lua IS kept (as luajit, inlined below, not via celluloid's own
+# lua5.1 shared-modules submodule) - mpv's built-in OSC (on-screen
+# controls) is itself a bundled lua script, so `-Dlua=disabled` silently
+# breaks OSC with `MPV_ERROR_OPTION_NOT_FOUND` on the `osc` option rather
+# than failing to build - confirmed 2026-10-03 via a raw ctypes
+# mpv_initialize() call against the already-built flatpak's libmpv.so.2.
 id: net.freqhole.freqhole
 runtime: org.gnome.Platform
 runtime-version: "50"
@@ -101,15 +106,43 @@ modules:
       - -Dcplayer=false
       - -Dbuild-date=false
       - -Dalsa=disabled
-      # freqhole never runs mpv lua scripts - skips the lua5.1 dependency
-      # celluloid's own manifest needs for its own scripting features.
-      - -Dlua=disabled
+      # required for mpv's built-in OSC (on-screen controls), which is
+      # itself implemented as a bundled lua script - see luajit module below.
+      - -Dlua=enabled
     sources:
       - type: archive
         url: https://github.com/mpv-player/mpv/archive/v0.41.0.tar.gz
         sha256: ee21092a5ee427353392360929dc64645c54479aefdb5babc5cfbb5fad626209
 
     modules:
+      # luajit instead of vanilla lua 5.1 - mpv treats luajit as a drop-in,
+      # lua5.1-API-compatible scripting backend (most distros actually
+      # build mpv against luajit by default, not vanilla lua, for exactly
+      # this reason) and its own build system already produces a proper
+      # shared lib + pkgconfig file, unlike lua 5.1's upstream Makefile
+      # (which only ever makes a static lib + cli binary, needing hand-
+      # patched Makefile targets to get a .so at all). recipe matches
+      # flathub's own shared-modules/luajit/luajit.json (fetched
+      # 2026-10-03) - openresty's actively-maintained luajit2 fork, since
+      # upstream luajit.org is no longer maintained.
+      - name: luajit
+        no-autogen: true
+        make-args:
+          - BUILDMODE=dynamic
+          - PREFIX=${FLATPAK_DEST}
+        make-install-args:
+          - PREFIX=${FLATPAK_DEST}
+        sources:
+          - type: git
+            url: https://github.com/openresty/luajit2.git
+            tag: v2.1-20260724
+            commit: 982cd8323eafd8604a9e5f2a916aa50b9f67d9ed
+        cleanup:
+          - /bin
+          - /include
+          - /lib/pkgconfig
+          - /share/man
+
       - name: libopenmpt
         config-opts:
           - --disable-static
