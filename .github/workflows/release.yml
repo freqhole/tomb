@@ -563,6 +563,15 @@ jobs:
       DATABASE_URL: sqlite:data/grimoire.db
     steps:
       - uses: actions/checkout@v7
+      # some :armhf packages pulled in transitively by libmpv-dev:armhf (e.g.
+      # python3.9-minimal, via samba-libs' python bindings) run the just-
+      # unpacked foreign-arch binary directly from their postinst script (to
+      # byte-compile the stdlib) - without a registered binfmt handler, the
+      # amd64 kernel can't execute that armhf ELF at all ("Exec format
+      # error"), failing the whole `dpkg --configure`. this registers QEMU
+      # user-mode emulation so those postinst scripts just work transparently.
+      - name: set up QEMU (armhf binfmt support for cross-arch dpkg postinst scripts)
+        uses: docker/setup-qemu-action@v3
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - uses: actions/setup-node@v7
