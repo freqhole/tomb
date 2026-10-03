@@ -56,6 +56,14 @@ pub enum JobType {
     // every album + artist remote image candidate. final step flips
     // the album to `enriched`.
     AutoApplyAlbumEnrichment,
+
+    // cross-remote sync, dispatched by another peer via the offal sync
+    // routes - runs as a job (instead of inline in the request handler) so
+    // the triggering peer's connection doesn't need to stay open for the
+    // whole transfer; see `offal::sync::job_notify` for how the triggering
+    // peer optionally hears back when it's done.
+    SyncSongByBlake3,
+    SyncVideoByBlake3,
 }
 
 /// parameters for a `TranscodeVideo` job - produces rendition `MediaBlob`
@@ -75,6 +83,22 @@ pub struct TranscodeVideoResult {
     /// blob-creation) that dropped a rendition but didn't fail the job.
     #[serde(default)]
     pub partial_failures: Vec<ErrorDetail>,
+}
+
+/// parameters for a `SyncSongByBlake3` job - wraps the original request
+/// plus the caller identity (jobs run detached from the original request's
+/// connection, so there's no live `Caller` to borrow at run time).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SyncSongByBlake3JobParams {
+    pub caller: crate::offal::Caller,
+    pub request: crate::offal::sync::SyncSongByBlake3Request,
+}
+
+/// parameters for a `SyncVideoByBlake3` job - see `SyncSongByBlake3JobParams`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SyncVideoByBlake3JobParams {
+    pub caller: crate::offal::Caller,
+    pub request: crate::offal::sync::SyncVideoByBlake3Request,
 }
 
 /// external enrichment sources the pipeline can run against.

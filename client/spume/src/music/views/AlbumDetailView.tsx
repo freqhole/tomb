@@ -178,15 +178,47 @@ export function AlbumDetailView() {
   // for local sources, query album metadata
   const albumInfo = createMemo(() => {
     const songList = songs();
-    if (songList.length === 0) return null;
+    if (songList.length > 0) {
+      const firstSong = songList[0];
+      return {
+        album_id: firstSong.album_id,
+        title: firstSong.album_title,
+        artist_id: firstSong.artist_id,
+        year: firstSong.year,
+      };
+    }
 
-    const firstSong = songList[0];
+    // no songs (still loading, a legitimately empty album, or the album
+    // is gone) - fall back to the album query's own data so a real but
+    // empty album still renders instead of spinning forever (see the
+    // not-found redirect effect below for the "gone" case).
+    const album = albumQuery.data;
+    if (!album) return null;
     return {
-      album_id: firstSong.album_id,
-      title: firstSong.album_title,
-      artist_id: firstSong.artist_id,
-      year: firstSong.year,
+      album_id: album.album_id,
+      title: album.title,
+      artist_id: album.artist_id,
+      year: album.year,
     };
+  });
+
+  // safety net: if this album no longer exists (renamed/merged into a
+  // different id by a concurrent edit, deleted, etc - see
+  // docs/backlog2.md #1) `getAlbums`/`getAlbumSongs` both resolve with an
+  // empty result rather than a 404, so there's no error state to key off
+  // of - previously this left the view stuck on an infinite loading
+  // spinner forever (albumInfo() depended only on songs(), which also
+  // never resolves to anything there). once both queries have actually
+  // settled (not merely still fetching) and neither found anything here,
+  // bail back to the albums list rather than show a stuck/blank page.
+  createEffect(() => {
+    if (!params.id) return;
+    const albumSettled = albumQuery.status !== "pending" && albumQuery.fetchStatus === "idle";
+    const songsSettled =
+      albumSongsQuery.status !== "pending" && albumSongsQuery.fetchStatus === "idle";
+    if (albumSettled && songsSettled && !albumQuery.data && songs().length === 0) {
+      navigate("/albums", { replace: true });
+    }
   });
 
   // play entire album

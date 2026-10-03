@@ -19,6 +19,11 @@ pub struct SyncSongByBlake3Request {
     pub blake3: String,
     /// sha256 hash of the audio file (used for dedupe + verification)
     pub sha256: String,
+    /// node_id of the peer that triggered this sync (injected by the
+    /// transport handler, not sent by the client) - used only for the
+    /// best-effort job-notify push once the background job finishes.
+    #[serde(default)]
+    pub node_id: Option<String>,
     /// declared file size in bytes (verified after download)
     #[serde(default)]
     pub size: Option<u64>,
@@ -85,6 +90,10 @@ pub struct SyncSongByBlake3Response {
     pub song_id: String,
     /// destination media blob id
     pub media_blob_id: String,
+    /// destination artist id the song is linked to - lets callers (e.g.
+    /// send-to-remote's per-song artist-image upload) attach artist images
+    /// without a separate lookup round-trip.
+    pub artist_id: String,
     /// final on-disk path of the audio file
     pub file_path: String,
     /// computed sha256 of the downloaded bytes
@@ -93,20 +102,33 @@ pub struct SyncSongByBlake3Response {
     pub blake3: String,
     /// true if the song row already existed before this call
     pub existing: bool,
-    /// number of song images linked (existing-by-sha256 or new-from-base64)
+    /// number of song images linked (existing-by-blake3 or newly pulled)
     pub images_linked: i64,
-    /// image sha256s claimed without inline data and not present locally
-    pub missing_image_sha256s: Vec<String>,
+    /// image blake3s that couldn't be pulled/found - skipped, not fatal.
+    pub missing_image_blake3s: Vec<String>,
+}
+
+/// one member of a synced playlist, in order - a playlist is one shared
+/// position space across entity types (mirrors `playlist_itemz`), so
+/// members are a single ordered list rather than one list per kind (which
+/// couldn't represent interleaved song/video order at all).
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct SyncPlaylistMember {
+    /// "song" | "video"
+    pub kind: String,
+    /// blake3 hash of the member's media blob
+    pub blake3: String,
 }
 
 /// request for syncing a playlist from a source remote.
 ///
-/// playlist members are addressed by `song_blake3s` (resolved on the
-/// destination via `media_blobz.blake3 → songz.media_blob_id`). the
-/// destination is expected to have already received each song via
-/// `POST /api/sync/song-by-blake3` (or to have a pre-existing row keyed
-/// by the same blake3). missing blake3s are reported in the response but
-/// are not fatal — a partial playlist is created.
+/// playlist members are addressed by blake3 (resolved on the destination
+/// via `media_blobz.blake3`, then to a song/video row). the destination is
+/// expected to have already received each member via
+/// `POST /api/sync/song-by-blake3` / `/video-by-blake3` (or to have a
+/// pre-existing row keyed by the same blake3). missing blake3s are
+/// reported in the response but are not fatal — a partial playlist is
+/// created.
 ///
 /// the destination playlist id is deterministic:
 /// `synced-{source_remote_id}-{remote_playlist_id}` (or
@@ -116,6 +138,9 @@ pub struct SyncPlaylistRequest {
     /// optional source remote id (for deterministic destination playlist id)
     #[serde(default)]
     pub source_remote_id: Option<String>,
+    /// optional source iroh node id (used to pull playlist image blobs, if any)
+    #[serde(default)]
+    pub source_node_id: Option<String>,
     /// remote playlist id (for deterministic destination playlist id)
     pub remote_playlist_id: String,
     /// playlist title
@@ -123,9 +148,10 @@ pub struct SyncPlaylistRequest {
     /// optional description
     #[serde(default)]
     pub description: Option<String>,
-    /// blake3 hashes of songs in playlist order
-    pub song_blake3s: Vec<String>,
-    /// optional playlist images (sha256-addressed)
+    /// playlist members (songs and/or videos), in order
+    #[serde(default)]
+    pub members: Vec<SyncPlaylistMember>,
+    /// optional playlist images
     #[serde(default)]
     pub images: Vec<SyncImageRef>,
     /// remote display name (used as a tag on the playlist for provenance)
@@ -137,18 +163,19 @@ pub struct SyncPlaylistRequest {
 pub struct SyncPlaylistResponse {
     /// destination playlist id
     pub playlist_id: String,
-    /// number of songs added (resolved by blake3)
-    pub songs_added: i64,
-    /// blake3s with no media_blob (and therefore no song row) on the
-    /// destination — caller may retry after pushing those songs.
-    pub missing_song_blake3s: Vec<String>,
+    /// number of members added (songs + videos, resolved by blake3)
+    pub members_added: i64,
+    /// blake3s with no media_blob (and therefore no song/video row) on the
+    /// destination — caller may retry after pushing those members.
+    pub missing_member_blake3s: Vec<String>,
     /// number of song stubs that were created on the fly because a media_blob
-    /// existed for the blake3 but no song row was linked yet.
+    /// existed for the blake3 but no song row was linked yet (video has no
+    /// stub-creation equivalent - a missing video is just reported missing).
     pub song_stubs_created: i64,
     /// number of images linked
     pub images_linked: i64,
-    /// image sha256s claimed without inline data and not present locally
-    pub missing_image_sha256s: Vec<String>,
+    /// image blake3s that couldn't be pulled/found - skipped, not fatal.
+    pub missing_image_blake3s: Vec<String>,
 }
 
 // ============================================================================
@@ -158,18 +185,18 @@ pub struct SyncPlaylistResponse {
 
 /// hash-addressed image payload used by the new send-to-remote pipeline.
 ///
-/// `data_base64` is omitted when the destination already has a media_blob with
-/// matching `content_sha256` (negotiated up-front via `POST /api/blobz/has`).
-/// when omitted, the destination links the existing blob by sha256 instead of
-/// writing new bytes.
+/// one image attached to a synced entity (song/album/video/series/season).
+///
+/// carries only a blake3 hash + metadata - never raw bytes. the destination
+/// pulls the actual blob from `source_node_id` (the same peer named in the
+/// parent sync request) via the same iroh-blobs verified-streaming
+/// mechanism used for the main audio/video blob, deduping against anything
+/// it already has locally first. no base64, no JSON-embedded binary data.
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct SyncImageRef {
-    /// sha256 hash of the image bytes (always set). this is the dedupe key.
-    pub content_sha256: String,
-    /// base64-encoded image bytes. omitted when the destination already has
-    /// the blob (negotiated via /api/blobz/has).
-    #[serde(default)]
-    pub data_base64: Option<String>,
+    /// blake3 hash of the image blob (used for both local dedupe and the
+    /// P2P pull if not already present)
+    pub blake3: String,
     /// mime type (e.g. "image/jpeg")
     pub mime_type: String,
     /// whether this is the primary image
@@ -224,9 +251,9 @@ pub struct SyncAlbumRequest {
     /// tag names to attach to the album on the destination
     #[serde(default)]
     pub tags: Vec<String>,
-    /// album cover images (with optional inline base64 per blobz/has negotiation)
+    /// album cover images
     #[serde(default)]
-    pub images_base64: Vec<SyncImageRef>,
+    pub images: Vec<SyncImageRef>,
     /// blake3 hashes of the songs the source plans to send next. hint only;
     /// the destination does not enforce or pre-create song rows here.
     #[serde(default)]
@@ -244,12 +271,11 @@ pub struct SyncAlbumResponse {
     pub artist_id: String,
     /// true if the album row already existed on d, false if it was just created
     pub existing: bool,
-    /// number of images that were linked (existing blob found by sha256 or
-    /// newly written from inline base64)
+    /// number of images that were linked (existing-by-blake3 or newly pulled)
     pub images_linked: i64,
-    /// sha256s the request claimed had inline data but were missing from
-    /// `data_base64` and not present locally — these are skipped, not fatal.
-    pub missing_image_sha256s: Vec<String>,
+    /// image blake3s the request named that couldn't be pulled/found -
+    /// skipped, not fatal.
+    pub missing_image_blake3s: Vec<String>,
 }
 
 // pulls the video blob from the source peer via iroh-blobs, then writes the
@@ -267,6 +293,11 @@ pub struct SyncAlbumResponse {
 pub struct SyncVideoByBlake3Request {
     /// blake3 hash of the video file (used for P2P verified streaming)
     pub blake3: String,
+    /// node_id of the peer that triggered this sync (injected by the
+    /// transport handler, not sent by the client) - used only for the
+    /// best-effort job-notify push once the background job finishes.
+    #[serde(default)]
+    pub node_id: Option<String>,
     /// sha256 of the video file, when the source knows it (verified after
     /// download). videos carry no sha256 of their own client-side, so this
     /// is optional - unlike the song route.
@@ -347,6 +378,39 @@ pub struct SyncVideoByBlake3Response {
     pub existing: bool,
     /// number of images linked across video/series/season
     pub images_linked: i64,
-    /// image sha256s claimed without inline data and not present locally
-    pub missing_image_sha256s: Vec<String>,
+    /// image blake3s that couldn't be pulled/found - skipped, not fatal.
+    pub missing_image_blake3s: Vec<String>,
+}
+
+/// response when a sync-by-blake3 request is accepted and handed off to a
+/// background job rather than performed inline - the caller's connection
+/// no longer needs to stay open for the whole transfer. see `job-notify`
+/// for the (best-effort, not required) completion push.
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct SyncJobQueuedResponse {
+    pub job_id: String,
+    /// the song's artist, resolved/created synchronously before the job was
+    /// enqueued (cheap, local-only) - lets the caller upload artist images
+    /// right away instead of waiting for the background job. `None` for
+    /// domains with no synchronous entity to resolve (e.g. video).
+    #[serde(default)]
+    pub artist_id: Option<String>,
+}
+
+/// best-effort completion push a destination peer sends back to whoever
+/// triggered a sync-by-blake3 job, once that job finishes. purely
+/// informational - nothing waits on this, and a failed/dropped delivery
+/// (e.g. the triggering peer is offline by the time the job finishes)
+/// never affects the sync itself, which already succeeded or failed on
+/// its own.
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct SyncJobNotify {
+    pub job_id: String,
+    /// "song" | "video"
+    pub domain: String,
+    pub blake3: String,
+    pub title: String,
+    pub success: bool,
+    #[serde(default)]
+    pub error: Option<String>,
 }

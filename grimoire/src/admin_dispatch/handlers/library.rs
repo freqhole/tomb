@@ -81,10 +81,13 @@ pub(in crate::admin_dispatch) async fn scan(
     let recursive = opt_bool(&args, "recursive").unwrap_or(true);
 
     // which media pipeline to scan for - defaults to music so existing
-    // callers that don't pass `domain` yet keep today's behavior.
-    let domain: crate::MediaDomain = match opt_str(&args, "domain") {
+    // callers that don't pass `domain` yet keep today's behavior. `"both"`
+    // is a distinct explicit choice (`None` here, not `MediaDomain::Music`)
+    // that scans for both in one pass below.
+    let domain: Option<crate::MediaDomain> = match opt_str(&args, "domain").as_deref() {
+        Some("both") => None,
         Some(s) => match s.parse() {
-            Ok(d) => d,
+            Ok(d) => Some(d),
             Err(e) => {
                 return GrimoireResponse::failure(
                     format!("invalid domain: {e}"),
@@ -96,7 +99,7 @@ pub(in crate::admin_dispatch) async fn scan(
                 )
             }
         },
-        None => crate::MediaDomain::Music,
+        None => Some(crate::MediaDomain::Music),
     };
 
     // optional tag list to apply to the directory
@@ -140,11 +143,50 @@ pub(in crate::admin_dispatch) async fn scan(
     }
 
     let resp = match domain {
-        crate::MediaDomain::Music => {
+        Some(crate::MediaDomain::Music) => {
             crate::music::scan_directory(&path, &session_id, recursive, None, None, false).await
         }
-        crate::MediaDomain::Video => {
+        Some(crate::MediaDomain::Video) => {
             crate::video::scan_directory(&path, &session_id, recursive, None, None, false).await
+        }
+        None => {
+            // "both": one pass per domain, same session - merge the two
+            // outcomes into one response rather than exposing the fact
+            // that this ran as two scanner calls under the hood.
+            let music_resp =
+                crate::music::scan_directory(&path, &session_id, recursive, None, None, false)
+                    .await;
+            let video_resp =
+                crate::video::scan_directory(&path, &session_id, recursive, None, None, false)
+                    .await;
+            match (music_resp.data, video_resp.data) {
+                (Some(m), Some(v)) => {
+                    let merged = crate::music::scanner::DirectoryScanOutcome {
+                        file_count: m.file_count + v.file_count,
+                        files_queued: m.files_queued + v.files_queued,
+                        files_skipped: m.files_skipped + v.files_skipped,
+                        jobs_created: m.jobs_created + v.jobs_created,
+                    };
+                    GrimoireResponse::success(
+                        format!(
+                            "scanned directory: {} file(s) found, {} queued for import, {} already in library, {} job(s) created",
+                            merged.file_count, merged.files_queued, merged.files_skipped, merged.jobs_created
+                        ),
+                        merged,
+                    )
+                }
+                _ => GrimoireResponse::failure(
+                    format!(
+                        "both-domain scan partially failed: music={}, video={}",
+                        music_resp.message, video_resp.message
+                    ),
+                    music_resp
+                        .errors
+                        .into_iter()
+                        .chain(video_resp.errors)
+                        .collect(),
+                ),
+            }
         }
     };
 

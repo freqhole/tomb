@@ -23,6 +23,10 @@ pub enum VideoCommand {
     Play,
     Pause,
     TogglePlay,
+    /// bring the window to front without changing playback state - used to
+    /// recover a window that's gone behind other apps (e.g. after cmd+tab on
+    /// macOS left it with no reachable way back to fullscreen).
+    Show,
     Seek {
         seconds: f64,
     },

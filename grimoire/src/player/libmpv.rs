@@ -51,43 +51,44 @@ struct Inner {
 
 /// spawn a libmpv-backed player. must be called from inside a tokio
 /// runtime (spawns the snapshot-pump task).
-/// checks whether libmpv is actually loadable on this system, without
-/// crashing if it isn't. needed because macOS x86_64 links mpv *weakly*
-/// (`-weak-lmpv`, no bundled or otherwise guaranteed-present dylib - see
-/// `scripts/fetch-mpv-runtime.sh`'s x86_64 branch): there's no portable,
-/// working prebuilt mpv for that architecture (homebrew dropped its
-/// x86_64 macOS bottle, and the `mpv-libre-runtime` alternative turned
-/// out to have a broken macOS GPU renderer), so x86_64 users only get
-/// native playback if they happen to already have a working mpv
-/// installed at `/usr/local/lib/libmpv.2.dylib` themselves.
+/// checks whether libmpv is actually loadable on this system.
 ///
-/// calling ANY libmpv2 function when the weak symbol wasn't actually
-/// resolved at launch segfaults immediately (the standard, documented
-/// contract of weak linking - the caller must check availability first,
-/// dyld doesn't turn a missing weak symbol into a graceful error) rather
-/// than returning a normal error - so this must be called before
-/// anything else in this module touches libmpv2 at all.
-#[cfg(target_os = "macos")]
+/// historical note: macOS x86_64 used to link mpv *weakly* here
+/// (`-weak-lmpv`) since there was no portable, working prebuilt mpv for
+/// that architecture (homebrew had dropped its x86_64 macOS bottle, and
+/// the `mpv-libre-runtime` alternative appeared to have a broken macOS
+/// GPU renderer). both turned out to be fixable (homebrew dropped
+/// bottles but still builds fine from source; the "broken renderer" was
+/// actually macOS hardened runtime blocking MoltenVK, fixed via
+/// entitlements - see scripts/fetch-mpv-runtime.sh's top-of-file doc
+/// comment) - mpv is now bundled + hard-linked on every desktop target,
+/// this architecture included, so this is always `true` wherever this
+/// module compiles in at all (see the android note below). kept as a
+/// real function rather than deleted outright so a future platform with
+/// a genuinely optional/weakly-linked libmpv has an obvious place to
+/// reintroduce a real check, and so `spawn_libmpv_player`'s call site
+/// doesn't need to change if that ever happens again.
 pub fn is_libmpv_available() -> bool {
-    use std::ffi::CString;
-    let sym = CString::new("mpv_create").expect("no interior nul");
-    !unsafe { libc::dlsym(libc::RTLD_DEFAULT, sym.as_ptr()) }.is_null()
+    true
+}
+
+/// genuinely tries to initialize libmpv (`Mpv::new()`) rather than just
+/// asserting it's theoretically available like `is_libmpv_available`
+/// does - a missing/incompatible dylib closure (wrong arch, unresolved
+/// transitive dependency, etc.) surfaces here as a clean `false` instead
+/// of a hard process crash at actual playback time. used during setup to
+/// decide whether a fresh install can safely default to the "experimental
+/// player" - see `client/charnel/src-tauri/src/commands.rs`'s
+/// `run_setup_core`.
+pub fn smoke_test() -> bool {
+    Mpv::new().is_ok()
 }
 
 /// this whole module only compiles in when the `libmpv-playback` feature
 /// is on, which charnel only enables for desktop targets (macOS/linux/
 /// windows) - android never builds this in at all (still uses the html
-/// audio/video path there), so it's not a "hard dependency, always
-/// present" case there either; it's simply not a case this function
-/// needs to handle, since it doesn't exist for android builds. among the
-/// desktop targets that DO compile this in, only macOS x86_64 currently
-/// uses weak linking (see above) - linux and windows link mpv normally
-/// (a hard dependency, always present if the binary launched at all).
-#[cfg(not(target_os = "macos"))]
-pub fn is_libmpv_available() -> bool {
-    true
-}
-
+/// audio/video path there), so `is_libmpv_available` doesn't need to
+/// handle android either; it simply doesn't exist for android builds.
 pub fn spawn_libmpv_player() -> GrimoireResult<LibmpvController> {
     if !is_libmpv_available() {
         return Err(GrimoireError::ProcessingFailed {
@@ -477,6 +478,27 @@ fn read_libmpv_events(events_client: Mpv, events: broadcast::Sender<PlayerEvent>
     // pair causes phantom playback and an auto-advance to the next
     // queue item on every app boot.
     let mut ever_loaded = false;
+
+    // stall watchdog: confirmed for real (2026-10-01, a freshly-synced
+    // remote song) that mpv can report `pause=false` right after a Load
+    // (and `apply_command`'s own optimistic `Playing` emit agrees) while
+    // never actually producing audio - no error, no EndFile, nothing -
+    // because `time-pos` only sends a PropertyChange notification when
+    // the value actually changes, so a stalled decoder/AO that never
+    // advances past 0 never generates ANY event to correct the
+    // now-permanently-wrong "Playing" state. fixed by the user manually
+    // pausing then unpausing, which kicks mpv's AO into actually
+    // starting - this watchdog automates exactly that, once, per track,
+    // only if nothing has genuinely progressed within a grace window.
+    // deliberately NOT a loop/retry: a single nudge mirrors the known
+    // manual fix; if the file is genuinely unplayable, the nudge is a
+    // harmless no-op and the existing EndFile/Error path still fires
+    // normally afterward.
+    const STALL_GRACE: std::time::Duration = std::time::Duration::from_millis(2_500);
+    let mut loaded_at: Option<std::time::Instant> = None;
+    let mut seen_progress = false;
+    let mut nudged_this_track = false;
+
     loop {
         match events_client.wait_event(1.0) {
             Some(Ok(MpvEvent::PropertyChange {
@@ -484,6 +506,9 @@ fn read_libmpv_events(events_client: Mpv, events: broadcast::Sender<PlayerEvent>
                 change: PropertyData::Double(position),
                 ..
             })) => {
+                if position > 0.0 {
+                    seen_progress = true;
+                }
                 let total = events_client.get_property::<f64>("duration").unwrap_or(0.0);
                 emit(
                     &events,
@@ -520,6 +545,9 @@ fn read_libmpv_events(events_client: Mpv, events: broadcast::Sender<PlayerEvent>
                     .unwrap_or_default();
                 if index >= 0 && !path.is_empty() {
                     ever_loaded = true;
+                    loaded_at = Some(std::time::Instant::now());
+                    seen_progress = false;
+                    nudged_this_track = false;
                     emit(
                         &events,
                         PlayerEvent::TrackChanged {
@@ -537,9 +565,11 @@ fn read_libmpv_events(events_client: Mpv, events: broadcast::Sender<PlayerEvent>
                 if !ever_loaded {
                     continue;
                 }
+                loaded_at = None;
                 emit(&events, PlayerEvent::Ended);
             }
             Some(Ok(MpvEvent::EndFile(reason))) if reason == mpv_end_file_reason::Error => {
+                loaded_at = None;
                 emit(
                     &events,
                     PlayerEvent::Error {
@@ -556,6 +586,27 @@ fn read_libmpv_events(events_client: Mpv, events: broadcast::Sender<PlayerEvent>
                 tracing::warn!(error = ?e, "[player] libmpv event error");
             }
             Some(Ok(_)) | None => {}
+        }
+
+        // checked every loop iteration (including the ~1s `None`
+        // timeout case, which is what actually gives this a real tick
+        // when nothing else is happening) rather than only in response
+        // to a specific event - a stall is defined by the ABSENCE of an
+        // event, so there's nothing to react to otherwise.
+        if let Some(since) = loaded_at {
+            if !seen_progress
+                && !nudged_this_track
+                && since.elapsed() >= STALL_GRACE
+                && events_client.get_property::<bool>("pause") == Ok(false)
+            {
+                nudged_this_track = true;
+                tracing::warn!(
+                    "[player] libmpv reported playing but time-pos never advanced after {:?} - nudging via pause/unpause",
+                    STALL_GRACE
+                );
+                let _ = events_client.set_property("pause", true);
+                let _ = events_client.set_property("pause", false);
+            }
         }
     }
 }

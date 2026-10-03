@@ -649,14 +649,26 @@ function withTimeout<T>(p: Promise<T>, ms = HEALTH_CHECK_TIMEOUT_MS): Promise<T>
 // check if a remote is online (quick health check via /api/hello).
 // returns true if online, false if offline. also updates server info
 // (image_url, version, etc.) when online.
-export async function checkRemoteHealth(remote: Remote): Promise<boolean> {
+//
+// `timeoutMs: 0` skips our own app-level timeout entirely (just await the
+// transport call directly) - for explicit user-initiated retries, where a
+// slow-but-eventually-successful p2p dial shouldn't get cut off early by
+// us. iroh's own internal dial/connection timeout still applies; we're
+// only removing an ADDITIONAL, more aggressive timeout on top of it.
+export async function checkRemoteHealth(
+  remote: Remote,
+  options: { timeoutMs?: number } = {}
+): Promise<boolean> {
   const backend = getBackend();
   const now = Date.now();
 
   try {
     // use async client getter for P2P remotes (starts midden node if needed)
     const client = await getClientForRemote(remote);
-    const result = await withTimeout(client.app.serverInfo());
+    const result =
+      options.timeoutMs === 0
+        ? await client.app.serverInfo()
+        : await withTimeout(client.app.serverInfo(), options.timeoutMs);
     const isOnline = result.success && !!result.data;
 
     // re-read remote to get latest data (avoids overwriting with stale data)

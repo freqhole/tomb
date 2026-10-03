@@ -9,6 +9,10 @@
 //!
 //! run with: `cargo run --example snatch-engine --features test-utils`
 
+// see reliquary's own lib.rs for why this is allowed (async_trait macro
+// false positive).
+#![allow(clippy::double_must_use)]
+
 use std::sync::{Arc, Mutex as StdMutex, RwLock};
 
 use async_trait::async_trait;

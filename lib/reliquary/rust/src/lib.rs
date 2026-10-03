@@ -25,6 +25,12 @@
 //! here - it will silently reattach this crate's compilation to a `DATABASE_URL` that has no
 //! reason to exist in a consuming host app.
 
+// async_trait's macro expansion adds a bare #[must_use] to every trait
+// method, which newer clippy flags as redundant on top of the already-
+// must_use Pin<Box<dyn Future>> it returns - a known false positive in
+// the macro itself, not a real issue in any of this crate's traits.
+#![allow(clippy::double_must_use)]
+
 #[cfg(feature = "blobz")]
 pub mod blobz;
 #[cfg(feature = "chunked_import")]

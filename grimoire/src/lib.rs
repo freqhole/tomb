@@ -5,6 +5,12 @@
 //! grimoire library
 //! core business logic and database operations
 
+// async_trait's macro expansion adds a bare #[must_use] to every trait
+// method, which newer clippy flags as redundant on top of the already-
+// must_use Pin<Box<dyn Future>> it returns - a known false positive in
+// the macro itself, not a real issue in any of this crate's traits.
+#![allow(clippy::double_must_use)]
+
 pub(crate) mod acl_bridge;
 pub mod admin_dispatch;
 pub mod analytics;

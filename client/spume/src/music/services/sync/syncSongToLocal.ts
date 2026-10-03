@@ -33,19 +33,11 @@ import type { Remote } from "../../../app/services/storage/schemas/remote";
 import {
   inlineImagesForSync,
   inlineRawUrlForSync,
-  type InlinableImage,
+  toInlinableImages,
   type InlineImageCache,
 } from "./syncImages";
 import { invalidateMusicLibraryQueries } from "../../queries/cacheUpdates";
 import { imagesAreStale, preservePrimarySelection } from "../../../utils/images";
-
-function toInlinableImages(images: ImageMetadata[] | undefined): InlinableImage[] {
-  return (images ?? []).map((img) => ({
-    blobId: img.remote_blob_id,
-    isPrimary: !!img.is_primary,
-    blobType: img.blob_type,
-  }));
-}
 
 /** invoke `sync_song_by_blake3_with_progress` instead of the generic
  * `api_call`, wiring its `tauri::ipc::Channel<{bytes_downloaded}>` into the
@@ -212,7 +204,7 @@ async function syncSongViaLocalGrimoire(
         blake3: string;
         existing: boolean;
         images_linked: number;
-        missing_image_sha256s: string[];
+        missing_image_blake3s: string[];
       };
     };
 
@@ -235,12 +227,12 @@ async function syncSongViaLocalGrimoire(
     markSongSynced(song.sha256);
     debug(
       "syncSongViaLocalGrimoire",
-      `synced song ${song.title} via iroh (existing=${data?.existing ?? false}) images_linked=${data?.images_linked ?? 0} missing_image_sha256s=${data?.missing_image_sha256s?.length ?? 0}`
+      `synced song ${song.title} via iroh (existing=${data?.existing ?? false}) images_linked=${data?.images_linked ?? 0} missing_image_blake3s=${data?.missing_image_blake3s?.length ?? 0}`
     );
-    if (data?.missing_image_sha256s && data.missing_image_sha256s.length > 0) {
+    if (data?.missing_image_blake3s && data.missing_image_blake3s.length > 0) {
       debug(
         "syncSongViaLocalGrimoire",
-        `missing_image_sha256s for "${song.title}": ${data.missing_image_sha256s
+        `missing_image_blake3s for "${song.title}": ${data.missing_image_blake3s
           .slice(0, 5)
           .map((s) => s.slice(0, 8))
           .join(", ")}`

@@ -130,16 +130,33 @@ export function PlaylistDetailPanel(props: PlaylistDetailPanelProps) {
   const currentRemoteFull = createShareSourceRemote();
 
   // build a SendPayload describing the selected playlist for the flyout.
+  // uses `mergedPlaylistItems()` (the TRUE interleaved song+video order,
+  // one shared position space) rather than `playlistSongs()` alone, so a
+  // mixed playlist's videos and true member order both ride along.
   const buildPlaylistSendPayload = (): SendPayload => {
     const pl = props.playlist();
-    const list = playlistSongs();
+    const items = mergedPlaylistItems();
+    const songList = items
+      .filter((i): i is Extract<MergedPlaylistItem, { kind: "song" }> => i.kind === "song")
+      .map((i) => i.song);
+    const videoList = items
+      .filter((i): i is Extract<MergedPlaylistItem, { kind: "video" }> => i.kind === "video")
+      .map((i) => i.videoItem.video);
+    const memberOrder = items
+      .map((i) => ({
+        kind: i.kind,
+        blake3: i.kind === "song" ? i.song.blake3 : i.videoItem.video.blake3,
+      }))
+      .filter((m): m is { kind: "song" | "video"; blake3: string } => !!m.blake3);
     return {
       kind: "playlist",
       playlistId: pl?.playlist_id ?? "",
       title: pl?.title ?? "untitled playlist",
       description: pl?.description ?? null,
       images: pl?.images ?? [],
-      songs: list as unknown as RemoteSong[],
+      songs: songList as unknown as RemoteSong[],
+      videos: videoList,
+      memberOrder,
     };
   };
 

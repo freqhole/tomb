@@ -36,8 +36,19 @@ export interface PlaybackTarget {
 /** resolve which blob to actually play/sync for a video: the first
  * embedded rendition if one exists, else the original. synchronous - no
  * network/IPC call, since `video.renditions` already carries everything
- * needed (see this module's doc comment). */
-export function resolvePlaybackTarget(video: QueuedVideo): PlaybackTarget {
+ * needed (see this module's doc comment).
+ *
+ * `preferOriginal` flips that priority: the experimental libmpv/ffmpeg
+ * backend (unlike a browser's `<video>` element) can natively decode
+ * almost anything, so it should play the source file directly rather
+ * than a rendition that only exists to work around browser codec
+ * support it doesn't need. still falls back to a rendition if the
+ * video has no original blob/blake3 for some reason (shouldn't happen
+ * in practice, but cheaper to guard than assume). */
+export function resolvePlaybackTarget(video: QueuedVideo, preferOriginal = false): PlaybackTarget {
+  if (preferOriginal && video.media_blob_id) {
+    return { blobId: video.media_blob_id, blake3: video.blake3 ?? null, mime: null };
+  }
   const rendition = video.renditions?.[0];
   if (rendition) {
     return {

@@ -15,6 +15,12 @@
 //! auth-flavored subset of the hub admin protocol (`hub_admin`) - friend
 //! crud, admin promote/demote, and profile get/set over the stores above.
 
+// async_trait's macro expansion adds a bare #[must_use] to every trait
+// method, which newer clippy flags as redundant on top of the already-
+// must_use Pin<Box<dyn Future>> it returns - a known false positive in
+// the macro itself, not a real issue in any of this crate's traits.
+#![allow(clippy::double_must_use)]
+
 pub mod acl;
 pub mod error;
 pub mod hub_admin;

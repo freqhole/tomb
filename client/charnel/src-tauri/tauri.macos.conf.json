@@ -5,6 +5,7 @@
   "bundle": {
     "macOS": {
       "frameworks": [
+        "mpv-runtime/lib/libMoltenVK.dylib",
         "mpv-runtime/lib/libSvtAv1Enc.4.2.0.dylib",
         "mpv-runtime/lib/libarchive.13.dylib",
         "mpv-runtime/lib/libass.9.dylib",
@@ -54,6 +55,11 @@
         "mpv-runtime/lib/libzimg.2.dylib",
         "mpv-runtime/lib/libzstd.1.5.7.dylib"
       ]
-    }
+    },
+    "resources": [
+      "mpv-runtime/lib/MoltenVK_icd.json",
+      "mpv-runtime/lib/ffmpeg",
+      "mpv-runtime/lib/ffprobe"
+    ]
   }
 }

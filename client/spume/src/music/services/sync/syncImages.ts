@@ -1,18 +1,23 @@
-// shared image inlining for the `/api/sync/*-by-blake3` routes.
+// shared image referencing for the `/api/sync/*-by-blake3` routes.
 //
-// grimoire's `SyncImageRef` carries either inline bytes (base64 + sha256) or
-// a bare sha256 the destination is expected to already have. both the song
-// and video sync paths build these the same way: fetch each image's bytes
-// from the source transport, hash, encode.
+// grimoire's `SyncImageRef` carries only a blake3 hash + metadata - never
+// raw bytes. the destination pulls the actual blob from `source_node_id`
+// (the same peer named in the parent sync request) via the same
+// iroh-blobs verified-streaming mechanism used for the main audio/video
+// blob. this file's job is just to resolve each image's blake3 hash - via
+// a cheap metadata lookup (no bytes fetched client-side) for an already-
+// known blob id, or by staging raw bytes into this device's own P2P-
+// servable store for the one case (`inlineRawUrlForSync`) where there's no
+// blob id to look up at all.
 
+import { FreqholeClient } from "@freqhole/api-client";
 import type { Transport } from "@freqhole/api-client";
+import { getMiddenNode } from "../../../app/api/client";
 import { debug, warn } from "../../../utils/logger";
 
-/** shape sent to grimoire for each image, matching `SyncImageRef`. a null
- * `data_base64` means "look this up by sha256 on the destination". */
+/** shape sent to grimoire for each image, matching `SyncImageRef`. */
 export interface SyncImageRefBody {
-  content_sha256: string;
-  data_base64: string | null;
+  blake3: string;
   mime_type: string;
   is_primary: boolean;
   blob_type: string | null;
@@ -27,39 +32,36 @@ export interface InlinableImage {
   blobType: string | null | undefined;
 }
 
-/** per-image-bytes cache keyed by source blob id, so an album cover that
+/** per-image metadata cache keyed by source blob id, so an album cover that
  * appears both as song.images[k] AND song.album_images[k] across many tracks
- * is fetched once. */
-export type InlineImageCache = Map<string, { sha256: string; b64: string; mime: string }>;
+ * is looked up once. */
+export type InlineImageCache = Map<string, { blake3: string; mime: string }>;
 
-export function bytesToBase64(bytes: Uint8Array): string {
-  // chunked to avoid maximum-call-stack on String.fromCharCode for big arrays.
-  let s = "";
-  const chunk = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunk) {
-    s += String.fromCharCode(...bytes.subarray(i, i + chunk));
-  }
-  return btoa(s);
-}
-
-export async function sha256Hex(bytes: Uint8Array): Promise<string> {
-  const ab = bytes.buffer.slice(
-    bytes.byteOffset,
-    bytes.byteOffset + bytes.byteLength
-  ) as ArrayBuffer;
-  const digest = await crypto.subtle.digest("SHA-256", ab);
-  const view = new Uint8Array(digest);
-  let hex = "";
-  for (let i = 0; i < view.length; i++) {
-    hex += view[i].toString(16).padStart(2, "0");
-  }
-  return hex;
+/** maps a spume-side `ImageMetadata[]` (music's `RemoteSong.images`/
+ * `.album_images`, etc) onto `inlineImagesForSync`'s transport-agnostic
+ * `InlinableImage[]` shape. */
+export function toInlinableImages(
+  images:
+    | Array<{
+        remote_blob_id?: string | null;
+        is_primary?: boolean | null;
+        blob_type?: string | null;
+      }>
+    | undefined
+): InlinableImage[] {
+  return (images ?? []).map((img) => ({
+    blobId: img.remote_blob_id,
+    isPrimary: !!img.is_primary,
+    blobType: img.blob_type,
+  }));
 }
 
 /**
- * fetch each image's bytes from the source transport and build inline
- * `SyncImageRef` payloads (sha256 + base64). per-image fetch failures are
- * skipped (logged as warn) so a missing blob never blocks the sync itself.
+ * resolve each image's blake3 hash (+ mime type) from the source transport's
+ * blob metadata - a single small JSON round trip per image, no bytes ever
+ * fetched or re-encoded client-side. per-image lookup failures, or a blob
+ * with no blake3 computed yet, are skipped (logged as warn) so a missing/
+ * not-yet-hashed blob never blocks the sync itself.
  */
 export async function inlineImagesForSync(
   images: InlinableImage[] | undefined,
@@ -70,6 +72,7 @@ export async function inlineImagesForSync(
   if (!images || images.length === 0) return [];
   const out: SyncImageRefBody[] = [];
   const anyPrimary = images.some((i) => i.isPrimary);
+  const client = new FreqholeClient(sourceTransport);
   for (let idx = 0; idx < images.length; idx++) {
     const img = images[idx];
     const blobId = img.blobId;
@@ -80,33 +83,38 @@ export async function inlineImagesForSync(
     let entry = cache.get(blobId);
     if (!entry) {
       try {
-        // the bytes are inlined into the sync payload for the destination to
-        // store, so there is no reason to also leave them in the api cache.
-        const blob = await sourceTransport.fetchBlob(blobId, undefined, { cache: "skip" });
-        const bytes = new Uint8Array(blob.data.byteLength);
-        bytes.set(blob.data);
-        const sha256 = await sha256Hex(bytes);
-        entry = {
-          sha256,
-          b64: bytesToBase64(bytes),
-          mime: blob.contentType || "image/jpeg",
-        };
+        const result = await client.music.blobMetadata({ id: blobId });
+        if (!result.success) {
+          warn(
+            "syncImages",
+            `${logPrefix} [img ${idx}] blob_metadata lookup failed for ${blobId}: ${String(result.error)}`
+          );
+          continue;
+        }
+        const meta = result.data;
+        if (!meta.blake3) {
+          warn(
+            "syncImages",
+            `${logPrefix} [img ${idx}] blob ${blobId.slice(0, 8)} has no blake3 yet, skipping`
+          );
+          continue;
+        }
+        entry = { blake3: meta.blake3, mime: meta.mime || "image/jpeg" };
         cache.set(blobId, entry);
         debug(
           "syncImages",
-          `${logPrefix} [img ${idx}] fetched source blob ${blobId.slice(0, 8)} (${bytes.byteLength}b, ${entry.mime}, sha=${sha256.slice(0, 8)})`
+          `${logPrefix} [img ${idx}] resolved source blob ${blobId.slice(0, 8)} -> blake3=${entry.blake3.slice(0, 8)} (${entry.mime})`
         );
       } catch (e) {
         warn(
           "syncImages",
-          `${logPrefix} [img ${idx}] fetchBlob failed for ${blobId}: ${String(e)}`
+          `${logPrefix} [img ${idx}] blob_metadata lookup failed for ${blobId}: ${String(e)}`
         );
         continue;
       }
     }
     out.push({
-      content_sha256: entry.sha256,
-      data_base64: entry.b64,
+      blake3: entry.blake3,
       mime_type: entry.mime,
       is_primary: anyPrimary ? img.isPrimary : idx === 0,
       blob_type: img.blobType ?? "original",
@@ -115,13 +123,21 @@ export async function inlineImagesForSync(
   return out;
 }
 
-/** inlines a single already-resolved image url directly, with no source-
- * transport blob-id lookup - `fetch()` handles both a real http(s) url and
- * a `data:` url (already-embedded bytes) identically, so no url-scheme
- * branching is needed. used for artwork that arrived over the
+/** resolves a single already-resolved image url with no source-transport
+ * blob-id lookup - used for artwork that arrived over the
  * `freqhole-player/1` control wire (`RemoteMediaRef.artwork_*_url` - see
  * `mediaRefResolve.ts`), which is a resolved url/data-url already, not a
- * blob id on any transport `inlineImagesForSync` above could fetch from. */
+ * blob id on any transport `inlineImagesForSync` above could look up.
+ *
+ * there's no peer that already serves this content by hash (it's an
+ * arbitrary external url, not a grimoire blob), so unlike every other path
+ * in this file this DOES fetch the bytes client-side - but instead of
+ * embedding them in the sync payload, it stages them into this device's
+ * own midden node (`import_blob`, which computes + returns the real
+ * blake3), making them P2P-servable, then returns just that hash like
+ * everything else. no base64 ever reaches grimoire. if midden isn't
+ * available on this transport, the image is skipped rather than falling
+ * back to inlining bytes. */
 export async function inlineRawUrlForSync(
   url: string | undefined,
   isPrimary: boolean,
@@ -135,11 +151,15 @@ export async function inlineRawUrlForSync(
       return undefined;
     }
     const blob = await res.blob();
+    const node = await getMiddenNode();
+    if (!node.import_blob) {
+      warn("syncImages", "inlineRawUrlForSync: no local P2P store to stage into, skipping");
+      return undefined;
+    }
     const bytes = new Uint8Array(await blob.arrayBuffer());
-    const sha256 = await sha256Hex(bytes);
+    const blake3 = await node.import_blob(bytes);
     return {
-      content_sha256: sha256,
-      data_base64: bytesToBase64(bytes),
+      blake3,
       mime_type: blob.type || "image/jpeg",
       is_primary: isPrimary,
       blob_type: blobType,

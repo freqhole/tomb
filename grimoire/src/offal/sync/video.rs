@@ -21,11 +21,9 @@ use super::models::{SyncImageRef, SyncVideoByBlake3Request, SyncVideoByBlake3Res
 ///
 /// path: POST /api/sync/video-by-blake3
 ///
-/// thin wrapper over `sync_video_by_blake3_impl` for the generic offal route
-/// dispatch (HTTP, CLI, remote ALPN) - see `song::sync_song_by_blake3`'s
-/// doc comment for why this always passes `None`; `charnel_lib`'s
-/// `sync_video_by_blake3_with_progress` tauri command calls the impl with a
-/// real callback instead.
+/// enqueues a `SyncVideoByBlake3` background job and returns immediately -
+/// see `song::sync_song_by_blake3`'s doc comment for the full rationale,
+/// this is the video counterpart.
 pub async fn sync_video_by_blake3(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
     let req: SyncVideoByBlake3Request = match serde_json::from_value(body) {
         Ok(r) => r,
@@ -45,7 +43,48 @@ pub async fn sync_video_by_blake3(caller: &Caller, body: JsonValue) -> GrimoireR
             );
         }
     };
-    sync_video_by_blake3_impl(caller, req, None).await
+
+    let params = crate::jobs::SyncVideoByBlake3JobParams {
+        caller: caller.clone(),
+        request: req,
+    };
+    let parameters = match serde_json::to_value(&params) {
+        Ok(v) => v,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "failed to queue sync job",
+                vec![ErrorDetail::new(
+                    "internal_error",
+                    "failed to queue sync job",
+                    e.to_string(),
+                )],
+            )
+        }
+    };
+
+    let job_response = crate::jobs::create_job(crate::jobs::CreateJobRequest {
+        job_type: crate::jobs::JobType::SyncVideoByBlake3,
+        session_id: None,
+        parameters,
+        max_retries: Some(0),
+        scheduled_at: None,
+        created_by: Some(caller.username.clone()),
+        priority: Some(10),
+    })
+    .await;
+
+    let Some(job) = job_response.data else {
+        return GrimoireResponse::failure("failed to queue sync job", job_response.errors);
+    };
+
+    GrimoireResponse::success(
+        "sync queued",
+        serde_json::to_value(super::models::SyncJobQueuedResponse {
+            job_id: job.id,
+            artist_id: None,
+        })
+        .unwrap_or(JsonValue::Null),
+    )
 }
 
 /// same as `sync_video_by_blake3` but takes an already-parsed request and an
@@ -296,16 +335,17 @@ pub async fn sync_video_by_blake3_impl(
     // images: video poster first (it also becomes videoz.poster_blob_id),
     // then series/season posters.
     let mut images_linked = 0i64;
-    let mut missing_image_sha256s = Vec::new();
+    let mut missing_image_blake3s = Vec::new();
 
     let video_poster = link_sync_entity_images(
         crate::video::VideoEntityType::Video,
         &video_id,
         &req.video_images,
         &media_blob_id,
+        &req.source_node_id,
         caller,
         &mut images_linked,
-        &mut missing_image_sha256s,
+        &mut missing_image_blake3s,
     )
     .await;
 
@@ -344,9 +384,10 @@ pub async fn sync_video_by_blake3_impl(
             series_id,
             &req.series_images,
             &media_blob_id,
+            &req.source_node_id,
             caller,
             &mut images_linked,
-            &mut missing_image_sha256s,
+            &mut missing_image_blake3s,
         )
         .await;
     }
@@ -356,12 +397,20 @@ pub async fn sync_video_by_blake3_impl(
             season_id,
             &req.season_images,
             &media_blob_id,
+            &req.source_node_id,
             caller,
             &mut images_linked,
-            &mut missing_image_sha256s,
+            &mut missing_image_blake3s,
         )
         .await;
     }
+
+    // backfill a waveform if the source never generated/sent one - sync
+    // never runs video importer's inline waveform-generation step, so a
+    // synced video could otherwise go without one forever. best-effort:
+    // ffmpeg's showwavespic filter fails outright (logged, non-fatal) for
+    // videos with no audio stream at all.
+    ensure_video_waveform(&video_id, &media_blob_id, &file_path, caller).await;
 
     tracing::info!(
         "sync_video_by_blake3: DONE video={} existing={} series={:?} season={:?} images_linked={}",
@@ -381,7 +430,7 @@ pub async fn sync_video_by_blake3_impl(
         season_id,
         existing,
         images_linked,
-        missing_image_sha256s,
+        missing_image_blake3s,
     };
     GrimoireResponse::success(
         if existing {
@@ -454,35 +503,40 @@ async fn resolve_sync_series_season(
 
 /// resolve + attach a set of `SyncImageRef`s to one video entity, returning
 /// the blob id of whichever image was marked primary (the poster).
+#[allow(clippy::too_many_arguments)]
 async fn link_sync_entity_images(
     entity_type: crate::video::VideoEntityType,
     entity_id: &str,
     images: &[SyncImageRef],
     parent_blob_id: &str,
+    source_node_id: &str,
     caller: &Caller,
     images_linked: &mut i64,
-    missing_image_sha256s: &mut Vec<String>,
+    missing_image_blake3s: &mut Vec<String>,
 ) -> Option<String> {
     let mut primary_blob_id = None;
 
     for img in images {
         let name_prefix = format!("{}-{}", entity_type.as_str(), entity_id);
-        let resolved = match resolve_sync_image_ref(img, &name_prefix, Some(parent_blob_id)).await {
-            Ok(Some(blob_id)) => blob_id,
-            Ok(None) => {
-                missing_image_sha256s.push(img.content_sha256.clone());
-                continue;
-            }
-            Err(e) => {
-                tracing::warn!(
-                    "sync_video_by_blake3: image {} for {} failed: {}",
-                    &img.content_sha256[..16.min(img.content_sha256.len())],
-                    entity_id,
-                    e
-                );
-                continue;
-            }
-        };
+        let resolved =
+            match resolve_sync_image_ref(img, source_node_id, &name_prefix, Some(parent_blob_id))
+                .await
+            {
+                Ok(Some(blob_id)) => blob_id,
+                Ok(None) => {
+                    missing_image_blake3s.push(img.blake3.clone());
+                    continue;
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "sync_video_by_blake3: image {} for {} failed: {}",
+                        &img.blake3[..16.min(img.blake3.len())],
+                        entity_id,
+                        e
+                    );
+                    continue;
+                }
+            };
 
         let blob_type = match img.blob_type.as_deref() {
             Some("thumbnail") => BlobType::Thumbnail,
@@ -582,6 +636,80 @@ async fn set_pending_parent_blake3(video_id: &str, parent_blake3: &str) {
             "sync_video_by_blake3: failed to stash pending_parent_blake3 for {}: {}",
             video_id,
             e
+        );
+    }
+}
+
+/// best-effort: generate + link a waveform for `video_id` if it doesn't
+/// already have one - see `song::ensure_waveform`'s doc comment for why
+/// sync needs this at all (it never runs the importer's inline step that
+/// does this for locally-imported media).
+async fn ensure_video_waveform(
+    video_id: &str,
+    media_blob_id: &str,
+    file_path: &str,
+    caller: &Caller,
+) {
+    let pool = match crate::database::connect().await {
+        Ok(p) => p,
+        Err(_) => return,
+    };
+    let entity_type = crate::video::VideoEntityType::Video.as_str();
+    let has_waveform = sqlx::query_scalar!(
+        "SELECT ei.media_blob_id FROM entity_imagez ei
+         JOIN media_blobz mb ON mb.id = ei.media_blob_id
+         WHERE ei.entity_type = ? AND ei.entity_id = ? AND mb.blob_type = 'waveform'
+         LIMIT 1",
+        entity_type,
+        video_id
+    )
+    .fetch_optional(&pool)
+    .await
+    .ok()
+    .flatten()
+    .is_some();
+    if has_waveform {
+        return;
+    }
+
+    let config = crate::config::get_config();
+    let response = crate::blob_data::create_audio_waveform_blob(
+        media_blob_id,
+        file_path,
+        &config,
+        Some(caller.user_id.clone()),
+    )
+    .await;
+    if !response.success {
+        tracing::debug!(
+            "sync_video_by_blake3: waveform backfill skipped for video {}: {}",
+            video_id,
+            response.message
+        );
+        return;
+    }
+    let Some(waveform_blob_id) = response.data else {
+        return;
+    };
+    let add_result = crate::video::add_entity_image(
+        crate::video::VideoEntityType::Video,
+        video_id,
+        &waveform_blob_id,
+        Some(false),
+        crate::media_blobz::BlobType::Waveform,
+        Some(caller.user_id.as_str()),
+    )
+    .await;
+    if add_result.success {
+        tracing::debug!(
+            "sync_video_by_blake3: backfilled waveform for video {}",
+            video_id
+        );
+    } else {
+        tracing::warn!(
+            "sync_video_by_blake3: failed to link backfilled waveform for video {}: {}",
+            video_id,
+            add_result.message
         );
     }
 }

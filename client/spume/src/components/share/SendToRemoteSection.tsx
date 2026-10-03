@@ -62,6 +62,8 @@ import { resolveBlobUrl } from "../../music/services/storage/blobResolver";
 import { isCharnelMode } from "../../app/services/charnel";
 import { isP2PRemote, type Remote } from "../../app/services/storage/schemas/remote";
 import { getLocalLibraryName } from "../../app/services/storage/db";
+import { probeRemote } from "../../app/services/remotes/remoteHealth";
+import { refreshOne } from "../../app/services/remotes/authStatusStore";
 
 /** every domain's share-modal send payload - a `kind` discriminant lets
  * this section dispatch to the right sender (music's `sendToRemote`/
@@ -79,19 +81,19 @@ function progressCounts(p: AnyProgress): {
   skipped: number;
   failed: number;
 } {
-  if ("totalVideos" in p) {
+  if ("totalSongs" in p) {
     return {
-      total: p.totalVideos,
-      synced: p.syncedVideos,
-      skipped: p.skippedVideos,
-      failed: p.failedVideos,
+      total: p.totalSongs,
+      synced: p.syncedSongs,
+      skipped: p.skippedSongs,
+      failed: p.failedSongs,
     };
   }
   return {
-    total: p.totalSongs,
-    synced: p.syncedSongs,
-    skipped: p.skippedSongs,
-    failed: p.failedSongs,
+    total: p.totalVideos,
+    synced: p.syncedVideos,
+    skipped: p.skippedVideos,
+    failed: p.failedVideos,
   };
 }
 
@@ -532,6 +534,35 @@ const DestinationRow: Component<DestinationRowProps> = (props) => {
   const sendDisabled = () =>
     props.anyActive() || !props.payloadReady || status().kind !== "ready" || allAlreadyPresent();
 
+  // clicking an "offline" row retries the connection instead of sending -
+  // `probeRemote(..., {force:true, timeoutMs:0})` bypasses both the backoff
+  // gate AND the usual 5s app-level health-check timeout, since this is an
+  // explicit user-initiated retry: a p2p connection can legitimately take a
+  // while, and the user already chose to wait by clicking retry (unlike the
+  // auth store's normal resolveOne which just skips known-offline remotes
+  // outright). once the probe comes back online, `refreshOne` re-runs the
+  // whoami check so the row's status flips to "ready" (or needs-login/
+  // view-only) reactively.
+  const [retrying, setRetrying] = createSignal(false);
+  const handleRetry = async () => {
+    const remote = props.entry.candidate?.remote;
+    if (!remote || retrying()) return;
+    setRetrying(true);
+    try {
+      const online = await probeRemote(remote, { force: true, timeoutMs: 0 });
+      if (online) {
+        await refreshOne(remote);
+      } else {
+        toast.warning(`${props.entry.name} is still offline`);
+      }
+    } finally {
+      setRetrying(false);
+    }
+  };
+
+  const isOffline = () => status().kind === "offline";
+  const rowDisabled = () => (isOffline() ? retrying() : sendDisabled());
+
   const imageUrl = createImageUrl(props.entry);
   const [imgError, setImgError] = createSignal(false);
   const showImg = () => !!imageUrl() && !imgError();
@@ -546,8 +577,15 @@ const DestinationRow: Component<DestinationRowProps> = (props) => {
     <li>
       <button
         type="button"
-        disabled={sendDisabled()}
-        onClick={() => props.onSend()}
+        disabled={rowDisabled()}
+        onClick={() => (isOffline() ? handleRetry() : props.onSend())}
+        classList={{
+          // offline rows stay clickable (to retry), but should still
+          // *look* disabled - the `disabled:` variants below only apply
+          // when the `disabled` attribute itself is set, which isn't true
+          // here since the row needs to remain clickable.
+          "opacity-60 cursor-not-allowed": isOffline(),
+        }}
         class="w-full flex flex-col text-sm text-left rounded-md hover:bg-[var(--color-bg-tertiary)] transition-colors disabled:opacity-60 disabled:cursor-not-allowed border border-[var(--color-border-default)] overflow-hidden"
       >
         <div class="flex items-stretch gap-3 min-h-[48px]">
@@ -582,7 +620,7 @@ const DestinationRow: Component<DestinationRowProps> = (props) => {
               <div class="min-w-0">
                 <div class="truncate text-[var(--color-text-primary)]">{props.entry.name}</div>
                 <div class="truncate text-xs text-[var(--color-text-tertiary)] flex items-center gap-2">
-                  <StatusBadge status={status()} />
+                  <StatusBadge status={status()} retrying={retrying()} />
                   <BlobBadge
                     show={blobsCount() > 0 && status().kind === "ready"}
                     presence={presence}
@@ -612,7 +650,9 @@ const DestinationRow: Component<DestinationRowProps> = (props) => {
   );
 };
 
-const StatusBadge: Component<{ status: CandidateDestination["status"] }> = (props) => {
+const StatusBadge: Component<{ status: CandidateDestination["status"]; retrying?: boolean }> = (
+  props
+) => {
   const s = () => props.status;
   return (
     <Show when={s()}>
@@ -628,6 +668,14 @@ const StatusBadge: Component<{ status: CandidateDestination["status"] }> = (prop
         }
         if (v.kind === "ready") return <span>{v.role}</span>;
         if (v.kind === "offline") {
+          if (props.retrying) {
+            return (
+              <span class="inline-flex items-center gap-1 text-[var(--color-text-tertiary)]">
+                <Icon name={IconNames.loader} size={11} className="animate-spin" />
+                retrying
+              </span>
+            );
+          }
           return (
             <span class="inline-flex items-center gap-1 text-[var(--color-text-tertiary)]">
               <Icon name={IconNames.alertTriangle} size={11} />

@@ -71,6 +71,73 @@ fn reset_locale_for_mpv() {
 #[cfg(not(target_os = "linux"))]
 fn reset_locale_for_mpv() {}
 
+// mpv's cocoa video-output backend (video/out/mac/common.swift's
+// `setAppIcon()`) unconditionally replaces `NSApp.applicationIconImage`
+// with its own baked-in icon the moment it opens a window, UNLESS it
+// thinks it's running inside someone else's app bundle - which it decides
+// purely by checking the `MPVBUNDLE` environment variable (see
+// `osdep/mac/app_hub.swift`'s `isBundle`). without this, every video
+// window replaces the dock/cmd-tab icon with mpv's logo for the whole
+// process. set before every window spawn (idempotent) rather than once
+// at process start, since the embedding tauri process has no single
+// "mpv is about to init" hook otherwise.
+#[cfg(target_os = "macos")]
+fn suppress_macos_icon_override() {
+    unsafe {
+        std::env::set_var("MPVBUNDLE", "true");
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn suppress_macos_icon_override() {}
+
+// MoltenVK (the vulkan driver mpv's gpu-next vo needs on macOS) isn't a
+// normal dlopen'd dependency - the vulkan loader instead discovers it via
+// an ICD manifest json, normally only found through a system-wide
+// homebrew install. `scripts/fetch-mpv-runtime.sh` bundles the dylib as a
+// `frameworks` entry (flat, at Contents/Frameworks/) and the manifest as
+// a `resources` entry - tauri's `resources` key preserves the full given
+// relative path rather than flattening it, so the manifest actually
+// lands at Contents/Resources/mpv-runtime/lib/MoltenVK_icd.json
+// (confirmed via an actual local build 2026-10-02 - NOT Frameworks/,
+// despite living right next to the dylib in the source tree). point the
+// loader directly at the bundled manifest before mpv/vulkan ever
+// initializes, so a real end-user install with no homebrew at all still
+// finds a driver (confirmed for real 2026-10-02: without this, every
+// vulkan context fails with VK_ERROR_INCOMPATIBLE_DRIVER - audio plays,
+// no video window, no error dialog). only set when the bundled file
+// actually exists - absent in `tauri dev` (no Resources dir at all),
+// where the system's own homebrew-provided MoltenVK install already
+// works today.
+#[cfg(target_os = "macos")]
+fn set_vulkan_icd_env() {
+    let Ok(exe) = std::env::current_exe() else {
+        return;
+    };
+    // .../Contents/MacOS/charnel -> .../Contents/Resources/mpv-runtime/lib/MoltenVK_icd.json
+    let Some(icd_path) =
+        exe.parent()
+            .and_then(|macos_dir| macos_dir.parent())
+            .map(|contents_dir| {
+                contents_dir
+                    .join("Resources")
+                    .join("mpv-runtime")
+                    .join("lib")
+                    .join("MoltenVK_icd.json")
+            })
+    else {
+        return;
+    };
+    if icd_path.is_file() {
+        unsafe {
+            std::env::set_var("VK_ICD_FILENAMES", &icd_path);
+        }
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn set_vulkan_icd_env() {}
+
 fn mpv_err(e: libmpv2::Error) -> String {
     format!("libmpv command failed: {e}")
 }
@@ -174,7 +241,22 @@ fn handle_command(app: &AppHandle<Wry>, command: VideoCommand) -> Result<(), Str
                 c => c,
             };
             w.state.apply_command(&resolved);
-            apply(w, &resolved)
+            let wid = w.mpv.get_property::<i64>("window-id").ok();
+            let result = apply(w, &resolved);
+            drop(guard);
+            // a user who lost track of the window (e.g. cmd+tabbed away
+            // from a fullscreen video on macOS, which has no dock icon of
+            // its own to click back to) has no other way to find it again
+            // - raise it on play/show so those controls double as "bring
+            // the video back". deliberately NOT on pause - pausing
+            // something already out of view shouldn't yank it back to
+            // front.
+            if result.is_ok() && matches!(resolved, VideoCommand::Play | VideoCommand::Show) {
+                if let Some(wid) = wid {
+                    raise_window(app, wid);
+                }
+            }
+            result
         }
     }
 }
@@ -199,13 +281,79 @@ fn apply(w: &mut LibmpvWindow, command: &VideoCommand) -> Result<(), String> {
         }
         // Close is handled by `close_window()` before reaching here; Load
         // and device commands are handled before this point; toggles are
-        // resolved by the caller.
+        // resolved by the caller; Show only raises the window (handled by
+        // the caller too, via `window-id` - nothing for mpv itself to do).
         VideoCommand::Close
         | VideoCommand::Load { .. }
         | VideoCommand::TogglePlay
+        | VideoCommand::Show
         | VideoCommand::ToggleFullscreen
         | VideoCommand::ListOutputDevices
         | VideoCommand::SetOutputDevice { .. } => Ok(()),
+    }
+}
+
+/// bring mpv's own native window to front, off the libmpv window's
+/// `window-id` property (a raw platform window handle - on macOS, an
+/// `NSWindow*`; on windows, an `HWND`; see `video/out/mac/common.swift`'s
+/// and `video/out/w32_common.c`'s `VOCTRL_GET_WINDOW_ID`). AppKit calls
+/// must happen on the main thread, unlike every other mpv command here or
+/// the win32 calls below, which is why only the macOS branch needs
+/// `run_on_main_thread` instead of just running inline on
+/// `handle_command`'s background thread.
+fn raise_window(app: &AppHandle<Wry>, wid: i64) {
+    #[cfg(target_os = "macos")]
+    {
+        let app = app.clone();
+        let _ = app.run_on_main_thread(move || raise_window_macos(wid));
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let _ = app;
+        raise_window_windows(wid);
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        // linux: no platform-specific raise-to-front wired up yet - mpv
+        // only reports `window-id` for its X11 backend (not wayland, which
+        // has no api for one app to force-focus another's window at all),
+        // so this would only ever help under an X11 session anyway.
+        let _ = (app, wid);
+    }
+}
+
+#[cfg(target_os = "macos")]
+#[allow(deprecated)]
+fn raise_window_macos(wid: i64) {
+    use cocoa::appkit::{NSApp, NSApplication, NSWindow};
+    use cocoa::base::{id, nil, YES};
+
+    unsafe {
+        let ns_window = wid as usize as id;
+        if ns_window.is_null() {
+            return;
+        }
+        ns_window.makeKeyAndOrderFront_(nil);
+        NSApp().activateIgnoringOtherApps_(YES);
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn raise_window_windows(wid: i64) {
+    use windows_sys::Win32::Foundation::HWND;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        IsIconic, SetForegroundWindow, ShowWindow, SW_RESTORE,
+    };
+
+    unsafe {
+        let hwnd = wid as usize as HWND;
+        if hwnd.is_null() {
+            return;
+        }
+        if IsIconic(hwnd) != 0 {
+            ShowWindow(hwnd, SW_RESTORE);
+        }
+        SetForegroundWindow(hwnd);
     }
 }
 
@@ -280,6 +428,8 @@ fn spawn_mpv(app: &AppHandle<Wry>) -> Result<(), String> {
         return Err("failed to start libmpv: not installed on this system".to_string());
     }
     reset_locale_for_mpv();
+    suppress_macos_icon_override();
+    set_vulkan_icd_env();
     let mpv = Mpv::with_initializer(|init| {
         init.set_option("geometry", "960x540")?;
         // opens a window immediately rather than only once a video track
@@ -290,15 +440,11 @@ fn spawn_mpv(app: &AppHandle<Wry>) -> Result<(), String> {
         // just once the file's been probed rather than the instant
         // loading starts - a minor UX difference, not a functional one.
         init.set_option("force-window", "yes")?;
-        // macOS only: mpv's Cocoa backend defaults to registering itself
-        // as its own regular application (`NSApplicationActivationPolicy
-        // Regular`) - since libmpv runs in-process here, that gives mpv's
-        // own bundled icon a SEPARATE entry in the dock and cmd+tab
-        // switcher, distinct from charnel's own. `accessory` keeps the
-        // window itself fully visible/usable without mpv claiming its
-        // own top-level app identity.
-        #[cfg(target_os = "macos")]
-        init.set_option("macos-app-activation-policy", "accessory")?;
+        // mpv's builtin `libmpv` profile (see `mpv --show-profile=libmpv`)
+        // forces osc=no for every libmpv embedder, unlike the CLI player
+        // where the OSC is on by default - without this, there's no
+        // seekbar/play-pause/track-cycling overlay at all.
+        init.set_option("osc", "yes")?;
         Ok(())
     })
     .map_err(|e| format!("failed to start libmpv: {e}"))?;
@@ -524,6 +670,12 @@ fn close_window() {
         Err(_) => return,
     };
     if let Some(w) = guard.as_ref() {
+        // exit native macOS fullscreen (a Space transition) before asking
+        // mpv to quit - closing/deallocating a window mid-fullscreen-
+        // transition is a known source of stuck/unresponsive windows on
+        // macOS. harmless no-op if not currently fullscreen. best-effort:
+        // this must not block the actual quit below even if it fails.
+        let _ = w.mpv.set_property("fullscreen", false);
         let _ = w.mpv.command("quit", &[]);
     }
 }

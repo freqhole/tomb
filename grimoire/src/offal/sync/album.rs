@@ -42,7 +42,7 @@ pub async fn sync_album(caller: &Caller, body: JsonValue) -> GrimoireResponse<Js
         req.artist_name,
         req.remote_album_id,
         req.expected_song_blake3s.len(),
-        req.images_base64.len(),
+        req.images.len(),
     );
 
     // 1. resolve / create the album artist by name (case-insensitive)
@@ -115,30 +115,36 @@ pub async fn sync_album(caller: &Caller, body: JsonValue) -> GrimoireResponse<Js
     // step 3 small. mb_release_id / mb_release_group_id / urls aren't persisted
     // on the album row at all yet.
 
-    // 4. import album cover images.
-    //    each ref is either inline base64 (decode + dedupe by sha256) or a
-    //    pure reference (look up existing blob by sha256). missing referenced
-    //    blobs are skipped, not fatal.
+    // 4. import album cover images. each ref carries a blake3 hash - pulled
+    //    from source_node_id if not already local. missing/unpullable
+    //    images are skipped, not fatal.
     let mut images_linked: i64 = 0;
-    let mut missing_image_sha256s: Vec<String> = Vec::new();
-    for (idx, img) in req.images_base64.iter().enumerate() {
-        let blob_id_opt =
-            match resolve_sync_image_ref(img, &format!("album-{}-{}", album.id, idx), None).await {
-                Ok(Some(id)) => Some(id),
-                Ok(None) => {
-                    missing_image_sha256s.push(img.content_sha256.clone());
-                    None
-                }
-                Err(e) => {
-                    tracing::warn!(
-                        "sync_album: failed to import image {} for album {}: {}",
-                        img.content_sha256,
-                        album.id,
-                        e
-                    );
-                    None
-                }
-            };
+    let mut missing_image_blake3s: Vec<String> = Vec::new();
+    let source_node_id = req.source_node_id.as_deref().unwrap_or("");
+    for (idx, img) in req.images.iter().enumerate() {
+        let blob_id_opt = match resolve_sync_image_ref(
+            img,
+            source_node_id,
+            &format!("album-{}-{}", album.id, idx),
+            None,
+        )
+        .await
+        {
+            Ok(Some(id)) => Some(id),
+            Ok(None) => {
+                missing_image_blake3s.push(img.blake3.clone());
+                None
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "sync_album: failed to import image {} for album {}: {}",
+                    img.blake3,
+                    album.id,
+                    e
+                );
+                None
+            }
+        };
         if let Some(blob_id) = blob_id_opt {
             let is_primary = img.is_primary || idx == 0;
             let add_result = crate::music::entities::albums::add_album_image(
@@ -189,7 +195,7 @@ pub async fn sync_album(caller: &Caller, body: JsonValue) -> GrimoireResponse<Js
         artist_id: artist.id.clone(),
         existing,
         images_linked,
-        missing_image_sha256s: missing_image_sha256s.clone(),
+        missing_image_blake3s: missing_image_blake3s.clone(),
     };
 
     tracing::info!(
@@ -200,7 +206,7 @@ pub async fn sync_album(caller: &Caller, body: JsonValue) -> GrimoireResponse<Js
         artist.id,
         existing,
         images_linked,
-        missing_image_sha256s.len(),
+        missing_image_blake3s.len(),
     );
 
     GrimoireResponse::success(

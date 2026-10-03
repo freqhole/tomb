@@ -219,7 +219,8 @@ async fn handle_stream(
 
             // inject node_id for routes that need to know who's connecting
             // (knock/invite for pending requests, upload for iroh-blobs pull,
-            // webauthn for p2p passkey register/login flows)
+            // webauthn for p2p passkey register/login flows, sync-by-blake3
+            // for the best-effort job-notify completion push)
             if path == "/api/knock"
                 || path == "/api/knock/status"
                 || path == "/api/auth/invite"
@@ -229,6 +230,8 @@ async fn handle_stream(
                 || path == "/api/auth/webauthn/login/finish"
                 || path == "/api/upload/music-by-blake3"
                 || path == "/api/upload/video-by-blake3"
+                || path == "/api/sync/song-by-blake3"
+                || path == "/api/sync/video-by-blake3"
             {
                 if let Some(obj) = json_body.as_object_mut() {
                     obj.insert(

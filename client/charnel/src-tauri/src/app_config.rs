@@ -474,6 +474,11 @@ pub fn upgrade_app_config(app_handle: &tauri::AppHandle) -> Result<AppConfigUpgr
     // save updated config
     config.save(app_handle)?;
 
+    // one-time nudge: turn on the experimental player for mac/windows
+    // installs upgrading from before it could be bundled+smoke-tested.
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    crate::commands::maybe_enable_experimental_player_on_upgrade(app_handle, &old_version);
+
     Ok(AppConfigUpgradeResult {
         backup_path,
         old_version,

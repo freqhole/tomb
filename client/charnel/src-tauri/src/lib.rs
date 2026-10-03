@@ -416,6 +416,17 @@ pub fn run() {
         let _ = rustls::crypto::ring::default_provider().install_default();
     }
 
+    // registers the bundled-ffmpeg/ffprobe lookup (see commands.rs's
+    // `bundled_ffmpeg_paths` doc comment) so grimoire's own config-load-
+    // time resolution (`grimoire::config::init_config` ->
+    // `resolve_media_paths`) can fill in an empty/unset `media.ffmpeg_path`/
+    // `ffprobe_path` with the bundled binaries - must happen before any
+    // `init_config` call, so it's done unconditionally as the very first
+    // thing here (a plain fn pointer registration, no side effects, safe
+    // on every platform including android, where it just always resolves
+    // to `(None, None)`).
+    grimoire::config::set_bundled_ffmpeg_resolver(commands::bundled_ffmpeg_paths);
+
     // desktop terminal-passthrough: if the binary was invoked with any
     // additional argv beyond the program name (e.g. `freqhole users list`,
     // `freqhole rathole`, `freqhole --help`) hand off to the cli library
@@ -490,7 +501,16 @@ pub fn run() {
         .setup(move |app| {
             tracing::info!(elapsed_ms = %boot_start.elapsed().as_millis(), "boot: setup() entered");
             #[cfg(target_os = "windows")]
-            register_bundled_dll_search_path(app.handle());
+            {
+                register_bundled_dll_search_path(app.handle());
+                if let Ok(resource_dir) = app
+                    .handle()
+                    .path()
+                    .resolve("", tauri::path::BaseDirectory::Resource)
+                {
+                    commands::set_windows_resource_dir(resource_dir);
+                }
+            }
             // needed by player_pairing_accept's dispatch bridge, which runs
             // from a spawned task with no AppHandle of its own to emit
             // events through.

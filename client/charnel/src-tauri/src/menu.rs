@@ -32,6 +32,7 @@ const MENU_FEDERATION: &str = "federation";
 const MENU_SETTINGS: &str = "settings";
 const MENU_CONFIG: &str = "config";
 const MENU_DEVTOOLS: &str = "devtools";
+const MENU_SHOW_VIDEO_WINDOW: &str = "show_video_window";
 const MENU_QUIT: &str = "quit";
 
 /// create and set application menu
@@ -100,6 +101,20 @@ fn build_and_set_menu(app: &AppHandle<Wry>) -> tauri::Result<()> {
         .item(&federation_item)
         .item(&settings_item)
         .item(&config_item);
+
+    // only macOS loses track of the libmpv video window this way (no dock
+    // icon/cmd-tab entry of its own) - linux/windows window managers already
+    // offer alt-tab access, so this recovery action would be dead weight there.
+    // starts disabled; emit_event() enables it only while a video is actually
+    // playing or paused.
+    #[cfg(target_os = "macos")]
+    let view_builder = {
+        let show_video_window_item =
+            MenuItemBuilder::with_id(MENU_SHOW_VIDEO_WINDOW, "show video window")
+                .enabled(false)
+                .build(app)?;
+        view_builder.separator().item(&show_video_window_item)
+    };
 
     // no devtools entry on linux: opening webkitgtk's inspector crashes the app.
     #[cfg(not(target_os = "linux"))]
@@ -208,6 +223,24 @@ fn is_federation_enabled() -> bool {
         .as_ref()
         .map(|f| f.enabled)
         .unwrap_or(false)
+}
+
+/// enable/disable the "show video window" item - called from
+/// `video_window::emit_event` on every playback state change. a no-op on
+/// platforms where the item doesn't exist in the menu (see above).
+pub fn update_show_video_window_item(app: &AppHandle<Wry>, active: bool) {
+    let Some(menu) = app.menu() else {
+        return;
+    };
+    let Some(item) = menu.get("view").and_then(|view| {
+        view.as_submenu()
+            .and_then(|submenu| submenu.get(MENU_SHOW_VIDEO_WINDOW))
+    }) else {
+        return;
+    };
+    if let Some(menu_item) = item.as_menuitem() {
+        let _ = menu_item.set_enabled(active);
+    }
 }
 
 /// build the freqhole app submenu
@@ -383,6 +416,9 @@ fn handle_menu_event(app: &AppHandle<Wry>, id: &str) {
                     wizard.open_devtools();
                 }
             }
+        }
+        MENU_SHOW_VIDEO_WINDOW => {
+            crate::video_window::show_video_window(app);
         }
         MENU_LOGS | MENU_LIBRARY | MENU_USERS | MENU_RADIO | MENU_FEDERATION | MENU_SETTINGS
         | MENU_CONFIG => {

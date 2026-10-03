@@ -32,7 +32,99 @@ pub struct PlaylistItem {
     pub added_by: Option<String>,
 }
 
-/// add an entity to a playlist. pass `position = None` to auto-append at
+/// replace a playlist's entire membership (across every entity type) with
+/// `ordered_refs`, in the given order - position is assigned as `index`.
+/// unlike `add_playlist_items`/`reorder_playlist_items` (which assume the
+/// caller already knows what's there), this is a full "this is now the
+/// complete, authoritative member list" replace - every existing item is
+/// cleared first, regardless of its entity type. built for sync (a remote
+/// always sends the complete member list, mixed song+video, in one shared
+/// position space), not for local UI operations that intentionally touch
+/// only one entity type at a time (see `music::entities::playlists::
+/// set_playlist_songs`, which deliberately leaves video items alone).
+pub async fn set_playlist_items(
+    playlist_id: &str,
+    ordered_refs: &[(TaggableEntity, String)],
+    added_by: Option<String>,
+) -> GrimoireResponse<()> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
+
+    let mut tx = match pool.begin().await {
+        Ok(t) => t,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to begin transaction",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
+
+    if let Err(e) = sqlx::query!(
+        "DELETE FROM playlist_itemz WHERE playlist_id = ?",
+        playlist_id
+    )
+    .execute(&mut *tx)
+    .await
+    {
+        return GrimoireResponse::failure(
+            "Failed to clear existing playlist items",
+            vec![ErrorDetail::from(e)],
+        );
+    }
+
+    for (index, (entity_type, entity_id)) in ordered_refs.iter().enumerate() {
+        let entity_type_str = entity_type.as_str();
+        // 1-based: position = 0 is a sentinel the auto-append trigger
+        // treats as "assign me the next free slot", which would silently
+        // reorder the first item to the end (see reorder_playlist_items's
+        // use of the same `+ 1` convention).
+        let position = (index as i64) + 1;
+        if let Err(e) = sqlx::query!(
+            "INSERT INTO playlist_itemz (playlist_id, entity_type, entity_id, position, added_by)
+             VALUES (?, ?, ?, ?, ?)",
+            playlist_id,
+            entity_type_str,
+            entity_id,
+            position,
+            added_by
+        )
+        .execute(&mut *tx)
+        .await
+        {
+            // mirrors set_playlist_songs's tolerance: a duplicate
+            // (playlist_id, entity_type, entity_id) is a legitimate case
+            // (the same song/video listed twice in a playlist) that hits
+            // the table's UNIQUE constraint - skip it rather than failing
+            // the whole member list.
+            tracing::warn!(
+                "failed to add playlist item {}/{} to playlist {}: {}",
+                entity_type_str,
+                entity_id,
+                playlist_id,
+                e
+            );
+        }
+    }
+
+    if let Err(e) = tx.commit().await {
+        return GrimoireResponse::failure(
+            "Failed to commit transaction",
+            vec![ErrorDetail::from(e)],
+        );
+    }
+
+    GrimoireResponse::success_unit("Playlist items set successfully")
+}
+
+/// remove an entity from a playlist. pass `position = None` to auto-append at
 /// the end - `trg_playlist_itemz_auto_append` handles the numbering.
 pub async fn add_playlist_item(
     playlist_id: &str,
