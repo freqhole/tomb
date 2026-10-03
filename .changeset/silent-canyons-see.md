@@ -2,4 +2,4 @@
 "freqhole-release": patch
 ---
 
-try harder to prevent flicking of playerbar's art image
+try harder to prevent flickering of playerbar's art image
