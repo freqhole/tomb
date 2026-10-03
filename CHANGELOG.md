@@ -1,5 +1,19 @@
 # freqhole-release
 
+## 0.3.12
+
+### Patch Changes
+
+- 2cc0e53: add one retry to libmpv plays to catch any random errors that might come up
+- 74709b4: try harder to avoid adding duplicate videos to library; also try to handle adding multiple scan dirz better; if experimental player is on, should first try to play original video, not rendition;
+- d8d5e55: experimental player: handle closing video window when queue is over; fix video window + icon on mac; show player controls in video window;
+- f2c7c78: try to avoid blank album detail view if album id changes
+- 4f9d9d3: yeet lingering blob memstore and go all in fsstore; also try to improve blob transfer sync + retry; playlistz can sync videoz now!;
+- 58a1f07: try harder to sync related images when sending stuff to a remote
+- 95e2082: handle updating series detail view after making video edits
+- 71af010: bundle mpv and ffmpeg into macos and windows builds; experimental player now on by default for mac + windows;
+- 57cf4de: try harder to prevent flickering of playerbar's art image
+
 ## 0.3.11
 
 ### Patch Changes
