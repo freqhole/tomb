@@ -200,16 +200,17 @@ ENV PKG_CONFIG_PATH_armv7_unknown_linux_gnueabihf=/usr/lib/arm-linux-gnueabihf/p
 # libmpv2-sys's own `use-bindgen` codepath (armv7 only - see
 # grimoire/Cargo.toml) invokes clang against the target's C headers -
 # clang auto-detects the cross target itself (bindgen passes it via
-# Cargo's own TARGET env var), but doesn't know Debian's multiarch layout
-# puts triplet-specific headers in their own subdirectory, so plain
-# `/usr/include/stdint.h`'s `#include <bits/libc-header-start.h>` fails
-# outright (confirmed for real 2026-10-03). BINDGEN_EXTRA_CLANG_ARGS is a
-# global (not per-target) bindgen env var, but that's fine here -
-# libmpv2-sys is the only crate in this image enabling bindgen at all,
-# for only this one target.
-ENV BINDGEN_EXTRA_CLANG_ARGS="-I/usr/include/arm-linux-gnueabihf"
-
-RUN find /usr -maxdepth 4 -iname '*gnueabihf*' 2>/dev/null; find / -maxdepth 2 -iname '*gnueabihf*' 2>/dev/null; find / -name 'libc-header-start.h' 2>/dev/null
+# Cargo's own TARGET env var), but doesn't know where this image's
+# `gcc-arm-linux-gnueabihf` cross-toolchain keeps its headers: NOT the
+# native multiarch path (`/usr/include/arm-linux-gnueabihf`, which is
+# only populated by installing native `:armhf` packages directly), but
+# `/usr/arm-linux-gnueabihf/include` - the cross-toolchain's own sysroot
+# convention (confirmed for real 2026-10-03 via a one-off `find` in this
+# same image: that's where `bits/libc-header-start.h` actually lives).
+# BINDGEN_EXTRA_CLANG_ARGS is a global (not per-target) bindgen env var,
+# but that's fine here - libmpv2-sys is the only crate in this image
+# enabling bindgen at all, for only this one target.
+ENV BINDGEN_EXTRA_CLANG_ARGS="-I/usr/arm-linux-gnueabihf/include"
 
 WORKDIR /app
 COPY . .
