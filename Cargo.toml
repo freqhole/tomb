@@ -101,6 +101,12 @@ getrandom = "0.2"
 [profile.release]
 lto = "thin"      # faster than "fat" LTO, still good size reduction
 strip = "symbols" # strip debug symbols
-panic = "abort"   # smaller than unwinding
+# panic = "abort" removed 2026-10-03: this made ANY panic on ANY thread
+# (including isolated background worker threads like iroh-blobs' own
+# blob-store pool, processing untrusted user-uploaded images) immediately
+# abort the entire process with zero recoverability - confirmed for real
+# via a crash while viewing an album with a broken Android-camera-sourced
+# image. with the default unwind, a panic in a plain spawned thread only
+# kills that thread; the rest of the app (GUI included) keeps running.
 codegen-units = 1 # better optimization, slower compile
 opt-level = "z"   # optimize for size (use "3" if perf is more important)
