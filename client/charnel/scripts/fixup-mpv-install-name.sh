@@ -46,3 +46,32 @@ install_name_tool -change \
 
 echo "fixup-mpv-install-name: rewrote libmpv.2.dylib reference ($CURRENT_REF -> $NEW_REF) in $BINARY"
 
+# the bundled ffmpeg/ffprobe CLI binaries (see scripts/fetch-mpv-
+# runtime.sh) land under tauri's `bundle.resources` (Contents/Resources/
+# mpv-runtime/lib/), not `bundle.macOS.frameworks` - tauri-bundler only
+# codesigns the main executable, the .app bundle itself, and explicit
+# `frameworks` entries, never arbitrary files under `resources` (confirmed
+# for real 2026-10-03: notarization rejected these two specifically, with
+# "not signed with a valid Developer ID certificate" / "no secure
+# timestamp" / "hardened runtime not enabled" - the exact three things a
+# real `codesign --options runtime --timestamp` call fixes). sign them
+# here, at their STAGED location, before tauri-bundler copies them into
+# the .app - a plain file copy preserves a Mach-O binary's embedded
+# signature byte-for-byte, and tauri's own later signing pass never
+# touches loose resource files, so this survives into the final bundle.
+#
+# skipped entirely for unsigned local dev builds: the Makefile sets
+# APPLE_SIGNING_IDENTITY=- (codesign's ad-hoc sentinel) when no real
+# identity is configured, and ad-hoc signing can't get a secure
+# timestamp anyway (no real cert to present to Apple's timestamp
+# server) - harmless, since unsigned builds are never notarized.
+if [ -n "${APPLE_SIGNING_IDENTITY:-}" ] && [ "$APPLE_SIGNING_IDENTITY" != "-" ]; then
+  MPV_LIB_DIR="$REPO_ROOT/client/charnel/src-tauri/mpv-runtime/lib"
+  for bin in ffmpeg ffprobe; do
+    if [ -f "$MPV_LIB_DIR/$bin" ]; then
+      codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" "$MPV_LIB_DIR/$bin"
+      echo "fixup-mpv-install-name: codesigned bundled $bin at $MPV_LIB_DIR/$bin"
+    fi
+  done
+fi
+
