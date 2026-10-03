@@ -503,6 +503,7 @@ async fn resolve_sync_series_season(
 
 /// resolve + attach a set of `SyncImageRef`s to one video entity, returning
 /// the blob id of whichever image was marked primary (the poster).
+#[allow(clippy::too_many_arguments)]
 async fn link_sync_entity_images(
     entity_type: crate::video::VideoEntityType,
     entity_id: &str,

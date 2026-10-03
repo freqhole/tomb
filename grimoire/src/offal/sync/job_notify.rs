@@ -44,14 +44,22 @@ pub async fn sync_job_notify(caller: &Caller, body: JsonValue) -> GrimoireRespon
     let notify: SyncJobNotify = match serde_json::from_value(body) {
         Ok(n) => n,
         Err(e) => {
-            tracing::debug!("sync_job_notify: bad request from {}: {}", caller.username, e);
+            tracing::debug!(
+                "sync_job_notify: bad request from {}: {}",
+                caller.username,
+                e
+            );
             return GrimoireResponse::success("ignored", JsonValue::Bool(false));
         }
     };
 
     tracing::info!(
         "sync_job_notify: {} job {} for \"{}\" (blake3={}) domain={} from {}{}",
-        if notify.success { "completed" } else { "failed" },
+        if notify.success {
+            "completed"
+        } else {
+            "failed"
+        },
         notify.job_id,
         notify.title,
         &notify.blake3[..16.min(notify.blake3.len())],

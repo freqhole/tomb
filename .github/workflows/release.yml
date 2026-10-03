@@ -177,6 +177,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
+      # copies the pre-built dylib closure committed at
+      # mpv-runtime/committed/arm64 - see scripts/fetch-mpv-runtime.sh's
+      # doc comment.
       - name: install mpv (portable libmpv runtime, bundled into the app)
         run: ./scripts/fetch-mpv-runtime.sh arm64
       - name: install sqlx-cli
@@ -249,10 +252,14 @@ jobs:
           node-version: 24
       # this job cross-compiles x86_64 from an arm64 runner (github retired
       # hosted intel macos images). homebrew has no x86_64 macOS bottle for
-      # mpv anymore and modern homebrew's installer refuses fresh x86_64
-      # installs outright (even under Rosetta) - so this pulls a portable,
-      # prebuilt libmpv (mpv-libre-runtime) instead. see
-      # scripts/fetch-mpv-runtime.sh for the full story.
+      # mpv anymore, and building it from source here would hit the same
+      # macOS-14/Swift-toolchain issues documented in
+      # scripts/fetch-mpv-runtime.sh - so this just copies the pre-built,
+      # pre-verified dylib closure already committed at
+      # mpv-runtime/committed/x86_64 (see that script's doc comment for
+      # how that snapshot gets produced/refreshed). requires that snapshot
+      # to actually be committed to git - pass --rebuild locally to redo
+      # the real homebrew build if it ever needs refreshing.
       - name: install mpv (portable libmpv runtime, bundled into the app)
         run: ./scripts/fetch-mpv-runtime.sh x86_64
       - name: install sqlx-cli

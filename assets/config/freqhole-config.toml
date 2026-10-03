@@ -79,8 +79,14 @@ supported_audio_formats = ["mp3", "ogg", "wav", "flac", "m4a", "aif", "aiff"]
 #   {output} - replaced with temporary output file path
 #
 # the command executed will be: <ffmpeg_path> <args with placeholders replaced>
-# OPTIONAL (default: "ffmpeg")
-ffmpeg_path = "ffmpeg"
+# ffmpeg_path: leave empty (or omit) to auto-resolve - the macOS/windows
+# desktop app bundles its own ffmpeg (no separate install needed) and
+# uses that automatically; everywhere else (linux, CLI, server) falls
+# back to a bare "ffmpeg" looked up on PATH. set this to an explicit
+# path (e.g. "/usr/local/bin/ffmpeg") to always use that one instead -
+# an explicit path here always wins over whatever's bundled.
+# OPTIONAL (default: "" = auto-resolve)
+ffmpeg_path = ""
 # OPTIONAL (default: "-i {input} -an -vcodec mjpeg -vframes 1 -q:v 2 -y {output}")
 extract_album_art_args = "-i {input} -an -vcodec mjpeg -vframes 1 -q:v 2 -y {output}"
 # OPTIONAL: use triple-quoted literal strings ('''...''') when the value contains double quotes
@@ -91,14 +97,21 @@ generate_waveform_args = '''-i {input} -filter_complex "color=black:s=800x200[bg
 # OPTIONAL: ffprobe fallback for duration extraction
 # when lofty can't determine audio duration (e.g. for WMA, some m4a, opus-in-ogg),
 # ffprobe is used as a fallback to extract the duration from the file.
-# if ffprobe_path is omitted or null, the fallback is skipped and duration will be null.
 # ffprobe is part of the ffmpeg suite - install ffmpeg to get it.
 #
 # the command executed will be: <ffprobe_path> <args with {input} replaced>
 # ffprobe_duration_args: output must be a single line with duration in seconds (e.g. "234.567")
 # ffprobe_properties_args: output must be JSON with format and streams sections
-# OPTIONAL (default: null - fallback disabled)
-ffprobe_path = "ffprobe"
+#
+# ffprobe_path: leave unset (commented out, as below) to auto-resolve -
+# the macOS/windows desktop app bundles its own ffprobe alongside
+# ffmpeg and uses that automatically; everywhere else, the fallback is
+# simply skipped (duration stays null) unless set explicitly. set this
+# to an explicit path (e.g. "/usr/local/bin/ffprobe") to always use
+# that one instead - an explicit path here always wins over whatever's
+# bundled.
+# OPTIONAL (default: unset = auto-resolve, bundled if available else disabled)
+ffprobe_path = ""
 # OPTIONAL (default: "-v quiet -show_entries format=duration -of csv=p=0 {input}")
 ffprobe_duration_args = "-v quiet -show_entries format=duration -of csv=p=0 {input}"
 # OPTIONAL (default: "-v quiet -print_format json -show_format -show_streams {input}")

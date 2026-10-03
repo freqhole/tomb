@@ -1,7 +1,9 @@
 {
   "bundle": {
     "resources": {
-      "mpv-runtime/libmpv-2.dll": "libmpv-2.dll"
+      "mpv-runtime/libmpv-2.dll": "libmpv-2.dll",
+      "mpv-runtime/ffmpeg.exe": "ffmpeg.exe",
+      "mpv-runtime/ffprobe.exe": "ffprobe.exe"
     }
   }
 }

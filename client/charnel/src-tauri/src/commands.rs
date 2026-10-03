@@ -92,10 +92,97 @@ pub struct DependencyCheckResult {
     pub can_proceed: bool,
 }
 
+// bundled by scripts/fetch-mpv-runtime.sh (macOS) / scripts/windows/
+// fetch-mpv-runtime.ps1 (windows) - see their own doc comments for how/why.
+// on linux and when unbundled (e.g. `tauri dev`), these always return
+// `None` and callers fall back to grimoire's normal PATH/common-install-
+// dir search.
+//
+// lands at Contents/Resources/mpv-runtime/lib/{ffmpeg,ffprobe} - same
+// nesting `set_vulkan_icd_env` (video_window/libmpv_backend.rs) already
+// resolves against, see that function's doc comment for the full story
+// on why tauri's `resources` key preserves this path instead of
+// flattening it.
+#[cfg(target_os = "macos")]
+fn resolve_bundled_media_binary(name: &str) -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let path = exe
+        .parent()?
+        .parent()?
+        .join("Resources")
+        .join("mpv-runtime")
+        .join("lib")
+        .join(name);
+    path.is_file().then_some(path)
+}
+
+// windows' `bundle.resources` placement isn't a fixed path relative to the
+// exe the way macOS's .app bundle structure is (see
+// `register_bundled_dll_search_path` in lib.rs, which warns about exactly
+// this) - the real $RESOURCE dir is only knowable via `AppHandle::path()`,
+// which only exists once tauri's `.setup()` hook runs. `set_windows_resource_dir`
+// stashes that resolved path (lib.rs's setup hook already computes it for
+// `register_bundled_dll_search_path`, so this just reuses it) - called
+// before anything would actually need to read it (setup/first-run always
+// happens after `.setup()`, never before).
+#[cfg(target_os = "windows")]
+static WINDOWS_RESOURCE_DIR: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+
+#[cfg(target_os = "windows")]
+pub(crate) fn set_windows_resource_dir(dir: PathBuf) {
+    let _ = WINDOWS_RESOURCE_DIR.set(dir);
+}
+
+#[cfg(target_os = "windows")]
+fn resolve_bundled_media_binary(name: &str) -> Option<PathBuf> {
+    // flat at $RESOURCE root, matching the existing libmpv-2.dll mapping
+    // in tauri.windows.conf.json's `bundle.resources` (source paths can be
+    // nested under mpv-runtime/, but dest names here are all flat).
+    let path = WINDOWS_RESOURCE_DIR.get()?.join(format!("{name}.exe"));
+    path.is_file().then_some(path)
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+fn resolve_bundled_media_binary(_name: &str) -> Option<PathBuf> {
+    None
+}
+
+/// prefers the bundled ffmpeg/ffprobe (no separate install required by the
+/// user) over grimoire's generic PATH/common-install-dir search, which
+/// still runs as a fallback - both so unbundled dev builds keep working
+/// and so a user who explicitly picked their own ffmpeg via
+/// `validate_and_set_ffmpeg_path` isn't affected (that's a separate,
+/// already-persisted config value this function has no say over - it only
+/// supplies defaults for a FRESH setup / the live dependency-check
+/// status, never overrides an existing saved choice).
+fn check_dependencies_preferring_bundled() -> grimoire::setup::DependencyStatus {
+    match bundled_ffmpeg_paths() {
+        (Some(ffmpeg_path), Some(ffprobe_path)) => {
+            let mut status = grimoire::setup::check_dependencies();
+            status.ffmpeg_path = Some(ffmpeg_path);
+            status.ffprobe_path = Some(ffprobe_path);
+            status
+        }
+        _ => grimoire::setup::check_dependencies(),
+    }
+}
+
+/// `(ffmpeg, ffprobe)` bundled binary paths, or `None`/`None` if either is
+/// missing (unbundled dev build, linux, etc.) - the one place both
+/// `check_dependencies_preferring_bundled` and `run_setup_core` (and, via
+/// `grimoire::config::set_bundled_ffmpeg_resolver`, grimoire's own
+/// config-load-time resolution) ask "is anything actually bundled here".
+pub(crate) fn bundled_ffmpeg_paths() -> (Option<PathBuf>, Option<PathBuf>) {
+    (
+        resolve_bundled_media_binary("ffmpeg"),
+        resolve_bundled_media_binary("ffprobe"),
+    )
+}
+
 /// check for required external dependencies (ffmpeg, yt-dlp)
 #[tauri::command]
 pub async fn check_dependencies() -> DependencyCheckResult {
-    let status = grimoire::setup::check_dependencies();
+    let status = check_dependencies_preferring_bundled();
     DependencyCheckResult {
         ffmpeg_path: status.ffmpeg_path.as_ref().map(|p| p.display().to_string()),
         ffmpeg_installed: status.has_ffmpeg(),
@@ -247,6 +334,7 @@ pub async fn get_setup_defaults() -> grimoire::setup::SetupDefaults {
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
 pub async fn run_setup_core(
+    app_handle: tauri::AppHandle,
     config_path: String,
     data_dir: String,
     server_name: String,
@@ -265,7 +353,23 @@ pub async fn run_setup_core(
     let fetch_music_dir = fetch_music_dir.map(|p| canonicalize_or_original(&p));
     let image_path = image_path.map(|p| canonicalize_or_original(&p));
 
-    let deps = grimoire::setup::check_dependencies();
+    let deps = check_dependencies_preferring_bundled();
+    let bundled = bundled_ffmpeg_paths();
+
+    // when both are bundled, leave the persisted config on "auto" (None)
+    // rather than baking in the bundled path as a literal string - lets
+    // the user later clear their own override back to "use whatever's
+    // bundled" without needing a dedicated "reset" affordance (grimoire's
+    // own config-load-time resolution - see `set_bundled_ffmpeg_resolver`
+    // - fills this back in every time). only persist a concrete path when
+    // nothing's bundled here (linux, unbundled dev builds) - those still
+    // need `deps`' PATH/common-install-dir discovery result written down,
+    // since a bare "ffmpeg" wouldn't reliably resolve for a GUI app
+    // launched without a shell's PATH.
+    let (ffmpeg_path, ffprobe_path) = match (&bundled.0, &bundled.1) {
+        (Some(_), Some(_)) => (None, None),
+        _ => (deps.ffmpeg_path.clone(), deps.ffprobe_path.clone()),
+    };
 
     // set allowed origins based on build type
     // dev builds use http://localhost:1420 (vite dev server for tauri UI)
@@ -324,8 +428,8 @@ pub async fn run_setup_core(
         fetch_music_dir: fetch_music_dir.map(PathBuf::from),
         initial_scan_dirs: Vec::new(), // handled by music step in UI
         allowed_origins: Some(allowed_origins),
-        ffmpeg_path: deps.ffmpeg_path.clone(),
-        ffprobe_path: deps.ffprobe_path.clone(),
+        ffmpeg_path,
+        ffprobe_path,
         ytdlp_path: deps.ytdlp_path.clone(),
         server_enabled: Some(false), // HTTP server disabled in charnel (tauri) mode
         federation_enabled,          // passed from UI (default: false)
@@ -338,7 +442,102 @@ pub async fn run_setup_core(
     let service = grimoire::setup::SetupService::new();
     let result = service.run_setup(setup_config).await;
 
+    if result.success {
+        maybe_enable_experimental_player_default(&app_handle, &bundled, &deps);
+    }
+
     result
+}
+
+/// decides the "experimental player" (bundled-libmpv-backed playback)
+/// default for a fresh install: linux already defaults to on via
+/// `default_use_libmpv_playback` and is left alone here; macOS/windows
+/// only flip to on if we can actually confirm the bundled mpv +
+/// ffmpeg/ffprobe genuinely work on this machine right now, rather than
+/// just assuming bundling succeeded (see `grimoire::player::libmpv::
+/// smoke_test` and `grimoire::setup::smoke_test_ffmpeg`'s own doc
+/// comments for why a real functional test is used instead of trusting
+/// file-exists/`-version` checks). a separate function (not an inline
+/// `cfg!()` check in `run_setup_core`) because `grimoire::player::libmpv`
+/// only compiles in on desktop targets at all - android needs this to
+/// not even reference that module, not just skip it at runtime.
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
+pub(crate) fn maybe_enable_experimental_player_default(
+    app_handle: &tauri::AppHandle,
+    bundled: &(Option<PathBuf>, Option<PathBuf>),
+    deps: &grimoire::setup::DependencyStatus,
+) {
+    if !cfg!(any(target_os = "macos", target_os = "windows")) {
+        return;
+    }
+    let effective_ffmpeg = bundled.0.clone().or_else(|| deps.ffmpeg_path.clone());
+    let effective_ffprobe = bundled.1.clone().or_else(|| deps.ffprobe_path.clone());
+    let mpv_ok = grimoire::player::libmpv::smoke_test();
+    let ffmpeg_ok = match (&effective_ffmpeg, &effective_ffprobe) {
+        (Some(ffmpeg), Some(ffprobe)) => grimoire::setup::smoke_test_ffmpeg(ffmpeg, ffprobe),
+        _ => false,
+    };
+    if mpv_ok && ffmpeg_ok {
+        let mut app_cfg = crate::app_config::load_or_create(app_handle);
+        app_cfg.use_libmpv_playback = true;
+        if let Err(e) = app_cfg.save(app_handle) {
+            tracing::warn!(error = %e, "failed to persist experimental-player default-on after setup");
+        }
+    } else {
+        tracing::info!(
+            mpv_ok,
+            ffmpeg_ok,
+            "experimental player smoke test failed - leaving it off for this install"
+        );
+    }
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+pub(crate) fn maybe_enable_experimental_player_default(
+    _app_handle: &tauri::AppHandle,
+    _bundled: &(Option<PathBuf>, Option<PathBuf>),
+    _deps: &grimoire::setup::DependencyStatus,
+) {
+}
+
+/// last app-config version shipped before mac/windows builds could
+/// genuinely smoke-test their bundled mpv+ffmpeg (both introduced this
+/// same release) - see `maybe_enable_experimental_player_on_upgrade`.
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+const LAST_VERSION_PREDATING_BUNDLED_PLAYER: (u32, u32, u32) = (0, 3, 11);
+
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+fn parse_version_tuple(v: &str) -> (u32, u32, u32) {
+    let mut parts = v.split('.').map(|p| p.parse::<u32>().unwrap_or(0));
+    (
+        parts.next().unwrap_or(0),
+        parts.next().unwrap_or(0),
+        parts.next().unwrap_or(0),
+    )
+}
+
+/// one-time "turn on experimental player" nudge for app configs
+/// upgrading from `LAST_VERSION_PREDATING_BUNDLED_PLAYER` or older on
+/// mac/windows - reuses `maybe_enable_experimental_player_default`'s own
+/// real mpv+ffmpeg smoke tests rather than assuming bundling succeeded.
+/// called from `app_config::upgrade_app_config` right after it persists
+/// the version bump, so this gate naturally never re-fires for the same
+/// install again. a no-op if the player is already on (user already
+/// enabled it, or this same check already flipped it once).
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+pub(crate) fn maybe_enable_experimental_player_on_upgrade(
+    app_handle: &tauri::AppHandle,
+    old_version: &str,
+) {
+    if parse_version_tuple(old_version) > LAST_VERSION_PREDATING_BUNDLED_PLAYER {
+        return;
+    }
+    if crate::app_config::load_or_create(app_handle).use_libmpv_playback {
+        return; // already on - nothing to do
+    }
+    let bundled = bundled_ffmpeg_paths();
+    let deps = check_dependencies_preferring_bundled();
+    maybe_enable_experimental_player_default(app_handle, &bundled, &deps);
 }
 
 /// result of creating an admin user

@@ -51,43 +51,44 @@ struct Inner {
 
 /// spawn a libmpv-backed player. must be called from inside a tokio
 /// runtime (spawns the snapshot-pump task).
-/// checks whether libmpv is actually loadable on this system, without
-/// crashing if it isn't. needed because macOS x86_64 links mpv *weakly*
-/// (`-weak-lmpv`, no bundled or otherwise guaranteed-present dylib - see
-/// `scripts/fetch-mpv-runtime.sh`'s x86_64 branch): there's no portable,
-/// working prebuilt mpv for that architecture (homebrew dropped its
-/// x86_64 macOS bottle, and the `mpv-libre-runtime` alternative turned
-/// out to have a broken macOS GPU renderer), so x86_64 users only get
-/// native playback if they happen to already have a working mpv
-/// installed at `/usr/local/lib/libmpv.2.dylib` themselves.
+/// checks whether libmpv is actually loadable on this system.
 ///
-/// calling ANY libmpv2 function when the weak symbol wasn't actually
-/// resolved at launch segfaults immediately (the standard, documented
-/// contract of weak linking - the caller must check availability first,
-/// dyld doesn't turn a missing weak symbol into a graceful error) rather
-/// than returning a normal error - so this must be called before
-/// anything else in this module touches libmpv2 at all.
-#[cfg(target_os = "macos")]
+/// historical note: macOS x86_64 used to link mpv *weakly* here
+/// (`-weak-lmpv`) since there was no portable, working prebuilt mpv for
+/// that architecture (homebrew had dropped its x86_64 macOS bottle, and
+/// the `mpv-libre-runtime` alternative appeared to have a broken macOS
+/// GPU renderer). both turned out to be fixable (homebrew dropped
+/// bottles but still builds fine from source; the "broken renderer" was
+/// actually macOS hardened runtime blocking MoltenVK, fixed via
+/// entitlements - see scripts/fetch-mpv-runtime.sh's top-of-file doc
+/// comment) - mpv is now bundled + hard-linked on every desktop target,
+/// this architecture included, so this is always `true` wherever this
+/// module compiles in at all (see the android note below). kept as a
+/// real function rather than deleted outright so a future platform with
+/// a genuinely optional/weakly-linked libmpv has an obvious place to
+/// reintroduce a real check, and so `spawn_libmpv_player`'s call site
+/// doesn't need to change if that ever happens again.
 pub fn is_libmpv_available() -> bool {
-    use std::ffi::CString;
-    let sym = CString::new("mpv_create").expect("no interior nul");
-    !unsafe { libc::dlsym(libc::RTLD_DEFAULT, sym.as_ptr()) }.is_null()
+    true
+}
+
+/// genuinely tries to initialize libmpv (`Mpv::new()`) rather than just
+/// asserting it's theoretically available like `is_libmpv_available`
+/// does - a missing/incompatible dylib closure (wrong arch, unresolved
+/// transitive dependency, etc.) surfaces here as a clean `false` instead
+/// of a hard process crash at actual playback time. used during setup to
+/// decide whether a fresh install can safely default to the "experimental
+/// player" - see `client/charnel/src-tauri/src/commands.rs`'s
+/// `run_setup_core`.
+pub fn smoke_test() -> bool {
+    Mpv::new().is_ok()
 }
 
 /// this whole module only compiles in when the `libmpv-playback` feature
 /// is on, which charnel only enables for desktop targets (macOS/linux/
 /// windows) - android never builds this in at all (still uses the html
-/// audio/video path there), so it's not a "hard dependency, always
-/// present" case there either; it's simply not a case this function
-/// needs to handle, since it doesn't exist for android builds. among the
-/// desktop targets that DO compile this in, only macOS x86_64 currently
-/// uses weak linking (see above) - linux and windows link mpv normally
-/// (a hard dependency, always present if the binary launched at all).
-#[cfg(not(target_os = "macos"))]
-pub fn is_libmpv_available() -> bool {
-    true
-}
-
+/// audio/video path there), so `is_libmpv_available` doesn't need to
+/// handle android either; it simply doesn't exist for android builds.
 pub fn spawn_libmpv_player() -> GrimoireResult<LibmpvController> {
     if !is_libmpv_available() {
         return Err(GrimoireError::ProcessingFailed {

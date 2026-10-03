@@ -12,6 +12,59 @@ use toml_edit::{value, Array, DocumentMut};
 // Global config - can be reloaded at runtime
 static CONFIG: OnceLock<RwLock<GrimoireConfig>> = OnceLock::new();
 
+/// `(ffmpeg, ffprobe)` bundled binary paths, or `None` for either that
+/// isn't actually bundled - see `BUNDLED_FFMPEG_RESOLVER`.
+type BundledFfmpegResolverFn = fn() -> (Option<PathBuf>, Option<PathBuf>);
+
+// optional hook for a platform-bundled ffmpeg/ffprobe pair (e.g. tauri's
+// mpv-runtime bundle on macOS/windows - see client/charnel/src-tauri's
+// `bundled_ffmpeg_paths`), registered once at app startup before
+// `init_config` runs. CLI/server never register one, so `resolve_media_paths`
+// below just falls through to the historical bare "ffmpeg" PATH lookup.
+static BUNDLED_FFMPEG_RESOLVER: OnceLock<BundledFfmpegResolverFn> = OnceLock::new();
+
+/// registers a callback that returns `(ffmpeg, ffprobe)` bundled binary
+/// paths, consulted by `init_config` whenever `media.ffmpeg_path`/
+/// `ffprobe_path` are left empty/unset in the config file - lets a fresh
+/// or explicitly-cleared config mean "use whatever's bundled" instead of
+/// baking in a concrete path at config-generation time (see
+/// `resolve_media_paths`). only the first registration wins - call this
+/// once, early, before `init_config`.
+pub fn set_bundled_ffmpeg_resolver(f: BundledFfmpegResolverFn) {
+    let _ = BUNDLED_FFMPEG_RESOLVER.set(f);
+}
+
+/// fills in `media.ffmpeg_path`/`ffprobe_path` when the config left them
+/// empty/unset: prefers whatever `set_bundled_ffmpeg_resolver` supplies,
+/// falling back to the bare "ffmpeg" PATH lookup (ffmpeg_path's historical
+/// default) or leaving ffprobe disabled (its historical default) when no
+/// resolver is registered or it returns `None`. called once, right after
+/// loading the config file, so every later read of `config.media.*_path`
+/// already sees the fully-resolved value - no call site elsewhere needs
+/// to know about bundling at all.
+fn resolve_media_paths(media: &mut MediaConfig) {
+    let (bundled_ffmpeg, bundled_ffprobe) = BUNDLED_FFMPEG_RESOLVER
+        .get()
+        .map(|f| f())
+        .unwrap_or((None, None));
+
+    if media.ffmpeg_path.trim().is_empty() {
+        media.ffmpeg_path = bundled_ffmpeg
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|| "ffmpeg".to_string());
+    }
+    // empty string counts as "unset" here too (not just `None`) - a
+    // config written with `ffprobe_path = ""` (explicit empty, rather
+    // than the key being absent/commented out) should still mean "auto".
+    if media
+        .ffprobe_path
+        .as_deref()
+        .is_none_or(|p| p.trim().is_empty())
+    {
+        media.ffprobe_path = bundled_ffprobe.map(|p| p.display().to_string());
+    }
+}
+
 /// Main grimoire configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GrimoireConfig {
@@ -170,11 +223,22 @@ pub struct MediaConfig {
     /// Supported audio file formats
     #[serde(default = "default_supported_audio_formats")]
     pub supported_audio_formats: Vec<String>,
-    /// Path to ffmpeg binary
+    /// Path to ffmpeg binary. empty string (the default) means "use
+    /// whatever's bundled for this platform if anything (see
+    /// `set_bundled_ffmpeg_resolver`), else bare `ffmpeg` via PATH" -
+    /// resolved once at config-load time in `resolve_media_paths`, so
+    /// every other read of this field already sees a concrete runnable
+    /// value. set explicitly to pin a specific binary (e.g.
+    /// "/usr/local/bin/ffmpeg") - an explicit value always wins over
+    /// whatever's bundled.
     #[serde(default = "default_ffmpeg_path")]
     pub ffmpeg_path: String,
-    /// Path to ffprobe binary (optional, used as fallback for duration extraction
-    /// when lofty can't determine duration). if not set, the fallback is skipped.
+    /// Path to ffprobe binary, used as a fallback for duration extraction
+    /// when lofty can't determine duration. `None` (the default) means
+    /// "use whatever's bundled if anything, else the fallback is
+    /// skipped" - same resolution-at-load-time as `ffmpeg_path` above.
+    /// set explicitly to pin a specific binary, or to a real path even
+    /// when nothing's bundled.
     #[serde(default)]
     pub ffprobe_path: Option<String>,
     /// Args for extracting duration via ffprobe (placeholder: {input})
@@ -269,7 +333,9 @@ fn default_idle_timeout_seconds() -> u64 {
 }
 
 fn default_ffmpeg_path() -> String {
-    "ffmpeg".to_string()
+    // empty = "not explicitly configured" - resolved in `resolve_media_paths`
+    // (bundled binary if available, else bare "ffmpeg" via PATH).
+    String::new()
 }
 
 /// yt-dlp precheck command template - shared by `generate_config_template`
@@ -1029,7 +1095,7 @@ impl GrimoireConfig {
 /// `init_config(...)`.
 #[doc(hidden)]
 pub fn init_config_for_tests() {
-    let config = GrimoireConfig {
+    let mut config = GrimoireConfig {
         data_dir: PathBuf::from("/tmp/grimoire-test"),
         database: DatabaseConfig {
             filename: "test.db".to_string(),
@@ -1074,6 +1140,7 @@ pub fn init_config_for_tests() {
         updates: UpdatesConfig::default(),
         loaded_from: None,
     };
+    resolve_media_paths(&mut config.media);
     match CONFIG.get() {
         Some(lock) => {
             *lock.write().unwrap() = config;
@@ -1092,6 +1159,7 @@ pub fn init_config(path: Option<PathBuf>) -> Result<(), ConfigError> {
     let config_path = find_config(path)?;
     let mut config = GrimoireConfig::load(&config_path)?;
     config.loaded_from = Some(config_path);
+    resolve_media_paths(&mut config.media);
 
     match CONFIG.get() {
         Some(lock) => {
@@ -1900,6 +1968,10 @@ pub fn upgrade_config(config_path: &Path) -> Result<ConfigUpgradeResult, ConfigE
     // user's stale value straight over the template's corrected one.
     fix_stale_video_transcode_args(&mut template_doc, &old_version);
 
+    // one-time fallback to bundled ffmpeg/ffprobe for installs upgrading
+    // from before mac builds bundled their own - see its own doc comment.
+    maybe_fallback_to_bundled_ffmpeg(&mut template_doc, &old_version);
+
     // always set server.version from binary (don't keep user's old version)
     if let Some(server) = template_doc.get_mut("server") {
         if let Some(server_table) = server.as_table_mut() {
@@ -2083,6 +2155,65 @@ fn fix_stale_video_transcode_args(doc: &mut DocumentMut, old_version: &str) {
     }
 }
 
+/// last version shipped before mac/windows builds bundled their own
+/// ffmpeg/ffprobe (introduced this same release - see
+/// `set_bundled_ffmpeg_resolver`). anyone upgrading FROM this version or
+/// older gets a one-time check (see `maybe_fallback_to_bundled_ffmpeg`):
+/// if their current `ffmpeg_path`/`ffprobe_path` don't actually work, and
+/// the bundled pair does, fall back to "auto" (empty path) so
+/// `resolve_media_paths` picks up the bundled binaries from here on
+/// instead of leaving them stranded on a broken/missing install.
+const LAST_VERSION_PREDATING_BUNDLED_FFMPEG: &str = "0.3.11";
+
+/// one-time migration: on mac/windows (the only platforms that can ever
+/// have a resolver registered - see `set_bundled_ffmpeg_resolver`), when
+/// upgrading from `LAST_VERSION_PREDATING_BUNDLED_FFMPEG` or older, smoke
+/// test the config's current effective ffmpeg+ffprobe (a real encode +
+/// probe, not just "the file exists" - see `smoke_test_ffmpeg`'s own doc
+/// comment for why); if that fails and the bundled pair smoke-tests clean,
+/// reset both paths to "" (auto). an already-working explicit ffmpeg/
+/// ffprobe is never disturbed - this only rescues installs that were
+/// previously stuck with a broken or missing ffmpeg.
+fn maybe_fallback_to_bundled_ffmpeg(doc: &mut DocumentMut, old_version: &str) {
+    if !cfg!(any(target_os = "macos", target_os = "windows")) {
+        return;
+    }
+    if parse_version_tuple(old_version) > parse_version_tuple(LAST_VERSION_PREDATING_BUNDLED_FFMPEG)
+    {
+        return;
+    }
+    let Some((Some(bundled_ffmpeg), Some(bundled_ffprobe))) =
+        BUNDLED_FFMPEG_RESOLVER.get().map(|f| f())
+    else {
+        return; // nothing bundled here (cli/server/rathole never register a resolver)
+    };
+    if !crate::setup::smoke_test_ffmpeg(&bundled_ffmpeg, &bundled_ffprobe) {
+        return; // bundled binaries don't actually work on this machine either
+    }
+
+    let Some(media) = doc.get_mut("media").and_then(|m| m.as_table_mut()) else {
+        return;
+    };
+    let current_ffmpeg = media
+        .get("ffmpeg_path")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.trim().is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("ffmpeg"));
+    let current_ffprobe = media
+        .get("ffprobe_path")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.trim().is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("ffprobe"));
+    if crate::setup::smoke_test_ffmpeg(&current_ffmpeg, &current_ffprobe) {
+        return; // user's current ffmpeg+ffprobe already work - leave them alone
+    }
+
+    media.insert("ffmpeg_path", value(""));
+    media.insert("ffprobe_path", value(""));
+}
+
 /// convert toml::Value to toml_edit::Value
 fn toml_value_to_edit_value(v: &toml::Value) -> toml_edit::Value {
     match v {
@@ -2212,6 +2343,49 @@ mod tests {
                 .and_then(|t| t.get("args"))
                 .and_then(|v| v.as_str()),
             Some("-i {input} -c:v copy -c:a copy -y {output}")
+        );
+    }
+
+    #[test]
+    fn ffmpeg_fallback_noop_once_past_the_gate_version() {
+        let mut doc =
+            "[media]\nffmpeg_path = \"/broken/ffmpeg\"\nffprobe_path = \"/broken/ffprobe\"\n"
+                .parse::<DocumentMut>()
+                .unwrap();
+
+        // too new to need the fallback at all - must not touch the doc,
+        // regardless of whether a resolver is registered or paths work.
+        maybe_fallback_to_bundled_ffmpeg(&mut doc, "0.3.12");
+
+        assert_eq!(
+            get_item_at_path(&doc, "media.ffmpeg_path").and_then(|v| v.as_str()),
+            Some("/broken/ffmpeg")
+        );
+        assert_eq!(
+            get_item_at_path(&doc, "media.ffprobe_path").and_then(|v| v.as_str()),
+            Some("/broken/ffprobe")
+        );
+    }
+
+    #[test]
+    fn ffmpeg_fallback_noop_without_a_registered_resolver() {
+        let mut doc =
+            "[media]\nffmpeg_path = \"/broken/ffmpeg\"\nffprobe_path = \"/broken/ffprobe\"\n"
+                .parse::<DocumentMut>()
+                .unwrap();
+
+        // old enough to qualify, but nothing's bundled here (mirrors
+        // cli/server/rathole, which never call set_bundled_ffmpeg_resolver)
+        // - must leave the doc untouched rather than guessing at a path.
+        maybe_fallback_to_bundled_ffmpeg(&mut doc, "0.3.0");
+
+        assert_eq!(
+            get_item_at_path(&doc, "media.ffmpeg_path").and_then(|v| v.as_str()),
+            Some("/broken/ffmpeg")
+        );
+        assert_eq!(
+            get_item_at_path(&doc, "media.ffprobe_path").and_then(|v| v.as_str()),
+            Some("/broken/ffprobe")
         );
     }
 

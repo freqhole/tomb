@@ -51,9 +51,13 @@ async fn notify_requester(notify: SyncJobNotify, requester_node_id: Option<Strin
         Ok(b) => b,
         Err(_) => return,
     };
-    if let Err(e) =
-        crate::federation::p2p_client::api_request(&node_id, "POST", "/api/sync/job-notify", Some(body))
-            .await
+    if let Err(e) = crate::federation::p2p_client::api_request(
+        &node_id,
+        "POST",
+        "/api/sync/job-notify",
+        Some(body),
+    )
+    .await
     {
         tracing::debug!(
             "process_sync_video_by_blake3_job: job-notify push to {} failed (dropped, best-effort): {}",

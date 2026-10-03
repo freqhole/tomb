@@ -29,21 +29,19 @@
 rustflags = ["-L", "/opt/homebrew/lib", "-L", "/usr/local/lib"]
 
 [target.x86_64-apple-darwin]
-# homebrew has no x86_64 macOS mpv bottle at all anymore, and the
-# alternative (mpv-libre-runtime) turned out to have a broken macOS GPU
-# renderer (confirmed 2026-09-30 - vid=no, no video window, broken vulkan
-# path with no opengl fallback compiled in) - not something we can bundle
-# and ship. so: link weakly (`-weak-lmpv`, not a hard `-lmpv` requirement)
-# against a symbol-stub-only copy staged at /usr/local/lib by
-# scripts/fetch-mpv-runtime.sh (build-time only, never bundled into the
-# app) - the compiled binary boots fine either way, and only tries to use
-# libmpv at runtime if `grimoire::player::libmpv::is_libmpv_available()`
-# finds a REAL one already on the user's own system (see that function's
-# doc comment for why the check is mandatory, not optional, once weakly
-# linked). scripts/fetch-mpv-runtime.sh's x86_64 branch also rewrites the
-# resulting weak reference to point at /usr/local/lib/libmpv.2.dylib
-# specifically (not wherever the build-time stub happened to bake in).
-rustflags = ["-L", "/usr/local/lib", "-C", "link-arg=-Wl,-weak-lmpv"]
+# homebrew dropped Intel macOS bottle support entirely (~September 2026)
+# but building mpv from source still works fine - scripts/fetch-mpv-
+# runtime.sh's x86_64 branch bootstraps its own relocatable homebrew
+# prefix at /Users/Shared/freqhole-homebrew-x86 (a FIXED path, not
+# per-user $HOME - this file is static TOML with no shell/env expansion,
+# so the path baked in here and the one the script bootstraps must be
+# identical literal strings) and builds mpv there. linked as a normal
+# hard dependency (`-lmpv`, not weak) and bundled into the app exactly
+# like the arm64 target - see that script's top-of-file doc comment for
+# why this used to be weakly-linked-and-optional instead (short version:
+# a misdiagnosed "broken GPU renderer" that was actually macOS hardened
+# runtime blocking MoltenVK, long since fixed via entitlements).
+rustflags = ["-L", "/Users/Shared/freqhole-homebrew-x86/opt/mpv/lib"]
 
 # Raspberry Pi targets
 [target.armv7-unknown-linux-gnueabihf]

@@ -84,6 +84,49 @@ pub fn check_dependencies() -> DependencyStatus {
     }
 }
 
+/// genuinely runs ffmpeg (a tiny real encode) and ffprobe (parsing that
+/// encode's output) to confirm both actually work - not just that the
+/// files exist and respond to `-version`/similar, which a present-but-
+/// broken dylib closure can still do (confirmed for real 2026-10-02: a
+/// `libmpv.2.dylib` with unresolved/incompatible dependencies crashed at
+/// video-playback time despite `ffmpeg -version` running fine standalone,
+/// version output alone isn't a reliable signal). used during setup to
+/// decide whether a fresh install can safely default to the
+/// bundled-mpv-backed "experimental player" - see
+/// `client/charnel/src-tauri/src/commands.rs`'s `run_setup_core`.
+pub fn smoke_test_ffmpeg(ffmpeg_path: &std::path::Path, ffprobe_path: &std::path::Path) -> bool {
+    let out = std::env::temp_dir().join(format!(
+        "freqhole-ffmpeg-smoke-test-{}.mp4",
+        std::process::id()
+    ));
+
+    let encode_ok = std::process::Command::new(ffmpeg_path)
+        .args([
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc=duration=1:size=64x64:rate=5",
+            "-c:v",
+            "libx264",
+            "-y",
+        ])
+        .arg(&out)
+        .output()
+        .map(|o| o.status.success() && out.is_file())
+        .unwrap_or(false);
+
+    let probe_ok = encode_ok
+        && std::process::Command::new(ffprobe_path)
+            .args(["-v", "error", "-show_entries", "stream=codec_name"])
+            .arg(&out)
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+
+    let _ = std::fs::remove_file(&out);
+    probe_ok
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

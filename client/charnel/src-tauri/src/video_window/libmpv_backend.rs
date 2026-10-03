@@ -91,6 +91,53 @@ fn suppress_macos_icon_override() {
 #[cfg(not(target_os = "macos"))]
 fn suppress_macos_icon_override() {}
 
+// MoltenVK (the vulkan driver mpv's gpu-next vo needs on macOS) isn't a
+// normal dlopen'd dependency - the vulkan loader instead discovers it via
+// an ICD manifest json, normally only found through a system-wide
+// homebrew install. `scripts/fetch-mpv-runtime.sh` bundles the dylib as a
+// `frameworks` entry (flat, at Contents/Frameworks/) and the manifest as
+// a `resources` entry - tauri's `resources` key preserves the full given
+// relative path rather than flattening it, so the manifest actually
+// lands at Contents/Resources/mpv-runtime/lib/MoltenVK_icd.json
+// (confirmed via an actual local build 2026-10-02 - NOT Frameworks/,
+// despite living right next to the dylib in the source tree). point the
+// loader directly at the bundled manifest before mpv/vulkan ever
+// initializes, so a real end-user install with no homebrew at all still
+// finds a driver (confirmed for real 2026-10-02: without this, every
+// vulkan context fails with VK_ERROR_INCOMPATIBLE_DRIVER - audio plays,
+// no video window, no error dialog). only set when the bundled file
+// actually exists - absent in `tauri dev` (no Resources dir at all),
+// where the system's own homebrew-provided MoltenVK install already
+// works today.
+#[cfg(target_os = "macos")]
+fn set_vulkan_icd_env() {
+    let Ok(exe) = std::env::current_exe() else {
+        return;
+    };
+    // .../Contents/MacOS/charnel -> .../Contents/Resources/mpv-runtime/lib/MoltenVK_icd.json
+    let Some(icd_path) =
+        exe.parent()
+            .and_then(|macos_dir| macos_dir.parent())
+            .map(|contents_dir| {
+                contents_dir
+                    .join("Resources")
+                    .join("mpv-runtime")
+                    .join("lib")
+                    .join("MoltenVK_icd.json")
+            })
+    else {
+        return;
+    };
+    if icd_path.is_file() {
+        unsafe {
+            std::env::set_var("VK_ICD_FILENAMES", &icd_path);
+        }
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn set_vulkan_icd_env() {}
+
 fn mpv_err(e: libmpv2::Error) -> String {
     format!("libmpv command failed: {e}")
 }
@@ -382,6 +429,7 @@ fn spawn_mpv(app: &AppHandle<Wry>) -> Result<(), String> {
     }
     reset_locale_for_mpv();
     suppress_macos_icon_override();
+    set_vulkan_icd_env();
     let mpv = Mpv::with_initializer(|init| {
         init.set_option("geometry", "960x540")?;
         // opens a window immediately rather than only once a video track
