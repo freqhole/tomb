@@ -110,11 +110,13 @@ PYEOF
 #
 # $1: "true" to set bundle.macOS.minimumSystemVersion (see regen_tauri_conf).
 # $2: optional - if set, also stage libmpv.2.dylib (+ unversioned symlink)
-#     at this path, so `cargo build`'s `-lmpv` linker step has a real file
-#     to resolve against without needing homebrew installed at all (only
-#     needed for x86_64 - arm64 keeps using the real system homebrew's
-#     /opt/homebrew, a shared system path this script won't write fake
-#     files into).
+#     at this path, so `cargo build`'s `-lmpv` linker step (e.g. rathole,
+#     which links libmpv directly rather than bundling it tauri-style)
+#     has a real file to resolve against without needing a real `brew
+#     install mpv` ever run on this machine - both arches use this (see
+#     each branch below for the path): arm64's committed fast path never
+#     installs homebrew's real mpv at all, so it needs this just as much
+#     as x86_64 does.
 stage_from_committed() {
     local need_min_version="$1"
     local linker_stub_dir="${2:-}"
@@ -326,7 +328,19 @@ PYEOF
 case "$ARCH" in
   arm64)
     if [ -d "$COMMITTED_DIR" ] && [ "$REBUILD" != "--rebuild" ]; then
-      stage_from_committed false
+      # /Users/Shared (world-writable, no sudo needed, not per-user like
+      # $HOME - same reasoning as x86_64's stub dir below) matches a
+      # second `.cargo/config.toml` rustflags `-L` entry for this target -
+      # a clean CI runner never runs `brew install mpv` on this fast
+      # path, so without this, rathole's `-lmpv` has nothing to resolve
+      # against (confirmed for real 2026-10-02: `make build-mac-arm`
+      # failed in CI with "library 'mpv' not found" despite charnel's own
+      # bundling succeeding, since charnel only needs the dylib *copied*
+      # into its app bundle, never linked against at compile time).
+      # /usr/local/lib (this target's other `-L` entry) would also work on
+      # CI's runner but needs sudo on a normal dev mac, so this dedicated
+      # path is used instead - safe to pass unconditionally either way.
+      stage_from_committed false "/Users/Shared/freqhole-mpv-arm64/lib"
       exit 0
     fi
 

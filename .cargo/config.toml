@@ -26,7 +26,12 @@
 # second search path for CI/release builds, which stage a portable
 # mpv-libre-runtime build there instead (see scripts/fetch-mpv-runtime.sh) -
 # local dev keeps working unchanged via the homebrew path above.
-rustflags = ["-L", "/opt/homebrew/lib", "-L", "/usr/local/lib"]
+# /Users/Shared/freqhole-mpv-arm64/lib is a third search path: CI's fast
+# path (reusing the committed dylib snapshot) never runs a real `brew
+# install mpv`, so scripts/fetch-mpv-runtime.sh stages a linkable stub
+# there instead (world-writable without sudo, unlike /usr/local/lib on a
+# normal dev mac - see that script's arm64 branch for why).
+rustflags = ["-L", "/opt/homebrew/lib", "-L", "/usr/local/lib", "-L", "/Users/Shared/freqhole-mpv-arm64/lib"]
 
 [target.x86_64-apple-darwin]
 # homebrew dropped Intel macOS bottle support entirely (~September 2026)

@@ -47,11 +47,9 @@ pub fn emit_event(app: &AppHandle<Wry>, event: &VideoEvent) {
     use tauri::Emitter;
     crate::media_session::on_video_event(app, event);
     match event {
-        VideoEvent::Playing | VideoEvent::Paused => {
-            crate::menu::update_show_video_window_item(app, true)
-        }
+        VideoEvent::Playing | VideoEvent::Paused => update_menu_video_window_item(app, true),
         VideoEvent::Closed | VideoEvent::Ended | VideoEvent::Error { .. } => {
-            crate::menu::update_show_video_window_item(app, false)
+            update_menu_video_window_item(app, false)
         }
         _ => {}
     }
@@ -59,6 +57,16 @@ pub fn emit_event(app: &AppHandle<Wry>, event: &VideoEvent) {
         tracing::warn!(error = %e, "failed to emit video window event");
     }
 }
+
+/// `crate::menu` only exists on desktop (`#[cfg(desktop)]` in `lib.rs`) -
+/// mobile (android) has no menu bar at all, so this is a no-op there.
+#[cfg(desktop)]
+fn update_menu_video_window_item(app: &AppHandle<Wry>, visible: bool) {
+    crate::menu::update_show_video_window_item(app, visible);
+}
+
+#[cfg(not(desktop))]
+fn update_menu_video_window_item(_app: &AppHandle<Wry>, _visible: bool) {}
 
 /// ask libmpv to quit on app shutdown - a no-op when it was never used.
 /// called from `RunEvent::Exit` in `lib.rs`.
