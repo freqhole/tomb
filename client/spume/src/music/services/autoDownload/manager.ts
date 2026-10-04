@@ -157,22 +157,35 @@ async function downloadSong(song: SyncableSong): Promise<void> {
   // add to UI loading set so queue shows loading indicator
   addToLoadingSet(sha256);
 
+  const syncPromise = syncSongToLocal(song, (received, total) => {
+    // update progress for UI - updateLoadingProgress wants a 0..1
+    // fraction (same as every other caller, e.g. blobResolver.ts/
+    // audioAccess.ts's `received / total`) - this used to pass an
+    // already-*100 percentage instead, which QueueSongRow's
+    // loadingPercent() then multiplied by 100 AGAIN, so the bar
+    // clamped to 100% on the very first tick instead of animating.
+    if (total > 0) {
+      const fraction = received / total;
+      updateLoadingProgress(sha256, fraction);
+      debug("autoDownload", `progress: ${sha256.slice(0, 8)}... ${Math.round(fraction * 100)}%`);
+    }
+  });
+  // register with the shared in-flight tracker ourselves rather than
+  // relying solely on syncSongToLocal's own internal registerDownload
+  // call - processQueue's MAX_CONCURRENT_DOWNLOADS gate reads
+  // getActiveDownloadCount(), which this registry backs, and the caller
+  // that owns a concurrency budget needs to own enforcing it directly, not
+  // depend on a downstream implementation detail staying in sync. mirrors
+  // downloadVideo below (which already did this correctly).
+  registerDownload(
+    sha256,
+    syncPromise.then(() => undefined)
+  );
+
   try {
     debug("autoDownload", `starting download: ${song.title} (${sha256.slice(0, 8)}...)`);
 
-    const result = await syncSongToLocal(song, (received, total) => {
-      // update progress for UI - updateLoadingProgress wants a 0..1
-      // fraction (same as every other caller, e.g. blobResolver.ts/
-      // audioAccess.ts's `received / total`) - this used to pass an
-      // already-*100 percentage instead, which QueueSongRow's
-      // loadingPercent() then multiplied by 100 AGAIN, so the bar
-      // clamped to 100% on the very first tick instead of animating.
-      if (total > 0) {
-        const fraction = received / total;
-        updateLoadingProgress(sha256, fraction);
-        debug("autoDownload", `progress: ${sha256.slice(0, 8)}... ${Math.round(fraction * 100)}%`);
-      }
-    });
+    const result = await syncPromise;
 
     if (result.success) {
       markSongSynced(sha256);

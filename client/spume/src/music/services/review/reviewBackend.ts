@@ -47,6 +47,27 @@ export function getReviewBackend(remote: CurrentRemoteInfo | null): ReviewBacken
   return createGrimoireReviewBackend(remote);
 }
 
+/**
+ * remotes whose pending-session list is relevant to the current add-media
+ * view: always the local/resolved review remote (path-based imports and
+ * uploads always redirect there - see `resolveActiveReviewRemote`), plus
+ * `targetRemote` itself when charnel mode is actively targeting a
+ * *different* remote - url-fetches run wherever targeted (see
+ * `fetchUrlsOnRemote`), so their review sessions live on that remote
+ * instead of local. callers that merge multiple backends' session lists
+ * should track which remote each session came from (see
+ * `AddMediaModal.tsx`'s `sessionOriginRemote`) rather than assuming local.
+ */
+export async function resolveReviewSourceRemotes(
+  targetRemote: CurrentRemoteInfo | null | undefined
+): Promise<Array<CurrentRemoteInfo | null>> {
+  const local = await resolveActiveReviewRemote();
+  if (!isCharnelMode() || !targetRemote || targetRemote.remote_id === local?.remote_id) {
+    return [local];
+  }
+  return [local, targetRemote];
+}
+
 // re-exported so callers that already have a concrete instance in hand
 // (e.g. tests) don't need to go through the `remote === null` convention.
 export { createGrimoireReviewBackend, createLocalIdbReviewBackend };

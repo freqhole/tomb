@@ -7,17 +7,13 @@ import {
   mediaItemKey,
   mediaItemQueueEntryId,
   songsOnly,
-  songStartIndexAfter,
-  videosOnly,
-  videoStartIndexAfter,
   songToMediaItem,
   toMediaItems,
   type MediaItem,
 } from "../../../app/services/storage/mediaItem";
-import { preCacheNextP2PSongs } from "../storage/blobResolver";
 import { initQueueDeparturePurge } from "./purgeDepartedMedia";
 import { registerQueueDeparture } from "../../../app/services/media/queueDeparture";
-import { preCacheNextVideos } from "../../../video/services/videoPreCache";
+import { triggerPreCache } from "./triggerPreCache";
 import {
   clearPendingUpNext,
   pendingUpNextSha256,
@@ -71,35 +67,6 @@ export {
   markPlaybackEnded,
   resetPlaybackEnded,
 } from "./queueState";
-
-// immediate (queue-start/queue-modification) pre-cache trigger — mirrors
-// preCacheScheduler.ts's rolling window, but fires right away instead of
-// waiting for the 50%-progress tick, so the *next* item is already
-// warming from time zero. `currentKey` is whatever `mediaItemKey()`
-// returns for the item that's (about to be) playing — may be a song OR
-// a video's key.
-function triggerImmediatePreCache(
-  mixedItems: MediaItem[],
-  currentKey: string | null | undefined
-): void {
-  if (!currentKey) return;
-  const songs = songsOnly(mixedItems);
-  const videos = videosOnly(mixedItems);
-  const currentIsVideo = mixedItems.some(
-    (i) => i.kind === "video" && mediaItemKey(i) === currentKey
-  );
-  if (currentIsVideo) {
-    // currentKey won't match anything in `songs` (song-only) - use the
-    // mixed-queue-derived start index instead of preCacheNextP2PSongs's
-    // own findIndex-based lookup so upcoming songs still get cached.
-    void preCacheNextP2PSongs(null, songs, 30, songStartIndexAfter(mixedItems, currentKey));
-  } else {
-    // unchanged behavior: preCacheNextP2PSongs finds currentKey itself
-    // and includes it (for immediate waveform display).
-    void preCacheNextP2PSongs(currentKey, songs);
-  }
-  void preCacheNextVideos(videos, 30, videoStartIndexAfter(mixedItems, currentKey));
-}
 
 // re-export queue limit helper
 export { getQueueSizeLimit } from "./queueLimit";
@@ -281,7 +248,6 @@ export async function playQueue(
     await setQueue(finalItems);
     const startItem = finalItems[startIndex];
     await playMediaItem(startItem, { userInitiated: true });
-    triggerImmediatePreCache(finalItems, mediaItemKey(startItem));
 
     if (options?.source) {
       const entryId = await addHistoryEntry(finalSongs, options.source, options.resumeProgress);
@@ -339,7 +305,6 @@ export async function playQueue(
     await setQueue(finalItems);
     const startItem = finalItems[startIndex];
     await playMediaItem(startItem, { userInitiated: true });
-    triggerImmediatePreCache(finalItems, mediaItemKey(startItem));
 
     if (options?.source) {
       const entryId = await addHistoryEntry(finalSongs, options.source, options.resumeProgress);
@@ -376,7 +341,6 @@ export async function playQueue(
       await setQueue(finalItems);
       const startItem = finalItems[startIndex];
       await playMediaItem(startItem, { userInitiated: true });
-      triggerImmediatePreCache(finalItems, mediaItemKey(startItem));
       if (options?.source) {
         const entryId = await addHistoryEntry(finalSongs, options.source);
         if (entryId) startTracking(entryId);
@@ -399,7 +363,6 @@ export async function playQueue(
       await setQueue(finalItems);
       const startItem = finalItems[startIndex];
       await playMediaItem(startItem, { userInitiated: true });
-      triggerImmediatePreCache(finalItems, mediaItemKey(startItem));
       if (options?.source) {
         const entryId = await addHistoryEntry(finalSongs, options.source);
         if (entryId) startTracking(entryId);
@@ -455,8 +418,6 @@ async function playQueueInternal(
   await setQueue(newQueue);
   await playMediaItem(items[startIndex], { userInitiated: true });
   const newQueueSongs = songsOnly(newQueue);
-  const startItem = items[startIndex];
-  triggerImmediatePreCache(newQueue, mediaItemKey(startItem));
 
   if (options?.source) {
     const existingEntryId = activeHistoryEntryId();
@@ -659,7 +620,7 @@ async function addToQueueInternal(
   const shouldPreCache = willAutoPlay || position === "next";
   const currentKey = currentId ?? mediaItemKey(items[0]);
   if (shouldPreCache && currentKey) {
-    triggerImmediatePreCache(newQueue, currentKey);
+    triggerPreCache(newQueue, currentKey);
   }
 
   // sync history + server session with the full queue

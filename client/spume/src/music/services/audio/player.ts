@@ -70,6 +70,7 @@ import { stopServerSession, updateServerSessionItems } from "../queue/serverSess
 import { activeHistoryEntryId, stopTracking } from "../queue/listenProgress";
 import { updateHistoryEntrySongs } from "../queue/queueHistory";
 import { clearQueueItemProgress } from "../queue/queueProgress";
+import { triggerPreCache } from "../queue/triggerPreCache";
 import { mirrorRemoveFromQueue } from "../../../app/services/players/remoteQueueMirror";
 import { isActivePlayer } from "../../../cenotaph/adapters/remoteModeSettings";
 import { stopRadioForMusic } from "../../../app/services/playbackCoordinator";
@@ -685,9 +686,18 @@ export async function playMediaItem(
   backendFatalNotified = false;
   if (item.kind === "song") {
     await playSong(item.song, options);
-    return;
+  } else {
+    await playVideo(item.video, options);
   }
-  await playVideo(item.video, options);
+  // single canonical "just started playing something" pre-cache trigger -
+  // every playback-start path (playNext, playPrevious, togglePlayback's
+  // resume fallback, queue.ts's playQueue/addToQueue) funnels through
+  // here, so this is the one place that needs to remember to fire it.
+  // doesn't depend on `timeupdate` at all, unlike preCacheScheduler.ts's
+  // 50%-progress backstop - see triggerPreCache.ts's doc comment for why
+  // that matters on mobile background/locked-screen playback.
+  const state = appState();
+  if (state) triggerPreCache(state.queue, mediaItemKey(item));
 }
 
 /** the active backend has nothing loaded (fresh page load / cenotaph

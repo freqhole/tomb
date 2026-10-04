@@ -715,16 +715,20 @@ export async function checkRemoteHealth(
     // isPlayerNow) - only broadcast, straight from this fresh probe.
     notifyPlayerStatusChange(updated.remote_id, isOnline && result.data?.player_device === true);
 
-    // also broadcast when server-info fields the UI actively renders
-    // (avatar image, name, description) changed, even though the
-    // online/offline status itself didn't transition - AppLayout's
-    // `remotes` signal (which every TopNav row's props ultimately come
-    // from) only ever refreshes in response to this notification, so a
-    // background health check silently self-healing a newly-available
-    // image_blob_id would otherwise never reach the UI at all. without
-    // this, a remote's avatar only ever loaded once the user happened to
-    // navigate into it (a different code path that triggers its own probe).
+    // broadcast whenever the online/offline status actually transitioned,
+    // OR when server-info fields the UI actively renders (avatar image,
+    // name, description) changed on their own. THIS is the only thing
+    // that updates remoteHealth.ts's reactive `onlineMap` (what
+    // isOnline()/the add-media-modal's retry button read) - without the
+    // `is_offline` transition check, a remote recovering with no OTHER
+    // field change (the common case) correctly updated the db but left
+    // every reactive "is this remote online" consumer stuck showing the
+    // stale cached value until a full page reload reseeded it straight
+    // from the db (confirmed for real: this was the actual cause of
+    // "retry says offline again a second later, but a reload shows it's
+    // actually online").
     if (
+      updated.is_offline !== fresh.is_offline ||
       updated.image_blob_id !== fresh.image_blob_id ||
       updated.image_url !== fresh.image_url ||
       updated.description !== fresh.description ||
@@ -737,6 +741,7 @@ export async function checkRemoteHealth(
     // network error = offline - re-read before updating
     const fresh = await backend.get(remote.remote_id);
     if (fresh) {
+      const wasOffline = fresh.is_offline ?? false;
       await backend.put({
         ...fresh,
         is_offline: true,
@@ -745,6 +750,12 @@ export async function checkRemoteHealth(
         updated_at: now,
       });
       invalidateRemoteCache(fresh.remote_id);
+      // same gap as the success path above: nothing else here told
+      // remoteHealth.ts's reactive onlineMap this remote just went
+      // offline, so a transition INTO offline (not just recovering OUT
+      // of it) could also get silently stuck showing stale "online"
+      // until a reload.
+      if (!wasOffline) notifyStatusChange(fresh.remote_id, true);
     }
     errorLog(`health check failed for ${remote.name}:`, error);
     notifyPlayerStatusChange(remote.remote_id, false);

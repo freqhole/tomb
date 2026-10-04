@@ -174,17 +174,18 @@ export function App() {
   // stable even if the user navigates to a different remote while reviewing
   const [reviewRemote, setReviewRemote] = createSignal<CurrentRemoteInfo | null>(null);
 
-  // open a review session, capturing the active remote at this moment.
-  // in charnel mode this is always the local instance (path-based imports
-  // redirect through local-first import - see handlePathsSelected), not
-  // whatever remote happens to be selected in the UI. outside charnel,
-  // review sessions live entirely in the browser's own IndexedDB library -
-  // there's no Remote at all for useImportReview to resolve, so it's
-  // signalled with null (see reviewBackend.ts's resolveActiveReviewRemote,
-  // the one place this decision is made - AddMediaModal.tsx uses the same
-  // resolver for its pending-sessions listing).
-  async function openReviewSession(sid: string) {
-    const remote = await resolveActiveReviewRemote();
+  // open a review session. `remoteOverride` is the session's actual origin
+  // (passed by AddMediaModal, which tracks it per-session - see
+  // sessionOriginRemote there) and should always be used when known: most
+  // sessions live on the local/resolved review remote (path-based imports
+  // redirect through local-first import - see handlePathsSelected), but a
+  // url-fetch submitted while targeting a different remote runs - and is
+  // reviewed - there instead. when no override is given (e.g. opened from a
+  // deep link/notification, not from AddMediaModal's list), falls back to
+  // resolveActiveReviewRemote() same as before.
+  async function openReviewSession(sid: string, remoteOverride?: CurrentRemoteInfo | null) {
+    const remote =
+      remoteOverride !== undefined ? remoteOverride : await resolveActiveReviewRemote();
     batch(() => {
       setReviewRemote((remote as unknown as CurrentRemoteInfo) ?? null);
       setReviewSessionId(sid);
@@ -229,13 +230,12 @@ export function App() {
   // the remote that owns the video review session - captured at start time, same reasoning as reviewRemote
   const [reviewVideoRemote, setReviewVideoRemote] = createSignal<CurrentRemoteInfo | null>(null);
 
-  // open a video review session, capturing the active remote at this
-  // moment - resolves through resolveActiveReviewRemote() (not
-  // getCurrentRemote()), same reasoning as openReviewSession above: video's
-  // local-first import always redirects to the local grimoire instance
-  // regardless of which remote is currently being browsed.
-  async function openReviewVideoSession(sid: string) {
-    const remote = await resolveActiveReviewRemote();
+  // open a video review session - see openReviewSession above for
+  // `remoteOverride` reasoning (video's url-fetches have the same
+  // run-wherever-targeted behavior as music's).
+  async function openReviewVideoSession(sid: string, remoteOverride?: CurrentRemoteInfo | null) {
+    const remote =
+      remoteOverride !== undefined ? remoteOverride : await resolveActiveReviewRemote();
     batch(() => {
       setReviewVideoRemote(remote);
       setReviewVideoSessionId(sid);
@@ -1802,15 +1802,15 @@ export function App() {
         videoLocalImportProgress={getLocalVideoImportProgress()}
         fetchPrecheckEnabled={fetchPrecheckEnabledQuery.data ?? false}
         fetchVideoEnabled={fetchVideoEnabledQuery.data ?? false}
-        onReviewSession={(sid) => {
-          openReviewSession(sid);
+        onReviewSession={(sid, remote) => {
+          openReviewSession(sid, remote);
           handleCloseAddMedia();
         }}
         refetchReviewKey={reviewRefetchKey()}
         isAdmin={isAdmin()}
         dismissedReviewSessionId={completedReviewSessionId()}
-        onReviewVideoSession={(sid) => {
-          openReviewVideoSession(sid);
+        onReviewVideoSession={(sid, remote) => {
+          openReviewVideoSession(sid, remote);
           handleCloseAddMedia();
         }}
         dismissedVideoReviewSessionId={completedVideoReviewSessionId()}
