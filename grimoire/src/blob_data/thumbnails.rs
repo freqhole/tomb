@@ -12,7 +12,6 @@ use crate::error::{ErrorDetail, GrimoireError, GrimoireResult};
 use crate::media_blobz::{self, BlobType, CreateMediaBlobRequest, MediaBlob};
 use crate::response::GrimoireResponse;
 use image::{imageops::FilterType, DynamicImage, GenericImageView, ImageOutputFormat};
-use sha2::{Digest, Sha256};
 use std::io::Cursor;
 
 /// default thumbnail sizes (used when config is unavailable)
@@ -290,13 +289,11 @@ pub async fn generate_sized_thumbnails(
             }
         };
 
-        // create the thumbnail blob record
-        let mut hasher = Sha256::new();
-        hasher.update(&webp_data);
-        let sha256 = format!("{:x}", hasher.finalize());
-
+        // thumbnail blob record - blake3 is filled in by create_media_blob
+        // itself from the bytes below (see its own doc comment), no need
+        // to hash here (see docs/sha256-removal-plan.md)
         let request = CreateMediaBlobRequest {
-            sha256,
+            sha256: None,
             size: Some(webp_data.len() as i64),
             mime: Some("image/webp".to_string()),
             source_client_id: created_by.clone(),
@@ -359,7 +356,7 @@ pub async fn find_existing_thumbnail(parent_blob_id: &str, width: u32) -> Option
         MediaBlob,
         "SELECT
             id as \"id!\",
-            sha256 as \"sha256!\",
+            sha256,
             size,
             mime,
             source_client_id,
@@ -442,7 +439,7 @@ async fn get_blobs_needing_thumbnails_batch() -> GrimoireResponse<Vec<MediaBlob>
         MediaBlob,
         "SELECT
             b.id as \"id!\",
-            b.sha256 as \"sha256!\",
+            b.sha256,
             b.size,
             b.mime,
             b.source_client_id,

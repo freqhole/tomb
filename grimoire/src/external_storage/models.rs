@@ -16,6 +16,25 @@ pub struct SyncedSong {
     pub synced_at: i64,
 }
 
+impl SyncedSong {
+    /// true when this previously-synced row's content matches the given
+    /// media blob's identity - prefers blake3 (the real identity, see
+    /// docs/sha256-removal-plan.md), falling back to the legacy sha256
+    /// comparison only when either side lacks a blake3. returns false
+    /// (not a match) rather than true when neither hash can be compared -
+    /// a safe failure mode that re-syncs the file rather than wrongly
+    /// skipping a genuinely-changed one.
+    pub fn matches_content(&self, blob_blake3: Option<&str>, blob_sha256: Option<&str>) -> bool {
+        if let (Some(a), Some(b)) = (self.blake3.as_deref(), blob_blake3) {
+            return a == b;
+        }
+        if let Some(b) = blob_sha256 {
+            return self.sha256 == b;
+        }
+        false
+    }
+}
+
 /// one `.m3u8` manifest already synced to a device. `sync_set_id` is one
 /// of three id-spaces: a real `playlistz.id`, the literal string
 /// `"favorites"`, or an `external_storage_filter_setz.id`.

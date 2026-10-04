@@ -45,12 +45,13 @@ const STREAM_CHUNK_SIZE: usize = 64 * 1024;
 // ETag + HEAD helpers
 // ============================================================================
 
-/// build a quoted strong etag from a content sha256.
+/// build a quoted strong etag from a content hash (blake3, or sha256 as a
+/// legacy fallback).
 ///
-/// blobs are content-addressed so the sha256 *is* the etag. quoted form
-/// per RFC 7232 \u00a72.3.
-fn format_etag(sha256: &str) -> String {
-    format!("\"{}\"", sha256)
+/// blobs are content-addressed so the hash *is* the etag. quoted form
+/// per RFC 7232 §2.3.
+fn format_etag(hash: &str) -> String {
+    format!("\"{}\"", hash)
 }
 
 /// check whether the request's `If-None-Match` matches our etag.
@@ -129,10 +130,17 @@ pub async fn stream_blob_handler(
         .unwrap_or_else(|| "application/octet-stream".to_string());
     let size = blob.size.unwrap_or(0) as u64;
 
-    // content-addressed etag — sha256 is stable and unique per blob version.
-    // wrapped in quotes per RFC 7232. lets webkit's media cache revalidate
-    // (cheap 304) instead of re-streaming on `audio.src` reassignment.
-    let etag = format_etag(&blob.sha256);
+    // content-addressed etag — blake3 is stable and unique per blob version
+    // (falls back to the legacy sha256, then the blob's own stable id if
+    // neither hash is present - see docs/sha256-removal-plan.md). wrapped
+    // in quotes per RFC 7232. lets webkit's media cache revalidate (cheap
+    // 304) instead of re-streaming on `audio.src` reassignment.
+    let etag = format_etag(
+        blob.blake3
+            .as_deref()
+            .or(blob.sha256.as_deref())
+            .unwrap_or(&blob.id),
+    );
 
     // 304 Not Modified short-circuit: skip ALL data work if the client
     // already has this exact blob cached.
@@ -216,10 +224,16 @@ pub async fn blob_thumbnail_handler(
         .clone()
         .unwrap_or_else(|| "image/webp".to_string());
 
-    // content-addressed etag from sha256 (RFC 7232 quoted form). enables
-    // 304 short-circuit on revalidation - cheap for thumbnails which the
-    // ui re-requests on every list re-render.
-    let etag = format_etag(&blob.sha256);
+    // content-addressed etag from blake3 (falls back to legacy sha256, then
+    // the blob's own stable id - see docs/sha256-removal-plan.md), RFC 7232
+    // quoted form. enables 304 short-circuit on revalidation - cheap for
+    // thumbnails which the ui re-requests on every list re-render.
+    let etag = format_etag(
+        blob.blake3
+            .as_deref()
+            .or(blob.sha256.as_deref())
+            .unwrap_or(&blob.id),
+    );
 
     if etag_matches(&req, &etag) {
         return Ok(not_modified_response(&etag));

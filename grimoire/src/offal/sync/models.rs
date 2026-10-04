@@ -96,8 +96,9 @@ pub struct SyncSongByBlake3Response {
     pub artist_id: String,
     /// final on-disk path of the audio file
     pub file_path: String,
-    /// computed sha256 of the downloaded bytes
-    pub sha256: String,
+    /// legacy content hash of the downloaded bytes - optional and on its
+    /// way out, see docs/sha256-removal-plan.md
+    pub sha256: Option<String>,
     /// blake3 hash (echoed back from the request)
     pub blake3: String,
     /// true if the song row already existed before this call

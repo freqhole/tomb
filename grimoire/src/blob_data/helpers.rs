@@ -118,26 +118,10 @@ pub async fn create_media_blob_from_file(
         .map(|m| m.to_string())
         .unwrap_or_else(|| "application/octet-stream".to_string());
 
-    // Calculate SHA256 hash by streaming the file instead of loading it all into memory
-    let sha256 = match stream_sha256_hash(file_path).await {
-        Ok(hash) => hash,
-        Err(e) => {
-            return GrimoireResponse::failure(
-                "Failed to hash file",
-                vec![ErrorDetail::new(
-                    "file_hash_error",
-                    "File Hash Error",
-                    // preserve the underlying io error's kind + message (file disappeared
-                    // mid-stream, disk read error, permission denied, etc) so this is
-                    // diagnosable later - one error_type covers every cause on purpose,
-                    // but the detail text still tells them apart.
-                    format!("Failed to hash file {}: {} ({:?})", file_path, e, e.kind()),
-                )],
-            );
-        }
-    };
-
-    // Compute blake3 hash for iroh-blobs verified streaming
+    // Compute blake3 hash for iroh-blobs verified streaming - the real
+    // content identity (see docs/sha256-removal-plan.md). no longer also
+    // streaming a sha256 of the same file - that was reading every file
+    // twice and was the main thing making import slow.
     let blake3 = match compute_blake3_hash(Path::new(file_path)).await {
         Ok(hash) => Some(hash),
         Err(e) => {
@@ -159,7 +143,7 @@ pub async fn create_media_blob_from_file(
     };
 
     let request = CreateMediaBlobRequest {
-        sha256,
+        sha256: None,
         size: Some(file_size as i64),
         mime: Some(mime_type.clone()),
         source_client_id: created_by.clone(),
@@ -501,12 +485,8 @@ pub async fn create_image_blob_from_webp_data(
     metadata: serde_json::Value,
     created_by: Option<String>,
 ) -> GrimoireResponse<String> {
-    let mut hasher = Sha256::new();
-    hasher.update(&webp_data);
-    let sha256 = format!("{:x}", hasher.finalize());
-
     let request = CreateMediaBlobRequest {
-        sha256,
+        sha256: None,
         size: Some(webp_data.len() as i64),
         mime: Some("image/webp".to_string()),
         source_client_id: created_by.clone(),

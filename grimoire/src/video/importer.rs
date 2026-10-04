@@ -1135,13 +1135,9 @@ async fn extract_video_poster(
 
     let webp_data = crate::blob_data::convert_to_webp(&jpeg_data)?;
     let blake3 = reliquary::hash_bytes(&webp_data);
-    use sha2::Digest;
-    let mut hasher = sha2::Sha256::new();
-    hasher.update(&webp_data);
-    let sha256 = format!("{:x}", hasher.finalize());
 
     let blob = create_media_blob(CreateMediaBlobRequest {
-        sha256,
+        sha256: None,
         size: Some(webp_data.len() as i64),
         mime: Some("image/webp".to_string()),
         source_client_id: None,
@@ -1235,13 +1231,9 @@ async fn extract_subtitle_track(
     let _ = tokio::fs::remove_file(&temp_file).await;
 
     let blake3 = reliquary::hash_bytes(&srt_data);
-    use sha2::Digest;
-    let mut hasher = sha2::Sha256::new();
-    hasher.update(&srt_data);
-    let sha256 = format!("{:x}", hasher.finalize());
 
     let blob = create_media_blob(CreateMediaBlobRequest {
-        sha256,
+        sha256: None,
         size: Some(srt_data.len() as i64),
         mime: Some("application/x-subrip".to_string()),
         source_client_id: None,

@@ -34,7 +34,7 @@ async fn backfill_blake3_if_missing(
          WHERE id = ?
          RETURNING
             id as \"id!\",
-            sha256 as \"sha256!\",
+            sha256,
             size,
             mime,
             source_client_id,
@@ -87,45 +87,84 @@ pub async fn create_media_blob(mut req: CreateMediaBlobRequest) -> GrimoireResul
         }
     }
 
-    // check if a blob with this SHA256 already exists (simple dedup check)
-    // since sha256 has a UNIQUE constraint, we can't have two blobs with the same sha256
-    // if the same content is uploaded again, just return the existing blob
-    if let Ok(existing_blob) = sqlx::query_as!(
-        MediaBlob,
-        "SELECT
-            id as \"id!\",
-            sha256 as \"sha256!\",
-            size,
-            mime,
-            source_client_id,
-            local_path,
-            filename,
-            parent_blob_id,
-            blob_type as \"blob_type!\",
-            metadata,
-            created_at as \"created_at!\",
-            updated_at as \"updated_at!\",
-            deleted_at,
-            deleted_by,
-            created_by,
-            updated_by,
-            width,
-            height,
+    // check if a blob with this content already exists (dedup check).
+    // blake3 is the real identity going forward (see
+    // docs/sha256-removal-plan.md) - prefer it when the caller has one,
+    // falling back to the legacy sha256 lookup only for a caller that
+    // somehow has neither blake3 nor data to derive one from (the
+    // blake3-backfill block above only fills it in when `req.data` is
+    // set). includes soft-deleted rows on purpose - the undelete branch
+    // below needs to see them, unlike `get_media_blob_by_blake3`, which
+    // filters them out.
+    let existing_lookup = if let Some(blake3) = req.blake3.clone() {
+        sqlx::query_as!(
+            MediaBlob,
+            "SELECT
+                id as \"id!\",
+                sha256,
+                size,
+                mime,
+                source_client_id,
+                local_path,
+                filename,
+                parent_blob_id,
+                blob_type as \"blob_type!\",
+                metadata,
+                created_at as \"created_at!\",
+                updated_at as \"updated_at!\",
+                deleted_at,
+                deleted_by,
+                created_by,
+                updated_by,
+                width,
+                height,
+                blake3
+             FROM media_blobz
+             WHERE blake3 = ?
+             LIMIT 1",
             blake3
-         FROM media_blobz
-         WHERE sha256 = ?
-         LIMIT 1",
-        req.sha256
-    )
-    .fetch_one(&pool)
-    .await
-    {
+        )
+        .fetch_one(&pool)
+        .await
+    } else {
+        sqlx::query_as!(
+            MediaBlob,
+            "SELECT
+                id as \"id!\",
+                sha256,
+                size,
+                mime,
+                source_client_id,
+                local_path,
+                filename,
+                parent_blob_id,
+                blob_type as \"blob_type!\",
+                metadata,
+                created_at as \"created_at!\",
+                updated_at as \"updated_at!\",
+                deleted_at,
+                deleted_by,
+                created_by,
+                updated_by,
+                width,
+                height,
+                blake3
+             FROM media_blobz
+             WHERE sha256 = ?
+             LIMIT 1",
+            req.sha256
+        )
+        .fetch_one(&pool)
+        .await
+    };
+
+    if let Ok(existing_blob) = existing_lookup {
         // if blob was deleted, undelete it
         if existing_blob.deleted_at.is_some() {
             tracing::info!(
-                "create_blob: found deleted blob with same sha256, undeleting: existing_id={}, sha256={}",
+                "create_blob: found deleted blob with same content, undeleting: existing_id={}, blake3={:?}",
                 existing_blob.id,
-                existing_blob.sha256
+                existing_blob.blake3
             );
             let undeleted_blob = sqlx::query_as!(
                 MediaBlob,
@@ -137,7 +176,7 @@ pub async fn create_media_blob(mut req: CreateMediaBlobRequest) -> GrimoireResul
                  WHERE id = ?
                  RETURNING
                     id as \"id!\",
-                    sha256 as \"sha256!\",
+                    sha256,
                     size,
                     mime,
                     source_client_id,
@@ -207,9 +246,9 @@ pub async fn create_media_blob(mut req: CreateMediaBlobRequest) -> GrimoireResul
 
         // blob already exists and is not deleted, return it with parsed metadata
         tracing::info!(
-            "create_blob: found existing blob with same sha256, returning: existing_id={}, sha256={}, blob_type={}",
+            "create_blob: found existing blob with same content, returning: existing_id={}, blake3={:?}, blob_type={}",
             existing_blob.id,
-            existing_blob.sha256,
+            existing_blob.blake3,
             existing_blob.blob_type
         );
 
@@ -277,7 +316,7 @@ pub async fn create_media_blob(mut req: CreateMediaBlobRequest) -> GrimoireResul
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         RETURNING
             id as \"id!\",
-            sha256 as \"sha256!\",
+            sha256,
             size,
             mime,
             source_client_id,
@@ -324,13 +363,24 @@ pub async fn create_media_blob(mut req: CreateMediaBlobRequest) -> GrimoireResul
             // winner's row instead of surfacing a raw db error. mirrors
             // `songz.media_blob_id` / `videoz.media_blob_id`'s identical
             // race-handling pattern in their own create functions.
+            //
+            // TEMPORARY GAP (see docs/sha256-removal-plan.md phase 1):
+            // blake3 has no UNIQUE constraint yet, only sha256 does - a
+            // caller racing on blake3 alone (no sha256) has no db-level
+            // protection here until phase 1 adds one. accepted for now,
+            // not silently - will be fixed when blake3 becomes the real
+            // unique key.
             let err_str = e.to_string();
-            if err_str.contains("UNIQUE constraint failed: media_blobz.sha256") {
+            if let Some(sha256) = req
+                .sha256
+                .as_deref()
+                .filter(|_| err_str.contains("UNIQUE constraint failed: media_blobz.sha256"))
+            {
                 tracing::info!(
                     "create_blob: lost sha256 insert race for {}, returning winner's row",
-                    req.sha256
+                    sha256
                 );
-                return get_media_blob_by_sha256(&req.sha256).await;
+                return get_media_blob_by_sha256(sha256).await;
             }
             return Err(e.into());
         }
@@ -362,7 +412,7 @@ pub async fn list_media_blobs() -> GrimoireResult<Vec<MediaBlob>> {
         MediaBlob,
         "SELECT
             id as \"id!\",
-            sha256 as \"sha256!\",
+            sha256,
             size,
             mime,
             source_client_id,
@@ -408,7 +458,7 @@ pub async fn get_media_blob(id: &str) -> GrimoireResult<MediaBlob> {
         MediaBlob,
         "SELECT
             id as \"id!\",
-            sha256 as \"sha256!\",
+            sha256,
             size,
             mime,
             source_client_id,
@@ -452,7 +502,7 @@ pub async fn get_media_blob_by_sha256(sha256: &str) -> GrimoireResult<MediaBlob>
         MediaBlob,
         "SELECT
             id as \"id!\",
-            sha256 as \"sha256!\",
+            sha256,
             size,
             mime,
             source_client_id,
@@ -496,7 +546,7 @@ pub async fn list_renditions(parent_blob_id: &str) -> GrimoireResult<Vec<MediaBl
         MediaBlob,
         "SELECT
             id as \"id!\",
-            sha256 as \"sha256!\",
+            sha256,
             size,
             mime,
             source_client_id,
@@ -724,7 +774,7 @@ pub async fn update_blob_local_path(
          WHERE id = ?
          RETURNING
             id as \"id!\",
-            sha256 as \"sha256!\",
+            sha256,
             size,
             mime,
             source_client_id,
@@ -838,7 +888,7 @@ fn is_within_managed_scratch_dir(candidate: &str) -> bool {
 /// pointing `existing` at it.
 ///
 /// callers only reach this once they've already confirmed `new_path` is a
-/// second on-disk copy of content `existing` already owns (same sha256,
+/// second on-disk copy of content `existing` already owns (same content,
 /// different path) - so this always operates on a genuine, already-verified
 /// content duplicate, never a guess.
 ///
@@ -852,9 +902,9 @@ async fn purge_duplicate_local_file(existing: &MediaBlob, new_path: &str) {
     // managed scratch directories, regardless of caller intent.
     if !is_within_managed_scratch_dir(new_path) {
         tracing::warn!(
-            "refusing to delete duplicate file outside managed scratch dirs: existing_id={}, sha256={}, path={}",
+            "refusing to delete duplicate file outside managed scratch dirs: existing_id={}, blake3={:?}, path={}",
             existing.id,
-            existing.sha256,
+            existing.blake3,
             new_path
         );
         return;
@@ -906,9 +956,9 @@ async fn maybe_relocate_existing_blob(
     let new_path = new_path_canon.as_str();
 
     tracing::info!(
-        "create_blob: relocating existing blob to new path: id={}, sha256={}, old_path={:?}, new_path={}",
+        "create_blob: relocating existing blob to new path: id={}, blake3={:?}, old_path={:?}, new_path={}",
         existing.id,
-        existing.sha256,
+        existing.blake3,
         existing.local_path,
         new_path
     );
@@ -961,7 +1011,7 @@ async fn maybe_relocate_existing_blob(
          WHERE id = ?
          RETURNING
             id as \"id!\",
-            sha256 as \"sha256!\",
+            sha256,
             size,
             mime,
             source_client_id,
@@ -1123,7 +1173,7 @@ pub async fn update_blob_content(
              WHERE id = ?
              RETURNING
                 id as \"id!\",
-                sha256 as \"sha256!\",
+                sha256,
                 size,
                 mime,
                 source_client_id,
@@ -1155,7 +1205,7 @@ pub async fn update_blob_content(
              WHERE id = ?
              RETURNING
                 id as \"id!\",
-                sha256 as \"sha256!\",
+                sha256,
                 size,
                 mime,
                 source_client_id,
@@ -1229,7 +1279,7 @@ pub async fn get_media_blob_by_blake3(blake3: &str) -> GrimoireResult<MediaBlob>
         MediaBlob,
         "SELECT
             id as \"id!\",
-            sha256 as \"sha256!\",
+            sha256,
             size,
             mime,
             source_client_id,
@@ -1301,7 +1351,7 @@ pub async fn list_blobs_needing_blake3(limit: i64) -> GrimoireResult<Vec<MediaBl
         MediaBlob,
         "SELECT
             id as \"id!\",
-            sha256 as \"sha256!\",
+            sha256,
             size,
             mime,
             source_client_id,
@@ -1687,7 +1737,7 @@ level = "warn"
         let updated = update_blob_content("convert01", &new_sha256, &new_blake3, "image/webp", 42)
             .await
             .expect("update_blob_content");
-        assert_eq!(updated.sha256, new_sha256);
+        assert_eq!(updated.sha256, Some(new_sha256.clone()));
         assert_eq!(updated.blake3.as_deref(), Some(new_blake3.as_str()));
         assert_eq!(updated.mime.as_deref(), Some("image/webp"));
         assert_eq!(updated.size, Some(42));
@@ -1695,7 +1745,7 @@ level = "warn"
         // re-fetch to confirm the update was actually persisted, not just
         // reflected in the returned row.
         let refetched = get_media_blob("convert01").await.expect("get_media_blob");
-        assert_eq!(refetched.sha256, new_sha256);
+        assert_eq!(refetched.sha256, Some(new_sha256));
         assert_eq!(refetched.blake3.as_deref(), Some(new_blake3.as_str()));
         assert_eq!(refetched.mime.as_deref(), Some("image/webp"));
         assert_eq!(refetched.size, Some(42));
@@ -1743,7 +1793,8 @@ level = "warn"
         .await
         .expect("update_blob_content");
         assert_eq!(
-            updated.sha256, original_sha256,
+            updated.sha256,
+            Some(original_sha256),
             "sha256 must be left unchanged on conflict"
         );
         assert_eq!(

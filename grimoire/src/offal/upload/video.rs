@@ -3,7 +3,6 @@
 
 use base64::Engine;
 use serde_json::{json, Value as JsonValue};
-use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 use tokio::time::sleep;
 
@@ -15,7 +14,7 @@ use crate::jobs::{
     JobType, ProcessFileParams,
 };
 use crate::media_blobz::{
-    create_media_blob, get_media_blob_by_sha256, BlobType, CreateMediaBlobRequest,
+    create_media_blob, get_media_blob_by_blake3, BlobType, CreateMediaBlobRequest,
 };
 use crate::media_domain::MediaDomain;
 use crate::music::entities::import_review::repository as import_review_repository;
@@ -150,22 +149,17 @@ pub async fn upload_video(caller: &Caller, body: JsonValue) -> GrimoireResponse<
 
     let size = data.len() as i64;
 
-    // compute sha256
-    let mut hasher = Sha256::new();
-    hasher.update(&data);
-    let hash = format!("{:x}", hasher.finalize());
-
-    // compute blake3
+    // compute blake3 - the real content identity (see docs/sha256-removal-plan.md)
     let blake3_hash = crate::blobz::compute_blake3_from_bytes(&data);
 
     let ext = detect_extension(&mime_type, &filename);
 
-    // check for existing blob
-    let existing = get_media_blob_by_sha256(&hash).await.is_ok();
+    // check for existing blob by blake3
+    let existing = get_media_blob_by_blake3(&blake3_hash).await.is_ok();
 
     // create media blob
     let blob = match create_media_blob(CreateMediaBlobRequest {
-        sha256: hash.clone(),
+        sha256: None,
         size: Some(size),
         mime: Some(mime_type.clone()),
         source_client_id: None,
@@ -180,7 +174,7 @@ pub async fn upload_video(caller: &Caller, body: JsonValue) -> GrimoireResponse<
         data: None,
         width: None,
         height: None,
-        blake3: Some(blake3_hash),
+        blake3: Some(blake3_hash.clone()),
         delete_duplicate_local_path: false,
     })
     .await
@@ -289,7 +283,8 @@ pub async fn upload_video(caller: &Caller, body: JsonValue) -> GrimoireResponse<
                     let response = VideoUploadResponse {
                         blob_id: blob.id,
                         job_id,
-                        sha256: hash,
+                        sha256: None,
+                        blake3: blake3_hash.clone(),
                         size,
                         mime: mime_type,
                         existing,
@@ -324,7 +319,8 @@ pub async fn upload_video(caller: &Caller, body: JsonValue) -> GrimoireResponse<
     let response = VideoUploadResponse {
         blob_id: blob.id,
         job_id: job.id,
-        sha256: hash,
+        sha256: None,
+        blake3: blake3_hash,
         size,
         mime: mime_type,
         existing,
@@ -468,6 +464,7 @@ pub async fn upload_video_by_blake3(
         blob_id: pulled.blob.id,
         job_id: job.id,
         sha256: pulled.sha256,
+        blake3: pulled.blake3,
         size: pulled.size,
         mime: pulled.mime,
         existing: pulled.existing,

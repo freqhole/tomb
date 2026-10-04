@@ -31,6 +31,7 @@ pub struct UpgradeAndMigrateOutcome {
     pub haruspex: MigrationOutcome,
     pub reliquary: MigrationOutcome,
     pub radio_encode_args: MigrationOutcome,
+    pub blake3_backfill: MigrationOutcome,
 }
 
 /// how one migration went: it ran (with a one-line summary, its full
@@ -149,6 +150,28 @@ fn summarize_radio_encode_args_report(
     )
 }
 
+/// report shape for the blake3 backfill migration step - deliberately
+/// simpler than haruspex/reliquary's own report types since there's only
+/// two numbers worth keeping: how many blobs got hashed this run, and how
+/// many (if any) are left (only possible if `BACKFILL_SAFETY_MAX_ROUNDS`
+/// was hit on a genuinely huge library - see its own doc comment).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Blake3BackfillReport {
+    pub processed: i64,
+    pub remaining: i64,
+}
+
+fn summarize_blake3_backfill_report(report: &Blake3BackfillReport) -> String {
+    if report.remaining > 0 {
+        format!(
+            "hashed {} blob(s), {} still remaining (hit this migration's safety round limit on a large library - run `blobz backfill-blake3` to finish the rest)",
+            report.processed, report.remaining
+        )
+    } else {
+        format!("hashed {} blob(s), all caught up", report.processed)
+    }
+}
+
 /// last version whose grimoire db could still have rows that never made
 /// it into haruspex/reliquary - anyone upgrading from newer than this has
 /// already been through a run that migrated everything there was to
@@ -170,6 +193,66 @@ const LAST_VERSION_NEEDING_HARUSPEX_RELIQUARY_MIGRATION: &str = "0.3.1";
 /// same upgrade, so the gate naturally never re-fires for them again,
 /// no matter how many further releases ship.
 const LAST_VERSION_WITH_STALE_RADIO_DEFAULTS_RISK: &str = "0.3.6";
+
+/// last version shipped before media import stopped computing sha256 at
+/// all (see docs/sha256-removal-plan.md phase 0) - anyone upgrading FROM
+/// this version or older may have existing `media_blobz` rows with no
+/// blake3 yet (it was previously only computed best-effort/non-fatally on
+/// a few paths). gets a one-shot automatic backfill - same self-
+/// terminating gate shape as the other two constants above.
+const LAST_VERSION_NEEDING_BLAKE3_BACKFILL: &str = "0.3.12";
+
+/// per-round batch size / concurrency for the automatic backfill - same
+/// defaults already established by the manual admin/CLI backfill command
+/// (`admin_dispatch::handlers::blobz::backfill_blake3`,
+/// `cli blobz backfill-blake3`), not new numbers invented for this path.
+const BLAKE3_BACKFILL_BATCH_SIZE: i64 = 100;
+const BLAKE3_BACKFILL_CONCURRENCY: usize = 16;
+
+/// safety cap on how many `BLAKE3_BACKFILL_BATCH_SIZE`-sized rounds this
+/// one-shot migration will run before giving up and reporting whatever's
+/// left as `remaining` - an upgrade should finish in a reasonable time
+/// even for a very large library. unlike haruspex/reliquary (safe to
+/// rerun in full any time), this gate is purely version-based and fires
+/// exactly once - so hitting this cap on a genuinely huge backlog does
+/// NOT resume automatically on a later start. the existing manual
+/// commands (`admin_dispatch::handlers::blobz::backfill_blake3`,
+/// `cli blobz backfill-blake3`) still work and are what `remaining > 0`
+/// in the outcome/log is telling the operator to run.
+const BLAKE3_BACKFILL_SAFETY_MAX_ROUNDS: u32 = 50;
+
+/// pure looping/termination logic for the blake3 backfill migration,
+/// extracted specifically so it's unit-testable without a real database -
+/// `round` does one batch's worth of real work (or a test double returning
+/// canned results). stops when a round processes nothing (caught up or
+/// stalled), when nothing remains, or after `max_rounds` (see
+/// `BLAKE3_BACKFILL_SAFETY_MAX_ROUNDS`'s own doc comment for why a round
+/// limit exists at all) - whichever comes first. a round error aborts
+/// immediately and is reported as the whole migration's failure, same as
+/// every other migration in this file.
+async fn run_blake3_backfill_rounds<F, Fut>(
+    max_rounds: u32,
+    mut round: F,
+) -> Result<Blake3BackfillReport, String>
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = crate::error::GrimoireResult<(i64, i64)>>,
+{
+    let mut total_processed: i64 = 0;
+    let mut remaining: i64 = 0;
+    for _ in 0..max_rounds {
+        let (processed, left) = round().await.map_err(|e| e.to_string())?;
+        total_processed += processed;
+        remaining = left;
+        if processed == 0 || remaining == 0 {
+            break;
+        }
+    }
+    Ok(Blake3BackfillReport {
+        processed: total_processed,
+        remaining,
+    })
+}
 
 /// upgrade the config file at `config_path`, reload the in-memory config
 /// from it, then run the one-shot data migrations.
@@ -199,7 +282,10 @@ pub async fn upgrade_config_and_migrate(
             reliquary: MigrationOutcome::Skipped {
                 reason: reason.clone(),
             },
-            radio_encode_args: MigrationOutcome::Skipped { reason },
+            radio_encode_args: MigrationOutcome::Skipped {
+                reason: reason.clone(),
+            },
+            blake3_backfill: MigrationOutcome::Skipped { reason },
         });
     }
 
@@ -278,11 +364,40 @@ pub async fn upgrade_config_and_migrate(
         }
     };
 
+    let blake3_backfill = if !crate::updates::is_newer(
+        &config.old_version,
+        LAST_VERSION_NEEDING_BLAKE3_BACKFILL,
+    ) {
+        match run_blake3_backfill_rounds(BLAKE3_BACKFILL_SAFETY_MAX_ROUNDS, || {
+            crate::blobz::backfill_blake3_hashes(
+                BLAKE3_BACKFILL_BATCH_SIZE,
+                BLAKE3_BACKFILL_CONCURRENCY,
+            )
+        })
+        .await
+        {
+            Ok(report) => {
+                let summary = summarize_blake3_backfill_report(&report);
+                let changed = report.processed > 0;
+                ran_outcome(&report, summary, changed)
+            }
+            Err(error) => MigrationOutcome::Failed { error },
+        }
+    } else {
+        MigrationOutcome::Skipped {
+            reason: format!(
+                "old config version {} is newer than {} - blake3 was already being computed for every new import",
+                config.old_version, LAST_VERSION_NEEDING_BLAKE3_BACKFILL
+            ),
+        }
+    };
+
     Ok(UpgradeAndMigrateOutcome {
         config,
         haruspex,
         reliquary,
         radio_encode_args,
+        blake3_backfill,
     })
 }
 
@@ -302,6 +417,7 @@ pub fn describe_outcome(outcome: &UpgradeAndMigrateOutcome) -> String {
         ("haruspex", &outcome.haruspex),
         ("reliquary", &outcome.reliquary),
         ("radio encode_args", &outcome.radio_encode_args),
+        ("blake3 backfill", &outcome.blake3_backfill),
     ] {
         if migration.is_noteworthy() {
             lines.push(format!("{} migration: {}", name, migration.describe()));
@@ -313,7 +429,76 @@ pub fn describe_outcome(outcome: &UpgradeAndMigrateOutcome) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::RefCell;
     use std::path::PathBuf;
+
+    #[tokio::test]
+    async fn test_blake3_backfill_rounds_stops_immediately_when_nothing_needed() {
+        let calls = RefCell::new(0);
+        let report = run_blake3_backfill_rounds(50, || {
+            *calls.borrow_mut() += 1;
+            async { Ok((0, 0)) }
+        })
+        .await
+        .expect("rounds succeed");
+        assert_eq!(report.processed, 0);
+        assert_eq!(report.remaining, 0);
+        assert_eq!(*calls.borrow(), 1, "a round reporting 0/0 must not be retried");
+    }
+
+    #[tokio::test]
+    async fn test_blake3_backfill_rounds_finishes_clean_before_the_safety_cap() {
+        // simulates 250 blobs needing backfill, 100 per round (3 rounds:
+        // 100, 100, 50) - well under the 50-round safety cap.
+        let remaining_after = RefCell::new(vec![150i64, 50, 0]);
+        let calls = RefCell::new(0);
+        let report = run_blake3_backfill_rounds(50, || {
+            *calls.borrow_mut() += 1;
+            let left = remaining_after.borrow_mut().remove(0);
+            let processed = if left == 150 {
+                100
+            } else if left == 50 {
+                100
+            } else {
+                50
+            };
+            async move { Ok((processed, left)) }
+        })
+        .await
+        .expect("rounds succeed");
+        assert_eq!(report.processed, 250);
+        assert_eq!(report.remaining, 0);
+        assert_eq!(*calls.borrow(), 3, "must stop the round after remaining hits 0");
+    }
+
+    #[tokio::test]
+    async fn test_blake3_backfill_rounds_stops_at_the_safety_cap_on_a_huge_backlog() {
+        // every round processes 100 but there's always more left - this
+        // must stop at max_rounds, not loop forever, and must report the
+        // true remaining count so the operator knows to follow up.
+        let calls = RefCell::new(0);
+        let report = run_blake3_backfill_rounds(5, || {
+            *calls.borrow_mut() += 1;
+            async { Ok((100, 10_000)) }
+        })
+        .await
+        .expect("rounds succeed");
+        assert_eq!(report.processed, 500);
+        assert_eq!(report.remaining, 10_000);
+        assert_eq!(*calls.borrow(), 5, "must stop at max_rounds, never loop forever");
+    }
+
+    #[tokio::test]
+    async fn test_blake3_backfill_rounds_aborts_immediately_on_error() {
+        let calls = RefCell::new(0);
+        let result = run_blake3_backfill_rounds(50, || {
+            *calls.borrow_mut() += 1;
+            async { Err(crate::error::GrimoireError::ProcessingFailed { message: "db gone".to_string() }) }
+        })
+        .await;
+        assert_eq!(result, Err("processing failed: db gone".to_string()));
+        assert_eq!(*calls.borrow(), 1, "a failed round must not be retried");
+    }
 
     #[test]
     fn test_migration_outcome_serializes_with_status_tags() {
@@ -362,6 +547,9 @@ mod tests {
                 report: serde_json::json!({}),
                 changed: false,
             },
+            blake3_backfill: MigrationOutcome::Skipped {
+                reason: "not under test".to_string(),
+            },
         };
         let text = describe_outcome(&outcome);
         assert!(text.contains("0.1.0 -> 0.2.0"));
@@ -396,6 +584,9 @@ mod tests {
                 summary: "cleared 1 stale station override".to_string(),
                 report: serde_json::json!({}),
                 changed: true,
+            },
+            blake3_backfill: MigrationOutcome::Skipped {
+                reason: "not under test".to_string(),
             },
         };
         let text = describe_outcome(&outcome);

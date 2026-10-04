@@ -1782,7 +1782,7 @@ fn set_nested_value(
 /// ensure server image is stored as a media blob and update config
 ///
 /// reads the image at server.image_path from the config, creates a media blob
-/// (or finds existing by sha256), and updates the config file with the blob_id.
+/// (or finds existing by blake3), and updates the config file with the blob_id.
 ///
 /// # arguments
 /// * `config_path` - path to the freqhole-config.toml
@@ -1793,7 +1793,6 @@ pub async fn ensure_server_image_blob(config_path: &Path) -> Result<String, Conf
     use crate::blob_data::generate_sized_thumbnails;
     use crate::media_blobz::{create_media_blob, BlobType, CreateMediaBlobRequest};
     use crate::Bytes;
-    use sha2::{Digest, Sha256};
 
     // load config to get image_path and data_dir
     let config = GrimoireConfig::load(config_path)?;
@@ -1819,10 +1818,8 @@ pub async fn ensure_server_image_blob(config_path: &Path) -> Result<String, Conf
         error: e.to_string(),
     })?;
 
-    // compute sha256
-    let mut hasher = Sha256::new();
-    hasher.update(&data);
-    let sha256 = format!("{:x}", hasher.finalize());
+    // compute blake3 - the real content identity (see docs/sha256-removal-plan.md)
+    let blake3_hash = crate::blobz::compute_blake3_from_bytes(&data);
 
     // get mime type
     let mime = mime_guess::from_path(&full_path)
@@ -1836,9 +1833,9 @@ pub async fn ensure_server_image_blob(config_path: &Path) -> Result<String, Conf
         .unwrap_or("server-image")
         .to_string();
 
-    // create media blob (idempotent - returns existing if same sha256)
+    // create media blob (idempotent - returns existing if same blake3)
     let request = CreateMediaBlobRequest {
-        sha256: sha256.clone(),
+        sha256: None,
         size: Some(data.len() as i64),
         mime: Some(mime),
         source_client_id: None,
@@ -1851,7 +1848,7 @@ pub async fn ensure_server_image_blob(config_path: &Path) -> Result<String, Conf
         data: Some(Bytes::from(data)),
         width: None,
         height: None,
-        blake3: None,
+        blake3: Some(blake3_hash),
         delete_duplicate_local_path: false,
     };
 

@@ -12,7 +12,6 @@ use grimoire::media_blobz::{create_media_blob, BlobType};
 use grimoire::upload::{MusicMetadataHints, MusicUploadResponse};
 use grimoire::users::UserRole;
 use serde_json::json;
-use sha2::{Digest, Sha256};
 use std::path::PathBuf;
 
 use crate::auth::{check_role, AuthenticatedUser};
@@ -80,12 +79,8 @@ pub async fn upload_music_handler(
         )));
     }
 
-    // calculate sha256 hash
-    let mut hasher = Sha256::new();
-    hasher.update(&data);
-    let hash = format!("{:x}", hasher.finalize());
-
-    // compute blake3 hash for iroh-blobs verified streaming
+    // compute blake3 hash for iroh-blobs verified streaming - the real
+    // content identity (see docs/sha256-removal-plan.md)
     let blake3_hash = compute_blake3_from_bytes(&data);
 
     // detect mime type
@@ -116,9 +111,9 @@ pub async fn upload_music_handler(
         .map(PathBuf::from)
         .unwrap_or_else(|| state.config.data_dir.join("fetch"));
 
-    // path is keyed by content hash (sha256), not the media blob id, so the file
+    // path is keyed by content hash (blake3), not the media blob id, so the file
     // can be written to disk BEFORE the blob row is created. previously the blob
-    // row (and its sha256 dedup key) was created first and the path used blob.id -
+    // row (and its dedup key) was created first and the path used blob.id -
     // if the write below then failed, the row was left orphaned with no local_path,
     // and a retry saw the existing dedup key and silently no-op'd instead of
     // re-attempting the write, so the user believed the upload had succeeded.
@@ -127,7 +122,7 @@ pub async fn upload_music_handler(
     let full_path = output_dir
         .join(format!("{:04}", year))
         .join(format!("{:02}", month))
-        .join(format!("{}.{}", hash, ext));
+        .join(format!("{}.{}", blake3_hash, ext));
 
     // real dedup skip: only treat the file as already-uploaded if it actually
     // exists on disk with the right size, not just because a db row exists.
@@ -150,11 +145,11 @@ pub async fn upload_music_handler(
             .map_err(GrimoireError::Io)?;
     }
 
-    // create media blob (with dedup by sha256) - only now that the file is
+    // create media blob (with dedup by blake3) - only now that the file is
     // confirmed on disk, so a write failure above never leaves an orphaned
     // blob row pointing at a file that doesn't exist.
     let blob = create_media_blob(CreateMediaBlobRequest {
-        sha256: hash.clone(),
+        sha256: None,
         size: Some(size),
         mime: Some(mime_type.clone()),
         source_client_id: None,
@@ -169,9 +164,9 @@ pub async fn upload_music_handler(
         data: None,
         width: None,
         height: None,
-        blake3: Some(blake3_hash), // computed at ingest for P2P streaming
+        blake3: Some(blake3_hash.clone()), // computed at ingest for P2P streaming
         // this handler always writes the file to disk before calling
-        // create_media_blob, so if sha256 dedup finds an existing blob
+        // create_media_blob, so if blake3 dedup finds an existing blob
         // with a *different* real local_path, the file just written here
         // is a genuine duplicate upload of already-owned content - purge
         // it instead of relocating the existing blob to point at it.
@@ -227,7 +222,8 @@ pub async fn upload_music_handler(
     Ok(Json(MusicUploadResponse {
         blob_id: blob.id,
         job_id: job.id,
-        sha256: hash,
+        sha256: None,
+        blake3: blake3_hash,
         size,
         mime: mime_type,
         existing,

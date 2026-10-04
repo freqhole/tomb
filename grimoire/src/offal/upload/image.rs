@@ -3,14 +3,13 @@
 
 use base64::Engine;
 use serde_json::{json, Value as JsonValue};
-use sha2::{Digest, Sha256};
 use std::path::Path;
 use tokio::time::sleep;
 
 use crate::error::ErrorDetail;
 use crate::jobs::{create_job, get_job, CreateJobRequest, JobType};
 use crate::media_blobz::{
-    create_media_blob, get_media_blob_by_sha256, BlobType, CreateMediaBlobRequest,
+    create_media_blob, get_media_blob_by_blake3, BlobType, CreateMediaBlobRequest,
 };
 use crate::offal::caller::Caller;
 use crate::response::GrimoireResponse;
@@ -157,10 +156,10 @@ pub async fn upload_image(caller: &Caller, body: JsonValue) -> GrimoireResponse<
         );
     }
 
-    // calculate sha256 hash
-    let mut hasher = Sha256::new();
-    hasher.update(&data);
-    let hash = format!("{:x}", hasher.finalize());
+    // compute blake3 - the real content identity (see
+    // docs/sha256-removal-plan.md; this path used to hash sha256 only,
+    // the one upload path that never got a blake3 at all)
+    let blake3_hash = crate::blobz::compute_blake3_from_bytes(&data);
 
     // detect mime type from filename extension and magic bytes
     let mime_type = detect_image_mime_type(&filename, &data);
@@ -177,12 +176,12 @@ pub async fn upload_image(caller: &Caller, body: JsonValue) -> GrimoireResponse<
 
     let size = data.len() as i64;
 
-    // check for existing blob by sha256 before creating
-    let existing = get_media_blob_by_sha256(&hash).await.is_ok();
+    // check for existing blob by blake3 before creating
+    let existing = get_media_blob_by_blake3(&blake3_hash).await.is_ok();
 
-    // create media blob (returns existing if sha256 matches)
+    // create media blob (returns existing if blake3 matches)
     let blob = match create_media_blob(CreateMediaBlobRequest {
-        sha256: hash.clone(),
+        sha256: None,
         size: Some(size),
         mime: Some(mime_type.clone()),
         source_client_id: None,
@@ -197,7 +196,7 @@ pub async fn upload_image(caller: &Caller, body: JsonValue) -> GrimoireResponse<
         data: Some(Bytes::from(data)),
         width: None,
         height: None,
-        blake3: None,
+        blake3: Some(blake3_hash.clone()),
         delete_duplicate_local_path: false,
     })
     .await
@@ -237,9 +236,9 @@ pub async fn upload_image(caller: &Caller, body: JsonValue) -> GrimoireResponse<
         Some(j) => j,
         None => {
             tracing::error!(
-                "upload_image(offal): FAIL to create job for blob {} sha256={}",
+                "upload_image(offal): FAIL to create job for blob {} blake3={}",
                 blob.id,
-                &hash[..16.min(hash.len())],
+                &blake3_hash[..16.min(blake3_hash.len())],
             );
             return GrimoireResponse::failure(
                 "failed to create job",
@@ -249,11 +248,11 @@ pub async fn upload_image(caller: &Caller, body: JsonValue) -> GrimoireResponse<
     };
 
     tracing::info!(
-        "upload_image(offal): OK from {} filename=\"{}\" blob_id={} sha256={} existing={} associate={:?} job_id={}",
+        "upload_image(offal): OK from {} filename=\"{}\" blob_id={} blake3={} existing={} associate={:?} job_id={}",
         caller.username,
         filename,
         blob.id,
-        &hash[..16.min(hash.len())],
+        &blake3_hash[..16.min(blake3_hash.len())],
         existing,
         req.associate_with.as_ref().map(|a| format!("{}:{}", a.entity_type, a.entity_id)),
         job.id,
@@ -298,7 +297,8 @@ pub async fn upload_image(caller: &Caller, body: JsonValue) -> GrimoireResponse<
                     let response = ImageUploadResponse {
                         blob_id: blob.id,
                         job_id,
-                        sha256: hash,
+                        sha256: None,
+                        blake3: blake3_hash.clone(),
                         size,
                         mime: mime_type,
                         existing,
@@ -343,7 +343,8 @@ pub async fn upload_image(caller: &Caller, body: JsonValue) -> GrimoireResponse<
     let response = ImageUploadResponse {
         blob_id: blob.id,
         job_id: job.id,
-        sha256: hash,
+        sha256: None,
+        blake3: blake3_hash,
         size,
         mime: mime_type,
         existing,

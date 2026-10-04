@@ -209,7 +209,7 @@ pub async fn sync_song_by_blake3_impl(
                 media_blob_id,
                 artist_id,
                 file_path: local_path,
-                sha256: req.sha256.clone(),
+                sha256: (!req.sha256.is_empty()).then(|| req.sha256.clone()),
                 blake3: req.blake3.clone(),
                 existing: true,
                 images_linked: 0,

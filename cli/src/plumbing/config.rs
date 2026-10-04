@@ -197,6 +197,10 @@ pub async fn handle_command(
                                 .unwrap_or(serde_json::Value::Null),
                             "reliquary_migration": serde_json::to_value(&outcome.reliquary)
                                 .unwrap_or(serde_json::Value::Null),
+                            "radio_encode_args_migration": serde_json::to_value(&outcome.radio_encode_args)
+                                .unwrap_or(serde_json::Value::Null),
+                            "blake3_backfill_migration": serde_json::to_value(&outcome.blake3_backfill)
+                                .unwrap_or(serde_json::Value::Null),
                         }),
                     )
                 }

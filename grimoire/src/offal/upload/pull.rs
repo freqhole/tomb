@@ -12,7 +12,7 @@ use crate::config::get_config;
 use crate::error::{ErrorDetail, GrimoireError};
 use crate::federation::p2p_client;
 use crate::media_blobz::{
-    create_media_blob, get_media_blob_by_sha256, set_blob_local_path_or_purge_duplicate, BlobType,
+    create_media_blob, get_media_blob_by_blake3, set_blob_local_path_or_purge_duplicate, BlobType,
     CreateMediaBlobRequest, MediaBlob,
 };
 use crate::media_domain::MediaDomain;
@@ -30,11 +30,15 @@ pub struct PullAudioBlobResult {
     pub local_path: PathBuf,
     /// detected audio mime type
     pub mime: String,
-    /// computed sha256 of the downloaded bytes
-    pub sha256: String,
+    /// blake3 content hash - the real content identity (always known here,
+    /// it's what this function pulled by)
+    pub blake3: String,
+    /// legacy content hash of the downloaded bytes - optional and on its
+    /// way out, see docs/sha256-removal-plan.md
+    pub sha256: Option<String>,
     /// file size in bytes
     pub size: i64,
-    /// true if a media_blob with this sha256 already existed before this call
+    /// true if a media_blob with this content already existed before this call
     pub existing: bool,
 }
 
@@ -290,6 +294,7 @@ pub async fn pull_audio_blob_to_local_storage_with_progress(
                     blob: existing,
                     local_path: PathBuf::from(local_path),
                     mime,
+                    blake3: blake3.to_string(),
                     sha256,
                     size,
                     existing: true,
@@ -597,12 +602,15 @@ pub async fn pull_audio_blob_to_local_storage_with_progress(
 
     let size = file_size as i64;
 
-    // 8. check for existing blob by sha256 before creating
-    let existing = get_media_blob_by_sha256(&hash).await.is_ok();
+    // 8. check for existing blob by blake3 before creating - this function
+    // pulls BY blake3, so that's always known here; sha256 is now only
+    // computed for the optional expected_sha256 verification above (see
+    // docs/sha256-removal-plan.md), not for dedup.
+    let existing = get_media_blob_by_blake3(blake3).await.is_ok();
 
-    // create media blob entry (with deduplication via sha256 unique constraint)
+    // create media blob entry (deduplication is via blake3, not sha256)
     let blob = match create_media_blob(CreateMediaBlobRequest {
-        sha256: hash.clone(),
+        sha256: Some(hash.clone()),
         size: Some(size),
         mime: Some(mime_type.clone()),
         source_client_id: None,
@@ -695,7 +703,8 @@ pub async fn pull_audio_blob_to_local_storage_with_progress(
         blob,
         local_path: result_path,
         mime: mime_type,
-        sha256: hash,
+        blake3: blake3.to_string(),
+        sha256: Some(hash),
         size,
         existing,
     })
