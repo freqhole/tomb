@@ -30,7 +30,7 @@ import { toast } from "../../../components/feedback/Toast";
 function mediaToHandOff(): MediaItem[] {
   const state = appState();
   if (!state) return [];
-  const idx = state.queue.findIndex((i) => mediaItemKey(i) === state.current_sha256);
+  const idx = state.queue.findIndex((i) => mediaItemKey(i) === state.current_item_key);
   return idx >= 0 ? state.queue.slice(idx) : state.queue;
 }
 

@@ -16,7 +16,7 @@ import { registerQueueDeparture } from "../../../app/services/media/queueDepartu
 import { triggerPreCache } from "./triggerPreCache";
 import {
   clearPendingUpNext,
-  pendingUpNextSha256,
+  pendingUpNextItemKey,
   playSong,
   playMediaItem,
   seek,
@@ -78,7 +78,7 @@ initQueueDeparturePurge();
 // place to stop HTML, the libmpv backend, or the separate video window in
 // that case.
 registerQueueDeparture((departed) => {
-  const current = appState()?.current_sha256;
+  const current = appState()?.current_item_key;
   if (current && departed.some((item) => mediaItemKey(item) === current)) {
     stop();
     void setCurrentSong(null);
@@ -94,7 +94,7 @@ registerQueueDeparture((departed) => {
 // us).
 registerStopMusic(async () => {
   stopTracking(true);
-  // this handler wipes the shared queue/current_sha256 below, which
+  // this handler wipes the shared queue/current_item_key below, which
   // video items ride on too (queue.ts's anti-hijack wipe predates video
   // support) — flush + clear video tracking the same way so a stale
   // `activeVideoHistoryEntryId` doesn't linger pointing at an entry the
@@ -225,7 +225,7 @@ export async function playQueue(
 
   const state = appState();
   const currentQueue: MediaItem[] = state?.queue || [];
-  const currentId = state?.current_sha256;
+  const currentId = state?.current_item_key;
 
   // song-only side systems (history, server sessions, pre-cache, local
   // sync) still operate on the song subset only - video items ride along
@@ -486,7 +486,7 @@ export async function addToQueue(
 
   const state = appState();
   const currentQueue: MediaItem[] = state?.queue || [];
-  const currentId = state?.current_sha256;
+  const currentId = state?.current_item_key;
 
   // song-only side systems (history, server sessions, local sync) still
   // operate on the song subset only - see phase 5 of
@@ -656,7 +656,7 @@ export async function removeFromQueue(index: number): Promise<void> {
   const state = appState();
   if (!state?.queue) return;
 
-  const currentIdx = state.queue.findIndex((i) => mediaItemKey(i) === state.current_sha256);
+  const currentIdx = state.queue.findIndex((i) => mediaItemKey(i) === state.current_item_key);
   mirrorRemoveFromQueue(index, currentIdx);
 
   const removedItem = state.queue[index];
@@ -672,13 +672,13 @@ export async function removeFromQueue(index: number): Promise<void> {
   const removedKey = removedItem ? mediaItemKey(removedItem) : undefined;
 
   // if we removed the currently playing item, stop playback and clear it
-  if (removedKey && removedKey === state.current_sha256) {
+  if (removedKey && removedKey === state.current_item_key) {
     stop();
     await setCurrentSong(null);
   }
 
   // if we removed the pending up-next item, clear the pending state
-  if (removedKey && removedKey === pendingUpNextSha256()) {
+  if (removedKey && removedKey === pendingUpNextItemKey()) {
     clearPendingUpNext();
   }
 
@@ -737,7 +737,7 @@ export async function clearSongsBelow(index: number): Promise<void> {
   await setQueue(newQueue);
 
   // clear pending up-next if it was below this song
-  const pendingSha = pendingUpNextSha256();
+  const pendingSha = pendingUpNextItemKey();
   if (pendingSha && removedItems.some((i) => mediaItemKey(i) === pendingSha)) {
     clearPendingUpNext();
   }
@@ -766,7 +766,7 @@ export async function reorderQueue(fromIndex: number, toIndex: number): Promise<
   const state = appState();
   if (!state?.queue) return;
 
-  const currentIdx = state.queue.findIndex((i) => mediaItemKey(i) === state.current_sha256);
+  const currentIdx = state.queue.findIndex((i) => mediaItemKey(i) === state.current_item_key);
   mirrorReorderQueue(fromIndex, toIndex, currentIdx);
 
   const newQueue = [...state.queue];
@@ -790,7 +790,7 @@ export async function clearQueue(): Promise<void> {
   const state = appState();
   debug(
     "queue",
-    `clearQueue: len=${state?.queue?.length ?? 0} current=${state?.current_sha256?.slice(0, 8) ?? null}`
+    `clearQueue: len=${state?.queue?.length ?? 0} current=${state?.current_item_key?.slice(0, 8) ?? null}`
   );
 
   stop();

@@ -104,7 +104,7 @@ export function AlbumArtistTab(props: AlbumArtistTabProps) {
       const client = await getClientForRemote(remote);
       const resp = await client.music.ingestRemoteImage({
         remote_url: url,
-        target: { kind: "artist", id: props.artistId } as any,
+        target: { kind: "Artist", id: props.artistId },
         is_primary: imageCount() === 0,
         source: "manual",
       });

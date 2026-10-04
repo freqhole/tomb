@@ -162,7 +162,7 @@ async function getOPFSStats(): Promise<{
     // count audio directory
     try {
       const audioDir = await root.getDirectoryHandle(OPFS_AUDIO_DIR);
-      for await (const entry of (audioDir as any).values()) {
+      for await (const entry of audioDir.values()) {
         if (entry.kind === "file") {
           const file = await entry.getFile();
           audioSize += file.size;
@@ -176,7 +176,7 @@ async function getOPFSStats(): Promise<{
     // count thumbnails directory
     try {
       const thumbDir = await root.getDirectoryHandle(OPFS_THUMBNAILS_DIR);
-      for await (const entry of (thumbDir as any).values()) {
+      for await (const entry of thumbDir.values()) {
         if (entry.kind === "file") {
           const file = await entry.getFile();
           thumbnailsSize += file.size;

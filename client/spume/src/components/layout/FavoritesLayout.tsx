@@ -1,6 +1,6 @@
 // favorites layout - presentational component for displaying favorites with toggle filters
 import { createSignal, createMemo, For, Show, onMount, onCleanup } from "solid-js";
-import { Icon } from "../icons/registry";
+import { Icon, type IconName } from "../icons/registry";
 import { IconButton } from "../buttons/IconButton";
 import { MediaThumbnail } from "../media/MediaThumbnail";
 import { FavoriteHeart } from "../ratings/FavoriteHeart";
@@ -227,7 +227,7 @@ export function FavoritesLayout(props: FavoritesLayoutProps) {
   });
 
   // icon mapping for filter types
-  const filterIcons: Record<FavoriteFilterType, string> = {
+  const filterIcons: Record<FavoriteFilterType, IconName> = {
     songs: "music",
     albums: "album",
     artists: "artist",
@@ -245,7 +245,7 @@ export function FavoritesLayout(props: FavoritesLayoutProps) {
     count: number;
   }) => {
     const isActive = () => activeFilters().has(buttonProps.type);
-    const iconName = () => filterIcons[buttonProps.type] as any;
+    const iconName = () => filterIcons[buttonProps.type];
 
     // long-press (or long mousedown, for desktop) solos this filter -
     // suppresses the click handler's normal toggle behavior once it fires.

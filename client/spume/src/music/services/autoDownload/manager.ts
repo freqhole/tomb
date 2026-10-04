@@ -356,13 +356,13 @@ export async function updateAutoDownloadQueue(
     songsToDownload.push(song);
   }
 
-  // videos: find the current position in the *unified* queue (current_sha256
+  // videos: find the current position in the *unified* queue (current_item_key
   // doubles as the video's own id when a video is playing) and consider every
   // not-yet-synced, syncable, P2P remote video from there onward.
-  const unifiedCurrentIndex = state.current_sha256
+  const unifiedCurrentIndex = state.current_item_key
     ? Math.max(
         0,
-        state.queue.findIndex((item) => mediaItemKey(item) === state.current_sha256)
+        state.queue.findIndex((item) => mediaItemKey(item) === state.current_item_key)
       )
     : 0;
   const upcomingVideos = videosOnly(state.queue.slice(unifiedCurrentIndex));
@@ -404,8 +404,8 @@ export async function resumeAutoDownloadsOnInit(): Promise<void> {
 
   // find current song index from sha256 (song-only subset - the video
   // half of the queue is handled separately inside updateAutoDownloadQueue,
-  // keyed off the unified current_sha256/mediaItemKey instead)
-  const currentSha256 = state.current_sha256;
+  // keyed off the unified current_item_key/mediaItemKey instead)
+  const currentSha256 = state.current_item_key;
   const queueSongs = songsOnly(state.queue);
   const currentIndex = currentSha256
     ? queueSongs.findIndex((s) => songIdentityKey(s) === currentSha256)
@@ -433,7 +433,7 @@ export async function downloadAllNow(): Promise<void> {
   clearAllFailures();
 
   // find current index from sha256 (song-only subset)
-  const currentSha256 = state.current_sha256;
+  const currentSha256 = state.current_item_key;
   const queue = songsOnly(state.queue);
   const currentIndex = currentSha256
     ? Math.max(

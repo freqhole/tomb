@@ -142,7 +142,7 @@ export function BulkRequeryPanel(props: BulkRequeryPanelProps) {
       const overrideTitle = isDirtyTitle() && t.length > 0 ? t : null;
       const resp = await client.music.requeryEnrichment({
         album_id: props.albumId,
-        source: sourceServerTag(source) as any,
+        source: sourceServerTag(source),
         override_query: {
           artist: overrideArtist,
           title: overrideTitle,

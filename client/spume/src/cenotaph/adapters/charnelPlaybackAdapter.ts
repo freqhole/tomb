@@ -284,8 +284,8 @@ function mediaItemToRef(item: MediaItem): MediaRef {
 function buildQueueRefs(): MediaRef[] {
   const state = appState();
   if (!state?.queue || state.queue.length === 0) return [];
-  const currentIdx = state.current_sha256
-    ? state.queue.findIndex((i) => mediaItemKey(i) === state.current_sha256)
+  const currentIdx = state.current_item_key
+    ? state.queue.findIndex((i) => mediaItemKey(i) === state.current_item_key)
     : -1;
   const ordered = currentIdx >= 0 ? state.queue.slice(currentIdx) : state.queue;
   return ordered.map(mediaItemToRef);
@@ -315,8 +315,8 @@ function itemBlake3(item: MediaItem): string {
  * nothing's playing (queue.ts's functions no-op on an invalid index). */
 function currentFullIndex(): number {
   const state = appState();
-  if (!state?.queue || !state.current_sha256) return -1;
-  return state.queue.findIndex((i) => mediaItemKey(i) === state.current_sha256);
+  if (!state?.queue || !state.current_item_key) return -1;
+  return state.queue.findIndex((i) => mediaItemKey(i) === state.current_item_key);
 }
 
 /** blake3 hashes this player is done with this session (played through,
@@ -337,7 +337,7 @@ function recordRecentlyPlayed(hash: string | null | undefined): void {
   if (recentlyPlayed.length > RECENTLY_PLAYED_LIMIT) recentlyPlayed.shift();
 }
 
-// watches appState()'s current_sha256 for transitions so ANYTHING that
+// watches appState()'s current_item_key for transitions so ANYTHING that
 // moves playback off an item (natural end, skip, explicit next/prev,
 // admin dispatch...) marks it "dealt with" via recordRecentlyPlayed()
 // above - spume's own queue/player services have no such tracking on
@@ -349,7 +349,7 @@ let previousCurrentKey: string | null = null;
 createRoot(() => {
   createEffect(
     on(
-      () => appState()?.current_sha256 ?? null,
+      () => appState()?.current_item_key ?? null,
       (newKey) => {
         const state = appState();
         if (previousCurrentKey && previousCurrentKey !== newKey) {

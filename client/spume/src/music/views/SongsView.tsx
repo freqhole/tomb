@@ -444,7 +444,7 @@ export function SongsView(props: SongsViewProps) {
               scrollKey={`songs-view-${searchQuery() || ""}-${tagFilters()
                 .map((f) => f.tag)
                 .join(",")}`}
-              playingSongId={appState()?.current_sha256 ?? undefined}
+              playingSongId={appState()?.current_item_key ?? undefined}
               sortState={sortState()}
               onSortChange={handleSortChange}
               onFavoriteToggle={handleFavoriteToggle}

@@ -464,8 +464,8 @@ export function pruneLocalQueueAfterSuccessfulPush(
     pruneLocalQueueByKey(pushedKeys);
     return;
   }
-  const currentItem = state.current_sha256
-    ? state.queue.find((i) => mediaItemKey(i) === state.current_sha256)
+  const currentItem = state.current_item_key
+    ? state.queue.find((i) => mediaItemKey(i) === state.current_item_key)
     : undefined;
   const currentKey = currentItem ? mediaItemKey(currentItem) : null;
   const currentWasPushed = !!currentKey && pushedKeys.has(currentKey);

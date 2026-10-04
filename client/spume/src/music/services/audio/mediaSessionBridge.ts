@@ -64,11 +64,11 @@ let installed = false;
 // from the song queue path.
 let externalActive = false;
 
-// last `current_sha256` we observed in the metadata effect. used to
+// last `current_item_key` we observed in the metadata effect. used to
 // detect track transitions so we can defensively reclaim the session
 // from any stale external owner — song playback always wins on a
 // real track change.
-let lastSeenCurrentSha256: string | null = null;
+let lastSeenCurrentItemKey: string | null = null;
 
 // suppress action handlers during intentional reload (blob URL refresh
 // in the html backend). the html backend toggles this flag via
@@ -152,7 +152,7 @@ export function installMediaSessionBridge(): void {
     // changes. async because we resolve artwork via the data source.
     createEffect(
       on(
-        () => appState()?.current_sha256 ?? null,
+        () => appState()?.current_item_key ?? null,
         (sha, prevSha) => {
           // `on()` reruns whenever the tracked signal is written at all,
           // even if the derived value is unchanged (appState() gets a
@@ -173,7 +173,7 @@ export function installMediaSessionBridge(): void {
       on(isPlaying, (playing) => {
         if (externalActive) return;
         if (!("mediaSession" in navigator)) return;
-        if (!appState()?.current_sha256) return;
+        if (!appState()?.current_item_key) return;
         navigator.mediaSession.playbackState = playing ? "playing" : "paused";
       })
     );
@@ -188,9 +188,9 @@ export function installMediaSessionBridge(): void {
       on(
         () => {
           const state = appState();
-          if (!state?.current_sha256) return null;
+          if (!state?.current_item_key) return null;
           const item = state.queue.find(
-            (i) => i.kind === "song" && songIdentityKey(i.song) === state.current_sha256
+            (i) => i.kind === "song" && songIdentityKey(i.song) === state.current_item_key
           );
           if (!item || item.kind !== "song") return false;
           return item.song.is_favorite ?? false;
@@ -210,7 +210,7 @@ export function installMediaSessionBridge(): void {
       on([currentTime, duration], ([t, d]) => {
         if (externalActive) return;
         if (!("mediaSession" in navigator)) return;
-        if (!appState()?.current_sha256) return;
+        if (!appState()?.current_item_key) return;
         if (!Number.isFinite(d) || d <= 0) return;
         try {
           navigator.mediaSession.setPositionState({
@@ -440,24 +440,24 @@ async function refreshMetadata(): Promise<void> {
   }
   const state = appState();
   if (!state) return;
-  const { queue, current_sha256 } = state;
+  const { queue, current_item_key: currentItemKey } = state;
 
   // defensive: if the active song id changed, music playback has
   // advanced — reclaim the media session from any stale external owner.
   // radio keeps its own long-lived external session across per-track
   // transitions, so don't clear it while a station is tuned.
-  if (current_sha256 && current_sha256 !== lastSeenCurrentSha256) {
+  if (currentItemKey && currentItemKey !== lastSeenCurrentItemKey) {
     if (!currentRadioStation()) {
       externalActive = false;
     }
   }
-  lastSeenCurrentSha256 = current_sha256 ?? null;
+  lastSeenCurrentItemKey = currentItemKey ?? null;
 
   // skip local song queue metadata when an external source has the
   // session.
   if (externalActive) return;
 
-  if (!current_sha256) {
+  if (!currentItemKey) {
     navigator.mediaSession.metadata = null;
     navigator.mediaSession.playbackState = "none";
     void clearMediaSessionTrack();
@@ -465,18 +465,18 @@ async function refreshMetadata(): Promise<void> {
   }
 
   // check queue first to avoid fetching from the wrong remote.
-  const queuedItem = queue.find((i) => mediaItemKey(i) === current_sha256);
+  const queuedItem = queue.find((i) => mediaItemKey(i) === currentItemKey);
   let song: Song | undefined = queuedItem?.kind === "song" ? queuedItem.song : undefined;
   let video: QueuedVideo | undefined = queuedItem?.kind === "video" ? queuedItem.video : undefined;
 
   if (!song && !video) {
     if (resolveSongById) {
-      song = (await resolveSongById(current_sha256)) ?? undefined;
+      song = (await resolveSongById(currentItemKey)) ?? undefined;
     }
     if (!song) {
       video =
         (await getVideoDataSource()
-          .getVideoById(current_sha256)
+          .getVideoById(currentItemKey)
           .catch(() => null)) ?? undefined;
     }
   }
@@ -537,7 +537,7 @@ async function refreshMetadata(): Promise<void> {
     ? await getLocalArtworkFilePath(song)
     : await getLocalPosterFilePathForVideo(video as QueuedVideo);
   void pushMediaSessionTrack({
-    id: current_sha256,
+    id: currentItemKey,
     title: song ? song.title : (video as QueuedVideo).title,
     artist: artist ?? "",
     album: album ?? "",

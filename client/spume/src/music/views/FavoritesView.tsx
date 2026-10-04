@@ -143,7 +143,7 @@ export function FavoritesView(props: FavoritesViewProps) {
   };
 
   const handleSongFavoriteToggle = (songId: string, isFavorite: boolean) => {
-    const song = allFavorites().find((f) => f.type === "song" && (f as any).id === songId) as
+    const song = allFavorites().find((f) => f.type === "song" && f.id === songId) as
       Song | undefined;
     if (!song) return;
 

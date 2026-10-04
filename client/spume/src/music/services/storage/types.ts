@@ -159,7 +159,7 @@ export interface Song {
 export type NewSong = Omit<Song, "id">;
 
 /** canonical cross-song identity key for QUEUE/"currently playing" purposes
- * (mediaItemKey, appState().current_sha256, row-highlight comparisons,
+ * (mediaItemKey, appState().current_item_key, row-highlight comparisons,
  * load guards): `sha256` if present, else `id`. a fresh local import
  * leaves `sha256` as `""` (see fileProcessor.ts) - `id` (always unique,
  * always present) is the fallback so two DIFFERENT freshly-imported songs
@@ -167,7 +167,7 @@ export type NewSong = Omit<Song, "id">;
  * comparisons do, since they all share the same `""`).
  *
  * deliberately does NOT prefer `blake3` the way audioAccess.ts's
- * `songTrackingKey` does - `mediaItemKey`/`current_sha256` are meant to be
+ * `songTrackingKey` does - `mediaItemKey`/`current_item_key` are meant to be
  * a stable LOCAL identity, kept intentionally distinct from content-hash
  * identity (see `mediaItemBlake3` in app/services/storage/mediaItem.ts and
  * remotePlaybackControl.ts's queue-reconciliation tests, which rely on

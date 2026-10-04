@@ -3,7 +3,7 @@
 // KNOWN REMAINING GAP (sha256->blake3 deprecation): this file's own
 // `activeBlobURLs`/`directURLSongs`/`directURLSet` are keyed by
 // `songTrackingKey(song)` (blake3 || sha256 || id) everywhere in THIS
-// file. but `appState().current_sha256` - written by htmlAudio.ts/
+// file. but `appState().current_item_key` - written by htmlAudio.ts/
 // libmpvBackend.ts and read by mediaSessionBridge.ts, playbackOrchestrator.ts,
 // player.ts, queue/*, mediaItemKey, and the "currently playing" row
 // highlight in VirtualSongList/PlaylistSongRow/AlbumDetailView/ArtistsView -

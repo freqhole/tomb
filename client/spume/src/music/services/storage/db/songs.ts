@@ -1,5 +1,6 @@
 // song CRUD operations
 import { initMusicDB } from "./init";
+import { getAlbumById } from "./albums";
 import type { NewSong, Song } from "../types";
 import { STORE_SONGS } from "../types";
 import { generateUUID } from "../../../../utils/uuid";
@@ -117,20 +118,11 @@ async function syncAlbumFields(albumId: string): Promise<void> {
   // compute album_added_at: earliest added_at
   const albumAddedAt = Math.min(...allSongsInAlbum.map((s) => s.added_at));
 
-  // compute album_primary_genre_id: most common genre (or null)
-  const genreCounts = new Map<string | null, number>();
-  for (const song of allSongsInAlbum) {
-    const genreId = (song as any).genre_id || null;
-    genreCounts.set(genreId, (genreCounts.get(genreId) || 0) + 1);
-  }
-  let albumPrimaryGenreId: string | null = null;
-  let maxCount = 0;
-  for (const [genreId, count] of genreCounts) {
-    if (count > maxCount) {
-      maxCount = count;
-      albumPrimaryGenreId = genreId;
-    }
-  }
+  // genre lives on the album row, not per-song (`Song` has no `genre_id`
+  // field) - read it directly, same as queries.ts's query-time enrichment
+  // does, rather than "voting" across songs for a field that doesn't exist.
+  const album = await getAlbumById(albumId);
+  const albumPrimaryGenreId = album?.genre_id ?? null;
 
   // update all songs in album with synced values
   const tx = db.transaction(STORE_SONGS, "readwrite");

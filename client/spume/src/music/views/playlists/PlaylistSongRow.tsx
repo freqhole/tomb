@@ -51,7 +51,7 @@ export function PlaylistSongRow(props: PlaylistSongRowProps) {
       index={props.index}
       isDragging={props.isDragging}
       isDropTarget={props.isDropTarget}
-      isPlaying={appState()?.current_sha256 === songIdentityKey(song)}
+      isPlaying={appState()?.current_item_key === songIdentityKey(song)}
       onDragStart={props.onDragStart}
       onDragOver={props.onDragOver}
       onDragLeave={props.onDragLeave}

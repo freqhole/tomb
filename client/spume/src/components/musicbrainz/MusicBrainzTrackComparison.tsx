@@ -32,7 +32,11 @@ export type ComparisonSong = Pick<
 export interface TrackMatch {
   discNumber: number;
   trackNumber: number;
-  mbTrack: MbTrack | null;
+  /** disc-qualified mb track (see `allMbTracks`'s `_disc` field - a real
+   *  mb release can repeat track positions across multiple discs, so
+   *  matching needs the disc number too even though `MbTrack` itself
+   *  doesn't carry one). */
+  mbTrack: (MbTrack & { _disc: number }) | null;
   fhSong: ComparisonSong | null;
 }
 
@@ -149,13 +153,11 @@ export function MusicBrainzTrackComparison(props: MusicBrainzTrackComparisonProp
       .filter((m) => m.fhSong)
       .map((m) => ({
         localId: m.fhSong!.id,
-        mbId: m.mbTrack
-          ? `${(m.mbTrack as any)._disc || m.discNumber}:${m.mbTrack.position}`
-          : null,
+        mbId: m.mbTrack ? `${m.mbTrack._disc || m.discNumber}:${m.mbTrack.position}` : null,
       }));
     const fuzzyPairs = fuzzyMatches().map((m) => ({
       localId: m.fhSong!.id,
-      mbId: m.mbTrack ? `${(m.mbTrack as any)._disc}:${m.mbTrack.position}` : null,
+      mbId: m.mbTrack ? `${m.mbTrack._disc}:${m.mbTrack.position}` : null,
     }));
     return detectMismatch(posPairs, fuzzyPairs);
   });
@@ -200,7 +202,7 @@ export function MusicBrainzTrackComparison(props: MusicBrainzTrackComparisonProp
         track_number: trackNumber,
         disc_number: discNumber,
         track_artist: trackArtist,
-      } as any);
+      });
       if (!resp.success) {
         throw new Error(resp.error?.message ?? "updateSongs failed");
       }
@@ -235,7 +237,7 @@ export function MusicBrainzTrackComparison(props: MusicBrainzTrackComparisonProp
         match.fhSong.id,
         mbTrack.title || null,
         mbTrack.position ?? null,
-        (mbTrack as any)._disc ?? match.discNumber ?? null,
+        mbTrack._disc ?? match.discNumber ?? null,
         trackArtistValue
       );
       props.onAlbumUpdated();
@@ -270,7 +272,7 @@ export function MusicBrainzTrackComparison(props: MusicBrainzTrackComparisonProp
             m.fhSong.id,
             m.mbTrack.title || null,
             m.mbTrack.position ?? null,
-            (m.mbTrack as any)._disc ?? m.discNumber ?? null,
+            m.mbTrack._disc ?? m.discNumber ?? null,
             trackArtistValue
           );
           updated += 1;
@@ -347,7 +349,7 @@ export function MusicBrainzTrackComparison(props: MusicBrainzTrackComparisonProp
             const isFuzzy = () => matchMode() === "fuzzy";
             const currentMbKey = () => {
               if (!match.mbTrack) return "";
-              return `${(match.mbTrack as any)._disc || match.discNumber}:${match.mbTrack.position}`;
+              return `${match.mbTrack._disc || match.discNumber}:${match.mbTrack.position}`;
             };
             return (
               <div

@@ -72,7 +72,7 @@ beforeEach(() => {
   resetRemoteStatus();
   state = {
     queue: [song("s1", "b1"), song("s2", "b2"), video("v1", "b3")],
-    current_sha256: "s1",
+    current_item_key: "s1",
   } as AppState;
 });
 
@@ -100,7 +100,7 @@ describe("pruneLocalQueueAfterSuccessfulPush (isReplace: true - a real handoff)"
     // this regardless of whether/what the wire hash was.
     state = {
       queue: [song("s1", "b1"), video("v-no-hash", null)],
-      current_sha256: "s1",
+      current_item_key: "s1",
     } as AppState;
     pruneLocalQueueAfterSuccessfulPush([pushed("v-no-hash", "freshly-computed-hash")], true);
     const kept = setQueueMock.mock.calls[0][0] as MediaItem[];
@@ -166,7 +166,7 @@ describe("pruneLocalQueueAfterSuccessfulPush (isReplace: false - append, no hand
   it("drains an appended video with no local blake3, matching by key", async () => {
     state = {
       queue: [song("s1", "b1"), video("v-no-hash", null)],
-      current_sha256: "s1",
+      current_item_key: "s1",
     } as AppState;
     pruneLocalQueueAfterSuccessfulPush([pushed("v-no-hash", "freshly-computed-hash")], false);
     const kept = setQueueMock.mock.calls[0][0] as MediaItem[];

@@ -206,7 +206,7 @@ export function reconnectProgressTracking(): void {
   if (activeHistoryEntryId()) return;
 
   const state = appState();
-  if (!state || !state.queue.length || !state.current_sha256) return;
+  if (!state || !state.queue.length || !state.current_item_key) return;
 
   const history = queueHistory();
   if (!history.length) return;
@@ -224,7 +224,7 @@ export function reconnectProgressTracking(): void {
   if (!entry) return;
 
   // set the visual position in the player bar (without starting playback)
-  const currentSong = queueSongs.find((s) => songIdentityKey(s) === state.current_sha256);
+  const currentSong = queueSongs.find((s) => songIdentityKey(s) === state.current_item_key);
   if (currentSong && entry.current_song_position > 0) {
     setVisualPosition(entry.current_song_position, currentSong.duration_seconds ?? undefined);
   }

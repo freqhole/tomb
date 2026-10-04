@@ -9,7 +9,7 @@
 // whatever happens to be first in the queue, regardless of whether
 // anything is actually loading. The main app's own QueueSidebar.tsx/
 // AppLayout.tsx get this right already: `isUpNext` should mirror
-// `pendingUpNextSha256()` (see playerState.ts's doc comment - "a
+// `pendingUpNextItemKey()` (see playerState.ts's doc comment - "a
 // DIFFERENT song is downloading, shows spinner") - true only for the one
 // specific item currently being prepared to auto-advance into, false the
 // rest of the time (including whenever nothing is preloading at all).

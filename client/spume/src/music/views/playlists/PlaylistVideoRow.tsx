@@ -85,7 +85,7 @@ export function PlaylistVideoRow(props: PlaylistVideoRowProps) {
       index={props.index}
       isDragging={props.isDragging}
       isDropTarget={props.isDropTarget}
-      isPlaying={appState()?.current_sha256 === videoItem.video.id}
+      isPlaying={appState()?.current_item_key === videoItem.video.id}
       onDragStart={props.onDragStart}
       onDragOver={props.onDragOver}
       onDragLeave={props.onDragLeave}

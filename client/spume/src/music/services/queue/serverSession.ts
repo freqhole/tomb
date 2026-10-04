@@ -261,7 +261,7 @@ export async function createServerSessions(
         remoteSessions.set(remoteId, session);
         created.set(remoteId, result.data.id);
       } else {
-        errorLog("queue.session", `create session failed on ${remoteId}:`, (result as any).error);
+        errorLog("queue.session", `create session failed on ${remoteId}:`, result.error);
       }
     } catch (error) {
       errorLog("queue.session", `create session threw on ${remoteId}:`, error);

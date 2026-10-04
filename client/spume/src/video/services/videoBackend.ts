@@ -27,8 +27,8 @@ import { error as errorLog, debug } from "../../utils/logger";
 import { registerWatchdog } from "../../music/services/audio/mediaSessionBridge";
 import {
   isPlaying,
-  pendingUpNextSha256,
-  setPendingUpNextSha256,
+  pendingUpNextItemKey,
+  setPendingUpNextItemKey,
 } from "../../music/services/audio/playerState";
 import {
   addToLoadingSet,
@@ -220,12 +220,12 @@ export class VideoBackend implements PlayerBackend {
       }
     };
 
-    // mirrors htmlAudio.ts's `setPendingUpNextSha256` — `setCurrentSong`
-    // below (which is what AppLayout's `currentVideoData`/`current_sha256`
+    // mirrors htmlAudio.ts's `setPendingUpNextItemKey` — `setCurrentSong`
+    // below (which is what AppLayout's `currentVideoData`/`current_item_key`
     // reads react to) only happens *after* the fetch resolves, so without
     // this the playerbar's `mediaTransferProgress` memo has no id to look
     // up while the download is actually in flight.
-    setPendingUpNextSha256(video.id);
+    setPendingUpNextItemKey(video.id);
 
     let url: string;
     try {
@@ -243,8 +243,8 @@ export class VideoBackend implements PlayerBackend {
         `getVideoURL failed for "${video.title}":`,
         err instanceof Error ? err.message : err
       );
-      if (pendingUpNextSha256() === video.id) {
-        setPendingUpNextSha256(null);
+      if (pendingUpNextItemKey() === video.id) {
+        setPendingUpNextItemKey(null);
       }
       this.emit({ kind: "state", state: "stopped" });
       throw err;
@@ -253,8 +253,8 @@ export class VideoBackend implements PlayerBackend {
     }
 
     // user may have switched to a different item while we were downloading.
-    if (pendingUpNextSha256() === video.id) {
-      setPendingUpNextSha256(null);
+    if (pendingUpNextItemKey() === video.id) {
+      setPendingUpNextItemKey(null);
     }
 
     // a second, later loadAndPlay call for a different (or duplicate)
@@ -275,7 +275,7 @@ export class VideoBackend implements PlayerBackend {
     console.info(`[video-window] html src=${url.slice(0, 24)}`);
     el.src = url;
 
-    // update app state — AppLayout/PlayerBar watch `current_sha256` to
+    // update app state — AppLayout/PlayerBar watch `current_item_key` to
     // decide whether the mini video player + video-aware bar UI show up;
     // without this the video plays (audio audible) but no video UI ever
     // appears, since nothing else in this path updates app state.

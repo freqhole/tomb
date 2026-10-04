@@ -4,7 +4,7 @@ import type { MediaItem, QueuedVideo } from "./mediaItem";
 
 export interface AppState {
   id: "app_state";
-  current_sha256: string | null; // currently playing song/video identity key
+  current_item_key: string | null; // currently playing song/video identity key
   queue: MediaItem[]; // array of songs/videos in play order
   queue_open: boolean; // whether queue sidebar is open
   active_remote_id: string | null; // currently active remote source id
@@ -51,6 +51,21 @@ export interface MiddenRelaySettings {
 // queue history entry — represents one "add to queue" action
 export type QueueHistorySourceType =
   "song" | "album" | "artist" | "genre" | "playlist" | "shuffle" | "radio_station";
+
+const QUEUE_HISTORY_SOURCE_TYPES: readonly QueueHistorySourceType[] = [
+  "song", "album", "artist", "genre", "playlist", "shuffle", "radio_station",
+];
+
+/** narrow a server-provided `session_type` string (open-ended on the wire)
+ *  down to `QueueHistorySourceType`, falling back to `"shuffle"` (the
+ *  closest "no specific entity" source type) for anything unrecognized -
+ *  e.g. a session type added server-side that this build predates. */
+export function toQueueHistorySourceType(sessionType: string): QueueHistorySourceType {
+  return (QUEUE_HISTORY_SOURCE_TYPES as readonly string[]).includes(sessionType)
+    ? (sessionType as QueueHistorySourceType)
+    : "shuffle";
+}
+
 
 // reference to a radio station stored in queue history
 export interface RadioStationRef {
@@ -190,7 +205,7 @@ export type { P2PIdentity } from "@freqhole/haruspex/identity";
 
 // database schema version
 export const APP_DB_NAME = "freqhole_app";
-export const APP_DB_VERSION = 13; // replaced paired_players/trusted_controllers with users/user_peer_nodes
+export const APP_DB_VERSION = 14; // one-time app_state data fixup: current_sha256->current_item_key rename + legacy queue item kind backfill, now done in upgrade() instead of on every load
 
 // app store names
 export const STORE_APP_STATE = "app_state"; // also stores P2PIdentity with id: "p2p_identity"

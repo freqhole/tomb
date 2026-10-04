@@ -23,10 +23,10 @@ export function hasPlaybackEnded(): boolean {
 export function canGoNext(): boolean {
   const state = appState();
   if (!state) return false;
-  const { queue, current_sha256 } = state;
+  const { queue, current_item_key: currentItemKey } = state;
   if (!queue.length) return false;
-  const currentIdx = current_sha256
-    ? queue.findIndex((i) => mediaItemKey(i) === current_sha256)
+  const currentIdx = currentItemKey
+    ? queue.findIndex((i) => mediaItemKey(i) === currentItemKey)
     : -1;
   return currentIdx >= 0 && currentIdx < queue.length - 1;
 }
@@ -34,10 +34,10 @@ export function canGoNext(): boolean {
 export function canGoPrevious(): boolean {
   const state = appState();
   if (!state) return false;
-  const { queue, current_sha256 } = state;
+  const { queue, current_item_key: currentItemKey } = state;
   if (!queue.length) return false;
-  const currentIdx = current_sha256
-    ? queue.findIndex((i) => mediaItemKey(i) === current_sha256)
+  const currentIdx = currentItemKey
+    ? queue.findIndex((i) => mediaItemKey(i) === currentItemKey)
     : -1;
   return currentIdx > 0;
 }

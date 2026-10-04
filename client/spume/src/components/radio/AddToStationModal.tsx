@@ -604,9 +604,9 @@ export function AddToStationModal() {
                           <div class="text-sm font-medium text-[var(--color-text-primary)] truncate">
                             {station.name}
                           </div>
-                          <Show when={(station as any).description}>
+                          <Show when={station.description}>
                             <div class="text-xs text-[var(--color-text-muted)] truncate">
-                              {(station as any).description}
+                              {station.description}
                             </div>
                           </Show>
                         </div>

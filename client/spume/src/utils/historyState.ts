@@ -53,8 +53,8 @@ export function useHistoryState<T>(
   ) as [Accessor<T>, Setter<T>];
 
   // wrap setter to also persist to history state
-  const persistedSetter = ((...args: any[]) => {
-    const result = (setValue as any)(...args);
+  const persistedSetter = ((...args: Parameters<Setter<T>>) => {
+    const result = setValue(...args);
     // read the new value after the signal update
     writeHistoryValue(key, value());
     return result;

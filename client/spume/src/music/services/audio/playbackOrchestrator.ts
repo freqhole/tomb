@@ -49,7 +49,7 @@ const MAX_DELTA_SECONDS = 5;
 const COMPLETION_THRESHOLD = 0.9;
 
 let installed = false;
-let lastTimeForSha: string | null = null;
+let lastTimeForItemKey: string | null = null;
 let lastTimeValue = 0;
 let completionRecordedFor: string | null = null;
 
@@ -67,12 +67,12 @@ export function installPlaybackOrchestrator(): void {
       const dur = duration();
       const state = appState();
       if (!state) return;
-      const { queue, current_sha256 } = state;
-      if (!current_sha256) return;
+      const { queue, current_item_key: currentItemKey } = state;
+      if (!currentItemKey) return;
 
       // reset per-song bookkeeping when the active song changes.
-      if (lastTimeForSha !== current_sha256) {
-        lastTimeForSha = current_sha256;
+      if (lastTimeForItemKey !== currentItemKey) {
+        lastTimeForItemKey = currentItemKey;
         lastTimeValue = ct;
         completionRecordedFor = null;
         return;
@@ -82,7 +82,7 @@ export function installPlaybackOrchestrator(): void {
       // note) - resolved against the song-only subset; null for a
       // currently-playing video, which just skips section 1 and 3 below.
       const queueSongs = songsOnly(queue);
-      const songIdx = queueSongs.findIndex((s) => songIdentityKey(s) === current_sha256);
+      const songIdx = queueSongs.findIndex((s) => songIdentityKey(s) === currentItemKey);
       const currentSong = songIdx >= 0 ? queueSongs[songIdx] : null;
 
       // 1. listen-history progress accumulation. only counts forward
@@ -109,7 +109,7 @@ export function installPlaybackOrchestrator(): void {
       // 2. per-queue-row visual fill - songs and videos both participate
       //    (queue_entry_id is assigned to every queue item regardless of
       //    kind; see withQueueEntryId in db.ts).
-      const currentItem = queue.find((i) => mediaItemKey(i) === current_sha256);
+      const currentItem = queue.find((i) => mediaItemKey(i) === currentItemKey);
       const currentQueueEntryId =
         currentItem?.kind === "song"
           ? currentItem.song.queue_entry_id
@@ -130,10 +130,10 @@ export function installPlaybackOrchestrator(): void {
       //    own history/completion mechanism (videoListenProgress.ts).
       if (
         currentSong &&
-        completionRecordedFor !== current_sha256 &&
+        completionRecordedFor !== currentItemKey &&
         progress >= COMPLETION_THRESHOLD
       ) {
-        completionRecordedFor = current_sha256;
+        completionRecordedFor = currentItemKey;
         if (activeHistoryEntryId()) {
           markSongCompleted(songIdx >= 0 ? songIdx : 0, currentSong);
         }

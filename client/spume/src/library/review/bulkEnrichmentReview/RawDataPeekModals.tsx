@@ -36,23 +36,27 @@ export function RawDataPeekModals(props: {
   };
   return (
     <>
-      <Show when={props.showLastFm && albumShim()}>
-        <LastFmReviewModal
-          isOpen={true}
-          onClose={props.onCloseLastFm}
-          album={albumShim() as any}
-          remote={props.remote}
-          isAdmin={props.isAdmin}
-        />
+      <Show when={props.showLastFm ? albumShim() : null}>
+        {(album) => (
+          <LastFmReviewModal
+            isOpen={true}
+            onClose={props.onCloseLastFm}
+            album={album()}
+            remote={props.remote}
+            isAdmin={props.isAdmin}
+          />
+        )}
       </Show>
-      <Show when={props.showAudioDb && albumShim()}>
-        <AudioDbReviewModal
-          isOpen={true}
-          onClose={props.onCloseAudioDb}
-          album={albumShim() as any}
-          remote={props.remote}
-          isAdmin={props.isAdmin}
-        />
+      <Show when={props.showAudioDb ? albumShim() : null}>
+        {(album) => (
+          <AudioDbReviewModal
+            isOpen={true}
+            onClose={props.onCloseAudioDb}
+            album={album()}
+            remote={props.remote}
+            isAdmin={props.isAdmin}
+          />
+        )}
       </Show>
     </>
   );

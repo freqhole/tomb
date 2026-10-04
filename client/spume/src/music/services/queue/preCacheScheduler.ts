@@ -27,7 +27,7 @@
 // was for some reason missed).
 //
 // **per-item debounce**: tracks `lastPreCachedFor` so each item only
-// triggers the pre-cache once. resets when `current_sha256` changes
+// triggers the pre-cache once. resets when `current_item_key` changes
 // in `appState`.
 
 import { createEffect, createRoot } from "solid-js";
@@ -62,11 +62,11 @@ export function installPreCacheScheduler(): void {
       const d = duration();
       const state = appState();
       if (!state) return;
-      const { queue, current_sha256 } = state;
-      if (!current_sha256 || !queue.length) return;
+      const { queue, current_item_key: currentItemKey } = state;
+      if (!currentItemKey || !queue.length) return;
 
       // reset the per-song debounce when the active song changes.
-      if (current_sha256 !== lastPreCachedFor) {
+      if (currentItemKey !== lastPreCachedFor) {
         // active song changed — clear the debounce so the new song
         // can trigger. don't pre-cache yet; wait for progress.
         if (lastPreCachedFor !== null) {
@@ -75,7 +75,7 @@ export function installPreCacheScheduler(): void {
       }
 
       // already pre-cached for this song.
-      if (lastPreCachedFor === current_sha256) return;
+      if (lastPreCachedFor === currentItemKey) return;
 
       // need a meaningful duration to compute progress.
       if (!Number.isFinite(d) || d <= 0) return;
@@ -83,9 +83,9 @@ export function installPreCacheScheduler(): void {
       const progress = t / d;
       if (progress < PRE_CACHE_TRIGGER_FRACTION) return;
 
-      lastPreCachedFor = current_sha256;
+      lastPreCachedFor = currentItemKey;
       debug("player", "pre-caching next media (progress-based backstop)");
-      triggerPreCache(queue, current_sha256);
+      triggerPreCache(queue, currentItemKey);
     });
   });
 }

@@ -5,6 +5,7 @@ import { createEffect, createMemo, createSignal, on, onCleanup, Show } from "sol
 import { confirm } from "../../app/services/confirmState";
 import { clearPageInfo, setPageInfo, type FeedTypeFilter } from "../../app/services/pageInfo";
 import { appState } from "../../app/services/storage/db";
+import { toQueueHistorySourceType } from "../../app/services/storage/types";
 import { isRadioPlayerBarActive } from "../../app/services/radio/radioService";
 import { isNarrowViewport, getPlayerBarHeightPx } from "../../config/breakpoints";
 import { Button } from "../../components/buttons/Button";
@@ -337,7 +338,7 @@ export function FeedView() {
           skipServerSession: true,
           resumeProgress,
           source: {
-            type: session.session_type as any,
+            type: toQueueHistorySourceType(session.session_type),
             label: session.label,
             entity_id: session.entity_id ?? undefined,
           },
@@ -364,7 +365,7 @@ export function FeedView() {
         // completed — start fresh as a new session
         await playQueue(mediaItems, {
           source: {
-            type: session.session_type as any,
+            type: toQueueHistorySourceType(session.session_type),
             label: session.label,
             entity_id: session.entity_id ?? undefined,
           },
@@ -402,7 +403,7 @@ export function FeedView() {
 
       await playQueue(mediaItems, {
         source: {
-          type: session.session_type as any,
+          type: toQueueHistorySourceType(session.session_type),
           label: session.label,
           entity_id: session.entity_id ?? undefined,
         },
@@ -692,7 +693,7 @@ export function FeedView() {
                 const mediaItems = await fetchMediaItemsForSession(session);
                 if (mediaItems.length > 0) {
                   await addToQueue(mediaItems, {
-                    source: { type: session.session_type as any, label: item.title },
+                    source: { type: toQueueHistorySourceType(session.session_type), label: item.title },
                   });
                 }
               }

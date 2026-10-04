@@ -104,7 +104,7 @@ export class VideoWindowBackend implements PlayerBackend {
     console.info(`[video-window] loading ${item.video.id} from ${path}`);
     this.emit({ kind: "state", state: "loading" });
 
-    // update app state - AppLayout/PlayerBar watch `current_sha256` to
+    // update app state - AppLayout/PlayerBar watch `current_item_key` to
     // decide whether the video-aware bar UI (title/images/waveform/"no song
     // playing") shows up; `videoBackend.ts` (the inline <video> path) already
     // does this, and this libmpv-window path mirrors it - see videoBackend.ts's

@@ -45,7 +45,7 @@ import {
   currentTime,
   duration,
   isPlaying as isPlayingSignal,
-  setPendingUpNextSha256,
+  setPendingUpNextItemKey,
 } from "./playerState";
 import { debug, warn } from "../../../utils/logger";
 import { decidePlayAction } from "./decidePlayAction";
@@ -199,7 +199,7 @@ registerMediaActions(
 // same data-source call the in-app heart button uses.
 async function toggleCurrentSongFavorite(): Promise<void> {
   const state = appState();
-  const sha256 = state?.current_sha256;
+  const sha256 = state?.current_item_key;
   if (!sha256) return;
   const queuedItem = state.queue.find(
     (i) => i.kind === "song" && songIdentityKey(i.song) === sha256
@@ -278,7 +278,7 @@ function bindAutoAdvance(backend: PlayerBackend): void {
   autoAdvanceUnsubscribe = backend.subscribe((event) => {
     if (event.kind === "ended") {
       debug("player", `backend "${backend.kind}" ended — advancing queue`);
-      const endedKey = appState()?.current_sha256 ?? null;
+      const endedKey = appState()?.current_item_key ?? null;
       void playNext().then(() => {
         // drop-from-queue-on-finish is cenotaph-player-only (this device
         // being actively controlled as a /player) - regular standalone
@@ -310,7 +310,7 @@ function bindAutoAdvance(backend: PlayerBackend): void {
       // track once (after a short delay) before giving up on it.
       if (errorType && NETWORK_ELEMENT_ERROR_TYPES.has(errorType)) {
         const state = appState();
-        const current = state?.current_sha256 ?? null;
+        const current = state?.current_item_key ?? null;
         const item = current ? state?.queue.find((i) => mediaItemKey(i) === current) : undefined;
         if (current && item && networkRetriedKey !== current) {
           networkRetriedKey = current;
@@ -337,7 +337,7 @@ function bindAutoAdvance(backend: PlayerBackend): void {
       // itself is bad), so call that out distinctly rather than
       // implying a retry would help.
       const state = appState();
-      const current = state?.current_sha256 ?? null;
+      const current = state?.current_item_key ?? null;
       const item = current ? state?.queue.find((i) => mediaItemKey(i) === current) : undefined;
       const title = item ? (item.kind === "video" ? item.video.title : item.song.title) : null;
       if (errorType && DECODE_ELEMENT_ERROR_TYPES.has(errorType)) {
@@ -365,7 +365,7 @@ function bindAutoAdvance(backend: PlayerBackend): void {
 // the one now playing. mirrors queue.ts's removeFromQueue's tail (history/
 // server-session sync) but skips its "removing the current item" branch,
 // since by this point the ended item is never current anymore (playNext()
-// either moved current_sha256 on, or left it pointing at endedKey only
+// either moved current_item_key on, or left it pointing at endedKey only
 // because the queue had nothing left to advance to).
 async function removeEndedItemFromQueue(endedKey: string): Promise<void> {
   const state = appState();
@@ -374,8 +374,8 @@ async function removeEndedItemFromQueue(endedKey: string): Promise<void> {
   if (idx === -1) return;
 
   const removedItem = state.queue[idx];
-  const currentIdx = state.current_sha256
-    ? state.queue.findIndex((i) => mediaItemKey(i) === state.current_sha256)
+  const currentIdx = state.current_item_key
+    ? state.queue.findIndex((i) => mediaItemKey(i) === state.current_item_key)
     : -1;
   mirrorRemoveFromQueue(idx, currentIdx);
 
@@ -386,8 +386,8 @@ async function removeEndedItemFromQueue(endedKey: string): Promise<void> {
   if (removedEntryId) clearQueueItemProgress(removedEntryId);
 
   // the ended item was the last one — nothing was left to advance to, so
-  // current_sha256 still points at it.
-  if (state.current_sha256 === endedKey && newQueue.length === 0) {
+  // current_item_key still points at it.
+  if (state.current_item_key === endedKey && newQueue.length === 0) {
     await setCurrentSong(null);
   }
 
@@ -585,7 +585,7 @@ export async function playSong(
           "player",
           `libmpv remote fetch failed for "${song.title}" — retrying once before giving up: ${err.message}`
         );
-        setPendingUpNextSha256(null);
+        setPendingUpNextItemKey(null);
         setTimeout(() => {
           void playSong(song, { ...options, userInitiated: false }).catch((retryErr) => {
             warn(
@@ -619,7 +619,7 @@ export async function playSong(
       );
     }
     // make sure the pending-up-next spinner doesn't get stuck.
-    setPendingUpNextSha256(null);
+    setPendingUpNextItemKey(null);
     throw err;
   }
 }
@@ -663,7 +663,7 @@ export async function playVideo(
     const backend = ensureBackendForKind("video");
     await backend.loadAndPlay(videoToMediaItem(video), { ...options, autoPlay, loadGeneration });
   } catch (err) {
-    setPendingUpNextSha256(null);
+    setPendingUpNextItemKey(null);
     throw err;
   }
 }
@@ -703,7 +703,7 @@ export async function playMediaItem(
 /** the active backend has nothing loaded (fresh page load / cenotaph
  * player mount against an already-populated persisted queue, or a
  * "resume" command arriving before anything was ever explicitly played
- * this session) - pulls `current_sha256` (page-reload case) or the queue
+ * this session) - pulls `current_item_key` (page-reload case) or the queue
  * head and routes through `playMediaItem`/`playSong`, which handle
  * loading. shared by `togglePlayback()` and `play()` below, which both
  * hit this same "backend snapshot says nothing resumable is loaded"
@@ -714,22 +714,22 @@ async function loadCurrentQueueItemAndPlay(caller: string): Promise<void> {
     warn("player", `${caller}: no app state`);
     return;
   }
-  const { queue, current_sha256 } = state;
+  const { queue, current_item_key: currentItemKey } = state;
   const ct = currentTime();
   const dur = duration();
   const initialPosition = ct > 0 ? ct : undefined;
   const initialDuration = dur > 0 ? dur : undefined;
   console.info("[video-resume-diag] loadCurrentQueueItemAndPlay", {
     caller,
-    current_sha256,
+    currentItemKey,
     ct,
     dur,
     initialPosition,
     initialDuration,
   });
 
-  if (current_sha256) {
-    const currentItem = queue.find((i) => mediaItemKey(i) === current_sha256);
+  if (currentItemKey) {
+    const currentItem = queue.find((i) => mediaItemKey(i) === currentItemKey);
     if (currentItem) {
       await playMediaItem(currentItem, {
         userInitiated: true,
@@ -739,8 +739,8 @@ async function loadCurrentQueueItemAndPlay(caller: string): Promise<void> {
       return;
     }
     // fallback: no matching queue item (e.g. queue was cleared but
-    // current_sha256 still points at a song) — resolve by id.
-    await playSong(current_sha256, {
+    // current_item_key still points at a song) — resolve by id.
+    await playSong(currentItemKey, {
       userInitiated: true,
       initialPosition,
       initialDuration,
@@ -791,7 +791,7 @@ export async function togglePlayback(source: "ui" | "mediaSession" = "ui"): Prom
     }
   }
 
-  // nothing playable loaded — pull current_sha256 (page-reload case)
+  // nothing playable loaded — pull current_item_key (page-reload case)
   // or queue head, and route through `playSong` which handles loading.
   await loadCurrentQueueItemAndPlay("togglePlayback");
 }
@@ -941,7 +941,7 @@ export async function playNext(): Promise<void> {
   const _dbgState = appState();
   debug(
     "player",
-    `playNext: queueLen=${_dbgState?.queue.length ?? 0} current=${_dbgState?.current_sha256?.slice(0, 8) ?? null} canGoNext=${canGoNext()}`
+    `playNext: queueLen=${_dbgState?.queue.length ?? 0} current=${_dbgState?.current_item_key?.slice(0, 8) ?? null} canGoNext=${canGoNext()}`
   );
   if (!canGoNext()) {
     debug("player", "playNext: queue empty — marking playback ended");
@@ -955,8 +955,8 @@ export async function playNext(): Promise<void> {
   }
   const state = appState();
   if (!state) return;
-  const { queue, current_sha256 } = state;
-  let currentIdx = current_sha256 ? queue.findIndex((i) => mediaItemKey(i) === current_sha256) : -1;
+  const { queue, current_item_key: currentItemKey } = state;
+  let currentIdx = currentItemKey ? queue.findIndex((i) => mediaItemKey(i) === currentItemKey) : -1;
 
   let attempts = 0;
   while (currentIdx < queue.length - 1 && attempts < PLAY_NEXT_MAX_ATTEMPTS) {
@@ -1017,9 +1017,9 @@ export async function playNext(): Promise<void> {
 export async function playPrevious(): Promise<void> {
   const state = appState();
   if (!state) return;
-  const { queue, current_sha256 } = state;
-  const currentIdx = current_sha256
-    ? queue.findIndex((i) => mediaItemKey(i) === current_sha256)
+  const { queue, current_item_key: currentItemKey } = state;
+  const currentIdx = currentItemKey
+    ? queue.findIndex((i) => mediaItemKey(i) === currentItemKey)
     : -1;
   const prevIdx = currentIdx - 1;
   if (prevIdx >= 0) {
@@ -1048,7 +1048,7 @@ export {
   duration,
   isLoading,
   isPlaying,
-  pendingUpNextSha256,
+  pendingUpNextItemKey,
   volume,
   setVisualPosition,
   clearPendingUpNext,

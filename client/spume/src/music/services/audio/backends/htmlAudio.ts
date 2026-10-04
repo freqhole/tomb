@@ -55,8 +55,8 @@ import { mirrorVolumeToRadio } from "../../../../app/services/playbackCoordinato
 import { registerWatchdog } from "../mediaSessionBridge";
 import {
   isPlaying,
-  pendingUpNextSha256,
-  setPendingUpNextSha256,
+  pendingUpNextItemKey,
+  setPendingUpNextItemKey,
   setVolume,
   volume,
 } from "../playerState";
@@ -282,7 +282,7 @@ export class HtmlAudioBackend implements PlayerBackend {
       // current song info. keyed by songIdentityKey, not raw sha256 - two
       // different freshly-imported local songs can both have sha256 "".
       const songKey = songIdentityKey(song);
-      setPendingUpNextSha256(songKey);
+      setPendingUpNextItemKey(songKey);
       debug("player", `pending up next: "${song.title}" (${songKey.slice(0, 8)}...)`);
 
       // NOTE: we intentionally don't pre-cache here when user clicks a song.
@@ -301,8 +301,8 @@ export class HtmlAudioBackend implements PlayerBackend {
           urlError instanceof Error ? urlError.message : urlError
         );
         alreadyLogged = true;
-        if (pendingUpNextSha256() === songKey) {
-          setPendingUpNextSha256(null);
+        if (pendingUpNextItemKey() === songKey) {
+          setPendingUpNextItemKey(null);
         }
         throw urlError;
       }
@@ -314,13 +314,13 @@ export class HtmlAudioBackend implements PlayerBackend {
 
       // verify this song is still the pending one — user may have
       // selected a different song while we were downloading.
-      if (pendingUpNextSha256() !== songKey) {
+      if (pendingUpNextItemKey() !== songKey) {
         debug("player", "aborting playSong - user switched to different song during download");
         return;
       }
 
       // download complete! clear pending state first.
-      setPendingUpNextSha256(null);
+      setPendingUpNextItemKey(null);
 
       // cleanup previous audio url and any pending swap listener — but
       // only if switching to a different song (replaying the same song
@@ -363,8 +363,8 @@ export class HtmlAudioBackend implements PlayerBackend {
       // entire load to completion. checking only after setCurrentSong
       // previously let a stale call's setCurrentSong(song.sha256) fire
       // AFTER a genuinely-current newer call had already set
-      // current_sha256 + audio.src correctly, silently overwriting
-      // current_sha256 back to a song this audio element was never
+      // current_item_key + audio.src correctly, silently overwriting
+      // current_item_key back to a song this audio element was never
       // actually loading — the ui would show that (stale) song as
       // "current" while the audio element kept playing whatever the
       // PREVIOUS song was. from here to `audio.src = audioURL` below is
@@ -533,10 +533,10 @@ export class HtmlAudioBackend implements PlayerBackend {
       // from the cache for the currently-loaded song before giving up.
       if (!audio.src.startsWith("blob:")) throw playError;
       const state = appState();
-      const current_sha256 = state?.current_sha256;
-      if (!current_sha256) throw playError;
+      const currentItemKey = state?.current_item_key;
+      if (!currentItemKey) throw playError;
       const songInQueue = state?.queue.find(
-        (i) => i.kind === "song" && songIdentityKey(i.song) === current_sha256
+        (i) => i.kind === "song" && songIdentityKey(i.song) === currentItemKey
       );
       if (!songInQueue || songInQueue.kind !== "song") throw playError;
       const freshURL = await refreshBlobURL(songInQueue.song);
@@ -595,7 +595,7 @@ export class HtmlAudioBackend implements PlayerBackend {
     const wasPlaying = isPlaying();
     const state = appState();
     const song = state?.queue.find(
-      (i) => i.kind === "song" && songIdentityKey(i.song) === state.current_sha256
+      (i) => i.kind === "song" && songIdentityKey(i.song) === state.current_item_key
     );
     const isFlac =
       song?.kind === "song" && (song.song.mime_type ?? "").toLowerCase().includes("flac");
@@ -665,7 +665,7 @@ export class HtmlAudioBackend implements PlayerBackend {
       cleanupAudioURL(this.currentSongId);
       this.currentSongId = null;
     }
-    setPendingUpNextSha256(null);
+    setPendingUpNextItemKey(null);
   }
 
   // mediasession external takeover (radio etc.) ============================
@@ -754,7 +754,7 @@ export class HtmlAudioBackend implements PlayerBackend {
     // playback started
     audio.addEventListener("play", () => {
       const state = appState();
-      if (this.currentSongId && state?.current_sha256 !== this.currentSongId) {
+      if (this.currentSongId && state?.current_item_key !== this.currentSongId) {
         void setCurrentSong(this.currentSongId);
       }
       this.emit({ kind: "state", state: "playing" });
@@ -872,7 +872,7 @@ export class HtmlAudioBackend implements PlayerBackend {
   }
 
   // mediaSession metadata + action-handler registration is owned by
-  // `mediaSessionBridge`. it observes `appState().current_sha256`,
+  // `mediaSessionBridge`. it observes `appState().current_item_key`,
   // `isPlaying`, `currentTime`, and `duration` directly, so this
   // backend doesn't need to push anything explicitly.
 
@@ -901,39 +901,39 @@ export class HtmlAudioBackend implements PlayerBackend {
 
     const state = appState();
     if (!state) return;
-    const { current_sha256 } = state;
-    if (!current_sha256) return;
+    const { current_item_key: currentItemKey } = state;
+    if (!currentItemKey) return;
 
     // only attempt if the song is currently using a direct URL
-    if (!isPlayingDirectURL(current_sha256)) {
+    if (!isPlayingDirectURL(currentItemKey)) {
       debug(
         "player.html",
         "trySwapCurrentSongToCached: not a direct-url song, no-op",
-        current_sha256.slice(0, 8)
+        currentItemKey.slice(0, 8)
       );
       return;
     }
 
-    debug("player.html", "trySwapCurrentSongToCached: attempting swap", current_sha256.slice(0, 8));
-    const cachedURL = await trySwapToCachedURL(current_sha256);
+    debug("player.html", "trySwapCurrentSongToCached: attempting swap", currentItemKey.slice(0, 8));
+    const cachedURL = await trySwapToCachedURL(currentItemKey);
     if (!cachedURL) {
       debug(
         "player.html",
         "trySwapCurrentSongToCached: no cached url available yet",
-        current_sha256.slice(0, 8)
+        currentItemKey.slice(0, 8)
       );
       return;
     }
 
     // double-check same song before swapping
     const currentState = appState();
-    if (!currentState || currentState.current_sha256 !== current_sha256) {
+    if (!currentState || currentState.current_item_key !== currentItemKey) {
       return;
     }
 
     // save current position before swapping src
     const savedTime = audio.currentTime;
-    const swapSongId = current_sha256;
+    const swapSongId = currentItemKey;
 
     // clean up any previous swap listener
     if (this.pendingSwapCleanup) {

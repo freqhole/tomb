@@ -39,7 +39,7 @@ async function initAppDB(): Promise<IDBPDatabase> {
   if (dbInstance) return dbInstance;
 
   dbInstance = await openDB(APP_DB_NAME, APP_DB_VERSION, {
-    upgrade(db) {
+    async upgrade(db, oldVersion, _newVersion, transaction) {
       // create app_state store
       if (!db.objectStoreNames.contains(STORE_APP_STATE)) {
         db.createObjectStore(STORE_APP_STATE, { keyPath: "id" });
@@ -153,6 +153,26 @@ async function initAppDB(): Promise<IDBPDatabase> {
         userPeerNodesStore.createIndex("by_user_id", "user_id");
         userPeerNodesStore.createIndex("by_created_at", "created_at");
       }
+
+      // one-time app_state data fixup (v14): current_sha256->current_item_key
+      // rename + legacy (pre-`kind`-discriminant) queue item backfill. runs
+      // once here, in the versionchange transaction, instead of being
+      // re-checked on every single `loadAppState()` call for the life of
+      // the install - `oldVersion` is only ever less than 14 on the one
+      // upgrade that crosses this version boundary, never again after.
+      // `oldVersion === 0` is a brand-new db with no app_state row yet, so
+      // nothing to fix up.
+      if (oldVersion > 0 && oldVersion < 14) {
+        const store = transaction.objectStore(STORE_APP_STATE);
+        const state = await store.get("app_state");
+        if (state) {
+          let migrated = migrateLegacyCurrentItemKey(state);
+          if (migrated.queue?.some((item: MediaItem | Song) => !item || !("kind" in item))) {
+            migrated = { ...migrated, queue: migrated.queue.map(migrateLegacyQueueItem) };
+          }
+          if (migrated !== state) await store.put(migrated);
+        }
+      }
     },
     // a dead connection stays cached forever otherwise, so every later
     // transaction throws "the database connection is closing" until reload
@@ -179,6 +199,22 @@ function migrateLegacyQueueItem(item: MediaItem | Song): MediaItem {
   return { kind: "song", song: item as Song };
 }
 
+// `AppState.current_item_key` was named `current_sha256` before - a
+// persisted record from before that rename still carries the old
+// property name verbatim (indexeddb stores whatever shape it was given,
+// it isn't schema-checked against the current `AppState` type), so
+// without this an existing user's "currently playing" position would
+// silently reset to null on their first load after the rename.
+export function migrateLegacyCurrentItemKey(state: AppState): AppState {
+  if (state.current_item_key != null) return state;
+  const legacy = (state as unknown as { current_sha256?: string | null }).current_sha256;
+  if (legacy == null) return state;
+  const { current_sha256: _current_sha256, ...rest } = state as unknown as AppState & {
+    current_sha256?: string | null;
+  };
+  return { ...rest, current_item_key: legacy };
+}
+
 // load app state from db
 async function loadAppState(): Promise<AppState> {
   const db = await initAppDB();
@@ -188,20 +224,17 @@ async function loadAppState(): Promise<AppState> {
     // create default state
     state = {
       id: "app_state",
-      current_sha256: null,
+      current_item_key: null,
       queue: [],
       queue_open: false,
       active_remote_id: null,
       last_updated: Date.now(),
     };
     await db.put(STORE_APP_STATE, state);
-  } else if (state.queue?.some((item: MediaItem | Song) => !item || !("kind" in item))) {
-    state = { ...state, queue: state.queue.map(migrateLegacyQueueItem) };
-    await db.put(STORE_APP_STATE, state);
   }
 
   console.info(
-    `[appState] loadAppState: queue.len=${state.queue?.length ?? 0} current=${state.current_sha256?.slice(0, 8) ?? "null"} last_updated=${new Date(state.last_updated).toISOString()}`
+    `[appState] loadAppState: queue.len=${state.queue?.length ?? 0} current=${state.current_item_key?.slice(0, 8) ?? "null"} last_updated=${new Date(state.last_updated).toISOString()}`
   );
   setAppState(state);
   return state;
@@ -262,7 +295,7 @@ async function updateAppState(updates: Partial<Omit<AppState, "id">>): Promise<A
 
 // set current song
 async function setCurrentSong(songId: string | null): Promise<void> {
-  await updateAppState({ current_sha256: songId });
+  await updateAppState({ current_item_key: songId });
 }
 
 // update queue

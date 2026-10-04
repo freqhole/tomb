@@ -8,9 +8,9 @@ import type { QueuedVideo } from "../../../app/services/storage/mediaItem";
 
 let autoDownloadEnabled = true;
 let syncQueueToLocal = true;
-let mockState: { queue: unknown[]; current_sha256: string | null } = {
+let mockState: { queue: unknown[]; current_item_key: string | null } = {
   queue: [],
-  current_sha256: null,
+  current_item_key: null,
 };
 
 vi.mock("../../../app/services/storage/db", () => ({
@@ -84,7 +84,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   autoDownloadEnabled = true;
   syncQueueToLocal = true;
-  mockState = { queue: [], current_sha256: null };
+  mockState = { queue: [], current_item_key: null };
   isVideoSyncedLocally.mockReturnValue(false);
   syncSongToLocal.mockImplementation(async (_song, onProgress) => {
     onProgress?.(1, 1);
