@@ -1137,7 +1137,6 @@ async fn extract_video_poster(
     let blake3 = reliquary::hash_bytes(&webp_data);
 
     let blob = create_media_blob(CreateMediaBlobRequest {
-        sha256: None,
         size: Some(webp_data.len() as i64),
         mime: Some("image/webp".to_string()),
         source_client_id: None,
@@ -1233,7 +1232,6 @@ async fn extract_subtitle_track(
     let blake3 = reliquary::hash_bytes(&srt_data);
 
     let blob = create_media_blob(CreateMediaBlobRequest {
-        sha256: None,
         size: Some(srt_data.len() as i64),
         mime: Some("application/x-subrip".to_string()),
         source_client_id: None,

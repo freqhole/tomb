@@ -21,7 +21,6 @@ SELECT
     -- media blob fields (for P2P verified streaming via iroh-blobs),
     -- denormalized onto songz itself rather than joined from media_blobz
     -- (content-addressed and immutable once a song is created)
-    s.media_blob_sha256 as media_blob_sha256,
     s.media_blob_blake3 as media_blob_blake3,
     s.media_blob_mime as media_blob_mime,
     s.media_blob_size as media_blob_size,

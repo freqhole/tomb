@@ -1,8 +1,8 @@
 -- 088: relax media_blobz.sha256 from UNIQUE NOT NULL to UNIQUE (nullable)
 --
--- part of docs/sha256-removal-plan.md phase 0 - computing a full-file
--- sha256 synchronously during import is the main thing making media
--- import slow today, and it's only done because this column/the request
+-- computing a full-file sha256 synchronously during import is the main
+-- thing making media slowwww
+-- and it's only done because this column/the request
 -- struct backing it required a real value. sqlite allows multiple NULLs
 -- through a UNIQUE index (NULLs are never considered equal to each
 -- other), so dropping NOT NULL here is safe: existing rows keep their

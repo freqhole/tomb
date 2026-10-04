@@ -123,7 +123,6 @@ pub struct SongViewRow {
     song_id: String,
     song_media_blob_id: String,
     // media blob fields for P2P verified streaming
-    media_blob_sha256: Option<String>,
     media_blob_blake3: Option<String>,
     media_blob_mime: Option<String>,
     // size in bytes (used by clients to render accurate download progress)
@@ -355,32 +354,26 @@ impl SongViewRow {
         };
 
         // construct media_blob from view fields (for P2P verified streaming).
-        // gate on blake3 OR sha256 - a song imported after
-        // docs/sha256-removal-plan.md phase 0 has no sha256 at all, so
-        // gating on sha256 alone would silently drop media_blob (and break
-        // P2P verified streaming) for every newly-imported song.
-        let media_blob = (self.media_blob_blake3.is_some() || self.media_blob_sha256.is_some())
-            .then(|| MediaBlob {
-                id: media_blob_id.clone(),
-                sha256: self.media_blob_sha256,
-                size: self.media_blob_size,
-                mime: self.media_blob_mime,
-                source_client_id: None,
-                local_path: None,
-                filename: None,
-                parent_blob_id: None,
-                blob_type: BlobType::Original,
-                metadata: serde_json::Value::Null,
-                created_at: 0,
-                updated_at: 0,
-                deleted_at: None,
-                deleted_by: None,
-                created_by: None,
-                updated_by: None,
-                width: None,
-                height: None,
-                blake3: self.media_blob_blake3,
-            });
+        let media_blob = self.media_blob_blake3.is_some().then(|| MediaBlob {
+            id: media_blob_id.clone(),
+            size: self.media_blob_size,
+            mime: self.media_blob_mime,
+            source_client_id: None,
+            local_path: None,
+            filename: None,
+            parent_blob_id: None,
+            blob_type: BlobType::Original,
+            metadata: serde_json::Value::Null,
+            created_at: 0,
+            updated_at: 0,
+            deleted_at: None,
+            deleted_by: None,
+            created_by: None,
+            updated_by: None,
+            width: None,
+            height: None,
+            blake3: self.media_blob_blake3,
+        });
 
         SongQueryResult {
             song,

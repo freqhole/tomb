@@ -1818,7 +1818,7 @@ pub async fn ensure_server_image_blob(config_path: &Path) -> Result<String, Conf
         error: e.to_string(),
     })?;
 
-    // compute blake3 - the real content identity (see docs/sha256-removal-plan.md)
+    // compute blake3 - the real content identity
     let blake3_hash = crate::blobz::compute_blake3_from_bytes(&data);
 
     // get mime type
@@ -1835,7 +1835,6 @@ pub async fn ensure_server_image_blob(config_path: &Path) -> Result<String, Conf
 
     // create media blob (idempotent - returns existing if same blake3)
     let request = CreateMediaBlobRequest {
-        sha256: None,
         size: Some(data.len() as i64),
         mime: Some(mime),
         source_client_id: None,

@@ -70,7 +70,6 @@ export async function songToQueryResult(song: Song): Promise<SongQueryResult> {
       : undefined,
     media_blob: {
       id: blobIdFor(song),
-      sha256: song.sha256,
       size: song.file_size ?? undefined,
       mime: song.mime_type ?? undefined,
       blob_type: "original",

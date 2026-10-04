@@ -137,7 +137,6 @@ pub async fn sync_video_by_blake3_impl(
             let pulled = match pull_audio_blob_to_local_storage_with_progress(
                 &req.source_node_id,
                 &req.blake3,
-                req.sha256.as_deref(),
                 req.size,
                 &req.filename,
                 caller,

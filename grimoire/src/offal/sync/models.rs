@@ -17,8 +17,6 @@ use zod_gen_derive::ZodSchema;
 pub struct SyncSongByBlake3Request {
     /// blake3 hash of the audio file (used for P2P verified streaming)
     pub blake3: String,
-    /// sha256 hash of the audio file (used for dedupe + verification)
-    pub sha256: String,
     /// node_id of the peer that triggered this sync (injected by the
     /// transport handler, not sent by the client) - used only for the
     /// best-effort job-notify push once the background job finishes.
@@ -96,9 +94,6 @@ pub struct SyncSongByBlake3Response {
     pub artist_id: String,
     /// final on-disk path of the audio file
     pub file_path: String,
-    /// legacy content hash of the downloaded bytes - optional and on its
-    /// way out, see docs/sha256-removal-plan.md
-    pub sha256: Option<String>,
     /// blake3 hash (echoed back from the request)
     pub blake3: String,
     /// true if the song row already existed before this call
@@ -299,11 +294,6 @@ pub struct SyncVideoByBlake3Request {
     /// best-effort job-notify push once the background job finishes.
     #[serde(default)]
     pub node_id: Option<String>,
-    /// sha256 of the video file, when the source knows it (verified after
-    /// download). videos carry no sha256 of their own client-side, so this
-    /// is optional - unlike the song route.
-    #[serde(default)]
-    pub sha256: Option<String>,
     /// declared file size in bytes
     #[serde(default)]
     pub size: Option<u64>,

@@ -291,9 +291,8 @@ pub async fn generate_sized_thumbnails(
 
         // thumbnail blob record - blake3 is filled in by create_media_blob
         // itself from the bytes below (see its own doc comment), no need
-        // to hash here (see docs/sha256-removal-plan.md)
+        // to hash here
         let request = CreateMediaBlobRequest {
-            sha256: None,
             size: Some(webp_data.len() as i64),
             mime: Some("image/webp".to_string()),
             source_client_id: created_by.clone(),
@@ -356,7 +355,6 @@ pub async fn find_existing_thumbnail(parent_blob_id: &str, width: u32) -> Option
         MediaBlob,
         "SELECT
             id as \"id!\",
-            sha256,
             size,
             mime,
             source_client_id,
@@ -424,7 +422,7 @@ const BATCH_SIZE: i64 = 100;
 /// get a batch of blobs that need thumbnails generated (original images and waveforms without children)
 ///
 /// internal function - always returns at most BATCH_SIZE rows to avoid loading too much into memory.
-/// also excludes blobs whose sha256 matches another blob that already has thumbnails
+/// also excludes blobs whose blake3 matches another blob that already has thumbnails
 /// (since dedup would just return the existing thumbnail, creating an infinite loop).
 async fn get_blobs_needing_thumbnails_batch() -> GrimoireResponse<Vec<MediaBlob>> {
     let pool = match database::connect().await {
@@ -433,13 +431,12 @@ async fn get_blobs_needing_thumbnails_batch() -> GrimoireResponse<Vec<MediaBlob>
     };
 
     // find original and waveform blobs that don't have any thumbnail children
-    // also excludes blobs whose content (sha256) matches a sibling blob that already has thumbnails
+    // also excludes blobs whose content (blake3) matches a sibling blob that already has thumbnails
     // (since thumbnail dedup would just return the sibling's thumbnail, causing infinite loop)
     let blobs = match sqlx::query_as!(
         MediaBlob,
         "SELECT
             b.id as \"id!\",
-            b.sha256,
             b.size,
             b.mime,
             b.source_client_id,
@@ -468,10 +465,10 @@ async fn get_blobs_needing_thumbnails_batch() -> GrimoireResponse<Vec<MediaBlob>
                  AND t.deleted_at IS NULL
            )
            AND NOT EXISTS (
-               -- exclude if a sibling blob (same sha256) already has thumbnails
+               -- exclude if a sibling blob (same blake3) already has thumbnails
                -- since dedup would return that sibling's thumbnail anyway
                SELECT 1 FROM media_blobz sibling
-               WHERE sibling.sha256 = b.sha256
+               WHERE sibling.blake3 = b.blake3
                  AND sibling.id != b.id
                  AND sibling.deleted_at IS NULL
                  AND EXISTS (
@@ -518,7 +515,7 @@ pub async fn count_blobs_needing_thumbnails() -> GrimoireResponse<u32> {
            )
            AND NOT EXISTS (
                SELECT 1 FROM media_blobz sibling
-               WHERE sibling.sha256 = b.sha256
+               WHERE sibling.blake3 = b.blake3
                  AND sibling.id != b.id
                  AND sibling.deleted_at IS NULL
                  AND EXISTS (

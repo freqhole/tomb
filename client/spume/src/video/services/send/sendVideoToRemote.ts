@@ -77,7 +77,6 @@ export interface SendVideoItem {
   video: QueuedVideo;
   blobId: string;
   blake3: string | null;
-  sha256?: string | null;
   size?: number | null;
   mime?: string | null;
 }
@@ -175,7 +174,6 @@ export async function sendVideosToRemote(
     try {
       const attemptSyncVideo = async (
         attemptBlake3: string,
-        attemptSha256: string | null | undefined,
         attemptSize: number | null | undefined
       ) => {
         const body = await buildSyncVideoByBlake3Body({
@@ -183,7 +181,6 @@ export async function sendVideosToRemote(
           metadataRemote: source,
           sourceTransport,
           blake3: attemptBlake3,
-          sha256: attemptSha256,
           size: attemptSize,
           filename: item.video.title || item.blobId,
           sourceNodeId,
@@ -214,7 +211,7 @@ export async function sendVideosToRemote(
 
       let data: SyncJobQueuedResponse;
       try {
-        data = await attemptSyncVideo(blake3, item.sha256, item.size);
+        data = await attemptSyncVideo(blake3, item.size);
       } catch (e) {
         // the source peer genuinely doesn't have bytes for the original
         // (moved/deleted off its disk, never fully transferred there,
@@ -229,7 +226,7 @@ export async function sendVideosToRemote(
             TAG,
             `${lp} original unavailable on source for "${item.video.title}", quietly retrying with rendition ${rendition.blob_id.slice(0, 16)}`
           );
-          data = await attemptSyncVideo(rendition.blake3, null, null);
+          data = await attemptSyncVideo(rendition.blake3, null);
         } else {
           throw e;
         }

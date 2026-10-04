@@ -1336,7 +1336,6 @@ export type BioSource = z.infer<typeof BioSourceSchema>;
 
 export const BlobMetadataResponseSchema = z.object({
   id: z.string(),
-  sha256: z.string(),
   size: z.number().nullish(),
   mime: z.string().nullish(),
   filename: z.string().nullish(),
@@ -2190,7 +2189,6 @@ export const FavoriteItemSchema = z.union([z.intersection(z.object({
 }).nullish(),
   media_blob: z.object({
   id: z.string(),
-  sha256: z.string(),
   size: z.number().nullish(),
   mime: z.string().nullish(),
   source_client_id: z.string().nullish(),
@@ -2582,7 +2580,6 @@ export const FavoriteSongResultSchema = z.object({
 }).nullish(),
   media_blob: z.object({
   id: z.string(),
-  sha256: z.string(),
   size: z.number().nullish(),
   mime: z.string().nullish(),
   source_client_id: z.string().nullish(),
@@ -3093,16 +3090,13 @@ export const GetVideoSeriesRequestSchema = z.object({
 export type GetVideoSeriesRequest = z.infer<typeof GetVideoSeriesRequestSchema>;
 
 export const HasBlobsRequestSchema = z.object({
-  blake3s: z.array(z.string()),
-  sha256s: z.array(z.string())
+  blake3s: z.array(z.string())
 });
 export type HasBlobsRequest = z.infer<typeof HasBlobsRequestSchema>;
 
 export const HasBlobsResponseSchema = z.object({
   blake3s_present: z.array(z.string()),
-  blake3s_missing: z.array(z.string()),
-  sha256s_present: z.array(z.string()),
-  sha256s_missing: z.array(z.string())
+  blake3s_missing: z.array(z.string())
 });
 export type HasBlobsResponse = z.infer<typeof HasBlobsResponseSchema>;
 
@@ -3131,7 +3125,7 @@ export type ImageMetadata = z.infer<typeof ImageMetadataSchema>;
 export const ImageUploadResponseSchema = z.object({
   blob_id: z.string(),
   job_id: z.string(),
-  sha256: z.string(),
+  blake3: z.string(),
   size: z.number(),
   mime: z.string(),
   existing: z.boolean(),
@@ -3170,7 +3164,7 @@ export type IngestRemoteImageRequest = z.infer<typeof IngestRemoteImageRequestSc
 
 export const IngestRemoteImageResponseSchema = z.object({
   blob_id: z.string(),
-  sha256: z.string(),
+  blake3: z.string(),
   size: z.number(),
   mime: z.string(),
   deduped: z.boolean()
@@ -3508,7 +3502,6 @@ export const ListFavoritesResponseSchema = z.object({
 }).nullish(),
   media_blob: z.object({
   id: z.string(),
-  sha256: z.string(),
   size: z.number().nullish(),
   mime: z.string().nullish(),
   source_client_id: z.string().nullish(),
@@ -4307,7 +4300,6 @@ export type MbUrl = z.infer<typeof MbUrlSchema>;
 
 export const MediaBlobSchema = z.object({
   id: z.string(),
-  sha256: z.string(),
   size: z.number().nullish(),
   mime: z.string().nullish(),
   source_client_id: z.string().nullish(),
@@ -4451,7 +4443,7 @@ export type MusicMetadataHints = z.infer<typeof MusicMetadataHintsSchema>;
 export const MusicUploadResponseSchema = z.object({
   blob_id: z.string(),
   job_id: z.string(),
-  sha256: z.string(),
+  blake3: z.string(),
   size: z.number(),
   mime: z.string(),
   existing: z.boolean(),
@@ -4894,7 +4886,6 @@ export const PlaylistSongResultSchema = z.object({
 }).nullish(),
   media_blob: z.object({
   id: z.string(),
-  sha256: z.string(),
   size: z.number().nullish(),
   mime: z.string().nullish(),
   source_client_id: z.string().nullish(),
@@ -5037,7 +5028,6 @@ export const PlaylistSongsQueryResultSchema = z.object({
 }).nullish(),
   media_blob: z.object({
   id: z.string(),
-  sha256: z.string(),
   size: z.number().nullish(),
   mime: z.string().nullish(),
   source_client_id: z.string().nullish(),
@@ -6697,7 +6687,6 @@ export const SongQueryResultSchema = z.object({
 }).nullish(),
   media_blob: z.object({
   id: z.string(),
-  sha256: z.string(),
   size: z.number().nullish(),
   mime: z.string().nullish(),
   source_client_id: z.string().nullish(),
@@ -6867,7 +6856,6 @@ export const SongsQueryResultSchema = z.object({
 }).nullish(),
   media_blob: z.object({
   id: z.string(),
-  sha256: z.string(),
   size: z.number().nullish(),
   mime: z.string().nullish(),
   source_client_id: z.string().nullish(),
@@ -7090,7 +7078,6 @@ export type SyncPlaylistResponse = z.infer<typeof SyncPlaylistResponseSchema>;
 
 export const SyncSongByBlake3RequestSchema = z.object({
   blake3: z.string(),
-  sha256: z.string(),
   node_id: z.string().nullish(),
   size: z.number().nullish(),
   filename: z.string(),
@@ -7130,7 +7117,6 @@ export const SyncSongByBlake3ResponseSchema = z.object({
   media_blob_id: z.string(),
   artist_id: z.string(),
   file_path: z.string(),
-  sha256: z.string(),
   blake3: z.string(),
   existing: z.boolean(),
   images_linked: z.number(),
@@ -7141,7 +7127,6 @@ export type SyncSongByBlake3Response = z.infer<typeof SyncSongByBlake3ResponseSc
 export const SyncVideoByBlake3RequestSchema = z.object({
   blake3: z.string(),
   node_id: z.string().nullish(),
-  sha256: z.string().nullish(),
   size: z.number().nullish(),
   filename: z.string(),
   source_node_id: z.string(),
@@ -8089,7 +8074,7 @@ export type VideoSeriesSearchResult = z.infer<typeof VideoSeriesSearchResultSche
 export const VideoUploadResponseSchema = z.object({
   blob_id: z.string(),
   job_id: z.string(),
-  sha256: z.string(),
+  blake3: z.string(),
   size: z.number(),
   mime: z.string(),
   existing: z.boolean(),

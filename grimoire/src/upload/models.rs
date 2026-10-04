@@ -10,9 +10,6 @@ pub struct ImageUploadResponse {
     pub blob_id: String,
     /// ID of the processing job (for polling status)
     pub job_id: String,
-    /// legacy content hash - optional and on its way out, see
-    /// docs/sha256-removal-plan.md
-    pub sha256: Option<String>,
     /// blake3 content hash - the real content identity
     pub blake3: String,
     /// File size in bytes
@@ -34,9 +31,6 @@ pub struct MusicUploadResponse {
     pub blob_id: String,
     /// ID of the processing job (for polling status)
     pub job_id: String,
-    /// legacy content hash - optional and on its way out, see
-    /// docs/sha256-removal-plan.md
-    pub sha256: Option<String>,
     /// blake3 content hash - the real content identity
     pub blake3: String,
     /// File size in bytes
@@ -100,9 +94,6 @@ pub struct VideoUploadResponse {
     pub blob_id: String,
     /// ID of the processing job (for polling status)
     pub job_id: String,
-    /// legacy content hash - optional and on its way out, see
-    /// docs/sha256-removal-plan.md
-    pub sha256: Option<String>,
     /// blake3 content hash - the real content identity
     pub blake3: String,
     /// File size in bytes

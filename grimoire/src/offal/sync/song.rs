@@ -138,11 +138,10 @@ pub async fn sync_song_by_blake3_impl(
     on_progress: Option<&BlobProgressFn>,
 ) -> GrimoireResponse<JsonValue> {
     tracing::debug!(
-        "sync_song_by_blake3: START from {} -- title=\"{}\" blake3={} sha256={} size={:?} source_node={} source_remote={:?} filename=\"{}\"",
+        "sync_song_by_blake3: START from {} -- title=\"{}\" blake3={} size={:?} source_node={} source_remote={:?} filename=\"{}\"",
         caller.username,
         req.title,
         req.blake3,
-        &req.sha256[..16.min(req.sha256.len())],
         req.size,
         req.source_node_id,
         req.source_remote_id,
@@ -209,7 +208,6 @@ pub async fn sync_song_by_blake3_impl(
                 media_blob_id,
                 artist_id,
                 file_path: local_path,
-                sha256: (!req.sha256.is_empty()).then(|| req.sha256.clone()),
                 blake3: req.blake3.clone(),
                 existing: true,
                 images_linked: 0,
@@ -222,7 +220,7 @@ pub async fn sync_song_by_blake3_impl(
         }
     }
 
-    // 3. pull the audio blob (verified streaming + sha256 verify + dedupe)
+    // 3. pull the audio blob (iroh-blobs verified streaming + dedupe by blake3)
     tracing::info!(
         "sync_song_by_blake3: pulling blob {} from source peer {} ({} bytes declared)",
         &req.blake3[..16.min(req.blake3.len())],
@@ -232,19 +230,6 @@ pub async fn sync_song_by_blake3_impl(
     let pulled = match pull_audio_blob_to_local_storage_with_progress(
         &req.source_node_id,
         &req.blake3,
-        // an empty sha256 means the caller genuinely doesn't know one yet
-        // (e.g. cenotaph's mediaRefResolve.ts syncing straight from a
-        // RemoteMediaRef, which carries no sha256 at all) - not a real hash
-        // to verify against. skip the check in that case and trust
-        // iroh-blobs' own blake3-verified streaming for integrity; passing
-        // it through unconditionally previously made every such pull fail
-        // with a bogus Sha256Mismatch (comparing the real downloaded file's
-        // hash against a placeholder that was never a sha256 to begin with).
-        if req.sha256.is_empty() {
-            None
-        } else {
-            Some(req.sha256.as_str())
-        },
         req.size,
         &req.filename,
         caller,
@@ -504,7 +489,6 @@ pub async fn sync_song_by_blake3_impl(
         media_blob_id: pulled.blob.id,
         artist_id,
         file_path: pulled.local_path.to_string_lossy().to_string(),
-        sha256: pulled.sha256,
         blake3: req.blake3.clone(),
         existing: import_existing,
         images_linked,

@@ -65,7 +65,6 @@ pub async fn import_pushed_media(
     let pull = pull_audio_blob_to_local_storage_with_progress(
         source_peer_addr,
         blake3_hash,
-        None,
         size_hint,
         filename,
         &caller,

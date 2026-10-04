@@ -114,7 +114,6 @@ export async function buildSyncSongByBlake3Request(
 
   return {
     blake3: song.blake3,
-    sha256: song.sha256,
     size: song.file_size ?? null,
     filename,
     source_node_id: sourceNodeId,

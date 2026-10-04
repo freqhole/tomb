@@ -149,7 +149,7 @@ pub async fn upload_video(caller: &Caller, body: JsonValue) -> GrimoireResponse<
 
     let size = data.len() as i64;
 
-    // compute blake3 - the real content identity (see docs/sha256-removal-plan.md)
+    // compute blake3 - the real content identity
     let blake3_hash = crate::blobz::compute_blake3_from_bytes(&data);
 
     let ext = detect_extension(&mime_type, &filename);
@@ -159,7 +159,6 @@ pub async fn upload_video(caller: &Caller, body: JsonValue) -> GrimoireResponse<
 
     // create media blob
     let blob = match create_media_blob(CreateMediaBlobRequest {
-        sha256: None,
         size: Some(size),
         mime: Some(mime_type.clone()),
         source_client_id: None,
@@ -283,7 +282,6 @@ pub async fn upload_video(caller: &Caller, body: JsonValue) -> GrimoireResponse<
                     let response = VideoUploadResponse {
                         blob_id: blob.id,
                         job_id,
-                        sha256: None,
                         blake3: blake3_hash.clone(),
                         size,
                         mime: mime_type,
@@ -319,7 +317,6 @@ pub async fn upload_video(caller: &Caller, body: JsonValue) -> GrimoireResponse<
     let response = VideoUploadResponse {
         blob_id: blob.id,
         job_id: job.id,
-        sha256: None,
         blake3: blake3_hash,
         size,
         mime: mime_type,
@@ -386,7 +383,6 @@ pub async fn upload_video_by_blake3(
     let pulled = match pull_audio_blob_to_local_storage(
         &node_id,
         &req.blake3,
-        None, // upload route trusts the streamed sha256 (no expected hash)
         req.size,
         &req.filename,
         caller,
@@ -463,7 +459,6 @@ pub async fn upload_video_by_blake3(
     let response = VideoUploadResponse {
         blob_id: pulled.blob.id,
         job_id: job.id,
-        sha256: pulled.sha256,
         blake3: pulled.blake3,
         size: pulled.size,
         mime: pulled.mime,

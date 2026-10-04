@@ -315,7 +315,6 @@ pub async fn process_transcode_video_job(job: &Job) -> Result<Option<serde_json:
             .unwrap_or_else(|| "application/octet-stream".to_string());
 
         match create_media_blob(CreateMediaBlobRequest {
-            sha256: None,
             size: Some(size as i64),
             mime: Some(mime),
             source_client_id: None,

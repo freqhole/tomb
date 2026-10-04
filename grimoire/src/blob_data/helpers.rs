@@ -119,9 +119,9 @@ pub async fn create_media_blob_from_file(
         .unwrap_or_else(|| "application/octet-stream".to_string());
 
     // Compute blake3 hash for iroh-blobs verified streaming - the real
-    // content identity (see docs/sha256-removal-plan.md). no longer also
-    // streaming a sha256 of the same file - that was reading every file
-    // twice and was the main thing making import slow.
+    // content identity. no longer also streaming a sha256 of the same
+    // file - that was reading every file twice and was the main thing
+    // making import slow.
     let blake3 = match compute_blake3_hash(Path::new(file_path)).await {
         Ok(hash) => Some(hash),
         Err(e) => {
@@ -143,7 +143,6 @@ pub async fn create_media_blob_from_file(
     };
 
     let request = CreateMediaBlobRequest {
-        sha256: None,
         size: Some(file_size as i64),
         mime: Some(mime_type.clone()),
         source_client_id: created_by.clone(),
@@ -486,7 +485,6 @@ pub async fn create_image_blob_from_webp_data(
     created_by: Option<String>,
 ) -> GrimoireResponse<String> {
     let request = CreateMediaBlobRequest {
-        sha256: None,
         size: Some(webp_data.len() as i64),
         mime: Some("image/webp".to_string()),
         source_client_id: created_by.clone(),

@@ -890,7 +890,7 @@ pub async fn ingest_remote_image_inner(
 
     // dedup check on the *processed* bytes so equivalent re-encodes
     // collapse to a single blob - keyed on blake3, the real content
-    // identity (see docs/sha256-removal-plan.md).
+    // identity.
     let blake3_hash = crate::blobz::compute_blake3_from_bytes(&processed_bytes);
 
     let (blob_id, deduped, mime_out) = match get_media_blob_by_blake3(&blake3_hash).await {
@@ -910,7 +910,6 @@ pub async fn ingest_remote_image_inner(
                 _ => "jpg",
             };
             let blob = match create_media_blob(CreateMediaBlobRequest {
-                sha256: None,
                 size: Some(size),
                 mime: Some(processed_mime.clone()),
                 source_client_id: None,

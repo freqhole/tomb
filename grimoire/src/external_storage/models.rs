@@ -18,9 +18,9 @@ pub struct SyncedSong {
 
 impl SyncedSong {
     /// true when this previously-synced row's content matches the given
-    /// media blob's identity - prefers blake3 (the real identity, see
-    /// docs/sha256-removal-plan.md), falling back to the legacy sha256
-    /// comparison only when either side lacks a blake3. returns false
+    /// media blob's identity - prefers blake3 (the real identity), falling
+    /// back to the legacy sha256 comparison only when either side lacks a
+    /// blake3. returns false
     /// (not a match) rather than true when neither hash can be compared -
     /// a safe failure mode that re-syncs the file rather than wrongly
     /// skipping a genuinely-changed one.

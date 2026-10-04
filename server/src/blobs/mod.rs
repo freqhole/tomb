@@ -131,16 +131,10 @@ pub async fn stream_blob_handler(
     let size = blob.size.unwrap_or(0) as u64;
 
     // content-addressed etag — blake3 is stable and unique per blob version
-    // (falls back to the legacy sha256, then the blob's own stable id if
-    // neither hash is present - see docs/sha256-removal-plan.md). wrapped
-    // in quotes per RFC 7232. lets webkit's media cache revalidate (cheap
-    // 304) instead of re-streaming on `audio.src` reassignment.
-    let etag = format_etag(
-        blob.blake3
-            .as_deref()
-            .or(blob.sha256.as_deref())
-            .unwrap_or(&blob.id),
-    );
+    // (falls back to the blob's own stable id if blake3 isn't present).
+    // wrapped in quotes per RFC 7232. lets webkit's media cache revalidate
+    // (cheap 304) instead of re-streaming on `audio.src` reassignment.
+    let etag = format_etag(blob.blake3.as_deref().unwrap_or(&blob.id));
 
     // 304 Not Modified short-circuit: skip ALL data work if the client
     // already has this exact blob cached.
@@ -224,16 +218,11 @@ pub async fn blob_thumbnail_handler(
         .clone()
         .unwrap_or_else(|| "image/webp".to_string());
 
-    // content-addressed etag from blake3 (falls back to legacy sha256, then
-    // the blob's own stable id - see docs/sha256-removal-plan.md), RFC 7232
-    // quoted form. enables 304 short-circuit on revalidation - cheap for
-    // thumbnails which the ui re-requests on every list re-render.
-    let etag = format_etag(
-        blob.blake3
-            .as_deref()
-            .or(blob.sha256.as_deref())
-            .unwrap_or(&blob.id),
-    );
+    // content-addressed etag from blake3 (falls back to the blob's own
+    // stable id), RFC 7232 quoted form. enables 304 short-circuit on
+    // revalidation - cheap for thumbnails which the ui re-requests on
+    // every list re-render.
+    let etag = format_etag(blob.blake3.as_deref().unwrap_or(&blob.id));
 
     if etag_matches(&req, &etag) {
         return Ok(not_modified_response(&etag));

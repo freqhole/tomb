@@ -156,9 +156,8 @@ pub async fn upload_image(caller: &Caller, body: JsonValue) -> GrimoireResponse<
         );
     }
 
-    // compute blake3 - the real content identity (see
-    // docs/sha256-removal-plan.md; this path used to hash sha256 only,
-    // the one upload path that never got a blake3 at all)
+    // compute blake3 - the real content identity (this path used to hash
+    // sha256 only, the one upload path that never got a blake3 at all)
     let blake3_hash = crate::blobz::compute_blake3_from_bytes(&data);
 
     // detect mime type from filename extension and magic bytes
@@ -176,12 +175,11 @@ pub async fn upload_image(caller: &Caller, body: JsonValue) -> GrimoireResponse<
 
     let size = data.len() as i64;
 
-    // check for existing blob by blake3 before creating
+    // check for existing blob by blake3
     let existing = get_media_blob_by_blake3(&blake3_hash).await.is_ok();
 
     // create media blob (returns existing if blake3 matches)
     let blob = match create_media_blob(CreateMediaBlobRequest {
-        sha256: None,
         size: Some(size),
         mime: Some(mime_type.clone()),
         source_client_id: None,
@@ -297,7 +295,6 @@ pub async fn upload_image(caller: &Caller, body: JsonValue) -> GrimoireResponse<
                     let response = ImageUploadResponse {
                         blob_id: blob.id,
                         job_id,
-                        sha256: None,
                         blake3: blake3_hash.clone(),
                         size,
                         mime: mime_type,
@@ -343,7 +340,6 @@ pub async fn upload_image(caller: &Caller, body: JsonValue) -> GrimoireResponse<
     let response = ImageUploadResponse {
         blob_id: blob.id,
         job_id: job.id,
-        sha256: None,
         blake3: blake3_hash,
         size,
         mime: mime_type,

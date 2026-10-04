@@ -29,10 +29,9 @@ pub async fn create_song(req: CreateSongRequest) -> GrimoireResponse<Song> {
         "INSERT INTO songz (
             media_blob_id, title, track_number, disc_number, duration, bpm, track_artist, metadata, lyrics,
             created_by, updated_by,
-            media_blob_sha256, media_blob_blake3, media_blob_mime, media_blob_size
+            media_blob_blake3, media_blob_mime, media_blob_size
         ) VALUES (
             ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-            (SELECT sha256 FROM media_blobz WHERE id = ?),
             (SELECT blake3 FROM media_blobz WHERE id = ?),
             (SELECT mime FROM media_blobz WHERE id = ?),
             (SELECT size FROM media_blobz WHERE id = ?)
@@ -70,7 +69,6 @@ pub async fn create_song(req: CreateSongRequest) -> GrimoireResponse<Song> {
         req.lyrics,
         req.created_by,
         req.created_by,
-        media_blob_id,
         media_blob_id,
         media_blob_id,
         media_blob_id
@@ -372,27 +370,6 @@ pub async fn get_song_media_blob_id(song_id: &str) -> GrimoireResult<String> {
     })
 }
 
-/// get a song ID by media blob sha256
-///
-/// returns the song ID if a non-deleted song exists with a media blob matching the sha256
-pub async fn get_song_by_sha256(sha256: &str) -> GrimoireResult<Option<String>> {
-    let pool = database::connect().await?;
-
-    let song_id: Option<String> = sqlx::query_scalar!(
-        r#"
-        SELECT id as "id!"
-        FROM songz
-        WHERE media_blob_sha256 = ? AND deleted_at IS NULL
-        LIMIT 1
-        "#,
-        sha256
-    )
-    .fetch_optional(&pool)
-    .await?;
-
-    Ok(song_id)
-}
-
 /// get a song ID by media blob blake3
 ///
 /// returns the song ID if a non-deleted song exists with a media blob matching the blake3
@@ -416,15 +393,20 @@ pub async fn get_song_by_blake3(blake3: &str) -> GrimoireResult<Option<String>> 
 
 /// get all sha256 hashes for synced songs
 ///
-/// returns all sha256s from media blobs that are linked to non-deleted songs
+/// returns all sha256s from media blobs linked to non-deleted songs - joins
+/// `media_blobz` directly (the `songz.media_blob_sha256` denormalized copy
+/// was dropped once blake3 became the real identity; sha256 is no longer
+/// guaranteed to be backfilled onto every song row, only the original
+/// media_blobz row still carries it when present).
 pub async fn get_all_song_sha256s() -> GrimoireResult<Vec<String>> {
     let pool = database::connect().await?;
 
     let sha256s: Vec<String> = sqlx::query_scalar!(
         r#"
-        SELECT DISTINCT media_blob_sha256 as "sha256!"
-        FROM songz
-        WHERE media_blob_sha256 IS NOT NULL AND deleted_at IS NULL
+        SELECT DISTINCT mb.sha256 as "sha256!"
+        FROM songz s
+        JOIN media_blobz mb ON mb.id = s.media_blob_id
+        WHERE mb.sha256 IS NOT NULL AND s.deleted_at IS NULL
         "#
     )
     .fetch_all(&pool)

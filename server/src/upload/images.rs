@@ -98,7 +98,7 @@ pub async fn upload_image_handler(
         )));
     }
 
-    // compute blake3 - the real content identity (see docs/sha256-removal-plan.md)
+    // compute blake3 - the real content identity
     let blake3_hash = grimoire::blobz::compute_blake3_from_bytes(&data);
 
     // detect mime type
@@ -133,7 +133,6 @@ pub async fn upload_image_handler(
 
     // create media blob in database (with deduplication)
     let blob = create_media_blob(CreateMediaBlobRequest {
-        sha256: None,
         size: Some(size),
         mime: Some(mime_type.clone()),
         source_client_id: None,
@@ -221,7 +220,6 @@ pub async fn upload_image_handler(
     Ok(Json(ImageUploadResponse {
         blob_id: blob.id,
         job_id: job.id,
-        sha256: None,
         blake3: blake3_hash,
         size,
         mime: mime_type,

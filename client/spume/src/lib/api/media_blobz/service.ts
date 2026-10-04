@@ -34,7 +34,6 @@ export async function getMediaBlob(id: string): Promise<BlobMetadataResponse | n
     }
     return {
       id: blobIdFor(song),
-      sha256: song.sha256,
       size: song.file_size ?? undefined,
       mime: song.mime_type ?? undefined,
       filename: song.file_name ?? undefined,
@@ -51,10 +50,6 @@ export async function getMediaBlob(id: string): Promise<BlobMetadataResponse | n
     }
     return {
       id,
-      // video has no sha256 concept (blake3-only identity, see
-      // LocalVideoRow.blake3's field comment) - reuse blake3 here since
-      // no caller compares a video's blob metadata sha256 meaningfully.
-      sha256: id,
       size: video.file_size ?? undefined,
       mime: video.mime_type ?? undefined,
       filename: video.file_name ?? undefined,
@@ -76,7 +71,6 @@ export async function getMediaBlob(id: string): Promise<BlobMetadataResponse | n
     await ensureBlobServable(id, () => Promise.resolve(image));
     return {
       id,
-      sha256: id,
       size: image.size,
       mime: image.type || undefined,
       filename: undefined,

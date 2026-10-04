@@ -212,8 +212,8 @@ const LAST_VERSION_NEEDING_HARUSPEX_RELIQUARY_MIGRATION: &str = "0.3.1";
 const LAST_VERSION_WITH_STALE_RADIO_DEFAULTS_RISK: &str = "0.3.6";
 
 /// last version shipped before media import stopped computing sha256 at
-/// all (see docs/sha256-removal-plan.md phase 0) - anyone upgrading FROM
-/// this version or older may have existing `media_blobz` rows with no
+/// all - anyone upgrading FROM this version or older may have existing
+/// `media_blobz` rows with no
 /// blake3 yet (it was previously only computed best-effort/non-fatally on
 /// a few paths). gets a one-shot automatic backfill - same self-
 /// terminating gate shape as the other two constants above.

@@ -114,7 +114,6 @@ export interface BuildSyncVideoByBlake3Options {
    *  in practice, but kept separate since callers already have one in hand). */
   sourceTransport: Transport;
   blake3: string;
-  sha256?: string | null;
   size?: number | null;
   filename: string;
   sourceNodeId: string;
@@ -142,7 +141,6 @@ export async function buildSyncVideoByBlake3Body(
 
   return {
     blake3: opts.blake3,
-    sha256: opts.sha256 ?? null,
     size: opts.size ?? null,
     filename: opts.filename,
     source_node_id: opts.sourceNodeId,

@@ -88,7 +88,6 @@ pub(super) async fn resolve_sync_image_ref(
     };
     let ext = crate::offal::upload::detect_extension(&img.mime_type, "");
     let blob = create_media_blob(CreateMediaBlobRequest {
-        sha256: None,
         size: Some(bytes.len() as i64),
         mime: Some(img.mime_type.clone()),
         source_client_id: None,
