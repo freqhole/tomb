@@ -5,7 +5,9 @@ use clap::Subcommand;
 use grimoire::blob_data::{backfill_thumbnails, count_blobs_needing_thumbnails};
 use grimoire::config::{ensure_server_image_blob, find_config, GrimoireConfig};
 use grimoire::error::GrimoireError;
-use grimoire::maintenance::{cleanup_orphaned_genres, cleanup_orphaned_tags};
+use grimoire::maintenance::{
+    cleanup_contentless_media_blobs, cleanup_orphaned_genres, cleanup_orphaned_tags,
+};
 use serde::Serialize;
 use std::path::PathBuf;
 
@@ -34,6 +36,14 @@ pub enum MaintenanceAction {
     },
     /// Run all cleanup operations
     CleanupAll {
+        /// Show what would be deleted without actually deleting
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Cleanup media_blobz rows with no retrievable content anywhere (no
+    /// local_path, no blob_data row, so no blake3 either - genuinely
+    /// unhashable, permanently stuck in `blobz backfill-blake3`)
+    CleanupContentlessBlobs {
         /// Show what would be deleted without actually deleting
         #[arg(long)]
         dry_run: bool,
@@ -140,6 +150,20 @@ pub async fn handle_command(
             };
 
             CommandOutput::success(message, combined)
+        }
+
+        MaintenanceAction::CleanupContentlessBlobs { dry_run } => {
+            let response = cleanup_contentless_media_blobs(dry_run).await;
+
+            if !response.success {
+                return CommandOutput::failure(response.message, response.errors, ());
+            }
+
+            let Some(summary) = response.data else {
+                return CommandOutput::failure("No summary data returned", vec![], ());
+            };
+
+            CommandOutput::success(response.message, summary)
         }
 
         MaintenanceAction::BackfillThumbnails { limit, dry_run } => {

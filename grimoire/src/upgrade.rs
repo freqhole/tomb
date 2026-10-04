@@ -32,6 +32,7 @@ pub struct UpgradeAndMigrateOutcome {
     pub reliquary: MigrationOutcome,
     pub radio_encode_args: MigrationOutcome,
     pub blake3_backfill: MigrationOutcome,
+    pub contentless_blob_cleanup: MigrationOutcome,
 }
 
 /// how one migration went: it ran (with a one-line summary, its full
@@ -153,8 +154,10 @@ fn summarize_radio_encode_args_report(
 /// report shape for the blake3 backfill migration step - deliberately
 /// simpler than haruspex/reliquary's own report types since there's only
 /// two numbers worth keeping: how many blobs got hashed this run, and how
-/// many (if any) are left (only possible if `BACKFILL_SAFETY_MAX_ROUNDS`
-/// was hit on a genuinely huge library - see its own doc comment).
+/// many (if any) are left (only possible if a round made zero progress -
+/// e.g. every remaining blob fails to hash - see
+/// `run_blake3_backfill_rounds`'s own doc comment; there's no round-count
+/// cap, this keeps going until the backlog is actually cleared).
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Blake3BackfillReport {
     pub processed: i64,
@@ -164,11 +167,25 @@ pub struct Blake3BackfillReport {
 fn summarize_blake3_backfill_report(report: &Blake3BackfillReport) -> String {
     if report.remaining > 0 {
         format!(
-            "hashed {} blob(s), {} still remaining (hit this migration's safety round limit on a large library - run `blobz backfill-blake3` to finish the rest)",
+            "hashed {} blob(s), {} stuck (couldn't be hashed - run `blobz backfill-blake3` after investigating, e.g. missing files on disk)",
             report.processed, report.remaining
         )
     } else {
         format!("hashed {} blob(s), all caught up", report.processed)
+    }
+}
+
+/// one-line summary of the contentless-blob cleanup report.
+fn summarize_contentless_cleanup_report(
+    report: &crate::blob_data::ContentlessBlobSummary,
+) -> String {
+    if report.blobs_found == 0 {
+        "no contentless blobs found".to_string()
+    } else {
+        format!(
+            "deleted {} of {} contentless blob(s) (no local_path, no blob_data, unhashable)",
+            report.blobs_deleted, report.blobs_found
+        )
     }
 }
 
@@ -206,45 +223,39 @@ const LAST_VERSION_NEEDING_BLAKE3_BACKFILL: &str = "0.3.12";
 /// defaults already established by the manual admin/CLI backfill command
 /// (`admin_dispatch::handlers::blobz::backfill_blake3`,
 /// `cli blobz backfill-blake3`), not new numbers invented for this path.
+/// no cap on the number of rounds - this runs until the backlog is
+/// genuinely cleared (or a round makes zero progress, see
+/// `run_blake3_backfill_rounds`), not until some arbitrary round count.
 const BLAKE3_BACKFILL_BATCH_SIZE: i64 = 100;
 const BLAKE3_BACKFILL_CONCURRENCY: usize = 16;
-
-/// safety cap on how many `BLAKE3_BACKFILL_BATCH_SIZE`-sized rounds this
-/// one-shot migration will run before giving up and reporting whatever's
-/// left as `remaining` - an upgrade should finish in a reasonable time
-/// even for a very large library. unlike haruspex/reliquary (safe to
-/// rerun in full any time), this gate is purely version-based and fires
-/// exactly once - so hitting this cap on a genuinely huge backlog does
-/// NOT resume automatically on a later start. the existing manual
-/// commands (`admin_dispatch::handlers::blobz::backfill_blake3`,
-/// `cli blobz backfill-blake3`) still work and are what `remaining > 0`
-/// in the outcome/log is telling the operator to run.
-const BLAKE3_BACKFILL_SAFETY_MAX_ROUNDS: u32 = 50;
 
 /// pure looping/termination logic for the blake3 backfill migration,
 /// extracted specifically so it's unit-testable without a real database -
 /// `round` does one batch's worth of real work (or a test double returning
-/// canned results). stops when a round processes nothing (caught up or
-/// stalled), when nothing remains, or after `max_rounds` (see
-/// `BLAKE3_BACKFILL_SAFETY_MAX_ROUNDS`'s own doc comment for why a round
-/// limit exists at all) - whichever comes first. a round error aborts
-/// immediately and is reported as the whole migration's failure, same as
-/// every other migration in this file.
-async fn run_blake3_backfill_rounds<F, Fut>(
-    max_rounds: u32,
-    mut round: F,
-) -> Result<Blake3BackfillReport, String>
+/// canned results). no round-count cap - keeps going until a round
+/// reports nothing remaining, or a round makes zero progress (the backlog
+/// is genuinely stuck, e.g. every remaining blob fails to hash - looping
+/// forever against that would never finish, so zero-progress is where
+/// this stops, not an arbitrary count). a round error aborts immediately
+/// and is reported as the whole migration's failure, same as every other
+/// migration in this file.
+async fn run_blake3_backfill_rounds<F, Fut>(mut round: F) -> Result<Blake3BackfillReport, String>
 where
     F: FnMut() -> Fut,
     Fut: std::future::Future<Output = crate::error::GrimoireResult<(i64, i64)>>,
 {
     let mut total_processed: i64 = 0;
-    let mut remaining: i64 = 0;
-    for _ in 0..max_rounds {
+    let mut round_num: u32 = 0;
+    let remaining: i64;
+    loop {
+        round_num += 1;
         let (processed, left) = round().await.map_err(|e| e.to_string())?;
         total_processed += processed;
-        remaining = left;
-        if processed == 0 || remaining == 0 {
+        crate::progress::report(format!(
+            "blake3 backfill round {round_num}: hashed {processed} (total {total_processed}), {left} remaining"
+        ));
+        if processed == 0 || left == 0 {
+            remaining = left;
             break;
         }
     }
@@ -268,6 +279,10 @@ pub async fn upgrade_config_and_migrate(
     config_path: &Path,
 ) -> Result<UpgradeAndMigrateOutcome, ConfigError> {
     let config = crate::config::upgrade_config(config_path)?;
+    crate::progress::report(format!(
+        "config upgraded: {} -> {}",
+        config.old_version, config.new_version
+    ));
 
     // reload the in-memory config from the freshly upgraded file so the
     // migrations below read current values, not whatever was loaded before
@@ -285,7 +300,10 @@ pub async fn upgrade_config_and_migrate(
             radio_encode_args: MigrationOutcome::Skipped {
                 reason: reason.clone(),
             },
-            blake3_backfill: MigrationOutcome::Skipped { reason },
+            blake3_backfill: MigrationOutcome::Skipped {
+                reason: reason.clone(),
+            },
+            contentless_blob_cleanup: MigrationOutcome::Skipped { reason },
         });
     }
 
@@ -303,6 +321,7 @@ pub async fn upgrade_config_and_migrate(
     let haruspex = if !needs_haruspex_reliquary_pass {
         skip_reason()
     } else {
+        crate::progress::report("running haruspex auth migration...".to_string());
         match crate::users::migrate_to_haruspex().await {
             Ok(report) => {
                 let summary = summarize_haruspex_report(&report);
@@ -329,6 +348,7 @@ pub async fn upgrade_config_and_migrate(
     let reliquary = if !needs_haruspex_reliquary_pass {
         skip_reason()
     } else {
+        crate::progress::report("running reliquary blob migration...".to_string());
         match crate::blobz::migrate_to_reliquary().await {
             Ok(report) => {
                 let summary = summarize_reliquary_report(&report);
@@ -345,6 +365,7 @@ pub async fn upgrade_config_and_migrate(
         &config.old_version,
         LAST_VERSION_WITH_STALE_RADIO_DEFAULTS_RISK,
     ) {
+        crate::progress::report("checking for stale radio encode_args defaults...".to_string());
         match crate::radio::stations::clear_stale_default_encode_args().await {
             Ok(report) => {
                 let summary = summarize_radio_encode_args_report(&report);
@@ -368,7 +389,8 @@ pub async fn upgrade_config_and_migrate(
         &config.old_version,
         LAST_VERSION_NEEDING_BLAKE3_BACKFILL,
     ) {
-        match run_blake3_backfill_rounds(BLAKE3_BACKFILL_SAFETY_MAX_ROUNDS, || {
+        crate::progress::report("starting blake3 backfill...".to_string());
+        match run_blake3_backfill_rounds(|| {
             crate::blobz::backfill_blake3_hashes(
                 BLAKE3_BACKFILL_BATCH_SIZE,
                 BLAKE3_BACKFILL_CONCURRENCY,
@@ -392,12 +414,43 @@ pub async fn upgrade_config_and_migrate(
         }
     };
 
+    // same gate as blake3_backfill above: runs right after it regardless of
+    // how much of the backlog that backfill cleared, since rows that are
+    // still stuck afterward (no local_path, no blob_data row) can never be
+    // hashed no matter how many more backfill rounds run - see
+    // `find_contentless_media_blobs`'s doc comment.
+    let contentless_blob_cleanup = if !crate::updates::is_newer(
+        &config.old_version,
+        LAST_VERSION_NEEDING_BLAKE3_BACKFILL,
+    ) {
+        crate::progress::report("cleaning up contentless blobs...".to_string());
+        let response = crate::blob_data::cleanup_contentless_media_blobs(false).await;
+        if response.success {
+            let summary = response.data.unwrap_or_default();
+            let changed = summary.blobs_deleted > 0;
+            let text = summarize_contentless_cleanup_report(&summary);
+            ran_outcome(&summary, text, changed)
+        } else {
+            MigrationOutcome::Failed {
+                error: response.message,
+            }
+        }
+    } else {
+        MigrationOutcome::Skipped {
+            reason: format!(
+                "old config version {} is newer than {} - every blob since has been hashed at creation time, so a contentless+unhashable row can't exist",
+                config.old_version, LAST_VERSION_NEEDING_BLAKE3_BACKFILL
+            ),
+        }
+    };
+
     Ok(UpgradeAndMigrateOutcome {
         config,
         haruspex,
         reliquary,
         radio_encode_args,
         blake3_backfill,
+        contentless_blob_cleanup,
     })
 }
 
@@ -418,6 +471,10 @@ pub fn describe_outcome(outcome: &UpgradeAndMigrateOutcome) -> String {
         ("reliquary", &outcome.reliquary),
         ("radio encode_args", &outcome.radio_encode_args),
         ("blake3 backfill", &outcome.blake3_backfill),
+        (
+            "contentless blob cleanup",
+            &outcome.contentless_blob_cleanup,
+        ),
     ] {
         if migration.is_noteworthy() {
             lines.push(format!("{} migration: {}", name, migration.describe()));
@@ -435,7 +492,7 @@ mod tests {
     #[tokio::test]
     async fn test_blake3_backfill_rounds_stops_immediately_when_nothing_needed() {
         let calls = RefCell::new(0);
-        let report = run_blake3_backfill_rounds(50, || {
+        let report = run_blake3_backfill_rounds(|| {
             *calls.borrow_mut() += 1;
             async { Ok((0, 0)) }
         })
@@ -443,16 +500,20 @@ mod tests {
         .expect("rounds succeed");
         assert_eq!(report.processed, 0);
         assert_eq!(report.remaining, 0);
-        assert_eq!(*calls.borrow(), 1, "a round reporting 0/0 must not be retried");
+        assert_eq!(
+            *calls.borrow(),
+            1,
+            "a round reporting 0/0 must not be retried"
+        );
     }
 
     #[tokio::test]
-    async fn test_blake3_backfill_rounds_finishes_clean_before_the_safety_cap() {
+    async fn test_blake3_backfill_rounds_finishes_clean_after_a_few_rounds() {
         // simulates 250 blobs needing backfill, 100 per round (3 rounds:
-        // 100, 100, 50) - well under the 50-round safety cap.
+        // 100, 100, 50).
         let remaining_after = RefCell::new(vec![150i64, 50, 0]);
         let calls = RefCell::new(0);
-        let report = run_blake3_backfill_rounds(50, || {
+        let report = run_blake3_backfill_rounds(|| {
             *calls.borrow_mut() += 1;
             let left = remaining_after.borrow_mut().remove(0);
             let processed = if left == 150 {
@@ -468,32 +529,70 @@ mod tests {
         .expect("rounds succeed");
         assert_eq!(report.processed, 250);
         assert_eq!(report.remaining, 0);
-        assert_eq!(*calls.borrow(), 3, "must stop the round after remaining hits 0");
+        assert_eq!(
+            *calls.borrow(),
+            3,
+            "must stop the round after remaining hits 0"
+        );
     }
 
     #[tokio::test]
-    async fn test_blake3_backfill_rounds_stops_at_the_safety_cap_on_a_huge_backlog() {
-        // every round processes 100 but there's always more left - this
-        // must stop at max_rounds, not loop forever, and must report the
-        // true remaining count so the operator knows to follow up.
+    async fn test_blake3_backfill_rounds_has_no_round_cap_on_a_huge_backlog() {
+        // 5000 blobs, 100 per round = 50 rounds to finish - well past what
+        // used to be a 50-round safety cap. there's no cap anymore: this
+        // must keep going until remaining actually hits 0, not give up
+        // partway through a large-but-finite backlog.
         let calls = RefCell::new(0);
-        let report = run_blake3_backfill_rounds(5, || {
-            *calls.borrow_mut() += 1;
-            async { Ok((100, 10_000)) }
+        let report = run_blake3_backfill_rounds(|| {
+            let mut c = calls.borrow_mut();
+            *c += 1;
+            let done_so_far = *c * 100;
+            let left = (5_000 - done_so_far).max(0);
+            async move { Ok((100, left)) }
         })
         .await
         .expect("rounds succeed");
-        assert_eq!(report.processed, 500);
+        assert_eq!(report.processed, 5_000);
+        assert_eq!(report.remaining, 0);
+        assert_eq!(
+            *calls.borrow(),
+            50,
+            "must run as many rounds as it takes, no artificial cap"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_blake3_backfill_rounds_stops_when_a_round_makes_zero_progress() {
+        // every remaining blob fails to hash (e.g. missing files on disk) -
+        // further rounds would never make progress, so this must stop
+        // after the first zero-progress round rather than spin forever,
+        // and must still report the true remaining count.
+        let calls = RefCell::new(0);
+        let report = run_blake3_backfill_rounds(|| {
+            *calls.borrow_mut() += 1;
+            async { Ok((0, 10_000)) }
+        })
+        .await
+        .expect("rounds succeed");
+        assert_eq!(report.processed, 0);
         assert_eq!(report.remaining, 10_000);
-        assert_eq!(*calls.borrow(), 5, "must stop at max_rounds, never loop forever");
+        assert_eq!(
+            *calls.borrow(),
+            1,
+            "a zero-progress round must stop the loop, not spin forever"
+        );
     }
 
     #[tokio::test]
     async fn test_blake3_backfill_rounds_aborts_immediately_on_error() {
         let calls = RefCell::new(0);
-        let result = run_blake3_backfill_rounds(50, || {
+        let result = run_blake3_backfill_rounds(|| {
             *calls.borrow_mut() += 1;
-            async { Err(crate::error::GrimoireError::ProcessingFailed { message: "db gone".to_string() }) }
+            async {
+                Err(crate::error::GrimoireError::ProcessingFailed {
+                    message: "db gone".to_string(),
+                })
+            }
         })
         .await;
         assert_eq!(result, Err("processing failed: db gone".to_string()));
@@ -550,6 +649,9 @@ mod tests {
             blake3_backfill: MigrationOutcome::Skipped {
                 reason: "not under test".to_string(),
             },
+            contentless_blob_cleanup: MigrationOutcome::Skipped {
+                reason: "not under test".to_string(),
+            },
         };
         let text = describe_outcome(&outcome);
         assert!(text.contains("0.1.0 -> 0.2.0"));
@@ -586,6 +688,9 @@ mod tests {
                 changed: true,
             },
             blake3_backfill: MigrationOutcome::Skipped {
+                reason: "not under test".to_string(),
+            },
+            contentless_blob_cleanup: MigrationOutcome::Skipped {
                 reason: "not under test".to_string(),
             },
         };

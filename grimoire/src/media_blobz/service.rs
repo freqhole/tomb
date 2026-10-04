@@ -68,7 +68,9 @@ async fn backfill_blake3_if_missing(
     Ok(updated)
 }
 
-/// create a new media blob with deduplication by SHA256
+/// create a new media blob with deduplication by content hash - prefers
+/// `blake3` (the real dedup key since migration 089), falls back to the
+/// legacy `sha256` for callers that don't supply one yet.
 pub async fn create_media_blob(mut req: CreateMediaBlobRequest) -> GrimoireResult<MediaBlob> {
     let pool = database::connect().await?;
 
@@ -354,23 +356,29 @@ pub async fn create_media_blob(mut req: CreateMediaBlobRequest) -> GrimoireResul
     {
         Ok(b) => b,
         Err(e) => {
-            // a parallel request for this exact sha256 can win the race
+            // a parallel request for this exact content can win the race
             // between our own duplicate-check SELECT above and this
             // INSERT (e.g. two directory-scan jobs discovering the same
-            // new file at the same time) - sha256's existing UNIQUE
-            // constraint is what actually prevents a duplicate row here,
+            // new file at the same time) - blake3's UNIQUE index
+            // (migration 089) is what actually prevents a duplicate row
+            // here now, with sha256's own (legacy) UNIQUE index as a
+            // fallback for any caller that still only supplies sha256 -
             // this just makes the LOSING side resolve gracefully to the
             // winner's row instead of surfacing a raw db error. mirrors
             // `songz.media_blob_id` / `videoz.media_blob_id`'s identical
             // race-handling pattern in their own create functions.
-            //
-            // TEMPORARY GAP (see docs/sha256-removal-plan.md phase 1):
-            // blake3 has no UNIQUE constraint yet, only sha256 does - a
-            // caller racing on blake3 alone (no sha256) has no db-level
-            // protection here until phase 1 adds one. accepted for now,
-            // not silently - will be fixed when blake3 becomes the real
-            // unique key.
             let err_str = e.to_string();
+            if let Some(blake3) = req
+                .blake3
+                .as_deref()
+                .filter(|_| err_str.contains("UNIQUE constraint failed: media_blobz.blake3"))
+            {
+                tracing::info!(
+                    "create_blob: lost blake3 insert race for {}, returning winner's row",
+                    blake3
+                );
+                return get_media_blob_by_blake3(blake3).await;
+            }
             if let Some(sha256) = req
                 .sha256
                 .as_deref()
@@ -1460,6 +1468,7 @@ mod tests {
     // cargo test -p grimoire --lib -- --ignored --exact media_blobz::service::tests::test_get_media_blob_stream_source_not_found_anywhere
     // cargo test -p grimoire --lib -- --ignored --exact media_blobz::service::tests::test_update_blob_content_updates_all_fields
     // cargo test -p grimoire --lib -- --ignored --exact media_blobz::service::tests::test_update_blob_content_skips_hash_update_on_sha256_conflict
+    // cargo test -p grimoire --lib -- --ignored --exact media_blobz::service::tests::test_create_media_blob_concurrent_same_blake3_dedupes_to_one_row
     async fn init_test_env(data_dir: &std::path::Path) {
         let config_toml = format!(
             r#"data_dir = "{data_dir}"
@@ -1803,5 +1812,66 @@ level = "warn"
         );
         assert_eq!(updated.mime.as_deref(), Some("image/webp"));
         assert_eq!(updated.size, Some(99));
+    }
+
+    #[tokio::test]
+    #[ignore = "needs its own process: touches the real db pool singletons"]
+    async fn test_create_media_blob_concurrent_same_blake3_dedupes_to_one_row() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        init_test_env(tmp.path()).await;
+
+        // every caller racing to create a blob for the exact same content
+        // (no sha256, blake3-only - the realistic post-phase-0 import
+        // shape) must dedupe to a single row: either via the normal
+        // SELECT-based dedup check, or (if two calls' SELECTs both miss
+        // before either INSERT commits) via the blake3 UNIQUE-constraint
+        // race-retry path added in `create_media_blob` for migration 089.
+        // no `data`/`local_path` on the request, so this never touches
+        // reliquary mirroring - purely exercises the race/dedup logic.
+        let blake3 = reliquary::hash_bytes(b"racey content bytes");
+        let make_request = || CreateMediaBlobRequest {
+            sha256: None,
+            size: Some(123),
+            mime: Some("image/webp".to_string()),
+            source_client_id: None,
+            local_path: None,
+            filename: None,
+            parent_blob_id: None,
+            blob_type: Some(BlobType::Original),
+            metadata: serde_json::Value::Null,
+            created_by: None,
+            data: None,
+            width: None,
+            height: None,
+            blake3: Some(blake3.clone()),
+            delete_duplicate_local_path: false,
+        };
+
+        let handles: Vec<_> = (0..12)
+            .map(|_| tokio::spawn(create_media_blob(make_request())))
+            .collect();
+
+        let mut ids = std::collections::HashSet::new();
+        for handle in handles {
+            let blob = handle
+                .await
+                .expect("task panicked")
+                .expect("create_media_blob must never surface a raw UNIQUE violation");
+            ids.insert(blob.id);
+        }
+        assert_eq!(
+            ids.len(),
+            1,
+            "all 12 concurrent callers for the same blake3 must resolve to the same row"
+        );
+
+        let pool = database::connect().await.expect("connect");
+        let row_count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM media_blobz WHERE blake3 = ?")
+                .bind(&blake3)
+                .fetch_one(&pool)
+                .await
+                .expect("count");
+        assert_eq!(row_count, 1, "exactly one row must have been persisted");
     }
 }

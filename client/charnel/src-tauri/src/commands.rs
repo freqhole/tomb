@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 use crate::app_config::{get_server_config_path_resolved, save_admin_user, FreqholeAppConfig};
 use crate::spume_bridge::{
@@ -2331,7 +2331,16 @@ pub struct ConfigUpgradeResult {
     pub haruspex_migration: serde_json::Value,
     /// outcome of the reliquary blob data migration (tagged by "status")
     pub reliquary_migration: serde_json::Value,
+    /// outcome of the stale radio encode_args cleanup (tagged by "status")
+    pub radio_encode_args_migration: serde_json::Value,
+    /// outcome of the blake3 backfill (tagged by "status")
+    pub blake3_backfill_migration: serde_json::Value,
 }
+
+/// event name used to stream live progress lines to the wizard/settings
+/// ui while `upgrade_config` is running - see `grimoire::progress` for
+/// the sender side.
+const CONFIG_UPGRADE_PROGRESS_EVENT: &str = "config-upgrade-progress";
 
 /// upgrade server config to current version and run the one-shot data migrations
 ///
@@ -2344,9 +2353,27 @@ pub async fn upgrade_config(app_handle: tauri::AppHandle) -> Result<ConfigUpgrad
     let config_path = get_server_config_path_resolved(&app_handle)
         .ok_or_else(|| "config file not found".to_string())?;
 
-    let outcome = grimoire::upgrade::upgrade_config_and_migrate(&config_path)
-        .await
-        .map_err(|e| e.to_string())?;
+    // stream progress lines to the wizard/settings view as they're
+    // reported (haruspex/reliquary/radio/blake3-backfill steps all call
+    // `grimoire::progress::report` from inside this scope) so a long
+    // blake3 backfill isn't just a silent spinner.
+    let (prog_tx, mut prog_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+    let forward_app = app_handle.clone();
+    let forwarder = tauri::async_runtime::spawn(async move {
+        while let Some(line) = prog_rx.recv().await {
+            let _ = forward_app.emit(CONFIG_UPGRADE_PROGRESS_EVENT, line);
+        }
+    });
+
+    let outcome = grimoire::progress::scope(
+        prog_tx,
+        grimoire::upgrade::upgrade_config_and_migrate(&config_path),
+    )
+    .await;
+    // closing the sender (dropped when `scope`'s future completes) ends
+    // the forwarder loop above.
+    let _ = forwarder.await;
+    let outcome = outcome.map_err(|e| e.to_string())?;
 
     // land the migration results in the log even if the ui ignores them
     tracing::info!("{}", grimoire::upgrade::describe_outcome(&outcome));
@@ -2358,6 +2385,10 @@ pub async fn upgrade_config(app_handle: tauri::AppHandle) -> Result<ConfigUpgrad
         haruspex_migration: serde_json::to_value(&outcome.haruspex)
             .unwrap_or(serde_json::Value::Null),
         reliquary_migration: serde_json::to_value(&outcome.reliquary)
+            .unwrap_or(serde_json::Value::Null),
+        radio_encode_args_migration: serde_json::to_value(&outcome.radio_encode_args)
+            .unwrap_or(serde_json::Value::Null),
+        blake3_backfill_migration: serde_json::to_value(&outcome.blake3_backfill)
             .unwrap_or(serde_json::Value::Null),
     })
 }

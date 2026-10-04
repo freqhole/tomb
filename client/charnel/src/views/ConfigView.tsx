@@ -1,5 +1,6 @@
-import { createSignal, createEffect, on, onMount, onCleanup, Show } from "solid-js";
+import { createSignal, createEffect, on, onMount, onCleanup, Show, For } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import * as monaco from "monaco-editor";
 import { useAdminTransport } from "../admin/context";
 
@@ -27,7 +28,23 @@ interface ConfigUpgradeResult {
     error?: string;
     reason?: string;
   };
+  radio_encode_args_migration?: {
+    status: string;
+    summary?: string;
+    error?: string;
+    reason?: string;
+  };
+  blake3_backfill_migration?: {
+    status: string;
+    summary?: string;
+    error?: string;
+    reason?: string;
+  };
 }
+
+/// event name emitted by the `upgrade_config` tauri command while it runs -
+/// see `grimoire::progress` and commands.rs's `CONFIG_UPGRADE_PROGRESS_EVENT`.
+const CONFIG_UPGRADE_PROGRESS_EVENT = "config-upgrade-progress";
 
 export interface ConfigViewProps {
   embedded?: boolean;
@@ -47,12 +64,14 @@ export default function ConfigView(props: ConfigViewProps = {}) {
   // config upgrade state
   const [upgradeStatus, setUpgradeStatus] = createSignal<ConfigUpgradeStatus | null>(null);
   const [isUpgrading, setIsUpgrading] = createSignal(false);
+  const [upgradeProgress, setUpgradeProgress] = createSignal<string[]>([]);
 
   // "show in finder" button copy state
   const [pathCopied, setPathCopied] = createSignal(false);
 
   let editorContainer: HTMLDivElement | undefined;
   let editor: monaco.editor.IStandaloneCodeEditor | undefined;
+  let unlistenUpgradeProgress: UnlistenFn | undefined;
 
   // helper to relayout monaco after DOM changes
   function relayoutEditor() {
@@ -71,10 +90,14 @@ export default function ConfigView(props: ConfigViewProps = {}) {
     await loadConfigPath();
     await loadConfigContent();
     await checkConfigUpgrade();
+    unlistenUpgradeProgress = await listen<string>(CONFIG_UPGRADE_PROGRESS_EVENT, (event) => {
+      setUpgradeProgress((lines) => [...lines, event.payload]);
+    });
   });
 
   onCleanup(() => {
     editor?.dispose();
+    unlistenUpgradeProgress?.();
   });
 
   // retarget when active admin scope changes (local <-> remote).
@@ -154,6 +177,7 @@ export default function ConfigView(props: ConfigViewProps = {}) {
     setSaveMessage("");
     setSaveErrors([]);
     setIsError(false);
+    setUpgradeProgress([]);
 
     try {
       const result = await invoke<ConfigUpgradeResult>("upgrade_config");
@@ -314,6 +338,21 @@ export default function ConfigView(props: ConfigViewProps = {}) {
             please upgrade your config file to the latest version. a backup of your old config will
             be created.
           </span>
+          <Show when={isUpgrading() && upgradeProgress().length > 0}>
+            <pre
+              style={{
+                margin: 0,
+                "max-height": "8rem",
+                overflow: "auto",
+                width: "100%",
+                "font-size": "0.75rem",
+                "font-family": "'JetBrains Mono', 'Fira Code', monospace",
+                opacity: 0.8,
+              }}
+            >
+              <For each={upgradeProgress()}>{(line) => <div>{line}</div>}</For>
+            </pre>
+          </Show>
         </div>
       </Show>
 

@@ -201,6 +201,8 @@ pub async fn handle_command(
                                 .unwrap_or(serde_json::Value::Null),
                             "blake3_backfill_migration": serde_json::to_value(&outcome.blake3_backfill)
                                 .unwrap_or(serde_json::Value::Null),
+                            "contentless_blob_cleanup_migration": serde_json::to_value(&outcome.contentless_blob_cleanup)
+                                .unwrap_or(serde_json::Value::Null),
                         }),
                     )
                 }

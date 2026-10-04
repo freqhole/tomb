@@ -8,7 +8,8 @@ mod orphaned;
 mod video_hard_delete;
 
 pub use crate::blob_data::{
-    cleanup_orphaned_media_blobs, find_orphaned_media_blobs, OrphanedBlobSummary,
+    cleanup_contentless_media_blobs, cleanup_orphaned_media_blobs, find_contentless_media_blobs,
+    find_orphaned_media_blobs, ContentlessBlob, ContentlessBlobSummary, OrphanedBlobSummary,
 };
 pub use hard_delete::{hard_delete_old_records, HardDeleteOptions, HardDeleteSummary};
 pub use orphaned::{

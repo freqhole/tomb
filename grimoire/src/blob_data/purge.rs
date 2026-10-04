@@ -308,6 +308,153 @@ pub async fn cleanup_orphaned_media_blobs() -> GrimoireResponse<OrphanedBlobSumm
     )
 }
 
+/// a live `media_blobz` row with no retrievable content anywhere: no
+/// `local_path` (not file-backed) and no matching row in the separate
+/// `blob_data` database (not db-stored either) - so it can never have a
+/// `blake3` either, there's nothing left to hash. unlike
+/// `find_orphaned_media_blobs` (zero *references*), these rows are
+/// commonly still referenced - e.g. a `song_imagez` row pointing at a
+/// derived waveform/thumbnail whose bytes never made it into `blob_data`,
+/// or a `songz` row whose original audio file's path never got recorded.
+/// they're broken, not unused, and `backfill_blake3_hashes` will retry and
+/// skip them every single round forever - this is the matching cleanup
+/// for that permanently-stuck case.
+#[derive(Debug, Clone)]
+pub struct ContentlessBlob {
+    pub id: String,
+    pub blob_type: String,
+}
+
+/// summary of a contentless-blob cleanup pass
+#[derive(Debug, Clone, Default, serde::Serialize)]
+pub struct ContentlessBlobSummary {
+    pub blobs_found: u32,
+    pub blobs_deleted: u32,
+    pub deletion_failures: u32,
+}
+
+/// find all live `media_blobz` rows with no retrievable content anywhere
+/// (see `ContentlessBlob`'s doc comment for exactly what that means).
+pub async fn find_contentless_media_blobs() -> GrimoireResponse<Vec<ContentlessBlob>> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure("failed to connect to database", vec![e.into()])
+        }
+    };
+    let blob_data_pool = match database::connect_blob_data().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "failed to connect to blob_data database",
+                vec![e.into()],
+            )
+        }
+    };
+
+    let candidates = match sqlx::query!(
+        "SELECT id as \"id!\", blob_type as \"blob_type!\"
+         FROM media_blobz
+         WHERE deleted_at IS NULL
+           AND blake3 IS NULL
+           AND (local_path IS NULL OR local_path = '')"
+    )
+    .fetch_all(&pool)
+    .await
+    {
+        Ok(rows) => rows,
+        Err(e) => return GrimoireResponse::failure("Failed to query media blobs", vec![e.into()]),
+    };
+
+    if candidates.is_empty() {
+        return GrimoireResponse::success("no contentless blobs found", Vec::new());
+    }
+
+    // blob_data lives in a separate sqlite file from media_blobz, so this
+    // can't be compile-time checked against the same DATABASE_URL as the
+    // query above - same reason blob_data/service.rs uses runtime-checked
+    // `sqlx::query` throughout instead of the `query!`/`query_scalar!` macros.
+    let stored_ids: std::collections::HashSet<String> =
+        match sqlx::query_scalar::<_, String>("SELECT id FROM blob_data")
+            .fetch_all(&blob_data_pool)
+            .await
+        {
+            Ok(ids) => ids.into_iter().collect(),
+            Err(e) => {
+                return GrimoireResponse::failure("failed to query blob_data", vec![e.into()])
+            }
+        };
+
+    let contentless: Vec<ContentlessBlob> = candidates
+        .into_iter()
+        .filter(|row| !stored_ids.contains(&row.id))
+        .map(|row| ContentlessBlob {
+            id: row.id,
+            blob_type: row.blob_type,
+        })
+        .collect();
+
+    GrimoireResponse::success(
+        format!("found {} contentless blob(s)", contentless.len()),
+        contentless,
+    )
+}
+
+/// soft-delete every blob `find_contentless_media_blobs` finds. there's
+/// nothing to reclaim (no file, no blob_data row), so this is strictly a
+/// metadata cleanup via the same soft-delete used everywhere else in
+/// media_blobz (`delete_media_blob`), never a hard delete.
+pub async fn cleanup_contentless_media_blobs(
+    dry_run: bool,
+) -> GrimoireResponse<ContentlessBlobSummary> {
+    let found = match find_contentless_media_blobs().await {
+        response if response.success => response.data.unwrap_or_default(),
+        response => {
+            return GrimoireResponse::failure("failed to find contentless blobs", response.errors)
+        }
+    };
+
+    let blobs_found = found.len() as u32;
+    let mut blobs_deleted = 0u32;
+    let mut deletion_failures = 0u32;
+
+    if !dry_run {
+        for blob in &found {
+            match delete_media_blob(&blob.id, Some("contentless_blob_cleanup".to_string())).await {
+                Ok(()) => blobs_deleted += 1,
+                Err(e) => {
+                    deletion_failures += 1;
+                    tracing::warn!(
+                        "contentless blob cleanup: failed to delete {}: {}",
+                        blob.id,
+                        e
+                    );
+                }
+            }
+        }
+    }
+
+    let summary = ContentlessBlobSummary {
+        blobs_found,
+        blobs_deleted,
+        deletion_failures,
+    };
+
+    let message = if dry_run {
+        format!(
+            "found {} contentless blob(s) (dry run, nothing deleted)",
+            blobs_found
+        )
+    } else {
+        format!(
+            "deleted {} of {} contentless blob(s)",
+            blobs_deleted, blobs_found
+        )
+    };
+
+    GrimoireResponse::success(message, summary)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -345,5 +492,178 @@ mod tests {
         assert_eq!(blob.id, "test123");
         assert_eq!(blob.blob_type, "original");
         assert!(blob.size.unwrap() > 0);
+    }
+
+    // integration tests below touch the real db pool singletons, so each
+    // gets its own process:
+    // cargo test -p grimoire --lib -- --ignored --exact blob_data::purge::tests::test_find_contentless_media_blobs_skips_db_stored_and_file_backed_rows
+    // cargo test -p grimoire --lib -- --ignored --exact blob_data::purge::tests::test_cleanup_contentless_media_blobs_dry_run_deletes_nothing
+    // cargo test -p grimoire --lib -- --ignored --exact blob_data::purge::tests::test_cleanup_contentless_media_blobs_soft_deletes_only_the_contentless_row
+    async fn init_test_env(data_dir: &std::path::Path) {
+        let config_toml = format!(
+            r#"data_dir = "{data_dir}"
+
+[database]
+filename = "grimoire.db"
+
+[media]
+max_fs_file_size = 104857600
+supported_audio_formats = ["mp3", "flac"]
+
+[musicbrainz]
+enabled = false
+
+[logging]
+level = "warn"
+"#,
+            data_dir = data_dir.display()
+        );
+        let config_path = data_dir.join("freqhole-config.toml");
+        std::fs::write(&config_path, config_toml).expect("write config");
+        std::fs::write(data_dir.join("grimoire.db"), b"").expect("touch grimoire.db");
+
+        crate::config::init_config(Some(config_path)).expect("init config");
+        database::run_migrations().await.expect("run migrations");
+    }
+
+    #[tokio::test]
+    #[ignore = "needs its own process: touches the real db pool singletons"]
+    async fn test_find_contentless_media_blobs_skips_db_stored_and_file_backed_rows() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        init_test_env(tmp.path()).await;
+        let pool = database::connect().await.expect("connect");
+        let blob_data_pool = database::connect_blob_data().await.expect("blob_data pool");
+
+        // db-stored thumbnail with its bytes present - not contentless.
+        sqlx::query(
+            "INSERT INTO media_blobz (id, size, mime, blob_type, parent_blob_id)
+             VALUES ('has-data', 100, 'image/webp', 'thumbnail', 'parent1')",
+        )
+        .execute(&pool)
+        .await
+        .expect("insert has-data row");
+        sqlx::query("INSERT INTO blob_data (id, data) VALUES ('has-data', ?)")
+            .bind(vec![0u8; 4])
+            .execute(&blob_data_pool)
+            .await
+            .expect("insert blob_data row");
+
+        // file-backed original with a local_path recorded - not contentless
+        // even though the file itself doesn't exist on disk (a different,
+        // out-of-scope problem from a row that never recorded a path).
+        sqlx::query(
+            "INSERT INTO media_blobz (id, size, mime, blob_type, local_path)
+             VALUES ('has-path', 200, 'audio/mpeg', 'original', '/tmp/does-not-exist.mp3')",
+        )
+        .execute(&pool)
+        .await
+        .expect("insert has-path row");
+
+        // already hashed - not contentless even with no local_path/blob_data
+        // (content existed and was hashed before being lost later).
+        sqlx::query(
+            "INSERT INTO media_blobz (id, size, mime, blob_type, parent_blob_id, blake3)
+             VALUES ('already-hashed', 100, 'image/webp', 'thumbnail', 'parent1', ?)",
+        )
+        .bind("b".repeat(64))
+        .execute(&pool)
+        .await
+        .expect("insert already-hashed row");
+
+        // the genuinely contentless row: no local_path, no blob_data, no blake3.
+        sqlx::query(
+            "INSERT INTO media_blobz (id, size, mime, blob_type, parent_blob_id)
+             VALUES ('contentless', 100, 'image/webp', 'thumbnail', 'parent1')",
+        )
+        .execute(&pool)
+        .await
+        .expect("insert contentless row");
+
+        let response = find_contentless_media_blobs().await;
+        assert!(response.success);
+        let found = response.data.expect("data");
+        assert_eq!(
+            found.len(),
+            1,
+            "only the genuinely contentless row should be found"
+        );
+        assert_eq!(found[0].id, "contentless");
+    }
+
+    #[tokio::test]
+    #[ignore = "needs its own process: touches the real db pool singletons"]
+    async fn test_cleanup_contentless_media_blobs_dry_run_deletes_nothing() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        init_test_env(tmp.path()).await;
+        let pool = database::connect().await.expect("connect");
+
+        sqlx::query(
+            "INSERT INTO media_blobz (id, size, mime, blob_type, parent_blob_id)
+             VALUES ('contentless', 100, 'image/webp', 'thumbnail', 'parent1')",
+        )
+        .execute(&pool)
+        .await
+        .expect("insert contentless row");
+
+        let response = cleanup_contentless_media_blobs(true).await;
+        assert!(response.success);
+        let summary = response.data.expect("data");
+        assert_eq!(summary.blobs_found, 1);
+        assert_eq!(summary.blobs_deleted, 0);
+
+        let still_live: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM media_blobz WHERE id = 'contentless' AND deleted_at IS NULL",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("count");
+        assert_eq!(still_live, 1, "dry run must not delete anything");
+    }
+
+    #[tokio::test]
+    #[ignore = "needs its own process: touches the real db pool singletons"]
+    async fn test_cleanup_contentless_media_blobs_soft_deletes_only_the_contentless_row() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        init_test_env(tmp.path()).await;
+        let pool = database::connect().await.expect("connect");
+
+        sqlx::query(
+            "INSERT INTO media_blobz (id, size, mime, blob_type, parent_blob_id)
+             VALUES ('contentless', 100, 'image/webp', 'thumbnail', 'parent1')",
+        )
+        .execute(&pool)
+        .await
+        .expect("insert contentless row");
+        sqlx::query(
+            "INSERT INTO media_blobz (id, size, mime, blob_type, local_path)
+             VALUES ('healthy', 200, 'audio/mpeg', 'original', '/tmp/still-here.mp3')",
+        )
+        .execute(&pool)
+        .await
+        .expect("insert healthy row");
+
+        let response = cleanup_contentless_media_blobs(false).await;
+        assert!(response.success);
+        let summary = response.data.expect("data");
+        assert_eq!(summary.blobs_found, 1);
+        assert_eq!(summary.blobs_deleted, 1);
+        assert_eq!(summary.deletion_failures, 0);
+
+        let contentless_deleted_at: Option<i64> =
+            sqlx::query_scalar("SELECT deleted_at FROM media_blobz WHERE id = 'contentless'")
+                .fetch_one(&pool)
+                .await
+                .expect("fetch");
+        assert!(contentless_deleted_at.is_some());
+
+        let healthy_deleted_at: Option<i64> =
+            sqlx::query_scalar("SELECT deleted_at FROM media_blobz WHERE id = 'healthy'")
+                .fetch_one(&pool)
+                .await
+                .expect("fetch");
+        assert!(
+            healthy_deleted_at.is_none(),
+            "unrelated healthy row must be untouched"
+        );
     }
 }
