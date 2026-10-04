@@ -5,6 +5,7 @@ import { getRemoteById } from "../../../app/services/remotes/remoteManager";
 import { initMusicDB } from "../storage/db";
 import { upsertLocalPlaylistWithSongs } from "../storage/playlists";
 import { downloadAndStoreImages, syncSongToLocal, canSyncSong } from "./syncSongToLocal";
+import { addToLoadingSet, removeFromLoadingSet, updateLoadingProgress } from "../download";
 import { invalidateMusicLibraryQueries } from "../../queries/cacheUpdates";
 import { queryClient } from "../../../queryClient";
 import { queryKeys } from "../../queries/queryKeys";
@@ -36,11 +37,23 @@ async function syncPlaylistViaLocalGrimoire(
 
     if (songsToSync.length > 0) {
       debug("syncPlaylistViaLocalGrimoire", `syncing ${songsToSync.length} songs before playlist`);
-      // batch of 5 to avoid overwhelming the iroh transport.
+      // batch of 5 to avoid overwhelming the iroh transport. each song's
+      // own queue row (QueueSongRow.tsx) already reads
+      // getLoadingProgress(song.sha256) - previously nothing fed this at
+      // all here, so a queued remote playlist synced with zero visible
+      // feedback per song.
       const batchSize = 5;
       for (let i = 0; i < songsToSync.length; i += batchSize) {
         const batch = songsToSync.slice(i, i + batchSize);
-        await Promise.all(batch.map((s) => syncSongToLocal(s)));
+        await Promise.all(
+          batch.map((s) => {
+            const key = s.sha256 || s.id;
+            addToLoadingSet(key);
+            return syncSongToLocal(s, (received, total) => {
+              if (total > 0) updateLoadingProgress(key, received / total);
+            }).finally(() => removeFromLoadingSet(key));
+          })
+        );
       }
     }
 

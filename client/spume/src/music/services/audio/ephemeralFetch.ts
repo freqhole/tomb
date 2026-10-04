@@ -110,7 +110,15 @@ function extensionForSong(song: Song): string {
 /// fetch a remote song into `<fetch_dir>/_ephemeral/` and return its
 /// fs path. throws on any failure (caller is the libmpv backend's
 /// loadAndPlay, which translates to a `BackendPlaybackError`).
-export async function fetchEphemeralForSong(song: Song): Promise<{
+///
+/// `onProgress`, when given, is wired to `fetch_ephemeral_blob_with_progress`
+/// instead of the plain command - mirrors syncSongToLocal.ts's
+/// `invokeSyncSongWithProgress` channel pattern exactly. the sync-queue-
+/// to-local=OFF path previously had no progress reporting at all here.
+export async function fetchEphemeralForSong(
+  song: Song,
+  onProgress?: (received: number, total: number) => void
+): Promise<{
   path: string;
   entry: EphemeralEntry;
 }> {
@@ -138,11 +146,10 @@ export async function fetchEphemeralForSong(song: Song): Promise<{
   const ext = extensionForSong(song);
   // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
   const { invoke } = await import("@tauri-apps/api/core");
-  const path = await invoke<string>("fetch_ephemeral_blob", {
-    peerAddr: remote.peer_addr,
-    blake3: song.blake3,
-    ext,
-  });
+  const args = { peerAddr: remote.peer_addr, blake3: song.blake3, ext };
+  const path = onProgress
+    ? await invokeFetchEphemeralWithProgress(invoke, args, song.file_size ?? 0, onProgress)
+    : await invoke<string>("fetch_ephemeral_blob", args);
 
   // light up the "available offline" UI affordance for this song.
   // tracked in-memory + reconciled on startup against the queue (see
@@ -158,7 +165,10 @@ export async function fetchEphemeralForSong(song: Song): Promise<{
 /// video counterpart of `fetchEphemeralForSong()` above - same rust
 /// command, same on-disk tracking (keyed by blake3 regardless of kind),
 /// just a video-shaped source and mime-to-extension map.
-export async function fetchEphemeralForVideo(video: QueuedVideo): Promise<{
+export async function fetchEphemeralForVideo(
+  video: QueuedVideo,
+  onProgress?: (received: number, total: number) => void
+): Promise<{
   path: string;
   entry: EphemeralEntry;
 }> {
@@ -185,11 +195,13 @@ export async function fetchEphemeralForVideo(video: QueuedVideo): Promise<{
   const ext = videoExtensionFromMime("");
   // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
   const { invoke } = await import("@tauri-apps/api/core");
-  const path = await invoke<string>("fetch_ephemeral_blob", {
-    peerAddr: remote.peer_addr,
-    blake3: video.blake3,
-    ext,
-  });
+  const args = { peerAddr: remote.peer_addr, blake3: video.blake3, ext };
+  // `Video` has no known file_size field yet - 0 keeps the caller on an
+  // indeterminate spinner instead of a bogus ratio, same convention as
+  // every other progress callback in this codebase.
+  const path = onProgress
+    ? await invokeFetchEphemeralWithProgress(invoke, args, 0, onProgress)
+    : await invoke<string>("fetch_ephemeral_blob", args);
 
   markEphemeralOnDisk(video.blake3);
 
@@ -197,6 +209,24 @@ export async function fetchEphemeralForVideo(video: QueuedVideo): Promise<{
     path,
     entry: { blake3: video.blake3, ext },
   };
+}
+
+/** invoke `fetch_ephemeral_blob_with_progress` instead of the plain
+ *  `fetch_ephemeral_blob` - mirrors syncSongToLocal.ts's
+ *  `invokeSyncSongWithProgress` tauri channel pattern exactly. */
+async function invokeFetchEphemeralWithProgress(
+  invoke: (cmd: string, args?: Record<string, unknown>) => Promise<string>,
+  args: { peerAddr: string; blake3: string; ext: string },
+  totalBytes: number,
+  onProgress: (received: number, total: number) => void
+): Promise<string> {
+  // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
+  const tauri = await import("@tauri-apps/api/core");
+  const channel = new tauri.Channel<{ bytes_downloaded: number }>();
+  channel.onmessage = (message) => {
+    onProgress(message?.bytes_downloaded ?? 0, totalBytes);
+  };
+  return invoke("fetch_ephemeral_blob_with_progress", { ...args, onProgress: channel });
 }
 
 /// fire-and-forget delete of one ephemeral file. errors are logged

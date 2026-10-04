@@ -16,6 +16,7 @@ import { schema } from "@freqhole/api-client";
 const { SyncJobQueuedResponseSchema } = schema;
 import type { SyncJobQueuedResponse } from "@freqhole/api-client";
 import { getTransportForRemote } from "../../../app/api/client";
+import { waitForJobResult } from "../../../app/services/jobs/jobService";
 import type { Remote } from "../../../app/services/storage/schemas/remote";
 import {
   isValidSendDestination,
@@ -31,6 +32,10 @@ import { ensureBlobServable } from "../../../lib/api/blobServing";
 import { readVideoFromOPFS } from "../opfs/helpers";
 
 const TAG = "sendVideoToRemote";
+
+// real video files routinely take 8-70+ seconds to pull on the dest side -
+// generous but bounded (mirrors music's sendToRemote.ts).
+const SYNC_JOB_TIMEOUT_MS = 120_000;
 
 export interface SendVideoProgress {
   phase: "preparing" | "syncing" | "done" | "failed";
@@ -230,12 +235,21 @@ export async function sendVideosToRemote(
         }
       }
 
-      progress.syncedVideos += 1;
-      progress.syncedBlake3s.push(blake3);
       info(
         TAG,
         `${lp} sync_video queued: "${item.video.title}" job_id=${data.job_id} (dest will finish this unattended)`
       );
+      // dest only queued the job - await its real completion (same
+      // JobPoller/waitForJobResult machinery used elsewhere, not a new
+      // polling loop) BEFORE counting this as synced - previously this
+      // counted every item as synced the instant the request returned,
+      // regardless of how long the actual dest-side pull+import took.
+      const polled = await waitForJobResult(dest, data.job_id, SYNC_JOB_TIMEOUT_MS);
+      if (polled.status !== "completed") {
+        throw new Error(`dest sync job did not complete: ${polled.errorMessage ?? polled.status}`);
+      }
+      progress.syncedVideos += 1;
+      progress.syncedBlake3s.push(blake3);
     } catch (e) {
       progress.failedVideos += 1;
       progress.failedBlake3s.push(blake3);

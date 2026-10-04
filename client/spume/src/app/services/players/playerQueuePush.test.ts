@@ -90,10 +90,12 @@ vi.mock("../charnel/commands", () => ({
 const registerBlobTransfer = vi.fn();
 const updateBlobTransferProgress = vi.fn();
 const completeBlobTransfer = vi.fn();
+const getBlobTransfer = vi.fn();
 vi.mock("../transfers/blobTransferRegistry", () => ({
   registerBlobTransfer: (...a: unknown[]) => registerBlobTransfer(...a),
   updateBlobTransferProgress: (...a: unknown[]) => updateBlobTransferProgress(...a),
   completeBlobTransfer: (...a: unknown[]) => completeBlobTransfer(...a),
+  getBlobTransfer: (...a: unknown[]) => getBlobTransfer(...a),
 }));
 
 import {

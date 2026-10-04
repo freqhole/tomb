@@ -7,6 +7,8 @@
 
 import { getTransportForRemote } from "../../../app/api/client";
 import { extractNodeIdStrict } from "../../../app/services/remotes/peerAddr";
+import { getTauriManagedRemote } from "../../../app/services/remotes/remoteManager";
+import { waitForJobResult } from "../../../app/services/jobs/jobService";
 import { isP2PRemote } from "../../../app/services/storage/schemas/remote";
 import type { Remote } from "../../../app/services/storage/schemas/remote";
 import type { QueuedVideo } from "../../../app/services/storage/mediaItem";
@@ -98,51 +100,107 @@ export async function syncVideoViaLocalGrimoire(
       `${label} pulling blake3=${blake3.slice(0, 8)} from ${sourceNodeId.slice(0, 8)} series=${body.series_title ?? "none"} season=${body.season_number ?? "none"} images=${body.video_images.length}/${body.series_images.length}/${body.season_images.length} mime=${mime ?? "unknown"}`
     );
 
-    const response = (await (onProgress
-      ? invokeSyncVideoWithProgress(invoke, body, size ?? 0, onProgress)
-      : invoke("api_call", { path: "/api/sync/video-by-blake3", body }))) as {
+    if (onProgress) {
+      const response = (await invokeSyncVideoWithProgress(invoke, body, size ?? 0, onProgress)) as {
+        success: boolean;
+        message: string;
+        errors?: Array<{ error_type: string; title: string; detail: string }>;
+        data?: SyncVideoByBlake3Result;
+      };
+      return finishVideoSyncResult(
+        video,
+        label,
+        response.success,
+        response.message,
+        response.errors,
+        response.data
+      );
+    }
+
+    // no progress callback: same "job-queued, must await completion"
+    // fix as syncSongToLocal.ts's syncSongViaLocalGrimoire - see its doc
+    // comment for the full rationale (this route only ever returns
+    // `{job_id}` immediately now, never the final video/path).
+    const queued = (await invoke("api_call", {
+      path: "/api/sync/video-by-blake3",
+      body,
+    })) as {
       success: boolean;
       message: string;
       errors?: Array<{ error_type: string; title: string; detail: string }>;
-      data?: {
-        video_id: string;
-        media_blob_id: string;
-        file_path: string;
-        series_id: string | null;
-        season_id: string | null;
-        existing: boolean;
-        images_linked: number;
-        missing_image_blake3s: string[];
-      };
+      data?: { job_id: string };
     };
-
-    if (!response.success) {
-      errorLog("videoSync", `sync_video_by_blake3 failed for "${video.title}":`, response.message);
-      // same stale-portal-grant case syncSongToLocal.ts translates
-      if (response.errors?.some((e) => e.error_type === "stale_doc_portal_path")) {
-        return {
-          success: false,
-          error:
-            "fetched media folder is no longer accessible - reselect it in settings > fetched music storage.",
-        };
-      }
-      return { success: false, error: response.message };
+    if (!queued.success || !queued.data?.job_id) {
+      return finishVideoSyncResult(video, label, false, queued.message, queued.errors, undefined);
     }
-
-    const data = response.data;
-    debug(
-      "syncVideoViaLocalGrimoire",
-      `${label} synced video=${data?.video_id} existing=${data?.existing ?? false} series=${data?.series_id ?? "none"} images_linked=${data?.images_linked ?? 0}`
+    const local = await getTauriManagedRemote();
+    if (!local) {
+      return { success: false, error: "no local grimoire remote available to await sync job" };
+    }
+    const polled = await waitForJobResult<SyncVideoByBlake3Result>(
+      local,
+      queued.data.job_id,
+      SYNC_VIDEO_JOB_TIMEOUT_MS
     );
-    return {
-      success: true,
-      videoId: data?.video_id,
-      localPath: data?.file_path,
-      skipped: data?.existing ?? false,
-    };
+    if (polled.status !== "completed") {
+      const detail = polled.errors?.[0]?.detail ?? polled.errorMessage ?? polled.status;
+      return { success: false, error: `sync job did not complete: ${detail}` };
+    }
+    return finishVideoSyncResult(video, label, true, "sync queued", undefined, polled.result);
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     errorLog("videoSync", "local grimoire video sync failed:", e);
     return { success: false, error: message };
   }
+}
+
+/** shape of `/api/sync/video-by-blake3`'s job `result` payload once the
+ *  sync job actually completes (matches `SyncVideoByBlake3Response`). */
+interface SyncVideoByBlake3Result {
+  video_id: string;
+  media_blob_id: string;
+  file_path: string;
+  series_id: string | null;
+  season_id: string | null;
+  existing: boolean;
+  images_linked: number;
+  missing_image_blake3s: string[];
+}
+
+// real video files can be large - same generous bound as the song path.
+const SYNC_VIDEO_JOB_TIMEOUT_MS = 120_000;
+
+/** shared success/failure -> `VideoSyncResult` mapping for both the
+ *  progress-aware (direct tauri command) and plain (job-queued, awaited
+ *  via `waitForJobResult`) paths above. */
+function finishVideoSyncResult(
+  video: QueuedVideo,
+  label: string,
+  success: boolean,
+  message: string,
+  errors: Array<{ error_type: string; title: string; detail: string }> | undefined,
+  data: SyncVideoByBlake3Result | undefined
+): VideoSyncResult {
+  if (!success) {
+    errorLog("videoSync", `sync_video_by_blake3 failed for "${video.title}":`, message);
+    // same stale-portal-grant case syncSongToLocal.ts translates
+    if (errors?.some((e) => e.error_type === "stale_doc_portal_path")) {
+      return {
+        success: false,
+        error:
+          "fetched media folder is no longer accessible - reselect it in settings > fetched music storage.",
+      };
+    }
+    return { success: false, error: message };
+  }
+  debug(
+    "syncVideoViaLocalGrimoire",
+    `${label} synced video=${data?.video_id} existing=${data?.existing ?? false} series=${data?.series_id ?? "none"} images_linked=${data?.images_linked ?? 0}`
+  );
+  return {
+    success: true,
+    videoId: data?.video_id,
+    localPath: data?.file_path,
+    skipped: data?.existing ?? false,
+  };
 }

@@ -34,6 +34,11 @@ import {
 } from "../../music/data/remote/adapters";
 import { getVideoByBlake3 } from "../../video/services/storage/db/videos";
 import { syncVideoToLocal } from "../../video/services/sync/syncVideoToLocal";
+import {
+  addToLoadingSet,
+  removeFromLoadingSet,
+  updateLoadingProgress,
+} from "../../music/services/download";
 import type { Song } from "../../music/services/storage/types";
 import type { QueuedVideo } from "../../app/services/storage/mediaItem";
 import { queryClient } from "../../queryClient";
@@ -327,7 +332,26 @@ export async function resolveMediaRefToSong(item: MediaRef): Promise<Song | null
         : undefined,
     };
 
-    const syncResult = await syncSongToLocal(syncableSong, undefined, remote);
+    const syncResult = await (async () => {
+      // keyed to match whatever `QueueSongRow.tsx` will eventually read
+      // via `getLoadingProgress(song.sha256)` - same `sha256 || id`-style
+      // fallback as `songIdentityKey` elsewhere. previously nothing fed
+      // this at all (not even the "is loading" indicator) for a song
+      // resolved+synced via a cenotaph media ref.
+      const progressKey = syncableSong.sha256 || syncableSong.media_blob_id || item.blake3_hash;
+      addToLoadingSet(progressKey);
+      try {
+        return await syncSongToLocal(
+          syncableSong,
+          (received, total) => {
+            if (total > 0) updateLoadingProgress(progressKey, received / total);
+          },
+          remote
+        );
+      } finally {
+        removeFromLoadingSet(progressKey);
+      }
+    })();
     if (!syncResult.success) {
       warn("mediaRefResolve", `sync-to-local failed for ${hashPrefix}...: ${syncResult.error}`);
       return null;

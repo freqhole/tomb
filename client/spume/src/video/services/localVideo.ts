@@ -9,6 +9,11 @@ import { getLocalVideoById } from "./storage/db/videos";
 import { syncVideoToLocal } from "./sync/syncVideoToLocal";
 import { isCharnelMode } from "../../app/services/charnel";
 import { getSyncQueueToLocal } from "../../app/services/storage/db";
+import {
+  addToLoadingSet,
+  removeFromLoadingSet,
+  updateLoadingProgress,
+} from "../../music/services/download";
 import type { QueuedVideo } from "../../app/services/storage/mediaItem";
 import { resolveCharnelMediaSrc } from "@freqhole/api-client";
 import { warn, debug } from "../../utils/logger";
@@ -131,7 +136,15 @@ export async function resolveLocalVideoPath(video: QueuedVideo): Promise<string 
         // eslint-disable-next-line no-restricted-syntax -- deliberately lazy, see comment above
         const ephemeralFetchModule = await import("../../music/services/audio/ephemeralFetch");
         const { fetchEphemeralForVideo } = ephemeralFetchModule;
-        const fetched = await fetchEphemeralForVideo(video);
+        addToLoadingSet(video.id);
+        let fetched;
+        try {
+          fetched = await fetchEphemeralForVideo(video, (received, total) => {
+            if (total > 0) updateLoadingProgress(video.id, received / total);
+          });
+        } finally {
+          removeFromLoadingSet(video.id);
+        }
         console.info(`[video-window] ephemeral fetch resolved ${video.id} -> ${fetched.path}`);
         return fetched.path;
       } catch (err) {

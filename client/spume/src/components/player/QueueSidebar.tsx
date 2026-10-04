@@ -30,6 +30,7 @@ import {
   optimisticRemoteQueue,
   cancelPendingRemoteQueueItem,
 } from "../../app/services/players/remoteQueueMirror";
+import { startUploadTransferPolling } from "../../app/services/transfers/blobTransferRegistry";
 import {
   remoteAutoDownloadEnabled,
   remoteSetAutoDownloadEnabled,
@@ -267,6 +268,17 @@ export function QueueSidebar(props: QueueSidebarProps) {
     onCleanup(() => {
       document.removeEventListener("dragend", handleGlobalDragEnd);
     });
+  });
+
+  // RemoteQueueRow's transfer status falls back to bucket A's "upload"
+  // direction once a controller's own fetch+import finishes (see
+  // playerQueuePush.ts's queueItemTransferStatus) - covers the second leg
+  // of a proxy relay (the remote player actually pulling the blob from
+  // THIS device), which previously had zero visibility here since nothing
+  // in this sidebar ever started the poll bucket A's data depends on.
+  onMount(() => {
+    const stop = startUploadTransferPolling();
+    onCleanup(stop);
   });
 
   // pointer-based drag for Tauri (HTML5 drag API doesn't work in WKWebView)

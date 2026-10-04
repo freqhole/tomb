@@ -137,6 +137,7 @@ commands.allow = [
     "player_pairing_broadcast_status",
     "set_player_session_active",
     "fetch_ephemeral_blob",
+    "fetch_ephemeral_blob_with_progress",
     "delete_ephemeral_blob",
     "purge_ephemeral_dir",
     "list_ephemeral_blobs",

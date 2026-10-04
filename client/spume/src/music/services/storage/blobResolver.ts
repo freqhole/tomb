@@ -936,7 +936,9 @@ export async function preCacheNextP2PSongs(
       } else {
         addToLoadingSet(firstEntry.sha256);
         try {
-          await fetchEphemeralForSong(firstEntry.song);
+          await fetchEphemeralForSong(firstEntry.song, (received, total) => {
+            if (total > 0) updateLoadingProgress(firstEntry.sha256, received / total);
+          });
           debug(
             "blobResolver",
             `first P2P song pre-fetched (ephemeral): ${firstEntry.sha256.slice(0, 8)}...`
@@ -1081,7 +1083,9 @@ export async function preCacheNextP2PSongs(
       for (const entry of ephemeralEntries) {
         addToLoadingSet(entry.sha256);
         try {
-          await fetchEphemeralForSong(entry.song);
+          await fetchEphemeralForSong(entry.song, (received, total) => {
+            if (total > 0) updateLoadingProgress(entry.sha256, received / total);
+          });
         } catch (err) {
           warn(
             "blobResolver",

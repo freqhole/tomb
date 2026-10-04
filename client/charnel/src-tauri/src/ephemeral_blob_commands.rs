@@ -118,6 +118,32 @@ pub async fn fetch_ephemeral_blob(
     blake3: String,
     ext: String,
 ) -> Result<String, String> {
+    fetch_ephemeral_blob_impl(peer_addr, blake3, ext, None).await
+}
+
+/// same as `fetch_ephemeral_blob`, but reports live download progress over
+/// a tauri channel - mirrors `commands::sync_song_by_blake3_with_progress`'s
+/// pattern exactly (same `BlobDownloadProgress`/`progress_forwarder`). the
+/// `sync_queue_to_local = false` playback path (and its pre-fetch look-
+/// ahead) previously had zero progress reporting at all, unlike the
+/// sync-to-local-ON path.
+#[tauri::command]
+pub async fn fetch_ephemeral_blob_with_progress(
+    peer_addr: String,
+    blake3: String,
+    ext: String,
+    on_progress: tauri::ipc::Channel<crate::p2p_commands::BlobDownloadProgress>,
+) -> Result<String, String> {
+    let progress_cb = crate::p2p_commands::progress_forwarder(on_progress);
+    fetch_ephemeral_blob_impl(peer_addr, blake3, ext, Some(progress_cb.as_ref())).await
+}
+
+async fn fetch_ephemeral_blob_impl(
+    peer_addr: String,
+    blake3: String,
+    ext: String,
+    on_progress: Option<&grimoire::federation::p2p_client::BlobProgressFn>,
+) -> Result<String, String> {
     validate_blake3(&blake3)?;
     validate_ext(&ext)?;
 
@@ -143,9 +169,13 @@ pub async fn fetch_ephemeral_blob(
         "fetching ephemeral blob"
     );
 
-    let fetch_future = grimoire::federation::p2p_client::fetch_blob_verified_to_file_with_ensure(
-        &peer_addr, &blake3, &target,
-    );
+    let fetch_future =
+        grimoire::federation::p2p_client::fetch_blob_verified_to_file_with_ensure_and_progress(
+            &peer_addr,
+            &blake3,
+            &target,
+            on_progress,
+        );
     match tokio::time::timeout(Duration::from_secs(120), fetch_future).await {
         Ok(Ok(size)) => {
             tracing::info!(

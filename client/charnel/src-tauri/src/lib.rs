@@ -1098,6 +1098,7 @@ pub fn run() {
             player_pairing_accept::player_pairing_broadcast_status,
             // ephemeral blob fetch + cleanup (sync_queue_to_local OFF path)
             ephemeral_blob_commands::fetch_ephemeral_blob,
+            ephemeral_blob_commands::fetch_ephemeral_blob_with_progress,
             ephemeral_blob_commands::delete_ephemeral_blob,
             ephemeral_blob_commands::purge_ephemeral_dir,
             ephemeral_blob_commands::list_ephemeral_blobs,
