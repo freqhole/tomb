@@ -202,6 +202,7 @@ pub async fn process_precheck_fetch_job(job: &Job) -> Result<Option<Value>, JobE
             topic: JobType::PreCheckFetch,
             entity_ref: None,
             created_by: job.created_by.clone(),
+            details: None,
         });
     }
 

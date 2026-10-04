@@ -32,8 +32,16 @@ export interface PollResultDetails {
   errors?: JobError[];
 }
 
-/** callback fired for each `Stage` event scoped to the polled job id. */
-export type JobStageCallback = (stage: string, message: string | undefined) => void;
+/** callback fired for each `Stage` event scoped to the polled job id.
+ *  `details` is the same opaque, stage-specific json blob the server
+ *  attaches (e.g. `{bytes_received, bytes_total}` for a download stage) -
+ *  treat unknown shapes as absent/ignorable, same contract as the server
+ *  side's `JobEvent::Stage.details` doc comment. */
+export type JobStageCallback = (
+  stage: string,
+  message: string | undefined,
+  details?: unknown
+) => void;
 
 /** optional per-wait callbacks. */
 export interface WaitForJobOptions {
@@ -307,7 +315,7 @@ async function subscribeAndWait(
 
     function handleEvent(evt: JobEvent) {
       if (evt.kind === "stage" && evt.job_id === jobId) {
-        opts?.onStage?.(evt.stage, evt.message ?? undefined);
+        opts?.onStage?.(evt.stage, evt.message ?? undefined, evt.details);
         return;
       }
       if (evt.kind === "failed" && evt.job_id === jobId) {
@@ -409,4 +417,48 @@ export async function pollJobWithDetails(
   const result = await poller.waitForJob(jobId, timeoutMs);
   poller.stop();
   return result;
+}
+
+/** `PollResultDetails` plus the job's parsed `result` json payload, for
+ *  job types (e.g. `SyncSongByBlake3`/`SyncVideoByBlake3`) whose
+ *  processor stores a structured result the caller actually needs, not
+ *  just a status/error. */
+export interface JobResultDetails<T = unknown> extends PollResultDetails {
+  /** parsed `result` payload - present only when `status === "completed"`
+   *  and the job actually stored one (absent/unparseable results fall
+   *  back to leaving this undefined rather than throwing). */
+  result?: T;
+}
+
+/**
+ * wait for a job to complete (reusing `JobPoller`'s real-time event
+ * subscription, not a new polling loop), then fetch + parse its stored
+ * `result` via the existing `/api/jobs/status` route - for "enqueue and
+ * return immediately" job types whose caller still needs the final
+ * structured payload the job produced (e.g. sync_song_by_blake3's
+ * `{song_id, media_blob_id, file_path, ...}`), not just pass/fail.
+ */
+export async function waitForJobResult<T = unknown>(
+  remote: RemoteRef,
+  jobId: string,
+  timeoutMs: number = 120_000,
+  opts?: WaitForJobOptions
+): Promise<JobResultDetails<T>> {
+  const poller = new JobPoller(remote, 0);
+  const polled = await poller.waitForJob(jobId, timeoutMs, opts);
+  poller.stop();
+  if (polled.status !== "completed") {
+    return polled;
+  }
+  try {
+    const client = await getClientForRemote(remote);
+    const statusResp = await client.music.getJobStatus({ job_ids: [jobId] });
+    if (!statusResp.success) return polled;
+    const raw = statusResp.data.jobs[jobId]?.result;
+    if (!raw) return polled;
+    return { ...polled, result: JSON.parse(raw) as T };
+  } catch (err) {
+    warn("jobs", `job ${jobId}: completed, but failed to fetch its result:`, err);
+    return polled;
+  }
 }

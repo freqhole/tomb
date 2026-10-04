@@ -64,6 +64,7 @@ import {
   registerBlobTransfer,
   updateBlobTransferProgress,
   completeBlobTransfer,
+  getBlobTransfer,
 } from "../transfers/blobTransferRegistry";
 
 /** bounded-concurrency counterpart to `Promise.all(items.map(fn))` - runs
@@ -161,9 +162,32 @@ const [transferStatusByKey, setTransferStatusByKey] = createSignal<
   Map<string, QueueItemTransferStatus>
 >(new Map());
 
-/** read by RemoteQueueRow.tsx to show "fetching from X"/"sending to Y". */
+/** read by RemoteQueueRow.tsx to show "fetching from X"/"sending to Y".
+ *
+ *  falls back to bucket A's "upload" direction entry for this key once
+ *  this device's own fetch+import finishes (status cleared to null) -
+ *  covers the SECOND leg of a proxy relay (a player that couldn't reach
+ *  the original source pulling the blob from THIS device instead, after
+ *  `handleUnresolvedItems` re-declared this device as the source) which
+ *  `QueueItemTransferStatus` alone never saw, since that only tracks this
+ *  device's own fetch-from-source + local-import steps. requires
+ *  `startUploadTransferPolling()` to be running wherever this is read
+ *  from (see QueueSidebar.tsx) - bucket A has nothing to report
+ *  otherwise. */
 export function queueItemTransferStatus(key: string): QueueItemTransferStatus | undefined {
-  return transferStatusByKey().get(key);
+  const own = transferStatusByKey().get(key);
+  if (own) return own;
+  const bucketA = getBlobTransfer(key);
+  if (bucketA?.direction === "upload" && bucketA.state === "active") {
+    return {
+      phase: "sending",
+      progress:
+        bucketA.bytesTotal && bucketA.bytesTotal > 0
+          ? bucketA.bytesTransferred / bucketA.bytesTotal
+          : undefined,
+    };
+  }
+  return undefined;
 }
 
 function setTransferStatus(key: string, status: QueueItemTransferStatus | null): void {

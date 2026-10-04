@@ -7,7 +7,8 @@
 //   no base64; no inline audio bytes.
 
 import { getClientForRemote, getTransportForRemote } from "../../../app/api/client";
-import { getRemoteById } from "../../../app/services/remotes/remoteManager";
+import { getRemoteById, getTauriManagedRemote } from "../../../app/services/remotes/remoteManager";
+import { waitForJobResult } from "../../../app/services/jobs/jobService";
 import { isOnlineNow } from "../../../app/services/remotes/remoteHealth";
 import { isCharnelMode } from "../../../app/services/charnel";
 import { extractNodeIdStrict } from "../../../app/services/remotes/peerAddr";
@@ -190,66 +191,133 @@ async function syncSongViaLocalGrimoire(
       is_compilation: false,
     };
 
-    const response = (await (onProgress
-      ? invokeSyncSongWithProgress(invoke, body, song.file_size ?? 0, onProgress)
-      : invoke("api_call", { path: "/api/sync/song-by-blake3", body }))) as {
+    if (onProgress) {
+      const response = (await invokeSyncSongWithProgress(
+        invoke,
+        body,
+        song.file_size ?? 0,
+        onProgress
+      )) as {
+        success: boolean;
+        message: string;
+        errors?: Array<{ error_type: string; title: string; detail: string }>;
+        data?: SyncSongByBlake3Result;
+      };
+      return finishSyncResult(
+        song,
+        response.success,
+        response.message,
+        response.errors,
+        response.data
+      );
+    }
+
+    // no progress callback: enqueue via the plain (now job-queued, see
+    // sync_song_by_blake3's doc comment) route and wait for the job to
+    // actually finish before returning - the job only returns
+    // `{job_id, artist_id}` immediately, NOT the final song/path (that
+    // used to be true before the background-job refactor, and this
+    // function used to just trust it - a real, confirmed bug: it meant
+    // callers got `success: true` with no usable path the instant the
+    // job was merely QUEUED, before any bytes had moved, which is
+    // exactly what produced the intermittent "blob not found" libmpv
+    // errors on a song that hadn't actually finished syncing yet).
+    const queued = (await invoke("api_call", {
+      path: "/api/sync/song-by-blake3",
+      body,
+    })) as {
       success: boolean;
       message: string;
       errors?: Array<{ error_type: string; title: string; detail: string }>;
-      data?: {
-        song_id: string;
-        media_blob_id: string;
-        file_path: string;
-        sha256: string;
-        blake3: string;
-        existing: boolean;
-        images_linked: number;
-        missing_image_blake3s: string[];
-      };
+      data?: { job_id: string; artist_id?: string | null };
     };
-
-    if (!response.success) {
-      errorLog("sync", `sync_song_by_blake3 failed for "${song.title}":`, response.message);
-      // a stale flatpak document-portal grant surfaces here as a distinct
-      // error_type (see grimoire's PullAudioBlobError::CreateDirFailed) -
-      // give a more actionable message than the raw IO error
-      if (response.errors?.some((e) => e.error_type === "stale_doc_portal_path")) {
-        return {
-          success: false,
-          error:
-            "fetched music folder is no longer accessible - reselect it in settings > fetched music storage.",
-        };
-      }
-      return { success: false, error: response.message };
+    if (!queued.success || !queued.data?.job_id) {
+      return finishSyncResult(song, false, queued.message, queued.errors, undefined);
     }
-
-    const data = response.data;
-    markSongSynced(song.sha256);
-    debug(
-      "syncSongViaLocalGrimoire",
-      `synced song ${song.title} via iroh (existing=${data?.existing ?? false}) images_linked=${data?.images_linked ?? 0} missing_image_blake3s=${data?.missing_image_blake3s?.length ?? 0}`
+    const local = await getTauriManagedRemote();
+    if (!local) {
+      return { success: false, error: "no local grimoire remote available to await sync job" };
+    }
+    const polled = await waitForJobResult<SyncSongByBlake3Result>(
+      local,
+      queued.data.job_id,
+      SYNC_JOB_TIMEOUT_MS
     );
-    if (data?.missing_image_blake3s && data.missing_image_blake3s.length > 0) {
-      debug(
-        "syncSongViaLocalGrimoire",
-        `missing_image_blake3s for "${song.title}": ${data.missing_image_blake3s
-          .slice(0, 5)
-          .map((s) => s.slice(0, 8))
-          .join(", ")}`
-      );
+    if (polled.status !== "completed") {
+      const detail = polled.errors?.[0]?.detail ?? polled.errorMessage ?? polled.status;
+      return { success: false, error: `sync job did not complete: ${detail}` };
     }
-    return {
-      success: true,
-      localSongId: data?.song_id ?? song.sha256,
-      localMediaBlobId: data?.media_blob_id,
-      localPath: data?.file_path,
-      skipped: data?.existing ?? false,
-    };
+    return finishSyncResult(song, true, "sync queued", undefined, polled.result);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     errorLog("sync", "local grimoire sync failed:", error);
     return { success: false, error: message };
   }
+}
+
+/** shape of `/api/sync/song-by-blake3`'s job `result` payload once the
+ *  sync job actually completes (matches `SyncSongByBlake3Response`). */
+interface SyncSongByBlake3Result {
+  song_id: string;
+  media_blob_id: string;
+  file_path: string;
+  sha256: string;
+  blake3: string;
+  existing: boolean;
+  images_linked: number;
+  missing_image_blake3s: string[];
+}
+
+// real audio files routinely take 8-70+ seconds to pull (see
+// sync_song_by_blake3_impl's doc comment) - generous but bounded.
+const SYNC_JOB_TIMEOUT_MS = 120_000;
+
+/** shared success/failure -> `SyncResult` mapping for both the
+ *  progress-aware (direct tauri command) and plain (job-queued, awaited
+ *  via `waitForJobResult`) paths above - same response shape either way. */
+function finishSyncResult(
+  song: SyncableSong,
+  success: boolean,
+  message: string,
+  errors: Array<{ error_type: string; title: string; detail: string }> | undefined,
+  data: SyncSongByBlake3Result | undefined
+): SyncResult {
+  if (!success) {
+    errorLog("sync", `sync_song_by_blake3 failed for "${song.title}":`, message);
+    // a stale flatpak document-portal grant surfaces here as a distinct
+    // error_type (see grimoire's PullAudioBlobError::CreateDirFailed) -
+    // give a more actionable message than the raw IO error
+    if (errors?.some((e) => e.error_type === "stale_doc_portal_path")) {
+      return {
+        success: false,
+        error:
+          "fetched music folder is no longer accessible - reselect it in settings > fetched music storage.",
+      };
+    }
+    return { success: false, error: message };
+  }
+
+  markSongSynced(song.sha256);
+  debug(
+    "syncSongViaLocalGrimoire",
+    `synced song ${song.title} via iroh (existing=${data?.existing ?? false}) images_linked=${data?.images_linked ?? 0} missing_image_blake3s=${data?.missing_image_blake3s?.length ?? 0}`
+  );
+  if (data?.missing_image_blake3s && data.missing_image_blake3s.length > 0) {
+    debug(
+      "syncSongViaLocalGrimoire",
+      `missing_image_blake3s for "${song.title}": ${data.missing_image_blake3s
+        .slice(0, 5)
+        .map((s) => s.slice(0, 8))
+        .join(", ")}`
+    );
+  }
+  return {
+    success: true,
+    localSongId: data?.song_id ?? song.sha256,
+    localMediaBlobId: data?.media_blob_id,
+    localPath: data?.file_path,
+    skipped: data?.existing ?? false,
+  };
 }
 
 /**

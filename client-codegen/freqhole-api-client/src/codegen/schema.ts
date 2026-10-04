@@ -3236,7 +3236,8 @@ export const JobEventSchema = z.union([z.object({
   kind: z.literal('artist'),
   id: z.string()
 })]).nullish(),
-  created_by: z.string().nullish()
+  created_by: z.string().nullish(),
+  details: z.any().nullish()
 }), z.object({
   kind: z.literal('completed'),
   session_id: z.string(),

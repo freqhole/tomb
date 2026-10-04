@@ -11,6 +11,11 @@
 // destination, so this orchestrator is primarily for browser web.
 
 import { syncSongToLocal, canSyncSong } from "../sync";
+import {
+  registerBlobTransfer,
+  updateBlobTransferProgress,
+  completeBlobTransfer,
+} from "../../../app/services/transfers/blobTransferRegistry";
 import { initMusicDB } from "../storage/db";
 import { upsertLocalPlaylistWithSongs } from "../storage/playlists";
 import { debug, error as logError } from "../../../utils/logger";
@@ -84,14 +89,27 @@ export async function sendToLocalLibrary(
 
   await runWithConcurrency(eligibleSongs, concurrency, async (song) => {
     const blake3 = song.blake3 ?? null;
+    // bucket A's registry previously only ever got fed "upload" (this
+    // node serving a remote peer) entries - a send TO the local library
+    // is the opposite direction (bytes pulled in from the source), which
+    // nothing registered here before. SendToRemoteSection.tsx's
+    // `blendedProgress` already checks both directions (see its own
+    // fix) - this is the producer side of that.
+    if (blake3)
+      registerBlobTransfer(blake3, "download", { bytesTotal: song.file_size ?? undefined });
     try {
       // syncSongToLocal accepts the SyncableSong subset; RemoteSong is a
       // structural superset. mark playlist songs to skip per-song feed
       // events (the playlist envelope emits one).
-      const result = await syncSongToLocal({
-        ...(song as unknown as Song),
-        skip_feed_events: payload.kind === "playlist",
-      } as unknown as Parameters<typeof syncSongToLocal>[0]);
+      const result = await syncSongToLocal(
+        {
+          ...(song as unknown as Song),
+          skip_feed_events: payload.kind === "playlist",
+        } as unknown as Parameters<typeof syncSongToLocal>[0],
+        blake3
+          ? (received, total) => updateBlobTransferProgress(blake3, received, total || undefined)
+          : undefined
+      );
       if (result.success) {
         if (result.skipped) progress.skippedSongs += 1;
         else progress.syncedSongs += 1;
@@ -107,6 +125,7 @@ export async function sendToLocalLibrary(
       progress.errors.unshift(`sync ${song.title} failed: ${String(e)}`);
       logError("sendToLocalLibrary", `song sync failed: ${String(e)}`);
     } finally {
+      if (blake3) completeBlobTransfer(blake3);
       emit();
     }
   });

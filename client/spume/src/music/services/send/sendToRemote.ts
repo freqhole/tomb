@@ -50,6 +50,7 @@ const {
   SyncPlaylistResponseSchema,
 } = schema;
 import { getTransportForRemote } from "../../../app/api/client";
+import { waitForJobResult } from "../../../app/services/jobs/jobService";
 import { isP2PRemote, type Remote } from "../../../app/services/storage/schemas/remote";
 import {
   isValidSendDestination,
@@ -76,6 +77,10 @@ import { uploadImagesToDest, createImageBlobCache } from "./uploadImagesToDest";
 import type { InlineImageCache } from "../sync/syncImages";
 
 const TAG = "sendToRemote";
+
+// real audio/video files routinely take 8-70+ seconds to pull on the dest
+// side (see sync_song_by_blake3_impl's doc comment) - generous but bounded.
+const SYNC_JOB_TIMEOUT_MS = 120_000;
 
 export type SendPhase =
   | "preparing"
@@ -609,9 +614,20 @@ export async function sendToRemote(
         (v) => SyncJobQueuedResponseSchema.safeParse(v)
       );
       destArtistId = data.artist_id ?? null;
+      info(TAG, `${lp} sync_song queued: "${song.title}" job_id=${data.job_id}`);
+      // the dest only QUEUES the job here - audio hasn't actually moved
+      // yet. await its real completion (same JobPoller/waitForJobResult
+      // machinery syncSongToLocal.ts uses, not a new polling loop) before
+      // counting this song as synced - previously this counted it
+      // "synced" the instant it was merely queued, which is why send
+      // progress jumped to 100% almost immediately regardless of how
+      // long the actual dest-side pull+import took.
+      const polled = await waitForJobResult(dest, data.job_id, SYNC_JOB_TIMEOUT_MS);
+      if (polled.status !== "completed") {
+        throw new Error(`dest sync job did not complete: ${polled.errorMessage ?? polled.status}`);
+      }
       progress.syncedSongs += 1;
       progress.syncedBlake3s.push(blake3);
-      info(TAG, `${lp} sync_song queued: "${song.title}" job_id=${data.job_id}`);
     } catch (e) {
       progress.failedSongs += 1;
       progress.failedBlake3s.push(blake3);
@@ -692,9 +708,15 @@ export async function sendToRemote(
         resp.status,
         (v) => SyncJobQueuedResponseSchema.safeParse(v)
       );
+      info(TAG, `${lp} sync_video queued: "${video.title}" job_id=${data.job_id}`);
+      // see the song loop above's identical fix - await real completion
+      // before counting this video as synced.
+      const polled = await waitForJobResult(dest, data.job_id, SYNC_JOB_TIMEOUT_MS);
+      if (polled.status !== "completed") {
+        throw new Error(`dest sync job did not complete: ${polled.errorMessage ?? polled.status}`);
+      }
       progress.syncedVideos += 1;
       progress.syncedVideoBlake3s.push(blake3);
-      info(TAG, `${lp} sync_video queued: "${video.title}" job_id=${data.job_id}`);
     } catch (e) {
       progress.failedVideos += 1;
       progress.failedVideoBlake3s.push(blake3);
@@ -850,6 +872,14 @@ export async function sendToRemote(
                   r.status,
                   (v) => SyncJobQueuedResponseSchema.safeParse(v)
                 );
+                // same real-completion wait as the main song loop above,
+                // before treating this straggler as recovered.
+                const polled = await waitForJobResult(dest, data.job_id, SYNC_JOB_TIMEOUT_MS);
+                if (polled.status !== "completed") {
+                  throw new Error(
+                    `dest sync job did not complete: ${polled.errorMessage ?? polled.status}`
+                  );
+                }
                 // recover: drop from failed counters / lists if previously
                 // recorded as failed; bump synced if not already counted.
                 if (!progress.syncedBlake3s.includes(blake3)) {

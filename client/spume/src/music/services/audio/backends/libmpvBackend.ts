@@ -23,7 +23,12 @@ import {
 } from "../backend";
 import { getSyncQueueToLocal, setCurrentSong } from "../../../../app/services/storage/db";
 import { syncSongToLocal } from "../../sync/syncSongToLocal";
-import { addToLoadingSet, removeFromLoadingSet, isSongOnDiskEphemeral } from "../../download";
+import {
+  addToLoadingSet,
+  removeFromLoadingSet,
+  updateLoadingProgress,
+  isSongOnDiskEphemeral,
+} from "../../download";
 import { fetchEphemeralForSong } from "../ephemeralFetch";
 import { clearExternalMediaSession as bridgeClearExternal } from "../mediaSessionBridge";
 import type { Song } from "../../storage/types";
@@ -284,7 +289,9 @@ export class LibmpvBackend implements PlayerBackend {
           }
           let fetched;
           try {
-            fetched = await fetchEphemeralForSong(song);
+            fetched = await fetchEphemeralForSong(song, (received, total) => {
+              if (total > 0) updateLoadingProgress(songKey, received / total);
+            });
           } catch (err) {
             if (!alreadyOnDisk) removeFromLoadingSet(songKey);
             throw new BackendPlaybackError(
@@ -313,38 +320,50 @@ export class LibmpvBackend implements PlayerBackend {
         debug("player.libmpv", `"${song.title}" not on disk — syncing before play`);
         // light up the queue/playerbar spinner. paired with
         // `removeFromLoadingSet` after the sync resolves (success or
-        // failure) so the UI never gets stuck.
+        // failure) so the UI never gets stuck. `songKey` (== song.sha256
+        // for any song that has one, see songIdentityKey) is the SAME key
+        // QueueSongRow.tsx's progress bar reads via getLoadingProgress(
+        // song.sha256) - matches autoDownload/manager.ts's identical
+        // convention. previously nothing fed this at all for the job-
+        // based remote-playback sync path, so the row never showed
+        // progress even though the download was really happening.
         addToLoadingSet(songKey);
+        updateLoadingProgress(songKey, null); // indeterminate until the first byte count
         let sync;
         try {
-          sync = await syncSongToLocal({
-            sha256: song.sha256,
-            media_blob_id: song.media_blob_id,
-            title: song.title,
-            artist_name: song.artist_name,
-            artist_id: song.artist_id,
-            album_title: song.album_title,
-            track_number: song.track_number,
-            disc_number: song.disc_number,
-            duration_seconds: song.duration_seconds,
-            year: song.year,
-            bpm: song.bpm,
-            track_artist: song.track_artist,
-            lyrics: song.lyrics,
-            metadata: song.metadata,
-            images: song.images,
-            urls: song.urls,
-            album_taxons: song.album_taxons,
-            album_images: song.album_images,
-            album_tags: song.album_tags,
-            artist_images: song.artist_images,
-            // narrowed by the guard above (`song.source_type === "remote"
-            // && song.remote_server_id`).
-            remote_server_id: song.remote_server_id,
-            remote_song_id: song.remote_song_id,
-            blake3: song.blake3,
-            skip_feed_events: song.skip_feed_events,
-          });
+          sync = await syncSongToLocal(
+            {
+              sha256: song.sha256,
+              media_blob_id: song.media_blob_id,
+              title: song.title,
+              artist_name: song.artist_name,
+              artist_id: song.artist_id,
+              album_title: song.album_title,
+              track_number: song.track_number,
+              disc_number: song.disc_number,
+              duration_seconds: song.duration_seconds,
+              year: song.year,
+              bpm: song.bpm,
+              track_artist: song.track_artist,
+              lyrics: song.lyrics,
+              metadata: song.metadata,
+              images: song.images,
+              urls: song.urls,
+              album_taxons: song.album_taxons,
+              album_images: song.album_images,
+              album_tags: song.album_tags,
+              artist_images: song.artist_images,
+              // narrowed by the guard above (`song.source_type === "remote"
+              // && song.remote_server_id`).
+              remote_server_id: song.remote_server_id,
+              remote_song_id: song.remote_song_id,
+              blake3: song.blake3,
+              skip_feed_events: song.skip_feed_events,
+            },
+            (received, total) => {
+              if (total > 0) updateLoadingProgress(songKey, received / total);
+            }
+          );
         } finally {
           removeFromLoadingSet(songKey);
         }

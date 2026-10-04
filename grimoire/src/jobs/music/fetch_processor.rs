@@ -48,6 +48,7 @@ impl JobProgressEmitter {
             topic: JobType::FetchMedia,
             entity_ref: None,
             created_by: self.job.created_by.clone(),
+            details: None,
         });
     }
 }

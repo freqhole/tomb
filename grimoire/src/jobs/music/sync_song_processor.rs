@@ -5,7 +5,7 @@
 //! triggering peer optionally hears back when this finishes.
 
 use crate::jobs::models::SyncSongByBlake3JobParams;
-use crate::jobs::{Job, JobError};
+use crate::jobs::{job_events, Job, JobError};
 use crate::offal::sync::{sync_song_by_blake3_impl, SyncJobNotify};
 
 pub async fn process_sync_song_by_blake3_job(
@@ -15,8 +15,29 @@ pub async fn process_sync_song_by_blake3_job(
     let blake3 = params.request.blake3.clone();
     let title = params.request.title.clone();
     let requester_node_id = params.request.node_id.clone();
+    let declared_size = params.request.size;
 
-    let response = sync_song_by_blake3_impl(&params.caller, params.request, None).await;
+    // real byte-level progress for the frontend's job-wait path (see
+    // syncSongToLocal.ts's syncSongViaLocalGrimoire) - emitted via the
+    // existing Stage event mechanism (debounced to ~once/5s by
+    // emit_stage_from_job_with_details) rather than a new channel.
+    let progress_job = job.clone();
+    let progress_cb: std::sync::Arc<crate::federation::p2p_client::BlobProgressFn> =
+        std::sync::Arc::new(move |bytes_received: u64| {
+            let bytes_total = declared_size.unwrap_or(0);
+            job_events::emit_stage_from_job_with_details(
+                &progress_job,
+                "downloading",
+                Some(&format!("{bytes_received} of {bytes_total} bytes")),
+                Some(serde_json::json!({
+                    "bytes_received": bytes_received,
+                    "bytes_total": bytes_total,
+                })),
+            );
+        });
+
+    let response =
+        sync_song_by_blake3_impl(&params.caller, params.request, Some(progress_cb.as_ref())).await;
 
     notify_requester(
         SyncJobNotify {

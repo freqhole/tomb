@@ -110,11 +110,13 @@ PYEOF
 #
 # $1: "true" to set bundle.macOS.minimumSystemVersion (see regen_tauri_conf).
 # $2: optional - if set, also stage libmpv.2.dylib (+ unversioned symlink)
-#     at this path, so `cargo build`'s `-lmpv` linker step has a real file
-#     to resolve against without needing homebrew installed at all (only
-#     needed for x86_64 - arm64 keeps using the real system homebrew's
-#     /opt/homebrew, a shared system path this script won't write fake
-#     files into).
+#     at this path, so `cargo build`'s `-lmpv` linker step (e.g. rathole,
+#     which links libmpv directly rather than bundling it tauri-style)
+#     has a real file to resolve against without needing a real `brew
+#     install mpv` ever run on this machine - both arches use this (see
+#     each branch below for the path): arm64's committed fast path never
+#     installs homebrew's real mpv at all, so it needs this just as much
+#     as x86_64 does.
 stage_from_committed() {
     local need_min_version="$1"
     local linker_stub_dir="${2:-}"
@@ -298,12 +300,41 @@ PYEOF
     if [ -n "$ffmpeg_prefix" ] && [ -f "$ffmpeg_prefix/bin/ffmpeg" ] && [ -f "$ffmpeg_prefix/bin/ffprobe" ]; then
         cp "$ffmpeg_prefix/bin/ffmpeg" "$ffmpeg_prefix/bin/ffprobe" "$BUNDLE_DEST/"
         chmod u+w "$BUNDLE_DEST/ffmpeg" "$BUNDLE_DEST/ffprobe"
-        (cd "$BUNDLE_DEST" && dylibbundler -b -of -cd -x ffmpeg -x ffprobe -d . -p "@executable_path/../../../Frameworks/" </dev/null)
-        for f in "$BUNDLE_DEST/ffmpeg" "$BUNDLE_DEST/ffprobe"; do
-            count=$(otool -l "$f" | grep -c "path @executable_path/../../../Frameworks/ (offset" || true)
-            if [ "$count" -gt 1 ]; then
-                install_name_tool -delete_rpath "@executable_path/../../../Frameworks/" "$f"
-            fi
+        # NOT dylibbundler here on purpose: pointing it at $BUNDLE_DEST (so
+        # it recognizes the mpv closure as already-bundled) also makes it
+        # re-rewrite THOSE dylibs' own inter-dependencies (e.g. libavcodec
+        # -> libswresample) using ffmpeg/ffprobe's
+        # @executable_path/../../../Frameworks/ prefix instead of leaving
+        # their correct @loader_path/ references alone - confirmed for real
+        # 2026-10-03 via a crash report: dyld refused to load libavcodec
+        # because it looked for libswresample at
+        # @executable_path/../../../Frameworks (3 levels up from
+        # Contents/MacOS/charnel lands at /Applications/, not
+        # Contents/Frameworks/). every dependency ffmpeg/ffprobe need is
+        # already bundled under the same names (see comment above - zero
+        # new dylibs), so just repoint their OWN load commands directly
+        # instead of letting dylibbundler touch anything else.
+        for bin in ffmpeg ffprobe; do
+            f="$BUNDLE_DEST/$bin"
+            while IFS= read -r dep; do
+                case "$dep" in
+                    /usr/lib/*|/System/*) continue ;;
+                esac
+                # homebrew deps are often referenced via an unversioned
+                # SONAME symlink (e.g. libSvtAv1Enc.4.dylib) that doesn't
+                # match the real, fully-versioned bundled filename
+                # (libSvtAv1Enc.4.2.0.dylib) by basename alone - resolve
+                # the symlink first so the lookup below matches what's
+                # actually sitting in $BUNDLE_DEST.
+                real_dep=$(python3 -c "import os,sys; print(os.path.realpath(sys.argv[1]))" "$dep" 2>/dev/null || echo "$dep")
+                dep_name=$(basename "$real_dep")
+                if [ -f "$BUNDLE_DEST/$dep_name" ]; then
+                    install_name_tool -change "$dep" "@executable_path/../../../Frameworks/$dep_name" "$f"
+                else
+                    echo "fetch-mpv-runtime: warning - $bin depends on $dep, not found in $BUNDLE_DEST (left as-is)" >&2
+                fi
+            done < <(otool -L "$f" | tail -n +2 | awk '{print $1}')
+            codesign --force --sign - "$f"
         done
     else
         echo "fetch-mpv-runtime: warning - ffmpeg not found via '$brew_cmd --prefix ffmpeg', bundled app will fall back to the user's own ffmpeg/ffprobe install" >&2
@@ -326,7 +357,19 @@ PYEOF
 case "$ARCH" in
   arm64)
     if [ -d "$COMMITTED_DIR" ] && [ "$REBUILD" != "--rebuild" ]; then
-      stage_from_committed false
+      # /Users/Shared (world-writable, no sudo needed, not per-user like
+      # $HOME - same reasoning as x86_64's stub dir below) matches a
+      # second `.cargo/config.toml` rustflags `-L` entry for this target -
+      # a clean CI runner never runs `brew install mpv` on this fast
+      # path, so without this, rathole's `-lmpv` has nothing to resolve
+      # against (confirmed for real 2026-10-02: `make build-mac-arm`
+      # failed in CI with "library 'mpv' not found" despite charnel's own
+      # bundling succeeding, since charnel only needs the dylib *copied*
+      # into its app bundle, never linked against at compile time).
+      # /usr/local/lib (this target's other `-L` entry) would also work on
+      # CI's runner but needs sudo on a normal dev mac, so this dedicated
+      # path is used instead - safe to pass unconditionally either way.
+      stage_from_committed false "/Users/Shared/freqhole-mpv-arm64/lib"
       exit 0
     fi
 

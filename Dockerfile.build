@@ -39,6 +39,26 @@ ARG FREQHOLE_GIT_SHA=unknown
 # same consistent snapshot. `check-valid-until=no` is required (archived
 # Release files carry a long-expired Valid-Until).
 #
+# a SECOND, much larger round of the exact same skew (confirmed for real
+# 2026-10-03, reproduced locally via `docker run --platform linux/amd64
+# debian:bullseye`): adding the armhf architecture later in this file
+# (`dpkg --add-architecture armhf`, for pi32's cross-compile) makes apt
+# re-resolve the ENTIRE dependency graph from scratch, which drags every
+# other already-skewed-but-previously-quiet package into the open too -
+# `libmpv-dev:armhf` alone (confirmed by bisecting against
+# `gcc-arm-linux-gnueabihf` and the alsa trio in isolation, neither of
+# which triggers anything) is enough to trip it, via its own transitive
+# `libgnutls30` -> `libtasn1-6`/`libgssapi-krb5-2` -> `libpam-modules` ->
+# `login`/`passwd` -> `util-linux` dependency chain. apt's solver's last
+# resort when it can't reconcile a skewed package in that chain is to
+# propose removing it and everything that (quietly, correctly) depends
+# on it - cascading all the way up to `apt` itself depending on
+# `libgnutls30`, hence "Essential packages were removed". same fix as
+# above: pin every package in that chain at the older archived version
+# apt's own conflict report names, found exhaustively (not just reactively
+# one error at a time) by diffing every installed package's version
+# against archive.debian.org's across a clean container.
+#
 # this is a bullseye-ONLY problem - bookworm (build-pi/build-linux's
 # BASE_IMAGE) has no such skew and none of these exact bullseye/debian11
 # version strings even exist there (`apt-get install foo=<bullseye
@@ -57,10 +77,34 @@ RUN if grep -qi bullseye /etc/apt/sources.list 2>/dev/null || grep -Rqi bullseye
     pkg-config \
     libc6=2.31-13+deb11u11 \
     libc6-dev=2.31-13+deb11u11 \
+    libc-bin=2.31-13+deb11u11 \
     libssl1.1=1.1.1w-0+deb11u1 \
     libssl-dev=1.1.1w-0+deb11u1 \
     perl-base=5.32.1-4+deb11u3 \
     perl=5.32.1-4+deb11u3 \
+    dpkg=1.20.13 \
+    e2fsprogs=1.46.2-2 \
+    libcom-err2=1.46.2-2 \
+    libss2=1.46.2-2 \
+    libext2fs2=1.46.2-2 \
+    logsave=1.46.2-2 \
+    login=1:4.8.1-1 \
+    passwd=1:4.8.1-1 \
+    libgnutls30=3.7.1-5+deb11u5 \
+    libtasn1-6=4.16.0-2+deb11u1 \
+    libgssapi-krb5-2=1.18.3-6+deb11u5 \
+    libk5crypto3=1.18.3-6+deb11u5 \
+    libkrb5-3=1.18.3-6+deb11u5 \
+    libkrb5support0=1.18.3-6+deb11u5 \
+    libsystemd0=247.3-7+deb11u5 \
+    libudev1=247.3-7+deb11u5 \
+    liblzma5=5.2.5-2.1~deb11u1 \
+    libpam0g=1.4.0-9+deb11u1 \
+    libpam-runtime=1.4.0-9+deb11u1 \
+    libpam-modules=1.4.0-9+deb11u1 \
+    libpam-modules-bin=1.4.0-9+deb11u1 \
+    libsepol1=3.1-1 \
+    gpgv=2.2.27-2+deb11u2 \
     libasound2-dev; \
     else \
     apt-get update && \
@@ -110,6 +154,14 @@ RUN if [ "$TARGET_ARCH" = "aarch64-unknown-linux-gnu" ]; then \
 # that trio from there instead, pinned exactly (all three together, since
 # libasound2-data has a Breaks against an older libasound2 than its own
 # version - installing them at mismatched versions fails to resolve).
+#
+# libclang-dev: libmpv2-sys's one pregenerated bindings.rs assumes a
+# 64-bit pointer width (its bindgen-emitted layout assertions hard-code
+# 64-bit struct sizes) and fails to compile outright on this 32-bit
+# target - grimoire/Cargo.toml's `[target.'cfg(target_arch = "arm")']`
+# section forces that crate's own `use-bindgen` feature here instead, so
+# bindings get regenerated live against the real (32-bit) target layout.
+# that needs a real libclang to parse mpv's C headers at build time.
 RUN if [ "$TARGET_ARCH" = "armv7-unknown-linux-gnueabihf" ]; then \
     dpkg --add-architecture armhf && \
     echo "deb [check-valid-until=no] http://snapshot.debian.org/archive/debian/20250501T000000Z bullseye main" > /etc/apt/sources.list.d/archive-bullseye.list && \
@@ -119,7 +171,8 @@ RUN if [ "$TARGET_ARCH" = "armv7-unknown-linux-gnueabihf" ]; then \
     libasound2:armhf=1.2.4-1.1 \
     libasound2-dev:armhf=1.2.4-1.1 \
     libmpv-dev:armhf \
-    gcc-arm-linux-gnueabihf; \
+    gcc-arm-linux-gnueabihf \
+    libclang-dev; \
     fi
 
 # clean up apt cache
@@ -143,6 +196,21 @@ ENV CARGO_TARGET_ARMV7_UNKNOWN_LINUX_GNUEABIHF_LINKER=arm-linux-gnueabihf-gcc
 ENV PKG_CONFIG_ALLOW_CROSS=1
 ENV PKG_CONFIG_PATH_aarch64_unknown_linux_gnu=/usr/lib/aarch64-linux-gnu/pkgconfig
 ENV PKG_CONFIG_PATH_armv7_unknown_linux_gnueabihf=/usr/lib/arm-linux-gnueabihf/pkgconfig
+
+# libmpv2-sys's own `use-bindgen` codepath (armv7 only - see
+# grimoire/Cargo.toml) invokes clang against the target's C headers -
+# clang auto-detects the cross target itself (bindgen passes it via
+# Cargo's own TARGET env var), but doesn't know where this image's
+# `gcc-arm-linux-gnueabihf` cross-toolchain keeps its headers: NOT the
+# native multiarch path (`/usr/include/arm-linux-gnueabihf`, which is
+# only populated by installing native `:armhf` packages directly), but
+# `/usr/arm-linux-gnueabihf/include` - the cross-toolchain's own sysroot
+# convention (confirmed for real 2026-10-03 via a one-off `find` in this
+# same image: that's where `bits/libc-header-start.h` actually lives).
+# BINDGEN_EXTRA_CLANG_ARGS is a global (not per-target) bindgen env var,
+# but that's fine here - libmpv2-sys is the only crate in this image
+# enabling bindgen at all, for only this one target.
+ENV BINDGEN_EXTRA_CLANG_ARGS="-I/usr/arm-linux-gnueabihf/include"
 
 WORKDIR /app
 COPY . .

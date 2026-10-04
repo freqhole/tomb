@@ -153,6 +153,10 @@ pub enum JobEvent {
     /// emitted by long-running jobs (mb album search, enrichment
     /// pipeline, etc.) so the client can show "fetching releases…"
     /// without polling.
+    ///
+    /// `details` carries optional stage-specific metadata (e.g. byte-level
+    /// download progress: `{"bytes_received": .., "bytes_total": ..}`) -
+    /// same opaque-by-default contract as `Progress.details`/`Completed.details`.
     Stage {
         session_id: Option<String>,
         job_id: String,
@@ -161,6 +165,8 @@ pub enum JobEvent {
         topic: JobType,
         entity_ref: Option<EntityRef>,
         created_by: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        details: Option<serde_json::Value>,
     },
     /// the entire session has settled (no jobs pending or running).
     /// emitted at-most-once per session in practice (last-job emits it
@@ -481,6 +487,17 @@ fn rx_take(rx: &mut broadcast::Receiver<JobEvent>) -> broadcast::Receiver<JobEve
 /// callers pass the in-hand `Job` so `topic`, `entity_ref`, and
 /// `created_by` are derived without an extra db round-trip.
 pub fn emit_stage_from_job(job: &Job, stage: &str, message: Option<&str>) {
+    emit_stage_from_job_with_details(job, stage, message, None);
+}
+
+/// same as `emit_stage_from_job`, plus an opaque `details` payload (e.g.
+/// byte-level download progress) - see `JobEvent::Stage`'s doc comment.
+pub fn emit_stage_from_job_with_details(
+    job: &Job,
+    stage: &str,
+    message: Option<&str>,
+    details: Option<serde_json::Value>,
+) {
     let Ok(topic) = job.job_type() else { return };
     let entity_ref = entity_ref_for(&topic, &job.parameters);
     if !should_emit_stage(&job.id, stage) {
@@ -494,6 +511,7 @@ pub fn emit_stage_from_job(job: &Job, stage: &str, message: Option<&str>) {
         topic,
         entity_ref,
         created_by: job.created_by.clone(),
+        details,
     });
 }
 

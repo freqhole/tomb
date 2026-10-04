@@ -255,7 +255,14 @@ export const SendToRemoteSection: Component<SendToRemoteSectionProps> = (props) 
       const transfers = blobTransfers();
       for (const b3 of blake3s) {
         const t = transfers.get(b3);
-        if (t?.direction === "upload" && t.bytesTotal && t.bytesTotal > 0) {
+        // "upload" = sending to a remote (this node serves, dest pulls);
+        // "download" = sending to the local library (this node pulls from
+        // the source instead) - sendToLocalLibrary.ts registers those.
+        if (
+          (t?.direction === "upload" || t?.direction === "download") &&
+          t.bytesTotal &&
+          t.bytesTotal > 0
+        ) {
           bonus += t.bytesTransferred / t.bytesTotal;
         }
       }

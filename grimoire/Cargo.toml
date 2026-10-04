@@ -96,6 +96,17 @@ vendored-openssl = ["openssl"]
 # without system libmpv available at link time.
 libmpv-playback = ["dep:libmpv2", "dep:libmpv2-sys", "dep:libc"]
 
+# libmpv2-sys ships one pregenerated bindings.rs (no per-arch variants),
+# whose bindgen-emitted static layout assertions (`size_of::<T>() -
+# <N>usize`) were generated against a 64-bit pointer width - wrong (and a
+# straight-up `error[E0080]: ... which would overflow` compile error, not
+# just a runtime bug) on any 32-bit target, confirmed for real 2026-10-03
+# cross-compiling pi32 (armv7). regenerate bindings live instead, against
+# the real target's layout, via its own `use-bindgen` feature (needs
+# libclang-dev - see Dockerfile.build's armv7 branch).
+[target.'cfg(target_arch = "arm")'.dependencies]
+libmpv2-sys = { version = "4.0.1", optional = true, features = ["use-bindgen"] }
+
 [dependencies.webauthn-rs]
 workspace = true
 optional = true
