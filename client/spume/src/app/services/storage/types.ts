@@ -53,7 +53,13 @@ export type QueueHistorySourceType =
   "song" | "album" | "artist" | "genre" | "playlist" | "shuffle" | "radio_station";
 
 const QUEUE_HISTORY_SOURCE_TYPES: readonly QueueHistorySourceType[] = [
-  "song", "album", "artist", "genre", "playlist", "shuffle", "radio_station",
+  "song",
+  "album",
+  "artist",
+  "genre",
+  "playlist",
+  "shuffle",
+  "radio_station",
 ];
 
 /** narrow a server-provided `session_type` string (open-ended on the wire)
@@ -65,7 +71,6 @@ export function toQueueHistorySourceType(sessionType: string): QueueHistorySourc
     ? (sessionType as QueueHistorySourceType)
     : "shuffle";
 }
-
 
 // reference to a radio station stored in queue history
 export interface RadioStationRef {

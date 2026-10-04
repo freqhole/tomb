@@ -693,7 +693,10 @@ export function FeedView() {
                 const mediaItems = await fetchMediaItemsForSession(session);
                 if (mediaItems.length > 0) {
                   await addToQueue(mediaItems, {
-                    source: { type: toQueueHistorySourceType(session.session_type), label: item.title },
+                    source: {
+                      type: toQueueHistorySourceType(session.session_type),
+                      label: item.title,
+                    },
                   });
                 }
               }

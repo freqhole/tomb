@@ -18,6 +18,7 @@ import { isCharnelMode } from "../../app/services/charnel";
 import { RemoteMusicDataSource } from "../data/remote/remoteSource";
 import { isP2PRemote } from "../../app/services/storage/schemas/remote";
 import type { Remote } from "../../app/services/storage/schemas/remote";
+import { isP2PTransportType } from "../../app/api/client";
 import { useRemovePlaylistItemsMutation } from "../../video/queries/playlistItems";
 import type { ShareTarget } from "../../components/share/types";
 import type { SendPayload } from "../services/send/sendToRemote";
@@ -676,9 +677,13 @@ export function useAlbumContextMenu(
   // or a P2P remote). HTTP-only remotes don't expose the radio admin
   // surface, so the action is hidden rather than failing at click time.
   const currentRemote = getCurrentRemote();
+  // `currentRemote` is `CurrentRemoteInfo` (has `transport_type`, not the
+  // full `Remote`'s `transport`) - `isP2PTransportType` already handles
+  // that legacy shape (see its `resolveTransport` fallback), unlike
+  // `isP2PRemote` which only understands the new discriminated `Remote`.
   const stationCapable = remote
     ? isP2PRemote(remote)
-    : isCharnelMode() || (!!currentRemote && isP2PRemote(currentRemote as Remote));
+    : isCharnelMode() || (!!currentRemote && isP2PTransportType(currentRemote));
   if (stationCapable) {
     actions.push({
       label: "add to station...",

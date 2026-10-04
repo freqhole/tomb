@@ -43,14 +43,12 @@ export function writeHistoryValue<T>(key: string, value: T): void {
  * if history state has a saved value for the key, that value is used
  * as the initial value instead of `defaultValue`.
  */
-export function useHistoryState<T>(
-  key: string,
-  defaultValue: T,
-): [Accessor<T>, Setter<T>] {
+export function useHistoryState<T>(key: string, defaultValue: T): [Accessor<T>, Setter<T>] {
   const saved = readHistoryValue<T>(key);
-  const [value, setValue] = createSignal<T>(
-    saved !== undefined ? saved : defaultValue,
-  ) as [Accessor<T>, Setter<T>];
+  const [value, setValue] = createSignal<T>(saved !== undefined ? saved : defaultValue) as [
+    Accessor<T>,
+    Setter<T>,
+  ];
 
   // wrap setter to also persist to history state
   const persistedSetter = ((...args: Parameters<Setter<T>>) => {

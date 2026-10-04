@@ -2,6 +2,7 @@
 import { createEffect, createMemo, createSignal, on, onCleanup, type JSX } from "solid-js";
 import { isNarrowViewport } from "../../config/breakpoints";
 import { getCurrentRemote, getDataSource } from "../../music/data";
+import { isP2PTransportType } from "../../app/api/client";
 import type { SearchSuggestion as APISuggestion } from "../../music/data/types";
 import { addToQueue, playQueue } from "../../music/services/queue/queue";
 import { routes, matchRoute, buildRoute } from "../../music/utils/routing";
@@ -19,7 +20,6 @@ import { getRemoteById } from "../../app/services/remotes/remoteManager";
 import { showPlaylistSelector } from "../../music/hooks/playlistSelectorState";
 import { showStationSelector } from "../../music/hooks/stationSelectorState";
 import { isCharnelMode } from "../../app/services/charnel";
-import { isP2PRemote } from "../../app/services/storage/schemas/remote";
 import { createShareMenuAction } from "../../music/hooks/contextMenu";
 import { useToggleFavoriteMutation } from "../../music/queries/favorites";
 import { RemoteMusicDataSource } from "../../music/data/remote/remoteSource";
@@ -759,7 +759,7 @@ export function TopNavSearch(props: TopNavSearchProps) {
             });
             const currentRemote = getCurrentRemote();
             const stationCapable =
-              isCharnelMode() || (!!currentRemote && isP2PRemote(currentRemote as any));
+              isCharnelMode() || (!!currentRemote && isP2PTransportType(currentRemote));
             if (stationCapable) {
               contextMenuActions.push({
                 label: "add to station...",

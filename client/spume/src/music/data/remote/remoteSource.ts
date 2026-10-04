@@ -1096,7 +1096,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     // server may rekey the album (deterministic id from title/artist),
     // so surface the canonical id from the response — falling back to the
     // input when the server didn't return a fresh row.
-    return { album_id: (result.data as any)?.id ?? params.album_id };
+    return { album_id: result.data?.id ?? params.album_id };
   }
 
   async updateSong(params: {
@@ -1124,7 +1124,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
   }): Promise<void> {
     // map simpler params to API schema
     // prefer _id fields when available, fall back to string name fields
-    const apiParams: any = {
+    const apiParams = {
       song_ids: params.song_ids,
       title: params.title,
       artist_id: params.artist_id, // direct ID (preferred)
@@ -1151,7 +1151,6 @@ export class RemoteMusicDataSource implements MusicDataSource {
 
     if (!result.success) {
       await this.handleFailedRequest(result);
-      // #TODO: should be able to remove the `as any` cast after turning strict mode on!
       const err = result.error;
       console.error("updateSongs failed:", err);
       throw new Error(`failed to update song: ${err?.message || JSON.stringify(err)}`);

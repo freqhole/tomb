@@ -740,7 +740,8 @@ export function AlbumDetailView() {
                           : song.track_number;
 
                       const isHighlighted = () => highlightedSongId() === song.id;
-                      const isPlaying = () => appState()?.current_item_key === songIdentityKey(song);
+                      const isPlaying = () =>
+                        appState()?.current_item_key === songIdentityKey(song);
                       let rowEl!: HTMLDivElement;
 
                       createEffect(() => {
