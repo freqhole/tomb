@@ -222,7 +222,7 @@ export const routes = {
     sync_job_notify: { method: 'POST', path: '/api/sync/job-notify', req: s.SyncJobNotifySchema, resp: z.boolean(), auth: { type: 'public' } as const },
     sync_playlist: { method: 'POST', path: '/api/sync/playlist', req: s.SyncPlaylistRequestSchema, resp: s.SyncPlaylistResponseSchema, auth: { type: 'role', role: 'member' } as const },
     sync_song_by_blake3: { method: 'POST', path: '/api/sync/song-by-blake3', req: s.SyncSongByBlake3RequestSchema, resp: s.SyncJobQueuedResponseSchema, auth: { type: 'role', role: 'member' } as const },
-    synced_sha256s: { method: 'GET', path: '/api/sync/sha256s', req: null, resp: z.string().array(), auth: { type: 'role', role: 'member' } as const },
+    synced_blake3s: { method: 'GET', path: '/api/sync/blake3s', req: null, resp: z.string().array(), auth: { type: 'role', role: 'member' } as const },
     top_albums: { method: 'POST', path: '/api/analytics/top-albums', req: s.TopAlbumsRequestSchema, resp: s.TopAlbumSchema.array(), auth: { type: 'authenticated' } as const },
     top_artists: { method: 'POST', path: '/api/analytics/top-artists', req: s.TopArtistsRequestSchema, resp: s.TopArtistSchema.array(), auth: { type: 'authenticated' } as const },
     top_songs: { method: 'POST', path: '/api/analytics/top-songs', req: s.TopSongsRequestSchema, resp: s.TopSongSchema.array(), auth: { type: 'authenticated' } as const },

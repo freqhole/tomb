@@ -417,7 +417,7 @@ async function initFromGrimoire(): Promise<void> {
     // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
     const { invoke } = await import("@tauri-apps/api/core");
     const response = (await invoke("api_call", {
-      path: "/api/sync/sha256s",
+      path: "/api/sync/blake3s",
       body: null,
     })) as { success: boolean; data?: string[]; message?: string };
 

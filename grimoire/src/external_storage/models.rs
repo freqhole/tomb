@@ -10,7 +10,6 @@ use serde::{Deserialize, Serialize};
 pub struct SyncedSong {
     pub song_id: String,
     pub relative_path: String,
-    pub sha256: String,
     pub blake3: Option<String>,
     pub tag_hash: String,
     pub synced_at: i64,
@@ -18,20 +17,12 @@ pub struct SyncedSong {
 
 impl SyncedSong {
     /// true when this previously-synced row's content matches the given
-    /// media blob's identity - prefers blake3 (the real identity), falling
-    /// back to the legacy sha256 comparison only when either side lacks a
-    /// blake3. returns false
-    /// (not a match) rather than true when neither hash can be compared -
-    /// a safe failure mode that re-syncs the file rather than wrongly
-    /// skipping a genuinely-changed one.
-    pub fn matches_content(&self, blob_blake3: Option<&str>, blob_sha256: Option<&str>) -> bool {
-        if let (Some(a), Some(b)) = (self.blake3.as_deref(), blob_blake3) {
-            return a == b;
-        }
-        if let Some(b) = blob_sha256 {
-            return self.sha256 == b;
-        }
-        false
+    /// media blob's blake3 - the real identity. returns false (not a
+    /// match) rather than true when either side lacks a blake3 - a safe
+    /// failure mode that re-syncs the file rather than wrongly skipping a
+    /// genuinely-changed one.
+    pub fn matches_content(&self, blob_blake3: Option<&str>) -> bool {
+        matches!((self.blake3.as_deref(), blob_blake3), (Some(a), Some(b)) if a == b)
     }
 }
 

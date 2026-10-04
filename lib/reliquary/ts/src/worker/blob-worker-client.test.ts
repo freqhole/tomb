@@ -7,7 +7,6 @@ import {
   getBlobWorker,
   hashBlake3,
   hashBlake3Streaming,
-  hashSha256,
   processBlobBytes,
   resizeImageToWebpDataUrl,
   shutdownBlobWorker,
@@ -114,14 +113,6 @@ describe("hashBlake3", () => {
   });
 });
 
-describe("hashSha256", () => {
-  it("falls back to a real sha-256 digest with no worker", async () => {
-    const bytes = new TextEncoder().encode("abc");
-    const hash = await hashSha256(bytes.buffer as ArrayBuffer);
-    expect(hash).toBe("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
-  });
-});
-
 describe("base64Encode / base64Decode", () => {
   it("round-trips bytes through the fallback path", async () => {
     const original = new Uint8Array([0, 1, 2, 253, 254, 255]);
@@ -132,12 +123,11 @@ describe("base64Encode / base64Decode", () => {
 });
 
 describe("processBlobBytes", () => {
-  it("hashes without a worker (blake3 empty, sha256 real)", async () => {
+  it("hashes without a worker (blake3 empty)", async () => {
     const bytes = new TextEncoder().encode("hello world");
     const result = await processBlobBytes(bytes.buffer as ArrayBuffer, "hello.txt", "text/plain");
     expect(result.blake3).toBe("");
     expect(result.blob_id).toBe("");
-    expect(result.sha256).toBe("b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9");
     expect(result.size).toBe(bytes.byteLength);
   });
 });

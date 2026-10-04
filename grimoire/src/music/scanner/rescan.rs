@@ -10,14 +10,13 @@
 //!
 //! conservative update policy (no user-edit tracking exists in the schema):
 //!   - blob row: file_modified_at / file_size in metadata json are always
-//!     refreshed. sha256 / blake3 are only refreshed when no other blob row
-//!     already owns the new sha256 (avoids UNIQUE conflicts).
+//!     refreshed. blake3 is only refreshed when no other blob row already
+//!     owns the new blake3 (avoids UNIQUE conflicts).
 //!   - song row: `duration` (technical, safe to overwrite) and the
 //!     file/tags blocks inside `metadata` json are refreshed. user-visible
 //!     fields like title, track_artist, lyrics, bpm, and the
 //!     album/artist/playlist relationships are left untouched.
 
-use crate::blob_data::stream_sha256_hash;
 use crate::blobz::compute_blake3_hash;
 use crate::database;
 use crate::jobs::JobError;
@@ -31,7 +30,7 @@ use tracing::{debug, info, warn};
 pub struct RescanUpdateResult {
     pub blob_id: String,
     pub song_id: Option<String>,
-    pub sha256_changed: bool,
+    pub blake3_changed: bool,
     pub song_updated: bool,
 }
 
@@ -51,11 +50,9 @@ pub async fn update_existing_from_rescan(
             reason: format!("failed to connect to database: {}", e),
         })?;
 
-    let file_path_str = file_path.to_string_lossy().to_string();
-
-    // load the existing blob row (sha256 + current metadata json)
+    // load the existing blob row (blake3 + current metadata json)
     let existing = sqlx::query!(
-        r#"SELECT sha256 as "sha256!", metadata FROM media_blobz WHERE id = ? AND deleted_at IS NULL"#,
+        r#"SELECT blake3, metadata FROM media_blobz WHERE id = ? AND deleted_at IS NULL"#,
         existing_blob_id
     )
     .fetch_optional(&pool)
@@ -79,19 +76,13 @@ pub async fn update_existing_from_rescan(
     };
 
     // hash the current file contents
-    let new_sha256 =
-        stream_sha256_hash(&file_path_str)
+    let new_blake3 =
+        compute_blake3_hash(file_path)
             .await
             .map_err(|e| JobError::ProcessingFailed {
                 reason: format!("failed to hash file during rescan: {}", e),
             })?;
-    let sha256_changed = new_sha256 != existing.sha256;
-
-    let new_blake3 = if sha256_changed {
-        compute_blake3_hash(file_path).await.ok()
-    } else {
-        None
-    };
+    let blake3_changed = Some(new_blake3.as_str()) != existing.blake3.as_deref();
 
     // merge new file_size / file_modified_at into existing metadata json
     let mut metadata_json: Value = existing
@@ -108,38 +99,37 @@ pub async fn update_existing_from_rescan(
         );
     }
 
-    // decide whether we can safely bump the blob's sha256/blake3 too
-    let mut sha256_bumped = false;
-    if sha256_changed {
+    // decide whether we can safely bump the blob's blake3
+    let mut blake3_bumped = false;
+    if blake3_changed {
         let conflict = sqlx::query!(
-            r#"SELECT id FROM media_blobz WHERE sha256 = ? AND id != ? LIMIT 1"#,
-            new_sha256,
+            r#"SELECT id FROM media_blobz WHERE blake3 = ? AND id != ? LIMIT 1"#,
+            new_blake3,
             existing_blob_id
         )
         .fetch_optional(&pool)
         .await
         .map_err(|e| JobError::ProcessingFailed {
-            reason: format!("failed to check sha256 conflict: {}", e),
+            reason: format!("failed to check blake3 conflict: {}", e),
         })?;
 
         if conflict.is_some() {
             warn!(
-                "rescan: file content for blob {} changed but another blob already owns the new sha256 - leaving stored sha256 unchanged",
+                "rescan: file content for blob {} changed but another blob already owns the new blake3 - leaving stored blake3 unchanged",
                 existing_blob_id
             );
         } else {
-            sha256_bumped = true;
+            blake3_bumped = true;
         }
     }
 
     let metadata_str = serde_json::to_string(&metadata_json).unwrap_or_else(|_| "{}".to_string());
 
-    if sha256_bumped {
+    if blake3_bumped {
         sqlx::query!(
             r#"UPDATE media_blobz
-               SET sha256 = ?, blake3 = COALESCE(?, blake3), size = ?, metadata = ?
+               SET blake3 = ?, size = ?, metadata = ?
                WHERE id = ?"#,
-            new_sha256,
             new_blake3,
             file_size,
             metadata_str,
@@ -153,10 +143,8 @@ pub async fn update_existing_from_rescan(
 
         // the content hash changed, so re-mirror this blob's (unchanged)
         // on-disk path into reliquary under its new blake3.
-        if new_blake3.is_some() {
-            if let Ok(blob) = crate::media_blobz::get_media_blob(existing_blob_id).await {
-                crate::media_blobz::mirror_register_local_path(&blob).await;
-            }
+        if let Ok(blob) = crate::media_blobz::get_media_blob(existing_blob_id).await {
+            crate::media_blobz::mirror_register_local_path(&blob).await;
         }
     } else {
         sqlx::query!(
@@ -173,8 +161,8 @@ pub async fn update_existing_from_rescan(
     }
 
     debug!(
-        "rescan: updated blob {} (sha256_changed={}, sha256_bumped={})",
-        existing_blob_id, sha256_changed, sha256_bumped
+        "rescan: updated blob {} (blake3_changed={}, blake3_bumped={})",
+        existing_blob_id, blake3_changed, blake3_bumped
     );
 
     // look up the song row hanging off this blob (if any) and refresh the
@@ -241,7 +229,7 @@ pub async fn update_existing_from_rescan(
     Ok(RescanUpdateResult {
         blob_id: existing_blob_id.to_string(),
         song_id: song_id_out,
-        sha256_changed,
+        blake3_changed,
         song_updated,
     })
 }

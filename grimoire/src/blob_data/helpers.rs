@@ -7,11 +7,9 @@ use crate::error::{ErrorDetail, GrimoireError};
 use crate::media_blobz::{self, BlobType, CreateMediaBlobRequest};
 use crate::response::GrimoireResponse;
 use image::ImageOutputFormat;
-use sha2::{Digest, Sha256};
 use std::io::Cursor;
 use std::path::Path;
 use std::process::Stdio;
-use tokio::io::AsyncReadExt;
 
 /// get directory image blob IDs from scan cache (database-backed)
 async fn get_cached_directory_images(session_id: &str, dir_path: &str) -> Option<Vec<String>> {
@@ -69,30 +67,13 @@ pub async fn clear_scan_cache(session_id: &str) {
     }
 }
 
-/// stream SHA256 hash of a file by reading in chunks (avoids loading entire file into memory)
-pub(crate) async fn stream_sha256_hash(file_path: &str) -> Result<String, std::io::Error> {
-    let mut file = tokio::fs::File::open(file_path).await?;
-    let mut hasher = Sha256::new();
-    let mut buffer = vec![0u8; 8192]; // 8KB chunks
-
-    loop {
-        let bytes_read = file.read(&mut buffer).await?;
-        if bytes_read == 0 {
-            break;
-        }
-        hasher.update(&buffer[..bytes_read]);
-    }
-
-    Ok(format!("{:x}", hasher.finalize()))
-}
-
 /// Create a media blob record from an audio file path
 ///
 /// Creates a media blob entry that references a local file.
 /// This is used during audio file import to track the original file location.
 ///
 /// Creates a media blob record from an audio file path.
-/// Calculates SHA256 hash of the actual file contents for deduplication.
+/// Calculates a blake3 hash of the actual file contents for deduplication.
 ///
 /// `is_fetch_download` should be true only when `file_path` is a file that
 /// was just downloaded by the yt-dlp fetch pipeline (i.e. lives under the

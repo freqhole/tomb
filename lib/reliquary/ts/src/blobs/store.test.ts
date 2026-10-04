@@ -4,10 +4,11 @@
 // (db.ts) and the bytes layer (bytes-backend.ts) together behind
 // createBlobStore(). the worker (hashing + the OPFS write path) is mocked
 // since no environment here has a real Worker or a bundled midden module -
-// the mock computes a deterministic fake "blake3" from the sha256 digest
-// (real crypto.subtle is available in happy-dom) and writes bytes through
-// the exact same fake OPFS directory the direct-read path uses, so the
-// round trip is meaningful.
+// the mock computes a deterministic fake "blake3" from a sha256 digest
+// (real crypto.subtle is available in happy-dom, sha256 is just used here
+// as a convenient stand-in digest, not a feature under test) and writes
+// bytes through the exact same fake OPFS directory the direct-read path
+// uses, so the round trip is meaningful.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fakeIdbHarness } from "../testing/index.js";
@@ -17,7 +18,10 @@ import { fakeIdbHarness } from "../testing/index.js";
 class FakeWritable {
   constructor(private readonly file: FakeFileHandle) {}
   async write(data: ArrayBuffer | ArrayBufferView): Promise<void> {
-    this.file.bytes = data instanceof ArrayBuffer ? new Uint8Array(data) : new Uint8Array(data.buffer as ArrayBuffer);
+    this.file.bytes =
+      data instanceof ArrayBuffer
+        ? new Uint8Array(data)
+        : new Uint8Array(data.buffer as ArrayBuffer);
   }
   async close(): Promise<void> {}
 }
@@ -64,7 +68,7 @@ function installFakeOpfs(): void {
   });
 }
 
-async function fakeSha256Hex(data: ArrayBuffer): Promise<string> {
+async function fakeDigestHex(data: ArrayBuffer): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", data);
   return Array.from(new Uint8Array(digest))
     .map((b) => b.toString(16).padStart(2, "0"))
@@ -87,18 +91,19 @@ vi.mock("../worker/index.js", () => ({
   }),
   // a real blake3 digest is unavailable in this test environment (no
   // bundled midden module) - derive a distinct, deterministic stand-in
-  // from the sha256 digest so different content still gets different
-  // content addresses. neither hasher writes any bytes - matching the
+  // from a sha256 digest so different content still gets different
+  // content addresses. the hasher doesn't write any bytes - matching the
   // real worker client, which only hashes here.
   hashBlake3: vi.fn(async (data: Uint8Array) => {
-    const sha256 = await fakeSha256Hex(data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer);
-    return `b3-${sha256}`;
+    const digest = await fakeDigestHex(
+      data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer,
+    );
+    return `b3-${digest}`;
   }),
-  hashSha256: vi.fn(async (data: ArrayBuffer) => fakeSha256Hex(data)),
   streamFileToOpfs: vi.fn(async (file: File) => {
     const buffer = await file.arrayBuffer();
-    const sha256 = await fakeSha256Hex(buffer);
-    const blake3 = `b3-${sha256}`;
+    const digest = await fakeDigestHex(buffer);
+    const blake3 = `b3-${digest}`;
     await writeToFakeOpfs(blake3, buffer);
     return { blake3, size: buffer.byteLength };
   }),
@@ -218,7 +223,7 @@ describe("storeBlob / getBlob / getBlobData", () => {
     // no navigator.storage, no caches - every backend in the chain refuses
     const store = createBlobStore({ dbName: "store-test-no-backend", allowCacheFallback: true });
     await expect(
-      store.storeBlob(textBuffer("nowhere to go"), { filename: "x.txt", mime: "text/plain" })
+      store.storeBlob(textBuffer("nowhere to go"), { filename: "x.txt", mime: "text/plain" }),
     ).rejects.toThrow(/no bytes backend accepted/);
   });
 
@@ -250,7 +255,10 @@ describe("storeBlob / getBlob / getBlobData", () => {
 
     const store = createBlobStore({ dbName: "store-test-no-fallback-default" });
     await expect(
-      store.storeBlob(textBuffer("opfs-less content"), { filename: "no-opfs.txt", mime: "text/plain" })
+      store.storeBlob(textBuffer("opfs-less content"), {
+        filename: "no-opfs.txt",
+        mime: "text/plain",
+      }),
     ).rejects.toThrow(/no bytes backend accepted/);
   });
 });
@@ -261,18 +269,16 @@ describe("storeBlobFromFile", () => {
     const file = new File([textBuffer("small file contents")], "small.txt", { type: "text/plain" });
     const record = await store.storeBlobFromFile(file);
     expect(record.filename).toBe("small.txt");
-    expect(record.sha256).toBeTruthy();
     const data = await store.getBlobData(record.blob_id);
     expect(new TextDecoder().decode(data!)).toBe("small file contents");
   });
 
-  it("streams large files and omits sha256 (legacy-only, never computed for streamed uploads)", async () => {
+  it("streams large files", async () => {
     const store = createBlobStore({ dbName: "store-test-file-large" });
     const bigBytes = new Uint8Array(8 * 1024 * 1024 + 10).fill(7);
     const file = new File([bigBytes], "large.bin", { type: "application/octet-stream" });
     const record = await store.storeBlobFromFile(file);
     expect(record.size).toBe(bigBytes.byteLength);
-    expect(record.sha256).toBeUndefined();
     const data = await store.getBlobData(record.blob_id);
     expect(data?.byteLength).toBe(bigBytes.byteLength);
   });
@@ -280,7 +286,9 @@ describe("storeBlobFromFile", () => {
   it("propagates an AbortError from a cancelled streamed upload without falling back", async () => {
     const store = createBlobStore({ dbName: "store-test-file-abort" });
     const worker = await import("../worker/index.js");
-    vi.mocked(worker.streamFileToOpfs).mockRejectedValueOnce(new DOMException("upload cancelled", "AbortError"));
+    vi.mocked(worker.streamFileToOpfs).mockRejectedValueOnce(
+      new DOMException("upload cancelled", "AbortError"),
+    );
     const bigBytes = new Uint8Array(8 * 1024 * 1024 + 1);
     const file = new File([bigBytes], "large.bin");
     await expect(store.storeBlobFromFile(file)).rejects.toThrow(/upload cancelled/);
@@ -288,11 +296,10 @@ describe("storeBlobFromFile", () => {
 });
 
 describe("resolveBlob", () => {
-  it("resolves a legacy sha256-primary-keyed record by its blake3 index", async () => {
+  it("resolves a record whose primary key differs from its blake3", async () => {
     await putRecord("store-test-resolve", {
-      blob_id: "legacy-sha256-key",
+      blob_id: "legacy-key",
       blake3: "blake3-known-later",
-      sha256: "legacy-sha256-key",
       filename: "legacy.txt",
       mime: "text/plain",
       size: 4,
@@ -303,14 +310,17 @@ describe("resolveBlob", () => {
     });
     const store = createBlobStore({ dbName: "store-test-resolve" });
     expect(await store.resolveBlob("blake3-known-later")).not.toBeNull();
-    expect(await store.resolveBlob("legacy-sha256-key")).not.toBeNull();
+    expect(await store.resolveBlob("legacy-key")).not.toBeNull();
     expect(await store.resolveBlob("anything", "blake3-known-later")).not.toBeNull();
     expect(await store.resolveBlob("nothing-matches")).toBeNull();
   });
 
   it("getBlobMetadata is an alias for resolveBlob", async () => {
     const store = createBlobStore({ dbName: "store-test-metadata-alias" });
-    const record = await store.storeBlob(textBuffer("meta"), { filename: "m.txt", mime: "text/plain" });
+    const record = await store.storeBlob(textBuffer("meta"), {
+      filename: "m.txt",
+      mime: "text/plain",
+    });
     expect(await store.getBlobMetadata(record.blob_id)).toEqual(record);
   });
 });
@@ -404,8 +414,14 @@ describe("deleteBlob / clearAll", () => {
 
   it("clearAll wipes every record and every backend's bytes", async () => {
     const store = createBlobStore({ dbName: "store-test-clear-all" });
-    const a = await store.storeBlob(textBuffer("clear-all-a"), { filename: "a.txt", mime: "text/plain" });
-    const b = await store.storeBlob(textBuffer("clear-all-b"), { filename: "b.txt", mime: "text/plain" });
+    const a = await store.storeBlob(textBuffer("clear-all-a"), {
+      filename: "a.txt",
+      mime: "text/plain",
+    });
+    const b = await store.storeBlob(textBuffer("clear-all-b"), {
+      filename: "b.txt",
+      mime: "text/plain",
+    });
     await store.clearAll();
     expect(await store.getBlobRecord(a.blob_id)).toBeNull();
     expect(await store.getBlobRecord(b.blob_id)).toBeNull();

@@ -8,7 +8,6 @@ mod purge;
 mod service;
 mod thumbnails;
 
-pub(crate) use helpers::stream_sha256_hash;
 pub use helpers::{
     clear_scan_cache, collect_song_images, convert_to_webp, create_audio_thumbnail_blob,
     create_audio_waveform_blob, create_image_blob_from_webp_data, create_media_blob_from_file,

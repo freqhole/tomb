@@ -1,13 +1,10 @@
 // the blake3-canonical blob record store: ties the metadata side (db.ts,
 // IndexedDB) to the bytes side (bytes-backend.ts, OPFS + Cache API) behind
-// one API, and implements the resolver chain that lets old sha256-era
-// references keep working alongside new blake3-keyed records.
+// one API.
 //
 // "resolver chain" here means two related lookup chains:
-//   - record resolution (`resolveBlob`): primary key -> blake3 index ->
-//     sha256 index -> blake3 index again with a separately-known hash.
-//     this is what lets a caller pass either a blake3 or a legacy sha256
-//     and get the same record back.
+//   - record resolution (`resolveBlob`): primary key -> blake3 index
+//     (separately-known hash).
 //   - bytes resolution (`bytes-backend.ts`'s `readThroughChain`): a
 //     record's `storage_backend` field says where its bytes were written;
 //     when that's unknown (a record predating the field) every backend is
@@ -20,7 +17,7 @@
 // blake3 and shared at the origin regardless of which app wrote it, so it
 // is not parameterized per store instance - see `bytes-backend.ts`.
 
-import { hashBlake3, hashSha256, streamFileToOpfs } from "../worker/index.js";
+import { hashBlake3, streamFileToOpfs } from "../worker/index.js";
 import {
   addCanvasRef,
   clearCanvasRefs,
@@ -29,7 +26,6 @@ import {
   getCanvasRefs,
   getRecord,
   getRecordByBlake3,
-  getRecordBySha256,
   listBlobs,
   putRecord,
   removeAllCanvasRefsForCanvas,
@@ -49,7 +45,14 @@ import {
 import type { BlobLocalityInfo, BlobRecord, NewBlobMeta } from "./types.js";
 
 export { isOPFSSupported } from "./bytes-backend.js";
-export type { BlobLocalityInfo, BlobLocalityMetadata, BlobRecord, BlobType, BytesBackendName, NewBlobMeta } from "./types.js";
+export type {
+  BlobLocalityInfo,
+  BlobLocalityMetadata,
+  BlobRecord,
+  BlobType,
+  BytesBackendName,
+  NewBlobMeta,
+} from "./types.js";
 export type { ListBlobsOptions, ListBlobsPage } from "./db.js";
 
 /** default IndexedDB database name for apps that don't need to preserve an
@@ -86,11 +89,10 @@ export interface BlobStore {
   storeBlobFromFile(
     file: File,
     meta?: Partial<NewBlobMeta>,
-    options?: StoreBlobFromFileOptions
+    options?: StoreBlobFromFileOptions,
   ): Promise<BlobRecord>;
   getBlobRecord(blobId: string): Promise<BlobRecord | null>;
   getBlobRecordByBlake3(blake3: string): Promise<BlobRecord | null>;
-  getBlobRecordBySha256(sha256: string): Promise<BlobRecord | null>;
   resolveBlob(blobId: string, blake3?: string): Promise<BlobRecord | null>;
   getBlobMetadata(blobId: string, blake3?: string): Promise<BlobRecord | null>;
   getBlobData(blobId: string, blake3?: string): Promise<ArrayBuffer | null>;
@@ -118,7 +120,9 @@ export interface BlobStore {
  *  cache; construct one per app (not per component/request). */
 export function createBlobStore(options: BlobStoreOptions = {}): BlobStore {
   const dbName = options.dbName ?? DEFAULT_DB_NAME;
-  const chain: BytesBackend[] = options.allowCacheFallback ? defaultBytesChain() : [createOpfsBackend()];
+  const chain: BytesBackend[] = options.allowCacheFallback
+    ? defaultBytesChain()
+    : [createOpfsBackend()];
 
   const blobUrlCache = new Map<string, string>();
   let beforeUnloadRegistered = false;
@@ -132,9 +136,9 @@ export function createBlobStore(options: BlobStoreOptions = {}): BlobStore {
   }
 
   async function storeBlob(data: ArrayBuffer, meta: NewBlobMeta): Promise<BlobRecord> {
-    // hash before writing anything - both hashers copy their input rather
+    // hash before writing anything - blake3 hashing copies its input rather
     // than transferring it, so `data` is still intact for the write below.
-    const [blake3, sha256] = await Promise.all([hashBlake3(new Uint8Array(data)), hashSha256(data)]);
+    const blake3 = await hashBlake3(new Uint8Array(data));
     const blobId = blake3;
 
     // dedup - content-addressed, so a pre-existing record for this blake3
@@ -148,13 +152,14 @@ export function createBlobStore(options: BlobStoreOptions = {}): BlobStore {
     // cache-api write is not a failure.
     const backend = await writeThroughChain(chain, blobId, data, meta.mime);
     if (!backend) {
-      throw new Error(`blob write failed for ${blobId.slice(0, 16)}... - no bytes backend accepted it`);
+      throw new Error(
+        `blob write failed for ${blobId.slice(0, 16)}... - no bytes backend accepted it`,
+      );
     }
 
     const record: BlobRecord = {
       blob_id: blobId,
       blake3,
-      sha256,
       filename: meta.filename,
       mime: meta.mime,
       size: data.byteLength,
@@ -171,7 +176,7 @@ export function createBlobStore(options: BlobStoreOptions = {}): BlobStore {
   async function storeBlobFromFile(
     file: File,
     meta: Partial<NewBlobMeta> = {},
-    options?: StoreBlobFromFileOptions
+    options?: StoreBlobFromFileOptions,
   ): Promise<BlobRecord> {
     const mime = meta.mime ?? file.type ?? "application/octet-stream";
     const filename = meta.filename ?? file.name;
@@ -181,9 +186,6 @@ export function createBlobStore(options: BlobStoreOptions = {}): BlobStore {
         const { blake3, size } = await streamFileToOpfs(file, options);
         const existing = await getRecord(dbName, blake3);
         if (existing) return existing;
-        // sha256 is legacy-only - it's never computed for a streamed
-        // upload, since brand-new content has no old sha256-keyed
-        // reference that would need it.
         const record: BlobRecord = {
           blob_id: blake3,
           blake3,
@@ -223,16 +225,10 @@ export function createBlobStore(options: BlobStoreOptions = {}): BlobStore {
     return getRecordByBlake3(dbName, blake3);
   }
 
-  function getBlobRecordBySha256(sha256: string): Promise<BlobRecord | null> {
-    return getRecordBySha256(dbName, sha256);
-  }
-
   /**
    * resolve a blobId to a record using multiple lookup strategies: primary
-   * key -> blake3 index (blobId itself) -> sha256 index -> blake3 index
-   * (separately-known hash). handles both id generations - blake3 is
-   * canonical now, sha256-keyed records are legacy but must keep
-   * resolving.
+   * key -> blake3 index (blobId itself) -> blake3 index (separately-known
+   * hash).
    */
   async function resolveBlob(blobId: string, blake3?: string): Promise<BlobRecord | null> {
     if (!blobId) return null;
@@ -242,9 +238,6 @@ export function createBlobStore(options: BlobStoreOptions = {}): BlobStore {
 
     const byIdAsBlake3 = await getRecordByBlake3(dbName, blobId);
     if (byIdAsBlake3) return byIdAsBlake3;
-
-    const bySha = await getRecordBySha256(dbName, blobId);
-    if (bySha) return bySha;
 
     if (blake3) {
       const byBlake3 = await getRecordByBlake3(dbName, blake3);
@@ -346,7 +339,6 @@ export function createBlobStore(options: BlobStoreOptions = {}): BlobStore {
     storeBlobFromFile,
     getBlobRecord,
     getBlobRecordByBlake3,
-    getBlobRecordBySha256,
     resolveBlob,
     getBlobMetadata: resolveBlob,
     getBlobData,
@@ -357,10 +349,13 @@ export function createBlobStore(options: BlobStoreOptions = {}): BlobStore {
     checkBlobLocality,
     deleteBlob,
     clearAll,
-    addCanvasRef: (blobId: string, canvasDocId: string) => addCanvasRef(dbName, blobId, canvasDocId),
-    removeCanvasRef: (blobId: string, canvasDocId: string) => removeCanvasRef(dbName, blobId, canvasDocId),
+    addCanvasRef: (blobId: string, canvasDocId: string) =>
+      addCanvasRef(dbName, blobId, canvasDocId),
+    removeCanvasRef: (blobId: string, canvasDocId: string) =>
+      removeCanvasRef(dbName, blobId, canvasDocId),
     getCanvasRefs: (blobId: string) => getCanvasRefs(dbName, blobId),
-    removeAllCanvasRefsForCanvas: (canvasDocId: string) => removeAllCanvasRefsForCanvas(dbName, canvasDocId),
+    removeAllCanvasRefsForCanvas: (canvasDocId: string) =>
+      removeAllCanvasRefsForCanvas(dbName, canvasDocId),
     listBlobs: (options?: ListBlobsOptions) => listBlobs(dbName, options),
   };
 }
@@ -368,5 +363,10 @@ export function createBlobStore(options: BlobStoreOptions = {}): BlobStore {
 // low-level building blocks re-exported for callers that need to compose
 // their own resolver chain (e.g. a future transfer layer writing
 // already-hashed, already-verified bytes without re-hashing them here).
-export { writeThroughChain, readThroughChain, hasBytesInChain, removeFromChain } from "./bytes-backend.js";
+export {
+  writeThroughChain,
+  readThroughChain,
+  hasBytesInChain,
+  removeFromChain,
+} from "./bytes-backend.js";
 export type { BytesBackend } from "./bytes-backend.js";

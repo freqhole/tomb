@@ -27,7 +27,7 @@ pub async fn get_synced_song(device_id: &str, song_id: &str) -> GrimoireResult<O
     sqlx::query_as!(
         SyncedSong,
         r#"SELECT song_id as "song_id!", relative_path as "relative_path!",
-                  sha256 as "sha256!", blake3, tag_hash as "tag_hash!",
+                  blake3, tag_hash as "tag_hash!",
                   synced_at as "synced_at!"
            FROM external_storage_synced_songz
            WHERE device_id = ? AND song_id = ?"#,
@@ -44,7 +44,7 @@ pub async fn list_synced_songs(device_id: &str) -> GrimoireResult<Vec<SyncedSong
     sqlx::query_as!(
         SyncedSong,
         r#"SELECT song_id as "song_id!", relative_path as "relative_path!",
-                  sha256 as "sha256!", blake3, tag_hash as "tag_hash!",
+                  blake3, tag_hash as "tag_hash!",
                   synced_at as "synced_at!"
            FROM external_storage_synced_songz
            WHERE device_id = ?"#,
@@ -55,30 +55,26 @@ pub async fn list_synced_songs(device_id: &str) -> GrimoireResult<Vec<SyncedSong
     .map_err(GrimoireError::from)
 }
 
-#[allow(clippy::too_many_arguments)]
 pub async fn upsert_synced_song(
     device_id: &str,
     song_id: &str,
     relative_path: &str,
-    sha256: &str,
     blake3: Option<&str>,
     tag_hash: &str,
 ) -> GrimoireResult<()> {
     let pool = database::connect().await?;
     sqlx::query!(
         r#"INSERT INTO external_storage_synced_songz
-              (device_id, song_id, relative_path, sha256, blake3, tag_hash, synced_at)
-           VALUES (?, ?, ?, ?, ?, ?, unixepoch())
+              (device_id, song_id, relative_path, blake3, tag_hash, synced_at)
+           VALUES (?, ?, ?, ?, ?, unixepoch())
            ON CONFLICT (device_id, song_id) DO UPDATE SET
               relative_path = excluded.relative_path,
-              sha256        = excluded.sha256,
               blake3        = excluded.blake3,
               tag_hash      = excluded.tag_hash,
               synced_at     = unixepoch()"#,
         device_id,
         song_id,
         relative_path,
-        sha256,
         blake3,
         tag_hash
     )

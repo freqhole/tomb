@@ -9,7 +9,6 @@ import {
   hashBlake3,
   hashFinish,
   hashPush,
-  hashSha256,
   opfsStoreSelftest,
   opfsStoreSelftestPersistence,
   processBlobBytes,
@@ -117,14 +116,6 @@ afterEach(() => {
   resetMiddenBlake3Cache();
 });
 
-describe("hashSha256", () => {
-  it("hashes a known buffer to its well-known sha-256 digest", async () => {
-    const bytes = new TextEncoder().encode("abc");
-    const hash = await hashSha256(bytes.buffer as ArrayBuffer);
-    expect(hash).toBe("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
-  });
-});
-
 describe("hashBlake3", () => {
   it("degrades to an empty string when no midden module is bundled", async () => {
     const hash = await hashBlake3(new Uint8Array([1, 2, 3]));
@@ -189,7 +180,6 @@ describe("processBlobBytes", () => {
     // to an empty string, and blob_id mirrors it (documented behavior).
     expect(result.blake3).toBe("");
     expect(result.blob_id).toBe(result.blake3);
-    expect(result.sha256).toBe("b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9");
   });
 });
 

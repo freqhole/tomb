@@ -15,12 +15,12 @@ use crate::response::GrimoireResponse;
 use super::images::resolve_sync_image_ref;
 use super::models::{SyncSongByBlake3Request, SyncSongByBlake3Response};
 
-/// get all song sha256s from local grimoire database
+/// get all song blake3 hashes from local grimoire database
 /// used by client to initialize synced song cache on startup
-pub async fn get_synced_sha256s(_caller: &Caller) -> GrimoireResponse<JsonValue> {
-    match crate::music::entities::songs::get_all_song_sha256s().await {
-        Ok(sha256s) => GrimoireResponse::success("synced sha256s", serde_json::json!(sha256s)),
-        Err(e) => GrimoireResponse::failure("failed to fetch sha256s", vec![e.into()]),
+pub async fn get_synced_blake3s(_caller: &Caller) -> GrimoireResponse<JsonValue> {
+    match crate::music::entities::songs::get_all_song_blake3s().await {
+        Ok(blake3s) => GrimoireResponse::success("synced blake3s", serde_json::json!(blake3s)),
+        Err(e) => GrimoireResponse::failure("failed to fetch blake3s", vec![e.into()]),
     }
 }
 

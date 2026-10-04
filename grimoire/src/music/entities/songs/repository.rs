@@ -391,29 +391,26 @@ pub async fn get_song_by_blake3(blake3: &str) -> GrimoireResult<Option<String>> 
     Ok(song_id)
 }
 
-/// get all sha256 hashes for synced songs
+/// get all blake3 hashes for synced songs
 ///
-/// returns all sha256s from media blobs linked to non-deleted songs - joins
-/// `media_blobz` directly (the `songz.media_blob_sha256` denormalized copy
-/// was dropped once blake3 became the real identity; sha256 is no longer
-/// guaranteed to be backfilled onto every song row, only the original
-/// media_blobz row still carries it when present).
-pub async fn get_all_song_sha256s() -> GrimoireResult<Vec<String>> {
+/// returns all blake3 hashes from media blobs linked to non-deleted songs -
+/// joins `media_blobz` directly.
+pub async fn get_all_song_blake3s() -> GrimoireResult<Vec<String>> {
     let pool = database::connect().await?;
 
-    let sha256s: Vec<String> = sqlx::query_scalar!(
+    let blake3s: Vec<String> = sqlx::query_scalar!(
         r#"
-        SELECT DISTINCT mb.sha256 as "sha256!"
+        SELECT DISTINCT mb.blake3 as "blake3!"
         FROM songz s
         JOIN media_blobz mb ON mb.id = s.media_blob_id
-        WHERE mb.sha256 IS NOT NULL AND s.deleted_at IS NULL
+        WHERE mb.blake3 IS NOT NULL AND s.deleted_at IS NULL
         "#
     )
     .fetch_all(&pool)
     .await?;
 
-    tracing::debug!("returning {} synced sha256s", sha256s.len());
-    Ok(sha256s)
+    tracing::debug!("returning {} synced blake3s", blake3s.len());
+    Ok(blake3s)
 }
 
 /// reorder a set of song ids (order of the input slice is ignored) into

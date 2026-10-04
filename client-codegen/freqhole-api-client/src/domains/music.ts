@@ -1779,15 +1779,15 @@ export function createMusicMethods(call: CallFn) {
       );
     },
 
-    // get the list of sha256 hashes known to this server for sync checks
-    syncedSha256s: () => {
+    // get the list of blake3 hashes known to this server for sync checks
+    syncedBlake3s: () => {
       return call(
         "music",
-        "synced_sha256s",
-        routes.music.synced_sha256s.resp,
-        routes.music.synced_sha256s.req,
-        routes.music.synced_sha256s.method,
-        routes.music.synced_sha256s.path,
+        "synced_blake3s",
+        routes.music.synced_blake3s.resp,
+        routes.music.synced_blake3s.req,
+        routes.music.synced_blake3s.method,
+        routes.music.synced_blake3s.path,
         undefined,
       );
     },

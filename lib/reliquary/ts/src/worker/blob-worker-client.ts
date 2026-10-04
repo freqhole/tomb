@@ -10,7 +10,6 @@
 
 import * as Comlink from "comlink";
 import type { BlobWorkerApi } from "./blob-worker.js";
-import { sha256Hex } from "../utils/hash.js";
 import { loadMiddenBlake3 } from "./midden-blake3.js";
 import { BLOB_WORKER_READY_MESSAGE } from "./blob-worker-logic.js";
 import { log } from "../utils/log.js";
@@ -166,15 +165,6 @@ export async function hashBlake3(data: Uint8Array): Promise<string> {
 }
 
 /**
- * sha256 hash of an ArrayBuffer.
- */
-export async function hashSha256(data: ArrayBuffer): Promise<string> {
-  const worker = await getBlobWorker();
-  if (worker) return worker.hashSha256(data);
-  return sha256Hex(data);
-}
-
-/**
  * base64-encode an ArrayBuffer.
  *
  * NOTE: the buffer is structured-cloned (copied) across the worker
@@ -198,7 +188,6 @@ export async function processBlobBytes(
   mime: string,
 ): Promise<{
   blob_id: string;
-  sha256: string;
   blake3: string;
   size: number;
   mime: string;
@@ -209,13 +198,9 @@ export async function processBlobBytes(
     return worker.processBlobBytes(Comlink.transfer(buffer, [buffer]), filename, mime);
   }
   // main-thread fallback path - rare, mostly for tests.
-  const [sha256, blake3] = await Promise.all([
-    sha256Hex(buffer),
-    fallbackHashBlake3(new Uint8Array(buffer)),
-  ]);
+  const blake3 = await fallbackHashBlake3(new Uint8Array(buffer));
   return {
     blob_id: blake3,
-    sha256,
     blake3,
     size: buffer.byteLength,
     mime,

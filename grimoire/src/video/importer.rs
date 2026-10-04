@@ -66,7 +66,7 @@ pub async fn import_video_file(
     let config = get_config();
 
     // dedupe: a video already exists for this media blob (the blob itself
-    // was already deduped by sha256 in the caller's create_media_blob step,
+    // was already deduped by blake3 in the caller's create_media_blob step,
     // so this catches "same file bytes imported before").
     if let Some(existing_video_id) = find_video_by_media_blob_id(media_blob_id).await? {
         info!(

@@ -32,7 +32,7 @@ use super::{MAX_WAIT_DURATION, POLL_INTERVAL};
 /// upload video from base64 data or file path
 ///
 /// used by CharnelLocalTransport (IPC) and CLI. mirrors `upload_music` -
-/// see that function for the shared shape (dedupe by sha256, write to
+/// see that function for the shared shape (dedupe by blake3, write to
 /// `fetch_video.output_dir`, enqueue an `ImportVideo` job).
 ///
 /// path: POST /api/upload/video

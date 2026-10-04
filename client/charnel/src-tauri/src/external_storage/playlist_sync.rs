@@ -277,7 +277,7 @@ async fn estimate_pending_song_bytes(device_id: &str, song_id: &str, music_root:
         return 0;
     };
     match grimoire::external_storage::get_synced_song(device_id, song_id).await {
-        Ok(Some(existing)) if existing.matches_content(blob.blake3.as_deref(), None) => {
+        Ok(Some(existing)) if existing.matches_content(blob.blake3.as_deref()) => {
             if music_root.join(&existing.relative_path).exists() {
                 0
             } else {

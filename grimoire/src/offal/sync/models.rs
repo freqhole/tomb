@@ -66,8 +66,8 @@ pub struct SyncSongByBlake3Request {
     #[serde(default)]
     pub genre_name: Option<String>,
     /// optional song images. each ref is either inline base64 (decoded +
-    /// deduped by sha256) or a pure reference (existing blob looked up by
-    /// sha256). missing referenced blobs are skipped, not fatal.
+    /// deduped by blake3) or a pure reference (existing blob looked up by
+    /// blake3). missing referenced blobs are skipped, not fatal.
     #[serde(default)]
     pub song_images: Vec<SyncImageRef>,
     /// optional album images. linked to the song's album row on import.

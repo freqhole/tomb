@@ -1154,7 +1154,7 @@ pub async fn image_candidates_for_album(
 
     // currently-linked blob ids (so the ui can show "already in
     // library: N"). actual content-level dedup happens at ingest via
-    // sha256, so the ui doesn't need a url<->blob map here.
+    // blake3, so the ui doesn't need a url<->blob map here.
     let imgs_resp = grimoire_get_album_images(&req.album_id).await;
     let ingested = if imgs_resp.success {
         imgs_resp.data.unwrap_or_default()

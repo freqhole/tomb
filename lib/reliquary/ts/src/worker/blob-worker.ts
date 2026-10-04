@@ -1,5 +1,5 @@
-// blob worker entry - moves CPU-bound blob work (blake3 hashing, sha256
-// hashing, base64 encode/decode, OPFS writes) off the main thread.
+// blob worker entry - moves CPU-bound blob work (blake3 hashing, base64
+// encode/decode, OPFS writes) off the main thread.
 //
 // architecture: comlink-exposed module. spun up lazily by
 // `blob-worker-client.ts` on first use. shares no state with the main
@@ -23,7 +23,6 @@ import {
   hashBlake3,
   hashFinish,
   hashPush,
-  hashSha256,
   opfsStoreSelftest,
   opfsStoreSelftestPersistence,
   processBlobBytes,
@@ -38,7 +37,6 @@ import {
 
 const api = {
   hashBlake3,
-  hashSha256,
   base64Encode,
   base64Decode,
   writeBlobToOpfs,

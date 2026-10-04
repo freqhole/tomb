@@ -147,7 +147,7 @@ pub async fn sync_song_to_device(
             let existing_abs = music_root.join(&existing_rel);
             let metadata_unchanged = existing_rel == base_relative;
 
-            if existing.matches_content(blob.blake3.as_deref(), None)
+            if existing.matches_content(blob.blake3.as_deref())
                 && metadata_unchanged
                 && existing.tag_hash == tag_hash
                 && existing_abs.exists()
@@ -186,7 +186,7 @@ pub async fn sync_song_to_device(
 
     let content_unchanged = existing
         .as_ref()
-        .is_some_and(|e| e.matches_content(blob.blake3.as_deref(), None));
+        .is_some_and(|e| e.matches_content(blob.blake3.as_deref()));
     let mut moved = false;
     let tag_warning: Option<String>;
 
@@ -285,7 +285,6 @@ pub async fn sync_song_to_device(
         device_id,
         song_id,
         &relative_path_str,
-        "",
         blob.blake3.as_deref(),
         &tag_hash,
     )
