@@ -571,7 +571,7 @@ jobs:
       # error"), failing the whole `dpkg --configure`. this registers QEMU
       # user-mode emulation so those postinst scripts just work transparently.
       - name: set up QEMU (armhf binfmt support for cross-arch dpkg postinst scripts)
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - uses: actions/setup-node@v7
