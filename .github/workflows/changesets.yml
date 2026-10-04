@@ -48,7 +48,7 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
       - name: changesets (open version PR or publish the draft release)
-        uses: changesets/action@v1
+        uses: changesets/action@v2
         with:
           # opens/updates the version PR. when there are no changesets left
           # (version PR merged) the publish command runs and publishes the
