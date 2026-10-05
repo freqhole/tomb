@@ -85,7 +85,10 @@ export function useFavoritesInfiniteQuery(options?: UseFavoritesInfiniteQueryOpt
  *  params today - skipped rather than guessed at. never throws: a
  *  failure here must not fail the primary (already-succeeded) remote
  *  favorite mutation. */
-export async function mirrorFavoriteToLocalSong(sha256: string, isFavorite: boolean): Promise<void> {
+export async function mirrorFavoriteToLocalSong(
+  sha256: string,
+  isFavorite: boolean
+): Promise<void> {
   if (isCharnelMode()) return;
   try {
     const localSong = await findExistingSongByContentHash({ sha256 });
