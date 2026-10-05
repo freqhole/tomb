@@ -1882,6 +1882,94 @@ pub fn get_binary_version() -> &'static str {
     env!("CARGO_PKG_VERSION")
 }
 
+/// how many timestamped config backups (`<stem>.toml.bak.*`) to keep -
+/// shared by both grimoire's own `freqhole-config.toml` and charnel's
+/// `charnel-config.toml` (see `upgrade_app_config` in
+/// `client/charnel/src-tauri/src/app_config.rs`), which both call
+/// `prune_config_backups` right after writing a fresh backup. an upgrade
+/// (and therefore a backup) happens at most once per version, but a dev
+/// workflow that keeps bumping/rolling back a pre-release version (see
+/// the version-compare doc comment on `is_newer`) can otherwise pile up
+/// backups indefinitely.
+pub const CONFIG_BACKUP_KEEP_COUNT: usize = 10;
+
+/// delete all but the `keep` most-recently-modified `<stem>.toml.bak.*`
+/// files sitting alongside `config_path` (its own directory, matched by
+/// filename prefix - works for any config file, not just
+/// `freqhole-config.toml`, since charnel's `charnel-config.toml` backups
+/// use the identical naming scheme). sorts by file mtime, not by parsing
+/// the timestamp suffix, since the two backup creators use different
+/// timestamp formats (grimoire: `YYYYMMDD_HHMMSS`, charnel: raw unix
+/// seconds) - mtime is the one thing both agree on. best-effort: a
+/// stat/delete failure on one file is logged and skipped, not fatal to
+/// the rest (this runs as a side effect of a successful upgrade, which
+/// must not be undone by a cleanup failure).
+pub fn prune_config_backups(config_path: &Path, keep: usize) -> usize {
+    let dir = match config_path.parent() {
+        Some(d) => d,
+        None => return 0,
+    };
+    let stem = match config_path.file_stem().and_then(|s| s.to_str()) {
+        Some(s) => s,
+        None => return 0,
+    };
+    let prefix = format!("{stem}.toml.bak.");
+
+    let entries = match std::fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(e) => {
+            tracing::warn!(
+                "prune_config_backups: failed to read {}: {}",
+                dir.display(),
+                e
+            );
+            return 0;
+        }
+    };
+
+    let mut backups: Vec<(PathBuf, std::time::SystemTime)> = Vec::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+            continue;
+        };
+        if !name.starts_with(&prefix) {
+            continue;
+        }
+        let modified = match entry.metadata().and_then(|m| m.modified()) {
+            Ok(m) => m,
+            Err(e) => {
+                tracing::warn!(
+                    "prune_config_backups: failed to stat {}: {}",
+                    path.display(),
+                    e
+                );
+                continue;
+            }
+        };
+        backups.push((path, modified));
+    }
+
+    if backups.len() <= keep {
+        return 0;
+    }
+
+    // newest first, so the tail (everything after `keep`) is what gets removed
+    backups.sort_by(|a, b| b.1.cmp(&a.1));
+    let mut deleted = 0;
+    for (path, _) in backups.into_iter().skip(keep) {
+        match std::fs::remove_file(&path) {
+            Ok(()) => deleted += 1,
+            Err(e) => tracing::warn!(
+                "prune_config_backups: failed to delete {}: {}",
+                path.display(),
+                e
+            ),
+        }
+    }
+    deleted
+}
+
 /// result of a config upgrade operation
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConfigUpgradeResult {
@@ -1989,6 +2077,7 @@ pub fn upgrade_config(config_path: &Path) -> Result<ConfigUpgradeResult, ConfigE
     let backup_path = config_path.with_extension(format!("toml.bak.{}", timestamp));
     std::fs::copy(config_path, &backup_path)
         .map_err(|e| ConfigError::CreateFailed(format!("failed to create backup: {}", e)))?;
+    prune_config_backups(config_path, CONFIG_BACKUP_KEEP_COUNT);
 
     // write upgraded config
     std::fs::write(config_path, template_doc.to_string()).map_err(|e| {
@@ -2538,6 +2627,62 @@ mod tests {
         };
 
         assert!(config.validate().is_err());
+    }
+
+    fn touch_backup(dir: &Path, stem: &str, suffix: &str, age_secs_ago: u64) -> PathBuf {
+        let path = dir.join(format!("{stem}.toml.bak.{suffix}"));
+        std::fs::write(&path, "test").unwrap();
+        let mtime = std::time::SystemTime::now() - std::time::Duration::from_secs(age_secs_ago);
+        let file = std::fs::File::open(&path).unwrap();
+        file.set_modified(mtime).unwrap();
+        path
+    }
+
+    #[test]
+    fn prune_config_backups_keeps_only_the_newest_n() {
+        let dir = tempfile::tempdir().unwrap();
+        let config_path = dir.path().join("freqhole-config.toml");
+        std::fs::write(&config_path, "test").unwrap();
+
+        // 5 backups, oldest to newest (descending age)
+        let backups: Vec<PathBuf> = (0..5)
+            .map(|i| touch_backup(dir.path(), "freqhole-config", &format!("v{i}"), 10 - i))
+            .collect();
+
+        let deleted = prune_config_backups(&config_path, 2);
+        assert_eq!(deleted, 3);
+
+        // the 2 newest (last two in the vec, smallest age) survive
+        assert!(!backups[0].exists());
+        assert!(!backups[1].exists());
+        assert!(!backups[2].exists());
+        assert!(backups[3].exists());
+        assert!(backups[4].exists());
+    }
+
+    #[test]
+    fn prune_config_backups_no_op_when_at_or_under_the_limit() {
+        let dir = tempfile::tempdir().unwrap();
+        let config_path = dir.path().join("freqhole-config.toml");
+        std::fs::write(&config_path, "test").unwrap();
+        touch_backup(dir.path(), "freqhole-config", "a", 1);
+        touch_backup(dir.path(), "freqhole-config", "b", 2);
+
+        assert_eq!(prune_config_backups(&config_path, 10), 0);
+    }
+
+    #[test]
+    fn prune_config_backups_ignores_unrelated_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let config_path = dir.path().join("charnel-config.toml");
+        std::fs::write(&config_path, "test").unwrap();
+        // a different config's backups in the same directory must be untouched
+        let other = touch_backup(dir.path(), "freqhole-config", "a", 1);
+        touch_backup(dir.path(), "charnel-config", "a", 1);
+        touch_backup(dir.path(), "charnel-config", "b", 2);
+
+        assert_eq!(prune_config_backups(&config_path, 1), 1);
+        assert!(other.exists(), "unrelated config's backup must survive");
     }
 }
 

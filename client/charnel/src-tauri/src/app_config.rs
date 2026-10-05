@@ -467,6 +467,10 @@ pub fn upgrade_app_config(app_handle: &tauri::AppHandle) -> Result<AppConfigUpgr
 
     std::fs::copy(&config_path, &backup_path)
         .map_err(|e| format!("failed to create backup: {}", e))?;
+    grimoire::config::prune_config_backups(
+        &config_path,
+        grimoire::config::CONFIG_BACKUP_KEEP_COUNT,
+    );
 
     // update version
     config.version = Some(get_binary_version().to_string());
