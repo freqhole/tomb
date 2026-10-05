@@ -1179,6 +1179,38 @@ pub async fn update_blob_blake3(id: &str, blake3: &str) -> GrimoireResult<()> {
     Ok(())
 }
 
+/// re-point a blob's hash after its *content* (not just its path) changed
+/// in place - e.g. `maintenance::reorganize_library` embedding id3/vorbis
+/// tags into a file it just moved. unlike `update_blob_blake3` (which
+/// assumes this is the FIRST hash this blob has ever had), this one knows
+/// there was a PREVIOUS hash describing bytes that no longer exist
+/// anywhere on this node - that old reliquary row would otherwise keep
+/// pointing at this blob's local_path under a hash its current content
+/// doesn't actually match, silently serving wrong bytes to anything that
+/// asks for the old hash (a remote peer that already has the pre-edit
+/// copy, for one). soft-deleting it instead makes that honestly
+/// unavailable rather than silently wrong - see `mirror_soft_delete`'s
+/// own doc comment. (hard-deleting it too, the way `hard_delete_rendition_blob`
+/// does for a blob being fully removed, is deliberately NOT done here -
+/// keeping the soft-deleted row around is what would let a future
+/// "historical blake3" feature map an old hash back to this blob instead
+/// of a remote re-downloading a duplicate copy under it.)
+pub async fn update_blob_blake3_for_content_change(
+    id: &str,
+    new_blake3: &str,
+    actor: Option<&str>,
+) -> GrimoireResult<()> {
+    let old_blake3 = get_media_blob(id).await.ok().and_then(|b| b.blake3);
+
+    update_blob_blake3(id, new_blake3).await?;
+
+    if let Some(old_blake3) = old_blake3.filter(|h| h != new_blake3) {
+        reliquary_mirror::mirror_soft_delete(&old_blake3, actor.unwrap_or("system")).await;
+    }
+
+    Ok(())
+}
+
 /// get media blob by blake3 hash (for iroh-blobs requests)
 pub async fn get_media_blob_by_blake3(blake3: &str) -> GrimoireResult<MediaBlob> {
     let pool = database::connect().await?;

@@ -475,8 +475,64 @@ async fn reorganize_one_song(
         file_ops::prune_empty_ancestors(old_parent.to_path_buf(), Path::new(source_root));
     }
 
+    // embed tags BEFORE recording the move in the db: this can rewrite
+    // the file's bytes in place (new id3/vorbis frames, embedded cover
+    // art), which changes both its size and its blake3 hash - computing
+    // those fresh from the post-embed file (below) rather than reusing
+    // the pre-move `blob.size`/`blob.blake3` is what keeps `media_blobz`
+    // and the reliquary content-addressed mirror accurate afterward.
+    let mut tags_embedded = false;
+    if embed_tags {
+        match embed_song_tags(&dest_abs, &song, &artist_name, &album_title, album_id).await {
+            Ok(true) => {
+                result.tags_embedded += 1;
+                tags_embedded = true;
+            }
+            Ok(false) => result.tags_skipped_unsupported_format += 1,
+            Err(e) => result.errors.push(ErrorDetail::new(
+                "tag_embed_failed",
+                "Tag Embed Failed",
+                format!("song {song_id}: {e}"),
+            )),
+        }
+    }
+
     let new_path_str = dest_abs.to_string_lossy().to_string();
-    let new_size = blob.size.unwrap_or(0);
+    let new_size = tokio::fs::metadata(&dest_abs)
+        .await
+        .map(|m| m.len() as i64)
+        .unwrap_or_else(|_| blob.size.unwrap_or(0));
+
+    // recompute blake3 now, before `relocate_blob` below re-reads
+    // `media_blobz.blake3` to repoint the reliquary mirror's path - doing
+    // this first means that re-read already sees the correct (new) hash
+    // instead of silently repointing a now-stale hash at this file.
+    if tags_embedded {
+        match crate::blobz::compute_blake3_hash(&dest_abs).await {
+            Ok(new_blake3) if Some(&new_blake3) != blob.blake3.as_ref() => {
+                if let Err(e) = crate::media_blobz::update_blob_blake3_for_content_change(
+                    &blob.id,
+                    &new_blake3,
+                    created_by.as_ref().map(|(id, _)| id.as_str()),
+                )
+                .await
+                {
+                    result.errors.push(ErrorDetail::new(
+                        "blake3_update_failed",
+                        "Blake3 Update Failed",
+                        format!("song {song_id}: {e}"),
+                    ));
+                }
+            }
+            Ok(_) => {}
+            Err(e) => result.errors.push(ErrorDetail::new(
+                "blake3_recompute_failed",
+                "Blake3 Recompute Failed",
+                format!("song {song_id}: {e}"),
+            )),
+        }
+    }
+
     if let Err(e) = crate::music::scanner::move_dir::relocate_blob(
         pool,
         &blob.id,
@@ -496,18 +552,6 @@ async fn reorganize_one_song(
         ));
     }
     result.songs_moved += 1;
-
-    if embed_tags {
-        match embed_song_tags(&dest_abs, &song, &artist_name, &album_title, album_id).await {
-            Ok(true) => result.tags_embedded += 1,
-            Ok(false) => result.tags_skipped_unsupported_format += 1,
-            Err(e) => result.errors.push(ErrorDetail::new(
-                "tag_embed_failed",
-                "Tag Embed Failed",
-                format!("song {song_id}: {e}"),
-            )),
-        }
-    }
 }
 
 /// best-effort: fills in any of title/artist/album/track/disc the file
