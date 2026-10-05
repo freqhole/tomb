@@ -43,6 +43,7 @@ export function HighlightedMarqueeText(props: HighlightedMarqueeTextProps): JSX.
   const [needsMarquee, setNeedsMarquee] = createSignal(false);
   let containerRef: HTMLDivElement | undefined;
   let measureRef: HTMLDivElement | undefined;
+  let animatedRef: HTMLDivElement | undefined;
 
   const textToDisplay = () => props.highlight || props.text;
   const hasHighlight = () => props.highlight && props.highlight.includes("<mark>");
@@ -110,6 +111,76 @@ export function HighlightedMarqueeText(props: HighlightedMarqueeTextProps): JSX.
   });
 
   const shouldAnimate = () => needsMarquee() && props.isHovering;
+  // true while the return-to-start transition (below) is in flight, so
+  // the overlay stays visible (opacity 1) long enough to actually show
+  // it - otherwise it'd fade out the instant hover ends, before anyone
+  // could see it animate back.
+  const [isReturning, setIsReturning] = createSignal(false);
+  const overlayVisible = () => shouldAnimate() || isReturning();
+
+  // same imperative freeze-then-transition-back technique as
+  // MarqueeText.tsx (see its comment for why this must be imperative,
+  // not a declarative style={{}} reacting to the same signal) - stopping
+  // the keyframe animation outright snapped straight back with no
+  // transition at all.
+  const RETURN_DURATION_MS = 300;
+  let returnRaf: number | undefined;
+  let returnTimer: ReturnType<typeof setTimeout> | undefined;
+  function clearReturnTimers() {
+    if (returnRaf !== undefined) {
+      cancelAnimationFrame(returnRaf);
+      returnRaf = undefined;
+    }
+    if (returnTimer !== undefined) {
+      clearTimeout(returnTimer);
+      returnTimer = undefined;
+    }
+  }
+
+  createEffect(() => {
+    const animate = shouldAnimate();
+    if (!animatedRef) return;
+    clearReturnTimers();
+
+    if (animate) {
+      setIsReturning(false);
+      animatedRef.style.transition = "";
+      animatedRef.style.transform = "";
+      animatedRef.style.animation = "text-marquee var(--marquee-duration, 4s) ease-in-out infinite";
+      return;
+    }
+
+    const wasPlaying = animatedRef.style.animation !== "" && animatedRef.style.animation !== "none";
+    if (!wasPlaying) {
+      animatedRef.style.animation = "none";
+      animatedRef.style.transform = "";
+      animatedRef.style.transition = "";
+      return;
+    }
+
+    const computed = getComputedStyle(animatedRef).transform;
+    animatedRef.style.animation = "none";
+    animatedRef.style.transition = "";
+    animatedRef.style.transform = computed && computed !== "none" ? computed : "translateX(0)";
+    setIsReturning(true);
+
+    returnRaf = requestAnimationFrame(() => {
+      returnRaf = requestAnimationFrame(() => {
+        returnRaf = undefined;
+        if (!animatedRef) return;
+        animatedRef.style.transition = `transform ${RETURN_DURATION_MS}ms ease-out`;
+        animatedRef.style.transform = "translateX(0)";
+        returnTimer = setTimeout(() => {
+          returnTimer = undefined;
+          setIsReturning(false);
+          if (!animatedRef) return;
+          animatedRef.style.transition = "";
+          animatedRef.style.transform = "";
+        }, RETURN_DURATION_MS);
+      });
+    });
+  });
+  onCleanup(clearReturnTimers);
 
   return (
     <div
@@ -131,20 +202,19 @@ export function HighlightedMarqueeText(props: HighlightedMarqueeTextProps): JSX.
       <div
         class="truncate"
         style={{
-          opacity: shouldAnimate() ? 0 : 1,
+          opacity: overlayVisible() ? 0 : 1,
         }}
       >
         {renderText()}
       </div>
 
-      {/* animated text - overlays truncated text when hovering */}
+      {/* animated text - overlays truncated text when hovering (and
+          briefly after, while animating back to the start) */}
       <div
+        ref={animatedRef}
         class="absolute top-0 left-0 whitespace-nowrap"
         style={{
-          opacity: shouldAnimate() ? 1 : 0,
-          animation: shouldAnimate()
-            ? `text-marquee var(--marquee-duration, 4s) ease-in-out infinite`
-            : "none",
+          opacity: overlayVisible() ? 1 : 0,
           "pointer-events": "none",
         }}
         aria-hidden="true"

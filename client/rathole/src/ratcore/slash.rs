@@ -1701,23 +1701,31 @@ pub fn match_station_id(data: &Option<serde_json::Value>, query: Option<&str>) -
 fn parse_maintenance_sub(arg: Option<&str>) -> SlashAction {
     let (sub, rest) = split_sub(arg);
     let tokens: Vec<&str> = rest.split_whitespace().collect();
-    let has_flag = |name: &str| {
-        tokens
-            .iter()
-            .any(|t| matches!(*t, "dry-run" | "dry" | "--dry-run") && name == "dry-run")
-    };
+    // generic bare-flag presence check (accepts both `foo` and `--foo`)
+    let has_token = |name: &str| tokens.iter().any(|t| t.trim_start_matches("--") == name);
+    let has_flag = |name: &str| name == "dry-run" && (has_token("dry-run") || has_token("dry"));
     // first positional token that's not a known flag
     let first_positional = tokens
         .iter()
         .find(|t| !matches!(**t, "dry-run" | "dry" | "--dry-run"))
         .copied();
+    // value immediately following a `scan-dir`/`--scan-dir` token, if present
+    let scan_dir = tokens
+        .iter()
+        .position(|t| matches!(*t, "scan-dir" | "--scan-dir"))
+        .and_then(|i| tokens.get(i + 1))
+        .map(|s| s.to_string());
+    // directory-phase sub-job toggles, shared by repair-library/repair-thumbnails
+    let no_embedded_art = has_token("no-embedded-art");
+    let no_directory_art = has_token("no-directory-art");
+    let remove_overapplied = has_token("remove-overapplied");
     let bad = |hint: &'static str| SlashAction::BadArgs {
         name: "maintenance",
         hint,
     };
     match sub.as_str() {
         "" | "help" | "list" => bad(
-            "usage: /maintenance <cleanup-tags|cleanup-genres|cleanup-blobs|cleanup-all|backfill-blake3|backfill-thumbs|hard-delete|run-full|update-image|update-spume> [args]",
+            "usage: /maintenance <cleanup-tags|cleanup-genres|cleanup-blobs|cleanup-all|backfill-blake3|backfill-thumbs|hard-delete|run-full|repair-library|repair-waveforms|repair-thumbnails|update-image|update-spume> [args]",
         ),
         "cleanup-tags" | "cleanup_tags" => SlashAction::AdminDispatch {
             name: "maintenance_cleanup_orphaned_tags",
@@ -1810,8 +1818,34 @@ fn parse_maintenance_sub(arg: Option<&str>) -> SlashAction {
             name: "maintenance_update_spume",
             body: serde_json::json!({}),
         },
+        "repair-library" | "repair_library" | "repair" => SlashAction::AdminDispatch {
+            name: "maintenance_repair_library",
+            body: serde_json::json!({
+                "dry_run": has_flag("dry-run"),
+                "scan_directory": scan_dir,
+                "backfill_embedded_art": !no_embedded_art,
+                "backfill_directory_art": !no_directory_art,
+                "remove_overapplied": remove_overapplied,
+            }),
+        },
+        "repair-waveforms" | "repair_waveforms" | "repair-waveform" => SlashAction::AdminDispatch {
+            name: "maintenance_repair_library_waveforms",
+            body: serde_json::json!({ "dry_run": has_flag("dry-run"), "scan_directory": scan_dir }),
+        },
+        "repair-thumbnails" | "repair_thumbnails" | "repair-images" | "repair-thumbs" => {
+            SlashAction::AdminDispatch {
+                name: "maintenance_repair_library_thumbnails",
+                body: serde_json::json!({
+                    "dry_run": has_flag("dry-run"),
+                    "scan_directory": scan_dir,
+                    "backfill_embedded_art": !no_embedded_art,
+                    "backfill_directory_art": !no_directory_art,
+                    "remove_overapplied": remove_overapplied,
+                }),
+            }
+        }
         _ => bad(
-            "usage: /maintenance <cleanup-tags|cleanup-genres|cleanup-blobs|cleanup-all|backfill-blake3|backfill-thumbs|hard-delete|hard-delete-videos|run-full|update-image|update-spume> [args]",
+            "usage: /maintenance <cleanup-tags|cleanup-genres|cleanup-blobs|cleanup-all|backfill-blake3|backfill-thumbs|hard-delete|hard-delete-videos|run-full|repair-library [no-embedded-art] [no-directory-art] [remove-overapplied]|repair-waveforms|repair-thumbnails [no-embedded-art] [no-directory-art] [remove-overapplied]|update-image|update-spume> [args]",
         ),
     }
 }

@@ -5,6 +5,7 @@ use crate::response::GrimoireResponse;
 
 mod hard_delete;
 mod orphaned;
+mod repair_library_images;
 mod video_hard_delete;
 
 pub use crate::blob_data::{
@@ -14,6 +15,11 @@ pub use crate::blob_data::{
 pub use hard_delete::{hard_delete_old_records, HardDeleteOptions, HardDeleteSummary};
 pub use orphaned::{
     cleanup_orphaned_genres, cleanup_orphaned_tags, OrphanedGenresSummary, OrphanedTagsSummary,
+};
+pub use repair_library_images::{
+    repair_directories_batch, repair_library_images_sync, repair_waveforms_batch,
+    DirectoryBatchOutcome, RepairLibraryImagesOptions, RepairLibraryImagesPhase,
+    RepairLibraryImagesResult, WaveformBatchOutcome, DIRECTORY_BATCH_SIZE, WAVEFORM_BATCH_SIZE,
 };
 pub use video_hard_delete::{
     hard_delete_old_videos, HardDeleteVideoOptions, HardDeleteVideoSummary,

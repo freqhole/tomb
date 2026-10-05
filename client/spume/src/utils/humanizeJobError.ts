@@ -53,6 +53,30 @@ export function errorMessageFrom(error: unknown): string {
   return stringified && stringified !== "[object Object]" ? stringified : "unknown error";
 }
 
+const URL_LABEL_MAX_LENGTH = 42;
+
+/** short label for a url-fetch job row - keeps the query string (where a
+ *  distinguishing id, e.g. youtube's `?v=...`, usually lives) instead of
+ *  silently dropping it, which used to make every youtube.com/watch
+ *  job in the list look identical and impossible to tell apart when one
+ *  failed. prioritizes the TAIL of path+query when truncating, since
+ *  that's where the distinguishing part usually sits. the full url is
+ *  always kept separately (`UploadJob.fullUrl`/`VideoUploadJob.fullUrl`)
+ *  for a tooltip/expanded view - this is only the short display form. */
+export function shortenUrlForLabel(url: string): string {
+  try {
+    const parsed = new URL(url);
+    const tail = parsed.pathname + parsed.search;
+    if (parsed.hostname.length + tail.length <= URL_LABEL_MAX_LENGTH) {
+      return parsed.hostname + tail;
+    }
+    const budget = Math.max(URL_LABEL_MAX_LENGTH - parsed.hostname.length - 3, 10);
+    return parsed.hostname + "..." + tail.slice(-budget);
+  } catch {
+    return url.length > URL_LABEL_MAX_LENGTH ? url.slice(0, URL_LABEL_MAX_LENGTH - 3) + "..." : url;
+  }
+}
+
 export function humanizeJobError(
   message: string | undefined,
   errorType: string | undefined,

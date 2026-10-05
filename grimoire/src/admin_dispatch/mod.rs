@@ -190,6 +190,15 @@ pub async fn handle(
             handlers::maintenance::hard_delete_old_videos(args).await
         }
         "maintenance_run_full" => handlers::maintenance::run_full(args).await,
+        "maintenance_repair_library" => {
+            handlers::maintenance::repair_library(args, caller).await
+        }
+        "maintenance_repair_library_waveforms" => {
+            handlers::maintenance::repair_library_waveforms(args, caller).await
+        }
+        "maintenance_repair_library_thumbnails" => {
+            handlers::maintenance::repair_library_thumbnails(args, caller).await
+        }
 
         // -- dir_tags --
         "dir_tags_list_rules" => handlers::dir_tags::list_rules().await,

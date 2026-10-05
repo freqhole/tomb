@@ -7,6 +7,7 @@ use grimoire::config::{ensure_server_image_blob, find_config, GrimoireConfig};
 use grimoire::error::GrimoireError;
 use grimoire::maintenance::{
     cleanup_contentless_media_blobs, cleanup_orphaned_genres, cleanup_orphaned_tags,
+    repair_library_images_sync, RepairLibraryImagesOptions,
 };
 use serde::Serialize;
 use std::path::PathBuf;
@@ -70,6 +71,52 @@ pub enum MaintenanceAction {
         /// Path to config file (uses --config if not specified)
         #[arg(long, short = 'c')]
         config: Option<PathBuf>,
+    },
+    /// Backfill missing song waveforms + album thumbnails, and clean up
+    /// directory-sourced images over-applied across unrelated albums.
+    /// runs all sub-jobs except the destructive removal, which is
+    /// off by default; see `RepairLibraryWaveforms`/`RepairLibraryThumbnails`
+    /// to run just one group.
+    RepairLibrary {
+        /// Show what would change without writing anything
+        #[arg(long)]
+        dry_run: bool,
+        /// Restrict to one tracked directory's subtree instead of the whole library
+        #[arg(long)]
+        scan_dir: Option<String>,
+        /// Skip applying a song's embedded file art (id3/vorbis cover) as an album thumbnail
+        #[arg(long)]
+        no_embedded_art: bool,
+        /// Skip applying directory-level images (folder.jpg etc) as an album thumbnail
+        #[arg(long)]
+        no_directory_art: bool,
+        /// Destructive: also remove directory-sourced thumbnails identified as over-applied
+        #[arg(long)]
+        remove_overapplied: bool,
+    },
+    /// Backfill missing song waveforms only (no album thumbnail changes)
+    RepairLibraryWaveforms {
+        #[arg(long)]
+        dry_run: bool,
+        #[arg(long)]
+        scan_dir: Option<String>,
+    },
+    /// Backfill missing album thumbnails (and optionally clean up
+    /// over-applied directory images) only - no waveform changes
+    RepairLibraryThumbnails {
+        #[arg(long)]
+        dry_run: bool,
+        #[arg(long)]
+        scan_dir: Option<String>,
+        /// Skip applying a song's embedded file art (id3/vorbis cover) as an album thumbnail
+        #[arg(long)]
+        no_embedded_art: bool,
+        /// Skip applying directory-level images (folder.jpg etc) as an album thumbnail
+        #[arg(long)]
+        no_directory_art: bool,
+        /// Destructive: also remove directory-sourced thumbnails identified as over-applied
+        #[arg(long)]
+        remove_overapplied: bool,
     },
 }
 
@@ -372,6 +419,69 @@ pub async fn handle_command(
                     (),
                 ),
             }
+        }
+
+        MaintenanceAction::RepairLibrary {
+            dry_run,
+            scan_dir,
+            no_embedded_art,
+            no_directory_art,
+            remove_overapplied,
+        } => {
+            let options = RepairLibraryImagesOptions {
+                backfill_waveforms: true,
+                backfill_embedded_art: !no_embedded_art,
+                backfill_directory_art: !no_directory_art,
+                remove_overapplied,
+            };
+            let response = repair_library_images_sync(dry_run, scan_dir, options, None).await;
+            if !response.success {
+                return CommandOutput::failure(response.message, response.errors, ());
+            }
+            let Some(summary) = response.data else {
+                return CommandOutput::failure("No summary data returned", vec![], ());
+            };
+            CommandOutput::success(response.message, summary)
+        }
+
+        MaintenanceAction::RepairLibraryWaveforms { dry_run, scan_dir } => {
+            let options = RepairLibraryImagesOptions {
+                backfill_waveforms: true,
+                backfill_embedded_art: false,
+                backfill_directory_art: false,
+                remove_overapplied: false,
+            };
+            let response = repair_library_images_sync(dry_run, scan_dir, options, None).await;
+            if !response.success {
+                return CommandOutput::failure(response.message, response.errors, ());
+            }
+            let Some(summary) = response.data else {
+                return CommandOutput::failure("No summary data returned", vec![], ());
+            };
+            CommandOutput::success(response.message, summary)
+        }
+
+        MaintenanceAction::RepairLibraryThumbnails {
+            dry_run,
+            scan_dir,
+            no_embedded_art,
+            no_directory_art,
+            remove_overapplied,
+        } => {
+            let options = RepairLibraryImagesOptions {
+                backfill_waveforms: false,
+                backfill_embedded_art: !no_embedded_art,
+                backfill_directory_art: !no_directory_art,
+                remove_overapplied,
+            };
+            let response = repair_library_images_sync(dry_run, scan_dir, options, None).await;
+            if !response.success {
+                return CommandOutput::failure(response.message, response.errors, ());
+            }
+            let Some(summary) = response.data else {
+                return CommandOutput::failure("No summary data returned", vec![], ());
+            };
+            CommandOutput::success(response.message, summary)
         }
     }
 }

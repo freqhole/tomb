@@ -44,7 +44,7 @@ pub struct PendingVideoReviewGroup {
 pub struct PendingReviewVideoSummary {
     pub video_id: String,
     pub title: String,
-    /// "series" | "movie" | "clip" - only meaningful when the group has
+    /// "series" | "movie" | "clip" | "karaoke" - only meaningful when the group has
     /// no `series_id` (mirrors `Video::content_type`'s own doc comment).
     pub content_type: String,
     pub season_id: Option<String>,
@@ -95,7 +95,7 @@ pub struct VideoReviewPatch {
     /// the uploader never needs the admin-gated create_video_season route.
     /// ignored if `season_id` is set.
     pub new_season: Option<NewSeasonPatch>,
-    /// "series" | "movie" | "clip" - only meaningful for a standalone
+    /// "series" | "movie" | "clip" | "karaoke" - only meaningful for a standalone
     /// (non-series) group; reclassifying a video already in a series
     /// group goes through `move_video` instead, since that also handles
     /// detaching series_id/season_id.
@@ -125,7 +125,7 @@ pub struct MoveVideoReviewRequest {
     pub to_series_id: Option<String>,
     pub to_season_id: Option<String>,
     /// only used when `to_series_id` is `None` (detaching to standalone) -
-    /// "movie" or "clip"; defaults to "movie" if omitted. ignored when
+    /// "movie" or "clip" (or "karaoke"); defaults to "movie" if omitted. ignored when
     /// moving into a series (content_type is forced to "series" then).
     pub content_type: Option<String>,
     /// create (or reuse, if a series with this title already exists) a

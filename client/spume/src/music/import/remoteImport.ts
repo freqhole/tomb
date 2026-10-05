@@ -11,6 +11,7 @@ import {
   humanizeJobError as humanizeJobErrorShared,
   extractTransportErrorType,
   errorMessageFrom,
+  shortenUrlForLabel,
   type FriendlyError,
 } from "../../utils/humanizeJobError";
 export type { FriendlyError };
@@ -32,6 +33,12 @@ export interface UploadJob {
   id: string;
   /** display label (filename or url) */
   label: string;
+  /** full source url for a "url" job - `label` is a shortened display
+   *  version (hostname + truncated path/query) that can collide across
+   *  different urls to the same host (e.g. two youtube videos both show
+   *  as "www.youtube.com/watch...") - this is what a tooltip/expanded
+   *  error view shows so a failed job can actually be identified. */
+  fullUrl?: string;
   /** whether this was a file upload or url fetch */
   type: UploadJobType;
   /** current status */
@@ -101,11 +108,12 @@ export function clearAllJobs() {
 // add a new tracked job and return its client-side id - exported so
 // sendReviewedSessionToRemote.ts can show "sending to remote" in the same
 // job list instead of running invisibly (see docs on that call site).
-export function addTrackedJob(label: string, type: UploadJobType): string {
+export function addTrackedJob(label: string, type: UploadJobType, fullUrl?: string): string {
   const id = jobStore.nextId("upload");
   jobStore.addJob({
     id,
     label,
+    fullUrl,
     type,
     status: "uploading",
     createdAt: Date.now(),
@@ -753,18 +761,12 @@ export async function fetchUrlsOnRemote(
   const poller = new JobPoller(remote, 3000);
 
   for (const url of urls) {
-    // use a short label: hostname + path tail
-    let label: string;
-    try {
-      const parsed = new URL(url);
-      label =
-        parsed.hostname +
-        (parsed.pathname.length > 30 ? "..." + parsed.pathname.slice(-27) : parsed.pathname);
-    } catch {
-      label = url.length > 50 ? url.slice(0, 47) + "..." : url;
-    }
+    // use a short label: hostname + path tail (keeps the query string -
+    // see shortenUrlForLabel's doc comment); fullUrl is kept separately
+    // for a tooltip/expanded view so a failed job can be identified.
+    const label = shortenUrlForLabel(url);
 
-    const trackId = addTrackedJob(label, "url");
+    const trackId = addTrackedJob(label, "url", url);
     updateJobEntities(trackId, { remoteId: remote.remote_id });
 
     (async () => {

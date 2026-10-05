@@ -1,10 +1,7 @@
 import { createSignal, Show, For, createEffect, on } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
 import { useAdminTransport } from "../admin/context";
-import {
-  UserAutocomplete,
-  type UserSelection,
-} from "../components/UserAutocomplete";
+import { UserAutocomplete, type UserSelection } from "../components/UserAutocomplete";
 import { QrCodeDisplay } from "../components/QrCodeDisplay";
 
 interface FederationConfigStatus {
@@ -101,9 +98,7 @@ export default function FederationView() {
 
   // sync
   const [syncLoading, setSyncLoading] = createSignal(false);
-  const [syncResult, setSyncResult] = createSignal<FederationSyncResult | null>(
-    null,
-  );
+  const [syncResult, setSyncResult] = createSignal<FederationSyncResult | null>(null);
 
   // logout confirmation
   const [confirmLogout, setConfirmLogout] = createSignal(false);
@@ -115,8 +110,7 @@ export default function FederationView() {
   const [peerNodeId, setPeerNodeId] = createSignal("");
   const [peerUsername, setPeerUsername] = createSignal("");
   const [peerRole, setPeerRole] = createSignal("viewer");
-  const [peerUserSelection, setPeerUserSelection] =
-    createSignal<UserSelection | null>(null);
+  const [peerUserSelection, setPeerUserSelection] = createSignal<UserSelection | null>(null);
   const [allowPeerLoading, setAllowPeerLoading] = createSignal(false);
 
   // peer list
@@ -130,33 +124,23 @@ export default function FederationView() {
   // the original join message on each peer row.
   const [allKnocks, setAllKnocks] = createSignal<KnockInfo[]>([]);
   const [removingPeerId, setRemovingPeerId] = createSignal<string | null>(null);
-  const [restoringPeerId, setRestoringPeerId] = createSignal<string | null>(
-    null,
-  );
+  const [restoringPeerId, setRestoringPeerId] = createSignal<string | null>(null);
 
   // knock requests
   const [knocks, setKnocks] = createSignal<KnockInfo[]>([]);
   const [knocksLoading, setKnocksLoading] = createSignal(false);
-  const [processingKnockId, setProcessingKnockId] = createSignal<string | null>(
-    null,
-  );
+  const [processingKnockId, setProcessingKnockId] = createSignal<string | null>(null);
   const [acceptKnockUsername, setAcceptKnockUsername] = createSignal("");
   const [acceptKnockRole, setAcceptKnockRole] = createSignal("viewer");
   const [acceptKnockUserSelection, setAcceptKnockUserSelection] =
     createSignal<UserSelection | null>(null);
-  const [expandedKnockId, setExpandedKnockId] = createSignal<string | null>(
-    null,
-  );
+  const [expandedKnockId, setExpandedKnockId] = createSignal<string | null>(null);
   const [confirmRejectAll, setConfirmRejectAll] = createSignal(false);
 
   // copy feedback
   const [nodeIdCopied, setNodeIdCopied] = createSignal(false);
-  const [copiedPeerNodeId, setCopiedPeerNodeId] = createSignal<string | null>(
-    null,
-  );
-  const [copiedKnockNodeId, setCopiedKnockNodeId] = createSignal<string | null>(
-    null,
-  );
+  const [copiedPeerNodeId, setCopiedPeerNodeId] = createSignal<string | null>(null);
+  const [copiedKnockNodeId, setCopiedKnockNodeId] = createSignal<string | null>(null);
 
   // reload whenever the active admin target changes (incl. initial mount)
   createEffect(() => {
@@ -300,15 +284,12 @@ export default function FederationView() {
 
     try {
       const selection = peerUserSelection();
-      const result = await admin.dispatchOrThrow<AllowPeerResult>(
-        "peers_allow",
-        {
-          node_id: peerNodeId(),
-          username: selection?.username || peerUsername() || undefined,
-          role: selection?.isExisting ? selection.role : peerRole(),
-          user_id: selection?.isExisting ? selection.id : undefined,
-        },
-      );
+      const result = await admin.dispatchOrThrow<AllowPeerResult>("peers_allow", {
+        node_id: peerNodeId(),
+        username: selection?.username || peerUsername() || undefined,
+        role: selection?.isExisting ? selection.role : peerRole(),
+        user_id: selection?.isExisting ? selection.id : undefined,
+      });
       setSuccess(
         result.created_user
           ? `peer allowed: created user "${result.username}"`
@@ -331,10 +312,9 @@ export default function FederationView() {
     try {
       // always fetch the full set; the show-deleted toggle filters
       // client-side so it can flip without a round-trip.
-      const peers = await admin.dispatchOrThrow<PeerNodeInfo[]>(
-        "peers_list_all",
-        { include_deleted: true },
-      );
+      const peers = await admin.dispatchOrThrow<PeerNodeInfo[]>("peers_list_all", {
+        include_deleted: true,
+      });
       setPeerNodes(peers);
     } catch (e) {
       console.error("failed to load peers:", e);
@@ -446,11 +426,7 @@ export default function FederationView() {
 
     try {
       const selection = acceptKnockUserSelection();
-      const username =
-        selection?.username ||
-        acceptKnockUsername() ||
-        knock.username ||
-        undefined;
+      const username = selection?.username || acceptKnockUsername() || knock.username || undefined;
       const role = selection?.isExisting ? selection.role : acceptKnockRole();
       const userId = selection?.isExisting ? selection.id : undefined;
 
@@ -460,9 +436,7 @@ export default function FederationView() {
         role,
         user_id: userId,
       });
-      setSuccess(
-        `accepted knock from "${username || knock.username}" as ${role}`,
-      );
+      setSuccess(`accepted knock from "${username || knock.username}" as ${role}`);
       // clear form state
       setExpandedKnockId(null);
       setAcceptKnockUsername("");
@@ -513,10 +487,7 @@ export default function FederationView() {
     setConfirmRejectAll(false);
 
     try {
-      const result = await admin.dispatchOrThrow<{ rejected: number }>(
-        "knocks_reject_all",
-        {},
-      );
+      const result = await admin.dispatchOrThrow<{ rejected: number }>("knocks_reject_all", {});
       setSuccess(`rejected ${result.rejected} pending knock request(s)`);
       await loadKnocks();
     } catch (e) {
@@ -563,11 +534,7 @@ export default function FederationView() {
       <Show when={error()}>
         <div class="wizard-notification error">
           <span class="message-text">{error()}</span>
-          <button
-            class="dismiss-btn"
-            onClick={() => setError("")}
-            title="dismiss"
-          >
+          <button class="dismiss-btn" onClick={() => setError("")} title="dismiss">
             ×
           </button>
         </div>
@@ -576,11 +543,7 @@ export default function FederationView() {
       <Show when={success()}>
         <div class="wizard-notification success">
           <span class="message-text">{success()}</span>
-          <button
-            class="dismiss-btn"
-            onClick={() => setSuccess("")}
-            title="dismiss"
-          >
+          <button class="dismiss-btn" onClick={() => setSuccess("")} title="dismiss">
             ×
           </button>
         </div>
@@ -600,14 +563,8 @@ export default function FederationView() {
               when={isConfigured()}
               fallback={
                 <div class="status-content">
-                  <div class="status-message warning">
-                    federation is disabled
-                  </div>
-                  <button
-                    class="small"
-                    onClick={handleToggle}
-                    disabled={toggling()}
-                  >
+                  <div class="status-message warning">federation is disabled</div>
+                  <button class="small" onClick={handleToggle} disabled={toggling()}>
                     {toggling() ? "enabling..." : "enable federation"}
                   </button>
                 </div>
@@ -617,16 +574,12 @@ export default function FederationView() {
                 <Show when={status()?.config?.haruspex_url}>
                   <div class="status-item">
                     <span class="label">haruspex url</span>
-                    <span class="value mono">
-                      {status()?.config?.haruspex_url}
-                    </span>
+                    <span class="value mono">{status()?.config?.haruspex_url}</span>
                   </div>
                 </Show>
                 <div class="status-item">
                   <span class="label">auto create users</span>
-                  <span class="value">
-                    {status()?.config?.auto_create_users ? "yes" : "no"}
-                  </span>
+                  <span class="value">{status()?.config?.auto_create_users ? "yes" : "no"}</span>
                 </div>
                 <div class="status-item">
                   <span class="label">default role</span>
@@ -635,17 +588,13 @@ export default function FederationView() {
                 <div class="status-item full-width">
                   <span class="label">keypair</span>
                   <span class="value mono small">
-                    {hasKeypair()
-                      ? status()?.identity.keypair_path
-                      : "not generated"}
+                    {hasKeypair() ? status()?.identity.keypair_path : "not generated"}
                   </span>
                 </div>
                 <Show when={hasKeypair()}>
                   <div class="status-item full-width">
                     <span class="label">node id</span>
-                    <span class="value mono small">
-                      {status()?.identity.node_id}
-                    </span>
+                    <span class="value mono small">{status()?.identity.node_id}</span>
                     <div class="node-id-actions">
                       <button
                         class="secondary small"
@@ -666,11 +615,7 @@ export default function FederationView() {
                 </Show>
               </div>
               <div class="section-actions">
-                <button
-                  class="secondary small"
-                  onClick={handleToggle}
-                  disabled={toggling()}
-                >
+                <button class="secondary small" onClick={handleToggle} disabled={toggling()}>
                   {toggling() ? "disabling..." : "disable federation"}
                 </button>
               </div>
@@ -686,8 +631,8 @@ export default function FederationView() {
           <section class="status-section">
             <h2>access requests</h2>
             <p class="help-text">
-              incoming requests from peers who want access to your instance.
-              accept to create a user and allow P2P connections.
+              incoming requests from peers who want access to your instance. accept to create a user
+              and allow P2P connections.
             </p>
 
             <Show when={knocksLoading()}>
@@ -705,12 +650,8 @@ export default function FederationView() {
                     <div class="knock-item">
                       <div class="knock-header">
                         <div class="knock-info">
-                          <span class="knock-username">
-                            {knock.username || "unknown"}
-                          </span>
-                          <span class="knock-time">
-                            {formatRelativeTime(knock.created_at)}
-                          </span>
+                          <span class="knock-username">{knock.username || "unknown"}</span>
+                          <span class="knock-time">{formatRelativeTime(knock.created_at)}</span>
                         </div>
                         <div
                           class="knock-node-id clickable"
@@ -740,8 +681,7 @@ export default function FederationView() {
                           <Show when={knock.deleted_user_username}>
                             <> (user “{knock.deleted_user_username}”)</>
                           </Show>
-                          . restore the user/peer in the federation view before
-                          accepting.
+                          . restore the user/peer in the federation view before accepting.
                         </div>
                       </Show>
                       <Show when={knock.message}>
@@ -754,10 +694,7 @@ export default function FederationView() {
                               <label>username</label>
                               <UserAutocomplete
                                 initialValue={knock.username || ""}
-                                placeholder={
-                                  knock.username ||
-                                  "search or enter username..."
-                                }
+                                placeholder={knock.username || "search or enter username..."}
                                 defaultRole={acceptKnockRole()}
                                 onSelect={(selection) => {
                                   setAcceptKnockUserSelection(selection);
@@ -778,12 +715,8 @@ export default function FederationView() {
                                     ? acceptKnockUserSelection()!.role
                                     : acceptKnockRole()
                                 }
-                                onChange={(e) =>
-                                  setAcceptKnockRole(e.currentTarget.value)
-                                }
-                                disabled={
-                                  acceptKnockUserSelection()?.isExisting
-                                }
+                                onChange={(e) => setAcceptKnockRole(e.currentTarget.value)}
+                                disabled={acceptKnockUserSelection()?.isExisting}
                               >
                                 <option value="viewer">viewer</option>
                                 <option value="member">member</option>
@@ -800,9 +733,7 @@ export default function FederationView() {
                             onClick={() => handleAcceptKnock(knock)}
                             disabled={processingKnockId() === knock.id}
                           >
-                            {processingKnockId() === knock.id
-                              ? "..."
-                              : "confirm"}
+                            {processingKnockId() === knock.id ? "..." : "confirm"}
                           </button>
                           <button
                             class="secondary small"
@@ -820,10 +751,7 @@ export default function FederationView() {
                           <button
                             class="small"
                             onClick={() => setExpandedKnockId(knock.id)}
-                            disabled={
-                              processingKnockId() === knock.id ||
-                              knock.from_deleted_peer
-                            }
+                            disabled={processingKnockId() === knock.id || knock.from_deleted_peer}
                             title={
                               knock.from_deleted_peer
                                 ? "restore the deleted user/peer first"
@@ -837,9 +765,7 @@ export default function FederationView() {
                             onClick={() => handleRejectKnock(knock.id)}
                             disabled={processingKnockId() === knock.id}
                           >
-                            {processingKnockId() === knock.id
-                              ? "..."
-                              : "reject"}
+                            {processingKnockId() === knock.id ? "..." : "reject"}
                           </button>
                           <button
                             class="secondary small"
@@ -858,24 +784,15 @@ export default function FederationView() {
               <Show when={knocks().length > 1}>
                 <div class="section-actions" style="margin-top: 1rem">
                   <Show when={!confirmRejectAll()}>
-                    <button
-                      class="secondary small"
-                      onClick={() => setConfirmRejectAll(true)}
-                    >
+                    <button class="secondary small" onClick={() => setConfirmRejectAll(true)}>
                       reject all
                     </button>
                   </Show>
                   <Show when={confirmRejectAll()}>
-                    <button
-                      class="danger small"
-                      onClick={handleRejectAllKnocks}
-                    >
+                    <button class="danger small" onClick={handleRejectAllKnocks}>
                       confirm reject all
                     </button>
-                    <button
-                      class="secondary small"
-                      onClick={() => setConfirmRejectAll(false)}
-                    >
+                    <button class="secondary small" onClick={() => setConfirmRejectAll(false)}>
                       cancel
                     </button>
                   </Show>
@@ -888,13 +805,13 @@ export default function FederationView() {
           <section class="status-section">
             <h2>allowed peers</h2>
             <p class="help-text">
-              list of all P2P peers that can connect to this instance. peers can
-              be added manually below
+              list of all P2P peers that can connect to this instance. peers can be added manually
+              below
               {hasHaruspexConfig() ? " or synced from haruspex" : ""}.
             </p>
 
             {/* add peer form - at top for easy access */}
-            <details class="add-peer-form">
+            <details class="flyout">
               <summary>add peer manually</summary>
               <form onSubmit={handleAllowPeer}>
                 <div class="form-row">
@@ -936,9 +853,7 @@ export default function FederationView() {
                     <select
                       id="peer-role"
                       value={
-                        peerUserSelection()?.isExisting
-                          ? peerUserSelection()!.role
-                          : peerRole()
+                        peerUserSelection()?.isExisting ? peerUserSelection()!.role : peerRole()
                       }
                       onChange={(e) => setPeerRole(e.currentTarget.value)}
                       disabled={peerUserSelection()?.isExisting}
@@ -968,8 +883,7 @@ export default function FederationView() {
                   </>
                 ) : (
                   <>
-                    show deleted peer<span class="pinky">z</span> (
-                    {deletedPeerCount()})
+                    show deleted peer<span class="pinky">z</span> ({deletedPeerCount()})
                   </>
                 )}
               </button>
@@ -980,21 +894,13 @@ export default function FederationView() {
               <div class="peer-list">
                 <For each={visiblePeers()}>
                   {(peer) => {
-                    const isDeleted = () =>
-                      !!peer.deleted_at || !!peer.user_deleted_at;
+                    const isDeleted = () => !!peer.deleted_at || !!peer.user_deleted_at;
                     return (
-                      <div
-                        class="peer-item"
-                        style={isDeleted() ? { opacity: 0.6 } : {}}
-                      >
+                      <div class="peer-item" style={isDeleted() ? { opacity: 0.6 } : {}}>
                         <div class="peer-info">
                           <span
                             class="peer-username"
-                            style={
-                              isDeleted()
-                                ? { "text-decoration": "line-through" }
-                                : {}
-                            }
+                            style={isDeleted() ? { "text-decoration": "line-through" } : {}}
                           >
                             {peer.username}
                           </span>
@@ -1007,9 +913,7 @@ export default function FederationView() {
                                 color: "#ef4444",
                               }}
                             >
-                              {peer.user_deleted_at
-                                ? "user deleted"
-                                : "deleted"}
+                              {peer.user_deleted_at ? "user deleted" : "deleted"}
                             </span>
                           </Show>
                         </div>
@@ -1029,9 +933,7 @@ export default function FederationView() {
                         <div class="peer-meta">
                           <span>added {formatTimestamp(peer.created_at)}</span>
                           <Show when={peer.instance_name}>
-                            <span class="instance-name">
-                              {peer.instance_name}
-                            </span>
+                            <span class="instance-name">{peer.instance_name}</span>
                           </Show>
                         </div>
                         <Show when={knockByNodeId().get(peer.node_id)?.message}>
@@ -1043,8 +945,7 @@ export default function FederationView() {
                               "font-size": "0.8125rem",
                               "font-style": "italic",
                               color: "var(--color-text-secondary, #888)",
-                              "border-left":
-                                "2px solid var(--color-border, #333)",
+                              "border-left": "2px solid var(--color-border, #333)",
                               padding: "0.25rem 0.5rem",
                               "margin-top": "0.25rem",
                             }}
@@ -1066,16 +967,12 @@ export default function FederationView() {
                             >
                               <button
                                 class="primary small"
-                                onClick={() =>
-                                  restorePeer(peer.user_id, peer.node_id)
-                                }
+                                onClick={() => restorePeer(peer.user_id, peer.node_id)}
                                 disabled={restoringPeerId() === peer.node_id}
                                 title="restore peer"
                                 style={{ color: "#ffffff" }}
                               >
-                                {restoringPeerId() === peer.node_id
-                                  ? "..."
-                                  : "restore"}
+                                {restoringPeerId() === peer.node_id ? "..." : "restore"}
                               </button>
                               <button
                                 class="danger small"
@@ -1083,18 +980,14 @@ export default function FederationView() {
                                 disabled={removingPeerId() === peer.node_id}
                                 title="permanently delete peer forever"
                               >
-                                {removingPeerId() === peer.node_id
-                                  ? "..."
-                                  : "delete forever"}
+                                {removingPeerId() === peer.node_id ? "..." : "delete forever"}
                               </button>
                             </div>
                           }
                         >
                           <button
                             class="peer-remove"
-                            onClick={() =>
-                              removePeer(peer.user_id, peer.node_id)
-                            }
+                            onClick={() => removePeer(peer.user_id, peer.node_id)}
                             disabled={removingPeerId() === peer.node_id}
                             title="remove peer"
                           >
@@ -1110,9 +1003,7 @@ export default function FederationView() {
 
             <Show when={visiblePeers().length === 0 && !peersLoading()}>
               <div class="status-message" style="margin-bottom: 1rem">
-                {showDeletedPeersOnly()
-                  ? "no deleted peers"
-                  : "no peers allowed yet"}
+                {showDeletedPeersOnly() ? "no deleted peers" : "no peers allowed yet"}
               </div>
             </Show>
           </section>
@@ -1181,9 +1072,7 @@ export default function FederationView() {
                   <Show when={status()?.credentials.verification_error}>
                     <div class="status-item full-width">
                       <span class="label">error</span>
-                      <span class="value error">
-                        {status()?.credentials.verification_error}
-                      </span>
+                      <span class="value error">{status()?.credentials.verification_error}</span>
                     </div>
                   </Show>
                 </div>
@@ -1232,18 +1121,14 @@ export default function FederationView() {
             <section class="status-section">
               <h2>sync</h2>
               <p class="help-text">
-                sync group members from haruspex to create freqhole users and
-                register peer nodes.
+                sync group members from haruspex to create freqhole users and register peer nodes.
               </p>
               <div class="button-row">
                 <button onClick={handleSync} disabled={syncLoading()}>
                   {syncLoading() ? "syncing..." : "sync now"}
                 </button>
                 <Show when={!confirmLogout()}>
-                  <button
-                    onClick={() => setConfirmLogout(true)}
-                    class="secondary"
-                  >
+                  <button onClick={() => setConfirmLogout(true)} class="secondary">
                     logout
                   </button>
                 </Show>
@@ -1251,10 +1136,7 @@ export default function FederationView() {
                   <button onClick={handleLogout} class="danger">
                     confirm logout
                   </button>
-                  <button
-                    onClick={() => setConfirmLogout(false)}
-                    class="secondary"
-                  >
+                  <button onClick={() => setConfirmLogout(false)} class="secondary">
                     cancel
                   </button>
                 </Show>
@@ -1275,9 +1157,7 @@ export default function FederationView() {
                     <span class="label">synced</span>
                   </div>
                   <div class="stat">
-                    <span class="num">
-                      {syncResult()?.peer_nodes_registered}
-                    </span>
+                    <span class="num">{syncResult()?.peer_nodes_registered}</span>
                     <span class="label">peers</span>
                   </div>
                 </div>

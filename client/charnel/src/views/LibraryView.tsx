@@ -40,6 +40,19 @@ interface MoveScanDirectoryResult {
   dry_run: boolean;
 }
 
+// response payload from `maintenance_repair_library` (admin_dispatch) -
+// backfills missing song waveforms / album thumbnails and cleans up
+// directory-sourced images over-applied across unrelated albums.
+interface RepairLibraryImagesResult {
+  dry_run: boolean;
+  scan_directory: string | null;
+  songs_waveforms_backfilled: number;
+  albums_thumbnails_backfilled: number;
+  albums_thumbnails_removed_overapplied: number;
+  albums_left_ambiguous: number;
+  errors: unknown[];
+}
+
 // progress payload mirrors JobEvent.Progress.details emitted by the runner
 // and forwarded through the typed job_events broker.
 interface JobProgressPayload {
@@ -90,6 +103,19 @@ export default function LibraryView() {
   );
   const [moveInProgress, setMoveInProgress] = createSignal(false);
   const [moveError, setMoveError] = createSignal("");
+
+  // repair-library sub-job checklist - the three backfill actions are
+  // purely additive and default on; removing over-applied images is
+  // destructive (deletes existing album-image associations) so it
+  // defaults off. the checklist itself is hidden behind an accordion
+  // toggle until the user actually wants to run a repair.
+  const [showRepairOptions, setShowRepairOptions] = createSignal(false);
+  const [repairWaveforms, setRepairWaveforms] = createSignal(true);
+  const [repairDirectoryArt, setRepairDirectoryArt] = createSignal(true);
+  const [repairEmbeddedArt, setRepairEmbeddedArt] = createSignal(true);
+  const [repairRemoveOverapplied, setRepairRemoveOverapplied] = createSignal(false);
+  const anyRepairOptionChecked = () =>
+    repairWaveforms() || repairDirectoryArt() || repairEmbeddedArt() || repairRemoveOverapplied();
 
   let unlistenScan: (() => void) | null = null;
 
@@ -509,7 +535,29 @@ export default function LibraryView() {
       const result = admin.isRemote()
         ? await admin.dispatchOrThrow<ScanResult>("library_rescan_all", {})
         : await invoke<ScanResult>("rescan_directories");
-      setLastResult(result.message);
+
+      // chained into the same button: backfill missing song waveforms /
+      // album thumbnails, and clean up directory-sourced images that got
+      // over-applied across unrelated albums - runs synchronously (no
+      // job queue) via admin_dispatch so this works the same whether
+      // `admin` is pointed at the local instance or a remote one. which
+      // sub-jobs run is driven by the checklist above.
+      const repair = await admin.dispatchOrThrow<RepairLibraryImagesResult>(
+        "maintenance_repair_library",
+        {
+          dry_run: false,
+          backfill_waveforms: repairWaveforms(),
+          backfill_embedded_art: repairEmbeddedArt(),
+          backfill_directory_art: repairDirectoryArt(),
+          remove_overapplied: repairRemoveOverapplied(),
+        },
+      );
+
+      setLastResult(
+        `${result.message} — image repair: backfilled ${repair.songs_waveforms_backfilled} waveform(s), ` +
+          `${repair.albums_thumbnails_backfilled} thumbnail(s); removed ${repair.albums_thumbnails_removed_overapplied} ` +
+          `over-applied image(s)${repair.errors.length > 0 ? ` (${repair.errors.length} error(s))` : ""}`,
+      );
       // reload directories to show updated file count
       await loadDirectories();
     } catch (e) {
@@ -591,31 +639,124 @@ export default function LibraryView() {
               )}
             </For>
           </div>
+
+          <Show when={directories().length > 0}>
+            <p class="hint">"scan" finds new files in one directory.</p>
+          </Show>
+        </Show>
+
+        <Show when={directories().length > 0}>
+          <details
+            class="flyout"
+            open={showRepairOptions()}
+            onToggle={(e) => setShowRepairOptions(e.currentTarget.open)}
+          >
+            <summary
+              onClick={(e) => {
+                if (scanning() !== null) e.preventDefault();
+              }}
+            >
+              repair library
+            </summary>
+            <div>
+              <div class="form-group repair-checklist">
+                <label class="checkbox-toggle">
+                  <input
+                    type="checkbox"
+                    checked={repairWaveforms()}
+                    onChange={(e) => setRepairWaveforms(e.currentTarget.checked)}
+                  />
+                  <span class="checkbox-box">
+                    <svg viewBox="0 0 14 14">
+                      <polyline points="2.5 7 5.5 10 11.5 4" />
+                    </svg>
+                  </span>
+                  <span class="checkbox-content">
+                    <span class="checkbox-label">regenerate missing waveforms</span>
+                  </span>
+                </label>
+                <label class="checkbox-toggle">
+                  <input
+                    type="checkbox"
+                    checked={repairDirectoryArt()}
+                    onChange={(e) => setRepairDirectoryArt(e.currentTarget.checked)}
+                  />
+                  <span class="checkbox-box">
+                    <svg viewBox="0 0 14 14">
+                      <polyline points="2.5 7 5.5 10 11.5 4" />
+                    </svg>
+                  </span>
+                  <span class="checkbox-content">
+                    <span class="checkbox-label">
+                      apply missing album art from directory images
+                    </span>
+                  </span>
+                </label>
+                <label class="checkbox-toggle">
+                  <input
+                    type="checkbox"
+                    checked={repairEmbeddedArt()}
+                    onChange={(e) => setRepairEmbeddedArt(e.currentTarget.checked)}
+                  />
+                  <span class="checkbox-box">
+                    <svg viewBox="0 0 14 14">
+                      <polyline points="2.5 7 5.5 10 11.5 4" />
+                    </svg>
+                  </span>
+                  <span class="checkbox-content">
+                    <span class="checkbox-label">
+                      apply missing album art from embedded file tags
+                    </span>
+                  </span>
+                </label>
+                <label class="checkbox-toggle">
+                  <input
+                    type="checkbox"
+                    checked={repairRemoveOverapplied()}
+                    onChange={(e) => setRepairRemoveOverapplied(e.currentTarget.checked)}
+                  />
+                  <span class="checkbox-box">
+                    <svg viewBox="0 0 14 14">
+                      <polyline points="2.5 7 5.5 10 11.5 4" />
+                    </svg>
+                  </span>
+                  <span class="checkbox-content">
+                    <span class="checkbox-label">remove over-applied/duplicate directory art</span>
+                    <span class="checkbox-hint">
+                      destructive: deletes thumbnails already shared across too many unrelated
+                      albums in the same directory. off by default.
+                    </span>
+                  </span>
+                </label>
+              </div>
+
+              <div class="button-row">
+                <button
+                  class="secondary"
+                  onClick={rescanAll}
+                  disabled={scanning() !== null || !anyRepairOptionChecked()}
+                  title="re-scan every tracked directory (import new music, restore songs whose files came back, soft-delete songs whose files are gone, purge scan dirs that no longer exist), then run the checked repair sub-jobs above"
+                >
+                  {scanning() === "__all__" ? "repairing..." : "run repair library"}
+                </button>
+              </div>
+
+              <p class="hint">
+                "repair library" walks every tracked directory: imports new music, relocates moved
+                files, restores songs whose files came back, and soft-deletes songs whose files are
+                gone - then runs whichever of the checked repair sub-jobs above backfill missing
+                song waveforms/album thumbnails and clean up directory images that got over-applied
+                across unrelated albums.
+              </p>
+            </div>
+          </details>
         </Show>
 
         <div class="button-row">
           <button class="secondary" onClick={browseDirectory}>
             add directory
           </button>
-          <Show when={directories().length > 0}>
-            <button
-              class="secondary"
-              onClick={rescanAll}
-              disabled={scanning() !== null}
-              title="re-scan every tracked directory: import new music, restore songs whose files came back, soft-delete songs whose files are gone, purge scan dirs that no longer exist"
-            >
-              {scanning() === "__all__" ? "repairing..." : "repair library"}
-            </button>
-          </Show>
         </div>
-
-        <Show when={directories().length > 0}>
-          <p class="hint">
-            "scan" finds new files in one directory. "repair library" walks every tracked directory:
-            imports new music, relocates moved files, restores songs whose files came back, and
-            soft-deletes songs whose files are gone.
-          </p>
-        </Show>
 
         {/* live job progress (driven by grimoire events) */}
         <Show when={scanProgress()}>

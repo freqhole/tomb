@@ -1,7 +1,7 @@
 //! maintenance handlers (cleanup, backfill, server image, spume update).
 
 use crate::admin_dispatch::helpers::{
-    bad_request, internal, opt_bool, opt_i64, resolve_config_path, to_value,
+    bad_request, internal, opt_bool, opt_i64, opt_str, resolve_config_path, to_value,
 };
 use crate::offal::Caller;
 use crate::response::GrimoireResponse;
@@ -466,3 +466,148 @@ pub(in crate::admin_dispatch) async fn run_full(args: JsonValue) -> GrimoireResp
         }),
     )
 }
+
+fn repair_summary_payload(
+    dry_run: bool,
+    scan_directory: Option<&str>,
+    data: &crate::maintenance::RepairLibraryImagesResult,
+) -> JsonValue {
+    json!({
+        "dry_run": dry_run,
+        "scan_directory": scan_directory,
+        "songs_waveforms_backfilled": data.songs_waveforms_backfilled,
+        "albums_thumbnails_backfilled": data.albums_thumbnails_backfilled,
+        "albums_thumbnails_removed_overapplied": data.albums_thumbnails_removed_overapplied,
+        "albums_left_ambiguous": data.albums_left_ambiguous,
+        "errors": data.errors,
+    })
+}
+
+fn repair_summary_message(
+    dry_run: bool,
+    data: &crate::maintenance::RepairLibraryImagesResult,
+) -> String {
+    let verb = if dry_run { "would backfill" } else { "backfilled" };
+    let remove_verb = if dry_run { "would remove" } else { "removed" };
+    format!(
+        "{verb} {} waveform(s), {} thumbnail(s); {remove_verb} {} over-applied image(s); {} album(s) left ambiguous ({} error(s))",
+        data.songs_waveforms_backfilled,
+        data.albums_thumbnails_backfilled,
+        data.albums_thumbnails_removed_overapplied,
+        data.albums_left_ambiguous,
+        data.errors.len(),
+    )
+}
+
+/// read the repair sub-job toggles from args, each defaulting per
+/// `preset` (so the waveforms-only/thumbnails-only presets below can
+/// still honor an explicit override, but fall back to their own fixed
+/// defaults rather than `RepairLibraryImagesOptions::default()`'s).
+fn parse_repair_options(
+    args: &JsonValue,
+    preset: crate::maintenance::RepairLibraryImagesOptions,
+) -> crate::maintenance::RepairLibraryImagesOptions {
+    crate::maintenance::RepairLibraryImagesOptions {
+        backfill_waveforms: opt_bool(args, "backfill_waveforms").unwrap_or(preset.backfill_waveforms),
+        backfill_embedded_art: opt_bool(args, "backfill_embedded_art")
+            .unwrap_or(preset.backfill_embedded_art),
+        backfill_directory_art: opt_bool(args, "backfill_directory_art")
+            .unwrap_or(preset.backfill_directory_art),
+        remove_overapplied: opt_bool(args, "remove_overapplied").unwrap_or(preset.remove_overapplied),
+    }
+}
+
+/// run the full library image repair (waveform backfill + directory-
+/// grouped thumbnail backfill/cleanup, see `maintenance::repair_library_images_sync`'s
+/// doc comment). args: `{ dry_run?: bool, scan_directory?: string,
+/// backfill_waveforms?: bool, backfill_embedded_art?: bool,
+/// backfill_directory_art?: bool, remove_overapplied?: bool }` - all four
+/// sub-job toggles default per `RepairLibraryImagesOptions::default()`
+/// (every backfill action on, the destructive removal off). this is the
+/// command the charnel wizard's repair checklist posts to.
+pub(in crate::admin_dispatch) async fn repair_library(
+    args: JsonValue,
+    caller: &Caller,
+) -> GrimoireResponse<JsonValue> {
+    let dry_run = opt_bool(&args, "dry_run").unwrap_or(false);
+    let scan_directory = opt_str(&args, "scan_directory");
+    let options = parse_repair_options(&args, crate::maintenance::RepairLibraryImagesOptions::default());
+    let resp = crate::maintenance::repair_library_images_sync(
+        dry_run,
+        scan_directory.clone(),
+        options,
+        Some((caller.user_id.clone(), caller.username.clone())),
+    )
+    .await;
+    let Some(data) = resp.data else {
+        return to_value(resp);
+    };
+    GrimoireResponse::success(
+        repair_summary_message(dry_run, &data),
+        repair_summary_payload(dry_run, scan_directory.as_deref(), &data),
+    )
+}
+
+/// waveform-only preset of `repair_library` - backfills missing song
+/// waveforms without touching album thumbnails. args: `{ dry_run?: bool,
+/// scan_directory?: string }`.
+pub(in crate::admin_dispatch) async fn repair_library_waveforms(
+    args: JsonValue,
+    caller: &Caller,
+) -> GrimoireResponse<JsonValue> {
+    let dry_run = opt_bool(&args, "dry_run").unwrap_or(false);
+    let scan_directory = opt_str(&args, "scan_directory");
+    let options = crate::maintenance::RepairLibraryImagesOptions {
+        backfill_waveforms: true,
+        backfill_embedded_art: false,
+        backfill_directory_art: false,
+        remove_overapplied: false,
+    };
+    let resp = crate::maintenance::repair_library_images_sync(
+        dry_run,
+        scan_directory.clone(),
+        options,
+        Some((caller.user_id.clone(), caller.username.clone())),
+    )
+    .await;
+    let Some(data) = resp.data else {
+        return to_value(resp);
+    };
+    GrimoireResponse::success(
+        repair_summary_message(dry_run, &data),
+        repair_summary_payload(dry_run, scan_directory.as_deref(), &data),
+    )
+}
+
+/// directory-image preset of `repair_library` - backfills missing album
+/// thumbnails and (optionally) cleans up over-applied directory images,
+/// without touching song waveforms. args: `{ dry_run?: bool,
+/// scan_directory?: string, backfill_embedded_art?: bool,
+/// backfill_directory_art?: bool, remove_overapplied?: bool }`.
+pub(in crate::admin_dispatch) async fn repair_library_thumbnails(
+    args: JsonValue,
+    caller: &Caller,
+) -> GrimoireResponse<JsonValue> {
+    let dry_run = opt_bool(&args, "dry_run").unwrap_or(false);
+    let scan_directory = opt_str(&args, "scan_directory");
+    let mut options = parse_repair_options(
+        &args,
+        crate::maintenance::RepairLibraryImagesOptions::default(),
+    );
+    options.backfill_waveforms = false;
+    let resp = crate::maintenance::repair_library_images_sync(
+        dry_run,
+        scan_directory.clone(),
+        options,
+        Some((caller.user_id.clone(), caller.username.clone())),
+    )
+    .await;
+    let Some(data) = resp.data else {
+        return to_value(resp);
+    };
+    GrimoireResponse::success(
+        repair_summary_message(dry_run, &data),
+        repair_summary_payload(dry_run, scan_directory.as_deref(), &data),
+    )
+}
+

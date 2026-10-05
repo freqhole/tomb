@@ -149,6 +149,18 @@ function mergeStations(previous: RadioStation[], next: RadioStation[]): RadioSta
   });
 }
 
+// short label for a station's collapsed accordion summary.
+function contentModeShortLabel(mode: string): string {
+  switch (mode) {
+    case "video_only":
+      return "video";
+    case "audio_or_video":
+      return "audio + video";
+    default:
+      return "audio";
+  }
+}
+
 export default function RadioView() {
   const admin = useAdminTransport();
   const [stations, setStations] = createSignal<RadioStation[]>([]);
@@ -178,13 +190,26 @@ export default function RadioView() {
   const [codec, setCodec] = createSignal("");
   const [creating, setCreating] = createSignal(false);
 
-  // per-station seed editor
-  const [expandedId, setExpandedId] = createSignal<string | null>(null);
+  // per-station accordion open state - keyed by station id (not object
+  // identity) so it survives `mergeStations` swapping in a new object
+  // reference for a station whenever one of its fields changes, and a
+  // plain Set (not a single id) so multiple stations can be open at once.
+  const [expandedStationIds, setExpandedStationIds] = createSignal<Set<string>>(new Set());
+  function setStationExpanded(id: string, open: boolean) {
+    setExpandedStationIds((prev) => {
+      const next = new Set(prev);
+      if (open) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }
 
-  // per-station inline rename editor
-  const [editingId, setEditingId] = createSignal<string | null>(null);
-  const [editName, setEditName] = createSignal("");
-  const [editDescription, setEditDescription] = createSignal("");
+  // per-station inline rename editor - same id-keyed shape as above, plus
+  // a draft name/description per open rename panel.
+  const [renamingIds, setRenamingIds] = createSignal<Set<string>>(new Set());
+  const [renameDrafts, setRenameDrafts] = createSignal<
+    Record<string, { name: string; description: string }>
+  >({});
 
   // reload whenever the active admin target changes
   createEffect(() => {
@@ -201,7 +226,7 @@ export default function RadioView() {
   onMount(() => {
     const interval = window.setInterval(() => {
       // avoid clobbering form state while actively editing.
-      if (expandedId() || showCreate()) return;
+      if (expandedStationIds().size > 0 || showCreate()) return;
       void loadStations({ forceLoading: false });
     }, 5000);
     const onVisibility = () => {
@@ -311,25 +336,35 @@ export default function RadioView() {
   }
 
   function beginEdit(s: RadioStation) {
-    setEditingId(s.id);
-    setEditName(s.name);
-    setEditDescription(s.description ?? "");
+    setRenameDrafts((prev) => ({
+      ...prev,
+      [s.id]: { name: s.name, description: s.description ?? "" },
+    }));
+    setRenamingIds((prev) => new Set(prev).add(s.id));
     setError("");
   }
 
-  function cancelEdit() {
-    setEditingId(null);
-    setEditName("");
-    setEditDescription("");
+  function cancelEdit(id: string) {
+    setRenamingIds((prev) => {
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+    setRenameDrafts((prev) => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
   }
 
   async function saveEdit(s: RadioStation) {
-    const name = editName().trim();
+    const draft = renameDrafts()[s.id];
+    const name = (draft?.name ?? s.name).trim();
     if (!name) {
       setError("station name is required");
       return;
     }
-    const description = editDescription().trim();
+    const description = (draft?.description ?? s.description ?? "").trim();
     setSavingId(s.id);
     try {
       // empty string intentionally clears description (COALESCE in the
@@ -339,7 +374,7 @@ export default function RadioView() {
         name,
         description,
       });
-      cancelEdit();
+      cancelEdit(s.id);
       await loadStations();
     } catch (e) {
       setError(String(e));
@@ -440,9 +475,11 @@ export default function RadioView() {
             </Show>
           </div>
 
-          {/* create form */}
+          {/* create form - a flyout panel toggled by the "+ new station"
+              button above rather than its own <summary>, with an accent
+              border so it reads as distinct from the station list below. */}
           <Show when={showCreate()}>
-            <form class="card" onSubmit={createStation}>
+            <form class="flyout-static flyout--accent" onSubmit={createStation}>
               <div class="form-row">
                 <label>
                   <span class="label">name</span>
@@ -517,19 +554,25 @@ export default function RadioView() {
                   />
                   <span>enabled</span>
                 </label>
-                <label
-                  style={{
-                    display: "flex",
-                    gap: "0.5rem",
-                    "align-items": "center",
-                  }}
-                >
-                  <span>play mode</span>
-                  <select value={playMode()} onChange={(e) => setPlayMode(e.currentTarget.value)}>
-                    <option value="shuffle">shuffle</option>
-                    <option value="album">album</option>
-                  </select>
-                </label>
+                {/* request-accepting stations always play their FIFO request
+                    queue - play mode only matters once that queue is
+                    empty for non-request stations, so there's no point
+                    showing the control at all when requests are on. */}
+                <Show when={!acceptsRequests()}>
+                  <label
+                    style={{
+                      display: "flex",
+                      gap: "0.5rem",
+                      "align-items": "center",
+                    }}
+                  >
+                    <span>play mode</span>
+                    <select value={playMode()} onChange={(e) => setPlayMode(e.currentTarget.value)}>
+                      <option value="shuffle">shuffle</option>
+                      <option value="album">album</option>
+                    </select>
+                  </label>
+                </Show>
                 <label
                   style={{
                     display: "flex",
@@ -572,19 +615,16 @@ export default function RadioView() {
                   ffmpeg is not installed on this node; stations will run in timeline-only mode.
                 </p>
               </Show>
-              <details class="card">
-                <summary style={{ cursor: "pointer" }}>
-                  advanced: per-station ffmpeg override
-                </summary>
+              <details class="flyout flyout--nested flyout--accent">
+                <summary>advanced: per-station ffmpeg override</summary>
                 <div
                   style={{
                     display: "flex",
                     "flex-direction": "column",
                     gap: "0.6rem",
-                    "margin-top": "0.6rem",
                   }}
                 >
-                  <p class="item-meta">
+                  <p class="item-meta" style={{ "margin-top": 0 }}>
                     leave blank to use this node's <code>[radio]</code> config defaults (see "radio
                     config" above) - a video-capable content mode already gets a video-carrying
                     encode from there automatically. only set these if THIS station specifically
@@ -646,84 +686,104 @@ export default function RadioView() {
 
             <For each={stations()}>
               {(s) => (
-                <>
+                <details
+                  class="flyout"
+                  open={expandedStationIds().has(s.id)}
+                  onToggle={(e) => setStationExpanded(s.id, e.currentTarget.open)}
+                >
+                  <summary>
+                    <strong>{s.name}</strong>{" "}
+                    <span class="item-meta" style={{ "font-size": "0.78rem" }}>
+                      {contentModeShortLabel(s.content_mode || "audio_only")}
+                      <Show when={s.is_public}> · public</Show>
+                      <Show when={s.accepts_requests}> · requests</Show>
+                    </span>
+                  </summary>
                   <div
-                    class="list-item"
                     style={{
+                      display: "flex",
                       "flex-direction": "column",
-                      "align-items": "stretch",
-                      gap: "0.4rem",
-                      padding: "0.65rem 0.75rem",
+                      gap: "0.5rem",
                     }}
                   >
-                    {/* name + description */}
-                    <div
-                      style={{
-                        display: "flex",
-                        "align-items": "baseline",
-                        gap: "0.5rem",
-                        "flex-wrap": "wrap",
+                    <Show when={s.description}>
+                      <p class="item-meta" style={{ "font-size": "0.8rem", margin: "0" }}>
+                        {s.description}
+                      </p>
+                    </Show>
+
+                    {/* rename - nested accordion so the form fields + save/cancel
+                        action buttons stay visually separate from the rest of
+                        this station's config. */}
+                    <details
+                      class="flyout flyout--nested"
+                      open={renamingIds().has(s.id)}
+                      onToggle={(e) => {
+                        if (e.currentTarget.open) beginEdit(s);
+                        else cancelEdit(s.id);
                       }}
                     >
-                      <Show
-                        when={editingId() === s.id}
-                        fallback={
-                          <>
-                            <strong>{s.name}</strong>
-                            <Show when={s.description}>
-                              <span class="item-meta" style={{ "font-size": "0.8rem" }}>
-                                {s.description}
-                              </span>
-                            </Show>
-                            <button
-                              class="secondary small"
-                              style={{
-                                "font-size": "0.72rem",
-                                "margin-left": "auto",
-                              }}
-                              onClick={() => beginEdit(s)}
-                              disabled={savingId() === s.id}
-                              title="rename station"
-                            >
-                              rename
-                            </button>
-                          </>
-                        }
+                      <summary>rename</summary>
+                      <div
+                        style={{
+                          display: "flex",
+                          "flex-direction": "column",
+                          gap: "0.5rem",
+                        }}
                       >
                         <input
                           type="text"
-                          value={editName()}
-                          onInput={(e) => setEditName(e.currentTarget.value)}
+                          value={renameDrafts()[s.id]?.name ?? s.name}
+                          onInput={(e) =>
+                            setRenameDrafts((prev) => ({
+                              ...prev,
+                              [s.id]: {
+                                name: e.currentTarget.value,
+                                description: prev[s.id]?.description ?? s.description ?? "",
+                              },
+                            }))
+                          }
                           placeholder="station name"
-                          style={{ flex: "1 1 12rem" }}
                           disabled={savingId() === s.id}
                         />
                         <input
                           type="text"
-                          value={editDescription()}
-                          onInput={(e) => setEditDescription(e.currentTarget.value)}
+                          value={renameDrafts()[s.id]?.description ?? s.description ?? ""}
+                          onInput={(e) =>
+                            setRenameDrafts((prev) => ({
+                              ...prev,
+                              [s.id]: {
+                                name: prev[s.id]?.name ?? s.name,
+                                description: e.currentTarget.value,
+                              },
+                            }))
+                          }
                           placeholder="description (optional)"
-                          style={{ flex: "2 1 16rem" }}
                           disabled={savingId() === s.id}
                         />
-                        <button
-                          class="primary small"
-                          onClick={() => saveEdit(s)}
-                          disabled={savingId() === s.id || !editName().trim()}
-                          title="save changes"
-                        >
-                          save
-                        </button>
-                        <button
-                          class="secondary small"
-                          onClick={cancelEdit}
-                          disabled={savingId() === s.id}
-                          title="discard changes"
-                        >
-                          cancel
-                        </button>
-                      </Show>
-                    </div>
+                        <div style={{ display: "flex", gap: "0.35rem" }}>
+                          <button
+                            class="primary small"
+                            onClick={() => saveEdit(s)}
+                            disabled={
+                              savingId() === s.id || !(renameDrafts()[s.id]?.name ?? s.name).trim()
+                            }
+                            title="save changes"
+                          >
+                            save
+                          </button>
+                          <button
+                            class="secondary small"
+                            onClick={() => cancelEdit(s.id)}
+                            disabled={savingId() === s.id}
+                            title="discard changes"
+                          >
+                            cancel
+                          </button>
+                        </div>
+                      </div>
+                    </details>
+
                     {/* toggle row */}
                     <div
                       style={{
@@ -783,28 +843,32 @@ export default function RadioView() {
                       >
                         ffmpeg
                       </button>
-                      <select
-                        style={{ "font-size": "0.78rem" }}
-                        value={s.play_mode === "album" ? "album" : "shuffle"}
-                        disabled={savingId() === s.id}
-                        onChange={async (e) => {
-                          setSavingId(s.id);
-                          try {
-                            await admin.dispatchOrThrow("radio_stations_update", {
-                              id: s.id,
-                              play_mode: e.currentTarget.value,
-                            });
-                            await loadStations();
-                          } catch (err) {
-                            setError(String(err));
-                          } finally {
-                            setSavingId(null);
-                          }
-                        }}
-                      >
-                        <option value="shuffle">shuffle</option>
-                        <option value="album">album</option>
-                      </select>
+                      {/* FIFO request queue always wins while requests are on - play
+                          mode is irrelevant for these stations, so hide it. */}
+                      <Show when={!s.accepts_requests}>
+                        <select
+                          style={{ "font-size": "0.78rem" }}
+                          value={s.play_mode === "album" ? "album" : "shuffle"}
+                          disabled={savingId() === s.id}
+                          onChange={async (e) => {
+                            setSavingId(s.id);
+                            try {
+                              await admin.dispatchOrThrow("radio_stations_update", {
+                                id: s.id,
+                                play_mode: e.currentTarget.value,
+                              });
+                              await loadStations();
+                            } catch (err) {
+                              setError(String(err));
+                            } finally {
+                              setSavingId(null);
+                            }
+                          }}
+                        >
+                          <option value="shuffle">shuffle</option>
+                          <option value="album">album</option>
+                        </select>
+                      </Show>
                       <select
                         style={{ "font-size": "0.78rem" }}
                         value={s.content_mode || "audio_only"}
@@ -838,33 +902,27 @@ export default function RadioView() {
                         delete
                       </button>
                     </div>
-                    {/* seed editor toggle */}
-                    <div>
-                      <button
-                        class="secondary small"
-                        style={{ "font-size": "0.72rem", opacity: "0.75" }}
-                        onClick={() => setExpandedId((cur) => (cur === s.id ? null : s.id))}
-                      >
-                        {expandedId() === s.id ? "▴ hide seed" : "▾ edit seed"}
-                      </button>
-                    </div>
+
+                    {/* seed/bumper/ffmpeg-override editors - lazy-mounted the
+                        first time this station's accordion is opened, same as
+                        before, just driven by expandedStationIds now. */}
+                    <Show when={expandedStationIds().has(s.id)}>
+                      <StationSeedEditor stationId={s.id} dispatch={admin.dispatchOrThrow} />
+                      <StationBumperEditor
+                        stationId={s.id}
+                        dispatch={admin.dispatchOrThrow}
+                        frequencySeconds={s.bumper_frequency_seconds}
+                      />
+                      <StationEncodeOverrideEditor
+                        stationId={s.id}
+                        dispatch={admin.dispatchOrThrow}
+                        encodeArgs={s.encode_args ?? ""}
+                        codec={s.codec}
+                        onSaved={() => loadStations()}
+                      />
+                    </Show>
                   </div>
-                  <Show when={expandedId() === s.id}>
-                    <StationSeedEditor stationId={s.id} dispatch={admin.dispatchOrThrow} />
-                    <StationBumperEditor
-                      stationId={s.id}
-                      dispatch={admin.dispatchOrThrow}
-                      frequencySeconds={s.bumper_frequency_seconds}
-                    />
-                    <StationEncodeOverrideEditor
-                      stationId={s.id}
-                      dispatch={admin.dispatchOrThrow}
-                      encodeArgs={s.encode_args ?? ""}
-                      codec={s.codec}
-                      onSaved={() => loadStations()}
-                    />
-                  </Show>
-                </>
+                </details>
               )}
             </For>
           </Show>
@@ -1117,6 +1175,7 @@ function StationBumperEditor(props: StationBumperEditorProps) {
   const [loading, setLoading] = createSignal(true);
   const [error, setError] = createSignal("");
   const [busy, setBusy] = createSignal(false);
+  const [showAddBumper, setShowAddBumper] = createSignal(false);
 
   const [bKind, setBKind] = createSignal<"song" | "video">("song");
   const [bValue, setBValue] = createSignal("");
@@ -1168,6 +1227,7 @@ function StationBumperEditor(props: StationBumperEditorProps) {
       setBValue("");
       setBLabel("");
       setBWeight(1);
+      setShowAddBumper(false);
       await load();
     } catch (e) {
       setError(String(e));
@@ -1189,12 +1249,14 @@ function StationBumperEditor(props: StationBumperEditorProps) {
     }
   }
 
-  async function saveFrequency(e: Event) {
-    e.preventDefault();
+  // auto-saves on commit (blur/arrow-step) - a number input's onChange
+  // only fires once the value is actually committed, so there's no need
+  // for a separate "save cadence" button.
+  async function saveFrequency(value: string) {
     setFreqBusy(true);
     setError("");
     try {
-      const trimmed = freq().trim();
+      const trimmed = value.trim();
       const frequency_seconds = trimmed === "" ? null : Number(trimmed);
       await props.dispatch("radio_bumpers_set_frequency", {
         station_id: props.stationId,
@@ -1208,14 +1270,10 @@ function StationBumperEditor(props: StationBumperEditorProps) {
   }
 
   return (
-    <div
-      class="card"
-      style={{
-        "margin-bottom": "0.5rem",
-        "border-left": "3px solid #bd5f8f",
-        padding: "0.75rem",
-      }}
-    >
+    <details class="flyout flyout--nested flyout--accent">
+      <summary>
+        bumpers<Show when={!loading()}> ({bumpers().length})</Show>
+      </summary>
       <Show when={error()}>
         <p class="error" style={{ "margin-top": 0 }}>
           {error()}
@@ -1225,16 +1283,14 @@ function StationBumperEditor(props: StationBumperEditorProps) {
         <p class="item-meta">loading bumpers...</p>
       </Show>
       <Show when={!loading()}>
-        <form
-          onSubmit={saveFrequency}
-          style={{
-            display: "flex",
-            gap: "0.4rem",
-            "align-items": "flex-end",
-            "margin-bottom": "0.6rem",
-          }}
-        >
-          <label style={{ display: "flex", "flex-direction": "column", gap: "0.2rem" }}>
+        <div style={{ display: "flex", "flex-direction": "column", gap: "0.5rem" }}>
+          <label
+            style={{
+              display: "flex",
+              "flex-direction": "column",
+              gap: "0.2rem",
+            }}
+          >
             <span class="item-meta" style={{ "font-size": "0.72rem" }}>
               play a bumper every N seconds (blank = off)
             </span>
@@ -1242,115 +1298,140 @@ function StationBumperEditor(props: StationBumperEditorProps) {
               type="number"
               min="0"
               value={freq()}
+              disabled={freqBusy()}
               onInput={(e) => setFreq(e.currentTarget.value)}
+              onChange={(e) => void saveFrequency(e.currentTarget.value)}
               style={{ "font-size": "0.8rem", width: "8rem" }}
             />
           </label>
-          <button type="submit" class="primary small" disabled={freqBusy()}>
-            save cadence
-          </button>
-        </form>
 
-        <div style={{ "margin-bottom": "0.5rem" }}>
-          <For each={bumpers()}>
-            {(b) => (
-              <div
-                style={{
-                  display: "flex",
-                  "align-items": "center",
-                  gap: "0.4rem",
-                  padding: "0.2rem 0",
-                  "border-bottom": "1px solid #222",
-                }}
-              >
-                <span
-                  class="badge"
+          <div>
+            <span
+              class="item-meta"
+              style={{ "font-size": "0.72rem", display: "block", "margin-bottom": "0.3rem" }}
+            >
+              all bumpers
+            </span>
+            <For each={bumpers()}>
+              {(b) => (
+                <div
                   style={{
-                    background: b.video_id ? "#4a3a7a" : "#1f4f6f",
-                    color: b.video_id ? "#c7b8ff" : "#a7d5e8",
-                    "font-size": "0.7rem",
-                    padding: "0.1rem 0.35rem",
+                    display: "flex",
+                    "align-items": "center",
+                    gap: "0.4rem",
+                    padding: "0.2rem 0",
+                    "border-bottom": "1px solid #222",
                   }}
                 >
-                  {b.video_id ? "video" : "song"}
-                </span>
-                <span style={{ "font-size": "0.78rem", flex: "1" }}>{b.label}</span>
+                  <span
+                    class="badge"
+                    style={{
+                      background: b.video_id ? "#4a3a7a" : "#1f4f6f",
+                      color: b.video_id ? "#c7b8ff" : "#a7d5e8",
+                      "font-size": "0.7rem",
+                      padding: "0.1rem 0.35rem",
+                    }}
+                  >
+                    {b.video_id ? "video" : "song"}
+                  </span>
+                  <span style={{ "font-size": "0.78rem", flex: "1" }}>{b.label}</span>
+                  <span class="item-meta" style={{ "font-size": "0.72rem" }}>
+                    weight {b.weight}
+                  </span>
+                  <button
+                    class="danger small"
+                    style={{ padding: "0.1rem 0.4rem", "font-size": "0.75rem" }}
+                    onClick={() => removeBumper(b.id)}
+                    disabled={busy()}
+                  >
+                    ×
+                  </button>
+                </div>
+              )}
+            </For>
+            <Show when={bumpers().length === 0}>
+              <p class="item-meta" style={{ margin: "0.25rem 0", "font-size": "0.78rem" }}>
+                no bumpers
+              </p>
+            </Show>
+          </div>
+
+          <Show when={!showAddBumper()}>
+            <button class="primary small" onClick={() => setShowAddBumper(true)}>
+              + add bumper
+            </button>
+          </Show>
+          <Show when={showAddBumper()}>
+            <form
+              onSubmit={addBumper}
+              class="flyout-static flyout--accent"
+              style={{
+                display: "flex",
+                gap: "0.35rem",
+                "flex-wrap": "wrap",
+                "align-items": "flex-end",
+              }}
+            >
+              <select
+                value={bKind()}
+                onChange={(e) => {
+                  setBKind(e.currentTarget.value as "song" | "video");
+                  setBValue("");
+                }}
+                style={{ "font-size": "0.8rem" }}
+              >
+                <option value="song">song</option>
+                <option value="video">video</option>
+              </select>
+              <Show
+                when={bKind() === "song"}
+                fallback={
+                  <SeedSuggestInput
+                    kind="video"
+                    value={bValue()}
+                    onChange={setBValue}
+                    dispatch={props.dispatch}
+                    placeholder="video title"
+                  />
+                }
+              >
+                <SongSuggestInput value={bValue()} onChange={setBValue} dispatch={props.dispatch} />
+              </Show>
+              <input
+                type="text"
+                placeholder="label (e.g. station id)"
+                value={bLabel()}
+                onInput={(e) => setBLabel(e.currentTarget.value)}
+                style={{ "font-size": "0.8rem" }}
+              />
+              <label style={{ display: "flex", "flex-direction": "column", gap: "0.2rem" }}>
                 <span class="item-meta" style={{ "font-size": "0.72rem" }}>
-                  weight {b.weight}
+                  weight (higher = picked more often)
                 </span>
-                <button
-                  class="danger small"
-                  style={{ padding: "0.1rem 0.4rem", "font-size": "0.75rem" }}
-                  onClick={() => removeBumper(b.id)}
-                  disabled={busy()}
-                >
-                  ×
-                </button>
-              </div>
-            )}
-          </For>
-          <Show when={bumpers().length === 0}>
-            <p class="item-meta" style={{ margin: "0.25rem 0", "font-size": "0.78rem" }}>
-              no bumpers
-            </p>
+                <input
+                  type="number"
+                  min="1"
+                  value={bWeight()}
+                  onInput={(e) => setBWeight(e.currentTarget.valueAsNumber || 1)}
+                  style={{ "font-size": "0.8rem", width: "4rem" }}
+                />
+              </label>
+              <button type="submit" class="primary small" disabled={busy()}>
+                + add bumper
+              </button>
+              <button
+                type="button"
+                class="secondary small"
+                onClick={() => setShowAddBumper(false)}
+                disabled={busy()}
+              >
+                cancel
+              </button>
+            </form>
           </Show>
         </div>
-
-        <form
-          onSubmit={addBumper}
-          style={{
-            display: "flex",
-            gap: "0.35rem",
-            "flex-wrap": "wrap",
-            "align-items": "flex-end",
-          }}
-        >
-          <select
-            value={bKind()}
-            onChange={(e) => {
-              setBKind(e.currentTarget.value as "song" | "video");
-              setBValue("");
-            }}
-            style={{ "font-size": "0.8rem" }}
-          >
-            <option value="song">song</option>
-            <option value="video">video</option>
-          </select>
-          <Show
-            when={bKind() === "song"}
-            fallback={
-              <SeedSuggestInput
-                kind="video"
-                value={bValue()}
-                onChange={setBValue}
-                dispatch={props.dispatch}
-                placeholder="video title"
-              />
-            }
-          >
-            <SongSuggestInput value={bValue()} onChange={setBValue} dispatch={props.dispatch} />
-          </Show>
-          <input
-            type="text"
-            placeholder="label (e.g. station id)"
-            value={bLabel()}
-            onInput={(e) => setBLabel(e.currentTarget.value)}
-            style={{ "font-size": "0.8rem" }}
-          />
-          <input
-            type="number"
-            min="1"
-            title="weight (higher = picked more often)"
-            value={bWeight()}
-            onInput={(e) => setBWeight(e.currentTarget.valueAsNumber || 1)}
-            style={{ "font-size": "0.8rem", width: "4rem" }}
-          />
-          <button type="submit" class="primary small" disabled={busy()}>
-            + add bumper
-          </button>
-        </form>
       </Show>
-    </div>
+    </details>
   );
 }
 
@@ -1396,17 +1477,11 @@ function StationEncodeOverrideEditor(props: StationEncodeOverrideEditorProps) {
   }
 
   return (
-    <div
-      class="card"
-      style={{
-        "margin-bottom": "0.5rem",
-        "border-left": "3px solid #bd5f8f",
-        padding: "0.75rem",
-      }}
-    >
+    <details class="flyout flyout--nested flyout--accent">
+      <summary>advanced: per-station ffmpeg override</summary>
       <p class="item-meta" style={{ "margin-top": 0 }}>
-        per-station ffmpeg override - leave "encode args" blank to inherit this node's default for
-        this station's content mode (see "radio config" above).
+        leave "encode args" blank to inherit this node's default for this station's content mode
+        (see "radio config" above).
       </p>
       <Show when={error()}>
         <p class="error" style={{ "margin-top": 0 }}>
@@ -1439,7 +1514,7 @@ function StationEncodeOverrideEditor(props: StationEncodeOverrideEditorProps) {
           </button>
         </div>
       </form>
-    </div>
+    </details>
   );
 }
 
@@ -1778,17 +1853,20 @@ function RadioConfigSection(props: RadioConfigSectionProps) {
               />
             </label>
           </div>
-          <details>
-            <summary style={{ cursor: "pointer" }}>advanced: node-wide ffmpeg defaults</summary>
+          <details class="flyout">
+            <summary>advanced</summary>
             <form
               onSubmit={saveEncode}
               style={{
                 display: "flex",
                 "flex-direction": "column",
                 gap: "0.5rem",
-                "margin-top": "0.6rem",
               }}
             >
+              <p class="item-meta" style={{ "font-size": "0.8rem", margin: "0" }}>
+                node-wide ffmpeg defaults - individual stations can override these via their own
+                "per-station ffmpeg override" panel.
+              </p>
               <label>
                 <span class="label">audio encode args (audio_only stations)</span>
                 <textarea

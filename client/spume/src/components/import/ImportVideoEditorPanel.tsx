@@ -56,7 +56,7 @@ function fmtEpisode(v: { seasonNumber: number | null; episodeNumber: number | nu
   return "";
 }
 
-const CONTENT_TYPES = ["series", "movie", "clip"] as const;
+const CONTENT_TYPES = ["series", "movie", "clip", "karaoke"] as const;
 
 export function ImportVideoEditorPanel(props: ImportVideoEditorPanelProps) {
   const isSingleton = () => props.value.videos.length === 1;

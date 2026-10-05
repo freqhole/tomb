@@ -64,6 +64,11 @@ pub enum JobType {
     // peer optionally hears back when it's done.
     SyncSongByBlake3,
     SyncVideoByBlake3,
+
+    // maintenance: backfill missing song waveforms / album thumbnails and
+    // clean up directory-sourced images over-applied across unrelated
+    // albums; see `maintenance::repair_library_images`.
+    RepairLibraryImages,
 }
 
 /// parameters for a `TranscodeVideo` job - produces rendition `MediaBlob`

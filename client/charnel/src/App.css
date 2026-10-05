@@ -1751,8 +1751,16 @@ button.secondary:hover {
   margin-top: 0.25rem;
 }
 
-/* add peer form styles */
-.add-peer-form {
+/* ------------------------------------------------------------------
+   flyout accordions - the standard expandable panel used across
+   federation/library/radio views for "add new X" forms and per-item
+   config (station rows, peer rows, advanced ffmpeg overrides, etc).
+   `.flyout` is the <details>-driven variant; `.flyout-static` is the
+   same panel chrome for panels toggled by an external button instead
+   of their own <summary> (e.g. radio's "+ new station"). modifiers
+   (`.flyout--nested`, `.flyout--accent`) compose with either.
+   ------------------------------------------------------------------ */
+.flyout {
   margin-top: 1rem;
   margin-bottom: 1rem;
   border: 1px solid #27272a;
@@ -1760,33 +1768,72 @@ button.secondary:hover {
   overflow: hidden;
 }
 
-.add-peer-form summary {
+.flyout summary {
   padding: 0.75rem 1rem;
   background: #27272a;
   color: #a1a1aa;
   cursor: pointer;
   font-size: 0.875rem;
   list-style: none;
+  transition:
+    background 0.2s,
+    color 0.2s;
 }
 
-.add-peer-form summary::-webkit-details-marker {
+.flyout summary:hover {
+  background: #3f3f46;
+  color: #eeddee;
+}
+
+.flyout summary::-webkit-details-marker {
   display: none;
 }
 
-.add-peer-form summary::before {
+.flyout summary::before {
   content: "+ ";
   color: #71717a;
 }
 
-.add-peer-form[open] summary {
-  border-bottom: 1px solid #3f3f46;
+.flyout summary:hover::before {
+  color: #ff1a9e;
 }
 
-.add-peer-form[open] summary::before {
+.flyout[open] summary {
+  border-bottom: 2px solid #ff1a9e;
+}
+
+.flyout[open] summary::before {
   content: "− ";
+  color: #ff1a9e;
 }
 
-.add-peer-form form {
+.flyout > :not(summary) {
+  padding: 1rem;
+}
+
+/* a flyout nested inside another flyout's body (e.g. "rename" or
+   "advanced: per-station ffmpeg override" inside a station row) -
+   tighter vertical rhythm so it doesn't stack extra margin on top of
+   the parent's own padding. */
+.flyout--nested {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+
+/* accent-bordered flyout - marks "advanced"/rarely-touched settings
+   (per-station ffmpeg overrides, the new-station creation panel) so
+   they read as distinct from plain list-item flyouts at a glance. */
+.flyout--accent {
+  border-left: 3px solid #bd5f8f;
+}
+
+/* same panel chrome as `.flyout`'s open body, for panels shown/hidden
+   by an external primary button rather than their own <summary>. */
+.flyout-static {
+  margin-top: 1rem;
+  margin-bottom: 1.25rem;
+  border: 1px solid #27272a;
+  border-radius: 6px;
   padding: 1rem;
 }
 
@@ -2136,6 +2183,27 @@ button.danger:hover {
   font-size: 0.75rem;
   color: #71717a;
   line-height: 1.4;
+}
+
+/* stacked checkbox-toggle list (e.g. library repair's sub-job checklist) */
+.repair-checklist {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+}
+
+/* accordion panel revealed by the "repair library" toggle button */
+.repair-options {
+  padding: 1rem;
+  margin-top: -0.5rem;
+  margin-bottom: 1.5rem;
+  background: #18181b;
+  border: 1px solid #27272a;
+  border-radius: 8px;
+}
+
+.repair-options .repair-checklist {
+  margin-bottom: 1rem;
 }
 
 /* admin target picker (sidebar) */

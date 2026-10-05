@@ -35,8 +35,9 @@ pub struct Video {
     pub series_id: Option<String>,
     pub season_id: Option<String>,
     pub episode_number: Option<i64>,
-    /// "series" | "movie" | "clip" - only meaningful when `series_id` is
-    /// `None` (series-attached videos are implicitly "series" content).
+    /// "series" | "movie" | "clip" | "karaoke" - only meaningful when
+    /// `series_id` is `None` (series-attached videos are implicitly
+    /// "series" content).
     pub content_type: String,
     pub title: String,
     pub description: Option<String>,
@@ -95,8 +96,8 @@ pub struct CreateVideoRequest {
     pub series_id: Option<String>,
     pub season_id: Option<String>,
     pub episode_number: Option<i64>,
-    /// "series" | "movie" | "clip" - defaults to "series" when `series_id`
-    /// is set, else "movie", if omitted.
+    /// "series" | "movie" | "clip" | "karaoke" - defaults to "series" when
+    /// `series_id` is set, else "movie", if omitted.
     pub content_type: Option<String>,
     pub title: String,
     pub description: Option<String>,

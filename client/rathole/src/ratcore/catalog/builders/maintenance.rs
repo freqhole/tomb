@@ -171,3 +171,101 @@ pub(in crate::ratcore::catalog) fn run_full() -> AdminCommand {
         args: hard_delete_args(),
     }
 }
+
+fn repair_library_args() -> Vec<crate::ratcore::app::ArgSpec> {
+    use crate::ratcore::app::{ArgKind, ArgSpec};
+    vec![
+        dry_run_arg(),
+        ArgSpec {
+            name: "scan_directory".to_string(),
+            kind: ArgKind::Text {
+                placeholder: "(blank = whole library) tracked directory path".to_string(),
+            },
+            required: false,
+            help: Some(
+                "restrict to one tracked directory's subtree instead of the whole library"
+                    .to_string(),
+            ),
+        },
+    ]
+}
+
+/// the three directory-phase sub-job toggles, shared by the full
+/// `repair_library` command and the `repair_library_thumbnails` preset -
+/// `remove_overapplied` is destructive (deletes existing album-image
+/// associations) and defaults off, unlike the two backfill toggles.
+fn repair_directory_action_args() -> Vec<crate::ratcore::app::ArgSpec> {
+    use crate::ratcore::app::{ArgKind, ArgSpec};
+    vec![
+        ArgSpec {
+            name: "backfill_embedded_art".to_string(),
+            kind: ArgKind::Bool { default: true },
+            required: false,
+            help: Some(
+                "apply a song's own embedded file art (id3/vorbis cover) to a missing album thumbnail"
+                    .to_string(),
+            ),
+        },
+        ArgSpec {
+            name: "backfill_directory_art".to_string(),
+            kind: ArgKind::Bool { default: true },
+            required: false,
+            help: Some(
+                "apply a directory-level image (folder.jpg etc) to a missing album thumbnail"
+                    .to_string(),
+            ),
+        },
+        ArgSpec {
+            name: "remove_overapplied".to_string(),
+            kind: ArgKind::Bool { default: false },
+            required: false,
+            help: Some(
+                "destructive: remove directory-sourced thumbnails identified as over-applied across unrelated albums"
+                    .to_string(),
+            ),
+        },
+    ]
+}
+
+/// full repair: waveform backfill + directory-grouped thumbnail
+/// backfill/cleanup. see `maintenance_repair_library_waveforms`/
+/// `maintenance_repair_library_thumbnails` to run just one half.
+pub(in crate::ratcore::catalog) fn repair_library() -> AdminCommand {
+    let mut args = repair_library_args();
+    args.extend(repair_directory_action_args());
+    AdminCommand {
+        name: "maintenance_repair_library".to_string(),
+        request_type: "MaintenanceRepairLibraryRequest".to_string(),
+        response_type: "serde_json::Value".to_string(),
+        auth: "Admin".to_string(),
+        kind: CommandKind::Admin,
+        args,
+    }
+}
+
+/// waveform-only variant - backfills missing song waveforms.
+pub(in crate::ratcore::catalog) fn repair_library_waveforms() -> AdminCommand {
+    AdminCommand {
+        name: "maintenance_repair_library_waveforms".to_string(),
+        request_type: "MaintenanceRepairLibraryRequest".to_string(),
+        response_type: "serde_json::Value".to_string(),
+        auth: "Admin".to_string(),
+        kind: CommandKind::Admin,
+        args: repair_library_args(),
+    }
+}
+
+/// directory-image-only variant - backfills missing album thumbnails and
+/// (optionally) cleans up images over-applied across unrelated albums.
+pub(in crate::ratcore::catalog) fn repair_library_thumbnails() -> AdminCommand {
+    let mut args = repair_library_args();
+    args.extend(repair_directory_action_args());
+    AdminCommand {
+        name: "maintenance_repair_library_thumbnails".to_string(),
+        request_type: "MaintenanceRepairLibraryRequest".to_string(),
+        response_type: "serde_json::Value".to_string(),
+        auth: "Admin".to_string(),
+        kind: CommandKind::Admin,
+        args,
+    }
+}

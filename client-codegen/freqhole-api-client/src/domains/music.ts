@@ -1460,6 +1460,22 @@ export function createMusicMethods(call: CallFn) {
       );
     },
 
+    // enqueue a whole-library image repair job (admin only): backfills
+    // missing song waveforms / album thumbnails, and cleans up
+    // directory-sourced images that got over-applied across unrelated
+    // albums. returns the job id so the caller can poll status.
+    enqueueRepairLibraryImages: (params: s.EnqueueRepairLibraryImagesRequest) => {
+      return call(
+        "music",
+        "enqueue_repair_library_images",
+        routes.music.enqueue_repair_library_images.resp,
+        routes.music.enqueue_repair_library_images.req,
+        routes.music.enqueue_repair_library_images.method,
+        routes.music.enqueue_repair_library_images.path,
+        params,
+      );
+    },
+
     // download a remote image url and link it to an album or artist
     // (phase 14.6). dedups by sha256.
     ingestRemoteImage: (params: s.IngestRemoteImageRequest) => {

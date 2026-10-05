@@ -132,6 +132,7 @@ export const routes = {
     enqueue_bulk_enrichment: { method: 'POST', path: '/api/music/albums/enrichment/bulk', req: s.BulkEnrichmentRequestSchema, resp: s.BulkEnrichmentResponseSchema, auth: { type: 'role', role: 'admin' } as const },
     enqueue_lastfm_album_detail: { method: 'POST', path: '/api/music/albums/lastfm/enqueue', req: s.EnqueueLastFmAlbumDetailRequestSchema, resp: s.EnqueueLastFmAlbumDetailResponseSchema, auth: { type: 'role', role: 'admin' } as const },
     enqueue_mb_album_search: { method: 'POST', path: '/api/music/albums/mb-search/enqueue', req: s.EnqueueMbAlbumSearchRequestSchema, resp: s.EnqueueMbAlbumSearchResponseSchema, auth: { type: 'role', role: 'admin' } as const },
+    enqueue_repair_library_images: { method: 'POST', path: '/api/music/maintenance/repair-library-images/enqueue', req: s.EnqueueRepairLibraryImagesRequestSchema, resp: s.EnqueueRepairLibraryImagesResponseSchema, auth: { type: 'role', role: 'admin' } as const },
     entity_taxons_batch: { method: 'POST', path: '/api/music/entities/taxons', req: s.EntityTaxonsBatchRequestSchema, resp: s.EntityTaxonsBatchResponseSchema, auth: { type: 'authenticated' } as const },
     era_albums: { method: 'POST', path: '/api/music/relations/era-albums', req: s.EraAlbumsRequestSchema, resp: s.EraAlbumsResponseSchema, auth: { type: 'authenticated' } as const },
     era_bins: { method: 'POST', path: '/api/music/relations/era-bins', req: s.EraBinsRequestSchema, resp: s.EraBinsResponseSchema, auth: { type: 'authenticated' } as const },

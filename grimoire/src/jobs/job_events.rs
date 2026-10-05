@@ -686,7 +686,8 @@ pub fn entity_ref_for(job_type: &JobType, params_json: &str) -> Option<EntityRef
         | JobType::ImportVideo
         | JobType::TranscodeVideo
         | JobType::SyncSongByBlake3
-        | JobType::SyncVideoByBlake3 => None,
+        | JobType::SyncVideoByBlake3
+        | JobType::RepairLibraryImages => None,
     }
 }
 

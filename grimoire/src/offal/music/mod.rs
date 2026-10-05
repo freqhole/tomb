@@ -247,6 +247,9 @@ pub async fn dispatch(
         "/api/music/albums/enrichment/requery" => {
             Some(jobs::requery_enrichment(caller, body.clone()).await)
         }
+        "/api/music/maintenance/repair-library-images/enqueue" => {
+            Some(jobs::enqueue_repair_library_images(caller, body.clone()).await)
+        }
 
         // search
         "/api/music/search" => Some(search::search_handler(caller, body.clone()).await),

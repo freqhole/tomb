@@ -132,6 +132,9 @@ fn rich_commands() -> Vec<AdminCommand> {
         builders::maintenance::hard_delete_old_records(),
         builders::maintenance::hard_delete_old_videos(),
         builders::maintenance::run_full(),
+        builders::maintenance::repair_library(),
+        builders::maintenance::repair_library_waveforms(),
+        builders::maintenance::repair_library_thumbnails(),
         // -- dir_tags (rich) --
         builders::dir_tags::list(),
         builders::dir_tags::add(),

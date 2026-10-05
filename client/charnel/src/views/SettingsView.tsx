@@ -346,10 +346,6 @@ export default function SettingsView() {
       <Show when={activeTab() === "settings"}>
         <div style={{ "padding-bottom": "3rem" }}>
           <div class="settings-section">
-            <h2>
-              inf<span class="pinky">o</span>
-            </h2>
-
             <div
               class="form-fields"
               style={{

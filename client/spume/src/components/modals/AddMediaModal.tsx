@@ -1681,7 +1681,10 @@ export function AddMediaModal(props: AddMediaModalProps) {
                                   </button>
                                 )}
                               </div>
-                              {/* label */}
+                              {/* label - full url (when this is a url-fetch job) shown as
+                                  a native tooltip, since the short label (hostname +
+                                  truncated path/query) can still collide visually across
+                                  rows that scroll out of view. */}
                               <span
                                 class="body-xs truncate flex-1"
                                 classList={{
@@ -1695,6 +1698,7 @@ export function AddMediaModal(props: AddMediaModalProps) {
                                     (job.status === "completed" && !!warning),
                                   "text-red-400": job.status === "failed",
                                 }}
+                                title={job.fullUrl ?? job.label}
                               >
                                 {job.label}
                               </span>
@@ -1833,6 +1837,11 @@ export function AddMediaModal(props: AddMediaModalProps) {
                             <Show
                               when={job.status === "failed" && expandedErrorJobIds().has(job.id)}
                             >
+                              <Show when={job.fullUrl}>
+                                <p class="body-xs text-[var(--color-text-tertiary)] pl-6 pr-1 break-all select-text">
+                                  {job.fullUrl}
+                                </p>
+                              </Show>
                               <p class="body-xs text-red-400/80 pl-6 pr-1 whitespace-pre-wrap break-words">
                                 {job.errorFull ?? job.error ?? "failed"}
                               </p>

@@ -680,7 +680,7 @@ export function EditVideoModal(props: EditVideoModalProps) {
   // switching to "movie"/"clip" clears any series/season assignment (they're
   // hidden for standalone content); switching to "series" just reveals the
   // series picker below and leaves series_id null until one is chosen.
-  const handleContentTypeChange = (value: "series" | "movie" | "clip") => {
+  const handleContentTypeChange = (value: "series" | "movie" | "clip" | "karaoke") => {
     if (value === "series") {
       setParentVideoInputValue("");
       setFormData((prev) => ({ ...prev, content_type: value, parent_video_id: null }));
@@ -899,7 +899,7 @@ export function EditVideoModal(props: EditVideoModalProps) {
           <div class="space-y-4 border-t border-[var(--color-border-default)] pt-4">
             <h3 class="text-sm font-medium text-[var(--color-text-primary)]">content type</h3>
             <div class="flex gap-2">
-              <For each={["series", "movie", "clip"] as const}>
+              <For each={["series", "movie", "clip", "karaoke"] as const}>
                 {(type) => (
                   <button
                     type="button"

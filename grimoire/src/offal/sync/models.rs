@@ -311,7 +311,7 @@ pub struct SyncVideoByBlake3Request {
     pub title: String,
     #[serde(default)]
     pub description: Option<String>,
-    /// "series" | "movie" | "clip" - defaults per `CreateVideoRequest`
+    /// "series" | "movie" | "clip" | "karaoke" - defaults per `CreateVideoRequest`
     #[serde(default)]
     pub content_type: Option<String>,
     #[serde(default)]
