@@ -488,16 +488,20 @@ fn read_libmpv_events(events_client: Mpv, events: broadcast::Sender<PlayerEvent>
     // advances past 0 never generates ANY event to correct the
     // now-permanently-wrong "Playing" state. fixed by the user manually
     // pausing then unpausing, which kicks mpv's AO into actually
-    // starting - this watchdog automates exactly that, once, per track,
-    // only if nothing has genuinely progressed within a grace window.
-    // deliberately NOT a loop/retry: a single nudge mirrors the known
-    // manual fix; if the file is genuinely unplayable, the nudge is a
-    // harmless no-op and the existing EndFile/Error path still fires
-    // normally afterward.
+    // starting - this watchdog automates exactly that, per track, only
+    // if nothing has genuinely progressed within a grace window.
+    // up to MAX_STALL_NUDGES attempts, spaced by STALL_GRACE each -
+    // previously a single, one-shot nudge: a real report (2026-10-04)
+    // of this bug still reproducing after that fix suggests one nudge
+    // doesn't always revive a stalled AO on the first try. still bounded
+    // (not an unlimited retry loop) - if it's still stalled after
+    // MAX_STALL_NUDGES attempts, the existing EndFile/Error path is the
+    // remaining backstop for a genuinely unplayable file.
     const STALL_GRACE: std::time::Duration = std::time::Duration::from_millis(2_500);
+    const MAX_STALL_NUDGES: u32 = 3;
     let mut loaded_at: Option<std::time::Instant> = None;
     let mut seen_progress = false;
-    let mut nudged_this_track = false;
+    let mut nudge_count: u32 = 0;
 
     loop {
         match events_client.wait_event(1.0) {
@@ -547,7 +551,7 @@ fn read_libmpv_events(events_client: Mpv, events: broadcast::Sender<PlayerEvent>
                     ever_loaded = true;
                     loaded_at = Some(std::time::Instant::now());
                     seen_progress = false;
-                    nudged_this_track = false;
+                    nudge_count = 0;
                     emit(
                         &events,
                         PlayerEvent::TrackChanged {
@@ -592,17 +596,22 @@ fn read_libmpv_events(events_client: Mpv, events: broadcast::Sender<PlayerEvent>
         // timeout case, which is what actually gives this a real tick
         // when nothing else is happening) rather than only in response
         // to a specific event - a stall is defined by the ABSENCE of an
-        // event, so there's nothing to react to otherwise.
+        // event, so there's nothing to react to otherwise. re-arms after
+        // each nudge (via `loaded_at` reset below) so a stall that
+        // survives one nudge gets another, up to MAX_STALL_NUDGES.
         if let Some(since) = loaded_at {
             if !seen_progress
-                && !nudged_this_track
+                && nudge_count < MAX_STALL_NUDGES
                 && since.elapsed() >= STALL_GRACE
                 && events_client.get_property::<bool>("pause") == Ok(false)
             {
-                nudged_this_track = true;
+                nudge_count += 1;
+                loaded_at = Some(std::time::Instant::now());
                 tracing::warn!(
-                    "[player] libmpv reported playing but time-pos never advanced after {:?} - nudging via pause/unpause",
-                    STALL_GRACE
+                    "[player] libmpv reported playing but time-pos never advanced after {:?} - nudging via pause/unpause (attempt {}/{})",
+                    STALL_GRACE,
+                    nudge_count,
+                    MAX_STALL_NUDGES
                 );
                 let _ = events_client.set_property("pause", true);
                 let _ = events_client.set_property("pause", false);
