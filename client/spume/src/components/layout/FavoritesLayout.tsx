@@ -469,8 +469,13 @@ export function FavoritesLayout(props: FavoritesLayoutProps) {
             them); wide:justify-end hugs the row to the top-right, away from
             the floating nav pill in the top-left corner, without needing a
             permanent vertical offset - wide screens rarely have enough
-            items to overflow, so the clipping risk there is negligible. */}
-        <div class="flex gap-2 overflow-x-auto scrollbar-hide py-2 mb-4 sticky top-0 z-50 justify-start wide:justify-end bg-[var(--color-bg-primary)]/40 backdrop-blur-sm rounded-lg wide:pl-[var(--chrome-traffic-lights-inset,0px)]">
+            items to overflow, so the clipping risk there is negligible.
+            z-[110] (not z-50): this row is sticky at the very top of the
+            scroll container, which can overlap the chromeless title-bar
+            drag strip (see TitleBarStrip.tsx, z-[100]) - these buttons must
+            win that overlap to stay clickable, same convention as
+            QueueSidebar.tsx's header. */}
+        <div class="flex gap-2 overflow-x-auto scrollbar-hide py-2 mb-4 sticky top-0 z-[110] justify-start wide:justify-end bg-[var(--color-bg-primary)]/40 backdrop-blur-sm rounded-lg wide:pl-[var(--chrome-traffic-lights-inset,0px)]">
           <IconButton
             icon="play"
             size="default"
