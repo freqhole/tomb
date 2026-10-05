@@ -2185,11 +2185,103 @@ button.danger:hover {
   line-height: 1.4;
 }
 
+/* live dry-run preview count (e.g. "42 record(s) found") shown under a
+   maintenance checklist item - distinct from .checkbox-hint's static
+   description so the "this is live data" bit stands out at a glance. */
+.checkbox-toggle .checkbox-count {
+  font-size: 0.75rem;
+  color: #bd5f8f;
+  line-height: 1.4;
+}
+
+/* custom radio - same magenta accent + hidden-native-input approach as
+   .checkbox-toggle above, just a round dot instead of a checkmark (e.g.
+   the "add scan directory" modal's music/video/both media type picker). */
+.radio-toggle-group {
+  display: flex;
+  gap: 1.25rem;
+}
+
+.radio-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  user-select: none;
+}
+
+.radio-toggle input[type="radio"] {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.radio-toggle .radio-dot {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  border: 2px solid #3f3f46;
+  border-radius: 50%;
+  background: #18181b;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+
+.radio-toggle .radio-dot::after {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #fff;
+  transform: scale(0);
+  transition: transform 0.2s ease;
+}
+
+.radio-toggle:hover .radio-dot {
+  border-color: #52525b;
+  background: #27272a;
+}
+
+.radio-toggle input[type="radio"]:checked + .radio-dot {
+  border-color: #ff1a9e;
+  background: #ff1a9e;
+}
+
+.radio-toggle input[type="radio"]:checked + .radio-dot::after {
+  transform: scale(1);
+}
+
+.radio-toggle:hover input[type="radio"]:checked + .radio-dot {
+  border-color: #e6007a;
+  background: #e6007a;
+}
+
+.radio-toggle input[type="radio"]:focus-visible + .radio-dot {
+  outline: 2px solid #ff1a9e;
+  outline-offset: 2px;
+}
+
+.radio-toggle .radio-label {
+  font-size: 0.9375rem;
+  color: #d4d4d8;
+}
+
 /* stacked checkbox-toggle list (e.g. library repair's sub-job checklist) */
 .repair-checklist {
   display: flex;
   flex-direction: column;
   gap: 0.625rem;
+}
+
+/* divider between distinct sub-sections within the same flyout body
+   (e.g. "maintenance"'s repair checklist vs. its data cleanup checklist) */
+.section-divider {
+  border: none;
+  border-top: 1px solid #27272a;
+  margin: 1.25rem 0;
 }
 
 /* accordion panel revealed by the "repair library" toggle button */

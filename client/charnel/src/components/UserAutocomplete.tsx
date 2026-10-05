@@ -1,14 +1,7 @@
 // user autocomplete component for federation view
 // allows selecting existing users or creating new ones
 
-import {
-  createSignal,
-  createMemo,
-  For,
-  Show,
-  onCleanup,
-  createEffect,
-} from "solid-js";
+import { createSignal, createMemo, For, Show, onCleanup, createEffect } from "solid-js";
 import { useAdminTransport } from "../admin/context";
 
 interface UserInfo {
@@ -58,9 +51,7 @@ export function UserAutocomplete(props: UserAutocompleteProps) {
     if (initial !== undefined) {
       setInputValue(initial);
       // check if this matches an existing user
-      const match = users().find(
-        (u) => u.username.toLowerCase() === initial.toLowerCase(),
-      );
+      const match = users().find((u) => u.username.toLowerCase() === initial.toLowerCase());
       if (match) {
         setSelectedUser(match);
         // notify parent of existing user match
@@ -117,9 +108,7 @@ export function UserAutocomplete(props: UserAutocompleteProps) {
     setIsOpen(true);
 
     // check for exact match
-    const match = users().find(
-      (u) => u.username.toLowerCase() === value.toLowerCase().trim(),
-    );
+    const match = users().find((u) => u.username.toLowerCase() === value.toLowerCase().trim());
 
     if (match) {
       setSelectedUser(match);
@@ -203,21 +192,11 @@ export function UserAutocomplete(props: UserAutocompleteProps) {
         </Show>
       </div>
 
-      <Show
-        when={
-          isOpen() &&
-          !props.disabled &&
-          (filteredUsers().length > 0 || showCreateNew())
-        }
-      >
+      <Show when={isOpen() && !props.disabled && (filteredUsers().length > 0 || showCreateNew())}>
         <div class="user-autocomplete-dropdown">
           <Show when={showCreateNew()}>
-            <div
-              class="user-autocomplete-option create-new"
-              onClick={handleSelectCreateNew}
-            >
-              <span class="create-new-label">create new:</span>{" "}
-              {inputValue().trim()}
+            <div class="user-autocomplete-option create-new" onClick={handleSelectCreateNew}>
+              <span class="create-new-label">create new:</span> {inputValue().trim()}
             </div>
           </Show>
 

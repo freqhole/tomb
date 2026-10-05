@@ -1727,7 +1727,7 @@ fn parse_maintenance_sub(arg: Option<&str>) -> SlashAction {
     };
     match sub.as_str() {
         "" | "help" | "list" => bad(
-            "usage: /maintenance <cleanup-tags|cleanup-genres|cleanup-blobs|cleanup-all|backfill-blake3|backfill-thumbs|hard-delete|run-full|repair-library|repair-waveforms|repair-thumbnails|repair-video-thumbnails|update-image|update-spume> [args]",
+            "usage: /maintenance <cleanup-tags|cleanup-genres|cleanup-artists|cleanup-albums|cleanup-video-series|cleanup-taxons|cleanup-contentless-blobs|cleanup-blobs|cleanup-all|backfill-blake3|backfill-thumbs|hard-delete|run-full|repair-library|repair-waveforms|repair-thumbnails|repair-video-thumbnails|reorganize-library|reorganize-library-plan|update-image|update-spume> [args]",
         ),
         "cleanup-tags" | "cleanup_tags" => SlashAction::AdminDispatch {
             name: "maintenance_cleanup_orphaned_tags",
@@ -1735,6 +1735,26 @@ fn parse_maintenance_sub(arg: Option<&str>) -> SlashAction {
         },
         "cleanup-genres" | "cleanup_genres" => SlashAction::AdminDispatch {
             name: "maintenance_cleanup_orphaned_genres",
+            body: serde_json::json!({ "dry_run": has_flag("dry-run") }),
+        },
+        "cleanup-artists" | "cleanup_artists" => SlashAction::AdminDispatch {
+            name: "maintenance_cleanup_orphaned_artists",
+            body: serde_json::json!({ "dry_run": has_flag("dry-run") }),
+        },
+        "cleanup-albums" | "cleanup_albums" => SlashAction::AdminDispatch {
+            name: "maintenance_cleanup_orphaned_albums",
+            body: serde_json::json!({ "dry_run": has_flag("dry-run") }),
+        },
+        "cleanup-video-series" | "cleanup_video_series" => SlashAction::AdminDispatch {
+            name: "maintenance_cleanup_orphaned_video_series",
+            body: serde_json::json!({ "dry_run": has_flag("dry-run") }),
+        },
+        "cleanup-taxons" | "cleanup_taxons" => SlashAction::AdminDispatch {
+            name: "maintenance_cleanup_orphaned_taxons",
+            body: serde_json::json!({ "dry_run": has_flag("dry-run") }),
+        },
+        "cleanup-contentless-blobs" | "cleanup_contentless_blobs" => SlashAction::AdminDispatch {
+            name: "maintenance_cleanup_contentless_blobs",
             body: serde_json::json!({ "dry_run": has_flag("dry-run") }),
         },
         "cleanup-all" | "cleanup_all" => SlashAction::AdminDispatch {
@@ -1746,11 +1766,13 @@ fn parse_maintenance_sub(arg: Option<&str>) -> SlashAction {
                 .and_then(|t| t.parse::<f64>().ok())
                 .unwrap_or(30.0);
             if min_age_days < 0.0 {
-                return bad("usage: /maintenance cleanup-blobs [min-age-days >= 0, default 30]");
+                return bad(
+                    "usage: /maintenance cleanup-blobs [min-age-days >= 0, default 30] [dry-run]",
+                );
             }
             SlashAction::AdminDispatch {
                 name: "maintenance_cleanup_orphaned_blobs",
-                body: serde_json::json!({ "min_age_days": min_age_days }),
+                body: serde_json::json!({ "min_age_days": min_age_days, "dry_run": has_flag("dry-run") }),
             }
         }
         "backfill-blake3" | "backfill_blake3" | "blake3" => {
@@ -1856,8 +1878,75 @@ fn parse_maintenance_sub(arg: Option<&str>) -> SlashAction {
                 }),
             }
         }
+        "reorganize-library" | "reorganize_library" | "reorganize" => {
+            let Some(target_directory) = first_positional else {
+                return bad(
+                    "usage: /maintenance reorganize-library <target_directory> [domain=music|video|both] [dry-run] [no-embed-tags] [source-music-dir <dir>] [source-video-dir <dir>]",
+                );
+            };
+            let domain = tokens
+                .iter()
+                .position(|t| matches!(*t, "domain" | "--domain"))
+                .and_then(|i| tokens.get(i + 1))
+                .copied()
+                .unwrap_or("both");
+            let source_music_directory = tokens
+                .iter()
+                .position(|t| matches!(*t, "source-music-dir" | "--source-music-dir"))
+                .and_then(|i| tokens.get(i + 1))
+                .map(|s| s.to_string());
+            let source_video_directory = tokens
+                .iter()
+                .position(|t| matches!(*t, "source-video-dir" | "--source-video-dir"))
+                .and_then(|i| tokens.get(i + 1))
+                .map(|s| s.to_string());
+            let embed_tags = !has_token("no-embed-tags");
+            SlashAction::AdminDispatch {
+                name: "maintenance_reorganize_library_enqueue",
+                body: serde_json::json!({
+                    "target_directory": target_directory,
+                    "domain": domain,
+                    "source_music_directory": source_music_directory,
+                    "source_video_directory": source_video_directory,
+                    "dry_run": has_flag("dry-run"),
+                    "embed_tags": embed_tags,
+                }),
+            }
+        }
+        "reorganize-library-plan" | "reorganize_library_plan" | "reorganize-plan" => {
+            let Some(target_directory) = first_positional else {
+                return bad(
+                    "usage: /maintenance reorganize-library-plan <target_directory> [domain=music|video|both] [source-music-dir <dir>] [source-video-dir <dir>]",
+                );
+            };
+            let domain = tokens
+                .iter()
+                .position(|t| matches!(*t, "domain" | "--domain"))
+                .and_then(|i| tokens.get(i + 1))
+                .copied()
+                .unwrap_or("both");
+            let source_music_directory = tokens
+                .iter()
+                .position(|t| matches!(*t, "source-music-dir" | "--source-music-dir"))
+                .and_then(|i| tokens.get(i + 1))
+                .map(|s| s.to_string());
+            let source_video_directory = tokens
+                .iter()
+                .position(|t| matches!(*t, "source-video-dir" | "--source-video-dir"))
+                .and_then(|i| tokens.get(i + 1))
+                .map(|s| s.to_string());
+            SlashAction::AdminDispatch {
+                name: "maintenance_reorganize_library_plan",
+                body: serde_json::json!({
+                    "target_directory": target_directory,
+                    "domain": domain,
+                    "source_music_directory": source_music_directory,
+                    "source_video_directory": source_video_directory,
+                }),
+            }
+        }
         _ => bad(
-            "usage: /maintenance <cleanup-tags|cleanup-genres|cleanup-blobs|cleanup-all|backfill-blake3|backfill-thumbs|hard-delete|hard-delete-videos|run-full|repair-library [no-embedded-art] [no-directory-art] [remove-overapplied] [no-video-thumbnails]|repair-waveforms|repair-thumbnails [no-embedded-art] [no-directory-art] [remove-overapplied]|repair-video-thumbnails|update-image|update-spume> [args]",
+            "usage: /maintenance <cleanup-tags|cleanup-genres|cleanup-artists|cleanup-albums|cleanup-video-series|cleanup-taxons|cleanup-contentless-blobs|cleanup-blobs|cleanup-all|backfill-blake3|backfill-thumbs|hard-delete|hard-delete-videos|run-full|repair-library [no-embedded-art] [no-directory-art] [remove-overapplied] [no-video-thumbnails]|repair-waveforms|repair-thumbnails [no-embedded-art] [no-directory-art] [remove-overapplied]|repair-video-thumbnails|reorganize-library <target_directory> [domain=music|video|both] [dry-run] [no-embed-tags]|reorganize-library-plan <target_directory> [domain=music|video|both]|update-image|update-spume> [args]",
         ),
     }
 }

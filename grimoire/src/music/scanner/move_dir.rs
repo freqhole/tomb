@@ -536,7 +536,7 @@ fn ambiguous_any(
 
 /// update a blob's local_path + refresh size/mtime/file_name in its metadata json,
 /// preserving any other keys.
-async fn relocate_blob(
+pub(crate) async fn relocate_blob(
     pool: &sqlx::SqlitePool,
     blob_id: &str,
     new_path: &str,

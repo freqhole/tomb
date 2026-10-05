@@ -5,6 +5,7 @@ use crate::response::GrimoireResponse;
 
 mod hard_delete;
 mod orphaned;
+mod reorganize_library;
 mod repair_library_images;
 mod repair_video_images;
 mod video_hard_delete;
@@ -15,7 +16,17 @@ pub use crate::blob_data::{
 };
 pub use hard_delete::{hard_delete_old_records, HardDeleteOptions, HardDeleteSummary};
 pub use orphaned::{
-    cleanup_orphaned_genres, cleanup_orphaned_tags, OrphanedGenresSummary, OrphanedTagsSummary,
+    cleanup_orphaned_albums, cleanup_orphaned_artists, cleanup_orphaned_genres,
+    cleanup_orphaned_tags, cleanup_orphaned_taxons, cleanup_orphaned_video_series,
+    OrphanedAlbumsSummary, OrphanedArtistsSummary, OrphanedGenresSummary, OrphanedTagsSummary,
+    OrphanedTaxonsSummary, OrphanedVideoSeriesSummary,
+};
+pub use reorganize_library::{
+    cleanup_claimed_paths, cleanup_if_fully_done, default_music_source_dir,
+    default_video_source_dir, list_candidate_song_ids, list_candidate_video_ids,
+    register_target_directory, reorganize_library_sync, reorganize_songs_batch,
+    reorganize_videos_batch, validate_target_directory, ReorganizeLibraryResult,
+    REORGANIZE_BATCH_SIZE,
 };
 pub use repair_library_images::{
     repair_directories_batch, repair_library_images_sync, repair_waveforms_batch,
@@ -55,7 +66,7 @@ pub async fn run_full_maintenance_with_options(
 
     // Step 1: Clean up orphaned media blobs
     println!("Cleaning up orphaned media blobs...");
-    let blobs_response = cleanup_orphaned_media_blobs_older_than(7.0).await;
+    let blobs_response = cleanup_orphaned_media_blobs_older_than(7.0, options.dry_run).await;
     let orphaned_blobs_cleaned = match blobs_response.data {
         Some(data) => data,
         None => {
@@ -93,9 +104,11 @@ pub async fn run_full_maintenance_with_options(
 }
 
 /// Clean up orphaned blobs older than specified days
-/// Uses the blob_data purge functions but adds age filtering
+/// Uses the blob_data purge functions but adds age filtering.
+/// `dry_run=true` finds and sizes candidates without deleting anything.
 pub async fn cleanup_orphaned_media_blobs_older_than(
     min_age_days: f64,
+    dry_run: bool,
 ) -> GrimoireResponse<OrphanedBlobSummary> {
     use crate::blob_data::{find_orphaned_media_blobs, reclaim_blob_bytes, ReclaimOutcome};
     use crate::config::get_config;
@@ -141,6 +154,25 @@ pub async fn cleanup_orphaned_media_blobs_older_than(
             age_days >= min_age_days
         })
         .collect();
+
+    if dry_run {
+        let bytes_would_free: u64 = old_orphaned_blobs
+            .iter()
+            .filter_map(|blob| blob.size)
+            .map(|size| size as u64)
+            .sum();
+        let summary = OrphanedBlobSummary {
+            total_blobs_checked: old_orphaned_blobs.len() as u32,
+            orphaned_blobs_found: old_orphaned_blobs.len() as u32,
+            orphaned_blobs_deleted: 0,
+            deletion_failures: 0,
+            bytes_freed: bytes_would_free,
+            files_deleted: 0,
+            files_skipped_user_owned: 0,
+            duration_ms: start_time.elapsed().as_millis() as u64,
+        };
+        return GrimoireResponse::success("dry run: nothing deleted", summary);
+    }
 
     let mut deleted_count = 0;
     let mut failure_count = 0;

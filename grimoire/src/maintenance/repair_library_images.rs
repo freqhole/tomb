@@ -190,9 +190,10 @@ impl RepairLibraryImagesResult {
 pub struct WaveformBatchOutcome {
     pub result: RepairLibraryImagesResult,
     /// true if this batch was full (there may be more songs still
-    /// missing a waveform) - the waveform candidate set shrinks as songs
-    /// get fixed, so the next batch always re-queries from the top
-    /// rather than tracking an offset into it.
+    /// missing a waveform) - a real run's candidate set shrinks as songs
+    /// get fixed, so it re-queries from the top (offset 0) each time; a
+    /// dry run instead advances `offset` by `limit` each call (see
+    /// `repair_waveforms_batch`'s doc comment).
     pub more_remaining: bool,
 }
 
@@ -225,13 +226,20 @@ struct SongDirRowRaw {
 /// `scan_directory`, when set, restricts candidates to songs whose file
 /// lives at or under that directory (exact scan-root match, or anywhere
 /// in its subtree) - lets a caller scope a run to one tracked directory
-/// instead of the whole library.
+/// instead of the whole library. `offset` is only meaningful under
+/// `dry_run`: a real run's candidate set (NOT EXISTS a waveform) shrinks
+/// as songs get fixed, so it always re-queries from the top (offset 0);
+/// a dry run never writes anything, so the same rows would come back
+/// forever without an offset to walk forward through them - callers
+/// must advance `offset` by `limit` each call when (and only when)
+/// `dry_run` is true.
 /// `created_by` is the admin user triggering this, used for feed-event
 /// attribution on newly-added images (same as every other image-adding
 /// path).
 pub async fn repair_waveforms_batch(
     dry_run: bool,
     limit: i64,
+    offset: i64,
     scan_directory: Option<&str>,
     created_by: Option<(String, String)>,
 ) -> GrimoireResponse<WaveformBatchOutcome> {
@@ -250,9 +258,8 @@ pub async fn repair_waveforms_batch(
 
     let like_prefix = scan_directory_pattern(scan_directory);
 
-    // the candidate set shrinks as songs get fixed (NOT EXISTS a
-    // waveform), so no offset is needed here - each batch just takes the
-    // next `limit` songs still missing one.
+    // see this fn's doc comment for why `offset` exists at all despite
+    // the candidate set normally shrinking on its own.
     let waveform_candidates = sqlx::query!(
         r#"
         SELECT s.id as "song_id!", s.media_blob_id as "media_blob_id!", mb.local_path as "local_path!"
@@ -266,10 +273,11 @@ pub async fn repair_waveforms_batch(
             JOIN media_blobz wmb ON wmb.id = si.media_blob_id
             WHERE si.song_id = s.id AND wmb.blob_type = 'waveform' AND wmb.deleted_at IS NULL
           )
-        LIMIT ?2
+        LIMIT ?2 OFFSET ?3
         "#,
         like_prefix,
-        limit
+        limit,
+        offset,
     )
     .fetch_all(&pool)
     .await;
@@ -619,10 +627,12 @@ pub async fn repair_library_images_sync(
     let mut totals = RepairLibraryImagesResult::default();
 
     if options.backfill_waveforms {
+        let mut offset = 0i64;
         loop {
             let resp = repair_waveforms_batch(
                 dry_run,
                 WAVEFORM_BATCH_SIZE,
+                offset,
                 scan_directory.as_deref(),
                 created_by.clone(),
             )
@@ -635,11 +645,20 @@ pub async fn repair_library_images_sync(
             if !more_remaining {
                 break;
             }
+            // a real run's candidate set shrinks on its own (NOT EXISTS
+            // a waveform); only a dry run (which never writes) needs to
+            // walk forward via offset to avoid re-fetching the same rows
+            // forever - see `repair_waveforms_batch`'s doc comment.
+            if dry_run {
+                offset += WAVEFORM_BATCH_SIZE;
+            }
         }
+        let mut offset = 0i64;
         loop {
             let resp = super::repair_video_images::repair_video_waveforms_batch(
                 dry_run,
                 WAVEFORM_BATCH_SIZE,
+                offset,
                 scan_directory.as_deref(),
                 created_by.clone(),
             )
@@ -651,15 +670,20 @@ pub async fn repair_library_images_sync(
             totals.merge(outcome.result);
             if !more_remaining {
                 break;
+            }
+            if dry_run {
+                offset += WAVEFORM_BATCH_SIZE;
             }
         }
     }
 
     if options.backfill_video_thumbnails {
+        let mut offset = 0i64;
         loop {
             let resp = super::repair_video_images::repair_video_thumbnails_batch(
                 dry_run,
                 super::repair_video_images::VIDEO_THUMBNAIL_BATCH_SIZE,
+                offset,
                 scan_directory.as_deref(),
                 created_by.clone(),
             )
@@ -671,6 +695,9 @@ pub async fn repair_library_images_sync(
             totals.merge(outcome.result);
             if !more_remaining {
                 break;
+            }
+            if dry_run {
+                offset += super::repair_video_images::VIDEO_THUMBNAIL_BATCH_SIZE;
             }
         }
     }

@@ -85,12 +85,8 @@ export default function UsersView() {
   const [deactivatingAll, setDeactivatingAll] = createSignal(false);
   const [confirmDeactivateAll, setConfirmDeactivateAll] = createSignal(false);
   const [includeDeleted, setIncludeDeleted] = createSignal(false);
-  const [linkCopiedUserId, setLinkCopiedUserId] = createSignal<string | null>(
-    null,
-  );
-  const [copiedInviteCode, setCopiedInviteCode] = createSignal<string | null>(
-    null,
-  );
+  const [linkCopiedUserId, setLinkCopiedUserId] = createSignal<string | null>(null);
+  const [copiedInviteCode, setCopiedInviteCode] = createSignal<string | null>(null);
   const [confirmDialog, setConfirmDialog] = createSignal<ConfirmDialogState>({
     isOpen: false,
     title: "",
@@ -105,9 +101,7 @@ export default function UsersView() {
   const [knocks, setKnocks] = createSignal<KnockInfo[]>([]);
   const [expandedUserId, setExpandedUserId] = createSignal<string | null>(null);
   const [removingNodeId, setRemovingNodeId] = createSignal<string | null>(null);
-  const [copiedPeerNodeId, setCopiedPeerNodeId] = createSignal<string | null>(
-    null,
-  );
+  const [copiedPeerNodeId, setCopiedPeerNodeId] = createSignal<string | null>(null);
 
   // reload whenever the active admin target or include-deleted flag changes
   createEffect(() => {
@@ -122,9 +116,7 @@ export default function UsersView() {
         admin.dispatchOrThrow<PeerNodeInfo[]>("peers_list_all", {
           include_deleted: true,
         }),
-        admin
-          .dispatchOrThrow<KnockInfo[]>("knocks_list_all", {})
-          .catch(() => [] as KnockInfo[]),
+        admin.dispatchOrThrow<KnockInfo[]>("knocks_list_all", {}).catch(() => [] as KnockInfo[]),
       ]);
       setPeers(peerList);
       setKnocks(knockList);
@@ -274,10 +266,9 @@ export default function UsersView() {
   async function generateAccountLink(userId: string) {
     setError("");
     try {
-      const result = await admin.dispatchOrThrow<{ code: string }>(
-        "users_generate_account_link",
-        { user_id: userId },
-      );
+      const result = await admin.dispatchOrThrow<{ code: string }>("users_generate_account_link", {
+        user_id: userId,
+      });
       const code = result.code;
       console.log("generated account link code:", code);
       // show feedback immediately - code is generated and visible in invites list
@@ -287,10 +278,7 @@ export default function UsersView() {
       try {
         await navigator.clipboard.writeText(code);
       } catch (e) {
-        console.log(
-          "clipboard copy failed (expected after async dispatch):",
-          e,
-        );
+        console.log("clipboard copy failed (expected after async dispatch):", e);
       }
       await loadInvites();
     } catch (e) {
@@ -306,11 +294,9 @@ export default function UsersView() {
     return invites().filter((i) => i.is_active && !i.used_by);
   };
 
-  const activeInviteCount = () =>
-    invites().filter((i) => i.is_active && !i.used_by).length;
+  const activeInviteCount = () => invites().filter((i) => i.is_active && !i.used_by).length;
 
-  const inactiveInviteCount = () =>
-    invites().filter((i) => !i.is_active || i.used_by).length;
+  const inactiveInviteCount = () => invites().filter((i) => !i.is_active || i.used_by).length;
 
   // most-recent knock per node_id (for surfacing original join message).
   const knockByNodeId = (): Map<string, KnockInfo> => {
@@ -339,13 +325,10 @@ export default function UsersView() {
   // shows ONLY deleted users; when off, only live ones.
   const visibleUsers = (): User[] => {
     const wantDeleted = includeDeleted();
-    return users().filter((u) =>
-      wantDeleted ? !!u.deleted_at : !u.deleted_at,
-    );
+    return users().filter((u) => (wantDeleted ? !!u.deleted_at : !u.deleted_at));
   };
 
-  const deletedUserCount = (): number =>
-    users().filter((u) => !!u.deleted_at).length;
+  const deletedUserCount = (): number => users().filter((u) => !!u.deleted_at).length;
 
   function formatNodeId(nodeId: string): string {
     if (nodeId.length <= 16) return nodeId;
@@ -469,9 +452,7 @@ export default function UsersView() {
             onClick={() => setIncludeDeleted(!includeDeleted())}
             disabled={!includeDeleted() && deletedUserCount() === 0}
           >
-            {includeDeleted()
-              ? "show active"
-              : `show deleted (${deletedUserCount()})`}
+            {includeDeleted() ? "show active" : `show deleted (${deletedUserCount()})`}
           </button>
         </div>
         <Show when={loading()}>
@@ -502,8 +483,7 @@ export default function UsersView() {
             {(user) => {
               const userPeers = () => peersByUserId().get(user.id) ?? [];
               const livePeerCount = () =>
-                userPeers().filter((p) => !p.deleted_at && !p.user_deleted_at)
-                  .length;
+                userPeers().filter((p) => !p.deleted_at && !p.user_deleted_at).length;
               const isExpanded = () => expandedUserId() === user.id;
               return (
                 <div
@@ -516,8 +496,7 @@ export default function UsersView() {
                     // don't toggle when clicking interactive controls
                     // or anywhere inside the expanded peer panel
                     const target = e.target as HTMLElement;
-                    if (target.closest("select,button,input,a,textarea"))
-                      return;
+                    if (target.closest("select,button,input,a,textarea")) return;
                     if (target.closest(".user-peer-panel")) return;
                     toggleExpand(user.id);
                   }}
@@ -526,13 +505,7 @@ export default function UsersView() {
                   <div class="user-row">
                     <div class="item-info">
                       <div class="item-name username-row">
-                        <span
-                          style={
-                            user.deleted_at
-                              ? { "text-decoration": "line-through" }
-                              : {}
-                          }
-                        >
+                        <span style={user.deleted_at ? { "text-decoration": "line-through" } : {}}>
                           {user.username}
                         </span>
                         <Show when={userPeers().length > 0}>
@@ -561,9 +534,7 @@ export default function UsersView() {
                           <span class="role-item-actions">
                             <select
                               value={user.role}
-                              onChange={(e) =>
-                                updateRole(user.id, e.currentTarget.value)
-                              }
+                              onChange={(e) => updateRole(user.id, e.currentTarget.value)}
                             >
                               <option value="admin">admin</option>
                               <option value="member">member</option>
@@ -602,9 +573,7 @@ export default function UsersView() {
                           onClick={() => generateAccountLink(user.id)}
                           title="generate account-link code"
                         >
-                          {linkCopiedUserId() === user.id
-                            ? "created!"
-                            : "+ link"}
+                          {linkCopiedUserId() === user.id ? "created!" : "+ link"}
                         </button>
                       </Show>
                       <Show when={user.deleted_at}>
@@ -666,9 +635,7 @@ export default function UsersView() {
                           }}
                           onClick={() => copyNodeId(user.id)}
                         >
-                          {copiedPeerNodeId() === user.id
-                            ? "copied!"
-                            : `id: ${user.id}`}
+                          {copiedPeerNodeId() === user.id ? "copied!" : `id: ${user.id}`}
                         </code>
                         <button
                           class="secondary small"
@@ -702,10 +669,8 @@ export default function UsersView() {
                         >
                           <For each={userPeers()}>
                             {(peer) => {
-                              const peerDeleted = () =>
-                                !!peer.deleted_at || !!peer.user_deleted_at;
-                              const knock = () =>
-                                knockByNodeId().get(peer.node_id);
+                              const peerDeleted = () => !!peer.deleted_at || !!peer.user_deleted_at;
+                              const knock = () => knockByNodeId().get(peer.node_id);
                               return (
                                 <div
                                   class="peer-node-row"
@@ -714,10 +679,8 @@ export default function UsersView() {
                                     "flex-direction": "column",
                                     gap: "0.5rem",
                                     padding: "0.75rem",
-                                    background:
-                                      "var(--color-bg-secondary, #1a1a1a)",
-                                    border:
-                                      "1px solid var(--color-border, #333)",
+                                    background: "var(--color-bg-secondary, #1a1a1a)",
+                                    border: "1px solid var(--color-border, #333)",
                                     "border-radius": "6px",
                                     opacity: peerDeleted() ? 0.6 : 1,
                                   }}
@@ -755,9 +718,7 @@ export default function UsersView() {
                                           "border-radius": "10px",
                                         }}
                                       >
-                                        {peer.user_deleted_at
-                                          ? "user deleted"
-                                          : "deleted"}
+                                        {peer.user_deleted_at ? "user deleted" : "deleted"}
                                       </span>
                                     </Show>
                                   </div>
@@ -769,24 +730,17 @@ export default function UsersView() {
                                       "flex-wrap": "wrap",
                                       gap: "0.75rem",
                                       "font-size": "0.75rem",
-                                      color:
-                                        "var(--color-text-secondary, #888)",
+                                      color: "var(--color-text-secondary, #888)",
                                     }}
                                   >
                                     <Show when={peer.instance_name}>
                                       <span>
-                                        instance:{" "}
-                                        <strong>{peer.instance_name}</strong>
+                                        instance: <strong>{peer.instance_name}</strong>
                                       </span>
                                     </Show>
-                                    <span>
-                                      added {formatDateTime(peer.created_at)}
-                                    </span>
+                                    <span>added {formatDateTime(peer.created_at)}</span>
                                     <Show when={peer.last_seen_at}>
-                                      <span>
-                                        last seen{" "}
-                                        {formatDateTime(peer.last_seen_at!)}
-                                      </span>
+                                      <span>last seen {formatDateTime(peer.last_seen_at!)}</span>
                                     </Show>
                                   </div>
 
@@ -796,13 +750,10 @@ export default function UsersView() {
                                       style={{
                                         "font-size": "0.8125rem",
                                         "font-style": "italic",
-                                        color:
-                                          "var(--color-text-secondary, #888)",
-                                        "border-left":
-                                          "2px solid var(--color-accent-500, #ff69b4)",
+                                        color: "var(--color-text-secondary, #888)",
+                                        "border-left": "2px solid var(--color-accent-500, #ff69b4)",
                                         padding: "0.25rem 0.5rem",
-                                        background:
-                                          "var(--color-bg-tertiary, #2a2a2a)",
+                                        background: "var(--color-bg-tertiary, #2a2a2a)",
                                         "border-radius": "0 4px 4px 0",
                                       }}
                                       title="original knock request message"
@@ -824,26 +775,16 @@ export default function UsersView() {
                                       <button
                                         class="primary small"
                                         style={{ color: "#ffffff" }}
-                                        onClick={() =>
-                                          restorePeerNode(user.id, peer.node_id)
-                                        }
-                                        disabled={
-                                          removingNodeId() === peer.node_id
-                                        }
+                                        onClick={() => restorePeerNode(user.id, peer.node_id)}
+                                        disabled={removingNodeId() === peer.node_id}
                                         title="restore this peer node"
                                       >
-                                        {removingNodeId() === peer.node_id
-                                          ? "..."
-                                          : "restore"}
+                                        {removingNodeId() === peer.node_id ? "..." : "restore"}
                                       </button>
                                       <button
                                         class="danger small"
-                                        onClick={() =>
-                                          hardDeletePeerNode(peer.node_id)
-                                        }
-                                        disabled={
-                                          removingNodeId() === peer.node_id
-                                        }
+                                        onClick={() => hardDeletePeerNode(peer.node_id)}
+                                        disabled={removingNodeId() === peer.node_id}
                                         title="permanently delete forever"
                                       >
                                         delete forever
@@ -852,17 +793,11 @@ export default function UsersView() {
                                     <Show when={!peer.deleted_at}>
                                       <button
                                         class="danger small"
-                                        onClick={() =>
-                                          removePeerNode(user.id, peer.node_id)
-                                        }
-                                        disabled={
-                                          removingNodeId() === peer.node_id
-                                        }
+                                        onClick={() => removePeerNode(user.id, peer.node_id)}
+                                        disabled={removingNodeId() === peer.node_id}
                                         title="remove this peer node"
                                       >
-                                        {removingNodeId() === peer.node_id
-                                          ? "..."
-                                          : "drop"}
+                                        {removingNodeId() === peer.node_id ? "..." : "drop"}
                                       </button>
                                     </Show>
                                   </div>
@@ -906,16 +841,10 @@ export default function UsersView() {
             }}
             onClick={(e) => e.stopPropagation()}
           >
-            <h2
-              class="active"
-              style={{ "margin-top": "0", "margin-bottom": "0.5rem" }}
-            >
+            <h2 class="active" style={{ "margin-top": "0", "margin-bottom": "0.5rem" }}>
               {confirmDialog().title}
             </h2>
-            <p
-              class="item-meta"
-              style={{ margin: 0, "white-space": "pre-wrap" }}
-            >
+            <p class="item-meta" style={{ margin: 0, "white-space": "pre-wrap" }}>
               {confirmDialog().message}
             </p>
             <div
@@ -926,10 +855,7 @@ export default function UsersView() {
                 "margin-top": "1rem",
               }}
             >
-              <button
-                class="secondary small"
-                onClick={() => resolveConfirm(false)}
-              >
+              <button class="secondary small" onClick={() => resolveConfirm(false)}>
                 cancel
               </button>
               <button class="danger small" onClick={() => resolveConfirm(true)}>
@@ -946,11 +872,7 @@ export default function UsersView() {
           invite<span class="pinky">z</span>
         </h2>
         <div class="invite-toolbar">
-          <button
-            class="primary small"
-            onClick={generateInvite}
-            disabled={generating()}
-          >
+          <button class="primary small" onClick={generateInvite} disabled={generating()}>
             {generating() ? "generating..." : "generate invite"}
           </button>
           <Show when={activeInviteCount() > 0 && !confirmDeactivateAll()}>
@@ -959,9 +881,7 @@ export default function UsersView() {
               onClick={() => setConfirmDeactivateAll(true)}
               disabled={deactivatingAll()}
             >
-              {deactivatingAll()
-                ? "deactivating..."
-                : `deactivate all (${activeInviteCount()})`}
+              {deactivatingAll() ? "deactivating..." : `deactivate all (${activeInviteCount()})`}
             </button>
           </Show>
           <Show when={confirmDeactivateAll()}>
@@ -972,10 +892,7 @@ export default function UsersView() {
             >
               {deactivatingAll() ? "deactivating..." : "confirm"}
             </button>
-            <button
-              class="secondary small"
-              onClick={() => setConfirmDeactivateAll(false)}
-            >
+            <button class="secondary small" onClick={() => setConfirmDeactivateAll(false)}>
               cancel
             </button>
           </Show>
@@ -1017,26 +934,20 @@ export default function UsersView() {
                         class="secondary small copy-btn"
                         onClick={() => copyToClipboard(invite.code)}
                       >
-                        {copiedInviteCode() === invite.code
-                          ? "copied!"
-                          : "copy"}
+                        {copiedInviteCode() === invite.code ? "copied!" : "copy"}
                       </button>
                     </Show>
                   </div>
                   <span class="item-meta">
                     {invite.used_by ? (
                       <>
-                        used by{" "}
-                        <strong>
-                          {invite.used_by_username || invite.used_by}
-                        </strong>
+                        used by <strong>{invite.used_by_username || invite.used_by}</strong>
                         <Show when={invite.code_type === "invite"}>
                           {" "}
                           (granted {invite.grants_role})
                         </Show>
                       </>
-                    ) : invite.code_type === "accountlink" &&
-                      invite.link_for_username ? (
+                    ) : invite.code_type === "accountlink" && invite.link_for_username ? (
                       <>
                         for <strong>{invite.link_for_username}</strong>
                       </>
@@ -1054,18 +965,10 @@ export default function UsersView() {
                   </span>
                 </div>
                 <div class="item-actions">
-                  <Show
-                    when={
-                      invite.is_active &&
-                      !invite.used_by &&
-                      invite.code_type === "invite"
-                    }
-                  >
+                  <Show when={invite.is_active && !invite.used_by && invite.code_type === "invite"}>
                     <select
                       value={invite.grants_role}
-                      onChange={(e) =>
-                        updateInviteRole(invite.code, e.currentTarget.value)
-                      }
+                      onChange={(e) => updateInviteRole(invite.code, e.currentTarget.value)}
                     >
                       <option value="admin">admin</option>
                       <option value="member">member</option>
@@ -1073,10 +976,7 @@ export default function UsersView() {
                     </select>
                   </Show>
                   <Show when={invite.is_active && !invite.used_by}>
-                    <button
-                      class="danger small"
-                      onClick={() => deactivateInvite(invite.code)}
-                    >
+                    <button class="danger small" onClick={() => deactivateInvite(invite.code)}>
                       deactivate
                     </button>
                   </Show>

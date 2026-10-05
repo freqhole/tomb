@@ -5,7 +5,7 @@ mod directory;
 mod filename_parser;
 mod import;
 mod models;
-mod move_dir;
+pub(crate) mod move_dir;
 mod rescan;
 mod service;
 

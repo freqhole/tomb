@@ -6,8 +6,10 @@ use grimoire::blob_data::{backfill_thumbnails, count_blobs_needing_thumbnails};
 use grimoire::config::{ensure_server_image_blob, find_config, GrimoireConfig};
 use grimoire::error::GrimoireError;
 use grimoire::maintenance::{
-    cleanup_contentless_media_blobs, cleanup_orphaned_genres, cleanup_orphaned_tags,
-    repair_library_images_sync, RepairLibraryImagesOptions,
+    cleanup_contentless_media_blobs, cleanup_orphaned_albums, cleanup_orphaned_artists,
+    cleanup_orphaned_genres, cleanup_orphaned_tags, cleanup_orphaned_taxons,
+    cleanup_orphaned_video_series, default_music_source_dir, default_video_source_dir,
+    reorganize_library_sync, repair_library_images_sync, RepairLibraryImagesOptions,
 };
 use serde::Serialize;
 use std::path::PathBuf;
@@ -31,6 +33,30 @@ pub enum MaintenanceAction {
     },
     /// Cleanup orphaned genres
     CleanupOrphanedGenres {
+        /// Show what would be deleted without actually deleting
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Cleanup orphaned artists (zero album or song references)
+    CleanupOrphanedArtists {
+        /// Show what would be deleted without actually deleting
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Cleanup orphaned albums (zero song references)
+    CleanupOrphanedAlbums {
+        /// Show what would be deleted without actually deleting
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Cleanup orphaned video series (zero video references)
+    CleanupOrphanedVideoSeries {
+        /// Show what would be deleted without actually deleting
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Cleanup orphaned taxons (every kind except genre - zero references)
+    CleanupOrphanedTaxons {
         /// Show what would be deleted without actually deleting
         #[arg(long)]
         dry_run: bool,
@@ -127,6 +153,33 @@ pub enum MaintenanceAction {
         #[arg(long)]
         scan_dir: Option<String>,
     },
+    /// Move fetched music/video files into a user-chosen library
+    /// directory (with naming + folder layout), optionally embedding
+    /// id3/vorbis tags and cover art into the moved song files along the
+    /// way. defaults to both domains and the configured fetch output
+    /// dirs; pass `--domain music` or `--domain video` to restrict to one.
+    ReorganizeLibrary {
+        /// destination root directory to move files into
+        #[arg(long)]
+        target_dir: String,
+        /// which domain(s) to reorganize: "music", "video", or "both" (default)
+        #[arg(long, default_value = "both")]
+        domain: String,
+        /// source directory to scan for fetched music (defaults to the
+        /// configured fetch_music output dir)
+        #[arg(long)]
+        source_music_dir: Option<String>,
+        /// source directory to scan for fetched video (defaults to the
+        /// configured fetch_video output dir)
+        #[arg(long)]
+        source_video_dir: Option<String>,
+        /// show what would move without actually moving/writing anything
+        #[arg(long)]
+        dry_run: bool,
+        /// skip embedding id3/vorbis tags and cover art into moved song files
+        #[arg(long)]
+        no_embed_tags: bool,
+    },
 }
 
 /// Handle maintenance commands
@@ -151,6 +204,62 @@ pub async fn handle_command(
 
         MaintenanceAction::CleanupOrphanedGenres { dry_run } => {
             let response = cleanup_orphaned_genres(dry_run).await;
+
+            if !response.success {
+                return CommandOutput::failure(response.message, response.errors, ());
+            }
+
+            let Some(summary) = response.data else {
+                return CommandOutput::failure("No summary data returned", vec![], ());
+            };
+
+            CommandOutput::success(response.message, summary)
+        }
+
+        MaintenanceAction::CleanupOrphanedArtists { dry_run } => {
+            let response = cleanup_orphaned_artists(dry_run).await;
+
+            if !response.success {
+                return CommandOutput::failure(response.message, response.errors, ());
+            }
+
+            let Some(summary) = response.data else {
+                return CommandOutput::failure("No summary data returned", vec![], ());
+            };
+
+            CommandOutput::success(response.message, summary)
+        }
+
+        MaintenanceAction::CleanupOrphanedAlbums { dry_run } => {
+            let response = cleanup_orphaned_albums(dry_run).await;
+
+            if !response.success {
+                return CommandOutput::failure(response.message, response.errors, ());
+            }
+
+            let Some(summary) = response.data else {
+                return CommandOutput::failure("No summary data returned", vec![], ());
+            };
+
+            CommandOutput::success(response.message, summary)
+        }
+
+        MaintenanceAction::CleanupOrphanedVideoSeries { dry_run } => {
+            let response = cleanup_orphaned_video_series(dry_run).await;
+
+            if !response.success {
+                return CommandOutput::failure(response.message, response.errors, ());
+            }
+
+            let Some(summary) = response.data else {
+                return CommandOutput::failure("No summary data returned", vec![], ());
+            };
+
+            CommandOutput::success(response.message, summary)
+        }
+
+        MaintenanceAction::CleanupOrphanedTaxons { dry_run } => {
+            let response = cleanup_orphaned_taxons(dry_run).await;
 
             if !response.success {
                 return CommandOutput::failure(response.message, response.errors, ());
@@ -505,6 +614,38 @@ pub async fn handle_command(
                 backfill_video_thumbnails: true,
             };
             let response = repair_library_images_sync(dry_run, scan_dir, options, None).await;
+            if !response.success {
+                return CommandOutput::failure(response.message, response.errors, ());
+            }
+            let Some(summary) = response.data else {
+                return CommandOutput::failure("No summary data returned", vec![], ());
+            };
+            CommandOutput::success(response.message, summary)
+        }
+
+        MaintenanceAction::ReorganizeLibrary {
+            target_dir,
+            domain,
+            source_music_dir,
+            source_video_dir,
+            dry_run,
+            no_embed_tags,
+        } => {
+            let include_music = domain != "video";
+            let include_video = domain != "music";
+            let source_music = source_music_dir.unwrap_or_else(default_music_source_dir);
+            let source_video = source_video_dir.unwrap_or_else(default_video_source_dir);
+            let response = reorganize_library_sync(
+                &target_dir,
+                &source_music,
+                &source_video,
+                include_music,
+                include_video,
+                dry_run,
+                !no_embed_tags,
+                None,
+            )
+            .await;
             if !response.success {
                 return CommandOutput::failure(response.message, response.errors, ());
             }

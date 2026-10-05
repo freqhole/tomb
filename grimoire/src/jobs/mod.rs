@@ -43,7 +43,8 @@ pub use music::{
     GetEnrichmentProgressResponse, LastFmAlbumDetailParams, LastFmAlbumDetailResult,
     LastFmArtistDetailParams, LastFmArtistDetailResult, MbAlbumDetailParams, MbAlbumDetailResult,
     MbAlbumSearchParams, MbAlbumSearchResult, ProcessDirectoryParams, ProcessDirectoryResult,
-    ProcessFileParams, ProcessFileResult, ProcessJobCreatedResponse, RepairLibraryImagesJobResult,
+    ProcessFileParams, ProcessFileResult, ProcessJobCreatedResponse,
+    ReorganizeLibraryFilesJobResult, ReorganizeLibraryFilesParams, RepairLibraryImagesJobResult,
     RepairLibraryImagesParams, RequeryEnrichmentRequest, RequeryEnrichmentResponse,
     RequeryOverride, ScanDirectoryParams, ScanDirectoryResult, ScanJobCreatedResponse,
 };

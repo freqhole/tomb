@@ -2056,6 +2056,10 @@ pub fn upgrade_config(config_path: &Path) -> Result<ConfigUpgradeResult, ConfigE
     // from before mac builds bundled their own - see its own doc comment.
     maybe_fallback_to_bundled_ffmpeg(&mut template_doc, &old_version);
 
+    // one-time fix for installs whose fetch_video.output_dir never got
+    // set by setup - see its own doc comment.
+    fix_missing_fetch_video_output_dir(&mut template_doc, &old_version);
+
     // always set server.version from binary (don't keep user's old version)
     if let Some(server) = template_doc.get_mut("server") {
         if let Some(server_table) = server.as_table_mut() {
@@ -2237,6 +2241,66 @@ fn fix_stale_video_transcode_args(doc: &mut DocumentMut, old_version: &str) {
             }
         }
         _ => {}
+    }
+}
+
+/// last version shipped before `fetch_video.output_dir` was reliably set
+/// alongside `fetch_music.output_dir` by setup - installs from this
+/// version or older can have `fetch_video.enabled = true` with an empty
+/// `output_dir` (the "enable fetching" setup step only ever wrote
+/// `fetch_music`'s directory back then). see `fix_missing_fetch_video_output_dir`.
+const LAST_VERSION_PREDATING_SHARED_FETCH_DIR: &str = "0.3.12";
+
+/// one-time migration: when upgrading from `LAST_VERSION_PREDATING_SHARED_FETCH_DIR`
+/// or older, and `server.fetch_video.enabled` is true but its `output_dir`
+/// is missing/blank, fill it in from `server.fetch_music.output_dir` (the
+/// two deliberately share one directory - see `SetupView.tsx`'s
+/// `fetchMusicDir` comment and `update_fetch_music_dir`'s doc comment).
+/// never touches an already-set `fetch_video.output_dir`, even one the
+/// user deliberately pointed elsewhere - "missing/blank" here specifically
+/// means "this key never got a real value in the first place", the exact
+/// state setup used to leave it in.
+fn fix_missing_fetch_video_output_dir(doc: &mut DocumentMut, old_version: &str) {
+    if parse_version_tuple(old_version)
+        > parse_version_tuple(LAST_VERSION_PREDATING_SHARED_FETCH_DIR)
+    {
+        return;
+    }
+    let fetch_video_enabled = doc
+        .get("server")
+        .and_then(|s| s.get("fetch_video"))
+        .and_then(|f| f.get("enabled"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    if !fetch_video_enabled {
+        return;
+    }
+    let fetch_video_output_dir = doc
+        .get("server")
+        .and_then(|s| s.get("fetch_video"))
+        .and_then(|f| f.get("output_dir"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    if !fetch_video_output_dir.trim().is_empty() {
+        return;
+    }
+    let fetch_music_output_dir = doc
+        .get("server")
+        .and_then(|s| s.get("fetch_music"))
+        .and_then(|f| f.get("output_dir"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    if fetch_music_output_dir.trim().is_empty() {
+        return;
+    }
+    if let Some(fetch_video) = doc
+        .get_mut("server")
+        .and_then(|s| s.as_table_mut())
+        .and_then(|t| t.get_mut("fetch_video"))
+        .and_then(|f| f.as_table_mut())
+    {
+        fetch_video["output_dir"] = value(fetch_music_output_dir);
     }
 }
 
@@ -2428,6 +2492,66 @@ mod tests {
                 .and_then(|t| t.get("args"))
                 .and_then(|v| v.as_str()),
             Some("-i {input} -c:v copy -c:a copy -y {output}")
+        );
+    }
+
+    #[test]
+    fn fetch_video_output_dir_filled_from_fetch_music_when_enabled_and_blank() {
+        let mut doc =
+            "[server.fetch_music]\noutput_dir = \"/data/fetch\"\n[server.fetch_video]\nenabled = true\noutput_dir = \"\"\n"
+                .parse::<DocumentMut>()
+                .unwrap();
+
+        fix_missing_fetch_video_output_dir(&mut doc, "0.3.12");
+
+        assert_eq!(
+            get_item_at_path(&doc, "server.fetch_video.output_dir").and_then(|v| v.as_str()),
+            Some("/data/fetch")
+        );
+    }
+
+    #[test]
+    fn fetch_video_output_dir_left_alone_once_past_the_gate_version() {
+        let mut doc =
+            "[server.fetch_music]\noutput_dir = \"/data/fetch\"\n[server.fetch_video]\nenabled = true\noutput_dir = \"\"\n"
+                .parse::<DocumentMut>()
+                .unwrap();
+
+        fix_missing_fetch_video_output_dir(&mut doc, "0.3.13");
+
+        assert_eq!(
+            get_item_at_path(&doc, "server.fetch_video.output_dir").and_then(|v| v.as_str()),
+            Some("")
+        );
+    }
+
+    #[test]
+    fn fetch_video_output_dir_never_overwritten_once_already_set() {
+        let mut doc =
+            "[server.fetch_music]\noutput_dir = \"/data/fetch\"\n[server.fetch_video]\nenabled = true\noutput_dir = \"/elsewhere/videos\"\n"
+                .parse::<DocumentMut>()
+                .unwrap();
+
+        fix_missing_fetch_video_output_dir(&mut doc, "0.3.12");
+
+        assert_eq!(
+            get_item_at_path(&doc, "server.fetch_video.output_dir").and_then(|v| v.as_str()),
+            Some("/elsewhere/videos")
+        );
+    }
+
+    #[test]
+    fn fetch_video_output_dir_untouched_when_fetch_video_disabled() {
+        let mut doc =
+            "[server.fetch_music]\noutput_dir = \"/data/fetch\"\n[server.fetch_video]\nenabled = false\noutput_dir = \"\"\n"
+                .parse::<DocumentMut>()
+                .unwrap();
+
+        fix_missing_fetch_video_output_dir(&mut doc, "0.3.12");
+
+        assert_eq!(
+            get_item_at_path(&doc, "server.fetch_video.output_dir").and_then(|v| v.as_str()),
+            Some("")
         );
     }
 

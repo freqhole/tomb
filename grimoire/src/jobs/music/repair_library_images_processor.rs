@@ -50,6 +50,7 @@ pub async fn process_repair_library_images_job(job: &Job) -> Result<Option<Value
             let resp = crate::maintenance::repair_waveforms_batch(
                 params.dry_run,
                 WAVEFORM_BATCH_SIZE,
+                params.directory_offset,
                 params.scan_directory.as_deref(),
                 created_by.clone(),
             )
@@ -61,7 +62,16 @@ pub async fn process_repair_library_images_job(job: &Job) -> Result<Option<Value
             };
             totals.merge(outcome.result);
             if outcome.more_remaining {
-                Some((RepairLibraryImagesPhase::Waveforms, 0))
+                // a real run's candidate set shrinks on its own; only a
+                // dry run (never writes) needs the offset to advance so
+                // it doesn't re-fetch the same rows forever - see
+                // `repair_waveforms_batch`'s doc comment.
+                let next_offset = if params.dry_run {
+                    params.directory_offset + WAVEFORM_BATCH_SIZE
+                } else {
+                    0
+                };
+                Some((RepairLibraryImagesPhase::Waveforms, next_offset))
             } else {
                 // song waveform phase exhausted - move on to video waveforms.
                 Some((RepairLibraryImagesPhase::VideoWaveforms, 0))
@@ -74,6 +84,7 @@ pub async fn process_repair_library_images_job(job: &Job) -> Result<Option<Value
             let resp = crate::maintenance::repair_video_waveforms_batch(
                 params.dry_run,
                 WAVEFORM_BATCH_SIZE,
+                params.directory_offset,
                 params.scan_directory.as_deref(),
                 created_by.clone(),
             )
@@ -85,7 +96,12 @@ pub async fn process_repair_library_images_job(job: &Job) -> Result<Option<Value
             };
             totals.merge(outcome.result);
             if outcome.more_remaining {
-                Some((RepairLibraryImagesPhase::VideoWaveforms, 0))
+                let next_offset = if params.dry_run {
+                    params.directory_offset + WAVEFORM_BATCH_SIZE
+                } else {
+                    0
+                };
+                Some((RepairLibraryImagesPhase::VideoWaveforms, next_offset))
             } else {
                 Some((RepairLibraryImagesPhase::VideoThumbnails, 0))
             }
@@ -97,6 +113,7 @@ pub async fn process_repair_library_images_job(job: &Job) -> Result<Option<Value
             let resp = crate::maintenance::repair_video_thumbnails_batch(
                 params.dry_run,
                 VIDEO_THUMBNAIL_BATCH_SIZE,
+                params.directory_offset,
                 params.scan_directory.as_deref(),
                 created_by.clone(),
             )
@@ -108,7 +125,12 @@ pub async fn process_repair_library_images_job(job: &Job) -> Result<Option<Value
             };
             totals.merge(outcome.result);
             if outcome.more_remaining {
-                Some((RepairLibraryImagesPhase::VideoThumbnails, 0))
+                let next_offset = if params.dry_run {
+                    params.directory_offset + VIDEO_THUMBNAIL_BATCH_SIZE
+                } else {
+                    0
+                };
+                Some((RepairLibraryImagesPhase::VideoThumbnails, next_offset))
             } else {
                 // video thumbnail phase exhausted - move on to the
                 // song/album directory pass.

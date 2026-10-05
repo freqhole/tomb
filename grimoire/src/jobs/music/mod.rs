@@ -22,6 +22,7 @@ mod mb_album_search_processor;
 mod mb_detail_processor;
 mod models;
 mod precheck_processor;
+mod reorganize_library_processor;
 mod repair_library_images_processor;
 mod rescan_processor;
 mod scan_processor;
@@ -42,6 +43,7 @@ pub use lastfm_detail_processor::process_lastfm_album_detail_job;
 pub use mb_album_search_processor::process_mb_album_search_job;
 pub use mb_detail_processor::process_mb_album_detail_job;
 pub use precheck_processor::process_precheck_fetch_job;
+pub use reorganize_library_processor::process_reorganize_library_files_job;
 pub use repair_library_images_processor::process_repair_library_images_job;
 pub use rescan_processor::process_rescan_directories_job;
 pub use rescan_processor::{
@@ -65,7 +67,8 @@ pub use models::{
     GetEnrichmentProgressResponse, LastFmAlbumDetailParams, LastFmAlbumDetailResult,
     LastFmArtistDetailParams, LastFmArtistDetailResult, MbAlbumDetailParams, MbAlbumDetailResult,
     MbAlbumSearchParams, MbAlbumSearchResult, ProcessDirectoryParams, ProcessDirectoryResult,
-    ProcessFileParams, ProcessFileResult, ProcessJobCreatedResponse, RepairLibraryImagesJobResult,
+    ProcessFileParams, ProcessFileResult, ProcessJobCreatedResponse,
+    ReorganizeLibraryFilesJobResult, ReorganizeLibraryFilesParams, RepairLibraryImagesJobResult,
     RepairLibraryImagesParams, RequeryEnrichmentRequest, RequeryEnrichmentResponse,
     RequeryOverride, ScanDirectoryParams, ScanDirectoryResult, ScanJobCreatedResponse,
 };

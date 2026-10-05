@@ -30,11 +30,14 @@ pub const VIDEO_THUMBNAIL_BATCH_SIZE: i64 = 100;
 /// as an error - see `video::importer::video_has_audio_stream`).
 /// `dry_run` still probes each candidate for an audio stream (read-only)
 /// so the reported count matches what an actual run would do, it just
-/// skips the ffmpeg waveform generation + db write. `scan_directory` and
-/// `created_by` mirror `repair_waveforms_batch`'s same-named parameters.
+/// skips the ffmpeg waveform generation + db write. `offset` is only
+/// meaningful under `dry_run` - see `repair_waveforms_batch`'s doc
+/// comment for why. `scan_directory` and `created_by` mirror
+/// `repair_waveforms_batch`'s same-named parameters.
 pub async fn repair_video_waveforms_batch(
     dry_run: bool,
     limit: i64,
+    offset: i64,
     scan_directory: Option<&str>,
     created_by: Option<(String, String)>,
 ) -> GrimoireResponse<WaveformBatchOutcome> {
@@ -64,10 +67,11 @@ pub async fn repair_video_waveforms_batch(
             WHERE ei.entity_type = 'video' AND ei.entity_id = v.id
               AND wmb.blob_type = 'waveform' AND wmb.deleted_at IS NULL
           )
-        LIMIT ?2
+        LIMIT ?2 OFFSET ?3
         "#,
         like_prefix,
-        limit
+        limit,
+        offset,
     )
     .fetch_all(&pool)
     .await;
@@ -138,12 +142,14 @@ pub async fn repair_video_waveforms_batch(
 }
 
 /// backfill a poster/thumbnail (via ffmpeg frame grab) for up to `limit`
-/// videos missing one (`videoz.poster_blob_id IS NULL`). `scan_directory`
-/// and `created_by` mirror `repair_waveforms_batch`'s same-named
-/// parameters.
+/// videos missing one (`videoz.poster_blob_id IS NULL`). `offset` is only
+/// meaningful under `dry_run` - see `repair_waveforms_batch`'s doc
+/// comment for why. `scan_directory` and `created_by` mirror
+/// `repair_waveforms_batch`'s same-named parameters.
 pub async fn repair_video_thumbnails_batch(
     dry_run: bool,
     limit: i64,
+    offset: i64,
     scan_directory: Option<&str>,
     created_by: Option<(String, String)>,
 ) -> GrimoireResponse<WaveformBatchOutcome> {
@@ -169,10 +175,11 @@ pub async fn repair_video_thumbnails_batch(
           AND v.poster_blob_id IS NULL
           AND mb.local_path IS NOT NULL
           AND (?1 IS NULL OR mb.local_path LIKE ?1 ESCAPE '\')
-        LIMIT ?2
+        LIMIT ?2 OFFSET ?3
         "#,
         like_prefix,
-        limit
+        limit,
+        offset,
     )
     .fetch_all(&pool)
     .await;

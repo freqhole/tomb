@@ -914,7 +914,11 @@ pub fn get_fetch_music_dir(app_handle: tauri::AppHandle) -> Option<String> {
 /// update the fetched-music storage directory (`server.fetch_music.output_dir`)
 /// and reload the in-memory config immediately - no restart required. `path`
 /// is resolved via `canonicalize_or_original` first (a no-op for flatpak
-/// document-portal paths, see grimoire::paths).
+/// document-portal paths, see grimoire::paths). also updates
+/// `server.fetch_video.output_dir` to the same path - music and video
+/// fetches deliberately share one directory (see `SetupView.tsx`'s own
+/// `fetchMusicDir` comment) so they stay in sync here too, rather than
+/// silently diverging the way they could before this fn also touched video.
 #[tauri::command]
 pub fn update_fetch_music_dir(
     app_handle: tauri::AppHandle,
@@ -932,7 +936,10 @@ pub fn update_fetch_music_dir(
 
     grimoire::set_config_values(
         &config_path,
-        &[("server.fetch_music.output_dir", resolved.clone().into())],
+        &[
+            ("server.fetch_music.output_dir", resolved.clone().into()),
+            ("server.fetch_video.output_dir", resolved.clone().into()),
+        ],
     )
     .map_err(|e| format!("failed to update config: {}", e))?;
 

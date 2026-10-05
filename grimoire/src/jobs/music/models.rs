@@ -245,8 +245,13 @@ pub struct RepairLibraryImagesParams {
     pub dry_run: bool,
     #[serde(default)]
     pub phase: crate::maintenance::RepairLibraryImagesPhase,
-    /// only meaningful for the `Directories` phase - offset into the
-    /// sorted distinct-directory list (see `repair_directories_batch`).
+    /// offset into the current `phase`'s candidate list - for
+    /// `Directories`, into the sorted distinct-directory list (see
+    /// `repair_directories_batch`); for the other three phases, only
+    /// meaningful under `dry_run` (a real run's candidate set shrinks on
+    /// its own as rows get fixed, so it stays 0; see
+    /// `repair_waveforms_batch`'s doc comment for why a dry run needs
+    /// one instead).
     #[serde(default)]
     pub directory_offset: i64,
     /// restricts the run to one tracked directory's subtree instead of
@@ -290,6 +295,36 @@ pub struct EnqueueRepairLibraryImagesRequest {
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct EnqueueRepairLibraryImagesResponse {
     pub job_id: String,
+}
+
+/// parameters for a `JobType::ReorganizeLibraryFiles` batch job - a fixed,
+/// disjoint list of song/video ids to move, computed once by the
+/// enqueue/plan step (see `maintenance::reorganize_library`). unlike
+/// `RepairLibraryImagesParams`, there's no phase/offset/carry to chain -
+/// each batch is fully self-contained, which is what lets many of these
+/// jobs run in parallel safely (see `jobs::runner::conflict_key_for`'s
+/// fallthrough for this job type).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, ZodSchema)]
+pub struct ReorganizeLibraryFilesParams {
+    pub target_directory: String,
+    pub source_directory: String,
+    #[serde(default)]
+    pub song_ids: Vec<String>,
+    #[serde(default)]
+    pub video_ids: Vec<String>,
+    /// when true, counts what would move without writing anything.
+    #[serde(default)]
+    pub dry_run: bool,
+    /// songs only - embed id3/vorbis/etc tags + cover art into whichever
+    /// formats support writing them.
+    #[serde(default)]
+    pub embed_tags: bool,
+}
+
+/// result of a `ReorganizeLibraryFiles` batch job.
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct ReorganizeLibraryFilesJobResult {
+    pub totals: crate::maintenance::ReorganizeLibraryResult,
 }
 
 // =============================================================================

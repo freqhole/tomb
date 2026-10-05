@@ -25,6 +25,61 @@ pub(in crate::ratcore::catalog) fn cleanup_orphaned_genres() -> AdminCommand {
     }
 }
 
+pub(in crate::ratcore::catalog) fn cleanup_orphaned_artists() -> AdminCommand {
+    AdminCommand {
+        name: "maintenance_cleanup_orphaned_artists".to_string(),
+        request_type: "MaintenanceDryRunRequest".to_string(),
+        response_type: "OrphanedArtistsSummary".to_string(),
+        auth: "Admin".to_string(),
+        kind: CommandKind::Admin,
+        args: vec![dry_run_arg()],
+    }
+}
+
+pub(in crate::ratcore::catalog) fn cleanup_orphaned_albums() -> AdminCommand {
+    AdminCommand {
+        name: "maintenance_cleanup_orphaned_albums".to_string(),
+        request_type: "MaintenanceDryRunRequest".to_string(),
+        response_type: "OrphanedAlbumsSummary".to_string(),
+        auth: "Admin".to_string(),
+        kind: CommandKind::Admin,
+        args: vec![dry_run_arg()],
+    }
+}
+
+pub(in crate::ratcore::catalog) fn cleanup_orphaned_video_series() -> AdminCommand {
+    AdminCommand {
+        name: "maintenance_cleanup_orphaned_video_series".to_string(),
+        request_type: "MaintenanceDryRunRequest".to_string(),
+        response_type: "OrphanedVideoSeriesSummary".to_string(),
+        auth: "Admin".to_string(),
+        kind: CommandKind::Admin,
+        args: vec![dry_run_arg()],
+    }
+}
+
+pub(in crate::ratcore::catalog) fn cleanup_orphaned_taxons() -> AdminCommand {
+    AdminCommand {
+        name: "maintenance_cleanup_orphaned_taxons".to_string(),
+        request_type: "MaintenanceDryRunRequest".to_string(),
+        response_type: "OrphanedTaxonsSummary".to_string(),
+        auth: "Admin".to_string(),
+        kind: CommandKind::Admin,
+        args: vec![dry_run_arg()],
+    }
+}
+
+pub(in crate::ratcore::catalog) fn cleanup_contentless_blobs() -> AdminCommand {
+    AdminCommand {
+        name: "maintenance_cleanup_contentless_blobs".to_string(),
+        request_type: "MaintenanceDryRunRequest".to_string(),
+        response_type: "ContentlessBlobSummary".to_string(),
+        auth: "Admin".to_string(),
+        kind: CommandKind::Admin,
+        args: vec![dry_run_arg()],
+    }
+}
+
 pub(in crate::ratcore::catalog) fn cleanup_all() -> AdminCommand {
     AdminCommand {
         name: "maintenance_cleanup_all".to_string(),
@@ -80,17 +135,22 @@ pub(in crate::ratcore::catalog) fn cleanup_orphaned_blobs() -> AdminCommand {
         response_type: "OrphanedBlobsSummary".to_string(),
         auth: "Admin".to_string(),
         kind: CommandKind::Admin,
-        args: vec![ArgSpec {
-            name: "min_age_days".to_string(),
-            kind: ArgKind::Number {
-                placeholder: "(blank = 30) min days since soft-delete".to_string(),
-                signed: false,
-                min: Some(0),
-                max: None,
+        args: vec![
+            ArgSpec {
+                name: "min_age_days".to_string(),
+                kind: ArgKind::Number {
+                    placeholder: "(blank = 30) min days since soft-delete".to_string(),
+                    signed: false,
+                    min: Some(0),
+                    max: None,
+                },
+                required: false,
+                help: Some(
+                    "only purge blobs soft-deleted more than this many days ago".to_string(),
+                ),
             },
-            required: false,
-            help: Some("only purge blobs soft-deleted more than this many days ago".to_string()),
-        }],
+            dry_run_arg(),
+        ],
     }
 }
 
@@ -295,5 +355,86 @@ pub(in crate::ratcore::catalog) fn repair_library_video_thumbnails() -> AdminCom
         auth: "Admin".to_string(),
         kind: CommandKind::Admin,
         args: repair_library_args(),
+    }
+}
+
+/// shared args for both the reorganize-library preview and enqueue
+/// commands - target directory (required) plus which domain(s) and
+/// which source dir(s) to scan (all optional, falling back server-side
+/// to the configured `fetch_music`/`fetch_video` output dirs).
+fn reorganize_library_scope_args() -> Vec<crate::ratcore::app::ArgSpec> {
+    use crate::ratcore::app::{ArgKind, ArgSpec};
+    vec![
+        ArgSpec {
+            name: "target_directory".to_string(),
+            kind: ArgKind::Text {
+                placeholder: "/path/to/library".to_string(),
+            },
+            required: true,
+            help: Some("destination root directory to move files into".to_string()),
+        },
+        ArgSpec {
+            name: "domain".to_string(),
+            kind: ArgKind::OneOf {
+                choices: vec!["both".to_string(), "music".to_string(), "video".to_string()],
+            },
+            required: false,
+            help: Some("which domain(s) to reorganize".to_string()),
+        },
+        ArgSpec {
+            name: "source_music_directory".to_string(),
+            kind: ArgKind::Text {
+                placeholder: "(blank = configured fetch_music dir)".to_string(),
+            },
+            required: false,
+            help: Some("override the directory scanned for fetched music".to_string()),
+        },
+        ArgSpec {
+            name: "source_video_directory".to_string(),
+            kind: ArgKind::Text {
+                placeholder: "(blank = configured fetch_video dir)".to_string(),
+            },
+            required: false,
+            help: Some("override the directory scanned for fetched video".to_string()),
+        },
+    ]
+}
+
+/// dry preview (no writes, no jobs created) - returns candidate song/video
+/// counts for the given scope. see `reorganize_library_enqueue` for the
+/// command that actually moves files.
+pub(in crate::ratcore::catalog) fn reorganize_library_plan() -> AdminCommand {
+    AdminCommand {
+        name: "maintenance_reorganize_library_plan".to_string(),
+        request_type: "MaintenanceReorganizeLibraryRequest".to_string(),
+        response_type: "serde_json::Value".to_string(),
+        auth: "Admin".to_string(),
+        kind: CommandKind::Admin,
+        args: reorganize_library_scope_args(),
+    }
+}
+
+/// move fetched music/video into `target_directory` (human-readable
+/// Artist/Album or Series/Movie layout), optionally embedding id3/vorbis
+/// tags + cover art into moved song files. fans out into many
+/// independent batch jobs rather than one chain - see
+/// `grimoire::maintenance::reorganize_library`'s module doc comment.
+pub(in crate::ratcore::catalog) fn reorganize_library_enqueue() -> AdminCommand {
+    use crate::ratcore::app::{ArgKind, ArgSpec};
+    let mut args = reorganize_library_scope_args();
+    args.push(dry_run_arg());
+    args.push(ArgSpec {
+        name: "embed_tags".to_string(),
+        kind: ArgKind::Bool { default: true },
+        required: false,
+        help: Some("embed id3/vorbis tags + cover art into moved song files".to_string()),
+    });
+    AdminCommand {
+        name: "maintenance_reorganize_library_enqueue".to_string(),
+        request_type: "MaintenanceReorganizeLibraryRequest".to_string(),
+        response_type: "serde_json::Value".to_string(),
+        auth: "Admin".to_string(),
+        kind: CommandKind::Admin,
+        args,
     }
 }

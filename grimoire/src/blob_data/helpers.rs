@@ -456,6 +456,27 @@ pub fn convert_to_webp(image_data: &[u8]) -> Result<Vec<u8>, GrimoireError> {
     Ok(webp_data)
 }
 
+/// convert any image format to jpeg (quality 85) - used for embedding
+/// cover art into id3/vorbis/etc tags, where webp (this module's usual
+/// output format) has poor/inconsistent player support, but jpeg is
+/// universally accepted.
+pub fn convert_to_jpeg(image_data: &[u8]) -> Result<Vec<u8>, GrimoireError> {
+    let img =
+        image::load_from_memory(image_data).map_err(|e| GrimoireError::ImageDecodeFailed {
+            reason: format!("failed to decode image: {}", e),
+        })?;
+    let img = image::DynamicImage::ImageRgb8(img.to_rgb8());
+
+    let mut jpeg_data = Vec::new();
+    let mut cursor = Cursor::new(&mut jpeg_data);
+    img.write_to(&mut cursor, ImageOutputFormat::Jpeg(85))
+        .map_err(|e| GrimoireError::ImageDecodeFailed {
+            reason: format!("failed to convert to jpeg: {}", e),
+        })?;
+
+    Ok(jpeg_data)
+}
+
 /// create an image blob from webp data with flexible options
 /// automatically generates sized thumbnails for Original and Waveform blobs
 pub async fn create_image_blob_from_webp_data(

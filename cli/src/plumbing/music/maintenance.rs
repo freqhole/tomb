@@ -27,9 +27,9 @@ pub async fn handle_check_blob_references(blob_id: String) -> CommandOutput<serd
 
 pub async fn handle_cleanup_orphaned_blobs(
     min_age_days: i64,
-    _dry_run: bool,
+    dry_run: bool,
 ) -> CommandOutput<serde_json::Value> {
-    let response = cleanup_orphaned_media_blobs_older_than(min_age_days as f64).await;
+    let response = cleanup_orphaned_media_blobs_older_than(min_age_days as f64, dry_run).await;
     if !response.success {
         return CommandOutput::failure(response.message, response.errors, ());
     }
@@ -44,12 +44,12 @@ pub async fn handle_cleanup_orphaned_blobs(
 pub async fn handle_hard_delete_old_records(
     retention_days: i64,
     keep_blob_data: bool,
-    _dry_run: bool,
+    dry_run: bool,
 ) -> CommandOutput<serde_json::Value> {
     let options = HardDeleteOptions {
         retention_days: retention_days as u32,
         delete_blob_data: !keep_blob_data,
-        dry_run: false,
+        dry_run,
     };
 
     let response = hard_delete_old_records(options).await;
@@ -66,12 +66,12 @@ pub async fn handle_hard_delete_old_records(
 
 pub async fn handle_run_maintenance(
     retention_days: i64,
-    _dry_run: bool,
+    dry_run: bool,
 ) -> CommandOutput<serde_json::Value> {
     let options = HardDeleteOptions {
         retention_days: retention_days as u32,
         delete_blob_data: true,
-        dry_run: false,
+        dry_run,
     };
 
     let response = run_full_maintenance_with_options(options).await;
