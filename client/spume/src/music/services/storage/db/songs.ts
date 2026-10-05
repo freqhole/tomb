@@ -81,6 +81,27 @@ export async function getSongByBlake3(blake3: string): Promise<Song | undefined>
   return song;
 }
 
+/** content-based dedup for a song about to be synced in from a remote:
+ *  does a local row for this exact content already exist, under
+ *  whatever `id` it happens to have (a generated uuid - see
+ *  `syncSongToLocal.ts`, session B's id/content-hash decoupling)?
+ *  checks blake3 first (preferred, content-addressed), falling back to
+ *  sha256 - covers both a song whose blake3 isn't known yet and legacy
+ *  rows synced before blake3 was ever computed. */
+export async function findExistingSongByContentHash(song: {
+  sha256?: string | null;
+  blake3?: string | null;
+}): Promise<Song | undefined> {
+  if (song.blake3) {
+    const byBlake3 = await getSongByBlake3(song.blake3);
+    if (byBlake3) return byBlake3;
+  }
+  if (song.sha256) {
+    return getSongBySha256(song.sha256);
+  }
+  return undefined;
+}
+
 export async function getSongsByAlbumId(albumId: string): Promise<Song[]> {
   const db = await initMusicDB();
   const index = db.transaction(STORE_SONGS).store.index("by_album_id");

@@ -135,7 +135,7 @@ import {
 } from "./services/remotes/remoteManager";
 import { seedOnlineMap, wakeAllRemotes } from "./services/remotes/remoteHealth";
 import type { ImageMetadata, Song } from "../music/services/storage/types";
-import { songIdentityKey } from "../music/services/storage/types";
+import { songIdentityKey, syncTrackingKey } from "../music/services/storage/types";
 import {
   mediaItemKey,
   songsOnly,
@@ -1706,7 +1706,7 @@ export function AppLayout(props: AppLayoutProps) {
               }
 
               const song = item.song;
-              const isSynced = isSongSyncedLocally(song.sha256);
+              const isSynced = isSongSyncedLocally(syncTrackingKey(song));
               return useSongContextMenu(song, {
                 showPlayActions: false,
                 isFavorite: song.is_favorite || false,

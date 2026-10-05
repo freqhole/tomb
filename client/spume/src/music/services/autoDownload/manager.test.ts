@@ -55,7 +55,7 @@ vi.mock("../storage/blobResolver", () => ({
 }));
 
 import { updateAutoDownloadQueue, getPendingDownloadCount, onAutoDownloadEnabled } from "./manager";
-import { getActiveDownloadCount, clearAllFailures, clearSyncedSha256s } from "../download";
+import { getActiveDownloadCount, clearAllFailures, clearSyncedTrackingKeys } from "../download";
 
 function remoteSong(over: Partial<Song> = {}): Song {
   return {
@@ -91,7 +91,7 @@ beforeEach(() => {
     return { success: true };
   });
   clearAllFailures();
-  clearSyncedSha256s();
+  clearSyncedTrackingKeys();
 });
 
 describe("updateAutoDownloadQueue", () => {

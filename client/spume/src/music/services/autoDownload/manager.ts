@@ -17,7 +17,7 @@ import {
   type QueuedVideo,
 } from "../../../app/services/storage/mediaItem";
 import { syncSongToLocal, canSyncSong, type SyncableSong } from "../sync";
-import { songIdentityKey } from "../storage/types";
+import { songIdentityKey, syncTrackingKey } from "../storage/types";
 import { syncVideoToLocal, canSyncVideo } from "../../../video/services/sync/syncVideoToLocal";
 import { isVideoSyncedLocally } from "../../../video/services/syncState";
 import { videoQueryKeys } from "../../../video/queries/queryKeys";
@@ -153,6 +153,11 @@ export function cancelPendingAutoDownloads(items: MediaItem[]): void {
 // download a single song
 async function downloadSong(song: SyncableSong): Promise<void> {
   const sha256 = song.sha256;
+  // sync/dedup tracking key - deliberately separate from `sha256` above,
+  // which only backs the UI loading-indicator system (matches
+  // appState().current_item_key's sha256-preferring convention) - see
+  // syncTrackingKey's doc comment for why these two must stay distinct.
+  const trackingKey = syncTrackingKey(song);
 
   // add to UI loading set so queue shows loading indicator
   addToLoadingSet(sha256);
@@ -178,7 +183,7 @@ async function downloadSong(song: SyncableSong): Promise<void> {
   // depend on a downstream implementation detail staying in sync. mirrors
   // downloadVideo below (which already did this correctly).
   registerDownload(
-    sha256,
+    trackingKey,
     syncPromise.then(() => undefined)
   );
 
@@ -188,7 +193,7 @@ async function downloadSong(song: SyncableSong): Promise<void> {
     const result = await syncPromise;
 
     if (result.success) {
-      markSongSynced(sha256);
+      markSongSynced(trackingKey);
       debug(
         "autoDownload",
         `completed: ${song.title}${result.skipped ? " (already existed)" : ""}`
@@ -200,14 +205,14 @@ async function downloadSong(song: SyncableSong): Promise<void> {
         void queryClient.invalidateQueries({ queryKey: queryKeys.albums.all() });
       }
     } else {
-      const attempts = markDownloadFailed(sha256);
+      const attempts = markDownloadFailed(trackingKey);
       warn(
         "autoDownload",
         `failed: ${song.title} - ${result.error} (attempt ${attempts}/${MAX_RETRY_ATTEMPTS})`
       );
     }
   } catch (error) {
-    const attempts = markDownloadFailed(sha256);
+    const attempts = markDownloadFailed(trackingKey);
     warn(
       "autoDownload",
       `error downloading ${song.title} (attempt ${attempts}/${MAX_RETRY_ATTEMPTS}):`,
@@ -328,17 +333,17 @@ export async function updateAutoDownloadQueue(
     }
 
     // skip if already synced
-    if (isSongSyncedLocally(song.sha256)) {
+    if (isSongSyncedLocally(syncTrackingKey(song))) {
       continue;
     }
 
     // skip if permanently failed (exhausted retries)
-    if (hasFailedPermanently(song.sha256)) {
+    if (hasFailedPermanently(syncTrackingKey(song))) {
       continue;
     }
 
     // skip if already downloading
-    if (isDownloadInProgress(song.sha256)) {
+    if (isDownloadInProgress(syncTrackingKey(song))) {
       continue;
     }
 
@@ -447,8 +452,8 @@ export async function downloadAllNow(): Promise<void> {
   for (let i = currentIndex; i < queue.length; i++) {
     const song = queue[i];
 
-    if (isSongSyncedLocally(song.sha256)) continue;
-    if (isDownloadInProgress(song.sha256)) continue;
+    if (isSongSyncedLocally(syncTrackingKey(song))) continue;
+    if (isDownloadInProgress(syncTrackingKey(song))) continue;
     if (!canSyncSong(song)) continue;
 
     const isP2P = await isP2PRemoteSong(song);

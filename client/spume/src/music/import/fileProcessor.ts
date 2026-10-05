@@ -156,8 +156,9 @@ async function getAudioDuration(file: File): Promise<number> {
 // same "unknown, not computed" sentinel grimoire's own sync routes
 // already accept - see phase 3) and `blake3` (computed just below via
 // `registerBlake3`, streaming, no full-file buffer) is the song's real
-// content identity from here on - see audioAccess.ts's
-// `songTrackingKey()` for where callers should prefer it over `sha256`.
+// content identity from here on - see audioAccess.ts's `getAudioURL()`
+// and `songIdentityKey` for where callers prefer a real hash over the
+// `""` sentinel.
 //
 // tradeoff, written down on purpose so it isn't rediscovered the hard
 // way later: this means the local-import dedup check (localImport.ts's

@@ -214,11 +214,14 @@ export function reconnectProgressTracking(): void {
   // find the most recent history entry whose songs match the current queue's
   // song subset (history entries are song-only — video items don't
   // participate in queue history yet, see phase 9 MVP scope note).
+  // songIdentityKey (not raw sha256) - two different local-only songs
+  // both have sha256: "", which could otherwise match the wrong history
+  // entry whenever an all-local queue happens to share a length with one.
   const queueSongs = songsOnly(state.queue);
-  const queueHashes = queueSongs.map((s) => s.sha256);
+  const queueKeys = queueSongs.map((s) => songIdentityKey(s));
   const entry = history.find((h) => {
-    if (h.songs.length !== queueHashes.length) return false;
-    return h.songs.every((s, i) => s.sha256 === queueHashes[i]);
+    if (h.songs.length !== queueKeys.length) return false;
+    return h.songs.every((s, i) => songIdentityKey(s) === queueKeys[i]);
   });
 
   if (!entry) return;

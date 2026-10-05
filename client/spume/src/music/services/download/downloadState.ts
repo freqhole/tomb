@@ -1,12 +1,13 @@
 // unified download state management
 //
 // consolidates all download-related state that was previously scattered across:
-// - blobCache.ts (synced sha256s, loading progress, in-progress fetches)
+// - blobCache.ts (synced tracking keys, loading progress, in-progress fetches)
 // - blobResolver.ts (in-progress P2P fetches)
 // - autoDownload/manager.ts (active downloads, failed downloads, pause state)
 //
 // this module is the single source of truth for:
-// - which songs are synced locally (by sha256)
+// - which songs are synced locally (see syncTrackingKey - sha256 in
+//   browser mode, blake3-preferring in charnel mode, NOT always a sha256)
 // - which songs are currently downloading
 // - download progress for UI feedback
 // - failed downloads and retry tracking
@@ -17,62 +18,65 @@ import { createStore, reconcile } from "solid-js/store";
 import { debug, warn } from "../../../utils/logger";
 import { isCharnelMode } from "../../../app/services/charnel/mode";
 import { initMusicDB } from "../storage/db";
+import { syncTrackingKey } from "../storage/types";
 
 // ===== synced songs tracking =====
-// tracks which sha256s have been synced to local storage (OPFS/IDB or grimoire)
-// initialized on app startup from IDB (browser) or grimoire (charnel)
+// tracks which songs (by `syncTrackingKey`) have been synced to local
+// storage (OPFS/IDB or grimoire). initialized on app startup from IDB
+// (browser) or grimoire (charnel).
 
-const [syncedSha256s, setSyncedSha256s] = createStore<Record<string, boolean>>({});
+const [syncedTrackingKeys, setSyncedTrackingKeys] = createStore<Record<string, boolean>>({});
 
 // version signal to force re-reads when store is bulk-updated
 // (solid stores don't track access to non-existent keys, so we need this for initialization)
 const [syncedVersion, setSyncedVersion] = createSignal(0);
 
-/** check if a song has been synced to local storage (by sha256) */
-export function isSongSyncedLocally(sha256: string | null | undefined): boolean {
-  if (!sha256) return false;
+/** check if a song has been synced to local storage (key: syncTrackingKey(song, isCharnelMode())) */
+export function isSongSyncedLocally(trackingKey: string | null | undefined): boolean {
+  if (!trackingKey) return false;
   // access version to ensure reactivity when store is bulk-loaded
   syncedVersion();
-  return syncedSha256s[sha256] ?? false;
+  return syncedTrackingKeys[trackingKey] ?? false;
 }
 
 /** mark a song as synced locally (called after successful sync) */
-export function markSongSynced(sha256: string): void {
-  const wasSynced = syncedSha256s[sha256] === true;
-  setSyncedSha256s(sha256, true);
-  // bump version so observers that read `syncedSha256s[sha256]` *before*
-  // the key existed (solid stores don't subscribe to undefined-key reads)
-  // re-run and pick up the new state. without this, a row that rendered
-  // an unsynced song will never flip to the underlined "available offline"
-  // style after a background sync completes.
+export function markSongSynced(trackingKey: string): void {
+  const wasSynced = syncedTrackingKeys[trackingKey] === true;
+  setSyncedTrackingKeys(trackingKey, true);
+  // bump version so observers that read `syncedTrackingKeys[trackingKey]`
+  // *before* the key existed (solid stores don't subscribe to
+  // undefined-key reads) re-run and pick up the new state. without this,
+  // a row that rendered an unsynced song will never flip to the
+  // underlined "available offline" style after a background sync
+  // completes.
   if (!wasSynced) setSyncedVersion((v) => v + 1);
   // persist to IDB in background (browser mode)
-  void persistSyncedToIDB(sha256, true);
+  void persistSyncedToIDB(trackingKey, true);
 }
 
 /** unmark a song as synced locally (called after deletion from local storage) */
-export function unmarkSongSynced(sha256: string): void {
-  const wasSynced = syncedSha256s[sha256] === true;
-  setSyncedSha256s(sha256, false);
+export function unmarkSongSynced(trackingKey: string): void {
+  const wasSynced = syncedTrackingKeys[trackingKey] === true;
+  setSyncedTrackingKeys(trackingKey, false);
   // mirror of `markSongSynced`: bump so observers re-run after a delete.
   if (wasSynced) setSyncedVersion((v) => v + 1);
   // persist to IDB in background (browser mode)
-  void persistSyncedToIDB(sha256, false);
+  void persistSyncedToIDB(trackingKey, false);
 }
 
-/** bulk load synced sha256s (called during initialization) */
-export function loadSyncedSha256s(sha256s: string[]): void {
-  for (const sha256 of sha256s) {
-    setSyncedSha256s(sha256, true);
+/** bulk load synced tracking keys (called during initialization) */
+export function loadSyncedTrackingKeys(trackingKeys: string[]): void {
+  for (const trackingKey of trackingKeys) {
+    setSyncedTrackingKeys(trackingKey, true);
   }
   // bump version to trigger re-renders
   setSyncedVersion((v) => v + 1);
-  debug("downloadState", `loaded ${sha256s.length} synced sha256s`);
+  debug("downloadState", `loaded ${trackingKeys.length} synced tracking keys`);
 }
 
-/** clear all synced sha256s (for testing/reset) */
-export function clearSyncedSha256s(): void {
-  setSyncedSha256s(reconcile({}));
+/** clear all synced tracking keys (for testing/reset) */
+export function clearSyncedTrackingKeys(): void {
+  setSyncedTrackingKeys(reconcile({}));
   setSyncedVersion((v) => v + 1);
 }
 
@@ -135,7 +139,7 @@ export function setEphemeralOnDiskBlake3s(blake3s: Iterable<string>): void {
 // persist synced status to IDB (browser mode only)
 // charnel mode persists via grimoire sqlite automatically
 // NOTE: currently a no-op - synced status is derived from song source_type in IDB
-async function persistSyncedToIDB(_sha256: string, _synced: boolean): Promise<void> {
+async function persistSyncedToIDB(_trackingKey: string, _synced: boolean): Promise<void> {
   // check if we're in charnel/tauri mode - no IDB persistence needed
   if (isCharnelMode()) return;
 
@@ -281,7 +285,7 @@ export function removeFromLoadingSet(id: string): void {
 }
 
 /** clear all loading-set/progress/reveal-timer state (test-only reset,
- *  mirrors clearSyncedSha256s/clearEphemeralOnDisk/clearAllFailures above). */
+ *  mirrors clearSyncedTrackingKeys/clearEphemeralOnDisk/clearAllFailures above). */
 export function resetLoadingState(): void {
   setLoadingIds(new Set<string>());
   setLoadingProgress(new Map<string, number | null>());
@@ -313,7 +317,8 @@ export async function withLoadingProgress<T>(
 
 // ===== in-progress download tracking =====
 // tracks downloads currently in flight to prevent duplicates
-// keyed by sha256 (universal identifier)
+// keyed by syncTrackingKey (see that function's doc comment) - NOT
+// always a literal sha256, despite the param name history.
 
 const inProgressDownloads = new Map<string, Promise<void>>();
 const [activeDownloadCount, setActiveDownloadCount] = createSignal(0);
@@ -323,32 +328,32 @@ export function getActiveDownloadCount(): number {
   return activeDownloadCount();
 }
 
-/** check if a download is in progress for this sha256 */
-export function isDownloadInProgress(sha256: string): boolean {
-  return inProgressDownloads.has(sha256);
+/** check if a download is in progress for this tracking key */
+export function isDownloadInProgress(trackingKey: string): boolean {
+  return inProgressDownloads.has(trackingKey);
 }
 
-/** get the in-progress promise for a sha256 (for awaiting) */
-export function getInProgressDownload(sha256: string): Promise<void> | undefined {
-  return inProgressDownloads.get(sha256);
+/** get the in-progress promise for a tracking key (for awaiting) */
+export function getInProgressDownload(trackingKey: string): Promise<void> | undefined {
+  return inProgressDownloads.get(trackingKey);
 }
 
 /** register a download as in-progress */
-export function registerDownload(sha256: string, promise: Promise<void>): void {
-  inProgressDownloads.set(sha256, promise);
+export function registerDownload(trackingKey: string, promise: Promise<void>): void {
+  inProgressDownloads.set(trackingKey, promise);
   setActiveDownloadCount(inProgressDownloads.size);
   // auto-cleanup when done
   promise.finally(() => {
-    inProgressDownloads.delete(sha256);
+    inProgressDownloads.delete(trackingKey);
     setActiveDownloadCount(inProgressDownloads.size);
   });
 }
 
 /** check if we should start a download (not synced AND not in progress) */
-export function canStartDownload(sha256: string | null | undefined): boolean {
-  if (!sha256) return false;
-  if (isSongSyncedLocally(sha256)) return false;
-  if (isDownloadInProgress(sha256)) return false;
+export function canStartDownload(trackingKey: string | null | undefined): boolean {
+  if (!trackingKey) return false;
+  if (isSongSyncedLocally(trackingKey)) return false;
+  if (isDownloadInProgress(trackingKey)) return false;
   return true;
 }
 
@@ -359,25 +364,25 @@ export const MAX_RETRY_ATTEMPTS = 3;
 const failedDownloads = new Map<string, number>();
 
 /** check if a download has permanently failed (exhausted retries) */
-export function hasFailedPermanently(sha256: string): boolean {
-  return (failedDownloads.get(sha256) ?? 0) >= MAX_RETRY_ATTEMPTS;
+export function hasFailedPermanently(trackingKey: string): boolean {
+  return (failedDownloads.get(trackingKey) ?? 0) >= MAX_RETRY_ATTEMPTS;
 }
 
 /** mark a download as failed and increment retry count */
-export function markDownloadFailed(sha256: string): number {
-  const attempts = (failedDownloads.get(sha256) ?? 0) + 1;
-  failedDownloads.set(sha256, attempts);
+export function markDownloadFailed(trackingKey: string): number {
+  const attempts = (failedDownloads.get(trackingKey) ?? 0) + 1;
+  failedDownloads.set(trackingKey, attempts);
   return attempts;
 }
 
-/** get retry count for a sha256 */
-export function getRetryCount(sha256: string): number {
-  return failedDownloads.get(sha256) ?? 0;
+/** get retry count for a tracking key */
+export function getRetryCount(trackingKey: string): number {
+  return failedDownloads.get(trackingKey) ?? 0;
 }
 
-/** clear failure tracking for a sha256 (e.g., when user manually retries) */
-export function clearFailure(sha256: string): void {
-  failedDownloads.delete(sha256);
+/** clear failure tracking for a tracking key (e.g., when user manually retries) */
+export function clearFailure(trackingKey: string): void {
+  failedDownloads.delete(trackingKey);
 }
 
 /** clear all failure tracking (e.g., when auto-download is toggled on) */
@@ -409,9 +414,9 @@ export function resumeDownloads(): void {
 }
 
 // ===== initialization =====
-// load synced sha256s from storage on app startup
+// load synced tracking keys from storage on app startup
 
-/** initialize synced sha256s from grimoire (charnel mode) */
+/** initialize synced tracking keys from grimoire (charnel mode) */
 async function initFromGrimoire(): Promise<void> {
   try {
     // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
@@ -422,20 +427,23 @@ async function initFromGrimoire(): Promise<void> {
     })) as { success: boolean; data?: string[]; message?: string };
 
     if (response.success && response.data) {
-      loadSyncedSha256s(response.data);
-      debug("downloadState", `initialized ${response.data.length} synced sha256s from grimoire`);
+      loadSyncedTrackingKeys(response.data);
+      debug(
+        "downloadState",
+        `initialized ${response.data.length} synced tracking keys from grimoire`
+      );
     } else {
       warn(
         "downloadState",
-        `failed to fetch sha256s from grimoire: ${response.message ?? "unknown error"}`
+        `failed to fetch synced tracking keys from grimoire: ${response.message ?? "unknown error"}`
       );
     }
   } catch (err) {
-    warn("downloadState", "failed to initialize synced sha256s from grimoire:", err);
+    warn("downloadState", "failed to initialize synced tracking keys from grimoire:", err);
   }
 }
 
-/** initialize synced sha256s from IDB (browser mode) */
+/** initialize synced tracking keys from IDB (browser mode) */
 async function initFromIDB(): Promise<void> {
   try {
     const db = await initMusicDB();
@@ -445,14 +453,14 @@ async function initFromIDB(): Promise<void> {
     const index = store.index("by_source_type");
     const syncedSongs = await index.getAll("synced");
 
-    const sha256s = syncedSongs
-      .map((song) => song.sha256)
-      .filter((sha256): sha256 is string => !!sha256);
+    const trackingKeys = syncedSongs
+      .map((song) => syncTrackingKey(song))
+      .filter((key): key is string => !!key);
 
-    loadSyncedSha256s(sha256s);
-    debug("downloadState", `initialized ${sha256s.length} synced sha256s from IDB`);
+    loadSyncedTrackingKeys(trackingKeys);
+    debug("downloadState", `initialized ${trackingKeys.length} synced tracking keys from IDB`);
   } catch (err) {
-    warn("downloadState", "failed to initialize synced sha256s from IDB:", err);
+    warn("downloadState", "failed to initialize synced tracking keys from IDB:", err);
   }
 }
 

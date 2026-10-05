@@ -11,7 +11,7 @@ import { IDBFactory } from "fake-indexeddb";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { closeMusicDB } from "./init";
 import { createAlbum } from "./albums";
-import { createSong, getSongsByAlbumId } from "./songs";
+import { createSong, findExistingSongByContentHash, getSongsByAlbumId } from "./songs";
 import type { Album, NewSong } from "../types";
 
 function newTestAlbum(id: string, genreId: string | null): Album {
@@ -118,5 +118,81 @@ describe("syncAlbumFields (via createSong's post-insert hook)", () => {
     for (const song of songs) {
       expect(song.album_added_at).toBe(100);
     }
+  });
+});
+
+// regression coverage for the blake3-preferring content-hash dedup lookup
+// shared by syncSongToLocal.ts, destinationProbe.ts's local-presence
+// probe, and media_blobz/service.ts's blob route - all three used to (or,
+// for destinationProbe.ts, actually did) call `getSongBySha256` directly,
+// which silently misses a local-only import (real blake3, sha256 "").
+describe("findExistingSongByContentHash", () => {
+  beforeEach(() => {
+    closeMusicDB();
+    indexedDB = new IDBFactory();
+  });
+
+  afterEach(() => {
+    closeMusicDB();
+  });
+
+  it("finds a local-only import (real blake3, empty sha256) by blake3", async () => {
+    const album = newTestAlbum("album-local", null);
+    await createAlbum(album);
+    const song = await createSong({
+      ...newTestSong(album.album_id, 100),
+      sha256: "",
+      blake3: "blake3-hash-1",
+    });
+
+    const found = await findExistingSongByContentHash({
+      blake3: "blake3-hash-1",
+      sha256: "",
+    });
+    expect(found?.id).toBe(song.id);
+  });
+
+  it("falls back to sha256 for a legacy song with no blake3 stored", async () => {
+    const album = newTestAlbum("album-legacy", null);
+    await createAlbum(album);
+    const song = await createSong({
+      ...newTestSong(album.album_id, 100),
+      sha256: "legacy-sha256-hash",
+      blake3: null,
+    });
+
+    const found = await findExistingSongByContentHash({
+      blake3: null,
+      sha256: "legacy-sha256-hash",
+    });
+    expect(found?.id).toBe(song.id);
+  });
+
+  it("prefers blake3 over sha256 when both are provided and only one matches a row", async () => {
+    const album = newTestAlbum("album-both", null);
+    await createAlbum(album);
+    const song = await createSong({
+      ...newTestSong(album.album_id, 100),
+      sha256: "",
+      blake3: "blake3-hash-2",
+    });
+
+    // mirrors media_blobz/service.ts's `findExistingSongByContentHash({
+    // blake3: id, sha256: id })` call, where the same wire id is tried
+    // against both fields since the caller doesn't know which hash type
+    // it is.
+    const found = await findExistingSongByContentHash({
+      blake3: "blake3-hash-2",
+      sha256: "blake3-hash-2",
+    });
+    expect(found?.id).toBe(song.id);
+  });
+
+  it("returns undefined when neither hash matches any row", async () => {
+    const found = await findExistingSongByContentHash({
+      blake3: "no-such-hash",
+      sha256: "no-such-hash",
+    });
+    expect(found).toBeUndefined();
   });
 });

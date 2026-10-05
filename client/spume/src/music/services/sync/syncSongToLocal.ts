@@ -16,6 +16,7 @@ import { isP2PRemote } from "../../../app/services/storage/schemas/remote";
 import { debug, warn, error as errorLog } from "../../../utils/logger";
 import { writeAudioToOPFS, openAudioOPFSChunkSink } from "../opfs/helpers";
 import { getOrCreateAlbum, getOrCreateArtist, initMusicDB } from "../storage/db";
+import { findExistingSongByContentHash } from "../storage/db/songs";
 import { updateAlbum } from "../storage/db/albums";
 import { updateArtist } from "../storage/db/artists";
 import { getOrCreateGenre } from "../storage/db/genres";
@@ -30,6 +31,7 @@ import {
   registerDownload,
 } from "../download";
 import type { ImageMetadata, Song, TaxonRef } from "../storage/types";
+import { syncTrackingKey } from "../storage/types";
 import type { Remote } from "../../../app/services/storage/schemas/remote";
 import {
   inlineImagesForSync,
@@ -39,6 +41,7 @@ import {
 } from "./syncImages";
 import { invalidateMusicLibraryQueries } from "../../queries/cacheUpdates";
 import { imagesAreStale, preservePrimarySelection } from "../../../utils/images";
+import { generateUUID } from "../../../utils/uuid";
 
 /** invoke `sync_song_by_blake3_with_progress` instead of the generic
  * `api_call`, wiring its `tauri::ipc::Channel<{bytes_downloaded}>` into the
@@ -297,7 +300,11 @@ function finishSyncResult(
     return { success: false, error: message };
   }
 
-  markSongSynced(song.sha256);
+  // this path is only ever reached via syncSongViaLocalGrimoire (charnel
+  // mode) - no local IDB row exists for this song, so blake3-preferring
+  // is correct and also handles an empty song.sha256 correctly (see
+  // syncTrackingKey's doc comment).
+  markSongSynced(syncTrackingKey(song));
   debug(
     "syncSongViaLocalGrimoire",
     `synced song ${song.title} via iroh (existing=${data?.existing ?? false}) images_linked=${data?.images_linked ?? 0} missing_image_blake3s=${data?.missing_image_blake3s?.length ?? 0}`
@@ -570,14 +577,16 @@ export async function syncSongToLocal(
 ): Promise<SyncResult> {
   const { sha256, media_blob_id, remote_server_id } = song;
 
-  // browser mode uses sha256 as the OPFS/IDB primary key throughout this
-  // function, so it's a hard requirement there. charnel mode never touches
-  // OPFS/IDB (delegates to syncSongViaLocalGrimoire, which only needs
-  // song.blake3) - an empty sha256 there is the deliberate "unknown, let
-  // iroh-blobs verify by blake3 instead" sentinel mediaRefResolve.ts sets
-  // when the source peer couldn't be queried for the real one, not an
-  // error. rejecting it here made every such queue push unplayable on
-  // charnel with a misleading "song missing sha256" failure.
+  // browser mode's content-hash dedup (`findExistingSongByContentHash`)
+  // needs at least one real hash to check against - `blake3` isn't always
+  // known yet, so `sha256` is the required fallback there. charnel mode
+  // never touches OPFS/IDB (delegates to syncSongViaLocalGrimoire, which
+  // only needs song.blake3) - an empty sha256 there is the deliberate
+  // "unknown, let iroh-blobs verify by blake3 instead" sentinel
+  // mediaRefResolve.ts sets when the source peer couldn't be queried for
+  // the real one, not an error. rejecting it here made every such queue
+  // push unplayable on charnel with a misleading "song missing sha256"
+  // failure.
   if (!sha256 && !isCharnelMode()) {
     return { success: false, error: "song missing sha256" };
   }
@@ -590,11 +599,11 @@ export async function syncSongToLocal(
     return { success: false, error: "song missing remote_server_id" };
   }
 
-  // dedup/in-flight tracking key: sha256 when known, else blake3 (the
-  // charnel "unknown sha256" case above) - never the empty string itself,
-  // which would otherwise collide across every song hitting that fallback
-  // at the same time.
-  const downloadKey = sha256 || song.blake3 || media_blob_id;
+  // dedup/in-flight tracking key: shared with `markSongSynced`'s key via
+  // `syncTrackingKey` (see that function's doc comment) - must stay in
+  // sync with however the eventual success path marks this song synced,
+  // or `canStartDownload`'s "already synced" check below can never match.
+  const downloadKey = syncTrackingKey(song);
 
   // check unified download state BEFORE any async work
   // this prevents duplicate downloads when multiple triggers fire
@@ -607,17 +616,21 @@ export async function syncSongToLocal(
       debug("syncSongToLocal", `awaiting in-flight sync for ${downloadKey.slice(0, 8)}...`);
       await inFlight;
       if (!isCharnelMode()) {
-        return { success: true, localSongId: sha256, skipped: true };
+        const synced = await findExistingSongByContentHash(song);
+        return { success: true, localSongId: synced?.id ?? sha256, skipped: true };
       }
     }
-    // song is already marked as synced locally. in browser mode the caller
-    // uses sha256 as the IDB key so no path lookup is needed. in charnel
-    // mode the libmpv backend requires a filesystem path — skip the full
-    // download but still ask grimoire for the local blob path via the fast
-    // existing-song shortcut (db lookup only, no network transfer).
+    // song is already marked as synced locally - resolve its real local id
+    // by content hash (session B: a synced song's `id` is a generated uuid,
+    // decoupled from sha256 - see the row-creation comment below) rather
+    // than assuming `id === sha256`. in charnel mode the libmpv backend
+    // requires a filesystem path — skip the full download but still ask
+    // grimoire for the local blob path via the fast existing-song shortcut
+    // (db lookup only, no network transfer).
     if (!isCharnelMode()) {
       debug("syncSongToLocal", `skipping ${downloadKey.slice(0, 8)}... (already synced)`);
-      return { success: true, localSongId: sha256, skipped: true };
+      const synced = await findExistingSongByContentHash(song);
+      return { success: true, localSongId: synced?.id ?? sha256, skipped: true };
     }
     debug(
       "syncSongToLocal",
@@ -633,11 +646,14 @@ export async function syncSongToLocal(
     try {
       const db = await initMusicDB();
 
-      // double-check DB in case another sync completed between our check and registration
-      const existingSong = await db.get("songs", sha256);
+      // content-based dedup, not a raw primary-key lookup by sha256:
+      // double-checks in case another sync completed between our check and
+      // registration (see `findExistingSongByContentHash`'s own doc comment
+      // for why blake3/sha256, not `id`, is the right thing to dedup on).
+      const existingSong = await findExistingSongByContentHash(song);
       if (existingSong) {
-        debug("syncSongToLocal", `song already exists locally: ${sha256.slice(0, 8)}...`);
-        return { success: true, localSongId: sha256, skipped: true };
+        debug("syncSongToLocal", `song already exists locally: ${existingSong.id.slice(0, 8)}...`);
+        return { success: true, localSongId: existingSong.id, skipped: true };
       }
 
       // get the remote configuration
@@ -815,9 +831,11 @@ export async function syncSongToLocal(
         remote_server_id
       );
 
-      // create local song record
+      // create local song record - `id` is a generated uuid, decoupled
+      // from `sha256` (session B: see findExistingSongByContentHash for
+      // the dedup-before-create check this relies on instead).
       const localSong: Song = {
-        id: sha256, // use sha256 as the primary key
+        id: generateUUID(),
         sha256,
         media_blob_id,
         title: song.title || "untitled",
@@ -859,8 +877,10 @@ export async function syncSongToLocal(
       // save to database
       await db.put("songs", localSong);
 
-      // mark as synced in reactive store for UI updates
-      markSongSynced(sha256);
+      // mark as synced in reactive store for UI updates - syncTrackingKey
+      // is a content-hash key (sha256/blake3), independent of the row's
+      // own generated id.
+      markSongSynced(syncTrackingKey(song));
 
       // invalidate here rather than at a call site: the play path and the
       // rolling window both sync, and whichever loses the race returns
@@ -868,7 +888,7 @@ export async function syncSongToLocal(
       invalidateMusicLibraryQueries();
 
       debug("syncSongToLocal", `synced song ${song.title} to local storage`);
-      return { success: true, localSongId: sha256 };
+      return { success: true, localSongId: localSong.id };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       errorLog("sync", `sync failed for "${song.title}":`, error);

@@ -4,6 +4,7 @@
 // sibling row from re-rendering when only this row's own state changes).
 import { createSignal, Show } from "solid-js";
 import type { Song } from "../../music/data/types";
+import { syncTrackingKey } from "../../music/services/storage/types";
 import { isMobile } from "../../utils/isMobile";
 import { formatDuration } from "../../utils/formatDuration";
 import { getSongDisplayImages, getWaveformImage } from "../../utils/images";
@@ -271,7 +272,7 @@ export function QueueSongRow(props: QueueSongRowProps) {
                 }
 
                 // check if remote song has been synced to local storage
-                if (isSongSyncedLocally(props.song.sha256)) {
+                if (isSongSyncedLocally(syncTrackingKey(props.song))) {
                   return "underline";
                 }
 
