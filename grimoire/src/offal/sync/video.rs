@@ -411,6 +411,22 @@ pub async fn sync_video_by_blake3_impl(
     // videos with no audio stream at all.
     ensure_video_waveform(&video_id, &media_blob_id, &file_path, caller).await;
 
+    // create/update a "new video added" feed event (mirrors video/importer.rs's
+    // own call on the regular add-media path, and sync/song.rs's identical
+    // addition for "send to remote" music) - only for a genuinely new video,
+    // not a re-sync of something already here.
+    if !existing {
+        let vid = video_id.clone();
+        let user_id = caller.user_id.clone();
+        let username = caller.username.clone();
+        tokio::spawn(async move {
+            let _ = crate::music::analytics::feed_events::upsert_video_feed_event(
+                &vid, &user_id, &username,
+            )
+            .await;
+        });
+    }
+
     tracing::info!(
         "sync_video_by_blake3: DONE video={} existing={} series={:?} season={:?} images_linked={}",
         video_id,

@@ -357,6 +357,26 @@ pub async fn sync_song_by_blake3_impl(
     let import_existing = import_result.existing;
     let song_id = import_result.song.id.clone();
 
+    // create/update feed event for the album (so a song pulled in via
+    // "send to remote" shows up in the feed, same as the regular
+    // add-media/upload path does - see upload_processors.rs's identical
+    // call). only for a genuinely new song: re-syncing an album that was
+    // already partially synced must not re-fire "new song" notifications
+    // for content that's been here for a while.
+    if !import_existing {
+        if let Some(album) = &import_result.album {
+            let album_id = album.id.clone();
+            let user_id = caller.user_id.clone();
+            let username = caller.username.clone();
+            tokio::spawn(async move {
+                let _ = crate::music::analytics::feed_events::upsert_album_feed_event(
+                    &album_id, &user_id, &username, 1,
+                )
+                .await;
+            });
+        }
+    }
+
     // 5. link song images. each ref carries a blake3 hash - pulled from
     //    source_node_id (deduped against anything already local first), no
     //    bytes ever ride in the request itself. missing/unpullable images

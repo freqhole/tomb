@@ -757,7 +757,11 @@ export async function checkRemoteHealth(
       // until a reload.
       if (!wasOffline) notifyStatusChange(fresh.remote_id, true);
     }
-    errorLog(`health check failed for ${remote.name}:`, error);
+    // a remote being offline/unreachable is an expected, routine outcome
+    // (timeout, dropped p2p dial, etc.) - not an application error, so
+    // this stays at debug level, matching the success path's logging
+    // (`health check for X: online/offline` above).
+    debug(`health check for ${remote.name}: offline (${error})`);
     notifyPlayerStatusChange(remote.remote_id, false);
     return false;
   }
