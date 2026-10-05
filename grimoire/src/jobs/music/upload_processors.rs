@@ -115,16 +115,12 @@ pub async fn process_convert_webp_job(job: &Job) -> Result<Option<Value>, JobErr
             // reliquary store.
             let blake3 = reliquary::hash_bytes(&webp_data);
 
-            let updated_blob = update_blob_content(
-                blob_id,
-                &blake3,
-                "image/webp",
-                webp_data.len() as i64,
-            )
-            .await
-            .map_err(|e| JobError::ProcessingFailed {
-                reason: format!("failed to update blob content: {}", e),
-            })?;
+            let updated_blob =
+                update_blob_content(blob_id, &blake3, "image/webp", webp_data.len() as i64)
+                    .await
+                    .map_err(|e| JobError::ProcessingFailed {
+                        reason: format!("failed to update blob content: {}", e),
+                    })?;
 
             mirror_insert_bytes(&updated_blob, &webp_data).await;
 

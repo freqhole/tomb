@@ -146,21 +146,7 @@ async fn build_test_app() -> TestApp {
     let blob_path = tempdir.path().join("test-blob.bin");
     std::fs::write(&blob_path, &blob_bytes).expect("write test blob file");
 
-    // sha256 column has a CHECK constraint (64 lowercase hex chars) - compute
-    // the real hash of the test bytes rather than a placeholder string.
-    let sha256 = {
-        use sha2::{Digest, Sha256};
-        let mut hasher = Sha256::new();
-        hasher.update(&blob_bytes);
-        hasher
-            .finalize()
-            .iter()
-            .map(|b| format!("{:02x}", b))
-            .collect::<String>()
-    };
-
     let blob = create_media_blob(CreateMediaBlobRequest {
-        sha256,
         size: Some(blob_bytes.len() as i64),
         mime: Some("application/octet-stream".to_string()),
         source_client_id: None,
@@ -185,18 +171,7 @@ async fn build_test_app() -> TestApp {
     // local_path, no grimoire blob_data row - to exercise the path-based
     // reliquary fallback in `stream_blob_handler`.
     let reliquary_blob_bytes: Vec<u8> = (0u8..=255).rev().cycle().take(64).collect();
-    let reliquary_sha256 = {
-        use sha2::{Digest, Sha256};
-        let mut hasher = Sha256::new();
-        hasher.update(&reliquary_blob_bytes);
-        hasher
-            .finalize()
-            .iter()
-            .map(|b| format!("{:02x}", b))
-            .collect::<String>()
-    };
     let reliquary_blob = create_media_blob(CreateMediaBlobRequest {
-        sha256: reliquary_sha256,
         size: Some(reliquary_blob_bytes.len() as i64),
         mime: Some("application/octet-stream".to_string()),
         source_client_id: None,

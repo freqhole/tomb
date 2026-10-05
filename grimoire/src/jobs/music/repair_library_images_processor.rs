@@ -1,8 +1,9 @@
 //! repair library images job processor
 //!
-//! runs `maintenance::repair_library_images`'s two phases (waveform
-//! backfill, then directory-grouped thumbnail backfill/cleanup) as a
-//! chain of small batch jobs rather than one long-running job: each
+//! runs `maintenance::repair_library_images`'s phases (song waveform
+//! backfill, video waveform backfill, video thumbnail backfill, then
+//! directory-grouped song/album thumbnail backfill/cleanup) as a chain
+//! of small batch jobs rather than one long-running job: each
 //! invocation handles one batch and, if there's more work, enqueues the
 //! next batch (same phase, or the next phase once this one's exhausted)
 //! carrying the running totals forward in its parameters. this keeps any
@@ -14,7 +15,9 @@
 
 use crate::database;
 use crate::jobs::{create_job, CreateJobRequest, Job, JobError, JobType};
-use crate::maintenance::{RepairLibraryImagesPhase, DIRECTORY_BATCH_SIZE, WAVEFORM_BATCH_SIZE};
+use crate::maintenance::{
+    RepairLibraryImagesPhase, DIRECTORY_BATCH_SIZE, VIDEO_THUMBNAIL_BATCH_SIZE, WAVEFORM_BATCH_SIZE,
+};
 use serde_json::{json, Value};
 use tracing::info;
 
@@ -38,10 +41,10 @@ pub async fn process_repair_library_images_job(job: &Job) -> Result<Option<Value
     let mut totals = params.carry.clone();
     let continuation = match params.phase {
         RepairLibraryImagesPhase::Waveforms if !params.options.backfill_waveforms => {
-            // waveform sub-job disabled - skip straight to the directory
-            // phase (itself a no-op batch if none of its sub-jobs are
-            // enabled either, handled below).
-            Some((RepairLibraryImagesPhase::Directories, 0))
+            // song (and video) waveform sub-job disabled - skip both
+            // waveform phases straight to the video thumbnail phase
+            // (itself a no-op batch if that's disabled too, handled below).
+            Some((RepairLibraryImagesPhase::VideoThumbnails, 0))
         }
         RepairLibraryImagesPhase::Waveforms => {
             let resp = crate::maintenance::repair_waveforms_batch(
@@ -60,7 +63,55 @@ pub async fn process_repair_library_images_job(job: &Job) -> Result<Option<Value
             if outcome.more_remaining {
                 Some((RepairLibraryImagesPhase::Waveforms, 0))
             } else {
-                // waveform phase exhausted - move on to the directory pass.
+                // song waveform phase exhausted - move on to video waveforms.
+                Some((RepairLibraryImagesPhase::VideoWaveforms, 0))
+            }
+        }
+        RepairLibraryImagesPhase::VideoWaveforms if !params.options.backfill_waveforms => {
+            Some((RepairLibraryImagesPhase::VideoThumbnails, 0))
+        }
+        RepairLibraryImagesPhase::VideoWaveforms => {
+            let resp = crate::maintenance::repair_video_waveforms_batch(
+                params.dry_run,
+                WAVEFORM_BATCH_SIZE,
+                params.scan_directory.as_deref(),
+                created_by.clone(),
+            )
+            .await;
+            let Some(outcome) = resp.data else {
+                return Err(JobError::ProcessingFailed {
+                    reason: resp.message,
+                });
+            };
+            totals.merge(outcome.result);
+            if outcome.more_remaining {
+                Some((RepairLibraryImagesPhase::VideoWaveforms, 0))
+            } else {
+                Some((RepairLibraryImagesPhase::VideoThumbnails, 0))
+            }
+        }
+        RepairLibraryImagesPhase::VideoThumbnails if !params.options.backfill_video_thumbnails => {
+            Some((RepairLibraryImagesPhase::Directories, 0))
+        }
+        RepairLibraryImagesPhase::VideoThumbnails => {
+            let resp = crate::maintenance::repair_video_thumbnails_batch(
+                params.dry_run,
+                VIDEO_THUMBNAIL_BATCH_SIZE,
+                params.scan_directory.as_deref(),
+                created_by.clone(),
+            )
+            .await;
+            let Some(outcome) = resp.data else {
+                return Err(JobError::ProcessingFailed {
+                    reason: resp.message,
+                });
+            };
+            totals.merge(outcome.result);
+            if outcome.more_remaining {
+                Some((RepairLibraryImagesPhase::VideoThumbnails, 0))
+            } else {
+                // video thumbnail phase exhausted - move on to the
+                // song/album directory pass.
                 Some((RepairLibraryImagesPhase::Directories, 0))
             }
         }
@@ -109,12 +160,15 @@ pub async fn process_repair_library_images_job(job: &Job) -> Result<Option<Value
     if done {
         info!(
             "RepairLibraryImages chain done (job={}): waveforms_backfilled={}, thumbnails_backfilled={}, \
-             thumbnails_removed={}, left_ambiguous={}, errors={}",
+             thumbnails_removed={}, left_ambiguous={}, video_waveforms_backfilled={}, \
+             video_thumbnails_backfilled={}, errors={}",
             job.id,
             totals.songs_waveforms_backfilled,
             totals.albums_thumbnails_backfilled,
             totals.albums_thumbnails_removed_overapplied,
             totals.albums_left_ambiguous,
+            totals.videos_waveforms_backfilled,
+            totals.videos_thumbnails_backfilled,
             totals.errors.len()
         );
     }
@@ -180,4 +234,3 @@ async fn resolve_username(user_id: &str) -> Option<String> {
         .ok()
         .flatten()
 }
-

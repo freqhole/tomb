@@ -479,6 +479,8 @@ fn repair_summary_payload(
         "albums_thumbnails_backfilled": data.albums_thumbnails_backfilled,
         "albums_thumbnails_removed_overapplied": data.albums_thumbnails_removed_overapplied,
         "albums_left_ambiguous": data.albums_left_ambiguous,
+        "videos_waveforms_backfilled": data.videos_waveforms_backfilled,
+        "videos_thumbnails_backfilled": data.videos_thumbnails_backfilled,
         "errors": data.errors,
     })
 }
@@ -487,12 +489,19 @@ fn repair_summary_message(
     dry_run: bool,
     data: &crate::maintenance::RepairLibraryImagesResult,
 ) -> String {
-    let verb = if dry_run { "would backfill" } else { "backfilled" };
+    let verb = if dry_run {
+        "would backfill"
+    } else {
+        "backfilled"
+    };
     let remove_verb = if dry_run { "would remove" } else { "removed" };
     format!(
-        "{verb} {} waveform(s), {} thumbnail(s); {remove_verb} {} over-applied image(s); {} album(s) left ambiguous ({} error(s))",
+        "{verb} {} song waveform(s), {} album thumbnail(s), {} video waveform(s), {} video thumbnail(s); \
+         {remove_verb} {} over-applied image(s); {} album(s) left ambiguous ({} error(s))",
         data.songs_waveforms_backfilled,
         data.albums_thumbnails_backfilled,
+        data.videos_waveforms_backfilled,
+        data.videos_thumbnails_backfilled,
         data.albums_thumbnails_removed_overapplied,
         data.albums_left_ambiguous,
         data.errors.len(),
@@ -508,30 +517,39 @@ fn parse_repair_options(
     preset: crate::maintenance::RepairLibraryImagesOptions,
 ) -> crate::maintenance::RepairLibraryImagesOptions {
     crate::maintenance::RepairLibraryImagesOptions {
-        backfill_waveforms: opt_bool(args, "backfill_waveforms").unwrap_or(preset.backfill_waveforms),
+        backfill_waveforms: opt_bool(args, "backfill_waveforms")
+            .unwrap_or(preset.backfill_waveforms),
         backfill_embedded_art: opt_bool(args, "backfill_embedded_art")
             .unwrap_or(preset.backfill_embedded_art),
         backfill_directory_art: opt_bool(args, "backfill_directory_art")
             .unwrap_or(preset.backfill_directory_art),
-        remove_overapplied: opt_bool(args, "remove_overapplied").unwrap_or(preset.remove_overapplied),
+        remove_overapplied: opt_bool(args, "remove_overapplied")
+            .unwrap_or(preset.remove_overapplied),
+        backfill_video_thumbnails: opt_bool(args, "backfill_video_thumbnails")
+            .unwrap_or(preset.backfill_video_thumbnails),
     }
 }
 
-/// run the full library image repair (waveform backfill + directory-
-/// grouped thumbnail backfill/cleanup, see `maintenance::repair_library_images_sync`'s
-/// doc comment). args: `{ dry_run?: bool, scan_directory?: string,
+/// run the full library image repair (song+video waveform backfill,
+/// video thumbnail backfill, and directory-grouped song/album thumbnail
+/// backfill/cleanup, see `maintenance::repair_library_images_sync`'s doc
+/// comment). args: `{ dry_run?: bool, scan_directory?: string,
 /// backfill_waveforms?: bool, backfill_embedded_art?: bool,
-/// backfill_directory_art?: bool, remove_overapplied?: bool }` - all four
-/// sub-job toggles default per `RepairLibraryImagesOptions::default()`
-/// (every backfill action on, the destructive removal off). this is the
-/// command the charnel wizard's repair checklist posts to.
+/// backfill_directory_art?: bool, remove_overapplied?: bool,
+/// backfill_video_thumbnails?: bool }` - all five sub-job toggles
+/// default per `RepairLibraryImagesOptions::default()` (every backfill
+/// action on, the destructive removal off). this is the command the
+/// charnel wizard's repair checklist posts to.
 pub(in crate::admin_dispatch) async fn repair_library(
     args: JsonValue,
     caller: &Caller,
 ) -> GrimoireResponse<JsonValue> {
     let dry_run = opt_bool(&args, "dry_run").unwrap_or(false);
     let scan_directory = opt_str(&args, "scan_directory");
-    let options = parse_repair_options(&args, crate::maintenance::RepairLibraryImagesOptions::default());
+    let options = parse_repair_options(
+        &args,
+        crate::maintenance::RepairLibraryImagesOptions::default(),
+    );
     let resp = crate::maintenance::repair_library_images_sync(
         dry_run,
         scan_directory.clone(),
@@ -562,6 +580,7 @@ pub(in crate::admin_dispatch) async fn repair_library_waveforms(
         backfill_embedded_art: false,
         backfill_directory_art: false,
         remove_overapplied: false,
+        backfill_video_thumbnails: false,
     };
     let resp = crate::maintenance::repair_library_images_sync(
         dry_run,
@@ -581,8 +600,8 @@ pub(in crate::admin_dispatch) async fn repair_library_waveforms(
 
 /// directory-image preset of `repair_library` - backfills missing album
 /// thumbnails and (optionally) cleans up over-applied directory images,
-/// without touching song waveforms. args: `{ dry_run?: bool,
-/// scan_directory?: string, backfill_embedded_art?: bool,
+/// without touching song/video waveforms or video thumbnails. args: `{
+/// dry_run?: bool, scan_directory?: string, backfill_embedded_art?: bool,
 /// backfill_directory_art?: bool, remove_overapplied?: bool }`.
 pub(in crate::admin_dispatch) async fn repair_library_thumbnails(
     args: JsonValue,
@@ -595,6 +614,7 @@ pub(in crate::admin_dispatch) async fn repair_library_thumbnails(
         crate::maintenance::RepairLibraryImagesOptions::default(),
     );
     options.backfill_waveforms = false;
+    options.backfill_video_thumbnails = false;
     let resp = crate::maintenance::repair_library_images_sync(
         dry_run,
         scan_directory.clone(),
@@ -611,3 +631,187 @@ pub(in crate::admin_dispatch) async fn repair_library_thumbnails(
     )
 }
 
+/// video-thumbnail-only preset of `repair_library` - backfills a missing
+/// poster/thumbnail (ffmpeg frame grab) for any video that doesn't have
+/// one yet, without touching anything else. args: `{ dry_run?: bool,
+/// scan_directory?: string }`.
+pub(in crate::admin_dispatch) async fn repair_library_video_thumbnails(
+    args: JsonValue,
+    caller: &Caller,
+) -> GrimoireResponse<JsonValue> {
+    let dry_run = opt_bool(&args, "dry_run").unwrap_or(false);
+    let scan_directory = opt_str(&args, "scan_directory");
+    let options = crate::maintenance::RepairLibraryImagesOptions {
+        backfill_waveforms: false,
+        backfill_embedded_art: false,
+        backfill_directory_art: false,
+        remove_overapplied: false,
+        backfill_video_thumbnails: true,
+    };
+    let resp = crate::maintenance::repair_library_images_sync(
+        dry_run,
+        scan_directory.clone(),
+        options,
+        Some((caller.user_id.clone(), caller.username.clone())),
+    )
+    .await;
+    let Some(data) = resp.data else {
+        return to_value(resp);
+    };
+    GrimoireResponse::success(
+        repair_summary_message(dry_run, &data),
+        repair_summary_payload(dry_run, scan_directory.as_deref(), &data),
+    )
+}
+
+/// one resumable step of the library image repair pass - exposes the
+/// same phase/batch primitives `jobs::music::repair_library_images_processor`
+/// uses for its job chain, but driven by the caller round-tripping this
+/// command instead of a background job. `repair_library`'s single
+/// round-trip blocks until the WHOLE library is done, which on a large
+/// library (lots of individual ffmpeg calls) can look stuck for a long
+/// time with zero feedback - this lets a caller (the charnel wizard)
+/// call once per batch instead and show live progress between calls.
+///
+/// args: `{ dry_run?: bool, scan_directory?: string, phase?:
+/// RepairLibraryImagesPhase, directory_offset?: number,
+/// backfill_waveforms?: bool, backfill_embedded_art?: bool,
+/// backfill_directory_art?: bool, remove_overapplied?: bool,
+/// backfill_video_thumbnails?: bool }` - `phase`/`directory_offset`
+/// default to the very first step (`waveforms`/`0`), so an initial call
+/// needs neither.
+///
+/// response: `{ phase, next_phase, next_directory_offset, done,
+/// scan_directory, batch }` - `batch` is just THIS step's counts (a
+/// `RepairLibraryImagesResult`); the caller accumulates a running total
+/// across calls itself, same as the job chain's `carry` parameter. calls
+/// again with `next_phase`/`next_directory_offset` until `done` is true.
+pub(in crate::admin_dispatch) async fn repair_library_step(
+    args: JsonValue,
+    caller: &Caller,
+) -> GrimoireResponse<JsonValue> {
+    let dry_run = opt_bool(&args, "dry_run").unwrap_or(false);
+    let scan_directory = opt_str(&args, "scan_directory");
+    let options = parse_repair_options(
+        &args,
+        crate::maintenance::RepairLibraryImagesOptions::default(),
+    );
+    let phase: crate::maintenance::RepairLibraryImagesPhase = args
+        .get("phase")
+        .and_then(|v| serde_json::from_value(v.clone()).ok())
+        .unwrap_or_default();
+    let directory_offset = args
+        .get("directory_offset")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
+    let created_by = Some((caller.user_id.clone(), caller.username.clone()));
+
+    use crate::maintenance::{
+        RepairLibraryImagesPhase as Phase, RepairLibraryImagesResult, DIRECTORY_BATCH_SIZE,
+        VIDEO_THUMBNAIL_BATCH_SIZE, WAVEFORM_BATCH_SIZE,
+    };
+
+    let (batch, next): (RepairLibraryImagesResult, Option<(Phase, i64)>) = match phase {
+        Phase::Waveforms if !options.backfill_waveforms => (
+            RepairLibraryImagesResult::default(),
+            Some((Phase::VideoThumbnails, 0)),
+        ),
+        Phase::Waveforms => {
+            let resp = crate::maintenance::repair_waveforms_batch(
+                dry_run,
+                WAVEFORM_BATCH_SIZE,
+                scan_directory.as_deref(),
+                created_by.clone(),
+            )
+            .await;
+            let Some(outcome) = resp.data else {
+                return GrimoireResponse::failure(resp.message, resp.errors);
+            };
+            let next = if outcome.more_remaining {
+                Some((Phase::Waveforms, 0))
+            } else {
+                Some((Phase::VideoWaveforms, 0))
+            };
+            (outcome.result, next)
+        }
+        Phase::VideoWaveforms if !options.backfill_waveforms => (
+            RepairLibraryImagesResult::default(),
+            Some((Phase::VideoThumbnails, 0)),
+        ),
+        Phase::VideoWaveforms => {
+            let resp = crate::maintenance::repair_video_waveforms_batch(
+                dry_run,
+                WAVEFORM_BATCH_SIZE,
+                scan_directory.as_deref(),
+                created_by.clone(),
+            )
+            .await;
+            let Some(outcome) = resp.data else {
+                return GrimoireResponse::failure(resp.message, resp.errors);
+            };
+            let next = if outcome.more_remaining {
+                Some((Phase::VideoWaveforms, 0))
+            } else {
+                Some((Phase::VideoThumbnails, 0))
+            };
+            (outcome.result, next)
+        }
+        Phase::VideoThumbnails if !options.backfill_video_thumbnails => (
+            RepairLibraryImagesResult::default(),
+            Some((Phase::Directories, 0)),
+        ),
+        Phase::VideoThumbnails => {
+            let resp = crate::maintenance::repair_video_thumbnails_batch(
+                dry_run,
+                VIDEO_THUMBNAIL_BATCH_SIZE,
+                scan_directory.as_deref(),
+                created_by.clone(),
+            )
+            .await;
+            let Some(outcome) = resp.data else {
+                return GrimoireResponse::failure(resp.message, resp.errors);
+            };
+            let next = if outcome.more_remaining {
+                Some((Phase::VideoThumbnails, 0))
+            } else {
+                Some((Phase::Directories, 0))
+            };
+            (outcome.result, next)
+        }
+        Phase::Directories if !options.any_directory_action() => {
+            (RepairLibraryImagesResult::default(), None)
+        }
+        Phase::Directories => {
+            let resp = crate::maintenance::repair_directories_batch(
+                dry_run,
+                directory_offset,
+                DIRECTORY_BATCH_SIZE,
+                scan_directory.as_deref(),
+                options,
+                created_by.clone(),
+            )
+            .await;
+            let Some(outcome) = resp.data else {
+                return GrimoireResponse::failure(resp.message, resp.errors);
+            };
+            let next = outcome
+                .more_remaining
+                .then_some((Phase::Directories, outcome.next_offset));
+            (outcome.result, next)
+        }
+    };
+
+    let done = next.is_none();
+    let (next_phase, next_directory_offset) = next.unwrap_or((phase, 0));
+    GrimoireResponse::success(
+        "repair library step complete",
+        json!({
+            "phase": phase,
+            "next_phase": next_phase,
+            "next_directory_offset": next_directory_offset,
+            "done": done,
+            "scan_directory": scan_directory,
+            "batch": batch,
+        }),
+    )
+}

@@ -79,12 +79,18 @@ pub const DIRECTORY_BATCH_SIZE: i64 = 50;
 /// currently on - internal bookkeeping for
 /// `jobs::music::repair_library_images_processor`'s per-batch state, not
 /// a user-facing "only run this phase" selector (see
-/// `RepairLibraryImagesOptions` for the user-facing granularity).
+/// `RepairLibraryImagesOptions` for the user-facing granularity). runs in
+/// this order: `Waveforms` (songs) -> `VideoWaveforms` ->
+/// `VideoThumbnails` -> `Directories` (song/album art, unrelated to
+/// video) - see `jobs::music::repair_library_images_processor` for the
+/// chain's skip-if-disabled transitions between them.
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq, ZodSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum RepairLibraryImagesPhase {
     #[default]
     Waveforms,
+    VideoWaveforms,
+    VideoThumbnails,
     Directories,
 }
 
@@ -100,7 +106,9 @@ fn default_true() -> bool {
 /// associations and defaults OFF since it's the one destructive action.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, ZodSchema)]
 pub struct RepairLibraryImagesOptions {
-    /// regenerate a waveform for any song that doesn't have one yet.
+    /// regenerate a waveform for any song OR video that doesn't have one
+    /// yet (see `maintenance::repair_video_images::repair_video_waveforms_batch`
+    /// for the video half - gated by this same flag, not a separate one).
     #[serde(default = "default_true")]
     pub backfill_waveforms: bool,
     /// apply a song file's own embedded art (id3/vorbis cover) as an
@@ -118,6 +126,13 @@ pub struct RepairLibraryImagesOptions {
     /// albums in the same directory).
     #[serde(default)]
     pub remove_overapplied: bool,
+    /// extract a poster frame (via ffmpeg) for any video that doesn't
+    /// have one yet - its own independent toggle (not folded into
+    /// `backfill_embedded_art`) since a video poster is always a frame
+    /// grab from the file itself, never sourced from a directory image
+    /// or a song-style embedded tag.
+    #[serde(default = "default_true")]
+    pub backfill_video_thumbnails: bool,
 }
 
 impl Default for RepairLibraryImagesOptions {
@@ -127,6 +142,7 @@ impl Default for RepairLibraryImagesOptions {
             backfill_embedded_art: true,
             backfill_directory_art: true,
             remove_overapplied: false,
+            backfill_video_thumbnails: true,
         }
     }
 }
@@ -149,6 +165,10 @@ pub struct RepairLibraryImagesResult {
     /// match was found - not an error, just visibility into what this
     /// pass deliberately declined to guess at.
     pub albums_left_ambiguous: u32,
+    /// see `maintenance::repair_video_images::repair_video_waveforms_batch`.
+    pub videos_waveforms_backfilled: u32,
+    /// see `maintenance::repair_video_images::repair_video_thumbnails_batch`.
+    pub videos_thumbnails_backfilled: u32,
     pub errors: Vec<ErrorDetail>,
 }
 
@@ -160,6 +180,8 @@ impl RepairLibraryImagesResult {
         self.albums_thumbnails_backfilled += other.albums_thumbnails_backfilled;
         self.albums_thumbnails_removed_overapplied += other.albums_thumbnails_removed_overapplied;
         self.albums_left_ambiguous += other.albums_left_ambiguous;
+        self.videos_waveforms_backfilled += other.videos_waveforms_backfilled;
+        self.videos_thumbnails_backfilled += other.videos_thumbnails_backfilled;
         self.errors.extend(other.errors);
     }
 }
@@ -614,6 +636,43 @@ pub async fn repair_library_images_sync(
                 break;
             }
         }
+        loop {
+            let resp = super::repair_video_images::repair_video_waveforms_batch(
+                dry_run,
+                WAVEFORM_BATCH_SIZE,
+                scan_directory.as_deref(),
+                created_by.clone(),
+            )
+            .await;
+            let Some(outcome) = resp.data else {
+                return GrimoireResponse::failure(resp.message, resp.errors);
+            };
+            let more_remaining = outcome.more_remaining;
+            totals.merge(outcome.result);
+            if !more_remaining {
+                break;
+            }
+        }
+    }
+
+    if options.backfill_video_thumbnails {
+        loop {
+            let resp = super::repair_video_images::repair_video_thumbnails_batch(
+                dry_run,
+                super::repair_video_images::VIDEO_THUMBNAIL_BATCH_SIZE,
+                scan_directory.as_deref(),
+                created_by.clone(),
+            )
+            .await;
+            let Some(outcome) = resp.data else {
+                return GrimoireResponse::failure(resp.message, resp.errors);
+            };
+            let more_remaining = outcome.more_remaining;
+            totals.merge(outcome.result);
+            if !more_remaining {
+                break;
+            }
+        }
     }
 
     if options.any_directory_action() {
@@ -646,8 +705,9 @@ pub async fn repair_library_images_sync(
 /// normalize a scan-directory scope into a sqlite LIKE pattern matching
 /// any file at or under that directory - metacharacters in the path
 /// itself (`%`/`_`) are escaped so a directory literally named e.g.
-/// `100%_mixes` can't be misread as a wildcard.
-fn scan_directory_pattern(scan_directory: Option<&str>) -> Option<String> {
+/// `100%_mixes` can't be misread as a wildcard. `pub(crate)` so
+/// `repair_video_images`'s batches can scope the same way.
+pub(crate) fn scan_directory_pattern(scan_directory: Option<&str>) -> Option<String> {
     let dir = scan_directory?;
     let normalized = dir.trim_end_matches('/');
     let escaped = escape_sql_like(normalized);

@@ -231,8 +231,9 @@ pub struct EnqueueMbAlbumSearchResponse {
 /// cancelling it just stops the chain, since no further batch is
 /// enqueued.
 ///
-/// always runs both phases (waveforms then directories) - `options`
-/// (shared with the CLI/rathole/charnel synchronous surface, see
+/// always runs every phase (song waveforms, video waveforms, video
+/// thumbnails, then directories) - `options` (shared with the
+/// CLI/rathole/charnel synchronous surface, see
 /// `maintenance::repair_library_images_sync`) gates which sub-jobs
 /// within each phase actually do anything; a phase whose sub-jobs are
 /// all disabled is skipped by the processor rather than batched through

@@ -1955,7 +1955,7 @@ pub fn prune_config_backups(config_path: &Path, keep: usize) -> usize {
     }
 
     // newest first, so the tail (everything after `keep`) is what gets removed
-    backups.sort_by(|a, b| b.1.cmp(&a.1));
+    backups.sort_by_key(|(_, modified)| std::cmp::Reverse(*modified));
     let mut deleted = 0;
     for (path, _) in backups.into_iter().skip(keep) {
         match std::fs::remove_file(&path) {

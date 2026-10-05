@@ -1719,13 +1719,15 @@ fn parse_maintenance_sub(arg: Option<&str>) -> SlashAction {
     let no_embedded_art = has_token("no-embedded-art");
     let no_directory_art = has_token("no-directory-art");
     let remove_overapplied = has_token("remove-overapplied");
+    // video-thumbnail sub-job toggle, used by the full repair-library command
+    let no_video_thumbnails = has_token("no-video-thumbnails");
     let bad = |hint: &'static str| SlashAction::BadArgs {
         name: "maintenance",
         hint,
     };
     match sub.as_str() {
         "" | "help" | "list" => bad(
-            "usage: /maintenance <cleanup-tags|cleanup-genres|cleanup-blobs|cleanup-all|backfill-blake3|backfill-thumbs|hard-delete|run-full|repair-library|repair-waveforms|repair-thumbnails|update-image|update-spume> [args]",
+            "usage: /maintenance <cleanup-tags|cleanup-genres|cleanup-blobs|cleanup-all|backfill-blake3|backfill-thumbs|hard-delete|run-full|repair-library|repair-waveforms|repair-thumbnails|repair-video-thumbnails|update-image|update-spume> [args]",
         ),
         "cleanup-tags" | "cleanup_tags" => SlashAction::AdminDispatch {
             name: "maintenance_cleanup_orphaned_tags",
@@ -1826,6 +1828,7 @@ fn parse_maintenance_sub(arg: Option<&str>) -> SlashAction {
                 "backfill_embedded_art": !no_embedded_art,
                 "backfill_directory_art": !no_directory_art,
                 "remove_overapplied": remove_overapplied,
+                "backfill_video_thumbnails": !no_video_thumbnails,
             }),
         },
         "repair-waveforms" | "repair_waveforms" | "repair-waveform" => SlashAction::AdminDispatch {
@@ -1844,8 +1847,17 @@ fn parse_maintenance_sub(arg: Option<&str>) -> SlashAction {
                 }),
             }
         }
+        "repair-video-thumbnails" | "repair_video_thumbnails" | "repair-video-thumbs" => {
+            SlashAction::AdminDispatch {
+                name: "maintenance_repair_library_video_thumbnails",
+                body: serde_json::json!({
+                    "dry_run": has_flag("dry-run"),
+                    "scan_directory": scan_dir,
+                }),
+            }
+        }
         _ => bad(
-            "usage: /maintenance <cleanup-tags|cleanup-genres|cleanup-blobs|cleanup-all|backfill-blake3|backfill-thumbs|hard-delete|hard-delete-videos|run-full|repair-library [no-embedded-art] [no-directory-art] [remove-overapplied]|repair-waveforms|repair-thumbnails [no-embedded-art] [no-directory-art] [remove-overapplied]|update-image|update-spume> [args]",
+            "usage: /maintenance <cleanup-tags|cleanup-genres|cleanup-blobs|cleanup-all|backfill-blake3|backfill-thumbs|hard-delete|hard-delete-videos|run-full|repair-library [no-embedded-art] [no-directory-art] [remove-overapplied] [no-video-thumbnails]|repair-waveforms|repair-thumbnails [no-embedded-art] [no-directory-art] [remove-overapplied]|repair-video-thumbnails|update-image|update-spume> [args]",
         ),
     }
 }

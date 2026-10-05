@@ -1118,9 +1118,7 @@ pub async fn enqueue_repair_library_images(
     let resp = create_job(job_request).await;
     let job = match resp.data {
         Some(j) => j,
-        None => {
-            return GrimoireResponse::failure("failed to enqueue library repair", resp.errors)
-        }
+        None => return GrimoireResponse::failure("failed to enqueue library repair", resp.errors),
     };
 
     let body = crate::jobs::EnqueueRepairLibraryImagesResponse { job_id: job.id };
@@ -1129,4 +1127,3 @@ pub async fn enqueue_repair_library_images(
         serde_json::to_value(body).unwrap(),
     )
 }
-

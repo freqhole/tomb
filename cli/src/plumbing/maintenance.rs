@@ -72,11 +72,12 @@ pub enum MaintenanceAction {
         #[arg(long, short = 'c')]
         config: Option<PathBuf>,
     },
-    /// Backfill missing song waveforms + album thumbnails, and clean up
-    /// directory-sourced images over-applied across unrelated albums.
-    /// runs all sub-jobs except the destructive removal, which is
-    /// off by default; see `RepairLibraryWaveforms`/`RepairLibraryThumbnails`
-    /// to run just one group.
+    /// Backfill missing song+video waveforms, video thumbnails, and album
+    /// thumbnails, and clean up directory-sourced images over-applied
+    /// across unrelated albums. runs all sub-jobs except the destructive
+    /// removal, which is off by default; see
+    /// `RepairLibraryWaveforms`/`RepairLibraryThumbnails`/
+    /// `RepairLibraryVideoThumbnails` to run just one group.
     RepairLibrary {
         /// Show what would change without writing anything
         #[arg(long)]
@@ -94,7 +95,7 @@ pub enum MaintenanceAction {
         #[arg(long)]
         remove_overapplied: bool,
     },
-    /// Backfill missing song waveforms only (no album thumbnail changes)
+    /// Backfill missing song and video waveforms only (no thumbnail changes)
     RepairLibraryWaveforms {
         #[arg(long)]
         dry_run: bool,
@@ -102,7 +103,7 @@ pub enum MaintenanceAction {
         scan_dir: Option<String>,
     },
     /// Backfill missing album thumbnails (and optionally clean up
-    /// over-applied directory images) only - no waveform changes
+    /// over-applied directory images) only - no waveform or video thumbnail changes
     RepairLibraryThumbnails {
         #[arg(long)]
         dry_run: bool,
@@ -117,6 +118,14 @@ pub enum MaintenanceAction {
         /// Destructive: also remove directory-sourced thumbnails identified as over-applied
         #[arg(long)]
         remove_overapplied: bool,
+    },
+    /// Backfill a missing poster/thumbnail (ffmpeg frame grab) for any
+    /// video that doesn't have one yet - no other changes
+    RepairLibraryVideoThumbnails {
+        #[arg(long)]
+        dry_run: bool,
+        #[arg(long)]
+        scan_dir: Option<String>,
     },
 }
 
@@ -433,6 +442,7 @@ pub async fn handle_command(
                 backfill_embedded_art: !no_embedded_art,
                 backfill_directory_art: !no_directory_art,
                 remove_overapplied,
+                backfill_video_thumbnails: true,
             };
             let response = repair_library_images_sync(dry_run, scan_dir, options, None).await;
             if !response.success {
@@ -450,6 +460,7 @@ pub async fn handle_command(
                 backfill_embedded_art: false,
                 backfill_directory_art: false,
                 remove_overapplied: false,
+                backfill_video_thumbnails: false,
             };
             let response = repair_library_images_sync(dry_run, scan_dir, options, None).await;
             if !response.success {
@@ -473,6 +484,25 @@ pub async fn handle_command(
                 backfill_embedded_art: !no_embedded_art,
                 backfill_directory_art: !no_directory_art,
                 remove_overapplied,
+                backfill_video_thumbnails: false,
+            };
+            let response = repair_library_images_sync(dry_run, scan_dir, options, None).await;
+            if !response.success {
+                return CommandOutput::failure(response.message, response.errors, ());
+            }
+            let Some(summary) = response.data else {
+                return CommandOutput::failure("No summary data returned", vec![], ());
+            };
+            CommandOutput::success(response.message, summary)
+        }
+
+        MaintenanceAction::RepairLibraryVideoThumbnails { dry_run, scan_dir } => {
+            let options = RepairLibraryImagesOptions {
+                backfill_waveforms: false,
+                backfill_embedded_art: false,
+                backfill_directory_art: false,
+                remove_overapplied: false,
+                backfill_video_thumbnails: true,
             };
             let response = repair_library_images_sync(dry_run, scan_dir, options, None).await;
             if !response.success {

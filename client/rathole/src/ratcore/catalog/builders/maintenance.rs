@@ -227,12 +227,27 @@ fn repair_directory_action_args() -> Vec<crate::ratcore::app::ArgSpec> {
     ]
 }
 
-/// full repair: waveform backfill + directory-grouped thumbnail
-/// backfill/cleanup. see `maintenance_repair_library_waveforms`/
-/// `maintenance_repair_library_thumbnails` to run just one half.
+/// toggle for `repair_library`'s video-poster-thumbnail sub-job - its own
+/// arg (not folded into `repair_directory_action_args`) since it's
+/// unrelated to the song/album directory-grouping heuristic those cover.
+fn video_thumbnail_action_arg() -> crate::ratcore::app::ArgSpec {
+    use crate::ratcore::app::ArgSpec;
+    ArgSpec {
+        name: "backfill_video_thumbnails".to_string(),
+        kind: crate::ratcore::app::ArgKind::Bool { default: true },
+        required: false,
+        help: Some("extract a poster frame (ffmpeg) for any video missing a thumbnail".to_string()),
+    }
+}
+
+/// full repair: song+video waveform backfill, video thumbnail backfill,
+/// and directory-grouped song/album thumbnail backfill/cleanup. see
+/// `maintenance_repair_library_waveforms`/`maintenance_repair_library_thumbnails`/
+/// `maintenance_repair_library_video_thumbnails` to run just one group.
 pub(in crate::ratcore::catalog) fn repair_library() -> AdminCommand {
     let mut args = repair_library_args();
     args.extend(repair_directory_action_args());
+    args.push(video_thumbnail_action_arg());
     AdminCommand {
         name: "maintenance_repair_library".to_string(),
         request_type: "MaintenanceRepairLibraryRequest".to_string(),
@@ -267,5 +282,18 @@ pub(in crate::ratcore::catalog) fn repair_library_thumbnails() -> AdminCommand {
         auth: "Admin".to_string(),
         kind: CommandKind::Admin,
         args,
+    }
+}
+
+/// video-thumbnail-only variant - backfills a missing poster/thumbnail
+/// (ffmpeg frame grab) for any video that doesn't have one yet.
+pub(in crate::ratcore::catalog) fn repair_library_video_thumbnails() -> AdminCommand {
+    AdminCommand {
+        name: "maintenance_repair_library_video_thumbnails".to_string(),
+        request_type: "MaintenanceRepairLibraryRequest".to_string(),
+        response_type: "serde_json::Value".to_string(),
+        auth: "Admin".to_string(),
+        kind: CommandKind::Admin,
+        args: repair_library_args(),
     }
 }

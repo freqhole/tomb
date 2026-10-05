@@ -6,8 +6,8 @@ use crate::api_registry::{Domain, Method, RouteAuth, RouteInfo};
 use crate::error::ErrorDetail;
 use crate::media_blobz::{
     build_blob_data_response, build_blob_path_response, build_blob_response,
-    build_blob_thumbnail_response, find_present_blake3s, get_media_blob,
-    get_media_blob_by_blake3, BlobMetadataResponse,
+    build_blob_thumbnail_response, find_present_blake3s, get_media_blob, get_media_blob_by_blake3,
+    BlobMetadataResponse,
 };
 use crate::offal::caller::Caller;
 use crate::response::GrimoireResponse;

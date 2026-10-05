@@ -516,13 +516,7 @@ mod tests {
         let report = run_blake3_backfill_rounds(|| {
             *calls.borrow_mut() += 1;
             let left = remaining_after.borrow_mut().remove(0);
-            let processed = if left == 150 {
-                100
-            } else if left == 50 {
-                100
-            } else {
-                50
-            };
+            let processed = if left == 150 || left == 50 { 100 } else { 50 };
             async move { Ok((processed, left)) }
         })
         .await

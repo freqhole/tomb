@@ -50,7 +50,45 @@ interface RepairLibraryImagesResult {
   albums_thumbnails_backfilled: number;
   albums_thumbnails_removed_overapplied: number;
   albums_left_ambiguous: number;
+  videos_waveforms_backfilled: number;
+  videos_thumbnails_backfilled: number;
   errors: unknown[];
+}
+
+// mirrors grimoire's `RepairLibraryImagesPhase` (snake_case).
+type RepairPhase = "waveforms" | "video_waveforms" | "video_thumbnails" | "directories";
+
+// response payload from `maintenance_repair_library_step` - one resumable
+// batch of the repair pass, so the wizard can show live progress between
+// calls instead of blocking on a single round-trip for the whole library.
+interface RepairLibraryStepResult {
+  phase: RepairPhase;
+  next_phase: RepairPhase;
+  next_directory_offset: number;
+  done: boolean;
+  scan_directory: string | null;
+  batch: RepairLibraryImagesResult;
+}
+
+const REPAIR_PHASE_LABELS: Record<RepairPhase, string> = {
+  waveforms: "song waveforms",
+  video_waveforms: "video waveforms",
+  video_thumbnails: "video thumbnails",
+  directories: "album art",
+};
+
+function emptyRepairTotals(): RepairLibraryImagesResult {
+  return {
+    dry_run: false,
+    scan_directory: null,
+    songs_waveforms_backfilled: 0,
+    albums_thumbnails_backfilled: 0,
+    albums_thumbnails_removed_overapplied: 0,
+    albums_left_ambiguous: 0,
+    videos_waveforms_backfilled: 0,
+    videos_thumbnails_backfilled: 0,
+    errors: [],
+  };
 }
 
 // progress payload mirrors JobEvent.Progress.details emitted by the runner
@@ -114,8 +152,20 @@ export default function LibraryView() {
   const [repairDirectoryArt, setRepairDirectoryArt] = createSignal(true);
   const [repairEmbeddedArt, setRepairEmbeddedArt] = createSignal(true);
   const [repairRemoveOverapplied, setRepairRemoveOverapplied] = createSignal(false);
+  const [repairVideoThumbnails, setRepairVideoThumbnails] = createSignal(true);
   const anyRepairOptionChecked = () =>
-    repairWaveforms() || repairDirectoryArt() || repairEmbeddedArt() || repairRemoveOverapplied();
+    repairWaveforms() ||
+    repairDirectoryArt() ||
+    repairEmbeddedArt() ||
+    repairRemoveOverapplied() ||
+    repairVideoThumbnails();
+  // live progress through the step-by-step repair loop below - cleared
+  // once the run finishes (success or error) so the final summary message
+  // takes over instead of a stale "repairing..." panel.
+  const [repairProgress, setRepairProgress] = createSignal<{
+    phase: RepairPhase;
+    totals: RepairLibraryImagesResult;
+  } | null>(null);
 
   let unlistenScan: (() => void) | null = null;
 
@@ -521,12 +571,52 @@ export default function LibraryView() {
     }
   }
 
+  // drives `maintenance_repair_library_step` one batch at a time instead
+  // of a single `maintenance_repair_library` call that blocks until the
+  // WHOLE library is done - updates `repairProgress` after every batch so
+  // the wizard can show live counts instead of a static "repairing..."
+  // label for however long the full pass takes.
+  async function runRepairLibrarySteps(): Promise<RepairLibraryImagesResult> {
+    const totals = emptyRepairTotals();
+    let phase: RepairPhase = "waveforms";
+    let directoryOffset = 0;
+    for (;;) {
+      const step: RepairLibraryStepResult = await admin.dispatchOrThrow<RepairLibraryStepResult>(
+        "maintenance_repair_library_step",
+        {
+          dry_run: false,
+          backfill_waveforms: repairWaveforms(),
+          backfill_embedded_art: repairEmbeddedArt(),
+          backfill_directory_art: repairDirectoryArt(),
+          remove_overapplied: repairRemoveOverapplied(),
+          backfill_video_thumbnails: repairVideoThumbnails(),
+          phase,
+          directory_offset: directoryOffset,
+        },
+      );
+      const b = step.batch;
+      totals.songs_waveforms_backfilled += b.songs_waveforms_backfilled;
+      totals.albums_thumbnails_backfilled += b.albums_thumbnails_backfilled;
+      totals.albums_thumbnails_removed_overapplied += b.albums_thumbnails_removed_overapplied;
+      totals.albums_left_ambiguous += b.albums_left_ambiguous;
+      totals.videos_waveforms_backfilled += b.videos_waveforms_backfilled;
+      totals.videos_thumbnails_backfilled += b.videos_thumbnails_backfilled;
+      totals.errors.push(...b.errors);
+      setRepairProgress({ phase: step.phase, totals: { ...totals, errors: [...totals.errors] } });
+      if (step.done) break;
+      phase = step.next_phase;
+      directoryOffset = step.next_directory_offset;
+    }
+    return totals;
+  }
+
   async function rescanAll() {
     setScanning("__all__");
     setLastResult("");
     setLastError("");
     setScanProgress(null);
     setScanSummary(null);
+    setRepairProgress(null);
 
     try {
       // local: invoke the tauri command so the polling task fires
@@ -536,26 +626,18 @@ export default function LibraryView() {
         ? await admin.dispatchOrThrow<ScanResult>("library_rescan_all", {})
         : await invoke<ScanResult>("rescan_directories");
 
-      // chained into the same button: backfill missing song waveforms /
-      // album thumbnails, and clean up directory-sourced images that got
-      // over-applied across unrelated albums - runs synchronously (no
-      // job queue) via admin_dispatch so this works the same whether
-      // `admin` is pointed at the local instance or a remote one. which
-      // sub-jobs run is driven by the checklist above.
-      const repair = await admin.dispatchOrThrow<RepairLibraryImagesResult>(
-        "maintenance_repair_library",
-        {
-          dry_run: false,
-          backfill_waveforms: repairWaveforms(),
-          backfill_embedded_art: repairEmbeddedArt(),
-          backfill_directory_art: repairDirectoryArt(),
-          remove_overapplied: repairRemoveOverapplied(),
-        },
-      );
+      // chained into the same button: backfill missing song/video
+      // waveforms, video thumbnails, and album thumbnails, and clean up
+      // directory-sourced images that got over-applied across unrelated
+      // albums - batched (see runRepairLibrarySteps) so this works the
+      // same whether `admin` is pointed at the local instance or a remote
+      // one. which sub-jobs run is driven by the checklist above.
+      const repair = await runRepairLibrarySteps();
 
       setLastResult(
-        `${result.message} — image repair: backfilled ${repair.songs_waveforms_backfilled} waveform(s), ` +
-          `${repair.albums_thumbnails_backfilled} thumbnail(s); removed ${repair.albums_thumbnails_removed_overapplied} ` +
+        `${result.message} — image repair: backfilled ${repair.songs_waveforms_backfilled} song waveform(s), ` +
+          `${repair.albums_thumbnails_backfilled} album thumbnail(s), ${repair.videos_waveforms_backfilled} video waveform(s), ` +
+          `${repair.videos_thumbnails_backfilled} video thumbnail(s); removed ${repair.albums_thumbnails_removed_overapplied} ` +
           `over-applied image(s)${repair.errors.length > 0 ? ` (${repair.errors.length} error(s))` : ""}`,
       );
       // reload directories to show updated file count
@@ -563,6 +645,7 @@ export default function LibraryView() {
     } catch (e) {
       setLastError(`rescan failed: ${e}`);
     } finally {
+      setRepairProgress(null);
       setScanning(null);
     }
   }
@@ -672,7 +755,9 @@ export default function LibraryView() {
                     </svg>
                   </span>
                   <span class="checkbox-content">
-                    <span class="checkbox-label">regenerate missing waveforms</span>
+                    <span class="checkbox-label">
+                      generate missing waveform images (songs + videos)
+                    </span>
                   </span>
                 </label>
                 <label class="checkbox-toggle">
@@ -728,6 +813,21 @@ export default function LibraryView() {
                     </span>
                   </span>
                 </label>
+                <label class="checkbox-toggle">
+                  <input
+                    type="checkbox"
+                    checked={repairVideoThumbnails()}
+                    onChange={(e) => setRepairVideoThumbnails(e.currentTarget.checked)}
+                  />
+                  <span class="checkbox-box">
+                    <svg viewBox="0 0 14 14">
+                      <polyline points="2.5 7 5.5 10 11.5 4" />
+                    </svg>
+                  </span>
+                  <span class="checkbox-content">
+                    <span class="checkbox-label">generate missing video thumbnail images</span>
+                  </span>
+                </label>
               </div>
 
               <div class="button-row">
@@ -741,12 +841,41 @@ export default function LibraryView() {
                 </button>
               </div>
 
+              {/* live progress through the batch-by-batch repair loop - updates
+                  after every round-trip so a large library doesn't look stuck
+                  behind a single long-blocking call with no feedback. */}
+              <Show when={repairProgress()}>
+                {(p) => (
+                  <div class="scan-progress-card">
+                    <div class="scan-progress-header">
+                      <div class="spinner" />
+                      <span>repairing... ({REPAIR_PHASE_LABELS[p().phase]})</span>
+                    </div>
+                    <div class="scan-progress-stats">
+                      {p().totals.songs_waveforms_backfilled} song waveform(s) ·{" "}
+                      {p().totals.videos_waveforms_backfilled} video waveform(s) ·{" "}
+                      {p().totals.videos_thumbnails_backfilled} video thumbnail(s) ·{" "}
+                      {p().totals.albums_thumbnails_backfilled} album thumbnail(s)
+                      <Show when={p().totals.albums_thumbnails_removed_overapplied > 0}>
+                        {" "}
+                        · {p().totals.albums_thumbnails_removed_overapplied} over-applied image(s)
+                        removed
+                      </Show>
+                      <Show when={p().totals.errors.length > 0}>
+                        {" "}
+                        · {p().totals.errors.length} error(s) so far
+                      </Show>
+                    </div>
+                  </div>
+                )}
+              </Show>
+
               <p class="hint">
                 "repair library" walks every tracked directory: imports new music, relocates moved
                 files, restores songs whose files came back, and soft-deletes songs whose files are
                 gone - then runs whichever of the checked repair sub-jobs above backfill missing
-                song waveforms/album thumbnails and clean up directory images that got over-applied
-                across unrelated albums.
+                song/video waveforms, video thumbnails, and album thumbnails, and clean up directory
+                images that got over-applied across unrelated albums.
               </p>
             </div>
           </details>

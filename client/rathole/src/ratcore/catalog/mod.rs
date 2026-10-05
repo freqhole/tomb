@@ -135,6 +135,7 @@ fn rich_commands() -> Vec<AdminCommand> {
         builders::maintenance::repair_library(),
         builders::maintenance::repair_library_waveforms(),
         builders::maintenance::repair_library_thumbnails(),
+        builders::maintenance::repair_library_video_thumbnails(),
         // -- dir_tags (rich) --
         builders::dir_tags::list(),
         builders::dir_tags::add(),

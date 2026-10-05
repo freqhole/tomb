@@ -1341,7 +1341,10 @@ level = "warn"
         let pool = database::connect().await.expect("connect");
         let extra2_blake3 = reliquary::hash_bytes(b"extra2-blake3");
         let movie2_blake3 = reliquary::hash_bytes(b"movie2-blake3");
-        for (blob_id, blake3) in [("blob-extra2", &extra2_blake3), ("blob-movie2", &movie2_blake3)] {
+        for (blob_id, blake3) in [
+            ("blob-extra2", &extra2_blake3),
+            ("blob-movie2", &movie2_blake3),
+        ] {
             sqlx::query(
                 "INSERT INTO media_blobz (id, size, mime, blob_type, blake3)
                  VALUES (?, 123, 'video/mp4', 'original', ?)",

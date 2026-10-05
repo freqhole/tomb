@@ -1031,6 +1031,18 @@ async fn probe_video_properties(file_path: &Path, config: &GrimoireConfig) -> Vi
     }
 }
 
+/// true if `file_path` has at least one audio stream, per ffprobe -
+/// shared by this module's own import-time waveform step and
+/// `maintenance::repair_video_images`'s after-the-fact backfill, so a
+/// silent video is skipped consistently in both places instead of
+/// letting ffmpeg fail outright on a waveform extraction with nothing
+/// for `showwavespic`'s `[0:a]` to bind to.
+pub(crate) async fn video_has_audio_stream(file_path: &Path, config: &GrimoireConfig) -> bool {
+    probe_video_properties(file_path, config)
+        .await
+        .has_audio_stream
+}
+
 /// update a media blob row with video metadata (codec, container, bitrate, framerate, dimensions)
 async fn update_media_blob_with_video_metadata(
     media_blob_id: &str,
@@ -1075,7 +1087,7 @@ async fn update_media_blob_with_video_metadata(
 }
 
 /// extract a single poster frame and store it as a `Thumbnail` blob.
-async fn extract_video_poster(
+pub(crate) async fn extract_video_poster(
     _media_blob_id: &str,
     file_path: &Path,
     duration_seconds: Option<f64>,
