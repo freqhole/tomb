@@ -520,6 +520,8 @@ export type FeedItemType =
   | "recent_rating"
   | "recent_playlist"
   | "recent_video"
+  | "recent_video_favorite"
+  | "recent_video_watch"
   | "listen_session"
   | "new_image";
 

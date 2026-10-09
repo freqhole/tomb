@@ -30,6 +30,62 @@
         // deployment doesn't reload-loop forever.
         var RELOAD_GUARD_KEY = "freqhole-stale-asset-reload";
 
+        // shared by both failure paths below - extracted so the
+        // unhandledrejection handler (added for the legacy/SystemJS path,
+        // see its own comment) doesn't duplicate this logic.
+        function selfHeal(assetDescription) {
+          if (sessionStorage.getItem(RELOAD_GUARD_KEY)) {
+            console.error(
+              "[bootstrap] stale asset failed to load again after a retry, giving up:",
+              assetDescription
+            );
+            return;
+          }
+          sessionStorage.setItem(RELOAD_GUARD_KEY, "1");
+          console.warn(
+            "[bootstrap] stale build asset failed to load, forcing a fresh reload:",
+            assetDescription
+          );
+
+          // plain location.reload() can be satisfied entirely from
+          // WKWebView's own HTTP cache (NOT the Cache Storage API cleared
+          // above - a separate cache) keyed on this exact URL, re-serving
+          // the IDENTICAL stale index.html and failing again - which is
+          // exactly what "failed to load again after a retry, giving up"
+          // means in practice: the self-heal never actually fetched
+          // anything new. a cache-busting query param forces a genuine
+          // re-fetch (tauri's asset protocol resolves the path ignoring
+          // the query string, so this doesn't change which file is
+          // served - only the cache key WebKit sees).
+          var reload = function () {
+            var url = new URL(location.href);
+            url.searchParams.set("freqhole-cache-bust", Date.now().toString());
+            location.replace(url.toString());
+          };
+
+          if ("caches" in window) {
+            caches
+              .keys()
+              .then(function (names) {
+                return Promise.all(
+                  names
+                    .filter(function (name) {
+                      return name.startsWith("freqhole-");
+                    })
+                    .map(function (name) {
+                      return caches.delete(name);
+                    })
+                );
+              })
+              .catch(function () {
+                // best effort - reload regardless
+              })
+              .finally(reload);
+          } else {
+            reload();
+          }
+        }
+
         window.addEventListener(
           "error",
           function (event) {
@@ -40,47 +96,29 @@
             var isModuleScript = target.tagName === "SCRIPT" && target.type === "module";
             if (!isStylesheet && !isModuleScript) return;
 
-            if (sessionStorage.getItem(RELOAD_GUARD_KEY)) {
-              console.error(
-                "[bootstrap] stale asset failed to load again after a retry, giving up:",
-                target.href || target.src
-              );
-              return;
-            }
-            sessionStorage.setItem(RELOAD_GUARD_KEY, "1");
-            console.warn(
-              "[bootstrap] stale build asset failed to load, forcing a fresh reload:",
-              target.href || target.src
-            );
-
-            var reload = function () {
-              location.reload();
-            };
-
-            if ("caches" in window) {
-              caches
-                .keys()
-                .then(function (names) {
-                  return Promise.all(
-                    names
-                      .filter(function (name) {
-                        return name.startsWith("freqhole-");
-                      })
-                      .map(function (name) {
-                        return caches.delete(name);
-                      })
-                  );
-                })
-                .catch(function () {
-                  // best effort - reload regardless
-                })
-                .finally(reload);
-            } else {
-              reload();
-            }
+            selfHeal(target.href || target.src);
           },
           true
         );
+
+        // the legacy/old-Safari build (@vitejs/plugin-legacy, see
+        // client/spume/vite.config.ts's needsLegacySafariTarget) loads its
+        // entry via `System.import(...)` (SystemJS), NOT a native
+        // <script src> load - SystemJS fetches the file itself (fetch/XHR)
+        // and evals the response as a module body, so a stale index.html
+        // referencing a since-deleted hash surfaces as an UNHANDLED PROMISE
+        // REJECTION (a SyntaxError from evaling HTML as JS, confirmed real
+        // 2026-10-07: "Unexpected token '<'"), never a script/link `error`
+        // event - completely invisible to the listener above. a bare
+        // SyntaxError here is specific enough to this exact scenario (any
+        // other genuine app bug would virtually never surface as an
+        // *uncaught* SyntaxError specifically) to safely key off without a
+        // more precise signal.
+        window.addEventListener("unhandledrejection", function (event) {
+          if (event.reason instanceof SyntaxError) {
+            selfHeal("legacy entry (SystemJS import failed - stale asset?)");
+          }
+        });
       })();
     </script>
     <link rel="stylesheet" href="/src/design-system/theme.css" />

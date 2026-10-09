@@ -1,9 +1,15 @@
 #!/usr/bin/env bash
 # rewrites charnel's compiled binary's libmpv.2.dylib reference to
-# Contents/Frameworks, where tauri's `bundle.macOS.frameworks` config
-# copies it (via scripts/fetch-mpv-runtime.sh's dylibbundler-based
-# homebrew bundling) - same for both arm64 and x86_64, both bundled +
-# hard-linked identically.
+# `@rpath/libmpv.2.dylib` - mpv is now weakly linked (see
+# .cargo/config.toml's `-weak-lmpv`), so this reference is allowed to
+# never resolve - plus adds the LC_RPATH search entries dyld walks, in
+# order, to resolve it: the bundled Contents/Frameworks dir (where
+# tauri's `bundle.macOS.frameworks` config copies it, via scripts/
+# fetch-mpv-runtime.sh's dylibbundler-based homebrew bundling) first,
+# then the arch's homebrew/self-built prefix - a signed+notarized app
+# with no bundled copy (or a deliberately broken one) still boots and
+# falls back to a real system install, entirely via dyld's own ordered
+# rpath search, no rust-side fallback logic needed.
 #
 # the binary's CURRENT reference isn't a fixed string to hardcode - it
 # depends entirely on whatever -L search path / dylib satisfied the
@@ -37,7 +43,7 @@ if [ -z "$CURRENT_REF" ]; then
   exit 0
 fi
 
-NEW_REF="@executable_path/../Frameworks/libmpv.2.dylib"
+NEW_REF="@rpath/libmpv.2.dylib"
 
 install_name_tool -change \
   "$CURRENT_REF" \
@@ -45,6 +51,26 @@ install_name_tool -change \
   "$BINARY"
 
 echo "fixup-mpv-install-name: rewrote libmpv.2.dylib reference ($CURRENT_REF -> $NEW_REF) in $BINARY"
+
+# add_rpath: no-op (not an error) if the path's already there - re-runs
+# of this script (e.g. a rebuild without a clean) would otherwise fail
+# on install_name_tool's "rpath already exists" error.
+add_rpath() {
+  local path="$1"
+  if otool -l "$BINARY" | grep -qF "path $path "; then
+    echo "fixup-mpv-install-name: rpath $path already present, skipping"
+    return 0
+  fi
+  install_name_tool -add_rpath "$path" "$BINARY"
+  echo "fixup-mpv-install-name: added rpath $path"
+}
+
+add_rpath "@executable_path/../Frameworks"
+case "$TARGET_TRIPLE" in
+  aarch64-apple-darwin) add_rpath "/opt/homebrew/lib" ;;
+  x86_64-apple-darwin) add_rpath "/usr/local/lib" ;;
+  *) echo "fixup-mpv-install-name: unrecognized target triple $TARGET_TRIPLE, no homebrew-prefix rpath added" >&2 ;;
+esac
 
 # the bundled ffmpeg/ffprobe CLI binaries (see scripts/fetch-mpv-
 # runtime.sh) land under tauri's `bundle.resources` (Contents/Resources/

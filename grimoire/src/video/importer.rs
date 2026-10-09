@@ -901,11 +901,10 @@ async fn probe_video_properties(file_path: &Path, config: &GrimoireConfig) -> Vi
 
     info!("running ffprobe: {} {}", ffprobe_bin, args.join(" "));
 
-    let output = match tokio::process::Command::new(&ffprobe_bin)
-        .args(&args)
-        .output()
-        .await
-    {
+    let mut cmd = tokio::process::Command::new(&ffprobe_bin);
+    cmd.args(&args);
+    crate::process_ext::hide_console_window(&mut cmd);
+    let output = match cmd.output().await {
         Ok(o) => o,
         Err(e) => {
             warn!("failed to run ffprobe ({}): {}", ffprobe_bin, e);

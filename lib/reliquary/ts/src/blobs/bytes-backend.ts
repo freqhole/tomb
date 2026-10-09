@@ -208,9 +208,15 @@ export function createCacheBackend(): BytesBackend {
   };
 }
 
-/** the default resolver chain: OPFS first, Cache API fallback. */
-export function defaultBytesChain(): BytesBackend[] {
-  return [createOpfsBackend(), createCacheBackend()];
+/** the default resolver chain: OPFS first, Cache API fallback. pass
+ *  `skipOpfs` to drop OPFS entirely - for engines where
+ *  `navigator.storage.getDirectory` is feature-detectable but silently
+ *  non-functional (confirmed real 2026-10-07 on macOS Catalina's bundled
+ *  WebKit: OPFS writes/reads never throw, but every read comes back
+ *  empty - a blob URL registers with the right MIME type yet "has no
+ *  content" in the inspector). */
+export function defaultBytesChain(skipOpfs = false): BytesBackend[] {
+  return skipOpfs ? [createCacheBackend()] : [createOpfsBackend(), createCacheBackend()];
 }
 
 /**
@@ -224,7 +230,7 @@ export async function writeThroughChain(
   chain: BytesBackend[],
   id: string,
   data: ArrayBuffer,
-  mime: string
+  mime: string,
 ): Promise<BytesBackendName | null> {
   for (const backend of chain) {
     if (!(await backend.isAvailable())) continue;
@@ -241,7 +247,7 @@ export async function writeThroughChain(
 export async function readThroughChain(
   chain: BytesBackend[],
   id: string,
-  knownBackend?: BytesBackendName
+  knownBackend?: BytesBackendName,
 ): Promise<ArrayBuffer | null> {
   if (knownBackend) {
     const backend = chain.find((b) => b.name === knownBackend);
@@ -261,7 +267,7 @@ export async function readThroughChain(
 export async function hasBytesInChain(
   chain: BytesBackend[],
   id: string,
-  knownBackend?: BytesBackendName
+  knownBackend?: BytesBackendName,
 ): Promise<boolean> {
   if (knownBackend) {
     const backend = chain.find((b) => b.name === knownBackend);

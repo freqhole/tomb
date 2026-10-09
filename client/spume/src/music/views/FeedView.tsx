@@ -577,6 +577,13 @@ export function FeedView() {
           navigate(routes.videoDetailOn(remote?.peer_addr, item.video_id));
         }
         break;
+
+      case "recent_video_favorite":
+      case "recent_video_watch":
+        if (item.video_id) {
+          navigate(routes.videoDetailOn(remote?.peer_addr, item.video_id));
+        }
+        break;
     }
   };
 

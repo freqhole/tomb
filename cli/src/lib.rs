@@ -141,6 +141,18 @@ pub enum Commands {
         action: plumbing::RadioAction,
     },
 
+    /// debug: load a single file into the libmpv player and log every
+    /// event for N seconds - outside the Tauri app entirely, to isolate
+    /// a playback stall from the full charnel/WKWebView process.
+    #[cfg(feature = "libmpv-playback")]
+    PlayerSmokeTest {
+        /// audio or video file path to load
+        path: std::path::PathBuf,
+        /// how long to watch for events before exiting
+        #[arg(long, default_value_t = 15)]
+        seconds: u64,
+    },
+
     /// Start HTTP server and/or P2P endpoint based on config
     Serve {
         /// Path to configuration file (overrides --config global flag)
@@ -417,6 +429,10 @@ pub async fn run_with(mut cli: Cli) -> Result<()> {
         #[cfg(feature = "libmpv-playback")]
         Commands::Radio { action } => {
             plumbing::handle_radio(action, json_output).await?;
+        }
+        #[cfg(feature = "libmpv-playback")]
+        Commands::PlayerSmokeTest { path, seconds } => {
+            plumbing::handle_player_smoke_test(path, seconds).await?;
         }
         Commands::Serve { .. } | Commands::Http { .. } | Commands::P2p { .. } => {
             // handled above with early return

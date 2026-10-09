@@ -34,6 +34,7 @@ import {
   type ListBlobsPage,
 } from "./db.js";
 import {
+  createCacheBackend,
   createOpfsBackend,
   defaultBytesChain,
   hasBytesInChain,
@@ -77,6 +78,13 @@ export interface BlobStoreOptions {
    *  caller didn't expect is worse than a loud failure the caller can
    *  retry or surface. */
   allowCacheFallback?: boolean;
+  /** when true, skip OPFS entirely and always use the Cache API - for
+   *  engines where OPFS is feature-detectable (`navigator.storage.
+   *  getDirectory` exists) but silently non-functional: confirmed real
+   *  2026-10-07 on macOS Catalina's bundled WebKit, every OPFS read came
+   *  back empty (no exception anywhere) despite writes reporting
+   *  success. defaults to false. */
+  disableOpfs?: boolean;
 }
 
 export interface StoreBlobFromFileOptions {
@@ -120,9 +128,11 @@ export interface BlobStore {
  *  cache; construct one per app (not per component/request). */
 export function createBlobStore(options: BlobStoreOptions = {}): BlobStore {
   const dbName = options.dbName ?? DEFAULT_DB_NAME;
-  const chain: BytesBackend[] = options.allowCacheFallback
-    ? defaultBytesChain()
-    : [createOpfsBackend()];
+  const chain: BytesBackend[] = options.disableOpfs
+    ? [createCacheBackend()]
+    : options.allowCacheFallback
+      ? defaultBytesChain()
+      : [createOpfsBackend()];
 
   const blobUrlCache = new Map<string, string>();
   let beforeUnloadRegistered = false;

@@ -241,6 +241,12 @@ pub struct MediaConfig {
     /// when nothing's bundled.
     #[serde(default)]
     pub ffprobe_path: Option<String>,
+    /// Path to the `mpv` binary, used by rathole's tty shell (shells out
+    /// to mpv rather than linking libmpv2 - see that module for why).
+    /// defaults to bare `"mpv"` via PATH; set explicitly to pin a
+    /// specific binary.
+    #[serde(default = "default_mpv_path")]
+    pub mpv_path: String,
     /// Args for extracting duration via ffprobe (placeholder: {input})
     /// output must be a single line with duration in seconds (float).
     #[serde(default = "default_ffprobe_duration_args")]
@@ -336,6 +342,10 @@ fn default_ffmpeg_path() -> String {
     // empty = "not explicitly configured" - resolved in `resolve_media_paths`
     // (bundled binary if available, else bare "ffmpeg" via PATH).
     String::new()
+}
+
+fn default_mpv_path() -> String {
+    "mpv".to_string()
 }
 
 /// yt-dlp precheck command template - shared by `generate_config_template`
@@ -1109,6 +1119,7 @@ pub fn init_config_for_tests() {
             supported_audio_formats: default_supported_audio_formats(),
             ffmpeg_path: default_ffmpeg_path(),
             ffprobe_path: None,
+            mpv_path: default_mpv_path(),
             ffprobe_duration_args: default_ffprobe_duration_args(),
             ffprobe_properties_args: default_ffprobe_properties_args(),
             extract_album_art_args: default_extract_album_art_args(),
@@ -2614,6 +2625,7 @@ mod tests {
                 supported_audio_formats: vec!["mp3".to_string()],
                 ffmpeg_path: "ffmpeg".to_string(),
                 ffprobe_path: None,
+                mpv_path: default_mpv_path(),
                 ffprobe_duration_args: default_ffprobe_duration_args(),
                 ffprobe_properties_args: default_ffprobe_properties_args(),
                 extract_album_art_args: "--whatever".to_string(),
@@ -2667,6 +2679,7 @@ mod tests {
                 supported_audio_formats: vec![],
                 ffmpeg_path: "ffmpeg".to_string(),
                 ffprobe_path: None,
+                mpv_path: default_mpv_path(),
                 ffprobe_duration_args: default_ffprobe_duration_args(),
                 ffprobe_properties_args: default_ffprobe_properties_args(),
                 extract_album_art_args: "--whatever".to_string(),
@@ -2718,6 +2731,7 @@ mod tests {
                 supported_audio_formats: vec![],
                 ffmpeg_path: "ffmpeg".to_string(),
                 ffprobe_path: None,
+                mpv_path: default_mpv_path(),
                 ffprobe_duration_args: default_ffprobe_duration_args(),
                 ffprobe_properties_args: default_ffprobe_properties_args(),
                 extract_album_art_args: "--whatever".to_string(),

@@ -172,11 +172,38 @@ fn check_dependencies_preferring_bundled() -> grimoire::setup::DependencyStatus 
 /// `check_dependencies_preferring_bundled` and `run_setup_core` (and, via
 /// `grimoire::config::set_bundled_ffmpeg_resolver`, grimoire's own
 /// config-load-time resolution) ask "is anything actually bundled here".
+///
+/// also genuinely smoke-tests the pair (`grimoire::setup::smoke_test_ffmpeg` -
+/// a tiny real encode + probe, not just `-version`) before returning them -
+/// a bundled binary that merely EXISTS on disk can still be unusable on
+/// this OS (confirmed for real 2026-10-02, see that function's doc
+/// comment). previously this smoke test only ever ran on a version-
+/// upgrade path (`maybe_fallback_to_bundled_ffmpeg`), so a brand-new
+/// install on an old mac could silently pick a bundled ffmpeg that
+/// exists but can't execute, with no fallback - checking here instead
+/// covers every caller (fresh installs included) in one place. a failed
+/// smoke test returns `(None, None)` so callers fall through to
+/// grimoire's normal PATH/common-install-dir search for BOTH binaries
+/// together, matching `smoke_test_ffmpeg`'s own pairwise (encode-then-
+/// probe) semantics.
 pub(crate) fn bundled_ffmpeg_paths() -> (Option<PathBuf>, Option<PathBuf>) {
-    (
+    let (ffmpeg, ffprobe) = (
         resolve_bundled_media_binary("ffmpeg"),
         resolve_bundled_media_binary("ffprobe"),
-    )
+    );
+    match (&ffmpeg, &ffprobe) {
+        (Some(ffmpeg_path), Some(ffprobe_path))
+            if !grimoire::setup::smoke_test_ffmpeg(ffmpeg_path, ffprobe_path) =>
+        {
+            tracing::warn!(
+                ffmpeg = %ffmpeg_path.display(),
+                ffprobe = %ffprobe_path.display(),
+                "bundled ffmpeg/ffprobe failed smoke test, falling back to PATH lookup"
+            );
+            (None, None)
+        }
+        _ => (ffmpeg, ffprobe),
+    }
 }
 
 /// check for required external dependencies (ffmpeg, yt-dlp)
@@ -225,8 +252,10 @@ fn validate_binary(path: &Path, version_flag: &str) -> Result<String, String> {
         return Err(format!("'{}' is not a file", path.display()));
     }
 
-    let output = std::process::Command::new(path)
-        .arg(version_flag)
+    let mut cmd = std::process::Command::new(path);
+    cmd.arg(version_flag);
+    grimoire::process_ext::hide_console_window_std(&mut cmd);
+    let output = cmd
         .output()
         .map_err(|e| format!("couldn't run '{}': {}", path.display(), e))?;
 

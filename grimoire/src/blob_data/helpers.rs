@@ -246,6 +246,7 @@ async fn extract_album_art_to_webp(
         .args(args)
         .stdout(Stdio::null())
         .stderr(Stdio::piped());
+    crate::process_ext::hide_console_window(&mut cmd);
 
     let output = tokio::time::timeout(tokio::time::Duration::from_secs(30), cmd.output())
         .await
@@ -397,6 +398,7 @@ async fn generate_waveform_to_webp(
         .args(args)
         .stdout(Stdio::null())
         .stderr(Stdio::piped());
+    crate::process_ext::hide_console_window(&mut cmd);
 
     let output = tokio::time::timeout(tokio::time::Duration::from_secs(60), cmd.output())
         .await

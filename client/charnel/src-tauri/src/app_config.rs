@@ -6,6 +6,7 @@
 //! - admin user info (for auto-generating invite codes)
 
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 /// charnel app config filename
@@ -162,6 +163,24 @@ pub struct FreqholeAppConfig {
     /// "explore" on the spume side.
     #[serde(default = "default_initial_view")]
     pub initial_view: String,
+
+    /// hardware decoding mode passed to libmpv's `--hwdec` option (e.g.
+    /// "auto", "no", "videotoolbox", "vaapi") - "auto" lets mpv pick the
+    /// best available method per-platform/codec and falls back to
+    /// software decode when none applies, so it's a safe default
+    /// everywhere rather than a per-platform special case.
+    #[serde(default = "default_video_hwdec")]
+    pub video_hwdec: String,
+
+    /// raw extra libmpv options applied verbatim at init time, keyed by
+    /// option name with no leading `--` (same names as `mpv --list-options`,
+    /// e.g. `{"gpu-context" = "cocoa"}` to force OpenGL over Vulkan/MoltenVK
+    /// on GPUs where the latter glitches - confirmed real 2026-10-08 on an
+    /// Intel Iris iGPU under macOS 12). applied with no validation beyond
+    /// whatever libmpv itself rejects; empty by default (mpv's own
+    /// defaults/auto-detection apply unless a user opts to override here).
+    #[serde(default)]
+    pub video_mpv_extra_options: BTreeMap<String, String>,
 }
 
 // `#[derive(Default)]` would use each field's own zero value (e.g. `false`,
@@ -191,8 +210,14 @@ impl Default for FreqholeAppConfig {
             external_storage_reencode_extension: default_external_storage_reencode_extension(),
             chromeless_title_bar: default_chromeless_title_bar(),
             initial_view: default_initial_view(),
+            video_hwdec: default_video_hwdec(),
+            video_mpv_extra_options: BTreeMap::new(),
         }
     }
+}
+
+fn default_video_hwdec() -> String {
+    "auto".to_string()
 }
 
 /// a removable/mounted storage device selected for music sync.
@@ -290,8 +315,24 @@ impl FreqholeAppConfig {
             return None;
         }
 
-        let content = std::fs::read_to_string(&config_path).ok()?;
-        toml::from_str(&content).ok()
+        let content = match std::fs::read_to_string(&config_path) {
+            Ok(content) => content,
+            Err(e) => {
+                tracing::warn!(path = ?config_path, error = %e, "failed to read app config");
+                return None;
+            }
+        };
+        match toml::from_str(&content) {
+            Ok(config) => Some(config),
+            Err(e) => {
+                // silently falling back to defaults here previously left
+                // no trace at all of a bad edit (confirmed real
+                // 2026-10-08: a `video_mpv_extra_options` toml edit had no
+                // effect and no error anywhere in charnel.log).
+                tracing::warn!(path = ?config_path, error = %e, "failed to parse app config, falling back to defaults");
+                None
+            }
+        }
     }
 
     /// save app config to the tauri app data directory
@@ -411,6 +452,24 @@ pub fn is_setup_complete(app_handle: &tauri::AppHandle) -> bool {
 /// get the binary version from cargo
 pub fn get_binary_version() -> &'static str {
     env!("CARGO_PKG_VERSION")
+}
+
+/// query-string fragment (e.g. `v=0.3.12-9570a074a`) identifying the exact
+/// build. append this to every bundled-asset window URL (`index.html?...`,
+/// `wizard/index.html?...`, `about.html?...`) so each new build gets a
+/// logically distinct URL. WKWebView's HTTP cache otherwise keeps serving a
+/// stale `index.html` from a prior run after an in-place app update (same
+/// URL every launch, no cache-invalidation signal), which still references
+/// JS/CSS chunk hashes the new build's dist/ no longer has on disk -> blank
+/// window + "Unexpected token '<'" (an HTML 404 page returned where JS was
+/// expected). tauri's own protocol handler strips the query string before
+/// resolving the file on disk, so this is purely a cache key, not a real
+/// path segment - the custom query bumps the URL without touching what
+/// gets loaded from disk, and (unlike `clear_all_browsing_data()`) doesn't
+/// touch IndexedDB/OPFS/localStorage, so reliquary's offline blob cache
+/// survives an update.
+pub fn cache_busting_query() -> String {
+    format!("v={}-{}", get_binary_version(), env!("FREQHOLE_GIT_SHA"))
 }
 
 /// check if app config needs upgrade (version mismatch)

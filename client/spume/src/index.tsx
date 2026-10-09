@@ -1,5 +1,9 @@
 // polyfill crypto.randomUUID() for old WebView (must run before any other imports)
 import "./utils/uuid";
+// polyfill MediaQueryList.addEventListener for old WebView (must run before any other imports)
+import "./utils/mediaQueryListPolyfill";
+// polyfill CanvasRenderingContext2D/Path2D.roundRect for old WebView (must run before any other imports)
+import "./utils/roundRectPolyfill";
 
 // install console capture as early as possible so we don't miss
 // startup errors. safe to call before any other module logs.

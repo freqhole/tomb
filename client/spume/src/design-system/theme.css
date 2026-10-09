@@ -1,5 +1,22 @@
 @import "tailwindcss";
 
+/* tailwind v4 only ships appearance:none as an OPT-IN utility class
+   (.appearance-none), not a blanket <button> reset - modern browsers'
+   own minimal default button chrome masks this gap, but Catalina's old
+   WebKit renders a real native Aqua button bezel unless -webkit-
+   appearance:none is explicit, regardless of border/background overrides
+   (confirmed real 2026-10-07: every icon button showed a visible native
+   border). apply it globally rather than require every button
+   component to remember the utility class individually. */
+button,
+[type="button"],
+[type="submit"],
+[type="reset"] {
+  -webkit-appearance: none;
+  appearance: none;
+  border: none;
+}
+
 /* /player/ pairing-qr loading spinner - see cenotaph/app/CenotaphPlayerApp.tsx.
    fixed 1s baseline duration - actual speed is driven at runtime via the
    Web Animations API's `playbackRate` (not by rewriting this duration),
@@ -262,6 +279,17 @@ select {
 [data-no-backdrop-filter] .backdrop-blur-sm,
 [data-no-backdrop-filter] .backdrop-blur-xl {
   background-color: rgba(0, 0, 0, 0.7) !important;
+}
+
+/* dialog-polyfill (components/overlays/Modal.tsx) can't target the real
+   ::backdrop pseudo-element on old WebKit - it inserts a real sibling
+   `.backdrop` div instead. tailwind's `backdrop:` utility classes on the
+   dialog itself only ever compile to `&::backdrop`, so they never match
+   this fallback element - style it directly here instead. */
+dialog + .backdrop {
+  background-color: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
 }
 
 /* ensure storybook canvas uses dark theme */

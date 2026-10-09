@@ -3,10 +3,9 @@
 //! spawns the `mpv` binary with its json ipc socket enabled
 //! (`--input-ipc-server`), sends `VideoCommand`s as ipc requests, and
 //! translates mpv's own event/property-change stream back into
-//! `AppAction::VideoPlayerEvent`s — mirrors exactly how
-//! `tty::player::LibmpvPlayer` bridges grimoire's in-process libmpv
-//! controller (this one shells out instead, since it's rendering to
-//! its own window rather than audio-only).
+//! `AppAction::VideoPlayerEvent`s — mirrors `tty::player::MpvPlayer`'s
+//! identical approach for the audio-only backend; this one renders to
+//! its own window instead of staying audio-only.
 //!
 //! kept as a single long-lived `mpv --idle=yes` process rather than
 //! respawning per file, so video playback and still-image display
@@ -91,9 +90,10 @@ impl MpvPlayer {
         let socket_path =
             std::env::temp_dir().join(format!("rathole-mpv-{}.sock", ulid::Ulid::new()));
 
-        tracing::info!(target: "video_player", %video_output, socket = %socket_path.display(), "spawning mpv");
+        let mpv_path = grimoire::config::get_config().media.mpv_path.clone();
+        tracing::info!(target: "video_player", %video_output, %mpv_path, socket = %socket_path.display(), "spawning mpv");
 
-        let mut child = Command::new("mpv")
+        let mut child = Command::new(&mpv_path)
             .arg("--idle=yes")
             .arg("--force-window=no")
             .arg(format!("--vo={video_output}"))
@@ -112,7 +112,7 @@ impl MpvPlayer {
             .stderr(Stdio::piped())
             .kill_on_drop(true)
             .spawn()
-            .map_err(|e| format!("failed to spawn mpv: {e}"))?;
+            .map_err(|e| format!("failed to spawn mpv ({mpv_path}): {e}"))?;
 
         if let Some(stdout) = child.stdout.take() {
             tokio::task::spawn_local(log_mpv_output(stdout, "stdout"));

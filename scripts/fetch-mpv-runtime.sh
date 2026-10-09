@@ -50,18 +50,28 @@
 # understood, bundling homebrew's real mpv (arm64) and building mpv from
 # source (x86_64) both just worked.
 #
-# usage: scripts/fetch-mpv-runtime.sh <arm64|x86_64> [--rebuild]
+# usage: scripts/fetch-mpv-runtime.sh <arm64|x86_64> [--rebuild] [--force]
 #
 # by default, if client/charnel/src-tauri/mpv-runtime/committed/<arch>
 # already has a bundled dylib closure checked into git, this just copies
 # it into place (seconds, no homebrew/network/compiler needed at all) -
 # pass --rebuild to force redoing the real homebrew fetch+build+bundle
 # below and refresh that committed snapshot (e.g. to pick up a newer mpv
-# release).
+# release). --rebuild alone only forces ffmpeg+mpv themselves to
+# reinstall (x86_64) - already-installed dependencies (x265,
+# libplacebo, etc.) are left alone and reused as-is, so a run that fails
+# partway through (e.g. one unrelated formula's build breaking) can
+# just be rerun to pick up where it left off instead of redoing
+# everything. pass --force too (x86_64 only) on the rare occasion
+# something needs EVERY dependency recompiled from scratch (e.g. a
+# change to the global cc/ld shim patch below, which only affects
+# formulae that actually get recompiled under it) - wipes every formula
+# currently installed in the dedicated x86_64 prefix first.
 set -euo pipefail
 
-ARCH="${1:?usage: fetch-mpv-runtime.sh <arm64|x86_64> [--rebuild]}"
+ARCH="${1:?usage: fetch-mpv-runtime.sh <arm64|x86_64> [--rebuild] [--force]}"
 REBUILD="${2:-}"
+FORCE="${3:-}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BUNDLE_DEST="$REPO_ROOT/client/charnel/src-tauri/mpv-runtime/lib"
 COMMITTED_DIR="$REPO_ROOT/client/charnel/src-tauri/mpv-runtime/committed/$ARCH"
@@ -138,17 +148,38 @@ stage_from_committed() {
     regen_tauri_conf "$need_min_version"
 
     if [ -n "$linker_stub_dir" ]; then
-        mkdir -p "$linker_stub_dir"
-        # homebrew-built dylibs are mode 444 (read-only) - `cp` propagates
-        # that, and a stale copy from a previous run would then make a
-        # plain `cp`/`ln -sf` here fail outright. `rm -f` only needs the
-        # *directory* to be writable (not the target file itself), so
-        # always clear these two files first rather than relying on them
-        # not existing yet.
-        rm -f "$linker_stub_dir/libmpv.2.dylib" "$linker_stub_dir/libmpv.dylib"
-        cp -f "$COMMITTED_DIR/libmpv.2.dylib" "$linker_stub_dir/"
-        chmod u+w "$linker_stub_dir/libmpv.2.dylib"
-        ln -sf libmpv.2.dylib "$linker_stub_dir/libmpv.dylib"
+        # this stub only exists so cargo's `-lmpv` has a real file to
+        # resolve against on a machine with no real homebrew mpv install
+        # at all (see this function's own doc comment above). if
+        # $linker_stub_dir already resolves into a real Cellar keg (i.e.
+        # homebrew's own `brew link` put a real symlink here from an
+        # actual `brew install mpv`), NEVER write through it: doing so
+        # permanently overwrites a pristine homebrew-built dylib with
+        # whatever's in committed/$ARCH - which, if that snapshot is
+        # stale (e.g. an interrupted previous run of this very script),
+        # silently corrupts the real Cellar build too. confirmed real
+        # 2026-10-06: an interrupted `fetch-mpv-runtime.sh x86_64` left
+        # committed/x86_64 stale, and the NEXT run's fast path clobbered
+        # a freshly-fixed real mpv Cellar build with that stale snapshot
+        # via this exact write-through, resurrecting an already-fixed
+        # bug. a plain `mkdir -p` target (no real brew install present)
+        # is the only case this stub is actually for.
+        real_path="$(cd "$linker_stub_dir" 2>/dev/null && pwd -P || true)"
+        if [ -f "$linker_stub_dir/libmpv.2.dylib" ] && [[ "$real_path" == *"/Cellar/"* ]]; then
+            echo "fetch-mpv-runtime: $linker_stub_dir resolves into a real homebrew Cellar keg - leaving its libmpv.2.dylib alone instead of overwriting with the committed/$ARCH snapshot"
+        else
+            mkdir -p "$linker_stub_dir"
+            # homebrew-built dylibs are mode 444 (read-only) - `cp` propagates
+            # that, and a stale copy from a previous run would then make a
+            # plain `cp`/`ln -sf` here fail outright. `rm -f` only needs the
+            # *directory* to be writable (not the target file itself), so
+            # always clear these two files first rather than relying on them
+            # not existing yet.
+            rm -f "$linker_stub_dir/libmpv.2.dylib" "$linker_stub_dir/libmpv.dylib"
+            cp -f "$COMMITTED_DIR/libmpv.2.dylib" "$linker_stub_dir/"
+            chmod u+w "$linker_stub_dir/libmpv.2.dylib"
+            ln -sf libmpv.2.dylib "$linker_stub_dir/libmpv.dylib"
+        fi
     fi
 
     count=$(find "$BUNDLE_DEST" -name '*.dylib' | wc -l | tr -d ' ')
@@ -386,7 +417,13 @@ case "$ARCH" in
       # at - stage_from_committed drops libmpv.2.dylib there too so
       # `cargo build --target x86_64-apple-darwin`'s `-lmpv` resolves
       # without needing homebrew (or any build) at all.
-      stage_from_committed true "/Users/Shared/freqhole-homebrew-x86/opt/mpv/lib"
+      #
+      # `need_min_version` is now always false - mpv is weakly linked,
+      # so a missing/incompatible bundled copy on an old macOS no longer
+      # needs the APP ITSELF to refuse to launch; it just means
+      # `is_libmpv_available()`'s dlsym check comes back false there and
+      # the fallback player is used instead.
+      stage_from_committed false "/Users/Shared/freqhole-homebrew-x86/opt/mpv/lib"
       exit 0
     fi
 
@@ -409,8 +446,149 @@ case "$ARCH" in
         | tar xz --strip-components 1 -C "$BREW_PREFIX"
     fi
 
+    # modern homebrew resolves `brew info`/`brew install` through a
+    # remote JSON API by default and keeps no local formula .rb files at
+    # all - fine for installing, but `brew cat mpv` (used below to seed
+    # our patched tap) literally cats the on-disk formula file, so it
+    # silently prints nothing (exit 0, zero bytes) without a real local
+    # homebrew/core clone. `brew tap homebrew/core` alone also no-ops
+    # ("no longer typically necessary") - `--force` is required to
+    # actually get the clone. confirmed for real 2026-10-05.
+    if ! [ -d "$BREW_PREFIX/Library/Taps/homebrew/homebrew-core" ]; then
+      echo "fetch-mpv-runtime: force-tapping homebrew/core locally (brew cat needs a real formula file on disk, not just the API)..."
+      arch -x86_64 "$BREW_PREFIX/bin/brew" tap homebrew/core --force
+    fi
+
+    # two self-healing checks, both confirmed real 2026-10-07 and both
+    # cheap/idempotent enough to just always run rather than trusting
+    # a human to remember them:
+    #
+    # 1. a keg left over from an interrupted previous install (e.g. a
+    #    formula that failed partway through its own `install` method)
+    #    can have read-only (444) files, which then blocks a later
+    #    reinstall's `cp`/`install` step with "Permission denied" even
+    #    though the current user owns the file and its containing
+    #    directory - libvpx's `vpx.pc` hit this exactly.
+    if [ -d "$BREW_PREFIX/Cellar" ]; then
+      chmod -R u+w "$BREW_PREFIX/Cellar" 2>/dev/null || true
+    fi
+    # 2. a keg-only formula (e.g. libarchive, which conflicts with
+    #    macOS's own bundled tar/cpio) whose install got interrupted
+    #    before `brew link` ran leaves its Cellar files fully present
+    #    but with NO `opt/<formula>` symlink at all - anything that
+    #    resolves the dependency through `opt/` (dylibbundler included)
+    #    then can't find it, and dylibbundler's interactive "does not
+    #    exist, try again" prompt loops forever since nothing is there
+    #    to answer it non-interactively. re-link anything missing it.
+    for keg_dir in "$BREW_PREFIX"/Cellar/*/; do
+      [ -d "$keg_dir" ] || continue
+      formula_name=$(basename "$keg_dir")
+      if ! [ -e "$BREW_PREFIX/opt/$formula_name" ]; then
+        echo "fetch-mpv-runtime: $formula_name is installed but missing its opt/ symlink (likely an interrupted install) - re-linking..."
+        arch -x86_64 "$BREW_PREFIX/bin/brew" link --force --overwrite "$formula_name" >/dev/null 2>&1 || true
+      fi
+    done
+
+    # per-formula ENV["MACOSX_DEPLOYMENT_TARGET"] patches (see ffmpeg/mpv
+    # below) only ever cover the ONE formula they're applied to - mpv
+    # pulls in ~86 formulae total (ffmpeg, then x265 confirmed real
+    # 2026-10-07, and likely more after that: libplacebo, dav1d, libvpx,
+    # x264, libass, etc.), each independently built from source against
+    # whatever macOS this machine happens to be running, and each
+    # capable of embedding the exact same class of "built for Mac OS X
+    # <host-version>" symbol that's missing on a real macOS 12.0
+    # (Monterey, charnel's actual minimum) target - patching them one at
+    # a time as each one surfaces a crash is not scalable.
+    #
+    # homebrew's own `cc`/`clang`/`ld` shim (every single compiler and
+    # linker invocation, for every formula, is routed through this one
+    # script - that's the entire point of superenv) only ever RAISES an
+    # explicit `-mmacosx-version-min=` flag up to a floor
+    # (HOMEBREW_MACOS_OLDEST_ALLOWED, see `refurbish_arg` in this file) -
+    # there is no existing homebrew mechanism to LOWER one, and most
+    # build systems (cmake, meson, a bare `clang` invocation with no
+    # explicit flag at all) just default to whatever `sw_vers` reports
+    # for the host when nothing else overrides it. patching this ONE
+    # file directly (part of our own disposable, relocatable x86_64
+    # homebrew clone - never touches the user's real arm64 homebrew) to
+    # unconditionally force `-mmacosx-version-min=12.0` (compile/link)
+    # or `-macosx_version_min 12.0` (raw `ld`) onto every invocation
+    # closes this for the ENTIRE dependency graph in one shot, instead
+    # of reactively patching formulae one at a time as each new one
+    # surfaces the same bug.
+    CC_SHIM="$BREW_PREFIX/Library/Homebrew/shims/super/cc"
+    if [ -f "$CC_SHIM" ] && ! grep -q "freqhole: force macOS 12.0 deployment target" "$CC_SHIM"; then
+      echo "fetch-mpv-runtime: patching homebrew's cc/ld shim to force a macOS 12.0 deployment target on every compile/link, for every formula..."
+      python3 - "$CC_SHIM" <<'PYEOF'
+import sys
+
+path = sys.argv[1]
+with open(path) as f:
+    content = f.read()
+marker = "    optional_args + @positional_args\n  end"
+if marker not in content:
+    print(f"fetch-mpv-runtime: cc shim patch failed - expected marker not found in {path}", file=sys.stderr)
+    sys.exit(1)
+patch = (
+    "    # freqhole: force macOS 12.0 deployment target on every\n"
+    "    # compile/link, for every formula (see fetch-mpv-runtime.sh).\n"
+    "    if mac?\n"
+    "      if [:cc, :cxx, :ccld, :cxxld].include?(mode)\n"
+    "        optional_args << \"-mmacosx-version-min=12.0\"\n"
+    "      elsif mode == :ld\n"
+    "        optional_args << \"-macosx_version_min\" << \"12.0\"\n"
+    "      end\n"
+    "    end\n\n"
+    "    optional_args + @positional_args\n  end"
+)
+content = content.replace(marker, patch, 1)
+with open(path, "w") as f:
+    f.write(content)
+PYEOF
+    fi
+
+    # the cc shim patch above only affects formulae that actually get
+    # RECOMPILED - `brew install ffmpeg` doesn't rebuild ffmpeg's own
+    # already-satisfied dependencies (x265 included) just because ffmpeg
+    # itself reinstalled, so a formula built in an EARLIER run (before
+    # this patch existed) keeps its old, wrongly-targeted dylib forever
+    # unless something forces it to rebuild too (confirmed real
+    # 2026-10-07: x265 kept crashing, "built for Mac OS X 15.0", on a
+    # rebuild that only force-reinstalled ffmpeg+mpv). this x86_64
+    # prefix exists solely for mpv + its dependency closure + dylibbundler
+    # (nothing else is ever installed into it), so `--force` wipes every
+    # formula currently installed here and lets the ffmpeg/mpv installs
+    # below pull them all back in fresh, guaranteeing every single dylib
+    # in the chain is actually recompiled under the corrected shim - not
+    # just the two formulae this script happens to patch directly.
+    # deliberately separate from plain `--rebuild` (which leaves
+    # already-installed dependencies alone): an unrelated formula failing
+    # mid-build (e.g. vapoursynth's own packaging bug, confirmed real
+    # 2026-10-07) shouldn't force every OTHER already-correctly-rebuilt
+    # dependency to redo a multi-hour compile too - just rerun with
+    # `--rebuild` alone to resume, reusing whatever already succeeded.
+    if [ "$FORCE" = "--force" ]; then
+      INSTALLED_FORMULAE=$(arch -x86_64 "$BREW_PREFIX/bin/brew" list --formula 2>/dev/null)
+      if [ -n "$INSTALLED_FORMULAE" ]; then
+        echo "fetch-mpv-runtime: --force requested - wiping all currently installed x86_64 formulae (mpv's full dependency closure, e.g. x265) so every dylib is recompiled under the corrected cc shim..."
+        # shellcheck disable=SC2086
+        arch -x86_64 "$BREW_PREFIX/bin/brew" uninstall --force --ignore-dependencies $INSTALLED_FORMULAE
+      fi
+    fi
+
+    # reaching this code at all already implies --rebuild was passed
+    # (see the outer `stage_from_committed` gate above) - checking
+    # `$REBUILD = "--rebuild"` again here was always true, silently
+    # forcing a full mpv uninstall+reinstall (and, transitively, every
+    # dependency touched below) on every single invocation, even a bare
+    # retry after an unrelated later step (dylibbundler, committed-
+    # snapshot refresh) failed - defeating the exact "just rerun with
+    # --rebuild to resume" case described above `--force`'s own comment.
+    # only (re)install if mpv genuinely isn't there yet - `--force`
+    # (wipes every formula first, see above) is the actual way to force
+    # a true from-scratch mpv rebuild.
     if ! [ -f "$BREW_PREFIX/opt/mpv/lib/libmpv.2.dylib" ]; then
-      echo "fetch-mpv-runtime: installing mpv (targeting macOS 14.0) via x86_64 homebrew (from source - homebrew no longer ships Intel macOS bottles; this can take a long time the first run, cached after)..."
+      echo "fetch-mpv-runtime: installing mpv (targeting macOS 12.0) via x86_64 homebrew (from source - homebrew no longer ships Intel macOS bottles; this can take a long time the first run, cached after)..."
       # homebrew otherwise builds against whatever macOS version is
       # running ON THIS MACHINE (not a fixed minimum) - mpv's cocoa
       # backend is partly written in Swift, so an unpinned build here
@@ -443,18 +621,21 @@ case "$ARCH" in
       # line patched in, and installs from the patched copy instead of
       # plain `brew install mpv`.
       #
-      # minos 14.0 alone isn't enough: mpv's cocoa backend is partly
+      # minos 12.0 alone isn't enough: mpv's cocoa backend is partly
       # Swift, and whatever Xcode built it determines which Swift stdlib
       # ABI symbols get emitted, independent of the deployment-target
       # flag (confirmed for real 2026-10-02 - a minos-14.0 build still
       # referenced `_$ss20__StaticArrayStorageCN`, a symbol added to the
       # Swift runtime around the macOS 15 SDK, absent from macOS 14's
-      # system libswiftCore.dylib). pinning DEVELOPER_DIR at a
-      # side-by-side Xcode 15.4 (last release on the macOS 14 SDK,
-      # Swift 5.9/5.10) avoids that codegen path entirely - only applied
-      # if that specific Xcode happens to be installed, so this degrades
-      # to "whatever Xcode is active" everywhere else (CI included, until
-      # pinned there too).
+      # system libswiftCore.dylib - the same class of bug bites any SDK
+      # newer than the deployment target, not just that specific pair).
+      # pinning DEVELOPER_DIR at a side-by-side Xcode 13.4.1 (bundles
+      # the macOS 12.3 SDK - the closest match to our actual 12.0
+      # minimum, so a symbol added after 12.0 isn't even declared in the
+      # headers, let alone referenceable) avoids that codegen path
+      # entirely - only applied if that specific Xcode happens to be
+      # installed, so this degrades to "whatever Xcode is active"
+      # everywhere else (CI included, until pinned there too).
       #
       # DEVELOPER_DIR alone did NOT work either (confirmed for real
       # 2026-10-02, round two - a rebuild with DEVELOPER_DIR pinned to
@@ -472,13 +653,82 @@ case "$ARCH" in
       # overriding SDKROOT too (via the system `/usr/bin/xcrun` - xcrun
       # itself isn't bundled per-Xcode-copy, it resolves SDKs through
       # whatever DEVELOPER_DIR points at) closes that gap.
-      PINNED_XCODE="/Applications/Xcode_15.4.app"
+      PINNED_XCODE="/Applications/Xcode_13.4.1.app"
+      # DEVELOPER_DIR/SDKROOT set from a formula's own `install` method
+      # (below) DOES correctly propagate into ordinary subprocesses
+      # (confirmed real 2026-10-07 via a throwaway test formula), but
+      # mpv's swift support doesn't invoke swiftc through any of the
+      # usual env-var-respecting paths: its `osdep/mac/meson.build` calls
+      # `TOOLS/macos-sdk-version.py` to get `macos_sdk_path`, hardcodes
+      # that into an explicit `-sdk <path>` flag on the swiftc command
+      # line, and meson's own built-in `-Dswift_args` option (which
+      # WOULD otherwise be the normal override mechanism) never even
+      # reaches this custom `custom_target()` build step (confirmed real
+      # 2026-10-07 - a `-Dswift_args=...` set via the formula patch
+      # showed up fine as a meson "User defined option" but never
+      # appeared anywhere in the real swiftc invocation captured in
+      # Homebrew's own per-step build log). an explicit CLI flag always
+      # wins over an env var for swiftc, so simply setting SDKROOT
+      # doesn't help once that flag is hardcoded in.
+      #
+      # macos-sdk-version.py itself, however, explicitly checks for a
+      # `MACOS_SDK`/`MACOS_SDK_VERSION` env var override before ever
+      # calling `xcrun` - this is mpv's own, intentional escape hatch
+      # for exactly this situation, and it's what the mpv patch below
+      # actually sets (plain env vars read via Python's `os.environ`,
+      # no meson option plumbing or Homebrew superenv path involved).
       LOCAL_TAP_DIR="$BREW_PREFIX/Library/Taps/freqhole-local/homebrew-mpv-patched"
       if ! [ -d "$LOCAL_TAP_DIR" ]; then
         arch -x86_64 "$BREW_PREFIX/bin/brew" tap-new freqhole-local/mpv-patched
       fi
-      arch -x86_64 "$BREW_PREFIX/bin/brew" cat mpv > "$LOCAL_TAP_DIR/Formula/mpv.rb"
-      python3 - "$LOCAL_TAP_DIR/Formula/mpv.rb" "$PINNED_XCODE" <<'PYEOF'
+      # meson's swift compiler detection has NO environment-variable
+      # override at all, unlike c/cpp/objc (`CC`/`CXX`/`OBJC`) - confirmed
+      # via meson's own source, `ENV_VAR_COMPILER_MAP` has no 'swift' key
+      # - so it always falls back to whatever bare `swiftc` resolves to on
+      # PATH (the newest/default Xcode, confirmed real 2026-10-07 via the
+      # actual ninja command line: `/Applications/Xcode.app/.../swiftc`
+      # despite DEVELOPER_DIR/SDKROOT being correctly pinned elsewhere).
+      # the only way meson lets you override this is a `--native-file`
+      # with a `[binaries] swift = '...'` entry, so generate one pointing
+      # at the pinned Xcode's own swiftc and pass it on the meson setup
+      # command line below (the ENV["MACOS_SDK"]/ENV["MACOS_SDK_VERSION"]
+      # override above still controls the `-sdk` flag passed to it; this
+      # controls which swiftc binary actually receives that flag).
+      PINNED_SWIFTC="$PINNED_XCODE/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc"
+      MPV_SWIFT_NATIVE_FILE="$LOCAL_TAP_DIR/mpv-swift-native.ini"
+      # mpv's own osdep/mac/meson.build does a SEPARATE, manual
+      # `find_program('swiftc')` call (for things like its "Swift
+      # library directory" detection script) that's entirely distinct
+      # from meson's own swift-language compiler detection - confirmed
+      # real 2026-10-08 via the setup log: "Program .../Xcode.app/...
+      # swiftc found: YES" kept showing the system default even with
+      # the `swift = ...` entry below in place. `find_program()` looks
+      # up native-file `[binaries]` entries by the EXACT string passed
+      # to it, so both keys are needed: `swift` for the former, `swiftc`
+      # for the latter.
+      printf '[binaries]\nswift = %s\nswiftc = %s\n' "'$PINNED_SWIFTC'" "'$PINNED_SWIFTC'" > "$MPV_SWIFT_NATIVE_FILE"
+      # the MACOSX_DEPLOYMENT_TARGET/Xcode pin above only ever applied
+      # to mpv's own `install` method - mpv's ~86 dependencies (ffmpeg
+      # included) are plain, unpatched homebrew/core formulae that build
+      # against whatever OS/SDK this machine's Xcode actually reports,
+      # which is NOT macOS 12 on a modern dev machine. confirmed real
+      # crash 2026-10-06: a vanilla-built libavutil.61.1.102.dylib was
+      # "built for Mac OS X 15.0" and referenced `_CVBufferCopyAttachments`
+      # (a CoreVideo symbol added in macOS 12), missing on a macOS
+      # 12.0 target if the build doesn't correctly weak-link it - the
+      # exact same class of bug as the earlier libswiftCore mismatch,
+      # just in a dependency instead of mpv itself. patch+pre-install
+      # ffmpeg the same way so mpv's own dependency resolution finds
+      # this already-installed, correctly deployment-targeted keg
+      # instead of fetching/building a fresh vanilla one (homebrew
+      # doesn't care which tap satisfied a dependency, only that a
+      # formula of that name/version is installed).
+      arch -x86_64 "$BREW_PREFIX/bin/brew" cat ffmpeg > "$LOCAL_TAP_DIR/Formula/ffmpeg.rb"
+      if ! [ -s "$LOCAL_TAP_DIR/Formula/ffmpeg.rb" ]; then
+        echo "fetch-mpv-runtime: 'brew cat ffmpeg' produced an empty file." >&2
+        exit 1
+      fi
+      python3 - "$LOCAL_TAP_DIR/Formula/ffmpeg.rb" "$PINNED_XCODE" <<'PYEOF'
 import sys
 
 path, pinned_xcode = sys.argv[1], sys.argv[2]
@@ -487,13 +737,17 @@ with open(path) as f:
 marker = "  def install\n"
 idx = content.index(marker) + len(marker)
 pinned_developer_dir = f"{pinned_xcode}/Contents/Developer"
+# a deployment target tells the compiler "this symbol is always
+# present from version X on" - charnel's actual macOS minimum is 12.0,
+# so that's the value that must be set here (not 14.0, not 10.15 - see
+# this file's own history for the earlier, now-abandoned attempt to
+# support 10.15, which pinned 14.0 here to dodge an unrelated Swift ABI
+# issue since fixed by raising the minimum instead of chasing it
+# per-symbol).
 injects = [
-    '    ENV["MACOSX_DEPLOYMENT_TARGET"] = "14.0" if OS.mac?\n',
+    '    ENV["MACOSX_DEPLOYMENT_TARGET"] = "12.0" if OS.mac?\n',
     f'    if OS.mac? && File.directory?("{pinned_xcode}")\n'
     f'      ENV["DEVELOPER_DIR"] = "{pinned_developer_dir}"\n'
-    # xcrun isn't bundled per-Xcode-copy - it's the single system
-    # /usr/bin/xcrun, which resolves SDKs via the DEVELOPER_DIR just set
-    # above (already inherited since it's a plain ENV assignment).
     f'      ENV["SDKROOT"] = Utils.safe_popen_read("/usr/bin/xcrun", "--sdk", "macosx", "--show-sdk-path").strip\n'
     f'    end\n',
 ]
@@ -504,11 +758,243 @@ for inject in injects:
 with open(path, "w") as f:
     f.write(content)
 PYEOF
-      arch -x86_64 "$BREW_PREFIX/bin/brew" install --build-from-source freqhole-local/mpv-patched/mpv
+      # `--build-from-source` only forces the NAMED formula(s) on the
+      # command line to compile - homebrew still happily pours a
+      # prebuilt BOTTLE for any dependency that has one, which entirely
+      # bypasses the cc/ld shim patch above (no compile ever happens, so
+      # nothing injected into that shim can possibly apply). confirmed
+      # real 2026-10-06: libplacebo installed "(bottled)", no build log
+      # at all, still crashing with `minos 14.0` baked in from
+      # homebrew's own bottle-CI default - evidently Intel bottles exist
+      # for plenty of "simple" formulae even though mpv/ffmpeg
+      # themselves don't have one. the actual, intended Homebrew
+      # mechanism for this (there is no env var for it - confirmed via
+      # Homebrew's own source: `--build-from-source` has no `env:`
+      # wiring at all) is to list every dependency EXPLICITLY alongside
+      # `--build-from-source`, so this computes ffmpeg's full runtime
+      # dependency closure (x265, libvpx, dav1d, etc. - excluding
+      # build-only tools like meson/nasm, which never ship and so can't
+      # carry a runtime deployment-target bug) and forces every one of
+      # them to compile too, in the same install invocation.
+      # `brew deps` returns the full runtime closure, but not all of it
+      # actually ends up inside the bundled app - yt-dlp's own embedded
+      # Python/Deno toolchain (never a compiled dylib mpv links against,
+      # confirmed absent from a real crash log's `Binary Images` list
+      # 2026-10-06) and a handful of other transitive libs that are
+      # pulled in but never actually linked into libmpv.2.dylib's closure
+      # (dylibbundler only ever copies what's REALLY linked) don't need
+      # forcing from source - skip them so this doesn't waste time
+      # recompiling e.g. deno/python@3.14 (notoriously slow) for
+      # something that was never the problem in the first place.
+      NEVER_BUNDLED_DEPS_REGEX='^(ca-certificates|certifi|cffi|deno|giflib|libtiff|mpdecimal|pycparser|python@3\.14|readline|sqlite|webp|cairo|flac|icu4c@78|json-c|libogg|libsndfile|libvorbis|lzo|pixman|vulkan-headers|xorgproto)$'
+      FFMPEG_DEPS=$(arch -x86_64 "$BREW_PREFIX/bin/brew" deps freqhole-local/mpv-patched/ffmpeg | grep -vE "$NEVER_BUNDLED_DEPS_REGEX")
+      # reaching this code at all already implies --rebuild was passed
+      # (see the outer `stage_from_committed` gate above) - checking
+      # `$REBUILD = "--rebuild"` again here was always true and silently
+      # forced a full uninstall+reinstall on every single invocation,
+      # even a bare retry after an unrelated later step failed (the
+      # exact "just rerun with --rebuild to resume" case the comment
+      # above this promises). only reinstall if ffmpeg genuinely isn't
+      # there - `--force` (wipes every formula first, see above) is the
+      # actual way to force a true from-scratch ffmpeg rebuild.
+      if ! arch -x86_64 "$BREW_PREFIX/bin/brew" list ffmpeg >/dev/null 2>&1; then
+        # shellcheck disable=SC2086
+        arch -x86_64 "$BREW_PREFIX/bin/brew" install --no-ask --build-from-source freqhole-local/mpv-patched/ffmpeg $FFMPEG_DEPS
+      fi
+      arch -x86_64 "$BREW_PREFIX/bin/brew" cat mpv > "$LOCAL_TAP_DIR/Formula/mpv.rb"
+      if ! [ -s "$LOCAL_TAP_DIR/Formula/mpv.rb" ]; then
+        echo "fetch-mpv-runtime: 'brew cat mpv' produced an empty file - homebrew/core isn't tapped locally as a real git clone (needed for brew cat specifically, not for brew install). try 'arch -x86_64 $BREW_PREFIX/bin/brew tap homebrew/core --force'." >&2
+        exit 1
+      fi
+      python3 - "$LOCAL_TAP_DIR/Formula/mpv.rb" "$PINNED_XCODE" "$MPV_SWIFT_NATIVE_FILE" <<'PYEOF'
+import sys
+
+path, pinned_xcode, native_file = sys.argv[1], sys.argv[2], sys.argv[3]
+with open(path) as f:
+    content = f.read()
+marker = "  def install\n"
+idx = content.index(marker) + len(marker)
+pinned_developer_dir = f"{pinned_xcode}/Contents/Developer"
+# charnel's actual macOS minimum is 12.0 - see the matching comment in
+# the ffmpeg patch above for why this isn't 14.0 or 10.15 anymore.
+injects = [
+    '    ENV["MACOSX_DEPLOYMENT_TARGET"] = "12.0" if OS.mac?\n',
+    f'    if OS.mac? && File.directory?("{pinned_xcode}")\n'
+    f'      ENV["DEVELOPER_DIR"] = "{pinned_developer_dir}"\n'
+    # xcrun isn't bundled per-Xcode-copy - it's the single system
+    # /usr/bin/xcrun, which resolves SDKs via the DEVELOPER_DIR just set
+    # above (already inherited since it's a plain ENV assignment).
+    f'      ENV["SDKROOT"] = Utils.safe_popen_read("/usr/bin/xcrun", "--sdk", "macosx", "--show-sdk-path").strip\n'
+    # mpv's own osdep/mac/meson.build hardcodes an explicit `-sdk`
+    # flag on every swiftc invocation from `TOOLS/macos-sdk-version.py`'s
+    # output - that script checks these two exact env vars before ever
+    # calling `xcrun` itself (confirmed real 2026-10-07 by reading the
+    # actual mpv-0.41.0 source), so this is what actually controls the
+    # SDK swift code gets compiled against, unlike SDKROOT above (which
+    # only affects mpv's plain C/ObjC sources).
+    f'      ENV["MACOS_SDK"] = ENV["SDKROOT"]\n'
+    f'      ENV["MACOS_SDK_VERSION"] = "12.3"\n'
+    f'    end\n',
+]
+for inject in injects:
+    if inject not in content:
+        content = content[:idx] + inject + content[idx:]
+        idx += len(inject)
+
+# `-Dcplayer=false`: we only ever bundle `libmpv.2.dylib` itself, never
+# an `mpv` binary, so the standalone CLI player is a pure waste of
+# build time here (the bash-completion install-step guard further down
+# already accounts for this being off).
+cplayer_disable_args = '      -Dcplayer=false\n'
+vulkan_marker = '      -Dvulkan=enabled\n'
+if vulkan_marker in content and cplayer_disable_args not in content:
+    content = content.replace(vulkan_marker, vulkan_marker + cplayer_disable_args, 1)
+
+# meson's swift compiler detection has NO env-var override at all
+# (unlike CC/CXX/OBJC), so ENV["SDKROOT"]/ENV["DEVELOPER_DIR"] above
+# never changes which swiftc binary actually runs - confirmed real
+# 2026-10-07 via the real ninja command line, which kept invoking
+# /Applications/Xcode.app's (the system default, newest) swiftc
+# regardless. `--native-file` with a `[binaries] swift = ...` entry is
+# meson's one real escape hatch for this - the generated file (above)
+# points straight at the pinned Xcode's own swiftc.
+native_file_arg = f'      --native-file={native_file}\n'
+if vulkan_marker in content and native_file_arg not in content:
+    content = content.replace(vulkan_marker, vulkan_marker + native_file_arg, 1)
+
+# the native-file above still doesn't help: mpv's top-level meson.build
+# resolves its swift compiler via a raw `run_command(xcrun, '-find',
+# 'swiftc')` subprocess call, not `find_program('swiftc')` - a native
+# file's `[binaries]` section only intercepts the latter, so this is
+# entirely dependent on DEVELOPER_DIR actually reaching that specific
+# subprocess (confirmed real 2026-10-08: it didn't - `xcrun -find
+# swiftc` run directly with DEVELOPER_DIR exported correctly resolves
+# to the pinned Xcode, but the ENV["DEVELOPER_DIR"] set above still
+# didn't change what the real `meson setup` run picked). patch the
+# source directly instead of chasing environment propagation further -
+# this is applied via `inreplace` inside `install`, after mpv's source
+# is unpacked but before `meson setup` runs.
+pinned_swiftc = f"{pinned_developer_dir}/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc"
+pinned_swift = f"{pinned_developer_dir}/Toolchains/XcodeDefault.xctoolchain/usr/bin/swift"
+inreplace_inject = (
+    '    inreplace "meson.build",\n'
+    '      "swift_prog = find_program(run_command(xcrun, \'-find\', \'swiftc\', check: true).stdout().strip())",\n'
+    f'      "swift_prog = find_program(\'{pinned_swiftc}\')"\n'
+    # confirmed real 2026-10-08: patching the above alone correctly
+    # made mpv's build detect "Swift version: 5.6.1" (so the first
+    # patch IS taking effect), which routes into mpv's "old swift
+    # frontend" fallback path for swift <5.8 (needed for
+    # swift_compat.swift's `#if !swift(>=5.7)` polyfill to activate at
+    # all) - but that fallback block does a SECOND, separate
+    # `xcrun -find swift` (note: no trailing "c") lookup of its own in
+    # osdep/mac/meson.build, re-resolving back to the system default
+    # toolchain and silently defeating the first patch. same fix,
+    # second file/line.\n'
+    '    inreplace "osdep/mac/meson.build",\n'
+    '      "swift_prog = find_program(run_command(xcrun, \'-find\', \'swift\', check: true).stdout().strip())",\n'
+    f'      "swift_prog = find_program(\'{pinned_swift}\')"\n'
+)
+marker2 = "  def install\n"
+idx2 = content.index(marker2) + len(marker2)
+if inreplace_inject not in content:
+    content = content[:idx2] + inreplace_inject + content[idx2:]
+
+# mpv's bare `depends_on "ffmpeg"` resolves to the globally-known
+# homebrew/core/ffmpeg - but our own patched (12.0-deployment-target,
+# pinned-Xcode) ffmpeg above is installed under THIS tap instead, and
+# homebrew refuses to have two different-tap formulae of the same name
+# installed at once ("Formulae with the same name from different taps
+# cannot be installed at the same time", confirmed real 2026-10-07).
+# tap-qualify it so mpv's dependency resolves to our already-installed,
+# already-patched ffmpeg instead of trying to pull in a second, vanilla
+# one (which would also reintroduce the exact "built for Mac OS X
+# 15.0"/missing-CoreVideo-symbol crash the ffmpeg patch above exists to
+# avoid).
+ffmpeg_depends_line = '  depends_on "ffmpeg"\n'
+ffmpeg_depends_replacement = '  depends_on "freqhole-local/mpv-patched/ffmpeg"\n'
+content = content.replace(ffmpeg_depends_line, ffmpeg_depends_replacement, 1)
+
+# vapoursynth is only ever dlopen'd at runtime by mpv's optional vs
+# filter bridge - libmpv.2.dylib never links against it directly
+# (confirmed absent from the bundled Frameworks closure in a real crash
+# log 2026-10-06), so charnel loses nothing by disabling it outright.
+# worth doing regardless of deployment-target concerns: vapoursynth's
+# own formula builds a python extension via pip/pyproject.toml, which
+# hard-failed with "Preparing metadata (pyproject.toml) did not run
+# successfully / No available output" on a from-scratch x86_64 build
+# (confirmed real failure 2026-10-07) - a flaky, Tier-3-support-tier
+# homebrew/core formula with its own unrelated packaging problems, not
+# worth fighting just to support a filter path this app never uses.
+# dropping the `depends_on` line too means homebrew never attempts to
+# build it at all, instead of building it and then mpv ignoring it.
+vapoursynth_depends_line = '  depends_on "vapoursynth"\n'
+content = content.replace(vapoursynth_depends_line, '', 1)
+vapoursynth_disable_arg = '      -Dvapoursynth=disabled\n'
+if vulkan_marker in content and vapoursynth_disable_arg not in content:
+    content = content.replace(vulkan_marker, vulkan_marker + vapoursynth_disable_arg, 1)
+
+# yt-dlp is a convenience companion CLI mpv's formula installs
+# alongside itself (invoked at runtime via a PATH lookup from mpv's
+# own ytdl_hook.lua, never linked into libmpv.2.dylib - confirmed
+# absent from the bundled Frameworks closure in a real crash log
+# 2026-10-06), not something mpv's own build needs to compile - dropping
+# it avoids pulling in its own dependency chain (deno, which has no
+# x86_64 bottle and so drags in a from-source rust+llvm build just to
+# produce a CLI tool this app never bundles or invokes - confirmed real
+# 2026-10-07, llvm alone took a very long time to compile for zero
+# benefit).
+yt_dlp_depends_line = '  depends_on "yt-dlp"\n'
+content = content.replace(yt_dlp_depends_line, '', 1)
+
+# the formula's own install method (not meson) unconditionally runs
+# `bash_completion.install share/"bash-completion/completions/mpv"`
+# right after `meson install`, assuming meson's own cplayer-gated
+# install_data call already created that file - which it never does
+# with -Dcplayer=false, so this hits ENOENT (confirmed real failure
+# 2026-10-06). guard it so it's skipped when absent (we only bundle
+# libmpv.2.dylib, never the standalone mpv CLI, so losing this is a
+# non-issue).
+bash_completion_line = 'bash_completion.install share/"bash-completion/completions/mpv"'
+guarded_line = bash_completion_line + ' if (share/"bash-completion/completions/mpv").exist?'
+if bash_completion_line in content and guarded_line not in content:
+    content = content.replace(bash_completion_line, guarded_line, 1)
+
+with open(path, "w") as f:
+    f.write(content)
+PYEOF
+      # same bottle-bypassing problem as ffmpeg's own deps above, for
+      # mpv's direct dependency closure (libplacebo, x265's sibling
+      # deps, vulkan-loader, etc. - confirmed real 2026-10-06: libplacebo
+      # was exactly this, "(bottled)", `minos 14.0`, crashing on
+      # `std::to_chars(double)` missing from a real 12.0 libc++.dylib).
+      MPV_DEPS=$(arch -x86_64 "$BREW_PREFIX/bin/brew" deps freqhole-local/mpv-patched/mpv | grep -vE "$NEVER_BUNDLED_DEPS_REGEX")
+      # `--rebuild` can mean "mpv is already installed, but a formula
+      # patch changed (e.g. the deployment target) and must actually take
+      # effect" - `brew install` alone refuses with "already installed"
+      # in that case, so force it off first.
+      if arch -x86_64 "$BREW_PREFIX/bin/brew" list mpv >/dev/null 2>&1; then
+        echo "fetch-mpv-runtime: uninstalling existing x86_64 mpv so the patched formula reinstalls cleanly..."
+        arch -x86_64 "$BREW_PREFIX/bin/brew" uninstall --force mpv
+      fi
+      # `brew uninstall` doesn't always clean up opt/mpv (it's supposed
+      # to be a symlink to the Cellar keg) - a leftover real directory
+      # there makes the post-install `brew link` step fail with
+      # "Directory not empty @ dir_s_rmdir" (confirmed real failure
+      # 2026-10-06). remove it if it's not a symlink so link can recreate it.
+      if [ -e "$BREW_PREFIX/opt/mpv" ] && ! [ -L "$BREW_PREFIX/opt/mpv" ]; then
+        echo "fetch-mpv-runtime: $BREW_PREFIX/opt/mpv is a stale real directory (not a symlink) - removing it so brew link can succeed..."
+        rm -rf "$BREW_PREFIX/opt/mpv"
+      fi
+      # recent homebrew defaults to an interactive "Do you want to
+      # proceed with the installation? [y/n]" confirmation before
+      # installing - --no-ask skips it (confirmed real prompt
+      # 2026-10-06, see `brew install --help`'s `-y, --no-ask`).
+      # shellcheck disable=SC2086
+      arch -x86_64 "$BREW_PREFIX/bin/brew" install --no-ask --build-from-source freqhole-local/mpv-patched/mpv $MPV_DEPS
     fi
     if ! arch -x86_64 "$BREW_PREFIX/bin/brew" list dylibbundler >/dev/null 2>&1; then
       echo "fetch-mpv-runtime: installing dylibbundler via x86_64 homebrew..."
-      arch -x86_64 "$BREW_PREFIX/bin/brew" install dylibbundler
+      arch -x86_64 "$BREW_PREFIX/bin/brew" install --no-ask dylibbundler
     fi
     # file-manipulation tools (install_name_tool/codesign/otool/
     # dylibbundler) just read+rewrite mach-o load commands - they don't
@@ -518,7 +1004,10 @@ PYEOF
     # PATH-prepend so `dylibbundler` resolves to the x86_64 homebrew's
     # own copy (matching the architecture of the files it's rewriting).
     export PATH="$BREW_PREFIX/bin:$PATH"
-    bundle_mpv_dylib_closure "$BREW_PREFIX/opt/mpv/lib/libmpv.2.dylib" true "arch -x86_64 $BREW_PREFIX/bin/brew"
+    # `need_min_version` false (see stage_from_committed's x86_64 branch
+    # above for why) - drops minimumSystemVersion entirely rather than
+    # forcing a 14.0 floor on the shipped app.
+    bundle_mpv_dylib_closure "$BREW_PREFIX/opt/mpv/lib/libmpv.2.dylib" false "arch -x86_64 $BREW_PREFIX/bin/brew"
     ;;
 
   *)

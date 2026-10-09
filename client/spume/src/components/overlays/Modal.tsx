@@ -1,4 +1,6 @@
-import { createEffect, createSignal, JSX, onCleanup, Show } from "solid-js";
+import { createEffect, createSignal, JSX, onCleanup, onMount, Show } from "solid-js";
+import dialogPolyfill from "dialog-polyfill";
+import "dialog-polyfill/dist/dialog-polyfill.css";
 import { IconButton } from "../buttons/IconButton";
 
 export interface ModalProps {
@@ -38,6 +40,14 @@ export function Modal(props: ModalProps) {
         return "sm:max-w-lg";
     }
   };
+
+  // old WebKit (e.g. macOS Catalina's system WebKit, <Safari 15.4) has no
+  // native <dialog>/showModal() at all - registerDialog no-ops if native
+  // support already exists, so this is safe everywhere. must run before
+  // the first showModal() call below.
+  onMount(() => {
+    if (dialogRef) dialogPolyfill.registerDialog(dialogRef);
+  });
 
   // sync isOpen prop with dialog state
   createEffect(() => {

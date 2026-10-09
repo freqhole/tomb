@@ -41,6 +41,15 @@ const store = createBlobStore({
   // preserves the old implementation's opfs-or-cache-api fallback
   // behavior (it always wrote to whichever backend was available).
   allowCacheFallback: true,
+  // charnel's embedded WKWebView has never actually granted OPFS
+  // storage (confirmed - not a Catalina-specific thing): `navigator.
+  // storage.getDirectory` is feature-detectable (the function exists)
+  // but every read silently comes back empty, no exception anywhere -
+  // confirmed real 2026-10-07 via the inspector showing a registered
+  // blob: URL with the right MIME type but "resource has no content".
+  // force the Cache API path for every charnel build, not just the
+  // legacy/Catalina one - this was never actually a legacy-only bug.
+  disableOpfs: __IS_CHARNEL__,
 });
 
 const syncUrlCache = new Map<string, string>();
@@ -119,4 +128,3 @@ export async function deleteBlob(blobId: string): Promise<void> {
  * settings/services/storageManager.ts's reset flow needs no changes.
  */
 export function closeBlobDB(): void {}
-

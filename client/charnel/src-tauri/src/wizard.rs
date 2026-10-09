@@ -34,7 +34,11 @@ pub fn open_setup_wizard_at_route(app: AppHandle<Wry>, route: &str) -> Result<()
     #[cfg(all(debug_assertions, desktop))]
     let url_str = format!("http://localhost:1421#{}", route);
     #[cfg(not(all(debug_assertions, desktop)))]
-    let url_str = format!("wizard/index.html#{}", route);
+    let url_str = format!(
+        "wizard/index.html?{}#{}",
+        crate::app_config::cache_busting_query(),
+        route
+    );
 
     // check if wizard is already open
     if let Some(window) = app.get_webview_window("setup-wizard") {
@@ -315,6 +319,18 @@ pub async fn close_setup_wizard(
     }
 
     // close wizard window
+    //
+    // confirmed real crash 2026-10-07: closing this window can segfault
+    // (EXC_BAD_ACCESS in initializeNonMetaClass, inside WebKit::
+    // WebURLSchemeHandlerCocoa::platformStopTask) - an acknowledged-but-
+    // unresolved race in wry's own wkwebview/class/url_scheme_handler.rs
+    // (its own FIXME: "though we give it a static lifetime, it's not
+    // guaranteed to be valid"). tried hiding first + deferring the real
+    // close() by 500ms (hoping in-flight custom-protocol tasks would
+    // finish first) - confirmed NOT to fix it, still segfaults the same
+    // way. reverted to a plain close() rather than keep unverified
+    // mitigations around; needs a different approach (or an upstream wry
+    // fix) if this keeps recurring.
     if let Some(wizard) = app.get_webview_window("setup-wizard") {
         #[cfg(desktop)]
         wizard.close().map_err(|e| e.to_string())?;
@@ -330,7 +346,11 @@ pub async fn close_setup_wizard(
         #[cfg(all(debug_assertions, desktop))]
         let url_str = format!("http://localhost:1420#{}", target_route);
         #[cfg(not(all(debug_assertions, desktop)))]
-        let url_str = format!("index.html#{}", target_route);
+        let url_str = format!(
+            "index.html?{}#{}",
+            crate::app_config::cache_busting_query(),
+            target_route
+        );
 
         #[cfg(all(debug_assertions, desktop))]
         let webview_url = WebviewUrl::External(url_str.parse().unwrap());

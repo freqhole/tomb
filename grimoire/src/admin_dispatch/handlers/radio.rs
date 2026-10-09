@@ -15,7 +15,23 @@ use crate::response::GrimoireResponse;
 use serde_json::Value as JsonValue;
 
 fn ffmpeg_available() -> bool {
-    crate::setup::check_dependencies().has_ffmpeg()
+    // `check_dependencies()` only searches `$PATH` plus a handful of
+    // common install dirs - it has no idea a platform-bundled ffmpeg
+    // (e.g. charnel's mpv-runtime bundle) exists at all, so it reports
+    // "not installed" even when `config.media.ffmpeg_path` already
+    // resolved to a real, working bundled binary at config-load time
+    // (confirmed real 2026-10-09: radio station config incorrectly
+    // forced into timeline-only mode on a build with a bundled ffmpeg).
+    // check the already-resolved path instead.
+    let path = crate::config::get_config().media.ffmpeg_path;
+    if path.is_empty() {
+        return false;
+    }
+    if std::path::Path::new(&path).is_absolute() {
+        std::path::Path::new(&path).is_file()
+    } else {
+        which::which(&path).is_ok()
+    }
 }
 
 // =========================================================================

@@ -40,6 +40,11 @@ export default defineConfig(async () => ({
 
   // bundle everything into single files for simpler embedding
   build: {
+    // temporary: lets Safari Web Inspector map crashes in this bundle
+    // (e.g. monaco-editor's vendored vscode internals) back to real
+    // source file/line instead of mangled minified positions - remove
+    // once the old-WebKit polyfill gaps are tracked down.
+    sourcemap: true,
     rollupOptions: {
       output: {
         // bundle everything into a single JS file (no code splitting)

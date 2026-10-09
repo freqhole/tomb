@@ -8,12 +8,12 @@
 //! the raw fMP4 chunk stream straight into a DEDICATED mpv process's
 //! own stdin, as one continuous byte stream for the whole session.
 //!
-//! a DEDICATED mpv process drives radio playback rather than grimoire's
-//! in-process libmpv audio backend (`tty::player::LibmpvPlayer`):
-//! that backend's `PlayerCommand::Load` only ever takes filesystem
-//! paths (`loadfile <path>`), not an arbitrary live byte stream fed
-//! over stdin - a live radio feed isn't a seekable file on disk, so it
-//! needs mpv's own stdin-as-input-stream support directly.
+//! a DEDICATED mpv process drives radio playback rather than the
+//! shared `tty::player::MpvPlayer` audio backend: that backend's
+//! `PlayerCmd::Load` only ever takes filesystem paths (`loadfile
+//! <path>`), not an arbitrary live byte stream fed over stdin - a live
+//! radio feed isn't a seekable file on disk, so it needs mpv's own
+//! stdin-as-input-stream support directly.
 //!
 //! this is a DEDICATED mpv process (`RadioMpv`, spawned fresh per
 //! session), NOT the shared `app.video_player` used for on-demand queue
@@ -546,7 +546,8 @@ struct RadioMpv {
 
 impl RadioMpv {
     async fn spawn() -> Result<Self, String> {
-        let mut child = Command::new("mpv")
+        let mpv_path = grimoire::config::get_config().media.mpv_path.clone();
+        let mut child = Command::new(&mpv_path)
             .arg("-") // read the media stream from stdin.
             .arg("--idle=yes")
             .arg("--force-window=no")
@@ -575,7 +576,7 @@ impl RadioMpv {
             .stderr(Stdio::piped())
             .kill_on_drop(true)
             .spawn()
-            .map_err(|e| format!("failed to spawn mpv: {e}"))?;
+            .map_err(|e| format!("failed to spawn mpv ({mpv_path}): {e}"))?;
 
         let stdin = child
             .stdin

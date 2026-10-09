@@ -38,9 +38,10 @@ toml = "0.8"
 ulid = "1"
 color-eyre = "0.6"
 tracing-subscriber = { workspace = true }
-grimoire = { path = "../../grimoire", default-features = false, features = [
-    "libmpv-playback",
-] }
+# no `libmpv-playback` feature: rathole shells out to `mpv` for both
+# audio (tty/player.rs) and video (tty/video_player.rs) rather than
+# linking libmpv2, so it never needs `libmpv-dev`/`libmpv.so` to boot.
+grimoire = { path = "../../grimoire", default-features = false }
 anyhow = { workspace = true }
 libc = "0.2"
 # clipboard + browser-open helpers for /info-style slash commands

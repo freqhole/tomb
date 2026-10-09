@@ -18,10 +18,23 @@ import { join } from "node:path";
 const charnelDir = process.cwd();
 const spumeDir = join(charnelDir, "..", "spume");
 
+// x86_64-apple-darwin is the only charnel target that still has to run on
+// Catalina's old bundled WKWebView - tells spume's vite config to target
+// es2020 instead of esnext (see vite.config.ts's needsLegacySafariTarget
+// for why: esnext's native private class fields can't even be PARSED
+// there). TAURI_ENV_TARGET_TRIPLE is set by tauri-cli for beforeBuildCommand
+// hooks (same var fixup-mpv-install-name.sh's beforeBundleCommand hook
+// relies on).
+const needsLegacySafariTarget = process.env.TAURI_ENV_TARGET_TRIPLE === "x86_64-apple-darwin";
+
 execSync("npm run build", {
   cwd: spumeDir,
   stdio: "inherit",
-  env: { ...process.env, VITE_CHARNEL_MODE: "true" },
+  env: {
+    ...process.env,
+    VITE_CHARNEL_MODE: "true",
+    ...(needsLegacySafariTarget ? { VITE_LEGACY_SAFARI_TARGET: "true" } : {}),
+  },
 });
 
 cpSync(join(charnelDir, "dist", "wizard"), join(spumeDir, "dist", "wizard"), {

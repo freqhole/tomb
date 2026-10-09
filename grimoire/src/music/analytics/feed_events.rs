@@ -32,6 +32,7 @@ pub enum FeedEventType {
     RatingSong,
     RatingAlbum,
     RatingArtist,
+    RatingVideo,
     NewImageSong,
     NewImageAlbum,
     NewImageArtist,
@@ -43,7 +44,7 @@ pub enum FeedEventType {
 
 impl ZodSchemaTrait for FeedEventType {
     fn zod_schema() -> String {
-        r#"z.union([z.literal("album"), z.literal("artist"), z.literal("playlist"), z.literal("session"), z.literal("favorite_song"), z.literal("favorite_album"), z.literal("favorite_artist"), z.literal("favorite_playlist"), z.literal("rating_song"), z.literal("rating_album"), z.literal("rating_artist"), z.literal("new_image_song"), z.literal("new_image_album"), z.literal("new_image_artist"), z.literal("new_image_playlist"), z.literal("favorite_video"), z.literal("video_watch"), z.literal("video")])"#.to_string()
+        r#"z.union([z.literal("album"), z.literal("artist"), z.literal("playlist"), z.literal("session"), z.literal("favorite_song"), z.literal("favorite_album"), z.literal("favorite_artist"), z.literal("favorite_playlist"), z.literal("rating_song"), z.literal("rating_album"), z.literal("rating_artist"), z.literal("rating_video"), z.literal("new_image_song"), z.literal("new_image_album"), z.literal("new_image_artist"), z.literal("new_image_playlist"), z.literal("favorite_video"), z.literal("video_watch"), z.literal("video")])"#.to_string()
     }
 }
 
@@ -61,6 +62,7 @@ impl std::fmt::Display for FeedEventType {
             FeedEventType::RatingSong => write!(f, "rating_song"),
             FeedEventType::RatingAlbum => write!(f, "rating_album"),
             FeedEventType::RatingArtist => write!(f, "rating_artist"),
+            FeedEventType::RatingVideo => write!(f, "rating_video"),
             FeedEventType::NewImageSong => write!(f, "new_image_song"),
             FeedEventType::NewImageAlbum => write!(f, "new_image_album"),
             FeedEventType::NewImageArtist => write!(f, "new_image_artist"),
@@ -88,6 +90,7 @@ impl TryFrom<&str> for FeedEventType {
             "rating_song" => Ok(FeedEventType::RatingSong),
             "rating_album" => Ok(FeedEventType::RatingAlbum),
             "rating_artist" => Ok(FeedEventType::RatingArtist),
+            "rating_video" => Ok(FeedEventType::RatingVideo),
             "new_image_song" => Ok(FeedEventType::NewImageSong),
             "new_image_album" => Ok(FeedEventType::NewImageAlbum),
             "new_image_artist" => Ok(FeedEventType::NewImageArtist),
@@ -1123,15 +1126,8 @@ pub async fn create_favorite_feed_event(
                 SELECT 
                     v.title,
                     v.description,
-                    COALESCE(
-                        (SELECT mb.id FROM media_blobz mb WHERE mb.id = v.poster_blob_id AND mb.blob_type = 'image'),
-                        ''
-                    ) as "poster_blob_id?: String",
-                    CASE 
-                        WHEN v.poster_blob_id IS NOT NULL THEN 
-                            json_array(json_object('blob_id', v.poster_blob_id, 'is_primary', 1, 'blob_type', 'image'))
-                        ELSE '[]'
-                    END as "images!: String"
+                    COALESCE((SELECT json_group_array(json_object('blob_id', ei.media_blob_id, 'is_primary', ei.is_primary, 'blob_type', ei.blob_type))
+                     FROM entity_imagez ei WHERE ei.entity_type = 'video' AND ei.entity_id = v.id), '[]') as "images!: String"
                 FROM videoz v WHERE v.id = ? AND v.deleted_at IS NULL
                 "#,
                 target_id
@@ -1278,11 +1274,8 @@ pub async fn upsert_video_feed_event(
         SELECT
             v.title,
             v.description,
-            CASE
-                WHEN v.poster_blob_id IS NOT NULL THEN
-                    json_array(json_object('blob_id', v.poster_blob_id, 'is_primary', 1, 'blob_type', 'image'))
-                ELSE '[]'
-            END as "images!: String",
+            COALESCE((SELECT json_group_array(json_object('blob_id', ei.media_blob_id, 'is_primary', ei.is_primary, 'blob_type', ei.blob_type))
+             FROM entity_imagez ei WHERE ei.entity_type = 'video' AND ei.entity_id = v.id), '[]') as "images!: String",
             COALESCE((SELECT json_group_array(json_object('id', eu.id, 'name', eu.name, 'url', eu.url))
              FROM entity_urlz eu WHERE eu.entity_type = 'video' AND eu.entity_id = v.id), '[]') as "urls!: String"
         FROM videoz v WHERE v.id = ? AND v.deleted_at IS NULL
@@ -1367,11 +1360,8 @@ pub async fn create_video_watch_feed_event(
         SELECT
             v.title,
             v.description,
-            CASE
-                WHEN v.poster_blob_id IS NOT NULL THEN
-                    json_array(json_object('blob_id', v.poster_blob_id, 'is_primary', 1, 'blob_type', 'image'))
-                ELSE '[]'
-            END as "images!: String"
+            COALESCE((SELECT json_group_array(json_object('blob_id', ei.media_blob_id, 'is_primary', ei.is_primary, 'blob_type', ei.blob_type))
+             FROM entity_imagez ei WHERE ei.entity_type = 'video' AND ei.entity_id = v.id), '[]') as "images!: String"
         FROM videoz v WHERE v.id = ? AND v.deleted_at IS NULL
         "#,
         video_id
@@ -1451,6 +1441,7 @@ pub async fn upsert_rating_feed_event(
         song_id: Option<String>,
         album_id: Option<String>,
         artist_id: Option<String>,
+        video_id: Option<String>,
         title: String,
         subtitle: Option<String>,
         artist_name: Option<String>,
@@ -1483,6 +1474,7 @@ pub async fn upsert_rating_feed_event(
                     song_id: Some(target_id.to_string()),
                     album_id: d.album_id,
                     artist_id: None,
+                    video_id: None,
                     title: d.title,
                     subtitle: d.artist_name.clone(),
                     artist_name: d.artist_name,
@@ -1514,6 +1506,7 @@ pub async fn upsert_rating_feed_event(
                     song_id: None,
                     album_id: Some(target_id.to_string()),
                     artist_id: None,
+                    video_id: None,
                     title: d.title,
                     subtitle: d.artist_name.clone(),
                     artist_name: d.artist_name,
@@ -1544,6 +1537,7 @@ pub async fn upsert_rating_feed_event(
                     song_id: None,
                     album_id: None,
                     artist_id: Some(target_id.to_string()),
+                    video_id: None,
                     title: d.name.clone(),
                     subtitle: None,
                     artist_name: Some(d.name),
@@ -1553,21 +1547,54 @@ pub async fn upsert_rating_feed_event(
                 _ => return GrimoireResponse::failure("artist not found", vec![]),
             }
         }
+        "video" => {
+            let row = sqlx::query!(
+                r#"
+                SELECT
+                    v.title,
+                    v.description,
+                    COALESCE((SELECT json_group_array(json_object('blob_id', ei.media_blob_id, 'is_primary', ei.is_primary, 'blob_type', ei.blob_type))
+                     FROM entity_imagez ei WHERE ei.entity_type = 'video' AND ei.entity_id = v.id), '[]') as "images!: String"
+                FROM videoz v WHERE v.id = ? AND v.deleted_at IS NULL
+                "#,
+                target_id
+            )
+            .fetch_optional(&pool)
+            .await;
+
+            match row {
+                Ok(Some(d)) => RatingData {
+                    feed_type: FeedEventType::RatingVideo.to_string(),
+                    song_id: None,
+                    album_id: None,
+                    artist_id: None,
+                    video_id: Some(target_id.to_string()),
+                    title: d.title,
+                    subtitle: d.description,
+                    artist_name: None,
+                    album_title: None,
+                    images: d.images,
+                },
+                _ => return GrimoireResponse::failure("video not found", vec![]),
+            }
+        }
         _ => return GrimoireResponse::failure("invalid target type for rating", vec![]),
     };
 
     let result = sqlx::query_scalar!(
         r#"
         INSERT INTO feed_eventz (
-            feed_type, song_id, album_id, artist_id,
+            feed_type, song_id, album_id, artist_id, video_id,
             created_by_user_id, created_by_username,
             title, subtitle, artist_name, album_title, images, rating
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT (song_id, created_by_user_id) WHERE feed_type = 'rating_song' AND song_id IS NOT NULL
         DO UPDATE SET rating = excluded.rating, updated_at = unixepoch()
         ON CONFLICT (album_id, created_by_user_id) WHERE feed_type = 'rating_album' AND album_id IS NOT NULL
         DO UPDATE SET rating = excluded.rating, updated_at = unixepoch()
         ON CONFLICT (artist_id, created_by_user_id) WHERE feed_type = 'rating_artist' AND artist_id IS NOT NULL
+        DO UPDATE SET rating = excluded.rating, updated_at = unixepoch()
+        ON CONFLICT (video_id, created_by_user_id) WHERE feed_type = 'rating_video' AND video_id IS NOT NULL
         DO UPDATE SET rating = excluded.rating, updated_at = unixepoch()
         RETURNING id
         "#,
@@ -1575,6 +1602,7 @@ pub async fn upsert_rating_feed_event(
         data.song_id,
         data.album_id,
         data.artist_id,
+        data.video_id,
         user_id,
         username,
         data.title,

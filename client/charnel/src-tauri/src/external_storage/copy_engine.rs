@@ -509,11 +509,12 @@ fn run_ffmpeg(
         );
         args.insert(insert_at, "-f".to_string());
     }
-    let result = std::process::Command::new(ffmpeg_path)
-        // suppress the version/build-config banner ffmpeg always prints -
-        // it's pure noise here and was drowning out the actual error.
-        .arg("-hide_banner")
-        .args(&args)
+    let mut cmd = std::process::Command::new(ffmpeg_path);
+    // suppress the version/build-config banner ffmpeg always prints -
+    // it's pure noise here and was drowning out the actual error.
+    cmd.arg("-hide_banner").args(&args);
+    grimoire::process_ext::hide_console_window_std(&mut cmd);
+    let result = cmd
         .output()
         .map_err(|e| format!("failed to run ffmpeg: {e}"))?;
     if !result.status.success() {

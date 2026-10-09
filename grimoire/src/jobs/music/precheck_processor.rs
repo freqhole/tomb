@@ -88,6 +88,7 @@ pub async fn process_precheck_fetch_job(job: &Job) -> Result<Option<Value>, JobE
         .arg(&params.url)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    crate::process_ext::hide_console_window(&mut command);
 
     let mut child = command.spawn().map_err(|e| JobError::ProcessingFailed {
         reason: format!("failed to spawn precheck command: {}", e),
