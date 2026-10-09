@@ -685,6 +685,13 @@ export function App() {
         // show toast notification
         {
           const d = event.data;
+          if (d.message) {
+            // pre-formatted override (e.g. a "repair library" run) -
+            // spume's own generic song/album/artist wording below can't
+            // express image-repair totals, so show it verbatim instead.
+            toast.success(d.message);
+            break;
+          }
           const parts = [
             `${d.songs_added} songs`,
             `${d.albums_added} albums`,

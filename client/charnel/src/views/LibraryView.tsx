@@ -182,6 +182,13 @@ export default function LibraryView() {
   // charnel's grimoire event subscription (no polling required).
   const [scanProgress, setScanProgress] = createSignal<JobProgressPayload | null>(null);
   const [scanSummary, setScanSummary] = createSignal<JobSessionCompletePayload | null>(null);
+  // the job session id for the CURRENTLY running "run repair library"
+  // flow (see rescanAll) - without this, the job-events listener below
+  // has no way to tell this run's own progress apart from any other
+  // job session's events sharing the same event shape (confirmed real
+  // 2026-10-09: an unrelated session's progress/completed event could
+  // silently reset or "freeze" this view's progress card).
+  const [activeLibrarySession, setActiveLibrarySession] = createSignal<string | null>(null);
   // move directory modal state
   const [showMoveModal, setShowMoveModal] = createSignal(false);
   const [moveOldPath, setMoveOldPath] = createSignal("");
@@ -335,6 +342,15 @@ export default function LibraryView() {
           } else if (evt.kind === "completed") {
             void finalizeReorganizeRun(activeReorganizeSession);
           }
+          return;
+        }
+        const activeSession = activeLibrarySession();
+        if (!activeSession || evt.session_id !== activeSession) {
+          // no active "run repair library" flow this view started, or
+          // this event belongs to some other job session entirely
+          // (enrichment, a fetch, another tab's scan, ...) - ignore it
+          // rather than letting it stomp scanProgress/scanSummary with
+          // an unrelated session's (zeroed-out) counts.
           return;
         }
         if (evt.kind === "progress") {
@@ -766,34 +782,84 @@ export default function LibraryView() {
     setScanSummary(null);
     setRepairProgress(null);
 
+    if (admin.isRemote()) {
+      // remote: no local job-events/spume bridge to chain into - keep
+      // the existing two-step dispatch (scan, then step through
+      // repair).
+      try {
+        const result = await admin.dispatchOrThrow<ScanResult>("library_rescan_all", {});
+        const repair = await runRepairLibrarySteps();
+        setLastResult(
+          `${result.message} — image repair: backfilled ${repair.songs_waveforms_backfilled} song waveform(s), ` +
+            `${repair.albums_thumbnails_backfilled} album thumbnail(s), ${repair.videos_waveforms_backfilled} video waveform(s), ` +
+            `${repair.videos_thumbnails_backfilled} video thumbnail(s); removed ${repair.albums_thumbnails_removed_overapplied} ` +
+            `over-applied image(s)${repair.errors.length > 0 ? ` (${repair.errors.length} error(s))` : ""}`,
+        );
+        await loadDirectories();
+        await refreshMaintenancePreviews(true);
+      } catch (e) {
+        setLastError(`rescan failed: ${e}`);
+      } finally {
+        setRepairProgress(null);
+        setScanning(null);
+      }
+      return;
+    }
+
+    // local: one job session drives scan + the full RepairLibraryImages
+    // batch chain, so this view's progress card and spume's toast both
+    // only report "done" once EVERYTHING has actually finished - see
+    // commands::repair_library_run's doc comment (replaces the old
+    // rescan_directories + client-driven maintenance_repair_library_step
+    // polling loop, which could only ever track the scan half, and whose
+    // "scan complete" toast/card fired while image repair was still
+    // quietly running underneath - confirmed real 2026-10-09).
     try {
-      // local: invoke the tauri command so the polling task fires
-      // scan-progress/scan-complete events for the spume webview.
-      // remote: just dispatch — no spume side to notify.
-      const result = admin.isRemote()
-        ? await admin.dispatchOrThrow<ScanResult>("library_rescan_all", {})
-        : await invoke<ScanResult>("rescan_directories");
+      const result = await invoke<{
+        success: boolean;
+        session_id: string | null;
+        message: string;
+      }>("repair_library_run", {
+        dryRun: false,
+        backfillWaveforms: repairWaveforms(),
+        backfillEmbeddedArt: repairEmbeddedArt(),
+        backfillDirectoryArt: repairDirectoryArt(),
+        removeOverapplied: repairRemoveOverapplied(),
+        backfillVideoThumbnails: repairVideoThumbnails(),
+      });
+      if (!result.success || !result.session_id) {
+        setLastError(result.message);
+        setScanning(null);
+        return;
+      }
+      setActiveLibrarySession(result.session_id);
 
-      // chained into the same button: backfill missing song/video
-      // waveforms, video thumbnails, and album thumbnails, and clean up
-      // directory-sourced images that got over-applied across unrelated
-      // albums - batched (see runRepairLibrarySteps) so this works the
-      // same whether `admin` is pointed at the local instance or a remote
-      // one. which sub-jobs run is driven by the checklist above.
-      const repair = await runRepairLibrarySteps();
-
-      setLastResult(
-        `${result.message} — image repair: backfilled ${repair.songs_waveforms_backfilled} song waveform(s), ` +
-          `${repair.albums_thumbnails_backfilled} album thumbnail(s), ${repair.videos_waveforms_backfilled} video waveform(s), ` +
-          `${repair.videos_thumbnails_backfilled} video thumbnail(s); removed ${repair.albums_thumbnails_removed_overapplied} ` +
-          `over-applied image(s)${repair.errors.length > 0 ? ` (${repair.errors.length} error(s))` : ""}`,
-      );
-      // reload directories to show updated file count
+      // poll instead of trusting the generic job-events "completed"
+      // signal for this session, which fires once the SCAN half's jobs
+      // happen to hit zero pending/running - a race with (and
+      // indistinguishable from) the real, final completion a few
+      // seconds later once the repair-images chain is also done - see
+      // repair_library_run_status's doc comment.
+      const sessionId = result.session_id;
+      for (;;) {
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+        const status = await invoke<{ done: boolean; message: string | null }>(
+          "repair_library_run_status",
+          { sessionId },
+        );
+        if (status.done) {
+          setLastResult(status.message ?? "repair library complete");
+          break;
+        }
+      }
       await loadDirectories();
       await refreshMaintenancePreviews(true);
     } catch (e) {
       setLastError(`rescan failed: ${e}`);
     } finally {
+      setActiveLibrarySession(null);
+      setScanProgress(null);
+      setScanSummary(null);
       setRepairProgress(null);
       setScanning(null);
     }

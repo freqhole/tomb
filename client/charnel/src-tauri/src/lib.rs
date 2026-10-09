@@ -993,6 +993,8 @@ pub fn run() {
             commands::zip_abort,
             commands::scan_directory,
             commands::rescan_directories,
+            commands::repair_library_run,
+            commands::repair_library_run_status,
             commands::get_federation_status,
             commands::federation_setup,
             commands::federation_sync,

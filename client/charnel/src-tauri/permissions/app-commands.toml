@@ -49,6 +49,8 @@ commands.allow = [
     "zip_abort",
     "scan_directory",
     "rescan_directories",
+    "repair_library_run",
+    "repair_library_run_status",
     "get_federation_status",
     "federation_setup",
     "federation_sync",

@@ -1755,6 +1755,349 @@ async fn poll_rescan_job_until_complete(
     tracing::warn!("rescan-poll: polling timed out after 60 minutes");
 }
 
+/// result of `repair_library_run` - mirrors `ScanResult`'s shape plus the
+/// real job `session_id`, which a caller needs to poll
+/// `repair_library_run_status` for genuine completion (see that
+/// command's doc comment for why the generic job-events "Completed"
+/// signal can't be trusted here).
+#[derive(Debug, Serialize)]
+pub struct RepairLibraryRunResult {
+    pub success: bool,
+    pub session_id: Option<String>,
+    pub message: String,
+}
+
+/// final, authoritative result of a `repair_library_run` session, once
+/// both the scan phase and the full `RepairLibraryImages` batch chain
+/// have settled - stashed by `run_repair_library_session` and handed out
+/// by `repair_library_run_status`.
+#[derive(Debug, Clone, Serialize)]
+pub struct RepairLibraryStatus {
+    pub done: bool,
+    pub message: Option<String>,
+}
+
+type RepairLibraryResults = Mutex<HashMap<String, RepairLibraryStatus>>;
+static REPAIR_LIBRARY_RESULTS: std::sync::OnceLock<RepairLibraryResults> =
+    std::sync::OnceLock::new();
+
+fn repair_library_results() -> &'static RepairLibraryResults {
+    REPAIR_LIBRARY_RESULTS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// kick off the combined "repair library" flow: a `RescanDirectories` job
+/// followed by a chained `RepairLibraryImages` batch job chain, both
+/// sharing ONE job session - replaces the old `rescan_directories` +
+/// client-driven `maintenance_repair_library_step` polling loop (fully
+/// synchronous, zero cancellation/resume support, and the toast/progress
+/// UI could only ever see the scan half finish, confirmed real
+/// 2026-10-09: "scan complete" toasts fired while image repair was still
+/// quietly running underneath).
+///
+/// returns immediately with the session_id - actual orchestration runs
+/// in `run_repair_library_session` on a spawned task. poll
+/// `repair_library_run_status` with that session_id to learn when
+/// EVERYTHING (not just the scan) is truly done.
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub async fn repair_library_run(
+    app_handle: tauri::AppHandle,
+    dry_run: Option<bool>,
+    scan_directory: Option<String>,
+    backfill_waveforms: Option<bool>,
+    backfill_embedded_art: Option<bool>,
+    backfill_directory_art: Option<bool>,
+    remove_overapplied: Option<bool>,
+    backfill_video_thumbnails: Option<bool>,
+) -> RepairLibraryRunResult {
+    use grimoire::jobs::{
+        create_job, create_job_session, CreateJobRequest, CreateJobSessionRequest, JobType,
+    };
+
+    if let Err(e) = ensure_initialized(&app_handle).await {
+        return RepairLibraryRunResult {
+            success: false,
+            session_id: None,
+            message: format!("initialization failed: {}", e),
+        };
+    }
+
+    let session_request = CreateJobSessionRequest {
+        job_type: JobType::RescanDirectories,
+        batch_size: None,
+        created_by: Some("tauri-repair-library".to_string()),
+    };
+    let session_response = create_job_session(session_request).await;
+    let session_id = match session_response.data {
+        Some(s) => s.id,
+        None => {
+            return RepairLibraryRunResult {
+                success: false,
+                session_id: None,
+                message: format!("failed to create job session: {}", session_response.message),
+            }
+        }
+    };
+
+    let job_request = CreateJobRequest {
+        job_type: JobType::RescanDirectories,
+        session_id: Some(session_id.clone()),
+        parameters: serde_json::json!({}),
+        max_retries: Some(0),
+        scheduled_at: None,
+        created_by: Some("tauri-repair-library".to_string()),
+        priority: None,
+    };
+    let response = create_job(job_request).await;
+    if !response.success {
+        return RepairLibraryRunResult {
+            success: false,
+            session_id: Some(session_id),
+            message: format!("failed to create rescan job: {}", response.message),
+        };
+    }
+
+    repair_library_results().lock().unwrap().insert(
+        session_id.clone(),
+        RepairLibraryStatus {
+            done: false,
+            message: None,
+        },
+    );
+
+    let options = grimoire::maintenance::RepairLibraryImagesOptions {
+        backfill_waveforms: backfill_waveforms.unwrap_or(true),
+        backfill_embedded_art: backfill_embedded_art.unwrap_or(true),
+        backfill_directory_art: backfill_directory_art.unwrap_or(true),
+        remove_overapplied: remove_overapplied.unwrap_or(false),
+        backfill_video_thumbnails: backfill_video_thumbnails.unwrap_or(true),
+    };
+
+    let app_handle_clone = app_handle.clone();
+    let session_id_clone = session_id.clone();
+    let shutdown_token = app_handle.state::<ShutdownToken>().inner().clone();
+    tauri::async_runtime::spawn(async move {
+        run_repair_library_session(
+            app_handle_clone,
+            session_id_clone,
+            dry_run.unwrap_or(false),
+            scan_directory,
+            options,
+            shutdown_token,
+        )
+        .await;
+    });
+
+    RepairLibraryRunResult {
+        success: true,
+        session_id: Some(session_id),
+        message: "repair library started".to_string(),
+    }
+}
+
+/// poll whether a `repair_library_run` session has fully settled - needed
+/// because the generic grimoire job-events "Completed" signal for this
+/// session fires once the SCAN phase's jobs happen to hit zero
+/// pending/running, which can race with (and fire before)
+/// `run_repair_library_session` enqueueing the repair-images job a few
+/// seconds later on its own poll tick - a premature "Completed" that
+/// looks identical to the real, final one from the event alone. this
+/// command instead reports the one thing that's actually unambiguous:
+/// whether `run_repair_library_session` itself has reached its own last
+/// line.
+#[tauri::command]
+pub fn repair_library_run_status(session_id: String) -> RepairLibraryStatus {
+    repair_library_results()
+        .lock()
+        .unwrap()
+        .get(&session_id)
+        .cloned()
+        .unwrap_or(RepairLibraryStatus {
+            done: false,
+            message: None,
+        })
+}
+
+/// drives a `repair_library_run` session to completion: waits for the
+/// scan phase's jobs to settle, chains in the `RepairLibraryImages` batch
+/// job (reusing the SAME session_id - its own `enqueue_next_batch`
+/// preserves that across every continuation batch, so the whole chain
+/// stays trackable as one session), waits for that to settle too, then
+/// notifies spume and stashes the final result for
+/// `repair_library_run_status` to hand back to the wizard.
+#[allow(clippy::too_many_arguments)]
+async fn run_repair_library_session(
+    app_handle: tauri::AppHandle,
+    session_id: String,
+    dry_run: bool,
+    scan_directory: Option<String>,
+    options: grimoire::maintenance::RepairLibraryImagesOptions,
+    shutdown_token: ShutdownToken,
+) {
+    use grimoire::jobs::{
+        create_job, get_session_job_counts, list_jobs, CreateJobRequest, JobStatus, JobType,
+        RepairLibraryImagesJobResult, RepairLibraryImagesParams,
+    };
+    use grimoire::music::analytics::admin::get_overview_stats;
+    use std::time::Duration;
+
+    let baseline = match get_overview_stats().await.data {
+        Some(stats) => (stats.total_songs, stats.total_albums, stats.total_artists),
+        None => (0, 0, 0),
+    };
+
+    let poll_interval = Duration::from_secs(3);
+    let max_polls = 2400; // 2 hours max
+    let mut repair_started = false;
+
+    for _ in 0..max_polls {
+        tokio::select! {
+            _ = tokio::time::sleep(poll_interval) => {}
+            _ = shutdown_token.cancelled() => {
+                tracing::info!("repair-library-session: shutdown requested, stopping");
+                return;
+            }
+        }
+
+        let counts = match get_session_job_counts(&session_id).await.data {
+            Some(c) => c,
+            None => {
+                tracing::warn!(session_id = %session_id, "repair-library-session: failed to get session job counts");
+                continue;
+            }
+        };
+
+        let current_stats = get_overview_stats().await.data;
+        let (songs_added, albums_added, artists_added) = match &current_stats {
+            Some(stats) => (
+                (stats.total_songs - baseline.0).max(0) as u32,
+                (stats.total_albums - baseline.1).max(0) as u32,
+                (stats.total_artists - baseline.2).max(0) as u32,
+            ),
+            None => (0, 0, 0),
+        };
+
+        let pending = counts.pending + counts.running;
+        let _ = notify_scan_progress(
+            &app_handle,
+            songs_added,
+            albums_added,
+            artists_added,
+            pending,
+            counts.total,
+        );
+
+        if pending > 0 {
+            continue;
+        }
+
+        if !repair_started {
+            // scan phase just settled - chain the repair-images batch
+            // job into the SAME session and keep polling; `pending`
+            // will go back above 0 on the next tick once this job
+            // actually gets claimed.
+            repair_started = true;
+            let params = RepairLibraryImagesParams {
+                dry_run,
+                scan_directory: scan_directory.clone(),
+                options,
+                ..Default::default()
+            };
+            let parameters = match serde_json::to_value(&params) {
+                Ok(v) => v,
+                Err(e) => {
+                    tracing::error!(error = %e, "repair-library-session: failed to serialize repair params");
+                    return;
+                }
+            };
+            let job_request = CreateJobRequest {
+                job_type: JobType::RepairLibraryImages,
+                session_id: Some(session_id.clone()),
+                parameters,
+                max_retries: Some(1),
+                scheduled_at: None,
+                created_by: Some("tauri-repair-library".to_string()),
+                priority: None,
+            };
+            let resp = create_job(job_request).await;
+            if !resp.success {
+                tracing::error!(message = %resp.message, "repair-library-session: failed to enqueue repair-images job");
+                return;
+            }
+            continue;
+        }
+
+        // both phases have now settled - pull the terminal batch's own
+        // totals out of the (small, session-scoped) job list.
+        let totals = list_jobs(
+            Some(&session_id),
+            Some(JobStatus::Completed),
+            Some(200),
+            None,
+        )
+        .await
+        .data
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|j| matches!(j.job_type(), Ok(JobType::RepairLibraryImages)))
+        .find_map(|j| {
+            j.result::<RepairLibraryImagesJobResult>()
+                .ok()
+                .flatten()
+                .filter(|r| r.done)
+                .map(|r| r.totals)
+        })
+        .unwrap_or_default();
+
+        let message = format!(
+            "repair library complete: {} song(s) scanned, {} song waveform(s) backfilled, \
+             {} album thumbnail(s) backfilled, {} video waveform(s) backfilled, \
+             {} video thumbnail(s) backfilled, {} over-applied image(s) removed{}",
+            songs_added,
+            totals.songs_waveforms_backfilled,
+            totals.albums_thumbnails_backfilled,
+            totals.videos_waveforms_backfilled,
+            totals.videos_thumbnails_backfilled,
+            totals.albums_thumbnails_removed_overapplied,
+            if totals.errors.is_empty() {
+                String::new()
+            } else {
+                format!(" ({} error(s))", totals.errors.len())
+            },
+        );
+
+        if let Err(e) = crate::spume_bridge::notify_repair_library_complete(
+            &app_handle,
+            songs_added,
+            albums_added,
+            artists_added,
+            message.clone(),
+        ) {
+            tracing::error!(error = %e, "repair-library-session: failed to notify spume");
+        }
+
+        repair_library_results().lock().unwrap().insert(
+            session_id.clone(),
+            RepairLibraryStatus {
+                done: true,
+                message: Some(message.clone()),
+            },
+        );
+
+        tracing::info!(session_id = %session_id, "repair-library-session: complete");
+        return;
+    }
+
+    tracing::warn!("repair-library-session: polling timed out after 2 hours");
+    repair_library_results().lock().unwrap().insert(
+        session_id.clone(),
+        RepairLibraryStatus {
+            done: true,
+            message: Some("repair library timed out after 2 hours".to_string()),
+        },
+    );
+}
+
 /// poll for scan job completion and notify spume with progress updates
 ///
 /// this runs in the background after scan_directory creates jobs.
