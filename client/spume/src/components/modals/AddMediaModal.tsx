@@ -36,7 +36,7 @@ import type { Remote } from "../../app/services/storage/schemas/remote";
 import { isOnline, isProbing, probeRemote } from "../../app/services/remotes/remoteHealth";
 import {
   getReviewBackend,
-  resolveActiveReviewRemote,
+  resolveReviewSourceRemotes,
 } from "../../music/services/review/reviewBackend";
 import type { PendingReviewSession, PendingVideoReviewSession } from "@freqhole/api-client";
 import { ImportPendingReviewCard } from "../import/ImportPendingReviewCard";
@@ -90,10 +90,13 @@ export interface AddMediaModalProps {
   fetchVideoEnabled?: boolean;
   /** additional classes */
   class?: string;
-  /** called when user wants to review a completed music import session */
-  onReviewSession?: (sessionId: string) => void;
-  /** called when user wants to review a completed video import session */
-  onReviewVideoSession?: (sessionId: string) => void;
+  /** called when user wants to review a completed music import session -
+   *  `remote` is the session's actual origin (see `sessionOriginRemote`
+   *  below), not necessarily local - pass it through verbatim so the
+   *  review modal talks to the backend that actually holds the session. */
+  onReviewSession?: (sessionId: string, remote?: CurrentRemoteInfo | null) => void;
+  /** called when user wants to review a completed video import session - see onReviewSession */
+  onReviewVideoSession?: (sessionId: string, remote?: CurrentRemoteInfo | null) => void;
   /** increment to trigger a refetch of pending review sessions */
   refetchReviewKey?: number;
   /** whether the current user is an admin (shows uploader usernames in review tab) */
@@ -206,6 +209,23 @@ export function AddMediaModal(props: AddMediaModalProps) {
     isCharnelMode() ? ((await getTauriManagedRemote())?.remote_id ?? null) : null
   );
 
+  // which remote each pending session actually came from - built alongside
+  // pendingSessions/videoPendingSessions below (plain, non-reactive maps:
+  // always rebuilt in lockstep with their resource, read only after the
+  // corresponding resource signal has been read, same pattern as the other
+  // plain caches in this codebase e.g. blobCache.ts's p2pRemoteCache).
+  // most sessions come from the local/resolved review remote (path-based
+  // imports + uploads), but a url-fetch submitted while targeting a
+  // *different* remote runs - and is reviewed - there instead (see
+  // resolveReviewSourceRemotes). defaults to local for any session id not
+  // present (shouldn't happen - every session in the list was just added here).
+  let pendingSessionOrigins = new Map<string, CurrentRemoteInfo | null>();
+  let videoPendingSessionOrigins = new Map<string, CurrentRemoteInfo | null>();
+  const sessionOriginRemote = (sessionId: string): CurrentRemoteInfo | null =>
+    pendingSessionOrigins.get(sessionId) ?? null;
+  const videoSessionOriginRemote = (sessionId: string): CurrentRemoteInfo | null =>
+    videoPendingSessionOrigins.get(sessionId) ?? null;
+
   // pending review sessions (music only) - fetched whenever the modal is open.
   // re-fetches when refetchReviewKey changes (e.g. after a review modal closes).
   const [pendingSessions, { refetch: refetchPendingSessions }] = createResource<
@@ -214,12 +234,23 @@ export function AddMediaModal(props: AddMediaModalProps) {
   >(
     () => (props.isOpen ? (props.refetchReviewKey ?? 0) : null),
     async (_key: number | null) => {
-      const remote = await resolveActiveReviewRemote();
-      try {
-        return await getReviewBackend(remote).listPendingSessions();
-      } catch {
-        return [];
+      const remotes = await resolveReviewSourceRemotes(props.targetRemote);
+      const origins = new Map<string, CurrentRemoteInfo | null>();
+      const merged: PendingReviewSession[] = [];
+      for (const remote of remotes) {
+        let sessions: PendingReviewSession[];
+        try {
+          sessions = await getReviewBackend(remote).listPendingSessions();
+        } catch {
+          continue;
+        }
+        for (const s of sessions) {
+          origins.set(s.session_id, remote);
+          merged.push(s);
+        }
       }
+      pendingSessionOrigins = origins;
+      return merged;
     },
     { initialValue: [] }
   );
@@ -232,12 +263,23 @@ export function AddMediaModal(props: AddMediaModalProps) {
   // falls back to getCurrentRemote() itself when no override is set - see
   // App.tsx's addMediaTargetRemote) rather than getCurrentRemote() directly,
   // so switching targets in the modal actually changes what's shown here.
+  //
+  // a session fetched directly from a non-local origin (url-fetch that ran
+  // on the targeted remote) is already scoped to the current view by
+  // construction (resolveReviewSourceRemotes only adds that remote when
+  // it's the one currently targeted) - `target_remote_id` is a separate,
+  // orthogonal "send reviewed output elsewhere" concept that only applies
+  // to sessions living locally.
   const filteredPendingSessions = createMemo(() => {
     const sessions = pendingSessions() ?? [];
     const localId = localBackendId();
     if (localId === undefined) return []; // still resolving
     const currentId = props.targetRemote?.remote_id ?? localId;
-    return sessions.filter((s) => (s.target_remote_id ?? localId) === currentId);
+    return sessions.filter((s) => {
+      const origin = sessionOriginRemote(s.session_id);
+      if (origin && origin.remote_id !== localId) return origin.remote_id === currentId;
+      return (s.target_remote_id ?? localId) === currentId;
+    });
   });
 
   // same as filteredPendingSessions above, for video sessions - declared
@@ -254,18 +296,27 @@ export function AddMediaModal(props: AddMediaModalProps) {
     async (_key: number | null) => {
       // same resolver music's pendingSessions above uses - video's
       // local-first import also always redirects to the local grimoire
-      // instance (see App.tsx's handleVideoPathsSelected), so review
-      // sessions live there regardless of which remote is currently browsed.
-      const remote = await resolveActiveReviewRemote();
-      if (!remote) return [];
-      try {
-        const client = await getClientForRemote(remote);
-        const resp = await client.video.listPendingVideoImportReview({ session_id: null });
-        if (!resp.success) return [];
-        return resp.data ?? [];
-      } catch {
-        return [];
+      // instance (see App.tsx's handleVideoPathsSelected), but video url
+      // fetches run wherever targeted, same as music's.
+      const remotes = await resolveReviewSourceRemotes(props.targetRemote);
+      const origins = new Map<string, CurrentRemoteInfo | null>();
+      const merged: PendingVideoReviewSession[] = [];
+      for (const remote of remotes) {
+        if (!remote) continue;
+        try {
+          const client = await getClientForRemote(remote);
+          const resp = await client.video.listPendingVideoImportReview({ session_id: null });
+          if (!resp.success) continue;
+          for (const s of resp.data ?? []) {
+            origins.set(s.session_id, remote);
+            merged.push(s);
+          }
+        } catch {
+          continue;
+        }
       }
+      videoPendingSessionOrigins = origins;
+      return merged;
     },
     { initialValue: [] }
   );
@@ -276,7 +327,11 @@ export function AddMediaModal(props: AddMediaModalProps) {
     const localId = localBackendId();
     if (localId === undefined) return []; // still resolving
     const currentId = props.targetRemote?.remote_id ?? localId;
-    return sessions.filter((s) => (s.target_remote_id ?? localId) === currentId);
+    return sessions.filter((s) => {
+      const origin = videoSessionOriginRemote(s.session_id);
+      if (origin && origin.remote_id !== localId) return origin.remote_id === currentId;
+      return (s.target_remote_id ?? localId) === currentId;
+    });
   });
 
   // session ids (any target, not just the currently-viewed one, either
@@ -342,7 +397,7 @@ export function AddMediaModal(props: AddMediaModalProps) {
   const handleMarkSessionReviewed = async (session: PendingReviewSession) => {
     setMarkingSessionReviewed(session.session_id);
     try {
-      const remote = await resolveActiveReviewRemote();
+      const remote = sessionOriginRemote(session.session_id);
       await getReviewBackend(remote).markSessionReviewed(session);
       void refetchPendingSessions();
     } catch (err) {
@@ -353,7 +408,7 @@ export function AddMediaModal(props: AddMediaModalProps) {
   };
 
   const handleMarkVideoSessionReviewed = async (session: PendingVideoReviewSession) => {
-    const remote = await resolveActiveReviewRemote();
+    const remote = videoSessionOriginRemote(session.session_id);
     if (!remote) return;
     setMarkingVideoSessionReviewed(session.session_id);
     try {
@@ -1364,7 +1419,12 @@ export function AddMediaModal(props: AddMediaModalProps) {
                                   <div class="flex flex-col items-end gap-6 shrink-0">
                                     <Button
                                       variant="primary"
-                                      onClick={() => props.onReviewSession?.(session.session_id)}
+                                      onClick={() =>
+                                        props.onReviewSession?.(
+                                          session.session_id,
+                                          sessionOriginRemote(session.session_id)
+                                        )
+                                      }
                                     >
                                       review
                                     </Button>
@@ -1436,7 +1496,10 @@ export function AddMediaModal(props: AddMediaModalProps) {
                                     <Button
                                       variant="primary"
                                       onClick={() =>
-                                        props.onReviewVideoSession?.(session.session_id)
+                                        props.onReviewVideoSession?.(
+                                          session.session_id,
+                                          videoSessionOriginRemote(session.session_id)
+                                        )
                                       }
                                     >
                                       review
@@ -1618,7 +1681,10 @@ export function AddMediaModal(props: AddMediaModalProps) {
                                   </button>
                                 )}
                               </div>
-                              {/* label */}
+                              {/* label - full url (when this is a url-fetch job) shown as
+                                  a native tooltip, since the short label (hostname +
+                                  truncated path/query) can still collide visually across
+                                  rows that scroll out of view. */}
                               <span
                                 class="body-xs truncate flex-1"
                                 classList={{
@@ -1632,6 +1698,7 @@ export function AddMediaModal(props: AddMediaModalProps) {
                                     (job.status === "completed" && !!warning),
                                   "text-red-400": job.status === "failed",
                                 }}
+                                title={job.fullUrl ?? job.label}
                               >
                                 {job.label}
                               </span>
@@ -1770,6 +1837,11 @@ export function AddMediaModal(props: AddMediaModalProps) {
                             <Show
                               when={job.status === "failed" && expandedErrorJobIds().has(job.id)}
                             >
+                              <Show when={job.fullUrl}>
+                                <p class="body-xs text-[var(--color-text-tertiary)] pl-6 pr-1 break-all select-text">
+                                  {job.fullUrl}
+                                </p>
+                              </Show>
                               <p class="body-xs text-red-400/80 pl-6 pr-1 whitespace-pre-wrap break-words">
                                 {job.errorFull ?? job.error ?? "failed"}
                               </p>
@@ -1801,7 +1873,10 @@ export function AddMediaModal(props: AddMediaModalProps) {
                       sessionLabel={session.label}
                       pendingCount={session.albumCount}
                       onReview={() => {
-                        props.onReviewSession?.(session.sessionId);
+                        props.onReviewSession?.(
+                          session.sessionId,
+                          sessionOriginRemote(session.sessionId)
+                        );
                       }}
                       onDismiss={() => {
                         setDismissedSessions((prev) => {
@@ -1826,7 +1901,10 @@ export function AddMediaModal(props: AddMediaModalProps) {
                       pendingCount={session.groupCount}
                       videoCount={session.videoCount}
                       onReview={() => {
-                        props.onReviewVideoSession?.(session.sessionId);
+                        props.onReviewVideoSession?.(
+                          session.sessionId,
+                          videoSessionOriginRemote(session.sessionId)
+                        );
                       }}
                       onDismiss={() => {
                         setDismissedVideoSessions((prev) => {

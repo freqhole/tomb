@@ -148,7 +148,7 @@ export function VideoCard(props: VideoCardProps): JSX.Element {
 
   return (
     <div
-      class={`group cursor-pointer flex flex-col ${props.class || ""}`}
+      class={`bg-[var(--color-bg-primary)] rounded-lg p-4 hover:bg-[var(--color-bg-elevated)] transition-colors cursor-pointer group flex flex-col ${props.class || ""}`}
       onClick={handleClick}
       onContextMenu={(e) => {
         if (!props.onContextMenu) return;
@@ -157,7 +157,7 @@ export function VideoCard(props: VideoCardProps): JSX.Element {
       }}
     >
       {/* poster area */}
-      <div class="w-full aspect-square bg-[var(--color-bg-base)] rounded-lg mb-2 relative overflow-hidden transition-all duration-300 group-hover:rounded-none">
+      <div class="w-full aspect-square bg-[var(--color-bg-base)] rounded-lg mb-3 relative overflow-hidden transition-all duration-300 group-hover:rounded-none">
         <Show
           when={props.video.source_type === "remote"}
           fallback={

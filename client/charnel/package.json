@@ -12,7 +12,9 @@
     "build:wizard": "vite build --outDir dist/wizard",
     "serve": "vite preview",
     "tauri": "tauri",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "format": "prettier --write src",
+    "format:check": "prettier --check src"
   },
   "license": "MIT",
   "dependencies": {
@@ -27,6 +29,7 @@
     "@tauri-apps/cli": "2.10.1",
     "@types/qrcode": "^1.5.6",
     "concurrently": "^9.0.0",
+    "prettier": "^3.9.9",
     "qrcode": "^1.5.4",
     "typescript": "~5.6.2",
     "vite": "^6.0.3",

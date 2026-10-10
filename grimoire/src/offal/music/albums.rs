@@ -4,7 +4,7 @@ use crate::api_registry::{Domain, Method, RouteAuth, RouteInfo};
 use crate::config::get_config;
 use crate::error::ErrorDetail;
 use crate::media_blobz::{
-    create_media_blob, get_media_blob_by_sha256, BlobType, CreateMediaBlobRequest,
+    create_media_blob, get_media_blob_by_blake3, BlobType, CreateMediaBlobRequest,
 };
 use crate::music::crud::{
     query_album_status_counts, query_albums, DeleteAlbumRequest, GetAlbumRequest, QueryParams,
@@ -686,10 +686,11 @@ pub struct IngestRemoteImageRequest {
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize, zod_gen_derive::ZodSchema)]
 pub struct IngestRemoteImageResponse {
     pub blob_id: String,
-    pub sha256: String,
+    /// blake3 content hash - the real content identity
+    pub blake3: String,
     pub size: i64,
     pub mime: String,
-    /// true when the same sha256 was already in `media_blobz` and we
+    /// true when the same content was already in `media_blobz` and we
     /// skipped the disk write + insert (just re-linked).
     pub deduped: bool,
 }
@@ -704,7 +705,7 @@ const MAX_REMOTE_IMAGE_BYTES: usize = 32 * 1024 * 1024; // 32MB
 const INGEST_MAX_DIMENSION: u32 = 1500;
 
 /// download an image from a remote url and link it to an album or artist.
-/// dedups on sha256: if we already have the blob, no fetch + no disk write,
+/// dedups on blake3: if we already have the blob, no fetch + no disk write,
 /// just the link row.
 ///
 /// path: POST /api/music/images/ingest
@@ -887,14 +888,12 @@ pub async fn ingest_remote_image_inner(
     };
     let size = processed_bytes.len() as i64;
 
-    // sha256 dedup check on the *processed* bytes so equivalent re-encodes
-    // collapse to a single blob.
-    use sha2::{Digest, Sha256};
-    let mut hasher = Sha256::new();
-    hasher.update(&processed_bytes);
-    let sha256_hex = format!("{:x}", hasher.finalize());
+    // dedup check on the *processed* bytes so equivalent re-encodes
+    // collapse to a single blob - keyed on blake3, the real content
+    // identity.
+    let blake3_hash = crate::blobz::compute_blake3_from_bytes(&processed_bytes);
 
-    let (blob_id, deduped, mime_out) = match get_media_blob_by_sha256(&sha256_hex).await {
+    let (blob_id, deduped, mime_out) = match get_media_blob_by_blake3(&blake3_hash).await {
         Ok(existing) => (
             existing.id,
             true,
@@ -902,7 +901,6 @@ pub async fn ingest_remote_image_inner(
         ),
         Err(_) => {
             // new blob: write to disk under data/fetch/YYYY/MM/<id>.<ext>
-            let blake3_hash = crate::blobz::compute_blake3_from_bytes(&processed_bytes);
             let ext = match processed_mime.as_str() {
                 "image/png" => "png",
                 "image/webp" => "webp",
@@ -912,7 +910,6 @@ pub async fn ingest_remote_image_inner(
                 _ => "jpg",
             };
             let blob = match create_media_blob(CreateMediaBlobRequest {
-                sha256: sha256_hex.clone(),
                 size: Some(size),
                 mime: Some(processed_mime.clone()),
                 source_client_id: None,
@@ -932,7 +929,7 @@ pub async fn ingest_remote_image_inner(
                 data: None,
                 width: processed_w,
                 height: processed_h,
-                blake3: Some(blake3_hash),
+                blake3: Some(blake3_hash.clone()),
                 delete_duplicate_local_path: false,
             })
             .await
@@ -1025,7 +1022,7 @@ pub async fn ingest_remote_image_inner(
 
     let body = IngestRemoteImageResponse {
         blob_id,
-        sha256: sha256_hex,
+        blake3: blake3_hash,
         size,
         mime: mime_out,
         deduped,
@@ -1060,7 +1057,7 @@ pub struct AlbumImageCandidatesResponse {
     pub candidates: Vec<AlbumImageCandidate>,
     /// blob ids of images currently linked to the album. lets the ui
     /// show "N already in library" without making the dedup decision
-    /// itself — the actual dedup happens at ingest time via sha256.
+    /// itself — the actual dedup happens at ingest time via blake3.
     pub ingested_blob_ids: Vec<String>,
 }
 
@@ -1157,7 +1154,7 @@ pub async fn image_candidates_for_album(
 
     // currently-linked blob ids (so the ui can show "already in
     // library: N"). actual content-level dedup happens at ingest via
-    // sha256, so the ui doesn't need a url<->blob map here.
+    // blake3, so the ui doesn't need a url<->blob map here.
     let imgs_resp = grimoire_get_album_images(&req.album_id).await;
     let ingested = if imgs_resp.success {
         imgs_resp.data.unwrap_or_default()

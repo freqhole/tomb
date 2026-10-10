@@ -63,10 +63,10 @@ export async function initMusicDB(): Promise<IDBPDatabase> {
         // imported song may leave `sha256` as `""` (sentinel for "never
         // computed", see localImport.ts/fileProcessor.ts) rather than pay
         // for a whole-file crypto.subtle.digest read. `blake3` is the
-        // preferred identity for such songs (see audioAccess.ts's
-        // `songTrackingKey()`) - part of the ongoing, deliberately
-        // incremental sha256->blake3 deprecation - see
-        // /memories/repo/tomb-sha256-vs-blake3-vs-id.md.
+        // preferred identity for such songs (see
+        // `findExistingSongByContentHash` in db/songs.ts) - part of the
+        // ongoing, deliberately incremental sha256->blake3 deprecation -
+        // see /memories/repo/tomb-sha256-vs-blake3-vs-id.md.
         songsStore.createIndex("by_sha256", "sha256");
         songsStore.createIndex("by_blake3", "blake3");
         songsStore.createIndex("by_title", "title");

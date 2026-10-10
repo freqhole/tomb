@@ -11,7 +11,7 @@
 import { createResource, type Accessor } from "solid-js";
 import { schema } from "@freqhole/api-client";
 import { getTransportForRemote } from "../../../app/api/client";
-import { getSongBySha256 } from "../../services/storage/db/songs";
+import { findExistingSongByContentHash } from "../../services/storage/db/songs";
 import { debug } from "../../../utils/logger";
 import type { Remote } from "../../../app/services/storage/schemas/remote";
 
@@ -19,8 +19,9 @@ const { HasBlobsResponseSchema } = schema;
 
 /**
  * a single song's hashes. blake3 is the canonical key the probe reports
- * back; sha256 is needed for the indexedDB-backed local probe (the local
- * `songs` store has a unique `by_sha256` index but no blake3 index).
+ * back; sha256 is an additional fallback for the local probe (a local-
+ * only import may have a real blake3 but an empty sha256 - see
+ * `findExistingSongByContentHash`).
  */
 export interface ProbeSongHashes {
   blake3: string;
@@ -54,7 +55,7 @@ const EMPTY: BlobPresence = {
  */
 export function createBlobPresenceProbe(
   remote: Accessor<Remote | null | undefined>,
-  blake3s: Accessor<string[] | null | undefined>,
+  blake3s: Accessor<string[] | null | undefined>
 ): Accessor<BlobPresence> {
   const [resource] = createResource(
     () => {
@@ -66,11 +67,7 @@ export function createBlobPresenceProbe(
     async ({ remote, blake3s }): Promise<BlobPresence> => {
       try {
         const transport = await getTransportForRemote(remote);
-        const resp = await transport.request(
-          "POST",
-          "/api/blobz/has",
-          JSON.stringify({ blake3s }),
-        );
+        const resp = await transport.request("POST", "/api/blobz/has", JSON.stringify({ blake3s }));
         if (resp.status >= 200 && resp.status < 300) {
           let json: unknown;
           try {
@@ -104,7 +101,7 @@ export function createBlobPresenceProbe(
           }
           debug(
             "destinationProbe",
-            `schema mismatch on has_blobs response: ${parsed.error.message}`,
+            `schema mismatch on has_blobs response: ${parsed.error.message}`
           );
           return {
             ...EMPTY,
@@ -118,18 +115,14 @@ export function createBlobPresenceProbe(
           error: `http ${resp.status}`,
         };
       } catch (e) {
-        debug(
-          "destinationProbe",
-          `has_blobs threw for ${remote.remote_id}:`,
-          e,
-        );
+        debug("destinationProbe", `has_blobs threw for ${remote.remote_id}:`, e);
         return {
           ...EMPTY,
           totalChecked: blake3s.length,
           error: e instanceof Error ? e.message : String(e),
         };
       }
-    },
+    }
   );
 
   return () => {
@@ -143,12 +136,13 @@ export function createBlobPresenceProbe(
 
 /**
  * reactive `BlobPresence` for the browser-local library (idb + opfs).
- * looks each input up by sha256 (the only indexed lookup we have on the
- * songs store) and reports the matching blake3 set. matches the same
- * shape as `createBlobPresenceProbe` so the ui can reuse a single badge.
+ * looks each input up by content hash (blake3 preferred, sha256
+ * fallback - see `findExistingSongByContentHash`) and reports the
+ * matching blake3 set. matches the same shape as
+ * `createBlobPresenceProbe` so the ui can reuse a single badge.
  */
 export function createLocalBlobPresenceProbe(
-  songs: Accessor<ProbeSongHashes[] | null | undefined>,
+  songs: Accessor<ProbeSongHashes[] | null | undefined>
 ): Accessor<BlobPresence> {
   const [resource] = createResource(
     () => {
@@ -160,12 +154,15 @@ export function createLocalBlobPresenceProbe(
       try {
         const present = new Set<string>();
         // small libraries — sequential lookups are fine. each hits a
-        // single indexed get on `by_sha256`.
+        // single indexed get (by_blake3, falling back to by_sha256).
         await Promise.all(
           input.map(async (h) => {
-            const row = await getSongBySha256(h.sha256);
+            const row = await findExistingSongByContentHash({
+              blake3: h.blake3,
+              sha256: h.sha256,
+            });
             if (row) present.add(h.blake3);
-          }),
+          })
         );
         return {
           checking: false,
@@ -181,7 +178,7 @@ export function createLocalBlobPresenceProbe(
           error: e instanceof Error ? e.message : String(e),
         };
       }
-    },
+    }
   );
 
   return () => {

@@ -13,6 +13,7 @@ import {
   deleteArtistCascade,
   deleteSongCascade,
   deleteTag,
+  findExistingSongByContentHash,
   findTagByName,
   getAlbumById,
   getAlbumTags,
@@ -212,7 +213,14 @@ export class LocalMusicDataSource implements MusicDataSource {
   }
 
   async getSongById(id: string): Promise<Song | null> {
-    const song = await getSongById(id);
+    // `id` is sometimes actually a content hash, not the row's real local
+    // id - e.g. `current_item_key`/`songIdentityKey()` prefer `sha256`
+    // over `id` (see types.ts's own doc comment), and a synced song's
+    // local `id` is a generated uuid decoupled from its sha256 (session
+    // B, see syncSongToLocal.ts) - a plain primary-key lookup alone
+    // would miss these. falls back to a content-hash lookup rather than
+    // changing every caller that passes a sha256-shaped key.
+    const song = (await getSongById(id)) ?? (await findExistingSongByContentHash({ sha256: id }));
     if (!song) return null;
 
     return {
@@ -1403,7 +1411,7 @@ export class LocalMusicDataSource implements MusicDataSource {
 
       for (const song of matchingSongs) {
         suggestions.push({
-          value: song.sha256,
+          value: song.id,
           display: song.title,
           highlight: song.title,
           count: 1,
@@ -1414,8 +1422,11 @@ export class LocalMusicDataSource implements MusicDataSource {
             album_title: song.album_title,
             album_id: song.album_id,
           },
-          entity_id: song.sha256,
-          is_favorite: await checkFavorite("song", song.sha256),
+          entity_id: song.id,
+          // favorites are keyed by song.id (see music/hooks/useFavoriteStatus.ts's
+          // own doc example) - sha256 is "" for local-only songs, which made
+          // every local song's suggestion always show is_favorite: false.
+          is_favorite: await checkFavorite("song", song.id),
         });
       }
     }

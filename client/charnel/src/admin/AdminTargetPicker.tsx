@@ -14,11 +14,7 @@ import { createSignal, onMount, onCleanup, For, Show } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import {
-  useAdminTransport,
-  LOCAL_TARGET,
-  type AdminTargetInfo,
-} from "./context";
+import { useAdminTransport, LOCAL_TARGET, type AdminTargetInfo } from "./context";
 import { dispatch as adminDispatch } from "./transport";
 
 interface Remote {
@@ -34,9 +30,7 @@ function shortPeerAddr(peerAddr: string): string {
   // node ids are 64 hex chars; everything else (json) just gets first 8
   const trimmed = peerAddr.trim();
   if (trimmed.startsWith("{")) return "endpoint";
-  return trimmed.length > 16
-    ? `${trimmed.slice(0, 8)}…${trimmed.slice(-4)}`
-    : trimmed;
+  return trimmed.length > 16 ? `${trimmed.slice(0, 8)}…${trimmed.slice(-4)}` : trimmed;
 }
 
 export function AdminTargetPicker() {
@@ -57,7 +51,6 @@ export function AdminTargetPicker() {
   const [linkUrl, setLinkUrl] = createSignal<string | null>(null);
   const [linkCopied, setLinkCopied] = createSignal(false);
   const [linkError, setLinkError] = createSignal<string | null>(null);
-  const [linkGenerating, setLinkGenerating] = createSignal(false);
 
   async function load() {
     setLoading(true);
@@ -124,9 +117,7 @@ export function AdminTargetPicker() {
     const match = remotes().find((r) => r.peer_addr === c.peerAddr);
     if (!match) return;
     const ok = confirm(
-      `remove remote "${
-        match.name || shortPeerAddr(c.peerAddr ?? "")
-      }" from this device?\n\n` +
+      `remove remote "${match.name || shortPeerAddr(c.peerAddr ?? "")}" from this device?\n\n` +
         `the remote freqhole instance is unaffected. you can re-add it later with the same node id.`,
     );
     if (!ok) return;
@@ -136,33 +127,6 @@ export function AdminTargetPicker() {
       await load();
     } catch (e) {
       setError(`failed to remove remote: ${e}`);
-    }
-  }
-
-  // generate a spume link URL that a remote user can open to connect to this server
-  async function generateSpumeLink() {
-    setLinkGenerating(true);
-    setLinkError(null);
-    setLinkUrl(null);
-    setLinkCopied(false);
-    try {
-      const [nodeId, config] = await Promise.all([
-        invoke<string>("p2p_get_node_id"),
-        invoke<{ server_name: string } | null>("get_freqhole_config"),
-      ]);
-      const payload = {
-        peer_addr: nodeId,
-        name: config?.server_name ?? "freqhole",
-        description: null as null,
-      };
-      const url = `https://spume.freqhole.net/?link=${btoa(
-        JSON.stringify(payload),
-      )}`;
-      setLinkUrl(url);
-    } catch (e) {
-      setLinkError(String(e));
-    } finally {
-      setLinkGenerating(false);
     }
   }
 
@@ -250,9 +214,7 @@ export function AdminTargetPicker() {
         resetAddForm();
         setShowAdd(false);
       } else {
-        setAddError(
-          `connected but verification failed: ${verify.message || "unknown"}`,
-        );
+        setAddError(`connected but verification failed: ${verify.message || "unknown"}`);
       }
     } catch (e) {
       setAddError(String(e));
@@ -300,20 +262,8 @@ export function AdminTargetPicker() {
         when={showAdd()}
         fallback={
           <div class="admin-target-add-buttons">
-            <button
-              type="button"
-              class="admin-target-add-toggle"
-              onClick={() => setShowAdd(true)}
-            >
+            <button type="button" class="admin-target-add-toggle" onClick={() => setShowAdd(true)}>
               + add remote
-            </button>
-            <button
-              type="button"
-              class="admin-target-link-toggle"
-              onClick={() => void generateSpumeLink()}
-              disabled={linkGenerating()}
-            >
-              {linkGenerating() ? "generating…" : "share connect link"}
             </button>
             <Show when={linkUrl()}>
               <div class="admin-target-link-box">
@@ -376,11 +326,7 @@ export function AdminTargetPicker() {
             disabled={adding()}
           />
           <div class="admin-target-add-actions">
-            <button
-              type="submit"
-              class="admin-target-add-submit"
-              disabled={adding()}
-            >
+            <button type="submit" class="admin-target-add-submit" disabled={adding()}>
               {adding() ? "adding…" : "add"}
             </button>
             <button
@@ -432,15 +378,10 @@ export function AdminScopeBanner() {
           <span class="admin-scope-status">{transport.status()}</span>
           <Show when={transport.statusError()}>
             {" "}
-            <span class="admin-scope-status-detail">
-              ({transport.statusError()})
-            </span>
+            <span class="admin-scope-status-detail">({transport.statusError()})</span>
           </Show>
         </span>
-        <span
-          class="admin-scope-disconnect"
-          onClick={() => transport.setCurrent(LOCAL_TARGET)}
-        >
+        <span class="admin-scope-disconnect" onClick={() => transport.setCurrent(LOCAL_TARGET)}>
           back to local
         </span>
       </div>

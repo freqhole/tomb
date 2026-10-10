@@ -10,10 +10,20 @@ use serde::{Deserialize, Serialize};
 pub struct SyncedSong {
     pub song_id: String,
     pub relative_path: String,
-    pub sha256: String,
     pub blake3: Option<String>,
     pub tag_hash: String,
     pub synced_at: i64,
+}
+
+impl SyncedSong {
+    /// true when this previously-synced row's content matches the given
+    /// media blob's blake3 - the real identity. returns false (not a
+    /// match) rather than true when either side lacks a blake3 - a safe
+    /// failure mode that re-syncs the file rather than wrongly skipping a
+    /// genuinely-changed one.
+    pub fn matches_content(&self, blob_blake3: Option<&str>) -> bool {
+        matches!((self.blake3.as_deref(), blob_blake3), (Some(a), Some(b)) if a == b)
+    }
 }
 
 /// one `.m3u8` manifest already synced to a device. `sync_set_id` is one

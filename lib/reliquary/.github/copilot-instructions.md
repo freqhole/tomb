@@ -24,8 +24,8 @@ the tomb repo - see that repo's `docs/xl-refactor/PHASE_2_RELIQUARY_RUST.md` and
 - **never owns an http server**: range serving stays in the consuming app's own server;
   reliquary ships pieces/modules apps plug into their own server, not a bundled server
   instance.
-- **content addressing**: blake3 canonical everywhere; sha256 kept as a legacy secondary
-  index only.
+- **content addressing**: blake3 is the sole canonical content address everywhere. no other
+  hash (sha256 or otherwise) is part of the schema or api surface.
 - **tests travel with code**: every module carries its tests along.
 - **examples + testing utils are deliverables**: `examples/` (rust) and testing utilities
   (`reliquary::testing` behind a `test-utils` feature; `@freqhole/reliquary/testing` ts

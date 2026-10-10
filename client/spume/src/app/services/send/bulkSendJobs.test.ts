@@ -38,6 +38,7 @@ import {
   clearBulkSendJob,
   closeBulkSendModal,
   getBulkSendJob,
+  getLatestBulkSendJobId,
   openBulkSendModalFor,
   startBulkAlbumSend,
   startBulkVideoSend,
@@ -175,5 +176,40 @@ describe("clearBulkSendJob", () => {
     await waitDone(jobId);
     clearBulkSendJob(jobId);
     expect(getBulkSendJob(jobId)).toBeNull();
+  });
+});
+
+// regression: a finished job used to stay "latest" forever (until
+// explicitly dismissed via clearBulkSendJob), which made AlbumsView.tsx's
+// "reuse in-flight job" button logic - and BulkSendToRemoteModal's own
+// jobId prop, which ignores the items prop whenever jobId is set - get
+// permanently stuck reopening an old, already-finished job's summary
+// instead of ever starting a fresh send for a newly-made selection.
+describe("getLatestBulkSendJobId", () => {
+  it("returns the job id while still in flight, and null once it's done", async () => {
+    let resolveSend: (() => void) | undefined;
+    sendToRemote.mockImplementation(
+      () =>
+        new Promise<undefined>((resolve) => {
+          resolveSend = () => resolve(undefined);
+        })
+    );
+    getAlbumSongs.mockResolvedValue({ items: [song({})] });
+    const jobId = startBulkAlbumSend({ albumIds: ["album-1"], source, dest });
+    await vi.waitFor(() => expect(sendToRemote).toHaveBeenCalled());
+    expect(getLatestBulkSendJobId()()).toBe(jobId);
+    resolveSend!();
+    await waitDone(jobId);
+    expect(getLatestBulkSendJobId()()).toBeNull();
+  });
+
+  it("doesn't stay stuck on a finished job that was never explicitly dismissed", async () => {
+    getAlbumSongs.mockResolvedValue({ items: [song({})] });
+    const jobId = startBulkAlbumSend({ albumIds: ["album-1"], source, dest });
+    await waitDone(jobId);
+    expect(getLatestBulkSendJobId()()).toBeNull();
+    // the finished job record itself is still around (clearBulkSendJob
+    // wasn't called) - it's just no longer reported as "the active one".
+    expect(getBulkSendJob(jobId)).not.toBeNull();
   });
 });

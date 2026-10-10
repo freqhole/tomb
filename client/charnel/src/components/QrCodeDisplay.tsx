@@ -79,10 +79,7 @@ export function QrCodeDisplay(props: QrCodeDisplayProps) {
               placeholder="node id or url"
             />
           </div>
-          <Show
-            when={qrDataUrl()}
-            fallback={<div class="qr-loading">generating...</div>}
-          >
+          <Show when={qrDataUrl()} fallback={<div class="qr-loading">generating...</div>}>
             <img src={qrDataUrl()!} alt="QR Code" class="qr-image" />
           </Show>
         </div>

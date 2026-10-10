@@ -349,7 +349,7 @@ export async function getVideoOPFSUsage(): Promise<{
     // count video directory
     try {
       const videoDir = await root.getDirectoryHandle(VIDEO_DIR);
-      for await (const entry of (videoDir as any).values()) {
+      for await (const entry of videoDir.values()) {
         if (entry.kind === "file") {
           const file = await entry.getFile();
           videoSize += file.size;
@@ -363,7 +363,7 @@ export async function getVideoOPFSUsage(): Promise<{
     // count posters directory
     try {
       const postersDir = await root.getDirectoryHandle(POSTERS_DIR);
-      for await (const entry of (postersDir as any).values()) {
+      for await (const entry of postersDir.values()) {
         if (entry.kind === "file") {
           const file = await entry.getFile();
           postersSize += file.size;

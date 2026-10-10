@@ -92,7 +92,7 @@ export async function sendReviewedVideosToRemote(
       updateJobStatus(trackId, "uploading");
       updateJobEntities(trackId, { videoId, sessionId, isRemoteSend: true });
 
-      // blake3/sha256/size live on the media blob, not denormalized onto
+      // blake3/size live on the media blob, not denormalized onto
       // the video row - same lookup syncVideoToLocal.ts's fetchBlobMetadata
       // does for the pull direction.
       const client = await getClientForRemote(localRemote);
@@ -103,7 +103,6 @@ export async function sendReviewedVideosToRemote(
         video,
         blobId: video.media_blob_id,
         blake3: meta?.blake3 ?? null,
-        sha256: meta?.sha256 ?? null,
         size: meta?.size ?? null,
         mime: meta?.mime ?? null,
       };
@@ -181,7 +180,6 @@ export async function retryFailedVideoSend(
       video,
       blobId: video.media_blob_id,
       blake3: meta?.blake3 ?? null,
-      sha256: meta?.sha256 ?? null,
       size: meta?.size ?? null,
       mime: meta?.mime ?? null,
     };

@@ -4,8 +4,8 @@ export {
   isSongSyncedLocally,
   markSongSynced,
   unmarkSongSynced,
-  loadSyncedSha256s,
-  clearSyncedSha256s,
+  loadSyncedTrackingKeys,
+  clearSyncedTrackingKeys,
 
   // ephemeral-on-disk (libmpv backend + sync_queue_to_local=off)
   isSongOnDiskEphemeral,

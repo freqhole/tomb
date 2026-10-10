@@ -66,7 +66,7 @@ pub async fn import_video_file(
     let config = get_config();
 
     // dedupe: a video already exists for this media blob (the blob itself
-    // was already deduped by sha256 in the caller's create_media_blob step,
+    // was already deduped by blake3 in the caller's create_media_blob step,
     // so this catches "same file bytes imported before").
     if let Some(existing_video_id) = find_video_by_media_blob_id(media_blob_id).await? {
         info!(
@@ -901,11 +901,10 @@ async fn probe_video_properties(file_path: &Path, config: &GrimoireConfig) -> Vi
 
     info!("running ffprobe: {} {}", ffprobe_bin, args.join(" "));
 
-    let output = match tokio::process::Command::new(&ffprobe_bin)
-        .args(&args)
-        .output()
-        .await
-    {
+    let mut cmd = tokio::process::Command::new(&ffprobe_bin);
+    cmd.args(&args);
+    crate::process_ext::hide_console_window(&mut cmd);
+    let output = match cmd.output().await {
         Ok(o) => o,
         Err(e) => {
             warn!("failed to run ffprobe ({}): {}", ffprobe_bin, e);
@@ -1031,6 +1030,18 @@ async fn probe_video_properties(file_path: &Path, config: &GrimoireConfig) -> Vi
     }
 }
 
+/// true if `file_path` has at least one audio stream, per ffprobe -
+/// shared by this module's own import-time waveform step and
+/// `maintenance::repair_video_images`'s after-the-fact backfill, so a
+/// silent video is skipped consistently in both places instead of
+/// letting ffmpeg fail outright on a waveform extraction with nothing
+/// for `showwavespic`'s `[0:a]` to bind to.
+pub(crate) async fn video_has_audio_stream(file_path: &Path, config: &GrimoireConfig) -> bool {
+    probe_video_properties(file_path, config)
+        .await
+        .has_audio_stream
+}
+
 /// update a media blob row with video metadata (codec, container, bitrate, framerate, dimensions)
 async fn update_media_blob_with_video_metadata(
     media_blob_id: &str,
@@ -1075,7 +1086,7 @@ async fn update_media_blob_with_video_metadata(
 }
 
 /// extract a single poster frame and store it as a `Thumbnail` blob.
-async fn extract_video_poster(
+pub(crate) async fn extract_video_poster(
     _media_blob_id: &str,
     file_path: &Path,
     duration_seconds: Option<f64>,
@@ -1135,13 +1146,8 @@ async fn extract_video_poster(
 
     let webp_data = crate::blob_data::convert_to_webp(&jpeg_data)?;
     let blake3 = reliquary::hash_bytes(&webp_data);
-    use sha2::Digest;
-    let mut hasher = sha2::Sha256::new();
-    hasher.update(&webp_data);
-    let sha256 = format!("{:x}", hasher.finalize());
 
     let blob = create_media_blob(CreateMediaBlobRequest {
-        sha256,
         size: Some(webp_data.len() as i64),
         mime: Some("image/webp".to_string()),
         source_client_id: None,
@@ -1235,13 +1241,8 @@ async fn extract_subtitle_track(
     let _ = tokio::fs::remove_file(&temp_file).await;
 
     let blake3 = reliquary::hash_bytes(&srt_data);
-    use sha2::Digest;
-    let mut hasher = sha2::Sha256::new();
-    hasher.update(&srt_data);
-    let sha256 = format!("{:x}", hasher.finalize());
 
     let blob = create_media_blob(CreateMediaBlobRequest {
-        sha256,
         size: Some(srt_data.len() as i64),
         mime: Some("application/x-subrip".to_string()),
         source_client_id: None,

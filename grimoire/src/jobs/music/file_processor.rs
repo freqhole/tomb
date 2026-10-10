@@ -25,7 +25,7 @@ pub async fn process_file_job(job: &Job) -> Result<Option<Value>, JobError> {
 
     // timing tracking
     #[allow(unused_assignments)]
-    let mut time_sha256 = std::time::Duration::ZERO;
+    let mut time_hash = std::time::Duration::ZERO;
     #[allow(unused_assignments)]
     let mut time_metadata = std::time::Duration::ZERO;
     #[allow(unused_assignments)]
@@ -121,9 +121,9 @@ pub async fn process_file_job(job: &Job) -> Result<Option<Value>, JobError> {
                     partial_failures: Vec::new(),
                 };
                 info!(
-                    "file rescan-update complete: blob={} sha256_changed={} song_updated={} (total={:?})",
+                    "file rescan-update complete: blob={} blake3_changed={} song_updated={} (total={:?})",
                     result.media_blob_id,
-                    update.sha256_changed,
+                    update.blake3_changed,
                     update.song_updated,
                     job_start.elapsed(),
                 );
@@ -144,7 +144,7 @@ pub async fn process_file_job(job: &Job) -> Result<Option<Value>, JobError> {
         }
     }
 
-    // step 1: create media blob in database (includes SHA256 hashing)
+    // step 1: create media blob in database (includes blake3 hashing)
     let step_start = std::time::Instant::now();
     let media_blob_id = match blob_data::create_media_blob_from_file(
         &params.file_path,
@@ -176,7 +176,7 @@ pub async fn process_file_job(job: &Job) -> Result<Option<Value>, JobError> {
             });
         }
     };
-    time_sha256 = step_start.elapsed();
+    time_hash = step_start.elapsed();
     debug!("created media blob: {}", media_blob_id);
 
     // branch by effective media domain: video files skip the entire
@@ -370,11 +370,11 @@ pub async fn process_file_job(job: &Job) -> Result<Option<Value>, JobError> {
         let total_ms = job_total.as_millis() as f64;
 
         info!(
-            "file processing complete (duplicate skipped): blob={} | total={:.1}s | sha256={:.1}s ({:.0}%) | metadata={:.1}s ({:.0}%)",
+            "file processing complete (duplicate skipped): blob={} | total={:.1}s | hash={:.1}s ({:.0}%) | metadata={:.1}s ({:.0}%)",
             result.media_blob_id,
             total_ms / 1000.0,
-            time_sha256.as_millis() as f64 / 1000.0,
-            (time_sha256.as_millis() as f64 / total_ms) * 100.0,
+            time_hash.as_millis() as f64 / 1000.0,
+            (time_hash.as_millis() as f64 / total_ms) * 100.0,
             time_metadata.as_millis() as f64 / 1000.0,
             (time_metadata.as_millis() as f64 / total_ms) * 100.0,
         );
@@ -699,11 +699,11 @@ pub async fn process_file_job(job: &Job) -> Result<Option<Value>, JobError> {
     let total_ms = job_total.as_millis() as f64;
 
     info!(
-        "file processing complete: blob={} | total={:.1}s | sha256={:.1}s ({:.0}%) | metadata={:.1}s ({:.0}%) | images={:.1}s ({:.0}%) | waveform={:.1}s ({:.0}%) | db={:.1}s ({:.0}%)",
+        "file processing complete: blob={} | total={:.1}s | hash={:.1}s ({:.0}%) | metadata={:.1}s ({:.0}%) | images={:.1}s ({:.0}%) | waveform={:.1}s ({:.0}%) | db={:.1}s ({:.0}%)",
         result.media_blob_id,
         total_ms / 1000.0,
-        time_sha256.as_millis() as f64 / 1000.0,
-        (time_sha256.as_millis() as f64 / total_ms) * 100.0,
+        time_hash.as_millis() as f64 / 1000.0,
+        (time_hash.as_millis() as f64 / total_ms) * 100.0,
         time_metadata.as_millis() as f64 / 1000.0,
         (time_metadata.as_millis() as f64 / total_ms) * 100.0,
         time_images.as_millis() as f64 / 1000.0,

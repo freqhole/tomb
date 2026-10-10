@@ -34,7 +34,7 @@ pub struct DirectoryScanOutcome {
 
 /// outcome of the cheap (no-hash) "have I already imported this exact path"
 /// check - a plain `local_path` lookup plus an mtime/size comparison
-/// against what's recorded, with no sha256/blake3 computation at all.
+/// against what's recorded, with no blake3 computation at all.
 /// shared by the directory scanner (below) and `import_music_paths`'s
 /// individual-file branch, so both "add files" and "add folder" get the
 /// same cheap-skip behavior instead of only the directory scanner having
@@ -449,7 +449,7 @@ level = "warn"
         let size = meta.len() as i64;
 
         sqlx::query(
-            "INSERT INTO media_blobz (id, sha256, blob_type, local_path, metadata)
+            "INSERT INTO media_blobz (id, blake3, blob_type, local_path, metadata)
              VALUES ('blob0001', ?, 'original', ?, ?)",
         )
         .bind("a".repeat(64))

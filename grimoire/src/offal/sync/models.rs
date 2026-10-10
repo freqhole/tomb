@@ -17,8 +17,6 @@ use zod_gen_derive::ZodSchema;
 pub struct SyncSongByBlake3Request {
     /// blake3 hash of the audio file (used for P2P verified streaming)
     pub blake3: String,
-    /// sha256 hash of the audio file (used for dedupe + verification)
-    pub sha256: String,
     /// node_id of the peer that triggered this sync (injected by the
     /// transport handler, not sent by the client) - used only for the
     /// best-effort job-notify push once the background job finishes.
@@ -68,8 +66,8 @@ pub struct SyncSongByBlake3Request {
     #[serde(default)]
     pub genre_name: Option<String>,
     /// optional song images. each ref is either inline base64 (decoded +
-    /// deduped by sha256) or a pure reference (existing blob looked up by
-    /// sha256). missing referenced blobs are skipped, not fatal.
+    /// deduped by blake3) or a pure reference (existing blob looked up by
+    /// blake3). missing referenced blobs are skipped, not fatal.
     #[serde(default)]
     pub song_images: Vec<SyncImageRef>,
     /// optional album images. linked to the song's album row on import.
@@ -96,8 +94,6 @@ pub struct SyncSongByBlake3Response {
     pub artist_id: String,
     /// final on-disk path of the audio file
     pub file_path: String,
-    /// computed sha256 of the downloaded bytes
-    pub sha256: String,
     /// blake3 hash (echoed back from the request)
     pub blake3: String,
     /// true if the song row already existed before this call
@@ -298,11 +294,6 @@ pub struct SyncVideoByBlake3Request {
     /// best-effort job-notify push once the background job finishes.
     #[serde(default)]
     pub node_id: Option<String>,
-    /// sha256 of the video file, when the source knows it (verified after
-    /// download). videos carry no sha256 of their own client-side, so this
-    /// is optional - unlike the song route.
-    #[serde(default)]
-    pub sha256: Option<String>,
     /// declared file size in bytes
     #[serde(default)]
     pub size: Option<u64>,
@@ -320,7 +311,7 @@ pub struct SyncVideoByBlake3Request {
     pub title: String,
     #[serde(default)]
     pub description: Option<String>,
-    /// "series" | "movie" | "clip" - defaults per `CreateVideoRequest`
+    /// "series" | "movie" | "clip" | "karaoke" - defaults per `CreateVideoRequest`
     #[serde(default)]
     pub content_type: Option<String>,
     #[serde(default)]

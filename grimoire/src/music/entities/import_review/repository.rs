@@ -387,7 +387,7 @@ level = "warn"
         .expect("insert session");
 
         sqlx::query(
-            "INSERT INTO media_blobz (id, sha256, blob_type, created_by) VALUES ('blob0001', ?, 'original', 'user1')",
+            "INSERT INTO media_blobz (id, blake3, blob_type, created_by) VALUES ('blob0001', ?, 'original', 'user1')",
         )
         .bind("a".repeat(64))
         .execute(&pool)

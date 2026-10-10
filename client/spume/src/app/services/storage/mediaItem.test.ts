@@ -1,5 +1,5 @@
 // regression tests for `mediaItemKey`/`findMediaItemIndex` - the shared
-// queue-identity helpers that `appState().current_sha256`, the "currently
+// queue-identity helpers that `appState().current_item_key`, the "currently
 // playing" row highlight, and queue-position lookups all funnel through.
 //
 // the bug this guards against: a fresh local import leaves `Song.sha256`
@@ -96,7 +96,7 @@ describe("findMediaItemIndex (queue position lookup)", () => {
       songToMediaItem(song({ id: "song-c", sha256: "" })),
     ];
 
-    // "currently playing" is song-b - this is what appState().current_sha256
+    // "currently playing" is song-b - this is what appState().current_item_key
     // would hold (see htmlAudio.ts's setCurrentSong(songIdentityKey(song))).
     const currentKey = mediaItemKey(queue[1]);
     expect(findMediaItemIndex(queue, currentKey)).toBe(1);

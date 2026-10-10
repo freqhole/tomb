@@ -1,7 +1,5 @@
 //! shared image-payload resolution for every sync route.
 
-use sha2::{Digest, Sha256};
-
 use crate::error::GrimoireResult;
 use crate::media_blobz::{create_media_blob, BlobType, CreateMediaBlobRequest};
 
@@ -64,13 +62,6 @@ pub(super) async fn resolve_sync_image_ref(
         }
     };
 
-    // sha256 is still computed here purely because `create_media_blob`'s
-    // schema keys dedupe on it today - the actual identity/transport above
-    // is entirely blake3-based.
-    let mut hasher = Sha256::new();
-    hasher.update(&bytes);
-    let sha256 = format!("{:x}", hasher.finalize());
-
     let resolved_blob_type = match img.blob_type.as_deref() {
         Some("thumbnail") => BlobType::Thumbnail,
         Some("waveform") => BlobType::Waveform,
@@ -97,7 +88,6 @@ pub(super) async fn resolve_sync_image_ref(
     };
     let ext = crate::offal::upload::detect_extension(&img.mime_type, "");
     let blob = create_media_blob(CreateMediaBlobRequest {
-        sha256,
         size: Some(bytes.len() as i64),
         mime: Some(img.mime_type.clone()),
         source_client_id: None,

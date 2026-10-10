@@ -119,7 +119,7 @@ pub async fn build_atlas_response(req: BuildAtlasRequest) -> GrimoireResult<Atla
 
     // resolve parent_blob_id -> thumb_id for the requested size in one
     // query. json_each is the standard sqlite trick for variable-length
-    // IN-lists; matches the pattern in `find_present_sha256s`.
+    // IN-lists; matches the pattern in `find_present_blake3s`.
     let pool = database::connect().await?;
     let ids_json = serde_json::to_string(&req.ids).unwrap_or_else(|_| "[]".to_string());
     let width_i64 = size as i64;

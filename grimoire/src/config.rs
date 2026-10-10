@@ -241,6 +241,12 @@ pub struct MediaConfig {
     /// when nothing's bundled.
     #[serde(default)]
     pub ffprobe_path: Option<String>,
+    /// Path to the `mpv` binary, used by rathole's tty shell (shells out
+    /// to mpv rather than linking libmpv2 - see that module for why).
+    /// defaults to bare `"mpv"` via PATH; set explicitly to pin a
+    /// specific binary.
+    #[serde(default = "default_mpv_path")]
+    pub mpv_path: String,
     /// Args for extracting duration via ffprobe (placeholder: {input})
     /// output must be a single line with duration in seconds (float).
     #[serde(default = "default_ffprobe_duration_args")]
@@ -336,6 +342,10 @@ fn default_ffmpeg_path() -> String {
     // empty = "not explicitly configured" - resolved in `resolve_media_paths`
     // (bundled binary if available, else bare "ffmpeg" via PATH).
     String::new()
+}
+
+fn default_mpv_path() -> String {
+    "mpv".to_string()
 }
 
 /// yt-dlp precheck command template - shared by `generate_config_template`
@@ -1109,6 +1119,7 @@ pub fn init_config_for_tests() {
             supported_audio_formats: default_supported_audio_formats(),
             ffmpeg_path: default_ffmpeg_path(),
             ffprobe_path: None,
+            mpv_path: default_mpv_path(),
             ffprobe_duration_args: default_ffprobe_duration_args(),
             ffprobe_properties_args: default_ffprobe_properties_args(),
             extract_album_art_args: default_extract_album_art_args(),
@@ -1782,7 +1793,7 @@ fn set_nested_value(
 /// ensure server image is stored as a media blob and update config
 ///
 /// reads the image at server.image_path from the config, creates a media blob
-/// (or finds existing by sha256), and updates the config file with the blob_id.
+/// (or finds existing by blake3), and updates the config file with the blob_id.
 ///
 /// # arguments
 /// * `config_path` - path to the freqhole-config.toml
@@ -1793,7 +1804,6 @@ pub async fn ensure_server_image_blob(config_path: &Path) -> Result<String, Conf
     use crate::blob_data::generate_sized_thumbnails;
     use crate::media_blobz::{create_media_blob, BlobType, CreateMediaBlobRequest};
     use crate::Bytes;
-    use sha2::{Digest, Sha256};
 
     // load config to get image_path and data_dir
     let config = GrimoireConfig::load(config_path)?;
@@ -1819,10 +1829,8 @@ pub async fn ensure_server_image_blob(config_path: &Path) -> Result<String, Conf
         error: e.to_string(),
     })?;
 
-    // compute sha256
-    let mut hasher = Sha256::new();
-    hasher.update(&data);
-    let sha256 = format!("{:x}", hasher.finalize());
+    // compute blake3 - the real content identity
+    let blake3_hash = crate::blobz::compute_blake3_from_bytes(&data);
 
     // get mime type
     let mime = mime_guess::from_path(&full_path)
@@ -1836,9 +1844,8 @@ pub async fn ensure_server_image_blob(config_path: &Path) -> Result<String, Conf
         .unwrap_or("server-image")
         .to_string();
 
-    // create media blob (idempotent - returns existing if same sha256)
+    // create media blob (idempotent - returns existing if same blake3)
     let request = CreateMediaBlobRequest {
-        sha256: sha256.clone(),
         size: Some(data.len() as i64),
         mime: Some(mime),
         source_client_id: None,
@@ -1851,7 +1858,7 @@ pub async fn ensure_server_image_blob(config_path: &Path) -> Result<String, Conf
         data: Some(Bytes::from(data)),
         width: None,
         height: None,
-        blake3: None,
+        blake3: Some(blake3_hash),
         delete_duplicate_local_path: false,
     };
 
@@ -1884,6 +1891,94 @@ pub async fn ensure_server_image_blob(config_path: &Path) -> Result<String, Conf
 /// get the binary version (from Cargo.toml at compile time)
 pub fn get_binary_version() -> &'static str {
     env!("CARGO_PKG_VERSION")
+}
+
+/// how many timestamped config backups (`<stem>.toml.bak.*`) to keep -
+/// shared by both grimoire's own `freqhole-config.toml` and charnel's
+/// `charnel-config.toml` (see `upgrade_app_config` in
+/// `client/charnel/src-tauri/src/app_config.rs`), which both call
+/// `prune_config_backups` right after writing a fresh backup. an upgrade
+/// (and therefore a backup) happens at most once per version, but a dev
+/// workflow that keeps bumping/rolling back a pre-release version (see
+/// the version-compare doc comment on `is_newer`) can otherwise pile up
+/// backups indefinitely.
+pub const CONFIG_BACKUP_KEEP_COUNT: usize = 10;
+
+/// delete all but the `keep` most-recently-modified `<stem>.toml.bak.*`
+/// files sitting alongside `config_path` (its own directory, matched by
+/// filename prefix - works for any config file, not just
+/// `freqhole-config.toml`, since charnel's `charnel-config.toml` backups
+/// use the identical naming scheme). sorts by file mtime, not by parsing
+/// the timestamp suffix, since the two backup creators use different
+/// timestamp formats (grimoire: `YYYYMMDD_HHMMSS`, charnel: raw unix
+/// seconds) - mtime is the one thing both agree on. best-effort: a
+/// stat/delete failure on one file is logged and skipped, not fatal to
+/// the rest (this runs as a side effect of a successful upgrade, which
+/// must not be undone by a cleanup failure).
+pub fn prune_config_backups(config_path: &Path, keep: usize) -> usize {
+    let dir = match config_path.parent() {
+        Some(d) => d,
+        None => return 0,
+    };
+    let stem = match config_path.file_stem().and_then(|s| s.to_str()) {
+        Some(s) => s,
+        None => return 0,
+    };
+    let prefix = format!("{stem}.toml.bak.");
+
+    let entries = match std::fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(e) => {
+            tracing::warn!(
+                "prune_config_backups: failed to read {}: {}",
+                dir.display(),
+                e
+            );
+            return 0;
+        }
+    };
+
+    let mut backups: Vec<(PathBuf, std::time::SystemTime)> = Vec::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+            continue;
+        };
+        if !name.starts_with(&prefix) {
+            continue;
+        }
+        let modified = match entry.metadata().and_then(|m| m.modified()) {
+            Ok(m) => m,
+            Err(e) => {
+                tracing::warn!(
+                    "prune_config_backups: failed to stat {}: {}",
+                    path.display(),
+                    e
+                );
+                continue;
+            }
+        };
+        backups.push((path, modified));
+    }
+
+    if backups.len() <= keep {
+        return 0;
+    }
+
+    // newest first, so the tail (everything after `keep`) is what gets removed
+    backups.sort_by_key(|(_, modified)| std::cmp::Reverse(*modified));
+    let mut deleted = 0;
+    for (path, _) in backups.into_iter().skip(keep) {
+        match std::fs::remove_file(&path) {
+            Ok(()) => deleted += 1,
+            Err(e) => tracing::warn!(
+                "prune_config_backups: failed to delete {}: {}",
+                path.display(),
+                e
+            ),
+        }
+    }
+    deleted
 }
 
 /// result of a config upgrade operation
@@ -1972,6 +2067,10 @@ pub fn upgrade_config(config_path: &Path) -> Result<ConfigUpgradeResult, ConfigE
     // from before mac builds bundled their own - see its own doc comment.
     maybe_fallback_to_bundled_ffmpeg(&mut template_doc, &old_version);
 
+    // one-time fix for installs whose fetch_video.output_dir never got
+    // set by setup - see its own doc comment.
+    fix_missing_fetch_video_output_dir(&mut template_doc, &old_version);
+
     // always set server.version from binary (don't keep user's old version)
     if let Some(server) = template_doc.get_mut("server") {
         if let Some(server_table) = server.as_table_mut() {
@@ -1993,6 +2092,7 @@ pub fn upgrade_config(config_path: &Path) -> Result<ConfigUpgradeResult, ConfigE
     let backup_path = config_path.with_extension(format!("toml.bak.{}", timestamp));
     std::fs::copy(config_path, &backup_path)
         .map_err(|e| ConfigError::CreateFailed(format!("failed to create backup: {}", e)))?;
+    prune_config_backups(config_path, CONFIG_BACKUP_KEEP_COUNT);
 
     // write upgraded config
     std::fs::write(config_path, template_doc.to_string()).map_err(|e| {
@@ -2152,6 +2252,66 @@ fn fix_stale_video_transcode_args(doc: &mut DocumentMut, old_version: &str) {
             }
         }
         _ => {}
+    }
+}
+
+/// last version shipped before `fetch_video.output_dir` was reliably set
+/// alongside `fetch_music.output_dir` by setup - installs from this
+/// version or older can have `fetch_video.enabled = true` with an empty
+/// `output_dir` (the "enable fetching" setup step only ever wrote
+/// `fetch_music`'s directory back then). see `fix_missing_fetch_video_output_dir`.
+const LAST_VERSION_PREDATING_SHARED_FETCH_DIR: &str = "0.3.12";
+
+/// one-time migration: when upgrading from `LAST_VERSION_PREDATING_SHARED_FETCH_DIR`
+/// or older, and `server.fetch_video.enabled` is true but its `output_dir`
+/// is missing/blank, fill it in from `server.fetch_music.output_dir` (the
+/// two deliberately share one directory - see `SetupView.tsx`'s
+/// `fetchMusicDir` comment and `update_fetch_music_dir`'s doc comment).
+/// never touches an already-set `fetch_video.output_dir`, even one the
+/// user deliberately pointed elsewhere - "missing/blank" here specifically
+/// means "this key never got a real value in the first place", the exact
+/// state setup used to leave it in.
+fn fix_missing_fetch_video_output_dir(doc: &mut DocumentMut, old_version: &str) {
+    if parse_version_tuple(old_version)
+        > parse_version_tuple(LAST_VERSION_PREDATING_SHARED_FETCH_DIR)
+    {
+        return;
+    }
+    let fetch_video_enabled = doc
+        .get("server")
+        .and_then(|s| s.get("fetch_video"))
+        .and_then(|f| f.get("enabled"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    if !fetch_video_enabled {
+        return;
+    }
+    let fetch_video_output_dir = doc
+        .get("server")
+        .and_then(|s| s.get("fetch_video"))
+        .and_then(|f| f.get("output_dir"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    if !fetch_video_output_dir.trim().is_empty() {
+        return;
+    }
+    let fetch_music_output_dir = doc
+        .get("server")
+        .and_then(|s| s.get("fetch_music"))
+        .and_then(|f| f.get("output_dir"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    if fetch_music_output_dir.trim().is_empty() {
+        return;
+    }
+    if let Some(fetch_video) = doc
+        .get_mut("server")
+        .and_then(|s| s.as_table_mut())
+        .and_then(|t| t.get_mut("fetch_video"))
+        .and_then(|f| f.as_table_mut())
+    {
+        fetch_video["output_dir"] = value(fetch_music_output_dir);
     }
 }
 
@@ -2347,6 +2507,66 @@ mod tests {
     }
 
     #[test]
+    fn fetch_video_output_dir_filled_from_fetch_music_when_enabled_and_blank() {
+        let mut doc =
+            "[server.fetch_music]\noutput_dir = \"/data/fetch\"\n[server.fetch_video]\nenabled = true\noutput_dir = \"\"\n"
+                .parse::<DocumentMut>()
+                .unwrap();
+
+        fix_missing_fetch_video_output_dir(&mut doc, "0.3.12");
+
+        assert_eq!(
+            get_item_at_path(&doc, "server.fetch_video.output_dir").and_then(|v| v.as_str()),
+            Some("/data/fetch")
+        );
+    }
+
+    #[test]
+    fn fetch_video_output_dir_left_alone_once_past_the_gate_version() {
+        let mut doc =
+            "[server.fetch_music]\noutput_dir = \"/data/fetch\"\n[server.fetch_video]\nenabled = true\noutput_dir = \"\"\n"
+                .parse::<DocumentMut>()
+                .unwrap();
+
+        fix_missing_fetch_video_output_dir(&mut doc, "0.3.13");
+
+        assert_eq!(
+            get_item_at_path(&doc, "server.fetch_video.output_dir").and_then(|v| v.as_str()),
+            Some("")
+        );
+    }
+
+    #[test]
+    fn fetch_video_output_dir_never_overwritten_once_already_set() {
+        let mut doc =
+            "[server.fetch_music]\noutput_dir = \"/data/fetch\"\n[server.fetch_video]\nenabled = true\noutput_dir = \"/elsewhere/videos\"\n"
+                .parse::<DocumentMut>()
+                .unwrap();
+
+        fix_missing_fetch_video_output_dir(&mut doc, "0.3.12");
+
+        assert_eq!(
+            get_item_at_path(&doc, "server.fetch_video.output_dir").and_then(|v| v.as_str()),
+            Some("/elsewhere/videos")
+        );
+    }
+
+    #[test]
+    fn fetch_video_output_dir_untouched_when_fetch_video_disabled() {
+        let mut doc =
+            "[server.fetch_music]\noutput_dir = \"/data/fetch\"\n[server.fetch_video]\nenabled = false\noutput_dir = \"\"\n"
+                .parse::<DocumentMut>()
+                .unwrap();
+
+        fix_missing_fetch_video_output_dir(&mut doc, "0.3.12");
+
+        assert_eq!(
+            get_item_at_path(&doc, "server.fetch_video.output_dir").and_then(|v| v.as_str()),
+            Some("")
+        );
+    }
+
+    #[test]
     fn ffmpeg_fallback_noop_once_past_the_gate_version() {
         let mut doc =
             "[media]\nffmpeg_path = \"/broken/ffmpeg\"\nffprobe_path = \"/broken/ffprobe\"\n"
@@ -2405,6 +2625,7 @@ mod tests {
                 supported_audio_formats: vec!["mp3".to_string()],
                 ffmpeg_path: "ffmpeg".to_string(),
                 ffprobe_path: None,
+                mpv_path: default_mpv_path(),
                 ffprobe_duration_args: default_ffprobe_duration_args(),
                 ffprobe_properties_args: default_ffprobe_properties_args(),
                 extract_album_art_args: "--whatever".to_string(),
@@ -2458,6 +2679,7 @@ mod tests {
                 supported_audio_formats: vec![],
                 ffmpeg_path: "ffmpeg".to_string(),
                 ffprobe_path: None,
+                mpv_path: default_mpv_path(),
                 ffprobe_duration_args: default_ffprobe_duration_args(),
                 ffprobe_properties_args: default_ffprobe_properties_args(),
                 extract_album_art_args: "--whatever".to_string(),
@@ -2509,6 +2731,7 @@ mod tests {
                 supported_audio_formats: vec![],
                 ffmpeg_path: "ffmpeg".to_string(),
                 ffprobe_path: None,
+                mpv_path: default_mpv_path(),
                 ffprobe_duration_args: default_ffprobe_duration_args(),
                 ffprobe_properties_args: default_ffprobe_properties_args(),
                 extract_album_art_args: "--whatever".to_string(),
@@ -2542,6 +2765,62 @@ mod tests {
         };
 
         assert!(config.validate().is_err());
+    }
+
+    fn touch_backup(dir: &Path, stem: &str, suffix: &str, age_secs_ago: u64) -> PathBuf {
+        let path = dir.join(format!("{stem}.toml.bak.{suffix}"));
+        std::fs::write(&path, "test").unwrap();
+        let mtime = std::time::SystemTime::now() - std::time::Duration::from_secs(age_secs_ago);
+        let file = std::fs::File::open(&path).unwrap();
+        file.set_modified(mtime).unwrap();
+        path
+    }
+
+    #[test]
+    fn prune_config_backups_keeps_only_the_newest_n() {
+        let dir = tempfile::tempdir().unwrap();
+        let config_path = dir.path().join("freqhole-config.toml");
+        std::fs::write(&config_path, "test").unwrap();
+
+        // 5 backups, oldest to newest (descending age)
+        let backups: Vec<PathBuf> = (0..5)
+            .map(|i| touch_backup(dir.path(), "freqhole-config", &format!("v{i}"), 10 - i))
+            .collect();
+
+        let deleted = prune_config_backups(&config_path, 2);
+        assert_eq!(deleted, 3);
+
+        // the 2 newest (last two in the vec, smallest age) survive
+        assert!(!backups[0].exists());
+        assert!(!backups[1].exists());
+        assert!(!backups[2].exists());
+        assert!(backups[3].exists());
+        assert!(backups[4].exists());
+    }
+
+    #[test]
+    fn prune_config_backups_no_op_when_at_or_under_the_limit() {
+        let dir = tempfile::tempdir().unwrap();
+        let config_path = dir.path().join("freqhole-config.toml");
+        std::fs::write(&config_path, "test").unwrap();
+        touch_backup(dir.path(), "freqhole-config", "a", 1);
+        touch_backup(dir.path(), "freqhole-config", "b", 2);
+
+        assert_eq!(prune_config_backups(&config_path, 10), 0);
+    }
+
+    #[test]
+    fn prune_config_backups_ignores_unrelated_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let config_path = dir.path().join("charnel-config.toml");
+        std::fs::write(&config_path, "test").unwrap();
+        // a different config's backups in the same directory must be untouched
+        let other = touch_backup(dir.path(), "freqhole-config", "a", 1);
+        touch_backup(dir.path(), "charnel-config", "a", 1);
+        touch_backup(dir.path(), "charnel-config", "b", 2);
+
+        assert_eq!(prune_config_backups(&config_path, 1), 1);
+        assert!(other.exists(), "unrelated config's backup must survive");
     }
 }
 

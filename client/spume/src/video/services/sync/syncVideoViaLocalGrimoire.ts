@@ -85,7 +85,6 @@ export async function syncVideoViaLocalGrimoire(
       metadataRemote: remote,
       sourceTransport,
       blake3,
-      sha256: null,
       size,
       // no reliable extension yet (bytes aren't fetched client-side here) -
       // leave the stem alone so grimoire sniffs the real mime after download

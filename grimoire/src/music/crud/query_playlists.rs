@@ -176,7 +176,6 @@ pub struct PlaylistSongViewRow {
     song_id: String,
     song_media_blob_id: String,
     // media blob fields for P2P verified streaming
-    media_blob_sha256: Option<String>,
     media_blob_blake3: Option<String>,
     media_blob_mime: Option<String>,
     // size in bytes (used by clients to render accurate download progress)
@@ -402,10 +401,9 @@ impl PlaylistSongViewRow {
             (None, None, None, None)
         };
 
-        // construct media_blob from view fields (for P2P verified streaming)
-        let media_blob = self.media_blob_sha256.map(|sha256| MediaBlob {
+        // construct media_blob from view fields (for P2P verified streaming).
+        let media_blob = self.media_blob_blake3.is_some().then(|| MediaBlob {
             id: media_blob_id.clone(),
-            sha256,
             size: self.media_blob_size,
             mime: self.media_blob_mime,
             source_client_id: None,

@@ -6,7 +6,7 @@
 import { createMemo, For, Show } from "solid-js";
 import type { AlbumNodeData, RelationKindLike } from "./types";
 import { AlbumNodeView } from "./AlbumNodeView";
-import { Icon, IconNames } from "../icons/registry";
+import { Icon, IconNames, type IconName } from "../icons/registry";
 import { MarqueeText } from "../text/MarqueeText";
 import { FavoriteHeart } from "../ratings/FavoriteHeart";
 import { RemoteSplitButton, type ContributingRemote } from "./RemoteSplitButton";
@@ -452,7 +452,7 @@ export function AlbumDetailPopover(props: AlbumDetailPopoverProps) {
 }
 
 export function ActionButton(props: {
-  icon: string;
+  icon: IconName;
   label: string;
   onClick: () => void;
   accent?: boolean;
@@ -472,7 +472,7 @@ export function ActionButton(props: {
         props.onClick();
       }}
     >
-      <Icon name={props.icon as any} size={12} />
+      <Icon name={props.icon} size={12} />
       <span>{props.label}</span>
     </button>
   );

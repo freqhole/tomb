@@ -27,6 +27,8 @@ mod migrate_to_haruspex;
 mod migrate_to_reliquary;
 mod music;
 #[cfg(feature = "libmpv-playback")]
+mod player_smoke_test;
+#[cfg(feature = "libmpv-playback")]
 mod radio;
 mod rathole_remote;
 mod sync;
@@ -45,6 +47,8 @@ pub use federation::FederationAction;
 pub use jobs::JobAction;
 pub use maintenance::MaintenanceAction;
 pub use music::MusicAction;
+#[cfg(feature = "libmpv-playback")]
+pub use player_smoke_test::run as handle_player_smoke_test;
 #[cfg(feature = "libmpv-playback")]
 pub use radio::RadioAction;
 pub use rathole_remote::RatholeRemoteAction;

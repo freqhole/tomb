@@ -159,11 +159,11 @@ async fn run_inner(
     let (action_tx, mut action_rx) = mpsc::unbounded_channel::<AppAction>();
     let mut app = App::new(state, transport, commands);
     // best-effort: same degrade-to-read-only-browse pattern as the mpv
-    // video player just below - a libmpv init failure (e.g. missing
-    // system libmpv) shouldn't crash the whole shell.
-    match super::player::LibmpvPlayer::spawn(action_tx.clone()) {
+    // video player just below - a missing/unspawnable mpv binary
+    // shouldn't crash the whole shell.
+    match super::player::MpvPlayer::spawn(action_tx.clone()).await {
         Ok(player) => app = app.with_player(player),
-        Err(e) => tracing::warn!("rathole: libmpv audio player unavailable: {e}"),
+        Err(e) => tracing::warn!("rathole: mpv audio player unavailable: {e}"),
     }
     // best-effort: mpv may not be installed (e.g. a dev machine that
     // hasn't set it up yet). video playback / still-image display

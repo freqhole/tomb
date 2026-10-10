@@ -143,38 +143,80 @@ pub async fn check_for_update_now() -> GrimoireResult<UpdateStatus> {
     })
 }
 
-/// parse a semver-ish string into numeric components, ignoring a leading `v`
-/// and any pre-release/build suffix after the first `-` or `+`.
-fn parse_version(v: &str) -> Vec<u64> {
-    v.trim()
-        .trim_start_matches('v')
-        .split(['-', '+'])
-        .next()
-        .unwrap_or("")
-        .split('.')
-        .map(|part| {
-            part.chars()
-                .take_while(|c| c.is_ascii_digit())
-                .collect::<String>()
-                .parse::<u64>()
-                .unwrap_or(0)
-        })
-        .collect()
+/// parse a semver-ish string into (numeric core components, pre-release
+/// build number). the pre-release marker can be the standard semver
+/// `-`/`+` suffix (`0.3.13-rc1`) OR a plain dot-separated dev convention
+/// (`0.3.13.pre0`, used for local pre-release builds that iterate on
+/// upgrade migrations before the real version ships) - either form is
+/// recognized by "a dot/hyphen-separated piece that doesn't start with a
+/// digit", with its own trailing digit run (default 0) becoming the
+/// pre-release number. `None` means a final release (no pre-release
+/// marker at all). see `is_newer`'s doc comment for why the distinction
+/// matters.
+fn parse_version(v: &str) -> (Vec<u64>, Option<u64>) {
+    let v = v.trim().trim_start_matches('v');
+    let mut core = Vec::new();
+    let mut pre: Option<u64> = None;
+    'outer: for raw_part in v.split('.') {
+        // a part may itself carry the standard semver `-`/`+` marker
+        // (e.g. "13-rc1") even though the outer split is on `.` (for the
+        // ".pre0" dev convention).
+        for (i, piece) in raw_part.split(['-', '+']).enumerate() {
+            if piece.is_empty() {
+                continue;
+            }
+            let starts_with_digit = piece.chars().next().is_some_and(|c| c.is_ascii_digit());
+            if i == 0 && starts_with_digit {
+                let n: u64 = piece
+                    .chars()
+                    .take_while(|c| c.is_ascii_digit())
+                    .collect::<String>()
+                    .parse()
+                    .unwrap_or(0);
+                core.push(n);
+                continue;
+            }
+            // a non-numeric-leading piece (or anything after a `-`/`+`
+            // split within this part) is the pre-release marker - every
+            // remaining part of the version string belongs to it, not
+            // to `core`.
+            let digits: String = piece.chars().filter(|c| c.is_ascii_digit()).collect();
+            pre = Some(digits.parse().unwrap_or(0));
+            break 'outer;
+        }
+    }
+    (core, pre)
 }
 
 /// true when `latest` is a strictly newer version than `current`.
+///
+/// a pre-release build (however it's spelled - see `parse_version`)
+/// always ranks BELOW the final release of the same core version, so
+/// downloading the real `0.3.13` after running on a local `0.3.13.pre0`/
+/// `0.3.13-rc1` build still re-triggers that version's upgrade
+/// migrations rather than treating them as already-applied. among two
+/// pre-releases of the same core version, a higher pre-release number
+/// wins, so repeatedly bumping `.pre0` -> `.pre1` -> ... during local
+/// migration development keeps re-triggering them too, without a
+/// pre-release ever appearing to have "caught up to" the eventual real
+/// release.
 pub(crate) fn is_newer(latest: &str, current: &str) -> bool {
-    let l = parse_version(latest);
-    let c = parse_version(current);
-    let len = l.len().max(c.len());
+    let (l_core, l_pre) = parse_version(latest);
+    let (c_core, c_pre) = parse_version(current);
+    let len = l_core.len().max(c_core.len());
     for i in 0..len {
-        let lv = l.get(i).copied().unwrap_or(0);
-        let cv = c.get(i).copied().unwrap_or(0);
+        let lv = l_core.get(i).copied().unwrap_or(0);
+        let cv = c_core.get(i).copied().unwrap_or(0);
         if lv != cv {
             return lv > cv;
         }
     }
-    false
+    match (l_pre, c_pre) {
+        (None, None) => false,
+        (None, Some(_)) => true,
+        (Some(_), None) => false,
+        (Some(lp), Some(cp)) => lp > cp,
+    }
 }
 
 #[cfg(test)]
@@ -200,5 +242,33 @@ mod tests {
     fn handles_prerelease_suffix() {
         assert!(!is_newer("0.1.28-rc1", "0.1.28"));
         assert!(is_newer("0.1.29-rc1", "0.1.28"));
+    }
+
+    #[test]
+    fn dev_dot_prerelease_bumps_are_newer_than_the_previous_bump() {
+        // dev workflow: `.pre0` -> `.pre1` -> ... while iterating on
+        // upgrade migrations locally, before the real version ships.
+        assert!(is_newer("0.3.13.pre1", "0.3.13.pre0"));
+        assert!(!is_newer("0.3.13.pre0", "0.3.13.pre1"));
+        assert!(!is_newer("0.3.13.pre0", "0.3.13.pre0"));
+    }
+
+    #[test]
+    fn final_release_outranks_any_prerelease_of_the_same_core_version() {
+        // downloading the real 0.3.13 build after running a local
+        // 0.3.13.pre0/0.3.13-rc1 build must still re-trigger that
+        // version's upgrade migrations.
+        assert!(is_newer("0.3.13", "0.3.13.pre0"));
+        assert!(is_newer("0.3.13", "0.3.13-rc1"));
+        // and a prerelease build must never look like it's already past
+        // (ahead of) a real shipped release of the same core version.
+        assert!(!is_newer("0.3.13.pre0", "0.3.13"));
+        assert!(!is_newer("0.3.13-rc1", "0.3.13"));
+    }
+
+    #[test]
+    fn prerelease_tag_never_overrides_a_real_core_version_difference() {
+        assert!(is_newer("0.3.14.pre0", "0.3.13"));
+        assert!(!is_newer("0.3.12.pre9", "0.3.13"));
     }
 }

@@ -100,7 +100,8 @@ pub fn smoke_test_ffmpeg(ffmpeg_path: &std::path::Path, ffprobe_path: &std::path
         std::process::id()
     ));
 
-    let encode_ok = std::process::Command::new(ffmpeg_path)
+    let mut encode_cmd = std::process::Command::new(ffmpeg_path);
+    encode_cmd
         .args([
             "-f",
             "lavfi",
@@ -110,18 +111,24 @@ pub fn smoke_test_ffmpeg(ffmpeg_path: &std::path::Path, ffprobe_path: &std::path
             "libx264",
             "-y",
         ])
-        .arg(&out)
+        .arg(&out);
+    crate::process_ext::hide_console_window_std(&mut encode_cmd);
+    let encode_ok = encode_cmd
         .output()
         .map(|o| o.status.success() && out.is_file())
         .unwrap_or(false);
 
-    let probe_ok = encode_ok
-        && std::process::Command::new(ffprobe_path)
+    let probe_ok = encode_ok && {
+        let mut probe_cmd = std::process::Command::new(ffprobe_path);
+        probe_cmd
             .args(["-v", "error", "-show_entries", "stream=codec_name"])
-            .arg(&out)
+            .arg(&out);
+        crate::process_ext::hide_console_window_std(&mut probe_cmd);
+        probe_cmd
             .output()
             .map(|o| o.status.success())
-            .unwrap_or(false);
+            .unwrap_or(false)
+    };
 
     let _ = std::fs::remove_file(&out);
     probe_ok

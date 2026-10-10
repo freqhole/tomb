@@ -49,6 +49,10 @@ function feedTypeInfo(type: FeedItemType): { color: string; icon: IconName } {
       return { color: entityColors.album, icon: "album" };
     case "recent_video":
       return { color: entityColors.video, icon: "video" };
+    case "recent_video_favorite":
+      return { color: entityColors.favorite, icon: "favorite" };
+    case "recent_video_watch":
+      return { color: entityColors.video, icon: "play" };
     case "recent_rating":
       return { color: entityColors.rating, icon: "star" };
     case "recent_playlist":
@@ -67,6 +71,7 @@ function entityLabel(item: FeedItem): string {
   if (item.playlist_id) return "a playlist";
   if (item.album_id && !item.song_id) return "an album";
   if (item.artist_id && !item.song_id && !item.album_id) return "an artist";
+  if (item.video_id) return "a video";
   if (item.song_id) return "a song";
   if (item.target_type === "artist") return "an artist";
   if (item.target_type === "album") return "an album";
@@ -396,6 +401,10 @@ function FeedRow(props: {
     switch (item.feed_type) {
       case "recent_favorite":
         return { user, verb: "\u2665", entity: entity || "a song" };
+      case "recent_video_favorite":
+        return { user, verb: "\u2665", entity: entity || "a video" };
+      case "recent_video_watch":
+        return { user, verb: "watched", entity: entity || "a video" };
       case "recent_listen":
         return { user, verb: "played", entity: entity || "a song" };
       case "recent_album": {

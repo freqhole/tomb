@@ -129,8 +129,23 @@ export function getBulkSendJob(id: string): BulkSendJobState | null {
   const q = getTransferQueue(id);
   return q && (q.kind === "albums" || q.kind === "videos") ? toBulkSendJobState(q) : null;
 }
+/** the latest job id, but only while it's still actually in flight - once
+ *  it's done, callers must treat this as "no active job" (start a fresh
+ *  send for whatever's newly selected) rather than reopening a finished
+ *  job's summary forever. fixes a real bug: a job that finished without
+ *  the user explicitly dismissing it (closing the modal doesn't dismiss -
+ *  only `clearBulkSendJob` does) used to permanently block every later
+ *  "send to remote" click from picking up a new selection, since the
+ *  stale (but non-null) job id took precedence in both
+ *  `AlbumsView.tsx`'s reuse-vs-fresh check and `BulkSendToRemoteModal`'s
+ *  own `jobId` prop (which ignores the items prop whenever `jobId` is
+ *  set, regardless of whether that job is still running). */
 export function getLatestBulkSendJobId(): () => string | null {
-  return latestJobId;
+  return () => {
+    const id = latestJobId();
+    if (!id) return null;
+    return getBulkSendJob(id)?.done === false ? id : null;
+  };
 }
 export function openBulkSendModalFor(jobId: string): void {
   setOpenModalJobId(jobId);

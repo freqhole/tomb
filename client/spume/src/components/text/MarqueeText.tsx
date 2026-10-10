@@ -1,7 +1,15 @@
 // marquee text - scrolls long text on hover
 // supports both internal hover tracking and external isHovering prop for virtualized lists
 
-import { Accessor, createEffect, createMemo, createSignal, JSX, onMount } from "solid-js";
+import {
+  Accessor,
+  createEffect,
+  createMemo,
+  createSignal,
+  JSX,
+  onCleanup,
+  onMount,
+} from "solid-js";
 
 interface MarqueeTextProps {
   /** text content to display. omit when using `children` for non-text
@@ -108,16 +116,82 @@ export function MarqueeText(props: MarqueeTextProps): JSX.Element {
     return true; // always animate if hoverOnly is false
   });
 
-  // compute animation style reactively
-  const animationStyle = createMemo(() => {
-    if (!shouldAnimate()) return "none";
-    return `marquee-scroll ${duration()}s ease-in-out infinite`;
-  });
-
   // compute hover class reactively
   const hoverClassName = createMemo(() => {
     return props.hoverClass && isHovering() ? props.hoverClass : "";
   });
+
+  // drives animation/transform/transition imperatively (not via a
+  // declarative style={{}} binding) so "freeze the current mid-scroll
+  // position, then transition back to start" can't race against some
+  // other reactive consumer of the same signals clearing the animation
+  // first - solid doesn't guarantee ordering between two independent
+  // reactions to the same signal, and that race was exactly why the
+  // previous version still snapped: by the time the freeze read
+  // `getComputedStyle`, the animation had often already been removed by
+  // the JSX render reacting to the same hover-ended change, so there was
+  // nothing mid-flight left to capture.
+  const RETURN_DURATION_MS = 300;
+  let returnRaf: number | undefined;
+  let returnTimer: ReturnType<typeof setTimeout> | undefined;
+  function clearReturnTimers() {
+    if (returnRaf !== undefined) {
+      cancelAnimationFrame(returnRaf);
+      returnRaf = undefined;
+    }
+    if (returnTimer !== undefined) {
+      clearTimeout(returnTimer);
+      returnTimer = undefined;
+    }
+  }
+
+  createEffect(() => {
+    const animate = shouldAnimate();
+    const dur = duration();
+    if (!textRef) return;
+    clearReturnTimers();
+
+    if (animate) {
+      textRef.style.transition = "";
+      textRef.style.transform = "";
+      textRef.style.animation = `marquee-scroll ${dur}s ease-in-out infinite`;
+      return;
+    }
+
+    const wasPlaying = textRef.style.animation !== "" && textRef.style.animation !== "none";
+    if (!wasPlaying) {
+      textRef.style.animation = "none";
+      textRef.style.transform = "";
+      textRef.style.transition = "";
+      return;
+    }
+
+    // capture the mid-flight position before touching anything else.
+    const computed = getComputedStyle(textRef).transform;
+    textRef.style.animation = "none";
+    textRef.style.transition = "";
+    textRef.style.transform = computed && computed !== "none" ? computed : "translateX(0)";
+
+    // double rAF: the first guarantees the frozen transform above has
+    // actually been painted before we change it again - a single rAF
+    // can still land in the same style-recalc pass on some browsers,
+    // which drops the transition instead of animating it.
+    returnRaf = requestAnimationFrame(() => {
+      returnRaf = requestAnimationFrame(() => {
+        returnRaf = undefined;
+        if (!textRef) return;
+        textRef.style.transition = `transform ${RETURN_DURATION_MS}ms ease-out`;
+        textRef.style.transform = "translateX(0)";
+        returnTimer = setTimeout(() => {
+          returnTimer = undefined;
+          if (!textRef) return;
+          textRef.style.transition = "";
+          textRef.style.transform = "";
+        }, RETURN_DURATION_MS);
+      });
+    });
+  });
+  onCleanup(clearReturnTimers);
 
   return (
     <div
@@ -132,7 +206,6 @@ export function MarqueeText(props: MarqueeTextProps): JSX.Element {
         class={`block whitespace-nowrap ${props.padClass || ""} ${hoverClassName()}`}
         style={{
           "--marquee-offset": `${offset()}px`,
-          animation: animationStyle(),
         }}
       >
         {props.children ?? props.text}

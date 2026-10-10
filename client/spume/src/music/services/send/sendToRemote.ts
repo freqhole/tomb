@@ -688,7 +688,6 @@ export async function sendToRemote(
         metadataRemote: source,
         sourceTransport,
         blake3,
-        sha256: null,
         size: null,
         filename: video.title || video.id,
         sourceNodeId,

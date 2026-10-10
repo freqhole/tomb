@@ -85,7 +85,7 @@ import {
   isPlaying,
   listOutputDevices,
   pause,
-  pendingUpNextSha256,
+  pendingUpNextItemKey,
   playMediaItem,
   playNext,
   playPrevious,
@@ -135,7 +135,7 @@ import {
 } from "./services/remotes/remoteManager";
 import { seedOnlineMap, wakeAllRemotes } from "./services/remotes/remoteHealth";
 import type { ImageMetadata, Song } from "../music/services/storage/types";
-import { songIdentityKey } from "../music/services/storage/types";
+import { songIdentityKey, syncTrackingKey } from "../music/services/storage/types";
 import {
   mediaItemKey,
   songsOnly,
@@ -612,9 +612,9 @@ export function AppLayout(props: AppLayoutProps) {
       loadingSet.add(sha256);
     }
     // add current song if audio is loading (includes P2P fetch wait)
-    const currentSha256 = appState()?.current_sha256;
-    if (debouncedCurrentIsLoading() && currentSha256) {
-      loadingSet.add(currentSha256);
+    const currentItemKey = appState()?.current_item_key;
+    if (debouncedCurrentIsLoading() && currentItemKey) {
+      loadingSet.add(currentItemKey);
     }
     return loadingSet;
   });
@@ -626,21 +626,21 @@ export function AppLayout(props: AppLayoutProps) {
   // that one only flips true once decoding starts, well *after* the blob
   // fetch this progress reflects has already finished for some backends,
   // e.g. htmlAudio.ts's synthetic "loading" state is emitted post-fetch).
-  // prefers `pendingUpNextSha256` (despite the name, holds a `mediaItemKey`
-  // — song sha256 OR video id — for whichever item is actively being
-  // fetched, set before appState().current_sha256 flips over — see
-  // htmlAudio.ts and videoBackend.ts) so progress shows for the *incoming*
-  // item, not a stale current one. drives the playerbar's play/pause ring
-  // as a determinate fill instead of a plain indeterminate spin.
+  // prefers `pendingUpNextItemKey` (a `mediaItemKey` — song sha256 OR
+  // video id — for whichever item is actively being fetched, set before
+  // appState().current_item_key flips over — see htmlAudio.ts and
+  // videoBackend.ts) so progress shows for the *incoming* item, not a
+  // stale current one. drives the playerbar's play/pause ring as a
+  // determinate fill instead of a plain indeterminate spin.
   const mediaTransferProgress = createMemo<number | null>(() => {
     const videoId = currentVideoData()?.id;
     if (videoId && getLoadingIds().has(videoId)) {
       const p = getLoadingProgress(videoId);
       return typeof p === "number" ? p : null;
     }
-    const sha256 = pendingUpNextSha256() ?? appState()?.current_sha256;
-    if (sha256 && getLoadingIds().has(sha256)) {
-      const p = getLoadingProgress(sha256);
+    const currentItemKey = pendingUpNextItemKey() ?? appState()?.current_item_key;
+    if (currentItemKey && getLoadingIds().has(currentItemKey)) {
+      const p = getLoadingProgress(currentItemKey);
       return typeof p === "number" ? p : null;
     }
     return null;
@@ -994,8 +994,8 @@ export function AppLayout(props: AppLayoutProps) {
   // watch for current song/video changes and load the corresponding data
   createEffect(() => {
     const state = appState();
-    if (state?.current_sha256) {
-      const sha256 = state.current_sha256;
+    if (state?.current_item_key) {
+      const sha256 = state.current_item_key;
       // first check if the item is in queue (avoids fetching from wrong remote)
       const itemInQueue = state.queue.find((i) => mediaItemKey(i) === sha256);
       if (itemInQueue?.kind === "video") {
@@ -1021,18 +1021,19 @@ export function AppLayout(props: AppLayoutProps) {
             (artist_images) => {
               // guard against staleness: the user may have moved on to a
               // different song by the time this download finishes.
-              if (!artist_images || appState()?.current_sha256 !== sha256) return;
+              if (!artist_images || appState()?.current_item_key !== sha256) return;
               setCurrentSongData((prev) => (prev ? { ...prev, artist_images } : prev));
             }
           );
         }
       } else if (state.queue.length > 0) {
-        // sha256 is set but not yet in the queue. this is a brief transitional
-        // window while the queue is being rebuilt for a new track (setQueue
-        // fires first, then playSong sets current_sha256). holding the previous
-        // song data keeps the player bar showing something instead of flashing
-        // "no song playing". the next appState tick (when current_sha256 lands
-        // and the song IS in the queue) will update it correctly.
+        // the identity key is set but not yet in the queue. this is a brief
+        // transitional window while the queue is being rebuilt for a new
+        // track (setQueue fires first, then playSong sets current_item_key).
+        // holding the previous song data keeps the player bar showing
+        // something instead of flashing "no song playing". the next appState
+        // tick (when current_item_key lands and the song IS in the queue)
+        // will update it correctly.
         // intentionally not calling setCurrentSongData(null) here.
       } else {
         // queue is empty - try fetching the song directly (page-reload case
@@ -1041,7 +1042,7 @@ export function AppLayout(props: AppLayoutProps) {
         const dataSource = getDataSource();
         void dataSource.getSongById(sha256).then((song) => {
           // guard against stale response: only apply if sha256 is still current
-          if (appState()?.current_sha256 !== sha256) return;
+          if (appState()?.current_item_key !== sha256) return;
           if (song) {
             setCurrentSongData(song);
           } else {
@@ -1058,15 +1059,15 @@ export function AppLayout(props: AppLayoutProps) {
   // update auto-download queue when queue or current song changes. the
   // song-rolling-window index is computed against the song-only subset of
   // the queue; updateAutoDownloadQueue separately handles videos internally
-  // (keyed off the unified current_sha256/mediaItemKey), so this effect
+  // (keyed off the unified current_item_key/mediaItemKey), so this effect
   // must still fire for a video-only queue with no songs in it at all.
   createEffect(() => {
     const state = appState();
     if (!state) return;
 
     const queueSongs = songsOnly(state.queue);
-    const currentIndex = state.current_sha256
-      ? queueSongs.findIndex((s) => songIdentityKey(s) === state.current_sha256)
+    const currentIndex = state.current_item_key
+      ? queueSongs.findIndex((s) => songIdentityKey(s) === state.current_item_key)
       : 0;
 
     // this effect will re-run when queue or current index changes
@@ -1651,10 +1652,10 @@ export function AppLayout(props: AppLayoutProps) {
             isOpen={queueOpen()}
             variant={isNarrow() ? "overlay" : "inline"}
             items={appState()?.queue ?? []}
-            currentIndex={findMediaItemIndex(appState()?.queue ?? [], appState()?.current_sha256)}
+            currentIndex={findMediaItemIndex(appState()?.queue ?? [], appState()?.current_item_key)}
             upNextIndex={
-              pendingUpNextSha256()
-                ? findMediaItemIndex(appState()?.queue ?? [], pendingUpNextSha256())
+              pendingUpNextItemKey()
+                ? findMediaItemIndex(appState()?.queue ?? [], pendingUpNextItemKey())
                 : undefined
             }
             currentTime={currentTime()}
@@ -1705,7 +1706,7 @@ export function AppLayout(props: AppLayoutProps) {
               }
 
               const song = item.song;
-              const isSynced = isSongSyncedLocally(song.sha256);
+              const isSynced = isSongSyncedLocally(syncTrackingKey(song));
               return useSongContextMenu(song, {
                 showPlayActions: false,
                 isFavorite: song.is_favorite || false,
@@ -1948,7 +1949,7 @@ export function AppLayout(props: AppLayoutProps) {
               // song playing" during the brief window between appState loading
               // from IDB and the createEffect updating currentSongData.
               const state = appState();
-              const sha256 = state?.current_sha256;
+              const sha256 = state?.current_item_key;
               if (!sha256) return undefined;
               const queueItem = state?.queue.find((i) => mediaItemKey(i) === sha256);
               if (!queueItem) return undefined;
@@ -2293,7 +2294,7 @@ export function AppLayout(props: AppLayoutProps) {
                   isPlaying={barIsPlaying()}
                   isLoading={debouncedBarIsLoading()}
                   mediaTransferProgress={mediaTransferProgress()}
-                  hasUpNext={isRadio() ? false : !!pendingUpNextSha256()}
+                  hasUpNext={isRadio() ? false : !!pendingUpNextItemKey()}
                   currentTime={barCurrentTime()}
                   duration={barDuration()}
                   volume={isRemoteTargetActive() ? remoteVolume() : volume()}

@@ -2,11 +2,14 @@
 import { createInfiniteQuery, createMutation, useQueryClient } from "@tanstack/solid-query";
 import type { Accessor } from "solid-js";
 import { updateSongInQueue } from "../../app/services/storage/db";
+import { isCharnelMode } from "../../app/services/charnel";
 import { toast } from "../../components/feedback/Toast";
 import { debug, error as logError } from "../../utils/logger";
 import { queryClient } from "../../queryClient";
 import { getDataSource } from "../data";
+import { localDataSource } from "../data/local/localSource";
 import { RemoteMusicDataSource } from "../data/remote/remoteSource";
+import { findExistingSongByContentHash } from "../services/storage/db/songs";
 import type { Remote } from "../../app/services/storage/schemas/remote";
 import type { FavoriteTarget, ListFavoritesParams } from "../data/types";
 import type { Song } from "../services/storage/types";
@@ -73,6 +76,33 @@ export function useFavoritesInfiniteQuery(options?: UseFavoritesInfiniteQueryOpt
   }));
 }
 
+/** best-effort: find a local copy of a remote song by content hash and
+ *  mirror its favorite status. browser mode only - charnel mode's "local
+ *  library" is itself reached through a `RemoteMusicDataSource` (the
+ *  tauri-managed remote), and matching a song there needs its `blake3`
+ *  (the only content-hash query filter grimoire exposes,
+ *  `media_blob_blake3`), which isn't threaded through this mutation's
+ *  params today - skipped rather than guessed at. never throws: a
+ *  failure here must not fail the primary (already-succeeded) remote
+ *  favorite mutation. */
+export async function mirrorFavoriteToLocalSong(
+  sha256: string,
+  isFavorite: boolean
+): Promise<void> {
+  if (isCharnelMode()) return;
+  try {
+    const localSong = await findExistingSongByContentHash({ sha256 });
+    if (!localSong) return;
+    await localDataSource.setFavorite({
+      targetType: "song",
+      targetId: localSong.id,
+      isFavorite,
+    });
+  } catch (err) {
+    logError("favorites", "failed to mirror favorite to local library copy:", err);
+  }
+}
+
 // mutation hook for toggling favorite status
 export function useToggleFavoriteMutation() {
   const queryClient = useQueryClient();
@@ -102,6 +132,19 @@ export function useToggleFavoriteMutation() {
         targetId: params.targetId,
         isFavorite: params.isFavorite,
       });
+
+      // a song favorited while browsing a remote (explicit `params.remote`,
+      // or the globally-active source already being a remote) should also
+      // be reflected on the local copy, if one exists - otherwise the same
+      // song can show as favorited on one remote and not-favorited locally,
+      // with no indication they're the same content.
+      if (
+        params.targetType === "song" &&
+        params.sha256 &&
+        dataSource instanceof RemoteMusicDataSource
+      ) {
+        await mirrorFavoriteToLocalSong(params.sha256, params.isFavorite);
+      }
 
       return params.isFavorite;
     },

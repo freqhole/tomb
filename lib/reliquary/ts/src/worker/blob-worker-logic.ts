@@ -1,6 +1,6 @@
-// blob worker logic - the CPU-bound blob work (blake3 hashing, sha256
-// hashing, base64 encode/decode, OPFS writes, thumbnail generation, chunked
-// upload sessions) that `blob-worker.ts` exposes over comlink.
+// blob worker logic - the CPU-bound blob work (blake3 hashing, base64
+// encode/decode, OPFS writes, thumbnail generation, chunked upload
+// sessions) that `blob-worker.ts` exposes over comlink.
 //
 // kept free of comlink/postMessage side effects on purpose: this module is
 // what the test suite imports directly, and what `blob-worker.ts` (the
@@ -13,7 +13,6 @@
 // throw a clear error, matching the graceful-degradation contract of the
 // rest of this file.
 
-import { sha256Hex } from "../utils/hash.js";
 import { loadMiddenBlake3, type Blake3HasherLike } from "./midden-blake3.js";
 import { log } from "../utils/log.js";
 
@@ -49,15 +48,6 @@ export async function hashBlake3(data: Uint8Array): Promise<string> {
     log.warn(TAG, "blake3 hashing threw, degrading to empty string:", err);
     return "";
   }
-}
-
-/**
- * compute sha256 hash via SubtleCrypto. SubtleCrypto.digest is already
- * async/non-blocking on the main thread, but this is exposed here too so
- * callers can do sha256 + blake3 in a single round-trip.
- */
-export async function hashSha256(data: ArrayBuffer): Promise<string> {
-  return sha256Hex(data);
 }
 
 /**
@@ -172,7 +162,6 @@ export async function readBlobFromOpfs(blobId: string): Promise<ArrayBuffer | nu
 
 export interface ProcessedBlob {
   blob_id: string; // blake3 hex - the canonical content-address for the blob db
-  sha256: string; // legacy hash, kept so old records/doc references still resolve
   blake3: string;
   size: number;
   mime: string;
@@ -180,27 +169,19 @@ export interface ProcessedBlob {
 }
 
 /**
- * one-shot: hash bytes (sha256 + blake3), write to OPFS, return metadata.
- * lets callers avoid three round-trips across the worker boundary for an
- * upload. `data` should be transferred.
- *
- * blake3 is the canonical blob id (matches iroh-blobs / a native rust
- * store); sha256 is still computed so legacy sha256-keyed records and old
- * doc references keep resolving via the sha256 index.
+ * one-shot: hash bytes (blake3), write to OPFS, return metadata. lets
+ * callers avoid round-trips across the worker boundary for an upload.
+ * `data` should be transferred.
  */
 export async function processBlobBytes(
   data: ArrayBuffer,
   filename: string,
   mime: string,
 ): Promise<ProcessedBlob> {
-  // run sha256 and blake3 concurrently. SubtleCrypto.digest does its own
-  // copy of the bytes, so we can't transfer-and-reuse - do them in parallel
-  // and let the runtime overlap them.
-  const [sha256, blake3] = await Promise.all([hashSha256(data), hashBlake3(new Uint8Array(data))]);
+  const blake3 = await hashBlake3(new Uint8Array(data));
   await writeBlobToOpfs(blake3, data);
   return {
     blob_id: blake3,
-    sha256,
     blake3,
     size: data.byteLength,
     mime,

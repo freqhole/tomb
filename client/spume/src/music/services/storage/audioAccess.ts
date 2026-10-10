@@ -1,24 +1,21 @@
 // audio access abstraction - handles getting audio urls from various sources
 //
-// KNOWN REMAINING GAP (sha256->blake3 deprecation): this file's own
-// `activeBlobURLs`/`directURLSongs`/`directURLSet` are keyed by
-// `songTrackingKey(song)` (blake3 || sha256 || id) everywhere in THIS
-// file. but `appState().current_sha256` - written by htmlAudio.ts/
-// libmpvBackend.ts and read by mediaSessionBridge.ts, playbackOrchestrator.ts,
+// this file's own `activeBlobURLs`/`directURLSongs`/`directURLSet` are
+// keyed by `songIdentityKey(song)` (sha256 || id) - the SAME key
+// `appState().current_item_key` uses (written by htmlAudio.ts/
+// libmpvBackend.ts, read by mediaSessionBridge.ts, playbackOrchestrator.ts,
 // player.ts, queue/*, mediaItemKey, and the "currently playing" row
-// highlight in VirtualSongList/PlaylistSongRow/AlbumDetailView/ArtistsView -
-// deliberately uses the DIFFERENT `songIdentityKey(song)` (sha256 || id,
-// see types.ts's doc comment for why: `mediaItemKey` must stay a stable
-// LOCAL identity, kept distinct from content-hash identity per
-// remotePlaybackControl.ts's queue-reconciliation tests). for a local song
-// whose `sha256` is `""` but has a real `blake3`, `this.currentSongId`
-// ends up holding the `id`-based key while this file's maps are keyed by
-// the blake3-based one - `cleanupAudioURL(this.currentSongId)` then finds
-// nothing to clean up. a blob-URL memory leak for such songs, NOT the
-// wrong-song-plays-audio corruption this file's own fix prevents (that
-// class is closed - see `songTrackingKey` below) - real, but bounded, and
-// left as a follow-up (reconciling the two key schemes needs its own pass,
-// not a mechanical find/replace) rather than pulled into this one.
+// highlight in VirtualSongList/PlaylistSongRow/AlbumDetailView/ArtistsView).
+// this file used to maintain a SEPARATE, blake3-preferring
+// `songTrackingKey(song)` for these maps - which diverged from
+// `current_item_key` for a local song with a real `blake3` but no
+// `sha256` (`current_item_key` fell back to `id`, this file's maps used
+// `blake3`), causing `cleanupAudioURL(this.currentSongId)` to find
+// nothing to clean up (a blob-URL leak). fixed by dropping the separate
+// key entirely and using `songIdentityKey` throughout this file too - one
+// key scheme, no possible divergence, matching the existing "never
+// collide on the sha256:"" sentinel" guarantee `songIdentityKey` already
+// provides (its own `id` fallback).
 import { createSignal } from "solid-js";
 import { getCachedBlob, preCacheBlob } from "../cache/blobCache";
 import { withLoadingProgress, isSongSyncedLocally, markSongSynced } from "../download";
@@ -28,79 +25,48 @@ import { canSyncSong, syncSongToLocal } from "../sync/syncSongToLocal";
 import { getSyncQueueToLocal } from "../../../app/services/storage/db";
 import { isCharnelMode } from "../../../app/services/charnel";
 import { resolveCharnelLocalBlobPath } from "../../../app/services/media/resolveCharnelLocalBlobPath";
-import { songIdentityKey, type Song } from "./types";
+import { songIdentityKey, syncTrackingKey, type Song } from "./types";
 import { debug, warn, error as errorLog } from "../../../utils/logger";
 import { resolveBlobUrl, isP2PRemote, usesBlobResolver, revokeBlobUrl } from "./blobResolver";
 import type { BlobProgressCallback } from "@freqhole/api-client";
 
 // cache of active blob urls to prevent memory leaks
 // stores {url, remoteId, blobId} so we can properly cleanup from blobResolver too
-// keyed by songTrackingKey(song) - see that function below.
+// keyed by songIdentityKey(song) - see the file header comment.
 const activeBlobURLs = new Map<
   string,
   { url: string; remoteId: string | null; blobId: string | null }
 >();
 
 // track songs currently playing from a direct (non-cached) remote URL
-// keyed by songTrackingKey(song) (see below) -> { sourceUrl, remoteId } so
+// keyed by songIdentityKey(song) -> { sourceUrl, remoteId } so
 // we can swap to cached version later
 const directURLSongs = new Map<string, { sourceUrl: string; remoteId: string }>();
 
-// reactive signal tracking which sha256s are playing from direct URL
+// reactive signal tracking which songs (by songIdentityKey) are playing from a direct URL
 const [directURLSet, setDirectURLSet] = createSignal<Set<string>>(new Set());
 
-function addToDirectURLSet(sha256: string): void {
+function addToDirectURLSet(key: string): void {
   setDirectURLSet((prev) => {
     const next = new Set(prev);
-    next.add(sha256);
+    next.add(key);
     return next;
   });
 }
 
-function removeFromDirectURLSet(sha256: string): void {
+function removeFromDirectURLSet(key: string): void {
   setDirectURLSet((prev) => {
-    if (!prev.has(sha256)) return prev;
+    if (!prev.has(key)) return prev;
     const next = new Set(prev);
-    next.delete(sha256);
+    next.delete(key);
     return next;
   });
-}
-
-/**
- * the tracking key this whole file uses for the in-memory `activeBlobURLs`/
- * `directURLSongs`/`directURLSet` maps and the loading-set/sync-state
- * functions from `../download` - prefers `blake3` (real content identity
- * going forward, see fileProcessor.ts's `processMusicFile` doc comment),
- * falls back to `sha256` (still real for a synced/remote song, or an
- * older local song imported before this change), and finally `id` (never
- * empty - `createSong`'s own generated UUID) so this can never return a
- * value two DIFFERENT songs could share.
- *
- * why this matters here specifically: a freshly-imported local song now
- * leaves `sha256` as `""` (see docs/blob-transfer-opfs-and-sha256-refactor-plan.md
- * phase 7) - keying these maps on raw `song.sha256` directly would make
- * every such song collide on the same `""` key, so e.g. song B's blob URL
- * would silently overwrite song A's in `activeBlobURLs`, or cleaning up
- * song A would incorrectly revoke song B's URL instead. these maps are
- * ephemeral (in-memory, per session) so switching their key never needs
- * to match anything persisted elsewhere - it only needs to be internally
- * consistent and never collide across two different songs.
- *
- * deliberately NOT used for the HTTP remote-cache branch below
- * (`getCachedBlob`/`preCacheBlob`, and the `blobId: song.sha256` reuse
- * next to them) - those key into `blobCache.ts`'s own Cache-API-backed
- * store, a separate persisted keying scheme this function doesn't touch.
- * an HTTP-sourced remote song always has a real `sha256` from its origin
- * server anyway (this file's local-import change never affects it).
- */
-export function songTrackingKey(song: Pick<Song, "blake3" | "sha256" | "id">): string {
-  return song.blake3 || song.sha256 || song.id;
 }
 
 // get audio url for playback
 // handles opfs, cached remote, and direct remote streaming
 export async function getAudioURL(song: Song): Promise<string> {
-  const key = songTrackingKey(song);
+  const key = songIdentityKey(song);
   debug("audioAccess", `getting audio url for song: ${song.title} (source: ${song.source_type})`);
 
   // cleanup previous url if exists
@@ -157,11 +123,11 @@ export async function getAudioURL(song: Song): Promise<string> {
       const localUrl = await resolveLocalAudioUrl(key, charnelLocalPath);
       if (localUrl) {
         debug("audioAccess", `playing synced copy from the local library`);
-        markSongSynced(key);
+        markSongSynced(syncTrackingKey(song));
         activeBlobURLs.set(key, { url: localUrl, remoteId: null, blobId: null });
         return localUrl;
       }
-    } else if (!isCharnelMode() && isSongSyncedLocally(key)) {
+    } else if (!isCharnelMode() && isSongSyncedLocally(syncTrackingKey(song))) {
       // browser mode: OPFS-backed, isSongSyncedLocally is the real check.
       const localUrl = await resolveLocalAudioUrl(key);
       if (localUrl) {
@@ -175,17 +141,7 @@ export async function getAudioURL(song: Song): Promise<string> {
     // download once, write to the library, then play from there. falls through
     // to streaming if the sync fails so playback never hard-fails on it.
     if (getSyncQueueToLocal() && canSyncSong(song)) {
-      // progress must be keyed by `songIdentityKey` (sha256 || id), NOT
-      // `key` (`songTrackingKey`, blake3-preferring) - every consumer
-      // (AppLayout.tsx's mediaTransferProgress, QueueSongRow.tsx's row
-      // fill) checks progress by the identity key. a typical song has
-      // BOTH sha256 and blake3 set, so `key` resolves to blake3 while
-      // consumers look up sha256 - a silent key mismatch that made the
-      // CURRENT/about-to-play song's own download never show progress,
-      // even though a queue-ahead prefetch (keyed correctly elsewhere)
-      // did.
-      const progressKey = songIdentityKey(song);
-      const syncedUrl = await withLoadingProgress(progressKey, async (onProgress) => {
+      const syncedUrl = await withLoadingProgress(key, async (onProgress) => {
         onProgress(null);
         const result = await syncSongToLocal(song, (received, total) => {
           if (total > 0) onProgress(received / total);
@@ -212,10 +168,7 @@ export async function getAudioURL(song: Song): Promise<string> {
       debug("audioAccess", `using blobResolver for remote song: ${key}`);
       const remoteServerId = song.remote_server_id;
 
-      // see the sync-to-local block above for why this is `songIdentityKey`,
-      // not `key`.
-      const progressKey = songIdentityKey(song);
-      return await withLoadingProgress(progressKey, async (onProgress) => {
+      return await withLoadingProgress(key, async (onProgress) => {
         onProgress(null); // indeterminate until we get total size
         try {
           // use blobResolver which handles P2P/Tauri transports and caching
@@ -229,7 +182,7 @@ export async function getAudioURL(song: Song): Promise<string> {
           //   - blobId  = song.media_blob_id, the *remote's*
           //     `media_blobz.id` short pk. only valid input to
           //     `/api/blobs/{id}/*` routes on that remote.
-          //   - key (songTrackingKey(song)) is this file's own tracking
+          //   - key (songIdentityKey(song)) is this file's own tracking
           //     identity; used for loading-set / activeBlobURLs keys,
           //     never as a route param.
           // if media_blob_id is missing, bail rather than send the tracking
@@ -314,9 +267,9 @@ export async function getAudioURL(song: Song): Promise<string> {
 }
 
 // check if a song is playing from a direct (non-cached) URL. `key` must
-// be `songTrackingKey(song)` (see that function's doc comment) - this
-// maps into `directURLSongs`, which `getAudioURL`/`refreshBlobURL` above
-// populate using that same key, not raw `song.sha256`.
+// be `songIdentityKey(song)` - this maps into `directURLSongs`, which
+// `getAudioURL`/`refreshBlobURL` above populate using that same key, not
+// raw `song.sha256`.
 export function isPlayingDirectURL(key: string): boolean {
   return directURLSongs.has(key);
 }
@@ -327,39 +280,43 @@ export function isPlayingDirectURLReactive(key: string | undefined): boolean {
   return directURLSet().has(key);
 }
 
-// attempt to swap a direct-URL song to its cached version
+// attempt to swap a direct-URL song to its cached version. `key` must be
+// `songIdentityKey(song)` (see isPlayingDirectURL) - only ever reachable
+// for HTTP-remote songs (per getAudioURL/refreshBlobURL, the only paths
+// that populate `directURLSongs`), which always have a real, non-empty
+// `sha256` from their origin server - so `key` and the song's real
+// `sha256` are the same value here, and doubling as the blobCache.ts
+// lookup key below is correct, not a shortcut.
 // returns the new blob URL if swap is possible, null otherwise
-export async function trySwapToCachedURL(sha256: string): Promise<string | null> {
-  const entry = directURLSongs.get(sha256);
+export async function trySwapToCachedURL(key: string): Promise<string | null> {
+  const entry = directURLSongs.get(key);
   if (!entry) return null; // not playing from direct URL
 
-  const cached = await getCachedBlob(entry.remoteId, sha256);
+  const cached = await getCachedBlob(entry.remoteId, key);
   if (!cached) return null; // not yet cached
 
   const blob = await cached.blob();
   const url = URL.createObjectURL(blob);
 
   // cleanup old blob URL if any
-  if (activeBlobURLs.has(sha256)) {
-    const oldEntry = activeBlobURLs.get(sha256)!;
+  if (activeBlobURLs.has(key)) {
+    const oldEntry = activeBlobURLs.get(key)!;
     URL.revokeObjectURL(oldEntry.url);
     if (oldEntry.remoteId && oldEntry.blobId) {
       revokeBlobUrl(oldEntry.blobId, oldEntry.remoteId);
     }
   }
-  // for HTTP cache swap, blobId is sha256
-  activeBlobURLs.set(sha256, { url, remoteId: entry.remoteId, blobId: sha256 });
-  directURLSongs.delete(sha256);
-  removeFromDirectURLSet(sha256);
+  // for HTTP cache swap, blobId is the song's real sha256 (== key here)
+  activeBlobURLs.set(key, { url, remoteId: entry.remoteId, blobId: key });
+  directURLSongs.delete(key);
+  removeFromDirectURLSet(key);
 
-  debug("audioAccess", `prepared cached URL swap for song: ${sha256}`);
+  debug("audioAccess", `prepared cached URL swap for song: ${key}`);
   return url;
 }
 
-// cleanup audio url for a song. `key` must be `songTrackingKey(song)` -
-// see that function's doc comment (activeBlobURLs is keyed by it, not
-// raw `song.sha256`, as of docs/blob-transfer-opfs-and-sha256-refactor-plan.md
-// phase 7).
+// cleanup audio url for a song. `key` must be `songIdentityKey(song)` -
+// activeBlobURLs is keyed by it, not raw `song.sha256`.
 export function cleanupAudioURL(key: string): void {
   if (activeBlobURLs.has(key)) {
     const entry = activeBlobURLs.get(key)!;
@@ -389,7 +346,7 @@ export function cleanupAllAudioURLs(): void {
 // re-create a blob URL from underlying storage (OPFS or API Cache)
 // used when iOS revokes blob URLs after PWA suspension
 export async function refreshBlobURL(song: Song): Promise<string | null> {
-  const key = songTrackingKey(song);
+  const key = songIdentityKey(song);
   debug("audioAccess", `refreshing blob URL for song: ${song.title} (source: ${song.source_type})`);
 
   // cleanup old blob URL if exists
@@ -429,8 +386,8 @@ export async function refreshBlobURL(song: Song): Promise<string | null> {
     if (song.remote_server_id && (await isP2PRemote(song.remote_server_id))) {
       try {
         // `media_blob_id` is the *remote's* media_blobz.id pk - the
-        // only id `/api/blobs/{id}/*` accepts. the tracking key (blake3/
-        // sha256/id, see songTrackingKey) is NOT a valid route param; if
+        // only id `/api/blobs/{id}/*` accepts. the tracking key (sha256/
+        // id, see songIdentityKey) is NOT a valid route param; if
         // media_blob_id is somehow missing, bail rather than fabricate a
         // doomed call.
         const blobId = song.media_blob_id;

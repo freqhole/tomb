@@ -62,12 +62,29 @@ vi.mock("../../../music/services/download", () => ({
 vi.mock("../../../app/services/storage/db", () => ({
   getSyncQueueToLocal: vi.fn(() => true),
 }));
-vi.mock("../syncState", () => ({ markVideoSynced: vi.fn() }));
+const markVideoSynced = vi.fn((...args: unknown[]) => void args);
+vi.mock("../syncState", () => ({ markVideoSynced: (...a: unknown[]) => markVideoSynced(...a) }));
 vi.mock("../../queries/cacheUpdates", () => ({ invalidateVideoLibraryQueries: vi.fn() }));
+
+const addLocalVideo = vi.fn(async (input: { id: string }) => ({ id: input.id }));
+const getLocalVideoById = vi.fn(async (...args: unknown[]) => {
+  void args;
+  return null;
+});
+const getVideoByBlake3 = vi.fn(
+  async (
+    ...args: unknown[]
+  ): Promise<{ id: string; series_id: string | null; season_id: string | null } | undefined> => {
+    void args;
+    return undefined;
+  }
+);
+const updateLocalVideo = vi.fn((...args: unknown[]) => void args);
 vi.mock("../storage/db/videos", () => ({
-  addLocalVideo: vi.fn(),
-  getLocalVideoById: vi.fn(async () => null),
-  updateLocalVideo: vi.fn(),
+  addLocalVideo: (...a: [{ id: string }]) => addLocalVideo(...a),
+  getLocalVideoById: (...a: unknown[]) => getLocalVideoById(...a),
+  getVideoByBlake3: (...a: unknown[]) => getVideoByBlake3(...a),
+  updateLocalVideo: (...a: unknown[]) => updateLocalVideo(...a),
 }));
 vi.mock("../storage/db/series", () => ({
   getOrCreateLocalVideoSeries: vi.fn(),
@@ -80,10 +97,20 @@ vi.mock("../storage/db/seasons", () => ({
 vi.mock("../../../music/services/sync/syncSongToLocal", () => ({
   downloadAndStoreImages: vi.fn(),
 }));
+
+const streamVideoToOPFSWithResume = vi.fn(async (...args: unknown[]) => {
+  void args;
+  return { opfsPath: "opfs://video.mp4", size: 100 };
+});
+const deleteVideoFromOPFS = vi.fn((...args: unknown[]) => void args);
 vi.mock("../opfs/helpers", () => ({
   writeVideoPosterToOPFS: vi.fn(),
   writeVideoToOPFS: vi.fn(),
-  streamVideoToOPFSWithResume: vi.fn(),
+  streamVideoToOPFSWithResume: (...a: unknown[]) => streamVideoToOPFSWithResume(...a),
+  deleteVideoFromOPFS: (...a: unknown[]) => deleteVideoFromOPFS(...a),
+}));
+vi.mock("../../../music/services/storage/blobResolver", () => ({
+  usesBlobResolver: vi.fn(async () => false),
 }));
 
 import { syncVideoToLocal } from "./syncVideoToLocal";
@@ -244,5 +271,75 @@ describe("syncVideoToLocal (charnel mode)", () => {
     expect(firstBlobId).toBe(RENDITION_BLOB_ID);
     expect(secondBlobId).toBe(v.media_blob_id);
     expect(secondBlake3).toBe("original-blake3");
+  });
+});
+
+// regression coverage for the dedup fix: two different remotes' copies of
+// "the same" video (different `video.id`, same content) must collapse
+// onto one local row, matching music's getSongByBlake3-based dedup role -
+// see dedupByBlake3 in syncVideoToLocal.ts.
+describe("syncVideoToLocal (browser mode, content-based dedup)", () => {
+  const httpRemote = {
+    remote_id: "remote-1",
+    base_url: "https://example.test",
+    peer_addr: null,
+  } as unknown as Remote;
+
+  beforeEach(() => {
+    isCharnelMode.mockReturnValue(false);
+    getRemoteById.mockResolvedValue(httpRemote);
+  });
+
+  it("dedups before downloading when the video's blake3 is already known", async () => {
+    getVideoByBlake3.mockResolvedValueOnce({
+      id: "existing-row",
+      series_id: null,
+      season_id: null,
+    });
+    const v = video({ blake3: "known-hash" } as Partial<QueuedVideo>);
+
+    const result = await syncVideoToLocal(v, httpRemote);
+
+    expect(result.success).toBe(true);
+    expect(streamVideoToOPFSWithResume).not.toHaveBeenCalled();
+    expect(addLocalVideo).not.toHaveBeenCalled();
+    expect(markVideoSynced).toHaveBeenCalledWith(v.id);
+  });
+
+  it("dedups on a blake3 only discovered via metadata AFTER downloading, discarding the duplicate bytes", async () => {
+    getClientForRemote.mockResolvedValue({
+      music: {
+        blobMetadata: vi.fn(async () => ({ success: true, data: { blake3: "late-hash" } })),
+      },
+    });
+    getVideoByBlake3.mockResolvedValueOnce({
+      id: "existing-row-2",
+      series_id: null,
+      season_id: null,
+    });
+    const v = video(); // no blake3 known upfront - early check can't fire
+
+    const result = await syncVideoToLocal(v, httpRemote);
+
+    expect(result.success).toBe(true);
+    expect(streamVideoToOPFSWithResume).toHaveBeenCalledTimes(1);
+    expect(deleteVideoFromOPFS).toHaveBeenCalledWith("opfs://video.mp4");
+    expect(addLocalVideo).not.toHaveBeenCalled();
+    expect(markVideoSynced).toHaveBeenCalledWith(v.id);
+  });
+
+  it("syncs normally (creates a new local row) when no existing video matches by blake3", async () => {
+    getClientForRemote.mockResolvedValue({
+      music: {
+        blobMetadata: vi.fn(async () => ({ success: true, data: { blake3: "fresh-hash" } })),
+      },
+    });
+    const v = video();
+
+    const result = await syncVideoToLocal(v, httpRemote);
+
+    expect(result.success).toBe(true);
+    expect(addLocalVideo).toHaveBeenCalledTimes(1);
+    expect(deleteVideoFromOPFS).not.toHaveBeenCalled();
   });
 });

@@ -43,12 +43,7 @@ const LOCAL_TARGET: AdminTargetInfo = {
 };
 
 /** connection lifecycle status for the active target. */
-export type AdminTargetStatus =
-  | "idle"
-  | "connecting"
-  | "online"
-  | "offline"
-  | "unauthorized";
+export type AdminTargetStatus = "idle" | "connecting" | "online" | "offline" | "unauthorized";
 
 interface AdminTransportContextValue {
   /** currently selected target info */
@@ -63,10 +58,7 @@ interface AdminTransportContextValue {
   /** human-readable error from the last failed connection probe, if any. */
   statusError: Accessor<string | null>;
   /** dispatch a command against the current target */
-  dispatch<T = unknown>(
-    command: string,
-    args?: unknown,
-  ): Promise<AdminResponse<T>>;
+  dispatch<T = unknown>(command: string, args?: unknown): Promise<AdminResponse<T>>;
   /** dispatch + unwrap data, throwing on failure */
   dispatchOrThrow<T = unknown>(command: string, args?: unknown): Promise<T>;
 }
@@ -147,18 +139,14 @@ export function AdminTransportProvider(props: { children: JSX.Element }) {
   };
 
   return (
-    <AdminTransportContext.Provider value={value}>
-      {props.children}
-    </AdminTransportContext.Provider>
+    <AdminTransportContext.Provider value={value}>{props.children}</AdminTransportContext.Provider>
   );
 }
 
 export function useAdminTransport(): AdminTransportContextValue {
   const ctx = useContext(AdminTransportContext);
   if (!ctx) {
-    throw new Error(
-      "useAdminTransport called outside <AdminTransportProvider>",
-    );
+    throw new Error("useAdminTransport called outside <AdminTransportProvider>");
   }
   return ctx;
 }

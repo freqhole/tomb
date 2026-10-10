@@ -10,8 +10,8 @@ pub struct ImageUploadResponse {
     pub blob_id: String,
     /// ID of the processing job (for polling status)
     pub job_id: String,
-    /// SHA256 hash of the uploaded file
-    pub sha256: String,
+    /// blake3 content hash - the real content identity
+    pub blake3: String,
     /// File size in bytes
     pub size: i64,
     /// MIME type of the file
@@ -31,8 +31,8 @@ pub struct MusicUploadResponse {
     pub blob_id: String,
     /// ID of the processing job (for polling status)
     pub job_id: String,
-    /// SHA256 hash of the uploaded file
-    pub sha256: String,
+    /// blake3 content hash - the real content identity
+    pub blake3: String,
     /// File size in bytes
     pub size: i64,
     /// MIME type of the file
@@ -94,8 +94,8 @@ pub struct VideoUploadResponse {
     pub blob_id: String,
     /// ID of the processing job (for polling status)
     pub job_id: String,
-    /// SHA256 hash of the uploaded file
-    pub sha256: String,
+    /// blake3 content hash - the real content identity
+    pub blake3: String,
     /// File size in bytes
     pub size: i64,
     /// MIME type of the file

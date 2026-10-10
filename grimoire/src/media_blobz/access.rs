@@ -53,7 +53,7 @@ fn local_file_missing_response(blob_id: &str, path: &str) -> GrimoireResponse<Js
 ///
 /// `id` is a `media_blobz.id` short pk (7-16 hex chars, generated
 /// per-instance by `lower(hex(randomblob(8)))`). it is NOT a
-/// sha256 or blake3 content hash. callers that only have a blake3
+/// blake3 content hash. callers that only have a blake3
 /// should use `build_blob_path_response_by_blake3` instead.
 pub async fn build_blob_path_response(id: &str) -> GrimoireResponse<JsonValue> {
     match get_media_blob(id).await {
@@ -265,11 +265,10 @@ level = "warn"
     async fn insert_media_blob(id: &str, blake3: &str, local_path: Option<&str>) {
         let pool = crate::database::connect().await.expect("connect");
         sqlx::query(
-            "INSERT INTO media_blobz (id, sha256, size, mime, blob_type, blake3, local_path)
-             VALUES (?, ?, 0, 'audio/mpeg', 'original', ?, ?)",
+            "INSERT INTO media_blobz (id, size, mime, blob_type, blake3, local_path)
+             VALUES (?, 0, 'audio/mpeg', 'original', ?, ?)",
         )
         .bind(id)
-        .bind("a".repeat(64))
         .bind(blake3)
         .bind(local_path)
         .execute(&pool)

@@ -63,7 +63,7 @@ import {
   currentTime as realCurrentTime,
   duration as realDuration,
   isPlaying as realIsPlaying,
-  pendingUpNextSha256 as realPendingUpNextKey,
+  pendingUpNextItemKey as realPendingUpNextKey,
 } from "../../music/services/audio/playerState";
 import { isUpNextRow } from "./upNextRow";
 import {
@@ -386,8 +386,8 @@ export function CenotaphPlayerApp() {
       return pendingAsQueueRest.slice(1);
     }
 
-    const idx = state.current_sha256
-      ? state.queue.findIndex((i) => mediaItemKey(i) === state.current_sha256)
+    const idx = state.current_item_key
+      ? state.queue.findIndex((i) => mediaItemKey(i) === state.current_item_key)
       : 0;
     const ordered = idx >= 0 ? state.queue.slice(idx) : state.queue;
     return [
@@ -449,8 +449,8 @@ export function CenotaphPlayerApp() {
       };
     }
 
-    const idx = state.current_sha256
-      ? state.queue.findIndex((i) => mediaItemKey(i) === state.current_sha256)
+    const idx = state.current_item_key
+      ? state.queue.findIndex((i) => mediaItemKey(i) === state.current_item_key)
       : 0;
     const ordered = idx >= 0 ? state.queue.slice(idx) : state.queue;
     const current = ordered[0];

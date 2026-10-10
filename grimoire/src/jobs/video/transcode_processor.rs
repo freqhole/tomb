@@ -4,7 +4,6 @@
 //! `parent_blob_id` = the original video blob) for a video, one ffmpeg
 //! invocation per configured rendition in `config.media.video_transcode_renditions`.
 
-use crate::blob_data::stream_sha256_hash;
 use crate::blobz::compute_blake3_hash;
 use crate::config::get_config;
 use crate::error::ErrorDetail;
@@ -287,28 +286,6 @@ pub async fn process_transcode_video_job(job: &Job) -> Result<Option<serde_json:
             continue;
         }
 
-        let sha256 = match stream_sha256_hash(&output_path).await {
-            Ok(hash) => hash,
-            Err(e) => {
-                warn!(
-                    "failed to hash transcode output for video {} rendition {}: {} \
-                     (output file left orphaned on disk at {} - next attempt will \
-                     re-transcode from scratch rather than reuse it)",
-                    params.video_id, rendition.label, e, output_path
-                );
-                partial_failures.push(ErrorDetail::new(
-                    "transcode_rendition_hash_failed",
-                    "transcode rendition failed",
-                    format!(
-                        "failed to hash transcode output for video {} rendition {}: {} \
-                         (output file left orphaned on disk at {})",
-                        params.video_id, rendition.label, e, output_path
-                    ),
-                ));
-                continue;
-            }
-        };
-
         // non-fatal if this fails - matches create_media_blob_from_file's
         // handling; the blob just won't get mirrored into reliquary until
         // a blake3 is backfilled later.
@@ -338,7 +315,6 @@ pub async fn process_transcode_video_job(job: &Job) -> Result<Option<serde_json:
             .unwrap_or_else(|| "application/octet-stream".to_string());
 
         match create_media_blob(CreateMediaBlobRequest {
-            sha256,
             size: Some(size as i64),
             mime: Some(mime),
             source_client_id: None,

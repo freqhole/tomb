@@ -32,7 +32,7 @@ export async function queryAlbums(options?: {
   // we only need that one album record — songs/artists/genres still run in parallel).
   const albumsPromise = options?.albumId
     ? db.get(STORE_ALBUMS, options.albumId).then((a) => (a ? [a] : []) as Album[])
-    : db.getAll(STORE_ALBUMS) as Promise<Album[]>;
+    : (db.getAll(STORE_ALBUMS) as Promise<Album[]>);
 
   const [allAlbums, allSongs, allArtists, allGenres] = await Promise.all([
     albumsPromise,
@@ -82,7 +82,7 @@ export async function queryAlbums(options?: {
     const genresMap = new Map<string, GenreRef>();
     for (const song of songs) {
       if (song.album_taxons) {
-        song.album_taxons.forEach(t => {
+        song.album_taxons.forEach((t) => {
           if (t.kind_slug === "genre" && !genresMap.has(t.id)) {
             genresMap.set(t.id, { id: t.id, name: t.label });
           }
@@ -92,10 +92,7 @@ export async function queryAlbums(options?: {
     const genres = genresMap.size > 0 ? Array.from(genresMap.values()) : undefined;
 
     // calculate total duration
-    const totalDuration = songs.reduce(
-      (sum, song) => sum + song.duration_seconds,
-      0,
-    );
+    const totalDuration = songs.reduce((sum, song) => sum + song.duration_seconds, 0);
 
     results.push({
       album,
@@ -108,8 +105,8 @@ export async function queryAlbums(options?: {
 
   // sort by album title (handle null/undefined titles)
   results.sort((a, b) => {
-    const titleA = a.album.title || '';
-    const titleB = b.album.title || '';
+    const titleA = a.album.title || "";
+    const titleB = b.album.title || "";
     return titleA.localeCompare(titleB);
   });
 
@@ -129,7 +126,7 @@ export async function queryArtists(options?: {
 
   // get all artists (or specific artist if artistId provided)
   const allArtists = options?.artistId
-    ? [await db.get(STORE_ARTISTS, options.artistId)].filter(Boolean) as Artist[]
+    ? ([await db.get(STORE_ARTISTS, options.artistId)].filter(Boolean) as Artist[])
     : await db.getAll(STORE_ARTISTS);
 
   // get all songs and albums to aggregate by artist
@@ -168,10 +165,7 @@ export async function queryArtists(options?: {
     const albums = albumsByArtist.get(artist.artist_id) || new Set();
 
     // calculate total duration
-    const totalDuration = songs.reduce(
-      (sum, song) => sum + song.duration_seconds,
-      0,
-    );
+    const totalDuration = songs.reduce((sum, song) => sum + song.duration_seconds, 0);
 
     results.push({
       artist,
@@ -208,7 +202,7 @@ export async function queryGenres(options?: {
   // filter by search if provided
   if (options?.search) {
     const searchLower = options.search.toLowerCase();
-    allGenres = allGenres.filter(g => g.name.toLowerCase().includes(searchLower));
+    allGenres = allGenres.filter((g) => g.name.toLowerCase().includes(searchLower));
   }
 
   // get all albums and songs to count by genre
@@ -234,7 +228,10 @@ export async function queryGenres(options?: {
       if (!songsByGenre.has(album.genre_id)) {
         songsByGenre.set(album.genre_id, new Set());
       }
-      songsByGenre.get(album.genre_id)!.add(song.sha256);
+      // song.id (always unique), not song.sha256 - local-only songs all
+      // share sha256: "", which previously undercounted song_count for
+      // any genre with 2+ un-hashed local songs.
+      songsByGenre.get(album.genre_id)!.add(song.id);
     }
   }
 
@@ -327,10 +324,11 @@ export async function querySongsWithDetails(options?: {
       return a.track_number - b.track_number;
     });
   } else if (options?.songIds) {
-    // query by specific song IDs
+    // query by specific song IDs (always real song.id values - e.g.
+    // contextMenu.ts's `songIds: [song.id]` - never content hashes)
     songsToQuery = [];
-    for (const sha256 of options.songIds) {
-      const song = await db.get(STORE_SONGS, sha256);
+    for (const songId of options.songIds) {
+      const song = await db.get(STORE_SONGS, songId);
       if (song) songsToQuery.push(song);
     }
   } else if (options?.genreId) {
@@ -433,9 +431,9 @@ export async function querySongsWithDetails(options?: {
   const allTags = await db.getAll(STORE_TAGS);
   const allAlbumTags = await db.getAll(STORE_ALBUM_TAGS);
 
-  const albumsMap = new Map(allAlbums.map(a => [a.album_id, a]));
-  const genresMap = new Map(allGenres.map(g => [g.genre_id, g]));
-  const tagsMap = new Map(allTags.map(t => [t.tag_id, t]));
+  const albumsMap = new Map(allAlbums.map((a) => [a.album_id, a]));
+  const genresMap = new Map(allGenres.map((g) => [g.genre_id, g]));
+  const tagsMap = new Map(allTags.map((t) => [t.tag_id, t]));
 
   // build map of album_id -> tag names
   const albumTagsMap = new Map<string, string[]>();

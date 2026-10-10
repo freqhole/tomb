@@ -294,7 +294,8 @@ pub async fn download_media(
     let (cmd, args) = parts.split_first().unwrap();
 
     // spawn yt-dlp with piped stdout/stderr for streaming
-    let mut child = Command::new(cmd)
+    let mut cmd_builder = Command::new(cmd);
+    cmd_builder
         .args(args)
         .arg("--paths")
         .arg(&output_dir)
@@ -302,15 +303,15 @@ pub async fn download_media(
         .arg(url)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .kill_on_drop(true)
-        .spawn()
-        .map_err(|e| {
-            format!(
-                "failed to execute fetch command '{}': {} - check that the configured \
+        .kill_on_drop(true);
+    crate::process_ext::hide_console_window(&mut cmd_builder);
+    let mut child = cmd_builder.spawn().map_err(|e| {
+        format!(
+            "failed to execute fetch command '{}': {} - check that the configured \
                  fetch_command binary exists and is executable",
-                cmd, e
-            )
-        })?;
+            cmd, e
+        )
+    })?;
 
     let stdout = child.stdout.take().ok_or("failed to capture stdout")?;
     let stderr = child.stderr.take().ok_or("failed to capture stderr")?;

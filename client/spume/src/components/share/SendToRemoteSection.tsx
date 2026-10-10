@@ -163,18 +163,23 @@ export const SendToRemoteSection: Component<SendToRemoteSectionProps> = (props) 
   // BlobBadge previously always said "music", even for a video payload.
   const mediaLabel = createMemo<string>(() => (payload()?.kind === "video" ? "video" : "music"));
 
-  // richer pairs for the local (idb) probe — needs sha256 to do indexed
-  // lookups on the local songs store (no blake3 index). video has no
-  // send-to-local-browser-library path yet (see runForDest), so this is
-  // always empty for a video payload - the synthetic browser-local
-  // destination row is hidden entirely for video sends anyway.
+  // richer pairs for the local (idb) probe — blake3 is required (it's
+  // what the probe reports presence back as), sha256 is an optional
+  // extra fallback (`findExistingSongByContentHash`) for legacy rows -
+  // NOT required: a local-only import can have a real blake3 with an
+  // empty sha256, and used to be silently dropped from this probe
+  // entirely when sha256 was required too (its "already present" badge
+  // never got checked). video has no send-to-local-browser-library path
+  // yet (see runForDest), so this is always empty for a video payload -
+  // the synthetic browser-local destination row is hidden entirely for
+  // video sends anyway.
   const probeSongs = createMemo<ProbeSongHashes[] | null>(() => {
     const p = payload();
     if (!p || p.kind === "video") return null;
     const songs = p.kind === "song" ? [p.song] : p.songs;
     return songs
-      .filter((s) => !!s.blake3 && !!s.sha256)
-      .map((s) => ({ blake3: s.blake3 as string, sha256: s.sha256 as string }));
+      .filter((s) => !!s.blake3)
+      .map((s) => ({ blake3: s.blake3 as string, sha256: s.sha256 ?? "" }));
   });
 
   // assemble the rendered destination list. always include a local entry

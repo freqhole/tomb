@@ -144,15 +144,15 @@ pub async fn run_ffmpeg(
         }
     }
 
-    let mut child = tokio::process::Command::new(ffmpeg_path)
-        .arg("-hide_banner")
+    let mut cmd = tokio::process::Command::new(ffmpeg_path);
+    cmd.arg("-hide_banner")
         .args(&args)
         .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| GrimoireError::ProcessingFailed {
-            message: format!("failed to spawn ffmpeg for {}: {}", operation, e),
-        })?;
+        .stderr(Stdio::piped());
+    crate::process_ext::hide_console_window(&mut cmd);
+    let mut child = cmd.spawn().map_err(|e| GrimoireError::ProcessingFailed {
+        message: format!("failed to spawn ffmpeg for {}: {}", operation, e),
+    })?;
 
     // read stderr incrementally instead of the one-shot `cmd.output()` -
     // ffmpeg writes a progress stats line to stderr roughly every

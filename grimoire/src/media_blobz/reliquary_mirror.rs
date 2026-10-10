@@ -342,7 +342,6 @@ level = "warn"
     ) -> MediaBlob {
         MediaBlob {
             id: id.to_string(),
-            sha256: "0".repeat(64),
             size: None,
             mime: Some("audio/mpeg".to_string()),
             source_client_id: None,

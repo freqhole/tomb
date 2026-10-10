@@ -29,10 +29,9 @@ pub async fn create_song(req: CreateSongRequest) -> GrimoireResponse<Song> {
         "INSERT INTO songz (
             media_blob_id, title, track_number, disc_number, duration, bpm, track_artist, metadata, lyrics,
             created_by, updated_by,
-            media_blob_sha256, media_blob_blake3, media_blob_mime, media_blob_size
+            media_blob_blake3, media_blob_mime, media_blob_size
         ) VALUES (
             ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-            (SELECT sha256 FROM media_blobz WHERE id = ?),
             (SELECT blake3 FROM media_blobz WHERE id = ?),
             (SELECT mime FROM media_blobz WHERE id = ?),
             (SELECT size FROM media_blobz WHERE id = ?)
@@ -70,7 +69,6 @@ pub async fn create_song(req: CreateSongRequest) -> GrimoireResponse<Song> {
         req.lyrics,
         req.created_by,
         req.created_by,
-        media_blob_id,
         media_blob_id,
         media_blob_id,
         media_blob_id
@@ -372,27 +370,6 @@ pub async fn get_song_media_blob_id(song_id: &str) -> GrimoireResult<String> {
     })
 }
 
-/// get a song ID by media blob sha256
-///
-/// returns the song ID if a non-deleted song exists with a media blob matching the sha256
-pub async fn get_song_by_sha256(sha256: &str) -> GrimoireResult<Option<String>> {
-    let pool = database::connect().await?;
-
-    let song_id: Option<String> = sqlx::query_scalar!(
-        r#"
-        SELECT id as "id!"
-        FROM songz
-        WHERE media_blob_sha256 = ? AND deleted_at IS NULL
-        LIMIT 1
-        "#,
-        sha256
-    )
-    .fetch_optional(&pool)
-    .await?;
-
-    Ok(song_id)
-}
-
 /// get a song ID by media blob blake3
 ///
 /// returns the song ID if a non-deleted song exists with a media blob matching the blake3
@@ -414,24 +391,26 @@ pub async fn get_song_by_blake3(blake3: &str) -> GrimoireResult<Option<String>> 
     Ok(song_id)
 }
 
-/// get all sha256 hashes for synced songs
+/// get all blake3 hashes for synced songs
 ///
-/// returns all sha256s from media blobs that are linked to non-deleted songs
-pub async fn get_all_song_sha256s() -> GrimoireResult<Vec<String>> {
+/// returns all blake3 hashes from media blobs linked to non-deleted songs -
+/// joins `media_blobz` directly.
+pub async fn get_all_song_blake3s() -> GrimoireResult<Vec<String>> {
     let pool = database::connect().await?;
 
-    let sha256s: Vec<String> = sqlx::query_scalar!(
+    let blake3s: Vec<String> = sqlx::query_scalar!(
         r#"
-        SELECT DISTINCT media_blob_sha256 as "sha256!"
-        FROM songz
-        WHERE media_blob_sha256 IS NOT NULL AND deleted_at IS NULL
+        SELECT DISTINCT mb.blake3 as "blake3!"
+        FROM songz s
+        JOIN media_blobz mb ON mb.id = s.media_blob_id
+        WHERE mb.blake3 IS NOT NULL AND s.deleted_at IS NULL
         "#
     )
     .fetch_all(&pool)
     .await?;
 
-    tracing::debug!("returning {} synced sha256s", sha256s.len());
-    Ok(sha256s)
+    tracing::debug!("returning {} synced blake3s", blake3s.len());
+    Ok(blake3s)
 }
 
 /// reorder a set of song ids (order of the input slice is ignored) into
@@ -533,9 +512,17 @@ pub async fn add_song_image(
         }
     }
 
-    // insert new image
+    // `OR IGNORE`: (song_id, media_blob_id) sharing the composite PRIMARY
+    // KEY with an already-linked row is a legitimate "nothing to do"
+    // outcome, not an error - re-linking the exact same pair happens
+    // naturally on a retried/resumed batch, and a hard failure here
+    // previously turned into an infinite batch loop (the caller's "not
+    // yet linked" query kept re-selecting the same candidate every pass
+    // since the link attempt itself never got anywhere - see
+    // `create_media_blob`'s dedup-scoping fix for the other half of
+    // this, 2026-10-09).
     match sqlx::query!(
-        "INSERT INTO song_imagez (song_id, media_blob_id, is_primary) VALUES (?, ?, ?)",
+        "INSERT OR IGNORE INTO song_imagez (song_id, media_blob_id, is_primary) VALUES (?, ?, ?)",
         song_id,
         media_blob_id,
         is_primary
@@ -543,17 +530,19 @@ pub async fn add_song_image(
     .execute(&pool)
     .await
     {
-        Ok(_) => {
-            // create feed event if user provided
-            if let Some((user_id, username)) = created_by {
-                let _ = crate::music::analytics::feed_events::create_image_feed_event(
-                    "song",
-                    song_id,
-                    media_blob_id,
-                    user_id,
-                    username,
-                )
-                .await;
+        Ok(res) => {
+            // create feed event if user provided and a row was actually inserted
+            if res.rows_affected() > 0 {
+                if let Some((user_id, username)) = created_by {
+                    let _ = crate::music::analytics::feed_events::create_image_feed_event(
+                        "song",
+                        song_id,
+                        media_blob_id,
+                        user_id,
+                        username,
+                    )
+                    .await;
+                }
             }
 
             GrimoireResponse::success("Image added to song", ())
@@ -735,5 +724,111 @@ pub async fn bulk_clear_song_artwork(
         message,
         cleared_count,
         failed_ids,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // same convention as media_blobz::service::tests - fresh tempdir db
+    // per test, `#[ignore]` since it touches the real db pool singletons,
+    // run one at a time, each its own process:
+    // cargo test -p grimoire --lib -- --ignored --exact music::entities::songs::repository::tests::add_song_image_is_idempotent_on_duplicate_link
+    async fn init_test_env(data_dir: &std::path::Path) {
+        let config_toml = format!(
+            r#"data_dir = "{data_dir}"
+
+[database]
+filename = "grimoire.db"
+
+[media]
+max_fs_file_size = 104857600
+supported_audio_formats = ["mp3", "flac"]
+
+[musicbrainz]
+enabled = false
+
+[logging]
+level = "warn"
+"#,
+            data_dir = data_dir.display()
+        );
+        let config_path = data_dir.join("freqhole-config.toml");
+        std::fs::write(&config_path, config_toml).expect("write config");
+        std::fs::write(data_dir.join("grimoire.db"), b"").expect("touch grimoire.db");
+
+        crate::config::init_config(Some(config_path)).expect("init config");
+        database::run_migrations().await.expect("run migrations");
+    }
+
+    // confirmed real 2026-10-09: a hard-failing INSERT here (instead of
+    // `INSERT OR IGNORE`) was half of a real infinite batch loop -
+    // `repair_waveforms_batch` kept resolving a song's "new" waveform
+    // blob to one already linked to that song under a different role
+    // (content-hash dedup ignores blob_type, see `create_media_blob`'s
+    // doc comment), so every attempt to (re-)link it hit this exact
+    // (song_id, media_blob_id) PRIMARY KEY collision and errored instead
+    // of being treated as "already linked, nothing to do".
+    #[tokio::test]
+    #[ignore = "needs its own process: touches the real db pool singletons"]
+    async fn add_song_image_is_idempotent_on_duplicate_link() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        init_test_env(tmp.path()).await;
+        let pool = database::connect().await.expect("connect");
+
+        sqlx::query(
+            "INSERT INTO media_blobz (id, sha256, size, mime, blob_type, blake3)
+             VALUES ('audioblob1', ?, 123, 'audio/mpeg', 'original', ?)",
+        )
+        .bind("a".repeat(64))
+        .bind("b".repeat(64))
+        .execute(&pool)
+        .await
+        .expect("insert audio blob");
+
+        sqlx::query(
+            "INSERT INTO media_blobz (id, sha256, size, mime, blob_type, blake3)
+             VALUES ('imageblob1', ?, 456, 'image/webp', 'original', ?)",
+        )
+        .bind("c".repeat(64))
+        .bind("d".repeat(64))
+        .execute(&pool)
+        .await
+        .expect("insert image blob");
+
+        sqlx::query(
+            "INSERT INTO songz (id, media_blob_id, title) VALUES ('song1', 'audioblob1', 'Test Song')",
+        )
+        .execute(&pool)
+        .await
+        .expect("insert song");
+
+        let first = add_song_image("song1", "imageblob1", false, None).await;
+        assert!(
+            first.success,
+            "first link should succeed: {}",
+            first.message
+        );
+
+        // same (song_id, media_blob_id) pair again - must succeed as a
+        // no-op, not hard-fail on the PRIMARY KEY collision.
+        let second = add_song_image("song1", "imageblob1", false, None).await;
+        assert!(
+            second.success,
+            "re-linking an already-linked pair must be a no-op success, not an error: {}",
+            second.message
+        );
+
+        let row_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM song_imagez WHERE song_id = 'song1' AND media_blob_id = 'imageblob1'",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("count");
+        assert_eq!(
+            row_count, 1,
+            "duplicate link attempt must not create a second row"
+        );
     }
 }

@@ -21,7 +21,6 @@ use crate::music::entities::playlists::add_playlist_image;
 use crate::music::entities::songs::add_song_image;
 use crate::music::scanner::extract_and_import;
 use serde_json::{json, Value};
-use sha2::{Digest, Sha256};
 use std::path::Path;
 use tracing::{debug, error, info, warn};
 
@@ -35,7 +34,7 @@ use tracing::{debug, error, info, warn};
 /// steps:
 /// 1. check if the blob's mime is already "image/webp" (conversion already happened)
 /// 2. if not, get the original image bytes and convert to WebP
-/// 3. update the blob's registered sha256/blake3/mime/size to match the webp bytes,
+/// 3. update the blob's registered blake3/mime/size to match the webp bytes,
 ///    then mirror the new bytes into reliquary's content-addressed blob store
 /// 4. if associate_with is present, insert images into entity's *_imagez junction table
 pub async fn process_convert_webp_job(job: &Job) -> Result<Option<Value>, JobError> {
@@ -114,22 +113,14 @@ pub async fn process_convert_webp_job(job: &Job) -> Result<Option<Value>, JobErr
             // so the blob's registered content identity has to move with
             // them before they're mirrored into the content-addressed
             // reliquary store.
-            let mut hasher = Sha256::new();
-            hasher.update(&webp_data);
-            let sha256 = format!("{:x}", hasher.finalize());
             let blake3 = reliquary::hash_bytes(&webp_data);
 
-            let updated_blob = update_blob_content(
-                blob_id,
-                &sha256,
-                &blake3,
-                "image/webp",
-                webp_data.len() as i64,
-            )
-            .await
-            .map_err(|e| JobError::ProcessingFailed {
-                reason: format!("failed to update blob content: {}", e),
-            })?;
+            let updated_blob =
+                update_blob_content(blob_id, &blake3, "image/webp", webp_data.len() as i64)
+                    .await
+                    .map_err(|e| JobError::ProcessingFailed {
+                        reason: format!("failed to update blob content: {}", e),
+                    })?;
 
             mirror_insert_bytes(&updated_blob, &webp_data).await;
 

@@ -19,13 +19,17 @@ export interface DeleteSongResult {
 export interface DeleteSongOptions {
   /** the song's remote_server_id (to determine if it's from local charnel or remote P2P) */
   remoteServerId?: string | null;
-  /** the song's sha256 hash (for browser storage lookup - required for synced songs) */
+  /** last-resort fallback lookup key if `songId` is somehow unavailable -
+   *  no longer the preferred key (see session B's id/sha256 decoupling in
+   *  syncSongToLocal.ts: a synced song's local `id` is a generated uuid,
+   *  not its sha256, going forward). */
   sha256?: string | null;
 }
 
 /**
  * delete a song from local storage
- * @param songId - the song ID (grimoire UUID for tauri, sha256 for browser)
+ * @param songId - the song's local id (grimoire db row id for tauri,
+ *   the local IDB row's own generated id for browser)
  * @param options - context about the song source and lookup keys
  * @returns result with success status
  */
@@ -44,9 +48,15 @@ export async function deleteSongFromLocal(
       // song is in local grimoire → soft-delete via offal
       return deleteSongViaOffal(songId);
     }
-    // song is from a remote P2P peer, cached in browser → delete from browser
-    // use sha256 as lookup key since that's how synced songs are stored in IDB
-    const browserKey = options.sha256 || songId;
+    // song is from a remote P2P peer, cached in browser → delete from
+    // browser. `songId` is the caller's own `song.id` (the real local IDB
+    // primary key, see syncSongToLocal.ts's session B id/sha256
+    // decoupling) - `options.sha256` is only a last-resort fallback now,
+    // not the preferred key it used to be.
+    const browserKey = songId || options.sha256;
+    if (!browserKey) {
+      return { success: false, error: "missing song id for browser storage lookup" };
+    }
     debug(
       "deleteSongFromLocal",
       `song ${browserKey.slice(0, 8)}... is from remote peer, deleting from browser storage`

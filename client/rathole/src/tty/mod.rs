@@ -138,18 +138,36 @@ async fn maybe_upgrade_config() {
     };
     match grimoire::config::config_needs_upgrade(&config_path) {
         Ok(false) => {}
-        Ok(true) => match grimoire::upgrade::upgrade_config_and_migrate(&config_path).await {
-            Ok(outcome) => {
-                tracing::info!(
-                    target: "rathole::config",
-                    "{}",
-                    grimoire::upgrade::describe_outcome(&outcome)
-                );
+        Ok(true) => {
+            // this runs before ratatui takes the alt-screen (see `run`'s
+            // doc comment), so plain stdout progress lines are safe here -
+            // they just scroll by like any other pre-tui startup output.
+            println!("upgrading config and running data migrations...");
+            let (prog_tx, mut prog_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+            let printer = tokio::spawn(async move {
+                while let Some(line) = prog_rx.recv().await {
+                    println!("  {line}");
+                }
+            });
+            let result = grimoire::progress::scope(
+                prog_tx,
+                grimoire::upgrade::upgrade_config_and_migrate(&config_path),
+            )
+            .await;
+            let _ = printer.await;
+            match result {
+                Ok(outcome) => {
+                    tracing::info!(
+                        target: "rathole::config",
+                        "{}",
+                        grimoire::upgrade::describe_outcome(&outcome)
+                    );
+                }
+                Err(e) => {
+                    tracing::warn!(target: "rathole::config", error = %e, "config upgrade failed");
+                }
             }
-            Err(e) => {
-                tracing::warn!(target: "rathole::config", error = %e, "config upgrade failed");
-            }
-        },
+        }
         Err(e) => {
             tracing::warn!(target: "rathole::config", error = %e, "config upgrade check failed");
         }

@@ -7,11 +7,9 @@ use crate::error::{ErrorDetail, GrimoireError};
 use crate::media_blobz::{self, BlobType, CreateMediaBlobRequest};
 use crate::response::GrimoireResponse;
 use image::ImageOutputFormat;
-use sha2::{Digest, Sha256};
 use std::io::Cursor;
 use std::path::Path;
 use std::process::Stdio;
-use tokio::io::AsyncReadExt;
 
 /// get directory image blob IDs from scan cache (database-backed)
 async fn get_cached_directory_images(session_id: &str, dir_path: &str) -> Option<Vec<String>> {
@@ -69,30 +67,13 @@ pub async fn clear_scan_cache(session_id: &str) {
     }
 }
 
-/// stream SHA256 hash of a file by reading in chunks (avoids loading entire file into memory)
-pub(crate) async fn stream_sha256_hash(file_path: &str) -> Result<String, std::io::Error> {
-    let mut file = tokio::fs::File::open(file_path).await?;
-    let mut hasher = Sha256::new();
-    let mut buffer = vec![0u8; 8192]; // 8KB chunks
-
-    loop {
-        let bytes_read = file.read(&mut buffer).await?;
-        if bytes_read == 0 {
-            break;
-        }
-        hasher.update(&buffer[..bytes_read]);
-    }
-
-    Ok(format!("{:x}", hasher.finalize()))
-}
-
 /// Create a media blob record from an audio file path
 ///
 /// Creates a media blob entry that references a local file.
 /// This is used during audio file import to track the original file location.
 ///
 /// Creates a media blob record from an audio file path.
-/// Calculates SHA256 hash of the actual file contents for deduplication.
+/// Calculates a blake3 hash of the actual file contents for deduplication.
 ///
 /// `is_fetch_download` should be true only when `file_path` is a file that
 /// was just downloaded by the yt-dlp fetch pipeline (i.e. lives under the
@@ -118,26 +99,10 @@ pub async fn create_media_blob_from_file(
         .map(|m| m.to_string())
         .unwrap_or_else(|| "application/octet-stream".to_string());
 
-    // Calculate SHA256 hash by streaming the file instead of loading it all into memory
-    let sha256 = match stream_sha256_hash(file_path).await {
-        Ok(hash) => hash,
-        Err(e) => {
-            return GrimoireResponse::failure(
-                "Failed to hash file",
-                vec![ErrorDetail::new(
-                    "file_hash_error",
-                    "File Hash Error",
-                    // preserve the underlying io error's kind + message (file disappeared
-                    // mid-stream, disk read error, permission denied, etc) so this is
-                    // diagnosable later - one error_type covers every cause on purpose,
-                    // but the detail text still tells them apart.
-                    format!("Failed to hash file {}: {} ({:?})", file_path, e, e.kind()),
-                )],
-            );
-        }
-    };
-
-    // Compute blake3 hash for iroh-blobs verified streaming
+    // Compute blake3 hash for iroh-blobs verified streaming - the real
+    // content identity. no longer also streaming a sha256 of the same
+    // file - that was reading every file twice and was the main thing
+    // making import slow.
     let blake3 = match compute_blake3_hash(Path::new(file_path)).await {
         Ok(hash) => Some(hash),
         Err(e) => {
@@ -159,7 +124,6 @@ pub async fn create_media_blob_from_file(
     };
 
     let request = CreateMediaBlobRequest {
-        sha256,
         size: Some(file_size as i64),
         mime: Some(mime_type.clone()),
         source_client_id: created_by.clone(),
@@ -282,6 +246,7 @@ async fn extract_album_art_to_webp(
         .args(args)
         .stdout(Stdio::null())
         .stderr(Stdio::piped());
+    crate::process_ext::hide_console_window(&mut cmd);
 
     let output = tokio::time::timeout(tokio::time::Duration::from_secs(30), cmd.output())
         .await
@@ -433,6 +398,7 @@ async fn generate_waveform_to_webp(
         .args(args)
         .stdout(Stdio::null())
         .stderr(Stdio::piped());
+    crate::process_ext::hide_console_window(&mut cmd);
 
     let output = tokio::time::timeout(tokio::time::Duration::from_secs(60), cmd.output())
         .await
@@ -492,6 +458,27 @@ pub fn convert_to_webp(image_data: &[u8]) -> Result<Vec<u8>, GrimoireError> {
     Ok(webp_data)
 }
 
+/// convert any image format to jpeg (quality 85) - used for embedding
+/// cover art into id3/vorbis/etc tags, where webp (this module's usual
+/// output format) has poor/inconsistent player support, but jpeg is
+/// universally accepted.
+pub fn convert_to_jpeg(image_data: &[u8]) -> Result<Vec<u8>, GrimoireError> {
+    let img =
+        image::load_from_memory(image_data).map_err(|e| GrimoireError::ImageDecodeFailed {
+            reason: format!("failed to decode image: {}", e),
+        })?;
+    let img = image::DynamicImage::ImageRgb8(img.to_rgb8());
+
+    let mut jpeg_data = Vec::new();
+    let mut cursor = Cursor::new(&mut jpeg_data);
+    img.write_to(&mut cursor, ImageOutputFormat::Jpeg(85))
+        .map_err(|e| GrimoireError::ImageDecodeFailed {
+            reason: format!("failed to convert to jpeg: {}", e),
+        })?;
+
+    Ok(jpeg_data)
+}
+
 /// create an image blob from webp data with flexible options
 /// automatically generates sized thumbnails for Original and Waveform blobs
 pub async fn create_image_blob_from_webp_data(
@@ -501,12 +488,7 @@ pub async fn create_image_blob_from_webp_data(
     metadata: serde_json::Value,
     created_by: Option<String>,
 ) -> GrimoireResponse<String> {
-    let mut hasher = Sha256::new();
-    hasher.update(&webp_data);
-    let sha256 = format!("{:x}", hasher.finalize());
-
     let request = CreateMediaBlobRequest {
-        sha256,
         size: Some(webp_data.len() as i64),
         mime: Some("image/webp".to_string()),
         source_client_id: created_by.clone(),

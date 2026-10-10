@@ -26,9 +26,9 @@ let beforeUnloadHandler: (() => void) | null = null;
 
 function resolveCurrentVideo(): QueuedVideo | null {
   const state = appState();
-  if (!state || !state.current_sha256) return null;
+  if (!state || !state.current_item_key) return null;
   const queueVideos = videosOnly(state.queue);
-  return queueVideos.find((v) => v.id === state.current_sha256) ?? null;
+  return queueVideos.find((v) => v.id === state.current_item_key) ?? null;
 }
 
 // pushes the currently-playing video's position to the server.

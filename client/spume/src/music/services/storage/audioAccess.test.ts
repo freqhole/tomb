@@ -54,8 +54,8 @@ vi.mock("../opfs/helpers", () => ({
   readAudioFromOPFS: (...a: unknown[]) => readAudioFromOPFS(...(a as [])),
 }));
 
-import { getAudioURL } from "./audioAccess";
-import type { Song } from "./types";
+import { cleanupAudioURL, getAudioURL } from "./audioAccess";
+import { songIdentityKey, type Song } from "./types";
 
 function remoteSong(over: Partial<Song> = {}): Song {
   return {
@@ -155,5 +155,43 @@ describe("songs that cannot be synced", () => {
     canSyncSong.mockReturnValue(false);
     expect(await getAudioURL(remoteSong())).toBe("blob:from-remote");
     expect(syncSongToLocal).not.toHaveBeenCalled();
+  });
+});
+
+// regression test for a blob-URL cleanup leak: this file's internal
+// activeBlobURLs map used to be keyed by a separate, blake3-preferring
+// `songTrackingKey`, while htmlAudio.ts (the only real caller of
+// cleanupAudioURL) always passes `songIdentityKey(song)` (sha256 || id,
+// no blake3) as the key. for a local song with a real blake3 but an
+// empty sha256 (""), those two keys diverged - cleanupAudioURL's lookup
+// found nothing, so the blob URL was never revoked. fixed by keying
+// activeBlobURLs by songIdentityKey throughout this file, matching
+// what htmlAudio.ts already passes to cleanupAudioURL.
+describe("cleanupAudioURL key consistency", () => {
+  it("revokes the blob url created for a local song with blake3 but no sha256", async () => {
+    const revokeObjectURL = vi.fn();
+    vi.stubGlobal("URL", {
+      ...URL,
+      createObjectURL: () => "blob:local-opfs",
+      revokeObjectURL,
+    });
+    readAudioFromOPFS.mockResolvedValue(new Blob(["x"]));
+
+    const song = remoteSong({
+      source_type: "local",
+      sha256: "", // the empty-string sentinel for a never-hashed local import
+      blake3: "b3-real-hash",
+      id: "local-row-id",
+      opfs_path: "audio/local-row-id.mp3",
+    });
+
+    const url = await getAudioURL(song);
+    expect(url).toBe("blob:local-opfs");
+
+    // htmlAudio.ts always calls cleanupAudioURL with songIdentityKey(song)
+    // (sha256 || id), never the raw song object or a blake3-based key.
+    cleanupAudioURL(songIdentityKey(song));
+
+    expect(revokeObjectURL).toHaveBeenCalledWith("blob:local-opfs");
   });
 });

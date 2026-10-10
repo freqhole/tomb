@@ -1336,7 +1336,6 @@ export type BioSource = z.infer<typeof BioSourceSchema>;
 
 export const BlobMetadataResponseSchema = z.object({
   id: z.string(),
-  sha256: z.string(),
   size: z.number().nullish(),
   mime: z.string().nullish(),
   filename: z.string().nullish(),
@@ -1462,7 +1461,7 @@ export const CreateArtistRequestSchema = z.object({
 export type CreateArtistRequest = z.infer<typeof CreateArtistRequestSchema>;
 
 export const CreateJobRequestSchema = z.object({
-  job_type: z.union([z.literal('ScanDirectory'), z.literal('RescanDirectories'), z.literal('ProcessFile'), z.literal('ProcessDirectory'), z.literal('FetchMedia'), z.literal('PreCheckFetch'), z.literal('ConvertWebp'), z.literal('ImportMusic'), z.literal('ImportVideo'), z.literal('TranscodeVideo'), z.literal('MbAlbumSearch'), z.literal('MbAlbumDetail'), z.literal('LastFmAlbumDetail'), z.literal('LastFmArtistDetail'), z.literal('AudioDbAlbumDetail'), z.literal('AudioDbArtistDetail'), z.literal('AlbumEnrichmentPipeline'), z.literal('AutoApplyAlbumEnrichment'), z.literal('SyncSongByBlake3'), z.literal('SyncVideoByBlake3')]),
+  job_type: z.union([z.literal('ScanDirectory'), z.literal('RescanDirectories'), z.literal('ProcessFile'), z.literal('ProcessDirectory'), z.literal('FetchMedia'), z.literal('PreCheckFetch'), z.literal('ConvertWebp'), z.literal('ImportMusic'), z.literal('ImportVideo'), z.literal('TranscodeVideo'), z.literal('MbAlbumSearch'), z.literal('MbAlbumDetail'), z.literal('LastFmAlbumDetail'), z.literal('LastFmArtistDetail'), z.literal('AudioDbAlbumDetail'), z.literal('AudioDbArtistDetail'), z.literal('AlbumEnrichmentPipeline'), z.literal('AutoApplyAlbumEnrichment'), z.literal('SyncSongByBlake3'), z.literal('SyncVideoByBlake3'), z.literal('RepairLibraryImages')]),
   session_id: z.string().nullish(),
   parameters: z.any(),
   max_retries: z.number().nullish(),
@@ -1716,6 +1715,23 @@ export const EnqueueMbAlbumSearchResponseSchema = z.object({
 });
 export type EnqueueMbAlbumSearchResponse = z.infer<typeof EnqueueMbAlbumSearchResponseSchema>;
 
+export const EnqueueRepairLibraryImagesRequestSchema = z.object({
+  dry_run: z.boolean(),
+  scan_directory: z.string().nullish(),
+  options: z.object({
+  backfill_waveforms: z.boolean(),
+  backfill_embedded_art: z.boolean(),
+  backfill_directory_art: z.boolean(),
+  remove_overapplied: z.boolean()
+})
+});
+export type EnqueueRepairLibraryImagesRequest = z.infer<typeof EnqueueRepairLibraryImagesRequestSchema>;
+
+export const EnqueueRepairLibraryImagesResponseSchema = z.object({
+  job_id: z.string()
+});
+export type EnqueueRepairLibraryImagesResponse = z.infer<typeof EnqueueRepairLibraryImagesResponseSchema>;
+
 export const EnrichmentLogEntrySchema = z.object({
   at: z.number(),
   step: z.string(),
@@ -1927,7 +1943,7 @@ export const ErrorDetailSchema = z.object({
 export type ErrorDetail = z.infer<typeof ErrorDetailSchema>;
 
 export const EventFilterSchema = z.object({
-  kinds: z.array(z.union([z.literal('ScanDirectory'), z.literal('RescanDirectories'), z.literal('ProcessFile'), z.literal('ProcessDirectory'), z.literal('FetchMedia'), z.literal('PreCheckFetch'), z.literal('ConvertWebp'), z.literal('ImportMusic'), z.literal('ImportVideo'), z.literal('TranscodeVideo'), z.literal('MbAlbumSearch'), z.literal('MbAlbumDetail'), z.literal('LastFmAlbumDetail'), z.literal('LastFmArtistDetail'), z.literal('AudioDbAlbumDetail'), z.literal('AudioDbArtistDetail'), z.literal('AlbumEnrichmentPipeline'), z.literal('AutoApplyAlbumEnrichment'), z.literal('SyncSongByBlake3'), z.literal('SyncVideoByBlake3')])).nullish(),
+  kinds: z.array(z.union([z.literal('ScanDirectory'), z.literal('RescanDirectories'), z.literal('ProcessFile'), z.literal('ProcessDirectory'), z.literal('FetchMedia'), z.literal('PreCheckFetch'), z.literal('ConvertWebp'), z.literal('ImportMusic'), z.literal('ImportVideo'), z.literal('TranscodeVideo'), z.literal('MbAlbumSearch'), z.literal('MbAlbumDetail'), z.literal('LastFmAlbumDetail'), z.literal('LastFmArtistDetail'), z.literal('AudioDbAlbumDetail'), z.literal('AudioDbArtistDetail'), z.literal('AlbumEnrichmentPipeline'), z.literal('AutoApplyAlbumEnrichment'), z.literal('SyncSongByBlake3'), z.literal('SyncVideoByBlake3'), z.literal('RepairLibraryImages')])).nullish(),
   job_ids: z.array(z.string()).nullish(),
   session_ids: z.array(z.string()).nullish(),
   entity_refs: z.array(z.union([z.object({
@@ -2190,7 +2206,6 @@ export const FavoriteItemSchema = z.union([z.intersection(z.object({
 }).nullish(),
   media_blob: z.object({
   id: z.string(),
-  sha256: z.string(),
   size: z.number().nullish(),
   mime: z.string().nullish(),
   source_client_id: z.string().nullish(),
@@ -2582,7 +2597,6 @@ export const FavoriteSongResultSchema = z.object({
 }).nullish(),
   media_blob: z.object({
   id: z.string(),
-  sha256: z.string(),
   size: z.number().nullish(),
   mime: z.string().nullish(),
   source_client_id: z.string().nullish(),
@@ -3093,16 +3107,13 @@ export const GetVideoSeriesRequestSchema = z.object({
 export type GetVideoSeriesRequest = z.infer<typeof GetVideoSeriesRequestSchema>;
 
 export const HasBlobsRequestSchema = z.object({
-  blake3s: z.array(z.string()),
-  sha256s: z.array(z.string())
+  blake3s: z.array(z.string())
 });
 export type HasBlobsRequest = z.infer<typeof HasBlobsRequestSchema>;
 
 export const HasBlobsResponseSchema = z.object({
   blake3s_present: z.array(z.string()),
-  blake3s_missing: z.array(z.string()),
-  sha256s_present: z.array(z.string()),
-  sha256s_missing: z.array(z.string())
+  blake3s_missing: z.array(z.string())
 });
 export type HasBlobsResponse = z.infer<typeof HasBlobsResponseSchema>;
 
@@ -3131,7 +3142,7 @@ export type ImageMetadata = z.infer<typeof ImageMetadataSchema>;
 export const ImageUploadResponseSchema = z.object({
   blob_id: z.string(),
   job_id: z.string(),
-  sha256: z.string(),
+  blake3: z.string(),
   size: z.number(),
   mime: z.string(),
   existing: z.boolean(),
@@ -3170,7 +3181,7 @@ export type IngestRemoteImageRequest = z.infer<typeof IngestRemoteImageRequestSc
 
 export const IngestRemoteImageResponseSchema = z.object({
   blob_id: z.string(),
-  sha256: z.string(),
+  blake3: z.string(),
   size: z.number(),
   mime: z.string(),
   deduped: z.boolean()
@@ -3182,7 +3193,7 @@ export const JobEventSchema = z.union([z.object({
   session_id: z.string(),
   complete: z.number(),
   total: z.number(),
-  topic: z.union([z.literal('ScanDirectory'), z.literal('RescanDirectories'), z.literal('ProcessFile'), z.literal('ProcessDirectory'), z.literal('FetchMedia'), z.literal('PreCheckFetch'), z.literal('ConvertWebp'), z.literal('ImportMusic'), z.literal('ImportVideo'), z.literal('TranscodeVideo'), z.literal('MbAlbumSearch'), z.literal('MbAlbumDetail'), z.literal('LastFmAlbumDetail'), z.literal('LastFmArtistDetail'), z.literal('AudioDbAlbumDetail'), z.literal('AudioDbArtistDetail'), z.literal('AlbumEnrichmentPipeline'), z.literal('AutoApplyAlbumEnrichment'), z.literal('SyncSongByBlake3'), z.literal('SyncVideoByBlake3')]),
+  topic: z.union([z.literal('ScanDirectory'), z.literal('RescanDirectories'), z.literal('ProcessFile'), z.literal('ProcessDirectory'), z.literal('FetchMedia'), z.literal('PreCheckFetch'), z.literal('ConvertWebp'), z.literal('ImportMusic'), z.literal('ImportVideo'), z.literal('TranscodeVideo'), z.literal('MbAlbumSearch'), z.literal('MbAlbumDetail'), z.literal('LastFmAlbumDetail'), z.literal('LastFmArtistDetail'), z.literal('AudioDbAlbumDetail'), z.literal('AudioDbArtistDetail'), z.literal('AlbumEnrichmentPipeline'), z.literal('AutoApplyAlbumEnrichment'), z.literal('SyncSongByBlake3'), z.literal('SyncVideoByBlake3'), z.literal('RepairLibraryImages')]),
   entity_ref: z.union([z.object({
   kind: z.literal('album'),
   id: z.string()
@@ -3198,7 +3209,7 @@ export const JobEventSchema = z.union([z.object({
   job_id: z.string(),
   from: z.union([z.literal('pending'), z.literal('running'), z.literal('completed'), z.literal('failed'), z.literal('cancelled')]).nullish(),
   to: z.union([z.literal('pending'), z.literal('running'), z.literal('completed'), z.literal('failed'), z.literal('cancelled')]),
-  topic: z.union([z.literal('ScanDirectory'), z.literal('RescanDirectories'), z.literal('ProcessFile'), z.literal('ProcessDirectory'), z.literal('FetchMedia'), z.literal('PreCheckFetch'), z.literal('ConvertWebp'), z.literal('ImportMusic'), z.literal('ImportVideo'), z.literal('TranscodeVideo'), z.literal('MbAlbumSearch'), z.literal('MbAlbumDetail'), z.literal('LastFmAlbumDetail'), z.literal('LastFmArtistDetail'), z.literal('AudioDbAlbumDetail'), z.literal('AudioDbArtistDetail'), z.literal('AlbumEnrichmentPipeline'), z.literal('AutoApplyAlbumEnrichment'), z.literal('SyncSongByBlake3'), z.literal('SyncVideoByBlake3')]),
+  topic: z.union([z.literal('ScanDirectory'), z.literal('RescanDirectories'), z.literal('ProcessFile'), z.literal('ProcessDirectory'), z.literal('FetchMedia'), z.literal('PreCheckFetch'), z.literal('ConvertWebp'), z.literal('ImportMusic'), z.literal('ImportVideo'), z.literal('TranscodeVideo'), z.literal('MbAlbumSearch'), z.literal('MbAlbumDetail'), z.literal('LastFmAlbumDetail'), z.literal('LastFmArtistDetail'), z.literal('AudioDbAlbumDetail'), z.literal('AudioDbArtistDetail'), z.literal('AlbumEnrichmentPipeline'), z.literal('AutoApplyAlbumEnrichment'), z.literal('SyncSongByBlake3'), z.literal('SyncVideoByBlake3'), z.literal('RepairLibraryImages')]),
   entity_ref: z.union([z.object({
   kind: z.literal('album'),
   id: z.string()
@@ -3213,7 +3224,7 @@ export const JobEventSchema = z.union([z.object({
   job_id: z.string(),
   error_type: z.string(),
   message: z.string(),
-  topic: z.union([z.literal('ScanDirectory'), z.literal('RescanDirectories'), z.literal('ProcessFile'), z.literal('ProcessDirectory'), z.literal('FetchMedia'), z.literal('PreCheckFetch'), z.literal('ConvertWebp'), z.literal('ImportMusic'), z.literal('ImportVideo'), z.literal('TranscodeVideo'), z.literal('MbAlbumSearch'), z.literal('MbAlbumDetail'), z.literal('LastFmAlbumDetail'), z.literal('LastFmArtistDetail'), z.literal('AudioDbAlbumDetail'), z.literal('AudioDbArtistDetail'), z.literal('AlbumEnrichmentPipeline'), z.literal('AutoApplyAlbumEnrichment'), z.literal('SyncSongByBlake3'), z.literal('SyncVideoByBlake3')]),
+  topic: z.union([z.literal('ScanDirectory'), z.literal('RescanDirectories'), z.literal('ProcessFile'), z.literal('ProcessDirectory'), z.literal('FetchMedia'), z.literal('PreCheckFetch'), z.literal('ConvertWebp'), z.literal('ImportMusic'), z.literal('ImportVideo'), z.literal('TranscodeVideo'), z.literal('MbAlbumSearch'), z.literal('MbAlbumDetail'), z.literal('LastFmAlbumDetail'), z.literal('LastFmArtistDetail'), z.literal('AudioDbAlbumDetail'), z.literal('AudioDbArtistDetail'), z.literal('AlbumEnrichmentPipeline'), z.literal('AutoApplyAlbumEnrichment'), z.literal('SyncSongByBlake3'), z.literal('SyncVideoByBlake3'), z.literal('RepairLibraryImages')]),
   entity_ref: z.union([z.object({
   kind: z.literal('album'),
   id: z.string()
@@ -3228,7 +3239,7 @@ export const JobEventSchema = z.union([z.object({
   job_id: z.string(),
   stage: z.string(),
   message: z.string().nullish(),
-  topic: z.union([z.literal('ScanDirectory'), z.literal('RescanDirectories'), z.literal('ProcessFile'), z.literal('ProcessDirectory'), z.literal('FetchMedia'), z.literal('PreCheckFetch'), z.literal('ConvertWebp'), z.literal('ImportMusic'), z.literal('ImportVideo'), z.literal('TranscodeVideo'), z.literal('MbAlbumSearch'), z.literal('MbAlbumDetail'), z.literal('LastFmAlbumDetail'), z.literal('LastFmArtistDetail'), z.literal('AudioDbAlbumDetail'), z.literal('AudioDbArtistDetail'), z.literal('AlbumEnrichmentPipeline'), z.literal('AutoApplyAlbumEnrichment'), z.literal('SyncSongByBlake3'), z.literal('SyncVideoByBlake3')]),
+  topic: z.union([z.literal('ScanDirectory'), z.literal('RescanDirectories'), z.literal('ProcessFile'), z.literal('ProcessDirectory'), z.literal('FetchMedia'), z.literal('PreCheckFetch'), z.literal('ConvertWebp'), z.literal('ImportMusic'), z.literal('ImportVideo'), z.literal('TranscodeVideo'), z.literal('MbAlbumSearch'), z.literal('MbAlbumDetail'), z.literal('LastFmAlbumDetail'), z.literal('LastFmArtistDetail'), z.literal('AudioDbAlbumDetail'), z.literal('AudioDbArtistDetail'), z.literal('AlbumEnrichmentPipeline'), z.literal('AutoApplyAlbumEnrichment'), z.literal('SyncSongByBlake3'), z.literal('SyncVideoByBlake3'), z.literal('RepairLibraryImages')]),
   entity_ref: z.union([z.object({
   kind: z.literal('album'),
   id: z.string()
@@ -3241,7 +3252,7 @@ export const JobEventSchema = z.union([z.object({
 }), z.object({
   kind: z.literal('completed'),
   session_id: z.string(),
-  topic: z.union([z.literal('ScanDirectory'), z.literal('RescanDirectories'), z.literal('ProcessFile'), z.literal('ProcessDirectory'), z.literal('FetchMedia'), z.literal('PreCheckFetch'), z.literal('ConvertWebp'), z.literal('ImportMusic'), z.literal('ImportVideo'), z.literal('TranscodeVideo'), z.literal('MbAlbumSearch'), z.literal('MbAlbumDetail'), z.literal('LastFmAlbumDetail'), z.literal('LastFmArtistDetail'), z.literal('AudioDbAlbumDetail'), z.literal('AudioDbArtistDetail'), z.literal('AlbumEnrichmentPipeline'), z.literal('AutoApplyAlbumEnrichment'), z.literal('SyncSongByBlake3'), z.literal('SyncVideoByBlake3')]),
+  topic: z.union([z.literal('ScanDirectory'), z.literal('RescanDirectories'), z.literal('ProcessFile'), z.literal('ProcessDirectory'), z.literal('FetchMedia'), z.literal('PreCheckFetch'), z.literal('ConvertWebp'), z.literal('ImportMusic'), z.literal('ImportVideo'), z.literal('TranscodeVideo'), z.literal('MbAlbumSearch'), z.literal('MbAlbumDetail'), z.literal('LastFmAlbumDetail'), z.literal('LastFmArtistDetail'), z.literal('AudioDbAlbumDetail'), z.literal('AudioDbArtistDetail'), z.literal('AlbumEnrichmentPipeline'), z.literal('AutoApplyAlbumEnrichment'), z.literal('SyncSongByBlake3'), z.literal('SyncVideoByBlake3'), z.literal('RepairLibraryImages')]),
   entity_ref: z.union([z.object({
   kind: z.literal('album'),
   id: z.string()
@@ -3279,7 +3290,7 @@ export type JobResponse = z.infer<typeof JobResponseSchema>;
 export const JobStateSnapshotSchema = z.object({
   job_id: z.string(),
   session_id: z.string().nullish(),
-  job_type: z.union([z.literal('ScanDirectory'), z.literal('RescanDirectories'), z.literal('ProcessFile'), z.literal('ProcessDirectory'), z.literal('FetchMedia'), z.literal('PreCheckFetch'), z.literal('ConvertWebp'), z.literal('ImportMusic'), z.literal('ImportVideo'), z.literal('TranscodeVideo'), z.literal('MbAlbumSearch'), z.literal('MbAlbumDetail'), z.literal('LastFmAlbumDetail'), z.literal('LastFmArtistDetail'), z.literal('AudioDbAlbumDetail'), z.literal('AudioDbArtistDetail'), z.literal('AlbumEnrichmentPipeline'), z.literal('AutoApplyAlbumEnrichment'), z.literal('SyncSongByBlake3'), z.literal('SyncVideoByBlake3')]),
+  job_type: z.union([z.literal('ScanDirectory'), z.literal('RescanDirectories'), z.literal('ProcessFile'), z.literal('ProcessDirectory'), z.literal('FetchMedia'), z.literal('PreCheckFetch'), z.literal('ConvertWebp'), z.literal('ImportMusic'), z.literal('ImportVideo'), z.literal('TranscodeVideo'), z.literal('MbAlbumSearch'), z.literal('MbAlbumDetail'), z.literal('LastFmAlbumDetail'), z.literal('LastFmArtistDetail'), z.literal('AudioDbAlbumDetail'), z.literal('AudioDbArtistDetail'), z.literal('AlbumEnrichmentPipeline'), z.literal('AutoApplyAlbumEnrichment'), z.literal('SyncSongByBlake3'), z.literal('SyncVideoByBlake3'), z.literal('RepairLibraryImages')]),
   status: z.union([z.literal('pending'), z.literal('running'), z.literal('completed'), z.literal('failed'), z.literal('cancelled')]),
   entity_ref: z.union([z.object({
   kind: z.literal('album'),
@@ -3508,7 +3519,6 @@ export const ListFavoritesResponseSchema = z.object({
 }).nullish(),
   media_blob: z.object({
   id: z.string(),
-  sha256: z.string(),
   size: z.number().nullish(),
   mime: z.string().nullish(),
   source_client_id: z.string().nullish(),
@@ -4307,7 +4317,6 @@ export type MbUrl = z.infer<typeof MbUrlSchema>;
 
 export const MediaBlobSchema = z.object({
   id: z.string(),
-  sha256: z.string(),
   size: z.number().nullish(),
   mime: z.string().nullish(),
   source_client_id: z.string().nullish(),
@@ -4451,7 +4460,7 @@ export type MusicMetadataHints = z.infer<typeof MusicMetadataHintsSchema>;
 export const MusicUploadResponseSchema = z.object({
   blob_id: z.string(),
   job_id: z.string(),
-  sha256: z.string(),
+  blake3: z.string(),
   size: z.number(),
   mime: z.string(),
   existing: z.boolean(),
@@ -4894,7 +4903,6 @@ export const PlaylistSongResultSchema = z.object({
 }).nullish(),
   media_blob: z.object({
   id: z.string(),
-  sha256: z.string(),
   size: z.number().nullish(),
   mime: z.string().nullish(),
   source_client_id: z.string().nullish(),
@@ -5037,7 +5045,6 @@ export const PlaylistSongsQueryResultSchema = z.object({
 }).nullish(),
   media_blob: z.object({
   id: z.string(),
-  sha256: z.string(),
   size: z.number().nullish(),
   mime: z.string().nullish(),
   source_client_id: z.string().nullish(),
@@ -6038,6 +6045,47 @@ export const ReorderPlaylistSongsRequestSchema = z.object({
 });
 export type ReorderPlaylistSongsRequest = z.infer<typeof ReorderPlaylistSongsRequestSchema>;
 
+export const RepairLibraryImagesJobResultSchema = z.object({
+  totals: z.object({
+  songs_waveforms_backfilled: z.number(),
+  albums_thumbnails_backfilled: z.number(),
+  albums_thumbnails_removed_overapplied: z.number(),
+  albums_left_ambiguous: z.number(),
+  errors: z.array(z.object({
+  error_type: z.string(),
+  title: z.string(),
+  detail: z.string()
+}))
+}),
+  done: z.boolean(),
+  next_job_id: z.string().nullish()
+});
+export type RepairLibraryImagesJobResult = z.infer<typeof RepairLibraryImagesJobResultSchema>;
+
+export const RepairLibraryImagesOptionsSchema = z.object({
+  backfill_waveforms: z.boolean(),
+  backfill_embedded_art: z.boolean(),
+  backfill_directory_art: z.boolean(),
+  remove_overapplied: z.boolean()
+});
+export type RepairLibraryImagesOptions = z.infer<typeof RepairLibraryImagesOptionsSchema>;
+
+export const RepairLibraryImagesPhaseSchema = z.union([z.literal('Waveforms'), z.literal('Directories')]);
+export type RepairLibraryImagesPhase = z.infer<typeof RepairLibraryImagesPhaseSchema>;
+
+export const RepairLibraryImagesResultSchema = z.object({
+  songs_waveforms_backfilled: z.number(),
+  albums_thumbnails_backfilled: z.number(),
+  albums_thumbnails_removed_overapplied: z.number(),
+  albums_left_ambiguous: z.number(),
+  errors: z.array(z.object({
+  error_type: z.string(),
+  title: z.string(),
+  detail: z.string()
+}))
+});
+export type RepairLibraryImagesResult = z.infer<typeof RepairLibraryImagesResultSchema>;
+
 export const ReplaceAlbumsTagsRequestSchema = z.object({
   album_ids: z.array(z.string()),
   tag_ids: z.array(z.string())
@@ -6697,7 +6745,6 @@ export const SongQueryResultSchema = z.object({
 }).nullish(),
   media_blob: z.object({
   id: z.string(),
-  sha256: z.string(),
   size: z.number().nullish(),
   mime: z.string().nullish(),
   source_client_id: z.string().nullish(),
@@ -6867,7 +6914,6 @@ export const SongsQueryResultSchema = z.object({
 }).nullish(),
   media_blob: z.object({
   id: z.string(),
-  sha256: z.string(),
   size: z.number().nullish(),
   mime: z.string().nullish(),
   source_client_id: z.string().nullish(),
@@ -7090,7 +7136,6 @@ export type SyncPlaylistResponse = z.infer<typeof SyncPlaylistResponseSchema>;
 
 export const SyncSongByBlake3RequestSchema = z.object({
   blake3: z.string(),
-  sha256: z.string(),
   node_id: z.string().nullish(),
   size: z.number().nullish(),
   filename: z.string(),
@@ -7130,7 +7175,6 @@ export const SyncSongByBlake3ResponseSchema = z.object({
   media_blob_id: z.string(),
   artist_id: z.string(),
   file_path: z.string(),
-  sha256: z.string(),
   blake3: z.string(),
   existing: z.boolean(),
   images_linked: z.number(),
@@ -7141,7 +7185,6 @@ export type SyncSongByBlake3Response = z.infer<typeof SyncSongByBlake3ResponseSc
 export const SyncVideoByBlake3RequestSchema = z.object({
   blake3: z.string(),
   node_id: z.string().nullish(),
-  sha256: z.string().nullish(),
   size: z.number().nullish(),
   filename: z.string(),
   source_node_id: z.string(),
@@ -8089,7 +8132,7 @@ export type VideoSeriesSearchResult = z.infer<typeof VideoSeriesSearchResultSche
 export const VideoUploadResponseSchema = z.object({
   blob_id: z.string(),
   job_id: z.string(),
-  sha256: z.string(),
+  blake3: z.string(),
   size: z.number(),
   mime: z.string(),
   existing: z.boolean(),

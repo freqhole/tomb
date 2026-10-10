@@ -30,9 +30,7 @@ export interface AdminResponse<T = unknown> {
  * (matches what `remotez.peer_addr` stores and what the rest of the P2P
  * client surface accepts).
  */
-export type AdminTarget =
-  | { kind: "local" }
-  | { kind: "remote"; peerAddr: string };
+export type AdminTarget = { kind: "local" } | { kind: "remote"; peerAddr: string };
 
 /**
  * dispatch an admin command.

@@ -144,7 +144,7 @@ beforeEach(() => {
   resetRemoteStatus();
   isCharnelMode.mockReturnValue(false);
   isCharnelAvailable.mockReturnValue(false);
-  state = { queue: [{ kind: "song", song: song() }], current_sha256: "hash-1" } as AppState;
+  state = { queue: [{ kind: "song", song: song() }], current_item_key: "hash-1" } as AppState;
   vi.stubGlobal(
     "fetch",
     vi.fn(
@@ -234,7 +234,7 @@ describe("pushSongsToPlayer drain-on-ack", () => {
         { kind: "song", song: song() },
         { kind: "song", song: song({ sha256: "hash-2", blake3: "b3-2", title: "unrelated" }) },
       ],
-      current_sha256: "hash-1",
+      current_item_key: "hash-1",
     } as AppState;
     sendPlayerCommand.mockResolvedValue(ackConfirming("b3-1"));
 
@@ -311,7 +311,7 @@ describe("video queueing (drain-on-ack for videos)", () => {
   // wire (freshly computed by `importMediaBytes`/`videoToMediaRef`).
   it("appendVideosToPlayer drains a video with no local blake3 after a successful ack", async () => {
     const v = video({ blake3: undefined });
-    state = { queue: [{ kind: "video", video: v }], current_sha256: "vid-1" } as AppState;
+    state = { queue: [{ kind: "video", video: v }], current_item_key: "vid-1" } as AppState;
     sendPlayerCommand.mockResolvedValue({ type: "command_ack", ok: true });
 
     await appendVideosToPlayer("player-peer", [v]);
@@ -322,7 +322,7 @@ describe("video queueing (drain-on-ack for videos)", () => {
 
   it("pushVideosToPlayer drains a video with no local blake3 once the ack confirms the handoff", async () => {
     const v = video({ blake3: undefined });
-    state = { queue: [{ kind: "video", video: v }], current_sha256: "vid-1" } as AppState;
+    state = { queue: [{ kind: "video", video: v }], current_item_key: "vid-1" } as AppState;
     sendPlayerCommand.mockResolvedValue({
       type: "command_ack",
       ok: true,
@@ -355,7 +355,7 @@ describe("video queueing (drain-on-ack for videos)", () => {
         { kind: "video", video: pushed },
         { kind: "video", video: other },
       ],
-      current_sha256: "vid-1",
+      current_item_key: "vid-1",
     } as AppState;
     sendPlayerCommand.mockResolvedValue({ type: "command_ack", ok: true });
 
@@ -408,7 +408,7 @@ describe("withTransferStatus's bucket-A registry wiring (relay/proxy path)", () 
     });
 
     const v = video({ blake3: undefined });
-    state = { queue: [{ kind: "video", video: v }], current_sha256: "vid-1" } as AppState;
+    state = { queue: [{ kind: "video", video: v }], current_item_key: "vid-1" } as AppState;
     sendPlayerCommand.mockResolvedValue({ type: "command_ack", ok: true });
 
     await appendVideosToPlayer("player-peer", [v]);
@@ -431,7 +431,7 @@ describe("withTransferStatus's bucket-A registry wiring (relay/proxy path)", () 
       })
     );
     const v = video({ blake3: undefined });
-    state = { queue: [{ kind: "video", video: v }], current_sha256: "vid-1" } as AppState;
+    state = { queue: [{ kind: "video", video: v }], current_item_key: "vid-1" } as AppState;
 
     await expect(appendVideosToPlayer("player-peer", [v])).rejects.toThrow();
 
@@ -473,7 +473,7 @@ describe("handleUnresolvedItems: direct P2P pull vs js fetch+import relay", () =
 
   it("pulls directly from the known P2P source peer instead of relaying through js fetch", async () => {
     const s = song({ remote_server_id: "remote-1" });
-    state = { queue: [{ kind: "song", song: s }], current_sha256: "hash-1" } as AppState;
+    state = { queue: [{ kind: "song", song: s }], current_item_key: "hash-1" } as AppState;
     sendPlayerCommand.mockResolvedValue({ type: "command_ack", ok: true });
     pullBlobToLocalStore.mockResolvedValue(undefined);
 
@@ -496,7 +496,7 @@ describe("handleUnresolvedItems: direct P2P pull vs js fetch+import relay", () =
 
   it("falls back to the js fetch+import relay if the direct pull itself fails", async () => {
     const s = song({ remote_server_id: "remote-1" });
-    state = { queue: [{ kind: "song", song: s }], current_sha256: "hash-1" } as AppState;
+    state = { queue: [{ kind: "song", song: s }], current_item_key: "hash-1" } as AppState;
     sendPlayerCommand.mockResolvedValue({ type: "command_ack", ok: true });
     pullBlobToLocalStore.mockRejectedValue(new Error("peer offline"));
 
@@ -528,7 +528,7 @@ describe("handleUnresolvedItems: direct P2P pull vs js fetch+import relay", () =
     });
 
     const s = song({ remote_server_id: "remote-1" });
-    state = { queue: [{ kind: "song", song: s }], current_sha256: "hash-1" } as AppState;
+    state = { queue: [{ kind: "song", song: s }], current_item_key: "hash-1" } as AppState;
     sendPlayerCommand.mockResolvedValue({ type: "command_ack", ok: true });
 
     await pushSongsToPlayer("player-peer", [s]);

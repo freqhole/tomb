@@ -1,12 +1,12 @@
 // pre-cache scheduler.
 //
 // **what**: subscribes to the playback progress signals and triggers
-// `preCacheNextSongs` + `preCacheNextP2PSongs` + `preCacheNextVideos`
-// once per item when the listener crosses the 50% mark. extracted from
-// `audio/player.ts` (was `HtmlAudioBackend.handlePreCacheNext`) so it's
-// backend-agnostic — same threshold logic applies whether playback is
-// going through the html `<audio>` element, the libmpv backend, or the
-// video backend.
+// `triggerPreCache()` (which fires `preCacheNextSongs` +
+// `preCacheNextP2PSongs` + `preCacheNextVideos`) once per item when the
+// listener crosses the 50% mark. extracted from `audio/player.ts` (was
+// `HtmlAudioBackend.handlePreCacheNext`) so it's backend-agnostic — same
+// threshold logic applies whether playback is going through the html
+// `<audio>` element, the libmpv backend, or the video backend.
 //
 // **why a separate module**: pre-caching is a queue concern, not a
 // playback concern. the backend just plays bytes. moving this out of
@@ -15,28 +15,26 @@
 // only when solid invalidates the effect, which is the same cadence
 // since `currentTime` is what `timeupdate` writes.
 //
+// **this is a backstop, not the only trigger**: `timeupdate` can be
+// throttled heavily by the OS once a mobile browser tab is backgrounded/
+// the screen is locked, even mid-playback — so relying on it alone can
+// mean the 50% mark isn't observed until very late (or not before the
+// track ends). `queue.ts` (playQueue/addToQueue) and `player.ts`
+// (playNext/playPrevious) all additionally call `triggerPreCache()`
+// immediately on track-start, which doesn't depend on `timeupdate` at
+// all - this scheduler just re-fires the same window mid-track in case
+// the queue changed since (or as a safety net if the immediate trigger
+// was for some reason missed).
+//
 // **per-item debounce**: tracks `lastPreCachedFor` so each item only
-// triggers the pre-cache once. resets when `current_sha256` changes
+// triggers the pre-cache once. resets when `current_item_key` changes
 // in `appState`.
 
 import { createEffect, createRoot } from "solid-js";
 import { appState } from "../../../app/services/storage/db";
-import {
-  songsOnly,
-  videosOnly,
-  songStartIndexAfter,
-  videoStartIndexAfter,
-} from "../../../app/services/storage/mediaItem";
-import { preCacheNextSongs } from "../cache/blobCache";
-import { preCacheNextP2PSongs } from "../storage/blobResolver";
-import { preCacheNextVideos } from "../../../video/services/videoPreCache";
+import { triggerPreCache } from "./triggerPreCache";
 import { currentTime, duration } from "../audio/playerState";
 import { debug } from "../../../utils/logger";
-
-// rolling cache window in minutes. matches the historical value from
-// `player.ts` — half an hour ahead of the listener seems to be the
-// sweet spot for slow p2p without ballooning storage.
-const PRE_CACHE_MINUTES_AHEAD = 30;
 
 // fraction of the current song that must elapse before we kick off
 // pre-caching. half-way through is late enough that a quickly-skipped
@@ -64,11 +62,11 @@ export function installPreCacheScheduler(): void {
       const d = duration();
       const state = appState();
       if (!state) return;
-      const { queue, current_sha256 } = state;
-      if (!current_sha256 || !queue.length) return;
+      const { queue, current_item_key: currentItemKey } = state;
+      if (!currentItemKey || !queue.length) return;
 
       // reset the per-song debounce when the active song changes.
-      if (current_sha256 !== lastPreCachedFor) {
+      if (currentItemKey !== lastPreCachedFor) {
         // active song changed — clear the debounce so the new song
         // can trigger. don't pre-cache yet; wait for progress.
         if (lastPreCachedFor !== null) {
@@ -77,7 +75,7 @@ export function installPreCacheScheduler(): void {
       }
 
       // already pre-cached for this song.
-      if (lastPreCachedFor === current_sha256) return;
+      if (lastPreCachedFor === currentItemKey) return;
 
       // need a meaningful duration to compute progress.
       if (!Number.isFinite(d) || d <= 0) return;
@@ -85,21 +83,9 @@ export function installPreCacheScheduler(): void {
       const progress = t / d;
       if (progress < PRE_CACHE_TRIGGER_FRACTION) return;
 
-      lastPreCachedFor = current_sha256;
-      debug("player", `pre-caching next media (~${PRE_CACHE_MINUTES_AHEAD} min)`);
-      // song and video pre-caching run as two independent rolling
-      // windows over their own kind's subset of the queue, each keyed
-      // off the current item's position in the FULL mixed queue (not
-      // its position within the kind-filtered subset) — so upcoming
-      // songs keep getting pre-cached while a video is playing, and
-      // vice versa. see `songStartIndexAfter`/`videoStartIndexAfter`.
-      const queueSongs = songsOnly(queue);
-      const queueVideos = videosOnly(queue);
-      const songStart = songStartIndexAfter(queue, current_sha256);
-      const videoStart = videoStartIndexAfter(queue, current_sha256);
-      void preCacheNextSongs(current_sha256, queueSongs, PRE_CACHE_MINUTES_AHEAD, songStart);
-      void preCacheNextP2PSongs(current_sha256, queueSongs, PRE_CACHE_MINUTES_AHEAD, songStart);
-      void preCacheNextVideos(queueVideos, PRE_CACHE_MINUTES_AHEAD, videoStart);
+      lastPreCachedFor = currentItemKey;
+      debug("player", "pre-caching next media (progress-based backstop)");
+      triggerPreCache(queue, currentItemKey);
     });
   });
 }

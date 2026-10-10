@@ -32,10 +32,6 @@ export function updateSongInCache(
     );
   };
 
-  // 1. update specific song query
-  queryClient.setQueryData<Song>(["song", sha256], (old) => (old ? { ...old, ...updates } : old));
-  queryClient.setQueryData<Song>(["song", songId], (old) => (old ? { ...old, ...updates } : old));
-
   // 2. update all infinite songs queries
   const songsQueries = queryClient.getQueriesData<{
     pages: Array<{

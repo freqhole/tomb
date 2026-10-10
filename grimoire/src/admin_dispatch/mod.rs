@@ -170,6 +170,21 @@ pub async fn handle(
         "maintenance_cleanup_orphaned_genres" => {
             handlers::maintenance::cleanup_orphaned_genres(args).await
         }
+        "maintenance_cleanup_orphaned_artists" => {
+            handlers::maintenance::cleanup_orphaned_artists(args).await
+        }
+        "maintenance_cleanup_orphaned_albums" => {
+            handlers::maintenance::cleanup_orphaned_albums(args).await
+        }
+        "maintenance_cleanup_orphaned_video_series" => {
+            handlers::maintenance::cleanup_orphaned_video_series(args).await
+        }
+        "maintenance_cleanup_orphaned_taxons" => {
+            handlers::maintenance::cleanup_orphaned_taxons(args).await
+        }
+        "maintenance_cleanup_contentless_blobs" => {
+            handlers::maintenance::cleanup_contentless_blobs(args).await
+        }
         "maintenance_cleanup_all" => handlers::maintenance::cleanup_all(args).await,
         "maintenance_backfill_blake3" => handlers::maintenance::backfill_blake3(args).await,
         "maintenance_backfill_thumbnails_count" => {
@@ -190,6 +205,28 @@ pub async fn handle(
             handlers::maintenance::hard_delete_old_videos(args).await
         }
         "maintenance_run_full" => handlers::maintenance::run_full(args).await,
+        "maintenance_repair_library" => handlers::maintenance::repair_library(args, caller).await,
+        "maintenance_repair_library_waveforms" => {
+            handlers::maintenance::repair_library_waveforms(args, caller).await
+        }
+        "maintenance_repair_library_thumbnails" => {
+            handlers::maintenance::repair_library_thumbnails(args, caller).await
+        }
+        "maintenance_repair_library_video_thumbnails" => {
+            handlers::maintenance::repair_library_video_thumbnails(args, caller).await
+        }
+        "maintenance_repair_library_step" => {
+            handlers::maintenance::repair_library_step(args, caller).await
+        }
+        "maintenance_reorganize_library_plan" => {
+            handlers::maintenance::reorganize_library_plan(args).await
+        }
+        "maintenance_reorganize_library_enqueue" => {
+            handlers::maintenance::reorganize_library_enqueue(args, caller).await
+        }
+        "maintenance_reorganize_library_source_dirs" => {
+            handlers::maintenance::reorganize_library_source_dirs(args).await
+        }
 
         // -- dir_tags --
         "dir_tags_list_rules" => handlers::dir_tags::list_rules().await,

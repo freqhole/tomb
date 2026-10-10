@@ -3,7 +3,6 @@ import { createMutation, useQueryClient } from "@tanstack/solid-query";
 import { debug, error as logError } from "../../utils/logger";
 import { getDataSource } from "../data";
 import { queryKeys } from "./queryKeys";
-import { videoQueryKeys } from "../../video/queries/queryKeys";
 
 // rating target types
 export type RatingTarget = "song" | "album" | "artist" | "video";
@@ -94,6 +93,10 @@ function getQueryKeysToInvalidate(targetType: RatingTarget): Array<readonly unkn
         ["artist", "songs"], // artist songs contain artist data with ratings
       ];
     case "video":
-      return [videoQueryKeys.videos.all()];
+      // bare "videos" prefix (not videoQueryKeys.videos.all(), which is
+      // scoped to ["videos", dataSourceKey] and so never matches
+      // useVideoRatingStatuses's ["videos", "rating-status", ids] key) -
+      // mirrors favorites.ts's proven-correct video case.
+      return [["videos"]];
   }
 }

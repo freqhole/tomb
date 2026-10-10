@@ -66,7 +66,6 @@ function externalStorageCommand<T>(action: Record<string, unknown>) {
  * component so it doesn't keep piling onto `SettingsView.tsx`. */
 export default function ExternalStorageSettingsSection() {
   const [mountedDevices, setMountedDevices] = createSignal<ExternalStorageDevice[]>([]);
-  const [configuredDeviceCount, setConfiguredDeviceCount] = createSignal(0);
   const [activeDevice, setActiveDevice] = createSignal<ExternalStorageDevice | null>(null);
   const [externalSubpathDraft, setExternalSubpathDraft] = createSignal("");
   const [playlistsSubpathDraft, setPlaylistsSubpathDraft] = createSignal("");
@@ -98,7 +97,7 @@ export default function ExternalStorageSettingsSection() {
 
   onMount(async () => {
     try {
-      const [mounted, active, settings, devices, deps] = await Promise.all([
+      const [mounted, active, settings, deps] = await Promise.all([
         externalStorageCommand<ExternalStorageDevice[]>({
           action: "list_mounted",
         }),
@@ -107,9 +106,6 @@ export default function ExternalStorageSettingsSection() {
         }),
         externalStorageCommand<ExternalStorageSettings>({
           action: "get_settings",
-        }),
-        externalStorageCommand<ExternalStorageDevice[]>({
-          action: "get_devices",
         }),
         invoke<DependencyCheckResult>("check_dependencies"),
       ]);
@@ -121,7 +117,6 @@ export default function ExternalStorageSettingsSection() {
       setReencodeArgsDraft(settings.reencode_args);
       setReencodeExtensionDraft(settings.reencode_extension);
       setReencodeProfile(matchReencodeProfile(settings.reencode_args, settings.reencode_extension));
-      setConfiguredDeviceCount(devices.length);
       setFfmpegInstalled(deps.ffmpeg_installed);
     } catch (e) {
       console.error("failed to load external storage state:", e);
@@ -130,21 +125,17 @@ export default function ExternalStorageSettingsSection() {
 
   async function refreshExternalStorageDevices() {
     try {
-      const [mounted, active, devices] = await Promise.all([
+      const [mounted, active] = await Promise.all([
         externalStorageCommand<ExternalStorageDevice[]>({
           action: "list_mounted",
         }),
         externalStorageCommand<ExternalStorageDevice | null>({
           action: "get_active",
         }),
-        externalStorageCommand<ExternalStorageDevice[]>({
-          action: "get_devices",
-        }),
       ]);
       setMountedDevices(mounted);
       setActiveDevice(active);
       setExternalSubpathDraft(active?.subpath ?? "");
-      setConfiguredDeviceCount(devices.length);
     } catch (e) {
       console.error("failed to refresh external storage devices:", e);
     }
@@ -534,7 +525,13 @@ export default function ExternalStorageSettingsSection() {
         </Show>
       </Show>
 
-      <Show when={configuredDeviceCount() > 0}>
+      {/* mountedDevices().length (not configuredDeviceCount()) - these
+          controls apply per-sync-run, so they're only meaningful while a
+          device is actually plugged in right now (covers both "a device
+          is selected and mounted" and "user is picking among several
+          newly-mounted devices" - configuredDeviceCount() alone used to
+          leave this visible forever after a device was unplugged). */}
+      <Show when={mountedDevices().length > 0}>
         <div
           style={{
             "margin-top": "1.5rem",
@@ -645,7 +642,7 @@ export default function ExternalStorageSettingsSection() {
         </div>
       </Show>
 
-      <Show when={configuredDeviceCount() > 0 && !ffmpegInstalled()}>
+      <Show when={mountedDevices().length > 0 && !ffmpegInstalled()}>
         <div
           style={{
             "margin-top": "1.5rem",
@@ -660,7 +657,7 @@ export default function ExternalStorageSettingsSection() {
         </div>
       </Show>
 
-      <Show when={configuredDeviceCount() > 0 && ffmpegInstalled()}>
+      <Show when={mountedDevices().length > 0 && ffmpegInstalled()}>
         <div
           style={{
             "margin-top": "1.5rem",

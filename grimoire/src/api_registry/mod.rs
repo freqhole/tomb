@@ -1156,6 +1156,30 @@ pub mod type_registry {
         gen.add_schema::<crate::jobs::RequeryEnrichmentResponse>("RequeryEnrichmentResponse");
         registered.insert("RequeryEnrichmentResponse".to_string());
 
+        // repair library images (maintenance #19/#20): missing
+        // waveform/thumbnail backfill + directory-image over-application
+        // cleanup, run as a chain of small batch jobs.
+        gen.add_schema::<crate::maintenance::RepairLibraryImagesResult>(
+            "RepairLibraryImagesResult",
+        );
+        registered.insert("RepairLibraryImagesResult".to_string());
+        gen.add_schema::<crate::maintenance::RepairLibraryImagesPhase>("RepairLibraryImagesPhase");
+        registered.insert("RepairLibraryImagesPhase".to_string());
+        gen.add_schema::<crate::maintenance::RepairLibraryImagesOptions>(
+            "RepairLibraryImagesOptions",
+        );
+        registered.insert("RepairLibraryImagesOptions".to_string());
+        gen.add_schema::<crate::jobs::RepairLibraryImagesJobResult>("RepairLibraryImagesJobResult");
+        registered.insert("RepairLibraryImagesJobResult".to_string());
+        gen.add_schema::<crate::jobs::EnqueueRepairLibraryImagesRequest>(
+            "EnqueueRepairLibraryImagesRequest",
+        );
+        registered.insert("EnqueueRepairLibraryImagesRequest".to_string());
+        gen.add_schema::<crate::jobs::EnqueueRepairLibraryImagesResponse>(
+            "EnqueueRepairLibraryImagesResponse",
+        );
+        registered.insert("EnqueueRepairLibraryImagesResponse".to_string());
+
         // remote image ingestion (phase 14.6)
         gen.add_schema::<crate::offal::music::albums::ImageIngestTarget>("ImageIngestTarget");
         registered.insert("ImageIngestTarget".to_string());

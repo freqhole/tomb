@@ -39,6 +39,7 @@ pub mod paths;
 pub mod player;
 pub mod player_session;
 pub mod playlists;
+pub mod process_ext;
 pub mod progress;
 pub mod query_ordering;
 pub mod radio;

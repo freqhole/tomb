@@ -7,7 +7,9 @@
 //! design and the rationale for moving this off a per-device json file
 //! and out of charnel's local toml config.
 
+pub mod file_ops;
 pub mod models;
+pub mod path_naming;
 pub mod repository;
 
 pub use models::{FilterSet, FilterSetFilter, FilterSetGroup, SyncManifest, SyncedSong};

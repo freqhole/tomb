@@ -122,7 +122,7 @@ export async function playVideoNext(
   const state = appState();
   const queue = state?.queue ?? [];
   const item = videoToMediaItem({ ...video, queue_entry_id: undefined });
-  const currentId = state?.current_sha256;
+  const currentId = state?.current_item_key;
   const currentIndex = currentId ? queue.findIndex((i) => mediaItemKey(i) === currentId) : -1;
   const insertAt = currentIndex >= 0 ? currentIndex + 1 : queue.length;
   const newQueue = [...queue.slice(0, insertAt), item, ...queue.slice(insertAt)];

@@ -51,6 +51,19 @@ pub enum SpumeEvent {
         /// rescan-only: scanned_directories rows dropped because the path is gone
         #[serde(skip_serializing_if = "Option::is_none")]
         purged_scan_dirs: Option<u32>,
+        /// distinguishes a "repair library" run (scan + full image-repair
+        /// batch chain, see `commands::repair_library_run`) from a plain
+        /// scan/rescan - lets spume's toast use different wording instead
+        /// of a generic "scan complete" for a run that did much more than
+        /// scan. `None` for every pre-existing caller (plain scan/rescan).
+        #[serde(skip_serializing_if = "Option::is_none")]
+        source: Option<String>,
+        /// pre-formatted message overriding spume's own generic "scan
+        /// complete: ..." derivation entirely - set only when the source
+        /// run (e.g. repair library) has its own richer totals spume's
+        /// generic song/album/artist-count wording can't express.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        message: Option<String>,
     },
 
     /// a P2P peer connection failed - remote may be offline
@@ -201,6 +214,37 @@ pub fn notify_scan_complete_full(
             restored_blobs,
             restored_songs,
             purged_scan_dirs,
+            source: None,
+            message: None,
+        },
+    )
+}
+
+/// notify spume that a "repair library" run (scan + full image-repair
+/// batch chain, see `commands::repair_library_run`) has fully completed -
+/// unlike `notify_scan_complete_full` above, this only ever fires once
+/// BOTH phases are done, and carries a pre-formatted `message` so spume
+/// doesn't have to (incorrectly) guess at "scan complete" wording for a
+/// run that did far more than scan.
+pub fn notify_repair_library_complete(
+    app: &AppHandle<Wry>,
+    songs_added: u32,
+    albums_added: u32,
+    artists_added: u32,
+    message: String,
+) -> Result<(), String> {
+    emit_event(
+        app,
+        SpumeEvent::ScanComplete {
+            songs_added,
+            albums_added,
+            artists_added,
+            blobs_deleted: None,
+            restored_blobs: None,
+            restored_songs: None,
+            purged_scan_dirs: None,
+            source: Some("repair_library".to_string()),
+            message: Some(message),
         },
     )
 }

@@ -106,7 +106,7 @@ pub async fn process_rescan_directories_job(job: &Job) -> Result<Option<Value>, 
         }
     };
 
-    for dir in &directories {
+    for (idx, dir) in directories.iter().enumerate() {
         info!("rescanning directory: {}", dir.path);
 
         // scan directory recursively - creates ProcessFile jobs
@@ -126,6 +126,31 @@ pub async fn process_rescan_directories_job(job: &Job) -> Result<Option<Value>, 
         let _ = record_scanned_directory(&dir.path, found_count as i64, None).await;
 
         info!("scanned {}: found {} files", dir.path, found_count);
+
+        // live progress tick for anything watching this job's session
+        // (eg. the charnel wizard's repair-library progress card) - see
+        // `job_events::JobEvent::Stage`'s own doc comment.
+        crate::jobs::job_events::emit(crate::jobs::job_events::JobEvent::Stage {
+            session_id: job.session_id.clone(),
+            job_id: job.id.clone(),
+            stage: "scanning".to_string(),
+            message: Some(format!(
+                "scanning directory {}/{}: {} ({} file(s) found so far)",
+                idx + 1,
+                directories.len(),
+                dir.path,
+                total_found
+            )),
+            topic: JobType::RescanDirectories,
+            entity_ref: None,
+            created_by: job.created_by.clone(),
+            details: Some(json!({
+                "directory": dir.path,
+                "directory_index": idx + 1,
+                "directory_count": directories.len(),
+                "files_found": total_found,
+            })),
+        });
     }
 
     // phase 2a: restore pass — undelete blobs whose local_path now exists,
@@ -166,7 +191,7 @@ pub async fn process_rescan_directories_job(job: &Job) -> Result<Option<Value>, 
     let mut blob_stream = sqlx::query_as!(
         MediaBlob,
         r#"
-        SELECT id as "id!", sha256 as "sha256!", size, mime, source_client_id,
+        SELECT id as "id!", size, mime, source_client_id,
                local_path, filename, metadata, created_at as "created_at!", updated_at as "updated_at!",
                parent_blob_id, blob_type as "blob_type!", deleted_at, deleted_by,
                created_by, updated_by, width, height, blake3
@@ -189,7 +214,7 @@ pub async fn process_rescan_directories_job(job: &Job) -> Result<Option<Value>, 
         })?
     {
         if let Some(local_path) = &blob.local_path {
-            if !Path::new(local_path).exists() {
+            if crate::paths::path_definitely_missing(local_path) {
                 // file is missing, soft delete blob and cascade to songs
                 match soft_delete_blob_and_songs(&blob.id).await {
                     Ok(_) => {
@@ -254,7 +279,7 @@ pub async fn purge_missing_scanned_directories() -> Result<usize, String> {
 
     let mut purged = 0usize;
     for r in rows {
-        if !Path::new(&r.path).exists() {
+        if crate::paths::path_definitely_missing(&r.path) {
             match sqlx::query!("DELETE FROM scanned_directories WHERE id = ?", r.id)
                 .execute(&pool)
                 .await

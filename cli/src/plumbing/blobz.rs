@@ -5,7 +5,6 @@ use clap::Subcommand;
 use grimoire::blobz::backfill_blake3_hashes;
 use grimoire::media_blobz::{
     count_blake3_backfill_status, count_blobs_needing_blake3, find_present_blake3s,
-    find_present_sha256s,
 };
 use serde::Serialize;
 
@@ -28,8 +27,6 @@ struct Blake3BackfillResult {
 struct HasBlobsResult {
     blake3s_present: Vec<String>,
     blake3s_missing: Vec<String>,
-    sha256s_present: Vec<String>,
-    sha256s_missing: Vec<String>,
 }
 
 const BATCH_SIZE: i64 = 100;
@@ -55,15 +52,12 @@ pub enum BlobzAction {
         concurrency: usize,
     },
 
-    /// check which of the supplied content hashes already exist locally.
+    /// check which of the supplied blake3 hashes already exist locally.
     /// mirrors the `POST /api/blobz/has` route used by send-to-remote.
     Has {
         /// blake3 hash (repeatable). hex string addressed by iroh-blobs.
         #[arg(long = "blake3", value_name = "HEX")]
         blake3: Vec<String>,
-        /// sha256 hash (repeatable). hex string used as the dedupe key.
-        #[arg(long = "sha256", value_name = "HEX")]
-        sha256: Vec<String>,
     },
 }
 
@@ -181,7 +175,7 @@ pub async fn handle_command(action: BlobzAction) -> CommandOutput<serde_json::Va
             }
         }
 
-        BlobzAction::Has { blake3, sha256 } => {
+        BlobzAction::Has { blake3 } => {
             let blake3s_present = match find_present_blake3s(&blake3).await {
                 Ok(v) => v,
                 Err(e) => {
@@ -192,43 +186,20 @@ pub async fn handle_command(action: BlobzAction) -> CommandOutput<serde_json::Va
                     );
                 }
             };
-            let sha256s_present = match find_present_sha256s(&sha256).await {
-                Ok(v) => v,
-                Err(e) => {
-                    return CommandOutput::failure(
-                        format!("failed to query sha256 presence: {}", e),
-                        vec![],
-                        (),
-                    );
-                }
-            };
             let blake3_set: std::collections::HashSet<&str> =
                 blake3s_present.iter().map(String::as_str).collect();
-            let sha256_set: std::collections::HashSet<&str> =
-                sha256s_present.iter().map(String::as_str).collect();
             let blake3s_missing: Vec<String> = blake3
                 .iter()
                 .filter(|h| !blake3_set.contains(h.as_str()))
-                .cloned()
-                .collect();
-            let sha256s_missing: Vec<String> = sha256
-                .iter()
-                .filter(|h| !sha256_set.contains(h.as_str()))
                 .cloned()
                 .collect();
 
             let result = HasBlobsResult {
                 blake3s_present,
                 blake3s_missing,
-                sha256s_present,
-                sha256s_missing,
             };
             CommandOutput::success(
-                format!(
-                    "checked {} blake3 + {} sha256 hashes",
-                    blake3.len(),
-                    sha256.len()
-                ),
+                format!("checked {} blake3 hashes", blake3.len()),
                 serde_json::to_value(result).unwrap(),
             )
         }

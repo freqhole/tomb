@@ -1,4 +1,6 @@
 /* @refresh reload */
+// polyfill MediaQueryList.addEventListener for old WebView (must run before any other imports)
+import "./util/mediaQueryListPolyfill";
 import { render } from "solid-js/web";
 import { HashRouter, Route } from "@solidjs/router";
 import App from "./App";

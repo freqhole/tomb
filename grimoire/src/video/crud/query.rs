@@ -371,8 +371,8 @@ pub async fn query_videos(
         }
 
         // content_types: show only videos whose content_type is one of these
-        // ("series"/"movie"/"clip") - a simple multi-select, not include/exclude
-        // like the tag filters above.
+        // ("series"/"movie"/"clip"/"karaoke") - a simple multi-select, not
+        // include/exclude like the tag filters above.
         if let Some(content_types) = params
             .filters
             .get("content_types")

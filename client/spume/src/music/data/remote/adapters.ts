@@ -82,7 +82,6 @@ export interface ApiSongQueryItem {
     images?: ApiImage[] | null;
   } | null;
   media_blob?: {
-    sha256: string;
     size?: number | null; // file size in bytes (used for download progress)
     mime?: string | null;
     blake3?: string | null; // iroh-blobs content hash
@@ -129,7 +128,7 @@ export function adaptSongFromAPI(item: ApiSongQueryItem, baseUrl: string, remote
   const album = item.album;
   const blob = item.media_blob;
 
-  const sha256 = blob?.sha256 || song.media_blob_id;
+  const sha256 = blob?.blake3 || song.media_blob_id;
 
   const result = {
     id: song.id,

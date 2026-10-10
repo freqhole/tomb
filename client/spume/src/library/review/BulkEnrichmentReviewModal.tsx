@@ -532,7 +532,7 @@ export function BulkEnrichmentReviewModal(props: BulkEnrichmentReviewModalProps)
         if (!c) continue;
         const resp = await client.music.ingestRemoteImage({
           remote_url: url,
-          target: { kind: "Album", id } as any,
+          target: { kind: "Album", id },
           is_primary: albumLinkedCount === 0,
           source: c.source,
         });
@@ -552,7 +552,7 @@ export function BulkEnrichmentReviewModal(props: BulkEnrichmentReviewModalProps)
           if (!c) continue;
           const resp = await client.music.ingestRemoteImage({
             remote_url: url,
-            target: { kind: "Artist", id: artistPanel.artist_id } as any,
+            target: { kind: "Artist", id: artistPanel.artist_id },
             is_primary: artistLinkedCount === 0,
             source: c.source,
           });

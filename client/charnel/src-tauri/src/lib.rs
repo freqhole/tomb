@@ -643,7 +643,10 @@ pub fn run() {
                 #[cfg(all(debug_assertions, desktop))]
                 let wizard_url = WebviewUrl::External("http://localhost:1421".parse().unwrap());
                 #[cfg(not(all(debug_assertions, desktop)))]
-                let wizard_url = WebviewUrl::App(PathBuf::from("wizard/index.html"));
+                let wizard_url = WebviewUrl::App(PathBuf::from(format!(
+                    "wizard/index.html?{}",
+                    app_config::cache_busting_query()
+                )));
 
                 let wizard_builder = WebviewWindowBuilder::new(app, "setup-wizard", wizard_url);
                 #[cfg(desktop)]
@@ -835,7 +838,11 @@ pub fn run() {
 
                 // show main window (spume will call getConfig on startup)
                 tracing::info!(elapsed_ms = %boot_start.elapsed().as_millis(), "boot: creating main window...");
-                let win_builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::default());
+                let main_url = WebviewUrl::App(PathBuf::from(format!(
+                    "index.html?{}",
+                    app_config::cache_busting_query()
+                )));
+                let win_builder = WebviewWindowBuilder::new(app, "main", main_url);
                 #[cfg(desktop)]
                 let win_builder = win_builder
                     .inner_size(800.0, 600.0)
@@ -986,6 +993,12 @@ pub fn run() {
             commands::zip_abort,
             commands::scan_directory,
             commands::rescan_directories,
+            commands::repair_library_run,
+            commands::repair_library_run_status,
+            commands::repair_library_active_session,
+            commands::maintenance_run,
+            commands::maintenance_run_status,
+            commands::maintenance_active_session,
             commands::get_federation_status,
             commands::federation_setup,
             commands::federation_sync,

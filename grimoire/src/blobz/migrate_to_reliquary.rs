@@ -65,7 +65,6 @@ impl MigrationReport {
 #[derive(Debug, Clone)]
 struct SourceBlob {
     id: String,
-    sha256: String,
     size: Option<i64>,
     mime: Option<String>,
     source_client_id: Option<String>,
@@ -90,7 +89,6 @@ async fn fetch_all_source_blobs() -> GrimoireResult<Vec<SourceBlob>> {
         SourceBlob,
         r#"SELECT
             id as "id!",
-            sha256 as "sha256!",
             size,
             mime,
             source_client_id,
@@ -243,12 +241,11 @@ pub async fn migrate_to_reliquary() -> GrimoireResult<MigrationReport> {
                 blake3, iroh_hash, sha256, old_grimoire_id, filename, mime, size, path,
                 external, blob_type, parent_blake3, width, height, metadata, created_at
             )
-            VALUES (?1, NULL, ?2, ?3, ?4, ?5, ?6, ?7, 0, ?8, ?9, ?10, ?11, ?12, ?13)
+            VALUES (?1, NULL, NULL, ?2, ?3, ?4, ?5, ?6, 0, ?7, ?8, ?9, ?10, ?11, ?12)
             ON CONFLICT (blake3) DO NOTHING
             "#,
         )
         .bind(&blake3)
-        .bind(&row.sha256)
         .bind(&row.id)
         .bind(&row.filename)
         .bind(&row.mime)
@@ -351,7 +348,6 @@ mod tests {
     fn row(id: &str, blake3: Option<&str>, deleted: bool) -> SourceBlob {
         SourceBlob {
             id: id.to_string(),
-            sha256: "0".repeat(64),
             size: Some(10),
             mime: None,
             source_client_id: None,

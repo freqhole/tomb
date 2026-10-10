@@ -218,6 +218,116 @@ pub struct EnqueueMbAlbumSearchResponse {
 }
 
 // =============================================================================
+// repair library images (maintenance #19/#20: missing waveform/thumbnail
+// backfill + directory-image over-application cleanup)
+// =============================================================================
+
+/// parameters for a `JobType::RepairLibraryImages` job. the whole-library
+/// pass runs as a chain of small batch jobs rather than one long one -
+/// see `jobs::music::repair_library_images_processor` - each job handles
+/// one batch and (if there's more work) enqueues the next with its
+/// `directory_offset` advanced and `carry` updated with this batch's
+/// totals. a batch job is quick to finish and individually cancelable:
+/// cancelling it just stops the chain, since no further batch is
+/// enqueued.
+///
+/// always runs every phase (song waveforms, video waveforms, video
+/// thumbnails, then directories) - `options` (shared with the
+/// CLI/rathole/charnel synchronous surface, see
+/// `maintenance::repair_library_images_sync`) gates which sub-jobs
+/// within each phase actually do anything; a phase whose sub-jobs are
+/// all disabled is skipped by the processor rather than batched through
+/// for no reason.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, ZodSchema)]
+pub struct RepairLibraryImagesParams {
+    /// when true, counts what would change without writing anything.
+    #[serde(default)]
+    pub dry_run: bool,
+    #[serde(default)]
+    pub phase: crate::maintenance::RepairLibraryImagesPhase,
+    /// offset into the current `phase`'s candidate list - for
+    /// `Directories`, into the sorted distinct-directory list (see
+    /// `repair_directories_batch`); for the other three phases, only
+    /// meaningful under `dry_run` (a real run's candidate set shrinks on
+    /// its own as rows get fixed, so it stays 0; see
+    /// `repair_waveforms_batch`'s doc comment for why a dry run needs
+    /// one instead).
+    #[serde(default)]
+    pub directory_offset: i64,
+    /// restricts the run to one tracked directory's subtree instead of
+    /// the whole library (see `maintenance::repair_waveforms_batch`'s doc
+    /// comment for the exact matching rule).
+    #[serde(default)]
+    pub scan_directory: Option<String>,
+    /// which sub-jobs are enabled (waveform backfill, embedded/directory
+    /// art backfill, over-applied-image removal).
+    #[serde(default)]
+    pub options: crate::maintenance::RepairLibraryImagesOptions,
+    /// running totals carried forward from earlier batches in this chain
+    /// - only the terminal batch's job result reflects the full picture.
+    #[serde(default)]
+    pub carry: crate::maintenance::RepairLibraryImagesResult,
+}
+
+/// per-batch job result: running totals through this batch, whether the
+/// whole chain is done, and (if not) the job id of the next batch - lets
+/// a client chase the chain to completion via `waitForJobResult` without
+/// needing a separate session-status endpoint.
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct RepairLibraryImagesJobResult {
+    pub totals: crate::maintenance::RepairLibraryImagesResult,
+    pub done: bool,
+    pub next_job_id: Option<String>,
+}
+
+/// request body for the enqueue offal endpoint.
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct EnqueueRepairLibraryImagesRequest {
+    #[serde(default)]
+    pub dry_run: bool,
+    #[serde(default)]
+    pub scan_directory: Option<String>,
+    #[serde(default)]
+    pub options: crate::maintenance::RepairLibraryImagesOptions,
+}
+
+/// response from the enqueue endpoint.
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct EnqueueRepairLibraryImagesResponse {
+    pub job_id: String,
+}
+
+/// parameters for a `JobType::ReorganizeLibraryFiles` batch job - a fixed,
+/// disjoint list of song/video ids to move, computed once by the
+/// enqueue/plan step (see `maintenance::reorganize_library`). unlike
+/// `RepairLibraryImagesParams`, there's no phase/offset/carry to chain -
+/// each batch is fully self-contained, which is what lets many of these
+/// jobs run in parallel safely (see `jobs::runner::conflict_key_for`'s
+/// fallthrough for this job type).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, ZodSchema)]
+pub struct ReorganizeLibraryFilesParams {
+    pub target_directory: String,
+    pub source_directory: String,
+    #[serde(default)]
+    pub song_ids: Vec<String>,
+    #[serde(default)]
+    pub video_ids: Vec<String>,
+    /// when true, counts what would move without writing anything.
+    #[serde(default)]
+    pub dry_run: bool,
+    /// songs only - embed id3/vorbis/etc tags + cover art into whichever
+    /// formats support writing them.
+    #[serde(default)]
+    pub embed_tags: bool,
+}
+
+/// result of a `ReorganizeLibraryFiles` batch job.
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct ReorganizeLibraryFilesJobResult {
+    pub totals: crate::maintenance::ReorganizeLibraryResult,
+}
+
+// =============================================================================
 // musicbrainz album detail (folksonomy enrichment, phase 8)
 // =============================================================================
 

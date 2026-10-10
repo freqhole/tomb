@@ -7,7 +7,7 @@
 // this checks both stores.
 
 import type { BlobMetadataResponse } from "@freqhole/api-client";
-import { getSongByBlake3, getSongBySha256 } from "../../../music/services/storage/db/songs";
+import { findExistingSongByContentHash } from "../../../music/services/storage/db/songs";
 import type { Song } from "../../../music/services/storage/types";
 import { readAudioFromOPFS } from "../../../music/services/opfs/helpers";
 import { getVideoByBlake3 } from "../../../video/services/storage/db/videos";
@@ -27,14 +27,13 @@ function blobIdFor(song: Song): string {
  * blob by hash, so this is the guaranteed checkpoint to stage it for
  * iroh-blobs serving. */
 export async function getMediaBlob(id: string): Promise<BlobMetadataResponse | null> {
-  const song = (await getSongByBlake3(id)) ?? (await getSongBySha256(id));
+  const song = await findExistingSongByContentHash({ blake3: id, sha256: id });
   if (song) {
     if (song.opfs_path) {
       await ensureBlobServable(blobIdFor(song), () => readAudioFromOPFS(song.opfs_path!));
     }
     return {
       id: blobIdFor(song),
-      sha256: song.sha256,
       size: song.file_size ?? undefined,
       mime: song.mime_type ?? undefined,
       filename: song.file_name ?? undefined,
@@ -51,10 +50,6 @@ export async function getMediaBlob(id: string): Promise<BlobMetadataResponse | n
     }
     return {
       id,
-      // video has no sha256 concept (blake3-only identity, see
-      // LocalVideoRow.blake3's field comment) - reuse blake3 here since
-      // no caller compares a video's blob metadata sha256 meaningfully.
-      sha256: id,
       size: video.file_size ?? undefined,
       mime: video.mime_type ?? undefined,
       filename: video.file_name ?? undefined,
@@ -76,7 +71,6 @@ export async function getMediaBlob(id: string): Promise<BlobMetadataResponse | n
     await ensureBlobServable(id, () => Promise.resolve(image));
     return {
       id,
-      sha256: id,
       size: image.size,
       mime: image.type || undefined,
       filename: undefined,
@@ -117,7 +111,7 @@ export interface BlobDataResponse {
  * a whole file as base64. `null` if this device has no song/video
  * matching `id` (blake3, or sha256 for pre-blake3-backfill songs). */
 export async function getData(id: string): Promise<BlobDataResponse | null> {
-  const song = (await getSongByBlake3(id)) ?? (await getSongBySha256(id));
+  const song = await findExistingSongByContentHash({ blake3: id, sha256: id });
   if (song) {
     if (!song.opfs_path) return null;
     const file = await readAudioFromOPFS(song.opfs_path);

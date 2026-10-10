@@ -17,7 +17,7 @@ import {
   type QueuedVideo,
 } from "../../../app/services/storage/mediaItem";
 import { syncSongToLocal, canSyncSong, type SyncableSong } from "../sync";
-import { songIdentityKey } from "../storage/types";
+import { songIdentityKey, syncTrackingKey } from "../storage/types";
 import { syncVideoToLocal, canSyncVideo } from "../../../video/services/sync/syncVideoToLocal";
 import { isVideoSyncedLocally } from "../../../video/services/syncState";
 import { videoQueryKeys } from "../../../video/queries/queryKeys";
@@ -153,29 +153,47 @@ export function cancelPendingAutoDownloads(items: MediaItem[]): void {
 // download a single song
 async function downloadSong(song: SyncableSong): Promise<void> {
   const sha256 = song.sha256;
+  // sync/dedup tracking key - deliberately separate from `sha256` above,
+  // which only backs the UI loading-indicator system (matches
+  // appState().current_item_key's sha256-preferring convention) - see
+  // syncTrackingKey's doc comment for why these two must stay distinct.
+  const trackingKey = syncTrackingKey(song);
 
   // add to UI loading set so queue shows loading indicator
   addToLoadingSet(sha256);
 
+  const syncPromise = syncSongToLocal(song, (received, total) => {
+    // update progress for UI - updateLoadingProgress wants a 0..1
+    // fraction (same as every other caller, e.g. blobResolver.ts/
+    // audioAccess.ts's `received / total`) - this used to pass an
+    // already-*100 percentage instead, which QueueSongRow's
+    // loadingPercent() then multiplied by 100 AGAIN, so the bar
+    // clamped to 100% on the very first tick instead of animating.
+    if (total > 0) {
+      const fraction = received / total;
+      updateLoadingProgress(sha256, fraction);
+      debug("autoDownload", `progress: ${sha256.slice(0, 8)}... ${Math.round(fraction * 100)}%`);
+    }
+  });
+  // register with the shared in-flight tracker ourselves rather than
+  // relying solely on syncSongToLocal's own internal registerDownload
+  // call - processQueue's MAX_CONCURRENT_DOWNLOADS gate reads
+  // getActiveDownloadCount(), which this registry backs, and the caller
+  // that owns a concurrency budget needs to own enforcing it directly, not
+  // depend on a downstream implementation detail staying in sync. mirrors
+  // downloadVideo below (which already did this correctly).
+  registerDownload(
+    trackingKey,
+    syncPromise.then(() => undefined)
+  );
+
   try {
     debug("autoDownload", `starting download: ${song.title} (${sha256.slice(0, 8)}...)`);
 
-    const result = await syncSongToLocal(song, (received, total) => {
-      // update progress for UI - updateLoadingProgress wants a 0..1
-      // fraction (same as every other caller, e.g. blobResolver.ts/
-      // audioAccess.ts's `received / total`) - this used to pass an
-      // already-*100 percentage instead, which QueueSongRow's
-      // loadingPercent() then multiplied by 100 AGAIN, so the bar
-      // clamped to 100% on the very first tick instead of animating.
-      if (total > 0) {
-        const fraction = received / total;
-        updateLoadingProgress(sha256, fraction);
-        debug("autoDownload", `progress: ${sha256.slice(0, 8)}... ${Math.round(fraction * 100)}%`);
-      }
-    });
+    const result = await syncPromise;
 
     if (result.success) {
-      markSongSynced(sha256);
+      markSongSynced(trackingKey);
       debug(
         "autoDownload",
         `completed: ${song.title}${result.skipped ? " (already existed)" : ""}`
@@ -187,14 +205,14 @@ async function downloadSong(song: SyncableSong): Promise<void> {
         void queryClient.invalidateQueries({ queryKey: queryKeys.albums.all() });
       }
     } else {
-      const attempts = markDownloadFailed(sha256);
+      const attempts = markDownloadFailed(trackingKey);
       warn(
         "autoDownload",
         `failed: ${song.title} - ${result.error} (attempt ${attempts}/${MAX_RETRY_ATTEMPTS})`
       );
     }
   } catch (error) {
-    const attempts = markDownloadFailed(sha256);
+    const attempts = markDownloadFailed(trackingKey);
     warn(
       "autoDownload",
       `error downloading ${song.title} (attempt ${attempts}/${MAX_RETRY_ATTEMPTS}):`,
@@ -315,17 +333,17 @@ export async function updateAutoDownloadQueue(
     }
 
     // skip if already synced
-    if (isSongSyncedLocally(song.sha256)) {
+    if (isSongSyncedLocally(syncTrackingKey(song))) {
       continue;
     }
 
     // skip if permanently failed (exhausted retries)
-    if (hasFailedPermanently(song.sha256)) {
+    if (hasFailedPermanently(syncTrackingKey(song))) {
       continue;
     }
 
     // skip if already downloading
-    if (isDownloadInProgress(song.sha256)) {
+    if (isDownloadInProgress(syncTrackingKey(song))) {
       continue;
     }
 
@@ -343,13 +361,13 @@ export async function updateAutoDownloadQueue(
     songsToDownload.push(song);
   }
 
-  // videos: find the current position in the *unified* queue (current_sha256
+  // videos: find the current position in the *unified* queue (current_item_key
   // doubles as the video's own id when a video is playing) and consider every
   // not-yet-synced, syncable, P2P remote video from there onward.
-  const unifiedCurrentIndex = state.current_sha256
+  const unifiedCurrentIndex = state.current_item_key
     ? Math.max(
         0,
-        state.queue.findIndex((item) => mediaItemKey(item) === state.current_sha256)
+        state.queue.findIndex((item) => mediaItemKey(item) === state.current_item_key)
       )
     : 0;
   const upcomingVideos = videosOnly(state.queue.slice(unifiedCurrentIndex));
@@ -391,8 +409,8 @@ export async function resumeAutoDownloadsOnInit(): Promise<void> {
 
   // find current song index from sha256 (song-only subset - the video
   // half of the queue is handled separately inside updateAutoDownloadQueue,
-  // keyed off the unified current_sha256/mediaItemKey instead)
-  const currentSha256 = state.current_sha256;
+  // keyed off the unified current_item_key/mediaItemKey instead)
+  const currentSha256 = state.current_item_key;
   const queueSongs = songsOnly(state.queue);
   const currentIndex = currentSha256
     ? queueSongs.findIndex((s) => songIdentityKey(s) === currentSha256)
@@ -420,7 +438,7 @@ export async function downloadAllNow(): Promise<void> {
   clearAllFailures();
 
   // find current index from sha256 (song-only subset)
-  const currentSha256 = state.current_sha256;
+  const currentSha256 = state.current_item_key;
   const queue = songsOnly(state.queue);
   const currentIndex = currentSha256
     ? Math.max(
@@ -434,8 +452,8 @@ export async function downloadAllNow(): Promise<void> {
   for (let i = currentIndex; i < queue.length; i++) {
     const song = queue[i];
 
-    if (isSongSyncedLocally(song.sha256)) continue;
-    if (isDownloadInProgress(song.sha256)) continue;
+    if (isSongSyncedLocally(syncTrackingKey(song))) continue;
+    if (isDownloadInProgress(syncTrackingKey(song))) continue;
     if (!canSyncSong(song)) continue;
 
     const isP2P = await isP2PRemoteSong(song);

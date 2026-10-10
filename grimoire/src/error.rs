@@ -92,9 +92,6 @@ pub enum GrimoireError {
     #[error("tag not found: {id}")]
     TagNotFound { id: String },
 
-    #[error("invalid sha256 hash: {hash}")]
-    InvalidSha256 { hash: String },
-
     #[error("file already exists: {path}")]
     FileExists { path: String },
 
@@ -273,7 +270,6 @@ impl GrimoireError {
             GrimoireError::InvalidEntityType { .. } => false,
             GrimoireError::DatabaseNotFound(_) => false,
             GrimoireError::Validation { .. } => false,
-            GrimoireError::InvalidSha256 { .. } => false,
             GrimoireError::InvalidFormat { .. } => false,
             GrimoireError::InvalidEventType(_) => false,
             GrimoireError::InvalidEventData(_) => false,

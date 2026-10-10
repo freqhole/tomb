@@ -85,7 +85,6 @@ impl From<String> for BlobType {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct MediaBlob {
     pub id: String,
-    pub sha256: String,
     pub size: Option<i64>,
     pub mime: Option<String>,
     pub source_client_id: Option<String>,
@@ -113,7 +112,6 @@ pub struct MediaBlob {
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct BlobMetadataResponse {
     pub id: String,
-    pub sha256: String,
     pub size: Option<i64>,
     pub mime: Option<String>,
     pub filename: Option<String>,
@@ -126,7 +124,6 @@ impl From<MediaBlob> for BlobMetadataResponse {
     fn from(blob: MediaBlob) -> Self {
         Self {
             id: blob.id,
-            sha256: blob.sha256,
             size: blob.size,
             mime: blob.mime,
             filename: blob.filename,
@@ -139,7 +136,6 @@ impl From<MediaBlob> for BlobMetadataResponse {
 /// request for creating a new media blob
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct CreateMediaBlobRequest {
-    pub sha256: String,
     pub size: Option<i64>,
     pub mime: Option<String>,
     pub source_client_id: Option<String>,
@@ -159,7 +155,7 @@ pub struct CreateMediaBlobRequest {
     pub height: Option<i64>,
     /// blake3 content hash for iroh-blobs (computed on ingest or on-demand)
     pub blake3: Option<String>,
-    /// when true and this request turns out to be a duplicate (same sha256
+    /// when true and this request turns out to be a duplicate (same content
     /// as an already-imported, non-deleted blob) with a different, real
     /// (non-null) `local_path`, delete the file at *this* request's
     /// `local_path` instead of relocating the existing blob to point at it.
@@ -181,7 +177,6 @@ impl ZodSchema for MediaBlob {
         // local_path intentionally excluded - internal filesystem detail not exposed in api
         zod_object(&[
             ("id", zod_string()),
-            ("sha256", zod_string()),
             ("size", &zod_nullable(zod_number())),
             ("mime", &zod_nullable(zod_string())),
             ("source_client_id", &zod_nullable(zod_string())),

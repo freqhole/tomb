@@ -115,6 +115,7 @@ impl Encoder {
         {
             cmd.process_group(0);
         }
+        crate::process_ext::hide_console_window(&mut cmd);
 
         let mut child = cmd.spawn().map_err(|e| GrimoireError::ProcessingFailed {
             message: format!("radio: failed to spawn ffmpeg ({ffmpeg}): {e}"),

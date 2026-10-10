@@ -1,8 +1,6 @@
 // the metadata side of the resolver chain: an IndexedDB-backed record
 // store keyed by blob_id (the blake3 hex digest), with secondary indexes
-// so a record can also be found by its legacy sha256, by blake3 alone
-// (covering a record whose primary key is a legacy sha256), by blob_type,
-// or by parent_blob_id.
+// so a record can also be found by blob_type or parent_blob_id.
 //
 // follows a "open fresh, close when done" pattern for every operation
 // rather than holding one long-lived connection open - simple, and avoids
@@ -18,7 +16,7 @@ const DB_VERSION = 3;
 // by openDb's version-fallback path to detect an already-existing database
 // that's missing an index added by a newer db.ts than whatever build last
 // touched it.
-const BLOB_INDEXES = ["sha256", "blake3", "blob_type", "parent_blob_id", "size", "created_at"];
+const BLOB_INDEXES = ["blake3", "blob_type", "parent_blob_id", "size", "created_at"];
 const REFS_INDEXES = ["blob_id", "canvas_doc_id"];
 
 function openVersioned(dbName: string, version: number): Promise<IDBDatabase> {
@@ -55,7 +53,9 @@ function openVersioned(dbName: string, version: number): Promise<IDBDatabase> {
         // this before purging local bytes, instead of scanning every
         // canvas. composite key so re-adding an existing ref is a no-op
         // (put with the same key overwrites, add() would throw).
-        const refs = db.createObjectStore(REFS_STORE_NAME, { keyPath: ["blob_id", "canvas_doc_id"] });
+        const refs = db.createObjectStore(REFS_STORE_NAME, {
+          keyPath: ["blob_id", "canvas_doc_id"],
+        });
         for (const name of REFS_INDEXES) {
           refs.createIndex(name, name, { unique: false });
         }
@@ -178,8 +178,8 @@ export async function getRecord(dbName: string, blobId: string): Promise<BlobRec
 
 async function getByIndex(
   dbName: string,
-  indexName: "sha256" | "blake3",
-  value: string
+  indexName: "blake3",
+  value: string,
 ): Promise<BlobRecord | null> {
   if (!value) return null;
   const db = await openDb(dbName);
@@ -200,10 +200,6 @@ async function getByIndex(
     req.onerror = () => reject(req.error);
     tx.oncomplete = () => db.close();
   });
-}
-
-export function getRecordBySha256(dbName: string, sha256: string): Promise<BlobRecord | null> {
-  return getByIndex(dbName, "sha256", sha256);
 }
 
 export function getRecordByBlake3(dbName: string, blake3: string): Promise<BlobRecord | null> {
@@ -248,7 +244,11 @@ export async function clearRecords(dbName: string): Promise<void> {
 // before purging local bytes instead of scanning every canvas.
 // ---------------------------------------------------------------------------
 
-export async function addCanvasRef(dbName: string, blobId: string, canvasDocId: string): Promise<void> {
+export async function addCanvasRef(
+  dbName: string,
+  blobId: string,
+  canvasDocId: string,
+): Promise<void> {
   const db = await openDb(dbName);
   return new Promise((resolve, reject) => {
     const tx = db.transaction(REFS_STORE_NAME, "readwrite");
@@ -264,7 +264,11 @@ export async function addCanvasRef(dbName: string, blobId: string, canvasDocId: 
   });
 }
 
-export async function removeCanvasRef(dbName: string, blobId: string, canvasDocId: string): Promise<void> {
+export async function removeCanvasRef(
+  dbName: string,
+  blobId: string,
+  canvasDocId: string,
+): Promise<void> {
   const db = await openDb(dbName);
   return new Promise((resolve, reject) => {
     const tx = db.transaction(REFS_STORE_NAME, "readwrite");
@@ -294,7 +298,10 @@ export async function getCanvasRefs(dbName: string, blobId: string): Promise<str
   });
 }
 
-export async function removeAllCanvasRefsForCanvas(dbName: string, canvasDocId: string): Promise<void> {
+export async function removeAllCanvasRefsForCanvas(
+  dbName: string,
+  canvasDocId: string,
+): Promise<void> {
   const db = await openDb(dbName);
   return new Promise((resolve, reject) => {
     const tx = db.transaction(REFS_STORE_NAME, "readwrite");
@@ -369,7 +376,10 @@ function matchesSearch(record: BlobRecord, search?: string): boolean {
   return (record.filename ?? "").toLowerCase().includes(search.toLowerCase());
 }
 
-export async function listBlobs(dbName: string, options: ListBlobsOptions = {}): Promise<ListBlobsPage> {
+export async function listBlobs(
+  dbName: string,
+  options: ListBlobsOptions = {},
+): Promise<ListBlobsPage> {
   const { sort = "created_at", direction = "desc", search, limit = 50, offset = 0 } = options;
   const db = await openDb(dbName);
   return new Promise((resolve, reject) => {
@@ -407,7 +417,8 @@ export async function listBlobs(dbName: string, options: ListBlobsOptions = {}):
     aggReq.onerror = () => reject(aggReq.error);
 
     function collectPage(): void {
-      const useIndex = (sort === "size" || sort === "created_at") && store.indexNames.contains(sort);
+      const useIndex =
+        (sort === "size" || sort === "created_at") && store.indexNames.contains(sort);
       const cursorDirection: IDBCursorDirection = direction === "asc" ? "next" : "prev";
 
       if (useIndex) {
@@ -448,4 +459,3 @@ export async function listBlobs(dbName: string, options: ListBlobsOptions = {}):
     }
   });
 }
-

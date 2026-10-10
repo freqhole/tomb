@@ -147,6 +147,13 @@ fn mpv_err(e: libmpv2::Error) -> String {
 /// spike): only `force-window`/an actual video track does, and neither
 /// happens here.
 pub fn diagnostics() -> VideoWindowDiagnostics {
+    if !grimoire::player::libmpv::is_libmpv_available() {
+        return VideoWindowDiagnostics {
+            available: false,
+            version: None,
+            error: Some("libmpv is not installed on this system".to_string()),
+        };
+    }
     reset_locale_for_mpv();
     match Mpv::new() {
         Ok(mpv) => VideoWindowDiagnostics {
@@ -168,6 +175,14 @@ pub fn diagnostics() -> VideoWindowDiagnostics {
 pub fn dispatch(app: AppHandle<Wry>, command: VideoCommand) -> Result<(), String> {
     std::thread::spawn(move || {
         if let Err(e) = handle_command(&app, command) {
+            // previously only reached the frontend via `VideoEvent::Error`
+            // - confirmed real 2026-10-08: an `Mpv::with_initializer`
+            // failure (bad gpu-api/gpu-context option) left zero trace in
+            // charnel.log, not even mpv's own log-file (never created -
+            // the failing `set_option` bailed out before reaching that
+            // later call), making the actual failure reason invisible
+            // without digging through frontend/browser console state.
+            tracing::error!(error = %e, "video_window: command failed");
             emit_event(
                 &app,
                 &VideoEvent::Error {
@@ -423,15 +438,72 @@ fn query_devices_headless() -> Vec<grimoire::player::AudioDeviceInfo> {
 
 /// spawn libmpv (creating its context on first use) and start the
 /// background thread that turns its event stream into `VideoEvent`s.
+///
+/// tried creating the `Mpv` context via `app.run_on_main_thread(...)`
+/// instead of inline here (2026-10-07 theory: mpv's normal macOS entry
+/// point, `cocoa_main`, keeps `[NSApp run]` on the real main thread
+/// specifically because CoreAudio/AVFoundation setup has real thread/
+/// run-loop expectations, and `dispatch()` runs every command - this one
+/// included - on a one-off `std::thread::spawn` thread with no run loop
+/// at all) - confirmed real 2026-10-07 this made no difference
+/// whatsoever (same `core-idle=true` forever, same zero demux/codec/AO/
+/// VO progress in mpv's own log). reverted to the simpler inline call;
+/// see `scripts/fetch-mpv-runtime.sh`'s macOS-12-minimum plan for the
+/// current leading theory instead (swift-build disabled).
 fn spawn_mpv(app: &AppHandle<Wry>) -> Result<(), String> {
     if !grimoire::player::libmpv::is_libmpv_available() {
         return Err("failed to start libmpv: not installed on this system".to_string());
     }
+
+    let (mpv, events) = create_mpv_and_events(app)?;
+
+    let generation = GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
+    {
+        let mut guard = WINDOW.lock().map_err(|_| poisoned())?;
+        *guard = Some(LibmpvWindow {
+            mpv,
+            state: PlayerState::default(),
+            generation,
+        });
+    }
+
+    let app_for_events = app.clone();
+    std::thread::spawn(move || read_libmpv_events(app_for_events, events, generation));
+    tracing::info!("video_window: libmpv started");
+    Ok(())
+}
+
+/// everything that creates/configures the `Mpv` context and its events
+/// client - split out of `spawn_mpv` only because it was briefly also
+/// called via `run_on_main_thread` (see `spawn_mpv`'s doc comment);
+/// kept split since it's a clean separation of concerns either way.
+fn create_mpv_and_events(app: &AppHandle<Wry>) -> Result<(Mpv, Mpv), String> {
+    let app_config = crate::app_config::FreqholeAppConfig::load(app).unwrap_or_default();
+    tracing::info!(
+        hwdec = %app_config.video_hwdec,
+        extra_options = ?app_config.video_mpv_extra_options,
+        "video_window: applying mpv config"
+    );
     reset_locale_for_mpv();
     suppress_macos_icon_override();
     set_vulkan_icd_env();
     let mpv = Mpv::with_initializer(|init| {
         init.set_option("geometry", "960x540")?;
+        // "auto" lets mpv pick the best hw decode method per-platform/
+        // codec and falls back to software when none applies - a safe
+        // default everywhere, configurable via charnel-config.toml's
+        // `video_hwdec` for anyone who needs to force it off.
+        init.set_option("hwdec", app_config.video_hwdec.as_str())?;
+        // raw passthrough for anything else libmpv takes (e.g.
+        // `gpu-context = "cocoa"` to force OpenGL over Vulkan/MoltenVK on
+        // GPUs where the latter glitches - confirmed real 2026-10-08 on
+        // an Intel Iris iGPU under macOS 12, absent on a newer macOS 14
+        // Intel machine testing the exact same build). empty by default -
+        // mpv's own vo=gpu-next/Vulkan-via-MoltenVK auto-selection applies
+        // unless a user opts into an override here.
+        for (key, value) in &app_config.video_mpv_extra_options {
+            init.set_option(key.as_str(), value.as_str())?;
+        }
         // opens a window immediately rather than only once a video track
         // decodes. NOTE: NOT "immediate" - that specific choice value is
         // rejected with `Raw(-4)` (MPV_ERROR_INVALID_PARAMETER) when set
@@ -445,6 +517,13 @@ fn spawn_mpv(app: &AppHandle<Wry>) -> Result<(), String> {
         // where the OSC is on by default - without this, there's no
         // seekbar/play-pause/track-cycling overlay at all.
         init.set_option("osc", "yes")?;
+        // mpv stays completely silent about *why* a file fails to play
+        // (codec missing, no video/audio output found, decoder error,
+        // etc.) unless it's told to log that detail somewhere - errors
+        // encountered applying mpv options/commands are logged via
+        // `tracing::error!` into charnel.log instead (see `dispatch()`),
+        // rather than mpv's own `log-file`/`msg-level=v`, which wrote a
+        // separate, highly verbose `libmpv-video.log` file per session.
         Ok(())
     })
     .map_err(|e| format!("failed to start libmpv: {e}"))?;
@@ -503,20 +582,7 @@ fn spawn_mpv(app: &AppHandle<Wry>) -> Result<(), String> {
         let _ = events.observe_property(name, format, 0);
     }
 
-    let generation = GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
-    {
-        let mut guard = WINDOW.lock().map_err(|_| poisoned())?;
-        *guard = Some(LibmpvWindow {
-            mpv,
-            state: PlayerState::default(),
-            generation,
-        });
-    }
-
-    let app_for_events = app.clone();
-    std::thread::spawn(move || read_libmpv_events(app_for_events, events, generation));
-    tracing::info!("video_window: libmpv started");
-    Ok(())
+    Ok((mpv, events))
 }
 
 fn read_libmpv_events(app: AppHandle<Wry>, events: Mpv, generation: u64) {

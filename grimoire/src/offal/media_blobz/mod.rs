@@ -6,8 +6,8 @@ use crate::api_registry::{Domain, Method, RouteAuth, RouteInfo};
 use crate::error::ErrorDetail;
 use crate::media_blobz::{
     build_blob_data_response, build_blob_path_response, build_blob_response,
-    build_blob_thumbnail_response, find_present_blake3s, find_present_sha256s, get_media_blob,
-    get_media_blob_by_blake3, BlobMetadataResponse,
+    build_blob_thumbnail_response, find_present_blake3s, get_media_blob, get_media_blob_by_blake3,
+    BlobMetadataResponse,
 };
 use crate::offal::caller::Caller;
 use crate::response::GrimoireResponse;
@@ -146,30 +146,24 @@ pub struct GetBlobMetadataByBlake3Request {
 }
 
 /// request for `POST /api/blobz/has` — ask the server which of the supplied
-/// content hashes already exist in `media_blobz`. used by the send-to-remote
+/// blake3 hashes already exist in `media_blobz`. used by the send-to-remote
 /// dedupe negotiation step.
 ///
-/// callers may pass either or both arrays. empty arrays are valid and produce
-/// empty result lists.
+/// an empty array is valid and produces an empty result list.
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct HasBlobsRequest {
-    /// blake3 hashes for iroh-addressed audio blobs.
+    /// blake3 hashes for iroh-addressed blobs.
     #[serde(default)]
     pub blake3s: Vec<String>,
-    /// sha256 hashes for content-addressed blobs (images, etc.).
-    #[serde(default)]
-    pub sha256s: Vec<String>,
 }
 
 /// response for `POST /api/blobz/has`. each input hash appears in exactly one
-/// of the two corresponding `_present` / `_missing` lists. ordering is not
-/// stable; clients should treat the lists as sets.
+/// of the two `_present` / `_missing` lists. ordering is not stable; clients
+/// should treat the lists as sets.
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct HasBlobsResponse {
     pub blake3s_present: Vec<String>,
     pub blake3s_missing: Vec<String>,
-    pub sha256s_present: Vec<String>,
-    pub sha256s_missing: Vec<String>,
 }
 
 /// get blob metadata
@@ -251,11 +245,7 @@ pub async fn has_blobs(_caller: &Caller, body: JsonValue) -> GrimoireResponse<Js
         }
     };
 
-    tracing::debug!(
-        "blobz/has: asked about {} blake3s, {} sha256s",
-        req.blake3s.len(),
-        req.sha256s.len(),
-    );
+    tracing::debug!("blobz/has: asked about {} blake3s", req.blake3s.len());
 
     let blake3s_present = match find_present_blake3s(&req.blake3s).await {
         Ok(v) => v,
@@ -266,20 +256,10 @@ pub async fn has_blobs(_caller: &Caller, body: JsonValue) -> GrimoireResponse<Js
             )
         }
     };
-    let sha256s_present = match find_present_sha256s(&req.sha256s).await {
-        Ok(v) => v,
-        Err(e) => {
-            return GrimoireResponse::failure(
-                "failed to query sha256 presence",
-                vec![ErrorDetail::from(e)],
-            )
-        }
-    };
 
-    // partition into present / missing using set lookups; preserves the
+    // partition into present / missing using a set lookup; preserves the
     // caller's original hash strings for the missing side.
     let blake3_present_set: HashSet<&str> = blake3s_present.iter().map(String::as_str).collect();
-    let sha256_present_set: HashSet<&str> = sha256s_present.iter().map(String::as_str).collect();
 
     let blake3s_missing: Vec<String> = req
         .blake3s
@@ -287,25 +267,15 @@ pub async fn has_blobs(_caller: &Caller, body: JsonValue) -> GrimoireResponse<Js
         .filter(|h| !blake3_present_set.contains(h.as_str()))
         .cloned()
         .collect();
-    let sha256s_missing: Vec<String> = req
-        .sha256s
-        .iter()
-        .filter(|h| !sha256_present_set.contains(h.as_str()))
-        .cloned()
-        .collect();
 
     let response = HasBlobsResponse {
         blake3s_present,
         blake3s_missing,
-        sha256s_present,
-        sha256s_missing,
     };
     tracing::debug!(
-        "blobz/has: blake3 {}/{} present; sha256 {}/{} present",
+        "blobz/has: blake3 {}/{} present",
         response.blake3s_present.len(),
         req.blake3s.len(),
-        response.sha256s_present.len(),
-        req.sha256s.len(),
     );
     GrimoireResponse::success("blob presence", serde_json::to_value(response).unwrap())
 }

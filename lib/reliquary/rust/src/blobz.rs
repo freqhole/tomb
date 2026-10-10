@@ -107,7 +107,6 @@ pub enum SortDirection {
 pub struct BlobRecord {
     pub blake3: String,
     pub iroh_hash: Option<String>,
-    pub sha256: Option<String>,
     pub old_grimoire_id: Option<String>,
     pub filename: Option<String>,
     pub mime: Option<String>,
@@ -222,10 +221,6 @@ pub trait BlobStore: Send + Sync {
     /// blake3 could diverge during migration; usually equal to blake3 today).
     async fn get_by_iroh_hash(&self, iroh_hash: &str)
         -> Result<Option<BlobRecord>, BlobStoreError>;
-
-    /// resolve by the legacy sha256 secondary index. never a lookup
-    /// requirement for new code - exists for migration-era resolution only.
-    async fn get_by_sha256(&self, sha256: &str) -> Result<Option<BlobRecord>, BlobStoreError>;
 
     /// resolve by tomb's pre-migration short-hex grimoire blob id.
     async fn get_by_old_id(
@@ -712,7 +707,7 @@ impl BlobStore for SqliteBlobStore {
     async fn get(&self, blake3: &str) -> Result<Option<BlobRecord>, BlobStoreError> {
         let row: Option<BlobRow> = sqlx::query_as(
             r#"
-            SELECT blake3, iroh_hash, sha256, old_grimoire_id, filename, mime,
+            SELECT blake3, iroh_hash, old_grimoire_id, filename, mime,
                    size, path, external,
                    blob_type, parent_blake3, width, height, metadata,
                    created_at, soft_deleted_at, soft_deleted_by
@@ -729,7 +724,7 @@ impl BlobStore for SqliteBlobStore {
     async fn get_any(&self, blake3: &str) -> Result<Option<BlobRecord>, BlobStoreError> {
         let row: Option<BlobRow> = sqlx::query_as(
             r#"
-            SELECT blake3, iroh_hash, sha256, old_grimoire_id, filename, mime,
+            SELECT blake3, iroh_hash, old_grimoire_id, filename, mime,
                    size, path, external,
                    blob_type, parent_blake3, width, height, metadata,
                    created_at, soft_deleted_at, soft_deleted_by
@@ -749,7 +744,7 @@ impl BlobStore for SqliteBlobStore {
     ) -> Result<Option<BlobRecord>, BlobStoreError> {
         let row: Option<BlobRow> = sqlx::query_as(
             r#"
-            SELECT blake3, iroh_hash, sha256, old_grimoire_id, filename, mime,
+            SELECT blake3, iroh_hash, old_grimoire_id, filename, mime,
                    size, path, external,
                    blob_type, parent_blake3, width, height, metadata,
                    created_at, soft_deleted_at, soft_deleted_by
@@ -763,30 +758,13 @@ impl BlobStore for SqliteBlobStore {
         Ok(row.map(Into::into))
     }
 
-    async fn get_by_sha256(&self, sha256: &str) -> Result<Option<BlobRecord>, BlobStoreError> {
-        let row: Option<BlobRow> = sqlx::query_as(
-            r#"
-            SELECT blake3, iroh_hash, sha256, old_grimoire_id, filename, mime,
-                   size, path, external,
-                   blob_type, parent_blake3, width, height, metadata,
-                   created_at, soft_deleted_at, soft_deleted_by
-            FROM blobz WHERE sha256 = ?1
-            "#,
-        )
-        .bind(sha256)
-        .fetch_optional(&self.pool)
-        .await?;
-
-        Ok(row.map(Into::into))
-    }
-
     async fn get_by_old_id(
         &self,
         old_grimoire_id: &str,
     ) -> Result<Option<BlobRecord>, BlobStoreError> {
         let row: Option<BlobRow> = sqlx::query_as(
             r#"
-            SELECT blake3, iroh_hash, sha256, old_grimoire_id, filename, mime,
+            SELECT blake3, iroh_hash, old_grimoire_id, filename, mime,
                    size, path, external,
                    blob_type, parent_blake3, width, height, metadata,
                    created_at, soft_deleted_at, soft_deleted_by
@@ -812,7 +790,7 @@ impl BlobStore for SqliteBlobStore {
         // query string, so this one query is built and checked at runtime.
         let placeholders = blake3s.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
         let sql = format!(
-            r#"SELECT blake3, iroh_hash, sha256, old_grimoire_id, filename, mime,
+            r#"SELECT blake3, iroh_hash, old_grimoire_id, filename, mime,
                       size, path, external, blob_type, parent_blake3, width, height,
                       metadata, created_at, soft_deleted_at, soft_deleted_by
                FROM blobz
@@ -917,7 +895,7 @@ impl BlobStore for SqliteBlobStore {
             for hash in hashes {
                 // only qualify rows that ARE soft-deleted.
                 let maybe_row: Option<BlobRow> = sqlx::query_as(
-                    r#"SELECT blake3, iroh_hash, sha256, old_grimoire_id, filename, mime,
+                    r#"SELECT blake3, iroh_hash, old_grimoire_id, filename, mime,
                               size, path, external,
                               blob_type, parent_blake3, width, height, metadata,
                               created_at, soft_deleted_at, soft_deleted_by
@@ -946,7 +924,7 @@ impl BlobStore for SqliteBlobStore {
         } else {
             // purge ALL soft-deleted rows.
             let rows: Vec<BlobRow> = sqlx::query_as(
-                r#"SELECT blake3, iroh_hash, sha256, old_grimoire_id, filename, mime,
+                r#"SELECT blake3, iroh_hash, old_grimoire_id, filename, mime,
                           size, path, external,
                           blob_type, parent_blake3, width, height, metadata,
                           created_at, soft_deleted_at, soft_deleted_by
@@ -987,7 +965,7 @@ impl BlobStore for SqliteBlobStore {
         let total = total as u64;
 
         let rows: Vec<BlobRow> = sqlx::query_as(
-            r#"SELECT blake3, iroh_hash, sha256, old_grimoire_id, filename, mime,
+            r#"SELECT blake3, iroh_hash, old_grimoire_id, filename, mime,
                       size, path, external,
                       blob_type, parent_blake3, width, height, metadata,
                       created_at, soft_deleted_at, soft_deleted_by
@@ -1035,7 +1013,7 @@ impl BlobStore for SqliteBlobStore {
         let count_sql = format!("SELECT COUNT(*) FROM blobz {where_clause}");
         let size_sql = format!("SELECT COALESCE(SUM(size), 0) FROM blobz {where_clause}");
         let list_sql = format!(
-            r#"SELECT blake3, iroh_hash, sha256, old_grimoire_id, filename, mime,
+            r#"SELECT blake3, iroh_hash, old_grimoire_id, filename, mime,
                       size, path, external,
                       blob_type, parent_blake3, width, height, metadata,
                       created_at, soft_deleted_at, soft_deleted_by
@@ -1080,7 +1058,7 @@ impl BlobStore for SqliteBlobStore {
         let total = total as u64;
 
         let rows: Vec<BlobRow> = sqlx::query_as(
-            r#"SELECT blake3, iroh_hash, sha256, old_grimoire_id, filename, mime,
+            r#"SELECT blake3, iroh_hash, old_grimoire_id, filename, mime,
                       size, path, external,
                       blob_type, parent_blake3, width, height, metadata,
                       created_at, soft_deleted_at, soft_deleted_by
@@ -1142,7 +1120,7 @@ impl BlobStore for SqliteBlobStore {
         let rows: Vec<BlobRow> = if let Some(bt) = blob_type {
             let bt_str = bt.as_str();
             sqlx::query_as(
-                r#"SELECT blake3, iroh_hash, sha256, old_grimoire_id, filename, mime,
+                r#"SELECT blake3, iroh_hash, old_grimoire_id, filename, mime,
                           size, path, external,
                           blob_type, parent_blake3, width, height, metadata,
                           created_at, soft_deleted_at, soft_deleted_by
@@ -1156,7 +1134,7 @@ impl BlobStore for SqliteBlobStore {
             .await?
         } else {
             sqlx::query_as(
-                r#"SELECT blake3, iroh_hash, sha256, old_grimoire_id, filename, mime,
+                r#"SELECT blake3, iroh_hash, old_grimoire_id, filename, mime,
                           size, path, external,
                           blob_type, parent_blake3, width, height, metadata,
                           created_at, soft_deleted_at, soft_deleted_by
@@ -1179,7 +1157,7 @@ impl BlobStore for SqliteBlobStore {
     ) -> Result<Option<BlobRecord>, BlobStoreError> {
         let bt_str = blob_type.as_str();
         let row: Option<BlobRow> = sqlx::query_as(
-            r#"SELECT blake3, iroh_hash, sha256, old_grimoire_id, filename, mime,
+            r#"SELECT blake3, iroh_hash, old_grimoire_id, filename, mime,
                       size, path, external,
                       blob_type, parent_blake3, width, height, metadata,
                       created_at, soft_deleted_at, soft_deleted_by
@@ -1255,7 +1233,6 @@ struct UsageRow {
 struct BlobRow {
     blake3: String,
     iroh_hash: Option<String>,
-    sha256: Option<String>,
     old_grimoire_id: Option<String>,
     filename: Option<String>,
     mime: Option<String>,
@@ -1277,7 +1254,6 @@ impl From<BlobRow> for BlobRecord {
         Self {
             blake3: r.blake3,
             iroh_hash: r.iroh_hash,
-            sha256: r.sha256,
             old_grimoire_id: r.old_grimoire_id,
             filename: r.filename,
             mime: r.mime,
@@ -2097,37 +2073,13 @@ mod tests {
         assert_eq!(live_stats.total_bytes, b1.size);
     }
 
-    // --- schema-delta tests: sha256, old_grimoire_id, derived blobs ---
+    // --- schema-delta tests: old_grimoire_id, derived blobs ---
     //
     // none of these fields are ever written by the `BlobStore` trait itself
-    // (sha256/old_grimoire_id are populated by an out-of-scope migration
-    // path; blob_type/parent_blake3 ARE trait-writable via `NewBlobMeta`).
-    // the sha256/old_grimoire_id tests poke the columns directly via sql to
-    // simulate that migration having already run.
-
-    #[tokio::test]
-    async fn get_by_sha256_finds_migrated_row() {
-        let (store, pool, _tmp) = make_store().await;
-        let blob = store
-            .insert(b"legacy content", NewBlobMeta::default())
-            .await
-            .unwrap();
-
-        sqlx::query("UPDATE blobz SET sha256 = ?1 WHERE blake3 = ?2")
-            .bind("deadbeef-sha256")
-            .bind(&blob.blake3)
-            .execute(&pool)
-            .await
-            .unwrap();
-
-        let found = store
-            .get_by_sha256("deadbeef-sha256")
-            .await
-            .unwrap()
-            .expect("found by sha256");
-        assert_eq!(found.blake3, blob.blake3);
-        assert!(store.get_by_sha256("missing").await.unwrap().is_none());
-    }
+    // (old_grimoire_id is populated by an out-of-scope migration path;
+    // blob_type/parent_blake3 ARE trait-writable via `NewBlobMeta`). the
+    // old_grimoire_id test pokes the column directly via sql to simulate
+    // that migration having already run.
 
     #[tokio::test]
     async fn get_by_old_id_finds_migrated_row() {

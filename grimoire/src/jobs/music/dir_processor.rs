@@ -21,7 +21,7 @@ use tracing::{info, warn};
 ///
 /// each file is processed by delegating to `process_file_job` with a
 /// synthesized per-file `Job` so all the existing import logic
-/// (sha256, ffprobe, image collection, waveform, dedup, rescan-update
+/// (blake3, ffprobe, image collection, waveform, dedup, rescan-update
 /// fallback) runs unchanged. per-file failures are captured but do
 /// not abort the loop; the job as a whole succeeds and reports them
 /// in `ProcessDirectoryResult.failures`.

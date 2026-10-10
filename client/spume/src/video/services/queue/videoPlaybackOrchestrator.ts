@@ -60,18 +60,18 @@ export function installVideoPlaybackOrchestrator(): void {
       const dur = duration();
       const state = appState();
       if (!state) return;
-      const { queue, current_sha256 } = state;
-      if (!current_sha256) return;
+      const { queue, current_item_key: currentItemKey } = state;
+      if (!currentItemKey) return;
 
       const queueVideos = videosOnly(queue);
-      const videoIdx = queueVideos.findIndex((v) => v.id === current_sha256);
+      const videoIdx = queueVideos.findIndex((v) => v.id === currentItemKey);
       const currentVideo = videoIdx >= 0 ? queueVideos[videoIdx] : null;
       if (!currentVideo) return;
 
       // active item changed (initial load, or advanced/skipped to a
       // different video). if the outgoing video never hit the 90%
       // completion marker, treat leaving it as completion anyway.
-      if (lastTimeForId !== current_sha256) {
+      if (lastTimeForId !== currentItemKey) {
         if (
           lastTimeForId !== null &&
           completionRecordedFor !== lastTimeForId &&
@@ -79,7 +79,7 @@ export function installVideoPlaybackOrchestrator(): void {
         ) {
           markVideoCompleted(lastVideoIndex);
         }
-        lastTimeForId = current_sha256;
+        lastTimeForId = currentItemKey;
         lastTimeValue = ct;
         lastVideoIndex = videoIdx;
         completionRecordedFor = null;
@@ -100,8 +100,8 @@ export function installVideoPlaybackOrchestrator(): void {
 
       // 2. completion marker — fires once per video at the threshold.
       const progress = ct / dur;
-      if (completionRecordedFor !== current_sha256 && progress >= COMPLETION_THRESHOLD) {
-        completionRecordedFor = current_sha256;
+      if (completionRecordedFor !== currentItemKey && progress >= COMPLETION_THRESHOLD) {
+        completionRecordedFor = currentItemKey;
         markVideoCompleted(videoIdx, currentVideo);
 
         // locally-imported (OPFS) videos have no server to report a play to.

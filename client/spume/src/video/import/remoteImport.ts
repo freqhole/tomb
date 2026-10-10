@@ -13,13 +13,20 @@ import { getCurrentRemote, getCurrentUser } from "../../music/data";
 import type { UploadJobStatus } from "../../music/import";
 import { createTrackedJobStore } from "../../app/services/transfers/trackedJobStore";
 import { humanizeJobError as humanizeJobErrorShared } from "../../utils/humanizeJobError";
-import { extractTransportErrorType, errorMessageFrom } from "../../utils/humanizeJobError";
+import {
+  extractTransportErrorType,
+  errorMessageFrom,
+  shortenUrlForLabel,
+} from "../../utils/humanizeJobError";
 
 export interface VideoUploadJob {
   /** unique client-side id */
   id: string;
   /** display label (filename) */
   label: string;
+  /** full source url for a url-fetch job - see `UploadJob.fullUrl`'s
+   *  identical doc comment in music/import/remoteImport.ts. */
+  fullUrl?: string;
   /** current status */
   status: UploadJobStatus;
   /** server job id (set after upload succeeds) */
@@ -88,11 +95,12 @@ export function clearAllVideoJobs() {
 // sendReviewedVideoSessionToRemote.ts can show "sending to remote" in the
 // same job list instead of running invisibly (mirrors music's identical
 // export for the same reason).
-export function addTrackedJob(label: string, remoteId: string): string {
+export function addTrackedJob(label: string, remoteId: string, fullUrl?: string): string {
   const id = jobStore.nextId("video-upload");
   jobStore.addJob({
     id,
     label,
+    fullUrl,
     status: "uploading",
     createdAt: Date.now(),
     remoteId,
@@ -617,17 +625,9 @@ export async function fetchVideoUrlsOnRemote(
   const poller = new JobPoller(remote, 3000);
 
   for (const url of urls) {
-    let label: string;
-    try {
-      const parsed = new URL(url);
-      label =
-        parsed.hostname +
-        (parsed.pathname.length > 30 ? "..." + parsed.pathname.slice(-27) : parsed.pathname);
-    } catch {
-      label = url.length > 50 ? url.slice(0, 47) + "..." : url;
-    }
+    const label = shortenUrlForLabel(url);
 
-    const trackId = addTrackedJob(label, remote.remote_id ?? "");
+    const trackId = addTrackedJob(label, remote.remote_id ?? "", url);
 
     (async () => {
       try {

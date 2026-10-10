@@ -38,13 +38,15 @@ pub use music::{
     CancelBulkEnrichmentResponse, DirectoryFileEntry, DirectoryFileFailure,
     EnqueueAudioDbAlbumDetailRequest, EnqueueAudioDbAlbumDetailResponse,
     EnqueueLastFmAlbumDetailRequest, EnqueueLastFmAlbumDetailResponse, EnqueueMbAlbumSearchRequest,
-    EnqueueMbAlbumSearchResponse, EnrichmentSourceStatus, GetEnrichmentProgressRequest,
+    EnqueueMbAlbumSearchResponse, EnqueueRepairLibraryImagesRequest,
+    EnqueueRepairLibraryImagesResponse, EnrichmentSourceStatus, GetEnrichmentProgressRequest,
     GetEnrichmentProgressResponse, LastFmAlbumDetailParams, LastFmAlbumDetailResult,
     LastFmArtistDetailParams, LastFmArtistDetailResult, MbAlbumDetailParams, MbAlbumDetailResult,
     MbAlbumSearchParams, MbAlbumSearchResult, ProcessDirectoryParams, ProcessDirectoryResult,
-    ProcessFileParams, ProcessFileResult, ProcessJobCreatedResponse, RequeryEnrichmentRequest,
-    RequeryEnrichmentResponse, RequeryOverride, ScanDirectoryParams, ScanDirectoryResult,
-    ScanJobCreatedResponse,
+    ProcessFileParams, ProcessFileResult, ProcessJobCreatedResponse,
+    ReorganizeLibraryFilesJobResult, ReorganizeLibraryFilesParams, RepairLibraryImagesJobResult,
+    RepairLibraryImagesParams, RequeryEnrichmentRequest, RequeryEnrichmentResponse,
+    RequeryOverride, ScanDirectoryParams, ScanDirectoryResult, ScanJobCreatedResponse,
 };
 
 // re-export scanned directories functions

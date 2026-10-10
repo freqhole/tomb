@@ -320,7 +320,10 @@ pub fn show_about_window(app: &AppHandle<Wry>) {
     let about_url =
         tauri::WebviewUrl::External("http://localhost:1421/about.html".parse().unwrap());
     #[cfg(not(debug_assertions))]
-    let about_url = tauri::WebviewUrl::App(std::path::PathBuf::from("about.html"));
+    let about_url = tauri::WebviewUrl::App(std::path::PathBuf::from(format!(
+        "about.html?{}",
+        crate::app_config::cache_busting_query()
+    )));
 
     let build_script = format!(
         "window.__FREQHOLE_BUILD__ = {{ version: {version}, gitSha: {sha}, debug: {debug} }};",

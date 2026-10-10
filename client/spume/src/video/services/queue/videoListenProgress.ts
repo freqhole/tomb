@@ -165,7 +165,7 @@ export function reconnectVideoProgressTracking(): void {
   if (activeVideoHistoryEntryId()) return;
 
   const state = appState();
-  if (!state || !state.queue.length || !state.current_sha256) return;
+  if (!state || !state.queue.length || !state.current_item_key) return;
 
   const history = videoQueueHistory();
   if (!history.length) return;
@@ -180,7 +180,7 @@ export function reconnectVideoProgressTracking(): void {
   if (!entry) return;
 
   // set the visual position in the player bar (without affecting playback)
-  const currentVideo = queueVideos.find((v) => v.id === state.current_sha256);
+  const currentVideo = queueVideos.find((v) => v.id === state.current_item_key);
   if (currentVideo && entry.current_video_position > 0) {
     setVisualPosition(entry.current_video_position, currentVideo.duration_seconds ?? undefined);
   }

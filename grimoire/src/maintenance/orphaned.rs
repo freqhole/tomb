@@ -23,6 +23,38 @@ pub struct OrphanedGenresSummary {
     pub genre_names: Vec<String>,
 }
 
+/// summary of orphaned artist cleanup operation
+#[derive(Debug, Clone, Serialize)]
+pub struct OrphanedArtistsSummary {
+    pub artists_found: u32,
+    pub artists_deleted: u32,
+    pub artist_names: Vec<String>,
+}
+
+/// summary of orphaned album cleanup operation
+#[derive(Debug, Clone, Serialize)]
+pub struct OrphanedAlbumsSummary {
+    pub albums_found: u32,
+    pub albums_deleted: u32,
+    pub album_titles: Vec<String>,
+}
+
+/// summary of orphaned video series cleanup operation
+#[derive(Debug, Clone, Serialize)]
+pub struct OrphanedVideoSeriesSummary {
+    pub series_found: u32,
+    pub series_deleted: u32,
+    pub series_titles: Vec<String>,
+}
+
+/// summary of orphaned (non-genre) taxon cleanup operation
+#[derive(Debug, Clone, Serialize)]
+pub struct OrphanedTaxonsSummary {
+    pub taxons_found: u32,
+    pub taxons_deleted: u32,
+    pub taxon_labels: Vec<String>,
+}
+
 /// find and optionally delete orphaned tags
 ///
 /// orphaned tags are tags that exist in the `tagz` table but have no
@@ -140,6 +172,256 @@ pub async fn cleanup_orphaned_genres(dry_run: bool) -> GrimoireResponse<Orphaned
     };
 
     GrimoireResponse::success("orphaned genres cleanup completed", summary)
+}
+
+/// find and optionally delete orphaned artists
+///
+/// orphaned artists have zero rows in `artist_albumz` AND zero rows in
+/// `artist_songz` - no album or song references them at all.
+pub async fn cleanup_orphaned_artists(dry_run: bool) -> GrimoireResponse<OrphanedArtistsSummary> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure("failed to connect to database", vec![e.into()])
+        }
+    };
+
+    let orphaned_artists = match sqlx::query!(
+        r#"
+        SELECT id, name FROM artistz
+        WHERE id NOT IN (SELECT DISTINCT artist_id FROM artist_albumz)
+          AND id NOT IN (SELECT DISTINCT artist_id FROM artist_songz)
+        ORDER BY name
+        "#
+    )
+    .fetch_all(&pool)
+    .await
+    {
+        Ok(rows) => rows,
+        Err(e) => {
+            return GrimoireResponse::failure("failed to query orphaned artists", vec![e.into()])
+        }
+    };
+
+    let artist_names: Vec<String> = orphaned_artists
+        .iter()
+        .map(|row| row.name.clone())
+        .collect();
+    let artists_found = orphaned_artists.len() as u32;
+    let mut artists_deleted = 0u32;
+
+    if !dry_run && !orphaned_artists.is_empty() {
+        for row in orphaned_artists {
+            match sqlx::query!("DELETE FROM artistz WHERE id = ?", row.id)
+                .execute(&pool)
+                .await
+            {
+                Ok(_) => artists_deleted += 1,
+                Err(_) => {
+                    // continue on error - summary will show partial deletion
+                }
+            }
+        }
+    }
+
+    GrimoireResponse::success(
+        "orphaned artists cleanup completed",
+        OrphanedArtistsSummary {
+            artists_found,
+            artists_deleted,
+            artist_names,
+        },
+    )
+}
+
+/// find and optionally delete orphaned albums
+///
+/// orphaned albums have zero rows in `album_songz` - no song references
+/// them at all (a tracklist-less album is nothing to play).
+pub async fn cleanup_orphaned_albums(dry_run: bool) -> GrimoireResponse<OrphanedAlbumsSummary> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure("failed to connect to database", vec![e.into()])
+        }
+    };
+
+    let orphaned_albums = match sqlx::query!(
+        r#"
+        SELECT id, title FROM albumz
+        WHERE id NOT IN (SELECT DISTINCT album_id FROM album_songz)
+        ORDER BY title
+        "#
+    )
+    .fetch_all(&pool)
+    .await
+    {
+        Ok(rows) => rows,
+        Err(e) => {
+            return GrimoireResponse::failure("failed to query orphaned albums", vec![e.into()])
+        }
+    };
+
+    let album_titles: Vec<String> = orphaned_albums
+        .iter()
+        .map(|row| row.title.clone())
+        .collect();
+    let albums_found = orphaned_albums.len() as u32;
+    let mut albums_deleted = 0u32;
+
+    if !dry_run && !orphaned_albums.is_empty() {
+        for row in orphaned_albums {
+            match sqlx::query!("DELETE FROM albumz WHERE id = ?", row.id)
+                .execute(&pool)
+                .await
+            {
+                Ok(_) => albums_deleted += 1,
+                Err(_) => {
+                    // continue on error - summary will show partial deletion
+                }
+            }
+        }
+    }
+
+    GrimoireResponse::success(
+        "orphaned albums cleanup completed",
+        OrphanedAlbumsSummary {
+            albums_found,
+            albums_deleted,
+            album_titles,
+        },
+    )
+}
+
+/// find and optionally delete orphaned video series
+///
+/// orphaned series have zero rows in `videoz` referencing them via
+/// `series_id` - `video_seasonz` can't outlive its series anyway
+/// (`ON DELETE CASCADE`), so videos are the only reference that matters.
+pub async fn cleanup_orphaned_video_series(
+    dry_run: bool,
+) -> GrimoireResponse<OrphanedVideoSeriesSummary> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure("failed to connect to database", vec![e.into()])
+        }
+    };
+
+    let orphaned_series = match sqlx::query!(
+        r#"
+        SELECT id, title FROM video_seriez
+        WHERE id NOT IN (
+            SELECT DISTINCT series_id FROM videoz WHERE series_id IS NOT NULL
+        )
+        ORDER BY title
+        "#
+    )
+    .fetch_all(&pool)
+    .await
+    {
+        Ok(rows) => rows,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "failed to query orphaned video series",
+                vec![e.into()],
+            )
+        }
+    };
+
+    let series_titles: Vec<String> = orphaned_series
+        .iter()
+        .map(|row| row.title.clone())
+        .collect();
+    let series_found = orphaned_series.len() as u32;
+    let mut series_deleted = 0u32;
+
+    if !dry_run && !orphaned_series.is_empty() {
+        for row in orphaned_series {
+            match sqlx::query!("DELETE FROM video_seriez WHERE id = ?", row.id)
+                .execute(&pool)
+                .await
+            {
+                Ok(_) => series_deleted += 1,
+                Err(_) => {
+                    // continue on error - summary will show partial deletion
+                }
+            }
+        }
+    }
+
+    GrimoireResponse::success(
+        "orphaned video series cleanup completed",
+        OrphanedVideoSeriesSummary {
+            series_found,
+            series_deleted,
+            series_titles,
+        },
+    )
+}
+
+/// find and optionally delete orphaned taxons (every kind EXCEPT genre -
+/// see `cleanup_orphaned_genres` for that one, kept separate so the two
+/// summaries don't double-count the same rows).
+///
+/// orphaned taxons have zero rows in `album_taxonz` AND zero rows in
+/// `entity_taxonz` - albums use the former, video (and any future
+/// domain) uses the latter (see migrations/057_entity_taxonz.sql).
+pub async fn cleanup_orphaned_taxons(dry_run: bool) -> GrimoireResponse<OrphanedTaxonsSummary> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure("failed to connect to database", vec![e.into()])
+        }
+    };
+
+    let orphaned_taxons = match sqlx::query!(
+        r#"
+        SELECT t.id as "id!", t.label as "label!" FROM taxonz t
+        JOIN taxon_kindz k ON k.id = t.kind_id AND k.slug != 'genre'
+        WHERE t.id NOT IN (SELECT DISTINCT taxon_id FROM album_taxonz)
+          AND t.id NOT IN (SELECT DISTINCT taxon_id FROM entity_taxonz)
+        ORDER BY t.label
+        "#
+    )
+    .fetch_all(&pool)
+    .await
+    {
+        Ok(rows) => rows,
+        Err(e) => {
+            return GrimoireResponse::failure("failed to query orphaned taxons", vec![e.into()])
+        }
+    };
+
+    let taxon_labels: Vec<String> = orphaned_taxons
+        .iter()
+        .map(|row| row.label.clone())
+        .collect();
+    let taxons_found = orphaned_taxons.len() as u32;
+    let mut taxons_deleted = 0u32;
+
+    if !dry_run && !orphaned_taxons.is_empty() {
+        for row in orphaned_taxons {
+            match sqlx::query!("DELETE FROM taxonz WHERE id = ?", row.id)
+                .execute(&pool)
+                .await
+            {
+                Ok(_) => taxons_deleted += 1,
+                Err(_) => {
+                    // continue on error - summary will show partial deletion
+                }
+            }
+        }
+    }
+
+    GrimoireResponse::success(
+        "orphaned taxons cleanup completed",
+        OrphanedTaxonsSummary {
+            taxons_found,
+            taxons_deleted,
+            taxon_labels,
+        },
+    )
 }
 
 #[cfg(test)]

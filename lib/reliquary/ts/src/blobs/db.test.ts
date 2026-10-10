@@ -1,5 +1,6 @@
 // exercises the metadata layer directly: CRUD + secondary indexes
-// (sha256, blake3) that make the record resolver chain possible.
+// (blake3, blob_type, parent_blob_id) that make the record resolver chain
+// possible.
 
 import "fake-indexeddb/auto";
 import { IDBFactory } from "fake-indexeddb";
@@ -12,7 +13,6 @@ import {
   getCanvasRefs,
   getRecord,
   getRecordByBlake3,
-  getRecordBySha256,
   listBlobs,
   putRecord,
   removeAllCanvasRefsForCanvas,
@@ -30,7 +30,6 @@ function makeRecord(overrides: Partial<BlobRecord> = {}): BlobRecord {
   return {
     blob_id: "blake3-aaa",
     blake3: "blake3-aaa",
-    sha256: "sha256-aaa",
     filename: "song.mp3",
     mime: "audio/mpeg",
     size: 1234,
@@ -61,35 +60,15 @@ describe("putRecord / getRecord", () => {
   });
 });
 
-describe("getRecordBySha256 / getRecordByBlake3", () => {
-  it("finds a record by its sha256 index", async () => {
-    const record = makeRecord();
-    await putRecord(DB_NAME, record);
-    expect(await getRecordBySha256(DB_NAME, "sha256-aaa")).toEqual(record);
-  });
-
+describe("getRecordByBlake3", () => {
   it("finds a record by its blake3 index", async () => {
     const record = makeRecord();
     await putRecord(DB_NAME, record);
     expect(await getRecordByBlake3(DB_NAME, "blake3-aaa")).toEqual(record);
   });
 
-  it("finds a legacy record whose primary key is a sha256, not its blake3", async () => {
-    // simulates a record created before blake3 became canonical: blob_id
-    // is the legacy sha256, but blake3 is known and indexed separately.
-    const legacy = makeRecord({
-      blob_id: "sha256-legacy",
-      blake3: "blake3-discovered-later",
-      sha256: "sha256-legacy",
-    });
-    await putRecord(DB_NAME, legacy);
-    expect(await getRecordByBlake3(DB_NAME, "blake3-discovered-later")).toEqual(legacy);
-    expect(await getRecord(DB_NAME, "sha256-legacy")).toEqual(legacy);
-  });
-
   it("returns null for an empty hash rather than matching everything", async () => {
     await putRecord(DB_NAME, makeRecord());
-    expect(await getRecordBySha256(DB_NAME, "")).toBeNull();
     expect(await getRecordByBlake3(DB_NAME, "")).toBeNull();
   });
 });
@@ -171,7 +150,6 @@ describe("pre-existing database at a higher version", () => {
       const req = indexedDB.open(dbName, 3);
       req.onupgradeneeded = () => {
         const store = req.result.createObjectStore("blobs", { keyPath: "blob_id" });
-        store.createIndex("sha256", "sha256", { unique: false });
         store.createIndex("blake3", "blake3", { unique: false });
       };
       req.onsuccess = () => {
@@ -190,22 +168,22 @@ describe("pre-existing database at a higher version", () => {
   it("repairs a missing index even when both stores already exist at DB_VERSION", async () => {
     // reproduces a real-world case: a database that reached DB_VERSION
     // under an earlier build of this module - one that created both
-    // stores but not yet the "sha256" index added later. since both
-    // stores already exist and the version already matches, naively
+    // stores but not yet the "parent_blob_id" index added later. since
+    // both stores already exist and the version already matches, naively
     // reusing that version would never fire onupgradeneeded again,
-    // permanently leaving the missing index unrepaired - getRecordBySha256
-    // would then always report a miss instead of finding the record
-    // (getByIndex falls through gracefully rather than throwing, so a
-    // silent "never repaired" regression wouldn't otherwise be caught).
+    // permanently leaving the missing index unrepaired - resolveBlob's
+    // lookups would then always report a miss instead of finding the
+    // record (getByIndex falls through gracefully rather than throwing,
+    // so a silent "never repaired" regression wouldn't otherwise be
+    // caught).
     const dbName = "already-at-version-missing-index-db";
     await new Promise<void>((resolve, reject) => {
       const req = indexedDB.open(dbName, 3);
       req.onupgradeneeded = () => {
         const db = req.result;
         const store = db.createObjectStore("blobs", { keyPath: "blob_id" });
-        // deliberately missing: "sha256" index.
         store.createIndex("blake3", "blake3", { unique: false });
-        store.createIndex("blob_type", "blob_type", { unique: false });
+        // deliberately missing: "blob_type" index.
         store.createIndex("parent_blob_id", "parent_blob_id", { unique: false });
         store.createIndex("size", "size", { unique: false });
         store.createIndex("created_at", "created_at", { unique: false });
@@ -224,7 +202,7 @@ describe("pre-existing database at a higher version", () => {
 
     const record = makeRecord();
     await putRecord(dbName, record);
-    expect(await getRecordBySha256(dbName, record.sha256!)).toEqual(record);
+    expect(await getRecordByBlake3(dbName, record.blake3)).toEqual(record);
   });
 });
 
@@ -232,15 +210,15 @@ describe("listBlobs", () => {
   async function seedThree(): Promise<void> {
     await putRecord(
       DB_NAME,
-      makeRecord({ blob_id: "a", blake3: "a", filename: "apple.txt", size: 1, created_at: 1 })
+      makeRecord({ blob_id: "a", blake3: "a", filename: "apple.txt", size: 1, created_at: 1 }),
     );
     await putRecord(
       DB_NAME,
-      makeRecord({ blob_id: "b", blake3: "b", filename: "banana.txt", size: 5, created_at: 2 })
+      makeRecord({ blob_id: "b", blake3: "b", filename: "banana.txt", size: 5, created_at: 2 }),
     );
     await putRecord(
       DB_NAME,
-      makeRecord({ blob_id: "c", blake3: "c", filename: "cherry.txt", size: 3, created_at: 3 })
+      makeRecord({ blob_id: "c", blake3: "c", filename: "cherry.txt", size: 3, created_at: 3 }),
     );
   }
 
@@ -297,4 +275,3 @@ describe("listBlobs", () => {
     expect(page.totalSize).toBe(0);
   });
 });
-

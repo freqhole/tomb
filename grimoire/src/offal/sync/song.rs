@@ -15,12 +15,12 @@ use crate::response::GrimoireResponse;
 use super::images::resolve_sync_image_ref;
 use super::models::{SyncSongByBlake3Request, SyncSongByBlake3Response};
 
-/// get all song sha256s from local grimoire database
+/// get all song blake3 hashes from local grimoire database
 /// used by client to initialize synced song cache on startup
-pub async fn get_synced_sha256s(_caller: &Caller) -> GrimoireResponse<JsonValue> {
-    match crate::music::entities::songs::get_all_song_sha256s().await {
-        Ok(sha256s) => GrimoireResponse::success("synced sha256s", serde_json::json!(sha256s)),
-        Err(e) => GrimoireResponse::failure("failed to fetch sha256s", vec![e.into()]),
+pub async fn get_synced_blake3s(_caller: &Caller) -> GrimoireResponse<JsonValue> {
+    match crate::music::entities::songs::get_all_song_blake3s().await {
+        Ok(blake3s) => GrimoireResponse::success("synced blake3s", serde_json::json!(blake3s)),
+        Err(e) => GrimoireResponse::failure("failed to fetch blake3s", vec![e.into()]),
     }
 }
 
@@ -138,11 +138,10 @@ pub async fn sync_song_by_blake3_impl(
     on_progress: Option<&BlobProgressFn>,
 ) -> GrimoireResponse<JsonValue> {
     tracing::debug!(
-        "sync_song_by_blake3: START from {} -- title=\"{}\" blake3={} sha256={} size={:?} source_node={} source_remote={:?} filename=\"{}\"",
+        "sync_song_by_blake3: START from {} -- title=\"{}\" blake3={} size={:?} source_node={} source_remote={:?} filename=\"{}\"",
         caller.username,
         req.title,
         req.blake3,
-        &req.sha256[..16.min(req.sha256.len())],
         req.size,
         req.source_node_id,
         req.source_remote_id,
@@ -209,7 +208,6 @@ pub async fn sync_song_by_blake3_impl(
                 media_blob_id,
                 artist_id,
                 file_path: local_path,
-                sha256: req.sha256.clone(),
                 blake3: req.blake3.clone(),
                 existing: true,
                 images_linked: 0,
@@ -222,7 +220,7 @@ pub async fn sync_song_by_blake3_impl(
         }
     }
 
-    // 3. pull the audio blob (verified streaming + sha256 verify + dedupe)
+    // 3. pull the audio blob (iroh-blobs verified streaming + dedupe by blake3)
     tracing::info!(
         "sync_song_by_blake3: pulling blob {} from source peer {} ({} bytes declared)",
         &req.blake3[..16.min(req.blake3.len())],
@@ -232,19 +230,6 @@ pub async fn sync_song_by_blake3_impl(
     let pulled = match pull_audio_blob_to_local_storage_with_progress(
         &req.source_node_id,
         &req.blake3,
-        // an empty sha256 means the caller genuinely doesn't know one yet
-        // (e.g. cenotaph's mediaRefResolve.ts syncing straight from a
-        // RemoteMediaRef, which carries no sha256 at all) - not a real hash
-        // to verify against. skip the check in that case and trust
-        // iroh-blobs' own blake3-verified streaming for integrity; passing
-        // it through unconditionally previously made every such pull fail
-        // with a bogus Sha256Mismatch (comparing the real downloaded file's
-        // hash against a placeholder that was never a sha256 to begin with).
-        if req.sha256.is_empty() {
-            None
-        } else {
-            Some(req.sha256.as_str())
-        },
         req.size,
         &req.filename,
         caller,
@@ -371,6 +356,26 @@ pub async fn sync_song_by_blake3_impl(
     }
     let import_existing = import_result.existing;
     let song_id = import_result.song.id.clone();
+
+    // create/update feed event for the album (so a song pulled in via
+    // "send to remote" shows up in the feed, same as the regular
+    // add-media/upload path does - see upload_processors.rs's identical
+    // call). only for a genuinely new song: re-syncing an album that was
+    // already partially synced must not re-fire "new song" notifications
+    // for content that's been here for a while.
+    if !import_existing {
+        if let Some(album) = &import_result.album {
+            let album_id = album.id.clone();
+            let user_id = caller.user_id.clone();
+            let username = caller.username.clone();
+            tokio::spawn(async move {
+                let _ = crate::music::analytics::feed_events::upsert_album_feed_event(
+                    &album_id, &user_id, &username, 1,
+                )
+                .await;
+            });
+        }
+    }
 
     // 5. link song images. each ref carries a blake3 hash - pulled from
     //    source_node_id (deduped against anything already local first), no
@@ -504,7 +509,6 @@ pub async fn sync_song_by_blake3_impl(
         media_blob_id: pulled.blob.id,
         artist_id,
         file_path: pulled.local_path.to_string_lossy().to_string(),
-        sha256: pulled.sha256,
         blake3: req.blake3.clone(),
         existing: import_existing,
         images_linked,

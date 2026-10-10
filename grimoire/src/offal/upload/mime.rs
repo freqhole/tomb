@@ -213,8 +213,8 @@ pub fn detect_media_mime_type(filename: &str, data: &[u8]) -> String {
 /// detect file extension from mime type or filename.
 ///
 /// tries the filename first (any short trailing extension), then falls back
-/// to a known mime-type table covering the audio + image formats this
-/// codebase actually serves. unknown types resolve to `"bin"`.
+/// to a known mime-type table covering the audio + image + video formats
+/// this codebase actually serves. unknown types resolve to `"bin"`.
 pub fn detect_extension(mime_type: &str, filename: &str) -> String {
     // try to get extension from filename first
     if let Some(ext) = filename.rsplit('.').next() {
@@ -227,12 +227,12 @@ pub fn detect_extension(mime_type: &str, filename: &str) -> String {
     match mime_type {
         // audio
         "audio/mpeg" => "mp3",
-        "audio/flac" => "flac",
+        "audio/flac" | "audio/x-flac" => "flac",
         "audio/ogg" | "audio/vorbis" => "ogg",
         "audio/opus" => "opus",
-        "audio/wav" | "audio/wave" => "wav",
+        "audio/wav" | "audio/wave" | "audio/x-wav" | "audio/vnd.wave" => "wav",
         "audio/aac" => "aac",
-        "audio/m4a" | "audio/mp4" => "m4a",
+        "audio/m4a" | "audio/mp4" | "audio/x-m4a" => "m4a",
         "audio/webm" => "webm",
         // images
         "image/webp" => "webp",

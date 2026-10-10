@@ -25,7 +25,7 @@ pub use album::sync_album;
 pub use job_notify::sync_job_notify;
 pub use models::*;
 pub use playlist::sync_playlist;
-pub use song::{get_synced_sha256s, sync_song_by_blake3, sync_song_by_blake3_impl};
+pub use song::{get_synced_blake3s, sync_song_by_blake3, sync_song_by_blake3_impl};
 pub use video::{sync_video_by_blake3, sync_video_by_blake3_impl};
 
 /// route metadata for sync
@@ -49,8 +49,8 @@ pub const ROUTES: &[RouteInfo] = &[
         auth: RouteAuth::Role(UserRole::Member),
     },
     RouteInfo {
-        name: "synced_sha256s",
-        path: "/api/sync/sha256s",
+        name: "synced_blake3s",
+        path: "/api/sync/blake3s",
         method: Method::GET,
         domain: Domain::Music,
         request_type: "String",
@@ -105,7 +105,7 @@ pub async fn dispatch(
         "/api/sync/song-by-blake3" => Some(sync_song_by_blake3(caller, body.clone()).await),
         "/api/sync/job-notify" => Some(sync_job_notify(caller, body.clone()).await),
         "/api/sync/playlist" => Some(sync_playlist(caller, body.clone()).await),
-        "/api/sync/sha256s" => Some(get_synced_sha256s(caller).await),
+        "/api/sync/blake3s" => Some(get_synced_blake3s(caller).await),
         "/api/sync/album" => Some(sync_album(caller, body.clone()).await),
         "/api/sync/video-by-blake3" => Some(sync_video_by_blake3(caller, body.clone()).await),
         _ => None,

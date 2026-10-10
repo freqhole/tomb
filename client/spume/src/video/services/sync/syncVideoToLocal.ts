@@ -1,10 +1,12 @@
 // sync-to-local for remote video playback — mirrors the essential shape of
-// music/services/sync/syncSongToLocal.ts, deliberately scoped down: dedup
-// by the video's own id (not a content hash — `Video` has no sha256 field
-// yet). plain http remotes stream straight to opfs with byte-range resume
-// (see streamVideoToOPFSWithResume) so a large video that fails partway
-// through picks back up where it left off instead of restarting from byte
-// 0 on every retry/replay. P2P/charnel remotes still go through
+// music/services/sync/syncSongToLocal.ts, including content-based (blake3)
+// dedup: the SAME video synced in from two different remotes (two different
+// `video.id`s, since each remote has its own db) collapses onto one local
+// row rather than creating a duplicate - see `dedupByBlake3` below. plain
+// http remotes stream straight to opfs with byte-range resume (see
+// streamVideoToOPFSWithResume) so a large video that fails partway through
+// picks back up where it left off instead of restarting from byte 0 on
+// every retry/replay. P2P/charnel remotes still go through
 // preCacheP2PBlob/getCachedBlob (iroh-blobs is already content-addressed
 // and block-verified — a different resume story, out of scope here).
 //
@@ -18,7 +20,13 @@ import { isCharnelMode } from "../../../app/services/charnel";
 import { getRemoteById } from "../../../app/services/remotes/remoteManager";
 import { getClientForRemote, getTransportForRemote } from "../../../app/api/client";
 import type { Remote } from "../../../app/services/storage/schemas/remote";
-import { addLocalVideo, getLocalVideoById, updateLocalVideo } from "../storage/db/videos";
+import {
+  addLocalVideo,
+  getLocalVideoById,
+  getVideoByBlake3,
+  updateLocalVideo,
+} from "../storage/db/videos";
+import { deleteVideoFromOPFS } from "../opfs/helpers";
 import { getOrCreateLocalVideoSeries, updateLocalVideoSeries } from "../storage/db/series";
 import type { LocalVideoSeriesRow } from "../storage/db/series";
 import { getOrCreateLocalVideoSeason, updateLocalVideoSeason } from "../storage/db/seasons";
@@ -248,6 +256,30 @@ export function canSyncVideo(video: QueuedVideo): boolean {
   return video.source_type === "remote" && !!video.remote_server_id && !!video.media_blob_id;
 }
 
+/** content-based dedup: if a local video with this blake3 already exists,
+ *  reuse it (refreshing series/season linkage from the incoming queue
+ *  item) instead of creating a second row for the same bytes - mirrors
+ *  `getSongByBlake3`'s dedup role for music. returns the existing row's
+ *  id on a match, so the caller can skip (or discard, if bytes were
+ *  already fetched before the hash was known) the rest of the sync. */
+async function dedupByBlake3(
+  video: QueuedVideo,
+  blake3: string | null | undefined,
+  remoteOverride?: Remote
+): Promise<string | null> {
+  if (!blake3) return null;
+  const existingByHash = await getVideoByBlake3(blake3);
+  if (!existingByHash) return null;
+  const { seriesId, seasonId } = await resolveLocalSeriesContext(video, remoteOverride);
+  if (
+    seriesId &&
+    (existingByHash.series_id !== seriesId || existingByHash.season_id !== seasonId)
+  ) {
+    await updateLocalVideo(existingByHash.id, { series_id: seriesId, season_id: seasonId });
+  }
+  return existingByHash.id;
+}
+
 /** outcome of a sync. `void`-ing the promise stays valid for the
  * fire-and-forget callers; the play path uses it to build a url. */
 export interface VideoSyncOutcome {
@@ -408,6 +440,23 @@ export async function syncVideoToLocal(
       return { success: true };
     }
 
+    // content-based dedup, before spending any bandwidth: a video already
+    // known by blake3 (item 1's wire-schema denormalization usually means
+    // `video.blake3` is already populated here, without needing a fetch)
+    // that was synced in from a DIFFERENT remote already exists locally
+    // under a different `id` - reuse it rather than downloading a second
+    // copy of the same bytes.
+    const dedupedId = await dedupByBlake3(video, video.blake3, remoteOverride);
+    if (dedupedId) {
+      markVideoSynced(video.id);
+      invalidateVideoLibraryQueries();
+      debug(
+        "videoSync",
+        `video "${video.title}" (${video.id}) already synced locally as ${dedupedId} (same blake3) - skipped download`
+      );
+      return { success: true };
+    }
+
     const blobId = resolvePlaybackTarget(video, useVideoWindow()).blobId;
 
     // fetches bytes for a specific blob id into OPFS - factored out so a
@@ -525,6 +574,24 @@ export async function syncVideoToLocal(
     // (only local uploads need that, see video/import/localImport.ts). a
     // missing blake3 just means this synced copy won't be servable by
     // blake3 to a further peer, not a sync failure.
+
+    // late dedup: `video.blake3` wasn't known before the download started
+    // (the early check above only fires when it's already populated), but
+    // the blob fetch just resolved one via metadata - if that now matches
+    // an existing local row, the bytes just downloaded are a wasted
+    // duplicate. discard them and reuse the existing row rather than
+    // keeping two local copies of the same content.
+    const dedupedIdAfterFetch = await dedupByBlake3(video, blake3, remoteOverride);
+    if (dedupedIdAfterFetch) {
+      await deleteVideoFromOPFS(opfsPath);
+      markVideoSynced(video.id);
+      invalidateVideoLibraryQueries();
+      debug(
+        "videoSync",
+        `video "${video.title}" (${video.id}) matched existing local video ${dedupedIdAfterFetch} by blake3 after download - discarded duplicate bytes`
+      );
+      return { success: true };
+    }
 
     let posterOpfsPath: string | null = null;
     if (video.poster_blob_id) {

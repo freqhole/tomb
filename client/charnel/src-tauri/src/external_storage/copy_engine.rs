@@ -147,7 +147,7 @@ pub async fn sync_song_to_device(
             let existing_abs = music_root.join(&existing_rel);
             let metadata_unchanged = existing_rel == base_relative;
 
-            if existing.sha256 == blob.sha256
+            if existing.matches_content(blob.blake3.as_deref())
                 && metadata_unchanged
                 && existing.tag_hash == tag_hash
                 && existing_abs.exists()
@@ -184,7 +184,9 @@ pub async fn sync_song_to_device(
             .map_err(|e| format!("failed to create destination directory: {e}"))?;
     }
 
-    let content_unchanged = existing.as_ref().is_some_and(|e| e.sha256 == blob.sha256);
+    let content_unchanged = existing
+        .as_ref()
+        .is_some_and(|e| e.matches_content(blob.blake3.as_deref()));
     let mut moved = false;
     let tag_warning: Option<String>;
 
@@ -283,7 +285,6 @@ pub async fn sync_song_to_device(
         device_id,
         song_id,
         &relative_path_str,
-        &blob.sha256,
         blob.blake3.as_deref(),
         &tag_hash,
     )
@@ -508,11 +509,12 @@ fn run_ffmpeg(
         );
         args.insert(insert_at, "-f".to_string());
     }
-    let result = std::process::Command::new(ffmpeg_path)
-        // suppress the version/build-config banner ffmpeg always prints -
-        // it's pure noise here and was drowning out the actual error.
-        .arg("-hide_banner")
-        .args(&args)
+    let mut cmd = std::process::Command::new(ffmpeg_path);
+    // suppress the version/build-config banner ffmpeg always prints -
+    // it's pure noise here and was drowning out the actual error.
+    cmd.arg("-hide_banner").args(&args);
+    grimoire::process_ext::hide_console_window_std(&mut cmd);
+    let result = cmd
         .output()
         .map_err(|e| format!("failed to run ffmpeg: {e}"))?;
     if !result.status.success() {

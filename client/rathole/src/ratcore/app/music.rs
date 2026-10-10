@@ -73,7 +73,7 @@ pub enum PlayerState {
 
 /// portable mirror of `grimoire::player::PlayerEvent`. shells fan
 /// these into the app's `AppAction::MusicEvent` channel.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum MusicEvent {
     State(PlayerState),
     Progress {

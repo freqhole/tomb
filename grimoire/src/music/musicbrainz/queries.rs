@@ -490,8 +490,14 @@ impl ReleaseGroupSearchQuery {
 /// Clean text for better MusicBrainz searching
 fn clean_search_text(input: &str) -> String {
     input
-        .replace(" - ", " ") // remove " - " separators common in song titles
-        .replace('-', " ") // replace other hyphens with spaces
+        .replace(" - ", " ") // remove " - " separators common in "Artist - Title" filenames
+        // deliberately NOT a blanket `.replace('-', " ")` here anymore - that
+        // used to also mangle real hyphenated names/titles (e.g. "Trs-80",
+        // "Backup:01"-adjacent compound words), turning them into tokens
+        // MusicBrainz's own index doesn't match, so a real name search
+        // silently returned zero results. only the explicit " - " separator
+        // convention gets normalized; any other hyphen stays as part of the
+        // word.
         .replace("  ", " ") // collapse multiple spaces
         .trim()
         .to_string()
@@ -599,11 +605,42 @@ mod tests {
 
     #[test]
     fn test_clean_search_text() {
-        // clean_search_text collapses " - " -> " " then any remaining
-        // '-' -> " " then double-space -> single-space then trims.
+        // clean_search_text collapses " - " -> " " then double-space ->
+        // single-space, then trims - it does NOT touch other hyphens.
         assert_eq!(clean_search_text("Test - Song"), "Test Song");
         assert_eq!(clean_search_text("Multi  Space"), "Multi Space");
         assert_eq!(clean_search_text("  trimmed  "), "trimmed");
+    }
+
+    #[test]
+    fn test_clean_search_text_preserves_real_hyphens() {
+        // regression: a blanket `.replace('-', " ")` used to turn a real
+        // hyphenated name into a token MusicBrainz's own index doesn't
+        // match, silently returning zero search results for it.
+        assert_eq!(clean_search_text("Trs-80"), "Trs-80");
+        assert_eq!(clean_search_text("Backup:01"), "Backup:01");
+    }
+
+    #[test]
+    fn query_artist_search_keeps_hyphenated_name_intact() {
+        let qs = ReleaseSearchQuery::new().artist("Trs-80").to_query_string();
+        // the raw query param is url-encoded, so decode before asserting
+        // on its literal content. `escape_lucene_query` may still backslash-
+        // escape the hyphen (`Trs\-80`) - confirmed against the live
+        // MusicBrainz API that both `"Trs-80"` and `"Trs\-80"` match the
+        // real "TRS-80" artist identically, so the escaping itself isn't
+        // the regression to guard against. what must never happen again
+        // is the hyphen silently becoming a space (`"Trs 80"`) - verified
+        // live against MusicBrainz that form returns zero results.
+        let decoded = urlencoding::decode(&qs).unwrap();
+        assert!(
+            !decoded.contains("Trs 80"),
+            "hyphen must not be turned into a space, got: {decoded}"
+        );
+        assert!(
+            decoded.contains("Trs-80") || decoded.contains("Trs\\-80"),
+            "expected the hyphen to survive (escaped or not) into the lucene query, got: {decoded}"
+        );
     }
 
     #[test]

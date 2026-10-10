@@ -1121,11 +1121,12 @@ level = "warn"
         init_test_env(tmp.path()).await;
 
         let pool = database::connect().await.expect("connect");
+        let video_blake3 = reliquary::hash_bytes(b"the-video-blake3");
         sqlx::query(
-            "INSERT INTO media_blobz (id, sha256, size, mime, blob_type, blake3)
-             VALUES ('blob-with-hash', ?, 123, 'video/mp4', 'original', 'the-video-blake3')",
+            "INSERT INTO media_blobz (id, size, mime, blob_type, blake3)
+             VALUES ('blob-with-hash', 123, 'video/mp4', 'original', ?)",
         )
-        .bind("b".repeat(64))
+        .bind(&video_blake3)
         .execute(&pool)
         .await
         .expect("insert media_blobz row");
@@ -1147,14 +1148,14 @@ level = "warn"
         .await;
         assert!(created.is_success(), "create_video failed: {created:?}");
         let created_video = created.data.expect("created video data");
-        assert_eq!(created_video.blake3.as_deref(), Some("the-video-blake3"));
+        assert_eq!(created_video.blake3.as_deref(), Some(video_blake3.as_str()));
 
         // get_video reads via video_query_view - confirms the view rewiring
         // (not just the insert path) surfaces the denormalized column.
         let fetched = get_video(&created_video.id).await;
         assert!(fetched.is_success(), "get_video failed: {fetched:?}");
         let fetched_video = fetched.data.expect("fetched video data");
-        assert_eq!(fetched_video.blake3.as_deref(), Some("the-video-blake3"));
+        assert_eq!(fetched_video.blake3.as_deref(), Some(video_blake3.as_str()));
 
         // list_videos_unattached also reads via video_query_view - a second
         // independent code path exercising the same column/view plumbing.
@@ -1168,7 +1169,7 @@ level = "warn"
             .iter()
             .find(|v| v.id == created_video.id)
             .expect("created video present in unattached list");
-        assert_eq!(listed_match.blake3.as_deref(), Some("the-video-blake3"));
+        assert_eq!(listed_match.blake3.as_deref(), Some(video_blake3.as_str()));
     }
 
     #[tokio::test]
@@ -1178,22 +1179,18 @@ level = "warn"
         init_test_env(tmp.path()).await;
 
         let pool = database::connect().await.expect("connect");
-        for (i, (blob_id, blake3)) in [
+        for (blob_id, label) in [
             ("blob-movie", "movie-blake3"),
             ("blob-extra", "extra-blake3"),
             ("blob-clip", "clip-blake3"),
             ("blob-series-ep", "series-ep-blake3"),
-        ]
-        .into_iter()
-        .enumerate()
-        {
-            let sha256 = format!("{i:064x}");
+        ] {
+            let blake3 = reliquary::hash_bytes(label.as_bytes());
             sqlx::query(
-                "INSERT INTO media_blobz (id, sha256, size, mime, blob_type, blake3)
-                 VALUES (?, ?, 123, 'video/mp4', 'original', ?)",
+                "INSERT INTO media_blobz (id, size, mime, blob_type, blake3)
+                 VALUES (?, 123, 'video/mp4', 'original', ?)",
             )
             .bind(blob_id)
-            .bind(sha256)
             .bind(blake3)
             .execute(&pool)
             .await
@@ -1342,20 +1339,17 @@ level = "warn"
         init_test_env(tmp.path()).await;
 
         let pool = database::connect().await.expect("connect");
-        for (i, (blob_id, blake3)) in [
-            ("blob-extra2", "extra2-blake3"),
-            ("blob-movie2", "movie2-blake3"),
-        ]
-        .into_iter()
-        .enumerate()
-        {
-            let sha256 = format!("{i:064x}");
+        let extra2_blake3 = reliquary::hash_bytes(b"extra2-blake3");
+        let movie2_blake3 = reliquary::hash_bytes(b"movie2-blake3");
+        for (blob_id, blake3) in [
+            ("blob-extra2", &extra2_blake3),
+            ("blob-movie2", &movie2_blake3),
+        ] {
             sqlx::query(
-                "INSERT INTO media_blobz (id, sha256, size, mime, blob_type, blake3)
-                 VALUES (?, ?, 123, 'video/mp4', 'original', ?)",
+                "INSERT INTO media_blobz (id, size, mime, blob_type, blake3)
+                 VALUES (?, 123, 'video/mp4', 'original', ?)",
             )
             .bind(blob_id)
-            .bind(sha256)
             .bind(blake3)
             .execute(&pool)
             .await
@@ -1381,7 +1375,7 @@ level = "warn"
         .expect("create_video (extra) should succeed");
 
         sqlx::query("UPDATE videoz SET pending_parent_blake3 = ? WHERE id = ?")
-            .bind("movie2-blake3")
+            .bind(&movie2_blake3)
             .bind(&extra.id)
             .execute(&pool)
             .await

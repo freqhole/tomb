@@ -232,7 +232,7 @@ export async function probeRemote(
  *
  * `force` propagates to every probe and bypasses backoff.
  */
-const WAKE_BATCH_SIZE = 2;
+const WAKE_BATCH_SIZE = 5;
 
 export function wakeAllRemotes(options: { force?: boolean } = {}): void {
   void (async () => {
@@ -271,9 +271,15 @@ export function refreshPlayerStatus(): void {
     } catch {
       return;
     }
-    for (const r of all) {
-      if (r.is_charnel_managed) continue;
-      void probeRemote(r, { force: true });
+    const toProbe = all.filter((r) => !r.is_charnel_managed);
+    // batched like `wakeAllRemotes` above - this used to fire every probe
+    // at once, which piles concurrent p2p dial attempts onto the same
+    // shared connection endpoint (same starvation concern described on
+    // `wakeAllRemotes`), defeating the whole point of limiting how many
+    // distinct peers we dial concurrently.
+    for (let i = 0; i < toProbe.length; i += WAKE_BATCH_SIZE) {
+      const batch = toProbe.slice(i, i + WAKE_BATCH_SIZE);
+      await Promise.allSettled(batch.map((r) => probeRemote(r, { force: true })));
     }
   })();
 }

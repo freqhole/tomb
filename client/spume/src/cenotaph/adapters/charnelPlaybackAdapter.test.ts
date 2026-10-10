@@ -155,7 +155,7 @@ function songRef(over: Partial<MediaRef> = {}): MediaRef {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  stateHolder.current = { queue: [], current_sha256: null } as unknown as AppState;
+  stateHolder.current = { queue: [], current_item_key: null } as unknown as AppState;
   isCharnelAvailable.mockReturnValue(false);
   getRemoteByPeerAddr.mockResolvedValue(null);
   createRemote.mockResolvedValue(remote);
@@ -210,7 +210,7 @@ describe("charnelPlaybackAdapter.appendQueue", () => {
   it("skips an item already in the local queue instead of re-adding it", async () => {
     stateHolder.current = {
       queue: [{ kind: "video", video: { id: "existing", blake3: "b3-video-1", title: "x" } }],
-      current_sha256: null,
+      current_item_key: null,
     } as unknown as AppState;
 
     await charnelPlaybackAdapter.appendQueue(undefined, [videoRef()]);

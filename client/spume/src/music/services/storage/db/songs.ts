@@ -1,5 +1,6 @@
 // song CRUD operations
 import { initMusicDB } from "./init";
+import { getAlbumById } from "./albums";
 import type { NewSong, Song } from "../types";
 import { STORE_SONGS } from "../types";
 import { generateUUID } from "../../../../utils/uuid";
@@ -80,6 +81,27 @@ export async function getSongByBlake3(blake3: string): Promise<Song | undefined>
   return song;
 }
 
+/** content-based dedup for a song about to be synced in from a remote:
+ *  does a local row for this exact content already exist, under
+ *  whatever `id` it happens to have (a generated uuid - see
+ *  `syncSongToLocal.ts`, session B's id/content-hash decoupling)?
+ *  checks blake3 first (preferred, content-addressed), falling back to
+ *  sha256 - covers both a song whose blake3 isn't known yet and legacy
+ *  rows synced before blake3 was ever computed. */
+export async function findExistingSongByContentHash(song: {
+  sha256?: string | null;
+  blake3?: string | null;
+}): Promise<Song | undefined> {
+  if (song.blake3) {
+    const byBlake3 = await getSongByBlake3(song.blake3);
+    if (byBlake3) return byBlake3;
+  }
+  if (song.sha256) {
+    return getSongBySha256(song.sha256);
+  }
+  return undefined;
+}
+
 export async function getSongsByAlbumId(albumId: string): Promise<Song[]> {
   const db = await initMusicDB();
   const index = db.transaction(STORE_SONGS).store.index("by_album_id");
@@ -117,20 +139,11 @@ async function syncAlbumFields(albumId: string): Promise<void> {
   // compute album_added_at: earliest added_at
   const albumAddedAt = Math.min(...allSongsInAlbum.map((s) => s.added_at));
 
-  // compute album_primary_genre_id: most common genre (or null)
-  const genreCounts = new Map<string | null, number>();
-  for (const song of allSongsInAlbum) {
-    const genreId = (song as any).genre_id || null;
-    genreCounts.set(genreId, (genreCounts.get(genreId) || 0) + 1);
-  }
-  let albumPrimaryGenreId: string | null = null;
-  let maxCount = 0;
-  for (const [genreId, count] of genreCounts) {
-    if (count > maxCount) {
-      maxCount = count;
-      albumPrimaryGenreId = genreId;
-    }
-  }
+  // genre lives on the album row, not per-song (`Song` has no `genre_id`
+  // field) - read it directly, same as queries.ts's query-time enrichment
+  // does, rather than "voting" across songs for a field that doesn't exist.
+  const album = await getAlbumById(albumId);
+  const albumPrimaryGenreId = album?.genre_id ?? null;
 
   // update all songs in album with synced values
   const tx = db.transaction(STORE_SONGS, "readwrite");

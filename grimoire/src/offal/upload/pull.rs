@@ -3,7 +3,6 @@
 //! `offal::sync` handler.
 
 use serde_json::{json, Value as JsonValue};
-use sha2::{Digest, Sha256};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::time::Duration;
@@ -12,7 +11,7 @@ use crate::config::get_config;
 use crate::error::{ErrorDetail, GrimoireError};
 use crate::federation::p2p_client;
 use crate::media_blobz::{
-    create_media_blob, get_media_blob_by_sha256, set_blob_local_path_or_purge_duplicate, BlobType,
+    create_media_blob, get_media_blob_by_blake3, set_blob_local_path_or_purge_duplicate, BlobType,
     CreateMediaBlobRequest, MediaBlob,
 };
 use crate::media_domain::MediaDomain;
@@ -30,11 +29,12 @@ pub struct PullAudioBlobResult {
     pub local_path: PathBuf,
     /// detected audio mime type
     pub mime: String,
-    /// computed sha256 of the downloaded bytes
-    pub sha256: String,
+    /// blake3 content hash - the real content identity (always known here,
+    /// it's what this function pulled by)
+    pub blake3: String,
     /// file size in bytes
     pub size: i64,
-    /// true if a media_blob with this sha256 already existed before this call
+    /// true if a media_blob with this content already existed before this call
     pub existing: bool,
 }
 
@@ -62,8 +62,6 @@ pub enum PullAudioBlobError {
     SizeMismatch { expected: u64, got: u64 },
     /// failed to read back the downloaded file
     ReadFailed(String),
-    /// computed sha256 didn't match the caller-supplied expected sha256
-    Sha256Mismatch { expected: String, got: String },
     /// detected mime type didn't match the expected domain (`audio/*`/`video/*`)
     WrongMediaType(MediaDomain),
     /// `create_media_blob` failed
@@ -160,14 +158,6 @@ impl PullAudioBlobError {
                 "failed to read downloaded file",
                 vec![ErrorDetail::from(GrimoireError::ProcessingFailed { message: msg })],
             ),
-            PullAudioBlobError::Sha256Mismatch { expected, got } => GrimoireResponse::failure(
-                "sha256 mismatch",
-                vec![ErrorDetail::new(
-                    "bad_request",
-                    "sha256 mismatch",
-                    format!("expected sha256 {}, computed {}", expected, got),
-                )],
-            ),
             PullAudioBlobError::WrongMediaType(domain) => GrimoireResponse::failure(
                 format!("invalid {} file", domain),
                 vec![ErrorDetail::new(
@@ -195,13 +185,14 @@ impl PullAudioBlobError {
 /// the downloaded file must match. performs:
 ///   1. blake3 format validation
 ///   2. max-upload-size enforcement (from federation.max_upload_size_mb)
-///   3. iroh-blobs verified streaming fetch to a temp path (120s timeout)
+///   3. iroh-blobs verified streaming fetch to a temp path (120s timeout) -
+///      iroh-blobs cryptographically verifies the downloaded bytes against
+///      `blake3` itself as part of the fetch, so there's no separate hash
+///      verification step here
 ///   4. size validation if `expected_size` provided
-///   5. streaming sha256 computation
-///   6. optional sha256 verification against `expected_sha256`
-///   7. mime detection (must match `domain`)
-///   8. `create_media_blob` (with sha256 dedupe)
-///   9. rename temp file → `{output_dir}/{year}/{month}/{blob_id}.{ext}`
+///   5. mime detection (must match `domain`)
+///   6. `create_media_blob` (deduped by blake3)
+///   7. rename temp file → `{output_dir}/{year}/{month}/{blob_id}.{ext}`
 ///
 /// `on_progress`, if given, receives cumulative downloaded byte counts during
 /// step 3 - for callers (e.g. rathole's player tui) rendering a live download
@@ -212,7 +203,6 @@ impl PullAudioBlobError {
 pub async fn pull_audio_blob_to_local_storage(
     source_node_id: &str,
     blake3: &str,
-    expected_sha256: Option<&str>,
     expected_size: Option<u64>,
     filename: &str,
     caller: &Caller,
@@ -221,7 +211,6 @@ pub async fn pull_audio_blob_to_local_storage(
     pull_audio_blob_to_local_storage_with_progress(
         source_node_id,
         blake3,
-        expected_sha256,
         expected_size,
         filename,
         caller,
@@ -237,7 +226,6 @@ pub async fn pull_audio_blob_to_local_storage(
 pub async fn pull_audio_blob_to_local_storage_with_progress(
     source_node_id: &str,
     blake3: &str,
-    expected_sha256: Option<&str>,
     expected_size: Option<u64>,
     filename: &str,
     caller: &Caller,
@@ -283,14 +271,13 @@ pub async fn pull_audio_blob_to_local_storage_with_progress(
                     "pull_audio_blob_to_local_storage: {} already local - reusing existing media_blob {} at {} (skipping network fetch)",
                     &blake3[..16], existing.id, local_path
                 );
-                let sha256 = existing.sha256.clone();
                 let mime = existing.mime.clone().unwrap_or_default();
                 let size = existing.size.unwrap_or(0);
                 return Ok(PullAudioBlobResult {
                     blob: existing,
                     local_path: PathBuf::from(local_path),
                     mime,
-                    sha256,
+                    blake3: blake3.to_string(),
                     size,
                     existing: true,
                 });
@@ -357,12 +344,12 @@ pub async fn pull_audio_blob_to_local_storage_with_progress(
     // SAME blake3 (e.g. a duplicate/retried queue push arriving on a second
     // connection before the first pull finishes) previously shared this exact
     // path - whichever finished first renamed it away out from under the
-    // other, which was still trying to open it for the sha256/mime read,
-    // surfacing as a spurious `ReadFailed`/"failed to read downloaded file"
-    // even though the pull itself was working fine. the final path (below,
-    // keyed by the deduped blob id) is still shared and that's fine - a
-    // second concurrent pull's rename onto it is a harmless same-content
-    // overwrite, since `create_media_blob` already dedupes by sha256.
+    // other, which was still trying to open it for the mime read, surfacing
+    // as a spurious `ReadFailed`/"failed to read downloaded file" even though
+    // the pull itself was working fine. the final path (below, keyed by the
+    // deduped blob id) is still shared and that's fine - a second concurrent
+    // pull's rename onto it is a harmless same-content overwrite, since
+    // `create_media_blob` already dedupes by blake3.
     static TEMP_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
     // retry policy: a retry resumes from whatever's already verified in the
@@ -518,48 +505,7 @@ pub async fn pull_audio_blob_to_local_storage_with_progress(
         }
     }
 
-    // 5. compute sha256 by streaming from the file on disk (no full-file memory load)
-    let hash = {
-        use tokio::io::AsyncReadExt;
-        let mut file = match tokio::fs::File::open(&temp_path).await {
-            Ok(f) => f,
-            Err(e) => {
-                return Err(PullAudioBlobError::ReadFailed(e.to_string()));
-            }
-        };
-        let mut hasher = Sha256::new();
-        let mut buf = vec![0u8; 64 * 1024]; // 64KB chunks
-        loop {
-            let n = match file.read(&mut buf).await {
-                Ok(0) => break,
-                Ok(n) => n,
-                Err(e) => {
-                    let _ = tokio::fs::remove_file(&temp_path).await;
-                    return Err(PullAudioBlobError::ReadFailed(e.to_string()));
-                }
-            };
-            hasher.update(&buf[..n]);
-        }
-        format!("{:x}", hasher.finalize())
-    };
-    tracing::debug!(
-        "computed sha256 for blob {}: {}",
-        &blake3[..16],
-        &hash[..16]
-    );
-
-    // 6. verify against caller-supplied sha256 if provided
-    if let Some(expected) = expected_sha256 {
-        if expected != hash {
-            let _ = tokio::fs::remove_file(&temp_path).await;
-            return Err(PullAudioBlobError::Sha256Mismatch {
-                expected: expected.to_string(),
-                got: hash,
-            });
-        }
-    }
-
-    // 7. detect mime type from filename and file header (read first 12 bytes)
+    // 5. detect mime type from filename and file header (read first 12 bytes)
     let header = {
         use tokio::io::AsyncReadExt;
         let mut f = match tokio::fs::File::open(&temp_path).await {
@@ -597,12 +543,12 @@ pub async fn pull_audio_blob_to_local_storage_with_progress(
 
     let size = file_size as i64;
 
-    // 8. check for existing blob by sha256 before creating
-    let existing = get_media_blob_by_sha256(&hash).await.is_ok();
+    // 6. check for existing blob by blake3 before creating - this function
+    // pulls BY blake3, so that's always known here and is the real dedup key.
+    let existing = get_media_blob_by_blake3(blake3).await.is_ok();
 
-    // create media blob entry (with deduplication via sha256 unique constraint)
+    // create media blob entry (deduplication is via blake3)
     let blob = match create_media_blob(CreateMediaBlobRequest {
-        sha256: hash.clone(),
         size: Some(size),
         mime: Some(mime_type.clone()),
         source_client_id: None,
@@ -634,7 +580,7 @@ pub async fn pull_audio_blob_to_local_storage_with_progress(
         }
     };
 
-    // 9. rename temp file to final path with blob id
+    // 7. rename temp file to final path with blob id
     // join each segment separately - a single format!() string with embedded
     // "/" produces a mixed \ and / path on windows once joined onto output_dir.
     let full_path = output_dir
@@ -695,7 +641,7 @@ pub async fn pull_audio_blob_to_local_storage_with_progress(
         blob,
         local_path: result_path,
         mime: mime_type,
-        sha256: hash,
+        blake3: blake3.to_string(),
         size,
         existing,
     })

@@ -1,4 +1,5 @@
 // normalized music storage types matching server schema
+import { isCharnelMode } from "../../../app/services/charnel/mode";
 
 // source types for songs
 export type MusicSourceType = "local" | "downloaded" | "synced" | "remote";
@@ -69,7 +70,13 @@ export interface TaxonRef {
 export interface Song {
   /** local database primary key (auto-increment converted to string) */
   id: string;
-  /** content hash of audio file - 64 hex chars, universal deduplication identifier */
+  /** content hash of audio file - 64 hex chars, or `""` for a local-only
+   * import that never computed one (see fileProcessor.ts). `blake3` is
+   * the preferred content-identity hash now - see
+   * `findExistingSongByContentHash`/`songIdentityKey`. kept (not made
+   * optional/removed) because several legitimate consumers still need a
+   * real sha256 specifically: HTTP-remote cache dedup (`blobCache.ts`),
+   * and any song synced/imported before blake3 support existed. */
   sha256: string;
   /** server's short blob ID (16 hex chars) - used for analytics FK constraints */
   media_blob_id?: string;
@@ -159,21 +166,63 @@ export interface Song {
 export type NewSong = Omit<Song, "id">;
 
 /** canonical cross-song identity key for QUEUE/"currently playing" purposes
- * (mediaItemKey, appState().current_sha256, row-highlight comparisons,
+ * (mediaItemKey, appState().current_item_key, row-highlight comparisons,
  * load guards): `sha256` if present, else `id`. a fresh local import
  * leaves `sha256` as `""` (see fileProcessor.ts) - `id` (always unique,
  * always present) is the fallback so two DIFFERENT freshly-imported songs
  * never collide on the same key (which is exactly what raw `song.sha256`
  * comparisons do, since they all share the same `""`).
  *
- * deliberately does NOT prefer `blake3` the way audioAccess.ts's
- * `songTrackingKey` does - `mediaItemKey`/`current_sha256` are meant to be
- * a stable LOCAL identity, kept intentionally distinct from content-hash
- * identity (see `mediaItemBlake3` in app/services/storage/mediaItem.ts and
- * remotePlaybackControl.ts's queue-reconciliation tests, which rely on
- * these two staying separate concepts). */
+ * deliberately does NOT prefer `blake3` - `mediaItemKey`/`current_item_key`
+ * are meant to be a stable LOCAL identity, kept intentionally distinct
+ * from content-hash identity (see `mediaItemBlake3` in
+ * app/services/storage/mediaItem.ts and remotePlaybackControl.ts's
+ * queue-reconciliation tests, which rely on these two staying separate
+ * concepts). NOTE: `audioAccess.ts` used to maintain a separate,
+ * blake3-preferring `songTrackingKey` for its own in-memory blob-url
+ * cache, which diverged from this key for a local song with a real
+ * `blake3` but no `sha256` - that divergence caused a blob-URL leak and
+ * was fixed by dropping `songTrackingKey` entirely in favor of this
+ * function (see audioAccess.ts's file header comment). */
 export function songIdentityKey(song: Pick<Song, "sha256" | "id">): string {
   return song.sha256 || song.id;
+}
+
+/** dedup/tracking key for the sync + download-tracking subsystem
+ *  (`downloadState.ts`'s synced-locally cache, its in-flight download
+ *  registry) - deliberately NOT the same thing as `audioAccess.ts`'s
+ *  `songIdentityKey` (sha256-preferring, backs an unrelated in-memory
+ *  blob-url cache with no IDB constraint either way), and
+ *  deliberately NOT `song.id` (a remote, not-yet-synced song's `id` is
+ *  that remote's own db row id - not content-addressed, not comparable
+ *  across remotes - see `/memories/repo/tomb-sha256-vs-blake3-vs-id.md`):
+ *
+ *  - browser mode: prefers `sha256` first - the value passed in here is
+ *    always the REMOTE/source song (not the local row `syncSongToLocal.ts`
+ *    creates, which has its own decoupled generated `id` as of the
+ *    content-hash-dedup fix - see `findExistingSongByContentHash`), so
+ *    there's no row-keypath constraint to honor either way; sha256-first
+ *    just matches the HTTP-remote cache's own sha256-keyed convention
+ *    (`blobCache.ts`) for the common case where a song has both hashes.
+ *  - charnel mode: sync delegates entirely to grimoire, no local IDB row
+ *    is ever created for a synced song, so there's no key constraint to
+ *    honor - prefer `blake3` (also correctly handles the charnel-only
+ *    "unknown sha256, verify by blake3 instead" sentinel, see
+ *    `mediaRefResolve.ts`, which would otherwise collide every such song
+ *    onto the same empty-string key).
+ *
+ *  reads `isCharnelMode()` itself (not a param) - every call site already
+ *  runs in a mode-specific context (or already imports `isCharnelMode()`
+ *  for other reasons), so threading it through as an argument was pure
+ *  boilerplate, not real flexibility. */
+export function syncTrackingKey(song: {
+  sha256?: string | null;
+  blake3?: string | null;
+  id?: string;
+  media_blob_id?: string | null;
+}): string {
+  if (isCharnelMode()) return song.blake3 || song.sha256 || song.id || song.media_blob_id || "";
+  return song.sha256 || song.id || song.media_blob_id || "";
 }
 
 // ===== GENRES TABLE =====

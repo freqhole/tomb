@@ -7,20 +7,16 @@ import {
   mediaItemKey,
   mediaItemQueueEntryId,
   songsOnly,
-  songStartIndexAfter,
-  videosOnly,
-  videoStartIndexAfter,
   songToMediaItem,
   toMediaItems,
   type MediaItem,
 } from "../../../app/services/storage/mediaItem";
-import { preCacheNextP2PSongs } from "../storage/blobResolver";
 import { initQueueDeparturePurge } from "./purgeDepartedMedia";
 import { registerQueueDeparture } from "../../../app/services/media/queueDeparture";
-import { preCacheNextVideos } from "../../../video/services/videoPreCache";
+import { triggerPreCache } from "./triggerPreCache";
 import {
   clearPendingUpNext,
-  pendingUpNextSha256,
+  pendingUpNextItemKey,
   playSong,
   playMediaItem,
   seek,
@@ -72,35 +68,6 @@ export {
   resetPlaybackEnded,
 } from "./queueState";
 
-// immediate (queue-start/queue-modification) pre-cache trigger — mirrors
-// preCacheScheduler.ts's rolling window, but fires right away instead of
-// waiting for the 50%-progress tick, so the *next* item is already
-// warming from time zero. `currentKey` is whatever `mediaItemKey()`
-// returns for the item that's (about to be) playing — may be a song OR
-// a video's key.
-function triggerImmediatePreCache(
-  mixedItems: MediaItem[],
-  currentKey: string | null | undefined
-): void {
-  if (!currentKey) return;
-  const songs = songsOnly(mixedItems);
-  const videos = videosOnly(mixedItems);
-  const currentIsVideo = mixedItems.some(
-    (i) => i.kind === "video" && mediaItemKey(i) === currentKey
-  );
-  if (currentIsVideo) {
-    // currentKey won't match anything in `songs` (song-only) - use the
-    // mixed-queue-derived start index instead of preCacheNextP2PSongs's
-    // own findIndex-based lookup so upcoming songs still get cached.
-    void preCacheNextP2PSongs(null, songs, 30, songStartIndexAfter(mixedItems, currentKey));
-  } else {
-    // unchanged behavior: preCacheNextP2PSongs finds currentKey itself
-    // and includes it (for immediate waveform display).
-    void preCacheNextP2PSongs(currentKey, songs);
-  }
-  void preCacheNextVideos(videos, 30, videoStartIndexAfter(mixedItems, currentKey));
-}
-
 // re-export queue limit helper
 export { getQueueSizeLimit } from "./queueLimit";
 
@@ -111,7 +78,7 @@ initQueueDeparturePurge();
 // place to stop HTML, the libmpv backend, or the separate video window in
 // that case.
 registerQueueDeparture((departed) => {
-  const current = appState()?.current_sha256;
+  const current = appState()?.current_item_key;
   if (current && departed.some((item) => mediaItemKey(item) === current)) {
     stop();
     void setCurrentSong(null);
@@ -127,7 +94,7 @@ registerQueueDeparture((departed) => {
 // us).
 registerStopMusic(async () => {
   stopTracking(true);
-  // this handler wipes the shared queue/current_sha256 below, which
+  // this handler wipes the shared queue/current_item_key below, which
   // video items ride on too (queue.ts's anti-hijack wipe predates video
   // support) — flush + clear video tracking the same way so a stale
   // `activeVideoHistoryEntryId` doesn't linger pointing at an entry the
@@ -258,7 +225,7 @@ export async function playQueue(
 
   const state = appState();
   const currentQueue: MediaItem[] = state?.queue || [];
-  const currentId = state?.current_sha256;
+  const currentId = state?.current_item_key;
 
   // song-only side systems (history, server sessions, pre-cache, local
   // sync) still operate on the song subset only - video items ride along
@@ -281,7 +248,6 @@ export async function playQueue(
     await setQueue(finalItems);
     const startItem = finalItems[startIndex];
     await playMediaItem(startItem, { userInitiated: true });
-    triggerImmediatePreCache(finalItems, mediaItemKey(startItem));
 
     if (options?.source) {
       const entryId = await addHistoryEntry(finalSongs, options.source, options.resumeProgress);
@@ -339,7 +305,6 @@ export async function playQueue(
     await setQueue(finalItems);
     const startItem = finalItems[startIndex];
     await playMediaItem(startItem, { userInitiated: true });
-    triggerImmediatePreCache(finalItems, mediaItemKey(startItem));
 
     if (options?.source) {
       const entryId = await addHistoryEntry(finalSongs, options.source, options.resumeProgress);
@@ -376,7 +341,6 @@ export async function playQueue(
       await setQueue(finalItems);
       const startItem = finalItems[startIndex];
       await playMediaItem(startItem, { userInitiated: true });
-      triggerImmediatePreCache(finalItems, mediaItemKey(startItem));
       if (options?.source) {
         const entryId = await addHistoryEntry(finalSongs, options.source);
         if (entryId) startTracking(entryId);
@@ -399,7 +363,6 @@ export async function playQueue(
       await setQueue(finalItems);
       const startItem = finalItems[startIndex];
       await playMediaItem(startItem, { userInitiated: true });
-      triggerImmediatePreCache(finalItems, mediaItemKey(startItem));
       if (options?.source) {
         const entryId = await addHistoryEntry(finalSongs, options.source);
         if (entryId) startTracking(entryId);
@@ -455,8 +418,6 @@ async function playQueueInternal(
   await setQueue(newQueue);
   await playMediaItem(items[startIndex], { userInitiated: true });
   const newQueueSongs = songsOnly(newQueue);
-  const startItem = items[startIndex];
-  triggerImmediatePreCache(newQueue, mediaItemKey(startItem));
 
   if (options?.source) {
     const existingEntryId = activeHistoryEntryId();
@@ -525,7 +486,7 @@ export async function addToQueue(
 
   const state = appState();
   const currentQueue: MediaItem[] = state?.queue || [];
-  const currentId = state?.current_sha256;
+  const currentId = state?.current_item_key;
 
   // song-only side systems (history, server sessions, local sync) still
   // operate on the song subset only - see phase 5 of
@@ -659,7 +620,7 @@ async function addToQueueInternal(
   const shouldPreCache = willAutoPlay || position === "next";
   const currentKey = currentId ?? mediaItemKey(items[0]);
   if (shouldPreCache && currentKey) {
-    triggerImmediatePreCache(newQueue, currentKey);
+    triggerPreCache(newQueue, currentKey);
   }
 
   // sync history + server session with the full queue
@@ -695,7 +656,7 @@ export async function removeFromQueue(index: number): Promise<void> {
   const state = appState();
   if (!state?.queue) return;
 
-  const currentIdx = state.queue.findIndex((i) => mediaItemKey(i) === state.current_sha256);
+  const currentIdx = state.queue.findIndex((i) => mediaItemKey(i) === state.current_item_key);
   mirrorRemoveFromQueue(index, currentIdx);
 
   const removedItem = state.queue[index];
@@ -711,13 +672,13 @@ export async function removeFromQueue(index: number): Promise<void> {
   const removedKey = removedItem ? mediaItemKey(removedItem) : undefined;
 
   // if we removed the currently playing item, stop playback and clear it
-  if (removedKey && removedKey === state.current_sha256) {
+  if (removedKey && removedKey === state.current_item_key) {
     stop();
     await setCurrentSong(null);
   }
 
   // if we removed the pending up-next item, clear the pending state
-  if (removedKey && removedKey === pendingUpNextSha256()) {
+  if (removedKey && removedKey === pendingUpNextItemKey()) {
     clearPendingUpNext();
   }
 
@@ -776,7 +737,7 @@ export async function clearSongsBelow(index: number): Promise<void> {
   await setQueue(newQueue);
 
   // clear pending up-next if it was below this song
-  const pendingSha = pendingUpNextSha256();
+  const pendingSha = pendingUpNextItemKey();
   if (pendingSha && removedItems.some((i) => mediaItemKey(i) === pendingSha)) {
     clearPendingUpNext();
   }
@@ -805,7 +766,7 @@ export async function reorderQueue(fromIndex: number, toIndex: number): Promise<
   const state = appState();
   if (!state?.queue) return;
 
-  const currentIdx = state.queue.findIndex((i) => mediaItemKey(i) === state.current_sha256);
+  const currentIdx = state.queue.findIndex((i) => mediaItemKey(i) === state.current_item_key);
   mirrorReorderQueue(fromIndex, toIndex, currentIdx);
 
   const newQueue = [...state.queue];
@@ -829,7 +790,7 @@ export async function clearQueue(): Promise<void> {
   const state = appState();
   debug(
     "queue",
-    `clearQueue: len=${state?.queue?.length ?? 0} current=${state?.current_sha256?.slice(0, 8) ?? null}`
+    `clearQueue: len=${state?.queue?.length ?? 0} current=${state?.current_item_key?.slice(0, 8) ?? null}`
   );
 
   stop();

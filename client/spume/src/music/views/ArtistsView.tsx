@@ -833,7 +833,7 @@ export function ArtistsView(props: ArtistsViewProps) {
           remote={currentRemoteFull}
           isLoadingSongs={artistSongsQuery.isPending}
           playingSongId={
-            artistSongs().find((s) => songIdentityKey(s) === appState()?.current_sha256)?.id
+            artistSongs().find((s) => songIdentityKey(s) === appState()?.current_item_key)?.id
           }
         />
       )}

@@ -94,6 +94,12 @@ export const ScanCompleteEventSchema = z.object({
     restored_blobs: z.number().optional(),
     restored_songs: z.number().optional(),
     purged_scan_dirs: z.number().optional(),
+    // set when this came from a "repair library" run (scan + full
+    // image-repair batch chain) rather than a plain scan/rescan - lets
+    // the toast use `message` verbatim instead of deriving its own
+    // generic "scan complete: ..." wording.
+    source: z.string().optional(),
+    message: z.string().optional(),
   }),
 });
 

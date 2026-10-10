@@ -136,6 +136,15 @@ pub const ROUTES: &[RouteInfo] = &[
         response_type: "RequeryEnrichmentResponse",
         auth: RouteAuth::Role(UserRole::Admin),
     },
+    RouteInfo {
+        name: "enqueue_repair_library_images",
+        path: "/api/music/maintenance/repair-library-images/enqueue",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "EnqueueRepairLibraryImagesRequest",
+        response_type: "EnqueueRepairLibraryImagesResponse",
+        auth: RouteAuth::Role(UserRole::Admin),
+    },
 ];
 
 /// get status of multiple jobs
@@ -1042,4 +1051,79 @@ pub async fn requery_enrichment(caller: &Caller, body: JsonValue) -> GrimoireRes
         job_type: format!("{:?}", job_type),
     };
     GrimoireResponse::success("requery enqueued", serde_json::to_value(body).unwrap())
+}
+
+/// enqueue a `RepairLibraryImages` job chain. admin only. covers the
+/// whole library (backfill missing waveforms/thumbnails + clean up
+/// over-applied directory images) as a sequence of small batch jobs - see
+/// `jobs::music::repair_library_images_processor` - rather than one long
+/// job; returns the id of the FIRST batch, which a client can chase via
+/// its `next_job_id` to track the whole chain to completion.
+///
+/// path: POST /api/music/maintenance/repair-library-images/enqueue
+pub async fn enqueue_repair_library_images(
+    caller: &Caller,
+    body: JsonValue,
+) -> GrimoireResponse<JsonValue> {
+    if let Err(resp) =
+        crate::acl_bridge::require_scope(caller, "enqueue_repair_library_images").await
+    {
+        return resp;
+    }
+
+    let req: crate::jobs::EnqueueRepairLibraryImagesRequest = match serde_json::from_value(body) {
+        Ok(r) => r,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "bad request",
+                vec![ErrorDetail::new(
+                    "bad_request",
+                    "bad request",
+                    e.to_string(),
+                )],
+            )
+        }
+    };
+
+    let params = crate::jobs::RepairLibraryImagesParams {
+        dry_run: req.dry_run,
+        scan_directory: req.scan_directory,
+        options: req.options,
+        ..Default::default()
+    };
+    let parameters = match serde_json::to_value(&params) {
+        Ok(v) => v,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "bad request",
+                vec![ErrorDetail::new(
+                    "serialization_error",
+                    "failed to serialize parameters",
+                    e.to_string(),
+                )],
+            )
+        }
+    };
+
+    let job_request = CreateJobRequest {
+        job_type: JobType::RepairLibraryImages,
+        session_id: None,
+        parameters,
+        max_retries: Some(1),
+        scheduled_at: None,
+        created_by: Some(caller.user_id.clone()),
+        priority: None,
+    };
+
+    let resp = create_job(job_request).await;
+    let job = match resp.data {
+        Some(j) => j,
+        None => return GrimoireResponse::failure("failed to enqueue library repair", resp.errors),
+    };
+
+    let body = crate::jobs::EnqueueRepairLibraryImagesResponse { job_id: job.id };
+    GrimoireResponse::success(
+        "library image repair enqueued",
+        serde_json::to_value(body).unwrap(),
+    )
 }

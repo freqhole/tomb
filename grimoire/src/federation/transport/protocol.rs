@@ -82,12 +82,12 @@ pub enum PeerMessage {
         error_type: Option<String>,
     },
 
-    /// request to compute blake3 hash for a blob (by blob_id/sha256)
+    /// request to compute blake3 hash for a blob (by blob_id)
     /// used by clients before verified streaming when blake3 not in API response
     ComputeBlake3Request {
         /// request id for correlation
         id: u64,
-        /// blob_id (sha256) to compute blake3 for
+        /// blob_id to compute blake3 for
         blob_id: String,
     },
 

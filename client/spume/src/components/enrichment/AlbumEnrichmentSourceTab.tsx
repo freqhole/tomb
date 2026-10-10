@@ -124,7 +124,7 @@ export function AlbumEnrichmentSourceTab(props: AlbumEnrichmentSourceTabProps) {
         : { artist: null, title: null, mbid: null };
       const resp = await client.music.requeryEnrichment({
         album_id: props.albumId,
-        source: sourceToServerTag(props.source) as any,
+        source: sourceToServerTag(props.source),
         override_query: override,
         priority: 10,
       });

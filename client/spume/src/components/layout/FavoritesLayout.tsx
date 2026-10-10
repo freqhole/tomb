@@ -1,6 +1,6 @@
 // favorites layout - presentational component for displaying favorites with toggle filters
 import { createSignal, createMemo, For, Show, onMount, onCleanup } from "solid-js";
-import { Icon } from "../icons/registry";
+import { Icon, type IconName } from "../icons/registry";
 import { IconButton } from "../buttons/IconButton";
 import { MediaThumbnail } from "../media/MediaThumbnail";
 import { FavoriteHeart } from "../ratings/FavoriteHeart";
@@ -227,7 +227,7 @@ export function FavoritesLayout(props: FavoritesLayoutProps) {
   });
 
   // icon mapping for filter types
-  const filterIcons: Record<FavoriteFilterType, string> = {
+  const filterIcons: Record<FavoriteFilterType, IconName> = {
     songs: "music",
     albums: "album",
     artists: "artist",
@@ -245,7 +245,7 @@ export function FavoritesLayout(props: FavoritesLayoutProps) {
     count: number;
   }) => {
     const isActive = () => activeFilters().has(buttonProps.type);
-    const iconName = () => filterIcons[buttonProps.type] as any;
+    const iconName = () => filterIcons[buttonProps.type];
 
     // long-press (or long mousedown, for desktop) solos this filter -
     // suppresses the click handler's normal toggle behavior once it fires.
@@ -469,8 +469,13 @@ export function FavoritesLayout(props: FavoritesLayoutProps) {
             them); wide:justify-end hugs the row to the top-right, away from
             the floating nav pill in the top-left corner, without needing a
             permanent vertical offset - wide screens rarely have enough
-            items to overflow, so the clipping risk there is negligible. */}
-        <div class="flex gap-2 overflow-x-auto scrollbar-hide py-2 mb-4 sticky top-0 z-50 justify-start wide:justify-end bg-[var(--color-bg-primary)]/40 backdrop-blur-sm rounded-lg wide:pl-[var(--chrome-traffic-lights-inset,0px)]">
+            items to overflow, so the clipping risk there is negligible.
+            z-[110] (not z-50): this row is sticky at the very top of the
+            scroll container, which can overlap the chromeless title-bar
+            drag strip (see TitleBarStrip.tsx, z-[100]) - these buttons must
+            win that overlap to stay clickable, same convention as
+            QueueSidebar.tsx's header. */}
+        <div class="flex gap-2 overflow-x-auto scrollbar-hide py-2 mb-4 sticky top-0 z-[110] justify-start wide:justify-end bg-[var(--color-bg-primary)]/40 backdrop-blur-sm rounded-lg wide:pl-[var(--chrome-traffic-lights-inset,0px)]">
           <IconButton
             icon="play"
             size="default"

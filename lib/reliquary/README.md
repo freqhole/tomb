@@ -8,10 +8,9 @@ utils. rust crate `reliquary` + npm package `@freqhole/reliquary`.
 
 ## architecture
 
-blake3 is the canonical content address everywhere (sha256 kept only as a legacy secondary
-index). iroh p2p is a transport, not the architecture - the store contracts and transfer
-flows are transport-injected. this library never owns an http server: range serving stays in
-the consuming app.
+blake3 is the sole canonical content address everywhere. iroh p2p is a transport, not the
+architecture - the store contracts and transfer flows are transport-injected. this library
+never owns an http server: range serving stays in the consuming app.
 
 ```mermaid
 graph LR

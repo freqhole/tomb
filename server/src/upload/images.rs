@@ -15,7 +15,6 @@ use grimoire::upload::{
 use grimoire::users::UserRole;
 use grimoire::{media_blobz::CreateMediaBlobRequest, Bytes};
 use serde_json::json;
-use sha2::{Digest, Sha256};
 
 use crate::auth::{check_role, AuthenticatedUser};
 use crate::error::ApiError;
@@ -99,10 +98,8 @@ pub async fn upload_image_handler(
         )));
     }
 
-    // calculate sha256 hash
-    let mut hasher = Sha256::new();
-    hasher.update(&data);
-    let hash = format!("{:x}", hasher.finalize());
+    // compute blake3 - the real content identity
+    let blake3_hash = grimoire::blobz::compute_blake3_from_bytes(&data);
 
     // detect mime type
     let mime_type = detect_image_mime_type(&filename, &data);
@@ -136,7 +133,6 @@ pub async fn upload_image_handler(
 
     // create media blob in database (with deduplication)
     let blob = create_media_blob(CreateMediaBlobRequest {
-        sha256: hash.clone(),
         size: Some(size),
         mime: Some(mime_type.clone()),
         source_client_id: None,
@@ -151,7 +147,7 @@ pub async fn upload_image_handler(
         data: Some(Bytes::from(data)),
         width: None,
         height: None,
-        blake3: None, // not needed for images
+        blake3: Some(blake3_hash.clone()),
         delete_duplicate_local_path: false,
     })
     .await
@@ -197,11 +193,11 @@ pub async fn upload_image_handler(
         .ok_or_else(|| ApiError::Internal("no job returned".to_string()))?;
 
     tracing::info!(
-        "upload_image: OK from {} filename=\"{}\" blob_id={} sha256={} existing={} associate={:?} job_id={}",
+        "upload_image: OK from {} filename=\"{}\" blob_id={} blake3={} existing={} associate={:?} job_id={}",
         user.username,
         filename,
         blob.id,
-        &hash[..16.min(hash.len())],
+        &blake3_hash[..16.min(blake3_hash.len())],
         existing,
         association.as_ref().map(|a| format!("{}:{}", a.entity_type, a.entity_id)),
         job.id,
@@ -224,7 +220,7 @@ pub async fn upload_image_handler(
     Ok(Json(ImageUploadResponse {
         blob_id: blob.id,
         job_id: job.id,
-        sha256: hash,
+        blake3: blake3_hash,
         size,
         mime: mime_type,
         existing,
