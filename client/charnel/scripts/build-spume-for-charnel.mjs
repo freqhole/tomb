@@ -33,7 +33,20 @@ execSync("npm run build", {
   env: {
     ...process.env,
     VITE_CHARNEL_MODE: "true",
-    ...(needsLegacySafariTarget ? { VITE_LEGACY_SAFARI_TARGET: "true" } : {}),
+    ...(needsLegacySafariTarget
+      ? {
+        VITE_LEGACY_SAFARI_TARGET: "true",
+        // @vitejs/plugin-legacy renders a second (babel-transformed +
+        // polyfilled) bundle alongside the modern one for this target,
+        // which has blown Node's default old-space heap limit on
+        // GitHub's Intel-mac CI runner ("JavaScript heap out of
+        // memory" during rendering/minification, confirmed real
+        // 2026-10-09) - bump it well above the default here rather
+        // than only on this one CI job's runner config, so a
+        // developer's local Intel-mac build doesn't hit the same wall.
+        NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ""} --max-old-space-size=8192`.trim(),
+      }
+      : {}),
   },
 });
 

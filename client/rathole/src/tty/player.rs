@@ -23,6 +23,16 @@
 //! idle player should auto-start the first appended item is decided
 //! explicitly by higher-level queue/pairing logic, not by mpv's local
 //! idle heuristic.
+//!
+//! unix-only: mpv ipc control here relies on `tokio::net::UnixStream`,
+//! which doesn't exist on windows. `tty/mod.rs` swaps in
+//! `player_stub.rs` (same public `MpvPlayer::spawn` signature, always
+//! errors - `run.rs` already treats a failed spawn as a normal, handled
+//! case) there instead - see that file's own doc comment, and
+//! `tty::video_player`'s identical split, for the full reasoning.
+//! `resolve_paths` below has nothing unix-specific about it and is
+//! duplicated verbatim in the stub rather than stubbed out, so path
+//! resolution still works on non-unix platforms too.
 #![cfg(unix)]
 
 use async_trait::async_trait;
