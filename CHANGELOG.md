@@ -1,5 +1,21 @@
 # freqhole-release
 
+## 0.3.13
+
+### Patch Changes
+
+- 5f65206: go to hell sha256! start yanking all sha256 fieldz (this is probably major but whatever)
+- 62274db: try to fix favorites action buttonz getting placed under in-app toolbar and not clickable
+- 38ae3cb: make libmpv and optional dependancy in charnel so ancient macs (<osx14) can run; switch rathole back to just shelling out to mpv bin, no libmpv hardlink;
+- b6ed3c0: wire up ui in wizard library view for running maintenance jobs; add new maintenance to move fetched music + video files into nice dir/file.ext layout and write metadata into music filez
+- f2ceca1: repair library maintenance jobz to fix missing waveform and imagez and also try to fix over-used album art images (for example a directory with a lot of unrelated music); tidy text marquee out animation; add full url to completed add media modal jobs status; add new karaoke video type;
+- b0b8968: mirror remote favorites to local media (if it exists); add feed events for "send to remote" media;
+- 3ad20e8: prune old config file backupz, keep rolling last 10; dev pre-release version handling (so i can re-run version bump migrations over and over); tidy removable storage in settingz view;
+- e9385b9: try to fix some buggy cases where experimental player libmpv backend didn't start playing audio
+- a9a4f33: fix regressionz around rolling ~30min queue downloadz as well as auto download; fix some issuez with review in add media flow; try harder to make retry button in add media modal work;
+- 49c23a0: try to fix musicbrainz search queries with non-alpha chars like hyphen and colon
+- 0a3a902: try to fix sending to remote multiple albums from albums table view
+
 ## 0.3.12
 
 ### Patch Changes

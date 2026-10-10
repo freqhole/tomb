@@ -1817,7 +1817,16 @@ export function AppLayout(props: AppLayoutProps) {
             isRemoteTargetActive()
           }
         >
-          {(() => {
+          {/* children is an un-invoked function (not an eagerly-called IIFE)
+            so Solid's <Show> treats it as the "resolved-when callback" form
+            and wraps the call in untrack() - keeping every reactive read in
+            here (barCurrentTime() etc.) from being tracked by Show's own
+            memo. an eagerly-invoked `(() => {...})()` here previously made
+            the *entire* subtree (PlayerBar, MediaImage, buttons) remount
+            every second during playback, since Show's memo re-ran on every
+            currentTime tick. the unused param is required so Show sees
+            child.length > 0 and treats this as that callback form. */}
+          {(_whenTruthy: unknown) => {
             const isRadio = () => playbackMode() === "radio";
 
             // phase 14b-style local-library lookup for whatever's currently
@@ -2345,7 +2354,7 @@ export function AppLayout(props: AppLayoutProps) {
                 />
               </>
             );
-          })()}
+          }}
         </Show>
 
         {/* persistent <video> for radio playback (also carries audio-only

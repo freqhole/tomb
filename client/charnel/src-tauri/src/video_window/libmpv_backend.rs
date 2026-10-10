@@ -517,6 +517,38 @@ fn create_mpv_and_events(app: &AppHandle<Wry>) -> Result<(Mpv, Mpv), String> {
         // where the OSC is on by default - without this, there's no
         // seekbar/play-pause/track-cycling overlay at all.
         init.set_option("osc", "yes")?;
+        // default bottombar layout. colors are all documented osc.lua
+        // script-opts (see mpv's ON SCREEN CONTROLLER manual section) -
+        // background is left at its default so the magenta foreground
+        // elements stay visible against it.
+        init.set_option(
+            "script-opts",
+            "osc-buttons_color=#FF00FF,\
+             osc-small_buttonsL_color=#FF00FF,\
+             osc-small_buttonsR_color=#FF00FF,\
+             osc-top_buttons_color=#FF00FF,\
+             osc-timecode_color=#FF00FF,\
+             osc-title_color=#FF00FF,\
+             osc-time_pos_color=#FF00FF,\
+             osc-time_pos_outline_color=#FF00FF,\
+             osc-held_element_color=#CC00CC,\
+             osc-vidscale=no,\
+             osc-scalefullscreen=2.5,\
+             osc-scalewindowed=3.5,\
+             osc-playlist_prev_mbtn_left_command=script-message charnel-osc prev,\
+             osc-playlist_next_mbtn_left_command=script-message charnel-osc next",
+        )?;
+        // the OSC greys out (and ignores clicks on) its prev/next buttons
+        // unless mpv's own playlist has a neighbour or `loop-playlist` is
+        // set - and it's never populated here (every load is `loadfile
+        // ... replace`), so `loop-playlist=inf` is what enables them.
+        // `keep-open=always` stops that loop from actually restarting the
+        // file at EOF (mpv parks on the last frame instead, reported via
+        // `eof-reached` below), and `keep-open-pause=no` keeps that park
+        // from also flipping `pause` and confusing the playerbar.
+        init.set_option("loop-playlist", "inf")?;
+        init.set_option("keep-open", "always")?;
+        init.set_option("keep-open-pause", "no")?;
         // mpv stays completely silent about *why* a file fails to play
         // (codec missing, no video/audio output found, decoder error,
         // etc.) unless it's told to log that detail somewhere - errors
@@ -652,6 +684,43 @@ fn read_libmpv_events(app: AppHandle<Wry>, events: Mpv, generation: u64) {
                 change: PropertyData::Flag(fullscreen),
                 ..
             })) => emit_state(&app, VideoEvent::Fullscreen { fullscreen }),
+            // with `keep-open=always` mpv never emits `EndFile(Eof)` for a
+            // natural end - it parks at EOF and flips `eof-reached`.
+            Some(Ok(MpvEvent::PropertyChange {
+                name: "eof-reached",
+                change: PropertyData::Flag(true),
+                ..
+            })) => {
+                if ever_loaded {
+                    emit_state(&app, VideoEvent::Ended);
+                }
+            }
+            // routes the OSC's playlist prev/next buttons (rebound via
+            // the `osc-playlist_{prev,next}_mbtn_left_command` script-opts
+            // above to `script-message charnel-osc prev|next`) into
+            // the exact same queue-aware action spume's OS-media-key and
+            // control-socket handlers already use - mpv's own playlist is
+            // never populated (every load uses `loadfile ... replace`),
+            // so its native prev/next logic has nothing to act on.
+            Some(Ok(MpvEvent::ClientMessage(args))) => {
+                if args.first().copied() == Some("charnel-osc") {
+                    match args.get(1).copied() {
+                        Some("prev") => {
+                            crate::media_session::emit_action(
+                                &app,
+                                crate::media_session::MediaSessionAction::Previous,
+                            );
+                        }
+                        Some("next") => {
+                            crate::media_session::emit_action(
+                                &app,
+                                crate::media_session::MediaSessionAction::Next,
+                            );
+                        }
+                        _ => {}
+                    }
+                }
+            }
             Some(Ok(MpvEvent::EndFile(reason))) => match reason {
                 mpv_end_file_reason::Eof => emit_state(&app, VideoEvent::Ended),
                 mpv_end_file_reason::Error => emit_state(

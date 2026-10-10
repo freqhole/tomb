@@ -9,6 +9,12 @@ mod control_socket;
 pub mod pairing;
 pub mod pending_remotes;
 mod persist;
+// unix-only real impl vs. non-unix stub - see player.rs's own
+// `#![cfg(unix)]` doc comment.
+#[cfg(unix)]
+mod player;
+#[cfg(not(unix))]
+#[path = "player_stub.rs"]
 mod player;
 pub mod qr;
 mod queue;
