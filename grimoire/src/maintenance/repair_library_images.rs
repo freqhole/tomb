@@ -70,6 +70,41 @@ const DIRECTORY_IMAGE_ART_TYPE_PREFIX: &str = "directory_image_";
 /// songs processed per waveform-phase batch (used by both the job-chain
 /// processor and the synchronous all-in-one entry point below).
 pub const WAVEFORM_BATCH_SIZE: i64 = 200;
+
+/// decide the next query offset for a "candidates with no waveform/
+/// thumbnail yet" batch loop (waveforms, video waveforms, video
+/// thumbnails - used by both `repair_library_images_sync` below and the
+/// job-chain processor in `jobs::music::repair_library_images_processor`).
+///
+/// normally resets to 0 on a real (non-dry) run: a successful batch's
+/// writes shrink the underlying `NOT EXISTS` candidate set on their own,
+/// so re-querying from the top naturally skips what just got fixed. a
+/// dry run never writes anything, so it always has to walk forward via
+/// `current_offset + batch_size` instead, or it would see the exact same
+/// rows forever.
+///
+/// but if a REAL run's batch backfilled literally nothing
+/// (`backfilled_this_batch == 0`), resetting to 0 would ALSO re-select
+/// the exact same rows forever - this happens when a candidate's
+/// generated image content collides by hash with a pre-existing,
+/// differently-typed blob (`create_media_blob` dedupes by content hash
+/// alone; the link then never actually lands as the expected blob_type,
+/// so the candidate never gets excluded by its own `NOT EXISTS` check).
+/// confirmed real 2026-10-09, see that function's own dedup doc comment.
+/// treat this exactly like a dry run - advance anyway - to guarantee
+/// forward progress no matter what.
+pub(crate) fn next_batch_offset(
+    dry_run: bool,
+    backfilled_this_batch: u32,
+    current_offset: i64,
+    batch_size: i64,
+) -> i64 {
+    if dry_run || backfilled_this_batch == 0 {
+        current_offset + batch_size
+    } else {
+        0
+    }
+}
 /// directories processed per directory-phase batch. smaller than the
 /// waveform batch since each directory can involve ffmpeg art-extraction
 /// work across several songs/albums.
@@ -641,17 +676,12 @@ pub async fn repair_library_images_sync(
                 return GrimoireResponse::failure(resp.message, resp.errors);
             };
             let more_remaining = outcome.more_remaining;
+            let backfilled_this_batch = outcome.result.songs_waveforms_backfilled;
             totals.merge(outcome.result);
             if !more_remaining {
                 break;
             }
-            // a real run's candidate set shrinks on its own (NOT EXISTS
-            // a waveform); only a dry run (which never writes) needs to
-            // walk forward via offset to avoid re-fetching the same rows
-            // forever - see `repair_waveforms_batch`'s doc comment.
-            if dry_run {
-                offset += WAVEFORM_BATCH_SIZE;
-            }
+            offset = next_batch_offset(dry_run, backfilled_this_batch, offset, WAVEFORM_BATCH_SIZE);
         }
         let mut offset = 0i64;
         loop {
@@ -667,13 +697,12 @@ pub async fn repair_library_images_sync(
                 return GrimoireResponse::failure(resp.message, resp.errors);
             };
             let more_remaining = outcome.more_remaining;
+            let backfilled_this_batch = outcome.result.videos_waveforms_backfilled;
             totals.merge(outcome.result);
             if !more_remaining {
                 break;
             }
-            if dry_run {
-                offset += WAVEFORM_BATCH_SIZE;
-            }
+            offset = next_batch_offset(dry_run, backfilled_this_batch, offset, WAVEFORM_BATCH_SIZE);
         }
     }
 
@@ -692,13 +721,17 @@ pub async fn repair_library_images_sync(
                 return GrimoireResponse::failure(resp.message, resp.errors);
             };
             let more_remaining = outcome.more_remaining;
+            let backfilled_this_batch = outcome.result.videos_thumbnails_backfilled;
             totals.merge(outcome.result);
             if !more_remaining {
                 break;
             }
-            if dry_run {
-                offset += super::repair_video_images::VIDEO_THUMBNAIL_BATCH_SIZE;
-            }
+            offset = next_batch_offset(
+                dry_run,
+                backfilled_this_batch,
+                offset,
+                super::repair_video_images::VIDEO_THUMBNAIL_BATCH_SIZE,
+            );
         }
     }
 
@@ -968,6 +1001,45 @@ mod tests {
         assert_eq!(total.albums_thumbnails_backfilled, 1);
         assert_eq!(total.albums_thumbnails_removed_overapplied, 1);
         assert_eq!(total.errors.len(), 1);
+    }
+
+    // next_batch_offset is the single invariant standing between the
+    // waveform/video-waveform/video-thumbnail batch loops (both here in
+    // `repair_library_images_sync` and in the job-chain processor) and a
+    // real, previously-shipped infinite loop (confirmed real 2026-10-09:
+    // `logz.txt` showed the same ~200 songs reprocessed, job after job,
+    // forever, phase stuck at `Waveforms` directory_offset=0). these
+    // tests pin down every branch so a future edit can't silently
+    // reintroduce it.
+
+    #[test]
+    fn next_batch_offset_resets_to_zero_on_real_progress() {
+        // the common, fast-path case: a real (non-dry) run backfilled
+        // something, so the NOT-EXISTS candidate set has genuinely
+        // shrunk - re-querying from the top is correct and more
+        // efficient than walking forward.
+        assert_eq!(next_batch_offset(false, 5, 400, 200), 0);
+    }
+
+    #[test]
+    fn next_batch_offset_advances_on_dry_run_regardless_of_progress() {
+        // dry runs never write anything, so the candidate set never
+        // shrinks - always has to walk forward, even if `dry_run`'s own
+        // counters report backfills (a dry run only COUNTS what it would
+        // do, see `repair_waveforms_batch`'s `dry_run` branch).
+        assert_eq!(next_batch_offset(true, 5, 400, 200), 600);
+        assert_eq!(next_batch_offset(true, 0, 0, 200), 200);
+    }
+
+    #[test]
+    fn next_batch_offset_advances_on_real_run_with_zero_progress() {
+        // the bug this function exists to prevent: a real run where
+        // EVERY candidate in the batch failed to actually get backfilled
+        // (eg. generated content collided by content-hash with an
+        // already-linked, differently-typed blob) must still advance,
+        // or the exact same unfixable rows get re-selected forever.
+        assert_eq!(next_batch_offset(false, 0, 0, 200), 200);
+        assert_eq!(next_batch_offset(false, 0, 1400, 200), 1600);
     }
 
     #[test]

@@ -36,6 +36,24 @@ pub fn is_doc_portal_path(path: &str) -> bool {
     !uid.is_empty() && uid.bytes().all(|b| b.is_ascii_digit()) && rest.starts_with("doc/")
 }
 
+/// true only when `path` is *unambiguously* gone (a `NotFound` stat error).
+///
+/// do NOT use `Path::exists()`/`.metadata().is_ok()` to decide whether to
+/// purge a tracked scan directory or soft-delete a song's blob: `exists()`
+/// collapses every stat() failure - permission denied, a sandboxed/TCC-
+/// gated folder the app has temporarily lost access to, a transient I/O
+/// error, an unmounted network share - into the same `false` as a
+/// genuinely deleted path. confirmed real 2026-10-09: a freshly
+/// re-signed/rebuilt macOS app silently lost its TCC grant on a protected
+/// folder, and `purge_missing_scanned_directories`'s old `!path.exists()`
+/// check wiped every tracked scan directory as a result. only an
+/// explicit `NotFound` means the path is actually gone; every other
+/// outcome (including success) should be treated as "still there, leave
+/// it alone".
+pub fn path_definitely_missing(path: &str) -> bool {
+    matches!(std::fs::metadata(path), Err(e) if e.kind() == std::io::ErrorKind::NotFound)
+}
+
 /// canonicalize a path string, falling back to the trimmed input on failure.
 ///
 /// use this at every grimoire boundary that accepts a user-supplied filesystem

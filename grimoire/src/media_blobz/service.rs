@@ -95,6 +95,18 @@ pub async fn create_media_blob(mut req: CreateMediaBlobRequest) -> GrimoireResul
     // to a plain insert. includes soft-deleted rows on purpose - the
     // undelete branch below needs to see them, unlike
     // `get_media_blob_by_blake3`, which filters them out.
+    //
+    // NOTE: dedup is intentionally by content hash ALONE, not
+    // `(blake3, blob_type)` - `idx_media_blobz_blake3` is a UNIQUE index
+    // on `blake3` by itself (migration 089), so two rows can never share
+    // a hash regardless of the blob_type the caller wanted; scoping just
+    // this SELECT by blob_type would be a no-op; the later INSERT would
+    // still collide on that UNIQUE index and fall back to
+    // `get_media_blob_by_blake3` below, which also ignores blob_type.
+    // byte-identical content is always the same row, whatever role it
+    // was first created under - if a caller needs a GUARANTEED
+    // same-content-different-role blob, that's a schema change
+    // (per-blob_type uniqueness), not something fixable at this call site.
     let existing_lookup = if let Some(blake3) = req.blake3.clone() {
         sqlx::query_as!(
             MediaBlob,

@@ -1785,6 +1785,51 @@ fn repair_library_results() -> &'static RepairLibraryResults {
     REPAIR_LIBRARY_RESULTS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
+/// session_id of the most recently started `repair_library_run`, if any.
+/// lets `repair_library_active_session` answer "is one in flight right
+/// now" without the caller needing to already know a session_id (eg.
+/// after the wizard window was closed and reopened, or the user
+/// navigated away from and back to the library view - the orchestration
+/// task itself survives either, since it's spawned on the app's own
+/// async runtime, not tied to any particular webview).
+static LATEST_REPAIR_LIBRARY_SESSION: std::sync::OnceLock<Mutex<Option<String>>> =
+    std::sync::OnceLock::new();
+
+fn latest_repair_library_session() -> &'static Mutex<Option<String>> {
+    LATEST_REPAIR_LIBRARY_SESSION.get_or_init(|| Mutex::new(None))
+}
+
+/// if a `repair_library_run` is still in flight, return its session_id so
+/// the caller can resume polling `repair_library_run_status` and
+/// re-subscribe to its live progress - otherwise `None` (either nothing
+/// has been started this app session, or the last run already finished).
+#[tauri::command]
+pub fn repair_library_active_session() -> Option<String> {
+    let session_id = latest_repair_library_session().lock().unwrap().clone()?;
+    let still_running = repair_library_results()
+        .lock()
+        .unwrap()
+        .get(&session_id)
+        .map(|s| !s.done)
+        .unwrap_or(false);
+    still_running.then_some(session_id)
+}
+
+/// boxed/pinned job-event stream handed from `repair_library_run` (where it's
+/// subscribed) into `run_repair_library_session` (where it's awaited) - see
+/// that command's doc comment for why subscription has to happen before any
+/// jobs are created.
+type RepairLibraryEventStream = std::pin::Pin<
+    Box<
+        dyn futures_util::Stream<
+                Item = Result<
+                    grimoire::jobs::job_events::JobEvent,
+                    grimoire::jobs::job_events::CloseReason,
+                >,
+            > + Send,
+    >,
+>;
+
 /// kick off the combined "repair library" flow: a `RescanDirectories` job
 /// followed by a chained `RepairLibraryImages` batch job chain, both
 /// sharing ONE job session - replaces the old `rescan_directories` +
@@ -1794,10 +1839,16 @@ fn repair_library_results() -> &'static RepairLibraryResults {
 /// 2026-10-09: "scan complete" toasts fired while image repair was still
 /// quietly running underneath).
 ///
+/// subscribes to this session's job-event stream BEFORE creating the
+/// first job - a `RescanDirectories` job with nothing to do can complete
+/// in well under a second (confirmed real), so subscribing any later
+/// risks missing its settled event entirely and hanging forever.
+///
 /// returns immediately with the session_id - actual orchestration runs
-/// in `run_repair_library_session` on a spawned task. poll
-/// `repair_library_run_status` with that session_id to learn when
-/// EVERYTHING (not just the scan) is truly done.
+/// in `run_repair_library_session` on a spawned task, reacting to
+/// grimoire's job-event broadcast stream rather than polling the
+/// database. poll `repair_library_run_status` with that session_id to
+/// learn when EVERYTHING (not just the scan) is truly done.
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
 pub async fn repair_library_run(
@@ -1810,6 +1861,7 @@ pub async fn repair_library_run(
     remove_overapplied: Option<bool>,
     backfill_video_thumbnails: Option<bool>,
 ) -> RepairLibraryRunResult {
+    use grimoire::jobs::job_events::EventFilter;
     use grimoire::jobs::{
         create_job, create_job_session, CreateJobRequest, CreateJobSessionRequest, JobType,
     };
@@ -1821,6 +1873,17 @@ pub async fn repair_library_run(
             message: format!("initialization failed: {}", e),
         };
     }
+
+    let caller = match get_caller_from_app_config(&app_handle) {
+        Ok(c) => c,
+        Err(e) => {
+            return RepairLibraryRunResult {
+                success: false,
+                session_id: None,
+                message: format!("failed to resolve caller: {}", e),
+            }
+        }
+    };
 
     let session_request = CreateJobSessionRequest {
         job_type: JobType::RescanDirectories,
@@ -1838,6 +1901,15 @@ pub async fn repair_library_run(
             }
         }
     };
+
+    // subscribe before creating any jobs - see doc comment above.
+    let filter = EventFilter {
+        session_ids: Some(vec![session_id.clone()]),
+        ..Default::default()
+    };
+    let event_stream: RepairLibraryEventStream = Box::pin(
+        grimoire::jobs::job_events::subscribe_filtered(filter, caller),
+    );
 
     let job_request = CreateJobRequest {
         job_type: JobType::RescanDirectories,
@@ -1864,6 +1936,7 @@ pub async fn repair_library_run(
             message: None,
         },
     );
+    *latest_repair_library_session().lock().unwrap() = Some(session_id.clone());
 
     let options = grimoire::maintenance::RepairLibraryImagesOptions {
         backfill_waveforms: backfill_waveforms.unwrap_or(true),
@@ -1884,6 +1957,7 @@ pub async fn repair_library_run(
             scan_directory,
             options,
             shutdown_token,
+            event_stream,
         )
         .await;
     });
@@ -1898,13 +1972,12 @@ pub async fn repair_library_run(
 /// poll whether a `repair_library_run` session has fully settled - needed
 /// because the generic grimoire job-events "Completed" signal for this
 /// session fires once the SCAN phase's jobs happen to hit zero
-/// pending/running, which can race with (and fire before)
-/// `run_repair_library_session` enqueueing the repair-images job a few
-/// seconds later on its own poll tick - a premature "Completed" that
-/// looks identical to the real, final one from the event alone. this
-/// command instead reports the one thing that's actually unambiguous:
-/// whether `run_repair_library_session` itself has reached its own last
-/// line.
+/// pending/running, which races with (and can fire before)
+/// `run_repair_library_session` enqueueing the repair-images job a
+/// moment later - a premature "Completed" that looks identical to the
+/// real, final one from the event alone. this command instead reports
+/// the one thing that's actually unambiguous: whether
+/// `run_repair_library_session` itself has reached its own last line.
 #[tauri::command]
 pub fn repair_library_run_status(session_id: String) -> RepairLibraryStatus {
     repair_library_results()
@@ -1918,14 +1991,126 @@ pub fn repair_library_run_status(session_id: String) -> RepairLibraryStatus {
         })
 }
 
-/// drives a `repair_library_run` session to completion: waits for the
-/// scan phase's jobs to settle, chains in the `RepairLibraryImages` batch
-/// job (reusing the SAME session_id - its own `enqueue_next_batch`
-/// preserves that across every continuation batch, so the whole chain
-/// stays trackable as one session), waits for that to settle too, then
-/// notifies spume and stashes the final result for
-/// `repair_library_run_status` to hand back to the wizard.
-#[allow(clippy::too_many_arguments)]
+/// enqueue the `RepairLibraryImages` batch job into `session_id` - its own
+/// `enqueue_next_batch` preserves that session_id across every
+/// continuation batch, so the whole chain stays trackable as one session.
+async fn enqueue_repair_images_job(
+    session_id: &str,
+    dry_run: bool,
+    scan_directory: &Option<String>,
+    options: grimoire::maintenance::RepairLibraryImagesOptions,
+) -> Result<(), String> {
+    use grimoire::jobs::{create_job, CreateJobRequest, JobType, RepairLibraryImagesParams};
+
+    let params = RepairLibraryImagesParams {
+        dry_run,
+        scan_directory: scan_directory.clone(),
+        options,
+        ..Default::default()
+    };
+    let parameters =
+        serde_json::to_value(&params).map_err(|e| format!("failed to serialize params: {e}"))?;
+    let job_request = CreateJobRequest {
+        job_type: JobType::RepairLibraryImages,
+        session_id: Some(session_id.to_string()),
+        parameters,
+        max_retries: Some(1),
+        scheduled_at: None,
+        created_by: Some("tauri-repair-library".to_string()),
+        priority: None,
+    };
+    let resp = create_job(job_request).await;
+    if !resp.success {
+        return Err(resp.message);
+    }
+    Ok(())
+}
+
+/// both phases have settled - pull the terminal `RepairLibraryImages`
+/// batch's own totals, diff overview stats against `baseline`, notify
+/// spume, and stash the final result for `repair_library_run_status`.
+async fn finish_repair_library_session(
+    app_handle: &tauri::AppHandle,
+    session_id: &str,
+    baseline: (i64, i64, i64),
+) {
+    use grimoire::jobs::{list_jobs, JobStatus, JobType, RepairLibraryImagesJobResult};
+    use grimoire::music::analytics::admin::get_overview_stats;
+
+    let current_stats = get_overview_stats().await.data;
+    let (songs_added, albums_added, artists_added) = match &current_stats {
+        Some(stats) => (
+            (stats.total_songs - baseline.0).max(0) as u32,
+            (stats.total_albums - baseline.1).max(0) as u32,
+            (stats.total_artists - baseline.2).max(0) as u32,
+        ),
+        None => (0, 0, 0),
+    };
+
+    let totals = list_jobs(
+        Some(session_id),
+        Some(JobStatus::Completed),
+        Some(200),
+        None,
+    )
+    .await
+    .data
+    .unwrap_or_default()
+    .into_iter()
+    .filter(|j| matches!(j.job_type(), Ok(JobType::RepairLibraryImages)))
+    .find_map(|j| {
+        j.result::<RepairLibraryImagesJobResult>()
+            .ok()
+            .flatten()
+            .filter(|r| r.done)
+            .map(|r| r.totals)
+    })
+    .unwrap_or_default();
+
+    let message = format!(
+        "repair library complete: {} song(s) scanned, {} song waveform(s) backfilled, \
+         {} album thumbnail(s) backfilled, {} video waveform(s) backfilled, \
+         {} video thumbnail(s) backfilled, {} over-applied image(s) removed{}",
+        songs_added,
+        totals.songs_waveforms_backfilled,
+        totals.albums_thumbnails_backfilled,
+        totals.videos_waveforms_backfilled,
+        totals.videos_thumbnails_backfilled,
+        totals.albums_thumbnails_removed_overapplied,
+        if totals.errors.is_empty() {
+            String::new()
+        } else {
+            format!(" ({} error(s))", totals.errors.len())
+        },
+    );
+
+    if let Err(e) = crate::spume_bridge::notify_repair_library_complete(
+        app_handle,
+        songs_added,
+        albums_added,
+        artists_added,
+        message.clone(),
+    ) {
+        tracing::error!(error = %e, "repair-library-session: failed to notify spume");
+    }
+
+    repair_library_results().lock().unwrap().insert(
+        session_id.to_string(),
+        RepairLibraryStatus {
+            done: true,
+            message: Some(message),
+        },
+    );
+
+    tracing::info!(session_id = %session_id, "repair-library-session: complete");
+}
+
+/// drives a `repair_library_run` session to completion by reacting to
+/// grimoire's job-event broadcast stream (`event_stream`, already
+/// subscribed by the caller) instead of polling the database on a timer -
+/// waits for the scan phase's session-level `Completed` event, chains in
+/// the `RepairLibraryImages` batch job, waits for the chain's own
+/// `Completed` event, then hands off to `finish_repair_library_session`.
 async fn run_repair_library_session(
     app_handle: tauri::AppHandle,
     session_id: String,
@@ -1933,169 +2118,321 @@ async fn run_repair_library_session(
     scan_directory: Option<String>,
     options: grimoire::maintenance::RepairLibraryImagesOptions,
     shutdown_token: ShutdownToken,
+    mut event_stream: RepairLibraryEventStream,
 ) {
-    use grimoire::jobs::{
-        create_job, get_session_job_counts, list_jobs, CreateJobRequest, JobStatus, JobType,
-        RepairLibraryImagesJobResult, RepairLibraryImagesParams,
-    };
+    use futures_util::StreamExt;
+    use grimoire::jobs::get_session_job_counts;
+    use grimoire::jobs::job_events::{self, CloseReason, EventFilter, JobEvent};
     use grimoire::music::analytics::admin::get_overview_stats;
-    use std::time::Duration;
 
     let baseline = match get_overview_stats().await.data {
         Some(stats) => (stats.total_songs, stats.total_albums, stats.total_artists),
         None => (0, 0, 0),
     };
 
-    let poll_interval = Duration::from_secs(3);
-    let max_polls = 2400; // 2 hours max
     let mut repair_started = false;
 
-    for _ in 0..max_polls {
-        tokio::select! {
-            _ = tokio::time::sleep(poll_interval) => {}
+    loop {
+        let evt = tokio::select! {
+            item = event_stream.next() => item,
             _ = shutdown_token.cancelled() => {
                 tracing::info!("repair-library-session: shutdown requested, stopping");
                 return;
             }
-        }
+        };
 
-        let counts = match get_session_job_counts(&session_id).await.data {
-            Some(c) => c,
+        let settled = match evt {
+            Some(Ok(JobEvent::Progress {
+                complete, total, ..
+            })) => {
+                let pending = (total - complete).max(0) as u32;
+                let _ = notify_scan_progress(&app_handle, 0, 0, 0, pending, total.max(0) as u32);
+                false
+            }
+            Some(Ok(JobEvent::Completed { .. })) => true,
+            Some(Ok(_other)) => false,
+            Some(Err(CloseReason::Lagged)) => {
+                // 256-slot ring buffer overflowed (a LOT of unrelated job
+                // activity elsewhere in the app) - re-subscribe and do one
+                // settled-check to catch up in case the event we needed
+                // was among the ones we missed.
+                tracing::warn!(session_id = %session_id, "repair-library-session: event stream lagged, re-subscribing");
+                let caller = match get_caller_from_app_config(&app_handle) {
+                    Ok(c) => c,
+                    Err(e) => {
+                        tracing::error!(error = %e, "repair-library-session: failed to resolve caller after lag, giving up");
+                        return;
+                    }
+                };
+                let filter = EventFilter {
+                    session_ids: Some(vec![session_id.clone()]),
+                    ..Default::default()
+                };
+                event_stream = Box::pin(job_events::subscribe_filtered(filter, caller));
+                get_session_job_counts(&session_id)
+                    .await
+                    .data
+                    .map(|c| c.pending == 0 && c.running == 0)
+                    .unwrap_or(false)
+            }
+            Some(Err(reason)) => {
+                tracing::error!(?reason, session_id = %session_id, "repair-library-session: event stream closed unrecoverably");
+                repair_library_results().lock().unwrap().insert(
+                    session_id.clone(),
+                    RepairLibraryStatus {
+                        done: true,
+                        message: Some(format!("repair library stopped unexpectedly: {:?}", reason)),
+                    },
+                );
+                return;
+            }
             None => {
-                tracing::warn!(session_id = %session_id, "repair-library-session: failed to get session job counts");
-                continue;
+                tracing::warn!(session_id = %session_id, "repair-library-session: event stream ended unexpectedly");
+                repair_library_results().lock().unwrap().insert(
+                    session_id.clone(),
+                    RepairLibraryStatus {
+                        done: true,
+                        message: Some(
+                            "repair library stopped unexpectedly (event stream ended)".to_string(),
+                        ),
+                    },
+                );
+                return;
             }
         };
 
-        let current_stats = get_overview_stats().await.data;
-        let (songs_added, albums_added, artists_added) = match &current_stats {
-            Some(stats) => (
-                (stats.total_songs - baseline.0).max(0) as u32,
-                (stats.total_albums - baseline.1).max(0) as u32,
-                (stats.total_artists - baseline.2).max(0) as u32,
-            ),
-            None => (0, 0, 0),
-        };
-
-        let pending = counts.pending + counts.running;
-        let _ = notify_scan_progress(
-            &app_handle,
-            songs_added,
-            albums_added,
-            artists_added,
-            pending,
-            counts.total,
-        );
-
-        if pending > 0 {
+        if !settled {
             continue;
         }
 
         if !repair_started {
-            // scan phase just settled - chain the repair-images batch
-            // job into the SAME session and keep polling; `pending`
-            // will go back above 0 on the next tick once this job
-            // actually gets claimed.
+            // scan phase just settled - chain the repair-images batch job
+            // into the SAME session and keep waiting; the stream will
+            // deliver a fresh Progress/Completed cycle once it's claimed.
             repair_started = true;
-            let params = RepairLibraryImagesParams {
-                dry_run,
-                scan_directory: scan_directory.clone(),
-                options,
-                ..Default::default()
-            };
-            let parameters = match serde_json::to_value(&params) {
-                Ok(v) => v,
-                Err(e) => {
-                    tracing::error!(error = %e, "repair-library-session: failed to serialize repair params");
-                    return;
-                }
-            };
-            let job_request = CreateJobRequest {
-                job_type: JobType::RepairLibraryImages,
-                session_id: Some(session_id.clone()),
-                parameters,
-                max_retries: Some(1),
-                scheduled_at: None,
-                created_by: Some("tauri-repair-library".to_string()),
-                priority: None,
-            };
-            let resp = create_job(job_request).await;
-            if !resp.success {
-                tracing::error!(message = %resp.message, "repair-library-session: failed to enqueue repair-images job");
+            if let Err(e) =
+                enqueue_repair_images_job(&session_id, dry_run, &scan_directory, options).await
+            {
+                tracing::error!(message = %e, "repair-library-session: failed to enqueue repair-images job");
                 return;
             }
             continue;
         }
 
-        // both phases have now settled - pull the terminal batch's own
-        // totals out of the (small, session-scoped) job list.
-        let totals = list_jobs(
-            Some(&session_id),
-            Some(JobStatus::Completed),
-            Some(200),
-            None,
-        )
-        .await
-        .data
-        .unwrap_or_default()
-        .into_iter()
-        .filter(|j| matches!(j.job_type(), Ok(JobType::RepairLibraryImages)))
-        .find_map(|j| {
-            j.result::<RepairLibraryImagesJobResult>()
-                .ok()
-                .flatten()
-                .filter(|r| r.done)
-                .map(|r| r.totals)
-        })
-        .unwrap_or_default();
-
-        let message = format!(
-            "repair library complete: {} song(s) scanned, {} song waveform(s) backfilled, \
-             {} album thumbnail(s) backfilled, {} video waveform(s) backfilled, \
-             {} video thumbnail(s) backfilled, {} over-applied image(s) removed{}",
-            songs_added,
-            totals.songs_waveforms_backfilled,
-            totals.albums_thumbnails_backfilled,
-            totals.videos_waveforms_backfilled,
-            totals.videos_thumbnails_backfilled,
-            totals.albums_thumbnails_removed_overapplied,
-            if totals.errors.is_empty() {
-                String::new()
-            } else {
-                format!(" ({} error(s))", totals.errors.len())
-            },
-        );
-
-        if let Err(e) = crate::spume_bridge::notify_repair_library_complete(
-            &app_handle,
-            songs_added,
-            albums_added,
-            artists_added,
-            message.clone(),
-        ) {
-            tracing::error!(error = %e, "repair-library-session: failed to notify spume");
-        }
-
-        repair_library_results().lock().unwrap().insert(
-            session_id.clone(),
-            RepairLibraryStatus {
-                done: true,
-                message: Some(message.clone()),
-            },
-        );
-
-        tracing::info!(session_id = %session_id, "repair-library-session: complete");
+        finish_repair_library_session(&app_handle, &session_id, baseline).await;
         return;
     }
+}
 
-    tracing::warn!("repair-library-session: polling timed out after 2 hours");
-    repair_library_results().lock().unwrap().insert(
+/// result of one maintenance task's admin-dispatch call.
+#[derive(Debug, Clone, Serialize)]
+pub struct MaintenanceStepResult {
+    pub command: String,
+    pub success: bool,
+    pub message: String,
+}
+
+/// live/final status of a `maintenance_run` session.
+#[derive(Debug, Clone, Serialize, Default)]
+pub struct MaintenanceStatus {
+    pub done: bool,
+    pub total_steps: u32,
+    pub completed_steps: u32,
+    pub current_step: Option<String>,
+    pub results: Vec<MaintenanceStepResult>,
+}
+
+/// result of `maintenance_run` - mirrors `RepairLibraryRunResult`'s shape.
+#[derive(Debug, Serialize)]
+pub struct MaintenanceRunResult {
+    pub success: bool,
+    pub session_id: Option<String>,
+    pub message: String,
+}
+
+type MaintenanceResults = Mutex<HashMap<String, MaintenanceStatus>>;
+static MAINTENANCE_RESULTS: std::sync::OnceLock<MaintenanceResults> = std::sync::OnceLock::new();
+
+fn maintenance_results() -> &'static MaintenanceResults {
+    MAINTENANCE_RESULTS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// session_id of the most recently started `maintenance_run`, if any -
+/// same reconnect-on-remount purpose as `LATEST_REPAIR_LIBRARY_SESSION`.
+static LATEST_MAINTENANCE_SESSION: std::sync::OnceLock<Mutex<Option<String>>> =
+    std::sync::OnceLock::new();
+
+fn latest_maintenance_session() -> &'static Mutex<Option<String>> {
+    LATEST_MAINTENANCE_SESSION.get_or_init(|| Mutex::new(None))
+}
+
+/// if a `maintenance_run` is still in flight, return its session_id - see
+/// `repair_library_active_session`'s doc comment, same reasoning applies.
+#[tauri::command]
+pub fn maintenance_active_session() -> Option<String> {
+    let session_id = latest_maintenance_session().lock().unwrap().clone()?;
+    let still_running = maintenance_results()
+        .lock()
+        .unwrap()
+        .get(&session_id)
+        .map(|s| !s.done)
+        .unwrap_or(false);
+    still_running.then_some(session_id)
+}
+
+#[tauri::command]
+pub fn maintenance_run_status(session_id: String) -> MaintenanceStatus {
+    maintenance_results()
+        .lock()
+        .unwrap()
+        .get(&session_id)
+        .cloned()
+        .unwrap_or_default()
+}
+
+/// unique enough within this one app process's lifetime - this flow has
+/// no job-system backing (each step is a single, fast admin_dispatch
+/// call, not a batch chain), so there's no need for a DB-durable id.
+fn new_maintenance_session_id() -> String {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    format!("maint-{now:x}-{n:x}")
+}
+
+/// kick off the checked maintenance tasks as a background sequence of
+/// `grimoire::admin_dispatch::handle` calls - replaces the old
+/// client-driven loop in LibraryView.tsx's `runMaintenanceTasks`, which
+/// ran entirely in the webview and so couldn't survive the wizard window
+/// closing or the user navigating to another view and back (the running
+/// `async function` kept executing, but the NEW component instance after
+/// remount has no way to find or display its progress - same class of
+/// bug `repair_library_run` fixed for the other button, confirmed real
+/// 2026-10-09).
+///
+/// returns immediately with a session_id; poll `maintenance_run_status`
+/// with it for live per-step progress, or call
+/// `maintenance_active_session` on mount to resume watching one already
+/// running.
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub async fn maintenance_run(
+    app_handle: tauri::AppHandle,
+    cleanup_orphaned_data: bool,
+    backfill_thumbnails: bool,
+    backfill_blake3: bool,
+    cleanup_orphaned_blobs: bool,
+    cleanup_contentless_blobs: bool,
+    hard_delete_old_records: bool,
+    hard_delete_old_videos: bool,
+) -> MaintenanceRunResult {
+    if let Err(e) = ensure_initialized(&app_handle).await {
+        return MaintenanceRunResult {
+            success: false,
+            session_id: None,
+            message: format!("initialization failed: {}", e),
+        };
+    }
+
+    let caller = match get_caller_from_app_config(&app_handle) {
+        Ok(c) => c,
+        Err(e) => {
+            return MaintenanceRunResult {
+                success: false,
+                session_id: None,
+                message: format!("failed to resolve caller: {}", e),
+            }
+        }
+    };
+
+    let mut commands: Vec<&'static str> = Vec::new();
+    if cleanup_orphaned_data {
+        commands.extend([
+            "maintenance_cleanup_orphaned_tags",
+            "maintenance_cleanup_orphaned_genres",
+            "maintenance_cleanup_orphaned_artists",
+            "maintenance_cleanup_orphaned_albums",
+            "maintenance_cleanup_orphaned_video_series",
+            "maintenance_cleanup_orphaned_taxons",
+        ]);
+    }
+    if backfill_thumbnails {
+        commands.push("maintenance_backfill_thumbnails");
+    }
+    if backfill_blake3 {
+        commands.push("maintenance_backfill_blake3");
+    }
+    if cleanup_orphaned_blobs {
+        commands.push("maintenance_cleanup_orphaned_blobs");
+    }
+    if cleanup_contentless_blobs {
+        commands.push("maintenance_cleanup_contentless_blobs");
+    }
+    if hard_delete_old_records {
+        commands.push("maintenance_hard_delete_old_records");
+    }
+    if hard_delete_old_videos {
+        commands.push("maintenance_hard_delete_old_videos");
+    }
+
+    let session_id = new_maintenance_session_id();
+    maintenance_results().lock().unwrap().insert(
         session_id.clone(),
-        RepairLibraryStatus {
-            done: true,
-            message: Some("repair library timed out after 2 hours".to_string()),
+        MaintenanceStatus {
+            done: false,
+            total_steps: commands.len() as u32,
+            completed_steps: 0,
+            current_step: None,
+            results: Vec::new(),
         },
     );
+    *latest_maintenance_session().lock().unwrap() = Some(session_id.clone());
+
+    let commands_owned: Vec<String> = commands.into_iter().map(String::from).collect();
+    let session_id_clone = session_id.clone();
+    tauri::async_runtime::spawn(async move {
+        run_maintenance_session(session_id_clone, caller, commands_owned).await;
+    });
+
+    MaintenanceRunResult {
+        success: true,
+        session_id: Some(session_id),
+        message: "maintenance tasks started".to_string(),
+    }
+}
+
+async fn run_maintenance_session(
+    session_id: String,
+    caller: grimoire::offal::Caller,
+    commands: Vec<String>,
+) {
+    for (idx, command) in commands.iter().enumerate() {
+        if let Some(status) = maintenance_results().lock().unwrap().get_mut(&session_id) {
+            status.current_step = Some(command.clone());
+        }
+
+        let response =
+            grimoire::admin_dispatch::handle(command, serde_json::Value::Null, &caller).await;
+        let step_result = MaintenanceStepResult {
+            command: command.clone(),
+            success: response.success,
+            message: response.message,
+        };
+
+        if let Some(status) = maintenance_results().lock().unwrap().get_mut(&session_id) {
+            status.completed_steps = (idx + 1) as u32;
+            status.results.push(step_result);
+        }
+    }
+
+    if let Some(status) = maintenance_results().lock().unwrap().get_mut(&session_id) {
+        status.done = true;
+        status.current_step = None;
+    }
 }
 
 /// poll for scan job completion and notify spume with progress updates

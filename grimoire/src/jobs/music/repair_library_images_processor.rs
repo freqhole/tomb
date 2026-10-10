@@ -14,6 +14,7 @@
 //! is itself idempotent.
 
 use crate::database;
+use crate::jobs::job_events::{self, JobEvent};
 use crate::jobs::{create_job, CreateJobRequest, Job, JobError, JobType};
 use crate::maintenance::{
     RepairLibraryImagesPhase, DIRECTORY_BATCH_SIZE, VIDEO_THUMBNAIL_BATCH_SIZE, WAVEFORM_BATCH_SIZE,
@@ -60,17 +61,15 @@ pub async fn process_repair_library_images_job(job: &Job) -> Result<Option<Value
                     reason: resp.message,
                 });
             };
+            let backfilled_this_batch = outcome.result.songs_waveforms_backfilled;
             totals.merge(outcome.result);
             if outcome.more_remaining {
-                // a real run's candidate set shrinks on its own; only a
-                // dry run (never writes) needs the offset to advance so
-                // it doesn't re-fetch the same rows forever - see
-                // `repair_waveforms_batch`'s doc comment.
-                let next_offset = if params.dry_run {
-                    params.directory_offset + WAVEFORM_BATCH_SIZE
-                } else {
-                    0
-                };
+                let next_offset = crate::maintenance::repair_library_images::next_batch_offset(
+                    params.dry_run,
+                    backfilled_this_batch,
+                    params.directory_offset,
+                    WAVEFORM_BATCH_SIZE,
+                );
                 Some((RepairLibraryImagesPhase::Waveforms, next_offset))
             } else {
                 // song waveform phase exhausted - move on to video waveforms.
@@ -94,13 +93,15 @@ pub async fn process_repair_library_images_job(job: &Job) -> Result<Option<Value
                     reason: resp.message,
                 });
             };
+            let backfilled_this_batch = outcome.result.videos_waveforms_backfilled;
             totals.merge(outcome.result);
             if outcome.more_remaining {
-                let next_offset = if params.dry_run {
-                    params.directory_offset + WAVEFORM_BATCH_SIZE
-                } else {
-                    0
-                };
+                let next_offset = crate::maintenance::repair_library_images::next_batch_offset(
+                    params.dry_run,
+                    backfilled_this_batch,
+                    params.directory_offset,
+                    WAVEFORM_BATCH_SIZE,
+                );
                 Some((RepairLibraryImagesPhase::VideoWaveforms, next_offset))
             } else {
                 Some((RepairLibraryImagesPhase::VideoThumbnails, 0))
@@ -123,13 +124,15 @@ pub async fn process_repair_library_images_job(job: &Job) -> Result<Option<Value
                     reason: resp.message,
                 });
             };
+            let backfilled_this_batch = outcome.result.videos_thumbnails_backfilled;
             totals.merge(outcome.result);
             if outcome.more_remaining {
-                let next_offset = if params.dry_run {
-                    params.directory_offset + VIDEO_THUMBNAIL_BATCH_SIZE
-                } else {
-                    0
-                };
+                let next_offset = crate::maintenance::repair_library_images::next_batch_offset(
+                    params.dry_run,
+                    backfilled_this_batch,
+                    params.directory_offset,
+                    VIDEO_THUMBNAIL_BATCH_SIZE,
+                );
                 Some((RepairLibraryImagesPhase::VideoThumbnails, next_offset))
             } else {
                 // video thumbnail phase exhausted - move on to the
@@ -159,6 +162,84 @@ pub async fn process_repair_library_images_job(job: &Job) -> Result<Option<Value
                 .then_some((RepairLibraryImagesPhase::Directories, outcome.next_offset))
         }
     };
+
+    // live progress tick for anything watching this session (eg. the
+    // charnel wizard's repair-library progress card) - running totals so
+    // far, not just this one batch's slice, since that's what's actually
+    // useful to show a user staring at a multi-minute chain. see
+    // `job_events::JobEvent::Stage`'s own doc comment.
+    {
+        let phase_label = match params.phase {
+            RepairLibraryImagesPhase::Waveforms => "backfilling song waveforms",
+            RepairLibraryImagesPhase::VideoWaveforms => "backfilling video waveforms",
+            RepairLibraryImagesPhase::VideoThumbnails => "backfilling video thumbnails",
+            RepairLibraryImagesPhase::Directories => "backfilling album/directory art",
+        };
+        // only mention counts that are actually non-zero - a user
+        // staring at "0 song waveform(s), 0 video waveform(s), 0 video
+        // thumbnail(s), 12 album thumbnail(s)" has to hunt for the one
+        // real number in a wall of zeros.
+        let mut parts = Vec::new();
+        if totals.songs_waveforms_backfilled > 0 {
+            parts.push(format!(
+                "{} song waveform(s)",
+                totals.songs_waveforms_backfilled
+            ));
+        }
+        if totals.videos_waveforms_backfilled > 0 {
+            parts.push(format!(
+                "{} video waveform(s)",
+                totals.videos_waveforms_backfilled
+            ));
+        }
+        if totals.videos_thumbnails_backfilled > 0 {
+            parts.push(format!(
+                "{} video thumbnail(s)",
+                totals.videos_thumbnails_backfilled
+            ));
+        }
+        if totals.albums_thumbnails_backfilled > 0 {
+            parts.push(format!(
+                "{} album thumbnail(s)",
+                totals.albums_thumbnails_backfilled
+            ));
+        }
+        let counts = if parts.is_empty() {
+            "nothing backfilled yet".to_string()
+        } else {
+            format!("{} backfilled so far", parts.join(", "))
+        };
+        let message = format!(
+            "{} (batch at offset {}): {}{}",
+            phase_label,
+            params.directory_offset,
+            counts,
+            if totals.errors.is_empty() {
+                String::new()
+            } else {
+                format!(", {} error(s)", totals.errors.len())
+            },
+        );
+        job_events::emit(JobEvent::Stage {
+            session_id: job.session_id.clone(),
+            job_id: job.id.clone(),
+            stage: format!("{:?}", params.phase),
+            message: Some(message),
+            topic: JobType::RepairLibraryImages,
+            entity_ref: None,
+            created_by: job.created_by.clone(),
+            details: Some(json!({
+                "phase": format!("{:?}", params.phase),
+                "directory_offset": params.directory_offset,
+                "songs_waveforms_backfilled": totals.songs_waveforms_backfilled,
+                "videos_waveforms_backfilled": totals.videos_waveforms_backfilled,
+                "videos_thumbnails_backfilled": totals.videos_thumbnails_backfilled,
+                "albums_thumbnails_backfilled": totals.albums_thumbnails_backfilled,
+                "albums_thumbnails_removed_overapplied": totals.albums_thumbnails_removed_overapplied,
+                "errors": totals.errors.len(),
+            })),
+        });
+    }
 
     // cancelling this job stops the chain here - don't enqueue a
     // continuation for a run the caller asked to stop.

@@ -145,12 +145,13 @@ interface JobRow {
   result: string | null;
 }
 
-// progress payload mirrors JobEvent.Progress.details emitted by the runner
-// and forwarded through the typed job_events broker.
+// progress payload mirrors JobEvent.Progress's top-level complete/total
+// fields (see the job-events listener in onMount for why NOT details -
+// details is only populated for a specific allowlist of job types that
+// doesn't include repair-library's).
 interface JobProgressPayload {
   session_id: string;
   directory?: string;
-  songs_added: number;
   jobs_pending: number;
   jobs_total: number;
   domain?: "music" | "video";
@@ -182,6 +183,13 @@ export default function LibraryView() {
   // charnel's grimoire event subscription (no polling required).
   const [scanProgress, setScanProgress] = createSignal<JobProgressPayload | null>(null);
   const [scanSummary, setScanSummary] = createSignal<JobSessionCompletePayload | null>(null);
+  // most recent `JobEvent::Stage` message for the active repair-library
+  // session - real, live detail (which directory is being scanned, which
+  // phase/batch is running, running totals so far) straight from the
+  // job processors themselves, not a canned description (see
+  // rescan_processor.rs / repair_library_images_processor.rs's own
+  // `job_events::emit(JobEvent::Stage {...})` call sites).
+  const [scanStageMessage, setScanStageMessage] = createSignal<string | null>(null);
   // the job session id for the CURRENTLY running "run repair library"
   // flow (see rescanAll) - without this, the job-events listener below
   // has no way to tell this run's own progress apart from any other
@@ -189,6 +197,13 @@ export default function LibraryView() {
   // 2026-10-09: an unrelated session's progress/completed event could
   // silently reset or "freeze" this view's progress card).
   const [activeLibrarySession, setActiveLibrarySession] = createSignal<string | null>(null);
+  // true until onMount's `repair_library_active_session` check resolves
+  // - the "run repair library" button stays disabled for this one brief
+  // window so a user can't start a second, overlapping run before we've
+  // actually confirmed whether one is already in flight (confirmed real
+  // 2026-10-09: checking late in onMount left a window where this was
+  // clickable before an already-running session had been found).
+  const [checkingActiveSession, setCheckingActiveSession] = createSignal(!admin.isRemote());
   // move directory modal state
   const [showMoveModal, setShowMoveModal] = createSignal(false);
   const [moveOldPath, setMoveOldPath] = createSignal("");
@@ -286,6 +301,14 @@ export default function LibraryView() {
   const [maintenanceRunning, setMaintenanceRunning] = createSignal(false);
   const [maintenanceResults, setMaintenanceResults] = createSignal<string[]>([]);
   const [maintenanceError, setMaintenanceError] = createSignal("");
+  // live per-step progress for a backend-orchestrated `maintenance_run`
+  // (local only - see runMaintenanceTasks) - mirrors scanProgress's
+  // purpose for the repair-library flow.
+  const [maintenanceProgress, setMaintenanceProgress] = createSignal<{
+    completed_steps: number;
+    total_steps: number;
+    current_step: string | null;
+  } | null>(null);
 
   // dry-run "would this find anything?" preview per checklist item, so
   // the user can tell whether a task is worth running without actually
@@ -300,6 +323,52 @@ export default function LibraryView() {
   let unlistenScan: (() => void) | null = null;
 
   onMount(async () => {
+    // check for (and, if found, resume) any in-flight background runs
+    // FIRST, before any other startup work, and in PARALLEL with each
+    // other (not sequentially) - both are single, cheap in-memory
+    // status reads, and the orchestration tasks themselves run on the
+    // app's own async runtime, independent of any webview, so closing
+    // the wizard window or navigating to another view and back must not
+    // lose track of either (confirmed real 2026-10-09: this used to
+    // show a stuck/empty progress card after doing either). doing this
+    // first, in parallel, also shrinks the window where either "run"
+    // button is clickable before we actually know one is already
+    // running, and avoids the two checks queuing up behind each other.
+    if (!admin.isRemote()) {
+      await Promise.all([
+        (async () => {
+          try {
+            const activeSessionId = await invoke<string | null>("repair_library_active_session");
+            if (activeSessionId) {
+              setScanning("__all__");
+              setLastResult("");
+              setLastError("");
+              void pollRepairLibraryUntilDone(activeSessionId);
+            }
+          } catch (e) {
+            console.error("failed to check for an in-flight repair-library run:", e);
+          } finally {
+            setCheckingActiveSession(false);
+          }
+        })(),
+        (async () => {
+          try {
+            const activeSessionId = await invoke<string | null>("maintenance_active_session");
+            if (activeSessionId) {
+              setMaintenanceRunning(true);
+              setMaintenanceError("");
+              setMaintenanceResults([]);
+              void pollMaintenanceUntilDone(activeSessionId);
+            }
+          } catch (e) {
+            console.error("failed to check for an in-flight maintenance run:", e);
+          }
+        })(),
+      ]);
+    } else {
+      setCheckingActiveSession(false);
+    }
+
     await loadDirectories();
     try {
       const dirs = await admin.dispatchOrThrow<{
@@ -327,6 +396,7 @@ export default function LibraryView() {
               session_id?: string;
               complete?: number;
               total?: number;
+              message?: string;
               details?: Record<string, unknown>;
             }
           | undefined;
@@ -356,38 +426,45 @@ export default function LibraryView() {
         if (evt.kind === "progress") {
           const d = (evt.details ?? {}) as {
             directory?: string;
-            songs_added?: number;
-            jobs_pending?: number;
-            jobs_total?: number;
             domain?: "music" | "video";
           };
+          // `evt.complete`/`evt.total` are the generic, always-populated
+          // session-level job counts grimoire's runner emits for every
+          // job type (see runner.rs) - `evt.details` (songs_added,
+          // jobs_pending, jobs_total) is only ever filled in for a
+          // specific allowlist of "badge progress" job types
+          // (ImportMusic, ProcessFile, FetchMedia, ...) that does NOT
+          // include RescanDirectories/RepairLibraryImages, so reading
+          // from `details` here always saw an empty object and rendered
+          // a permanently-stuck "0 / 0 jobs" - confirmed real
+          // 2026-10-09. each repair-library batch is one job, so this
+          // now shows real, live "N / M jobs" (batches) progress.
+          const total = evt.total ?? 0;
+          const complete = evt.complete ?? 0;
           setScanProgress({
             session_id: evt.session_id ?? "",
             directory: d.directory,
-            songs_added: d.songs_added ?? 0,
-            jobs_pending: d.jobs_pending ?? 0,
-            jobs_total: d.jobs_total ?? 0,
+            jobs_pending: Math.max(0, total - complete),
+            jobs_total: total,
             domain: d.domain,
           });
-          setScanSummary(null);
-        } else if (evt.kind === "completed") {
-          const d = (evt.details ?? {}) as {
-            songs_added?: number;
-            albums_added?: number;
-            artists_added?: number;
-            domain?: "music" | "video";
-          };
-          setScanSummary({
-            session_id: evt.session_id ?? "",
-            songs_added: d.songs_added ?? 0,
-            albums_added: d.albums_added ?? 0,
-            artists_added: d.artists_added ?? 0,
-            domain: d.domain,
-          });
-          setScanProgress(null);
-          // refresh directory file counts after scan completes
-          void loadDirectories();
+        } else if (evt.kind === "stage" && evt.message) {
+          // real, live detail straight from the job processor (current
+          // directory/phase/batch, running totals) - see
+          // rescan_processor.rs / repair_library_images_processor.rs's
+          // `JobEvent::Stage` emit sites.
+          setScanStageMessage(evt.message);
         }
+        // deliberately ignore "completed" here: grimoire's generic
+        // session-level Completed event fires the instant the SCAN
+        // phase's jobs hit zero pending/running - BEFORE the
+        // repair-images batch chain is even enqueued (see
+        // run_repair_library_session's doc comment) - so treating it as
+        // "done" here previously rendered "scan complete" and reloaded
+        // (still mid-run) directories while image repair was still
+        // actively running underneath. rescanAll()'s own
+        // repair_library_run_status poll is the sole source of truth
+        // for when the whole flow is actually finished.
       };
       const jobEventsSessionId = await invoke<string>("jobs_events_subscribe", {
         filter: null,
@@ -689,6 +766,7 @@ export default function LibraryView() {
     setLastResult("");
     setLastError("");
     setScanProgress(null);
+    setScanStageMessage(null);
     setScanSummary(null);
 
     // for local scans, validate the path first so a bad path produces a
@@ -774,6 +852,44 @@ export default function LibraryView() {
     return totals;
   }
 
+  // shared by both a freshly-started run (rescanAll) and a resumed one
+  // (onMount, when `repair_library_active_session` finds one still in
+  // flight after the wizard window was closed/reopened or this view was
+  // navigated away from and back to) - polls the lightweight in-memory
+  // status map (no DB query) rather than trusting the generic job-events
+  // "completed" signal for this session, which fires once the SCAN
+  // half's jobs happen to hit zero pending/running - a race with (and
+  // indistinguishable from) the real, final completion a few seconds
+  // later once the repair-images chain is also done - see
+  // repair_library_run_status's doc comment.
+  async function pollRepairLibraryUntilDone(sessionId: string) {
+    setActiveLibrarySession(sessionId);
+    try {
+      for (;;) {
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+        const status = await invoke<{ done: boolean; message: string | null }>(
+          "repair_library_run_status",
+          { sessionId },
+        );
+        if (status.done) {
+          setLastResult(status.message ?? "repair library complete");
+          break;
+        }
+      }
+      await loadDirectories();
+      await refreshMaintenancePreviews(true);
+    } catch (e) {
+      setLastError(`rescan failed: ${e}`);
+    } finally {
+      setActiveLibrarySession(null);
+      setScanProgress(null);
+      setScanStageMessage(null);
+      setScanSummary(null);
+      setRepairProgress(null);
+      setScanning(null);
+    }
+  }
+
   async function rescanAll() {
     setScanning("__all__");
     setLastResult("");
@@ -832,33 +948,12 @@ export default function LibraryView() {
         setScanning(null);
         return;
       }
-      setActiveLibrarySession(result.session_id);
-
-      // poll instead of trusting the generic job-events "completed"
-      // signal for this session, which fires once the SCAN half's jobs
-      // happen to hit zero pending/running - a race with (and
-      // indistinguishable from) the real, final completion a few
-      // seconds later once the repair-images chain is also done - see
-      // repair_library_run_status's doc comment.
-      const sessionId = result.session_id;
-      for (;;) {
-        await new Promise((resolve) => setTimeout(resolve, 2000));
-        const status = await invoke<{ done: boolean; message: string | null }>(
-          "repair_library_run_status",
-          { sessionId },
-        );
-        if (status.done) {
-          setLastResult(status.message ?? "repair library complete");
-          break;
-        }
-      }
-      await loadDirectories();
-      await refreshMaintenancePreviews(true);
+      await pollRepairLibraryUntilDone(result.session_id);
     } catch (e) {
       setLastError(`rescan failed: ${e}`);
-    } finally {
       setActiveLibrarySession(null);
       setScanProgress(null);
+      setScanStageMessage(null);
       setScanSummary(null);
       setRepairProgress(null);
       setScanning(null);
@@ -1030,58 +1125,131 @@ export default function LibraryView() {
   // each admin_dispatch command's own human-readable `message` rather than
   // re-deriving a summary from each one's differently-shaped `data` -
   // a failure in one task doesn't stop the rest from running.
-  async function runMaintenanceTasks() {
-    setMaintenanceRunning(true);
-    setMaintenanceError("");
-    setMaintenanceResults([]);
-    const results: string[] = [];
-
-    async function run(command: string, args: unknown = {}) {
-      try {
-        const resp = await admin.dispatch(command, args);
-        results.push(resp.success ? resp.message : `failed: ${resp.message}`);
-      } catch (e) {
-        results.push(`failed: ${e}`);
-      }
-    }
-
+  // shared by both a freshly-started maintenance run (runMaintenanceTasks)
+  // and a resumed one (onMount, when `maintenance_active_session` finds
+  // one still in flight) - mirrors pollRepairLibraryUntilDone's purpose.
+  async function pollMaintenanceUntilDone(sessionId: string) {
     try {
-      if (maintCleanupOrphanedData()) {
-        for (const command of [
-          "maintenance_cleanup_orphaned_tags",
-          "maintenance_cleanup_orphaned_genres",
-          "maintenance_cleanup_orphaned_artists",
-          "maintenance_cleanup_orphaned_albums",
-          "maintenance_cleanup_orphaned_video_series",
-          "maintenance_cleanup_orphaned_taxons",
-        ]) {
-          await run(command);
+      for (;;) {
+        const status = await invoke<{
+          done: boolean;
+          total_steps: number;
+          completed_steps: number;
+          current_step: string | null;
+          results: { command: string; success: boolean; message: string }[];
+        }>("maintenance_run_status", { sessionId });
+        setMaintenanceProgress({
+          completed_steps: status.completed_steps,
+          total_steps: status.total_steps,
+          current_step: status.current_step,
+        });
+        if (status.done) {
+          setMaintenanceResults(
+            status.results.map((r) => (r.success ? r.message : `failed: ${r.message}`)),
+          );
+          break;
         }
+        await new Promise((resolve) => setTimeout(resolve, 1500));
       }
-      if (maintBackfillThumbnails()) {
-        await run("maintenance_backfill_thumbnails");
-      }
-      if (maintBackfillBlake3()) {
-        await run("maintenance_backfill_blake3");
-      }
-      if (maintCleanupOrphanedBlobs()) {
-        await run("maintenance_cleanup_orphaned_blobs");
-      }
-      if (maintCleanupContentlessBlobs()) {
-        await run("maintenance_cleanup_contentless_blobs");
-      }
-      if (maintHardDeleteOldRecords()) {
-        await run("maintenance_hard_delete_old_records");
-      }
-      if (maintHardDeleteOldVideos()) {
-        await run("maintenance_hard_delete_old_videos");
-      }
-      setMaintenanceResults(results);
       await loadDirectories();
       await refreshMaintenancePreviews(true);
     } catch (e) {
       setMaintenanceError(`maintenance tasks failed: ${e}`);
     } finally {
+      setMaintenanceProgress(null);
+      setMaintenanceRunning(false);
+    }
+  }
+
+  async function runMaintenanceTasks() {
+    setMaintenanceRunning(true);
+    setMaintenanceError("");
+    setMaintenanceResults([]);
+    setMaintenanceProgress(null);
+
+    if (admin.isRemote()) {
+      // remote: no local backend task to orchestrate this against - keep
+      // the client-driven loop (same shape as before, just can't survive
+      // a window close/view navigation - see commands::maintenance_run's
+      // doc comment for why the local path now can).
+      const results: string[] = [];
+
+      async function run(command: string, args: unknown = {}) {
+        try {
+          const resp = await admin.dispatch(command, args);
+          results.push(resp.success ? resp.message : `failed: ${resp.message}`);
+        } catch (e) {
+          results.push(`failed: ${e}`);
+        }
+      }
+
+      try {
+        if (maintCleanupOrphanedData()) {
+          for (const command of [
+            "maintenance_cleanup_orphaned_tags",
+            "maintenance_cleanup_orphaned_genres",
+            "maintenance_cleanup_orphaned_artists",
+            "maintenance_cleanup_orphaned_albums",
+            "maintenance_cleanup_orphaned_video_series",
+            "maintenance_cleanup_orphaned_taxons",
+          ]) {
+            await run(command);
+          }
+        }
+        if (maintBackfillThumbnails()) {
+          await run("maintenance_backfill_thumbnails");
+        }
+        if (maintBackfillBlake3()) {
+          await run("maintenance_backfill_blake3");
+        }
+        if (maintCleanupOrphanedBlobs()) {
+          await run("maintenance_cleanup_orphaned_blobs");
+        }
+        if (maintCleanupContentlessBlobs()) {
+          await run("maintenance_cleanup_contentless_blobs");
+        }
+        if (maintHardDeleteOldRecords()) {
+          await run("maintenance_hard_delete_old_records");
+        }
+        if (maintHardDeleteOldVideos()) {
+          await run("maintenance_hard_delete_old_videos");
+        }
+        setMaintenanceResults(results);
+        await loadDirectories();
+        await refreshMaintenancePreviews(true);
+      } catch (e) {
+        setMaintenanceError(`maintenance tasks failed: ${e}`);
+      } finally {
+        setMaintenanceRunning(false);
+      }
+      return;
+    }
+
+    // local: backend-orchestrated so it survives the wizard window
+    // closing or navigating to another view and back - see
+    // commands::maintenance_run's doc comment.
+    try {
+      const result = await invoke<{
+        success: boolean;
+        session_id: string | null;
+        message: string;
+      }>("maintenance_run", {
+        cleanupOrphanedData: maintCleanupOrphanedData(),
+        backfillThumbnails: maintBackfillThumbnails(),
+        backfillBlake3: maintBackfillBlake3(),
+        cleanupOrphanedBlobs: maintCleanupOrphanedBlobs(),
+        cleanupContentlessBlobs: maintCleanupContentlessBlobs(),
+        hardDeleteOldRecords: maintHardDeleteOldRecords(),
+        hardDeleteOldVideos: maintHardDeleteOldVideos(),
+      });
+      if (!result.success || !result.session_id) {
+        setMaintenanceError(result.message);
+        setMaintenanceRunning(false);
+        return;
+      }
+      await pollMaintenanceUntilDone(result.session_id);
+    } catch (e) {
+      setMaintenanceError(`maintenance tasks failed: ${e}`);
       setMaintenanceRunning(false);
     }
   }
@@ -1392,602 +1560,629 @@ export default function LibraryView() {
           </button>
         </div>
 
-        <Show when={directories().length > 0}>
-          <details
-            class="flyout"
-            open={showRepairOptions()}
-            onToggle={(e) => {
-              setShowRepairOptions(e.currentTarget.open);
-              if (e.currentTarget.open) void refreshMaintenancePreviews();
-            }}
-          >
-            <summary
-              onClick={(e) => {
-                if (scanning() !== null) e.preventDefault();
-              }}
-            >
-              maintenance
-            </summary>
-            <div>
-              <div class="form-group repair-checklist">
-                <label class="checkbox-toggle">
-                  <input
-                    type="checkbox"
-                    checked={repairWaveforms()}
-                    onChange={(e) => setRepairWaveforms(e.currentTarget.checked)}
-                  />
-                  <span class="checkbox-box">
-                    <svg viewBox="0 0 14 14">
-                      <polyline points="2.5 7 5.5 10 11.5 4" />
-                    </svg>
+        <details
+          class="flyout"
+          open={showRepairOptions()}
+          onToggle={(e) => {
+            setShowRepairOptions(e.currentTarget.open);
+            if (e.currentTarget.open) void refreshMaintenancePreviews();
+          }}
+        >
+          <summary>maintenance</summary>
+          <div>
+            <div class="form-group repair-checklist">
+              <label class="checkbox-toggle">
+                <input
+                  type="checkbox"
+                  checked={repairWaveforms()}
+                  onChange={(e) => setRepairWaveforms(e.currentTarget.checked)}
+                />
+                <span class="checkbox-box">
+                  <svg viewBox="0 0 14 14">
+                    <polyline points="2.5 7 5.5 10 11.5 4" />
+                  </svg>
+                </span>
+                <span class="checkbox-content">
+                  <span class="checkbox-label">
+                    generate missing waveform images (songs + videos)
                   </span>
-                  <span class="checkbox-content">
-                    <span class="checkbox-label">
-                      generate missing waveform images (songs + videos)
+                  <Show when={maintenancePreviewText("repair_waveforms")}>
+                    <span class="checkbox-count">{maintenancePreviewText("repair_waveforms")}</span>
+                  </Show>
+                </span>
+              </label>
+              <label class="checkbox-toggle">
+                <input
+                  type="checkbox"
+                  checked={repairDirectoryArt()}
+                  onChange={(e) => setRepairDirectoryArt(e.currentTarget.checked)}
+                />
+                <span class="checkbox-box">
+                  <svg viewBox="0 0 14 14">
+                    <polyline points="2.5 7 5.5 10 11.5 4" />
+                  </svg>
+                </span>
+                <span class="checkbox-content">
+                  <span class="checkbox-label">apply missing album art from directory images</span>
+                  <Show when={maintenancePreviewText("repair_art")}>
+                    <span class="checkbox-count">{maintenancePreviewText("repair_art")}</span>
+                  </Show>
+                </span>
+              </label>
+              <label class="checkbox-toggle">
+                <input
+                  type="checkbox"
+                  checked={repairEmbeddedArt()}
+                  onChange={(e) => setRepairEmbeddedArt(e.currentTarget.checked)}
+                />
+                <span class="checkbox-box">
+                  <svg viewBox="0 0 14 14">
+                    <polyline points="2.5 7 5.5 10 11.5 4" />
+                  </svg>
+                </span>
+                <span class="checkbox-content">
+                  <span class="checkbox-label">
+                    apply missing album art from embedded file tags
+                  </span>
+                  <Show when={maintenancePreviewText("repair_art")}>
+                    <span class="checkbox-count">{maintenancePreviewText("repair_art")}</span>
+                  </Show>
+                </span>
+              </label>
+              <label class="checkbox-toggle">
+                <input
+                  type="checkbox"
+                  checked={repairRemoveOverapplied()}
+                  onChange={(e) => setRepairRemoveOverapplied(e.currentTarget.checked)}
+                />
+                <span class="checkbox-box">
+                  <svg viewBox="0 0 14 14">
+                    <polyline points="2.5 7 5.5 10 11.5 4" />
+                  </svg>
+                </span>
+                <span class="checkbox-content">
+                  <span class="checkbox-label">remove over-applied/duplicate directory art</span>
+                  <span class="checkbox-hint">
+                    destructive: deletes thumbnails already shared across too many unrelated albums
+                    in the same directory. off by default.
+                  </span>
+                  <Show when={maintenancePreviewText("repair_remove_overapplied")}>
+                    <span class="checkbox-count">
+                      {maintenancePreviewText("repair_remove_overapplied")}
                     </span>
-                    <Show when={maintenancePreviewText("repair_waveforms")}>
-                      <span class="checkbox-count">
-                        {maintenancePreviewText("repair_waveforms")}
-                      </span>
-                    </Show>
-                  </span>
-                </label>
-                <label class="checkbox-toggle">
-                  <input
-                    type="checkbox"
-                    checked={repairDirectoryArt()}
-                    onChange={(e) => setRepairDirectoryArt(e.currentTarget.checked)}
-                  />
-                  <span class="checkbox-box">
-                    <svg viewBox="0 0 14 14">
-                      <polyline points="2.5 7 5.5 10 11.5 4" />
-                    </svg>
-                  </span>
-                  <span class="checkbox-content">
-                    <span class="checkbox-label">
-                      apply missing album art from directory images
+                  </Show>
+                </span>
+              </label>
+              <label class="checkbox-toggle">
+                <input
+                  type="checkbox"
+                  checked={repairVideoThumbnails()}
+                  onChange={(e) => setRepairVideoThumbnails(e.currentTarget.checked)}
+                />
+                <span class="checkbox-box">
+                  <svg viewBox="0 0 14 14">
+                    <polyline points="2.5 7 5.5 10 11.5 4" />
+                  </svg>
+                </span>
+                <span class="checkbox-content">
+                  <span class="checkbox-label">generate missing video thumbnail images</span>
+                  <Show when={maintenancePreviewText("repair_video_thumbnails")}>
+                    <span class="checkbox-count">
+                      {maintenancePreviewText("repair_video_thumbnails")}
                     </span>
-                    <Show when={maintenancePreviewText("repair_art")}>
-                      <span class="checkbox-count">{maintenancePreviewText("repair_art")}</span>
-                    </Show>
-                  </span>
-                </label>
-                <label class="checkbox-toggle">
-                  <input
-                    type="checkbox"
-                    checked={repairEmbeddedArt()}
-                    onChange={(e) => setRepairEmbeddedArt(e.currentTarget.checked)}
-                  />
-                  <span class="checkbox-box">
-                    <svg viewBox="0 0 14 14">
-                      <polyline points="2.5 7 5.5 10 11.5 4" />
-                    </svg>
-                  </span>
-                  <span class="checkbox-content">
-                    <span class="checkbox-label">
-                      apply missing album art from embedded file tags
-                    </span>
-                    <Show when={maintenancePreviewText("repair_art")}>
-                      <span class="checkbox-count">{maintenancePreviewText("repair_art")}</span>
-                    </Show>
-                  </span>
-                </label>
-                <label class="checkbox-toggle">
-                  <input
-                    type="checkbox"
-                    checked={repairRemoveOverapplied()}
-                    onChange={(e) => setRepairRemoveOverapplied(e.currentTarget.checked)}
-                  />
-                  <span class="checkbox-box">
-                    <svg viewBox="0 0 14 14">
-                      <polyline points="2.5 7 5.5 10 11.5 4" />
-                    </svg>
-                  </span>
-                  <span class="checkbox-content">
-                    <span class="checkbox-label">remove over-applied/duplicate directory art</span>
-                    <span class="checkbox-hint">
-                      destructive: deletes thumbnails already shared across too many unrelated
-                      albums in the same directory. off by default.
-                    </span>
-                    <Show when={maintenancePreviewText("repair_remove_overapplied")}>
-                      <span class="checkbox-count">
-                        {maintenancePreviewText("repair_remove_overapplied")}
-                      </span>
-                    </Show>
-                  </span>
-                </label>
-                <label class="checkbox-toggle">
-                  <input
-                    type="checkbox"
-                    checked={repairVideoThumbnails()}
-                    onChange={(e) => setRepairVideoThumbnails(e.currentTarget.checked)}
-                  />
-                  <span class="checkbox-box">
-                    <svg viewBox="0 0 14 14">
-                      <polyline points="2.5 7 5.5 10 11.5 4" />
-                    </svg>
-                  </span>
-                  <span class="checkbox-content">
-                    <span class="checkbox-label">generate missing video thumbnail images</span>
-                    <Show when={maintenancePreviewText("repair_video_thumbnails")}>
-                      <span class="checkbox-count">
-                        {maintenancePreviewText("repair_video_thumbnails")}
-                      </span>
-                    </Show>
-                  </span>
-                </label>
-              </div>
+                  </Show>
+                </span>
+              </label>
+            </div>
 
-              <div class="button-row">
-                <button
-                  class="secondary"
-                  onClick={rescanAll}
-                  disabled={scanning() !== null || !anyRepairOptionChecked()}
-                  title="re-scan every tracked directory (import new music, restore songs whose files came back, soft-delete songs whose files are gone, purge scan dirs that no longer exist), then run the checked repair sub-jobs above"
-                >
-                  {scanning() === "__all__" ? "repairing..." : "run repair library"}
-                </button>
-              </div>
+            <div class="button-row">
+              <button
+                class="secondary"
+                onClick={rescanAll}
+                disabled={
+                  checkingActiveSession() || scanning() !== null || !anyRepairOptionChecked()
+                }
+                title="re-scan every tracked directory (import new music, restore songs whose files came back, soft-delete songs whose files are gone, purge scan dirs that no longer exist), then run the checked repair sub-jobs above"
+              >
+                {checkingActiveSession()
+                  ? "checking..."
+                  : scanning() === "__all__"
+                    ? "repairing..."
+                    : "run repair library"}
+              </button>
+            </div>
 
-              {/* live progress through the batch-by-batch repair loop - updates
+            {/* live progress through the batch-by-batch repair loop - updates
                   after every round-trip so a large library doesn't look stuck
                   behind a single long-blocking call with no feedback. */}
-              <Show when={repairProgress()}>
-                {(p) => (
-                  <div class="scan-progress-card">
-                    <div class="scan-progress-header">
-                      <div class="spinner" />
-                      <span>repairing... ({REPAIR_PHASE_LABELS[p().phase]})</span>
-                    </div>
-                    <div class="scan-progress-stats">
-                      {p().totals.songs_waveforms_backfilled} song waveform(s) ·{" "}
-                      {p().totals.videos_waveforms_backfilled} video waveform(s) ·{" "}
-                      {p().totals.videos_thumbnails_backfilled} video thumbnail(s) ·{" "}
-                      {p().totals.albums_thumbnails_backfilled} album thumbnail(s)
-                      <Show when={p().totals.albums_thumbnails_removed_overapplied > 0}>
-                        {" "}
-                        · {p().totals.albums_thumbnails_removed_overapplied} over-applied image(s)
-                        removed
-                      </Show>
-                      <Show when={p().totals.errors.length > 0}>
-                        {" "}
-                        · {p().totals.errors.length} error(s) so far
-                      </Show>
-                    </div>
+            <Show when={repairProgress()}>
+              {(p) => (
+                <div class="scan-progress-card">
+                  <div class="scan-progress-header">
+                    <div class="spinner" />
+                    <span>repairing... ({REPAIR_PHASE_LABELS[p().phase]})</span>
                   </div>
-                )}
-              </Show>
-
-              <p class="hint">
-                "repair library" walks every tracked directory: imports new music, relocates moved
-                files, restores songs whose files came back, and soft-deletes songs whose files are
-                gone - then runs whichever of the checked repair sub-jobs above.
-              </p>
-
-              <hr class="section-divider" />
-
-              <div class="form-group repair-checklist">
-                <label class="checkbox-toggle">
-                  <input
-                    type="checkbox"
-                    checked={maintCleanupOrphanedData()}
-                    onChange={(e) => setMaintCleanupOrphanedData(e.currentTarget.checked)}
-                  />
-                  <span class="checkbox-box">
-                    <svg viewBox="0 0 14 14">
-                      <polyline points="2.5 7 5.5 10 11.5 4" />
-                    </svg>
-                  </span>
-                  <span class="checkbox-content">
-                    <span class="checkbox-label">clean up orphaned data</span>
-                    <span class="checkbox-hint">
-                      deletes tags, genres, artists, albums, video series, and taxons with zero
-                      remaining references.
-                    </span>
-                    <Show when={maintenancePreviewText("orphaned_data")}>
-                      <span class="checkbox-count">{maintenancePreviewText("orphaned_data")}</span>
+                  <div class="scan-progress-stats">
+                    {p().totals.songs_waveforms_backfilled} song waveform(s) ·{" "}
+                    {p().totals.videos_waveforms_backfilled} video waveform(s) ·{" "}
+                    {p().totals.videos_thumbnails_backfilled} video thumbnail(s) ·{" "}
+                    {p().totals.albums_thumbnails_backfilled} album thumbnail(s)
+                    <Show when={p().totals.albums_thumbnails_removed_overapplied > 0}>
+                      {" "}
+                      · {p().totals.albums_thumbnails_removed_overapplied} over-applied image(s)
+                      removed
                     </Show>
-                  </span>
-                </label>
-                <label class="checkbox-toggle">
-                  <input
-                    type="checkbox"
-                    checked={maintBackfillThumbnails()}
-                    onChange={(e) => setMaintBackfillThumbnails(e.currentTarget.checked)}
-                  />
-                  <span class="checkbox-box">
-                    <svg viewBox="0 0 14 14">
-                      <polyline points="2.5 7 5.5 10 11.5 4" />
-                    </svg>
-                  </span>
-                  <span class="checkbox-content">
-                    <span class="checkbox-label">generate missing image thumbnails</span>
-                    <Show when={maintenancePreviewText("thumbnails")}>
-                      <span class="checkbox-count">{maintenancePreviewText("thumbnails")}</span>
+                    <Show when={p().totals.errors.length > 0}>
+                      {" "}
+                      · {p().totals.errors.length} error(s) so far
                     </Show>
-                  </span>
-                </label>
-                <label class="checkbox-toggle">
-                  <input
-                    type="checkbox"
-                    checked={maintBackfillBlake3()}
-                    onChange={(e) => setMaintBackfillBlake3(e.currentTarget.checked)}
-                  />
-                  <span class="checkbox-box">
-                    <svg viewBox="0 0 14 14">
-                      <polyline points="2.5 7 5.5 10 11.5 4" />
-                    </svg>
-                  </span>
-                  <span class="checkbox-content">
-                    <span class="checkbox-label">backfill content hashes (blake3)</span>
-                    <span class="checkbox-hint">
-                      off by default; can take a while on a large library.
-                    </span>
-                    <Show when={maintenancePreviewText("blake3")}>
-                      <span class="checkbox-count">{maintenancePreviewText("blake3")}</span>
-                    </Show>
-                  </span>
-                </label>
-                <label class="checkbox-toggle">
-                  <input
-                    type="checkbox"
-                    checked={maintCleanupOrphanedBlobs()}
-                    onChange={(e) => setMaintCleanupOrphanedBlobs(e.currentTarget.checked)}
-                  />
-                  <span class="checkbox-box">
-                    <svg viewBox="0 0 14 14">
-                      <polyline points="2.5 7 5.5 10 11.5 4" />
-                    </svg>
-                  </span>
-                  <span class="checkbox-content">
-                    <span class="checkbox-label">purge long-soft-deleted orphaned blobs</span>
-                    <span class="checkbox-hint">
-                      destructive: permanently removes files/rows soft-deleted 30+ days ago. off by
-                      default.
-                    </span>
-                    <Show when={maintenancePreviewText("orphaned_blobs")}>
-                      <span class="checkbox-count">{maintenancePreviewText("orphaned_blobs")}</span>
-                    </Show>
-                  </span>
-                </label>
-                <label class="checkbox-toggle">
-                  <input
-                    type="checkbox"
-                    checked={maintCleanupContentlessBlobs()}
-                    onChange={(e) => setMaintCleanupContentlessBlobs(e.currentTarget.checked)}
-                  />
-                  <span class="checkbox-box">
-                    <svg viewBox="0 0 14 14">
-                      <polyline points="2.5 7 5.5 10 11.5 4" />
-                    </svg>
-                  </span>
-                  <span class="checkbox-content">
-                    <span class="checkbox-label">clean up stuck/contentless blob records</span>
-                    <span class="checkbox-hint">
-                      blobs with no retrievable content anywhere (permanently stuck). off by
-                      default.
-                    </span>
-                    <Show when={maintenancePreviewText("contentless_blobs")}>
-                      <span class="checkbox-count">
-                        {maintenancePreviewText("contentless_blobs")}
-                      </span>
-                    </Show>
-                  </span>
-                </label>
-                <label class="checkbox-toggle">
-                  <input
-                    type="checkbox"
-                    checked={maintHardDeleteOldRecords()}
-                    onChange={(e) => setMaintHardDeleteOldRecords(e.currentTarget.checked)}
-                  />
-                  <span class="checkbox-box">
-                    <svg viewBox="0 0 14 14">
-                      <polyline points="2.5 7 5.5 10 11.5 4" />
-                    </svg>
-                  </span>
-                  <span class="checkbox-content">
-                    <span class="checkbox-label">
-                      permanently purge old soft-deleted songs/albums/etc
-                    </span>
-                    <span class="checkbox-hint">
-                      destructive: hard-deletes records soft-deleted 30+ days ago. off by default.
-                    </span>
-                    <Show when={maintenancePreviewText("hard_delete_records")}>
-                      <span class="checkbox-count">
-                        {maintenancePreviewText("hard_delete_records")}
-                      </span>
-                    </Show>
-                  </span>
-                </label>
-                <label class="checkbox-toggle">
-                  <input
-                    type="checkbox"
-                    checked={maintHardDeleteOldVideos()}
-                    onChange={(e) => setMaintHardDeleteOldVideos(e.currentTarget.checked)}
-                  />
-                  <span class="checkbox-box">
-                    <svg viewBox="0 0 14 14">
-                      <polyline points="2.5 7 5.5 10 11.5 4" />
-                    </svg>
-                  </span>
-                  <span class="checkbox-content">
-                    <span class="checkbox-label">permanently purge old soft-deleted videos</span>
-                    <span class="checkbox-hint">
-                      destructive: hard-deletes video rows soft-deleted 30+ days ago. off by
-                      default.
-                    </span>
-                    <Show when={maintenancePreviewText("hard_delete_videos")}>
-                      <span class="checkbox-count">
-                        {maintenancePreviewText("hard_delete_videos")}
-                      </span>
-                    </Show>
-                  </span>
-                </label>
-              </div>
-
-              <div class="button-row">
-                <button
-                  class="secondary"
-                  onClick={runMaintenanceTasks}
-                  disabled={maintenanceRunning() || !anyMaintenanceTaskChecked()}
-                >
-                  {maintenanceRunning() ? "running..." : "run maintenance tasks"}
-                </button>
-                <button
-                  class="secondary small"
-                  onClick={() => refreshMaintenancePreviews(true)}
-                  disabled={maintenanceRunning() || maintenancePreviewsLoading()}
-                  title="re-check how much each task above would affect, bypassing the cached counts"
-                >
-                  {maintenancePreviewsLoading() ? "checking..." : "recheck counts"}
-                </button>
-              </div>
-
-              <Show when={maintenanceResults().length > 0}>
-                <div class="scan-progress-card success">
-                  <For each={maintenanceResults()}>{(line) => <div>{line}</div>}</For>
+                  </div>
                 </div>
-              </Show>
+              )}
+            </Show>
 
-              <Show when={maintenanceError()}>
-                <p class="scan-progress error">{maintenanceError()}</p>
-              </Show>
-            </div>
-          </details>
+            <p class="hint">
+              "repair library" walks every tracked directory: imports new music, relocates moved
+              files, restores songs whose files came back, and soft-deletes songs whose files are
+              gone - then runs whichever of the checked repair sub-jobs above.
+            </p>
 
-          {/* reorganize-library - its own section (not a repair-checklist
-              item) since it needs a target directory, not just toggles. */}
-          <details
-            class="flyout flyout--accent"
-            open={showReorganizeOptions()}
-            onToggle={(e) => setShowReorganizeOptions(e.currentTarget.open)}
-          >
-            <summary
-              onClick={(e) => {
-                if (reorganizeRunning()) e.preventDefault();
-              }}
-            >
-              reorganize library files
-            </summary>
-            <div>
-              <div class="form-group">
-                <label>target directory</label>
+            <hr class="section-divider" />
+
+            <div class="form-group repair-checklist">
+              <label class="checkbox-toggle">
                 <input
-                  type="text"
-                  value={reorganizeTargetDir()}
-                  placeholder={
-                    admin.isRemote()
-                      ? "/absolute/path/on/remote"
-                      : "/absolute/path/to/library or ~/Music"
-                  }
-                  onInput={(e) => {
-                    setReorganizeTargetDir(e.currentTarget.value);
-                    setReorganizePreview(null);
-                  }}
-                  disabled={reorganizeRunning()}
+                  type="checkbox"
+                  checked={maintCleanupOrphanedData()}
+                  onChange={(e) => setMaintCleanupOrphanedData(e.currentTarget.checked)}
                 />
-                <p class="hint">
-                  fetched music + video are moved into a readable Artist/Album (or Series/Movie)
-                  folder. source directories default to the configured fetch output dirs.
-                  <Show when={reorganizeSourceMusicDir() || reorganizeSourceVideoDir()}>
-                    <br />
-                    music: {reorganizeSourceMusicDir() || "(not set)"}
-                    <br />
-                    video: {reorganizeSourceVideoDir() || "(not set)"}
+                <span class="checkbox-box">
+                  <svg viewBox="0 0 14 14">
+                    <polyline points="2.5 7 5.5 10 11.5 4" />
+                  </svg>
+                </span>
+                <span class="checkbox-content">
+                  <span class="checkbox-label">clean up orphaned data</span>
+                  <span class="checkbox-hint">
+                    deletes tags, genres, artists, albums, video series, and taxons with zero
+                    remaining references.
+                  </span>
+                  <Show when={maintenancePreviewText("orphaned_data")}>
+                    <span class="checkbox-count">{maintenancePreviewText("orphaned_data")}</span>
                   </Show>
-                </p>
-                <Show when={reorganizeTargetOverlap()}>
-                  <p class="scan-progress error">{reorganizeTargetOverlap()}</p>
+                </span>
+              </label>
+              <label class="checkbox-toggle">
+                <input
+                  type="checkbox"
+                  checked={maintBackfillThumbnails()}
+                  onChange={(e) => setMaintBackfillThumbnails(e.currentTarget.checked)}
+                />
+                <span class="checkbox-box">
+                  <svg viewBox="0 0 14 14">
+                    <polyline points="2.5 7 5.5 10 11.5 4" />
+                  </svg>
+                </span>
+                <span class="checkbox-content">
+                  <span class="checkbox-label">generate missing image thumbnails</span>
+                  <Show when={maintenancePreviewText("thumbnails")}>
+                    <span class="checkbox-count">{maintenancePreviewText("thumbnails")}</span>
+                  </Show>
+                </span>
+              </label>
+              <label class="checkbox-toggle">
+                <input
+                  type="checkbox"
+                  checked={maintBackfillBlake3()}
+                  onChange={(e) => setMaintBackfillBlake3(e.currentTarget.checked)}
+                />
+                <span class="checkbox-box">
+                  <svg viewBox="0 0 14 14">
+                    <polyline points="2.5 7 5.5 10 11.5 4" />
+                  </svg>
+                </span>
+                <span class="checkbox-content">
+                  <span class="checkbox-label">backfill content hashes (blake3)</span>
+                  <span class="checkbox-hint">
+                    off by default; can take a while on a large library.
+                  </span>
+                  <Show when={maintenancePreviewText("blake3")}>
+                    <span class="checkbox-count">{maintenancePreviewText("blake3")}</span>
+                  </Show>
+                </span>
+              </label>
+              <label class="checkbox-toggle">
+                <input
+                  type="checkbox"
+                  checked={maintCleanupOrphanedBlobs()}
+                  onChange={(e) => setMaintCleanupOrphanedBlobs(e.currentTarget.checked)}
+                />
+                <span class="checkbox-box">
+                  <svg viewBox="0 0 14 14">
+                    <polyline points="2.5 7 5.5 10 11.5 4" />
+                  </svg>
+                </span>
+                <span class="checkbox-content">
+                  <span class="checkbox-label">purge long-soft-deleted orphaned blobs</span>
+                  <span class="checkbox-hint">
+                    destructive: permanently removes files/rows soft-deleted 30+ days ago. off by
+                    default.
+                  </span>
+                  <Show when={maintenancePreviewText("orphaned_blobs")}>
+                    <span class="checkbox-count">{maintenancePreviewText("orphaned_blobs")}</span>
+                  </Show>
+                </span>
+              </label>
+              <label class="checkbox-toggle">
+                <input
+                  type="checkbox"
+                  checked={maintCleanupContentlessBlobs()}
+                  onChange={(e) => setMaintCleanupContentlessBlobs(e.currentTarget.checked)}
+                />
+                <span class="checkbox-box">
+                  <svg viewBox="0 0 14 14">
+                    <polyline points="2.5 7 5.5 10 11.5 4" />
+                  </svg>
+                </span>
+                <span class="checkbox-content">
+                  <span class="checkbox-label">clean up stuck/contentless blob records</span>
+                  <span class="checkbox-hint">
+                    blobs with no retrievable content anywhere (permanently stuck). off by default.
+                  </span>
+                  <Show when={maintenancePreviewText("contentless_blobs")}>
+                    <span class="checkbox-count">
+                      {maintenancePreviewText("contentless_blobs")}
+                    </span>
+                  </Show>
+                </span>
+              </label>
+              <label class="checkbox-toggle">
+                <input
+                  type="checkbox"
+                  checked={maintHardDeleteOldRecords()}
+                  onChange={(e) => setMaintHardDeleteOldRecords(e.currentTarget.checked)}
+                />
+                <span class="checkbox-box">
+                  <svg viewBox="0 0 14 14">
+                    <polyline points="2.5 7 5.5 10 11.5 4" />
+                  </svg>
+                </span>
+                <span class="checkbox-content">
+                  <span class="checkbox-label">
+                    permanently purge old soft-deleted songs/albums/etc
+                  </span>
+                  <span class="checkbox-hint">
+                    destructive: hard-deletes records soft-deleted 30+ days ago. off by default.
+                  </span>
+                  <Show when={maintenancePreviewText("hard_delete_records")}>
+                    <span class="checkbox-count">
+                      {maintenancePreviewText("hard_delete_records")}
+                    </span>
+                  </Show>
+                </span>
+              </label>
+              <label class="checkbox-toggle">
+                <input
+                  type="checkbox"
+                  checked={maintHardDeleteOldVideos()}
+                  onChange={(e) => setMaintHardDeleteOldVideos(e.currentTarget.checked)}
+                />
+                <span class="checkbox-box">
+                  <svg viewBox="0 0 14 14">
+                    <polyline points="2.5 7 5.5 10 11.5 4" />
+                  </svg>
+                </span>
+                <span class="checkbox-content">
+                  <span class="checkbox-label">permanently purge old soft-deleted videos</span>
+                  <span class="checkbox-hint">
+                    destructive: hard-deletes video rows soft-deleted 30+ days ago. off by default.
+                  </span>
+                  <Show when={maintenancePreviewText("hard_delete_videos")}>
+                    <span class="checkbox-count">
+                      {maintenancePreviewText("hard_delete_videos")}
+                    </span>
+                  </Show>
+                </span>
+              </label>
+            </div>
+
+            <div class="button-row">
+              <button
+                class="secondary"
+                onClick={runMaintenanceTasks}
+                disabled={maintenanceRunning() || !anyMaintenanceTaskChecked()}
+              >
+                {maintenanceRunning() ? "running..." : "run maintenance tasks"}
+              </button>
+              <button
+                class="secondary small"
+                onClick={() => refreshMaintenancePreviews(true)}
+                disabled={maintenanceRunning() || maintenancePreviewsLoading()}
+                title="re-check how much each task above would affect, bypassing the cached counts"
+              >
+                {maintenancePreviewsLoading() ? "checking..." : "recheck counts"}
+              </button>
+            </div>
+
+            <Show when={maintenanceResults().length > 0}>
+              <div class="scan-progress-card success">
+                <For each={maintenanceResults()}>{(line) => <div>{line}</div>}</For>
+              </div>
+            </Show>
+
+            <Show when={maintenanceError()}>
+              <p class="scan-progress error">{maintenanceError()}</p>
+            </Show>
+          </div>
+        </details>
+
+        {/* reorganize-library - its own section (not a repair-checklist
+              item) since it needs a target directory, not just toggles. */}
+        <details
+          class="flyout flyout--accent"
+          open={showReorganizeOptions()}
+          onToggle={(e) => setShowReorganizeOptions(e.currentTarget.open)}
+        >
+          <summary>reorganize library files</summary>
+          <div>
+            <div class="form-group">
+              <label>target directory</label>
+              <input
+                type="text"
+                value={reorganizeTargetDir()}
+                placeholder={
+                  admin.isRemote()
+                    ? "/absolute/path/on/remote"
+                    : "/absolute/path/to/library or ~/Music"
+                }
+                onInput={(e) => {
+                  setReorganizeTargetDir(e.currentTarget.value);
+                  setReorganizePreview(null);
+                }}
+                disabled={reorganizeRunning()}
+              />
+              <p class="hint">
+                fetched music + video are moved into a readable Artist/Album (or Series/Movie)
+                folder. source directories default to the configured fetch output dirs.
+                <Show when={reorganizeSourceMusicDir() || reorganizeSourceVideoDir()}>
+                  <br />
+                  music: {reorganizeSourceMusicDir() || "(not set)"}
+                  <br />
+                  video: {reorganizeSourceVideoDir() || "(not set)"}
                 </Show>
-                <div class="button-row">
-                  <Show when={!admin.isRemote()}>
-                    <button
-                      class="secondary small"
-                      onClick={browseReorganizeTargetDir}
-                      disabled={reorganizeRunning()}
-                    >
-                      browse...
-                    </button>
-                  </Show>
+              </p>
+              <Show when={reorganizeTargetOverlap()}>
+                <p class="scan-progress error">{reorganizeTargetOverlap()}</p>
+              </Show>
+              <div class="button-row">
+                <Show when={!admin.isRemote()}>
                   <button
                     class="secondary small"
-                    onClick={previewReorganize}
-                    disabled={
-                      reorganizeRunning() ||
-                      reorganizePreviewing() ||
-                      !reorganizeTargetDir().trim() ||
-                      !!reorganizeTargetOverlap()
-                    }
+                    onClick={browseReorganizeTargetDir}
+                    disabled={reorganizeRunning()}
                   >
-                    {reorganizePreviewing() ? "checking..." : "preview"}
+                    browse...
                   </button>
-                </div>
-              </div>
-
-              <div class="form-group">
-                <label>media type</label>
-                <div class="radio-toggle-group">
-                  <label class="radio-toggle">
-                    <input
-                      type="radio"
-                      name="reorganize-domain"
-                      checked={reorganizeDomain() === "both"}
-                      onChange={() => {
-                        setReorganizeDomain("both");
-                        setReorganizePreview(null);
-                      }}
-                    />
-                    <span class="radio-dot" />
-                    <span class="radio-label">both</span>
-                  </label>
-                  <label class="radio-toggle">
-                    <input
-                      type="radio"
-                      name="reorganize-domain"
-                      checked={reorganizeDomain() === "music"}
-                      onChange={() => {
-                        setReorganizeDomain("music");
-                        setReorganizePreview(null);
-                      }}
-                    />
-                    <span class="radio-dot" />
-                    <span class="radio-label">music</span>
-                  </label>
-                  <label class="radio-toggle">
-                    <input
-                      type="radio"
-                      name="reorganize-domain"
-                      checked={reorganizeDomain() === "video"}
-                      onChange={() => {
-                        setReorganizeDomain("video");
-                        setReorganizePreview(null);
-                      }}
-                    />
-                    <span class="radio-dot" />
-                    <span class="radio-label">video</span>
-                  </label>
-                </div>
-              </div>
-
-              <div class="form-group">
-                <label class="checkbox-toggle">
-                  <input
-                    type="checkbox"
-                    checked={reorganizeEmbedTags()}
-                    onChange={(e) => setReorganizeEmbedTags(e.currentTarget.checked)}
-                    disabled={reorganizeDomain() === "video"}
-                  />
-                  <span class="checkbox-box">
-                    <svg viewBox="0 0 14 14">
-                      <polyline points="2.5 7 5.5 10 11.5 4" />
-                    </svg>
-                  </span>
-                  <span class="checkbox-content">
-                    <span class="checkbox-label">
-                      embed id3/vorbis tags + cover art into moved song files
-                    </span>
-                    <span class="checkbox-hint">
-                      songs only; skipped for file formats that don't support embedded metadata.
-                    </span>
-                  </span>
-                </label>
-              </div>
-
-              <Show when={reorganizePreview()}>
-                {(p) => (
-                  <p class="hint">
-                    {p().songs_candidate} song(s) and {p().videos_candidate} video(s) would move to{" "}
-                    {p().target_directory}.
-                  </p>
-                )}
-              </Show>
-
-              <div class="button-row">
+                </Show>
                 <button
-                  class="secondary"
-                  onClick={runReorganize}
+                  class="secondary small"
+                  onClick={previewReorganize}
                   disabled={
                     reorganizeRunning() ||
+                    reorganizePreviewing() ||
                     !reorganizeTargetDir().trim() ||
                     !!reorganizeTargetOverlap()
                   }
                 >
-                  {reorganizeRunning() ? "reorganizing..." : "run reorganize"}
+                  {reorganizePreviewing() ? "checking..." : "preview"}
                 </button>
               </div>
+            </div>
 
-              {/* live progress - updates from the shared session_id's
+            <div class="form-group">
+              <label>media type</label>
+              <div class="radio-toggle-group">
+                <label class="radio-toggle">
+                  <input
+                    type="radio"
+                    name="reorganize-domain"
+                    checked={reorganizeDomain() === "both"}
+                    onChange={() => {
+                      setReorganizeDomain("both");
+                      setReorganizePreview(null);
+                    }}
+                  />
+                  <span class="radio-dot" />
+                  <span class="radio-label">both</span>
+                </label>
+                <label class="radio-toggle">
+                  <input
+                    type="radio"
+                    name="reorganize-domain"
+                    checked={reorganizeDomain() === "music"}
+                    onChange={() => {
+                      setReorganizeDomain("music");
+                      setReorganizePreview(null);
+                    }}
+                  />
+                  <span class="radio-dot" />
+                  <span class="radio-label">music</span>
+                </label>
+                <label class="radio-toggle">
+                  <input
+                    type="radio"
+                    name="reorganize-domain"
+                    checked={reorganizeDomain() === "video"}
+                    onChange={() => {
+                      setReorganizeDomain("video");
+                      setReorganizePreview(null);
+                    }}
+                  />
+                  <span class="radio-dot" />
+                  <span class="radio-label">video</span>
+                </label>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label class="checkbox-toggle">
+                <input
+                  type="checkbox"
+                  checked={reorganizeEmbedTags()}
+                  onChange={(e) => setReorganizeEmbedTags(e.currentTarget.checked)}
+                  disabled={reorganizeDomain() === "video"}
+                />
+                <span class="checkbox-box">
+                  <svg viewBox="0 0 14 14">
+                    <polyline points="2.5 7 5.5 10 11.5 4" />
+                  </svg>
+                </span>
+                <span class="checkbox-content">
+                  <span class="checkbox-label">
+                    embed id3/vorbis tags + cover art into moved song files
+                  </span>
+                  <span class="checkbox-hint">
+                    songs only; skipped for file formats that don't support embedded metadata.
+                  </span>
+                </span>
+              </label>
+            </div>
+
+            <Show when={reorganizePreview()}>
+              {(p) => (
+                <p class="hint">
+                  {p().songs_candidate} song(s) and {p().videos_candidate} video(s) would move to{" "}
+                  {p().target_directory}.
+                </p>
+              )}
+            </Show>
+
+            <div class="button-row">
+              <button
+                class="secondary"
+                onClick={runReorganize}
+                disabled={
+                  reorganizeRunning() ||
+                  !reorganizeTargetDir().trim() ||
+                  !!reorganizeTargetOverlap()
+                }
+              >
+                {reorganizeRunning() ? "reorganizing..." : "run reorganize"}
+              </button>
+            </div>
+
+            {/* live progress - updates from the shared session_id's
                   Progress events as each independent batch job finishes. */}
-              <Show when={reorganizeProgress()}>
-                {(p) => (
-                  <div class="scan-progress-card">
+            <Show when={reorganizeProgress()}>
+              {(p) => (
+                <div class="scan-progress-card">
+                  <div class="scan-progress-header">
+                    <div class="spinner" />
+                    <span>reorganizing...</span>
+                    <Show when={p().total > 0}>
+                      <span class="scan-progress-counts">
+                        {p().complete} / {p().total} batches
+                      </span>
+                    </Show>
+                  </div>
+                  <Show when={p().total > 0}>
+                    <div class="scan-progress-bar">
+                      <div
+                        class="scan-progress-bar-fill"
+                        style={{ width: `${Math.round((p().complete / p().total) * 100)}%` }}
+                      />
+                    </div>
+                  </Show>
+                </div>
+              )}
+            </Show>
+
+            <Show when={!reorganizeProgress() && reorganizeSummary()}>
+              {(s) => (
+                <div class="scan-progress-card success">
+                  moved {s().songs_moved} song(s), {s().videos_moved} video(s)
+                  <Show when={s().tags_embedded > 0}> · {s().tags_embedded} tag(s) embedded</Show>
+                  <Show when={s().songs_already_done + s().videos_already_done > 0}>
+                    {" "}
+                    · {s().songs_already_done + s().videos_already_done} already in place
+                  </Show>
+                  <Show when={s().errors.length > 0}> · {s().errors.length} error(s)</Show>
+                </div>
+              )}
+            </Show>
+
+            <Show when={reorganizeError()}>
+              <p class="scan-progress error">{reorganizeError()}</p>
+            </Show>
+          </div>
+        </details>
+
+        {/* live job progress (driven by grimoire events / status polling) -
+            stacked in one fixed-to-the-window container so repair-library
+            and maintenance-tasks progress can't overlap if both happen to
+            be running at once. */}
+        <Show when={scanProgress() || maintenanceProgress()}>
+          <div class="sticky-progress-stack">
+            <Show when={scanProgress()}>
+              {(p) => {
+                const total = () => p().jobs_total || 0;
+                const done = () => Math.max(0, total() - (p().jobs_pending || 0));
+                const pct = () => (total() > 0 ? Math.round((done() / total()) * 100) : 0);
+                // job 1 of this session is always the RescanDirectories
+                // scan; every job after that is a RepairLibraryImages
+                // batch - no per-phase label comes through the event
+                // itself (see the job-events listener's doc comment),
+                // but this is enough to tell the two apart without any
+                // new backend plumbing.
+                const phaseLabel = () =>
+                  done() < 1 ? "scanning for new files..." : "backfilling missing images...";
+                return (
+                  <div class="scan-progress-card scan-progress-card--sticky">
                     <div class="scan-progress-header">
                       <div class="spinner" />
-                      <span>reorganizing...</span>
-                      <Show when={p().total > 0}>
-                        <span class="scan-progress-counts">
-                          {p().complete} / {p().total} batches
-                        </span>
-                      </Show>
+                      <span>{phaseLabel()}</span>
+                      <span class="scan-progress-counts">
+                        {done()} / {total()} jobs
+                      </span>
                     </div>
-                    <Show when={p().total > 0}>
-                      <div class="scan-progress-bar">
-                        <div
-                          class="scan-progress-bar-fill"
-                          style={{ width: `${Math.round((p().complete / p().total) * 100)}%` }}
-                        />
-                      </div>
+                    <div class="scan-progress-bar">
+                      <div class="scan-progress-bar-fill" style={{ width: `${pct()}%` }} />
+                    </div>
+                    <div class="scan-progress-stats">
+                      {scanStageMessage() ??
+                        "starting up - waiting for the first batch to report in..."}
+                    </div>
+                  </div>
+                );
+              }}
+            </Show>
+
+            <Show when={maintenanceProgress()}>
+              {(p) => {
+                const pct = () =>
+                  p().total_steps > 0
+                    ? Math.round((p().completed_steps / p().total_steps) * 100)
+                    : 0;
+                return (
+                  <div class="scan-progress-card scan-progress-card--sticky">
+                    <div class="scan-progress-header">
+                      <div class="spinner" />
+                      <span>running maintenance tasks...</span>
+                      <span class="scan-progress-counts">
+                        {p().completed_steps} / {p().total_steps} steps
+                      </span>
+                    </div>
+                    <div class="scan-progress-bar">
+                      <div class="scan-progress-bar-fill" style={{ width: `${pct()}%` }} />
+                    </div>
+                    <Show when={p().current_step}>
+                      <div class="scan-progress-stats">running: {p().current_step}</div>
                     </Show>
                   </div>
-                )}
-              </Show>
-
-              <Show when={!reorganizeProgress() && reorganizeSummary()}>
-                {(s) => (
-                  <div class="scan-progress-card success">
-                    moved {s().songs_moved} song(s), {s().videos_moved} video(s)
-                    <Show when={s().tags_embedded > 0}> · {s().tags_embedded} tag(s) embedded</Show>
-                    <Show when={s().songs_already_done + s().videos_already_done > 0}>
-                      {" "}
-                      · {s().songs_already_done + s().videos_already_done} already in place
-                    </Show>
-                    <Show when={s().errors.length > 0}> · {s().errors.length} error(s)</Show>
-                  </div>
-                )}
-              </Show>
-
-              <Show when={reorganizeError()}>
-                <p class="scan-progress error">{reorganizeError()}</p>
-              </Show>
-            </div>
-          </details>
-        </Show>
-
-        {/* live job progress (driven by grimoire events) */}
-        <Show when={scanProgress()}>
-          {(p) => {
-            const total = () => p().jobs_total || 0;
-            const done = () => Math.max(0, total() - (p().jobs_pending || 0));
-            const pct = () => (total() > 0 ? Math.round((done() / total()) * 100) : 0);
-            return (
-              <div class="scan-progress-card">
-                <div class="scan-progress-header">
-                  <div class="spinner" />
-                  <span>importing media...</span>
-                  <span class="scan-progress-counts">
-                    {done()} / {total()} jobs
-                  </span>
-                </div>
-                <div class="scan-progress-bar">
-                  <div class="scan-progress-bar-fill" style={{ width: `${pct()}%` }} />
-                </div>
-                <Show when={p().directory}>
-                  <div class="scan-progress-stats">{directoryDisplayName(p().directory!)}</div>
-                </Show>
-                <div class="scan-progress-stats">{p().songs_added} processed</div>
-              </div>
-            );
-          }}
+                );
+              }}
+            </Show>
+          </div>
         </Show>
 
         {/* completion summary */}

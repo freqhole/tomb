@@ -6,7 +6,7 @@ use crate::response::GrimoireResponse;
 mod hard_delete;
 mod orphaned;
 mod reorganize_library;
-mod repair_library_images;
+pub(crate) mod repair_library_images;
 mod repair_video_images;
 mod video_hard_delete;
 

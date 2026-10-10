@@ -823,6 +823,33 @@ button.small {
   color: #4ade80;
 }
 
+/* holds every sticky progress card (repair-library, maintenance tasks, ...)
+   stacked vertically - this is the element actually pinned to the
+   bottom of the browser window (not just the scroll container, which
+   could leave a big gap below it if there isn't much other content) so
+   they're always visible without hunting for them, and multiple
+   concurrent runs stack instead of overlapping each other. */
+.sticky-progress-stack {
+  position: fixed;
+  left: calc(200px + 2rem);
+  right: 2rem;
+  bottom: 1.25rem;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+/* background is near-opaque (not just a tint) so content scrolling
+   underneath doesn't bleed through and get visually confused with the
+   card's own text, but still a touch translucent rather than fully
+   solid. */
+.scan-progress-card--sticky {
+  background: rgba(13, 5, 9, 0.93);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+  margin-top: 0;
+}
+
 .scan-progress-header {
   display: flex;
   align-items: center;

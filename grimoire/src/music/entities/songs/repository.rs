@@ -512,9 +512,17 @@ pub async fn add_song_image(
         }
     }
 
-    // insert new image
+    // `OR IGNORE`: (song_id, media_blob_id) sharing the composite PRIMARY
+    // KEY with an already-linked row is a legitimate "nothing to do"
+    // outcome, not an error - re-linking the exact same pair happens
+    // naturally on a retried/resumed batch, and a hard failure here
+    // previously turned into an infinite batch loop (the caller's "not
+    // yet linked" query kept re-selecting the same candidate every pass
+    // since the link attempt itself never got anywhere - see
+    // `create_media_blob`'s dedup-scoping fix for the other half of
+    // this, 2026-10-09).
     match sqlx::query!(
-        "INSERT INTO song_imagez (song_id, media_blob_id, is_primary) VALUES (?, ?, ?)",
+        "INSERT OR IGNORE INTO song_imagez (song_id, media_blob_id, is_primary) VALUES (?, ?, ?)",
         song_id,
         media_blob_id,
         is_primary
@@ -522,17 +530,19 @@ pub async fn add_song_image(
     .execute(&pool)
     .await
     {
-        Ok(_) => {
-            // create feed event if user provided
-            if let Some((user_id, username)) = created_by {
-                let _ = crate::music::analytics::feed_events::create_image_feed_event(
-                    "song",
-                    song_id,
-                    media_blob_id,
-                    user_id,
-                    username,
-                )
-                .await;
+        Ok(res) => {
+            // create feed event if user provided and a row was actually inserted
+            if res.rows_affected() > 0 {
+                if let Some((user_id, username)) = created_by {
+                    let _ = crate::music::analytics::feed_events::create_image_feed_event(
+                        "song",
+                        song_id,
+                        media_blob_id,
+                        user_id,
+                        username,
+                    )
+                    .await;
+                }
             }
 
             GrimoireResponse::success("Image added to song", ())
@@ -714,5 +724,111 @@ pub async fn bulk_clear_song_artwork(
         message,
         cleared_count,
         failed_ids,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // same convention as media_blobz::service::tests - fresh tempdir db
+    // per test, `#[ignore]` since it touches the real db pool singletons,
+    // run one at a time, each its own process:
+    // cargo test -p grimoire --lib -- --ignored --exact music::entities::songs::repository::tests::add_song_image_is_idempotent_on_duplicate_link
+    async fn init_test_env(data_dir: &std::path::Path) {
+        let config_toml = format!(
+            r#"data_dir = "{data_dir}"
+
+[database]
+filename = "grimoire.db"
+
+[media]
+max_fs_file_size = 104857600
+supported_audio_formats = ["mp3", "flac"]
+
+[musicbrainz]
+enabled = false
+
+[logging]
+level = "warn"
+"#,
+            data_dir = data_dir.display()
+        );
+        let config_path = data_dir.join("freqhole-config.toml");
+        std::fs::write(&config_path, config_toml).expect("write config");
+        std::fs::write(data_dir.join("grimoire.db"), b"").expect("touch grimoire.db");
+
+        crate::config::init_config(Some(config_path)).expect("init config");
+        database::run_migrations().await.expect("run migrations");
+    }
+
+    // confirmed real 2026-10-09: a hard-failing INSERT here (instead of
+    // `INSERT OR IGNORE`) was half of a real infinite batch loop -
+    // `repair_waveforms_batch` kept resolving a song's "new" waveform
+    // blob to one already linked to that song under a different role
+    // (content-hash dedup ignores blob_type, see `create_media_blob`'s
+    // doc comment), so every attempt to (re-)link it hit this exact
+    // (song_id, media_blob_id) PRIMARY KEY collision and errored instead
+    // of being treated as "already linked, nothing to do".
+    #[tokio::test]
+    #[ignore = "needs its own process: touches the real db pool singletons"]
+    async fn add_song_image_is_idempotent_on_duplicate_link() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        init_test_env(tmp.path()).await;
+        let pool = database::connect().await.expect("connect");
+
+        sqlx::query(
+            "INSERT INTO media_blobz (id, sha256, size, mime, blob_type, blake3)
+             VALUES ('audioblob1', ?, 123, 'audio/mpeg', 'original', ?)",
+        )
+        .bind("a".repeat(64))
+        .bind("b".repeat(64))
+        .execute(&pool)
+        .await
+        .expect("insert audio blob");
+
+        sqlx::query(
+            "INSERT INTO media_blobz (id, sha256, size, mime, blob_type, blake3)
+             VALUES ('imageblob1', ?, 456, 'image/webp', 'original', ?)",
+        )
+        .bind("c".repeat(64))
+        .bind("d".repeat(64))
+        .execute(&pool)
+        .await
+        .expect("insert image blob");
+
+        sqlx::query(
+            "INSERT INTO songz (id, media_blob_id, title) VALUES ('song1', 'audioblob1', 'Test Song')",
+        )
+        .execute(&pool)
+        .await
+        .expect("insert song");
+
+        let first = add_song_image("song1", "imageblob1", false, None).await;
+        assert!(
+            first.success,
+            "first link should succeed: {}",
+            first.message
+        );
+
+        // same (song_id, media_blob_id) pair again - must succeed as a
+        // no-op, not hard-fail on the PRIMARY KEY collision.
+        let second = add_song_image("song1", "imageblob1", false, None).await;
+        assert!(
+            second.success,
+            "re-linking an already-linked pair must be a no-op success, not an error: {}",
+            second.message
+        );
+
+        let row_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM song_imagez WHERE song_id = 'song1' AND media_blob_id = 'imageblob1'",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("count");
+        assert_eq!(
+            row_count, 1,
+            "duplicate link attempt must not create a second row"
+        );
     }
 }
