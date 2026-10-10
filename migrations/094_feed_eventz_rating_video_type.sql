@@ -12,8 +12,26 @@
 --
 -- sqlite cannot ALTER a CHECK constraint, so we rebuild the table again,
 -- same as 064/075/076.
+--
+-- post-release fix: `PRAGMA foreign_keys = OFF` below is a documented
+-- sqlite no-op once a transaction is already open (which sqlx's migration
+-- runner always does), so the INSERT further down enforces FKs for real.
+-- any feed_eventz row left dangling by an older, now-fixed deletion bug
+-- (a parent album/artist/playlist/session/video deleted without cascading
+-- to its feed_eventz row) aborted this entire migration - and therefore
+-- every migration after it, including the ones that (re)create
+-- song_query_view/album_query_view/etc. - with "FOREIGN KEY constraint
+-- failed". delete those dangling rows first; a DELETE that removes a
+-- dangling child row can never itself violate a foreign key, so this is
+-- safe regardless of the PRAGMA no-op above.
 
 PRAGMA foreign_keys = OFF;
+
+DELETE FROM feed_eventz WHERE album_id IS NOT NULL AND album_id NOT IN (SELECT id FROM albumz);
+DELETE FROM feed_eventz WHERE artist_id IS NOT NULL AND artist_id NOT IN (SELECT id FROM artistz);
+DELETE FROM feed_eventz WHERE playlist_id IS NOT NULL AND playlist_id NOT IN (SELECT id FROM playlistz);
+DELETE FROM feed_eventz WHERE session_id IS NOT NULL AND session_id NOT IN (SELECT id FROM playback_sessionz);
+DELETE FROM feed_eventz WHERE video_id IS NOT NULL AND video_id NOT IN (SELECT id FROM videoz);
 
 CREATE TABLE feed_eventz_new (
     id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(8)))),
