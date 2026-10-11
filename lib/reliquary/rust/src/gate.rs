@@ -19,8 +19,8 @@ use std::time::Instant;
 
 use async_trait::async_trait;
 use iroh_blobs::provider::events::{
-    AbortReason, ConnectMode, EventMask, EventResult, EventSender, ProviderMessage, RequestMode,
-    RequestUpdate,
+    AbortReason, ConnectMode, EventMask, EventResult, EventSender, ObserveMode, ProviderMessage,
+    RequestMode, RequestUpdate,
 };
 use tokio::sync::Mutex;
 
@@ -215,6 +215,13 @@ pub fn build_gated_blobs_events(
         connected: ConnectMode::Intercept,
         get: RequestMode::InterceptLog,
         get_many: RequestMode::InterceptLog,
+        // iroh-blobs 0.103.1+ gates each request type by its own mode
+        // (earlier versions used `get` for all of them), so `observe` -
+        // which reveals whether we hold a hash and how much of it - must
+        // be intercepted explicitly or it bypasses the access gate.
+        // `push` stays `Disabled` (from `EventMask::DEFAULT`): nothing here
+        // ever accepts writes from a remote peer.
+        observe: ObserveMode::Intercept,
         ..EventMask::DEFAULT
     };
     let (tx, mut rx) = EventSender::channel(32, mask);
@@ -316,6 +323,25 @@ pub fn build_gated_blobs_events(
                     if let (true, Some(peer), Some(registry)) = (allowed, peer, transfers.clone()) {
                         tokio::spawn(track_transfer(registry, rx, key, peer, String::new()));
                     }
+                }
+                ProviderMessage::ObserveRequestReceived(msg) => {
+                    let peer = connections.lock().await.get(&msg.connection_id).cloned();
+                    let hash = msg.request.hash;
+                    let allowed = match &peer {
+                        Some(peer) => gate.allow_blob(peer, &hash.to_string()).await,
+                        None => false,
+                    };
+                    if allowed {
+                        tracing::info!(peer = ?peer, %hash, "gate: allowed observe request");
+                    } else {
+                        tracing::warn!(peer = ?peer, %hash, "gate: denied observe request");
+                    }
+                    let res: EventResult = if allowed {
+                        Ok(())
+                    } else {
+                        Err(AbortReason::Permission)
+                    };
+                    msg.tx.send(res).await.ok();
                 }
                 _ => {}
             }
@@ -473,5 +499,111 @@ mod tests {
 
         router.shutdown().await.ok();
         client_ep.close().await;
+    }
+
+    /// iroh-blobs <= 0.103.0 had a bug where every request type was gated
+    /// by `EventMask.get` instead of its own mode, so `push` (which writes
+    /// to the provider's store) wasn't governed by `push: Disabled`. a push
+    /// from even a gate-approved peer must never land in the store.
+    #[tokio::test]
+    #[serial_test::serial(iroh_net)]
+    async fn push_requests_are_rejected_even_from_an_allowed_peer() {
+        use iroh_blobs::protocol::{ChunkRangesSeq, PushRequest};
+
+        let (server_ep, client_ep) = two_local_endpoints().await;
+
+        let server_store = iroh_blobs::store::mem::MemStore::new();
+        let client_store = iroh_blobs::store::mem::MemStore::new();
+        let tag = client_store
+            .blobs()
+            .add_bytes(b"unsolicited push".to_vec())
+            .await
+            .expect("add bytes");
+        let hash = tag.hash;
+
+        let gate: Arc<dyn AccessGate> = Arc::new(AllowAll);
+        let events = build_gated_blobs_events(gate, None);
+        let router = iroh::protocol::Router::builder(server_ep)
+            .accept(
+                iroh_blobs::ALPN,
+                iroh_blobs::BlobsProtocol::new(&server_store, Some(events)),
+            )
+            .spawn();
+
+        let conn = client_ep
+            .connect(router.endpoint().addr(), iroh_blobs::ALPN)
+            .await
+            .expect("connect");
+        let result = client_store
+            .remote()
+            .execute_push(conn, PushRequest::new(hash, ChunkRangesSeq::all()))
+            .await;
+        assert!(result.is_err(), "push must be rejected, got {result:?}");
+        assert!(
+            !server_store.has(hash).await.expect("has"),
+            "pushed blob must not be written to the provider's store"
+        );
+
+        router.shutdown().await.ok();
+        client_ep.close().await;
+    }
+
+    /// `observe` has its own mode in the event mask (as of iroh-blobs
+    /// 0.103.1) and must be gated against the same `AccessGate` as get - a
+    /// denied peer must not be able to probe which blobs the provider has.
+    #[tokio::test]
+    #[serial_test::serial(iroh_net)]
+    async fn observe_requests_follow_the_access_gate() {
+        use futures::StreamExt;
+        use iroh_blobs::protocol::ObserveRequest;
+
+        for (allowed, label) in [(true, "allowed"), (false, "denied")] {
+            let (server_ep, client_ep) = two_local_endpoints().await;
+            let server_store = iroh_blobs::store::mem::MemStore::new();
+            let tag = server_store
+                .blobs()
+                .add_bytes(b"observe me".to_vec())
+                .await
+                .expect("add bytes");
+            let hash = tag.hash;
+
+            let only = if allowed {
+                client_ep.id().to_string()
+            } else {
+                "not-the-real-peer".to_string()
+            };
+            let gate: Arc<dyn AccessGate> = Arc::new(OnlyPeer(Box::leak(only.into_boxed_str())));
+            let events = build_gated_blobs_events(gate, None);
+            let router = iroh::protocol::Router::builder(server_ep)
+                .accept(
+                    iroh_blobs::ALPN,
+                    iroh_blobs::BlobsProtocol::new(&server_store, Some(events)),
+                )
+                .spawn();
+
+            let conn = client_ep
+                .connect(router.endpoint().addr(), iroh_blobs::ALPN)
+                .await
+                .expect("connect");
+            let client_store = iroh_blobs::store::mem::MemStore::new();
+            let mut stream = Box::pin(client_store.remote().observe(
+                conn,
+                ObserveRequest {
+                    hash,
+                    ranges: iroh_blobs::protocol::RangeSpec::all(),
+                },
+            ));
+            let first = tokio::time::timeout(std::time::Duration::from_secs(5), stream.next())
+                .await
+                .unwrap_or_else(|_| panic!("{label}: observe timed out"));
+            let got_bitfield = matches!(first, Some(Ok(_)));
+            assert_eq!(
+                got_bitfield, allowed,
+                "{label} peer observe: expected success={allowed}, got {first:?}"
+            );
+
+            router.shutdown().await.ok();
+            client_ep.close().await;
+        }
     }
 }

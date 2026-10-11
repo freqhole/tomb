@@ -27,7 +27,7 @@ use iroh_blobs::api::downloader::Downloader;
 use iroh_blobs::api::Store;
 use iroh_blobs::api::TempTag;
 use iroh_blobs::provider::events::{
-    AbortReason, ConnectMode, EventMask, EventSender, ProviderMessage, RequestMode,
+    AbortReason, ConnectMode, EventMask, EventSender, ObserveMode, ProviderMessage, RequestMode,
 };
 use iroh_blobs::store::{GcConfig, ProtectCb, ProtectOutcome};
 use iroh_blobs::{BlobsProtocol, Hash, HashAndFormat};
@@ -686,6 +686,12 @@ fn build_gated_blobs_events(
         // reliquary's `gate::build_gated_blobs_events`.
         get: RequestMode::InterceptLog,
         get_many: RequestMode::InterceptLog,
+        // iroh-blobs 0.103.1+ gates each request type by its own mode
+        // (earlier versions used `get` for all of them), so `observe` must
+        // be intercepted explicitly or it bypasses the acl. `push` stays
+        // `Disabled` (from `EventMask::DEFAULT`): this node never accepts
+        // writes from a remote peer.
+        observe: ObserveMode::Intercept,
         ..EventMask::DEFAULT
     };
     let (tx, mut rx) = EventSender::channel(32, mask);
@@ -787,6 +793,19 @@ fn build_gated_blobs_events(
                             String::new(),
                         ));
                     }
+                }
+                ProviderMessage::ObserveRequestReceived(msg) => {
+                    let peer = connections.borrow().get(&msg.connection_id).cloned();
+                    let allowed = blob_request_allowed(&acl, &msg.request.hash, peer.as_deref());
+                    if !allowed {
+                        warn!("blob-acl: denied observe request from peer {:?}", peer);
+                    }
+                    let res = if allowed {
+                        Ok(())
+                    } else {
+                        Err(AbortReason::Permission)
+                    };
+                    msg.tx.send(res).await.ok();
                 }
                 _ => {}
             }
