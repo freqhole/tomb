@@ -7,7 +7,7 @@
 //! `MusicPlayer` (tty: libmpv over `send_player`; web: noop until
 //! the html-audio runtime lands — see RATHOLE_TUI_PLAN §10).
 
-use super::app::{AppState, Focus};
+use super::app::{AppState, Focus, MusicMode, PlayerState, VideoMode};
 
 /// actuated control. the shell turns these into player commands.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -45,6 +45,37 @@ pub const CONTROLS: &[(&str, PlayerRowAction)] = &[
     ("♡", PlayerRowAction::Favorite),
 ];
 
+/// whether the global player row is currently showing (mirrors
+/// `views::player_row::height() > 0`): hidden only while nothing has
+/// ever been loaded.
+pub fn is_visible(state: &AppState) -> bool {
+    let m = &state.ephemeral.music;
+    m.currently_playing().is_some() || !matches!(m.player_state, PlayerState::Stopped)
+}
+
+/// whether a plain Tab on the current focus should jump to the player
+/// row. only foci where Tab has no meaning of its own (or nothing left
+/// to do, e.g. an empty repl completion list) qualify - the rest keep
+/// their local Tab behavior and reach the player through the existing
+/// palette -> result panel -> player chain, or (forms, modals) by
+/// leaving first. always false while the player row is hidden.
+pub fn tab_should_enter(state: &AppState) -> bool {
+    if !is_visible(state) {
+        return false;
+    }
+    let eph = &state.ephemeral;
+    match eph.focus {
+        Focus::Landing | Focus::RemoteList => true,
+        Focus::MusicView => match eph.music.mode {
+            MusicMode::Results => true,
+            MusicMode::Search => eph.music.results.is_empty(),
+        },
+        Focus::VideoView => !matches!(eph.video.mode, VideoMode::Edit),
+        Focus::Repl => super::repl_keys::flyout_matches(state).is_empty(),
+        _ => false,
+    }
+}
+
 /// enter the player row from any focus, remembering where to return.
 pub fn enter(state: &mut AppState) {
     let eph = &mut state.ephemeral;
@@ -55,6 +86,13 @@ pub fn enter(state: &mut AppState) {
     eph.focus = Focus::PlayerRow;
     if eph.player_row_cursor >= CONTROLS.len() {
         eph.player_row_cursor = 0;
+    }
+}
+
+/// [`enter`], but only when the player row is actually showing.
+pub fn enter_if_visible(state: &mut AppState) {
+    if is_visible(state) {
+        enter(state);
     }
 }
 
@@ -127,6 +165,31 @@ mod tests {
         assert_eq!(s.ephemeral.player_row_return_focus, Some(Focus::MusicView));
         leave(&mut s);
         assert_eq!(s.ephemeral.focus, Focus::MusicView);
+    }
+
+    #[test]
+    fn tab_enters_player_only_when_visible_and_tab_is_unused() {
+        let mut s = AppState::default();
+        s.ephemeral.focus = Focus::Landing;
+        assert!(!tab_should_enter(&s), "hidden player must not be tabbable");
+
+        s.ephemeral.music.player_state = PlayerState::Playing;
+        assert!(tab_should_enter(&s));
+
+        s.ephemeral.focus = Focus::MusicView;
+        s.ephemeral.music.mode = MusicMode::Results;
+        assert!(tab_should_enter(&s));
+        s.ephemeral.music.mode = MusicMode::Search;
+        assert!(
+            tab_should_enter(&s),
+            "search with no results has nothing to tab to"
+        );
+
+        // modals / forms / the palette keep their own tab behavior.
+        s.ephemeral.focus = Focus::CommandForm;
+        assert!(!tab_should_enter(&s));
+        s.ephemeral.focus = Focus::AdminPalette;
+        assert!(!tab_should_enter(&s));
     }
 
     #[test]

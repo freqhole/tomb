@@ -9,6 +9,7 @@ import android.os.IBinder
 import android.os.PowerManager
 import android.support.v4.media.session.MediaSessionCompat
 import android.util.Log
+import androidx.core.app.NotificationCompat
 import androidx.media.session.MediaButtonReceiver
 
 /**
@@ -27,6 +28,39 @@ class MediaPlaybackService : Service() {
     private var wakeLock: PowerManager.WakeLock? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
+
+    override fun onCreate() {
+        super.onCreate()
+        // android kills the whole app (RemoteServiceException) if a service
+        // started via startForegroundService() doesn't call startForeground()
+        // within ~5s - and also if it's stopped/destroyed before it ever
+        // does. promote immediately with a placeholder so every path (stop
+        // racing the start, media-button intents with no notification
+        // extra, a failed notification parcel) is covered; onStartCommand
+        // swaps in the real media notification right after.
+        try {
+            val placeholder = buildPlaceholderNotification()
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(
+                    NOTIFICATION_ID,
+                    placeholder,
+                    android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK,
+                )
+            } else {
+                startForeground(NOTIFICATION_ID, placeholder)
+            }
+        } catch (t: Throwable) {
+            Log.w(TAG, "onCreate: startForeground failed", t)
+        }
+    }
+
+    private fun buildPlaceholderNotification(): Notification =
+        NotificationCompat.Builder(this, MediaSessionPlugin.CHANNEL_ID)
+            .setSmallIcon(applicationInfo.icon)
+            .setContentTitle(applicationInfo.loadLabel(packageManager))
+            .setOnlyAlertOnce(true)
+            .setShowWhen(false)
+            .build()
 
     override fun onDestroy() {
         releaseWakeLock()
@@ -80,6 +114,16 @@ class MediaPlaybackService : Service() {
             MediaButtonReceiver.handleIntent(session, intent)
         }
 
+        // stop requests go through the service itself (not Context.stopService)
+        // so a stop can never overtake a pending startForegroundService().
+        if (intent?.action == ACTION_STOP_SERVICE) {
+            releaseWakeLock()
+            @Suppress("DEPRECATION")
+            stopForeground(true)
+            stopSelf()
+            return START_NOT_STICKY
+        }
+
         @Suppress("DEPRECATION")
         val notification: Notification? =
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -131,6 +175,7 @@ class MediaPlaybackService : Service() {
         private const val TAG = "MediaPlaybackService"
         const val EXTRA_NOTIFICATION = "notification"
         const val EXTRA_IS_PLAYING = "is_playing"
+        const val ACTION_STOP_SERVICE = "net.freqhole.plugin.mediasession.ACTION_STOP_SERVICE"
         const val NOTIFICATION_ID = 0x1337
 
         // set by MediaSessionPlugin on load; used by onStartCommand to

@@ -65,22 +65,32 @@ pub fn draw(frame: &mut Frame, area: Rect, app: &App) {
     let video_active = m.queue_video_active || m.audio_fallback_active;
     let vp = &app.state.ephemeral.video_player;
     let ascii = use_ascii_glyphs();
-    let pause_glyph = if ascii { "||" } else { "\u{23f8}" };
+    // (stopped, loading, playing, paused, error)
+    let (g_stopped, g_loading, g_playing, g_paused, g_error) = if ascii {
+        ("-", "...", ">", "||", "x")
+    } else {
+        ("\u{25a0}", "\u{2026}", "\u{25b6}", "\u{23f8}", "\u{2715}")
+    };
+    let is_playing = if video_active {
+        vp.state == crate::ratcore::app::VideoPlaybackState::Playing
+    } else {
+        m.player_state == PlayerState::Playing
+    };
     let state_glyph = if video_active {
         match vp.state {
             crate::ratcore::app::VideoPlaybackState::Idle
-            | crate::ratcore::app::VideoPlaybackState::Ended => "\u{25a0}",
-            crate::ratcore::app::VideoPlaybackState::Loading => "\u{2026}",
-            crate::ratcore::app::VideoPlaybackState::Playing => "\u{25b6}",
-            crate::ratcore::app::VideoPlaybackState::Paused => pause_glyph,
-            crate::ratcore::app::VideoPlaybackState::Error => "\u{2715}",
+            | crate::ratcore::app::VideoPlaybackState::Ended => g_stopped,
+            crate::ratcore::app::VideoPlaybackState::Loading => g_loading,
+            crate::ratcore::app::VideoPlaybackState::Playing => g_playing,
+            crate::ratcore::app::VideoPlaybackState::Paused => g_paused,
+            crate::ratcore::app::VideoPlaybackState::Error => g_error,
         }
     } else {
         match m.player_state {
-            PlayerState::Stopped => "\u{25a0}",
-            PlayerState::Loading => "\u{2026}",
-            PlayerState::Playing => "\u{25b6}",
-            PlayerState::Paused => pause_glyph,
+            PlayerState::Stopped => g_stopped,
+            PlayerState::Loading => g_loading,
+            PlayerState::Playing => g_playing,
+            PlayerState::Paused => g_paused,
         }
     };
     let (position_ms, duration_ms) = if video_active {
@@ -131,7 +141,8 @@ pub fn draw(frame: &mut Frame, area: Rect, app: &App) {
             (false, PlayerRowAction::Favorite) if m.current_favorited => "\u{2665}".to_string(),
             (false, PlayerRowAction::Favorite) => "\u{2661}".to_string(),
             (true, PlayerRowAction::Previous) => "prev".to_string(),
-            (true, PlayerRowAction::PlayPause) => "play/pause".to_string(),
+            (true, PlayerRowAction::PlayPause) if is_playing => "pause".to_string(),
+            (true, PlayerRowAction::PlayPause) => "play".to_string(),
             (true, PlayerRowAction::Next) => "next".to_string(),
             (true, PlayerRowAction::Favorite) if m.current_favorited => "FAV".to_string(),
             (true, PlayerRowAction::Favorite) => "fav".to_string(),
@@ -150,7 +161,7 @@ pub fn draw(frame: &mut Frame, area: Rect, app: &App) {
     };
     // bar width = full area - " 00:00 " (7) - " 00:00 " (7) - 2 padding.
     let bar_width = (area.width as usize).saturating_sub(16);
-    let bar = progress_bar(position_ms, duration_ms, bar_width);
+    let bar = progress_bar(position_ms, duration_ms, bar_width, ascii);
     let line2 = Line::from(vec![
         Span::raw(format!(" {pos} ")).dim(),
         Span::styled(bar, Style::new().fg(ACCENT)),
@@ -195,21 +206,26 @@ pub fn draw(frame: &mut Frame, area: Rect, app: &App) {
     frame.render_widget(Paragraph::new(lines), area);
 }
 
-fn progress_bar(pos: u64, total: u64, width: usize) -> String {
+fn progress_bar(pos: u64, total: u64, width: usize, ascii: bool) -> String {
     if width == 0 {
         return String::new();
     }
+    let (filled_ch, empty_ch, unknown_ch) = if ascii {
+        ('#', '-', "-")
+    } else {
+        ('█', '░', "─")
+    };
     if total == 0 {
-        return "─".repeat(width);
+        return unknown_ch.repeat(width);
     }
     let frac = (pos as f64 / total as f64).clamp(0.0, 1.0);
     let filled = (frac * width as f64).round() as usize;
     let mut s = String::with_capacity(width);
     for _ in 0..filled {
-        s.push('█');
+        s.push(filled_ch);
     }
     for _ in filled..width {
-        s.push('░');
+        s.push(empty_ch);
     }
     s
 }

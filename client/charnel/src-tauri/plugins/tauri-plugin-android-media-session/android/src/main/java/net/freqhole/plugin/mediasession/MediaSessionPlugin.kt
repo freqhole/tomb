@@ -83,6 +83,10 @@ class MediaSessionPlugin(private val activity: Activity) : Plugin(activity) {
     // used to skip redundant rebuilds. see updateNotification().
     private var lastNotificationSignature: String? = null
 
+    // whether we've asked android to start MediaPlaybackService and haven't
+    // since asked it to stop; lets clear() skip spinning the service up
+    // just to stop it again.
+    private var serviceStarted: Boolean = false
     // NOTE: we deliberately do NOT manage audio focus in this plugin.
     // chromium's WebView already requests/abandons audio focus on behalf
     // of every <audio> element via its internal AudioFocusDelegate. if
@@ -393,9 +397,22 @@ class MediaSessionPlugin(private val activity: Activity) : Plugin(activity) {
         endWatchdog?.let { mainHandler.removeCallbacks(it) }
         endWatchdog = null
         lastNotificationSignature = null
-        try {
-            activity.stopService(Intent(activity, MediaPlaybackService::class.java))
-        } catch (_: Throwable) {
+        if (serviceStarted) {
+            serviceStarted = false
+            // routed through the service (see ACTION_STOP_SERVICE) instead of
+            // stopService(): stopping before a pending startForegroundService()
+            // has called startForeground() crashes the app.
+            try {
+                val stop = Intent(activity, MediaPlaybackService::class.java)
+                    .setAction(MediaPlaybackService.ACTION_STOP_SERVICE)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    activity.startForegroundService(stop)
+                } else {
+                    activity.startService(stop)
+                }
+            } catch (t: Throwable) {
+                Log.w(TAG, "clear: failed to stop playback service", t)
+            }
         }
         invoke.resolve()
     }
@@ -577,6 +594,7 @@ class MediaSessionPlugin(private val activity: Activity) : Plugin(activity) {
             } else {
                 activity.startService(svc)
             }
+            serviceStarted = true
         } catch (t: Throwable) {
             // background-start restrictions on android 12+ can throw
             // (ForegroundServiceStartNotAllowedException). log the

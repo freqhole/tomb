@@ -135,7 +135,6 @@ pub enum Commands {
     },
 
     /// Radio (live audio streaming over iroh)
-    #[cfg(feature = "libmpv-playback")]
     Radio {
         #[command(subcommand)]
         action: plumbing::RadioAction,
@@ -426,7 +425,6 @@ pub async fn run_with(mut cli: Cli) -> Result<()> {
         Commands::Sync { action } => {
             plumbing::handle_sync(action, json_output).await?;
         }
-        #[cfg(feature = "libmpv-playback")]
         Commands::Radio { action } => {
             plumbing::handle_radio(action, json_output).await?;
         }

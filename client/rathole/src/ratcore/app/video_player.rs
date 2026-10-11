@@ -166,7 +166,13 @@ impl VideoPlayerState {
         match event {
             VideoEvent::Duration { seconds } => self.duration = Some(*seconds),
             VideoEvent::Position { seconds } => self.position = *seconds,
-            VideoEvent::Playing => self.state = VideoPlaybackState::Playing,
+            VideoEvent::Playing => {
+                // mpv spawns idle and reports `pause=false` right away;
+                // with nothing loaded that's not "playing".
+                if self.state != VideoPlaybackState::Idle {
+                    self.state = VideoPlaybackState::Playing;
+                }
+            }
             VideoEvent::PlaybackRestarted => {
                 // a restart alone doesn't mean "now playing" - mpv also
                 // fires it on a seek while genuinely paused. `pause`
@@ -280,6 +286,13 @@ mod tests {
         assert!(s.apply(&VideoEvent::Duration { seconds: 100.0 }));
         assert!(s.apply(&VideoEvent::Playing));
         assert_eq!(s.state, VideoPlaybackState::Playing);
+    }
+
+    #[test]
+    fn startup_pause_false_while_idle_is_not_playing() {
+        let mut s = VideoPlayerState::new();
+        assert!(!s.apply(&VideoEvent::Playing));
+        assert_eq!(s.state, VideoPlaybackState::Idle);
     }
 
     /// the actual fix for "remote-pushed video never reports playing":

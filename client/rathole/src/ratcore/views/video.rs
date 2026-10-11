@@ -307,19 +307,25 @@ fn format_duration(seconds: f64) -> String {
 /// state (mpv), mirroring the shape of music's player row status.
 fn video_status_line(vp: &crate::ratcore::app::VideoPlayerState) -> Line<'static> {
     use crate::ratcore::app::VideoPlaybackState;
+    let ascii = crate::ratcore::theme::use_ascii_glyphs();
+    let (g_loading, g_playing, g_paused, g_ended) = if ascii {
+        ("...", ">", "||", "[]")
+    } else {
+        ("\u{2026}", "\u{25b6}", "\u{23f8}", "\u{23f9}")
+    };
     let label = match vp.state {
         VideoPlaybackState::Idle => return Line::from(""),
-        VideoPlaybackState::Loading => "loading\u{2026}".to_string(),
+        VideoPlaybackState::Loading => format!("loading{g_loading}"),
         VideoPlaybackState::Playing => match vp.duration {
             Some(d) => format!(
-                "\u{25b6} playing  {} / {}",
+                "{g_playing} playing  {} / {}",
                 format_duration(vp.position),
                 format_duration(d)
             ),
-            None => format!("\u{25b6} playing  {}", format_duration(vp.position)),
+            None => format!("{g_playing} playing  {}", format_duration(vp.position)),
         },
-        VideoPlaybackState::Paused => "\u{23f8} paused".to_string(),
-        VideoPlaybackState::Ended => "\u{23f9} ended".to_string(),
+        VideoPlaybackState::Paused => format!("{g_paused} paused"),
+        VideoPlaybackState::Ended => format!("{g_ended} ended"),
         VideoPlaybackState::Error => vp
             .last_error
             .clone()

@@ -170,7 +170,13 @@ pub fn try_mpv_audio_fallback(app: &mut App, tx: &mpsc::UnboundedSender<AppActio
     vp.last_error = None;
     let title = row.title.clone();
     let tx = tx.clone();
+    let stop_audio = app.player.clone();
     tokio::task::spawn_local(async move {
+        // only ever one thing playing: make sure the audio backend is
+        // silent before the fallback starts.
+        if let Some(player) = stop_audio {
+            let _ = player.send(PlayerCmd::Stop).await;
+        }
         let Some(path) = resolve_song_path(&row).await else {
             let _ = tx.send(AppAction::VideoPlayerEvent(VideoEvent::Error {
                 message: format!("mpv fallback: no playable file for {title} (skipping)"),

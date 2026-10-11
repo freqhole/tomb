@@ -2,6 +2,7 @@ package net.freqhole.charnel
 
 import android.os.Bundle
 import android.webkit.WebView
+import androidx.activity.OnBackPressedCallback
 import androidx.core.view.WindowCompat
 
 class MainActivity : TauriActivity() {
@@ -21,11 +22,31 @@ class MainActivity : TauriActivity() {
 
   // wry's default WebChromeClient (generated/RustWebChromeClient.kt) never
   // implements fullscreen video - see FullscreenWebChromeClient's doc comment.
+  //
+  // wry calls setWebView() (-> this hook) BEFORE it calls
+  // webView.setWebChromeClient(RustWebChromeClient), so assigning our client
+  // synchronously here gets silently overwritten and onShowCustomView never
+  // reaches us - the fullscreen button then does nothing (the stock client
+  // dismisses the custom view instantly). posting to the main looper runs
+  // after wry has finished its own setup on this same message.
   override fun onWebViewCreate(webView: WebView) {
-    webView.webChromeClient = FullscreenWebChromeClient(this, rustWebChromeClient)
-    // requestFullscreen() on this WebView is handled as in-page CSS
-    // fullscreen (confirmed: onShowCustomView never fires for it) - so JS
-    // calls this bridge directly on fullscreenchange instead. see
+    var fullscreenClient: FullscreenWebChromeClient? = null
+    val exitFullscreenOnBack = object : OnBackPressedCallback(false) {
+      override fun handleOnBackPressed() {
+        fullscreenClient?.exitFullscreen()
+      }
+    }
+    onBackPressedDispatcher.addCallback(this, exitFullscreenOnBack)
+
+    webView.post {
+      val client = FullscreenWebChromeClient(this, rustWebChromeClient) { fullscreen ->
+        exitFullscreenOnBack.isEnabled = fullscreen
+      }
+      fullscreenClient = client
+      webView.webChromeClient = client
+    }
+
+    // JS can also drive the system bars directly on fullscreenchange; see
     // SystemBarsBridge's doc comment.
     webView.addJavascriptInterface(SystemBarsBridge(this), "AndroidSystemBars")
   }

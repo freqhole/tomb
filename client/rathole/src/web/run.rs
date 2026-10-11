@@ -215,6 +215,15 @@ fn on_key(
             return;
         }
     }
+    // tab jumps to the player row from every view where tab is otherwise
+    // unused, so the playback controls are always reachable.
+    if matches!(code, KeyCode::Tab)
+        && !shift
+        && crate::ratcore::player_row_keys::tab_should_enter(&app.state)
+    {
+        crate::ratcore::player_row_keys::enter(&mut app.state);
+        return;
+    }
     match app.state.ephemeral.focus {
         Focus::Landing => on_landing_key_web(app, code, tx),
         Focus::AdminPalette => on_palette_key(app, code, tx),

@@ -12,13 +12,12 @@ name = "cli"
 path = "src/lib.rs"
 
 [features]
-default = ["server/webauthn", "libmpv-playback"]
+default = ["server/webauthn"]
 webauthn = ["server/webauthn"]
-# enable platform audio playback for the `freqhole player daemon`
-# subcommand. propagates to grimoire's `libmpv-playback` feature so
-# `grimoire::player::spawn_libmpv_player` is available. headless cross-
-# compile targets without system libmpv can disable this with
-# `--no-default-features --features webauthn`.
+# opt-in: links libmpv in-process via grimoire's `libmpv-playback`
+# feature (only the `player-smoke-test` debug subcommand needs it). off by
+# default so the shipped rathole binary has no libmpv.so link-time/runtime
+# dependency - rathole shells out to the `mpv` binary for audio + video.
 libmpv-playback = ["grimoire/libmpv-playback"]
 
 [dependencies]
