@@ -1,5 +1,14 @@
 # freqhole-release
 
+## 0.3.14
+
+### Patch Changes
+
+- 1b2455a: try to fix some android crash + full screen video issuez
+- 879d2bd: improve polyfill modal logic
+- 534caef: update iroh + iroh-blobs + fix gate acl issuez
+- 22dcf3b: rathole-- remote libmpv-dev hard dependency, try to improve player tui, try to make sure only one thing playz at once
+
 ## 0.3.13
 
 ### Patch Changes
