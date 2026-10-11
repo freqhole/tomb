@@ -287,7 +287,14 @@ export function VirtualItemList(props: VirtualItemListProps): JSX.Element {
               }}
             >
               {props.getContextMenuActions ? (
-                <ContextMenu actions={props.getContextMenuActions(item, virtualRow.index)}>
+                // triggerClass h-full: the trigger wrapper sits between the
+                // fixed-height row slot and the button's own h-full, so
+                // without it rows collapse to their content height (rows
+                // with a subtitle came out taller than title-only rows).
+                <ContextMenu
+                  actions={props.getContextMenuActions(item, virtualRow.index)}
+                  triggerClass="h-full"
+                >
                   {itemButton}
                 </ContextMenu>
               ) : (

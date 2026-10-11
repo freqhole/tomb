@@ -8,6 +8,7 @@ import { ContextMenu, type MenuAction } from "../overlays/ContextMenu";
 import { FavoriteHeart } from "../ratings/FavoriteHeart";
 import { Rating } from "../ratings/Rating";
 import { SongRow } from "../songs/SongRow";
+import { hasBackgroundImage } from "../../app/services/backgroundImage";
 import { MarqueeText } from "../text/MarqueeText";
 import MediaImage from "../media/MediaImage";
 
@@ -105,7 +106,11 @@ function AlbumHeader(props: {
   return (
     <div
       onClick={props.onAlbumClick}
-      class="bg-[var(--color-bg-elevated)] rounded-lg hover:bg-[var(--color-bg-hover)] transition-colors cursor-pointer"
+      class={`rounded-lg transition-colors cursor-pointer ${
+        hasBackgroundImage()
+          ? "bg-black/30 hover:bg-black/40 backdrop-blur-sm"
+          : "bg-[var(--color-bg-elevated)] hover:bg-[var(--color-bg-hover)]"
+      }`}
     >
       {/* narrow layout: title full width, then artwork with info/actions */}
       <div class="wide:hidden px-3 py-3">

@@ -1,6 +1,7 @@
 // reusable song row component for displaying a single song in a list
 import { Show, type JSX } from "solid-js";
 import { PlayIcon, PauseIcon } from "../icons/registry";
+import { hasBackgroundImage } from "../../app/services/backgroundImage";
 import { getPlayingIndicatorClasses, getPlayingTextClasses } from "../../design-system/colors";
 import { MediaThumbnail } from "../media/MediaThumbnail";
 import { ContextMenu, type MenuAction } from "../overlays/ContextMenu";
@@ -69,8 +70,12 @@ export function SongRow(props: SongRowProps): JSX.Element {
           : props.isPlaying
             ? getPlayingIndicatorClasses(true)
             : props.isSelected
-              ? "bg-[var(--color-bg-elevated)]"
-              : "hover:bg-[var(--color-bg-elevated)]"
+              ? hasBackgroundImage()
+                ? "bg-black/50"
+                : "bg-[var(--color-bg-elevated)]"
+              : hasBackgroundImage()
+                ? "hover:bg-black/40"
+                : "hover:bg-[var(--color-bg-elevated)]"
       } ${props.class || ""}`}
     >
       {/* thumbnail with track number overlay or simple track number */}

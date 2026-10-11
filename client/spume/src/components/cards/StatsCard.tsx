@@ -1,5 +1,6 @@
 import { Show, splitProps, type JSX } from "solid-js";
 import { Icon, type IconName } from "../icons/registry";
+import { hasBackgroundImage } from "../../app/services/backgroundImage";
 
 export interface StatsCardProps {
   /** stat label (e.g., "songs", "albums", "duration") */
@@ -36,11 +37,15 @@ export function StatsCard(props: StatsCardProps) {
   const variant = () => local.variant || "default";
   const isClickable = () => !!local.onClick;
 
+  // translucent black over a full-page background image, solid otherwise
+  const solidBg = () =>
+    hasBackgroundImage() ? "bg-black/30 backdrop-blur-sm" : "bg-[var(--color-bg-secondary)]";
+
   const containerClasses = () => {
     const base = "rounded-lg transition-all duration-200 flex flex-col justify-center";
     const variants = {
-      default: "p-4 bg-[var(--color-bg-secondary)]",
-      compact: "p-3 bg-[var(--color-bg-secondary)]",
+      default: `p-4 ${solidBg()}`,
+      compact: `p-3 ${solidBg()}`,
       minimal: "p-2 bg-transparent",
     };
 

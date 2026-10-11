@@ -3,6 +3,8 @@ import { useNavigate, useParams, useSearchParams } from "@solidjs/router";
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { useQueryClient } from "@tanstack/solid-query";
 import { appState } from "../../app/services/storage/db";
+import { useBackgroundImageFromImages } from "../../app/hooks/useBackgroundImageSource";
+import { hasBackgroundImage } from "../../app/services/backgroundImage";
 import { playQueue, addToQueue } from "../services/queue/queue";
 import { highlightedSongId, setHighlightedSongId } from "../state/highlightedSong";
 import { Button } from "../../components/buttons/Button";
@@ -117,6 +119,15 @@ export function AlbumDetailView() {
 
   // fetch album songs using tanstack query (works with local + remote)
   const albumSongsQuery = useAlbumSongsQuery(() => params.id);
+
+  // full-page blurred backdrop from the album art (album entity's own
+  // images, else the first song's album_images - same precedence as the
+  // send-to-remote payload below), same as playlists.
+  useBackgroundImageFromImages(() =>
+    albumQuery.data?.images?.length
+      ? albumQuery.data.images
+      : albumSongsQuery.data?.items?.[0]?.album_images
+  );
 
   // optional deep-link support: /albums/:id?song_id=... to focus/highlight
   // a specific song row after navigation from shares/playerbar.
@@ -617,7 +628,11 @@ export function AlbumDetailView() {
                   row below the header (not squeezed into the title column
                   alongside the fixed-size artwork square) so all the buttons
                   fit on one line instead of overflowing under the artwork. */}
-                <div class="mt-3 px-1 wide:px-6 flex flex-wrap items-center gap-2 wide:gap-3">
+                <div
+                  class={`mt-3 mx-1 wide:mx-6 flex flex-wrap items-center gap-2 wide:gap-3 w-fit ${
+                    hasBackgroundImage() ? "backdrop-blur-sm rounded-lg p-1" : ""
+                  }`}
+                >
                   <Button
                     variant="primary"
                     loading={albumActionPending() === "play"}

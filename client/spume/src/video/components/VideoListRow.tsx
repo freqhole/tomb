@@ -7,6 +7,7 @@
 import { createMemo, Show } from "solid-js";
 import { useNavigate } from "@solidjs/router";
 import { MediaImage } from "../../components/media/MediaImage";
+import { hasBackgroundImage } from "../../app/services/backgroundImage";
 import { ContextMenu } from "../../components/overlays/ContextMenu";
 import { PlayIcon } from "../../components/icons/registry";
 import { formatDuration } from "../../utils/formatDuration";
@@ -41,7 +42,9 @@ export function VideoListRow(props: VideoListRowProps) {
     <ContextMenu actions={contextMenuActions()}>
       <div
         onClick={() => navigate(buildRoute(`/video/${props.video.id}`))}
-        class="flex items-center gap-3 px-2 py-2 rounded cursor-pointer hover:bg-[var(--color-bg-elevated)] transition-colors group"
+        class={`flex items-center gap-3 px-2 py-2 rounded cursor-pointer transition-colors group ${
+          hasBackgroundImage() ? "hover:bg-black/40" : "hover:bg-[var(--color-bg-elevated)]"
+        }`}
       >
         <Show when={props.index !== undefined}>
           <span class="w-8 text-sm text-[var(--color-text-tertiary)] text-right flex-shrink-0">
