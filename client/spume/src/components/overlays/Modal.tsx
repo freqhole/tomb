@@ -12,6 +12,7 @@ const hasNativeDialog =
   typeof HTMLDialogElement === "function" &&
   typeof HTMLDialogElement.prototype.showModal === "function";
 if (!hasNativeDialog) {
+  // eslint-disable-next-line no-restricted-syntax
   void import("dialog-polyfill/dist/dialog-polyfill.css");
 }
 
