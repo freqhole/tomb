@@ -53,6 +53,8 @@ const OBS_TIME_POS: u64 = 2;
 const OBS_DURATION: u64 = 3;
 const OBS_PLAYLIST_POS: u64 = 4;
 const OBS_PATH: u64 = 5;
+const OBS_IDLE_ACTIVE: u64 = 6;
+const OBS_CORE_IDLE: u64 = 7;
 /// fixed `request_id` for `ListOutputDevices` round trips - see
 /// `tty::video_player`'s identical constant for why a single
 /// well-known id is enough (v1 simplification: only one such request
@@ -118,6 +120,8 @@ impl MpvPlayer {
             (OBS_DURATION, "duration"),
             (OBS_PLAYLIST_POS, "playlist-pos"),
             (OBS_PATH, "path"),
+            (OBS_IDLE_ACTIVE, "idle-active"),
+            (OBS_CORE_IDLE, "core-idle"),
         ] {
             send_ipc_locked(
                 &write_half,
@@ -190,10 +194,7 @@ async fn reader_loop(
     read_half: tokio::net::unix::OwnedReadHalf,
     action_tx: mpsc::UnboundedSender<AppAction>,
 ) {
-    let mut last_time_pos: Option<f64> = None;
-    let mut last_duration: Option<f64> = None;
-    let mut last_playlist_pos: Option<i64> = None;
-    let mut last_path: Option<String> = None;
+    let mut observed = Observed::default();
 
     let mut lines = BufReader::new(read_half).lines();
     loop {
@@ -206,13 +207,7 @@ async fn reader_loop(
                     tracing::warn!(target: "player", %line, "mpv ipc: unparseable line");
                     continue;
                 };
-                for ev in translate(
-                    &msg,
-                    &mut last_time_pos,
-                    &mut last_duration,
-                    &mut last_playlist_pos,
-                    &mut last_path,
-                ) {
+                for ev in translate(&msg, &mut observed) {
                     if action_tx.send(AppAction::MusicEvent(ev)).is_err() {
                         return;
                     }
@@ -235,16 +230,67 @@ async fn reader_loop(
     }
 }
 
+/// last-known mpv property values. mpv reports each property-change
+/// independently, so `Progress`/`TrackChanged`/`State` are assembled from
+/// the combined picture.
+struct Observed {
+    time_pos: Option<f64>,
+    duration: Option<f64>,
+    playlist_pos: Option<i64>,
+    path: Option<String>,
+    pause: bool,
+    // mpv is spawned with `--idle=yes`, so it starts out with nothing
+    // loaded; `pause` alone reads `false` in that state, which used to
+    // be reported as `Playing` at startup (and made the player row show
+    // up with "(nothing loaded)").
+    idle_active: bool,
+    core_idle: bool,
+    // last `PlayerState` reported, so only real transitions are emitted.
+    state: PlayerState,
+}
+
+impl Default for Observed {
+    fn default() -> Self {
+        Self {
+            time_pos: None,
+            duration: None,
+            playlist_pos: None,
+            path: None,
+            pause: false,
+            idle_active: true,
+            core_idle: true,
+            state: PlayerState::Stopped,
+        }
+    }
+}
+
+impl Observed {
+    fn derived_state(&self) -> PlayerState {
+        if self.idle_active {
+            PlayerState::Stopped
+        } else if self.pause {
+            PlayerState::Paused
+        } else if self.core_idle {
+            PlayerState::Loading
+        } else {
+            PlayerState::Playing
+        }
+    }
+
+    fn state_events(&mut self) -> Vec<MusicEvent> {
+        let next = self.derived_state();
+        if next == self.state {
+            return Vec::new();
+        }
+        self.state = next;
+        vec![MusicEvent::State(next)]
+    }
+}
+
 /// translate one mpv ipc json message into zero or more `MusicEvent`s,
 /// given (and updating) the reader loop's cached last-known property
 /// values.
-fn translate(
-    msg: &JsonValue,
-    last_time_pos: &mut Option<f64>,
-    last_duration: &mut Option<f64>,
-    last_playlist_pos: &mut Option<i64>,
-    last_path: &mut Option<String>,
-) -> Vec<MusicEvent> {
+fn translate(msg: &JsonValue, observed: &mut Observed) -> Vec<MusicEvent> {
     if let Some(request_id) = msg.get("request_id").and_then(JsonValue::as_u64) {
         if request_id == REQ_LIST_AUDIO_DEVICES {
             let is_success = msg.get("error").and_then(JsonValue::as_str) == Some("success");
@@ -293,30 +339,53 @@ fn translate(
             let id = msg.get("id").and_then(JsonValue::as_u64);
             let data = msg.get("data");
             match id {
-                Some(OBS_PAUSE) => match data.and_then(JsonValue::as_bool) {
-                    Some(true) => vec![MusicEvent::State(PlayerState::Paused)],
-                    Some(false) => vec![MusicEvent::State(PlayerState::Playing)],
-                    None => Vec::new(),
-                },
+                Some(OBS_PAUSE) => {
+                    let Some(pause) = data.and_then(JsonValue::as_bool) else {
+                        return Vec::new();
+                    };
+                    observed.pause = pause;
+                    observed.state_events()
+                }
+                Some(OBS_IDLE_ACTIVE) => {
+                    let Some(idle) = data.and_then(JsonValue::as_bool) else {
+                        return Vec::new();
+                    };
+                    observed.idle_active = idle;
+                    observed.state_events()
+                }
+                Some(OBS_CORE_IDLE) => {
+                    let Some(idle) = data.and_then(JsonValue::as_bool) else {
+                        return Vec::new();
+                    };
+                    observed.core_idle = idle;
+                    observed.state_events()
+                }
                 Some(OBS_TIME_POS) => {
-                    *last_time_pos = data.and_then(JsonValue::as_f64);
-                    progress_event(*last_time_pos, *last_duration)
+                    observed.time_pos = data.and_then(JsonValue::as_f64);
+                    progress_event(observed.time_pos, observed.duration)
                 }
                 Some(OBS_DURATION) => {
-                    *last_duration = data.and_then(JsonValue::as_f64);
-                    progress_event(*last_time_pos, *last_duration)
+                    observed.duration = data.and_then(JsonValue::as_f64);
+                    progress_event(observed.time_pos, observed.duration)
                 }
                 Some(OBS_PLAYLIST_POS) => {
-                    *last_playlist_pos = data.and_then(JsonValue::as_i64);
-                    track_changed_event(*last_playlist_pos, last_path)
+                    observed.playlist_pos = data.and_then(JsonValue::as_i64);
+                    track_changed_event(observed.playlist_pos, &observed.path)
                 }
                 Some(OBS_PATH) => {
-                    *last_path = data.and_then(JsonValue::as_str).map(str::to_string);
-                    track_changed_event(*last_playlist_pos, last_path)
+                    observed.path = data.and_then(JsonValue::as_str).map(str::to_string);
+                    track_changed_event(observed.playlist_pos, &observed.path)
                 }
                 _ => Vec::new(),
             }
         }
+        // only a natural end (`eof`) or a failure counts as the track
+        // finishing. `stop` is what mpv reports for the file being
+        // replaced by a new `loadfile` (skip/previous/play-now) or an
+        // explicit `stop` - treating that as `Ended` made every skip
+        // look like "the track I just loaded failed", which kicked off
+        // the mpv audio fallback and played it a second time over the
+        // top of the first.
         "end-file" => match msg.get("reason").and_then(JsonValue::as_str) {
             Some("error") => {
                 let message = msg
@@ -324,9 +393,12 @@ fn translate(
                     .and_then(JsonValue::as_str)
                     .unwrap_or("playback failed")
                     .to_string();
-                vec![MusicEvent::Error(message)]
+                // `Ended` after the error lets the queue fall back to
+                // mpv / skip ahead instead of stalling on a dead track.
+                vec![MusicEvent::Error(message), MusicEvent::Ended]
             }
-            _ => vec![MusicEvent::Ended],
+            Some("eof") => vec![MusicEvent::Ended],
+            _ => Vec::new(),
         },
         "shutdown" => vec![MusicEvent::State(PlayerState::Stopped)],
         _ => Vec::new(),
@@ -441,27 +513,59 @@ pub async fn resolve_paths(blob_ids: &[String]) -> Vec<String> {
 mod tests {
     use super::*;
 
+    fn prop(id: u64, name: &str, data: JsonValue) -> JsonValue {
+        json!({"event":"property-change","id":id,"name":name,"data":data})
+    }
+
     #[test]
-    fn translate_pause_property_change() {
-        let (mut t, mut d, mut p, mut path) = (None, None, None, None);
-        let msg = json!({"event":"property-change","id":OBS_PAUSE,"name":"pause","data":true});
+    fn idle_startup_does_not_report_playing() {
+        // mpv's initial property snapshot while idle with nothing loaded.
+        let mut o = Observed::default();
+        assert!(translate(&prop(OBS_PAUSE, "pause", json!(false)), &mut o).is_empty());
+        assert!(translate(&prop(OBS_CORE_IDLE, "core-idle", json!(true)), &mut o).is_empty());
+        assert!(translate(&prop(OBS_IDLE_ACTIVE, "idle-active", json!(true)), &mut o).is_empty());
+    }
+
+    #[test]
+    fn state_follows_load_play_pause_and_end() {
+        let mut o = Observed::default();
         assert_eq!(
-            translate(&msg, &mut t, &mut d, &mut p, &mut path),
+            translate(&prop(OBS_IDLE_ACTIVE, "idle-active", json!(false)), &mut o),
+            vec![MusicEvent::State(PlayerState::Loading)]
+        );
+        assert_eq!(
+            translate(&prop(OBS_CORE_IDLE, "core-idle", json!(false)), &mut o),
+            vec![MusicEvent::State(PlayerState::Playing)]
+        );
+        assert_eq!(
+            translate(&prop(OBS_PAUSE, "pause", json!(true)), &mut o),
             vec![MusicEvent::State(PlayerState::Paused)]
+        );
+        assert_eq!(
+            translate(&prop(OBS_PAUSE, "pause", json!(false)), &mut o),
+            vec![MusicEvent::State(PlayerState::Playing)]
+        );
+        assert_eq!(
+            translate(&prop(OBS_CORE_IDLE, "core-idle", json!(false)), &mut o),
+            Vec::<MusicEvent>::new()
+        );
+        assert_eq!(
+            translate(&prop(OBS_IDLE_ACTIVE, "idle-active", json!(true)), &mut o),
+            vec![MusicEvent::State(PlayerState::Stopped)]
         );
     }
 
     #[test]
     fn translate_progress_needs_both_time_pos_and_duration() {
-        let (mut t, mut d, mut p, mut path) = (None, None, None, None);
+        let mut o = Observed::default();
         let msg =
             json!({"event":"property-change","id":OBS_TIME_POS,"name":"time-pos","data":12.5});
-        assert!(translate(&msg, &mut t, &mut d, &mut p, &mut path).is_empty());
+        assert!(translate(&msg, &mut o).is_empty());
 
         let msg =
             json!({"event":"property-change","id":OBS_DURATION,"name":"duration","data":100.0});
         assert_eq!(
-            translate(&msg, &mut t, &mut d, &mut p, &mut path),
+            translate(&msg, &mut o),
             vec![MusicEvent::Progress {
                 ms: 12500,
                 total_ms: 100000
@@ -471,15 +575,15 @@ mod tests {
 
     #[test]
     fn translate_track_changed_needs_both_pos_and_path() {
-        let (mut t, mut d, mut p, mut path) = (None, None, None, None);
+        let mut o = Observed::default();
         let msg =
             json!({"event":"property-change","id":OBS_PLAYLIST_POS,"name":"playlist-pos","data":2});
-        assert!(translate(&msg, &mut t, &mut d, &mut p, &mut path).is_empty());
+        assert!(translate(&msg, &mut o).is_empty());
 
         let msg =
             json!({"event":"property-change","id":OBS_PATH,"name":"path","data":"/tmp/song.flac"});
         assert_eq!(
-            translate(&msg, &mut t, &mut d, &mut p, &mut path),
+            translate(&msg, &mut o),
             vec![MusicEvent::TrackChanged {
                 index: 2,
                 path: "/tmp/song.flac".to_string()
@@ -489,23 +593,27 @@ mod tests {
 
     #[test]
     fn translate_end_file_eof_vs_error() {
-        let (mut t, mut d, mut p, mut path) = (None, None, None, None);
+        let mut o = Observed::default();
         let msg = json!({"event":"end-file","reason":"eof"});
-        assert_eq!(
-            translate(&msg, &mut t, &mut d, &mut p, &mut path),
-            vec![MusicEvent::Ended]
-        );
+        assert_eq!(translate(&msg, &mut o), vec![MusicEvent::Ended]);
 
         let msg = json!({"event":"end-file","reason":"error","file_error":"no decoder"});
         assert_eq!(
-            translate(&msg, &mut t, &mut d, &mut p, &mut path),
-            vec![MusicEvent::Error("no decoder".to_string())]
+            translate(&msg, &mut o),
+            vec![
+                MusicEvent::Error("no decoder".to_string()),
+                MusicEvent::Ended
+            ]
         );
+
+        // replaced by a new loadfile / explicit stop: not a track end.
+        let msg = json!({"event":"end-file","reason":"stop"});
+        assert!(translate(&msg, &mut o).is_empty());
     }
 
     #[test]
     fn translate_audio_device_list_response() {
-        let (mut t, mut d, mut p, mut path) = (None, None, None, None);
+        let mut o = Observed::default();
         let msg = json!({
             "request_id": REQ_LIST_AUDIO_DEVICES,
             "error": "success",
@@ -514,7 +622,7 @@ mod tests {
             ]
         });
         assert_eq!(
-            translate(&msg, &mut t, &mut d, &mut p, &mut path),
+            translate(&msg, &mut o),
             vec![MusicEvent::OutputDevices {
                 devices: vec![AudioDeviceInfo {
                     name: "alsa/hw:0,0".into(),

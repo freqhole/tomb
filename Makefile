@@ -63,8 +63,7 @@ build-all:
 .PHONY: build-mac-arm
 build-mac-arm:
 	@echo "building rathole CLI (cli crate) for macOS arm64 (no webauthn)..."
-	./scripts/fetch-mpv-runtime.sh arm64
-	cargo build --package cli --release --target $(MAC_ARM_TARGET) --no-default-features --features libmpv-playback
+	cargo build --package cli --release --target $(MAC_ARM_TARGET) --no-default-features
 	@mkdir -p $(BUILD_DIR)/$(VERSION)
 	cp target/$(MAC_ARM_TARGET)/release/rathole $(BUILD_DIR)/$(VERSION)/rathole_$(VERSION)_darwin-aarch64
 	@echo "built: $(BUILD_DIR)/$(VERSION)/rathole_$(VERSION)_darwin-aarch64"
@@ -90,8 +89,7 @@ build-mac-arm:
 .PHONY: build-mac-intel
 build-mac-intel:
 	@echo "building rathole CLI (cli crate) for macOS x86_64 (no webauthn)..."
-	./scripts/fetch-mpv-runtime.sh x86_64
-	MACOSX_DEPLOYMENT_TARGET=14.0 cargo build --package cli --release --target $(MAC_INTEL_TARGET) --no-default-features --features libmpv-playback
+	MACOSX_DEPLOYMENT_TARGET=14.0 cargo build --package cli --release --target $(MAC_INTEL_TARGET) --no-default-features
 	@mkdir -p $(BUILD_DIR)/$(VERSION)
 	cp target/$(MAC_INTEL_TARGET)/release/rathole $(BUILD_DIR)/$(VERSION)/rathole_$(VERSION)_darwin-x86_64
 	@echo "built: $(BUILD_DIR)/$(VERSION)/rathole_$(VERSION)_darwin-x86_64"

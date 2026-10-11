@@ -45,7 +45,7 @@ ARG FREQHOLE_GIT_SHA=unknown
 # (`dpkg --add-architecture armhf`, for pi32's cross-compile) makes apt
 # re-resolve the ENTIRE dependency graph from scratch, which drags every
 # other already-skewed-but-previously-quiet package into the open too -
-# `libmpv-dev:armhf` alone (confirmed by bisecting against
+# `libmpv-dev:armhf` (no longer installed) alone (confirmed by bisecting against
 # `gcc-arm-linux-gnueabihf` and the alsa trio in isolation, neither of
 # which triggers anything) is enough to trip it, via its own transitive
 # `libgnutls30` -> `libtasn1-6`/`libgssapi-krb5-2` -> `libpam-modules` ->
@@ -113,21 +113,16 @@ RUN if grep -qi bullseye /etc/apt/sources.list 2>/dev/null || grep -Rqi bullseye
     build-essential \
     pkg-config \
     libssl-dev \
-    libasound2-dev \
-    libmpv-dev; \
+    libasound2-dev; \
     fi
 
 # install cross-compilation tools for ARM64 (aarch64)
-# libmpv-dev:arm64 - verified via a real dry-run against this exact base
-# image (2026-09-29) that its full ~15-package dependency chain resolves
-# cleanly from the live bookworm mirror, same as libasound2-dev below.
 RUN if [ "$TARGET_ARCH" = "aarch64-unknown-linux-gnu" ]; then \
     dpkg --add-architecture arm64 && \
     apt-get update && \
     apt-get install -y \
     libssl-dev:arm64 \
     libasound2-dev:arm64 \
-    libmpv-dev:arm64 \
     gcc-aarch64-linux-gnu; \
     fi
 
@@ -138,11 +133,8 @@ RUN if [ "$TARGET_ARCH" = "aarch64-unknown-linux-gnu" ]; then \
 # so openssl/openssl-sys/webauthn-rs never enter the dependency graph for
 # this target (verified via `cargo tree -p server -p cli
 # --no-default-features --target armv7-unknown-linux-gnueabihf -i
-# openssl-sys` returning no matches). libasound2-dev:armhf/libmpv-dev:armhf
-# stay: rathole's own libmpv-playback (audio + radio + video) pulls both
-# in unconditionally via `client/rathole`'s own dependency on grimoire
-# (cli depends on rathole as a normal, non-optional dependency, so cli's
-# own --no-default-features doesn't reach it).
+# openssl-sys` returning no matches). libasound2-dev:armhf stays (alsa
+# is still a build-time dependency of the audio stack).
 #
 # bullseye is now oldoldstable and its -security pool's newest armhf
 # builds of alsa-lib (libasound2/-data/-dev, deb11u1 security patch) have
@@ -154,14 +146,6 @@ RUN if [ "$TARGET_ARCH" = "aarch64-unknown-linux-gnu" ]; then \
 # that trio from there instead, pinned exactly (all three together, since
 # libasound2-data has a Breaks against an older libasound2 than its own
 # version - installing them at mismatched versions fails to resolve).
-#
-# libclang-dev: libmpv2-sys's one pregenerated bindings.rs assumes a
-# 64-bit pointer width (its bindgen-emitted layout assertions hard-code
-# 64-bit struct sizes) and fails to compile outright on this 32-bit
-# target - grimoire/Cargo.toml's `[target.'cfg(target_arch = "arm")']`
-# section forces that crate's own `use-bindgen` feature here instead, so
-# bindings get regenerated live against the real (32-bit) target layout.
-# that needs a real libclang to parse mpv's C headers at build time.
 RUN if [ "$TARGET_ARCH" = "armv7-unknown-linux-gnueabihf" ]; then \
     dpkg --add-architecture armhf && \
     echo "deb [check-valid-until=no] http://snapshot.debian.org/archive/debian/20250501T000000Z bullseye main" > /etc/apt/sources.list.d/archive-bullseye.list && \
@@ -170,9 +154,7 @@ RUN if [ "$TARGET_ARCH" = "armv7-unknown-linux-gnueabihf" ]; then \
     libasound2-data=1.2.4-1.1 \
     libasound2:armhf=1.2.4-1.1 \
     libasound2-dev:armhf=1.2.4-1.1 \
-    libmpv-dev:armhf \
-    gcc-arm-linux-gnueabihf \
-    libclang-dev; \
+    gcc-arm-linux-gnueabihf; \
     fi
 
 # clean up apt cache
@@ -196,21 +178,6 @@ ENV CARGO_TARGET_ARMV7_UNKNOWN_LINUX_GNUEABIHF_LINKER=arm-linux-gnueabihf-gcc
 ENV PKG_CONFIG_ALLOW_CROSS=1
 ENV PKG_CONFIG_PATH_aarch64_unknown_linux_gnu=/usr/lib/aarch64-linux-gnu/pkgconfig
 ENV PKG_CONFIG_PATH_armv7_unknown_linux_gnueabihf=/usr/lib/arm-linux-gnueabihf/pkgconfig
-
-# libmpv2-sys's own `use-bindgen` codepath (armv7 only - see
-# grimoire/Cargo.toml) invokes clang against the target's C headers -
-# clang auto-detects the cross target itself (bindgen passes it via
-# Cargo's own TARGET env var), but doesn't know where this image's
-# `gcc-arm-linux-gnueabihf` cross-toolchain keeps its headers: NOT the
-# native multiarch path (`/usr/include/arm-linux-gnueabihf`, which is
-# only populated by installing native `:armhf` packages directly), but
-# `/usr/arm-linux-gnueabihf/include` - the cross-toolchain's own sysroot
-# convention (confirmed for real 2026-10-03 via a one-off `find` in this
-# same image: that's where `bits/libc-header-start.h` actually lives).
-# BINDGEN_EXTRA_CLANG_ARGS is a global (not per-target) bindgen env var,
-# but that's fine here - libmpv2-sys is the only crate in this image
-# enabling bindgen at all, for only this one target.
-ENV BINDGEN_EXTRA_CLANG_ARGS="-I/usr/arm-linux-gnueabihf/include"
 
 WORKDIR /app
 COPY . .

@@ -658,6 +658,16 @@ fn on_event(app: &mut App, ev: Event, action_tx: &mpsc::UnboundedSender<AppActio
         _ => {}
     }
 
+    // tab jumps to the player row from every view where tab is otherwise
+    // unused, so the playback controls are always reachable.
+    if k.code == KeyCode::Tab
+        && k.modifiers.is_empty()
+        && crate::ratcore::player_row_keys::tab_should_enter(&app.state)
+    {
+        crate::ratcore::player_row_keys::enter(&mut app.state);
+        return;
+    }
+
     // dispatch to focused area
     match app.state.ephemeral.focus {
         Focus::Landing => on_landing_key(app, k.code, action_tx),
@@ -2337,7 +2347,11 @@ fn on_form_key(
         // Tab is reserved for path completion in Text/LongText
         // fields that look path-like.
         KeyCode::Tab => {
-            let _ = try_form_path_complete(form);
+            // not path-like: nothing to complete, so jump to the player
+            // row (when showing) instead of swallowing the key.
+            if !try_form_path_complete(form) {
+                crate::ratcore::player_row_keys::enter_if_visible(&mut app.state);
+            }
         }
         // Enter advances UNLESS the focused field is a LongText
         // editor, in which case it inserts a newline.

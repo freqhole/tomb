@@ -340,7 +340,11 @@ fn translate(msg: &JsonValue) -> Vec<VideoEvent> {
                     .to_string();
                 vec![VideoEvent::Error { message }]
             }
-            _ => vec![VideoEvent::Ended],
+            Some("eof") => vec![VideoEvent::Ended],
+            // `stop` = replaced by a new loadfile / explicit stop. not a
+            // natural end, and must not advance the queue (that made a
+            // skip jump past the entry it had just loaded).
+            _ => Vec::new(),
         },
         // fires once actual playback (re)starts after a load/seek -
         // the only reliable "now genuinely playing" signal for a
@@ -517,6 +521,9 @@ mod tests {
     fn translate_end_file_eof_vs_error() {
         let msg = json!({"event":"end-file","reason":"eof"});
         assert_eq!(translate(&msg), vec![VideoEvent::Ended]);
+
+        let msg = json!({"event":"end-file","reason":"stop"});
+        assert!(translate(&msg).is_empty());
 
         let msg = json!({"event":"end-file","reason":"error","file_error":"no decoder"});
         assert_eq!(
