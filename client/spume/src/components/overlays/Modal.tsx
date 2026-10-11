@@ -1,7 +1,20 @@
 import { createEffect, createSignal, JSX, onCleanup, onMount, Show } from "solid-js";
 import dialogPolyfill from "dialog-polyfill";
-import "dialog-polyfill/dist/dialog-polyfill.css";
 import { IconButton } from "../buttons/IconButton";
+
+// dialog-polyfill's stylesheet restyles EVERY <dialog> (white background,
+// 1em padding, solid border, absolute positioning) with unlayered css,
+// which beats tailwind v4's layered utilities (bg-transparent, p-0, ...) -
+// loaded unconditionally it gave every native-dialog modal a white box
+// around its card. only load it where <dialog> isn't native and the
+// polyfill is actually doing the work.
+const hasNativeDialog =
+  typeof HTMLDialogElement === "function" &&
+  typeof HTMLDialogElement.prototype.showModal === "function";
+if (!hasNativeDialog) {
+  // eslint-disable-next-line no-restricted-syntax
+  void import("dialog-polyfill/dist/dialog-polyfill.css");
+}
 
 export interface ModalProps {
   isOpen: boolean;
