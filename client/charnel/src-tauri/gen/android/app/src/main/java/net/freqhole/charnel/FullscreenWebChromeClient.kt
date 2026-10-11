@@ -3,6 +3,7 @@ package net.freqhole.charnel
 import android.net.Uri
 import android.view.View
 import android.view.ViewGroup
+import android.webkit.ConsoleMessage
 import android.webkit.GeolocationPermissions
 import android.webkit.JsPromptResult
 import android.webkit.JsResult
@@ -21,11 +22,13 @@ import android.webkit.WebView
  * display that view - this wraps a real RustWebChromeClient (delegating every
  * other callback - permissions, js dialogs, file chooser - to it unchanged) and
  * adds the fullscreen handling wry's default never implements. installed from
- * MainActivity.onWebViewCreate().
+ * MainActivity (see installFullscreenClient() for why it can't happen
+ * synchronously in onWebViewCreate).
  */
 class FullscreenWebChromeClient(
     private val activity: MainActivity,
-    private val delegate: RustWebChromeClient
+    private val delegate: RustWebChromeClient,
+    private val onFullscreenChanged: (Boolean) -> Unit = {}
 ) : WebChromeClient() {
     private var customView: View? = null
     private var customViewCallback: CustomViewCallback? = null
@@ -43,7 +46,10 @@ class FullscreenWebChromeClient(
             ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
         )
         SystemBars.hide(activity)
+        onFullscreenChanged(true)
     }
+
+    fun exitFullscreen() = onHideCustomView()
 
     override fun onHideCustomView() {
         val view = customView ?: return
@@ -53,6 +59,7 @@ class FullscreenWebChromeClient(
         customView = null
         customViewCallback?.onCustomViewHidden()
         customViewCallback = null
+        onFullscreenChanged(false)
     }
 
     // everything else is unrelated to fullscreen - forward to wry's own
@@ -85,4 +92,9 @@ class FullscreenWebChromeClient(
         filePathCallback: ValueCallback<Array<Uri?>?>,
         fileChooserParams: FileChooserParams
     ): Boolean = delegate.onShowFileChooser(webView, filePathCallback, fileChooserParams)
+
+    override fun onConsoleMessage(consoleMessage: ConsoleMessage): Boolean =
+        delegate.onConsoleMessage(consoleMessage)
+
+    override fun onReceivedTitle(view: WebView, title: String) = delegate.onReceivedTitle(view, title)
 }
