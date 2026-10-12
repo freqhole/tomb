@@ -60,6 +60,7 @@ export async function runRepairLibraryImages(
       backfill_embedded_art: true,
       backfill_directory_art: true,
       remove_overapplied: false,
+      backfill_video_thumbnails: true,
     },
   });
   if (!resp.success) {
