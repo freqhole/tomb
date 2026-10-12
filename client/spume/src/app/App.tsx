@@ -49,6 +49,14 @@ import {
 } from "../music/hooks/modals";
 import { openAddMedia, closeAddMedia, useAddMediaState } from "./hooks/mediaModal";
 import {
+  setHasSongs,
+  setHasVideos,
+  setHasRemotes,
+  hasSongs,
+  hasVideos,
+  hasRemotes,
+} from "./hooks/libraryPresence";
+import {
   clearCompletedJobs,
   clearLocalImportProgress,
   fetchUrlsOnRemote,
@@ -283,11 +291,6 @@ export function App() {
   // signals the AddRemoteModal to auto-complete setup for a peer (device-linked / knock-accepted)
   const [autoCompletePeerAddr, setAutoCompletePeerAddr] = createSignal<string | null>(null);
   const [shareToken, setShareToken] = createSignal<string | null>(null);
-  const [hasSongs, setHasSongs] = createSignal(false);
-  // videos count as media too - the welcome gate predates the video domain and
-  // used to keep showing after importing only videos.
-  const [hasVideos, setHasVideos] = createSignal(false);
-  const [hasRemotes, setHasRemotes] = createSignal(false);
   const [isInitializing, setIsInitializing] = createSignal(true);
   const [showLoading, setShowLoading] = createSignal(false);
 

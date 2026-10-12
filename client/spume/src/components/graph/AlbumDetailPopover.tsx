@@ -457,6 +457,11 @@ export function ActionButton(props: {
   onClick: () => void;
   accent?: boolean;
   disabled?: boolean;
+  /** when true, renders only the icon (no visible text label) — used by
+   *  the collapsed-panel pills, which have much less horizontal room.
+   *  the label is still exposed via `title` (native tooltip) and
+   *  `aria-label` (accessibility) so the action stays discoverable. */
+  iconOnly?: boolean;
 }) {
   return (
     <button
@@ -467,13 +472,17 @@ export function ActionButton(props: {
           props.accent,
       }}
       disabled={props.disabled}
+      title={props.iconOnly ? props.label : undefined}
+      aria-label={props.iconOnly ? props.label : undefined}
       onClick={(e) => {
         e.stopPropagation();
         props.onClick();
       }}
     >
       <Icon name={props.icon} size={12} />
-      <span>{props.label}</span>
+      <Show when={!props.iconOnly}>
+        <span>{props.label}</span>
+      </Show>
     </button>
   );
 }

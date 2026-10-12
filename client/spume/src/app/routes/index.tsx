@@ -44,6 +44,7 @@ import {
   UserProfileView,
   LinkDeviceView,
   PairedPlayersView,
+  LocalLibrarySettingsView,
 } from "../../settings";
 import { isCharnelMode, getConfig } from "../services/charnel";
 import { getDefaultRoute } from "../../music/utils/routing";
@@ -161,6 +162,7 @@ export function routes(props: RoutesProps) {
       {/* settings routes - outside AppLayout */}
       <Route path="/settings" component={(p) => <SettingsLayout>{p.children}</SettingsLayout>}>
         <Route path="/storage" component={StorageSettingsView} />
+        <Route path="/library" component={LocalLibrarySettingsView} />
         <Route path="/remotes" component={RemotesSettingsView} />
         <Route path="/remotes/:remoteId/admin" component={RemoteAdminView} />
         <Route path="/remotes/:remoteId/radio" component={RadioAdminView} />

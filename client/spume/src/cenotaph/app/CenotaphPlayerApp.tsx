@@ -486,13 +486,15 @@ export function CenotaphPlayerApp() {
       class="flex h-screen flex-col items-center gap-6 overflow-y-auto bg-black px-6 pb-6 text-center text-white"
       classList={{ "justify-center": !hasQueueRest(), "justify-start": hasQueueRest() }}
       // adds var(--chrome-top-inset) (the chromeless title-bar strip's
-      // height, 0 when it's not active) on top of the usual spacing, so
-      // now-playing art/qr/settings-button content clears the strip
-      // instead of rendering underneath it. still just padding on a
-      // scrolling container - content can still scroll out the top edge
-      // same as before.
+      // height, 0 when it's not active) and var(--safe-area-top) (android/
+      // ios status bar inset, 0 on desktop - see index.tsx's bootstrap)
+      // on top of the usual spacing, so now-playing art/qr/settings-button
+      // content clears either one instead of rendering underneath it -
+      // the two are mutually exclusive in practice (desktop vs mobile), so
+      // adding both is safe. still just padding on a scrolling container -
+      // content can still scroll out the top edge same as before.
       style={{
-        "padding-top": `calc(${hasQueueRest() ? "38px" : "24px"} + var(--chrome-top-inset, 0px))`,
+        "padding-top": `calc(${hasQueueRest() ? "38px" : "24px"} + var(--chrome-top-inset, 0px) + var(--safe-area-top, 0px))`,
       }}
     >
       <Show when={develMode()}>
@@ -511,7 +513,7 @@ export function CenotaphPlayerApp() {
         // either way.
         class="fixed right-4 z-[90] text-xs text-neutral-500 transition-opacity duration-300"
         classList={{ "opacity-0 pointer-events-none": !settingsButtonVisible() }}
-        style={{ top: "calc(1rem + var(--chrome-top-inset, 0px))" }}
+        style={{ top: "calc(1rem + var(--chrome-top-inset, 0px) + var(--safe-area-top, 0px))" }}
         onClick={() => setSettingsOpen(true)}
         data-testid="settings-toggle"
       >
@@ -529,7 +531,7 @@ export function CenotaphPlayerApp() {
       <Show when={connectedControllers().length > 0}>
         <div
           class="fixed right-4 z-[90] max-w-[40vw] text-right text-xs text-neutral-500"
-          style={{ top: "calc(2.5rem + var(--chrome-top-inset, 0px))" }}
+          style={{ top: "calc(2.5rem + var(--chrome-top-inset, 0px) + var(--safe-area-top, 0px))" }}
           data-testid="connected-controllers"
         >
           <For each={connectedControllers()}>

@@ -2,18 +2,22 @@
 import { JSX, For, createEffect } from "solid-js";
 import { A, useLocation } from "@solidjs/router";
 import { routes } from "../../music/utils/routing";
-import { isCharnelMode } from "../../app/services/charnel";
+import { isAndroidTauri, isCharnelMode, isIosTauri } from "../../app/services/charnel";
 import { setAppDocumentTitle } from "../../app/services/documentTitle";
 
 interface SettingsNavItem {
   path: string;
   label: string;
   icon: string;
+  /** only shown on android/ios tauri builds - they have no desktop-style
+   *  setup wizard window, so this is their only way to reach it. */
+  mobileOnly?: boolean;
 }
 
 // note: charnel-only items are filtered at render time below.
 const navItems: SettingsNavItem[] = [
   { path: "/settings/storage", label: "storage", icon: "" },
+  { path: "/settings/library", label: "local library", icon: "", mobileOnly: true },
   { path: "/settings/remotes", label: "remotes", icon: "" },
   { path: "/settings/players", label: "players", icon: "" },
   { path: "/settings/admin-knocks", label: "pending knocks", icon: "" },
@@ -31,9 +35,14 @@ const CHARNEL_HIDES_PATHS = new Set<string>([]);
 export function SettingsLayout(props: { children: JSX.Element }) {
   const location = useLocation();
 
-  // hide entries the charnel wizard already covers when in charnel mode.
+  // hide entries the charnel wizard already covers when in charnel mode,
+  // and hide mobile-only entries everywhere except android/ios tauri.
   const visibleNavItems = () =>
-    navItems.filter((item) => !isCharnelMode() || !CHARNEL_HIDES_PATHS.has(item.path));
+    navItems.filter(
+      (item) =>
+        (!isCharnelMode() || !CHARNEL_HIDES_PATHS.has(item.path)) &&
+        (!item.mobileOnly || isAndroidTauri() || isIosTauri())
+    );
 
   // set window/document title for settings, reactively per sub-route (e.g.
   // "freqhole ▸ settings ▸ storage") - matches the longest nav item path

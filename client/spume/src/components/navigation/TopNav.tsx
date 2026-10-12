@@ -2,7 +2,12 @@ import { NavigationMenu as KobalteNav } from "@kobalte/core/navigation-menu";
 import { createEffect, createSignal, For, on, onCleanup, onMount, Show, type JSX } from "solid-js";
 import { Portal } from "solid-js/web";
 import { permissions, type UserRoleName } from "@freqhole/api-client";
-import { getLocalNodeId, isCharnelMode } from "../../app/services/charnel";
+import {
+  getLocalNodeId,
+  isAndroidTauri,
+  isCharnelMode,
+  isIosTauri,
+} from "../../app/services/charnel";
 import {
   getAuthInfo,
   refreshOne as refreshRemoteAuthStatus,
@@ -769,12 +774,34 @@ export function TopNav(props: TopNavProps) {
     }
 
     const auth = getAuthInfo(remote.id);
-    if (auth?.loggedIn && isAdminRole(auth.role)) {
+    // "admin" (RemoteAdminView) manages users/peers/invites on a P2P remote
+    // only - it dispatches over the `freqhole-admin/1` iroh ALPN, which
+    // plain http remotes (including the charnel-managed local-library row,
+    // `transport: "http"`) never have. the view itself hard-requires
+    // `isP2PRemote`, so showing this link for anything else is always a
+    // dead-end "admin is only available for P2P remotes" page - gate on
+    // the same condition here. `peerAddr` in this mapped shape is already
+    // `isP2PRemote(r) ? r.peer_addr : undefined` (see AppLayout.tsx), so
+    // it's the precise local stand-in for that check.
+    if (auth?.loggedIn && isAdminRole(auth.role) && remote.peerAddr) {
       actions.push({
         label: "admin",
         icon: "settings",
         onClick: () => {
           props.onNavigate?.(`/settings/remotes/${remote.id}/admin`);
+        },
+      });
+    }
+
+    // local library settings - only relevant for the charnel-managed local
+    // row, and only on android/ios where there's no setup wizard window to
+    // reach these settings from otherwise.
+    if (remote.isCharnelManaged && (isAndroidTauri() || isIosTauri())) {
+      actions.push({
+        label: "local library settings",
+        icon: "settings",
+        onClick: () => {
+          props.onNavigate?.("/settings/library");
         },
       });
     }

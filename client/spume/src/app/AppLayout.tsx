@@ -21,6 +21,7 @@ import { ToastRegion } from "../components/feedback/Toast";
 import { toast } from "../components/feedback/Toast";
 import { AddRemoteModal } from "../components/modals/AddRemoteModal";
 import { FirstRunSetupModal } from "../components/modals/FirstRunSetupModal";
+import { EmptyState } from "../components/EmptyState";
 import { ConnectionProgressModal } from "../components/modals/ConnectionProgressModal";
 import {
   getConnectionProgress,
@@ -157,6 +158,7 @@ import { confirmState, closeConfirm, resolveConfirm, confirm } from "./services/
 import { playlistSelectorState, closePlaylistSelector } from "../music/hooks/playlistSelectorState";
 import { showShareModal, useIsAnyModalOpen } from "../music/hooks/modals";
 import { openAddMedia } from "./hooks/mediaModal";
+import { hasSongs, hasVideos } from "./hooks/libraryPresence";
 import {
   appState,
   setQueueOpen,
@@ -472,6 +474,30 @@ export function AppLayout(props: AppLayoutProps) {
   const [isAddRemoteOpen, setIsAddRemoteOpen] = createSignal(false);
   const [showFirstRunSetup, setShowFirstRunSetup] = createSignal(false);
   const [remotes, setRemotes] = createSignal<Remote[]>([]);
+  // mobile (android/ios) charnel builds always have at least one remote
+  // (the local charnel-managed self-row created by `mobile_auto_init`),
+  // so the top-level App.tsx "no songs/videos/remotes at all" welcome gate
+  // never fires there - it'd need an actual EXTRA remote or media to
+  // trigger. show the same reusable EmptyState here instead, scoped to
+  // "fresh mobile install with nothing else set up yet", so the add
+  // remote/add media buttons are reachable right after first-run setup
+  // instead of landing on an empty graph/list view. excludes radio/shared,
+  // mirroring App.tsx's own carve-outs for routes that work with zero
+  // media/remotes by design.
+  const showMobileEmptyState = createMemo(() => {
+    if (!isCharnelMode() || (!isAndroidTauri() && !isIosTauri())) return false;
+    if (location.pathname.startsWith("/radio") || location.pathname.startsWith("/shared")) {
+      return false;
+    }
+    if (hasSongs() || hasVideos()) return false;
+    return !remotes().some((r) => !r.is_charnel_managed);
+  });
+  const emptyStateProps = () => ({
+    onAddMedia: () => openAddMedia(),
+    onAddRemote: () => setIsAddRemoteOpen(true),
+    onGoToRadio: () => navigate("/radio"),
+    onGoToPlayer: () => navigate("/player"),
+  });
   const [storageUsage, setStorageUsage] = createSignal<number>(0);
   const [storageQuota, setStorageQuota] = createSignal<number>(0);
   const [externalStorageMounted, setExternalStorageMounted] = createSignal(false);
@@ -1655,7 +1681,11 @@ export function AppLayout(props: AppLayoutProps) {
             "padding-bottom": "var(--player-bar-height)",
           }}
         >
-          <div class="flex-1 overflow-hidden">{props.children}</div>
+          <div class="flex-1 overflow-hidden">
+            <Show when={!showMobileEmptyState()} fallback={<EmptyState {...emptyStateProps()} />}>
+              {props.children}
+            </Show>
+          </div>
 
           {/* queue sidebar - overlay drawer on narrow, inline sidebar on wide.
             operates directly on the real, ordered `MediaItem[]` queue

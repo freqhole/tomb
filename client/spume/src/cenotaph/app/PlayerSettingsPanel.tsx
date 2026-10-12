@@ -158,10 +158,14 @@ export function PlayerSettingsPanel(props: {
       // `m-auto` on the child below gives the same centered look when
       // content fits, without clipping when it doesn't.
       class="fixed inset-0 z-[1800] flex overflow-y-auto bg-black/90 p-6"
-      // adds the chromeless title-bar strip's height (0 when inactive) on
+      // adds the chromeless title-bar strip's height (0 when inactive) and
+      // --safe-area-top (android/ios status bar inset, 0 on desktop) on
       // top of the usual p-6 top padding, so the back/close header row
-      // clears the strip instead of rendering underneath it.
-      style={{ "padding-top": "calc(1.5rem + var(--chrome-top-inset, 0px))" }}
+      // clears either one instead of rendering underneath it - mutually
+      // exclusive in practice, so adding both is safe.
+      style={{
+        "padding-top": "calc(1.5rem + var(--chrome-top-inset, 0px) + var(--safe-area-top, 0px))",
+      }}
       data-testid="settings-panel"
     >
       <div class="m-auto flex w-full max-w-md flex-col gap-6 text-left">
