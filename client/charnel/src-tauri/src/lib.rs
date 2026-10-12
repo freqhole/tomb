@@ -86,6 +86,7 @@ mod control_socket_bridge {
     //! for the identical split.
     pub fn init(_app: tauri::AppHandle, _shutdown: tokio_util::sync::CancellationToken) {}
 }
+mod pending_remotez_commands;
 mod player_pairing_accept;
 mod radio_commands;
 #[cfg(unix)]
@@ -1334,6 +1335,11 @@ pub fn run() {
             remotez_commands::remotez_upsert,
             remotez_commands::remotez_remove,
             remotez_commands::remotez_mark_active,
+            // shared pending-remote registry (in-progress knock/device-link
+            // additions - see docs/ios.md's knock-accept-alpn-mobile notes).
+            // single tagged-command entry point, mirroring
+            // video_window_command's shape, instead of one command per op.
+            pending_remotez_commands::pending_remotez_command,
             // single dispatch entry-point for wizard / settings admin ops
             admin_commands::admin_dispatch,
             admin_commands::admin_dispatch_remote,

@@ -128,7 +128,10 @@ import {
   refreshTauriRemoteTimestamp,
   upsertTauriRemote,
 } from "./services/remotes/remoteManager";
-import { drainIdbRemotesToSqlite } from "./services/remotes/drainIdbToSqlite";
+import {
+  drainIdbPendingRemotesToSqlite,
+  drainIdbRemotesToSqlite,
+} from "./services/remotes/drainIdbToSqlite";
 import { setPendingSendTarget, getPendingSendTarget } from "./services/send/pendingSendTargets";
 import { sendReviewedAlbumsToRemote } from "./services/send/sendReviewedSessionToRemote";
 import type { SendReviewProgress } from "./services/send/sendReviewProgress";
@@ -1109,6 +1112,12 @@ export function App() {
       // see docs/wizard-remote-admin.md.
       await drainIdbRemotesToSqlite();
       mark("drainIdbRemotesToSqlite done");
+
+      // same one-shot drain, for pending remotes (an in-progress knock/
+      // device-link) - separate flag/function since a pending remote
+      // isn't a Remote, but otherwise the same rationale.
+      await drainIdbPendingRemotesToSqlite();
+      mark("drainIdbPendingRemotesToSqlite done");
 
       // auto-setup remote from tauri bridge (for desktop app)
       // this is fast since it's local IPC

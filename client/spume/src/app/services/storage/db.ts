@@ -6,6 +6,16 @@ import { clearInProgressTracking } from "../../../music/services/cache/inProgres
 import type { Song } from "../../../music/services/storage/types";
 import { withQueueEntryId, type MediaItem, type QueuedVideo } from "./mediaItem";
 import { notifyQueueDepartures } from "../media/queueDeparture";
+import { isCharnelMode } from "../charnel/mode";
+import {
+  createPendingRemoteSqlite,
+  getPendingRemote as getPendingRemoteSqlite,
+  getPendingRemoteByPeerAddrSqlite,
+  listPendingRemotes as listPendingRemotesSqlite,
+  removePendingRemoteByPeerAddrSqlite,
+  removePendingRemoteSqlite,
+  updatePendingRemoteSqlite,
+} from "../remotes/sqlitePendingRemotes";
 import {
   APP_DB_NAME,
   APP_DB_VERSION,
@@ -573,12 +583,31 @@ async function deleteP2PIdentity(): Promise<void> {
 
 // ============================================================================
 // pending remotes - in-progress remote additions
+//
+// tauri (charnel) builds persist these in grimoire's `pending_remotez`
+// sqlite table instead of IndexedDB - same sqlite-vs-idb split
+// `remoteManager.ts`'s `getBackend()` already uses for established
+// remotes (see sqliteRemotes.ts), now extended to cover pending ones too.
+// this isn't just data-separation tidiness: the federation accept loop
+// (grimoire::pending_remotez::is_pending_remote_peer, consulted by
+// handle_incoming) needs real backend visibility into "which peers are we
+// expecting a knock-accepted/device-linked callback from" - IndexedDB,
+// being purely frontend state, was invisible to it entirely.
 // ============================================================================
 
 // create a pending remote (when test connection succeeds)
 async function createPendingRemote(
   pending: Omit<PendingRemote, "id" | "created_at" | "updated_at">
 ): Promise<PendingRemote> {
+  if (isCharnelMode()) {
+    const created = await createPendingRemoteSqlite(pending);
+    debug(
+      "appDB",
+      "created pending remote (sqlite) for peer:",
+      pending.peer_addr.slice(0, 16) + "..."
+    );
+    return created;
+  }
   const db = await initAppDB();
   const newPending: PendingRemote = {
     ...pending,
@@ -593,12 +622,14 @@ async function createPendingRemote(
 
 // get all pending remotes
 async function getAllPendingRemotes(): Promise<PendingRemote[]> {
+  if (isCharnelMode()) return listPendingRemotesSqlite();
   const db = await initAppDB();
   return db.getAll(STORE_PENDING_REMOTES);
 }
 
 // get pending remote by peer_addr
 async function getPendingRemoteByPeerAddr(peerAddr: string): Promise<PendingRemote | undefined> {
+  if (isCharnelMode()) return (await getPendingRemoteByPeerAddrSqlite(peerAddr)) ?? undefined;
   const db = await initAppDB();
   const index = db.transaction(STORE_PENDING_REMOTES).store.index("by_peer_addr");
   return index.get(peerAddr);
@@ -606,6 +637,7 @@ async function getPendingRemoteByPeerAddr(peerAddr: string): Promise<PendingRemo
 
 // get pending remote by id
 async function getPendingRemoteById(id: string): Promise<PendingRemote | undefined> {
+  if (isCharnelMode()) return (await getPendingRemoteSqlite(id)) ?? undefined;
   const db = await initAppDB();
   return db.get(STORE_PENDING_REMOTES, id);
 }
@@ -615,6 +647,11 @@ async function updatePendingRemote(
   id: string,
   updates: Partial<Omit<PendingRemote, "id" | "created_at">>
 ): Promise<PendingRemote | undefined> {
+  if (isCharnelMode()) {
+    const updated = (await updatePendingRemoteSqlite(id, updates)) ?? undefined;
+    if (updated) debug("appDB", "updated pending remote (sqlite):", id, "stage:", updated.stage);
+    return updated;
+  }
   const db = await initAppDB();
   const pending = (await db.get(STORE_PENDING_REMOTES, id)) as PendingRemote | undefined;
   if (!pending) return undefined;
@@ -631,6 +668,11 @@ async function updatePendingRemote(
 
 // delete pending remote (when converted to real remote, or user dismisses)
 async function deletePendingRemote(id: string): Promise<void> {
+  if (isCharnelMode()) {
+    await removePendingRemoteSqlite(id);
+    debug("appDB", "deleted pending remote (sqlite):", id);
+    return;
+  }
   const db = await initAppDB();
   await db.delete(STORE_PENDING_REMOTES, id);
   debug("appDB", "deleted pending remote:", id);
@@ -638,6 +680,11 @@ async function deletePendingRemote(id: string): Promise<void> {
 
 // delete pending remote by peer_addr
 async function deletePendingRemoteByPeerAddr(peerAddr: string): Promise<void> {
+  if (isCharnelMode()) {
+    await removePendingRemoteByPeerAddrSqlite(peerAddr);
+    debug("appDB", "deleted pending remote (sqlite) for peer:", peerAddr.slice(0, 16) + "...");
+    return;
+  }
   const db = await initAppDB();
   const pending = await getPendingRemoteByPeerAddr(peerAddr);
   if (pending) {

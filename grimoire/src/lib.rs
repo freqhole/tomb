@@ -44,6 +44,7 @@ pub mod process_ext;
 pub mod progress;
 pub mod query_ordering;
 pub mod radio;
+pub mod pending_remotez;
 pub mod remotez;
 pub mod response;
 pub mod search;

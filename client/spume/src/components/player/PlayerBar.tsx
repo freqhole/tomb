@@ -332,7 +332,11 @@ export function PlayerBar(props: PlayerBarProps) {
   return (
     <div
       class={`fixed bottom-0 left-0 right-0 ${getBackgroundConfig() ? "bg-[var(--color-bg-primary)]/40" : "bg-[var(--color-bg-primary)]/90 backdrop-blur-xl"} z-50 ${props.class || ""}`}
-      style={{ height: "var(--player-height)", "padding-bottom": "var(--safe-area-bottom, 0px)" }}
+      // --player-height already bakes in --safe-area-bottom (see theme.css) -
+      // a separate padding-bottom here would reserve that inset a second
+      // time, squeezing the actual controls up and leaving a doubled gap
+      // of empty space above the home indicator on ios.
+      style={{ height: "var(--player-height)" }}
     >
       {/* status badge — used by radio mode for the live + listener-count
           chip. rendered inline at the left edge of both narrow row 1 and

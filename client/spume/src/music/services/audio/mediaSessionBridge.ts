@@ -59,12 +59,6 @@ export interface ExternalMediaSessionOptions {
 
 let installed = false;
 
-// minimum time between `navigator.mediaSession.setPositionState()` calls
-// for ordinary per-tick position updates (see the position-state effect
-// in `installMediaSessionBridge`) - a genuine duration change always
-// pushes immediately regardless of this throttle.
-const POSITION_PUSH_THROTTLE_MS = 1000;
-
 // while true, an external source (e.g. radio) owns the session. the
 // bridge backs off and won't overwrite metadata or action handlers
 // from the song queue path.
@@ -142,6 +136,48 @@ export function registerMediaActions(
 }
 
 /**
+ * push a `setPositionState` snapshot to the lock-screen/control-center
+ * scrubber right now, using the given position plus the current
+ * `duration()`/`isPlaying()` signals.
+ *
+ * per the web MediaSession spec, this call is a snapshot-plus-clock-rate,
+ * not a feed - the OS interpolates position on its own between calls using
+ * `playbackRate` and its own timestamp, specifically so callers don't have
+ * to keep calling it. there are exactly three times a real change has
+ * happened that's worth reporting: a new track (`refreshMetadata`, below),
+ * a play/pause toggle (the `isPlaying` effect in
+ * `installMediaSessionBridge`, which also calls this), and an explicit
+ * seek (`player.ts`'s `seek()` calls this directly, since that's the one
+ * choke point every seek - ui scrubber and lock-screen `seekto` alike -
+ * already funnels through). there used to be a fourth call site: a
+ * reactive effect subscribed to `currentTime`/`duration` directly, pushing
+ * on a throttled timer (originally every tick, later throttled to ~1/sec)
+ * - removed entirely, not just throttled further, because calling this
+ * repeatedly on a timer (even once a second, even with unchanged values)
+ * is exactly the kind of platform-visible churn that can make some
+ * platforms treat the whole now-playing card as needing a refresh, not
+ * just the scrubber - which is consistent with what was actually reported
+ * (artwork flicker + action handlers reverting to the generic ±10s seek
+ * affordance, not just scrubber jitter).
+ */
+export function pushPositionStateNow(position: number): void {
+  if (externalActive) return;
+  if (typeof navigator === "undefined" || !("mediaSession" in navigator)) return;
+  if (!appState()?.current_item_key) return;
+  const d = duration();
+  if (!Number.isFinite(d) || d <= 0) return;
+  try {
+    navigator.mediaSession.setPositionState({
+      duration: d,
+      playbackRate: isPlaying() ? 1.0 : 0,
+      position,
+    });
+  } catch {
+    // some browsers reject the call when metadata isn't yet set.
+  }
+}
+
+/**
  * install the mediaSession bridge. idempotent — subsequent calls are
  * no-ops. invoked from the player facade at module init.
  */
@@ -174,13 +210,17 @@ export function installMediaSessionBridge(): void {
 
     // playback state — flip `playbackState` between "playing" /
     // "paused" without re-fetching metadata. cheap, fires on every
-    // play/pause toggle.
+    // play/pause toggle. also pushes a position-state snapshot here -
+    // see this file's top-level `pushPositionStateNow` doc comment for
+    // why this (plus track-change and seek) are the only three times
+    // position state needs pushing at all.
     createEffect(
       on(isPlaying, (playing) => {
         if (externalActive) return;
         if (!("mediaSession" in navigator)) return;
         if (!appState()?.current_item_key) return;
         navigator.mediaSession.playbackState = playing ? "playing" : "paused";
+        pushPositionStateNow(currentTime());
       })
     );
 
@@ -219,46 +259,6 @@ export function installMediaSessionBridge(): void {
           pushFavoriteState(isFavorite);
         }
       )
-    );
-
-    // position state — feeds the lock-screen scrubber. throttled to
-    // roughly once per second (matching the MediaSession spec's own
-    // recommendation to update "on seek/significant change rather than
-    // every tick" - noted here previously but not actually enforced):
-    // `currentTime`/`duration` can otherwise update far more often than
-    // the lock-screen widget needs, and repeatedly calling
-    // `setPositionState` with trivially-different values is exactly the
-    // kind of unnecessary churn that can make platforms visibly
-    // re-render the whole now-playing card rather than just animating
-    // the scrubber smoothly.
-    let lastPositionPushAt = 0;
-    let lastPushedDuration: number | null = null;
-    createEffect(
-      on([currentTime, duration], ([t, d]) => {
-        if (externalActive) return;
-        if (!("mediaSession" in navigator)) return;
-        if (!appState()?.current_item_key) return;
-        if (!Number.isFinite(d) || d <= 0) return;
-        const now = Date.now();
-        // always push immediately on a genuine duration change (new
-        // track, or a late/corrected duration) - only throttle the
-        // continuous per-tick position updates.
-        const durationChanged = d !== lastPushedDuration;
-        if (!durationChanged && now - lastPositionPushAt < POSITION_PUSH_THROTTLE_MS) {
-          return;
-        }
-        lastPositionPushAt = now;
-        lastPushedDuration = d as number;
-        try {
-          navigator.mediaSession.setPositionState({
-            duration: d as number,
-            playbackRate: 1.0,
-            position: t as number,
-          });
-        } catch {
-          // some browsers reject the call when metadata isn't yet set.
-        }
-      })
     );
   });
 
@@ -640,15 +640,5 @@ async function refreshMetadata(): Promise<void> {
   }
 
   // position state if we have valid duration
-  if (duration() > 0) {
-    try {
-      navigator.mediaSession.setPositionState({
-        duration: duration(),
-        playbackRate: 1.0,
-        position: currentTime(),
-      });
-    } catch {
-      // ignore
-    }
-  }
+  pushPositionStateNow(currentTime());
 }

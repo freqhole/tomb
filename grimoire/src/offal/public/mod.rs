@@ -63,18 +63,25 @@ pub async fn dispatch(
         "/api/knock" => Some(knock::create(body.clone()).await),
         "/api/knock/status" => Some(knock::status(body.clone()).await),
 
-        // internal peer-to-peer callbacks (no auth; called by trusted federation peers)
+        // internal peer-to-peer callbacks (no auth beyond handler.rs's own
+        // peer-trust gate for these two specific paths - see its module
+        // doc comment; reachable over p2p only, never plain http)
         "/api/internal/device-linked" => {
             // the remote server calls this on charnel after link_node succeeds.
             // emit a grimoire event so the tauri bridge can show the "browse remote" toast.
+            // `node_id` is injected by handler.rs::handle_stream from the
+            // transport-verified connecting peer - the authoritative
+            // peer_addr to report, never whatever the request body itself
+            // might separately claim (that field isn't trusted and is
+            // ignored entirely).
             #[derive(serde::Deserialize)]
             struct DeviceLinkedBody {
-                peer_addr: String,
+                node_id: String,
                 server_name: String,
             }
             if let Ok(parsed) = serde_json::from_value::<DeviceLinkedBody>(body.clone()) {
                 crate::events::emit(crate::events::GrimoireEvent::DeviceLinked {
-                    peer_addr: parsed.peer_addr,
+                    peer_addr: parsed.node_id,
                     server_name: parsed.server_name,
                 });
             }
@@ -86,15 +93,16 @@ pub async fn dispatch(
         "/api/internal/knock-accepted" => {
             // the remote server calls this when a knock request is accepted.
             // emit a grimoire event so the tauri/rathole app can complete the
-            // add-remote flow automatically.
+            // add-remote flow automatically. same node_id-over-body-peer_addr
+            // trust note as device-linked above.
             #[derive(serde::Deserialize)]
             struct KnockAcceptedBody {
-                peer_addr: String,
+                node_id: String,
                 server_name: String,
             }
             if let Ok(parsed) = serde_json::from_value::<KnockAcceptedBody>(body.clone()) {
                 crate::events::emit(crate::events::GrimoireEvent::KnockAccepted {
-                    peer_addr: parsed.peer_addr,
+                    peer_addr: parsed.node_id,
                     server_name: parsed.server_name,
                 });
             }

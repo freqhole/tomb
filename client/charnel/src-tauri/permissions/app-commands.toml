@@ -122,6 +122,7 @@ commands.allow = [
     "remotez_upsert",
     "remotez_remove",
     "remotez_mark_active",
+    "pending_remotez_command",
     "admin_dispatch",
     "admin_dispatch_remote",
     "player_send",

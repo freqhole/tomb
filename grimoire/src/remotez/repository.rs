@@ -98,6 +98,7 @@ impl RemoteRepository {
                 last_checked,
                 metadata
             FROM remotez
+            WHERE pending_stage IS NULL
             ORDER BY updated_at DESC
             "#
         )
@@ -136,7 +137,7 @@ impl RemoteRepository {
                 last_checked,
                 metadata
             FROM remotez
-            WHERE remote_id = ?1
+            WHERE remote_id = ?1 AND pending_stage IS NULL
             "#,
             remote_id
         )
@@ -175,7 +176,7 @@ impl RemoteRepository {
                 last_checked,
                 metadata
             FROM remotez
-            WHERE peer_addr = ?1
+            WHERE peer_addr = ?1 AND pending_stage IS NULL
             "#,
             peer_addr
         )
@@ -281,13 +282,19 @@ impl RemoteRepository {
         Ok(Remote::from(row))
     }
 
-    /// delete a remote by id. returns true if a row was removed.
+    /// delete a remote by id. returns true if a row was removed. never
+    /// matches a pending row, even on an id collision (defensive - the id
+    /// namespaces don't actually overlap in practice, see pending_remotez's
+    /// own doc comment).
     pub async fn remove(&self, remote_id: &str) -> GrimoireResult<bool> {
         let pool = database::connect().await?;
 
-        let result = sqlx::query!(r#"DELETE FROM remotez WHERE remote_id = ?1"#, remote_id)
-            .execute(&pool)
-            .await?;
+        let result = sqlx::query!(
+            r#"DELETE FROM remotez WHERE remote_id = ?1 AND pending_stage IS NULL"#,
+            remote_id
+        )
+        .execute(&pool)
+        .await?;
 
         Ok(result.rows_affected() > 0)
     }
@@ -307,7 +314,7 @@ impl RemoteRepository {
             r#"
             UPDATE remotez
             SET is_active = 1, last_connected_at = unixepoch(), updated_at = unixepoch()
-            WHERE remote_id = ?1
+            WHERE remote_id = ?1 AND pending_stage IS NULL
             "#,
             remote_id
         )
@@ -340,7 +347,7 @@ impl RemoteRepository {
                 version = COALESCE(?5, version),
                 last_info_check = ?6,
                 updated_at = ?6
-            WHERE remote_id = ?1
+            WHERE remote_id = ?1 AND pending_stage IS NULL
             "#,
             remote_id,
             description,

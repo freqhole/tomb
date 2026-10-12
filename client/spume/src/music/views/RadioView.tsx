@@ -751,7 +751,11 @@ export function RadioView() {
       <div
         class="flex-1 min-h-0 overflow-y-auto p-2"
         style={{
-          "padding-bottom": "calc(var(--player-height) + var(--safe-area-bottom, 0px) + 0.75rem)",
+          // --player-height already bakes in --safe-area-bottom (see
+          // theme.css + PlayerBar.tsx's own fix for this same double-
+          // counting pattern) - adding it again here would over-reserve
+          // space above the fixed player bar by a second inset's worth.
+          "padding-bottom": "calc(var(--player-height) + 0.75rem)",
         }}
       >
         <Show
@@ -910,7 +914,11 @@ export function RadioView() {
     <div
       class="flex flex-col h-full min-h-0"
       style={{
-        "padding-bottom": "calc(var(--player-height) + var(--safe-area-bottom, 0px) + 0.75rem)",
+        // --player-height already bakes in --safe-area-bottom (see
+        // theme.css + PlayerBar.tsx's own fix for this same double-
+        // counting pattern) - adding it again here would over-reserve
+        // space above the fixed player bar by a second inset's worth.
+        "padding-bottom": "calc(var(--player-height) + 0.75rem)",
       }}
     >
       <Show
