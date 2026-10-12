@@ -214,6 +214,7 @@ info:
 	@echo "  make build-tauri-linux-arm64 - Linux aarch64 .deb/.rpm (Docker)"
 	@echo "  make build-tauri-android       - Android universal .apk, no 32-bit arm (signed)"
 	@echo "  make build-tauri-android-arm64 - Android arm64-only .apk (signed, ~1/3 size of universal)"
+	@echo "  make build-tauri-ios           - iOS release .ipa (ad-hoc signed via Xcode's automatic signing)"
 	@echo ""
 	@echo "Flatpak (via Docker, needs .deb first):"
 	@echo "  make build-flatpak-intel - Linux x86_64 .flatpak"
@@ -259,7 +260,7 @@ info:
 help: info
 
 # Tauri app build commands
-.PHONY: build-tauri-mac-arm build-tauri-mac-intel build-tauri-linux-intel build-tauri-linux-arm64 build-tauri-android build-tauri-android-arm64
+.PHONY: build-tauri-mac-arm build-tauri-mac-intel build-tauri-linux-intel build-tauri-linux-arm64 build-tauri-android build-tauri-android-arm64 build-tauri-ios
 TAURI_DIR := client/charnel
 
 # Android tauri build env (override via env or .env)
@@ -444,6 +445,24 @@ build-tauri-android-arm64:
 	cp $(TAURI_DIR)/src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk \
 		$(BUILD_DIR)/$(VERSION)/freqhole_charnel_$(VERSION)_android-arm64.apk
 	@echo "built: $(BUILD_DIR)/$(VERSION)/freqhole_charnel_$(VERSION)_android-arm64.apk"
+
+# iOS Tauri app (release build, signed via Xcode's automatic signing -
+# see docs/ios.md phase 4). produces a real .ipa using spume's bundled
+# production assets (no vite dev server), unlike `tauri ios dev`.
+# `--export-method debugging` matches the existing automatic Xcode
+# development-team signing already set up locally (ad-hoc install onto
+# registered devices, no Apple Distribution cert/profile needed yet).
+build-tauri-ios:
+	@echo "building Tauri app for iOS (release .ipa)..."
+	cd $(TAURI_DIR) && npm run tauri ios build -- --export-method debugging
+	@mkdir -p $(BUILD_DIR)/$(VERSION)
+	@ipa=$$(find $(TAURI_DIR)/src-tauri/gen/apple -iname "*.ipa" -newer $(TAURI_DIR)/src-tauri/Cargo.toml 2>/dev/null | head -1); \
+	if [ -z "$$ipa" ]; then \
+		echo "warning: couldn't auto-locate the built .ipa - check the build output above for its path"; \
+	else \
+		cp "$$ipa" $(BUILD_DIR)/$(VERSION)/freqhole_charnel_$(VERSION)_ios.ipa; \
+		echo "built: $(BUILD_DIR)/$(VERSION)/freqhole_charnel_$(VERSION)_ios.ipa"; \
+	fi
 # Flatpak builds (via Docker - no special privileges needed)
 .PHONY: build-flatpak-intel build-flatpak-arm64 build-flatpak-builder
 

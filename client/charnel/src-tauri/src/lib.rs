@@ -226,6 +226,17 @@ fn get_app_data_dir() -> Option<PathBuf> {
     {
         std::env::var_os("APPDATA").map(|a| PathBuf::from(a).join(APP_IDENTIFIER))
     }
+    #[cfg(target_os = "ios")]
+    {
+        // ios sandboxes every app into its own container; HOME already
+        // points inside that container (NSHomeDirectory()'s equivalent env
+        // var), so this mirrors macOS's Application Support convention.
+        std::env::var_os("HOME").map(|h| {
+            PathBuf::from(h)
+                .join("Library/Application Support")
+                .join(APP_IDENTIFIER)
+        })
+    }
 }
 
 /// truncate log file if it exceeds max_lines (keeps the newest lines)
@@ -308,8 +319,12 @@ fn setup_tracing() {
 /// on mobile, run the same setup wizard logic headlessly with sensible defaults.
 /// uses SetupService::run_setup which handles: directories, config, database creation,
 /// migrations, wordlist, and root user — the same path the desktop wizard takes.
+///
+/// async (not `block_on`-wrapped) so it can be `.await`ed from the background
+/// task `mobile_finish_boot` spawns - see that function's doc comment for why
+/// this now runs off the main thread instead of inside `setup()` directly.
 #[cfg(mobile)]
-fn mobile_auto_init(app_handle: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error>> {
+async fn mobile_auto_init(app_handle: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     let app_data_dir = app_handle.path().app_data_dir()?;
     let data_dir = app_data_dir.join("data");
     let config_path = app_data_dir.join("freqhole-config.toml");
@@ -351,7 +366,7 @@ fn mobile_auto_init(app_handle: &tauri::AppHandle) -> Result<(), Box<dyn std::er
     };
 
     let service = grimoire::setup::SetupService::new();
-    let result = tauri::async_runtime::block_on(service.run_setup(setup_config));
+    let result = service.run_setup(setup_config).await;
 
     if result.success {
         tracing::info!(
@@ -369,7 +384,7 @@ fn mobile_auto_init(app_handle: &tauri::AppHandle) -> Result<(), Box<dyn std::er
             role: Some(grimoire::users::UserRole::Admin),
             invite_code: None,
         };
-        match tauri::async_runtime::block_on(user_service.register_user(&admin_request)).data {
+        match user_service.register_user(&admin_request).await.data {
             Some(user) => {
                 if let Err(e) = app_config::save_admin_user(app_handle, &user.id, &user.username) {
                     tracing::warn!(error = %e, "failed to save admin user to app config");
@@ -404,14 +419,189 @@ fn mobile_auto_init(app_handle: &tauri::AppHandle) -> Result<(), Box<dyn std::er
     Ok(())
 }
 
+/// best-effort check for whether the main grimoire database file actually
+/// exists under the app's data dir - used alongside `is_setup_complete()`
+/// (which only checks for a saved config *pointer* file, written fairly
+/// early in `SetupService::run_setup`'s step sequence) to catch a partial/
+/// interrupted setup: if a prior `mobile_auto_init` run died partway
+/// through (crashed, got killed mid-rebuild during development, etc.) the
+/// config pointer can end up on disk while `grimoire.db` itself never got
+/// created - confirmed happening in practice on both the ios simulator and
+/// a physical device during phase 2 testing (see docs/ios.md). "grimoire.db"
+/// is the project-wide fixed default filename (every `data_dir` always
+/// uses it - see the repo's "single database pattern"), so this doesn't
+/// need a fully-initialized grimoire config to check.
+#[cfg(mobile)]
+fn mobile_grimoire_db_exists(app_handle: &tauri::AppHandle) -> bool {
+    app_handle
+        .path()
+        .app_data_dir()
+        .map(|dir| dir.join("data").join("grimoire.db").exists())
+        .unwrap_or(false)
+}
+
+/// mobile boot, continued off the main thread.
+///
+/// ios enforces a strict launch-time watchdog that force-kills apps which
+/// block the main run loop too long before rendering a frame - tauri's
+/// `setup()` closure runs directly on that main loop (triggered by the
+/// underlying runtime's `RuntimeRunEvent::Ready`, see tauri's own
+/// `app.rs`), so doing migrations/wordlist generation/keypair generation/
+/// p2p startup synchronously there (as this used to) risked exactly that
+/// kill - confirmed actually happening during phase 2 ios testing on a
+/// physical device (see docs/ios.md): setup got killed mid-way, leaving a
+/// config pointer on disk with no database behind it, every single boot.
+///
+/// fix: `run()` now shows the main window immediately with a small static
+/// loading page (`loading.html`) and spawns this function as a background
+/// task instead of running any of this inline. once this returns, the
+/// caller either navigates the window to the real app or shows an error.
+#[cfg(mobile)]
+async fn mobile_finish_boot(
+    app_handle: tauri::AppHandle,
+    boot_start: std::time::Instant,
+) -> Result<(), String> {
+    // auto-initialize if needed - also re-run if the config pointer exists
+    // but the actual database doesn't (see `mobile_grimoire_db_exists`'s
+    // doc comment). `SetupService::run_setup`'s steps are documented as
+    // non-destructive (each step checks existence before creating), so
+    // re-running it when already fully set up is a safe no-op.
+    if !is_setup_complete(&app_handle) || !mobile_grimoire_db_exists(&app_handle) {
+        if let Err(e) = mobile_auto_init(&app_handle).await {
+            let msg = format!("mobile auto-init failed: {e}");
+            tracing::error!(error = %e, "mobile auto-init failed");
+            return Err(msg);
+        }
+    }
+
+    tracing::info!("setup complete, starting server...");
+    let config_path = get_server_config_path_resolved(&app_handle)
+        .ok_or_else(|| "failed to determine config path".to_string())?;
+    tracing::info!(config_path = %config_path.display(), "loaded config");
+
+    grimoire::config::init_config(Some(config_path.clone()))
+        .map_err(|e| format!("failed to load config: {}", e))?;
+    tracing::info!(elapsed_ms = %boot_start.elapsed().as_millis(), "boot: grimoire config initialized, starting migrations");
+
+    // unix control socket (physical buttons) - no-op on ios/android unless
+    // `.enabled` is set (it never is here), kept for parity with desktop.
+    let control_socket_token = app_handle.state::<ShutdownToken>().inner().0.as_ref().clone();
+    control_socket_bridge::init(app_handle.clone(), control_socket_token);
+
+    // this error used to be silently swallowed (logged as a warning, then
+    // the caller pressed on regardless) - now that nothing downstream of
+    // this depends on the main thread, propagate it for real so a failed
+    // migration actually surfaces as a visible error instead of a silent
+    // "database not found" loop on every subsequent api call.
+    grimoire::database::run_migrations()
+        .await
+        .map_err(|e| format!("migration failed: {e}"))?;
+    tracing::info!(elapsed_ms = %boot_start.elapsed().as_millis(), "boot: migrations done");
+
+    // spawn job runner in tauri process for tauri-local transport (api_call)
+    let job_runner_token = app_handle.state::<ShutdownToken>().inner().clone();
+    tauri::async_runtime::spawn(async move {
+        tracing::info!("starting job runner...");
+        let result =
+            grimoire::jobs::run_job_processor_with_token(job_runner_token.0.as_ref().clone())
+                .await;
+        if result.success {
+            tracing::info!("job runner stopped gracefully");
+        } else {
+            tracing::error!(error = %result.message, "job runner error");
+        }
+    });
+
+    // spawn grimoire event listener for real-time UI updates
+    let event_handle = app_handle.clone();
+    tauri::async_runtime::spawn(async move {
+        let mut rx = grimoire::events::subscribe();
+        tracing::info!("grimoire event listener started");
+        while let Ok(event) = rx.recv().await {
+            let spume_event = match &event {
+                grimoire::events::GrimoireEvent::KnockCreated { id, username, node_id, message } => {
+                    serde_json::json!({
+                        "type": "knock-created",
+                        "data": {
+                            "id": id,
+                            "username": username,
+                            "node_id": node_id,
+                            "message": if message.is_empty() { None } else { Some(message) }
+                        }
+                    })
+                }
+                grimoire::events::GrimoireEvent::KnockProcessed { id, status, username } => {
+                    serde_json::json!({
+                        "type": "knock-processed",
+                        "data": { "id": id, "status": status, "username": username }
+                    })
+                }
+                grimoire::events::GrimoireEvent::DeviceLinked { peer_addr, server_name } => {
+                    serde_json::json!({
+                        "type": "device-linked",
+                        "data": { "peer_addr": peer_addr, "server_name": server_name }
+                    })
+                }
+                grimoire::events::GrimoireEvent::KnockAccepted { peer_addr, server_name } => {
+                    serde_json::json!({
+                        "type": "knock-accepted",
+                        "data": { "peer_addr": peer_addr, "server_name": server_name }
+                    })
+                }
+            };
+            if let Err(e) = event_handle.emit("freqhole:event", spume_event) {
+                tracing::error!(error = %e, "failed to emit freqhole event");
+            }
+        }
+    });
+
+    // check federation config to decide whether to init P2P
+    let federation_enabled_for_p2p = grimoire::config::get_config()
+        .federation
+        .as_ref()
+        .map(|f| f.enabled)
+        .unwrap_or(false);
+    let player_pairing_enabled_for_p2p = grimoire::config::get_config().player_pairing.enabled;
+
+    let p2p_handle = app_handle.clone();
+    let shutdown_token = app_handle.state::<ShutdownToken>().inner().clone();
+
+    if federation_enabled_for_p2p || player_pairing_enabled_for_p2p {
+        let config_path_for_p2p = config_path.clone();
+        let p2p_state_clone = app_handle.state::<Arc<P2pState>>().inner().clone();
+        p2p_state_clone.set_config_path(config_path_for_p2p);
+
+        tauri::async_runtime::spawn(async move {
+            if let Err(e) = p2p_state_clone.start().await {
+                tracing::error!(error = %e, "failed to init P2P client");
+            }
+        });
+
+        P2pState::start_status_watcher(app_handle.state::<Arc<P2pState>>().inner().clone());
+    }
+
+    // check for pending jobs and resume polling (always, regardless of federation)
+    tauri::async_runtime::spawn(async move {
+        commands::resume_pending_jobs_polling(p2p_handle, shutdown_token).await;
+    });
+
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // android only: install rustls' ring crypto provider before anything
+    // android + ios: install rustls' ring crypto provider before anything
     // can construct a TLS client. wry's android WebViewClient.handleRequest
-    // builds a reqwest client to fetch http(s) subresources, and rustls
+    // builds a reqwest client to fetch http(s) subresources; on ios, this
+    // app's own reqwest-based code (federation/iroh, media fetches, etc.)
+    // hits the same panic - confirmed on a real ios 26.3 simulator run
+    // (known gap #2 in docs/ios.md originally guessed ios might not need
+    // this since wry's ios backend doesn't intercept resource loads the
+    // way android's does, but the app's own rust-side reqwest usage still
+    // needs a provider regardless of wry's resource-loading path). rustls
     // 0.23 panics ("No provider set") if no default provider is installed,
     // which aborts the whole process. desktop targets are unaffected.
-    #[cfg(target_os = "android")]
+    #[cfg(any(target_os = "android", target_os = "ios"))]
     {
         let _ = rustls::crypto::ring::default_provider().install_default();
     }
@@ -566,14 +756,11 @@ pub fn run() {
                 external_storage::watcher::ensure_started(app.handle().clone());
             }
 
-            // on mobile, auto-initialize if needed (skip wizard entirely)
-            #[cfg(mobile)]
-            if !is_setup_complete(app.handle()) {
-                if let Err(e) = mobile_auto_init(app.handle()) {
-                    tracing::error!(error = %e, "mobile auto-init failed");
-                    // still continue — the else branch will fail gracefully
-                }
-            }
+            // on mobile, setup (mobile_auto_init + everything else the
+            // `else` branch below used to do inline) now runs entirely in
+            // a background task spawned from inside the mobile branch of
+            // that same `if needs_setup {} else {}` further down - see
+            // `mobile_finish_boot`'s doc comment for why.
 
             // on mobile, wizard is never shown (auto-init handles setup)
             #[cfg(desktop)]
@@ -696,6 +883,55 @@ pub fn run() {
 
                 // wizard will start server when setup completes
             } else {
+                #[cfg(mobile)]
+                {
+                    // show the main window immediately with a small static
+                    // loading page instead of doing any setup work first -
+                    // see `mobile_finish_boot`'s doc comment for why this
+                    // matters on ios specifically.
+                    tracing::info!(elapsed_ms = %boot_start.elapsed().as_millis(), "boot: creating loading window (mobile)...");
+                    let loading_url = WebviewUrl::App(PathBuf::from(format!(
+                        "loading.html?{}",
+                        app_config::cache_busting_query()
+                    )));
+                    let window = WebviewWindowBuilder::new(app, "main", loading_url).build()?;
+                    tracing::info!(elapsed_ms = %boot_start.elapsed().as_millis(), "boot: loading window built (system window visible from here)");
+
+                    let finish_app_handle = app.handle().clone();
+                    let finish_window = window.clone();
+                    tauri::async_runtime::spawn(async move {
+                        match mobile_finish_boot(finish_app_handle, boot_start).await {
+                            Ok(()) => {
+                                tracing::info!(elapsed_ms = %boot_start.elapsed().as_millis(), "boot: mobile setup complete, showing app");
+                                let main_url = format!(
+                                    "tauri://localhost/index.html?{}",
+                                    app_config::cache_busting_query()
+                                );
+                                match main_url.parse() {
+                                    Ok(url) => {
+                                        if let Err(e) = finish_window.navigate(url) {
+                                            tracing::error!(error = %e, "failed to navigate loading window to main app");
+                                        }
+                                    }
+                                    Err(e) => {
+                                        tracing::error!(error = %e, "failed to parse main app url")
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                tracing::error!(error = %e, "mobile setup failed - app stuck on loading screen");
+                                let js = format!(
+                                    "window.freqholeSetupFailed && window.freqholeSetupFailed({});",
+                                    serde_json::to_string(&e).unwrap_or_else(|_| "\"setup failed\"".to_string())
+                                );
+                                let _ = finish_window.eval(&js);
+                            }
+                        }
+                    });
+                }
+
+                #[cfg(desktop)]
+                {
                 // setup already complete - start server automatically
                 // try to use saved config path from app config, fall back to default location
                 tracing::info!("setup complete, starting server...");
@@ -935,6 +1171,7 @@ pub fn run() {
                     // setup application menu
                     menu::setup_app_menu(app.handle())?;
                 }
+                } // end #[cfg(desktop)]
             }
 
             tracing::info!(elapsed_ms = %boot_start.elapsed().as_millis(), "boot: setup() closure complete");
