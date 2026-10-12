@@ -214,91 +214,86 @@ pub async fn check_existing_content(metadata_list: &[ContentMetadata]) -> Vec<(S
 /// download media from URL
 ///
 /// returns list of successfully downloaded files
-pub async fn download_media(
+/// yt-dlp failures that mean the source will never succeed no matter how
+/// many times we retry (removed/private/age-gated content, or the platform
+/// blocking the request outright) - each one gets its own error_type +
+/// human reason so the frontend (and the log line) says specifically what
+/// went wrong, instead of a single generic "source unavailable" bucket.
+/// `"http error 403"` is the one exception: see `download_media`'s
+/// cookies-retry doc comment for why it isn't necessarily final.
+const UNRECOVERABLE_PATTERNS: &[(&str, &str, &str)] = &[
+    (
+        "http error 403",
+        "fetch_forbidden",
+        "source blocked the download (403 forbidden) - it may require login/cookies, or the platform is blocking this server's requests",
+    ),
+    (
+        "http error 404",
+        "fetch_not_found",
+        "source returned 404 not found - the video may have been deleted, or the url is wrong",
+    ),
+    (
+        "video unavailable",
+        "fetch_video_unavailable",
+        "video is unavailable",
+    ),
+    ("private video", "fetch_private_video", "video is private"),
+    (
+        "no longer available",
+        "fetch_video_removed",
+        "video is no longer available",
+    ),
+    (
+        "content isn't available",
+        "fetch_content_unavailable",
+        "content isn't available (may be region-locked)",
+    ),
+    (
+        "sign in to confirm",
+        "fetch_login_required",
+        "site requires sign-in to confirm you're not a bot - fetch_video can't complete without cookies configured",
+    ),
+];
+
+/// classify an empty-file-paths fetch result against `stderr_tail`.
+/// `Some((category, reason))` for a deterministic (never-will-succeed-by-
+/// plain-retrying) failure, `None` for a plain "nothing downloaded" with no
+/// recognized cause.
+fn classify_empty_result(stderr_tail: &str) -> Option<(&'static str, &'static str)> {
+    let stderr_lower = stderr_tail.to_lowercase();
+    UNRECOVERABLE_PATTERNS
+        .iter()
+        .find(|(pattern, _, _)| !stderr_lower.is_empty() && stderr_lower.contains(pattern))
+        .map(|(_, category, reason)| (*category, *reason))
+}
+
+/// one run of the configured fetch command against `url`, writing into
+/// `output_dir`. `cookies_path`, when `Some`, is appended as
+/// `--cookies <path>` - see `download_media`'s cookies-retry doc comment for
+/// when/why that happens; every first attempt passes `None`.
+///
+/// returns the file paths yt-dlp reported (already filtered down to ones
+/// that actually exist on disk - yt-dlp's stdout is messy enough that the
+/// filesystem is trusted as the source of truth instead) plus the joined
+/// stderr lines, for the caller to classify an empty result. only errors
+/// when the binary itself couldn't be spawned/waited on - an empty-but-
+/// otherwise-successful run (e.g. `--ignore-errors` swallowing every item)
+/// is still `Ok`.
+async fn run_fetch_command(
+    cmd: &str,
+    args: &[String],
     url: &str,
-    job_id: &str,
-    config: &GrimoireConfig,
+    output_dir: &str,
+    cookies_path: Option<&Path>,
     progress: &dyn FetchProgress,
-    domain: crate::media_domain::MediaDomain,
-) -> Result<Vec<DownloadedFile>, String> {
-    // `fetch_music`/`fetch_video` are distinct config struct types (same
-    // shape, kept as sibling fields rather than a generic map - see
-    // phase 4 doc), so pull just the fields this function needs out of
-    // whichever one applies instead of trying to unify them into one
-    // reference of a single type.
-    let server = config.server.as_ref();
-    let (fetch_enabled, fetch_output_dir, fetch_cmd_template) = match domain {
-        crate::media_domain::MediaDomain::Music => {
-            let fc = server
-                .and_then(|s| s.fetch_music.as_ref())
-                .ok_or_else(|| not_retryable(FETCH_ERROR_CONFIG, "fetch_music not configured"))?;
-            (
-                fc.enabled,
-                fc.output_dir.as_ref(),
-                fc.fetch_command.as_ref(),
-            )
-        }
-        crate::media_domain::MediaDomain::Video => {
-            let fc = server
-                .and_then(|s| s.fetch_video.as_ref())
-                .ok_or_else(|| not_retryable(FETCH_ERROR_CONFIG, "fetch_video not configured"))?;
-            (
-                fc.enabled,
-                fc.output_dir.as_ref(),
-                fc.fetch_command.as_ref(),
-            )
-        }
-    };
-
-    if !fetch_enabled {
-        return Err(not_retryable(
-            FETCH_ERROR_CONFIG,
-            format!("fetch_{} is not enabled", domain),
-        ));
-    }
-
-    let fetch_cmd = fetch_cmd_template
-        .ok_or_else(|| not_retryable(FETCH_ERROR_CONFIG, "fetch_command not configured"))?;
-
-    let base_output_dir = fetch_output_dir
-        .ok_or_else(|| not_retryable(FETCH_ERROR_CONFIG, "output_dir not configured"))?;
-
-    // create job-specific subdirectory
-    let output_dir = format!("{}/{}", base_output_dir, job_id);
-
-    // ensure output directory exists
-    tokio::fs::create_dir_all(&output_dir).await.map_err(|e| {
-        // base output dir missing/no permission is a config problem that
-        // will fail identically on every retry - don't burn the job's
-        // retry budget on it.
-        not_retryable(
-            FETCH_ERROR_OUTPUT_DIR,
-            format!("failed to create output directory {}: {}", output_dir, e),
-        )
-    })?;
-
-    info!("downloading media from URL: {} to {}", url, output_dir);
-
-    // parse command and args using shell-words for proper quoting support
-    let parts = shell_words::split(fetch_cmd).map_err(|e| {
-        not_retryable(
-            FETCH_ERROR_CONFIG,
-            format!("invalid fetch_command shell syntax: {}", e),
-        )
-    })?;
-
-    if parts.is_empty() {
-        return Err(not_retryable(FETCH_ERROR_CONFIG, "fetch_command is empty"));
-    }
-
-    let (cmd, args) = parts.split_first().unwrap();
-
+) -> Result<(Vec<String>, String), String> {
     // spawn yt-dlp with piped stdout/stderr for streaming
     let mut cmd_builder = Command::new(cmd);
+    cmd_builder.args(args).arg("--paths").arg(output_dir);
+    if let Some(cookies) = cookies_path {
+        cmd_builder.arg("--cookies").arg(cookies);
+    }
     cmd_builder
-        .args(args)
-        .arg("--paths")
-        .arg(&output_dir)
         .arg("--")
         .arg(url)
         .stdout(Stdio::piped())
@@ -445,66 +440,148 @@ pub async fn download_media(
         .await
         .map_err(|e| format!("failed to wait for fetch command: {}", e))?;
 
+    let stderr_tail = stderr_lines
+        .lock()
+        .map(|lines| lines.join(" | "))
+        .unwrap_or_default();
+
+    Ok((file_paths, stderr_tail))
+}
+
+/// download media from URL
+///
+/// returns list of successfully downloaded files
+///
+/// a plain `HTTP Error 403` is retried exactly once with `--cookies <path>`
+/// appended, but only when `fetch_cookies::has_cookies()` says the admin has
+/// actually put something in `cookies.txt` (see that module's doc comment) -
+/// `--cookies` is never passed on an ordinary first attempt, since handing
+/// yt-dlp a (possibly stale/empty) cookie jar on every single call would be
+/// both pointless overhead and a way to leak session cookies into every log
+/// line/process argv unnecessarily. every other failure (404, private,
+/// removed, region-locked, ...) is left alone - cookies can't fix those, so
+/// there's no point burning a second yt-dlp invocation on them.
+pub async fn download_media(
+    url: &str,
+    job_id: &str,
+    config: &GrimoireConfig,
+    progress: &dyn FetchProgress,
+    domain: crate::media_domain::MediaDomain,
+) -> Result<Vec<DownloadedFile>, String> {
+    // `fetch_music`/`fetch_video` are distinct config struct types (same
+    // shape, kept as sibling fields rather than a generic map - see
+    // phase 4 doc), so pull just the fields this function needs out of
+    // whichever one applies instead of trying to unify them into one
+    // reference of a single type.
+    let server = config.server.as_ref();
+    let (fetch_enabled, fetch_output_dir, fetch_cmd_template) = match domain {
+        crate::media_domain::MediaDomain::Music => {
+            let fc = server
+                .and_then(|s| s.fetch_music.as_ref())
+                .ok_or_else(|| not_retryable(FETCH_ERROR_CONFIG, "fetch_music not configured"))?;
+            (
+                fc.enabled,
+                fc.output_dir.as_ref(),
+                fc.fetch_command.as_ref(),
+            )
+        }
+        crate::media_domain::MediaDomain::Video => {
+            let fc = server
+                .and_then(|s| s.fetch_video.as_ref())
+                .ok_or_else(|| not_retryable(FETCH_ERROR_CONFIG, "fetch_video not configured"))?;
+            (
+                fc.enabled,
+                fc.output_dir.as_ref(),
+                fc.fetch_command.as_ref(),
+            )
+        }
+    };
+
+    if !fetch_enabled {
+        return Err(not_retryable(
+            FETCH_ERROR_CONFIG,
+            format!("fetch_{} is not enabled", domain),
+        ));
+    }
+
+    let fetch_cmd = fetch_cmd_template
+        .ok_or_else(|| not_retryable(FETCH_ERROR_CONFIG, "fetch_command not configured"))?;
+
+    let base_output_dir = fetch_output_dir
+        .ok_or_else(|| not_retryable(FETCH_ERROR_CONFIG, "output_dir not configured"))?;
+
+    // create job-specific subdirectory
+    let output_dir = format!("{}/{}", base_output_dir, job_id);
+
+    // ensure output directory exists
+    tokio::fs::create_dir_all(&output_dir).await.map_err(|e| {
+        // base output dir missing/no permission is a config problem that
+        // will fail identically on every retry - don't burn the job's
+        // retry budget on it.
+        not_retryable(
+            FETCH_ERROR_OUTPUT_DIR,
+            format!("failed to create output directory {}: {}", output_dir, e),
+        )
+    })?;
+
+    info!("downloading media from URL: {} to {}", url, output_dir);
+
+    // parse command and args using shell-words for proper quoting support
+    let parts = shell_words::split(fetch_cmd).map_err(|e| {
+        not_retryable(
+            FETCH_ERROR_CONFIG,
+            format!("invalid fetch_command shell syntax: {}", e),
+        )
+    })?;
+
+    if parts.is_empty() {
+        return Err(not_retryable(FETCH_ERROR_CONFIG, "fetch_command is empty"));
+    }
+
+    let (cmd, args) = parts.split_first().unwrap();
+
+    let (mut file_paths, mut stderr_tail) =
+        run_fetch_command(cmd, args, url, &output_dir, None, progress).await?;
+
+    // see this function's own doc comment for the retry policy - only a
+    // plain 403, and only when cookies.txt actually has content.
+    let mut retried_with_cookies = false;
+    if file_paths.is_empty()
+        && matches!(
+            classify_empty_result(&stderr_tail),
+            Some(("fetch_forbidden", _))
+        )
+        && crate::fetch_cookies::has_cookies()
+    {
+        let cookies_path = crate::fetch_cookies::cookies_path();
+        info!(
+            "fetch: got HTTP 403 for {}, retrying once with --cookies ({})",
+            url,
+            cookies_path.display()
+        );
+        retried_with_cookies = true;
+        let retry =
+            run_fetch_command(cmd, args, url, &output_dir, Some(&cookies_path), progress).await?;
+        file_paths = retry.0;
+        stderr_tail = retry.1;
+    }
+
     // note: we don't check status.success() because --ignore-errors means
     // partial success is still a success. check if any files were downloaded instead.
-
     if file_paths.is_empty() {
-        let stderr_tail = stderr_lines
-            .lock()
-            .map(|lines| lines.join(" | "))
-            .unwrap_or_default();
-        let stderr_lower = stderr_tail.to_lowercase();
-
-        // these yt-dlp failures mean the source will never succeed no
-        // matter how many times we retry (removed/private/age-gated
-        // content, or the platform blocking the request outright) - treat
-        // as deterministic instead of burning the job's retry budget, and
-        // give each one its own error_type + human reason instead of a
-        // single generic "source unavailable" bucket, so the frontend (and
-        // this log line) says specifically what went wrong.
-        const UNRECOVERABLE_PATTERNS: &[(&str, &str, &str)] = &[
-            (
-                "http error 403",
-                "fetch_forbidden",
-                "source blocked the download (403 forbidden) - it may require login/cookies, or the platform is blocking this server's requests",
-            ),
-            (
-                "http error 404",
-                "fetch_not_found",
-                "source returned 404 not found - the video may have been deleted, or the url is wrong",
-            ),
-            (
-                "video unavailable",
-                "fetch_video_unavailable",
-                "video is unavailable",
-            ),
-            (
-                "private video",
-                "fetch_private_video",
-                "video is private",
-            ),
-            (
-                "no longer available",
-                "fetch_video_removed",
-                "video is no longer available",
-            ),
-            (
-                "content isn't available",
-                "fetch_content_unavailable",
-                "content isn't available (may be region-locked)",
-            ),
-            (
-                "sign in to confirm",
-                "fetch_login_required",
-                "site requires sign-in to confirm you're not a bot - fetch_video can't complete without cookies configured",
-            ),
-        ];
-        let matched = UNRECOVERABLE_PATTERNS
-            .iter()
-            .find(|(pattern, _, _)| !stderr_lower.is_empty() && stderr_lower.contains(pattern));
-
-        return Err(match matched {
-            Some((_, category, reason)) => {
+        return Err(match classify_empty_result(&stderr_tail) {
+            Some((category, reason)) => {
+                // make it clear in the surfaced message that cookies were
+                // already tried and didn't help either, rather than
+                // repeating the same "may require login/cookies" hint that
+                // got the retry triggered in the first place.
+                let reason = if retried_with_cookies {
+                    format!(
+                        "{reason} (also retried with the configured cookies.txt - still blocked)"
+                    )
+                } else {
+                    reason.to_string()
+                };
                 not_retryable(category, format!("{} ({})", reason, stderr_tail))
             }
             None if stderr_tail.is_empty() => "no files were downloaded".to_string(),
@@ -634,5 +711,36 @@ mod tests {
 
         let path = "no_brackets.mp3";
         assert_eq!(extract_content_id_from_path(path), None);
+    }
+
+    #[test]
+    fn classify_empty_result_matches_403_as_forbidden() {
+        let (category, _) =
+            classify_empty_result("ERROR: [youtube] abc123: HTTP Error 403: Forbidden").unwrap();
+        assert_eq!(category, "fetch_forbidden");
+
+        // case-insensitive match (yt-dlp's own casing varies by version)
+        let (category, _) = classify_empty_result("http error 403").unwrap();
+        assert_eq!(category, "fetch_forbidden");
+    }
+
+    #[test]
+    fn classify_empty_result_distinguishes_other_unrecoverable_causes() {
+        let (category, _) = classify_empty_result("ERROR: Private video").unwrap();
+        assert_eq!(category, "fetch_private_video");
+
+        let (category, _) =
+            classify_empty_result("ERROR: Video unavailable. This video is no longer available")
+                .unwrap();
+        // first (topmost) matching pattern wins when stderr mentions more
+        // than one - "video unavailable" appears earlier in the list than
+        // "no longer available", so it takes priority.
+        assert_eq!(category, "fetch_video_unavailable");
+    }
+
+    #[test]
+    fn classify_empty_result_none_for_unrecognized_or_empty_stderr() {
+        assert_eq!(classify_empty_result(""), None);
+        assert_eq!(classify_empty_result("some unrelated warning"), None);
     }
 }

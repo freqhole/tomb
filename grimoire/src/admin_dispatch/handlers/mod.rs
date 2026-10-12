@@ -8,6 +8,7 @@ pub(super) mod database;
 pub(super) mod dir_tags;
 pub(super) mod enrichment;
 pub(super) mod federation;
+pub(super) mod fetch_cookies;
 pub(super) mod genres;
 pub(super) mod invites;
 pub(super) mod jobs;

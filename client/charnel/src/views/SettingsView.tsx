@@ -6,6 +6,7 @@ import ConfigView from "./ConfigView";
 import ExternalStorageSettingsSection from "./settings/ExternalStorageSettings";
 import StorageSettingsSection from "./settings/StorageSettings";
 import MediaBinariesSettings from "./settings/MediaBinariesSettings";
+import CookiesSettings from "./settings/CookiesSettings";
 import { useAdminTransport } from "../admin/context";
 
 interface ServerConfig {
@@ -803,6 +804,16 @@ export default function SettingsView() {
               </Show>
             </div>
           </Show>
+
+          {/* unconditional (not gated behind admin.isRemote()) - unlike the
+              rest of "advanced settings" above (which is about the wizard's
+              own local machine: libmpv playback, chromeless title bar,
+              ffmpeg/yt-dlp binary paths), cookies.txt belongs to whichever
+              admin target is active, local or remote - see
+              CookiesSettings.tsx's own doc comment. */}
+          <div class="settings-section" style={{ "margin-top": "2rem" }}>
+            <CookiesSettings />
+          </div>
         </div>
       </Show>
 

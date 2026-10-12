@@ -374,6 +374,36 @@ fn ytdlp_video_fetch_command(ytdlp_path: &str) -> String {
     )
 }
 
+/// recover the configured yt-dlp binary's own path - not its own config
+/// field (see `ytdlp_precheck_command`'s doc comment), so this just takes
+/// the first shell-word of whichever `fetch_command`/`precheck_command`
+/// it can find one in (`fetch_video` preferred, since the UI that needs
+/// this - the cookies.txt helper panel - leans video-first, but either
+/// domain's command was written by the same `set_ytdlp_path`/
+/// `generate_config_template` templates, so they always agree). `None`
+/// when fetching isn't configured at all yet.
+pub fn get_ytdlp_path(config: &GrimoireConfig) -> Option<String> {
+    let server = config.server.as_ref()?;
+    let command = server
+        .fetch_video
+        .as_ref()
+        .and_then(|fc| {
+            fc.fetch_command
+                .as_deref()
+                .or(fc.precheck_command.as_deref())
+        })
+        .or_else(|| {
+            server.fetch_music.as_ref().and_then(|fc| {
+                fc.fetch_command
+                    .as_deref()
+                    .or(fc.precheck_command.as_deref())
+            })
+        })?;
+    shell_words::split(command)
+        .ok()
+        .and_then(|parts| parts.into_iter().next())
+}
+
 fn default_ffprobe_duration_args() -> String {
     "-v quiet -show_entries format=duration -of csv=p=0 {input}".to_string()
 }

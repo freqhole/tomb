@@ -27,6 +27,7 @@ pub mod error;
 pub mod events;
 pub mod external_storage;
 pub mod federation;
+pub mod fetch_cookies;
 pub mod health;
 pub mod jobs;
 pub mod maintenance;
