@@ -450,6 +450,16 @@ async function setLocalLibraryName(name: string): Promise<void> {
   });
 }
 
+// whether the mobile first-run setup modal has already been shown/completed.
+function isMobileFirstRunCompleted(): boolean {
+  return appState()?.mobile_first_run_completed === true;
+}
+
+// mark the mobile first-run setup modal as completed so it never shows again.
+async function setMobileFirstRunCompleted(): Promise<void> {
+  await updateAppState({ mobile_first_run_completed: true });
+}
+
 // set active remote id
 async function setActiveRemoteId(remoteId: string | null): Promise<void> {
   await updateAppState({ active_remote_id: remoteId });
@@ -656,6 +666,8 @@ export {
   getSyncQueueToLocal,
   getLocalLibraryName,
   DEFAULT_LOCAL_LIBRARY_NAME,
+  isMobileFirstRunCompleted,
+  setMobileFirstRunCompleted,
   initAppDB,
   loadAppState,
   saveP2PIdentity,

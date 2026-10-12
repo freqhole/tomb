@@ -170,6 +170,36 @@ function serviceWorkerPlugin(): Plugin {
 // tauri builds should not include midden WASM - use app P2P via CharnelTransport
 const isCharnelBuild = !!process.env.VITE_CHARNEL_MODE;
 
+// the exact rust target triple `tauri dev`/`tauri build` (and their mobile
+// equivalents) is building for - set by tauri-cli for every
+// beforeDevCommand/beforeBuildCommand hook invocation (see
+// scripts/dev-spume-for-charnel.mjs / build-spume-for-charnel.mjs, both of
+// which spread `...process.env` when spawning spume's own vite process, so
+// this reaches here unchanged). mapped down to the same `target_os` string
+// `get_build_info()`'s rust side already reports at runtime
+// (`std::env::consts::OS`: "android" | "ios" | "macos" | "linux" |
+// "windows") so both mechanisms agree on naming. `null` outside tauri
+// (plain web/PWA builds never set this).
+//
+// exists specifically for call sites that need a synchronous, available-
+// at-module-load answer (e.g. `index.tsx`'s very-first-paint safe-area
+// setup, `androidMediaSession.ts`'s auto-install-on-import) - anywhere
+// already running well after boot should prefer the existing runtime
+// `isAndroidTauri()`/`isIosTauri()` (see `targetOs.ts`), which reflects
+// what the *running* binary actually reports rather than what it was
+// built as (identical in practice, but the runtime check is the one
+// source of truth `get_build_info` other code already relies on).
+function mapTargetTripleToOs(triple: string | undefined): string | null {
+  if (!triple) return null;
+  if (triple.includes("-ios")) return "ios";
+  if (triple.includes("-android")) return "android";
+  if (triple.includes("-apple-darwin")) return "macos";
+  if (triple.includes("-windows")) return "windows";
+  if (triple.includes("-linux") && !triple.includes("android")) return "linux";
+  return null;
+}
+const tauriTargetOs = mapTargetTripleToOs(process.env.TAURI_ENV_TARGET_TRIPLE);
+
 // set only by client/charnel/scripts/build-spume-for-charnel.mjs when
 // building for x86_64-apple-darwin (the only charnel target that still
 // runs on Catalina's old bundled WKWebView) - standalone spume.freqhole.net
@@ -319,6 +349,7 @@ export default defineConfig({
   define: {
     __APP_VERSION__: JSON.stringify(appVersion),
     __IS_CHARNEL__: JSON.stringify(isCharnelBuild),
+    __TAURI_TARGET_OS__: JSON.stringify(tauriTargetOs),
   },
   build: {
     // plain "esnext" everywhere now, even for the legacy-safari build -

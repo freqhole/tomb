@@ -25,6 +25,10 @@ export interface AppState {
   // object-fit: cover. when false, they letterbox (object-fit: contain)
   // instead so nothing is cropped.
   cropped_square_thumbnails?: boolean;
+  // true once the mobile (android/ios) first-run setup modal (username +
+  // library name + library image) has been shown/completed - gates
+  // `FirstRunSetupModal` so it only ever shows once per install.
+  mobile_first_run_completed?: boolean;
 }
 
 /** graph-view preferences — stored as id: "graph_prefs" in STORE_APP_STATE. */

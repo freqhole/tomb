@@ -14,3 +14,9 @@ declare const __APP_VERSION__: string;
 
 /** true when built for charnel (Tauri), injected at build time */
 declare const __IS_CHARNEL__: boolean;
+
+/** the rust target triple's OS tauri is building for ("android" | "ios" |
+ *  "macos" | "linux" | "windows"), injected at build time - see
+ *  vite.config.ts's `mapTargetTripleToOs`. null outside tauri (plain
+ *  web/PWA builds). */
+declare const __TAURI_TARGET_OS__: string | null;

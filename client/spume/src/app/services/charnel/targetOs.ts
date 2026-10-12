@@ -29,3 +29,8 @@ export function setTargetOsValue(value: string | null): void {
 export function isAndroidTauri(): boolean {
   return targetOs() === "android";
 }
+
+/** true only once the tauri host has confirmed it's building for ios. */
+export function isIosTauri(): boolean {
+  return targetOs() === "ios";
+}

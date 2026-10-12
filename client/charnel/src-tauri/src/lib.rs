@@ -93,6 +93,7 @@ mod radio_mpv;
 mod remotez_commands;
 mod server_controls;
 mod spume_bridge;
+mod storage_info;
 #[cfg(desktop)]
 mod tray;
 mod video_window;
@@ -485,7 +486,12 @@ async fn mobile_finish_boot(
 
     // unix control socket (physical buttons) - no-op on ios/android unless
     // `.enabled` is set (it never is here), kept for parity with desktop.
-    let control_socket_token = app_handle.state::<ShutdownToken>().inner().0.as_ref().clone();
+    let control_socket_token = app_handle
+        .state::<ShutdownToken>()
+        .inner()
+        .0
+        .as_ref()
+        .clone();
     control_socket_bridge::init(app_handle.clone(), control_socket_token);
 
     // this error used to be silently swallowed (logged as a warning, then
@@ -503,8 +509,7 @@ async fn mobile_finish_boot(
     tauri::async_runtime::spawn(async move {
         tracing::info!("starting job runner...");
         let result =
-            grimoire::jobs::run_job_processor_with_token(job_runner_token.0.as_ref().clone())
-                .await;
+            grimoire::jobs::run_job_processor_with_token(job_runner_token.0.as_ref().clone()).await;
         if result.success {
             tracing::info!("job runner stopped gracefully");
         } else {
@@ -519,7 +524,12 @@ async fn mobile_finish_boot(
         tracing::info!("grimoire event listener started");
         while let Ok(event) = rx.recv().await {
             let spume_event = match &event {
-                grimoire::events::GrimoireEvent::KnockCreated { id, username, node_id, message } => {
+                grimoire::events::GrimoireEvent::KnockCreated {
+                    id,
+                    username,
+                    node_id,
+                    message,
+                } => {
                     serde_json::json!({
                         "type": "knock-created",
                         "data": {
@@ -530,19 +540,29 @@ async fn mobile_finish_boot(
                         }
                     })
                 }
-                grimoire::events::GrimoireEvent::KnockProcessed { id, status, username } => {
+                grimoire::events::GrimoireEvent::KnockProcessed {
+                    id,
+                    status,
+                    username,
+                } => {
                     serde_json::json!({
                         "type": "knock-processed",
                         "data": { "id": id, "status": status, "username": username }
                     })
                 }
-                grimoire::events::GrimoireEvent::DeviceLinked { peer_addr, server_name } => {
+                grimoire::events::GrimoireEvent::DeviceLinked {
+                    peer_addr,
+                    server_name,
+                } => {
                     serde_json::json!({
                         "type": "device-linked",
                         "data": { "peer_addr": peer_addr, "server_name": server_name }
                     })
                 }
-                grimoire::events::GrimoireEvent::KnockAccepted { peer_addr, server_name } => {
+                grimoire::events::GrimoireEvent::KnockAccepted {
+                    peer_addr,
+                    server_name,
+                } => {
                     serde_json::json!({
                         "type": "knock-accepted",
                         "data": { "peer_addr": peer_addr, "server_name": server_name }
@@ -1251,6 +1271,7 @@ pub fn run() {
             commands::get_libmpv_playback,
             commands::set_libmpv_playback,
             external_storage::commands::external_storage_command,
+            storage_info::get_app_storage_info,
             commands::check_config_needs_upgrade,
             commands::upgrade_config,
             // server config / image management

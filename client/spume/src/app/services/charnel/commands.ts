@@ -235,6 +235,87 @@ export async function getTargetOs(): Promise<string | null> {
   }
 }
 
+/** one top-level category's contribution to `AppStorageBreakdown` - mirrors
+ * `StorageCategory` in client/charnel/src-tauri/src/storage_info.rs. */
+export interface StorageCategoryInfo {
+  bytes: number;
+  file_count: number;
+}
+
+/** mirrors `AppStorageBreakdown` in storage_info.rs. */
+export interface AppStorageBreakdownInfo {
+  databases: StorageCategoryInfo;
+  media_blobs: StorageCategoryInfo;
+  fetch_library: StorageCategoryInfo;
+  renditions: StorageCategoryInfo;
+  other: StorageCategoryInfo;
+  total: StorageCategoryInfo;
+}
+
+/** mirrors `DiskUsageResult` in external_storage/commands.rs. */
+export interface DiskUsageInfo {
+  total_bytes: number;
+  free_bytes: number;
+  used_bytes: number;
+}
+
+/** mirrors `AppStorageInfo` in storage_info.rs. */
+export interface AppStorageInfo {
+  data_dir: string;
+  breakdown: AppStorageBreakdownInfo;
+  external_library: StorageCategoryInfo | null;
+  disk: DiskUsageInfo | null;
+}
+
+/**
+ * app-wide storage overview: a categorized breakdown of everything under
+ * grimoire's own `data_dir` (databases, p2p-synced media blobs, the fetch/
+ * local-library directory, generated renditions, ...) plus disk total/free/
+ * used for the device - unlike `navigator.storage.estimate()` (the
+ * webview's own sandboxed origin quota, which excludes all of this),
+ * reflects what the tauri host itself actually writes to disk. returns
+ * null outside tauri (web builds) or if the command fails.
+ */
+export async function getAppStorageInfo(): Promise<AppStorageInfo | null> {
+  try {
+    const invoke = await getInvoke();
+    return await invoke<AppStorageInfo>("get_app_storage_info");
+  } catch (error) {
+    console.error("[tauri/commands] failed to get app storage info:", error);
+    return null;
+  }
+}
+
+/** mirrors `UpdateServerImageResult` in commands.rs. */
+export interface UpdateServerImageResult {
+  success: boolean;
+  message: string;
+  image_path: string;
+  image_blob_id: string;
+}
+
+/**
+ * set this device's library image: resizes `imagePath` (a real filesystem
+ * path, e.g. from `pickFile`) to a 200x200 square webp, saves it under the
+ * app data dir, and updates `[server].image_path` in the config - the same
+ * image surfaced by `getConfig()`/`/api/hello/image` and shown as this
+ * library's icon elsewhere (topnav, add-remote modal, ...). returns null
+ * outside tauri or if the update fails.
+ */
+export async function updateServerImage(
+  imagePath: string
+): Promise<UpdateServerImageResult | null> {
+  try {
+    const invoke = await getInvoke();
+    return await invoke<UpdateServerImageResult>("update_server_image", {
+      imagePath,
+    });
+  } catch (error) {
+    console.error("[tauri/commands] failed to update server image:", error);
+    return null;
+  }
+}
+
 /**
  * minimize the current window. used by the custom title-bar strip's
  * traffic-light buttons when running chromeless (see `getChromelessTitleBar`).

@@ -20,6 +20,7 @@ import { AddToStationModal } from "../components/radio/AddToStationModal";
 import { ToastRegion } from "../components/feedback/Toast";
 import { toast } from "../components/feedback/Toast";
 import { AddRemoteModal } from "../components/modals/AddRemoteModal";
+import { FirstRunSetupModal } from "../components/modals/FirstRunSetupModal";
 import { ConnectionProgressModal } from "../components/modals/ConnectionProgressModal";
 import {
   getConnectionProgress,
@@ -161,6 +162,7 @@ import {
   setQueueOpen,
   getLocalLibraryName,
   setLocalLibraryName,
+  isMobileFirstRunCompleted,
 } from "./services/storage/db";
 import { getPageInfo } from "./services/pageInfo";
 import { setAppDocumentTitle } from "./services/documentTitle";
@@ -185,6 +187,8 @@ import { playVideoQueue, resumeVideoHistoryEntry } from "../video/services/queue
 import { reconnectVideoProgressTracking } from "../video/services/queue/videoListenProgress";
 import {
   isCharnelMode,
+  isAndroidTauri,
+  isIosTauri,
   listMountedExternalStorageDevices,
   onExternalStorageMountedChanged,
   onExternalStorageSyncProgress,
@@ -466,6 +470,7 @@ export function AppLayout(props: AppLayoutProps) {
   const bgConfig = () => getBackgroundConfig();
   // const [isQueueOpen, setIsQueueOpen] = createSignal(false);
   const [isAddRemoteOpen, setIsAddRemoteOpen] = createSignal(false);
+  const [showFirstRunSetup, setShowFirstRunSetup] = createSignal(false);
   const [remotes, setRemotes] = createSignal<Remote[]>([]);
   const [storageUsage, setStorageUsage] = createSignal<number>(0);
   const [storageQuota, setStorageQuota] = createSignal<number>(0);
@@ -811,6 +816,15 @@ export function AppLayout(props: AppLayoutProps) {
     };
     document.addEventListener("visibilitychange", onVisibility);
     window.addEventListener("focus", onVisibility);
+
+    // mobile (android/ios) charnel builds boot headlessly with no setup
+    // wizard (desktop gets an interactive wizard window instead - see
+    // wizard.rs) - `mobile_auto_init` hardcodes "admin"/"local library"
+    // defaults, so show a one-time in-app setup modal here instead, gated
+    // on a persisted flag so it never shows again once dismissed/completed.
+    if (isCharnelMode() && (isAndroidTauri() || isIosTauri()) && !isMobileFirstRunCompleted()) {
+      setShowFirstRunSetup(true);
+    }
 
     // filled in by the async setup below. `onCleanup` must be registered
     // synchronously, before any `await`, to actually attach to this
@@ -2362,6 +2376,13 @@ export function AppLayout(props: AppLayoutProps) {
           navigation never tears it down. wired into radioService via
           setRadioAudioSink in onMount. */}
         <RadioAudioSink />
+
+        {/* mobile first-run setup (username/library name/image) - see the
+          onMount gate above. */}
+        <FirstRunSetupModal
+          isOpen={showFirstRunSetup()}
+          onClose={() => setShowFirstRunSetup(false)}
+        />
 
         {/* add remote modal */}
         <AddRemoteModal

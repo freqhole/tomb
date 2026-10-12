@@ -17,7 +17,13 @@ import {
   checkForUpdates,
   forceRefresh,
 } from "../../app/services/serviceWorker";
-import { isCharnelMode } from "../../app/services/charnel";
+import {
+  getAppStorageInfo,
+  isAndroidTauri,
+  isCharnelMode,
+  isIosTauri,
+  type AppStorageInfo,
+} from "../../app/services/charnel";
 import {
   getAllRemoteCacheStats,
   clearBlobCache,
@@ -138,6 +144,11 @@ export function StorageSettingsView() {
   const [remoteCacheStats, setRemoteCacheStats] = createSignal<RemoteCacheStats[]>([]);
   const [remotes, setRemotes] = createSignal<Remote[]>([]);
   const [clearingRemoteCache, setClearingRemoteCache] = createSignal<string | null>(null);
+  // app-wide (data_dir + disk) storage overview - tauri only. separate
+  // from `breakdown` above (the webview's own sandboxed origin storage,
+  // which `getStorageBreakdown()` measures) - see `getAppStorageInfo`'s
+  // own doc comment for why these are two genuinely different numbers.
+  const [appStorage, setAppStorage] = createSignal<AppStorageInfo | null>(null);
 
   // confirmation dialog state
   const [confirmDialog, setConfirmDialog] = createSignal<{
@@ -162,6 +173,12 @@ export function StorageSettingsView() {
     try {
       const data = await getStorageBreakdown();
       setBreakdown(data);
+
+      // app-wide (data_dir + disk) storage - tauri only, a no-op (returns
+      // null) outside it.
+      if (isCharnelMode()) {
+        setAppStorage(await getAppStorageInfo());
+      }
 
       // check persistent storage status
       if ("storage" in navigator && "persisted" in navigator.storage) {
@@ -439,10 +456,132 @@ export function StorageSettingsView() {
               </Show>
             </div>
 
-            {/* overall usage bar */}
+            {/* app-wide (data_dir + disk) storage - tauri only. shown
+                above the browser-storage breakdown below since it's
+                the more complete/accurate picture on any tauri build -
+                see `getAppStorageInfo`'s own doc comment for why
+                `navigator.storage.estimate()` alone badly undercounts
+                here. */}
+            <Show when={appStorage()}>
+              {(info) => (
+                <div class="mb-6">
+                  <h3 class="text-sm font-medium text-[var(--color-text-primary)] mb-3">
+                    device storage
+                  </h3>
+
+                  <Show when={info().disk}>
+                    {(disk) => {
+                      const percentUsed = () =>
+                        disk().total_bytes > 0
+                          ? Math.round((disk().used_bytes / disk().total_bytes) * 100)
+                          : 0;
+                      return (
+                        <div class="mb-4 p-4 bg-[var(--color-bg-secondary)] border border-[var(--color-border-subtle)] rounded-lg">
+                          <div class="flex justify-between items-center mb-2">
+                            <span class="text-sm text-[var(--color-text-secondary)]">
+                              device disk used
+                            </span>
+                            <span class="text-sm font-medium text-[var(--color-text-primary)]">
+                              {formatBytes(disk().used_bytes)} / {formatBytes(disk().total_bytes)}
+                            </span>
+                          </div>
+                          <div class="h-2 bg-[var(--color-bg-tertiary)] rounded-full overflow-hidden">
+                            <div
+                              class={`h-full transition-all ${
+                                percentUsed() > 90
+                                  ? "bg-red-500"
+                                  : percentUsed() > 70
+                                    ? "bg-yellow-500"
+                                    : "bg-[var(--color-accent-500)]"
+                              }`}
+                              style={{ width: `${Math.min(percentUsed(), 100)}%` }}
+                            />
+                          </div>
+                          <div class="mt-1 text-xs text-[var(--color-text-muted)]">
+                            {formatBytes(disk().free_bytes)} free on device
+                          </div>
+                        </div>
+                      );
+                    }}
+                  </Show>
+
+                  <div class="grid gap-4">
+                    <StorageCard
+                      title="databases"
+                      icon=""
+                      size={info().breakdown.databases.bytes}
+                      details={[
+                        { label: "files", value: `${info().breakdown.databases.file_count}` },
+                      ]}
+                    />
+                    <StorageCard
+                      title="p2p media cache"
+                      icon=""
+                      size={info().breakdown.media_blobs.bytes}
+                      details={[
+                        { label: "files", value: `${info().breakdown.media_blobs.file_count}` },
+                      ]}
+                    />
+                    <Show when={info().breakdown.fetch_library.file_count > 0}>
+                      <StorageCard
+                        title="local library"
+                        icon=""
+                        size={info().breakdown.fetch_library.bytes}
+                        details={[
+                          {
+                            label: "files",
+                            value: `${info().breakdown.fetch_library.file_count}`,
+                          },
+                        ]}
+                      />
+                    </Show>
+                    <Show when={info().breakdown.renditions.file_count > 0}>
+                      <StorageCard
+                        title="artwork & transcodes"
+                        icon=""
+                        size={info().breakdown.renditions.bytes}
+                        details={[
+                          { label: "files", value: `${info().breakdown.renditions.file_count}` },
+                        ]}
+                      />
+                    </Show>
+                    <StorageCard
+                      title="other app data"
+                      icon=""
+                      size={info().breakdown.other.bytes}
+                      details={[
+                        { label: "files", value: `${info().breakdown.other.file_count}` },
+                      ]}
+                    />
+                    <Show when={info().external_library}>
+                      {(lib) => (
+                        <StorageCard
+                          title="external library"
+                          icon=""
+                          size={lib().bytes}
+                          details={[{ label: "files", value: `${lib().file_count}` }]}
+                        />
+                      )}
+                    </Show>
+                  </div>
+                  <p
+                    class="mt-3 text-xs text-[var(--color-text-muted)] truncate"
+                    title={info().data_dir}
+                  >
+                    data directory:{" "}
+                    <span class="font-mono">{truncateMiddle(info().data_dir, 64)}</span>
+                  </p>
+                </div>
+              )}
+            </Show>
+
+            {/* browser storage usage bar (webview's own sandboxed origin
+                storage - excludes everything measured above) */}
             <div class="mb-6 p-4 bg-[var(--color-bg-secondary)] border border-[var(--color-border-subtle)] rounded-lg">
               <div class="flex justify-between items-center mb-2">
-                <span class="text-sm text-[var(--color-text-secondary)]">total storage used</span>
+                <span class="text-sm text-[var(--color-text-secondary)]">
+                  browser storage used
+                </span>
                 <span class="text-sm font-medium text-[var(--color-text-primary)]">
                   {formatBytes(data().total.usage)} / {formatBytes(data().total.quota)}
                 </span>
@@ -616,10 +755,15 @@ export function StorageSettingsView() {
             </div>
 
             {/* sync settings - hidden for desktop tauri (managed via the setup
-                wizard window's own settings instead), but shown for android
-                tauri: there's no wizard window on android, so this toggle is
-                the only way to reach the setting there. */}
-            <Show when={!isCharnelMode() || /android/i.test(navigator.userAgent)}>
+                wizard window's own settings instead), but shown for mobile
+                (android/ios) tauri: there's no wizard window on either, so
+                this toggle is the only way to reach the setting there.
+                uses the runtime target-os signal (`isAndroidTauri`/
+                `isIosTauri`, populated via `get_build_info`), not
+                `navigator.userAgent` sniffing - this view only ever
+                renders well after boot (user navigated to settings), so
+                the signal is already populated by then. */}
+            <Show when={!isCharnelMode() || isAndroidTauri() || isIosTauri()}>
               <div class="border-t border-[var(--color-border-subtle)] pt-6 mb-6">
                 <h2 class="text-sm font-medium text-[var(--color-text-primary)] mb-3">
                   sync settings
