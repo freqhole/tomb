@@ -303,12 +303,38 @@ export class LibmpvBackend implements PlayerBackend {
           if (!alreadyOnDisk) removeFromLoadingSet(songKey);
           path = fetched.path;
 
+          // re-check staleness right after the fetch await (mirrors the
+          // sync-queue-to-local branch's own two checks below) - this
+          // check was previously MISSING here entirely, a real bug:
+          // `fetchEphemeralForSong` can take as long as the sync path
+          // (it's the same iroh-blobs verified-streaming fetch, just
+          // writing to `_ephemeral/` instead of the library), so a
+          // user who switches to a different song (or whose queue
+          // advances) while this fetch is still in flight had no
+          // guard stopping this now-stale call from clobbering
+          // whatever the user is actually trying to play once this
+          // `await` finally resolves - confirmed by comparing against
+          // the sync-queue-to-local branch just below, which has had
+          // this exact guard (in duplicate, even) all along.
+          if (!isMediaLoadCurrent(songKey, options?.loadGeneration)) {
+            debug("player.libmpv", `skipping cancelled ephemeral load for ${songKey.slice(0, 8)}`);
+            return;
+          }
+
           // skip the regular `setCurrentSong` + `resolveLocalPath`
           // dance — there's no DB row to look up, and we already have
           // the path. but still bridge the media session + reflect the
           // current song in app state for the UI.
           bridgeClearExternal();
           await setCurrentSong(songKey);
+
+          // setCurrentSong awaits real IDB i/o, re-opening the same
+          // small race window the sync-queue-to-local branch also
+          // re-checks after its own setCurrentSong call.
+          if (!isMediaLoadCurrent(songKey, options?.loadGeneration)) {
+            return;
+          }
+
           debug(
             "player.libmpv",
             `ephemeral load: "${song.title}" (${songKey.slice(0, 8)}) -> ${path}`

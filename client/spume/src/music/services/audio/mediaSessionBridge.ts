@@ -59,6 +59,12 @@ export interface ExternalMediaSessionOptions {
 
 let installed = false;
 
+// minimum time between `navigator.mediaSession.setPositionState()` calls
+// for ordinary per-tick position updates (see the position-state effect
+// in `installMediaSessionBridge`) - a genuine duration change always
+// pushes immediately regardless of this throttle.
+const POSITION_PUSH_THROTTLE_MS = 1000;
+
 // while true, an external source (e.g. radio) owns the session. the
 // bridge backs off and won't overwrite metadata or action handlers
 // from the song queue path.
@@ -195,7 +201,19 @@ export function installMediaSessionBridge(): void {
           if (!item || item.kind !== "song") return false;
           return item.song.is_favorite ?? false;
         },
-        (isFavorite) => {
+        (isFavorite, prevIsFavorite) => {
+          // CONFIRMED BUG (fixed here): this effect's `deps` function
+          // reads `appState()`, which gets written roughly every 5
+          // seconds during playback by `listenProgress.ts`'s periodic
+          // progress flush (`saveProgressToIDB` -> `setQueue`) even when
+          // the favorite flag hasn't changed at all - `on()` reruns the
+          // callback on every such write regardless of whether the
+          // derived value actually changed (same pitfall the metadata
+          // effect above explicitly guards against, see its own
+          // comment) - this effect was missing the equivalent guard,
+          // so it called `pushFavoriteState()` on every flush tick, not
+          // just on a real favorite toggle.
+          if (isFavorite === prevIsFavorite) return;
           if (externalActive) return;
           if (isFavorite === null) return;
           pushFavoriteState(isFavorite);
@@ -203,15 +221,34 @@ export function installMediaSessionBridge(): void {
       )
     );
 
-    // position state — feeds the lock-screen scrubber. update lazily;
-    // mediaSession spec recommends updating on seek/significant change
-    // rather than every tick, but most platforms tolerate per-tick fine.
+    // position state — feeds the lock-screen scrubber. throttled to
+    // roughly once per second (matching the MediaSession spec's own
+    // recommendation to update "on seek/significant change rather than
+    // every tick" - noted here previously but not actually enforced):
+    // `currentTime`/`duration` can otherwise update far more often than
+    // the lock-screen widget needs, and repeatedly calling
+    // `setPositionState` with trivially-different values is exactly the
+    // kind of unnecessary churn that can make platforms visibly
+    // re-render the whole now-playing card rather than just animating
+    // the scrubber smoothly.
+    let lastPositionPushAt = 0;
+    let lastPushedDuration: number | null = null;
     createEffect(
       on([currentTime, duration], ([t, d]) => {
         if (externalActive) return;
         if (!("mediaSession" in navigator)) return;
         if (!appState()?.current_item_key) return;
         if (!Number.isFinite(d) || d <= 0) return;
+        const now = Date.now();
+        // always push immediately on a genuine duration change (new
+        // track, or a late/corrected duration) - only throttle the
+        // continuous per-tick position updates.
+        const durationChanged = d !== lastPushedDuration;
+        if (!durationChanged && now - lastPositionPushAt < POSITION_PUSH_THROTTLE_MS) {
+          return;
+        }
+        lastPositionPushAt = now;
+        lastPushedDuration = d as number;
         try {
           navigator.mediaSession.setPositionState({
             duration: d as number,
