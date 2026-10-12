@@ -301,6 +301,11 @@ pub async fn handle(
         // -- federation --
         "federation_status" => handlers::federation::status().await,
 
+        // -- fetch cookies (yt-dlp cookies.txt, settings' "fetch cookies" flyout) --
+        "fetch_cookies_status" => handlers::fetch_cookies::status().await,
+        "fetch_cookies_save" => handlers::fetch_cookies::save(args).await,
+        "fetch_cookies_clear" => handlers::fetch_cookies::clear().await,
+
         _ => command_not_found(command),
     }
 }

@@ -350,6 +350,13 @@ pub async fn validate_and_set_ytdlp_path(
     })
 }
 
+// yt-dlp cookies.txt CRUD (settings view's "fetch cookies" flyout) is routed
+// entirely through `admin_dispatch`/`admin_dispatch_remote`
+// (`fetch_cookies_status`/`_save`/`_clear`, see grimoire's
+// `admin_dispatch::handlers::fetch_cookies`) rather than dedicated tauri
+// commands here, so the settings panel works against a remote admin target
+// too, not just this wizard's own embedded instance.
+
 /// get platform-appropriate defaults for setup wizard
 #[tauri::command]
 pub async fn get_setup_defaults() -> grimoire::setup::SetupDefaults {
