@@ -31,6 +31,8 @@ targets:
       - path: Sources
       - path: Assets.xcassets
       - path: Externals
+        excludes:
+          - "**/*.a"
       - path: charnel_iOS
       - path: assets
         buildPhase: resources
@@ -53,6 +55,17 @@ targets:
           - UIInterfaceOrientationLandscapeRight
         CFBundleShortVersionString: 0.3.14
         CFBundleVersion: "0.3.14"
+        # ios.md known gap #8: tauri.ios.conf.json / Info.ios.plist merging
+        # is confirmed broken for this tauri-cli version (same issue as the
+        # SystemConfiguration.framework and minimumSystemVersion fixes
+        # above) - these are set directly here so they actually take
+        # effect; Info.ios.plist still documents the intended source of
+        # truth for when that merge bug is eventually fixed upstream.
+        NSCameraUsageDescription: freqhole uses the camera to scan QR codes for pairing with remote libraries.
+        UIBackgroundModes: [audio]
+        NSLocalNetworkUsageDescription: freqhole connects to freqhole servers on your local network to stream and sync your music library.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
     entitlements:
       path: charnel_iOS/charnel_iOS.entitlements
     scheme:

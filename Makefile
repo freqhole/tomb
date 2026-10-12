@@ -224,7 +224,7 @@ info:
 	@echo "  APPLE_SIGNING_IDENTITY - signing identity (e.g. \"Developer ID Application: ...\")"
 	@echo "  APPLE_ID               - Apple ID email (for notarization)"
 	@echo "  APPLE_PASSWORD - app-specific password (for notarization)"
-	@echo "  APPLE_TEAM_ID  - team ID (for notarization)"
+	@echo "  APPLE_TEAM_ID  - team ID (for notarization + ios automatic signing)"
 	@echo ""
 	@echo "Android build env vars (set in .env):"
 	@echo "  ANDROID_SDK_ROOT             - android sdk path (default: ~/Library/Android/sdk)"
@@ -262,6 +262,14 @@ help: info
 # Tauri app build commands
 .PHONY: build-tauri-mac-arm build-tauri-mac-intel build-tauri-linux-intel build-tauri-linux-arm64 build-tauri-android build-tauri-android-arm64 build-tauri-ios
 TAURI_DIR := client/charnel
+
+# tauri's `ios build` reads the env var APPLE_DEVELOPMENT_TEAM (a tauri-
+# specific name, not ours) to pick the team for xcodebuild's automatic
+# signing - it's the same apple developer team id as APPLE_TEAM_ID above
+# (one team id, just two different tools' names for it), so just forward
+# it under the name tauri expects instead of asking for it twice.
+APPLE_DEVELOPMENT_TEAM := $(APPLE_TEAM_ID)
+export APPLE_DEVELOPMENT_TEAM
 
 # Android tauri build env (override via env or .env)
 # defaults assume the standard macOS android studio install layout
@@ -452,8 +460,23 @@ build-tauri-android-arm64:
 # `--export-method debugging` matches the existing automatic Xcode
 # development-team signing already set up locally (ad-hoc install onto
 # registered devices, no Apple Distribution cert/profile needed yet).
+#
+# the generated xcode project has no DEVELOPMENT_TEAM build setting baked
+# in (deliberately - keeps the repo forkable without anyone's personal
+# apple developer identity committed), so a plain non-interactive
+# `xcodebuild` (unlike Xcode's own GUI, which can prompt you to pick a
+# team) fails with "Signing ... requires a development team" unless told
+# which team to use - APPLE_TEAM_ID (forwarded above as
+# APPLE_DEVELOPMENT_TEAM, tauri's own name for it) covers this. find
+# yours at https://developer.apple.com/account (membership details) or
+# in Xcode's Signing & Capabilities tab for any other project.
 build-tauri-ios:
-	@echo "building Tauri app for iOS (release .ipa)..."
+	@if [ -z "$(APPLE_TEAM_ID)" ]; then \
+		echo "error: APPLE_TEAM_ID is not set - set it in .env"; \
+		echo "  find your team id at https://developer.apple.com/account (membership details)"; \
+		exit 1; \
+	fi
+	@echo "building Tauri app for iOS (release .ipa, team $(APPLE_TEAM_ID))..."
 	cd $(TAURI_DIR) && npm run tauri ios build -- --export-method debugging
 	@mkdir -p $(BUILD_DIR)/$(VERSION)
 	@ipa=$$(find $(TAURI_DIR)/src-tauri/gen/apple -iname "*.ipa" -newer $(TAURI_DIR)/src-tauri/Cargo.toml 2>/dev/null | head -1); \
@@ -542,6 +565,11 @@ bump-version:
 		sed -i.bak 's/^version = "[^"]*"/version = "$(NEW_VERSION)"/' assets/config/freqhole-config.toml && rm -f assets/config/freqhole-config.toml.bak; \
 		echo "  updating about.html..."; \
 		sed -i.bak 's/>v[0-9]*\.[0-9]*\.[0-9]*</>v$(NEW_VERSION)</' $(TAURI_DIR)/public/about.html && rm -f $(TAURI_DIR)/public/about.html.bak; \
+		echo "  updating ios project version (CFBundleShortVersionString/CFBundleVersion)..."; \
+		sed -i.bak 's/CFBundleShortVersionString: [0-9][^ ]*/CFBundleShortVersionString: $(NEW_VERSION)/' $(TAURI_DIR)/src-tauri/gen/apple/project.yml && rm -f $(TAURI_DIR)/src-tauri/gen/apple/project.yml.bak; \
+		sed -i.bak 's/CFBundleVersion: "[^"]*"/CFBundleVersion: "$(NEW_VERSION)"/' $(TAURI_DIR)/src-tauri/gen/apple/project.yml && rm -f $(TAURI_DIR)/src-tauri/gen/apple/project.yml.bak; \
+		sed -i.bak '/<key>CFBundleShortVersionString<\/key>/{n;s/<string>[^<]*<\/string>/<string>$(NEW_VERSION)<\/string>/;}' $(TAURI_DIR)/src-tauri/gen/apple/charnel_iOS/Info.plist && rm -f $(TAURI_DIR)/src-tauri/gen/apple/charnel_iOS/Info.plist.bak; \
+		sed -i.bak '/<key>CFBundleVersion<\/key>/{n;s/<string>[^<]*<\/string>/<string>$(NEW_VERSION)<\/string>/;}' $(TAURI_DIR)/src-tauri/gen/apple/charnel_iOS/Info.plist && rm -f $(TAURI_DIR)/src-tauri/gen/apple/charnel_iOS/Info.plist.bak; \
 		echo ""; \
 		echo "version bumped to $(NEW_VERSION)"; \
 		echo ""; \
