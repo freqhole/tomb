@@ -7,6 +7,8 @@
 // marking the group reviewed server-side.
 import { createSignal, createEffect, onCleanup, Show } from "solid-js";
 import { ImportVideoEditorPanel, type ImportVideoEdit } from "./ImportVideoEditorPanel";
+import { musicLinkFromVideo, musicLinkToUpdateFields } from "../forms/VideoMusicLinkFields";
+import { isMusicContentType } from "../../video/utils/contentType";
 import type { VideoGroupEditorRenderProps } from "../modals/ImportVideoReviewModal";
 import type {
   VideoImportReviewHandle,
@@ -18,6 +20,7 @@ function groupToEdit(group: ImportReviewVideoGroup): ImportVideoEdit {
   const isSeries = !!group.seriesId;
   return {
     contentType: isSeries ? "series" : (group.videos[0]?.contentType ?? "movie"),
+    musicLink: musicLinkFromVideo(group.videos[0] ?? {}),
     seriesId: group.seriesId ?? null,
     pendingNewSeriesName: null,
     seriesTitle: group.seriesTitle ?? "",
@@ -68,14 +71,27 @@ export function ImportVideoReviewEditor(props: ImportVideoReviewEditorProps) {
         // goes through moveVideo - it's the only route that can both
         // attach AND detach a video from a series (patchGroup never
         // touches series_id, since a multi-video group's series is
-        // fixed by its grouping key).
+        // fixed by its grouping key). the same call carries the
+        // artist/album for music video/karaoke content - the server finds
+        // or creates them by name under this review permission, and
+        // cleans up the series/artist/album the video just left.
+        const isSeries = e.contentType === "series";
+        const musicFields = musicLinkToUpdateFields(e.musicLink);
         await props.reviewHandle.moveVideo(
           video.id,
-          e.contentType === "series" ? e.seriesId : null,
-          e.contentType === "series" ? video.seasonId : null,
-          e.contentType === "series" ? null : e.contentType,
-          e.contentType === "series" ? e.pendingNewSeriesName : null,
-          e.contentType === "series" ? video.pendingNewSeason : null
+          isSeries ? e.seriesId : null,
+          isSeries ? video.seasonId : null,
+          isSeries ? null : e.contentType,
+          isSeries ? e.pendingNewSeriesName : null,
+          isSeries ? video.pendingNewSeason : null,
+          !isSeries && isMusicContentType(e.contentType)
+            ? {
+                artistId: musicFields.artist_id,
+                artistName: musicFields.artist_name,
+                albumId: musicFields.album_id,
+                albumTitle: musicFields.album_title,
+              }
+            : null
         );
         await props.reviewHandle.patchGroup(groupKey, {
           videos: [

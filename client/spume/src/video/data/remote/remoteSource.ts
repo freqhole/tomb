@@ -218,6 +218,20 @@ export class RemoteVideoDataSource implements VideoDataSource {
     return result.data.map((v) => this.mapVideo(v));
   }
 
+  async listVideosByAlbum(albumId: string): Promise<VideoSummary[]> {
+    const client = await this.getClient();
+    const result = await client.video.listVideosByAlbum({ album_id: albumId });
+    if (!result.success) this.failRequest(result);
+    return result.data.map((v) => this.mapVideo(v));
+  }
+
+  async listVideosByArtist(artistId: string): Promise<VideoSummary[]> {
+    const client = await this.getClient();
+    const result = await client.video.listVideosByArtist({ artist_id: artistId });
+    if (!result.success) this.failRequest(result);
+    return result.data.map((v) => this.mapVideo(v));
+  }
+
   async getVideoSeriesDetail(id: string) {
     const client = await this.getClient();
     const result = await client.video.getVideoSeriesDetail({ id });
@@ -246,6 +260,18 @@ export class RemoteVideoDataSource implements VideoDataSource {
     clear_series_id?: boolean;
     clear_season_id?: boolean;
     clear_parent_video_id?: boolean;
+    /** music_video/karaoke only: an existing artist id, or `artist_name` to
+     * find-or-create one by name (case-insensitive) server-side. */
+    artist_id?: string | null;
+    artist_name?: string | null;
+    /** an existing album id, or `album_title` to find-or-create one under
+     * the artist. neither -> the artist's default "music videos"/"karaoke
+     * videos" album. */
+    album_id?: string | null;
+    album_title?: string | null;
+    /** detach from artist (and album) / from album only. */
+    clear_artist_id?: boolean;
+    clear_album_id?: boolean;
   }): Promise<void> {
     const client = await this.getClient();
     const result = await client.video.updateVideos({
@@ -261,10 +287,16 @@ export class RemoteVideoDataSource implements VideoDataSource {
       clear_series_id: params.clear_series_id,
       clear_season_id: params.clear_season_id,
       clear_parent_video_id: params.clear_parent_video_id,
+      artist_id: params.artist_id,
+      artist_name: params.artist_name,
+      album_id: params.album_id,
+      album_title: params.album_title,
+      clear_artist_id: params.clear_artist_id,
+      clear_album_id: params.clear_album_id,
     });
     if (!result.success) this.failRequest(result);
     if (result.data.videos_failed.length > 0) {
-      throw new Error("failed to update video");
+      throw new Error(result.data.videos_failed[0]?.reason ?? "failed to update video");
     }
   }
 

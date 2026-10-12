@@ -282,6 +282,8 @@ export async function updateLocalVideo(
     poster_blob_id?: string | null;
     content_type?: string;
     parent_video_id?: string | null;
+    artist_id?: string | null;
+    album_id?: string | null;
     images?: ImageMetadata[];
   }
 ): Promise<void> {

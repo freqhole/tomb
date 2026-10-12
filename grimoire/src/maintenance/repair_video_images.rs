@@ -235,6 +235,7 @@ pub async fn repair_video_thumbnails_batch(
             clear_season_id: false,
             parent_video_id: None,
             clear_parent_video_id: false,
+            ..Default::default()
         })
         .await;
         if !update.success {

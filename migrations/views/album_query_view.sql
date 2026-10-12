@@ -135,7 +135,12 @@ FROM albumz al
 LEFT JOIN artist_albumz aa ON al.id = aa.album_id
 LEFT JOIN artistz ar ON aa.artist_id = ar.id AND ar.deleted_at IS NULL
 WHERE al.deleted_at IS NULL
-AND al.song_count > 0
+-- an album with no songs still surfaces when it has live music/karaoke
+-- videos attached (see migration 096) - otherwise a video-only album
+-- (e.g. the default "music videos" album) would be invisible everywhere.
+AND (al.song_count > 0 OR EXISTS (
+    SELECT 1 FROM videoz vz WHERE vz.album_id = al.id AND vz.deleted_at IS NULL
+))
 AND (ar.id IS NULL OR ar.id = (
     SELECT aa2.artist_id
     FROM artist_albumz aa2

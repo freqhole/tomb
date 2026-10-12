@@ -25,19 +25,42 @@ pub struct VideoRendition {
     pub height: Option<i64>,
 }
 
+/// content types that point at an artist + album instead of a series.
+pub const MUSIC_CONTENT_TYPES: [&str; 2] = ["music_video", "karaoke"];
+
+/// every accepted `Video::content_type` value.
+pub const VIDEO_CONTENT_TYPES: [&str; 5] = ["series", "movie", "clip", "karaoke", "music_video"];
+
+/// true for the content types that carry `artist_id`/`album_id`.
+pub fn is_music_content_type(content_type: &str) -> bool {
+    MUSIC_CONTENT_TYPES.contains(&content_type)
+}
+
+/// the album a music-type video lands in when the caller picks an artist but
+/// no album ("music videos" / "karaoke videos"). `None` for every other
+/// content type.
+pub fn default_album_title(content_type: &str) -> Option<&'static str> {
+    match content_type {
+        "music_video" => Some("music videos"),
+        "karaoke" => Some("karaoke videos"),
+        _ => None,
+    }
+}
+
 /// video model (~ songz for the video domain). covers a standalone
 /// movie/clip (`series_id`/`season_id` both `None`), a season-less
-/// docuseries episode (`series_id` set, `season_id` `None`), and a full tv
-/// episode (both set).
+/// docuseries episode (`series_id` set, `season_id` `None`), a full tv
+/// episode (both set), and a music video/karaoke video (`artist_id`/
+/// `album_id`, no series).
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema, PartialEq, FromRow)]
 pub struct Video {
     pub id: String,
     pub series_id: Option<String>,
     pub season_id: Option<String>,
     pub episode_number: Option<i64>,
-    /// "series" | "movie" | "clip" | "karaoke" - only meaningful when
-    /// `series_id` is `None` (series-attached videos are implicitly
-    /// "series" content).
+    /// "series" | "movie" | "clip" | "karaoke" | "music_video" - only
+    /// meaningful when `series_id` is `None` (series-attached videos are
+    /// implicitly "series" content).
     pub content_type: String,
     pub title: String,
     pub description: Option<String>,
@@ -54,6 +77,13 @@ pub struct Video {
     /// validation). mutually exclusive with `series_id` - a video is
     /// either series-attached or movie-with-extras-attached, not both.
     pub parent_video_id: Option<String>,
+    /// the artist a "music_video"/"karaoke" video belongs to - always
+    /// `None` for every other content type (enforced on write).
+    pub artist_id: Option<String>,
+    /// the album a "music_video"/"karaoke" video belongs to (by default the
+    /// artist's "music videos"/"karaoke videos" album, see
+    /// `default_album_title`) - always `None` for every other content type.
+    pub album_id: Option<String>,
     pub poster_blob_id: Option<String>,
     pub duration_seconds: Option<f64>,
     pub release_date: Option<String>,
@@ -91,13 +121,13 @@ pub struct Video {
 }
 
 /// request for creating a new video
-#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, ZodSchema)]
 pub struct CreateVideoRequest {
     pub series_id: Option<String>,
     pub season_id: Option<String>,
     pub episode_number: Option<i64>,
-    /// "series" | "movie" | "clip" | "karaoke" - defaults to "series" when
-    /// `series_id` is set, else "movie", if omitted.
+    /// "series" | "movie" | "clip" | "karaoke" | "music_video" - defaults to
+    /// "series" when `series_id` is set, else "movie", if omitted.
     pub content_type: Option<String>,
     pub title: String,
     pub description: Option<String>,
@@ -106,6 +136,14 @@ pub struct CreateVideoRequest {
     /// (parent must exist, be `content_type = "movie"`, have no parent of
     /// its own, and not be combined with `series_id`).
     pub parent_video_id: Option<String>,
+    /// see `Video::artist_id` - ignored unless `content_type` is
+    /// "music_video"/"karaoke".
+    #[serde(default)]
+    pub artist_id: Option<String>,
+    /// see `Video::album_id` - ignored unless `content_type` is
+    /// "music_video"/"karaoke".
+    #[serde(default)]
+    pub album_id: Option<String>,
     pub poster_blob_id: Option<String>,
     pub duration_seconds: Option<f64>,
     pub release_date: Option<String>,
@@ -113,7 +151,7 @@ pub struct CreateVideoRequest {
 }
 
 /// request for updating a video
-#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, ZodSchema)]
 pub struct UpdateVideoRequest {
     pub video_id: String,
     pub series_id: Option<String>,
@@ -125,6 +163,14 @@ pub struct UpdateVideoRequest {
     /// see `Video::parent_video_id` - validated in `update_video` the same
     /// way `create_video` validates it.
     pub parent_video_id: Option<String>,
+    /// see `Video::artist_id` - validated/persisted as-is here; resolving a
+    /// typed artist name (find-or-create) and picking the default album
+    /// happens one level up in `update_videos`.
+    #[serde(default)]
+    pub artist_id: Option<String>,
+    /// see `Video::album_id`.
+    #[serde(default)]
+    pub album_id: Option<String>,
     pub poster_blob_id: Option<String>,
     pub duration_seconds: Option<f64>,
     pub release_date: Option<String>,
@@ -147,6 +193,15 @@ pub struct UpdateVideoRequest {
     /// two flags above) - e.g. un-marking a video as an extra.
     #[serde(default)]
     pub clear_parent_video_id: bool,
+    /// force `artist_id` to `NULL` regardless of its value (same "COALESCE
+    /// can't distinguish no-change from clear" reason as above). implied
+    /// whenever the resulting content type isn't "music_video"/"karaoke".
+    #[serde(default)]
+    pub clear_artist_id: bool,
+    /// force `album_id` to `NULL` regardless of its value. implied whenever
+    /// the resulting content type isn't "music_video"/"karaoke".
+    #[serde(default)]
+    pub clear_album_id: bool,
 }
 
 /// video with enriched metadata from the media blob (codec, container, bitrate, etc.)

@@ -40,7 +40,10 @@ SELECT
     (SELECT COUNT(DISTINCT aa2.album_id)
      FROM artist_albumz aa2
      JOIN albumz al ON aa2.album_id = al.id
-     WHERE aa2.artist_id = ar.id AND al.deleted_at IS NULL AND al.song_count > 0) as album_count,
+     WHERE aa2.artist_id = ar.id AND al.deleted_at IS NULL
+       AND (al.song_count > 0 OR EXISTS (
+           SELECT 1 FROM videoz vz WHERE vz.album_id = al.id AND vz.deleted_at IS NULL
+       ))) as album_count,
     COALESCE(SUM(s.duration), 0) as total_duration,
 
     -- user favorites and ratings - now NULL (populated via cache layer)
@@ -58,4 +61,7 @@ WHERE ar.deleted_at IS NULL
 GROUP BY ar.id, ar.name, ar.bio, ar.created_at, ar.updated_at, ar.deleted_at,
          ar.deleted_by, ar.created_by, ar.updated_by,
          ar.metadata, ar.lastfm_lookup_status, ar.audiodb_lookup_status
-HAVING COUNT(DISTINCT ars.song_id) > 0;
+-- an artist with no songs still surfaces when it has live music/karaoke
+-- videos attached (see migration 096).
+HAVING COUNT(DISTINCT ars.song_id) > 0
+    OR EXISTS (SELECT 1 FROM videoz vz WHERE vz.artist_id = ar.id AND vz.deleted_at IS NULL);

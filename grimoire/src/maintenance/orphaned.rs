@@ -176,8 +176,9 @@ pub async fn cleanup_orphaned_genres(dry_run: bool) -> GrimoireResponse<Orphaned
 
 /// find and optionally delete orphaned artists
 ///
-/// orphaned artists have zero rows in `artist_albumz` AND zero rows in
-/// `artist_songz` - no album or song references them at all.
+/// orphaned artists have zero rows in `artist_albumz`, zero rows in
+/// `artist_songz`, AND no video row pointing at them via `videoz.artist_id` -
+/// no album, song, or music/karaoke video references them at all.
 pub async fn cleanup_orphaned_artists(dry_run: bool) -> GrimoireResponse<OrphanedArtistsSummary> {
     let pool = match database::connect().await {
         Ok(p) => p,
@@ -191,6 +192,7 @@ pub async fn cleanup_orphaned_artists(dry_run: bool) -> GrimoireResponse<Orphane
         SELECT id, name FROM artistz
         WHERE id NOT IN (SELECT DISTINCT artist_id FROM artist_albumz)
           AND id NOT IN (SELECT DISTINCT artist_id FROM artist_songz)
+          AND id NOT IN (SELECT DISTINCT artist_id FROM videoz WHERE artist_id IS NOT NULL)
         ORDER BY name
         "#
     )
@@ -236,8 +238,9 @@ pub async fn cleanup_orphaned_artists(dry_run: bool) -> GrimoireResponse<Orphane
 
 /// find and optionally delete orphaned albums
 ///
-/// orphaned albums have zero rows in `album_songz` - no song references
-/// them at all (a tracklist-less album is nothing to play).
+/// orphaned albums have zero rows in `album_songz` AND no video row pointing
+/// at them via `videoz.album_id` - no song or music/karaoke video references
+/// them at all (a tracklist-less, video-less album is nothing to play).
 pub async fn cleanup_orphaned_albums(dry_run: bool) -> GrimoireResponse<OrphanedAlbumsSummary> {
     let pool = match database::connect().await {
         Ok(p) => p,
@@ -250,6 +253,7 @@ pub async fn cleanup_orphaned_albums(dry_run: bool) -> GrimoireResponse<Orphaned
         r#"
         SELECT id, title FROM albumz
         WHERE id NOT IN (SELECT DISTINCT album_id FROM album_songz)
+          AND id NOT IN (SELECT DISTINCT album_id FROM videoz WHERE album_id IS NOT NULL)
         ORDER BY title
         "#
     )

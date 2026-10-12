@@ -119,6 +119,42 @@ export function createVideoMethods(call: CallFn) {
       );
     },
 
+    listVideosByAlbum: (params: s.ListVideosByAlbumRequest) => {
+      return call(
+        "video",
+        "list_videos_by_album",
+        routes.video.list_videos_by_album.resp,
+        routes.video.list_videos_by_album.req,
+        routes.video.list_videos_by_album.method,
+        routes.video.list_videos_by_album.path,
+        params,
+      );
+    },
+
+    listVideosByArtist: (params: s.ListVideosByArtistRequest) => {
+      return call(
+        "video",
+        "list_videos_by_artist",
+        routes.video.list_videos_by_artist.resp,
+        routes.video.list_videos_by_artist.req,
+        routes.video.list_videos_by_artist.method,
+        routes.video.list_videos_by_artist.path,
+        params,
+      );
+    },
+
+    guessVideoTitle: (params: s.GuessVideoTitleRequest) => {
+      return call(
+        "video",
+        "guess_video_title",
+        routes.video.guess_video_title.resp,
+        routes.video.guess_video_title.req,
+        routes.video.guess_video_title.method,
+        routes.video.guess_video_title.path,
+        params,
+      );
+    },
+
     updateVideos: (params: Partial<s.UpdateVideosRequest> & { video_ids: string[] }) => {
       return call(
         "video",

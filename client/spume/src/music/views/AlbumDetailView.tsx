@@ -26,7 +26,9 @@ import {
   useImageCarouselLoading,
   type ImageResolveResult,
 } from "../hooks/modals";
-import { useAlbumQuery, useAlbumSongsQuery } from "../queries/songs";
+import { useAlbumQuery, useAlbumSongsQuery, useArtistQuery } from "../queries/songs";
+import { useVideosByAlbumQuery } from "../../video/queries/videos";
+import { VideoListSection } from "../../video/components/VideoListSection";
 import { useSetRatingMutation } from "../queries/ratings";
 import { useToggleFavoriteMutation } from "../queries/favorites";
 import { queryKeys } from "../queries/queryKeys";
@@ -173,12 +175,26 @@ export function AlbumDetailView() {
     };
   };
 
+  // music_video/karaoke videos on this album (an album may have only these)
+  const albumVideosQuery = useVideosByAlbumQuery(() => params.id);
+
   // map and sort songs
   const songs = createMemo(() => {
     const result = albumSongsQuery.data;
     if (!result || result.items.length === 0) return [];
     return sortSongsCanonical(result.items);
   });
+
+  // an album with videos but no songs has no song rows to read the artist
+  // name from, so look the artist up by id instead.
+  const fallbackArtistQuery = useArtistQuery(() =>
+    songs().length === 0 ? (albumQuery.data?.artist_id ?? undefined) : undefined
+  );
+  const displayArtistName = () => songs()[0]?.artist_name || fallbackArtistQuery.data?.name || "";
+
+  // play/queue/radio only make sense when there are songs (or they are
+  // still loading) - a video-only album skips them.
+  const showSongControls = () => songs().length > 0 || albumSongsQuery.isPending;
 
   // calculate total duration
   const totalDuration = createMemo(() => {
@@ -497,16 +513,25 @@ export function AlbumDetailView() {
                           onClick={handleArtistClick}
                           class="hover:text-[var(--color-text-primary)] hover:underline text-left"
                         >
-                          <MarqueeText text={songs()[0]?.artist_name || "unknown artist"} />
+                          <MarqueeText text={displayArtistName() || "unknown artist"} />
                         </button>
                         <div class="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
                           {info().year && <span>{info().year}</span>}
-                          <span>•</span>
-                          <span>
-                            {songs().length} {songs().length === 1 ? "song" : "songs"}
-                          </span>
-                          <span>•</span>
-                          <span>{formatLongDuration(totalDuration())}</span>
+                          <Show when={songs().length > 0}>
+                            <span>•</span>
+                            <span>
+                              {songs().length} {songs().length === 1 ? "song" : "songs"}
+                            </span>
+                            <span>•</span>
+                            <span>{formatLongDuration(totalDuration())}</span>
+                          </Show>
+                          <Show when={(albumVideosQuery.data?.length ?? 0) > 0}>
+                            <span>•</span>
+                            <span>
+                              {albumVideosQuery.data!.length}{" "}
+                              {albumVideosQuery.data!.length === 1 ? "video" : "videos"}
+                            </span>
+                          </Show>
                         </div>
                       </div>
 
@@ -633,29 +658,31 @@ export function AlbumDetailView() {
                     hasBackgroundImage() ? "backdrop-blur-sm rounded-lg p-1" : ""
                   }`}
                 >
-                  <Button
-                    variant="primary"
-                    loading={albumActionPending() === "play"}
-                    disabled={albumActionPending() !== null}
-                    onClick={handlePlayAlbum}
-                  >
-                    <span class="hidden wide:inline">play album</span>
-                    <span class="wide:hidden">play</span>
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    loading={albumActionPending() === "queue"}
-                    disabled={albumActionPending() !== null}
-                    onClick={handleQueueAlbum}
-                    title="add album to queue"
-                    aria-label="add album to queue"
-                  >
-                    <span class="hidden wide:inline">+queue</span>
-                    <span class="wide:hidden inline-flex items-center">
-                      <Icon name={IconNames.queue} />
-                    </span>
-                  </Button>
-                  <Show when={isCharnelMode() || !!getCurrentRemote()}>
+                  <Show when={showSongControls()}>
+                    <Button
+                      variant="primary"
+                      loading={albumActionPending() === "play"}
+                      disabled={albumActionPending() !== null}
+                      onClick={handlePlayAlbum}
+                    >
+                      <span class="hidden wide:inline">play album</span>
+                      <span class="wide:hidden">play</span>
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      loading={albumActionPending() === "queue"}
+                      disabled={albumActionPending() !== null}
+                      onClick={handleQueueAlbum}
+                      title="add album to queue"
+                      aria-label="add album to queue"
+                    >
+                      <span class="hidden wide:inline">+queue</span>
+                      <span class="wide:hidden inline-flex items-center">
+                        <Icon name={IconNames.queue} />
+                      </span>
+                    </Button>
+                  </Show>
+                  <Show when={showSongControls() && (isCharnelMode() || !!getCurrentRemote())}>
                     <Button
                       variant="ghost"
                       onClick={() =>
@@ -684,7 +711,7 @@ export function AlbumDetailView() {
                       const info = albumInfo();
                       const bareId = info?.album_id ?? params.id;
                       const title = info?.title ?? "";
-                      const artistName = songs()[0]?.artist_name ?? "";
+                      const artistName = displayArtistName();
                       const artistId = info?.artist_id ?? "";
                       const qs = new URLSearchParams({
                         graph: albumNodeId(remoteId, bareId),
@@ -795,6 +822,7 @@ export function AlbumDetailView() {
                       );
                     }}
                   </For>
+                  <VideoListSection videos={albumVideosQuery.data} class="pt-4" />
                 </div>
               </div>
             </>

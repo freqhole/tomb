@@ -20,6 +20,7 @@ import type { CurrentRemoteInfo } from "../../music/data/currentState";
 import type { PatchVideoGroupReviewRequest } from "@freqhole/api-client";
 import { queryClient } from "../../queryClient";
 import { videoQueryKeys } from "../queries/queryKeys";
+import { queryKeys } from "../../music/queries/queryKeys";
 
 // broad invalidation so any other view (video grid tiles, series detail
 // episode rows, etc.) picks up content_type/series/season changes made
@@ -27,6 +28,11 @@ import { videoQueryKeys } from "../queries/queryKeys";
 function invalidateVideoQueries(): void {
   void queryClient.invalidateQueries({ queryKey: videoQueryKeys.videos.all() });
   void queryClient.invalidateQueries({ queryKey: videoQueryKeys.series.all() });
+  // moving a video into a music type can create (and moving it out can
+  // orphan-delete) artists + albums
+  void queryClient.invalidateQueries({ queryKey: queryKeys.albums.all() });
+  void queryClient.invalidateQueries({ queryKey: queryKeys.artists.all() });
+  void queryClient.invalidateQueries({ queryKey: ["artist", "albums"] });
 }
 
 // ----------------------------------------------------------------------------
@@ -36,13 +42,31 @@ function invalidateVideoQueries(): void {
 export interface ImportReviewVideoItem {
   id: string;
   title: string;
-  /** "series" | "movie" | "clip" - only meaningful for a standalone
-   * (non-series) group, mirrors `Video.content_type`'s own semantics. */
+  /** "series" | "movie" | "clip" | "karaoke" | "music_video" - only
+   * meaningful for a standalone (non-series) group, mirrors
+   * `Video.content_type`'s own semantics. */
   contentType: string;
   seasonId?: string | null;
   seasonNumber?: number | null;
   seasonTitle?: string | null;
   episodeNumber?: number | null;
+  /** artist/album of a music_video/karaoke video (e.g. one the importer
+   * guessed from the title). */
+  artistId?: string | null;
+  artistName?: string | null;
+  albumId?: string | null;
+  albumTitle?: string | null;
+}
+
+/** artist/album destination for a music_video/karaoke `moveVideo` - the
+ * literal desired final state, see grimoire's `MoveVideoReviewRequest`. */
+export interface MoveVideoMusicLink {
+  artistId?: string | null;
+  /** artist to find-or-create by name server-side. */
+  artistName?: string | null;
+  albumId?: string | null;
+  /** album to find-or-create by title under the artist. */
+  albumTitle?: string | null;
 }
 
 export interface ImportReviewVideoGroup {
@@ -78,7 +102,8 @@ export interface VideoImportReviewHandle {
     toSeasonId?: string | null,
     contentType?: string | null,
     newSeriesTitle?: string | null,
-    newSeason?: { season_number: number; title: string | null } | null
+    newSeason?: { season_number: number; title: string | null } | null,
+    musicLink?: MoveVideoMusicLink | null
   ) => Promise<void>;
   markReviewed: (groupKey: string) => Promise<void>;
   refetch: () => void;
@@ -165,6 +190,10 @@ export function useVideoImportReview(
           seasonNumber: v.season_number ?? null,
           seasonTitle: v.season_title ?? null,
           episodeNumber: v.episode_number ?? null,
+          artistId: v.artist_id ?? null,
+          artistName: v.artist_name ?? null,
+          albumId: v.album_id ?? null,
+          albumTitle: v.album_title ?? null,
         })),
       }))
     );
@@ -222,7 +251,8 @@ export function useVideoImportReview(
     toSeasonId: string | null = null,
     contentType: string | null = null,
     newSeriesTitle: string | null = null,
-    newSeason: { season_number: number; title: string | null } | null = null
+    newSeason: { season_number: number; title: string | null } | null = null,
+    musicLink: MoveVideoMusicLink | null = null
   ) {
     setError(null);
     const r = remote();
@@ -242,6 +272,10 @@ export function useVideoImportReview(
       content_type: contentType,
       new_series_title: newSeriesTitle,
       new_season: newSeason,
+      to_artist_id: musicLink?.artistId ?? null,
+      new_artist_name: musicLink?.artistName ?? null,
+      to_album_id: musicLink?.albumId ?? null,
+      new_album_title: musicLink?.albumTitle ?? null,
     });
     if (!resp.success) {
       const msg = `move failed: ${resp.error?.issues?.[0]?.message ?? "unknown error"}`;

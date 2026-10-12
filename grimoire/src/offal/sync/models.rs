@@ -311,7 +311,8 @@ pub struct SyncVideoByBlake3Request {
     pub title: String,
     #[serde(default)]
     pub description: Option<String>,
-    /// "series" | "movie" | "clip" | "karaoke" - defaults per `CreateVideoRequest`
+    /// "series" | "movie" | "clip" | "karaoke" | "music_video" - defaults per
+    /// `CreateVideoRequest`
     #[serde(default)]
     pub content_type: Option<String>,
     #[serde(default)]
@@ -331,6 +332,15 @@ pub struct SyncVideoByBlake3Request {
     pub season_number: Option<i64>,
     #[serde(default)]
     pub season_title: Option<String>,
+    /// artist name for a "music_video"/"karaoke" video - like series, the
+    /// destination finds or creates a matching artist by name (never by the
+    /// source's own artist id) and files the video under it
+    #[serde(default)]
+    pub artist_name: Option<String>,
+    /// album title under `artist_name` - requires `artist_name`; when absent
+    /// the artist's default "music videos"/"karaoke videos" album is used
+    #[serde(default)]
+    pub album_title: Option<String>,
     /// content hash of the source's parent movie (see `Video::parent_video_id`),
     /// when this video is an "extra" attached to one - NEVER the source's raw
     /// `parent_video_id` itself, which is a foreign, meaningless-locally db id.

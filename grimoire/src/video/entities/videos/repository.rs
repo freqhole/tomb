@@ -5,7 +5,10 @@
 //! cascading workflow that also cleans up `entity_taxonz`/`playlist_itemz`/
 //! `playback_progressz` rows lives in `crate::video::crud::delete`.
 
-use super::models::{CreateVideoRequest, UpdateVideoRequest, Video, VideoRendition};
+use super::models::{
+    is_music_content_type, CreateVideoRequest, UpdateVideoRequest, Video, VideoRendition,
+    VIDEO_CONTENT_TYPES,
+};
 use crate::database;
 use crate::error::{ErrorDetail, GrimoireError, GrimoireResult};
 use crate::music::crud::ImageMetadata;
@@ -112,6 +115,22 @@ async fn reconcile_pending_extras(pool: &sqlx::SqlitePool, parent_id: &str, pare
     }
 }
 
+/// rejects a `content_type` outside `VIDEO_CONTENT_TYPES` with a typed
+/// validation error instead of letting the table's CHECK constraint surface
+/// as an opaque database error.
+fn validate_content_type(content_type: Option<&str>) -> Result<(), GrimoireError> {
+    match content_type {
+        Some(ct) if !VIDEO_CONTENT_TYPES.contains(&ct) => Err(GrimoireError::Validation {
+            field: "content_type".to_string(),
+            message: format!(
+                "content_type must be one of {}, got \"{ct}\"",
+                VIDEO_CONTENT_TYPES.join(", ")
+            ),
+        }),
+        _ => Ok(()),
+    }
+}
+
 /// create a new video
 pub async fn create_video(req: CreateVideoRequest) -> GrimoireResponse<Video> {
     let pool = match database::connect().await {
@@ -123,6 +142,10 @@ pub async fn create_video(req: CreateVideoRequest) -> GrimoireResponse<Video> {
             )
         }
     };
+
+    if let Err(e) = validate_content_type(req.content_type.as_deref()) {
+        return GrimoireResponse::failure("Invalid content_type", vec![ErrorDetail::from(e)]);
+    }
 
     if let Err(e) = validate_parent_video_id(
         &pool,
@@ -145,13 +168,21 @@ pub async fn create_video(req: CreateVideoRequest) -> GrimoireResponse<Video> {
         }
     });
 
+    // artist/album only ever apply to music-type content (see `Video::artist_id`).
+    let is_music = is_music_content_type(&content_type);
+    let artist_id = req.artist_id.clone().filter(|_| is_music);
+    let album_id = req
+        .album_id
+        .clone()
+        .filter(|_| is_music && artist_id.is_some());
+
     let video = match sqlx::query_as!(
         Video,
         r#"INSERT INTO videoz (
             series_id, season_id, episode_number, content_type, title, description, media_blob_id,
             poster_blob_id, duration_seconds, release_date, created_by, updated_by, media_blob_blake3,
-            parent_video_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT blake3 FROM media_blobz WHERE id = ?), ?)
+            parent_video_id, artist_id, album_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT blake3 FROM media_blobz WHERE id = ?), ?, ?, ?)
         RETURNING
             id as "id!",
             series_id,
@@ -163,6 +194,8 @@ pub async fn create_video(req: CreateVideoRequest) -> GrimoireResponse<Video> {
             media_blob_id as "media_blob_id!",
             media_blob_blake3 as "blake3?",
             parent_video_id,
+            artist_id,
+            album_id,
             poster_blob_id,
             duration_seconds,
             release_date,
@@ -188,7 +221,9 @@ pub async fn create_video(req: CreateVideoRequest) -> GrimoireResponse<Video> {
         req.created_by,
         req.created_by,
         req.media_blob_id,
-        req.parent_video_id
+        req.parent_video_id,
+        artist_id,
+        album_id
     )
     .fetch_one(&pool)
     .await
@@ -247,6 +282,8 @@ pub async fn get_video(id: &str) -> GrimoireResponse<Video> {
             media_blob_id as "media_blob_id!",
             media_blob_blake3 as "blake3?",
             parent_video_id,
+            artist_id,
+            album_id,
             poster_blob_id,
             duration_seconds,
             release_date,
@@ -308,6 +345,8 @@ pub async fn get_video_with_metadata(
         media_blob_id: String,
         blake3: Option<String>,
         parent_video_id: Option<String>,
+        artist_id: Option<String>,
+        album_id: Option<String>,
         poster_blob_id: Option<String>,
         duration_seconds: Option<f64>,
         release_date: Option<String>,
@@ -340,6 +379,8 @@ pub async fn get_video_with_metadata(
             v.media_blob_id,
             v.media_blob_blake3 as blake3,
             v.parent_video_id,
+            v.artist_id,
+            v.album_id,
             v.poster_blob_id,
             v.duration_seconds,
             v.release_date,
@@ -418,6 +459,8 @@ pub async fn get_video_with_metadata(
         media_blob_id: row.media_blob_id,
         blake3: row.blake3,
         parent_video_id: row.parent_video_id,
+        artist_id: row.artist_id,
+        album_id: row.album_id,
         poster_blob_id: row.poster_blob_id,
         duration_seconds: row.duration_seconds,
         release_date: row.release_date,
@@ -474,6 +517,8 @@ pub async fn list_videos_by_series(series_id: &str) -> GrimoireResponse<Vec<Vide
             media_blob_id as "media_blob_id!",
             media_blob_blake3 as "blake3?",
             parent_video_id,
+            artist_id,
+            album_id,
             poster_blob_id,
             duration_seconds,
             release_date,
@@ -532,6 +577,8 @@ pub async fn list_videos_by_season(season_id: &str) -> GrimoireResponse<Vec<Vide
             media_blob_id as "media_blob_id!",
             media_blob_blake3 as "blake3?",
             parent_video_id,
+            artist_id,
+            album_id,
             poster_blob_id,
             duration_seconds,
             release_date,
@@ -548,6 +595,126 @@ pub async fn list_videos_by_season(season_id: &str) -> GrimoireResponse<Vec<Vide
          WHERE season_id = ? AND deleted_at IS NULL
          ORDER BY episode_number ASC, created_at ASC"#,
         season_id
+    )
+    .fetch_all(&pool)
+    .await
+    {
+        Ok(videos) => videos,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to list videos", vec![ErrorDetail::from(e)])
+        }
+    };
+
+    GrimoireResponse::success("Videos retrieved successfully", videos)
+}
+
+/// list every music_video/karaoke video attached to an album, non-deleted
+/// only, oldest first.
+pub async fn list_videos_by_album(album_id: &str) -> GrimoireResponse<Vec<Video>> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
+
+    let videos = match sqlx::query_as!(
+        Video,
+        r#"SELECT
+            id as "id!",
+            series_id,
+            season_id,
+            episode_number,
+            content_type as "content_type!",
+            title as "title!",
+            description,
+            media_blob_id as "media_blob_id!",
+            media_blob_blake3 as "blake3?",
+            parent_video_id,
+            artist_id,
+            album_id,
+            poster_blob_id,
+            duration_seconds,
+            release_date,
+            created_at as "created_at!",
+            updated_at as "updated_at!",
+            deleted_at,
+            created_by,
+            updated_by,
+            deleted_by,
+            images as "images: JsonVec<ImageMetadata>",
+            renditions as "renditions: JsonVec<VideoRendition>",
+            play_count as "play_count: i64"
+         FROM video_query_view
+         WHERE album_id = ? AND deleted_at IS NULL
+         ORDER BY title COLLATE NOCASE ASC, created_at ASC"#,
+        album_id
+    )
+    .fetch_all(&pool)
+    .await
+    {
+        Ok(videos) => videos,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to list videos", vec![ErrorDetail::from(e)])
+        }
+    };
+
+    GrimoireResponse::success("Videos retrieved successfully", videos)
+}
+
+/// list every music_video/karaoke video of an artist, non-deleted only -
+/// both videos pointing straight at the artist and videos sitting in one of
+/// the artist's albums (e.g. a collab video whose `artist_id` is the other
+/// artist).
+pub async fn list_videos_by_artist(artist_id: &str) -> GrimoireResponse<Vec<Video>> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
+
+    let videos = match sqlx::query_as!(
+        Video,
+        r#"SELECT
+            id as "id!",
+            series_id,
+            season_id,
+            episode_number,
+            content_type as "content_type!",
+            title as "title!",
+            description,
+            media_blob_id as "media_blob_id!",
+            media_blob_blake3 as "blake3?",
+            parent_video_id,
+            artist_id,
+            album_id,
+            poster_blob_id,
+            duration_seconds,
+            release_date,
+            created_at as "created_at!",
+            updated_at as "updated_at!",
+            deleted_at,
+            created_by,
+            updated_by,
+            deleted_by,
+            images as "images: JsonVec<ImageMetadata>",
+            renditions as "renditions: JsonVec<VideoRendition>",
+            play_count as "play_count: i64"
+         FROM video_query_view
+         WHERE deleted_at IS NULL
+           AND content_type IN ('music_video', 'karaoke')
+           AND (artist_id = ?
+                OR album_id IN (SELECT album_id FROM artist_albumz WHERE artist_id = ?))
+         ORDER BY title COLLATE NOCASE ASC, created_at ASC"#,
+        artist_id,
+        artist_id
     )
     .fetch_all(&pool)
     .await
@@ -589,6 +756,8 @@ pub async fn list_video_extras(parent_video_id: &str) -> GrimoireResponse<Vec<Vi
             media_blob_id as "media_blob_id!",
             media_blob_blake3 as "blake3?",
             parent_video_id,
+            artist_id,
+            album_id,
             poster_blob_id,
             duration_seconds,
             release_date,
@@ -648,6 +817,8 @@ pub async fn list_videos_unattached(
             media_blob_id as "media_blob_id!",
             media_blob_blake3 as "blake3?",
             parent_video_id,
+            artist_id,
+            album_id,
             poster_blob_id,
             duration_seconds,
             release_date,
@@ -708,6 +879,8 @@ pub async fn list_recently_added_videos(limit: Option<u32>) -> GrimoireResponse<
             media_blob_id as "media_blob_id!",
             media_blob_blake3 as "blake3?",
             parent_video_id,
+            artist_id,
+            album_id,
             poster_blob_id,
             duration_seconds,
             release_date,
@@ -773,6 +946,8 @@ pub async fn list_unassigned_videos(
             media_blob_id as "media_blob_id!",
             media_blob_blake3 as "blake3?",
             parent_video_id,
+            artist_id,
+            album_id,
             poster_blob_id,
             duration_seconds,
             release_date,
@@ -845,6 +1020,8 @@ pub async fn list_videos_by_taxon_value(
             media_blob_id as "media_blob_id!",
             media_blob_blake3 as "blake3?",
             parent_video_id,
+            artist_id,
+            album_id,
             poster_blob_id,
             duration_seconds,
             release_date,
@@ -908,7 +1085,7 @@ pub async fn update_video(req: UpdateVideoRequest) -> GrimoireResponse<Video> {
     // mutually-exclusive fields must still be validated against the
     // other's current value.
     let current = match sqlx::query!(
-        "SELECT series_id, parent_video_id FROM videoz WHERE id = ? AND deleted_at IS NULL",
+        r#"SELECT series_id, parent_video_id, content_type as "content_type!" FROM videoz WHERE id = ? AND deleted_at IS NULL"#,
         req.video_id
     )
     .fetch_optional(&pool)
@@ -925,6 +1102,10 @@ pub async fn update_video(req: UpdateVideoRequest) -> GrimoireResponse<Video> {
             return GrimoireResponse::failure("Failed to update video", vec![ErrorDetail::from(e)])
         }
     };
+
+    if let Err(e) = validate_content_type(req.content_type.as_deref()) {
+        return GrimoireResponse::failure("Invalid content_type", vec![ErrorDetail::from(e)]);
+    }
 
     let effective_series_id = if req.clear_series_id {
         None
@@ -948,6 +1129,17 @@ pub async fn update_video(req: UpdateVideoRequest) -> GrimoireResponse<Video> {
         return GrimoireResponse::failure("Invalid parent_video_id", vec![ErrorDetail::from(e)]);
     }
 
+    // artist/album only ever apply to music-type content - switching a video
+    // to any other type detaches it from both, regardless of the request's
+    // own clear flags.
+    let effective_content_type = req
+        .content_type
+        .clone()
+        .unwrap_or_else(|| current.content_type.clone());
+    let is_music = is_music_content_type(&effective_content_type);
+    let clear_artist_flag = (req.clear_artist_id || !is_music) as i64;
+    let clear_album_flag = (req.clear_album_id || req.clear_artist_id || !is_music) as i64;
+
     let clear_series_flag = req.clear_series_id as i64;
     let clear_season_flag = (req.clear_series_id || req.clear_season_id) as i64;
     let clear_parent_video_flag = req.clear_parent_video_id as i64;
@@ -962,6 +1154,8 @@ pub async fn update_video(req: UpdateVideoRequest) -> GrimoireResponse<Video> {
                 title = COALESCE(?, title),
                 description = COALESCE(?, description),
                 parent_video_id = CASE WHEN ? = 1 THEN NULL ELSE COALESCE(?, parent_video_id) END,
+                artist_id = CASE WHEN ? = 1 THEN NULL ELSE COALESCE(?, artist_id) END,
+                album_id = CASE WHEN ? = 1 THEN NULL ELSE COALESCE(?, album_id) END,
                 poster_blob_id = COALESCE(?, poster_blob_id),
                 duration_seconds = COALESCE(?, duration_seconds),
                 release_date = COALESCE(?, release_date),
@@ -979,6 +1173,8 @@ pub async fn update_video(req: UpdateVideoRequest) -> GrimoireResponse<Video> {
                 media_blob_id as "media_blob_id!",
                 media_blob_blake3 as "blake3?",
                 parent_video_id,
+                artist_id,
+                album_id,
                 poster_blob_id,
                 duration_seconds,
                 release_date,
@@ -1010,6 +1206,10 @@ pub async fn update_video(req: UpdateVideoRequest) -> GrimoireResponse<Video> {
         req.description,
         clear_parent_video_flag,
         req.parent_video_id,
+        clear_artist_flag,
+        req.artist_id,
+        clear_album_flag,
+        req.album_id,
         req.poster_blob_id,
         req.duration_seconds,
         req.release_date,
@@ -1144,6 +1344,7 @@ level = "warn"
             duration_seconds: None,
             release_date: None,
             created_by: None,
+            ..Default::default()
         })
         .await;
         assert!(created.is_success(), "create_video failed: {created:?}");
@@ -1211,6 +1412,7 @@ level = "warn"
                 duration_seconds: None,
                 release_date: None,
                 created_by: None,
+                ..Default::default()
             })
             .await
             .data
@@ -1235,6 +1437,7 @@ level = "warn"
             duration_seconds: None,
             release_date: None,
             created_by: None,
+            ..Default::default()
         })
         .await;
         assert!(extra.is_success(), "create_video (extra) failed: {extra:?}");
@@ -1257,6 +1460,7 @@ level = "warn"
             duration_seconds: None,
             release_date: None,
             created_by: None,
+            ..Default::default()
         })
         .await;
         assert!(!bad_parent_kind.is_success());
@@ -1279,6 +1483,7 @@ level = "warn"
             clear_series_id: false,
             clear_season_id: false,
             clear_parent_video_id: false,
+            ..Default::default()
         })
         .await;
         assert!(!chained.is_success());
@@ -1300,6 +1505,7 @@ level = "warn"
             clear_series_id: false,
             clear_season_id: false,
             clear_parent_video_id: false,
+            ..Default::default()
         })
         .await;
         assert!(!both_set.is_success());
@@ -1321,6 +1527,7 @@ level = "warn"
             clear_series_id: false,
             clear_season_id: false,
             clear_parent_video_id: false,
+            ..Default::default()
         })
         .await;
         assert!(!self_ref.is_success());
@@ -1369,6 +1576,7 @@ level = "warn"
             duration_seconds: None,
             release_date: None,
             created_by: None,
+            ..Default::default()
         })
         .await
         .data
@@ -1394,6 +1602,7 @@ level = "warn"
             duration_seconds: None,
             release_date: None,
             created_by: None,
+            ..Default::default()
         })
         .await
         .data

@@ -377,6 +377,28 @@ export function VideoDetailView() {
                         <Icon name={IconNames.video} />
                       </Button>
                     </Show>
+                    <Show when={video().artist_id}>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => navigate(buildRoute(`/artists/${video().artist_id}`))}
+                        title="view artist"
+                        aria-label="view artist"
+                      >
+                        <Icon name={IconNames.artist} />
+                      </Button>
+                    </Show>
+                    <Show when={video().album_id}>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => navigate(buildRoute(`/albums/${video().album_id}`))}
+                        title="view album"
+                        aria-label="view album"
+                      >
+                        <Icon name={IconNames.album} />
+                      </Button>
+                    </Show>
                     <Show when={canUpdateVideo()}>
                       <button
                         onClick={() =>
@@ -478,6 +500,26 @@ export function VideoDetailView() {
                         aria-label="view series"
                       >
                         view series
+                      </Button>
+                    </Show>
+                    <Show when={video().artist_id}>
+                      <Button
+                        variant="ghost"
+                        onClick={() => navigate(buildRoute(`/artists/${video().artist_id}`))}
+                        title="view artist"
+                        aria-label="view artist"
+                      >
+                        view artist
+                      </Button>
+                    </Show>
+                    <Show when={video().album_id}>
+                      <Button
+                        variant="ghost"
+                        onClick={() => navigate(buildRoute(`/albums/${video().album_id}`))}
+                        title="view album"
+                        aria-label="view album"
+                      >
+                        view album
                       </Button>
                     </Show>
                     <Show when={canUpdateVideo()}>

@@ -96,12 +96,18 @@ async fn list_pending_groups_for_session(
             v.season_id                                     AS "video_season_id?: String",
             se.season_number                                AS "season_number?: i64",
             se.title                                        AS "season_title?: String",
-            v.episode_number                                AS "episode_number?: i64"
+            v.episode_number                                AS "episode_number?: i64",
+            v.artist_id                                     AS "artist_id?: String",
+            ar.name                                         AS "artist_name?: String",
+            v.album_id                                      AS "album_id?: String",
+            al.title                                        AS "album_title?: String"
         FROM import_blobz ib
         LEFT JOIN media_blobz mb   ON mb.id = ib.media_blob_id
         JOIN videoz v               ON v.media_blob_id = ib.media_blob_id AND v.deleted_at IS NULL
         LEFT JOIN video_seriez vs  ON vs.id = v.series_id AND vs.deleted_at IS NULL
         LEFT JOIN video_seasonz se ON se.id = v.season_id AND se.deleted_at IS NULL
+        LEFT JOIN artistz ar       ON ar.id = v.artist_id AND ar.deleted_at IS NULL
+        LEFT JOIN albumz al        ON al.id = v.album_id AND al.deleted_at IS NULL
         WHERE ib.session_id = ?
           AND ib.reviewed_at IS NULL
           AND (? = 1 OR mb.created_by = ?)
@@ -125,6 +131,10 @@ async fn list_pending_groups_for_session(
             season_number: r.season_number,
             season_title: r.season_title,
             episode_number: r.episode_number,
+            artist_id: r.artist_id,
+            artist_name: r.artist_name,
+            album_id: r.album_id,
+            album_title: r.album_title,
         };
         match groups.iter_mut().find(|g| g.group_key == r.group_key) {
             Some(group) => {

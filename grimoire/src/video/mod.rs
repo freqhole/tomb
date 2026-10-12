@@ -11,6 +11,7 @@ pub mod entities;
 pub mod importer;
 pub mod scanner;
 pub mod search;
+pub mod title_guess;
 
 // directory scanning entry point (mirrors `crate::music::scan_directory`)
 pub use scanner::scan_directory;
@@ -31,10 +32,12 @@ pub use entities::series::{
     VideoSeries,
 };
 pub use entities::videos::{
-    create_video, get_video, get_video_with_metadata, list_recently_added_videos,
-    list_unassigned_videos, list_video_extras, list_videos_by_season, list_videos_by_series,
+    create_video, default_album_title, get_video, get_video_with_metadata, is_music_content_type,
+    list_recently_added_videos, list_unassigned_videos, list_video_extras, list_videos_by_album,
+    list_videos_by_artist, list_videos_by_season, list_videos_by_series,
     list_videos_by_taxon_value, list_videos_unattached, update_video, CreateVideoRequest,
-    UpdateVideoRequest, Video, VideoRendition, VideoWithMetadata,
+    UpdateVideoRequest, Video, VideoRendition, VideoWithMetadata, MUSIC_CONTENT_TYPES,
+    VIDEO_CONTENT_TYPES,
 };
 
 // cascading delete + side-table cleanup
@@ -71,6 +74,9 @@ pub use crud::playback_progressz::{
 };
 // generalized playlist items now live in `crate::playlists` (domain-neutral,
 // since songs can be playlist members too, not just video entities).
+
+// best-guess classification/artist extraction from a title string
+pub use title_guess::{guess_video_title, is_karaoke_title, VideoTitleGuess};
 
 // full-text search
 pub use search::{

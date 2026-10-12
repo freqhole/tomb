@@ -2,11 +2,20 @@
 // mirrors components/import/ImportAlbumEditorPanel.tsx, but much simpler
 // (no musicbrainz/taxons/artwork-upload tabs): content type (for a
 // singleton group), series title/description, series/season assignment
-// (with create-new support, mirroring EditVideoModal.tsx), plus per-video
-// title + episode number.
-import { For, Index, Show } from "solid-js";
+// (with create-new support, mirroring EditVideoModal.tsx), artist/album
+// assignment for music video/karaoke content, plus per-video title +
+// episode number.
+import { Index, Show } from "solid-js";
 import { TextArea } from "../forms/TextArea";
 import { VideoSeriesAutocomplete } from "../forms/VideoSeriesAutocomplete";
+import { VideoContentTypePicker } from "../forms/VideoContentTypePicker";
+import {
+  EMPTY_MUSIC_LINK,
+  VideoMusicLinkFields,
+  guessMusicLink,
+  type VideoMusicLink,
+} from "../forms/VideoMusicLinkFields";
+import { isMusicContentType, type VideoContentType } from "../../video/utils/contentType";
 import {
   VideoSeasonAutocomplete,
   formatSeasonLabel,
@@ -26,10 +35,14 @@ export interface ImportVideoEditVideo {
 }
 
 export interface ImportVideoEdit {
-  /** "series" | "movie" | "clip" - only editable for a singleton group
-   * (exactly one video); a multi-video group is always "series" (that's
-   * how the grouping key works) and this field is fixed/hidden for it. */
+  /** "series" | "movie" | "clip" | "karaoke" | "music_video" - only editable
+   * for a singleton group (exactly one video); a multi-video group is always
+   * "series" (that's how the grouping key works) and this field is
+   * fixed/hidden for it. */
   contentType: string;
+  /** artist/album for a music_video/karaoke singleton, see
+   * VideoMusicLinkFields.tsx. */
+  musicLink: VideoMusicLink;
   /** resolved existing (or freshly picked) series id */
   seriesId: string | null;
   /** series to create on save (create-then-attach) - set by picking
@@ -56,8 +69,6 @@ function fmtEpisode(v: { seasonNumber: number | null; episodeNumber: number | nu
   return "";
 }
 
-const CONTENT_TYPES = ["series", "movie", "clip", "karaoke"] as const;
-
 export function ImportVideoEditorPanel(props: ImportVideoEditorPanelProps) {
   const isSingleton = () => props.value.videos.length === 1;
   const isSeriesContent = () => props.value.contentType === "series";
@@ -81,18 +92,37 @@ export function ImportVideoEditorPanel(props: ImportVideoEditorPanelProps) {
     return "";
   };
 
-  // switching to "movie"/"clip" clears any series/season assignment
+  // switching to a standalone type clears any series/season assignment
   // (they're hidden for standalone content, mirroring
   // EditVideoModal.tsx's handleContentTypeChange); switching to "series"
-  // just reveals the series picker below.
-  const handleContentTypeChange = (type: (typeof CONTENT_TYPES)[number]) => {
+  // just reveals the series picker below. artist/album only apply to the
+  // two music types, so leaving them drops the picks, and entering one with
+  // no artist yet prefills a best guess from the video's title.
+  const handleContentTypeChange = (type: VideoContentType) => {
+    const needsGuess =
+      isMusicContentType(type) &&
+      !props.value.musicLink.artistId &&
+      !props.value.musicLink.artistName.trim();
+    if (needsGuess) {
+      const title = props.value.videos[0]?.title ?? "";
+      void guessMusicLink(title).then((guess) => {
+        const current = props.value.musicLink;
+        // ignore a stale guess if the user picked something meanwhile
+        if (guess && !current.artistId && !current.artistName.trim()) {
+          props.onChange({ ...props.value, musicLink: guess });
+        }
+      });
+    }
+
+    const musicLink = isMusicContentType(type) ? props.value.musicLink : { ...EMPTY_MUSIC_LINK };
     if (type === "series") {
-      props.onChange({ ...props.value, contentType: type });
+      props.onChange({ ...props.value, contentType: type, musicLink });
       return;
     }
     props.onChange({
       ...props.value,
       contentType: type,
+      musicLink,
       seriesId: null,
       pendingNewSeriesName: null,
       videos: props.value.videos.map((v) => ({
@@ -151,24 +181,19 @@ export function ImportVideoEditorPanel(props: ImportVideoEditorPanelProps) {
       <Show when={isSingleton()}>
         <div class="flex flex-col gap-1">
           <label class="body-xs text-[var(--color-text-muted)]">content type</label>
-          <div class="flex gap-2">
-            <For each={CONTENT_TYPES}>
-              {(type) => (
-                <button
-                  type="button"
-                  onClick={() => handleContentTypeChange(type)}
-                  class={`px-3 py-1.5 text-sm rounded ${
-                    props.value.contentType === type
-                      ? "bg-[var(--color-accent-500)] text-white"
-                      : "bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)]"
-                  }`}
-                >
-                  {type}
-                </button>
-              )}
-            </For>
-          </div>
+          <VideoContentTypePicker
+            value={props.value.contentType}
+            onChange={handleContentTypeChange}
+          />
         </div>
+      </Show>
+
+      <Show when={isSingleton() && isMusicContentType(props.value.contentType)}>
+        <VideoMusicLinkFields
+          contentType={props.value.contentType}
+          value={props.value.musicLink}
+          onChange={(musicLink) => props.onChange({ ...props.value, musicLink })}
+        />
       </Show>
 
       <Show when={isSeriesContent() && isSingleton()}>

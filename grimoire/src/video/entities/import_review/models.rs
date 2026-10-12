@@ -44,13 +44,20 @@ pub struct PendingVideoReviewGroup {
 pub struct PendingReviewVideoSummary {
     pub video_id: String,
     pub title: String,
-    /// "series" | "movie" | "clip" | "karaoke" - only meaningful when the group has
-    /// no `series_id` (mirrors `Video::content_type`'s own doc comment).
+    /// "series" | "movie" | "clip" | "karaoke" | "music_video" - only
+    /// meaningful when the group has no `series_id` (mirrors
+    /// `Video::content_type`'s own doc comment).
     pub content_type: String,
     pub season_id: Option<String>,
     pub season_number: Option<i64>,
     pub season_title: Option<String>,
     pub episode_number: Option<i64>,
+    /// artist/album a "music_video"/"karaoke" video is attached to (see
+    /// `Video::artist_id`) - e.g. one the importer guessed from the title.
+    pub artist_id: Option<String>,
+    pub artist_name: Option<String>,
+    pub album_id: Option<String>,
+    pub album_title: Option<String>,
 }
 
 /// request to list pending review sessions
@@ -95,10 +102,10 @@ pub struct VideoReviewPatch {
     /// the uploader never needs the admin-gated create_video_season route.
     /// ignored if `season_id` is set.
     pub new_season: Option<NewSeasonPatch>,
-    /// "series" | "movie" | "clip" | "karaoke" - only meaningful for a standalone
-    /// (non-series) group; reclassifying a video already in a series
-    /// group goes through `move_video` instead, since that also handles
-    /// detaching series_id/season_id.
+    /// "series" | "movie" | "clip" | "karaoke" | "music_video" - only
+    /// meaningful for a standalone (non-series) group; reclassifying a video
+    /// already in a series group goes through `move_video` instead, since
+    /// that also handles detaching series_id/season_id (and artist/album).
     pub content_type: Option<String>,
 }
 
@@ -125,9 +132,30 @@ pub struct MoveVideoReviewRequest {
     pub to_series_id: Option<String>,
     pub to_season_id: Option<String>,
     /// only used when `to_series_id` is `None` (detaching to standalone) -
-    /// "movie" or "clip" (or "karaoke"); defaults to "movie" if omitted. ignored when
-    /// moving into a series (content_type is forced to "series" then).
+    /// "movie", "clip", "karaoke", or "music_video"; defaults to "movie" if
+    /// omitted. ignored when moving into a series (content_type is forced to
+    /// "series" then).
     pub content_type: Option<String>,
+    /// artist for a "music_video"/"karaoke" destination - an existing id.
+    /// like `to_series_id`, the four artist/album fields are the literal
+    /// desired final state: leaving them all empty detaches the video from
+    /// any artist/album. ignored for every other content type.
+    #[serde(default)]
+    pub to_artist_id: Option<String>,
+    /// artist to find-or-create by name, resolved server-side under this
+    /// call's own review permission (same reason as `new_series_title`).
+    /// takes precedence over `to_artist_id` when both are set.
+    #[serde(default)]
+    pub new_artist_name: Option<String>,
+    /// album for a "music_video"/"karaoke" destination - an existing id.
+    /// when an artist is set but no album is, the artist's default
+    /// "music videos"/"karaoke videos" album is used.
+    #[serde(default)]
+    pub to_album_id: Option<String>,
+    /// album to find-or-create by title under the artist. takes precedence
+    /// over `to_album_id` when both are set.
+    #[serde(default)]
+    pub new_album_title: Option<String>,
     /// create (or reuse, if a series with this title already exists) a
     /// series and move the video into it - resolved server-side under
     /// this call's own review permission, so the uploader never needs the

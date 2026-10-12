@@ -5,8 +5,9 @@
 -- list_videos_by_taxon_value) into a single shared projection, and carries
 -- media_blob_blake3 so every read gets a video's content hash for free.
 --
--- no series/season/artist join needed here (unlike song_query_view) -
--- video's series/season rows are fetched separately by their own entities.
+-- no series/season/artist/album join needed here (unlike song_query_view) -
+-- video's series/season/artist/album rows are fetched separately by their
+-- own entities.
 
 DROP VIEW IF EXISTS video_query_view;
 CREATE VIEW video_query_view AS
@@ -21,6 +22,8 @@ SELECT
     v.media_blob_id as media_blob_id,
     v.media_blob_blake3 as media_blob_blake3,
     v.parent_video_id as parent_video_id,
+    v.artist_id as artist_id,
+    v.album_id as album_id,
     v.poster_blob_id as poster_blob_id,
     v.duration_seconds as duration_seconds,
     v.release_date as release_date,

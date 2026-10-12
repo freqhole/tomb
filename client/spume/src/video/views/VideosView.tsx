@@ -54,6 +54,7 @@ const contentTypeOptions = [
   { value: "movie", label: "movie" },
   { value: "clip", label: "clip" },
   { value: "karaoke", label: "karaoke" },
+  { value: "music_video", label: "music video" },
 ];
 const ALL_CONTENT_TYPES = contentTypeOptions.map((o) => o.value);
 
