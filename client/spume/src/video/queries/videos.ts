@@ -123,6 +123,36 @@ export function useVideoExtrasQuery(parentVideoId: () => string | undefined) {
   }));
 }
 
+/** music_video/karaoke videos linked to an album (empty in local mode). */
+export function useVideosByAlbumQuery(albumId: () => string | undefined) {
+  return createQuery(() => ({
+    queryKey: videoQueryKeys.videos.byAlbum(albumId() || ""),
+    queryFn: async () => {
+      const id = albumId();
+      if (!id) return [];
+      return getVideoDataSource().listVideosByAlbum(id);
+    },
+    enabled: !!albumId(),
+    staleTime: 5 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
+  }));
+}
+
+/** music_video/karaoke videos linked to an artist (empty in local mode). */
+export function useVideosByArtistQuery(artistId: () => string | undefined) {
+  return createQuery(() => ({
+    queryKey: videoQueryKeys.videos.byArtist(artistId() || ""),
+    queryFn: async () => {
+      const id = artistId();
+      if (!id) return [];
+      return getVideoDataSource().listVideosByArtist(id);
+    },
+    enabled: !!artistId(),
+    staleTime: 5 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
+  }));
+}
+
 export interface UpdateVideoMutationParams {
   video_id: string;
   title?: string;
@@ -144,6 +174,18 @@ export interface UpdateVideoMutationParams {
   clear_season_id?: boolean;
   /** force parent_video_id to NULL. */
   clear_parent_video_id?: boolean;
+  /** music_video/karaoke only - an existing artist id, or `artist_name` to
+   * find-or-create one by name server-side. */
+  artist_id?: string | null;
+  artist_name?: string | null;
+  /** an existing album id, or `album_title` to find-or-create one under the
+   * artist. neither -> the artist's default album ("music videos"/"karaoke
+   * videos"). */
+  album_id?: string | null;
+  album_title?: string | null;
+  /** detach from artist (and album) / from album only. */
+  clear_artist_id?: boolean;
+  clear_album_id?: boolean;
 }
 
 export function useUpdateVideoMutation() {

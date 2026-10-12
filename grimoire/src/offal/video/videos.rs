@@ -12,10 +12,11 @@ use crate::response::GrimoireResponse;
 use crate::users::UserRole;
 use crate::video::{
     bulk_delete_videos as grimoire_bulk_delete_videos, create_video,
-    delete_video as grimoire_delete_video, get_video, get_video_with_metadata, list_video_extras,
-    list_videos_by_season, list_videos_by_series, list_videos_unattached,
-    query_videos as grimoire_query_videos, reprocess_video as grimoire_reprocess_video,
-    update_videos as grimoire_update_videos, CreateVideoRequest, UpdateVideosRequest,
+    delete_video as grimoire_delete_video, get_video, get_video_with_metadata, guess_video_title,
+    list_video_extras, list_videos_by_album, list_videos_by_artist, list_videos_by_season,
+    list_videos_by_series, list_videos_unattached, query_videos as grimoire_query_videos,
+    reprocess_video as grimoire_reprocess_video, update_videos as grimoire_update_videos,
+    CreateVideoRequest, UpdateVideosRequest,
 };
 
 /// request for getting a video by id
@@ -48,6 +49,24 @@ pub struct ListVideosUnattachedRequest {
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct ListVideoExtrasRequest {
     pub parent_video_id: String,
+}
+
+/// request for listing every video (music_video/karaoke) in an album
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct ListVideosByAlbumRequest {
+    pub album_id: String,
+}
+
+/// request for listing every music_video/karaoke video of an artist
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct ListVideosByArtistRequest {
+    pub artist_id: String,
+}
+
+/// request for a best-guess classification/artist from a video title
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct GuessVideoTitleRequest {
+    pub title: String,
 }
 
 /// request for deleting a video
@@ -196,6 +215,33 @@ pub const ROUTES: &[RouteInfo] = &[
         domain: Domain::Video,
         request_type: "ListVideoExtrasRequest",
         response_type: "Vec<Video>",
+        auth: RouteAuth::Authenticated,
+    },
+    RouteInfo {
+        name: "list_videos_by_album",
+        path: "/api/video/videos/list-by-album",
+        method: Method::POST,
+        domain: Domain::Video,
+        request_type: "ListVideosByAlbumRequest",
+        response_type: "Vec<Video>",
+        auth: RouteAuth::Authenticated,
+    },
+    RouteInfo {
+        name: "list_videos_by_artist",
+        path: "/api/video/videos/list-by-artist",
+        method: Method::POST,
+        domain: Domain::Video,
+        request_type: "ListVideosByArtistRequest",
+        response_type: "Vec<Video>",
+        auth: RouteAuth::Authenticated,
+    },
+    RouteInfo {
+        name: "guess_video_title",
+        path: "/api/video/videos/guess-title",
+        method: Method::POST,
+        domain: Domain::Video,
+        request_type: "GuessVideoTitleRequest",
+        response_type: "VideoTitleGuess",
         auth: RouteAuth::Authenticated,
     },
     RouteInfo {
@@ -411,6 +457,75 @@ pub async fn list_extras(_caller: &Caller, body: JsonValue) -> GrimoireResponse<
 
     let response = list_video_extras(&req.parent_video_id).await;
     response.map(|data| serde_json::to_value(data).unwrap())
+}
+
+/// list every music_video/karaoke video in an album
+///
+/// path: POST /api/video/videos/list-by-album
+pub async fn list_by_album(_caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
+    let req: ListVideosByAlbumRequest = match serde_json::from_value(body) {
+        Ok(r) => r,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "bad request",
+                vec![ErrorDetail::new(
+                    "bad_request",
+                    "bad request",
+                    e.to_string(),
+                )],
+            )
+        }
+    };
+
+    let response = list_videos_by_album(&req.album_id).await;
+    response.map(|data| serde_json::to_value(data).unwrap())
+}
+
+/// list every music_video/karaoke video of an artist
+///
+/// path: POST /api/video/videos/list-by-artist
+pub async fn list_by_artist(_caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
+    let req: ListVideosByArtistRequest = match serde_json::from_value(body) {
+        Ok(r) => r,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "bad request",
+                vec![ErrorDetail::new(
+                    "bad_request",
+                    "bad request",
+                    e.to_string(),
+                )],
+            )
+        }
+    };
+
+    let response = list_videos_by_artist(&req.artist_id).await;
+    response.map(|data| serde_json::to_value(data).unwrap())
+}
+
+/// best-guess content type ("karaoke" when the title says so) and
+/// artist/song split for a title string
+///
+/// path: POST /api/video/videos/guess-title
+pub async fn guess_title(_caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
+    let req: GuessVideoTitleRequest = match serde_json::from_value(body) {
+        Ok(r) => r,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "bad request",
+                vec![ErrorDetail::new(
+                    "bad_request",
+                    "bad request",
+                    e.to_string(),
+                )],
+            )
+        }
+    };
+
+    GrimoireResponse::success(
+        "ok",
+        serde_json::to_value(guess_video_title(&req.title)).unwrap(),
+    )
 }
 
 /// query videos

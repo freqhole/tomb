@@ -269,6 +269,7 @@ pub async fn patch_group(caller: &Caller, body: JsonValue) -> GrimoireResponse<J
                 clear_series_id: false,
                 clear_season_id: false,
                 clear_parent_video_id: false,
+                ..Default::default()
             };
             let result = update_videos(update_req).await;
             if !result.success {
@@ -383,7 +384,8 @@ pub async fn move_video(caller: &Caller, body: JsonValue) -> GrimoireResponse<Js
     let clear_series_id = to_series_id.is_none();
     let clear_season_id = to_season_id.is_none();
     // moving into a series always implies "series" content; moving to
-    // standalone uses the caller's explicit choice (movie/clip),
+    // standalone uses the caller's explicit choice (movie/clip/karaoke/
+    // music_video),
     // defaulting to "movie" to match create_video's own default.
     let content_type = Some(if to_series_id.is_some() {
         "series".to_string()
@@ -413,6 +415,14 @@ pub async fn move_video(caller: &Caller, body: JsonValue) -> GrimoireResponse<Js
         clear_series_id,
         clear_season_id,
         clear_parent_video_id: false,
+        // only music-type destinations carry an artist/album; for every
+        // other type `update_video` detaches them on its own.
+        artist_id: req.to_artist_id.clone(),
+        artist_name: req.new_artist_name.clone(),
+        album_id: req.to_album_id.clone(),
+        album_title: req.new_album_title.clone(),
+        clear_artist_id: req.to_artist_id.is_none() && req.new_artist_name.is_none(),
+        clear_album_id: req.to_album_id.is_none() && req.new_album_title.is_none(),
     };
     let result = update_videos(update_req).await;
     if !result.success {

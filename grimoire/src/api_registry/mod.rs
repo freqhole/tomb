@@ -362,7 +362,8 @@ pub mod type_registry {
         UpdateVideoRequest, UpdateVideoSeasonRequest, UpdateVideoSeriesRequest,
         UpdateVideosRequest, UpdateVideosResult, Video, VideoImportReviewOk, VideoPendingRequest,
         VideoPendingResponse, VideoRendition, VideoReviewPatch, VideoSearchResult, VideoSeason,
-        VideoSeries, VideoSeriesSearchResult, VideoWithMetadata, VideosQueryResult,
+        VideoSeries, VideoSeriesSearchResult, VideoTitleGuess, VideoWithMetadata,
+        VideosQueryResult,
     };
 
     // video domain offal request/response types (phase 2-3)
@@ -398,9 +399,10 @@ pub mod type_registry {
     };
     use crate::offal::video::videos::{
         BulkDeleteVideosRequest, DeleteVideoRenditionRequest, DeleteVideoRequest,
-        GetVideoRenditionsRequest, GetVideoRequest, ListVideoExtrasRequest,
-        ListVideosBySeasonRequest, ListVideosBySeriesRequest, ListVideosUnattachedRequest,
-        QueryVideosRequest, ReprocessVideoRequest, VideoRenditionOption,
+        GetVideoRenditionsRequest, GetVideoRequest, GuessVideoTitleRequest, ListVideoExtrasRequest,
+        ListVideosByAlbumRequest, ListVideosByArtistRequest, ListVideosBySeasonRequest,
+        ListVideosBySeriesRequest, ListVideosUnattachedRequest, QueryVideosRequest,
+        ReprocessVideoRequest, VideoRenditionOption,
     };
 
     pub fn register_all_types(gen: &mut ZodGenerator, registered: &mut HashSet<String>) {
@@ -927,6 +929,14 @@ pub mod type_registry {
         registered.insert("ListVideosUnattachedRequest".to_string());
         gen.add_schema::<ListVideoExtrasRequest>("ListVideoExtrasRequest");
         registered.insert("ListVideoExtrasRequest".to_string());
+        gen.add_schema::<ListVideosByAlbumRequest>("ListVideosByAlbumRequest");
+        registered.insert("ListVideosByAlbumRequest".to_string());
+        gen.add_schema::<ListVideosByArtistRequest>("ListVideosByArtistRequest");
+        registered.insert("ListVideosByArtistRequest".to_string());
+        gen.add_schema::<GuessVideoTitleRequest>("GuessVideoTitleRequest");
+        registered.insert("GuessVideoTitleRequest".to_string());
+        gen.add_schema::<VideoTitleGuess>("VideoTitleGuess");
+        registered.insert("VideoTitleGuess".to_string());
         gen.add_schema::<DeleteVideoRequest>("DeleteVideoRequest");
         registered.insert("DeleteVideoRequest".to_string());
         gen.add_schema::<BulkDeleteVideosRequest>("BulkDeleteVideosRequest");

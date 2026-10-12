@@ -39,6 +39,11 @@ export const videoQueryKeys = {
     /** a movie's "extras" (see `Video::parent_video_id`). */
     extras: (parentVideoId: string) =>
       [...videoQueryKeys.videos.all(), "extras", parentVideoId] as const,
+    /** music_video/karaoke videos on an album. */
+    byAlbum: (albumId: string) => [...videoQueryKeys.videos.all(), "by-album", albumId] as const,
+    /** music_video/karaoke videos on an artist. */
+    byArtist: (artistId: string) =>
+      [...videoQueryKeys.videos.all(), "by-artist", artistId] as const,
   },
 
   series: {

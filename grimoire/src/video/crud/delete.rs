@@ -17,6 +17,7 @@ use crate::database;
 use crate::error::ErrorDetail;
 use crate::media_blobz::list_renditions;
 use crate::response::GrimoireResponse;
+use crate::video::crud::music_link::cleanup_orphaned_music_links;
 use crate::video::entities::{seasons, series, videos};
 
 /// result of a bulk video delete operation
@@ -99,6 +100,17 @@ async fn purge_poster_if_present(poster_blob_id: Option<&str>, deleted_by: Optio
 /// orphaned media blob, poster, and renditions (app-generated/app-data-dir
 /// files only - never a user's own library file).
 pub async fn delete_video(id: &str, deleted_by: Option<String>) -> GrimoireResponse<()> {
+    delete_video_impl(id, deleted_by, true).await
+}
+
+/// `cleanup_links` soft-deletes the video's now-empty series/season/album/
+/// artist afterward. the series/season cascades below turn it off: they
+/// delete the whole series/season themselves once every video is gone.
+async fn delete_video_impl(
+    id: &str,
+    deleted_by: Option<String>,
+    cleanup_links: bool,
+) -> GrimoireResponse<()> {
     let pool = match database::connect().await {
         Ok(p) => p,
         Err(e) => {
@@ -121,9 +133,32 @@ pub async fn delete_video(id: &str, deleted_by: Option<String>) -> GrimoireRespo
     .flatten()
     .map(|row| (row.media_blob_id, row.poster_blob_id));
 
+    // remember which series/season/album/artist this video belonged to, so
+    // any that just lost their last member can be cleaned up below.
+    let links = sqlx::query!(
+        "SELECT series_id, season_id, artist_id, album_id FROM videoz WHERE id = ?",
+        id
+    )
+    .fetch_optional(&pool)
+    .await
+    .ok()
+    .flatten();
+
     let response = videos::delete_video(id, deleted_by.clone()).await;
     if !response.success {
         return response;
+    }
+
+    if let Some(links) = links.filter(|_| cleanup_links) {
+        if let Some(season_id) = links.season_id {
+            let _ = delete_video_season_if_unused(&season_id).await;
+        }
+        if let Some(series_id) = links.series_id {
+            let _ = delete_video_series_if_unused(&series_id).await;
+        }
+        let album_ids: Vec<String> = links.album_id.into_iter().collect();
+        let artist_ids: Vec<String> = links.artist_id.into_iter().collect();
+        cleanup_orphaned_music_links(&album_ids, &artist_ids).await;
     }
 
     if let Err(e) = cleanup_entity_side_tables(&pool, VideoEntityType::Video, id).await {
@@ -192,7 +227,7 @@ pub async fn delete_video_season(
     // reuse delete_video (rather than videos::delete_video directly) so
     // each video's own blob/rendition purge happens for free.
     for video_id in &video_ids {
-        let response = delete_video(video_id, deleted_by.clone()).await;
+        let response = delete_video_impl(video_id, deleted_by.clone(), false).await;
         if !response.success {
             return response;
         }
@@ -281,7 +316,7 @@ pub async fn delete_video_series(
     // series (season-grouped or not), so seasons below only need their
     // own row + poster handled, not another video pass.
     for video_id in &video_ids {
-        let response = delete_video(video_id, deleted_by.clone()).await;
+        let response = delete_video_impl(video_id, deleted_by.clone(), false).await;
         if !response.success {
             return response;
         }

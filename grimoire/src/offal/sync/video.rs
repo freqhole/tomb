@@ -168,6 +168,7 @@ pub async fn sync_video_by_blake3_impl(
             // the unique constraint; reuse it the same way a fresh pull would.
             let (series_id, season_id) =
                 resolve_sync_series_season(&req, Some(caller.user_id.clone())).await;
+            let music_link = resolve_sync_music_link(&req, Some(caller.user_id.as_str())).await;
 
             let create_resp = crate::video::create_video(crate::video::CreateVideoRequest {
                 series_id: series_id.clone(),
@@ -186,6 +187,8 @@ pub async fn sync_video_by_blake3_impl(
                 duration_seconds: req.duration_seconds,
                 release_date: req.release_date.clone(),
                 created_by: Some(caller.user_id.clone()),
+                artist_id: music_link.artist_id,
+                album_id: music_link.album_id,
             })
             .await;
 
@@ -268,6 +271,7 @@ pub async fn sync_video_by_blake3_impl(
                 // for both the new-row and existing-row paths.
                 parent_video_id: None,
                 clear_parent_video_id: false,
+                ..Default::default()
             })
             .await;
             if !update.success {
@@ -283,6 +287,30 @@ pub async fn sync_video_by_blake3_impl(
         // already applied at create time - re-resolve is cheap and idempotent
         resolve_sync_series_season(&req, Some(caller.user_id.clone())).await
     };
+
+    // a video that arrived earlier without its artist/album (or under the
+    // wrong ones) gets filed on re-sync, same as series/season above.
+    if existing {
+        let music_link = resolve_sync_music_link(&req, Some(caller.user_id.as_str())).await;
+        if music_link.artist_id.is_some() {
+            let update = crate::video::update_video(crate::video::UpdateVideoRequest {
+                video_id: video_id.clone(),
+                content_type: req.content_type.clone(),
+                updated_by: Some(caller.user_id.clone()),
+                artist_id: music_link.artist_id,
+                album_id: music_link.album_id,
+                ..Default::default()
+            })
+            .await;
+            if !update.success {
+                tracing::warn!(
+                    "sync_video_by_blake3: failed to relink artist/album for {}: {}",
+                    video_id,
+                    update.message
+                );
+            }
+        }
+    }
 
     // resolve this video's parent movie (see `Video::parent_video_id`) by
     // matching the SOURCE'S parent's own content hash - never its raw,
@@ -315,6 +343,7 @@ pub async fn sync_video_by_blake3_impl(
             clear_season_id: false,
             parent_video_id: Some(parent_id.clone()),
             clear_parent_video_id: false,
+            ..Default::default()
         })
         .await;
         if !update.success {
@@ -366,6 +395,7 @@ pub async fn sync_video_by_blake3_impl(
             // see the parent-linking block above - never re-cleared here.
             parent_video_id: None,
             clear_parent_video_id: false,
+            ..Default::default()
         })
         .await;
         if !update.success {
@@ -455,6 +485,51 @@ pub async fn sync_video_by_blake3_impl(
         },
         serde_json::to_value(response).unwrap_or_default(),
     )
+}
+
+/// find-or-create the artist (and album) named in a video sync request.
+/// only music-type videos carry an artist; anything unresolvable is logged
+/// and treated as "no artist" - a sync never fails over missing metadata.
+async fn resolve_sync_music_link(
+    req: &SyncVideoByBlake3Request,
+    created_by: Option<&str>,
+) -> crate::video::crud::music_link::ResolvedMusicLink {
+    use crate::video::crud::music_link::{
+        resolve_music_link, CurrentMusicLink, MusicLinkRequest, ResolvedMusicLink,
+    };
+
+    let content_type = req.content_type.as_deref().unwrap_or_default();
+    if !crate::video::is_music_content_type(content_type)
+        || req
+            .artist_name
+            .as_deref()
+            .is_none_or(|n| n.trim().is_empty())
+    {
+        return ResolvedMusicLink::default();
+    }
+
+    match resolve_music_link(
+        content_type,
+        &MusicLinkRequest {
+            artist_name: req.artist_name.clone(),
+            album_title: req.album_title.clone(),
+            ..Default::default()
+        },
+        &CurrentMusicLink::default(),
+        created_by,
+    )
+    .await
+    {
+        Ok(link) => link,
+        Err(e) => {
+            tracing::warn!(
+                "sync_video_by_blake3: could not resolve artist \"{}\": {}",
+                req.artist_name.as_deref().unwrap_or_default(),
+                e
+            );
+            ResolvedMusicLink::default()
+        }
+    }
 }
 
 /// find-or-create the series (and season) named in a video sync request.

@@ -17,6 +17,8 @@ import { FavoriteHeart } from "../ratings/FavoriteHeart";
 import { Rating } from "../ratings/Rating";
 import { MarqueeText } from "../text/MarqueeText";
 import MediaImage from "../media/MediaImage";
+import { useBackgroundImageFromImages } from "../../app/hooks/useBackgroundImageSource";
+import { hasBackgroundImage } from "../../app/services/backgroundImage";
 import { EntityLinks } from "../media/EntityLinks";
 import { TaxonChipList } from "../badges/TaxonChips";
 import { canUpdateArtist } from "../../music/data/permissions";
@@ -26,6 +28,8 @@ import { isCharnelMode } from "../../app/services/charnel";
 import { showStationSelector } from "../../music/hooks/stationSelectorState";
 import { useImageCarouselLoading } from "../../music/hooks/modals";
 import { getCurrentRemote } from "../../music/data";
+import { useVideosByArtistQuery } from "../../video/queries/videos";
+import { VideoListSection } from "../../video/components/VideoListSection";
 import { ShareButton } from "../buttons/ShareButton";
 import type { Remote } from "../../app/services/storage/schemas/remote";
 import type { Accessor } from "solid-js";
@@ -172,6 +176,21 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
   // true while the artist-avatar click is still resolving image urls
   // for the carousel — shows a spinner instead of the carousel icon.
   const imageCarouselLoading = useImageCarouselLoading();
+
+  // music_video/karaoke videos for this artist (an artist may have only these)
+  const artistVideosQuery = useVideosByArtistQuery(() => props.artist.artist_id);
+  const hasVideos = () => (artistVideosQuery.data?.length ?? 0) > 0;
+  // play/shuffle/queue only apply to songs - hidden for a video-only artist
+  const showSongControls = () => props.songs.length > 0 || !!props.isLoadingSongs;
+
+  // full-page blurred backdrop from the artist's image, same as playlists.
+  // cleans up on unmount (deselect / navigate away).
+  useBackgroundImageFromImages(() => props.artist.images);
+
+  // blurred (semi-transparent when backdrop-filter is disabled in config -
+  // see theme.css's [data-no-backdrop-filter] fallback) bar behind the
+  // action buttons, only while a backdrop image is showing.
+  const actionBarBlur = () => (hasBackgroundImage() ? "backdrop-blur-sm rounded-lg p-1" : "");
 
   // group songs by album
   const albumGroups = createMemo((): AlbumGroup[] => {
@@ -329,7 +348,7 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
           sticky
           showBackButton={props.showBackButton}
           onBack={props.onBack}
-          class="px-4 py-3 wide:hidden"
+          class="px-4 py-3 wide:hidden relative z-20 !bg-transparent backdrop-blur-sm"
         />
       </Show>
 
@@ -477,7 +496,7 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
                     width shrinks (e.g. the queue panel open alongside a
                     narrower main content column) even though the viewport
                     itself is at the "wide" breakpoint. */}
-                <div class="flex items-center flex-wrap gap-2">
+                <div class={`flex items-center flex-wrap gap-2 w-fit ${actionBarBlur()}`}>
                   <Show when={props.onEditArtist && canUpdateArtist()}>
                     <button
                       onClick={props.onEditArtist}
@@ -488,33 +507,35 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
                       <Icon name={IconNames.edit} size={20} />
                     </button>
                   </Show>
-                  <Button
-                    variant="primary"
-                    size="sm"
-                    loading={pendingAction() === "play"}
-                    disabled={pendingAction() !== null}
-                    onClick={handlePlayAll}
-                  >
-                    play all
-                  </Button>
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    loading={pendingAction() === "shuffle"}
-                    disabled={pendingAction() !== null}
-                    onClick={handleShuffle}
-                  >
-                    shuffle
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    loading={pendingAction() === "queue"}
-                    disabled={pendingAction() !== null}
-                    onClick={handleAddToQueue}
-                  >
-                    +queue
-                  </Button>
+                  <Show when={showSongControls()}>
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      loading={pendingAction() === "play"}
+                      disabled={pendingAction() !== null}
+                      onClick={handlePlayAll}
+                    >
+                      play all
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      loading={pendingAction() === "shuffle"}
+                      disabled={pendingAction() !== null}
+                      onClick={handleShuffle}
+                    >
+                      shuffle
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      loading={pendingAction() === "queue"}
+                      disabled={pendingAction() !== null}
+                      onClick={handleAddToQueue}
+                    >
+                      +queue
+                    </Button>
+                  </Show>
                   <Show when={isCharnelMode() || !!getCurrentRemote()}>
                     <Button
                       variant="ghost"
@@ -705,7 +726,9 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
                   flex-wrap so this doesn't overflow at narrow widths —
                   the icon-only buttons above buy some room but can't
                   guarantee everything fits on one line in every case. */}
-              <div class="mt-2 flex items-center justify-center flex-wrap gap-2">
+              <div
+                class={`mt-2 flex items-center justify-center flex-wrap gap-2 w-fit mx-auto ${actionBarBlur()}`}
+              >
                 <Show when={props.onEditArtist && canUpdateArtist()}>
                   <button
                     onClick={props.onEditArtist}
@@ -716,43 +739,45 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
                     <Icon name={IconNames.edit} size={20} />
                   </button>
                 </Show>
-                <Button
-                  variant="primary"
-                  size="sm"
-                  loading={pendingAction() === "play"}
-                  disabled={pendingAction() !== null}
-                  onClick={handlePlayAll}
-                >
-                  play
-                </Button>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  loading={pendingAction() === "shuffle"}
-                  disabled={pendingAction() !== null}
-                  onClick={handleShuffle}
-                  title="shuffle"
-                  aria-label="shuffle"
-                >
-                  <span class="hidden wide:inline">shuffle</span>
-                  <span class="wide:hidden inline-flex items-center">
-                    <Icon name={IconNames.shuffle} />
-                  </span>
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  loading={pendingAction() === "queue"}
-                  disabled={pendingAction() !== null}
-                  onClick={handleAddToQueue}
-                  title="add to queue"
-                  aria-label="add to queue"
-                >
-                  <span class="hidden wide:inline">+queue</span>
-                  <span class="wide:hidden inline-flex items-center">
-                    <Icon name={IconNames.queue} />
-                  </span>
-                </Button>
+                <Show when={showSongControls()}>
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    loading={pendingAction() === "play"}
+                    disabled={pendingAction() !== null}
+                    onClick={handlePlayAll}
+                  >
+                    play
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    loading={pendingAction() === "shuffle"}
+                    disabled={pendingAction() !== null}
+                    onClick={handleShuffle}
+                    title="shuffle"
+                    aria-label="shuffle"
+                  >
+                    <span class="hidden wide:inline">shuffle</span>
+                    <span class="wide:hidden inline-flex items-center">
+                      <Icon name={IconNames.shuffle} />
+                    </span>
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    loading={pendingAction() === "queue"}
+                    disabled={pendingAction() !== null}
+                    onClick={handleAddToQueue}
+                    title="add to queue"
+                    aria-label="add to queue"
+                  >
+                    <span class="hidden wide:inline">+queue</span>
+                    <span class="wide:hidden inline-flex items-center">
+                      <Icon name={IconNames.queue} />
+                    </span>
+                  </Button>
+                </Show>
                 <Show when={isCharnelMode() || !!getCurrentRemote()}>
                   <Button
                     variant="ghost"
@@ -872,7 +897,11 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
           >
             <Show
               when={albumGroups().length > 0}
-              fallback={<p class="text-[var(--color-text-tertiary)] text-sm">no albums found</p>}
+              fallback={
+                <Show when={!hasVideos()}>
+                  <p class="text-[var(--color-text-tertiary)] text-sm">no albums found</p>
+                </Show>
+              }
             >
               <div class="space-y-6">
                 <Index each={albumGroups()}>
@@ -940,6 +969,10 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
                 </Index>
               </div>
             </Show>
+            <VideoListSection
+              videos={artistVideosQuery.data}
+              class={albumGroups().length > 0 ? "pt-6" : undefined}
+            />
           </Show>
         </div>
       </div>

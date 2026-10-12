@@ -6,8 +6,10 @@
 //!
 //! 1. probes duration/resolution via ffprobe
 //! 2. dedupes against an already-imported video for the same blob
-//! 3. creates the `videoz` row (series/season left unassigned - organizing
-//!    an imported video is a separate, later, manual step)
+//! 3. creates the `videoz` row (series/season left unassigned unless the
+//!    title clearly names them, and a title containing "karaoke" is
+//!    classified as karaoke with a best-guess artist - organizing an
+//!    imported video is otherwise a separate, later, manual step)
 //! 4. extracts a poster frame + any embedded subtitle tracks inline
 //! 5. enqueues a `TranscodeVideo` job
 
@@ -17,7 +19,8 @@ use crate::jobs::{CreateJobRequest, Job, JobError, JobType, TranscodeVideoParams
 use crate::media_blobz::ffmpeg_runner::{humanize_ffmpeg_error, run_ffmpeg};
 use crate::media_blobz::{create_media_blob, get_media_blob, BlobType, CreateMediaBlobRequest};
 use crate::response::GrimoireResponse;
-use crate::video::{create_video, get_video, CreateVideoRequest};
+use crate::video::crud::music_link::{resolve_music_link, CurrentMusicLink, MusicLinkRequest};
+use crate::video::{create_video, get_video, guess_video_title, CreateVideoRequest};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use tracing::{debug, info, warn};
@@ -116,6 +119,8 @@ pub async fn import_video_file(
         .unwrap_or("untitled")
         .to_string();
 
+    let title_guess = guess_video_title(&raw_title);
+
     // a yt-dlp url fetch is a "clip" by default (unless series detection
     // below finds a match) - scanned/uploaded standalone videos keep the
     // existing "movie"/"series" defaults handled inside `create_video`.
@@ -188,11 +193,49 @@ pub async fn import_video_file(
         }
     }
 
+    // karaoke detection - runs for every import path (yt-dlp fetch, scanned
+    // files, uploads) since they all land here. a real season/episode match
+    // above wins: that's a series, whatever the title says. otherwise the
+    // word "karaoke" in the title classifies the video, and an
+    // "artist - song" split is resolved to an artist (found-or-created,
+    // like a detected series) with the default "karaoke videos" album.
+    // everything here is best-effort and editable afterward in the review
+    // panel / edit modal.
+    let mut artist_id = None;
+    let mut album_id = None;
+    if series_id.is_none() && title_guess.content_type.as_deref() == Some("karaoke") {
+        content_type = Some("karaoke".to_string());
+        if let Some(artist_name) = title_guess.artist.clone() {
+            match resolve_music_link(
+                "karaoke",
+                &MusicLinkRequest {
+                    artist_name: Some(artist_name.clone()),
+                    ..Default::default()
+                },
+                &CurrentMusicLink::default(),
+                created_by.as_deref(),
+            )
+            .await
+            {
+                Ok(link) => {
+                    artist_id = link.artist_id;
+                    album_id = link.album_id;
+                }
+                Err(e) => warn!(
+                    "karaoke artist '{}' guessed from title could not be resolved: {}",
+                    artist_name, e
+                ),
+            }
+        }
+    }
+
     let create_req = CreateVideoRequest {
         series_id,
         season_id,
         episode_number,
         content_type,
+        artist_id,
+        album_id,
         title,
         description: None,
         media_blob_id: media_blob_id.to_string(),
@@ -364,6 +407,7 @@ pub async fn import_video_file(
                 clear_season_id: false,
                 parent_video_id: None,
                 clear_parent_video_id: false,
+                ..Default::default()
             })
             .await;
             if update_resp.success {
@@ -682,6 +726,7 @@ pub async fn reprocess_video(
             clear_season_id: false,
             parent_video_id: None,
             clear_parent_video_id: false,
+            ..Default::default()
         })
         .await;
         if !update_resp.success {

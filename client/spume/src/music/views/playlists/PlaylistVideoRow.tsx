@@ -14,6 +14,7 @@ import { formatSeasonLabel } from "../../../components/forms/VideoSeasonAutocomp
 import { useLocalVideoPosterUrl } from "../../../video/components/VideoCard";
 import type { PlaylistVideoItem } from "../../../video/queries/playlistItems";
 import type { MergedPlaylistItem } from "./usePlaylistMergedItems";
+import { contentTypeLabel } from "../../../video/utils/contentType";
 
 export interface PlaylistVideoRowProps {
   item: Extract<MergedPlaylistItem, { kind: "video" }>;
@@ -71,7 +72,9 @@ export function PlaylistVideoRow(props: PlaylistVideoRowProps) {
       : undefined;
     const seasonLabel = season ? formatSeasonLabel(season.season_number, season.title) : null;
 
-    const parts = [video.content_type || null, series?.title ?? null].filter(Boolean) as string[];
+    const parts = [contentTypeLabel(video.content_type) || null, series?.title ?? null].filter(
+      Boolean
+    ) as string[];
     if (seasonLabel) parts.push(seasonLabel);
     if (video.episode_number != null) {
       parts.push(`episode ${video.episode_number}`);

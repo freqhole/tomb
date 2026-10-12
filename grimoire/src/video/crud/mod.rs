@@ -7,6 +7,7 @@ pub mod entity_imagez;
 pub mod entity_tagz;
 pub mod entity_taxonz;
 pub mod entity_urlz;
+pub mod music_link;
 pub mod playback_progressz;
 pub mod query;
 pub mod update;

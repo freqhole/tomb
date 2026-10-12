@@ -25,6 +25,8 @@ import { useVideoSeriesAggregateTagsQuery } from "../queries/tags";
 import { useVideoSeriesAggregateTaxonsQuery } from "../queries/taxons";
 import { videoQueryKeys } from "../queries/queryKeys";
 import { useVideoSeriesFavoriteStatuses } from "../hooks/useVideoSeriesFavoriteStatuses";
+import { hasBackgroundImage } from "../../app/services/backgroundImage";
+import { useVideoSeriesBackgroundImage } from "../hooks/useVideoSeriesBackgroundImage";
 import { useToggleFavoriteMutation } from "../../music/queries/favorites";
 import { playVideoQueue } from "../services/queue/playVideoQueue";
 import { addVideosToQueue, shuffleVideos } from "../services/videoQueueActions";
@@ -66,6 +68,10 @@ export function VideoSeriesDetailPanel(props: VideoSeriesDetailPanelProps) {
   const detailQuery = useVideoSeriesDetailQuery(() => props.seriesId);
   const queryClient = useQueryClient();
   const currentRemoteFull = createShareSourceRemote();
+
+  // full-page blurred backdrop from the series poster, same as playlists.
+  // cleans up on unmount (deselect / navigate away).
+  useVideoSeriesBackgroundImage(() => detailQuery.data?.series);
 
   // favorite status for this series (own bulk-status query, mirrors
   // VideoDetailView's single-id useVideoFavoriteStatuses usage).
@@ -389,7 +395,7 @@ export function VideoSeriesDetailPanel(props: VideoSeriesDetailPanelProps) {
             sticky
             showBackButton={props.showBackButton}
             onBack={props.onBack}
-            class="px-4 py-3 @[900px]:hidden"
+            class="px-4 py-3 @[900px]:hidden relative z-20 !bg-transparent backdrop-blur-sm"
           />
         )}
       </Show>
@@ -694,7 +700,7 @@ export function VideoSeriesDetailPanel(props: VideoSeriesDetailPanelProps) {
                               onClick={() => collapsible() && toggleSeason(season.id)}
                               class={`w-full flex items-center gap-3 px-2 py-2 rounded transition-colors text-left ${
                                 collapsible()
-                                  ? "hover:bg-[var(--color-bg-elevated)] cursor-pointer"
+                                  ? `cursor-pointer ${hasBackgroundImage() ? "hover:bg-black/40" : "hover:bg-[var(--color-bg-elevated)]"}`
                                   : ""
                               }`}
                             >

@@ -7,12 +7,16 @@
 import { createMemo, Show } from "solid-js";
 import { useNavigate } from "@solidjs/router";
 import { MediaImage } from "../../components/media/MediaImage";
+import { hasBackgroundImage } from "../../app/services/backgroundImage";
 import { ContextMenu } from "../../components/overlays/ContextMenu";
 import { PlayIcon } from "../../components/icons/registry";
+import { Rating } from "../../components/ratings/Rating";
+import { FavoriteHeart } from "../../components/ratings/FavoriteHeart";
 import { formatDuration } from "../../utils/formatDuration";
 import { buildRoute } from "../../music/utils/routing";
 import { useVideoContextMenu } from "../hooks/contextMenu";
 import { useLocalVideoPosterUrl } from "./VideoCard";
+import { contentTypeLabel } from "../utils/contentType";
 import type { VideoSummary } from "../data/types";
 
 export interface VideoListRowProps {
@@ -23,6 +27,14 @@ export interface VideoListRowProps {
   index?: number;
   onPlay: () => void;
   onTagsSaved?: () => void;
+  /** show the content type ("music video", "karaoke", ...) next to the title. */
+  showContentType?: boolean;
+  /** the caller's own rating (0-5) - omit the whole control by leaving
+   *  `onRatingChange` unset (mirrors VideosTable.tsx's `<Show>` gating). */
+  rating?: number;
+  onRatingChange?: (rating: number) => void;
+  isFavorite?: boolean;
+  onFavoriteToggle?: (isFavorite: boolean) => void;
 }
 
 export function VideoListRow(props: VideoListRowProps) {
@@ -41,7 +53,9 @@ export function VideoListRow(props: VideoListRowProps) {
     <ContextMenu actions={contextMenuActions()}>
       <div
         onClick={() => navigate(buildRoute(`/video/${props.video.id}`))}
-        class="flex items-center gap-3 px-2 py-2 rounded cursor-pointer hover:bg-[var(--color-bg-elevated)] transition-colors group"
+        class={`flex items-center gap-3 px-2 py-2 rounded cursor-pointer transition-colors group ${
+          hasBackgroundImage() ? "hover:bg-black/40" : "hover:bg-[var(--color-bg-elevated)]"
+        }`}
       >
         <Show when={props.index !== undefined}>
           <span class="w-8 text-sm text-[var(--color-text-tertiary)] text-right flex-shrink-0">
@@ -100,6 +114,11 @@ export function VideoListRow(props: VideoListRowProps) {
         <span class="flex-1 min-w-0 truncate text-sm text-[var(--color-text-primary)] group-hover:text-[var(--color-accent-500)] transition-colors">
           {props.video.title}
         </span>
+        <Show when={props.showContentType && props.video.content_type}>
+          <span class="text-xs text-[var(--color-text-tertiary)] flex-shrink-0">
+            {contentTypeLabel(props.video.content_type)}
+          </span>
+        </Show>
         <Show when={props.video.play_count != null && props.video.play_count > 0}>
           <span
             class="text-xs text-[var(--color-text-muted)] flex-shrink-0"
@@ -111,6 +130,20 @@ export function VideoListRow(props: VideoListRowProps) {
         <span class="text-xs text-[var(--color-text-tertiary)] flex-shrink-0">
           {formatDuration(props.video.duration_seconds)}
         </span>
+        <Show when={props.onRatingChange}>
+          <div class="flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+            <Rating rating={props.rating ?? 0} size="sm" onRatingChange={props.onRatingChange} />
+          </div>
+        </Show>
+        <Show when={props.onFavoriteToggle}>
+          <div class="flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+            <FavoriteHeart
+              isFavorite={props.isFavorite ?? false}
+              onToggle={props.onFavoriteToggle}
+              size="sm"
+            />
+          </div>
+        </Show>
       </div>
     </ContextMenu>
   );

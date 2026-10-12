@@ -1,13 +1,23 @@
 // edit video modal — single-video metadata editor, mirrors
 // SongEditorModal.tsx's shape: title, description, episode number,
-// release date, series/season assignment (with create-new-series
-// support), taxon links, entity url links, and renditions list with
+// release date, content type (series/movie/clip/karaoke/music video),
+// series/season assignment (with create-new-series support) or artist/album
+// assignment for music + karaoke videos, taxon links, entity url links, and renditions list with
 // hard-delete.
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 import { Button } from "../buttons/Button";
 import { TextInput } from "../forms/TextInput";
 import { VideoSeriesAutocomplete } from "../forms/VideoSeriesAutocomplete";
 import { VideoAutocomplete } from "../forms/VideoAutocomplete";
+import { VideoContentTypePicker } from "../forms/VideoContentTypePicker";
+import {
+  EMPTY_MUSIC_LINK,
+  VideoMusicLinkFields,
+  guessMusicLink,
+  musicLinkToUpdateFields,
+  type VideoMusicLink,
+} from "../forms/VideoMusicLinkFields";
+import { isMusicContentType } from "../../video/utils/contentType";
 import {
   VideoSeasonAutocomplete,
   formatSeasonLabel,
@@ -37,6 +47,8 @@ import type { ImageMetadata } from "../../music/services/storage/types";
 import type { VideoRenditionOption } from "@freqhole/api-client";
 import { queryClient } from "../../queryClient";
 import { videoQueryKeys } from "../../video/queries/queryKeys";
+import { VIDEO_CONTENT_TYPES } from "../../video/utils/contentType";
+import { queryKeys } from "../../music/queries/queryKeys";
 import { Modal } from "./Modal";
 
 // broad invalidation so any other view (video grid tiles, series detail
@@ -47,6 +59,13 @@ import { Modal } from "./Modal";
 function invalidateVideoQueries(): void {
   void queryClient.invalidateQueries({ queryKey: videoQueryKeys.videos.all() });
   void queryClient.invalidateQueries({ queryKey: videoQueryKeys.series.all() });
+}
+// a video save can create/remove artists + albums (find-or-create by name,
+// orphan cleanup), so their lists + detail views have to refetch too.
+function invalidateMusicLinkQueries(): void {
+  void queryClient.invalidateQueries({ queryKey: queryKeys.albums.all() });
+  void queryClient.invalidateQueries({ queryKey: queryKeys.artists.all() });
+  void queryClient.invalidateQueries({ queryKey: ["artist", "albums"] });
 }
 import { Icon, IconNames } from "../icons/registry";
 import { formatDateTime } from "../../utils/dateTime";
@@ -130,6 +149,14 @@ export function EditVideoModal(props: EditVideoModalProps) {
     season_number: number;
     title: string | null;
   } | null>(null);
+
+  // artist/album for music_video/karaoke videos. name-based, see
+  // VideoMusicLinkFields.tsx - the artist/album is only found-or-created
+  // (server-side) when the modal is saved.
+  const [musicLink, setMusicLink] = createSignal<VideoMusicLink>({ ...EMPTY_MUSIC_LINK });
+  const [initialMusicLink, setInitialMusicLink] = createSignal<VideoMusicLink>({
+    ...EMPTY_MUSIC_LINK,
+  });
 
   // display text for the currently-assigned parent movie (see
   // `Video::parent_video_id`) - resolved via fetchParentVideoTitle since
@@ -356,9 +383,37 @@ export function EditVideoModal(props: EditVideoModalProps) {
       void fetchSeriesTitle(video.series_id ?? null);
       void fetchSeasonLabel(video.series_id ?? null, video.season_id ?? null);
       void fetchParentVideoTitle(video.parent_video_id ?? null);
+      void fetchMusicLink(video.artist_id ?? null, video.album_id ?? null);
       void fetchImages(props.videoId);
     }
   });
+
+  // resolve the video's artist/album ids to display names (formData only
+  // keeps ids server-side, the pickers are name-based).
+  const fetchMusicLink = async (artistId: string | null, albumId: string | null) => {
+    const link: VideoMusicLink = { ...EMPTY_MUSIC_LINK, artistId, albumId };
+    // ids first, so a save before the names resolve still keeps the link
+    setMusicLink({ ...link });
+    setInitialMusicLink({ ...link });
+    if (artistId || albumId) {
+      try {
+        const remote = getCurrentRemote();
+        if (remote) {
+          const client = await getClientForRemote(remote);
+          const [artist, album] = await Promise.all([
+            artistId ? client.music.getArtist({ id: artistId }) : null,
+            albumId ? client.music.getAlbum({ id: albumId }) : null,
+          ]);
+          if (artist?.success) link.artistName = artist.data.name;
+          if (album?.success) link.albumTitle = album.data.title;
+        }
+      } catch (err) {
+        console.error("failed to fetch artist/album:", err);
+      }
+    }
+    setMusicLink(link);
+    setInitialMusicLink({ ...link });
+  };
 
   const fetchSeriesTitle = async (seriesId: string | null) => {
     if (!seriesId) {
@@ -496,6 +551,17 @@ export function EditVideoModal(props: EditVideoModalProps) {
     }
   };
 
+  const musicLinkChanged = () => {
+    const a = musicLink();
+    const b = initialMusicLink();
+    return (
+      a.artistId !== b.artistId ||
+      a.albumId !== b.albumId ||
+      a.artistName.trim() !== b.artistName.trim() ||
+      a.albumTitle.trim() !== b.albumTitle.trim()
+    );
+  };
+
   const hasChanges = createMemo(() => {
     const initial = initialData();
     if (!initial) return false;
@@ -511,6 +577,7 @@ export function EditVideoModal(props: EditVideoModalProps) {
       current.parent_video_id !== initial.parent_video_id ||
       pendingNewSeriesName() !== null ||
       pendingNewSeason() !== null ||
+      musicLinkChanged() ||
       urlsChanged() ||
       taxonsDirty()
     );
@@ -677,14 +744,29 @@ export function EditVideoModal(props: EditVideoModalProps) {
     setFormData((prev) => ({ ...prev, parent_video_id: null }));
   };
 
-  // switching to "movie"/"clip" clears any series/season assignment (they're
-  // hidden for standalone content); switching to "series" just reveals the
-  // series picker below and leaves series_id null until one is chosen.
-  const handleContentTypeChange = (value: "series" | "movie" | "clip" | "karaoke") => {
+  // switching to a standalone type ("movie"/"clip"/"karaoke"/"music_video")
+  // clears any series/season assignment (they're hidden for standalone
+  // content); switching to "series" just reveals the series picker below and
+  // leaves series_id null until one is chosen. artist/album only apply to
+  // the two music types, so leaving them drops the picks, and entering one
+  // with no artist yet prefills a best guess from the title.
+  const handleContentTypeChange = (value: (typeof VIDEO_CONTENT_TYPES)[number]) => {
+    if (!isMusicContentType(value)) {
+      setMusicLink({ ...EMPTY_MUSIC_LINK });
+    } else if (!musicLink().artistId && !musicLink().artistName.trim()) {
+      void guessMusicLink(formData().title).then((guess) => {
+        // ignore a stale guess if the user picked something meanwhile
+        if (guess && !musicLink().artistId && !musicLink().artistName.trim()) setMusicLink(guess);
+      });
+    }
+
     if (value === "series") {
       setParentVideoInputValue("");
       setFormData((prev) => ({ ...prev, content_type: value, parent_video_id: null }));
       return;
+    }
+    if (isMusicContentType(value)) {
+      setParentVideoInputValue("");
     }
     setSeriesInputValue("");
     setPendingNewSeriesName(null);
@@ -696,6 +778,7 @@ export function EditVideoModal(props: EditVideoModalProps) {
       series_id: null,
       season_id: null,
       episode_number: null,
+      parent_video_id: isMusicContentType(value) ? null : prev.parent_video_id,
     }));
   };
 
@@ -733,6 +816,9 @@ export function EditVideoModal(props: EditVideoModalProps) {
         clear_series_id: !seriesId,
         clear_season_id: !seasonId,
         clear_parent_video_id: !data.parent_video_id,
+        ...(!seriesId && isMusicContentType(data.content_type)
+          ? musicLinkToUpdateFields(musicLink())
+          : { clear_artist_id: true }),
       });
 
       if (urlsChanged()) {
@@ -750,6 +836,10 @@ export function EditVideoModal(props: EditVideoModalProps) {
 
       setPendingNewSeriesName(null);
       setPendingNewSeason(null);
+      // the save may have created/removed artists + albums (find-or-create
+      // by name, orphan cleanup), so artist/album lists + detail views
+      // refetch too
+      invalidateMusicLinkQueries();
       // invalidate before closing so series detail / season rows / grid
       // tiles all refresh even if the modal unmounts right after - the
       // update mutation's own onSuccess only covers videos.all()/detail(),
@@ -898,23 +988,21 @@ export function EditVideoModal(props: EditVideoModalProps) {
           {/* content type + series/season assignment */}
           <div class="space-y-4 border-t border-[var(--color-border-default)] pt-4">
             <h3 class="text-sm font-medium text-[var(--color-text-primary)]">content type</h3>
-            <div class="flex gap-2">
-              <For each={["series", "movie", "clip", "karaoke"] as const}>
-                {(type) => (
-                  <button
-                    type="button"
-                    onClick={() => handleContentTypeChange(type)}
-                    class={`px-3 py-1.5 text-sm rounded ${
-                      formData().content_type === type
-                        ? "bg-[var(--color-accent-500)] text-white"
-                        : "bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)]"
-                    }`}
-                  >
-                    {type}
-                  </button>
-                )}
-              </For>
-            </div>
+            <VideoContentTypePicker
+              value={formData().content_type}
+              onChange={handleContentTypeChange}
+            />
+
+            {/* music video / karaoke: artist + album (defaults to the
+                artist's "music videos"/"karaoke videos" album) */}
+            <Show when={isMusicContentType(formData().content_type)}>
+              <VideoMusicLinkFields
+                contentType={formData().content_type}
+                value={musicLink()}
+                onChange={setMusicLink}
+                disabled={!canUpdateVideo()}
+              />
+            </Show>
 
             <Show when={formData().content_type === "series"}>
               <div>
@@ -971,7 +1059,11 @@ export function EditVideoModal(props: EditVideoModalProps) {
                 "blooper"/"behind the scenes"/"trailer" etc (see
                 `Video::parent_video_id`) - only meaningful for non-series
                 content, mutually exclusive with series_id. */}
-            <Show when={formData().content_type !== "series"}>
+            <Show
+              when={
+                formData().content_type !== "series" && !isMusicContentType(formData().content_type)
+              }
+            >
               <div>
                 <VideoAutocomplete
                   label="part of a movie (optional)"

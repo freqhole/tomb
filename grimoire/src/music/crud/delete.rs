@@ -5,7 +5,8 @@ use crate::database;
 use crate::GrimoireResponse;
 use time::OffsetDateTime;
 
-/// soft delete an artist if they have no songs
+/// soft delete an artist if they have no songs and no live (non-deleted)
+/// music/karaoke videos
 /// returns true if deleted, false if still in use
 pub async fn delete_artist_if_unused(artist_id: &str) -> GrimoireResponse<bool> {
     let pool = match database::connect().await {
@@ -36,6 +37,21 @@ pub async fn delete_artist_if_unused(artist_id: &str) -> GrimoireResponse<bool> 
         return GrimoireResponse::success("Artist is still in use", false);
     }
 
+    let video_count = match sqlx::query_scalar!(
+        r#"SELECT COUNT(*) as "count!" FROM videoz WHERE artist_id = ? AND deleted_at IS NULL"#,
+        artist_id
+    )
+    .fetch_one(&pool)
+    .await
+    {
+        Ok(c) => c,
+        Err(e) => return GrimoireResponse::failure("Failed to check artist usage", vec![e.into()]),
+    };
+
+    if video_count > 0 {
+        return GrimoireResponse::success("Artist is still in use", false);
+    }
+
     // No songs, safe to soft delete
     let now = OffsetDateTime::now_utc().unix_timestamp();
     match sqlx::query!(
@@ -55,7 +71,8 @@ pub async fn delete_artist_if_unused(artist_id: &str) -> GrimoireResponse<bool> 
     }
 }
 
-/// soft delete an album if it has no songs
+/// soft delete an album if it has no songs and no live (non-deleted)
+/// music/karaoke videos
 /// returns true if deleted, false if still in use
 pub async fn delete_album_if_unused(album_id: &str) -> GrimoireResponse<bool> {
     let pool = match database::connect().await {
@@ -83,6 +100,21 @@ pub async fn delete_album_if_unused(album_id: &str) -> GrimoireResponse<bool> {
 
     if song_count > 0 {
         // Album still has songs, don't delete
+        return GrimoireResponse::success("Album is still in use", false);
+    }
+
+    let video_count = match sqlx::query_scalar!(
+        r#"SELECT COUNT(*) as "count!" FROM videoz WHERE album_id = ? AND deleted_at IS NULL"#,
+        album_id
+    )
+    .fetch_one(&pool)
+    .await
+    {
+        Ok(c) => c,
+        Err(e) => return GrimoireResponse::failure("Failed to check album usage", vec![e.into()]),
+    };
+
+    if video_count > 0 {
         return GrimoireResponse::success("Album is still in use", false);
     }
 

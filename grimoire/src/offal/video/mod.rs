@@ -69,6 +69,13 @@ pub async fn dispatch(
             Some(videos::list_unattached(caller, body.clone()).await)
         }
         "/api/video/videos/list-extras" => Some(videos::list_extras(caller, body.clone()).await),
+        "/api/video/videos/list-by-album" => {
+            Some(videos::list_by_album(caller, body.clone()).await)
+        }
+        "/api/video/videos/list-by-artist" => {
+            Some(videos::list_by_artist(caller, body.clone()).await)
+        }
+        "/api/video/videos/guess-title" => Some(videos::guess_title(caller, body.clone()).await),
         "/api/video/videos/update" => Some(videos::update(caller, body.clone()).await),
         "/api/video/videos/delete" => Some(videos::delete(caller, body.clone()).await),
         "/api/video/videos/bulk-delete" => Some(videos::bulk_delete(caller, body.clone()).await),

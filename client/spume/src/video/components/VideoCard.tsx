@@ -24,6 +24,7 @@ import { useVideoSeriesListQuery, useVideoSeasonsQuery } from "../queries/series
 import { useVideoEntityTagsQuery } from "../queries/tags";
 import { formatSeasonLabel } from "../../components/forms/VideoSeasonAutocomplete";
 import type { VideoSummary } from "../data/types";
+import { contentTypeLabel as formatContentType } from "../utils/contentType";
 
 // video-only taxon kinds; music-only kinds (genre/mood/style/era/label)
 // don't apply to video and are excluded everywhere video renders taxons.
@@ -108,7 +109,7 @@ export function VideoCard(props: VideoCardProps): JSX.Element {
 
   const tagsQuery = useVideoEntityTagsQuery("video", () => props.video.id);
 
-  const contentTypeLabel = () => props.video.content_type || null;
+  const contentTypeLabel = () => formatContentType(props.video.content_type) || null;
 
   // subtitle line: content type + series name (when this episode belongs
   // to a series) - e.g. "series · Voyager"; standalone movies/clips just

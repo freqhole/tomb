@@ -28,7 +28,6 @@ export type { Video, VideoWithMetadata };
 export type VideoSeries = ApiVideoSeries & { remote_server_id?: string | null };
 export type VideoSeason = ApiVideoSeason & { remote_server_id?: string | null };
 
-
 /** a browsable video row — local or remote, with the same local-storage
  * bookkeeping fields a queued video carries (minus queue-only fields).
  * adds `added_at` (unix seconds — mirrors `Song.added_at`'s "when this
@@ -87,6 +86,10 @@ export interface VideoDataSource {
   getAllVideoSeasons(): Promise<VideoSeason[]>;
   getVideosBySeason(seasonId: string): Promise<VideoSummary[]>;
   getVideosBySeries(seriesId: string): Promise<VideoSummary[]>;
+  /** videos (music_video/karaoke) linked to an album. */
+  listVideosByAlbum(albumId: string): Promise<VideoSummary[]>;
+  /** music_video/karaoke videos linked to an artist. */
+  listVideosByArtist(artistId: string): Promise<VideoSummary[]>;
   /** full series detail in one call: the series, every season (each with
    * its videos), and any videos attached directly to the series with no
    * season (mirrors grimoire's `get_series_detail` — this is the piece
@@ -112,12 +115,21 @@ export interface VideoDataSource {
     clear_series_id?: boolean;
     clear_season_id?: boolean;
     clear_parent_video_id?: boolean;
+    /** music_video/karaoke only: an existing artist id, or `artist_name` to
+     * find-or-create one by name (case-insensitive) server-side. */
+    artist_id?: string | null;
+    artist_name?: string | null;
+    /** an existing album id, or `album_title` to find-or-create one under
+     * the artist. neither -> the artist's default "music videos"/"karaoke
+     * videos" album. */
+    album_id?: string | null;
+    album_title?: string | null;
+    /** detach from artist (and album) / from album only. */
+    clear_artist_id?: boolean;
+    clear_album_id?: boolean;
   }): Promise<void>;
   deleteVideo?(videoId: string): Promise<void>;
-  createVideoSeries?(params: {
-    title: string;
-    description?: string | null;
-  }): Promise<VideoSeries>;
+  createVideoSeries?(params: { title: string; description?: string | null }): Promise<VideoSeries>;
   updateVideoSeries?(params: {
     series_id: string;
     title?: string;

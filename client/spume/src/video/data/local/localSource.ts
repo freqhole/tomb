@@ -20,6 +20,12 @@ import {
   getOrCreateLocalVideoSeason,
   updateLocalVideoSeason,
 } from "../../services/storage/db/seasons";
+import {
+  getAlbumById,
+  getOrCreateAlbum,
+  getOrCreateArtist,
+} from "../../../music/services/storage/db";
+import { defaultAlbumTitle, isMusicContentType } from "../../utils/contentType";
 import { purgeVideoFromOPFS } from "../../services/opfs/helpers";
 import { getAllTags as getAllLocalVideoTags } from "../../services/storage/db/tags";
 import {
@@ -47,6 +53,66 @@ import type {
  * non-primary waveform entry when poster extraction failed). */
 function primaryLocalBlobId(images: ImageMetadata[]): string | null {
   return pickBestImage(images)?.local_blob_id ?? null;
+}
+
+/** resolves a music_video/karaoke edit's artist/album against the local music
+ * store (find-or-create by name, same as the grimoire side does by name) -
+ * mirrors grimoire's `resolve_music_link`, minus orphan cleanup (the local
+ * store keeps empty artists/albums around). returns only the fields that
+ * should change on the video row. */
+async function resolveLocalMusicLink(
+  videoId: string,
+  req: {
+    content_type?: string;
+    artist_id?: string | null;
+    artist_name?: string | null;
+    album_id?: string | null;
+    album_title?: string | null;
+    clear_artist_id?: boolean;
+    clear_album_id?: boolean;
+  }
+): Promise<{ artist_id?: string | null; album_id?: string | null }> {
+  const current = await getLocalVideoById(videoId);
+  const contentType = req.content_type ?? current?.content_type;
+  if (!isMusicContentType(contentType)) return { artist_id: null, album_id: null };
+  if (req.clear_artist_id) return { artist_id: null, album_id: null };
+
+  const artistName = req.artist_name?.trim();
+  const artistId =
+    req.artist_id ??
+    (artistName ? (await getOrCreateArtist(artistName)).artist_id : (current?.artist_id ?? null));
+  if (!artistId) return { artist_id: null, album_id: null };
+
+  const albumTitle = req.album_title?.trim();
+  if (req.album_id) return { artist_id: artistId, album_id: req.album_id };
+  if (albumTitle) {
+    return {
+      artist_id: artistId,
+      album_id: (await getOrCreateAlbum(albumTitle, artistId)).album_id,
+    };
+  }
+  // keep the current album while the artist is unchanged and it isn't the
+  // other music type's default album
+  const keepCurrent =
+    !req.clear_album_id &&
+    current?.album_id &&
+    current.artist_id === artistId &&
+    !(await isOtherDefaultAlbum(current.album_id, contentType));
+  if (keepCurrent) return { artist_id: artistId, album_id: current.album_id };
+
+  const defaultTitle = defaultAlbumTitle(contentType)!;
+  return {
+    artist_id: artistId,
+    album_id: (await getOrCreateAlbum(defaultTitle, artistId)).album_id,
+  };
+}
+
+async function isOtherDefaultAlbum(albumId: string, contentType: string | undefined) {
+  const album = await getAlbumById(albumId);
+  if (!album) return true;
+  return (["music_video", "karaoke"] as const)
+    .filter((t) => t !== contentType)
+    .some((t) => defaultAlbumTitle(t) === album.title.toLowerCase());
 }
 
 export class LocalVideoDataSource implements VideoDataSource {
@@ -133,6 +199,15 @@ export class LocalVideoDataSource implements VideoDataSource {
     return result.items.filter((video) => video.series_id === seriesId);
   }
 
+  // local (indexeddb) videos have no artist/album links yet.
+  async listVideosByAlbum(_albumId: string): Promise<VideoSummary[]> {
+    return [];
+  }
+
+  async listVideosByArtist(_artistId: string): Promise<VideoSummary[]> {
+    return [];
+  }
+
   async getVideoSeriesDetail(id: string) {
     const series = await this.getVideoSeriesById(id);
     if (!series) return null;
@@ -159,17 +234,42 @@ export class LocalVideoDataSource implements VideoDataSource {
     clear_series_id?: boolean;
     clear_season_id?: boolean;
     clear_parent_video_id?: boolean;
+    artist_id?: string | null;
+    artist_name?: string | null;
+    album_id?: string | null;
+    album_title?: string | null;
+    clear_artist_id?: boolean;
+    clear_album_id?: boolean;
   }): Promise<void> {
-    const { video_id, clear_series_id, clear_season_id, clear_parent_video_id, ...updates } =
-      params;
+    const {
+      video_id,
+      clear_series_id,
+      clear_season_id,
+      clear_parent_video_id,
+      artist_name,
+      album_title,
+      clear_artist_id,
+      clear_album_id,
+      ...updates
+    } = params;
     // the local (indexeddb) store always applies fields as given (no
     // COALESCE ambiguity), so an explicit clear is just passing null -
     // the flags only matter for the remote/SQL data source.
+    const musicLink = await resolveLocalMusicLink(video_id, {
+      content_type: updates.content_type,
+      artist_id: updates.artist_id,
+      artist_name,
+      album_id: updates.album_id,
+      album_title,
+      clear_artist_id,
+      clear_album_id,
+    });
     await updateLocalVideo(video_id, {
       ...updates,
       series_id: clear_series_id ? null : updates.series_id,
       season_id: clear_series_id || clear_season_id ? null : updates.season_id,
       parent_video_id: clear_parent_video_id ? null : updates.parent_video_id,
+      ...musicLink,
     });
   }
 
@@ -273,9 +373,7 @@ export class LocalVideoDataSource implements VideoDataSource {
         poster_blob_id: primaryLocalBlobId(images),
       });
     } else {
-      const series = (await this.getVideoSeriesById(
-        params.entityId
-      )) as LocalVideoSeriesRow | null;
+      const series = (await this.getVideoSeriesById(params.entityId)) as LocalVideoSeriesRow | null;
       const images: ImageMetadata[] = series?.images ?? [];
       if (params.isPrimary) images.forEach((img) => (img.is_primary = false));
       images.push(imageMetadata);
@@ -319,9 +417,7 @@ export class LocalVideoDataSource implements VideoDataSource {
         poster_blob_id: primaryLocalBlobId(remaining),
       });
     } else {
-      const series = (await this.getVideoSeriesById(
-        params.entityId
-      )) as LocalVideoSeriesRow | null;
+      const series = (await this.getVideoSeriesById(params.entityId)) as LocalVideoSeriesRow | null;
       if (!series) return;
       const images: ImageMetadata[] = series.images ?? [];
       const remaining = images.filter((img) => img.local_blob_id !== params.blobId);
@@ -351,9 +447,7 @@ export class LocalVideoDataSource implements VideoDataSource {
         poster_blob_id: primaryLocalBlobId(images),
       });
     } else {
-      const series = (await this.getVideoSeriesById(
-        params.entityId
-      )) as LocalVideoSeriesRow | null;
+      const series = (await this.getVideoSeriesById(params.entityId)) as LocalVideoSeriesRow | null;
       if (!series) return;
       const images: ImageMetadata[] = (series.images ?? []).map((img) => ({
         ...img,

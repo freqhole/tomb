@@ -129,9 +129,15 @@ fn get_response(request: Request<Vec<u8>>) -> Result<Response<Cow<'static, [u8]>
         tracing::debug!(path = %path, mime_type, "freqhole-media: serving with detected mime type");
     }
 
+    // the page can be cross-origin isolated (`Cross-Origin-Embedder-Policy:
+    // require-corp`, which spume's vite dev server sets - see its
+    // vite.config.ts), in which case a cross-origin no-cors subresource must
+    // opt in via this header or webkit rejects it. without it, repeat loads of
+    // the same url fail ("Loading error") without ever reaching this handler.
     let mut resp = Response::builder()
         .header(CONTENT_TYPE, mime_type)
         .header(ACCEPT_RANGES, "bytes")
+        .header("Cross-Origin-Resource-Policy", "cross-origin")
         .header(ACCESS_CONTROL_ALLOW_ORIGIN, "*");
 
     let Some(range_header) = range_header else {

@@ -23,3 +23,9 @@ export function clearBackgroundImage() {
 export function getBackgroundConfig() {
   return backgroundConfig();
 }
+
+/** true while a view has a full-page background image showing - elements
+ *  that are normally opaque use this to go translucent instead. */
+export function hasBackgroundImage() {
+  return !!backgroundConfig();
+}

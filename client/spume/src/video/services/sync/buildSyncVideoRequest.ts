@@ -4,7 +4,7 @@
 // local video TO a remote peer). the route itself is symmetric - which
 // direction happens is purely a function of which instance you POST to and
 // what you pass as `source_node_id` - so both callers share this one
-// request-building logic instead of each re-deriving series/season context
+// request-building logic instead of each re-deriving series/season/artist context
 // and image inlining independently.
 import { getClientForRemote } from "../../../app/api/client";
 import type { Remote } from "../../../app/services/storage/schemas/remote";
@@ -64,6 +64,30 @@ async function resolveSeriesContext(
   } catch (e) {
     warn("buildSyncVideoRequest", `series lookup failed for ${video.series_id}:`, e);
     return EMPTY_SERIES_CONTEXT;
+  }
+}
+
+/** artist/album context for a music_video/karaoke video. like series, the
+ * destination resolves these by NAME (find-or-create), never by the
+ * source's own ids. best-effort - a video with no artist still syncs fine. */
+async function resolveMusicContext(
+  video: QueuedVideo,
+  metadataRemote: Remote
+): Promise<{ artistName?: string; albumTitle?: string }> {
+  if (!video.artist_id) return {};
+  try {
+    const client = await getClientForRemote(metadataRemote);
+    const [artist, album] = await Promise.all([
+      client.music.getArtist({ id: video.artist_id }),
+      video.album_id ? client.music.getAlbum({ id: video.album_id }) : null,
+    ]);
+    return {
+      artistName: artist.success ? artist.data.name : undefined,
+      albumTitle: album?.success ? album.data.title : undefined,
+    };
+  } catch (e) {
+    warn("buildSyncVideoRequest", `artist/album lookup failed for ${video.artist_id}:`, e);
+    return {};
   }
 }
 
@@ -128,9 +152,10 @@ export async function buildSyncVideoByBlake3Body(
   const { video, metadataRemote, sourceTransport } = opts;
   const inlineCache: InlineImageCache = new Map();
   const label = `[video "${video.title}"]`;
-  const [series, parentBlake3] = await Promise.all([
+  const [series, parentBlake3, music] = await Promise.all([
     resolveSeriesContext(video, metadataRemote),
     resolveParentBlake3(video, metadataRemote),
+    resolveMusicContext(video, metadataRemote),
   ]);
 
   const [videoImagesBody, seriesImagesBody, seasonImagesBody] = await Promise.all([
@@ -156,6 +181,8 @@ export async function buildSyncVideoByBlake3Body(
     series_description: series.seriesDescription ?? null,
     season_number: series.seasonNumber ?? null,
     season_title: series.seasonTitle ?? null,
+    artist_name: music.artistName ?? null,
+    album_title: music.albumTitle ?? null,
     parent_blake3: parentBlake3,
     video_images: videoImagesBody,
     series_images: seriesImagesBody,
