@@ -58,6 +58,15 @@ interface RemotePickerProps {
    *  inline chip strip emits no events here \u2014 use pointer/focus on
    *  the host element for that case. */
   onActiveChange?: (active: boolean) => void;
+  /** z-index for the overflow flyout/modal (backdrop gets this value,
+   *  the panel itself gets `+1`). defaults to 1200, above every modal's
+   *  own overlay in this codebase (they top out at z-1100 - see
+   *  AddMediaModal/ImageCarouselModal) since this component is also used
+   *  standalone inside those modals. standalone (non-modal) callers like
+   *  AggregateFeedView should pass something below the top nav's own
+   *  flyout panel (z-1000) instead, so that takes visual priority when
+   *  both are open. */
+  flyoutZIndex?: number;
 }
 
 const LONG_PRESS_MS = 500;
@@ -65,6 +74,7 @@ const LONG_PRESS_MS = 500;
 export function RemotePicker(props: RemotePickerProps) {
   const mode = () => props.mode ?? "multi";
   const layout = () => props.layout ?? "inline";
+  const flyoutZIndex = () => props.flyoutZIndex ?? 1200;
 
   // ── overflow / flyout state (9b) ────────────────────────────────────────────
   let wrapperRef: HTMLDivElement | undefined;
@@ -228,7 +238,10 @@ export function RemotePicker(props: RemotePickerProps) {
 
   const outerClass = () =>
     layout() === "floating"
-      ? `absolute top-[var(--nav-height,42px)] wide:top-0 left-0 right-0 z-[1005] bg-transparent pointer-events-none flex items-center py-2 px-4 ${props.class ?? ""}`
+      ? // z-900: below the top nav's own flyout (z-1000) - "floating" layout
+        // is only ever used standalone (AggregateFeedView), never inside a
+        // modal, so this doesn't need the flyout's higher z-tier.
+        `absolute top-[var(--nav-height,42px)] wide:top-0 left-0 right-0 z-[900] bg-transparent pointer-events-none flex items-center py-2 px-4 ${props.class ?? ""}`
       : `relative flex items-center ${props.class ?? ""}`;
 
   const chipStripClass = () =>
@@ -281,16 +294,25 @@ export function RemotePicker(props: RemotePickerProps) {
           <Icon name="chevronDown" size={12} />
         </button>
 
-        {/* desktop flyout via Portal, anchored to trigger. z-[1200] - above
-            any modal's own overlay (modals in this codebase top out at
-            z-1100, see AddMediaModal/ImageCarouselModal) since this
-            component is used both standalone and inside modals. */}
+        {/* desktop flyout via Portal, anchored to trigger. defaults to
+            z-1200 - above any modal's own overlay (modals in this
+            codebase top out at z-1100, see AddMediaModal/ImageCarouselModal)
+            since this component is used both standalone and inside
+            modals - `flyoutZIndex` lets standalone callers (eg.
+            AggregateFeedView) opt into something lower instead, so the
+            top nav's own flyout (z-1000) still wins over this when both
+            are open. */}
         <Show when={!isMobile() && flyoutOpen()}>
           <Portal>
-            <div class="fixed inset-0 z-[1200]" onClick={closeFlyout} />
             <div
-              class="fixed z-[1201] bg-[var(--color-bg-elevated)] border border-[var(--color-border-subtle)] rounded-lg shadow-xl overflow-y-auto max-h-72 min-w-44 py-1"
+              class="fixed inset-0"
+              style={{ "z-index": flyoutZIndex() }}
+              onClick={closeFlyout}
+            />
+            <div
+              class="fixed bg-[var(--color-bg-elevated)] border border-[var(--color-border-subtle)] rounded-lg shadow-xl overflow-y-auto max-h-72 min-w-44 py-1"
               style={{
+                "z-index": flyoutZIndex() + 1,
                 top: `${flyoutPos()?.top ?? 0}px`,
                 left: `${flyoutPos()?.left ?? 0}px`,
               }}
@@ -322,7 +344,7 @@ export function RemotePicker(props: RemotePickerProps) {
             onClose={closeFlyout}
             title="select remote"
             size="sm"
-            zIndex={1200}
+            zIndex={flyoutZIndex()}
           >
             <div class="py-1">
               <RemoteFlyoutList

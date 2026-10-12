@@ -25,6 +25,7 @@
 
 import { debug } from "./logger";
 import { isCharnelMode } from "../app/services/charnel/mode";
+import { isAndroidTauri } from "../app/services/charnel/targetOs";
 
 export type FileKind = "audio" | "image" | "video" | "media";
 
@@ -180,6 +181,28 @@ function nameFromPathOrUri(s: string): string {
   }
 }
 
+/**
+ * ios's native document picker (`tauri-plugin-dialog`'s `showFilePicker`,
+ * confirmed via its swift source) resolves a picked file to a swift `URL`
+ * and hands it to js as a `file://...` absolute-url *string* - unlike
+ * macOS/linux/windows, which return a bare filesystem path. passing that
+ * string straight through as a "path" breaks every downstream consumer
+ * that expects one (`std::fs::read`/`PathBuf::from` on the rust side,
+ * `tauri-plugin-fs.readFile` on the js side - neither understands a
+ * `file://` prefix, they just fail with "not found"). strips the scheme
+ * and percent-decodes the rest back into a plain path; a no-op for
+ * desktop's already-bare paths (and android never reaches this - it keeps
+ * its `content://` uris as-is, read via `tauri-plugin-fs` directly).
+ */
+function fileUrlToPath(s: string): string {
+  if (!s.startsWith("file://")) return s;
+  try {
+    return decodeURIComponent(new URL(s).pathname);
+  } catch {
+    return s;
+  }
+}
+
 // true when running inside a tauri runtime (desktop or mobile).
 function isTauri(): boolean {
   if (typeof window === "undefined") return false;
@@ -187,7 +210,13 @@ function isTauri(): boolean {
 }
 
 function isAndroid(): boolean {
-  return typeof navigator !== "undefined" && /android/i.test(navigator.userAgent);
+  // the runtime target-os signal (populated via `get_build_info`), not
+  // `navigator.userAgent` sniffing - safe here since every caller of this
+  // function only runs in response to a user-triggered file-pick action,
+  // well after boot (unlike index.tsx/androidMediaSession.ts, which need
+  // the compile-time `__TAURI_TARGET_OS__` constant instead - see their
+  // own comments for why).
+  return isAndroidTauri();
 }
 
 type TauriDialogOpenFn = (options: {
@@ -345,8 +374,11 @@ async function pickViaTauriDialog(opts: PickFilesOptions): Promise<PickedFile[]>
   for (const rawEntry of entries) {
     // resolve before use: a raw Flatpak document-portal path can still be
     // read here (same process), but must not be the one we hand off to
-    // callers that persist it or forward it elsewhere.
-    const entry = android ? rawEntry : await resolveTauriPath(rawEntry);
+    // callers that persist it or forward it elsewhere. ios hands back a
+    // `file://` url (see fileUrlToPath's doc comment) - normalize that to
+    // a bare path first so resolveTauriPath's canonicalize step (and
+    // everything downstream) actually works on it.
+    const entry = android ? rawEntry : await resolveTauriPath(fileUrlToPath(rawEntry));
     const name = nameFromPathOrUri(entry);
     const picked: PickedFile = { name };
     if (android) {
@@ -413,7 +445,7 @@ export async function pickDirectory(title = "select folder"): Promise<string | n
   try {
     const dialog = await loadDialog();
     const selected = await dialog.open({ multiple: false, directory: true, title });
-    if (selected && typeof selected === "string") return resolveTauriPath(selected);
+    if (selected && typeof selected === "string") return resolveTauriPath(fileUrlToPath(selected));
     return null;
   } catch (err) {
     debug("filePicker", "pickDirectory failed:", err);
