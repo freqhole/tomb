@@ -67,6 +67,26 @@ jobs:
     runs-on: ${{ vars.MACOS_IOS_RUNNER || 'macos-15' }}
     env:
       DATABASE_URL: sqlite:data/grimoire.db
+      # github's macos-15 runner image bundles a separate "MetalToolchain"
+      # component alongside Xcode 26.x (added for Metal shader compilation
+      # support - see actions/runner-images#13088) that, for reasons
+      # unrelated to our build, shadows/omits the legacy Swift 5.x
+      # back-deployment compatibility libraries (swiftCompatibility56 and
+      # friends) the Rust↔Swift bridge code in tauri's own ios plugins
+      # still unconditionally links against - producing
+      # "ld: symbol(s) not found for architecture arm64" /
+      # "library not found for -lswiftCompatibility56" purely from which
+      # toolchain happens to get picked, nothing to do with our own code
+      # or signing. this is a known, still-open upstream issue as of this
+      # writing (tauri-apps/tauri#15066, actions/runner-images#13135) -
+      # this exact fix (force xcodebuild back onto Xcode's own bundled
+      # default toolchain instead of the separate MetalToolchain one) is
+      # the most-upvoted, least invasive workaround from that thread (an
+      # alternative there physically deletes the MetalToolchain's on-disk
+      # assets via `sudo rm -rf` - unnecessary here since we don't use
+      # Metal directly, and this is non-destructive/easily revisited if
+      # Apple ships a real fix later).
+      TOOLCHAINS: com.apple.dt.toolchain.XcodeDefault
       # APPLE_TEAM_ID (not APPLE_DEVELOPMENT_TEAM) matches the Makefile's
       # own expected name - `make build-tauri-ios` already re-exports it as
       # APPLE_DEVELOPMENT_TEAM internally (same mapping local dev builds
