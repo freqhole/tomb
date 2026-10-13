@@ -55,7 +55,16 @@ env:
 jobs:
   build:
     name: ios arm64 (ipa + testflight)
-    runs-on: ${{ vars.MACOS_ARM64_RUNNER || 'macos-14' }}
+    # a dedicated variable, not the shared `MACOS_ARM64_RUNNER` the
+    # desktop mac jobs use (release.yml) - ios genuinely needs a newer
+    # Xcode than those jobs do (see the "select newest xcode" step below),
+    # so pinning this independently avoids forcing the desktop jobs onto a
+    # newer/different runner image just to satisfy ios's requirement.
+    # `macos-15` is the current github-hosted image confirmed (via its own
+    # runner-images docs) to carry Xcode 26.x side-by-side with older
+    # versions - `macos-14` tops out at 16.2, too old to even open a
+    # project file saved by a current local Xcode.
+    runs-on: ${{ vars.MACOS_IOS_RUNNER || 'macos-15' }}
     env:
       DATABASE_URL: sqlite:data/grimoire.db
       # APPLE_TEAM_ID (not APPLE_DEVELOPMENT_TEAM) matches the Makefile's
@@ -63,19 +72,77 @@ jobs:
       # APPLE_DEVELOPMENT_TEAM internally (same mapping local dev builds
       # use, see the Makefile's own comment on that target).
       #
-      # IOS_CERTIFICATE/IOS_CERTIFICATE_PASSWORD/IOS_MOBILE_PROVISION ARE
-      # tauri-cli's own names though (not ours) - it reads them directly
-      # (`mobile::ios::signing_from_env`/`project_config`) and handles the
-      # entire keychain-import/profile-install/pbxproj-signing patch
-      # itself from just these values, so (unlike the android/macOS jobs)
-      # there's no manual `security create-keychain`/`security import`/
-      # profile-copy dance needed here at all.
+      # APPLE_API_KEY/APPLE_API_ISSUER/APPLE_API_KEY_PATH ARE tauri-cli's
+      # own names (not ours) - it reads them in `auth_credentials_from_env`
+      # (`mobile/ios/mod.rs`) and, when all three are set, skips local
+      # codesigning entirely (`skip_codesign()`) and instead passes
+      # `-allowProvisioningUpdates` + these credentials straight to
+      # xcodebuild, letting Xcode create/fetch the Apple Distribution cert
+      # and provisioning profile itself on Apple's backend - no local
+      # keychain/cert/profile management needed at all.
+      #
+      # switched to this from the manual IOS_CERTIFICATE/
+      # IOS_CERTIFICATE_PASSWORD/IOS_MOBILE_PROVISION approach after
+      # hitting a real bug in that path: tauri-cli's `signing_from_env()`
+      # keychain is a local variable only ever used by-reference to patch
+      # the pbxproj - it's never threaded into the actual xcodebuild
+      # invocation, so Rust's NLL is free to drop it (running its `Drop`
+      # impl's `security delete-keychain`) immediately after patching,
+      # before xcodebuild ever runs. confirmed via a captured post-failure
+      # pbxproj dump: every signing build setting (CODE_SIGN_STYLE,
+      # CODE_SIGN_IDENTITY, DEVELOPMENT_TEAM, PROVISIONING_PROFILE_
+      # SPECIFIER) was exactly correct, yet xcodebuild still reported
+      # "requires a provisioning profile" - consistent with the identity
+      # being gone from the keychain by the time xcodebuild looked for it.
+      # reuses the SAME App Store Connect API key already needed for the
+      # testflight upload step below - one set of credentials, two uses.
       APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-      IOS_CERTIFICATE: ${{ secrets.IOS_CERTIFICATE_P12_BASE64 }}
-      IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
-      IOS_MOBILE_PROVISION: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
+      APPLE_API_KEY: ${{ secrets.ASC_KEY_ID }}
+      APPLE_API_ISSUER: ${{ secrets.ASC_ISSUER_ID }}
     steps:
       - uses: actions/checkout@v7
+
+      # the committed project.pbxproj tracks whatever Xcode last
+      # regenerated it locally (currently 26.3 - see docs/ios.md) - its
+      # project-FILE-FORMAT version is independent of IPHONEOS_DEPLOYMENT_
+      # TARGET (project.yml's own `deploymentTarget: iOS: 15.0`, untouched
+      # by this): an old deployment target and a new Xcode aren't in
+      # tension, but an old Xcode flatly can't even PARSE a project file
+      # saved by a newer one ("future Xcode project file format" error).
+      # select whichever installed Xcode is newest rather than hardcoding
+      # a version, so this keeps matching local dev as both sides
+      # naturally move forward over time.
+      - name: select newest installed xcode
+        run: |
+          XCODE_PATH=$(ls -d /Applications/Xcode_*.app 2>/dev/null | sort -V | tail -1)
+          if [ -z "$XCODE_PATH" ]; then
+            echo "::error::no /Applications/Xcode_*.app found on this runner"
+            exit 1
+          fi
+          echo "selecting $XCODE_PATH"
+          sudo xcode-select -s "$XCODE_PATH"
+          xcodebuild -version
+
+      # github's `macos-15` runner image bundles a separate "MetalToolchain"
+      # component alongside Xcode 26.x (added for Metal shader compilation
+      # support - see actions/runner-images#13088) whose own library
+      # search paths get preferred by the linker over Xcode's own bundled
+      # toolchain, and don't carry the legacy Swift 5.x back-deployment
+      # compatibility libraries (swiftCompatibility56 and friends) the
+      # Rust↔Swift bridge code in tauri's own ios plugins still
+      # unconditionally links against - producing "ld: symbol(s) not found
+      # for architecture arm64" / "library not found for
+      # -lswiftCompatibility56", nothing to do with our own code or
+      # signing. known, still-open upstream issue as of this writing
+      # (tauri-apps/tauri#15066, actions/runner-images#13135). a
+      # `TOOLCHAINS=com.apple.dt.toolchain.XcodeDefault` env var is also
+      # reported fixing this in that thread but confirmed NOT reliable by
+      # multiple reporters there (and didn't work for this build either -
+      # the linker still picked the MetalToolchain's search paths even
+      # with it set) - actually *deleting* the component, the thread
+      # maintainer's own final recommendation, is the dependable fix.
+      - name: delete the metal toolchain component (works around tauri-apps/tauri#15066)
+        run: sudo xcodebuild -deleteComponent metalToolchain
 
       - name: resolve version
         id: meta
@@ -85,10 +152,31 @@ jobs:
           echo "version=$V" >> "$GITHUB_OUTPUT"
 
       - name: require ios signing secrets
-        if: env.IOS_CERTIFICATE == '' || env.APPLE_TEAM_ID == ''
+        if: env.APPLE_API_KEY == '' || env.APPLE_API_ISSUER == '' || env.APPLE_TEAM_ID == ''
         run: |
-          echo "::error::missing one or more of APPLE_TEAM_ID/IOS_CERTIFICATE_P12_BASE64/IOS_CERTIFICATE_PASSWORD/IOS_PROVISIONING_PROFILE_BASE64 secrets - see docs/ios.md phase 5 for how to generate an Apple Distribution certificate + App Store provisioning profile. there's no ephemeral-signing fallback for ios (unlike android's job) - a real distribution cert/profile is a hard requirement for a TestFlight-ready build."
+          echo "::error::missing one or more of APPLE_TEAM_ID/ASC_KEY_ID/ASC_ISSUER_ID secrets (also need ASC_API_KEY_P8_BASE64, checked by the next step) - see docs/ios.md phase 5/6 for how to generate an App Store Connect API key. there's no ephemeral-signing fallback for ios (unlike android's job) - this is a hard requirement for a TestFlight-ready build."
           exit 1
+
+      # decode the App Store Connect API key (.p8) to a file and point
+      # APPLE_API_KEY_PATH at it - tauri-cli's `auth_credentials_from_env`
+      # wants an actual file path here, not base64 content directly (unlike
+      # how it reads a certificate/provisioning profile, when using the
+      # OTHER, no-longer-used manual-signing env vars). validates the
+      # content is at least PEM-shaped first, since (same lesson learned
+      # from the old provisioning-profile path) a malformed key here could
+      # otherwise fail silently deep inside xcodebuild instead of here.
+      - name: decode app store connect api key
+        run: |
+          KEY_PATH="$RUNNER_TEMP/asc_api_key.p8"
+          echo "$ASC_API_KEY_P8_BASE64" | base64 --decode > "$KEY_PATH" 2>/dev/null
+          chmod 600 "$KEY_PATH"
+          if ! grep -q "BEGIN PRIVATE KEY" "$KEY_PATH"; then
+            echo "::error::ASC_API_KEY_P8_BASE64 doesn't decode to a PEM private key (.p8) - re-run \`base64 -i AuthKey_XXXXX.p8 | pbcopy\` on the original download and \`gh secret set ASC_API_KEY_P8_BASE64\` again."
+            exit 1
+          fi
+          echo "APPLE_API_KEY_PATH=$KEY_PATH" >> "$GITHUB_ENV"
+        env:
+          ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
 
       # tauri-cli's own `ios build` unconditionally checks for an installed
       # iOS *simulator* runtime - confirmed by reading its actual source
@@ -149,16 +237,48 @@ jobs:
           make build-tauri-ios \
             IOS_EXPORT_METHOD=app-store-connect \
             IOS_BUILD_NUMBER=${{ github.run_number }}
+      # tauri-cli still unconditionally patches DEVELOPMENT_TEAM (from
+      # APPLE_TEAM_ID) even on this api-key path - CODE_SIGN_STYLE/
+      # CODE_SIGN_IDENTITY/PROVISIONING_PROFILE_SPECIFIER should now stay
+      # untouched (`manual_signing` is only true when the old
+      # IOS_CERTIFICATE/IOS_MOBILE_PROVISION env vars are set, which they
+      # no longer are), left at whatever's already committed (Automatic,
+      # no CODE_SIGN_STYLE at all) - Xcode resolves signing itself via
+      # `-allowProvisioningUpdates` + the api key instead. kept as a
+      # general diagnostic for if something in this area breaks again: if
+      # the build above fails, dump whatever's actually in the file as
+      # ground truth rather than guessing from the outside.
+      - name: dump actual pbxproj signing settings (only runs if the build above failed)
+        if: failure()
+        run: |
+          grep -n -A1 "CODE_SIGN_STYLE\|DEVELOPMENT_TEAM\|CODE_SIGN_IDENTITY\|PROVISIONING_PROFILE" \
+            client/charnel/src-tauri/gen/apple/charnel.xcodeproj/project.pbxproj || echo "none of these keys are present in project.pbxproj at all"
       - name: upload ipa as a workflow artifact
         uses: actions/upload-artifact@v4
         with:
           name: freqhole_charnel_${{ steps.meta.outputs.version }}_ios.ipa
           path: build/${{ steps.meta.outputs.version }}/freqhole_charnel_${{ steps.meta.outputs.version }}_ios.ipa
+      # testflight upload (below) is completely independent of this -
+      # different system entirely (app store connect api, not github
+      # releases) - this step is purely a nice-to-have, attaching the
+      # .ipa as a downloadable asset on a github release page. checks the
+      # release actually exists before uploading rather than assuming it
+      # does: release.yml's automated dispatch always has one by this
+      # point (its own `create-release` job creates it first), but a
+      # manual `workflow_dispatch` run that happens to have a `tag` typed
+      # in (intentionally or not) shouldn't hard-fail the whole job over
+      # a release that doesn't exist - gracefully skips instead, same as
+      # leaving `tag` empty (the recommended default for manual runs)
+      # already does.
       - name: upload ipa to draft release
         if: inputs.tag != ''
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          if ! gh release view "${{ inputs.tag }}" >/dev/null 2>&1; then
+            echo "release ${{ inputs.tag }} doesn't exist - skipping (not a failure, this build is still available as a workflow artifact above)"
+            exit 0
+          fi
           gh release upload "${{ inputs.tag }}" \
             "build/${{ steps.meta.outputs.version }}/freqhole_charnel_${{ steps.meta.outputs.version }}_ios.ipa" \
             --clobber
@@ -170,23 +290,31 @@ jobs:
       # future runner image's Xcode version - exactly the kind of thing
       # this workflow's standalone `workflow_dispatch` trigger exists to
       # let you iterate on without touching the full release pipeline.
+      # altool is notoriously unreliable about its own exit code - it can
+      # print "ERROR: ..." and still exit 0 (confirmed real: this exact
+      # step reported success with a green checkmark despite altool
+      # itself reporting "Cannot determine the Apple ID from Bundle ID"
+      # and uploading nothing at all). check its actual output for an
+      # ERROR line too, not just the exit code, so a silent failure like
+      # that can't pass as success again.
       - name: upload to testflight
         if: inputs.upload_to_testflight
-        env:
-          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
-          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
-          ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
         run: |
-          if [ -z "$ASC_KEY_ID" ] || [ -z "$ASC_ISSUER_ID" ] || [ -z "$ASC_API_KEY_P8_BASE64" ]; then
-            echo "::error::upload_to_testflight was requested but ASC_KEY_ID/ASC_ISSUER_ID/ASC_API_KEY_P8_BASE64 secrets aren't set - see docs/ios.md phase 6 for how to generate an App Store Connect API key."
-            exit 1
-          fi
-          # altool looks for the key file by this exact name under one of
-          # a handful of well-known directories - ~/private_keys is one of them.
+          # reuses the already-decoded+validated key from the "decode app
+          # store connect api key" step above (same credentials, now used
+          # for the testflight upload instead of build-time signing) -
+          # altool looks for it by this exact name under one of a handful
+          # of well-known directories; ~/private_keys is one of them.
           mkdir -p "$HOME/private_keys"
-          echo "$ASC_API_KEY_P8_BASE64" | base64 --decode > "$HOME/private_keys/AuthKey_${ASC_KEY_ID}.p8"
+          cp "$APPLE_API_KEY_PATH" "$HOME/private_keys/AuthKey_${APPLE_API_KEY}.p8"
+          OUTPUT_FILE="$RUNNER_TEMP/altool_output.txt"
           xcrun altool --upload-app \
             -t ios \
             -f "build/${{ steps.meta.outputs.version }}/freqhole_charnel_${{ steps.meta.outputs.version }}_ios.ipa" \
-            --apiKey "$ASC_KEY_ID" \
-            --apiIssuer "$ASC_ISSUER_ID"
+            --apiKey "$APPLE_API_KEY" \
+            --apiIssuer "$APPLE_API_ISSUER" 2>&1 | tee "$OUTPUT_FILE"
+          STATUS=${PIPESTATUS[0]}
+          if [ "$STATUS" -ne 0 ] || grep -q "ERROR" "$OUTPUT_FILE"; then
+            echo "::error::altool reported a failure (exit $STATUS and/or an ERROR line in its own output above) - nothing was actually uploaded to testflight, regardless of what altool's own exit code says."
+            exit 1
+          fi

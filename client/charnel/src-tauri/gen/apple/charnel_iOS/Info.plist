@@ -20,6 +20,8 @@
 	<string>0.3.14</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsLocalNetworking</key>
