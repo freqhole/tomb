@@ -16,6 +16,31 @@ if (!hasNativeDialog) {
   void import("dialog-polyfill/dist/dialog-polyfill.css");
 }
 
+// essential dialog resets applied via inline `style` (below), not
+// tailwind classes - this is the actual fix for a reported "modal shows a
+// big white area" bug: the `if (!hasNativeDialog)` guard above only
+// avoids loading the polyfill's own stylesheet on devices that DON'T
+// need it, but if a webview's native-dialog *feature detection* is itself
+// unreliable (reports a method exists but some part of the behavior it
+// implies doesn't, or simply differs from this host's assumptions),
+// `hasNativeDialog` can end up true-when-it-shouldn't-be - and once that
+// happens, tailwind's own unlayered rules (e.g. media/plugin css that
+// isn't itself inside tailwind's `@layer`) can equally lose a specificity
+// tie against the browser's own UA default `dialog` stylesheet (which
+// `dialog-polyfill`'s css simply mirrors) in less-common cascade-layer
+// edge cases. inline styles always win over ANY stylesheet rule - author
+// or UA, layered or not - so this is airtight regardless of which of
+// those is actually happening on a given device, with no per-device
+// diagnosis required.
+const DIALOG_RESET_STYLE: JSX.CSSProperties = {
+  background: "transparent",
+  padding: "0",
+  border: "none",
+  margin: "auto",
+  "max-width": "none",
+  "max-height": "none",
+};
+
 export interface ModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -109,7 +134,8 @@ export function Modal(props: ModalProps) {
       ref={dialogRef}
       onClick={handleBackdropClick}
       onCancel={handleCancel}
-      class="bg-transparent p-0 max-w-none max-h-none m-auto backdrop:bg-black backdrop:bg-opacity-60 backdrop:backdrop-blur-sm"
+      style={DIALOG_RESET_STYLE}
+      class="backdrop:bg-black/60 backdrop:backdrop-blur-sm"
     >
       <div
         class={`

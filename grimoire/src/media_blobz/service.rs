@@ -733,6 +733,177 @@ pub async fn update_blob_local_path(
     Ok(blob_with_metadata)
 }
 
+/// bulk-repair every `media_blobz.local_path` that doesn't already start
+/// with `correct_data_dir`, rewriting it to point under the current
+/// container - without needing to know what the stale prefix actually
+/// was. mobile-only use case (see `client/charnel/src-tauri/src/lib.rs`'s
+/// `repair_stale_media_blobz_local_paths` caller): unlike reliquary's own
+/// managed (content-addressed) blob storage - which only ever persists a
+/// path *relative* to its blob directory, re-joined with the current
+/// `data_dir` at read time, and so is already immune to this - rows
+/// carrying a real on-disk `local_path` (synced/downloaded music, the
+/// `pull_audio_blob_to_local_storage_with_progress` family, uploaded
+/// music/video, fetched album art) store a genuine absolute string, which
+/// goes stale exactly like the config file's own `data_dir` field did
+/// when ios relocates this app's container across an update.
+///
+/// an earlier version of this function took an explicit `old_prefix` -
+/// the exact stale `data_dir` value `repair_stale_mobile_data_dir`
+/// detected earlier in the same boot - and only rewrote rows beginning
+/// with that literal string. that's fragile: if the config's own
+/// `data_dir` already matches the current container this boot (e.g. a
+/// prior boot already healed it, or ios relocated the container a second
+/// time without this exact repair running in between), there's no record
+/// anywhere of what the old prefix used to be - it only ever existed as a
+/// transient return value within one boot's call chain - so rows stale
+/// from an earlier relocation would stay stale forever, forever falling
+/// back on the server's `blob_local_file_missing` detection instead of
+/// ever healing.
+///
+/// this version sidesteps needing that memory at all: every `local_path`
+/// is always `<data_dir>/fetch/...` (`fetch_music`/`fetch_video`'s
+/// `output_dir` always fall back to `data_dir.join("fetch")` whenever
+/// unset - see the `output_dir` fallbacks in `offal/upload/pull.rs`/
+/// `offal/music/albums.rs` - and mobile specifically never customizes
+/// them to anything else, unlike desktop; see `repair_stale_mobile_data_dir`),
+/// so the stable `/fetch/` marker can be located in each row's *own*
+/// stored value, independent of whatever its prefix before that marker
+/// happens to be - and, notably, independent of what `data_dir` itself is
+/// even called (desktop/tests can set it to anything; only the `/fetch/`
+/// child directory name is a hardcoded, cross-platform constant - a
+/// `/data/fetch/`-shaped marker would be mobile's own convention ONLY and
+/// wrongly miss every row on a config whose `data_dir` doesn't happen to
+/// end in "data"). rows already starting with `correct_data_dir` are left
+/// untouched (idempotent - safe to call unconditionally on every mobile
+/// boot, not just ones where a stale `data_dir` was freshly detected);
+/// rows without the marker at all (unexpected/legacy data) are also left
+/// untouched, matching this function's best-effort, not-fatal stance.
+/// returns the number of rows updated.
+pub async fn repair_stale_local_paths(correct_data_dir: &str) -> GrimoireResult<u64> {
+    let pool = database::connect().await?;
+    // "fetch" is a hardcoded, cross-platform child directory name (every
+    // `output_dir` fallback joins exactly this onto `data_dir`) - so
+    // "/fetch/" is a marker for "data_dir ends here, the stable relative
+    // part starts here" that holds regardless of what `data_dir` itself
+    // is actually named, unlike a `data_dir`-basename-dependent marker.
+    const MARKER: &str = "/fetch/";
+    // `instr` returns the 1-based position of the marker's OWN leading
+    // "/" - `substr` from there keeps "/fetch/..." intact, so
+    // concatenating it straight onto `correct_data_dir` (no trailing
+    // slash) reproduces the exact `data_dir.join("fetch")` convention
+    // every local_path writer already uses.
+    let result = sqlx::query!(
+        "UPDATE media_blobz
+         SET local_path = (? || substr(local_path, instr(local_path, ?)))
+         WHERE instr(local_path, ?) > 0
+           AND substr(local_path, 1, length(?)) != ?",
+        correct_data_dir,
+        MARKER,
+        MARKER,
+        correct_data_dir,
+        correct_data_dir
+    )
+    .execute(&pool)
+    .await?;
+    Ok(result.rows_affected())
+}
+
+/// pure helper behind `try_self_heal_missing_local_path` - given a blob's
+/// stored `local_path` and the data_dir considered correct right now,
+/// compute what its path WOULD be if it were rooted there instead of
+/// wherever it currently points, using the same stable `/fetch/` marker
+/// `repair_stale_local_paths` relies on. returns `None` when there's
+/// nothing to compute: the path already matches `correct_data_dir`, or it
+/// doesn't contain the marker at all (not a path this repair knows how to
+/// reason about).
+fn candidate_repaired_local_path(local_path: &str, correct_data_dir: &str) -> Option<String> {
+    if local_path.starts_with(correct_data_dir) {
+        return None;
+    }
+    const MARKER: &str = "/fetch/";
+    let marker_pos = local_path.find(MARKER)?;
+    // keep from the marker's own leading "/" onward ("/fetch/...") - see
+    // `repair_stale_local_paths`'s doc comment for why this reproduces
+    // the exact `data_dir.join("fetch")` convention every local_path
+    // writer already uses.
+    let suffix = &local_path[marker_pos..];
+    Some(format!("{correct_data_dir}{suffix}"))
+}
+
+/// last resort before a blob route handler gives up and tells its caller
+/// "the local file is gone, sync/stream this instead"
+/// (`access::local_file_missing_response`) - called only once a
+/// `local_path` has ALREADY failed its `tokio::fs::try_exists` check.
+///
+/// computes what this blob's path would be under the currently-configured
+/// `data_dir` (see `candidate_repaired_local_path`), and if a file
+/// genuinely exists there, this is a real, *confirmed* (not merely
+/// inferred) self-heal opportunity - most likely ios relocated the app's
+/// container since this blob was last played, independent of (or ahead
+/// of) the boot-time repair in `client/charnel/src-tauri/src/lib.rs`
+/// (this check is itself cross-platform, not mobile-specific - it only
+/// ever acts on a file whose existence it has just verified, so there's
+/// nothing unsafe about running it unconditionally everywhere).
+///
+/// repairs just this one row immediately, so the *current* playback
+/// attempt can succeed without the caller needing to retry - then, since
+/// a single confirmed hit is strong evidence every other row sharing the
+/// same stale container prefix is ALSO fixable the same way, sweeps every
+/// other `media_blobz.local_path` row via `repair_stale_local_paths` too
+/// (awaited inline rather than detached onto some ambient background
+/// runtime - this function has no idea whether its caller is running on
+/// tauri's own fragile shared runtime, charnel's dedicated mobile
+/// runtime, or the plain multi-threaded one `server`/`cli` use, and a
+/// single bounded `UPDATE` is cheap enough not to matter either way), so
+/// the rest of a user's library self-heals the moment the very first song
+/// fails to play, rather than needing each song to independently hit this
+/// same path one at a time.
+///
+/// returns the corrected, confirmed-to-exist path on success; `None` if
+/// there's nothing to repair (data_dir unknown/non-utf8, no marker found,
+/// or the computed candidate still doesn't exist either - a genuinely
+/// missing/deleted file, not a stale-path situation).
+pub(crate) async fn try_self_heal_missing_local_path(
+    blob_id: &str,
+    stale_path: &str,
+) -> Option<String> {
+    let correct_data_dir = crate::config::get_config().data_dir.to_str()?.to_string();
+    let candidate = candidate_repaired_local_path(stale_path, &correct_data_dir)?;
+    if !tokio::fs::try_exists(&candidate).await.unwrap_or(false) {
+        return None;
+    }
+
+    tracing::warn!(
+        blob_id = %blob_id,
+        stale_path = %stale_path,
+        repaired_path = %candidate,
+        "confirmed stale local_path - self-healing this blob now, sweeping the rest of the library"
+    );
+
+    if let Err(e) = update_blob_local_path(blob_id, &candidate, None).await {
+        // still return the candidate below - at least THIS playback
+        // attempt can succeed even if persisting the fix failed; it'll
+        // just get re-derived the same way again next time this blob is
+        // requested.
+        tracing::error!(blob_id = %blob_id, error = %e, "failed to persist self-healed local_path for this blob");
+    }
+
+    match repair_stale_local_paths(&correct_data_dir).await {
+        Ok(count) if count > 0 => {
+            tracing::info!(
+                rows_repaired = count,
+                "repaired other stale media_blobz.local_path rows after a confirmed self-heal"
+            );
+        }
+        Ok(_) => {}
+        Err(e) => {
+            tracing::error!(error = %e, "failed to sweep other stale media_blobz.local_path rows after a confirmed self-heal");
+        }
+    }
+
+    Some(candidate)
+}
+
 /// like `update_blob_local_path`, but when the blob already has a
 /// *different*, real (non-null) `local_path`, this is a network-received
 /// duplicate (upload of already-owned content, or a re-upload of something

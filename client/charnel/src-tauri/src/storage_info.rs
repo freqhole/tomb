@@ -240,7 +240,10 @@ mod tests {
         );
         // disk_usage should resolve for a real, existing path on every
         // platform this crate builds for.
-        assert!(info.disk.is_some(), "disk usage should resolve for a real path: {info:?}");
+        assert!(
+            info.disk.is_some(),
+            "disk usage should resolve for a real path: {info:?}"
+        );
         let disk = info.disk.unwrap();
         assert!(disk.total_bytes > 0);
         assert!(disk.total_bytes >= disk.free_bytes);

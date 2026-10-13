@@ -202,7 +202,25 @@ export function installMediaSessionBridge(): void {
           // docs/radio-queue-refactor-ideas.md) - guard explicitly so
           // an unrelated appState rewrite doesn't force a needless
           // metadata refetch (e.g. video series/season lookups).
-          if (sha === prevSha) return;
+          if (sha === prevSha) {
+            debug("mediaSessionBridge", `metadata effect: skipped (sha unchanged: ${sha})`);
+            return;
+          }
+          // logged unconditionally (not just the skip above) while
+          // investigating a still-reported ~5s lock-screen artwork/
+          // action-handler flicker, despite every other known periodic
+          // trigger in this file already being guarded against appState's
+          // every-write-rewrites-the-reference churn (see
+          // saveProgressToIDB's own identical-class fix). if this still
+          // fires repeatedly for the SAME sha during continued playback
+          // of one track, something upstream is handing `current_item_key`
+          // a genuinely different value (not just a new appState object
+          // reference) every ~5s, which would point at a real bug outside
+          // this file entirely - viewable on-device via settings > logz.
+          debug(
+            "mediaSessionBridge",
+            `metadata effect: refreshing (sha ${prevSha} -> ${sha}) at t=${Date.now()}`
+          );
           void refreshMetadata();
         }
       )
@@ -478,6 +496,10 @@ async function refreshMetadata(): Promise<void> {
   const state = appState();
   if (!state) return;
   const { queue, current_item_key: currentItemKey } = state;
+  debug(
+    "mediaSessionBridge",
+    `refreshMetadata() entered: currentItemKey=${currentItemKey}, lastSeen=${lastSeenCurrentItemKey}, t=${Date.now()}`
+  );
 
   // defensive: if the active song id changed, music playback has
   // advanced — reclaim the media session from any stale external owner.

@@ -285,11 +285,18 @@ select {
    ::backdrop pseudo-element on old WebKit - it inserts a real sibling
    `.backdrop` div instead. tailwind's `backdrop:` utility classes on the
    dialog itself only ever compile to `&::backdrop`, so they never match
-   this fallback element - style it directly here instead. */
+   this fallback element - style it directly here instead. `!important`
+   because the polyfill's OWN script injects a same-specificity
+   `dialog + .backdrop { ... }` rule of its own (see
+   node_modules/dialog-polyfill/dist/dialog-polyfill.css) - dynamically
+   `import()`-ed (see Modal.tsx), so it always lands later in the
+   stylesheet cascade than this file's own (statically-imported, always-
+   earlier) rule; same specificity + later source order means the
+   polyfill's rule would otherwise always win the tie. */
 dialog + .backdrop {
-  background-color: rgba(0, 0, 0, 0.6);
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
+  background-color: rgba(0, 0, 0, 0.6) !important;
+  backdrop-filter: blur(4px) !important;
+  -webkit-backdrop-filter: blur(4px) !important;
 }
 
 /* ensure storybook canvas uses dark theme */

@@ -8,13 +8,14 @@
 // instead of duplicated, with StorageSettingsView now hiding them
 // specifically on mobile (desktop/web keep them where they already were,
 // since neither of those needs this view at all).
-import { createSignal, Show, onCleanup } from "solid-js";
+import { createResource, createSignal, Show, onCleanup } from "solid-js";
 import { useNavigate } from "@solidjs/router";
 import { toast } from "../../components/feedback/Toast";
 import { debug } from "../../utils/logger";
 import { pickFile } from "../../utils/filePicker";
 import { getClientForRemote } from "../../app/api/client";
 import { getTauriManagedRemote } from "../../app/services/remotes/remoteManager";
+import { isHttpRemote } from "../../app/services/storage/schemas/remote";
 import { isAndroidTauri, isIosTauri, updateServerImage } from "../../app/services/charnel";
 import { getCurrentUser } from "../../music/data";
 import {
@@ -91,9 +92,41 @@ export function LocalLibrarySettingsView() {
   }
 
   // ---- library image ----
+  // the tauri-managed (charnel) remote always has `base_url: undefined`
+  // ("uses IPC dispatch" - see `upsertTauriRemote` in remoteManager.ts) and
+  // its `image_url` is ALREADY a complete, self-contained `asset://` url
+  // (converted from a raw file path via tauri's `convertFileSrc`) - NOT a
+  // relative server-route path meant to be prefixed with a base url the
+  // way a real HTTP remote's would be. the previous version of this
+  // function always concatenated `base_url + image_url` regardless,
+  // which for this remote produced the literal broken string
+  // `"undefinedasset://..."` - confirmed the actual cause of the broken-
+  // image symptom, not a staleness/container issue at all. mirrors
+  // `TopNav.tsx`'s own `httpImageUrl()`, which already gets this right:
+  // check for an already-absolute url first, only prefix `base_url` for
+  // a genuinely relative one (a plain non-charnel http remote).
+  const [remote, { refetch: refetchRemote }] = createResource(getTauriManagedRemote);
+  const existingImageUrl = () => {
+    const r = remote();
+    if (!r || !isHttpRemote(r) || !r.image_url) return null;
+    const isAbsolute =
+      r.image_url.startsWith("asset://") ||
+      r.image_url.startsWith("http://") ||
+      r.image_url.startsWith("https://");
+    const base = isAbsolute ? r.image_url : `${r.base_url ?? ""}${r.image_url}`;
+    // cache-bust on `updated_at` (mirrors `TopNav.tsx`'s avatar resolution)
+    // so the <img> actually reloads after a save instead of being served
+    // from cache at the same url with stale content.
+    return r.updated_at ? `${base}?v=${r.updated_at}` : base;
+  };
   const [imagePath, setImagePath] = createSignal<string | null>(null);
   const [imagePreviewUrl, setImagePreviewUrl] = createSignal<string | null>(null);
   const [imageBusy, setImageBusy] = createSignal(false);
+  // freshly-picked preview takes priority; otherwise fall back to
+  // whatever image is already saved on the remote (previously never
+  // shown at all - this view only ever rendered a picked-but-unsaved
+  // preview, so an already-configured library image looked "missing").
+  const displayedImageUrl = () => imagePreviewUrl() ?? existingImageUrl();
 
   onCleanup(() => {
     const url = imagePreviewUrl();
@@ -121,6 +154,13 @@ export function LocalLibrarySettingsView() {
       }
       toast.success("library image updated");
       setImagePath(null);
+      // the just-saved image is now the "existing" one - drop the
+      // picked-file preview (revoking its object url) and refetch so
+      // `existingImageUrl()` picks up the new `image_url` instead.
+      const prevUrl = imagePreviewUrl();
+      if (prevUrl) URL.revokeObjectURL(prevUrl);
+      setImagePreviewUrl(null);
+      void refetchRemote();
     } catch (e) {
       debug("local-library-settings", "update image failed:", e);
       toast.error("failed to set library image");
@@ -212,7 +252,7 @@ export function LocalLibrarySettingsView() {
             </h2>
             <div class="flex items-center gap-3">
               <Show
-                when={imagePreviewUrl()}
+                when={displayedImageUrl()}
                 fallback={
                   <div class="w-12 h-12 rounded bg-[var(--color-bg-secondary)] border border-[var(--color-border-subtle)] flex-shrink-0" />
                 }
