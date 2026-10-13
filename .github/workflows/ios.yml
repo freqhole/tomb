@@ -90,6 +90,27 @@ jobs:
           echo "::error::missing one or more of APPLE_TEAM_ID/IOS_CERTIFICATE_P12_BASE64/IOS_CERTIFICATE_PASSWORD/IOS_PROVISIONING_PROFILE_BASE64 secrets - see docs/ios.md phase 5 for how to generate an Apple Distribution certificate + App Store provisioning profile. there's no ephemeral-signing fallback for ios (unlike android's job) - a real distribution cert/profile is a hard requirement for a TestFlight-ready build."
           exit 1
 
+      # tauri-cli's own `ios build` unconditionally checks for an installed
+      # iOS *simulator* runtime - confirmed by reading its actual source
+      # (`ensure_ios_runtime_installed` in tauri-cli's mobile/ios/mod.rs) -
+      # even though this workflow only ever builds for a real device/
+      # archive target, never the simulator. if none is found, it falls
+      # back to an INTERACTIVE confirm prompt (dialoguer) with no ci/CI-env
+      # escape hatch of its own; on a non-interactive runner that prompt
+      # can't be answered, silently resolves to "no", and the whole build
+      # hard-fails with an opaque "iOS platform not installed" error that
+      # has nothing to do with signing. runner images are very likely to
+      # already ship with one, but this makes it certain rather than
+      # hoping, and is nearly free when one's already present.
+      - name: ensure an ios simulator runtime is installed
+        run: |
+          if xcrun simctl list runtimes | grep -q "iOS"; then
+            echo "an iOS simulator runtime is already installed, nothing to do"
+          else
+            echo "no iOS simulator runtime found - installing the latest one"
+            xcodebuild -downloadPlatform iOS
+          fi
+
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-apple-ios
