@@ -258,11 +258,27 @@ jobs:
         with:
           name: freqhole_charnel_${{ steps.meta.outputs.version }}_ios.ipa
           path: build/${{ steps.meta.outputs.version }}/freqhole_charnel_${{ steps.meta.outputs.version }}_ios.ipa
+      # testflight upload (below) is completely independent of this -
+      # different system entirely (app store connect api, not github
+      # releases) - this step is purely a nice-to-have, attaching the
+      # .ipa as a downloadable asset on a github release page. checks the
+      # release actually exists before uploading rather than assuming it
+      # does: release.yml's automated dispatch always has one by this
+      # point (its own `create-release` job creates it first), but a
+      # manual `workflow_dispatch` run that happens to have a `tag` typed
+      # in (intentionally or not) shouldn't hard-fail the whole job over
+      # a release that doesn't exist - gracefully skips instead, same as
+      # leaving `tag` empty (the recommended default for manual runs)
+      # already does.
       - name: upload ipa to draft release
         if: inputs.tag != ''
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          if ! gh release view "${{ inputs.tag }}" >/dev/null 2>&1; then
+            echo "release ${{ inputs.tag }} doesn't exist - skipping (not a failure, this build is still available as a workflow artifact above)"
+            exit 0
+          fi
           gh release upload "${{ inputs.tag }}" \
             "build/${{ steps.meta.outputs.version }}/freqhole_charnel_${{ steps.meta.outputs.version }}_ios.ipa" \
             --clobber
