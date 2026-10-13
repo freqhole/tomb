@@ -115,10 +115,37 @@ jobs:
           echo "version=$V" >> "$GITHUB_OUTPUT"
 
       - name: require ios signing secrets
-        if: env.IOS_CERTIFICATE == '' || env.APPLE_TEAM_ID == ''
+        if: env.IOS_CERTIFICATE == '' || env.IOS_CERTIFICATE_PASSWORD == '' || env.IOS_MOBILE_PROVISION == '' || env.APPLE_TEAM_ID == ''
         run: |
           echo "::error::missing one or more of APPLE_TEAM_ID/IOS_CERTIFICATE_P12_BASE64/IOS_CERTIFICATE_PASSWORD/IOS_PROVISIONING_PROFILE_BASE64 secrets - see docs/ios.md phase 5 for how to generate an Apple Distribution certificate + App Store provisioning profile. there's no ephemeral-signing fallback for ios (unlike android's job) - a real distribution cert/profile is a hard requirement for a TestFlight-ready build."
           exit 1
+
+      # tauri-cli's own project_config() silently swallows ANY failure
+      # decoding/parsing IOS_MOBILE_PROVISION (`.and_then(|p| p.uuid().ok())`
+      # in mobile/ios/mod.rs - confirmed by reading the actual source) -
+      # a malformed/corrupted/wrong profile doesn't error here at all, it
+      # just quietly proceeds with NO `PROVISIONING_PROFILE_SPECIFIER` set,
+      # so the failure only ever surfaces ~200 lines deep in xcodebuild's
+      # own output as a generic "requires a provisioning profile" error,
+      # with zero indication the real cause was a bad secret. decode and
+      # validate it ourselves first instead, with a specific, early,
+      # actionable error if it's not a well-formed signed provisioning
+      # profile - printing only non-sensitive metadata (name/uuid/
+      # expiration/bundle id), never the secret's own raw content.
+      - name: validate the ios provisioning profile secret
+        run: |
+          PROFILE_PATH="$RUNNER_TEMP/profile.mobileprovision"
+          PLIST_PATH="$RUNNER_TEMP/profile.plist"
+          echo "$IOS_MOBILE_PROVISION" | base64 --decode > "$PROFILE_PATH" 2>/dev/null
+          if ! security cms -D -i "$PROFILE_PATH" > "$PLIST_PATH" 2>"$RUNNER_TEMP/profile_decode_err.txt"; then
+            echo "::error::IOS_PROVISIONING_PROFILE_BASE64 doesn't decode to a valid signed provisioning profile: $(cat "$RUNNER_TEMP/profile_decode_err.txt"). re-export the .mobileprovision from the apple developer portal, re-run \`base64 -i YourProfile.mobileprovision | pbcopy\`, and \`gh secret set IOS_PROVISIONING_PROFILE_BASE64\` again - a corrupted/wrong value here is silently ignored deeper in the build (see this step's doc comment in ios.yml), surfacing instead as a confusing 'requires a provisioning profile' error from xcodebuild."
+            exit 1
+          fi
+          echo "provisioning profile decoded ok:"
+          /usr/libexec/PlistBuddy -c "Print :Name" "$PLIST_PATH" 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Print :UUID" "$PLIST_PATH" 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Print :ExpirationDate" "$PLIST_PATH" 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Print :Entitlements:application-identifier" "$PLIST_PATH" 2>/dev/null || true
 
       # tauri-cli's own `ios build` unconditionally checks for an installed
       # iOS *simulator* runtime - confirmed by reading its actual source
