@@ -206,6 +206,21 @@ jobs:
           make build-tauri-ios \
             IOS_EXPORT_METHOD=app-store-connect \
             IOS_BUILD_NUMBER=${{ github.run_number }}
+      # tauri-cli patches + saves project.pbxproj's signing build settings
+      # (CODE_SIGN_STYLE/DEVELOPMENT_TEAM/CODE_SIGN_IDENTITY/
+      # PROVISIONING_PROFILE_SPECIFIER) *before* invoking xcodebuild, and a
+      # failed xcodebuild run doesn't revert that write - so if the build
+      # above fails, this dumps exactly what tauri-cli actually wrote,
+      # which is the ground truth for whether its own signing-patch logic
+      # ran as expected (confirmed separately: the cert/profile/team
+      # secrets themselves are valid and correctly matched - see the
+      # "validate the ios provisioning profile secret" step above), or
+      # whether the bug is in that patching step itself.
+      - name: dump actual pbxproj signing settings (only runs if the build above failed)
+        if: failure()
+        run: |
+          grep -n -A1 "CODE_SIGN_STYLE\|DEVELOPMENT_TEAM\|CODE_SIGN_IDENTITY\|PROVISIONING_PROFILE" \
+            client/charnel/src-tauri/gen/apple/charnel.xcodeproj/project.pbxproj || echo "none of these keys are present in project.pbxproj at all"
       - name: upload ipa as a workflow artifact
         uses: actions/upload-artifact@v4
         with:
