@@ -6,9 +6,9 @@
 //! to disk directly outside the webview (grimoire's own sqlite
 //! databases, p2p-synced media blobs, the fetch/local-library
 //! directory, generated artwork/transcode renditions, etc), so the
-//! number shown was always a significant undercount for any tauri build
-//! - badly so on mobile, where most of a user's actual storage usage is
-//! exactly the stuff this module measures.
+//! number shown was always a significant undercount for any tauri
+//! build, especially so on mobile, where most of a user's actual
+//! storage usage is exactly the stuff this module measures.
 //!
 //! reuses rather than reimplements: `external_storage::disk_usage` (the
 //! same statvfs/`fsutil` primitive the removable-storage-sync feature

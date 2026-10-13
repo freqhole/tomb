@@ -134,10 +134,23 @@ pub struct UpsertPendingRemoteRequest {
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum PendingRemoteCommand {
     List,
-    Get { id: String },
-    GetByPeerAddr { peer_addr: String },
-    Create { request: CreatePendingRemoteRequest },
-    Update { id: String, request: UpsertPendingRemoteRequest },
-    Remove { id: String },
-    RemoveByPeerAddr { peer_addr: String },
+    Get {
+        id: String,
+    },
+    GetByPeerAddr {
+        peer_addr: String,
+    },
+    Create {
+        request: CreatePendingRemoteRequest,
+    },
+    Update {
+        id: String,
+        request: UpsertPendingRemoteRequest,
+    },
+    Remove {
+        id: String,
+    },
+    RemoveByPeerAddr {
+        peer_addr: String,
+    },
 }

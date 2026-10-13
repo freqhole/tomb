@@ -167,10 +167,7 @@ impl PendingRemoteRepository {
     }
 
     /// create a new pending remote with a fresh server-generated id.
-    pub async fn create(
-        &self,
-        req: &CreatePendingRemoteRequest,
-    ) -> GrimoireResult<PendingRemote> {
+    pub async fn create(&self, req: &CreatePendingRemoteRequest) -> GrimoireResult<PendingRemote> {
         let pool = database::connect().await?;
 
         let id = Uuid::new_v4().to_string();

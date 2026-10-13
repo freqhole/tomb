@@ -238,8 +238,9 @@ async fn handle_stream(
                 let resp = PeerMessage::ApiResponse {
                     id,
                     status: 403,
-                    body: r#"{"success":false,"message":"not expecting a callback from this peer"}"#
-                        .to_string(),
+                    body:
+                        r#"{"success":false,"message":"not expecting a callback from this peer"}"#
+                            .to_string(),
                 };
                 send_response(&mut send, &resp).await?;
                 return Ok(());

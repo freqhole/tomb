@@ -35,7 +35,9 @@ pub use repository::PendingRemoteRepository;
 /// established remote or registered user.
 pub async fn is_pending_remote_peer(node_id: &str) -> bool {
     matches!(
-        PendingRemoteRepository::new().get_by_peer_addr(node_id).await,
+        PendingRemoteRepository::new()
+            .get_by_peer_addr(node_id)
+            .await,
         Ok(Some(_))
     )
 }
