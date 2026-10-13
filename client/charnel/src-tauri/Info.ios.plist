@@ -35,5 +35,13 @@
         <key>NSAllowsLocalNetworking</key>
         <true/>
     </dict>
+
+    <!-- declares the app only uses standard/exempt encryption (https/tls
+         via rustls - no custom/proprietary cryptography) - without this,
+         every testflight/app store upload needs a manual "export
+         compliance" answer in app store connect before it's available to
+         ANY tester, even internal ones with auto-distribute on. -->
+    <key>ITSAppUsesNonExemptEncryption</key>
+    <false/>
 </dict>
 </plist>

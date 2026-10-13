@@ -290,6 +290,13 @@ jobs:
       # future runner image's Xcode version - exactly the kind of thing
       # this workflow's standalone `workflow_dispatch` trigger exists to
       # let you iterate on without touching the full release pipeline.
+      # altool is notoriously unreliable about its own exit code - it can
+      # print "ERROR: ..." and still exit 0 (confirmed real: this exact
+      # step reported success with a green checkmark despite altool
+      # itself reporting "Cannot determine the Apple ID from Bundle ID"
+      # and uploading nothing at all). check its actual output for an
+      # ERROR line too, not just the exit code, so a silent failure like
+      # that can't pass as success again.
       - name: upload to testflight
         if: inputs.upload_to_testflight
         run: |
@@ -300,8 +307,14 @@ jobs:
           # of well-known directories; ~/private_keys is one of them.
           mkdir -p "$HOME/private_keys"
           cp "$APPLE_API_KEY_PATH" "$HOME/private_keys/AuthKey_${APPLE_API_KEY}.p8"
+          OUTPUT_FILE="$RUNNER_TEMP/altool_output.txt"
           xcrun altool --upload-app \
             -t ios \
             -f "build/${{ steps.meta.outputs.version }}/freqhole_charnel_${{ steps.meta.outputs.version }}_ios.ipa" \
             --apiKey "$APPLE_API_KEY" \
-            --apiIssuer "$APPLE_API_ISSUER"
+            --apiIssuer "$APPLE_API_ISSUER" 2>&1 | tee "$OUTPUT_FILE"
+          STATUS=${PIPESTATUS[0]}
+          if [ "$STATUS" -ne 0 ] || grep -q "ERROR" "$OUTPUT_FILE"; then
+            echo "::error::altool reported a failure (exit $STATUS and/or an ERROR line in its own output above) - nothing was actually uploaded to testflight, regardless of what altool's own exit code says."
+            exit 1
+          fi

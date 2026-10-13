@@ -66,6 +66,12 @@ targets:
         NSLocalNetworkUsageDescription: freqhole connects to freqhole servers on your local network to stream and sync your music library.
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
+        # declares the app only uses standard/exempt encryption (https/tls
+        # via rustls - no custom/proprietary cryptography) - without this,
+        # every testflight/app store upload needs a manual "export
+        # compliance" answer in app store connect before it's available
+        # to ANY tester, even internal ones with auto-distribute on.
+        ITSAppUsesNonExemptEncryption: false
     entitlements:
       path: charnel_iOS/charnel_iOS.entitlements
     scheme:
