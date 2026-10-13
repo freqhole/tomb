@@ -5,8 +5,10 @@
 //
 // that only worked on macOS/linux: tauri runs beforeBuildCommand through
 // cmd.exe on windows, which has neither posix `VAR=value cmd` env-prefix
-// syntax nor a `cp` builtin. this does the same three steps (build spume with
-// VITE_CHARNEL_MODE set, copy the wizard build in, copy about.html in) using
+// syntax nor a `cp` builtin. this does the same steps (build spume with
+// VITE_CHARNEL_MODE set, copy the wizard build in, copy about.html and
+// loading.html in - the latter is mobile's first-run setup spinner, see
+// `mobile_finish_boot` in client/charnel/src-tauri/src/lib.rs) using
 // only node apis, so it runs identically on windows/macOS/linux.
 //
 // invoked by tauri with cwd = client/charnel (the npm project root).
@@ -54,3 +56,4 @@ cpSync(join(charnelDir, "dist", "wizard"), join(spumeDir, "dist", "wizard"), {
   recursive: true,
 });
 cpSync(join(charnelDir, "public", "about.html"), join(spumeDir, "dist", "about.html"));
+cpSync(join(charnelDir, "public", "loading.html"), join(spumeDir, "dist", "loading.html"));

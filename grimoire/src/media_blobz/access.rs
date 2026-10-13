@@ -57,25 +57,42 @@ fn local_file_missing_response(blob_id: &str, path: &str) -> GrimoireResponse<Js
 /// should use `build_blob_path_response_by_blake3` instead.
 pub async fn build_blob_path_response(id: &str) -> GrimoireResponse<JsonValue> {
     match get_media_blob(id).await {
-        Ok(blob) => {
-            if let Some(path) = blob.local_path {
-                if !tokio::fs::try_exists(&path).await.unwrap_or(false) {
-                    return local_file_missing_response(&blob.id, &path);
-                }
-                GrimoireResponse::success(
-                    "blob path",
-                    json!({
-                        "id": blob.id,
-                        "path": path,
-                        "mime": blob.mime,
-                    }),
-                )
-            } else {
-                no_local_path_response(&blob.id)
-            }
-        }
+        Ok(blob) => match blob.local_path {
+            Some(path) => resolve_blob_path_response(&blob.id, blob.mime.as_deref(), path).await,
+            None => no_local_path_response(&blob.id),
+        },
         Err(e) => GrimoireResponse::failure("blob not found", vec![ErrorDetail::from(e)]),
     }
+}
+
+/// shared by `build_blob_path_response`/`build_blob_path_response_by_blake3`:
+/// verify a blob's stored `local_path` still exists, attempting
+/// `service::try_self_heal_missing_local_path` once before giving up - so
+/// a stale-but-confirmed-repairable path (most likely: ios relocated the
+/// app's container since this blob was last played) heals transparently
+/// the moment it's first requested again, rather than every caller being
+/// stuck with `blob_local_file_missing` until some separate repair step
+/// happens to run first.
+async fn resolve_blob_path_response(
+    blob_id: &str,
+    mime: Option<&str>,
+    path: String,
+) -> GrimoireResponse<JsonValue> {
+    if tokio::fs::try_exists(&path).await.unwrap_or(false) {
+        return GrimoireResponse::success(
+            "blob path",
+            json!({ "id": blob_id, "path": path, "mime": mime }),
+        );
+    }
+
+    if let Some(repaired) = super::service::try_self_heal_missing_local_path(blob_id, &path).await {
+        return GrimoireResponse::success(
+            "blob path",
+            json!({ "id": blob_id, "path": repaired, "mime": mime }),
+        );
+    }
+
+    local_file_missing_response(blob_id, &path)
 }
 
 /// same as `build_blob_path_response`, but resolved by content hash (blake3)
@@ -88,23 +105,10 @@ pub async fn build_blob_path_response(id: &str) -> GrimoireResponse<JsonValue> {
 /// hard-requires it), so this is safe to try first for any queue item.
 pub async fn build_blob_path_response_by_blake3(blake3: &str) -> GrimoireResponse<JsonValue> {
     match get_media_blob_by_blake3(blake3).await {
-        Ok(blob) => {
-            if let Some(path) = blob.local_path {
-                if !tokio::fs::try_exists(&path).await.unwrap_or(false) {
-                    return local_file_missing_response(&blob.id, &path);
-                }
-                GrimoireResponse::success(
-                    "blob path",
-                    json!({
-                        "id": blob.id,
-                        "path": path,
-                        "mime": blob.mime,
-                    }),
-                )
-            } else {
-                no_local_path_response(&blob.id)
-            }
-        }
+        Ok(blob) => match blob.local_path {
+            Some(path) => resolve_blob_path_response(&blob.id, blob.mime.as_deref(), path).await,
+            None => no_local_path_response(&blob.id),
+        },
         Err(e) => GrimoireResponse::failure("blob not found", vec![ErrorDetail::from(e)]),
     }
 }
@@ -233,6 +237,8 @@ mod tests {
     // process:
     // cargo test -p grimoire --lib -- --ignored --exact media_blobz::access::tests::test_build_blob_path_response_succeeds_when_file_exists
     // cargo test -p grimoire --lib -- --ignored --exact media_blobz::access::tests::test_build_blob_path_response_by_blake3_reports_local_file_missing
+    // cargo test -p grimoire --lib -- --ignored --exact media_blobz::access::tests::test_build_blob_path_response_self_heals_stale_local_path
+    // cargo test -p grimoire --lib -- --ignored --exact media_blobz::access::tests::test_build_blob_path_response_self_heal_sweeps_other_stale_rows
     async fn init_test_env(data_dir: &std::path::Path) {
         let config_toml = format!(
             r#"data_dir = "{data_dir}"
@@ -287,7 +293,7 @@ level = "warn"
 
         insert_media_blob(
             "blob-exists",
-            "blake3-exists",
+            &"a".repeat(64),
             Some(&file_path.display().to_string()),
         )
         .await;
@@ -305,17 +311,101 @@ level = "warn"
         init_test_env(tmp.path()).await;
 
         // local_path is set in the db, but nothing was ever written there -
-        // simulates a file moved/deleted out from under the db row.
+        // simulates a file moved/deleted out from under the db row, with
+        // no `/data/fetch/` marker for the self-heal attempt to find a
+        // candidate repair from - a genuinely missing file, not a stale
+        // path (see `test_build_blob_path_response_self_heals_stale_local_path`
+        // for that case).
         let gone_path = tmp.path().join("gone.mp3");
         insert_media_blob(
             "blob-gone",
-            "blake3-gone",
+            &"b".repeat(64),
             Some(&gone_path.display().to_string()),
         )
         .await;
 
-        let resp = build_blob_path_response_by_blake3("blake3-gone").await;
+        let resp = build_blob_path_response_by_blake3(&"b".repeat(64)).await;
         assert!(!resp.is_success(), "expected failure, got: {resp:?}");
         assert_eq!(resp.errors[0].error_type, "blob_local_file_missing");
+    }
+
+    #[tokio::test]
+    #[ignore = "needs its own process: touches the real db pool singleton"]
+    async fn test_build_blob_path_response_self_heals_stale_local_path() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        init_test_env(tmp.path()).await;
+
+        // the row's local_path points at a different (stale) container,
+        // but the real file sits under the CURRENT data_dir (set up by
+        // `init_test_env` as `tmp.path()` directly, under `/fetch/...`) -
+        // exactly what a boot-time container relocation produces before
+        // any repair has had a chance to run.
+        let correct_data_dir = tmp.path();
+        let real_path = correct_data_dir.join("fetch").join("2024").join("01.mp3");
+        std::fs::create_dir_all(real_path.parent().unwrap()).expect("mkdir");
+        std::fs::write(&real_path, b"fake audio bytes").expect("write real file");
+
+        let stale_path = std::path::Path::new("/old/stale/container/fetch/2024/01.mp3");
+        insert_media_blob(
+            "blob-stale",
+            &"c".repeat(64),
+            Some(&stale_path.display().to_string()),
+        )
+        .await;
+
+        let resp = build_blob_path_response("blob-stale").await;
+        assert!(
+            resp.is_success(),
+            "expected the self-heal to succeed, got: {resp:?}"
+        );
+        let data = resp.data.expect("data");
+        assert_eq!(data["path"], real_path.display().to_string());
+
+        // the fix should also have been persisted on the row itself, not
+        // just returned for this one request.
+        let blob = crate::media_blobz::get_media_blob("blob-stale")
+            .await
+            .expect("get blob");
+        assert_eq!(
+            blob.local_path.as_deref(),
+            Some(real_path.display().to_string()).as_deref()
+        );
+    }
+
+    #[tokio::test]
+    #[ignore = "needs its own process: touches the real db pool singleton"]
+    async fn test_build_blob_path_response_self_heal_sweeps_other_stale_rows() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        init_test_env(tmp.path()).await;
+
+        // `init_test_env` configures `data_dir` as `tmp.path()` directly
+        // (no "data" subdirectory) - the marker this repair relies on is
+        // just "/fetch/", not a mobile-specific "/data/fetch/", precisely
+        // so it works regardless of what data_dir itself is called.
+        let correct_data_dir = tmp.path();
+        let path_a = correct_data_dir.join("fetch").join("a.mp3");
+        let path_b = correct_data_dir.join("fetch").join("b.mp3");
+        std::fs::create_dir_all(correct_data_dir.join("fetch")).expect("mkdir");
+        std::fs::write(&path_a, b"a").expect("write a");
+        std::fs::write(&path_b, b"b").expect("write b");
+
+        let stale_a = "/old/stale/container/fetch/a.mp3";
+        let stale_b = "/an/even/older/container/fetch/b.mp3";
+        insert_media_blob("blob-row-a", &"d".repeat(64), Some(stale_a)).await;
+        insert_media_blob("blob-row-b", &"e".repeat(64), Some(stale_b)).await;
+
+        // only request blob-row-a's path - blob-row-b never gets looked
+        // up directly, so the only way it heals is the sweep triggered by
+        // blob-row-a's confirmed self-heal.
+        let resp = build_blob_path_response("blob-row-a").await;
+        assert!(resp.is_success(), "expected success, got: {resp:?}");
+
+        let blob_b = crate::media_blobz::get_media_blob("blob-row-b")
+            .await
+            .expect("get blob-row-b");
+        assert_eq!(
+            blob_b.local_path.as_deref(),
+            Some(path_b.display().to_string()).as_deref()
+        );
     }
 }

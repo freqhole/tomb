@@ -69,23 +69,53 @@ export function isXlViewport(): boolean {
 }
 
 /**
+ * resolved `env(safe-area-inset-bottom)` in px, measured once and cached.
+ *
+ * NOT read via `getComputedStyle(document.documentElement).getPropertyValue
+ * ("--safe-area-bottom")` - that returns a *custom* property's declared text
+ * as-authored (`"env(safe-area-inset-bottom, 0px)"`), not a resolved pixel
+ * value (custom properties are textual substitution, not computed like
+ * normal properties - this bit both this function's previous implementation
+ * and `getPlayerBarHeightPx()` below, which `parseFloat()`-ed that same
+ * unparseable text and silently always fell back to its flat constant).
+ * `getComputedStyle` DOES correctly resolve `env()`/`calc()` for a *regular*
+ * property though, so a throwaway element using `padding-bottom` (a normal
+ * property) is the standard, reliable way to read this value in JS.
+ */
+let cachedSafeAreaBottomPx: number | null = null;
+function measureSafeAreaBottomPx(): number {
+  if (cachedSafeAreaBottomPx !== null) return cachedSafeAreaBottomPx;
+  if (typeof document === "undefined") return 0;
+  const probe = document.createElement("div");
+  probe.style.position = "fixed";
+  probe.style.visibility = "hidden";
+  probe.style.pointerEvents = "none";
+  probe.style.paddingBottom = "env(safe-area-inset-bottom, 0px)";
+  document.body.appendChild(probe);
+  const resolved = parseFloat(getComputedStyle(probe).paddingBottom);
+  probe.remove();
+  cachedSafeAreaBottomPx = Number.isFinite(resolved) ? resolved : 0;
+  return cachedSafeAreaBottomPx;
+}
+
+/**
  * playerbar height in px, matching theme.css's `--player-height` exactly
  * (80px narrow / 72px wide, both plus `--safe-area-bottom`). used wherever
  * a view computes an explicit list height in JS (virtualized lists, etc) -
- * views that just render the css var directly don't need this. reads the
- * live `--player-height` var (mirrors `getNavHeight()`'s identical fix for
- * `--nav-height`/`--safe-area-top`) instead of a bare constant - a device
- * with a nonzero safe-area-bottom (iOS home indicator, android edge-to-edge)
- * has a REAL playerbar taller than the flat 80/72px constant, which under-
- * reserved space and let a virtualized list's last row(s) render partly
- * behind the actual (taller) playerbar. falls back to the flat constant if
- * the var isn't set yet or can't be parsed (e.g. before first paint).
+ * views that just render the css var directly don't need this. computed
+ * analytically (flat base + measured safe-area-bottom) rather than by
+ * reading `--player-height` itself, since that's a `calc()`-based custom
+ * property with no JS-resolved override anywhere (unlike `--nav-height`,
+ * which `TopNav.tsx`'s own `ResizeObserver` sync keeps as an always-
+ * resolved inline px value) - see `measureSafeAreaBottomPx()`'s doc
+ * comment for why reading it directly never actually worked. a device
+ * with a nonzero safe-area-bottom (iOS home indicator, android edge-to-
+ * edge) has a REAL playerbar taller than the flat 80/72px constant, which
+ * under-reserved space and let a virtualized list's last row(s) render
+ * partly behind the actual (taller) playerbar.
  */
 export function getPlayerBarHeightPx(isNarrow: boolean, visible: boolean): number {
   if (!visible) return 0;
-  const fallback = isNarrow ? 80 : 72;
-  if (typeof window === "undefined") return fallback;
-  const raw = getComputedStyle(document.documentElement).getPropertyValue("--player-height").trim();
-  const parsed = parseFloat(raw);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+  const base = isNarrow ? 80 : 72;
+  return base + measureSafeAreaBottomPx();
 }

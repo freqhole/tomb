@@ -764,6 +764,51 @@ fn read_libmpv_events(
                 );
                 let _ = events_client.set_property("pause", true);
                 let _ = events_client.set_property("pause", false);
+            } else if !seen_progress
+                && nudge_count >= MAX_STALL_NUDGES
+                && since.elapsed() >= STALL_GRACE
+                && events_client.get_property::<bool>("pause") == Ok(false)
+            {
+                // all MAX_STALL_NUDGES attempts exhausted and time-pos
+                // STILL never advanced - previously this just fell
+                // through silently forever (the comment above this
+                // function said "the existing EndFile/Error path is the
+                // remaining backstop", but that backstop only fires for
+                // a genuine mpv-reported error, which this state never
+                // produces by definition - it's not erroring, just
+                // never making progress). confirmed real: this left the
+                // frontend's "pending up next" spinner stuck
+                // indefinitely with zero signal, recoverable only by
+                // the user manually toggling play/pause (the facade's
+                // `PlayerCommand::Play` issues the exact same
+                // `set_property("pause", false)` this watchdog's own
+                // nudge does - it isn't a different, more powerful
+                // fix, it's just another attempt at the same one,
+                // landing whenever mpv happens to have unwedged itself
+                // meanwhile).
+                //
+                // give up for real: clear `loaded_at` so this branch
+                // doesn't keep re-firing every tick, and emit the same
+                // `playback_failed` error_type the `EndFile::Error` arm
+                // above already uses - the frontend's existing handler
+                // for that error_type already does the right thing
+                // (skip to the next queue item, bounded retry budget),
+                // no frontend change needed.
+                loaded_at = None;
+                tracing::warn!(
+                    "[player] libmpv stall persisted after {} nudge attempts - giving up and reporting playback_failed",
+                    MAX_STALL_NUDGES
+                );
+                emit(
+                    &events,
+                    PlayerEvent::Error {
+                        detail: ErrorDetail::new(
+                            "playback_failed",
+                            "Playback Failed",
+                            "libmpv accepted the file but never started producing audio",
+                        ),
+                    },
+                );
             }
         }
     }

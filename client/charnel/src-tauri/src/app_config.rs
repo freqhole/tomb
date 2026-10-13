@@ -181,6 +181,26 @@ pub struct FreqholeAppConfig {
     /// defaults/auto-detection apply unless a user opts to override here).
     #[serde(default)]
     pub video_mpv_extra_options: BTreeMap<String, String>,
+
+    /// one-shot marker: has the mobile `media_blobz.local_path` stale-
+    /// container backfill (`grimoire::media_blobz::repair_stale_local_paths`)
+    /// ever run at least once on this install? mobile's boot sequence
+    /// already cheaply detects+repairs a stale config `data_dir` on every
+    /// single boot (see `repair_stale_mobile_data_dir` in lib.rs) and
+    /// re-runs the (heavier, full-table-scan) `local_path` repair in
+    /// lockstep whenever that happens - which is all that's needed going
+    /// forward, since every future relocation gets caught the moment it
+    /// happens. this flag exists purely for the ONE-TIME historical case:
+    /// rows that went stale before this repair existed at all (or from a
+    /// past attempt that failed for some other reason), on an install
+    /// where the config's own `data_dir` already happens to look correct
+    /// this boot - nothing else would ever trigger a repair for those. set
+    /// `true` the first time the repair runs for ANY reason (not just this
+    /// one) - a single full-table sweep always covers every stale row
+    /// regardless of why it ran, so once any sweep has completed, this
+    /// backlog can never recur.
+    #[serde(default)]
+    pub media_blobz_path_backfill_done: bool,
 }
 
 // `#[derive(Default)]` would use each field's own zero value (e.g. `false`,
@@ -212,6 +232,7 @@ impl Default for FreqholeAppConfig {
             initial_view: default_initial_view(),
             video_hwdec: default_video_hwdec(),
             video_mpv_extra_options: BTreeMap::new(),
+            media_blobz_path_backfill_done: false,
         }
     }
 }
@@ -390,6 +411,31 @@ pub fn load_or_create(app_handle: &tauri::AppHandle) -> FreqholeAppConfig {
     FreqholeAppConfig::load(app_handle).unwrap_or_default()
 }
 
+/// has the one-time `media_blobz.local_path` stale-container backfill ever
+/// run on this install? see `FreqholeAppConfig::media_blobz_path_backfill_done`'s
+/// doc comment. missing/unparseable app config (e.g. a brand new install,
+/// still mid-first-ever-setup) reads as `false` - nothing to back-fill yet
+/// either way, and `mark_media_blobz_path_backfill_done` will create the
+/// file once there's something worth recording. only `lib.rs`'s mobile
+/// boot sequence calls this - cfg-gated to avoid an unused-code warning on
+/// desktop builds, where it would otherwise never be called at all.
+#[cfg(mobile)]
+pub fn media_blobz_path_backfill_done(app_handle: &tauri::AppHandle) -> bool {
+    load_or_create(app_handle).media_blobz_path_backfill_done
+}
+
+/// record that the one-time `media_blobz.local_path` backfill has run -
+/// see `media_blobz_path_backfill_done`'s doc comment. best-effort: a
+/// write failure here just means the (cheap, idempotent) full-table sweep
+/// gets attempted again next boot instead of being skipped - not harmful,
+/// just not the steady-state this flag exists to reach.
+#[cfg(mobile)]
+pub fn mark_media_blobz_path_backfill_done(app_handle: &tauri::AppHandle) -> Result<(), String> {
+    let mut config = load_or_create(app_handle);
+    config.media_blobz_path_backfill_done = true;
+    config.save(app_handle)
+}
+
 /// save admin user info to app config
 pub fn save_admin_user(
     app_handle: &tauri::AppHandle,
@@ -414,24 +460,52 @@ pub fn save_server_config_path(app_handle: &tauri::AppHandle, path: &str) -> Res
 ///
 /// tries app config first, falls back to legacy location in app data dir.
 /// returns None if no config path is found.
+///
+/// confirmed on a real device (ios 26.6.2, container migration/dual-install
+/// scenario - see docs/ios.md known gap): `charnel-config.toml`'s saved
+/// `server_config_path` is an ABSOLUTE string baked in by whichever earlier
+/// install/session wrote it - if ios ever relocates this app's container to
+/// a new UUID (migration during an update, or a re-signed/re-provisioned
+/// reinstall landing in a fresh container while an old one still lingers
+/// on disk), that saved string keeps pointing at the OLD, now-foreign
+/// container. critically, `path.exists()` alone does NOT catch this: the
+/// old container's files can still genuinely exist on disk (ios doesn't
+/// necessarily garbage-collect them immediately), so the stale path
+/// "passes" the existence check and gets trusted anyway - loading a
+/// config whose OWN `data_dir` then resolves to that same dead container,
+/// so every subsequent `grimoire.db` lookup fails ("database not found")
+/// even though a perfectly good one already exists right where this
+/// install's CURRENT `app_data_dir()` actually points. fix: a saved path
+/// is only trusted if it's actually located inside the CURRENT, freshly-
+/// resolved `app_data_dir()` - not just "exists somewhere on disk".
 pub fn get_server_config_path_resolved(app_handle: &tauri::AppHandle) -> Option<PathBuf> {
     use tauri::Manager;
 
-    // first, check app config for saved path
+    let current_app_data_dir = app_handle.path().app_data_dir().ok();
+
+    // first, check app config for saved path - but only trust it if it's
+    // actually inside the CURRENT app data dir (see doc comment above).
     if let Some(app_config) = FreqholeAppConfig::load(app_handle) {
         if let Some(path) = app_config.get_server_config_path() {
-            if path.exists() {
+            let still_current = current_app_data_dir
+                .as_ref()
+                .is_some_and(|current| path.starts_with(current));
+            if !still_current {
+                tracing::warn!(
+                    stale_path = %path.display(),
+                    current_app_data_dir = ?current_app_data_dir.as_ref().map(|p| p.display().to_string()),
+                    "saved server_config_path points outside the current app data dir - ignoring stale pointer"
+                );
+            } else if path.exists() {
                 return Some(path);
             }
         }
     }
 
-    // fallback: check legacy location in app data dir
-    let legacy_path = app_handle
-        .path()
-        .app_data_dir()
-        .ok()
-        .map(|p| p.join("freqhole-config.toml"))?;
+    // fallback: check legacy location in app data dir - also where a
+    // discarded stale pointer above (see immediately above) correctly
+    // falls through to, re-deriving fresh under the CURRENT container.
+    let legacy_path = current_app_data_dir.map(|p| p.join("freqhole-config.toml"))?;
 
     if legacy_path.exists() {
         Some(legacy_path)

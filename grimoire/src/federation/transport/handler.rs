@@ -6,10 +6,36 @@
 //! - tauri app for local P2P serving
 //! - CLI for standalone P2P serving mode
 //!
-//! peer validation flow (in order):
+//! peer trust:
 //! 1. is_known_peer - check if node_id is in user_peer_nodez (fast local DB check)
 //! 2. resolve_peer - if haruspex configured, lookup via haruspex (may auto-create user)
-//! 3. knocking_enabled - if true, allow connection but restrict to public routes only
+//! 3. remotez::is_known_remote_peer - a peer we ourselves added as a remote
+//! 4. pending_remotez::is_pending_remote_peer - a peer we sent a knock to
+//!    or issued a device-link invite for, awaiting its response
+//!
+//! connections are always accepted regardless of peer trust - trust is
+//! enforced per-route in `handle_stream` instead:
+//! - ordinary `RouteAuth::Public` routes (derived from the offal route
+//!   registry, see `is_public_endpoint`) dispatch unconditionally, same as
+//!   a plain public http endpoint would (discovery, radio info, ...).
+//! - the `/api/internal/*` callback routes (device-linked, knock-accepted)
+//!   are public in the sense that they don't need a registered user
+//!   account, but still require `trusted` - specifically, a peer we
+//!   proactively marked as expected via #4 above the moment we sent the
+//!   knock/invite. this is the fix for a real chicken-and-egg bug: the
+//!   peer notifying us of this is, from our perspective, unrecognized by
+//!   any of #1-3 at the moment it calls back (we only become "known" to
+//!   it as a *result* of this exact callback) - but it's never a stranger
+//!   either, since we dialed it first and know exactly which node_id to
+//!   expect a response from. requiring `trusted` here (rather than making
+//!   these routes unconditionally public) is what actually closes that
+//!   gap without reopening it to a peer we never contacted spoofing one of
+//!   these callbacks.
+//! - `/api/knock` (creating a *new* knock) additionally accepts an
+//!   untrusted peer when `knocking_enabled` is on - this is the one place
+//!   a genuine stranger is meant to be let in.
+//! - everything else needs `get_caller_for_peer` to resolve the peer to a
+//!   real user account.
 
 use crate::api_registry::Method as OffalMethod;
 use crate::blobz;
@@ -19,6 +45,7 @@ use crate::federation::transport::protocol::PeerMessage;
 use crate::media_blobz::get_media_blob_with_data;
 use crate::offal::dispatch as offal_dispatch;
 use crate::offal::Caller;
+use crate::pending_remotez::is_pending_remote_peer;
 use crate::users::{UserRole, UserService};
 
 use iroh::PublicKey;
@@ -43,17 +70,20 @@ use tracing::{debug, info, warn};
 /// this is the main entry point for P2P request handling.
 /// accepts streams and processes requests via offal::dispatch().
 ///
-/// validates peer is allowed: known peer, haruspex-resolved, or knocking enabled
+/// every connection is accepted regardless of peer trust - see this
+/// module's doc comment for exactly how trust is enforced per-route
+/// instead, in `handle_stream`.
 pub async fn handle_incoming(peer_node_id: PublicKey, conn: iroh::endpoint::Connection) {
     let node_id_str = peer_node_id.to_string();
     let node_id_short = &node_id_str[..16];
 
-    // check if allowed: known peer > haruspex lookup > our own remotez list > knocking
     let known = is_known_peer(&node_id_str).await;
     let resolved = !known && resolve_peer(&node_id_str).await.user.is_some();
     let remote_peer =
         !known && !resolved && crate::remotez::is_known_remote_peer(&node_id_str).await;
-    let knocking = is_knocking_enabled();
+    let pending_peer =
+        !known && !resolved && !remote_peer && is_pending_remote_peer(&node_id_str).await;
+    let trusted = known || resolved || remote_peer || pending_peer;
 
     if known {
         debug!(
@@ -70,15 +100,16 @@ pub async fn handle_incoming(peer_node_id: PublicKey, conn: iroh::endpoint::Conn
             "[p2p-handler] connection from a peer in our own remotez list: {}",
             node_id_short
         );
-    } else if knocking {
+    } else if pending_peer {
         debug!(
-            "[p2p-handler] connection from unknown peer (knocking): {}",
+            "[p2p-handler] connection from a pending remote peer (awaiting knock/device-link response): {}",
             node_id_short
         );
     } else {
-        warn!("[p2p-handler] rejecting unknown peer: {}", node_id_short);
-        conn.close(1u32.into(), b"sorry");
-        return;
+        debug!(
+            "[p2p-handler] connection from unrecognized peer: {} (public routes only)",
+            node_id_short
+        );
     }
 
     // accept streams in a loop
@@ -92,7 +123,9 @@ pub async fn handle_incoming(peer_node_id: PublicKey, conn: iroh::endpoint::Conn
 
                 // handle each stream concurrently
                 tokio::spawn(async move {
-                    if let Err(e) = handle_stream(send, recv, &node_id_str, &node_id_short).await {
+                    if let Err(e) =
+                        handle_stream(send, recv, &node_id_str, &node_id_short, trusted).await
+                    {
                         warn!("[p2p-handler] stream error from {}: {}", node_id_short, e);
                     }
                 });
@@ -114,6 +147,7 @@ async fn handle_stream(
     mut recv: iroh::endpoint::RecvStream,
     node_id_str: &str,
     node_id_short: &str,
+    trusted: bool,
 ) -> Result<(), String> {
     // read the request message
     let federation_config = get_config().federation.clone();
@@ -186,6 +220,49 @@ async fn handle_stream(
             // check if this is a public endpoint (no auth required)
             let is_public = is_public_endpoint(&method, &path);
 
+            // two public routes still need a peer-trust gate, each for a
+            // different reason - everything else public (discovery, radio
+            // info, ...) is meant to be reachable by any peer, no
+            // relationship required, same as a plain public http endpoint.
+            let is_internal_callback =
+                path == "/api/internal/knock-accepted" || path == "/api/internal/device-linked";
+            if is_internal_callback && !trusted {
+                // these callbacks only ever come from a peer we dialed
+                // first (we sent the knock / issued the device-link
+                // invite) - an untrusted peer here isn't a legitimate late
+                // response, it's an unsolicited peer trying to spoof one.
+                debug!(
+                    "[p2p-handler] rejecting {} from untrusted peer: {}",
+                    path, node_id_short
+                );
+                let resp = PeerMessage::ApiResponse {
+                    id,
+                    status: 403,
+                    body:
+                        r#"{"success":false,"message":"not expecting a callback from this peer"}"#
+                            .to_string(),
+                };
+                send_response(&mut send, &resp).await?;
+                return Ok(());
+            }
+            if path == "/api/knock" && !trusted && !is_knocking_enabled() {
+                // creating a *new* knock, on the other hand, is the one
+                // place a genuine stranger is meant to be let in - gated
+                // on the operator's own `knocking_enabled` toggle instead.
+                debug!(
+                    "[p2p-handler] rejecting knock from untrusted peer (knocking disabled): {}",
+                    node_id_short
+                );
+                let resp = PeerMessage::ApiResponse {
+                    id,
+                    status: 403,
+                    body: r#"{"success":false,"message":"knocking is disabled on this server"}"#
+                        .to_string(),
+                };
+                send_response(&mut send, &resp).await?;
+                return Ok(());
+            }
+
             // get caller for this peer
             let caller = if is_public {
                 // public endpoints get a viewer caller (lowest privilege)
@@ -220,7 +297,10 @@ async fn handle_stream(
             // inject node_id for routes that need to know who's connecting
             // (knock/invite for pending requests, upload for iroh-blobs pull,
             // webauthn for p2p passkey register/login flows, sync-by-blake3
-            // for the best-effort job-notify completion push)
+            // for the best-effort job-notify completion push, the two
+            // internal callbacks below so they report the transport-
+            // verified identity instead of trusting whatever `peer_addr`
+            // the request body itself claims)
             if path == "/api/knock"
                 || path == "/api/knock/status"
                 || path == "/api/auth/invite"
@@ -232,6 +312,7 @@ async fn handle_stream(
                 || path == "/api/upload/video-by-blake3"
                 || path == "/api/sync/song-by-blake3"
                 || path == "/api/sync/video-by-blake3"
+                || is_internal_callback
             {
                 if let Some(obj) = json_body.as_object_mut() {
                     obj.insert(
@@ -626,6 +707,13 @@ mod tests {
         assert!(is_public_endpoint("POST", "/api/auth/invite"));
         assert!(is_public_endpoint("POST", "/api/knock"));
         assert!(is_public_endpoint("GET", "/api/knock/status"));
+
+        // the knock-accepted/device-linked callbacks must stay public -
+        // they're what this file's connection-level trust rework (see
+        // handle_incoming's doc comment) exists to keep reachable from a
+        // peer we don't have any relationship with yet.
+        assert!(is_public_endpoint("POST", "/api/internal/knock-accepted"));
+        assert!(is_public_endpoint("POST", "/api/internal/device-linked"));
 
         // radio discovery routes — declared Public in offal::public::radio
         assert!(is_public_endpoint("GET", "/api/radio/info"));

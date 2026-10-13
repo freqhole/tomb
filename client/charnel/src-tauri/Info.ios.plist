@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- qr code scanning in the add-remote modal uses plain getUserMedia
+         from the webview (components/inputs/QrScanner.tsx) - wkwebview
+         hard-requires a usage description before it will even prompt,
+         otherwise the app is killed outright when camera access is
+         requested. -->
+    <key>NSCameraUsageDescription</key>
+    <string>freqhole uses the camera to scan QR codes for pairing with remote libraries.</string>
+
+    <!-- keeps audio playback (and the lock-screen/control-center now
+         playing controls) alive while the app is backgrounded or the
+         phone is locked - without this, ios suspends the process and
+         playback stops the moment the screen locks. -->
+    <key>UIBackgroundModes</key>
+    <array>
+        <string>audio</string>
+    </array>
+
+    <!-- charnel talks to other freqhole instances (and this device's own
+         grimoire server) over the local network via plain http - ios 14+
+         requires this description before it will even show the "allow
+         local network access" prompt. -->
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>freqhole connects to freqhole servers on your local network to stream and sync your music library.</string>
+
+    <!-- ats exception for local/private network addresses specifically
+         (not a blanket NSAllowsArbitraryLoads) - lets the app talk plain
+         http to lan peers (e.g. 192.168.x.x, 10.x.x.x, *.local) without
+         weakening ats for internet-facing requests. -->
+    <key>NSAppTransportSecurity</key>
+    <dict>
+        <key>NSAllowsLocalNetworking</key>
+        <true/>
+    </dict>
+</dict>
+</plist>

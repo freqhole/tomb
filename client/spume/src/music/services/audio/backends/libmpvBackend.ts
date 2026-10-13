@@ -21,7 +21,7 @@ import {
   type PlayerEventListener,
   type Unsubscribe,
 } from "../backend";
-import { getSyncQueueToLocal, setCurrentSong } from "../../../../app/services/storage/db";
+import { appState, getSyncQueueToLocal, setCurrentSong } from "../../../../app/services/storage/db";
 import { syncSongToLocal } from "../../sync/syncSongToLocal";
 import {
   addToLoadingSet,
@@ -34,7 +34,8 @@ import { clearExternalMediaSession as bridgeClearExternal } from "../mediaSessio
 import type { Song } from "../../storage/types";
 import { songIdentityKey } from "../../storage/types";
 import type { MediaItem } from "../../../../app/services/storage/mediaItem";
-import { isMediaLoadCurrent } from "../../../../app/services/media/loadGuard";
+import { songToMediaItem } from "../../../../app/services/storage/mediaItem";
+import { beginMediaLoad, isMediaLoadCurrent } from "../../../../app/services/media/loadGuard";
 import { debug, error as errorLog } from "../../../../utils/logger";
 
 // matches `PLAYER_EVENT` in client/charnel/src-tauri/src/player_commands.rs.
@@ -64,6 +65,21 @@ export class LibmpvBackend implements PlayerBackend {
   /// starting, regardless of which fetch path got us there.
   private currentLoadingSha256: string | null = null;
 
+  /// songIdentityKey of the song most recently handed to mpv via a real
+  /// `Load` command (set in `loadAndPlay`, right alongside
+  /// `currentLoadingSha256` above - optimistic, doesn't wait for rust to
+  /// confirm). used by `send()`'s seek special-case below: a restored
+  /// "currently playing" song from a previous app session is only ever
+  /// reflected in spume's own UI state (`playerState.ts`'s
+  /// `setVisualPosition`, called from `listenProgress.ts`'s
+  /// `reconnectProgressTracking` on boot) - mpv itself is never told to
+  /// load anything until the user actually presses play. a raw `seek`
+  /// command to mpv with nothing loaded fails with mpv's generic
+  /// `MPV_ERROR_COMMAND` (`Raw(-12)`) - confirmed real (surfaced as a
+  /// "playback error... libmpv seek failed: Raw(-12)" toast when seeking
+  /// a freshly-booted, never-yet-played restored song).
+  private loadedSongKey: string | null = null;
+
   constructor() {
     // ephemeral-dir reconciliation (deleting orphaned `sync_queue_to_local
     // = off` files, seeding the "available offline" underline) is handled
@@ -78,12 +94,51 @@ export class LibmpvBackend implements PlayerBackend {
     if (this.disposed) {
       throw new Error("libmpv backend: send called after dispose");
     }
+    if (cmd.kind === "seek" && (await this.handleSeekBeforeAnythingLoaded(cmd.ms))) {
+      return;
+    }
     debug("player.libmpv", `send: ${cmd.kind}`);
     // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
     const { invoke } = await import("@tauri-apps/api/core");
     // tauri serializes the second arg as a json object; we need the
     // host-side `cmd: PlayerCommand` parameter name to match.
     await invoke("player_send", { cmd });
+  }
+
+  /// handles a `seek` command when mpv has never been told to load the
+  /// current song at all (see `loadedSongKey`'s doc comment for why this
+  /// happens and why a raw seek would otherwise fail). loads the current
+  /// song paused, starting at the requested position, instead of sending
+  /// mpv a seek command it has nothing to seek within - functionally
+  /// equivalent to "seek" for a backend that hasn't started yet, and
+  /// leaves the user able to press play afterward and actually resume
+  /// from there, rather than just silently swallowing the error.
+  ///
+  /// returns true if it handled the seek this way (caller should not also
+  /// forward the raw command); false to fall through to the normal path
+  /// (current song already loaded, or nothing to resolve - in which case
+  /// mpv's own error surfaces as before).
+  private async handleSeekBeforeAnythingLoaded(ms: number): Promise<boolean> {
+    const state = appState();
+    const currentItemKey = state?.current_item_key;
+    if (!currentItemKey || this.loadedSongKey === currentItemKey) return false;
+
+    const item = state?.queue.find(
+      (i) => i.kind === "song" && songIdentityKey(i.song) === currentItemKey
+    );
+    if (!item || item.kind !== "song") return false;
+
+    debug(
+      "player.libmpv",
+      `seek requested with nothing loaded yet - loading "${item.song.title}" paused at ${ms}ms instead`
+    );
+    const loadGeneration = beginMediaLoad(currentItemKey);
+    await this.loadAndPlay(songToMediaItem(item.song), {
+      autoPlay: false,
+      initialPosition: ms / 1000,
+      loadGeneration,
+    });
+    return true;
   }
 
   /// send `Load` with the resume position (`start_ms`) and pause intent
@@ -150,6 +205,12 @@ export class LibmpvBackend implements PlayerBackend {
     // can clear its loading flag on the first `playing` / `paused` /
     // `progress` event from the rust backend (see `dispatch`).
     this.currentLoadingSha256 = songKey;
+    // optimistically mark this key as "told to mpv" - see `loadedSongKey`'s
+    // own doc comment. set here (not only right before `sendLoadAndPlay`)
+    // so a seek that races with an in-flight load for the SAME key still
+    // takes the fast "already loading" path below rather than kicking off
+    // a redundant second load.
+    this.loadedSongKey = songKey;
 
     // explicitly reset MediaSession position state for a new track.
     // platforms (especially iOS lock screen) cache the position from
@@ -303,12 +364,38 @@ export class LibmpvBackend implements PlayerBackend {
           if (!alreadyOnDisk) removeFromLoadingSet(songKey);
           path = fetched.path;
 
+          // re-check staleness right after the fetch await (mirrors the
+          // sync-queue-to-local branch's own two checks below) - this
+          // check was previously MISSING here entirely, a real bug:
+          // `fetchEphemeralForSong` can take as long as the sync path
+          // (it's the same iroh-blobs verified-streaming fetch, just
+          // writing to `_ephemeral/` instead of the library), so a
+          // user who switches to a different song (or whose queue
+          // advances) while this fetch is still in flight had no
+          // guard stopping this now-stale call from clobbering
+          // whatever the user is actually trying to play once this
+          // `await` finally resolves - confirmed by comparing against
+          // the sync-queue-to-local branch just below, which has had
+          // this exact guard (in duplicate, even) all along.
+          if (!isMediaLoadCurrent(songKey, options?.loadGeneration)) {
+            debug("player.libmpv", `skipping cancelled ephemeral load for ${songKey.slice(0, 8)}`);
+            return;
+          }
+
           // skip the regular `setCurrentSong` + `resolveLocalPath`
           // dance — there's no DB row to look up, and we already have
           // the path. but still bridge the media session + reflect the
           // current song in app state for the UI.
           bridgeClearExternal();
           await setCurrentSong(songKey);
+
+          // setCurrentSong awaits real IDB i/o, re-opening the same
+          // small race window the sync-queue-to-local branch also
+          // re-checks after its own setCurrentSong call.
+          if (!isMediaLoadCurrent(songKey, options?.loadGeneration)) {
+            return;
+          }
+
           debug(
             "player.libmpv",
             `ephemeral load: "${song.title}" (${songKey.slice(0, 8)}) -> ${path}`
@@ -422,6 +509,13 @@ export class LibmpvBackend implements PlayerBackend {
     } catch (e) {
       if (this.currentLoadingSha256 === songKey) {
         this.currentLoadingSha256 = null;
+      }
+      // this load attempt never actually reached mpv (or mpv rejected it) -
+      // don't leave `loadedSongKey` optimistically pointing at a song mpv
+      // was never actually told to load successfully, or a subsequent
+      // seek would wrongly skip the "nothing loaded" recovery path above.
+      if (this.loadedSongKey === songKey) {
+        this.loadedSongKey = null;
       }
       throw e;
     }
@@ -588,6 +682,17 @@ export class LibmpvBackend implements PlayerBackend {
         removeFromLoadingSet(sha);
         this.currentLoadingSha256 = null;
       }
+    }
+    // mpv reported this load as a genuine failure - don't leave
+    // `loadedSongKey` claiming it's loaded (see that field's own doc
+    // comment); a subsequent seek should retry the "nothing loaded"
+    // recovery path, not send mpv a raw seek it'll fail again. not
+    // conditioned on matching `sha` (that only tracks a specific
+    // in-flight *load*) - any mpv-reported error, including a mid-
+    // playback decode failure, means the same "may not be safely
+    // seekable without reloading" uncertainty applies.
+    if (event.kind === "error") {
+      this.loadedSongKey = null;
     }
     for (const l of this.listeners) {
       try {

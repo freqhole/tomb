@@ -65,6 +65,14 @@ jobs:
       github.event_name != 'pull_request' ||
       github.event.pull_request.head.ref == 'changeset-release/main'
     runs-on: ${{ vars.LINUX_X86_64_RUNNER || 'ubuntu-24.04' }}
+    # `actions: write` (on top of the top-level `contents: write`) is
+    # required for the "dispatch ios build" step below - `gh workflow run`
+    # calls the "create a workflow dispatch event" api, which 403s without
+    # it. scoped to just this job (not added to the top-level
+    # `permissions:` block) since no other job needs it.
+    permissions:
+      contents: write
+      actions: write
     outputs:
       tag: ${{ steps.meta.outputs.tag }}
       version: ${{ steps.meta.outputs.version }}
@@ -99,6 +107,28 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: node scripts/release-notes.mjs "${{ steps.meta.outputs.tag }}"
+
+      # fire-and-forget, not `needs:`/`uses:` - see .github/workflows/ios.yml's
+      # doc comment for why ios gets dispatched as a fully separate workflow
+      # run instead of a job in this one (`continue-on-error` isn't allowed on
+      # a job that calls a reusable workflow, and a decoupled run is a better
+      # fit for "iterate on ios ci independently" anyway). this step itself
+      # can't fail the way a `needs:`/`uses:` job could - `gh workflow run`
+      # only confirms the dispatch was *accepted*, not that the triggered run
+      # succeeds; check its own status separately in the Actions tab.
+      - name: dispatch ios build (fire-and-forget, own workflow run)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # piped through an env var, not interpolated directly into the
+          # script below - a PR branch name is attacker-controlled input
+          # (e.g. from a fork) and inline-interpolating it into a shell
+          # script is a script-injection risk.
+          REF: ${{ github.event.pull_request.head.ref || github.ref_name }}
+        run: |
+          gh workflow run ios.yml --ref "$REF" \
+            -f version="${{ steps.meta.outputs.version }}" \
+            -f tag="${{ steps.meta.outputs.tag }}" \
+            -f upload_to_testflight=true
 
   # ---- Windows x86_64: charnel .msi/.exe (msvc) -----------------------------
   windows-x86_64:

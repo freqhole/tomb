@@ -122,7 +122,12 @@ function pickArtwork(artwork: readonly MediaImage[] | undefined): string | undef
 }
 
 function isAndroid(): boolean {
-  return typeof navigator !== "undefined" && /android/i.test(navigator.userAgent);
+  // compile-time constant (see vite.config.ts), not `navigator.userAgent`
+  // sniffing - this runs at module-load time (the auto-install call at the
+  // bottom of this file), before `App.tsx` mounts, so the runtime
+  // `isAndroidTauri()` signal (populated later, async) isn't available
+  // yet here - same reasoning as `index.tsx`'s own safe-area setup.
+  return __TAURI_TARGET_OS__ === "android";
 }
 
 // polyfill MediaMetadata when the WebView doesn't ship one.

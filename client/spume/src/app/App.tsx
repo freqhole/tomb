@@ -49,6 +49,14 @@ import {
 } from "../music/hooks/modals";
 import { openAddMedia, closeAddMedia, useAddMediaState } from "./hooks/mediaModal";
 import {
+  setHasSongs,
+  setHasVideos,
+  setHasRemotes,
+  hasSongs,
+  hasVideos,
+  hasRemotes,
+} from "./hooks/libraryPresence";
+import {
   clearCompletedJobs,
   clearLocalImportProgress,
   fetchUrlsOnRemote,
@@ -128,7 +136,10 @@ import {
   refreshTauriRemoteTimestamp,
   upsertTauriRemote,
 } from "./services/remotes/remoteManager";
-import { drainIdbRemotesToSqlite } from "./services/remotes/drainIdbToSqlite";
+import {
+  drainIdbPendingRemotesToSqlite,
+  drainIdbRemotesToSqlite,
+} from "./services/remotes/drainIdbToSqlite";
 import { setPendingSendTarget, getPendingSendTarget } from "./services/send/pendingSendTargets";
 import { sendReviewedAlbumsToRemote } from "./services/send/sendReviewedSessionToRemote";
 import type { SendReviewProgress } from "./services/send/sendReviewProgress";
@@ -142,7 +153,11 @@ import {
   registerServiceWorker,
   updateAvailable,
 } from "./services/serviceWorker";
-import { initAppDB, setSyncQueueToLocal } from "./services/storage/db";
+import {
+  deletePendingRemoteByPeerAddr,
+  initAppDB,
+  setSyncQueueToLocal,
+} from "./services/storage/db";
 import { setDisableBackdropBlur } from "./services/backdropBlur";
 import { recordSharedItemFromToken } from "./services/storage/sharedItems";
 import { isP2PRemote } from "./services/storage/types";
@@ -276,11 +291,6 @@ export function App() {
   // signals the AddRemoteModal to auto-complete setup for a peer (device-linked / knock-accepted)
   const [autoCompletePeerAddr, setAutoCompletePeerAddr] = createSignal<string | null>(null);
   const [shareToken, setShareToken] = createSignal<string | null>(null);
-  const [hasSongs, setHasSongs] = createSignal(false);
-  // videos count as media too - the welcome gate predates the video domain and
-  // used to keep showing after importing only videos.
-  const [hasVideos, setHasVideos] = createSignal(false);
-  const [hasRemotes, setHasRemotes] = createSignal(false);
   const [isInitializing, setIsInitializing] = createSignal(true);
   const [showLoading, setShowLoading] = createSignal(false);
 
@@ -742,6 +752,12 @@ export function App() {
             }
             try {
               const remote = await createRemote({ peer_addr });
+              // the add-remote flow leaves a "pending" entry behind while
+              // waiting on approval - clear it now that it's been promoted
+              // to a real remote, otherwise it sits stuck in the modal's
+              // pending list forever (safe no-op if none exists, e.g. this
+              // peer never went through the knock flow).
+              await deletePendingRemoteByPeerAddr(peer_addr).catch(() => {});
               toast.success(`${remote.name} added`, {
                 title: "remote linked",
                 action: {
@@ -781,6 +797,9 @@ export function App() {
           void (async () => {
             const existing = await getRemoteByPeerAddr(peer_addr);
             if (existing) {
+              // already promoted (e.g. a previous event for this peer beat
+              // us to it) - still worth clearing a leftover pending entry.
+              await deletePendingRemoteByPeerAddr(peer_addr).catch(() => {});
               toast.success(`access granted to ${existing.name}`, {
                 title: "knock accepted",
                 action: {
@@ -795,6 +814,10 @@ export function App() {
             }
             try {
               const remote = await createRemote({ peer_addr });
+              // clear the stuck "pending" entry now that it's a real
+              // remote - without this it never leaves the add-remote
+              // modal's pending list once accepted.
+              await deletePendingRemoteByPeerAddr(peer_addr).catch(() => {});
               toast.success(`${remote.name} added`, {
                 title: "knock accepted",
                 action: {
@@ -908,11 +931,17 @@ export function App() {
       sync_queue_to_local: config.sync_queue_to_local,
     });
 
-    // sync charnel config to spume AppState. skipped on android: there's no
-    // wizard window there to manage `sync_queue_to_local`, so the toggle in
-    // StorageSettingsView is the only source of truth for it — overwriting
-    // it here on every cold start would silently revert the user's choice.
-    if (!/android/i.test(navigator.userAgent)) {
+    // sync charnel config to spume AppState. skipped on mobile
+    // (android/ios): there's no wizard window there to manage
+    // `sync_queue_to_local`, so the toggle in StorageSettingsView is the
+    // only source of truth for it — overwriting it here on every cold
+    // start would silently revert the user's choice. calls `getTargetOs()`
+    // directly (not the cached `isAndroidTauri()`/`isIosTauri()` signal) -
+    // this runs from its own independent `onMount` chain racing against
+    // the one that populates that signal (see `targetOs.ts`), so the
+    // signal isn't guaranteed to be populated yet by this point.
+    const targetOs = await getTargetOs();
+    if (targetOs !== "android" && targetOs !== "ios") {
       await setSyncQueueToLocal(config.sync_queue_to_local ?? true);
     }
 
@@ -1086,6 +1115,12 @@ export function App() {
       // see docs/wizard-remote-admin.md.
       await drainIdbRemotesToSqlite();
       mark("drainIdbRemotesToSqlite done");
+
+      // same one-shot drain, for pending remotes (an in-progress knock/
+      // device-link) - separate flag/function since a pending remote
+      // isn't a Remote, but otherwise the same rationale.
+      await drainIdbPendingRemotesToSqlite();
+      mark("drainIdbPendingRemotesToSqlite done");
 
       // auto-setup remote from tauri bridge (for desktop app)
       // this is fast since it's local IPC

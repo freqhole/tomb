@@ -20,6 +20,8 @@ import { AddToStationModal } from "../components/radio/AddToStationModal";
 import { ToastRegion } from "../components/feedback/Toast";
 import { toast } from "../components/feedback/Toast";
 import { AddRemoteModal } from "../components/modals/AddRemoteModal";
+import { FirstRunSetupModal } from "../components/modals/FirstRunSetupModal";
+import { EmptyState } from "../components/EmptyState";
 import { ConnectionProgressModal } from "../components/modals/ConnectionProgressModal";
 import {
   getConnectionProgress,
@@ -156,11 +158,13 @@ import { confirmState, closeConfirm, resolveConfirm, confirm } from "./services/
 import { playlistSelectorState, closePlaylistSelector } from "../music/hooks/playlistSelectorState";
 import { showShareModal, useIsAnyModalOpen } from "../music/hooks/modals";
 import { openAddMedia } from "./hooks/mediaModal";
+import { hasSongs, hasVideos } from "./hooks/libraryPresence";
 import {
   appState,
   setQueueOpen,
   getLocalLibraryName,
   setLocalLibraryName,
+  isMobileFirstRunCompleted,
 } from "./services/storage/db";
 import { getPageInfo } from "./services/pageInfo";
 import { setAppDocumentTitle } from "./services/documentTitle";
@@ -185,6 +189,8 @@ import { playVideoQueue, resumeVideoHistoryEntry } from "../video/services/queue
 import { reconnectVideoProgressTracking } from "../video/services/queue/videoListenProgress";
 import {
   isCharnelMode,
+  isAndroidTauri,
+  isIosTauri,
   listMountedExternalStorageDevices,
   onExternalStorageMountedChanged,
   onExternalStorageSyncProgress,
@@ -466,7 +472,32 @@ export function AppLayout(props: AppLayoutProps) {
   const bgConfig = () => getBackgroundConfig();
   // const [isQueueOpen, setIsQueueOpen] = createSignal(false);
   const [isAddRemoteOpen, setIsAddRemoteOpen] = createSignal(false);
+  const [showFirstRunSetup, setShowFirstRunSetup] = createSignal(false);
   const [remotes, setRemotes] = createSignal<Remote[]>([]);
+  // mobile (android/ios) charnel builds always have at least one remote
+  // (the local charnel-managed self-row created by `mobile_auto_init`),
+  // so the top-level App.tsx "no songs/videos/remotes at all" welcome gate
+  // never fires there - it'd need an actual EXTRA remote or media to
+  // trigger. show the same reusable EmptyState here instead, scoped to
+  // "fresh mobile install with nothing else set up yet", so the add
+  // remote/add media buttons are reachable right after first-run setup
+  // instead of landing on an empty graph/list view. excludes radio/shared,
+  // mirroring App.tsx's own carve-outs for routes that work with zero
+  // media/remotes by design.
+  const showMobileEmptyState = createMemo(() => {
+    if (!isCharnelMode() || (!isAndroidTauri() && !isIosTauri())) return false;
+    if (location.pathname.startsWith("/radio") || location.pathname.startsWith("/shared")) {
+      return false;
+    }
+    if (hasSongs() || hasVideos()) return false;
+    return !remotes().some((r) => !r.is_charnel_managed);
+  });
+  const emptyStateProps = () => ({
+    onAddMedia: () => openAddMedia(),
+    onAddRemote: () => setIsAddRemoteOpen(true),
+    onGoToRadio: () => navigate("/radio"),
+    onGoToPlayer: () => navigate("/player"),
+  });
   const [storageUsage, setStorageUsage] = createSignal<number>(0);
   const [storageQuota, setStorageQuota] = createSignal<number>(0);
   const [externalStorageMounted, setExternalStorageMounted] = createSignal(false);
@@ -811,6 +842,15 @@ export function AppLayout(props: AppLayoutProps) {
     };
     document.addEventListener("visibilitychange", onVisibility);
     window.addEventListener("focus", onVisibility);
+
+    // mobile (android/ios) charnel builds boot headlessly with no setup
+    // wizard (desktop gets an interactive wizard window instead - see
+    // wizard.rs) - `mobile_auto_init` hardcodes "admin"/"local library"
+    // defaults, so show a one-time in-app setup modal here instead, gated
+    // on a persisted flag so it never shows again once dismissed/completed.
+    if (isCharnelMode() && (isAndroidTauri() || isIosTauri()) && !isMobileFirstRunCompleted()) {
+      setShowFirstRunSetup(true);
+    }
 
     // filled in by the async setup below. `onCleanup` must be registered
     // synchronously, before any `await`, to actually attach to this
@@ -1641,7 +1681,11 @@ export function AppLayout(props: AppLayoutProps) {
             "padding-bottom": "var(--player-bar-height)",
           }}
         >
-          <div class="flex-1 overflow-hidden">{props.children}</div>
+          <div class="flex-1 overflow-hidden">
+            <Show when={!showMobileEmptyState()} fallback={<EmptyState {...emptyStateProps()} />}>
+              {props.children}
+            </Show>
+          </div>
 
           {/* queue sidebar - overlay drawer on narrow, inline sidebar on wide.
             operates directly on the real, ordered `MediaItem[]` queue
@@ -2362,6 +2406,13 @@ export function AppLayout(props: AppLayoutProps) {
           navigation never tears it down. wired into radioService via
           setRadioAudioSink in onMount. */}
         <RadioAudioSink />
+
+        {/* mobile first-run setup (username/library name/image) - see the
+          onMount gate above. */}
+        <FirstRunSetupModal
+          isOpen={showFirstRunSetup()}
+          onClose={() => setShowFirstRunSetup(false)}
+        />
 
         {/* add remote modal */}
         <AddRemoteModal

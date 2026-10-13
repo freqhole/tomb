@@ -37,7 +37,8 @@ pub use service::{
     count_blake3_backfill_status, count_blobs_needing_blake3, create_media_blob, delete_media_blob,
     find_present_blake3s, get_media_blob, get_media_blob_by_blake3, get_media_blob_stream_source,
     get_media_blob_with_data, hard_delete_rendition_blob, list_blobs_needing_blake3,
-    list_media_blobs, list_renditions, set_blob_local_path_or_purge_duplicate, update_blob_blake3,
+    list_media_blobs, list_renditions, repair_stale_local_paths,
+    set_blob_local_path_or_purge_duplicate, update_blob_blake3,
     update_blob_blake3_for_content_change, update_blob_content, update_blob_local_path,
     BlobStreamSource,
 };

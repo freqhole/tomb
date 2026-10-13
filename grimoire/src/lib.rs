@@ -37,6 +37,7 @@ pub mod metadata;
 pub mod music;
 pub mod offal;
 pub mod paths;
+pub mod pending_remotez;
 pub mod player;
 pub mod player_session;
 pub mod playlists;

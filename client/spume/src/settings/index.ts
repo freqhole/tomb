@@ -10,4 +10,5 @@ export { PendingKnocksView } from "./views/PendingKnocksView";
 export { UserProfileView } from "./views/UserProfileView";
 export { LinkDeviceView } from "./views/LinkDeviceView";
 export { PairedPlayersView } from "./views/PairedPlayersView";
+export { LocalLibrarySettingsView } from "./views/LocalLibrarySettingsView";
 export { SettingsLayout } from "./layouts/SettingsLayout";

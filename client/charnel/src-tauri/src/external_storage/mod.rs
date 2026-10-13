@@ -332,74 +332,6 @@ mod desktop {
         // powershell one-liner that's easy to get subtly wrong.
         Err("eject is not yet supported on windows".to_string())
     }
-
-    /// best-effort (total_bytes, free_bytes) for the filesystem containing
-    /// `path`.
-    pub fn disk_usage(path: &str) -> Option<(u64, u64)> {
-        #[cfg(any(target_os = "macos", target_os = "linux"))]
-        {
-            unix_disk_usage(path)
-        }
-        #[cfg(target_os = "windows")]
-        {
-            windows_disk_usage(path)
-        }
-    }
-
-    #[cfg(any(target_os = "macos", target_os = "linux"))]
-    fn unix_disk_usage(path: &str) -> Option<(u64, u64)> {
-        // statvfs directly instead of parsing `df` output - `df` field order
-        // differs between coreutils/busybox and isn't guaranteed present in
-        // a flatpak runtime.
-        let stat = nix::sys::statvfs::statvfs(path).ok()?;
-        // widths differ per platform (u32 on macOS, u64 on linux)
-        let block_size = if stat.fragment_size() > 0 {
-            stat.fragment_size() as u64
-        } else {
-            stat.block_size() as u64
-        };
-        let total = (stat.blocks() as u64).checked_mul(block_size)?;
-        let free = (stat.blocks_available() as u64).checked_mul(block_size)?;
-        Some((total, free))
-    }
-
-    #[cfg(target_os = "windows")]
-    fn windows_disk_usage(path: &str) -> Option<(u64, u64)> {
-        // `fsutil volume diskfree <drive>` prints lines like:
-        //   Total # of free bytes        : 123456789
-        //   Total # of bytes             : 987654321
-        //   Total # of avail free bytes  : 123456789
-        let drive = Path::new(path)
-            .components()
-            .next()
-            .and_then(|c| c.as_os_str().to_str())
-            .map(|s| s.to_string())?;
-        let output = Command::new("cmd")
-            .args(["/C", "fsutil", "volume", "diskfree", &drive])
-            .output()
-            .ok()?;
-        if !output.status.success() {
-            return None;
-        }
-        let text = String::from_utf8_lossy(&output.stdout);
-        let mut total = None;
-        let mut free = None;
-        for line in text.lines() {
-            let Some((label, value)) = line.split_once(':') else {
-                continue;
-            };
-            let label = label.trim();
-            let Ok(value) = value.trim().parse::<u64>() else {
-                continue;
-            };
-            if label.starts_with("Total # of bytes") {
-                total = Some(value);
-            } else if label.starts_with("Total # of avail free bytes") {
-                free = Some(value);
-            }
-        }
-        Some((total?, free?))
-    }
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
@@ -413,13 +345,94 @@ mod desktop {
     pub fn eject_device(_path: &str) -> Result<(), String> {
         Err("removable storage sync is desktop-only".to_string())
     }
+}
 
-    pub fn disk_usage(_path: &str) -> Option<(u64, u64)> {
-        None
+pub use desktop::{eject_device, resolve_volume_info};
+
+/// best-effort (total_bytes, free_bytes) for the filesystem containing
+/// `path` - a plain OS syscall wrapper (statvfs on unix, `fsutil` on
+/// windows), unlike the rest of this module (volume naming/eject are
+/// genuinely desktop-only, removable-media-specific features). cross-
+/// platform on purpose, including mobile: android/ios are POSIX too, so
+/// the same `statvfs` call works unchanged there - used by both the
+/// removable-storage-sync feature above (`commands::DiskUsage`) and
+/// `storage_info`'s app-wide storage overview (desktop + mobile).
+pub fn disk_usage(path: &str) -> Option<(u64, u64)> {
+    #[cfg(any(
+        target_os = "macos",
+        target_os = "linux",
+        target_os = "android",
+        target_os = "ios"
+    ))]
+    {
+        unix_disk_usage(path)
+    }
+    #[cfg(target_os = "windows")]
+    {
+        windows_disk_usage(path)
     }
 }
 
-pub use desktop::{disk_usage, eject_device, resolve_volume_info};
+#[cfg(any(
+    target_os = "macos",
+    target_os = "linux",
+    target_os = "android",
+    target_os = "ios"
+))]
+fn unix_disk_usage(path: &str) -> Option<(u64, u64)> {
+    // statvfs directly instead of parsing `df` output - `df` field order
+    // differs between coreutils/busybox and isn't guaranteed present in
+    // a flatpak runtime (and there's no `df`/shell at all to parse on
+    // mobile anyway).
+    let stat = nix::sys::statvfs::statvfs(path).ok()?;
+    // widths differ per platform (u32 on macOS, u64 on linux)
+    let block_size = if stat.fragment_size() > 0 {
+        stat.fragment_size() as u64
+    } else {
+        stat.block_size() as u64
+    };
+    let total = (stat.blocks() as u64).checked_mul(block_size)?;
+    let free = (stat.blocks_available() as u64).checked_mul(block_size)?;
+    Some((total, free))
+}
+
+#[cfg(target_os = "windows")]
+fn windows_disk_usage(path: &str) -> Option<(u64, u64)> {
+    // `fsutil volume diskfree <drive>` prints lines like:
+    //   Total # of free bytes        : 123456789
+    //   Total # of bytes             : 987654321
+    //   Total # of avail free bytes  : 123456789
+    let drive = std::path::Path::new(path)
+        .components()
+        .next()
+        .and_then(|c| c.as_os_str().to_str())
+        .map(|s| s.to_string())?;
+    let output = std::process::Command::new("cmd")
+        .args(["/C", "fsutil", "volume", "diskfree", &drive])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    let mut total = None;
+    let mut free = None;
+    for line in text.lines() {
+        let Some((label, value)) = line.split_once(':') else {
+            continue;
+        };
+        let label = label.trim();
+        let Ok(value) = value.trim().parse::<u64>() else {
+            continue;
+        };
+        if label.starts_with("Total # of bytes") {
+            total = Some(value);
+        } else if label.starts_with("Total # of avail free bytes") {
+            free = Some(value);
+        }
+    }
+    Some((total?, free?))
+}
 
 /// linux mount-table helpers, read straight from /proc - no external tools,
 /// so these keep working inside a flatpak sandbox (where util-linux and

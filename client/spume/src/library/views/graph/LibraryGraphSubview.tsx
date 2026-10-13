@@ -1956,7 +1956,9 @@ function Inner(props: {
   // selections render in the collapsed state — only an explicit
   // chevron-up restores. global by design so navigating between an
   // album, an artist, and a taxon doesn't keep popping panels back open.
-  const [detailPanelsHidden, setDetailPanelsHidden] = createSignal(false);
+  // defaults to collapsed on narrow viewports (phone/tablet widths) -
+  // on wide/desktop layouts there's room to default to expanded.
+  const [detailPanelsHidden, setDetailPanelsHidden] = createSignal(isNarrowViewport());
   const albumPanel = {
     hidden: detailPanelsHidden,
     hide: () => setDetailPanelsHidden(true),
@@ -4042,6 +4044,343 @@ function Inner(props: {
     return editPanelAlbumIds().length > 0;
   });
 
+  // detail-popover action handlers — named consts (rather than inline
+  // arrow functions on the full popovers) so the collapsed pill's
+  // quick-action buttons below can call the exact same logic without
+  // duplicating it.
+  const handlePlayAlbum = async (album: AlbumNodeData) => {
+    const id = bareAlbumId(album);
+    if (playingAlbumId() !== null) return;
+    const r = remoteForNode(album);
+    if (!r) return;
+    setPlayingAlbumId(id);
+    try {
+      const songs = await fetchAlbumSongs(r, id);
+      await playQueue(songs, {
+        source: { type: "album", label: album.title, entity_id: id },
+      });
+    } catch (err) {
+      toast.error(`failed to play album: ${(err as Error).message}`);
+    } finally {
+      setPlayingAlbumId(null);
+    }
+  };
+  const handleShuffleAlbum = async (album: AlbumNodeData) => {
+    if (playingAlbumId() !== null) return;
+    const id = bareAlbumId(album);
+    const r = remoteForNode(album);
+    if (!r) return;
+    setPlayingAlbumId(id);
+    try {
+      const songs = await fetchAlbumSongs(r, id);
+      const shuffled = [...songs].sort(() => Math.random() - 0.5);
+      await playQueue(shuffled, {
+        source: { type: "shuffle", label: album.title, entity_id: id },
+      });
+    } catch (err) {
+      toast.error(`failed to shuffle album: ${(err as Error).message}`);
+    } finally {
+      setPlayingAlbumId(null);
+    }
+  };
+  const handleAddAlbumToQueue = async (album: AlbumNodeData) => {
+    if (playingAlbumId() !== null) return;
+    const id = bareAlbumId(album);
+    const r = remoteForNode(album);
+    if (!r) return;
+    setPlayingAlbumId(id);
+    try {
+      const songs = await fetchAlbumSongs(r, id);
+      await addToQueue(songs, {
+        source: { type: "album", label: album.title, entity_id: id },
+      });
+    } catch (err) {
+      toast.error(`failed to enqueue album: ${(err as Error).message}`);
+    } finally {
+      setPlayingAlbumId(null);
+    }
+  };
+  const handleViewAlbum = (album: AlbumNodeData, pickedRemoteId?: string) => {
+    const r = resolvePickedRemote(pickedRemoteId, remoteForNode(album));
+    const resolved = r ? albumForRemote(album, r.remote_id) : album;
+    navigate(routes.albumOn(r?.remote_id ?? null, bareAlbumId(resolved)));
+  };
+  const handlePlayArtist = async (artist: ArtistNodeData) => {
+    if (playingArtistId() !== null) return;
+    const id = artist.artistId;
+    const r = remoteForArtist(artist);
+    if (!r || !id) return;
+    setPlayingArtistId(id);
+    try {
+      const songs = await fetchArtistSongs(r, id);
+      if (songs.length === 0) {
+        toast.error("artist has no songs");
+        return;
+      }
+      await playQueue(songs, {
+        source: { type: "artist", label: artist.name, entity_id: id },
+      });
+    } catch (err) {
+      toast.error(`failed to play artist: ${(err as Error).message}`);
+    } finally {
+      setPlayingArtistId(null);
+    }
+  };
+  const handleShuffleArtist = async (artist: ArtistNodeData) => {
+    if (playingArtistId() !== null) return;
+    const id = artist.artistId;
+    const r = remoteForArtist(artist);
+    if (!r || !id) return;
+    setPlayingArtistId(id);
+    try {
+      const songs = await fetchArtistSongs(r, id);
+      if (songs.length === 0) {
+        toast.error("artist has no songs");
+        return;
+      }
+      const shuffled = [...songs].sort(() => Math.random() - 0.5);
+      await playQueue(shuffled, {
+        source: { type: "shuffle", label: artist.name, entity_id: id },
+      });
+    } catch (err) {
+      toast.error(`failed to shuffle artist: ${(err as Error).message}`);
+    } finally {
+      setPlayingArtistId(null);
+    }
+  };
+  const handleAddArtistToQueue = async (artist: ArtistNodeData) => {
+    if (playingArtistId() !== null) return;
+    const id = artist.artistId;
+    const r = remoteForArtist(artist);
+    if (!r || !id) return;
+    setPlayingArtistId(id);
+    try {
+      const songs = await fetchArtistSongs(r, id);
+      if (songs.length === 0) {
+        toast.error("artist has no songs");
+        return;
+      }
+      await addToQueue(songs, {
+        source: { type: "artist", label: artist.name, entity_id: id },
+      });
+    } catch (err) {
+      toast.error(`failed to enqueue artist: ${(err as Error).message}`);
+    } finally {
+      setPlayingArtistId(null);
+    }
+  };
+  const handleViewArtist = (artist: ArtistNodeData, pickedRemoteId?: string) => {
+    const r = resolvePickedRemote(pickedRemoteId, remoteForArtist(artist));
+    const resolved = r ? artistForRemote(artist, r.remote_id) : artist;
+    navigate(routes.artistOn(r?.remote_id ?? null, resolved.artistId || artist.artistId));
+  };
+  const handlePlayVideo = async (video: VideoNodeData) => {
+    if (playingVideoActionId() !== null) return;
+    setPlayingVideoActionId(video.id);
+    try {
+      const remoteId = videoRemoteIdFor(video.id);
+      const remote = remoteForVideoNodeId(video.id);
+      const full = await fetchVideoById(remote, remoteId, video.videoId);
+      if (!full) {
+        toast.error("video not found");
+        return;
+      }
+      await playVideoQueue([full], 0, {
+        type: "video",
+        label: video.title,
+        entity_id: video.videoId,
+      });
+    } catch (err) {
+      toast.error(`failed to play video: ${(err as Error).message}`);
+    } finally {
+      setPlayingVideoActionId(null);
+    }
+  };
+  const handleAddVideoToQueue = async (video: VideoNodeData) => {
+    if (playingVideoActionId() !== null) return;
+    setPlayingVideoActionId(video.id);
+    try {
+      const remoteId = videoRemoteIdFor(video.id);
+      const remote = remoteForVideoNodeId(video.id);
+      const full = await fetchVideoById(remote, remoteId, video.videoId);
+      if (!full) {
+        toast.error("video not found");
+        return;
+      }
+      await addVideosToQueue([full], {
+        type: "video",
+        label: full.title,
+        entity_id: full.id,
+      });
+    } catch (err) {
+      toast.error(`failed to enqueue video: ${(err as Error).message}`);
+    } finally {
+      setPlayingVideoActionId(null);
+    }
+  };
+  const handleViewVideo = (video: VideoNodeData) => {
+    const remoteId = videoRemoteIdFor(video.id);
+    navigate(
+      routes.videoDetailOn(remoteId === LOCAL_GRAPH_REMOTE_ID ? null : remoteId, video.videoId)
+    );
+  };
+  const handlePlayVideoSeries = async (series: VideoSeriesNodeData) => {
+    if (playingVideoActionId() !== null) return;
+    setPlayingVideoActionId(series.id);
+    try {
+      const remoteId = videoRemoteIdFor(series.id);
+      const remote = remoteForVideoNodeId(series.id);
+      const videos = await fetchVideosForSeries(remote, remoteId, series.seriesId);
+      if (videos.length === 0) {
+        toast.error("no videos found in this series");
+        return;
+      }
+      await playVideoQueue(videos, 0, {
+        type: "series",
+        label: series.title,
+        entity_id: series.seriesId,
+      });
+    } catch (err) {
+      toast.error(`failed to play series: ${(err as Error).message}`);
+    } finally {
+      setPlayingVideoActionId(null);
+    }
+  };
+  const handleShuffleVideoSeries = async (series: VideoSeriesNodeData) => {
+    if (playingVideoActionId() !== null) return;
+    setPlayingVideoActionId(series.id);
+    try {
+      const remoteId = videoRemoteIdFor(series.id);
+      const remote = remoteForVideoNodeId(series.id);
+      const videos = await fetchVideosForSeries(remote, remoteId, series.seriesId);
+      if (videos.length === 0) {
+        toast.error("no videos found in this series");
+        return;
+      }
+      const shuffled = [...videos].sort(() => Math.random() - 0.5);
+      await playVideoQueue(shuffled, 0, {
+        type: "shuffle",
+        label: series.title,
+        entity_id: series.seriesId,
+      });
+    } catch (err) {
+      toast.error(`failed to shuffle series: ${(err as Error).message}`);
+    } finally {
+      setPlayingVideoActionId(null);
+    }
+  };
+  const handleAddVideoSeriesToQueue = async (series: VideoSeriesNodeData) => {
+    if (playingVideoActionId() !== null) return;
+    setPlayingVideoActionId(series.id);
+    try {
+      const remoteId = videoRemoteIdFor(series.id);
+      const remote = remoteForVideoNodeId(series.id);
+      const videos = await fetchVideosForSeries(remote, remoteId, series.seriesId);
+      if (videos.length === 0) {
+        toast.error("no videos found in this series");
+        return;
+      }
+      await addVideosToQueue(videos, {
+        type: "series",
+        label: series.title,
+        entity_id: series.seriesId,
+      });
+    } catch (err) {
+      toast.error(`failed to enqueue series: ${(err as Error).message}`);
+    } finally {
+      setPlayingVideoActionId(null);
+    }
+  };
+  const handleViewVideoSeries = (series: VideoSeriesNodeData) => {
+    const remoteId = videoRemoteIdFor(series.id);
+    navigate(
+      routes.videoSeriesOn(remoteId === LOCAL_GRAPH_REMOTE_ID ? null : remoteId, series.seriesId)
+    );
+  };
+  const handlePlayVideoSeason = async (season: VideoSeasonNodeData) => {
+    if (playingVideoActionId() !== null) return;
+    setPlayingVideoActionId(season.id);
+    try {
+      const remoteId = videoRemoteIdFor(season.id);
+      const remote = remoteForVideoNodeId(season.id);
+      const videos = await fetchVideosForSeason(remote, remoteId, season.seasonId);
+      if (videos.length === 0) {
+        toast.error("no videos found in this season");
+        return;
+      }
+      await playVideoQueue(videos, 0, {
+        type: "season",
+        label: season.title,
+        entity_id: season.seasonId,
+      });
+    } catch (err) {
+      toast.error(`failed to play season: ${(err as Error).message}`);
+    } finally {
+      setPlayingVideoActionId(null);
+    }
+  };
+  const handleShuffleVideoSeason = async (season: VideoSeasonNodeData) => {
+    if (playingVideoActionId() !== null) return;
+    setPlayingVideoActionId(season.id);
+    try {
+      const remoteId = videoRemoteIdFor(season.id);
+      const remote = remoteForVideoNodeId(season.id);
+      const videos = await fetchVideosForSeason(remote, remoteId, season.seasonId);
+      if (videos.length === 0) {
+        toast.error("no videos found in this season");
+        return;
+      }
+      const shuffled = [...videos].sort(() => Math.random() - 0.5);
+      await playVideoQueue(shuffled, 0, {
+        type: "shuffle",
+        label: season.title,
+        entity_id: season.seasonId,
+      });
+    } catch (err) {
+      toast.error(`failed to shuffle season: ${(err as Error).message}`);
+    } finally {
+      setPlayingVideoActionId(null);
+    }
+  };
+  const handleAddVideoSeasonToQueue = async (season: VideoSeasonNodeData) => {
+    if (playingVideoActionId() !== null) return;
+    setPlayingVideoActionId(season.id);
+    try {
+      const remoteId = videoRemoteIdFor(season.id);
+      const remote = remoteForVideoNodeId(season.id);
+      const videos = await fetchVideosForSeason(remote, remoteId, season.seasonId);
+      if (videos.length === 0) {
+        toast.error("no videos found in this season");
+        return;
+      }
+      await addVideosToQueue(videos, {
+        type: "season",
+        label: season.title,
+        entity_id: season.seasonId,
+      });
+    } catch (err) {
+      toast.error(`failed to enqueue season: ${(err as Error).message}`);
+    } finally {
+      setPlayingVideoActionId(null);
+    }
+  };
+  const handleViewVideoSeason = (season: VideoSeasonNodeData) => {
+    const remoteId = videoRemoteIdFor(season.id);
+    navigate(
+      routes.videoSeriesOn(remoteId === LOCAL_GRAPH_REMOTE_ID ? null : remoteId, season.seriesId)
+    );
+  };
+  const handleBrowseRemote = () => {
+    const r = selectedRemote();
+    if (!r) return;
+    navigate(getDefaultRoute(r.remote_id));
+  };
+  const handleBrowseRemoteVideo = () => {
+    const r = selectedRemote();
+    if (!r) return;
+    navigate(routes.videoOn(r.remote_id));
+  };
+
   return (
     <div class="h-full flex flex-col">
       <Show when={includeLocalHub}>
@@ -4155,7 +4494,10 @@ function Inner(props: {
           </div>
         </Show>
 
-        {/* album detail popover */}
+        {/* album detail popover — the play/shuffle/queue/view handlers are
+            named consts declared above (handlePlayAlbum etc.) so the
+            collapsed pill's quick-action buttons can reuse the exact same
+            logic without duplicating it. */}
         <Show when={selectedAlbum() !== null && !albumPanel.hidden() && !editMode()}>
           <div class="absolute bottom-3 left-3 z-10 max-w-[min(360px,calc(100%-1.5rem))] pointer-events-auto">
             <button
@@ -4173,63 +4515,10 @@ function Inner(props: {
                 selectedAlbum() ? contributingRemotesForAlbum(selectedAlbum()!) : undefined
               }
               isLoadingPlay={playingAlbumId() !== null}
-              onPlay={async (album) => {
-                const id = bareAlbumId(album);
-                if (playingAlbumId() !== null) return;
-                const r = remoteForNode(album);
-                if (!r) return;
-                setPlayingAlbumId(id);
-                try {
-                  const songs = await fetchAlbumSongs(r, id);
-                  await playQueue(songs, {
-                    source: { type: "album", label: album.title, entity_id: id },
-                  });
-                } catch (err) {
-                  toast.error(`failed to play album: ${(err as Error).message}`);
-                } finally {
-                  setPlayingAlbumId(null);
-                }
-              }}
-              onShuffle={async (album) => {
-                if (playingAlbumId() !== null) return;
-                const id = bareAlbumId(album);
-                const r = remoteForNode(album);
-                if (!r) return;
-                setPlayingAlbumId(id);
-                try {
-                  const songs = await fetchAlbumSongs(r, id);
-                  const shuffled = [...songs].sort(() => Math.random() - 0.5);
-                  await playQueue(shuffled, {
-                    source: { type: "shuffle", label: album.title, entity_id: id },
-                  });
-                } catch (err) {
-                  toast.error(`failed to shuffle album: ${(err as Error).message}`);
-                } finally {
-                  setPlayingAlbumId(null);
-                }
-              }}
-              onAddToQueue={async (album) => {
-                if (playingAlbumId() !== null) return;
-                const id = bareAlbumId(album);
-                const r = remoteForNode(album);
-                if (!r) return;
-                setPlayingAlbumId(id);
-                try {
-                  const songs = await fetchAlbumSongs(r, id);
-                  await addToQueue(songs, {
-                    source: { type: "album", label: album.title, entity_id: id },
-                  });
-                } catch (err) {
-                  toast.error(`failed to enqueue album: ${(err as Error).message}`);
-                } finally {
-                  setPlayingAlbumId(null);
-                }
-              }}
-              onViewAlbum={(album, pickedRemoteId) => {
-                const r = resolvePickedRemote(pickedRemoteId, remoteForNode(album));
-                const resolved = r ? albumForRemote(album, r.remote_id) : album;
-                navigate(routes.albumOn(r?.remote_id ?? null, bareAlbumId(resolved)));
-              }}
+              onPlay={handlePlayAlbum}
+              onShuffle={handleShuffleAlbum}
+              onAddToQueue={handleAddAlbumToQueue}
+              onViewAlbum={handleViewAlbum}
               onViewArtist={(album, pickedRemoteId) => {
                 if (!album.artistId) return;
                 const r = resolvePickedRemote(pickedRemoteId, remoteForNode(album));
@@ -4292,7 +4581,27 @@ function Inner(props: {
         </Show>
 
         <Show when={selectedAlbum() !== null && albumPanel.hidden() && !editMode()}>
-          <CollapsedAlbumButton album={selectedAlbum()!} onRestore={albumPanel.restore} />
+          <CollapsedAlbumButton
+            album={selectedAlbum()!}
+            onRestore={albumPanel.restore}
+            isLoadingPlay={playingAlbumId() !== null}
+            onPlay={() => {
+              const a = selectedAlbum();
+              if (a) void handlePlayAlbum(a);
+            }}
+            onShuffle={() => {
+              const a = selectedAlbum();
+              if (a) void handleShuffleAlbum(a);
+            }}
+            onAddToQueue={() => {
+              const a = selectedAlbum();
+              if (a) void handleAddAlbumToQueue(a);
+            }}
+            onViewAlbum={() => {
+              const a = selectedAlbum();
+              if (a) handleViewAlbum(a);
+            }}
+          />
         </Show>
 
         {/* artist detail popover - mutually exclusive with album popover */}
@@ -4313,70 +4622,9 @@ function Inner(props: {
                 selectedArtist() ? contributingRemotesForArtist(selectedArtist()!) : undefined
               }
               isLoadingPlay={playingArtistId() !== null}
-              onPlay={async (artist) => {
-                if (playingArtistId() !== null) return;
-                const id = artist.artistId;
-                const r = remoteForArtist(artist);
-                if (!r || !id) return;
-                setPlayingArtistId(id);
-                try {
-                  const songs = await fetchArtistSongs(r, id);
-                  if (songs.length === 0) {
-                    toast.error("artist has no songs");
-                    return;
-                  }
-                  await playQueue(songs, {
-                    source: { type: "artist", label: artist.name, entity_id: id },
-                  });
-                } catch (err) {
-                  toast.error(`failed to play artist: ${(err as Error).message}`);
-                } finally {
-                  setPlayingArtistId(null);
-                }
-              }}
-              onShuffle={async (artist) => {
-                if (playingArtistId() !== null) return;
-                const id = artist.artistId;
-                const r = remoteForArtist(artist);
-                if (!r || !id) return;
-                setPlayingArtistId(id);
-                try {
-                  const songs = await fetchArtistSongs(r, id);
-                  if (songs.length === 0) {
-                    toast.error("artist has no songs");
-                    return;
-                  }
-                  const shuffled = [...songs].sort(() => Math.random() - 0.5);
-                  await playQueue(shuffled, {
-                    source: { type: "shuffle", label: artist.name, entity_id: id },
-                  });
-                } catch (err) {
-                  toast.error(`failed to shuffle artist: ${(err as Error).message}`);
-                } finally {
-                  setPlayingArtistId(null);
-                }
-              }}
-              onAddToQueue={async (artist) => {
-                if (playingArtistId() !== null) return;
-                const id = artist.artistId;
-                const r = remoteForArtist(artist);
-                if (!r || !id) return;
-                setPlayingArtistId(id);
-                try {
-                  const songs = await fetchArtistSongs(r, id);
-                  if (songs.length === 0) {
-                    toast.error("artist has no songs");
-                    return;
-                  }
-                  await addToQueue(songs, {
-                    source: { type: "artist", label: artist.name, entity_id: id },
-                  });
-                } catch (err) {
-                  toast.error(`failed to enqueue artist: ${(err as Error).message}`);
-                } finally {
-                  setPlayingArtistId(null);
-                }
-              }}
+              onPlay={handlePlayArtist}
+              onShuffle={handleShuffleArtist}
+              onAddToQueue={handleAddArtistToQueue}
               bio={artistQuery.data?.bio ?? null}
               isFavorite={artistQuery.data?.is_favorite}
               dataSourceRemoteName={selectedArtistRemote()?.name ?? null}
@@ -4407,13 +4655,7 @@ function Inner(props: {
                 // like a canvas click would.
                 pivotKeepingPanel(valueNodeId(remoteId, kind as RelationKind, slug(label)));
               }}
-              onViewArtist={(artist, pickedRemoteId) => {
-                const r = resolvePickedRemote(pickedRemoteId, remoteForArtist(artist));
-                const resolved = r ? artistForRemote(artist, r.remote_id) : artist;
-                navigate(
-                  routes.artistOn(r?.remote_id ?? null, resolved.artistId || artist.artistId)
-                );
-              }}
+              onViewArtist={handleViewArtist}
               onEdit={
                 isAnyRemoteAdmin()
                   ? (artist, pickedRemoteId) => {
@@ -4463,6 +4705,23 @@ function Inner(props: {
           <CollapsedArtistButton
             artist={selectedArtistDisplay()!}
             onRestore={artistPanel.restore}
+            isLoadingPlay={playingArtistId() !== null}
+            onPlay={() => {
+              const a = selectedArtist();
+              if (a) void handlePlayArtist(a);
+            }}
+            onShuffle={() => {
+              const a = selectedArtist();
+              if (a) void handleShuffleArtist(a);
+            }}
+            onAddToQueue={() => {
+              const a = selectedArtist();
+              if (a) void handleAddArtistToQueue(a);
+            }}
+            onViewArtist={() => {
+              const a = selectedArtist();
+              if (a) handleViewArtist(a);
+            }}
           />
         </Show>
 
@@ -4476,50 +4735,8 @@ function Inner(props: {
               seriesTitle={selectedVideoContext().seriesTitle}
               seasonTitle={selectedVideoContext().seasonTitle}
               isLoadingPlay={playingVideoActionId() === selectedVideo()!.id}
-              onPlay={async (video) => {
-                if (playingVideoActionId() !== null) return;
-                setPlayingVideoActionId(video.id);
-                try {
-                  const remoteId = videoRemoteIdFor(video.id);
-                  const remote = remoteForVideoNodeId(video.id);
-                  const full = await fetchVideoById(remote, remoteId, video.videoId);
-                  if (!full) {
-                    toast.error("video not found");
-                    return;
-                  }
-                  await playVideoQueue([full], 0, {
-                    type: "video",
-                    label: video.title,
-                    entity_id: video.videoId,
-                  });
-                } catch (err) {
-                  toast.error(`failed to play video: ${(err as Error).message}`);
-                } finally {
-                  setPlayingVideoActionId(null);
-                }
-              }}
-              onAddToQueue={async (video) => {
-                if (playingVideoActionId() !== null) return;
-                setPlayingVideoActionId(video.id);
-                try {
-                  const remoteId = videoRemoteIdFor(video.id);
-                  const remote = remoteForVideoNodeId(video.id);
-                  const full = await fetchVideoById(remote, remoteId, video.videoId);
-                  if (!full) {
-                    toast.error("video not found");
-                    return;
-                  }
-                  await addVideosToQueue([full], {
-                    type: "video",
-                    label: full.title,
-                    entity_id: full.id,
-                  });
-                } catch (err) {
-                  toast.error(`failed to enqueue video: ${(err as Error).message}`);
-                } finally {
-                  setPlayingVideoActionId(null);
-                }
-              }}
+              onPlay={handlePlayVideo}
+              onAddToQueue={handleAddVideoToQueue}
               isFavorite={videoFavoriteQuery.data?.has(selectedVideo()!.videoId) ?? false}
               onToggleFavorite={(video, next) => {
                 const remote = remoteForVideoNodeId(video.id);
@@ -4537,15 +4754,7 @@ function Inner(props: {
                   }
                 );
               }}
-              onViewVideo={(video) => {
-                const remoteId = videoRemoteIdFor(video.id);
-                navigate(
-                  routes.videoDetailOn(
-                    remoteId === LOCAL_GRAPH_REMOTE_ID ? null : remoteId,
-                    video.videoId
-                  )
-                );
-              }}
+              onViewVideo={handleViewVideo}
               onEdit={
                 isAnyRemoteAdmin()
                   ? (video) => {
@@ -4584,7 +4793,23 @@ function Inner(props: {
           </div>
         </Show>
         <Show when={selectedVideo() !== null && videoPanel.hidden() && !editMode()}>
-          <CollapsedVideoButton title={selectedVideo()!.title} onRestore={videoPanel.restore} />
+          <CollapsedVideoButton
+            title={selectedVideo()!.title}
+            onRestore={videoPanel.restore}
+            isLoadingPlay={playingVideoActionId() === selectedVideo()?.id}
+            onPlay={() => {
+              const v = selectedVideo();
+              if (v) void handlePlayVideo(v);
+            }}
+            onAddToQueue={() => {
+              const v = selectedVideo();
+              if (v) void handleAddVideoToQueue(v);
+            }}
+            onViewVideo={() => {
+              const v = selectedVideo();
+              if (v) handleViewVideo(v);
+            }}
+          />
         </Show>
 
         <Show when={selectedVideoSeries() !== null && !videoPanel.hidden() && !editMode()}>
@@ -4594,73 +4819,9 @@ function Inner(props: {
               videos={selectedVideoSeriesEpisodes()}
               onSelectVideo={(video) => selectAndPanTo(video.id)}
               isLoadingPlay={playingVideoActionId() === selectedVideoSeries()!.id}
-              onPlay={async (series) => {
-                if (playingVideoActionId() !== null) return;
-                setPlayingVideoActionId(series.id);
-                try {
-                  const remoteId = videoRemoteIdFor(series.id);
-                  const remote = remoteForVideoNodeId(series.id);
-                  const videos = await fetchVideosForSeries(remote, remoteId, series.seriesId);
-                  if (videos.length === 0) {
-                    toast.error("no videos found in this series");
-                    return;
-                  }
-                  await playVideoQueue(videos, 0, {
-                    type: "series",
-                    label: series.title,
-                    entity_id: series.seriesId,
-                  });
-                } catch (err) {
-                  toast.error(`failed to play series: ${(err as Error).message}`);
-                } finally {
-                  setPlayingVideoActionId(null);
-                }
-              }}
-              onShuffle={async (series) => {
-                if (playingVideoActionId() !== null) return;
-                setPlayingVideoActionId(series.id);
-                try {
-                  const remoteId = videoRemoteIdFor(series.id);
-                  const remote = remoteForVideoNodeId(series.id);
-                  const videos = await fetchVideosForSeries(remote, remoteId, series.seriesId);
-                  if (videos.length === 0) {
-                    toast.error("no videos found in this series");
-                    return;
-                  }
-                  const shuffled = [...videos].sort(() => Math.random() - 0.5);
-                  await playVideoQueue(shuffled, 0, {
-                    type: "shuffle",
-                    label: series.title,
-                    entity_id: series.seriesId,
-                  });
-                } catch (err) {
-                  toast.error(`failed to shuffle series: ${(err as Error).message}`);
-                } finally {
-                  setPlayingVideoActionId(null);
-                }
-              }}
-              onAddToQueue={async (series) => {
-                if (playingVideoActionId() !== null) return;
-                setPlayingVideoActionId(series.id);
-                try {
-                  const remoteId = videoRemoteIdFor(series.id);
-                  const remote = remoteForVideoNodeId(series.id);
-                  const videos = await fetchVideosForSeries(remote, remoteId, series.seriesId);
-                  if (videos.length === 0) {
-                    toast.error("no videos found in this series");
-                    return;
-                  }
-                  await addVideosToQueue(videos, {
-                    type: "series",
-                    label: series.title,
-                    entity_id: series.seriesId,
-                  });
-                } catch (err) {
-                  toast.error(`failed to enqueue series: ${(err as Error).message}`);
-                } finally {
-                  setPlayingVideoActionId(null);
-                }
-              }}
+              onPlay={handlePlayVideoSeries}
+              onShuffle={handleShuffleVideoSeries}
+              onAddToQueue={handleAddVideoSeriesToQueue}
               isFavorite={
                 videoSeriesFavoriteQuery.data?.has(selectedVideoSeries()!.seriesId) ?? false
               }
@@ -4685,15 +4846,7 @@ function Inner(props: {
                   }
                 );
               }}
-              onViewSeries={(series) => {
-                const remoteId = videoRemoteIdFor(series.id);
-                navigate(
-                  routes.videoSeriesOn(
-                    remoteId === LOCAL_GRAPH_REMOTE_ID ? null : remoteId,
-                    series.seriesId
-                  )
-                );
-              }}
+              onViewSeries={handleViewVideoSeries}
               onEdit={
                 isAnyRemoteAdmin()
                   ? (series) => {
@@ -4713,6 +4866,23 @@ function Inner(props: {
           <CollapsedVideoButton
             title={selectedVideoSeries()!.title}
             onRestore={videoPanel.restore}
+            isLoadingPlay={playingVideoActionId() === selectedVideoSeries()?.id}
+            onPlay={() => {
+              const s = selectedVideoSeries();
+              if (s) void handlePlayVideoSeries(s);
+            }}
+            onShuffle={() => {
+              const s = selectedVideoSeries();
+              if (s) void handleShuffleVideoSeries(s);
+            }}
+            onAddToQueue={() => {
+              const s = selectedVideoSeries();
+              if (s) void handleAddVideoSeriesToQueue(s);
+            }}
+            onViewVideo={() => {
+              const s = selectedVideoSeries();
+              if (s) handleViewVideoSeries(s);
+            }}
           />
         </Show>
 
@@ -4723,82 +4893,10 @@ function Inner(props: {
               videos={selectedVideoSeasonEpisodes()}
               onSelectVideo={(video) => selectAndPanTo(video.id)}
               isLoadingPlay={playingVideoActionId() === selectedVideoSeason()!.id}
-              onPlay={async (season) => {
-                if (playingVideoActionId() !== null) return;
-                setPlayingVideoActionId(season.id);
-                try {
-                  const remoteId = videoRemoteIdFor(season.id);
-                  const remote = remoteForVideoNodeId(season.id);
-                  const videos = await fetchVideosForSeason(remote, remoteId, season.seasonId);
-                  if (videos.length === 0) {
-                    toast.error("no videos found in this season");
-                    return;
-                  }
-                  await playVideoQueue(videos, 0, {
-                    type: "season",
-                    label: season.title,
-                    entity_id: season.seasonId,
-                  });
-                } catch (err) {
-                  toast.error(`failed to play season: ${(err as Error).message}`);
-                } finally {
-                  setPlayingVideoActionId(null);
-                }
-              }}
-              onShuffle={async (season) => {
-                if (playingVideoActionId() !== null) return;
-                setPlayingVideoActionId(season.id);
-                try {
-                  const remoteId = videoRemoteIdFor(season.id);
-                  const remote = remoteForVideoNodeId(season.id);
-                  const videos = await fetchVideosForSeason(remote, remoteId, season.seasonId);
-                  if (videos.length === 0) {
-                    toast.error("no videos found in this season");
-                    return;
-                  }
-                  const shuffled = [...videos].sort(() => Math.random() - 0.5);
-                  await playVideoQueue(shuffled, 0, {
-                    type: "shuffle",
-                    label: season.title,
-                    entity_id: season.seasonId,
-                  });
-                } catch (err) {
-                  toast.error(`failed to shuffle season: ${(err as Error).message}`);
-                } finally {
-                  setPlayingVideoActionId(null);
-                }
-              }}
-              onAddToQueue={async (season) => {
-                if (playingVideoActionId() !== null) return;
-                setPlayingVideoActionId(season.id);
-                try {
-                  const remoteId = videoRemoteIdFor(season.id);
-                  const remote = remoteForVideoNodeId(season.id);
-                  const videos = await fetchVideosForSeason(remote, remoteId, season.seasonId);
-                  if (videos.length === 0) {
-                    toast.error("no videos found in this season");
-                    return;
-                  }
-                  await addVideosToQueue(videos, {
-                    type: "season",
-                    label: season.title,
-                    entity_id: season.seasonId,
-                  });
-                } catch (err) {
-                  toast.error(`failed to enqueue season: ${(err as Error).message}`);
-                } finally {
-                  setPlayingVideoActionId(null);
-                }
-              }}
-              onViewSeries={(season) => {
-                const remoteId = videoRemoteIdFor(season.id);
-                navigate(
-                  routes.videoSeriesOn(
-                    remoteId === LOCAL_GRAPH_REMOTE_ID ? null : remoteId,
-                    season.seriesId
-                  )
-                );
-              }}
+              onPlay={handlePlayVideoSeason}
+              onShuffle={handleShuffleVideoSeason}
+              onAddToQueue={handleAddVideoSeasonToQueue}
+              onViewSeries={handleViewVideoSeason}
             />
           </div>
         </Show>
@@ -4806,6 +4904,23 @@ function Inner(props: {
           <CollapsedVideoButton
             title={selectedVideoSeason()!.title}
             onRestore={videoPanel.restore}
+            isLoadingPlay={playingVideoActionId() === selectedVideoSeason()?.id}
+            onPlay={() => {
+              const s = selectedVideoSeason();
+              if (s) void handlePlayVideoSeason(s);
+            }}
+            onShuffle={() => {
+              const s = selectedVideoSeason();
+              if (s) void handleShuffleVideoSeason(s);
+            }}
+            onAddToQueue={() => {
+              const s = selectedVideoSeason();
+              if (s) void handleAddVideoSeasonToQueue(s);
+            }}
+            onViewVideo={() => {
+              const s = selectedVideoSeason();
+              if (s) handleViewVideoSeason(s);
+            }}
           />
         </Show>
 
@@ -5168,16 +5283,8 @@ function Inner(props: {
               canEdit={() => isRemoteAdmin(selectedRemote()?.remote_id ?? null)}
               taxonKinds={() => taxonKindsByRemote().get(selectedRemote()?.remote_id ?? "") ?? []}
               onClose={() => setSelectedId(null)}
-              onBrowse={() => {
-                const r = selectedRemote();
-                if (!r) return;
-                navigate(getDefaultRoute(r.remote_id));
-              }}
-              onBrowseVideo={() => {
-                const r = selectedRemote();
-                if (!r) return;
-                navigate(routes.videoOn(r.remote_id));
-              }}
+              onBrowse={handleBrowseRemote}
+              onBrowseVideo={handleBrowseRemoteVideo}
               isEditing={() => {
                 const r = selectedRemote();
                 return !!r && editingRemoteId() === r.remote_id;
@@ -5301,6 +5408,8 @@ function Inner(props: {
           <CollapsedRemoteButton
             label={selectedRemote()?.name ?? "remote"}
             onRestore={() => setTaxonPanelHidden(false)}
+            onBrowse={handleBrowseRemote}
+            onBrowseVideo={handleBrowseRemoteVideo}
           />
         </Show>
       </div>

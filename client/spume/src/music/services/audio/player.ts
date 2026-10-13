@@ -38,7 +38,11 @@ import { beginMediaLoad } from "../../../app/services/media/loadGuard";
 import { selectBackend } from "./select";
 import { registerStopMusic } from "../../../app/services/playbackCoordinator";
 import { installPreCacheScheduler } from "../queue/preCacheScheduler";
-import { installMediaSessionBridge, registerMediaActions } from "./mediaSessionBridge";
+import {
+  installMediaSessionBridge,
+  pushPositionStateNow,
+  registerMediaActions,
+} from "./mediaSessionBridge";
 import { installPlaybackOrchestrator } from "./playbackOrchestrator";
 import { bindActiveBackend } from "./playerStateSync";
 import {
@@ -872,6 +876,11 @@ export function seek(seconds: number): void {
   // so html still gets the immediate audio-element update via the
   // same code path.
   void activeBackend.send({ kind: "seek", ms: Math.round(seconds * 1000) });
+  // push the new position to the lock-screen scrubber immediately,
+  // optimistically - don't wait for the backend to confirm (see
+  // mediaSessionBridge.ts's `pushPositionStateNow` doc comment for why
+  // a seek is one of the only three times this needs pushing at all).
+  pushPositionStateNow(seconds);
 }
 
 export function setPlayerVolume(vol: number): void {

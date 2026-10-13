@@ -728,6 +728,10 @@ export function AggregateFeedView() {
           onChange={setActiveRemoteIds}
           mode="multi"
           class={showBackToTop() ? "wide:ml-[180px]" : "wide:ml-[140px]"}
+          // below the top nav's own flyout (z-1000) - this picker is only
+          // ever used standalone here, never inside a modal, so it should
+          // never render above the nav flyout when both happen to be open.
+          flyoutZIndex={900}
         />
       </Show>
 

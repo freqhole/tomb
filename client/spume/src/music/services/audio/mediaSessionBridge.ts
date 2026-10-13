@@ -136,6 +136,48 @@ export function registerMediaActions(
 }
 
 /**
+ * push a `setPositionState` snapshot to the lock-screen/control-center
+ * scrubber right now, using the given position plus the current
+ * `duration()`/`isPlaying()` signals.
+ *
+ * per the web MediaSession spec, this call is a snapshot-plus-clock-rate,
+ * not a feed - the OS interpolates position on its own between calls using
+ * `playbackRate` and its own timestamp, specifically so callers don't have
+ * to keep calling it. there are exactly three times a real change has
+ * happened that's worth reporting: a new track (`refreshMetadata`, below),
+ * a play/pause toggle (the `isPlaying` effect in
+ * `installMediaSessionBridge`, which also calls this), and an explicit
+ * seek (`player.ts`'s `seek()` calls this directly, since that's the one
+ * choke point every seek - ui scrubber and lock-screen `seekto` alike -
+ * already funnels through). there used to be a fourth call site: a
+ * reactive effect subscribed to `currentTime`/`duration` directly, pushing
+ * on a throttled timer (originally every tick, later throttled to ~1/sec)
+ * - removed entirely, not just throttled further, because calling this
+ * repeatedly on a timer (even once a second, even with unchanged values)
+ * is exactly the kind of platform-visible churn that can make some
+ * platforms treat the whole now-playing card as needing a refresh, not
+ * just the scrubber - which is consistent with what was actually reported
+ * (artwork flicker + action handlers reverting to the generic ±10s seek
+ * affordance, not just scrubber jitter).
+ */
+export function pushPositionStateNow(position: number): void {
+  if (externalActive) return;
+  if (typeof navigator === "undefined" || !("mediaSession" in navigator)) return;
+  if (!appState()?.current_item_key) return;
+  const d = duration();
+  if (!Number.isFinite(d) || d <= 0) return;
+  try {
+    navigator.mediaSession.setPositionState({
+      duration: d,
+      playbackRate: isPlaying() ? 1.0 : 0,
+      position,
+    });
+  } catch {
+    // some browsers reject the call when metadata isn't yet set.
+  }
+}
+
+/**
  * install the mediaSession bridge. idempotent — subsequent calls are
  * no-ops. invoked from the player facade at module init.
  */
@@ -160,7 +202,25 @@ export function installMediaSessionBridge(): void {
           // docs/radio-queue-refactor-ideas.md) - guard explicitly so
           // an unrelated appState rewrite doesn't force a needless
           // metadata refetch (e.g. video series/season lookups).
-          if (sha === prevSha) return;
+          if (sha === prevSha) {
+            debug("mediaSessionBridge", `metadata effect: skipped (sha unchanged: ${sha})`);
+            return;
+          }
+          // logged unconditionally (not just the skip above) while
+          // investigating a still-reported ~5s lock-screen artwork/
+          // action-handler flicker, despite every other known periodic
+          // trigger in this file already being guarded against appState's
+          // every-write-rewrites-the-reference churn (see
+          // saveProgressToIDB's own identical-class fix). if this still
+          // fires repeatedly for the SAME sha during continued playback
+          // of one track, something upstream is handing `current_item_key`
+          // a genuinely different value (not just a new appState object
+          // reference) every ~5s, which would point at a real bug outside
+          // this file entirely - viewable on-device via settings > logz.
+          debug(
+            "mediaSessionBridge",
+            `metadata effect: refreshing (sha ${prevSha} -> ${sha}) at t=${Date.now()}`
+          );
           void refreshMetadata();
         }
       )
@@ -168,13 +228,17 @@ export function installMediaSessionBridge(): void {
 
     // playback state — flip `playbackState` between "playing" /
     // "paused" without re-fetching metadata. cheap, fires on every
-    // play/pause toggle.
+    // play/pause toggle. also pushes a position-state snapshot here -
+    // see this file's top-level `pushPositionStateNow` doc comment for
+    // why this (plus track-change and seek) are the only three times
+    // position state needs pushing at all.
     createEffect(
       on(isPlaying, (playing) => {
         if (externalActive) return;
         if (!("mediaSession" in navigator)) return;
         if (!appState()?.current_item_key) return;
         navigator.mediaSession.playbackState = playing ? "playing" : "paused";
+        pushPositionStateNow(currentTime());
       })
     );
 
@@ -195,33 +259,24 @@ export function installMediaSessionBridge(): void {
           if (!item || item.kind !== "song") return false;
           return item.song.is_favorite ?? false;
         },
-        (isFavorite) => {
+        (isFavorite, prevIsFavorite) => {
+          // CONFIRMED BUG (fixed here): this effect's `deps` function
+          // reads `appState()`, which gets written roughly every 5
+          // seconds during playback by `listenProgress.ts`'s periodic
+          // progress flush (`saveProgressToIDB` -> `setQueue`) even when
+          // the favorite flag hasn't changed at all - `on()` reruns the
+          // callback on every such write regardless of whether the
+          // derived value actually changed (same pitfall the metadata
+          // effect above explicitly guards against, see its own
+          // comment) - this effect was missing the equivalent guard,
+          // so it called `pushFavoriteState()` on every flush tick, not
+          // just on a real favorite toggle.
+          if (isFavorite === prevIsFavorite) return;
           if (externalActive) return;
           if (isFavorite === null) return;
           pushFavoriteState(isFavorite);
         }
       )
-    );
-
-    // position state — feeds the lock-screen scrubber. update lazily;
-    // mediaSession spec recommends updating on seek/significant change
-    // rather than every tick, but most platforms tolerate per-tick fine.
-    createEffect(
-      on([currentTime, duration], ([t, d]) => {
-        if (externalActive) return;
-        if (!("mediaSession" in navigator)) return;
-        if (!appState()?.current_item_key) return;
-        if (!Number.isFinite(d) || d <= 0) return;
-        try {
-          navigator.mediaSession.setPositionState({
-            duration: d as number,
-            playbackRate: 1.0,
-            position: t as number,
-          });
-        } catch {
-          // some browsers reject the call when metadata isn't yet set.
-        }
-      })
     );
   });
 
@@ -441,6 +496,10 @@ async function refreshMetadata(): Promise<void> {
   const state = appState();
   if (!state) return;
   const { queue, current_item_key: currentItemKey } = state;
+  debug(
+    "mediaSessionBridge",
+    `refreshMetadata() entered: currentItemKey=${currentItemKey}, lastSeen=${lastSeenCurrentItemKey}, t=${Date.now()}`
+  );
 
   // defensive: if the active song id changed, music playback has
   // advanced — reclaim the media session from any stale external owner.
@@ -603,15 +662,5 @@ async function refreshMetadata(): Promise<void> {
   }
 
   // position state if we have valid duration
-  if (duration() > 0) {
-    try {
-      navigator.mediaSession.setPositionState({
-        duration: duration(),
-        playbackRate: 1.0,
-        position: currentTime(),
-      });
-    } catch {
-      // ignore
-    }
-  }
+  pushPositionStateNow(currentTime());
 }

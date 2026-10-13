@@ -46,7 +46,9 @@ tauri-plugin-window-state = "2"
 tauri-plugin-deep-link = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+walkdir = { workspace = true }
 toml = "0.8"
+toml_edit = "0.22"
 url = "2"
 tokio = { version = "1", features = ["rt-multi-thread", "time", "process", "net", "io-util", "fs"] }
 tokio-util = { version = "0.7", features = ["rt"] }
@@ -107,11 +109,13 @@ libmpv2 = "6"
 # `use_libmpv_playback` is on - see `media_session.rs`.
 playwire = "1.0.0"
 
-# android only: wry's android WebViewClient.handleRequest builds a reqwest
-# client that uses rustls 0.23, which panics ("No provider set") if no
-# default CryptoProvider is installed. we install ring at app startup.
-# desktop targets keep using their existing tls stacks unchanged.
-[target."cfg(target_os = \"android\")".dependencies]
+# android + ios: wry's mobile webview backends (android's
+# WebViewClient.handleRequest, and reqwest itself on ios - see lib.rs's
+# `run()` comment) build a reqwest client that uses rustls 0.23, which
+# panics ("No provider set") if no default CryptoProvider is installed.
+# we install ring at app startup. desktop targets keep using their
+# existing tls stacks unchanged.
+[target."cfg(any(target_os = \"android\", target_os = \"ios\"))".dependencies]
 rustls = { version = "0.23", default-features = false, features = [
     "ring",
     "std",
