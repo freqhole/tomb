@@ -55,7 +55,16 @@ env:
 jobs:
   build:
     name: ios arm64 (ipa + testflight)
-    runs-on: ${{ vars.MACOS_ARM64_RUNNER || 'macos-14' }}
+    # a dedicated variable, not the shared `MACOS_ARM64_RUNNER` the
+    # desktop mac jobs use (release.yml) - ios genuinely needs a newer
+    # Xcode than those jobs do (see the "select newest xcode" step below),
+    # so pinning this independently avoids forcing the desktop jobs onto a
+    # newer/different runner image just to satisfy ios's requirement.
+    # `macos-15` is the current github-hosted image confirmed (via its own
+    # runner-images docs) to carry Xcode 26.x side-by-side with older
+    # versions - `macos-14` tops out at 16.2, too old to even open a
+    # project file saved by a current local Xcode.
+    runs-on: ${{ vars.MACOS_IOS_RUNNER || 'macos-15' }}
     env:
       DATABASE_URL: sqlite:data/grimoire.db
       # APPLE_TEAM_ID (not APPLE_DEVELOPMENT_TEAM) matches the Makefile's
@@ -76,6 +85,27 @@ jobs:
       IOS_MOBILE_PROVISION: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
     steps:
       - uses: actions/checkout@v7
+
+      # the committed project.pbxproj tracks whatever Xcode last
+      # regenerated it locally (currently 26.3 - see docs/ios.md) - its
+      # project-FILE-FORMAT version is independent of IPHONEOS_DEPLOYMENT_
+      # TARGET (project.yml's own `deploymentTarget: iOS: 15.0`, untouched
+      # by this): an old deployment target and a new Xcode aren't in
+      # tension, but an old Xcode flatly can't even PARSE a project file
+      # saved by a newer one ("future Xcode project file format" error).
+      # select whichever installed Xcode is newest rather than hardcoding
+      # a version, so this keeps matching local dev as both sides
+      # naturally move forward over time.
+      - name: select newest installed xcode
+        run: |
+          XCODE_PATH=$(ls -d /Applications/Xcode_*.app 2>/dev/null | sort -V | tail -1)
+          if [ -z "$XCODE_PATH" ]; then
+            echo "::error::no /Applications/Xcode_*.app found on this runner"
+            exit 1
+          fi
+          echo "selecting $XCODE_PATH"
+          sudo xcode-select -s "$XCODE_PATH"
+          xcodebuild -version
 
       - name: resolve version
         id: meta
