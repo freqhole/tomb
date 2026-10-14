@@ -187,16 +187,39 @@ button,
    ============================================================================= */
 
 :root {
-  /* safe area insets for mobile status/navigation bars.
-     --safe-area-top defaults to 0 and is activated at runtime only on android
-     tauri (where the webview draws behind the system status bar) or when the
-     chromeless macOS title-bar strip is active (see App.tsx / TitleBarStrip).
-     this prevents ios safari from picking up its own nonzero env() value and
-     adding extra space when running as a plain web app. see index.tsx bootstrap. */
-  --safe-area-top: 0px;
+  /* real device safe-area insets (notch/status-bar/home-indicator), always
+     resolved unconditionally by the browser/webview itself via env() - no
+     platform detection needed here at all. requires `viewport-fit=cover`
+     in index.html's viewport meta tag to report anything nonzero (without
+     it, env() always resolves to 0 everywhere, which is also a safe,
+     correct fallback on desktop/non-notched devices - nothing special
+     needed there either).
+     previously --safe-area-top was hardcoded to a literal 0px here and
+     only ever overridden to a real env() value by javascript (index.tsx),
+     deliberately gated to run only inside tauri on android/ios - this was
+     ORIGINALLY correct (this mechanism predates `viewport-fit=cover`
+     existing at all, when env() couldn't report anything meaningful
+     outside that one gated case anyway), but became a real, confirmed bug
+     once `viewport-fit=cover` was added later for unrelated reasons: it
+     made every mobile browser context (not just tauri) start reporting a
+     real inset, and this hardcoded-0 default silently reintroduced the
+     exact "content drawn under the status bar" problem the JS gate was
+     originally written to prevent - just for every context OUTSIDE that
+     one gate instead. env() needs no such gating; it already safely
+     resolves to 0 anywhere a real inset doesn't apply. --safe-area-bottom
+     (below) never needed this platform-gating trick for exactly that
+     reason, and never had this bug. */
+  --safe-area-top: env(safe-area-inset-top, 0px);
   --safe-area-bottom: env(safe-area-inset-bottom, 0px);
   /* player bar: 2-row on narrow (80px), 1-row on wide (64px) */
   --player-height: calc(80px + var(--safe-area-bottom));
+  /* how much of --player-height's own total is reserved, dead safe-area
+     padding below the actual controls (as opposed to real content height)
+     - kept in lockstep with --player-height's own narrow/wide split below
+     so PlayerBar.tsx never needs its own isNarrow() branch for this, see
+     its own comment for why this needs to be reserved as padding on the
+     bar's outer box rather than left for its content to absorb. */
+  --player-safe-area-bottom: var(--safe-area-bottom);
   /* nav bar height (42px base + safe area on android webview / chromeless strip) */
   --nav-height: calc(42px + var(--safe-area-top));
   /* extra top offset for TopNav (both narrow and wide layouts) so its own
@@ -213,8 +236,13 @@ button,
 
 @media (min-width: 801px) {
   :root {
-    /* single row on wider screens */
+    /* single row on wider screens - desktop/wide layouts never reserve
+       safe-area-bottom space at all (kept exactly as before - no live bug
+       reported here, and introducing it now risks a NEW regression on,
+       e.g., an ipad in landscape with a real home-indicator inset, whose
+       layout currently assumes a flat 72px with no surprises). */
     --player-height: 72px;
+    --player-safe-area-bottom: 0px;
     --nav-height: calc(42px + var(--safe-area-top));
   }
 }

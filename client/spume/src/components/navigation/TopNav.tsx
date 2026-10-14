@@ -996,11 +996,16 @@ export function TopNav(props: TopNavProps) {
     });
 
     // publish actual nav height to `--nav-height` whenever the nav
-    // resizes (e.g. when extra rows like selected-tag badges appear
-    // on narrow). keeps AppLayout's `padding-top: var(--nav-height)`
-    // in sync with the real strip height so content isn't hidden
-    // under the now-taller bar. only matters on narrow; on wide the
-    // nav floats over content so layout doesn't depend on its size.
+    // resizes (e.g. when extra rows like selected-tag badges appear on
+    // narrow) - `DetailViewWrapper.tsx` reserves real `padding-top: var(
+    // --nav-height)` space for its own (non-floating) layout, so this
+    // keeps that in sync with the nav's real rendered height. ordinary
+    // list views (via AppLayout) deliberately do NOT reserve any space
+    // for the nav at all, on narrow OR wide - the nav floats
+    // semi-transparently over list content by design (confirmed with
+    // user 2026-10-13), so --nav-height doesn't matter there; only
+    // matters on narrow here since DetailViewWrapper's own padding-top
+    // is itself narrow-only (see its own conditional).
     let lastH = 0;
     const syncNavHeight = () => {
       if (!navEl || !isNarrow()) return;
@@ -1204,11 +1209,15 @@ export function TopNav(props: TopNavProps) {
         class={`flex flex-col z-[1000] ${props.class || ""}`}
         classList={{
           // narrow: full-width fixed strip; padding-top insets below system
-          // status bar / notch via safe-area env var (works on both android
-          // webview and ios safari with viewport-fit=cover; zero on desktop
-          // so no effect there). matches the wide floating variant's
-          // transparency, backdrop-blur skipped when disable_backdrop_blur
-          // is set (perf on some linux compositors).
+          // status bar / notch via a real --safe-area-top CSS value - this
+          // works UNCONDITIONALLY everywhere there's a real device inset to
+          // report (tauri android/ios webview, plain mobile browser tab,
+          // PWA standalone alike - see theme.css's own --safe-area-top
+          // comment for why no platform-specific JS is needed for this
+          // anymore) and resolves to zero with no effect on desktop, where
+          // there's no device notch/status bar at all. matches the wide
+          // floating variant's transparency, backdrop-blur skipped when
+          // disable_backdrop_blur is set (perf on some linux compositors).
           "fixed right-0 bg-black/20 backdrop-blur-sm px-3 py-0 border-b border-white/10":
             isNarrow() && !getDisableBackdropBlur(),
           "fixed right-0 bg-black/80 px-3 py-0 border-b border-white/10":
