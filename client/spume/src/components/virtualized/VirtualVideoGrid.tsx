@@ -11,6 +11,7 @@ import {
   JSX,
   onCleanup,
   onMount,
+  Show,
 } from "solid-js";
 import { useScrollRestore } from "../../utils/scrollRestore";
 import { VideoCard } from "../../video/components/VideoCard";
@@ -193,21 +194,31 @@ export function VirtualVideoGrid(props: VirtualVideoGridProps): JSX.Element {
                   <Index each={columnIndices()}>
                     {(videoIndexAccessor) => {
                       const video = () => props.videos[videoIndexAccessor()];
-                      const hasVideo = () => videoIndexAccessor() < props.videos.length;
 
                       return (
-                        <div class={hasVideo() ? "" : "invisible"}>
-                          {hasVideo() &&
-                            (() => {
+                        <div class={video() ? "" : "invisible"}>
+                          {/* `keyed` hands the child a frozen snapshot instead of a
+                              live getter, and properly disposes/recreates VideoCard
+                              (incl. its own taxons/seasons/tags queries) whenever the
+                              video changes or disappears. without it, `video={video()!}`
+                              stayed live for this slot's whole lifetime (`<Index>` only
+                              tears down on `columnIndices()` length changes, i.e. a
+                              resize - never on `props.videos` shrinking), so an
+                              in-flight sub-query from a card whose video just vanished
+                              (e.g. a content-type filter) could still resolve later and
+                              read `props.video.id`/`.series_id` as undefined, throwing
+                              as an unhandled rejection well after the fact. */}
+                          <Show when={video()} keyed>
+                            {(v) => {
                               const card = (
                                 <VideoCard
-                                  video={video()!}
+                                  video={v}
                                   onClick={props.onVideoClick}
                                   onPlay={props.onVideoPlay}
-                                  imageUrl={props.getVideoImageUrl?.(video()!)}
+                                  imageUrl={props.getVideoImageUrl?.(v)}
                                   isFavorite={
                                     props.favoriteVideoIds
-                                      ? props.favoriteVideoIds.has(video()!.id)
+                                      ? props.favoriteVideoIds.has(v.id)
                                       : undefined
                                   }
                                   onFavoriteToggle={props.onVideoFavoriteToggle}
@@ -215,13 +226,14 @@ export function VirtualVideoGrid(props: VirtualVideoGridProps): JSX.Element {
                               );
 
                               return props.getContextMenuActions ? (
-                                <ContextMenu actions={props.getContextMenuActions(video()!)}>
+                                <ContextMenu actions={props.getContextMenuActions(v)}>
                                   {card}
                                 </ContextMenu>
                               ) : (
                                 card
                               );
-                            })()}
+                            }}
+                          </Show>
                         </div>
                       );
                     }}
