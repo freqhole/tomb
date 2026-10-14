@@ -510,7 +510,7 @@ export function FavoritesLayout(props: FavoritesLayoutProps) {
         <Show
           when={!props.isLoading && filteredFavorites().length > 0}
           fallback={
-            <div class="flex flex-col items-center justify-center py-32 text-center">
+            <div class="flex flex-col items-center justify-center py-32 text-center wide:mt-8">
               <Show
                 when={props.isLoading}
                 fallback={
@@ -532,12 +532,12 @@ export function FavoritesLayout(props: FavoritesLayoutProps) {
           <Show
             when={isSongsOnly()}
             fallback={
-              <div class="grid grid-cols-2 sm:grid-cols-3 wide:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-4">
+              <div class="grid grid-cols-2 sm:grid-cols-3 wide:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-4 wide:mt-8">
                 <For each={filteredFavorites()}>{(item) => renderFavoriteCard(item)}</For>
               </div>
             }
           >
-            <div class="space-y-1">
+            <div class="space-y-1 wide:mt-8">
               <For each={filteredFavorites() as (Song & { type: "song" })[]}>
                 {(song) => {
                   const subtitle = [song.artist_name, song.album_title]

@@ -6,10 +6,11 @@ import { isCharnelMode } from "../../app/services/charnel";
 import { toast } from "../../components/feedback/Toast";
 import { debug, error as logError } from "../../utils/logger";
 import { queryClient } from "../../queryClient";
-import { getDataSource } from "../data";
+import { getDataSource, getCurrentRemote } from "../data";
 import { localDataSource } from "../data/local/localSource";
 import { RemoteMusicDataSource } from "../data/remote/remoteSource";
 import { findExistingSongByContentHash } from "../services/storage/db/songs";
+import { getTauriManagedRemote } from "../../app/services/remotes/remoteManager";
 import type { Remote } from "../../app/services/storage/schemas/remote";
 import type { FavoriteTarget, ListFavoritesParams } from "../data/types";
 import type { Song } from "../services/storage/types";
@@ -76,22 +77,38 @@ export function useFavoritesInfiniteQuery(options?: UseFavoritesInfiniteQueryOpt
   }));
 }
 
-/** best-effort: find a local copy of a remote song by content hash and
- *  mirror its favorite status. browser mode only - charnel mode's "local
- *  library" is itself reached through a `RemoteMusicDataSource` (the
- *  tauri-managed remote), and matching a song there needs its `blake3`
- *  (the only content-hash query filter grimoire exposes,
- *  `media_blob_blake3`), which isn't threaded through this mutation's
- *  params today - skipped rather than guessed at. never throws: a
+/** best-effort: find a local copy of a remote song by its blake3 content
+ *  hash (the only reliable cross-remote song identifier - sha256 is
+ *  deprecated) and mirror its favorite status onto it. never throws: a
  *  failure here must not fail the primary (already-succeeded) remote
- *  favorite mutation. */
+ *  favorite mutation.
+ *
+ *  - browser mode: "local library" is the IndexedDB store, matched via
+ *    its `by_blake3` index.
+ *  - charnel mode: "local library" is itself reached through a
+ *    `RemoteMusicDataSource` (the tauri-managed remote), matched by
+ *    querying it for the same blake3. */
 export async function mirrorFavoriteToLocalSong(
-  sha256: string,
+  blake3: string | null | undefined,
   isFavorite: boolean
 ): Promise<void> {
-  if (isCharnelMode()) return;
+  if (!blake3) return;
   try {
-    const localSong = await findExistingSongByContentHash({ sha256 });
+    if (isCharnelMode()) {
+      const tauriRemote = await getTauriManagedRemote();
+      if (!tauriRemote) return;
+      const localSource = new RemoteMusicDataSource(tauriRemote);
+      const localSong = await localSource.getSongByBlake3(blake3);
+      if (!localSong) return;
+      await localSource.setFavorite({
+        targetType: "song",
+        targetId: localSong.id,
+        isFavorite,
+      });
+      return;
+    }
+
+    const localSong = await findExistingSongByContentHash({ blake3 });
     if (!localSong) return;
     await localDataSource.setFavorite({
       targetType: "song",
@@ -137,13 +154,18 @@ export function useToggleFavoriteMutation() {
       // or the globally-active source already being a remote) should also
       // be reflected on the local copy, if one exists - otherwise the same
       // song can show as favorited on one remote and not-favorited locally,
-      // with no indication they're the same content.
+      // with no indication they're the same content. skipped when the
+      // remote IS already the local library itself (charnel mode's "local
+      // library" is reached through a RemoteMusicDataSource too) - nothing
+      // to mirror onto in that case.
+      const sourceRemote = params.remote ?? getCurrentRemote();
       if (
         params.targetType === "song" &&
-        params.sha256 &&
-        dataSource instanceof RemoteMusicDataSource
+        dataSource instanceof RemoteMusicDataSource &&
+        !sourceRemote?.is_charnel_managed
       ) {
-        await mirrorFavoriteToLocalSong(params.sha256, params.isFavorite);
+        const remoteSong = await dataSource.getSongById(params.targetId);
+        await mirrorFavoriteToLocalSong(remoteSong?.blake3, params.isFavorite);
       }
 
       return params.isFavorite;
