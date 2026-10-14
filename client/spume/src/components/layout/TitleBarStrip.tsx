@@ -172,7 +172,16 @@ export function TitleBarStrip() {
       window.removeEventListener("focus", recomputeNarrow);
       unlistenFocus?.();
       if (appliedSafeAreaTop) {
-        document.documentElement.style.setProperty("--safe-area-top", "0px");
+        // removeProperty, not setProperty(..., "0px") - `--safe-area-top`
+        // now has a meaningful CSS default of its own (`env(safe-area-
+        // inset-top, 0px)`, see theme.css) once this strip isn't active.
+        // pinning a literal "0px" inline style here would permanently
+        // shadow that real default for the rest of the page's lifetime
+        // (an inline style always wins over any :root declaration,
+        // "temporary override" or not) - removing it instead lets CSS
+        // correctly take back over, matching whatever a real device
+        // inset should be in a non-chromeless-strip context.
+        document.documentElement.style.removeProperty("--safe-area-top");
         document.documentElement.style.setProperty("--chrome-top-inset", "0px");
         document.documentElement.style.setProperty("--chrome-traffic-lights-inset", "0px");
       }

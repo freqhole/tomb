@@ -26,34 +26,11 @@ if (!root) {
   throw new Error("root element not found");
 }
 
-// activate real safe-area inset only on mobile tauri (android or ios),
-// where the webview draws edge-to-edge behind the system status bar/notch -
-// confirmed for ios by reading tauri's underlying wry/tao source directly:
-// the root UIView tao creates is sized to the full screen bounds (not a
-// safe-area-constrained region - `inner_size()`'s own safe-area adjustment
-// is just a reported/logical size for resize events, not the view's actual
-// frame), and wry's WKWebView is added as a subview with an autoresizing
-// mask that fills that same full-screen superview - so ios tauri needs the
-// identical activation android tauri already gets here (previously
-// android-only - ios was never excluded on purpose, just not yet
-// considered when this was written, before ios tauri work began).
-//
-// uses the compile-time `__TAURI_TARGET_OS__` constant (see
-// vite.config.ts), not `navigator.userAgent` sniffing - this runs at the
-// very top of boot, before `App.tsx` even mounts, so the runtime
-// `isAndroidTauri()`/`isIosTauri()` signal (populated later, async, via a
-// `get_build_info` invoke) isn't available yet here; the build-time
-// constant has no such race and needs no invoke round-trip at all.
-//
-// deliberately NOT extended to plain ios safari/PWA (outside tauri) even
-// though it also reports a nonzero env(safe-area-inset-top) without
-// viewport-fit=cover (this app's `apple-mobile-web-app-status-bar-style:
-// black-translucent` meta tag already extends PWA content under the
-// status bar on its own) - that's an existing, separate gap, unrelated to
-// this tauri-specific fix.
-if (isCharnelMode() && (__TAURI_TARGET_OS__ === "android" || __TAURI_TARGET_OS__ === "ios")) {
-  document.documentElement.style.setProperty("--safe-area-top", "env(safe-area-inset-top, 0px)");
-}
+// real safe-area insets are now resolved unconditionally by CSS itself
+// (theme.css's `--safe-area-top: env(safe-area-inset-top, 0px)`) - no
+// platform detection needed here at all anymore. this used to be a
+// tauri-android/ios-only JS gate (see theme.css's own comment on
+// --safe-area-top for the full history of why that was removed).
 
 // tauri/charnel is a single native window, no multi-tab concern - only a
 // plain browser needs the single-instance lock (see singleInstance.ts).
