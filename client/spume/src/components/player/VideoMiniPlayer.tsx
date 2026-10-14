@@ -373,15 +373,16 @@ export function VideoMiniPlayer(props: VideoMiniPlayerProps) {
                 !isTouchDevice() && !isInline(),
             }}
             style={{
-              // while expanded, the chromeless title-bar strip renders above
-              // this panel (see TitleBarStrip.tsx) - drop below its height so
-              // it doesn't cover these buttons. --chrome-top-inset is 0 when
-              // the strip isn't active (non-mac/non-tauri), so this is a
-              // no-op there.
-              top:
-                !isInline() && expanded()
-                  ? "calc(0.5rem + var(--chrome-top-inset, 0px))"
-                  : "0.5rem",
+              // while expanded, this panel fills the viewport, so its
+              // controls need to clear whatever's reserved at the real
+              // top: the chromeless title-bar strip on mac tauri, or the
+              // device notch/status bar on mobile. `--safe-area-top` is
+              // the one variable that already covers both - TitleBarStrip
+              // sets it to the strip's own height on desktop, and it falls
+              // back to the real `env(safe-area-inset-top)` everywhere
+              // else (see theme.css) - 0 on a plain desktop browser either
+              // way, so this is a no-op there.
+              top: !isInline() && expanded() ? "calc(0.5rem + var(--safe-area-top, 0px))" : "0.5rem",
             }}
           >
             <ControlButtons />
