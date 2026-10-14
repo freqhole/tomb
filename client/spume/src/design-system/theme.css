@@ -210,7 +210,7 @@ button,
      (below) never needed this platform-gating trick for exactly that
      reason, and never had this bug. */
   --safe-area-top: env(safe-area-inset-top, 0px);
-  --safe-area-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-area-bottom: 0px; /* #TODO: ugh env(safe-area-inset-bottom, 0px)?? is mostly annoying*/
   /* the app shell's own root height - `100dvh` is correct and necessary in
      a REGULAR mobile browser tab (safari's address bar/toolbar shows and
      hides live as you scroll, changing the real visible height - this is

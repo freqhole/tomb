@@ -1,20 +1,10 @@
 # builds + signs the iOS app and (optionally) uploads it to TestFlight.
 #
-# deliberately a standalone workflow, not a job folded straight into
-# release.yml (unlike every other platform) - ios ci is the newest, least-
-# proven platform here (see docs/ios.md phase 5/6), so this needs to be
-# runnable on its own, repeatedly, via the Actions tab while ironing out
-# signing/export issues, without touching (or waiting on) every other
-# platform's build each time.
-#
-# once this is solid, release.yml's `create-release` job *fire-and-forget*
-# dispatches this via `gh workflow run` (not a reusable-workflow `uses:`
-# call) specifically so an ios failure can never affect the main release
-# run's own pass/fail status - GitHub Actions doesn't allow
-# `continue-on-error` on a job that calls a reusable workflow, and a
-# fully separate, independently-tracked run is a better fit for "modular"
-# here anyway: it shows up as its own entry in the Actions tab with its
-# own status, exactly like a manual `workflow_dispatch` run would.
+# callable two ways:
+#   - `workflow_call`: release.yml's `ios` job calls this directly, grouped
+#     into the same run's job graph as every other platform.
+#   - `workflow_dispatch`: still runnable on its own from the Actions tab
+#     (e.g. to iterate on signing issues without rebuilding everything else).
 #
 # unlike android's release job, there's no self-healing "ephemeral
 # signing" fallback for forks without secrets: ios genuinely requires a
@@ -26,6 +16,18 @@
 name: ios (build + testflight)
 
 on:
+  workflow_call:
+    inputs:
+      version:
+        required: false
+        type: string
+      tag:
+        required: false
+        type: string
+      upload_to_testflight:
+        required: false
+        type: boolean
+        default: false
   workflow_dispatch:
     inputs:
       version:
