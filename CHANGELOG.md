@@ -1,5 +1,17 @@
 # freqhole-release
 
+## 0.3.15
+
+### Patch Changes
+
+- 8b51a3d: add new music video type and include music + karaoke videoz on artist and album detail viewz
+- dbd33d8: config for yt-dlp --cookie
+- 73f26e4: try to fix ios github action ci yml
+- 66823bd: hello ios!
+- eaa5a5f: fight the safe-area and margin for top nav and player bar
+- 2b7f33c: more background imagez: series, artist, and album detail get background imagez!
+- a87a546: try again to fucking fix safe area marginz
+
 ## 0.3.14
 
 ### Patch Changes
