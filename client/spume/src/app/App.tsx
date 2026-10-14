@@ -663,7 +663,9 @@ export function App() {
         break;
 
       case "scan-progress":
-        // invalidate queries to refresh music data as songs are added
+        // invalidate queries to refresh music data as songs are added.
+        // refetchType: "all" (not just "active") - see onRemoteJobComplete's
+        // comment above for why songs/albums need this specifically.
         queryClient.invalidateQueries({
           predicate: (query) => {
             const key = query.queryKey[0];
@@ -675,6 +677,7 @@ export function App() {
               key === "feed"
             );
           },
+          refetchType: "all",
         });
         break;
 
@@ -691,6 +694,7 @@ export function App() {
               key === "feed"
             );
           },
+          refetchType: "all",
         });
         // show toast notification
         {
@@ -1463,6 +1467,15 @@ export function App() {
           key === "genre"
         );
       },
+      // refetch even queries with no active observer right now (e.g.
+      // songs/albums views aren't mounted at the moment the import
+      // finishes) - a plain "active"-only refetch would just mark them
+      // stale and rely on refetchOnMount, but useSongsInfiniteQuery/
+      // useAlbumsQuery set refetchOnMount: false (to preserve accumulated
+      // pages/scroll position on casual navigation), so the table/grid
+      // would keep showing the pre-import list until a full reload - see
+      // onRemoteVideoJobComplete below, which already has this fix.
+      refetchType: "all",
     });
   };
 
@@ -1523,6 +1536,11 @@ export function App() {
               key === "feed"
             );
           },
+          // see onRemoteJobComplete's comment above - songs/albums set
+          // refetchOnMount: false, so an "active"-only refetch here would
+          // leave them stale until a full reload if neither view happens
+          // to be mounted right now.
+          refetchType: "all",
         });
       }
     } catch (error) {

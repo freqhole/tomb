@@ -25,7 +25,7 @@
 
 import { debug } from "./logger";
 import { isCharnelMode } from "../app/services/charnel/mode";
-import { isAndroidTauri } from "../app/services/charnel/targetOs";
+import { isAndroidTauri, isIosTauri } from "../app/services/charnel/targetOs";
 
 export type FileKind = "audio" | "image" | "video" | "media";
 
@@ -217,6 +217,10 @@ function isAndroid(): boolean {
   // the compile-time `__TAURI_TARGET_OS__` constant instead - see their
   // own comments for why).
   return isAndroidTauri();
+}
+
+function isIos(): boolean {
+  return isIosTauri();
 }
 
 type TauriDialogOpenFn = (options: {
@@ -437,11 +441,12 @@ export async function pickFile(
  * pick a directory (desktop tauri only). returns the selected path or
  * null if cancelled / unavailable. this stays separate from `pickFiles`
  * because it has a meaningfully different result shape and isn't
- * supported on web or android.
+ * supported on web, android, or ios - `tauri-plugin-dialog` has no
+ * folder-picker implementation on either mobile platform.
  */
 export async function pickDirectory(title = "select folder"): Promise<string | null> {
   if (!isTauri()) return null;
-  if (isAndroid()) return null;
+  if (isAndroid() || isIos()) return null;
   try {
     const dialog = await loadDialog();
     const selected = await dialog.open({ multiple: false, directory: true, title });
