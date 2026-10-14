@@ -250,10 +250,9 @@ export class RemoteMusicDataSource implements MusicDataSource {
     };
   }
 
-  async getSongById(id: string): Promise<RemoteSong | null> {
-    // note: there's no getSong endpoint in the API yet
-    // we'll need to query with filter
-    const filters: Record<string, any> = { song_ids: [id] };
+  // shared by getSongById/getSongByBlake3 below - there's no dedicated
+  // single-song endpoint, just the generic query filtered down to 1.
+  private async getSingleSongByFilter(filters: Record<string, any>): Promise<RemoteSong | null> {
     const result = await (
       await this.getClient()
     ).music.querySongs({
@@ -275,6 +274,21 @@ export class RemoteMusicDataSource implements MusicDataSource {
     }
 
     return adaptSongFromAPI(result.data.items[0], this.baseUrl, this.remoteId);
+  }
+
+  async getSongById(id: string): Promise<RemoteSong | null> {
+    return this.getSingleSongByFilter({ song_ids: [id] });
+  }
+
+  /** find a song on this remote by its content-addressed blake3 hash - the
+   *  only reliable cross-remote song identifier (sha256 is deprecated).
+   *  used to mirror a favorite onto a matching local-library copy, see
+   *  favorites.ts's mirrorFavoriteToLocalSong. */
+  async getSongByBlake3(blake3: string): Promise<RemoteSong | null> {
+    // server expects an array here (same shape as song_ids above) - a bare
+    // string silently fails `.as_array()` server-side and the filter gets
+    // dropped entirely, turning this into an unfiltered "first song" query.
+    return this.getSingleSongByFilter({ media_blob_blake3: [blake3] });
   }
 
   async getSongsByIds(ids: string[]): Promise<RemoteSong[]> {

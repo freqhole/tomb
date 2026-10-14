@@ -537,7 +537,7 @@ export function FavoritesLayout(props: FavoritesLayoutProps) {
               </div>
             }
           >
-            <div class="space-y-1">
+            <div class="space-y-1 wide:mt-8">
               <For each={filteredFavorites() as (Song & { type: "song" })[]}>
                 {(song) => {
                   const subtitle = [song.artist_name, song.album_title]
