@@ -211,6 +211,23 @@ button,
      reason, and never had this bug. */
   --safe-area-top: env(safe-area-inset-top, 0px);
   --safe-area-bottom: env(safe-area-inset-bottom, 0px);
+  /* the app shell's own root height - `100dvh` is correct and necessary in
+     a REGULAR mobile browser tab (safari's address bar/toolbar shows and
+     hides live as you scroll, changing the real visible height - this is
+     exactly what `dvh` units exist to track correctly, unlike the older
+     `vh` unit which always assumes the toolbar is hidden). but `100dvh`
+     has a confirmed, separate webkit bug specifically in INSTALLED
+     standalone pwa mode (add-to-home-screen): the dynamic-viewport value
+     isn't computed correctly on cold launch at all, and only self-
+     corrects after an unrelated geometry change (e.g. rotating the
+     device) - not reproducible via any in-page javascript. standalone pwa
+     mode has no toolbar to begin with (the one thing `dvh` was invented
+     to track), so there's no downside to using plain `100vh` there
+     instead - it's simply correct from cold launch, with zero js needed.
+     gating this via `@media (display-mode: standalone)` (below) keeps
+     regular browser-tab usage on `100dvh` (still correct and needed
+     there) while fixing only the standalone-pwa-specific bug. */
+  --app-shell-height: 100dvh;
   /* player bar: 2-row on narrow (80px), 1-row on wide (64px) */
   --player-height: calc(80px + var(--safe-area-bottom));
   /* how much of --player-height's own total is reserved, dead safe-area
@@ -232,6 +249,24 @@ button,
      top-left (e.g. a sticky toolbar) and would otherwise render underneath/
      alongside those buttons. 0 otherwise - see TitleBarStrip.tsx. */
   --chrome-traffic-lights-inset: 0px;
+}
+
+/* see --app-shell-height's own doc comment above - this is the ENTIRE
+   fix for the standalone-pwa cold-launch viewport bug, no javascript
+   involved. `display-mode: standalone` is a standard css media feature
+   (not ios-specific) that matches exactly (and only) an installed/
+   add-to-home-screen pwa - a regular browser tab, even one that passes
+   `apple-mobile-web-app-capable`, never matches this. */
+@media (display-mode: standalone) {
+  :root {
+    --app-shell-height: 100vh;
+    /* standalone pwa explicitly does not want any bottom safe-area
+       reservation on the player bar - zeroing the source var here (not
+       just --player-safe-area-bottom) also flattens --player-height back
+       to its plain 80px base for this mode, so there's no separate var
+       to keep in sync. */
+    --safe-area-bottom: 0px;
+  }
 }
 
 @media (min-width: 801px) {

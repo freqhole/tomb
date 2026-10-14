@@ -1326,6 +1326,27 @@ pub fn run() {
                         match mobile_finish_boot(finish_app_handle, boot_start).await {
                             Ok(()) => {
                                 tracing::info!(elapsed_ms = %boot_start.elapsed().as_millis(), "boot: mobile setup complete, showing app");
+                                // dev builds: navigate to the vite dev server
+                                // directly (matches the pre-loading-window
+                                // behavior, where `WebviewUrl::App` resolved
+                                // through tauri's devUrl automatically).
+                                // release builds: navigate to the bundled
+                                // assets' custom protocol - android's
+                                // webview can't load an arbitrary `tauri://`
+                                // scheme, it serves bundled assets under
+                                // `http://tauri.localhost` instead (see
+                                // tauri's own `tauri_protocol_url()`).
+                                #[cfg(debug_assertions)]
+                                let main_url = format!(
+                                    "http://localhost:1420/index.html?{}",
+                                    app_config::cache_busting_query()
+                                );
+                                #[cfg(all(not(debug_assertions), target_os = "android"))]
+                                let main_url = format!(
+                                    "http://tauri.localhost/index.html?{}",
+                                    app_config::cache_busting_query()
+                                );
+                                #[cfg(all(not(debug_assertions), not(target_os = "android")))]
                                 let main_url = format!(
                                     "tauri://localhost/index.html?{}",
                                     app_config::cache_busting_query()

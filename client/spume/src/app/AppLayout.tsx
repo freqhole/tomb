@@ -1514,7 +1514,12 @@ export function AppLayout(props: AppLayoutProps) {
       <div
         class={`flex flex-col ${bgConfig() ? "bg-transparent" : "bg-[var(--color-bg-primary)]"}`}
         style={{
-          height: "100dvh",
+          // see theme.css's own `--app-shell-height` doc comment - this
+          // is `100dvh` in a regular browser tab (correct there, tracks
+          // safari's toolbar show/hide) and `100vh` in standalone pwa
+          // mode (a separate, confirmed webkit bug makes `100dvh` report
+          // the wrong value on cold launch specifically there).
+          height: "var(--app-shell-height, 100dvh)",
           "--player-bar-height":
             (appState()?.queue.length || 0) > 0 ||
             radioStatus() !== "idle" ||
