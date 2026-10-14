@@ -1201,7 +1201,7 @@ dependencies = [
 
 [[package]]
 name = "charnel"
-version = "0.3.14"
+version = "0.3.15"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -1330,7 +1330,7 @@ checksum = "c8d4a3bb8b1e0c1050499d1815f5ab16d04f0959b233085fb31653fbfc9d98f9"
 
 [[package]]
 name = "cli"
-version = "0.3.14"
+version = "0.3.15"
 dependencies = [
  "anyhow",
  "clap",
@@ -1349,7 +1349,7 @@ dependencies = [
 
 [[package]]
 name = "client-codegen"
-version = "0.3.14"
+version = "0.3.15"
 dependencies = [
  "grimoire",
  "serde",
@@ -3571,7 +3571,7 @@ dependencies = [
 
 [[package]]
 name = "grimoire"
-version = "0.3.14"
+version = "0.3.15"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3716,7 +3716,7 @@ dependencies = [
 
 [[package]]
 name = "haruspex"
-version = "0.3.14"
+version = "0.3.15"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -7665,7 +7665,7 @@ dependencies = [
 
 [[package]]
 name = "rathole"
-version = "0.3.14"
+version = "0.3.15"
 dependencies = [
  "anyhow",
  "arboard",
@@ -7918,7 +7918,7 @@ checksum = "dc897dd8d9e8bd1ed8cdad82b5966c3e0ecae09fb1907d58efaa013543185d0a"
 
 [[package]]
 name = "reliquary"
-version = "0.3.14"
+version = "0.3.15"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -8765,7 +8765,7 @@ dependencies = [
 
 [[package]]
 name = "server"
-version = "0.3.14"
+version = "0.3.15"
 dependencies = [
  "anyhow",
  "axum",
