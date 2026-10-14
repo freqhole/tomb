@@ -279,7 +279,6 @@ export function PlayerBar(props: PlayerBarProps) {
   const [displayWaveform, setDisplayWaveform] = createSignal<
     ReturnType<typeof getWaveformImage> | null | undefined
   >(undefined);
-  const [wasLoading, setWasLoading] = createSignal(false);
 
   onMount(() => {
     const handleResize = () => {
@@ -298,25 +297,21 @@ export function PlayerBar(props: PlayerBarProps) {
         : undefined;
   });
 
-  // update display waveform when loading transitions to complete
-  // keep previous waveform visible while loading a new song
+  // update display waveform to the incoming one whenever we're not loading,
+  // keeping the previous waveform visible while a new song is loading.
+  // deliberately *not* keyed off an isLoading true->false edge: isLoading
+  // here is a debounced signal (~1s delay before turning true, see
+  // createDebouncedBoolean in AppLayout) so a song switch that finishes
+  // loading quickly - the common case for cached/local tracks - can go
+  // straight from false to false without ever producing a falling edge,
+  // which left the waveform stuck on the first song forever. reading
+  // incomingWaveform() here (only while not loading) still re-tracks it on
+  // every change, so a same-false-value song switch re-runs this effect.
   createEffect(() => {
-    const isLoading = props.isLoading ?? false;
-    const prevLoading = wasLoading();
-
-    if (prevLoading && !isLoading) {
-      // loading just completed - update display waveform to current song
-      setDisplayWaveform(incomingWaveform());
-      setWaveformError(false); // reset error for new waveform
-    } else if (!prevLoading && isLoading) {
-      // loading just started - keep showing the current display waveform (no change)
-    } else if (!isLoading && displayWaveform() === undefined) {
-      // not loading and no display waveform set yet - use incoming
+    if (!(props.isLoading ?? false)) {
       setDisplayWaveform(incomingWaveform());
       setWaveformError(false);
     }
-
-    setWasLoading(isLoading);
   });
 
   // the waveform to actually display in the progress bar
