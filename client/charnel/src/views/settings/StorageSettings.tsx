@@ -78,7 +78,7 @@ export default function StorageSettingsSection() {
           "margin-bottom": "0.75rem",
         }}
       >
-        where music fetched from remotes or uploaded via the web UI is saved.
+        where media fetched from remotes is saved.
       </p>
 
       <Show when={checked() && fetchMusicDir()}>

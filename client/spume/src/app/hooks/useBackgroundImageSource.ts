@@ -10,10 +10,25 @@
 // onto a `BackgroundImageSource`; all resolution logic lives here.
 import { createEffect, createSignal, onCleanup, type Accessor } from "solid-js";
 import { setBackgroundImage, clearBackgroundImage } from "../services/backgroundImage";
+import { appState } from "../services/storage/db";
+import { isCharnelMode, isAndroidTauri, isIosTauri } from "../services/charnel";
+import { getDesktopBackgroundImagesEnabled } from "../services/desktopBackgroundImages";
 import { getCurrentRemote } from "../../music/data";
 import { getBlobObjectURL } from "../../music/services/storage/blobs";
 import { resolveBlobUrl } from "../../music/services/storage/blobResolver";
 import type { ImageMetadata } from "../../music/services/storage/types";
+
+/** desktop charnel has no reachable spume "local library"/"storage"
+ *  settings page as its primary settings surface, so this one platform
+ *  controls the setting from the wizard app instead (charnel-config.toml,
+ *  see desktopBackgroundImages.ts) - everyone else (web, android, ios)
+ *  uses spume's own `AppState.background_images_enabled`. */
+function backgroundImagesEnabled(): boolean {
+  if (isCharnelMode() && !isAndroidTauri() && !isIosTauri()) {
+    return getDesktopBackgroundImagesEnabled();
+  }
+  return appState()?.background_images_enabled ?? true;
+}
 
 export interface BackgroundImageSource {
   /** already-resolved or plain http(s)/blob/freqhole url */
@@ -40,6 +55,13 @@ export function useBackgroundImageSource(
 
   // resolve blob URLs for the background image (convert blob IDs to actual URLs)
   createEffect(() => {
+    // user opt-out (display settings) - skip resolution entirely rather
+    // than resolving a url just to immediately discard it.
+    if (!backgroundImagesEnabled()) {
+      setBackgroundImageUrl(null);
+      return;
+    }
+
     const src = source();
     const url = src?.remoteUrl || src?.localBlobId || null;
     const remote = getCurrentRemote();

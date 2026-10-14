@@ -33,6 +33,7 @@ import { getAllRemotes } from "../../app/services/remotes/remoteManager";
 import type { Remote } from "../../app/services/storage/types";
 import {
   appState,
+  setBackgroundImagesEnabled,
   setCroppedSquareThumbnails,
   setSyncQueueToLocal,
 } from "../../app/services/storage/db";
@@ -846,6 +847,44 @@ export function StorageSettingsView() {
                       />
                     </button>
                   </div>
+                  {/* desktop charnel owns this one from the wizard's settings
+                      view instead (charnel-config.toml's
+                      background_images_enabled) - see
+                      desktopBackgroundImages.ts's doc comment. web keeps
+                      spume's own AppState-backed toggle. */}
+                  <Show when={!isCharnelMode()}>
+                    <div class="flex items-center justify-between mt-4 pt-4 border-t border-[var(--color-border-subtle)]">
+                      <div class="flex-1 min-w-0 mr-4">
+                        <div class="text-sm text-[var(--color-text-primary)]">
+                          background images
+                        </div>
+                        <p class="text-xs text-[var(--color-text-muted)] mt-1">
+                          show a blurred backdrop behind playlist, album, artist, and video series
+                          detail views, built from that item's own image.
+                        </p>
+                      </div>
+                      <button
+                        class={`relative w-11 h-6 rounded-full transition-colors ${
+                          (appState()?.background_images_enabled ?? true)
+                            ? "bg-[var(--color-accent-500)]"
+                            : "bg-[var(--color-bg-tertiary)]"
+                        }`}
+                        onClick={() =>
+                          setBackgroundImagesEnabled(
+                            !(appState()?.background_images_enabled ?? true)
+                          )
+                        }
+                      >
+                        <span
+                          class={`absolute left-0 top-1 w-4 h-4 rounded-full bg-white transition-transform ${
+                            (appState()?.background_images_enabled ?? true)
+                              ? "translate-x-6"
+                              : "translate-x-1"
+                          }`}
+                        />
+                      </button>
+                    </div>
+                  </Show>
                 </div>
               </div>
             </Show>

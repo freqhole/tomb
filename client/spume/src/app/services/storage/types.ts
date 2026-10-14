@@ -25,6 +25,11 @@ export interface AppState {
   // object-fit: cover. when false, they letterbox (object-fit: contain)
   // instead so nothing is cropped.
   cropped_square_thumbnails?: boolean;
+  // when true (default), playlist/album/artist/video-series detail views
+  // show a blurred full-page backdrop behind their content, built from the
+  // entity's own image (see useBackgroundImageSource.ts). when false, no
+  // backdrop is shown anywhere.
+  background_images_enabled?: boolean;
   // true once the mobile (android/ios) first-run setup modal (username +
   // library name + library image) has been shown/completed - gates
   // `FirstRunSetupModal` so it only ever shows once per install.

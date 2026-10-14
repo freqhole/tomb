@@ -159,6 +159,7 @@ import {
   setSyncQueueToLocal,
 } from "./services/storage/db";
 import { setDisableBackdropBlur } from "./services/backdropBlur";
+import { setDesktopBackgroundImagesEnabled } from "./services/desktopBackgroundImages";
 import { recordSharedItemFromToken } from "./services/storage/sharedItems";
 import { isP2PRemote } from "./services/storage/types";
 import { checkPendingKnocks, showKnockCreatedToast } from "./services/toastNotices";
@@ -947,6 +948,17 @@ export function App() {
     const targetOs = await getTargetOs();
     if (targetOs !== "android" && targetOs !== "ios") {
       await setSyncQueueToLocal(config.sync_queue_to_local ?? true);
+      // desktop-only, same reasoning as sync_queue_to_local above - the
+      // wizard's settings view is the one source of truth for this on
+      // desktop (see desktopBackgroundImages.ts's doc comment), mobile/web
+      // use spume's own AppState.background_images_enabled instead.
+      try {
+        // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
+        const { invoke } = await import("@tauri-apps/api/core");
+        setDesktopBackgroundImagesEnabled(await invoke<boolean>("get_background_images_enabled"));
+      } catch (e) {
+        debug("app", `failed to read background_images_enabled: ${String(e)}`);
+      }
     }
 
     setDisableBackdropBlur(config.disable_backdrop_blur ?? false);
@@ -978,6 +990,19 @@ export function App() {
         // no-op when the chosen kind hasn't changed; option (b)
         // "stop + swap" otherwise.
         await swapPlayerBackend();
+        // desktop-only, same gate as the initial load above - re-read in
+        // case the wizard's settings view just flipped it.
+        if (targetOs !== "android" && targetOs !== "ios") {
+          try {
+            // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
+            const { invoke } = await import("@tauri-apps/api/core");
+            setDesktopBackgroundImagesEnabled(
+              await invoke<boolean>("get_background_images_enabled")
+            );
+          } catch (e) {
+            debug("app", `failed to re-read background_images_enabled: ${String(e)}`);
+          }
+        }
         const newConfig = await getConfig();
         if (newConfig) {
           const updatedRemote = await upsertTauriRemote({
