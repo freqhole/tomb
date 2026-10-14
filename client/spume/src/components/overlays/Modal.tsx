@@ -1,45 +1,6 @@
 import { createEffect, createSignal, JSX, onCleanup, onMount, Show } from "solid-js";
-import dialogPolyfill from "dialog-polyfill";
+import { DIALOG_RESET_STYLE, registerDialogPolyfill } from "./dialogSupport";
 import { IconButton } from "../buttons/IconButton";
-
-// dialog-polyfill's stylesheet restyles EVERY <dialog> (white background,
-// 1em padding, solid border, absolute positioning) with unlayered css,
-// which beats tailwind v4's layered utilities (bg-transparent, p-0, ...) -
-// loaded unconditionally it gave every native-dialog modal a white box
-// around its card. only load it where <dialog> isn't native and the
-// polyfill is actually doing the work.
-const hasNativeDialog =
-  typeof HTMLDialogElement === "function" &&
-  typeof HTMLDialogElement.prototype.showModal === "function";
-if (!hasNativeDialog) {
-  // eslint-disable-next-line no-restricted-syntax
-  void import("dialog-polyfill/dist/dialog-polyfill.css");
-}
-
-// essential dialog resets applied via inline `style` (below), not
-// tailwind classes - this is the actual fix for a reported "modal shows a
-// big white area" bug: the `if (!hasNativeDialog)` guard above only
-// avoids loading the polyfill's own stylesheet on devices that DON'T
-// need it, but if a webview's native-dialog *feature detection* is itself
-// unreliable (reports a method exists but some part of the behavior it
-// implies doesn't, or simply differs from this host's assumptions),
-// `hasNativeDialog` can end up true-when-it-shouldn't-be - and once that
-// happens, tailwind's own unlayered rules (e.g. media/plugin css that
-// isn't itself inside tailwind's `@layer`) can equally lose a specificity
-// tie against the browser's own UA default `dialog` stylesheet (which
-// `dialog-polyfill`'s css simply mirrors) in less-common cascade-layer
-// edge cases. inline styles always win over ANY stylesheet rule - author
-// or UA, layered or not - so this is airtight regardless of which of
-// those is actually happening on a given device, with no per-device
-// diagnosis required.
-const DIALOG_RESET_STYLE: JSX.CSSProperties = {
-  background: "transparent",
-  padding: "0",
-  border: "none",
-  margin: "auto",
-  "max-width": "none",
-  "max-height": "none",
-};
 
 export interface ModalProps {
   isOpen: boolean;
@@ -52,7 +13,7 @@ export interface ModalProps {
   closeOnEscape?: boolean;
 }
 
-// modal component using native <dialog> element
+// modal component using the browser's built-in <dialog> element
 // supports backdrop click and escape key to close
 export function Modal(props: ModalProps) {
   let dialogRef: HTMLDialogElement | undefined;
@@ -80,11 +41,11 @@ export function Modal(props: ModalProps) {
   };
 
   // old WebKit (e.g. macOS Catalina's system WebKit, <Safari 15.4) has no
-  // native <dialog>/showModal() at all - registerDialog no-ops if native
-  // support already exists, so this is safe everywhere. must run before
-  // the first showModal() call below.
+  // `<dialog>`/showModal() support built in at all - registerDialog
+  // no-ops if that support already exists, so this is safe everywhere.
+  // must run before the first showModal() call below.
   onMount(() => {
-    if (dialogRef) dialogPolyfill.registerDialog(dialogRef);
+    registerDialogPolyfill(dialogRef);
   });
 
   // sync isOpen prop with dialog state
