@@ -160,12 +160,14 @@ import {
 } from "./services/storage/db";
 import { setDisableBackdropBlur } from "./services/backdropBlur";
 import { setDesktopBackgroundImagesEnabled } from "./services/desktopBackgroundImages";
+import { setDesktopEdgeSwipeNavigationEnabled } from "./services/desktopEdgeSwipeNavigation";
 import { recordSharedItemFromToken } from "./services/storage/sharedItems";
 import { isP2PRemote } from "./services/storage/types";
 import { checkPendingKnocks, showKnockCreatedToast } from "./services/toastNotices";
 import { useFetchPrecheckEnabledQuery } from "../music/hooks/useFetchPrecheckEnabled";
 import { useFetchVideoEnabledQuery } from "../music/hooks/useFetchVideoEnabled";
 import { useImportReview } from "../music/hooks/useImportReview";
+import { useEdgeSwipeNavigation } from "./hooks/useEdgeSwipeNavigation";
 import {
   dispatchImportSession,
   importSessionState,
@@ -301,6 +303,10 @@ export function App() {
   // track current hash reactively (allows settings + radio in empty state)
   const [currentHash, setCurrentHash] = createSignal(window.location.hash);
   const isSettingsRoute = () => currentHash().startsWith("#/settings");
+
+  // edge-swipe-to-navigate - global, gated on its own setting (see the
+  // hook's doc comment). no-op whenever that setting is off.
+  useEdgeSwipeNavigation();
 
   // query whether the add-media target remote has url precheck (yt-dlp)
   // configured - keyed to the switcher's effective target, not whatever's
@@ -959,6 +965,15 @@ export function App() {
       } catch (e) {
         debug("app", `failed to read background_images_enabled: ${String(e)}`);
       }
+      try {
+        // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
+        const { invoke } = await import("@tauri-apps/api/core");
+        setDesktopEdgeSwipeNavigationEnabled(
+          await invoke<boolean>("get_edge_swipe_navigation_enabled")
+        );
+      } catch (e) {
+        debug("app", `failed to read edge_swipe_navigation_enabled: ${String(e)}`);
+      }
     }
 
     setDisableBackdropBlur(config.disable_backdrop_blur ?? false);
@@ -1001,6 +1016,15 @@ export function App() {
             );
           } catch (e) {
             debug("app", `failed to re-read background_images_enabled: ${String(e)}`);
+          }
+          try {
+            // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
+            const { invoke } = await import("@tauri-apps/api/core");
+            setDesktopEdgeSwipeNavigationEnabled(
+              await invoke<boolean>("get_edge_swipe_navigation_enabled")
+            );
+          } catch (e) {
+            debug("app", `failed to re-read edge_swipe_navigation_enabled: ${String(e)}`);
           }
         }
         const newConfig = await getConfig();

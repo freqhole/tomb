@@ -66,6 +66,15 @@ export default function SettingsView() {
   const [backgroundImagesBusy, setBackgroundImagesBusy] = createSignal(false);
   const [backgroundImagesError, setBackgroundImagesError] = createSignal("");
 
+  // edge-swipe navigation opt-in. when on, an edge-started horizontal
+  // drag/swipe in spume navigates browser history back/forward. mirrors
+  // spume's own AppState.edge_swipe_navigation_enabled toggle (web/
+  // android/ios) - desktop controls it from here instead, same reasoning
+  // as backgroundImagesEnabled above.
+  const [edgeSwipeNavigationEnabled, setEdgeSwipeNavigationEnabled] = createSignal(false);
+  const [edgeSwipeNavigationBusy, setEdgeSwipeNavigationBusy] = createSignal(false);
+  const [edgeSwipeNavigationError, setEdgeSwipeNavigationError] = createSignal("");
+
   // libmpv opt-in ("experimental player"). when on, spume's
   // `selectBackend()`/`selectVideoBackend()` route audio AND video
   // through libmpv instead of the html `<audio>`/`<video>` elements.
@@ -129,6 +138,11 @@ export default function SettingsView() {
       console.error("failed to load background images setting:", e);
     }
     try {
+      setEdgeSwipeNavigationEnabled(await invoke<boolean>("get_edge_swipe_navigation_enabled"));
+    } catch (e) {
+      console.error("failed to load edge swipe navigation setting:", e);
+    }
+    try {
       const enabled = await invoke<boolean>("get_libmpv_playback");
       setUseLibmpvPlayback(enabled);
     } catch (e) {
@@ -169,6 +183,24 @@ export default function SettingsView() {
       setBackgroundImagesEnabled(!newValue);
     } finally {
       setBackgroundImagesBusy(false);
+    }
+  }
+
+  async function toggleEdgeSwipeNavigationEnabled() {
+    if (edgeSwipeNavigationBusy()) return;
+    const newValue = !edgeSwipeNavigationEnabled();
+    setEdgeSwipeNavigationEnabled(newValue);
+    setEdgeSwipeNavigationBusy(true);
+    setEdgeSwipeNavigationError("");
+    try {
+      await invoke("set_edge_swipe_navigation_enabled", { enabled: newValue });
+    } catch (e) {
+      console.error("failed to toggle edge swipe navigation setting:", e);
+      setEdgeSwipeNavigationError(String(e));
+      // revert on error
+      setEdgeSwipeNavigationEnabled(!newValue);
+    } finally {
+      setEdgeSwipeNavigationBusy(false);
     }
   }
 
@@ -833,6 +865,73 @@ export default function SettingsView() {
                       }}
                     >
                       {backgroundImagesError()}
+                    </div>
+                  </Show>
+                </div>
+              </div>
+
+              <div
+                style={{
+                  display: "flex",
+                  "align-items": "center",
+                  gap: "1rem",
+                  "margin-top": "1.5rem",
+                }}
+              >
+                <button
+                  class={`toggle-button ${edgeSwipeNavigationEnabled() ? "active" : ""}`}
+                  onClick={toggleEdgeSwipeNavigationEnabled}
+                  disabled={edgeSwipeNavigationBusy()}
+                  style={{
+                    flex: "none",
+                    width: "44px",
+                    height: "24px",
+                    "border-radius": "12px",
+                    border: "none",
+                    padding: "0",
+                    background: edgeSwipeNavigationEnabled()
+                      ? "var(--color-accent-500, #ff69b4)"
+                      : "var(--color-bg-tertiary, #333)",
+                    cursor: edgeSwipeNavigationBusy() ? "wait" : "pointer",
+                    position: "relative",
+                    transition: "background 0.2s",
+                    "flex-shrink": "0",
+                    opacity: edgeSwipeNavigationBusy() ? "0.6" : "1",
+                  }}
+                >
+                  <div
+                    style={{
+                      position: "absolute",
+                      top: "4px",
+                      left: edgeSwipeNavigationEnabled() ? "24px" : "4px",
+                      width: "16px",
+                      height: "16px",
+                      "border-radius": "50%",
+                      background: "white",
+                      transition: "left 0.2s",
+                    }}
+                  />
+                </button>
+                <div>
+                  <div style={{ "font-weight": "500" }}>edge-swipe navigation</div>
+                  <div
+                    style={{
+                      "font-size": "0.875rem",
+                      color: "var(--color-text-secondary, #888)",
+                      "margin-top": "0.25rem",
+                    }}
+                  >
+                    drag in from the left or right edge of the window to go back/forward
+                  </div>
+                  <Show when={edgeSwipeNavigationError()}>
+                    <div
+                      style={{
+                        "font-size": "0.8125rem",
+                        color: "var(--color-error-500, #ff4d6d)",
+                        "margin-top": "0.25rem",
+                      }}
+                    >
+                      {edgeSwipeNavigationError()}
                     </div>
                   </Show>
                 </div>

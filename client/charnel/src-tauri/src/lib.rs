@@ -1696,6 +1696,8 @@ pub fn run() {
             commands::set_libmpv_playback,
             commands::get_background_images_enabled,
             commands::set_background_images_enabled,
+            commands::get_edge_swipe_navigation_enabled,
+            commands::set_edge_swipe_navigation_enabled,
             external_storage::commands::external_storage_command,
             storage_info::get_app_storage_info,
             commands::check_config_needs_upgrade,

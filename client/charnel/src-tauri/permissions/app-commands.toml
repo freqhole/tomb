@@ -70,6 +70,8 @@ commands.allow = [
     "set_libmpv_playback",
     "get_background_images_enabled",
     "set_background_images_enabled",
+    "get_edge_swipe_navigation_enabled",
+    "set_edge_swipe_navigation_enabled",
     "external_storage_command",
     "get_app_storage_info",
     "check_config_needs_upgrade",

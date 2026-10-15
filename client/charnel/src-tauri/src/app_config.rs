@@ -75,6 +75,14 @@ pub struct FreqholeAppConfig {
     #[serde(default = "default_background_images_enabled")]
     pub background_images_enabled: bool,
 
+    /// edge-started horizontal drag/swipe navigates browser history
+    /// back/forward in spume. default: false (a bigger behavioral change
+    /// than a cosmetic toggle, so it's opt-in). desktop-only setting, same
+    /// reasoning as `background_images_enabled` above - mirrors spume's
+    /// own `AppState.edge_swipe_navigation_enabled`.
+    #[serde(default = "default_edge_swipe_navigation_enabled")]
+    pub edge_swipe_navigation_enabled: bool,
+
     /// use a fully custom, in-webview title bar (drag strip + traffic-light
     /// buttons drawn by spume/the wizard) instead of the macOS title
     /// bar. macOS only - ignored on linux/windows, which always keep their
@@ -229,6 +237,7 @@ impl Default for FreqholeAppConfig {
             logging: LoggingConfig::default(),
             disable_backdrop_blur: false,
             background_images_enabled: default_background_images_enabled(),
+            edge_swipe_navigation_enabled: default_edge_swipe_navigation_enabled(),
             tray_enabled: false,
             sync_queue_to_local: default_sync_queue_to_local(),
             use_libmpv_playback: default_use_libmpv_playback(),
@@ -319,6 +328,11 @@ pub fn default_chromeless_title_bar() -> bool {
 /// default value for background_images_enabled (true)
 pub fn default_background_images_enabled() -> bool {
     true
+}
+
+/// default value for edge_swipe_navigation_enabled (false)
+pub fn default_edge_swipe_navigation_enabled() -> bool {
+    false
 }
 
 /// default value for use_libmpv_playback: on for linux (replaces the

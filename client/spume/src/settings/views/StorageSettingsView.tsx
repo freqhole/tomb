@@ -35,6 +35,7 @@ import {
   appState,
   setBackgroundImagesEnabled,
   setCroppedSquareThumbnails,
+  setEdgeSwipeNavigationEnabled,
   setSyncQueueToLocal,
 } from "../../app/services/storage/db";
 import { truncateMiddle } from "../../utils/truncate";
@@ -878,6 +879,43 @@ export function StorageSettingsView() {
                         <span
                           class={`absolute left-0 top-1 w-4 h-4 rounded-full bg-white transition-transform ${
                             (appState()?.background_images_enabled ?? true)
+                              ? "translate-x-6"
+                              : "translate-x-1"
+                          }`}
+                        />
+                      </button>
+                    </div>
+                  </Show>
+                  {/* desktop charnel owns this one from the wizard's settings
+                      view instead (charnel-config.toml's
+                      edge_swipe_navigation_enabled) - see
+                      desktopEdgeSwipeNavigation.ts's doc comment. web keeps
+                      spume's own AppState-backed toggle. */}
+                  <Show when={!isCharnelMode()}>
+                    <div class="flex items-center justify-between mt-4 pt-4 border-t border-[var(--color-border-subtle)]">
+                      <div class="flex-1 min-w-0 mr-4">
+                        <div class="text-sm text-[var(--color-text-primary)]">
+                          edge-swipe navigation
+                        </div>
+                        <p class="text-xs text-[var(--color-text-muted)] mt-1">
+                          drag in from the left or right edge of the screen to go back/forward.
+                        </p>
+                      </div>
+                      <button
+                        class={`relative w-11 h-6 rounded-full transition-colors ${
+                          (appState()?.edge_swipe_navigation_enabled ?? false)
+                            ? "bg-[var(--color-accent-500)]"
+                            : "bg-[var(--color-bg-tertiary)]"
+                        }`}
+                        onClick={() =>
+                          setEdgeSwipeNavigationEnabled(
+                            !(appState()?.edge_swipe_navigation_enabled ?? false)
+                          )
+                        }
+                      >
+                        <span
+                          class={`absolute left-0 top-1 w-4 h-4 rounded-full bg-white transition-transform ${
+                            (appState()?.edge_swipe_navigation_enabled ?? false)
                               ? "translate-x-6"
                               : "translate-x-1"
                           }`}
