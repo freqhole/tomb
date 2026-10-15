@@ -132,22 +132,30 @@ jobs:
       # local dev only has XcodeDefault.xctoolchain, which bundles
       # libswiftCompatibility56.a directly, so this is unreproducible
       # locally no matter what the app's own code/deployment target looks
-      # like. the linker prefers MetalToolchain's search paths over
-      # Xcode's own whenever Metal/MetalKit are linked (which this app
-      # does), and MetalToolchain doesn't carry that legacy Swift 5.x
-      # back-deployment shim - which tauri's own bundled ios Swift
-      # packages (tauri core's `ios-api` Package.swift declares
-      # `.iOS(.v11)`, tauri-plugin-dialog/opener declare `.iOS(.v13)` -
-      # all independent of OUR deployment target) still force-link
-      # unconditionally, producing "ld: symbol(s) not found for
+      # like. Xcode auto-selects MetalToolchain whenever Metal/MetalKit
+      # are linked (which this app does), and MetalToolchain doesn't carry
+      # that legacy Swift 5.x back-deployment shim - which tauri's own
+      # bundled ios Swift packages (tauri core's `ios-api` Package.swift
+      # declares `.iOS(.v11)`, tauri-plugin-dialog/opener declare
+      # `.iOS(.v13)` - all independent of OUR deployment target) still
+      # force-link unconditionally, producing "ld: symbol(s) not found for
       # architecture arm64" / "library not found for -lswiftCompatibility56".
       # known, still-open upstream issue (tauri-apps/tauri#15066,
-      # actions/runner-images#13135). forcing the toolchain selection back
-      # to Xcode's own complete one - exported via `$GITHUB_ENV` so it's
-      # in effect for every later step in this job, not just one inline
-      # command - is the current community-reported fix.
-      - name: force the default (non-metal) xcode toolchain
-        run: echo "TOOLCHAINS=com.apple.dt.toolchain.XcodeDefault" >> "$GITHUB_ENV"
+      # actions/runner-images#13135). the community-reported
+      # `TOOLCHAINS=com.apple.dt.toolchain.XcodeDefault` env var fix does
+      # NOT work here - confirmed via an actual ci run that Xcode unions
+      # it with its own auto-detected Metal requirement rather than
+      # honoring it as an override (`TOOLCHAINS` resolved to
+      # "com.apple.dt.toolchain.Metal.NNNNN com.apple.dt.toolchain.
+      # XcodeDefault", Metal still first, so `TOOLCHAIN_DIR` still pointed
+      # at the broken path). fixed instead at the one place that actually
+      # mattered: `project.yml`'s own `LIBRARY_SEARCH_PATHS` setting
+      # (tauri's ios scaffolding's existing mechanism for finding swift
+      # back-deployment libs) hardcodes a path through `$(TOOLCHAIN_DIR)`,
+      # which inherits whatever broken toolchain Xcode auto-selected -
+      # repointed it at `$(DEVELOPER_DIR)/Toolchains/XcodeDefault.
+      # xctoolchain` directly instead, sidestepping Xcode's toolchain
+      # auto-selection entirely rather than trying to out-argue it.
 
       - name: resolve version
         id: meta
