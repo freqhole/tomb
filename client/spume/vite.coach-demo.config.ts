@@ -54,9 +54,21 @@ export default defineConfig(({ mode }) => {
       format: "es",
       plugins: () => [middenBareSpecifierPlugin()],
     },
+    // the three `declare const __X__` globals from vite-env.d.ts (see
+    // spume's main vite.config.ts, which actually computes these for a
+    // real app build) - the demo pulls in enough of spume's component
+    // tree (via FullAppDemoBody) to reach code that references all three
+    // unconditionally (blobs.ts, androidMediaSession.ts, logCapture.ts,
+    // StorageSettingsView.tsx), so leaving any of them undefined is a
+    // guaranteed `ReferenceError` at runtime, not just unreachable dead
+    // code - this demo is always a plain browser build (never charnel,
+    // never tauri), so these are static/constant rather than computed.
     define: {
       "import.meta.env.STORYBOOK": "false",
       "import.meta.env.COACH_DEMO": "true",
+      __APP_VERSION__: JSON.stringify("coach-demo"),
+      __IS_CHARNEL__: "false",
+      __TAURI_TARGET_OS__: "null",
     },
     // wc bundle is served from /demo/ on freqhole.net, so vite-emitted
     // asset URLs (worker chunks, etc) need that prefix to resolve.
