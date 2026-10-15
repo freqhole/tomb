@@ -15,6 +15,7 @@ import { Tabs, TabList, Tab, TabPanel } from "../navigation/Tabs";
 import { MusicBrainzPanel } from "../musicbrainz/MusicBrainzPanel";
 import { AlbumTaxonsEditor } from "../modals/AlbumTaxonsEditor";
 import type { MbSearchReleasesResponse, MbReleaseDetail } from "../../music/data/types";
+import type { CurrentRemoteInfo } from "../../music/data/currentState";
 
 // -------------------------------------------------------------------------
 // types
@@ -99,6 +100,13 @@ export interface ImportAlbumEditorPanelProps {
    *  active one (e.g. opened via deep-link while on a different route). */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   apiClient?: any;
+  /** which remote MusicBrainzPanel's writes (artist/album/taxon updates,
+   *  image import) should target - forwarded straight through, see that
+   *  component's own reviewRemote doc comment for the full reasoning.
+   *  pass this (including `null` for local) whenever the review is for a
+   *  remote that may not be the current active one - same reasoning as
+   *  apiClient above, just for MusicBrainzPanel instead of the taxons tab. */
+  reviewRemote?: CurrentRemoteInfo | null;
 }
 
 // -------------------------------------------------------------------------
@@ -526,6 +534,7 @@ export function ImportAlbumEditorPanel(props: ImportAlbumEditorPanelProps) {
           mbGetReleaseFn={props.mbGetReleaseFn}
           canonicalAlbumTitle={props.canonicalAlbumTitle}
           canonicalArtistName={props.canonicalArtistName}
+          reviewRemote={props.reviewRemote}
         />
       </TabPanel>
     </Tabs>

@@ -3,7 +3,11 @@
 import { createEffect, createMemo, createSignal, For, Show, on } from "solid-js";
 import type { Song } from "../../music/services/storage/types";
 import { getDataSource, getCurrentRemote } from "../../music/data";
+import { RemoteMusicDataSource } from "../../music/data/remote/remoteSource";
+import { localDataSource } from "../../music/data/local/localSource";
+import type { CurrentRemoteInfo } from "../../music/data/currentState";
 import type {
+  MusicDataSource,
   MbArtistCredit,
   MbReleaseListItem,
   MbReleaseDetail,
@@ -62,6 +66,23 @@ export interface MusicBrainzPanelProps {
    *  when provided, takes precedence over getDataSource().getMusicbrainzRelease.
    *  use MusicBrainzBrowserClient.getRelease for browser-only use. */
   mbGetReleaseFn?: (mbid: string) => Promise<MbReleaseDetail | null>;
+  /** which remote this panel's writes (artist/album/taxon updates, image
+   *  import) should target - omit entirely to keep using whatever's
+   *  globally "current" (AlbumEditorModal's use case: you can only open it
+   *  for an album you're already viewing, so the current remote is always
+   *  the right one). pass explicitly (including `null` for the local-idb
+   *  backend) when this panel is scoped to a specific review session,
+   *  which can be for a *different* remote than whatever's globally active
+   *  right now - uploads review against local, url-fetches review against
+   *  their target remote (see ImportReviewEditor.tsx's reviewClient
+   *  comment and reviewBackend.ts's resolveActiveReviewRemote doc comment
+   *  for the same reasoning other review sub-editors, e.g. taxons, already
+   *  apply). without this, every write here silently targeted whatever
+   *  remote happened to be active in the main app instead of the review
+   *  session's actual remote - wrong-database writes that either failed
+   *  outright (album/artist id not found there) or, worse, succeeded
+   *  against the wrong database entirely. */
+  reviewRemote?: CurrentRemoteInfo | null;
 }
 
 // re-export types for local use
@@ -111,6 +132,21 @@ export function MusicBrainzPanel(props: MusicBrainzPanelProps) {
 
   // metadata import state
   const [importingAlbum, setImportingAlbum] = createSignal(false);
+
+  // ── remote resolution ──
+
+  // resolves which remote this panel's MusicDataSource-shaped calls
+  // (updateArtist/updateAlbum/search/getRelease) should target - see
+  // reviewRemote's doc comment on the props interface above.
+  const resolveDataSource = (): MusicDataSource => {
+    if (props.reviewRemote === undefined) return getDataSource();
+    return props.reviewRemote ? new RemoteMusicDataSource(props.reviewRemote) : localDataSource;
+  };
+
+  // same resolution, for the raw-client calls (image import, taxon sync)
+  // that already bypass MusicDataSource and talk to client.music.* directly.
+  const resolveRemote = (): CurrentRemoteInfo | null =>
+    props.reviewRemote !== undefined ? props.reviewRemote : getCurrentRemote();
 
   // ── helpers ──
 
@@ -207,7 +243,7 @@ export function MusicBrainzPanel(props: MusicBrainzPanelProps) {
       if (props.mbSearchFn) {
         result = await props.mbSearchFn(params);
       } else {
-        const dataSource = getDataSource();
+        const dataSource = resolveDataSource();
         if (!dataSource.searchMusicbrainzReleases) {
           toast.error("musicbrainz search not available");
           setSearching(false);
@@ -249,7 +285,7 @@ export function MusicBrainzPanel(props: MusicBrainzPanelProps) {
       if (props.mbGetReleaseFn) {
         result = await props.mbGetReleaseFn(release.id);
       } else {
-        const dataSource = getDataSource();
+        const dataSource = resolveDataSource();
         if (!dataSource.getMusicbrainzRelease) {
           toast.error("musicbrainz not available");
           setLoadingRelease(false);
@@ -275,7 +311,7 @@ export function MusicBrainzPanel(props: MusicBrainzPanelProps) {
   // ── image import (self-contained) ──
 
   const handleImportImage = async (imageUrl: string) => {
-    const remote = getCurrentRemote();
+    const remote = resolveRemote();
     if (!remote) {
       toast.error("no remote selected");
       return;
@@ -440,7 +476,7 @@ export function MusicBrainzPanel(props: MusicBrainzPanelProps) {
   const [updatingField, setUpdatingField] = createSignal<string | null>(null);
 
   const syncAlbumGenresFromMusicBrainz = async (detail: ReleaseDetail) => {
-    const remote = getCurrentRemote();
+    const remote = resolveRemote();
     if (!remote) {
       throw new Error("no remote selected");
     }
@@ -500,7 +536,7 @@ export function MusicBrainzPanel(props: MusicBrainzPanelProps) {
   };
 
   const handleUpdateAlbumField = async (field: MetadataField) => {
-    const dataSource = getDataSource();
+    const dataSource = resolveDataSource();
     setUpdatingField(field.key);
     try {
       if (field.isArtistName) {
@@ -557,7 +593,7 @@ export function MusicBrainzPanel(props: MusicBrainzPanelProps) {
     const detail = selectedRelease();
     if (!detail) return;
 
-    const dataSource = getDataSource();
+    const dataSource = resolveDataSource();
 
     const fields = albumMetadataFields().filter((f) => f.differs);
     if (fields.length === 0) {
