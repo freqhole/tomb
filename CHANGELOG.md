@@ -1,5 +1,15 @@
 # freqhole-release
 
+## 0.3.16
+
+### Patch Changes
+
+- ed3ac20: no more safe-area-bottom, ugh
+- 52dbb04: try to fix broken image in local library view
+- c04d0ff: fix stupid waveform display logic
+- 08a40b4: fix bugz related to mirror favorite on remote to local library
+- 0664a80: try to fix minor padding issue in favorites view
+
 ## 0.3.15
 
 ### Patch Changes

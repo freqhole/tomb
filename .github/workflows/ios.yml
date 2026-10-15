@@ -144,6 +144,12 @@ jobs:
       # with it set) - actually *deleting* the component, the thread
       # maintainer's own final recommendation, is the dependable fix.
       - name: delete the metal toolchain component (works around tauri-apps/tauri#15066)
+        # best-effort: has been seen failing with "Asset not downloaded for
+        # '<build>'" (exit 70) on some runner images - a github-side
+        # flake, not something this workflow can fix. don't let it take
+        # the whole build down; if the component genuinely isn't present
+        # the subsequent build step will surface that on its own.
+        continue-on-error: true
         run: sudo xcodebuild -deleteComponent metalToolchain
 
       - name: resolve version
