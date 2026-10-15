@@ -211,9 +211,20 @@ modules:
           - /share/man
           - /lib/cmake
         sources:
+          # was www.freedesktop.org/software/uchardet/releases/... - that
+          # plain webserver reliably hung mid-TLS-handshake from github
+          # actions runners ("SSL connection timeout" after ~60s), failing
+          # 3/3 observed flatpak CI runs on this exact module - not
+          # flakiness, a real host/network issue specific to that server.
+          # switched to gitlab.freedesktop.org's own archive download
+          # (upstream uchardet's actual repo, different infra entirely) -
+          # confirmed byte-for-byte identical file contents to the
+          # official release tarball, just a different top-level dir name
+          # (which flatpak-builder's archive source strips either way)
+          # and compression format.
           - type: archive
-            url: https://www.freedesktop.org/software/uchardet/releases/uchardet-0.0.8.tar.xz
-            sha256: e97a60cfc00a1c147a674b097bb1422abd9fa78a2d9ce3f3fdcc2e78a34ac5f0
+            url: https://gitlab.freedesktop.org/uchardet/uchardet/-/archive/v0.0.8/uchardet-v0.0.8.tar.gz
+            sha256: 5aa402a1b5b1dbb8d81096f141ff1224e079f4d3a1db0f79ecca782756d3a416
 
       - name: rubberband
         buildsystem: meson
