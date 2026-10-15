@@ -12,15 +12,15 @@
 //!
 //! gate 1 (feature disabled server-wide) still hard-closes the connection
 //! - there's no admin capability for anyone to reach in that case. gates
-//! 2/3 are per-caller instead: rather than closing the connection (which
-//! surfaced to spume as an opaque transport error with no classification
-//! at all - see AddToStationModal.tsx's own "forbidden just means this
-//! caller isn't an admin, not a real error" handling, which depends on a
-//! real `AdminCommandError` and never actually got one here), each stream
-//! on a not-authorized connection still gets a normal `AdminMessage::
-//! Response { success: false, errors: [{ error_type: "forbidden", .. }] }`,
-//! mirroring exactly what `admin_dispatch::helpers::forbidden()` returns
-//! for a role-gated command.
+//!   2/3 are per-caller instead: rather than closing the connection (which
+//!   surfaced to spume as an opaque transport error with no classification
+//!   at all - see AddToStationModal.tsx's own "forbidden just means this
+//!   caller isn't an admin, not a real error" handling, which depends on a
+//!   real `AdminCommandError` and never actually got one here), each stream
+//!   on a not-authorized connection still gets a normal `AdminMessage::
+//!   Response { success: false, errors: [{ error_type: "forbidden", .. }] }`,
+//!   mirroring exactly what `admin_dispatch::helpers::forbidden()` returns
+//!   for a role-gated command.
 //!
 //! see docs/wizard-remote-admin.md for the full plan.
 
@@ -62,13 +62,12 @@ pub async fn handle_incoming(peer_node_id: PublicKey, conn: iroh::endpoint::Conn
     // are per-caller - rather than hard-closing the connection, keep it
     // open and reply to each stream with a clean forbidden response (see
     // the module doc comment above for why).
-    let caller_or_reason: Result<Caller, &'static str> = match resolve_admin_caller(&node_id_str)
-        .await
-    {
-        Some(caller) if admin_cfg.is_allowed_node(&node_id_str) => Ok(caller),
-        Some(_) => Err("node not in remote_admin.allowed_node_ids"),
-        None => Err("admin role required"),
-    };
+    let caller_or_reason: Result<Caller, &'static str> =
+        match resolve_admin_caller(&node_id_str).await {
+            Some(caller) if admin_cfg.is_allowed_node(&node_id_str) => Ok(caller),
+            Some(_) => Err("node not in remote_admin.allowed_node_ids"),
+            None => Err("admin role required"),
+        };
 
     match &caller_or_reason {
         Ok(caller) => info!(
@@ -90,7 +89,9 @@ pub async fn handle_incoming(peer_node_id: PublicKey, conn: iroh::endpoint::Conn
                 let node_id_short = node_id_short.to_string();
                 tokio::spawn(async move {
                     let result = match &caller_or_reason {
-                        Ok(caller) => handle_stream(send, recv, caller, &node_id_short, max_size).await,
+                        Ok(caller) => {
+                            handle_stream(send, recv, caller, &node_id_short, max_size).await
+                        }
                         Err(reason) => reject_stream(send, recv, reason, max_size).await,
                     };
                     if let Err(e) = result {
