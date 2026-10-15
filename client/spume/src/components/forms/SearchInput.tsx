@@ -122,8 +122,10 @@ export function SearchInput(props: SearchInputProps) {
     if (needsPortal) updateInputRect();
   });
 
-  // constant offset so the flyout is always scooted below the hint area
-  const hintHeight = 22;
+  // offset so the flyout sits below the hint area when one's actually
+  // rendered - 0 otherwise (used to always reserve this gap even with no
+  // hint, leaving a dead strip above the dropdown on non-filterable views).
+  const hintHeight = () => (props.hintMessage ? 22 : 0);
 
   const handleInput = (e: Event) => {
     const value = (e.target as HTMLInputElement).value;
@@ -275,7 +277,7 @@ export function SearchInput(props: SearchInputProps) {
               class="bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded shadow-lg overflow-hidden"
               style={{
                 position: "fixed",
-                top: `${inputRect().bottom + 4 + hintHeight}px`,
+                top: `${inputRect().bottom + 4 + hintHeight()}px`,
                 left: isNarrow() ? "0" : `${inputRect().left}px`,
                 width: isNarrow() ? "100vw" : undefined,
                 "min-width": isNarrow() ? undefined : "400px",
