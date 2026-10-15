@@ -114,15 +114,6 @@ jobs:
       # select whichever installed Xcode is newest rather than hardcoding
       # a version, so this keeps matching local dev as both sides
       # naturally move forward over time.
-      #
-      # note: this used to also need a MetalToolchain workaround here
-      # (Xcode 26's separate "MetalToolchain" component doesn't carry the
-      # legacy swiftCompatibility56 back-deployment library tauri's ios
-      # plugins' Swift code force-links when built below iOS 15.4 - see
-      # tauri-apps/tauri#15066, actions/runner-images#13135) - fixed at
-      # the root instead by raising the deployment target to 15.4 (see
-      # docs/ios.md), which is the actual first OS version with the
-      # Swift 5.6 runtime built in, so nothing ever asks for that shim.
       - name: select newest installed xcode
         run: |
           XCODE_PATH=$(ls -d /Applications/Xcode_*.app 2>/dev/null | sort -V | tail -1)
@@ -133,6 +124,30 @@ jobs:
           echo "selecting $XCODE_PATH"
           sudo xcode-select -s "$XCODE_PATH"
           xcodebuild -version
+
+      # github's `macos-15` runner image layers in a separate, CI-only
+      # "MetalToolchain" component alongside Xcode (added for Metal shader
+      # compilation support - actions/runner-images#13088) that a normal
+      # local Xcode install doesn't have at all - confirmed empirically:
+      # local dev only has XcodeDefault.xctoolchain, which bundles
+      # libswiftCompatibility56.a directly, so this is unreproducible
+      # locally no matter what the app's own code/deployment target looks
+      # like. the linker prefers MetalToolchain's search paths over
+      # Xcode's own whenever Metal/MetalKit are linked (which this app
+      # does), and MetalToolchain doesn't carry that legacy Swift 5.x
+      # back-deployment shim - which tauri's own bundled ios Swift
+      # packages (tauri core's `ios-api` Package.swift declares
+      # `.iOS(.v11)`, tauri-plugin-dialog/opener declare `.iOS(.v13)` -
+      # all independent of OUR deployment target) still force-link
+      # unconditionally, producing "ld: symbol(s) not found for
+      # architecture arm64" / "library not found for -lswiftCompatibility56".
+      # known, still-open upstream issue (tauri-apps/tauri#15066,
+      # actions/runner-images#13135). forcing the toolchain selection back
+      # to Xcode's own complete one - exported via `$GITHUB_ENV` so it's
+      # in effect for every later step in this job, not just one inline
+      # command - is the current community-reported fix.
+      - name: force the default (non-metal) xcode toolchain
+        run: echo "TOOLCHAINS=com.apple.dt.toolchain.XcodeDefault" >> "$GITHUB_ENV"
 
       - name: resolve version
         id: meta
