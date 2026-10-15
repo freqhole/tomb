@@ -17,6 +17,7 @@ import { getPageInfo } from "../../app/services/pageInfo";
 import { startDraggingWindow, toggleMaximizeWindow } from "../../app/services/charnel/commands";
 import { isNarrowViewport } from "../../config/breakpoints";
 import { getDisableBackdropBlur } from "../../app/services/backdropBlur";
+import { canGoBack, canGoForward } from "../../app/services/historyNavState";
 import { canCreatePlaylist, canUploadMusic, isMemberOrHigher } from "../../music/data/permissions";
 import { useResolvedP2PImageUrl } from "../../music/services/storage/blobResolver";
 import type { ImageMetadata } from "../../music/services/storage/types";
@@ -879,14 +880,6 @@ export function TopNav(props: TopNavProps) {
     }
   };
 
-  // browser navigation back/forward state.
-  // uses the modern Navigation API where available (chromium) for accurate
-  // canGoBack/canGoForward tracking. falls back to history.length heuristic
-  // elsewhere (safari/firefox) where forward state is unknowable, so the
-  // forward button stays hidden unless we can prove it exists.
-  const [canGoBack, setCanGoBack] = createSignal(false);
-  const [canGoForward, setCanGoForward] = createSignal(false);
-
   // hide view selector, search, sort, and source selector on aggregate feed route
   const isAggregateFeedRoute = () => (props.currentPath ?? "").startsWith("/feed");
   // also hide search input and the music sub-nav (songs/albums/playlists/etc)
@@ -1034,96 +1027,6 @@ export function TopNav(props: TopNavProps) {
       ro?.disconnect();
       document.documentElement.style.removeProperty("--nav-height");
     });
-
-    // wire up nav back/forward state tracking.
-    // prefer the modern Navigation API (chromium) for accurate state.
-    // otherwise we maintain our own depth/position by stamping history.state
-    // and intercepting pushState/replaceState — works in safari/firefox.
-    const nav = (
-      window as unknown as {
-        navigation?: EventTarget & { canGoBack?: boolean; canGoForward?: boolean };
-      }
-    ).navigation;
-
-    if (nav) {
-      const updateNavState = () => {
-        setCanGoBack(nav.canGoBack ?? false);
-        setCanGoForward(nav.canGoForward ?? false);
-      };
-      updateNavState();
-      nav.addEventListener("currententrychange", updateNavState);
-      onCleanup(() => nav.removeEventListener("currententrychange", updateNavState));
-    } else {
-      // fallback tracker: only counts navigations we've observed within this
-      // tab since the app loaded. browser entries from before the app are
-      // not counted (we can't inspect them), so back stays hidden until the
-      // user has actually navigated within the app.
-      type StampedState = { __topnavIdx?: number } & Record<string, unknown>;
-      let position = 0;
-      let depth = 1;
-
-      const origPush = window.history.pushState.bind(window.history);
-      const origReplace = window.history.replaceState.bind(window.history);
-
-      const readIdx = (): number | undefined => {
-        const s = window.history.state as StampedState | null;
-        return typeof s?.__topnavIdx === "number" ? s.__topnavIdx : undefined;
-      };
-
-      const update = () => {
-        setCanGoBack(position > 0);
-        setCanGoForward(position < depth - 1);
-      };
-
-      // adopt or stamp the current entry
-      const existing = readIdx();
-      if (existing !== undefined) {
-        position = existing;
-        if (depth <= position) depth = position + 1;
-      } else {
-        const s = (window.history.state as StampedState | null) ?? {};
-        origReplace({ ...s, __topnavIdx: position }, "");
-      }
-      update();
-
-      // wrap pushState: new entry truncates forward stack
-      window.history.pushState = function (state, title, url) {
-        position += 1;
-        depth = position + 1;
-        const merged: StampedState = {
-          ...((state as StampedState | null) ?? {}),
-          __topnavIdx: position,
-        };
-        origPush(merged, title, url);
-        update();
-      };
-
-      // wrap replaceState: keep the same position, preserve our stamp
-      window.history.replaceState = function (state, title, url) {
-        const merged: StampedState = {
-          ...((state as StampedState | null) ?? {}),
-          __topnavIdx: position,
-        };
-        origReplace(merged, title, url);
-        update();
-      };
-
-      const onPop = () => {
-        const idx = readIdx();
-        if (typeof idx === "number") {
-          position = idx;
-          if (position >= depth) depth = position + 1;
-        }
-        update();
-      };
-      window.addEventListener("popstate", onPop);
-
-      onCleanup(() => {
-        window.history.pushState = origPush;
-        window.history.replaceState = origReplace;
-        window.removeEventListener("popstate", onPop);
-      });
-    }
   });
 
   // format bytes to human readable size
