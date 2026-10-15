@@ -11,6 +11,7 @@ import { MarqueeText } from "../text/MarqueeText";
 import { FavoriteHeart } from "../ratings/FavoriteHeart";
 import { Rating } from "../ratings/Rating";
 import { isNarrowViewport } from "../../config/breakpoints";
+import { isMobile } from "../../utils/isMobile";
 
 // row heights for different layouts
 const TABLE_ROW_HEIGHT = 48;
@@ -223,8 +224,12 @@ export function VirtualSongList(props: VirtualSongListProps) {
       return;
     }
 
-    // regular row click handling
-    if (e.detail === 2) {
+    // regular row click handling - touch devices get a single tap instead
+    // of a real double-click (unreliable/absent on touch, same reasoning
+    // as tapOrDblClick.ts, which this event-delegation pattern isn't a
+    // direct fit for since there's no per-row onClick/onDblClick pair to
+    // spread it onto).
+    if (isMobile() || e.detail === 2) {
       props.onSongDoubleClick?.(song, index);
     } else if (props.onSelectionClick) {
       // if selection is enabled, single clicks go through selection handler too
