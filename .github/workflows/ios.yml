@@ -107,13 +107,22 @@ jobs:
       # the committed project.pbxproj tracks whatever Xcode last
       # regenerated it locally (currently 26.3 - see docs/ios.md) - its
       # project-FILE-FORMAT version is independent of IPHONEOS_DEPLOYMENT_
-      # TARGET (project.yml's own `deploymentTarget: iOS: 15.0`, untouched
+      # TARGET (project.yml's own `deploymentTarget: iOS: 15.4`, untouched
       # by this): an old deployment target and a new Xcode aren't in
       # tension, but an old Xcode flatly can't even PARSE a project file
       # saved by a newer one ("future Xcode project file format" error).
       # select whichever installed Xcode is newest rather than hardcoding
       # a version, so this keeps matching local dev as both sides
       # naturally move forward over time.
+      #
+      # note: this used to also need a MetalToolchain workaround here
+      # (Xcode 26's separate "MetalToolchain" component doesn't carry the
+      # legacy swiftCompatibility56 back-deployment library tauri's ios
+      # plugins' Swift code force-links when built below iOS 15.4 - see
+      # tauri-apps/tauri#15066, actions/runner-images#13135) - fixed at
+      # the root instead by raising the deployment target to 15.4 (see
+      # docs/ios.md), which is the actual first OS version with the
+      # Swift 5.6 runtime built in, so nothing ever asks for that shim.
       - name: select newest installed xcode
         run: |
           XCODE_PATH=$(ls -d /Applications/Xcode_*.app 2>/dev/null | sort -V | tail -1)
@@ -124,33 +133,6 @@ jobs:
           echo "selecting $XCODE_PATH"
           sudo xcode-select -s "$XCODE_PATH"
           xcodebuild -version
-
-      # github's `macos-15` runner image bundles a separate "MetalToolchain"
-      # component alongside Xcode 26.x (added for Metal shader compilation
-      # support - see actions/runner-images#13088) whose own library
-      # search paths get preferred by the linker over Xcode's own bundled
-      # toolchain, and don't carry the legacy Swift 5.x back-deployment
-      # compatibility libraries (swiftCompatibility56 and friends) the
-      # Rust↔Swift bridge code in tauri's own ios plugins still
-      # unconditionally links against - producing "ld: symbol(s) not found
-      # for architecture arm64" / "library not found for
-      # -lswiftCompatibility56", nothing to do with our own code or
-      # signing. known, still-open upstream issue as of this writing
-      # (tauri-apps/tauri#15066, actions/runner-images#13135). a
-      # `TOOLCHAINS=com.apple.dt.toolchain.XcodeDefault` env var is also
-      # reported fixing this in that thread but confirmed NOT reliable by
-      # multiple reporters there (and didn't work for this build either -
-      # the linker still picked the MetalToolchain's search paths even
-      # with it set) - actually *deleting* the component, the thread
-      # maintainer's own final recommendation, is the dependable fix.
-      - name: delete the metal toolchain component (works around tauri-apps/tauri#15066)
-        # best-effort: has been seen failing with "Asset not downloaded for
-        # '<build>'" (exit 70) on some runner images - a github-side
-        # flake, not something this workflow can fix. don't let it take
-        # the whole build down; if the component genuinely isn't present
-        # the subsequent build step will surface that on its own.
-        continue-on-error: true
-        run: sudo xcodebuild -deleteComponent metalToolchain
 
       - name: resolve version
         id: meta

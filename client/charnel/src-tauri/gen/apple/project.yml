@@ -2,7 +2,7 @@ name: charnel
 options:
   bundleIdPrefix: net.freqhole.charnel
   deploymentTarget:
-    iOS: 15.0
+    iOS: 15.4
 fileGroups: [../../src]
 configs:
   debug: debug
