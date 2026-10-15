@@ -3,9 +3,10 @@ import { invoke, Channel } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useNavigate } from "@solidjs/router";
 import { resolvePath, directoryDisplayName } from "../util/resolvePath";
+import AdvancedPreferencesToggles from "../components/AdvancedPreferencesToggles";
 
 // step flow: welcome → config → running → admin → music → done
-type SetupStep = "welcome" | "config" | "running" | "admin" | "music" | "done";
+type SetupStep = "welcome" | "config" | "running" | "admin" | "preferences" | "music" | "done";
 
 interface DependencyCheckResult {
   ffmpeg_path: string | null;
@@ -282,7 +283,7 @@ export default function SetupView() {
       });
 
       if (result.success) {
-        setStep("music");
+        setStep("preferences");
       } else {
         throw new Error(result.error || "failed to create admin user");
       }
@@ -833,6 +834,25 @@ export default function SetupView() {
           <Show when={error()}>
             <p class="error">{error()}</p>
           </Show>
+        </div>
+      </Show>
+
+      {/* preferences */}
+      <Show when={step() === "preferences"}>
+        <div class="step">
+          <h1>preferences</h1>
+          <p class="subtitle">
+            a few optional settings to tune how freqhole looks and feels. you can always change
+            these later from settings.
+          </p>
+
+          <AdvancedPreferencesToggles />
+
+          <div class="button-row">
+            <button class="primary" onClick={() => setStep("music")}>
+              continue
+            </button>
+          </div>
         </div>
       </Show>
 
