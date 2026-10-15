@@ -21,7 +21,9 @@ import { getCurrentUser } from "../../music/data";
 import {
   appState,
   getLocalLibraryName,
+  setBackgroundImagesEnabled,
   setCroppedSquareThumbnails,
+  setEdgeSwipeNavigationEnabled,
   setLocalLibraryName,
   setSyncQueueToLocal,
 } from "../../app/services/storage/db";
@@ -328,6 +330,63 @@ export function LocalLibrarySettingsView() {
                   <span
                     class={`absolute left-0 top-1 w-4 h-4 rounded-full bg-white transition-transform ${
                       (appState()?.cropped_square_thumbnails ?? true)
+                        ? "translate-x-6"
+                        : "translate-x-1"
+                    }`}
+                  />
+                </button>
+              </div>
+              <div class="flex items-center justify-between mt-4 pt-4 border-t border-[var(--color-border-subtle)]">
+                <div class="flex-1 min-w-0 mr-4">
+                  <div class="text-sm text-[var(--color-text-primary)]">background images</div>
+                  <p class="text-xs text-[var(--color-text-muted)] mt-1">
+                    show a blurred backdrop behind playlist, album, artist, and video series
+                    detail views, built from that item's own image.
+                  </p>
+                </div>
+                <button
+                  class={`relative w-11 h-6 rounded-full transition-colors ${
+                    (appState()?.background_images_enabled ?? true)
+                      ? "bg-[var(--color-accent-500)]"
+                      : "bg-[var(--color-bg-tertiary)]"
+                  }`}
+                  onClick={() =>
+                    setBackgroundImagesEnabled(!(appState()?.background_images_enabled ?? true))
+                  }
+                >
+                  <span
+                    class={`absolute left-0 top-1 w-4 h-4 rounded-full bg-white transition-transform ${
+                      (appState()?.background_images_enabled ?? true)
+                        ? "translate-x-6"
+                        : "translate-x-1"
+                    }`}
+                  />
+                </button>
+              </div>
+              <div class="flex items-center justify-between mt-4 pt-4 border-t border-[var(--color-border-subtle)]">
+                <div class="flex-1 min-w-0 mr-4">
+                  <div class="text-sm text-[var(--color-text-primary)]">
+                    edge-swipe navigation
+                  </div>
+                  <p class="text-xs text-[var(--color-text-muted)] mt-1">
+                    drag in from the left or right edge of the screen to go back/forward.
+                  </p>
+                </div>
+                <button
+                  class={`relative w-11 h-6 rounded-full transition-colors ${
+                    (appState()?.edge_swipe_navigation_enabled ?? false)
+                      ? "bg-[var(--color-accent-500)]"
+                      : "bg-[var(--color-bg-tertiary)]"
+                  }`}
+                  onClick={() =>
+                    setEdgeSwipeNavigationEnabled(
+                      !(appState()?.edge_swipe_navigation_enabled ?? false)
+                    )
+                  }
+                >
+                  <span
+                    class={`absolute left-0 top-1 w-4 h-4 rounded-full bg-white transition-transform ${
+                      (appState()?.edge_swipe_navigation_enabled ?? false)
                         ? "translate-x-6"
                         : "translate-x-1"
                     }`}

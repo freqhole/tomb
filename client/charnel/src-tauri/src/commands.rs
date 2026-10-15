@@ -3188,6 +3188,64 @@ pub fn set_libmpv_playback(app_handle: tauri::AppHandle, enabled: bool) -> Resul
     Ok(())
 }
 
+/// get the background_images_enabled setting (default: true) - desktop
+/// counterpart to spume's own `AppState.background_images_enabled`
+/// toggle (web/android/ios), since desktop doesn't surface spume's
+/// local-library/storage settings pages as the primary way to reach
+/// settings. see `FreqholeAppConfig::background_images_enabled`'s doc
+/// comment.
+#[tauri::command]
+pub fn get_background_images_enabled(app_handle: tauri::AppHandle) -> bool {
+    FreqholeAppConfig::load(&app_handle)
+        .map(|c| c.background_images_enabled)
+        .unwrap_or_else(crate::app_config::default_background_images_enabled)
+}
+
+/// set the background_images_enabled setting. fires `config_changed` so
+/// spume can re-read it without a restart (see App.tsx's `onConfigChanged`
+/// handler).
+#[tauri::command]
+pub fn set_background_images_enabled(
+    app_handle: tauri::AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut config = FreqholeAppConfig::load(&app_handle).unwrap_or_default();
+    config.background_images_enabled = enabled;
+    config.save(&app_handle)?;
+
+    let _ = notify_config_changed(&app_handle, "background_images_enabled changed");
+
+    Ok(())
+}
+
+/// get the edge_swipe_navigation_enabled setting (default: false) -
+/// desktop counterpart to spume's own
+/// `AppState.edge_swipe_navigation_enabled` toggle (web/android/ios).
+/// see `FreqholeAppConfig::edge_swipe_navigation_enabled`'s doc comment.
+#[tauri::command]
+pub fn get_edge_swipe_navigation_enabled(app_handle: tauri::AppHandle) -> bool {
+    FreqholeAppConfig::load(&app_handle)
+        .map(|c| c.edge_swipe_navigation_enabled)
+        .unwrap_or_else(crate::app_config::default_edge_swipe_navigation_enabled)
+}
+
+/// set the edge_swipe_navigation_enabled setting. fires `config_changed`
+/// so spume can re-read it without a restart (see App.tsx's
+/// `onConfigChanged` handler).
+#[tauri::command]
+pub fn set_edge_swipe_navigation_enabled(
+    app_handle: tauri::AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut config = FreqholeAppConfig::load(&app_handle).unwrap_or_default();
+    config.edge_swipe_navigation_enabled = enabled;
+    config.save(&app_handle)?;
+
+    let _ = notify_config_changed(&app_handle, "edge_swipe_navigation_enabled changed");
+
+    Ok(())
+}
+
 /// whether this build's platform actually supports the chromeless title
 /// bar - used by the settings ui to hide the toggle entirely on platforms
 /// where it has no effect (see `get_chromeless_title_bar`'s matching gate).

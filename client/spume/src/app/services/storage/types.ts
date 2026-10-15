@@ -25,6 +25,16 @@ export interface AppState {
   // object-fit: cover. when false, they letterbox (object-fit: contain)
   // instead so nothing is cropped.
   cropped_square_thumbnails?: boolean;
+  // when true (default), playlist/album/artist/video-series detail views
+  // show a blurred full-page backdrop behind their content, built from the
+  // entity's own image (see useBackgroundImageSource.ts). when false, no
+  // backdrop is shown anywhere.
+  background_images_enabled?: boolean;
+  // when true, an edge-started horizontal drag/swipe (pointer or touch)
+  // navigates browser history back/forward (see useEdgeSwipeNavigation.ts).
+  // off by default - it's a bigger behavioral change than a cosmetic
+  // toggle, so it's opt-in.
+  edge_swipe_navigation_enabled?: boolean;
   // true once the mobile (android/ios) first-run setup modal (username +
   // library name + library image) has been shown/completed - gates
   // `FirstRunSetupModal` so it only ever shows once per install.

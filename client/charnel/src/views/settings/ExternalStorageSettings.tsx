@@ -369,8 +369,7 @@ export default function ExternalStorageSettingsSection() {
           "margin-bottom": "0.75rem",
         }}
       >
-        sync music to a removable disk or any mounted folder. the playerbar's storage icon shows up
-        when a device is plugged in.
+        sync media to a removable disk or any mounted folder.
       </p>
 
       <Show

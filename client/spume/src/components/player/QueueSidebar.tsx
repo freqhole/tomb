@@ -18,6 +18,7 @@ import { QueuePlayerTargetRow } from "./QueuePlayerTargetRow";
 import type { HistoryDisplayEntry, RadioStationRef } from "../../app/services/storage/types";
 import type { ImageMetadata } from "../../music/services/storage/types";
 import { isMobile } from "../../utils/isMobile";
+import { tapOrDblClick } from "../../utils/tapOrDblClick";
 import { isCharnelMode } from "../../app/services/charnel";
 import {
   getAutoDownloadEnabled,
@@ -1060,16 +1061,7 @@ export function QueueSidebar(props: QueueSidebarProps) {
                       }}
                       onMouseEnter={() => setIsRowHovered(true)}
                       onMouseLeave={() => setIsRowHovered(false)}
-                      onClick={() => {
-                        if (isMobile()) {
-                          props.onReplayHistoryEntry?.(entry());
-                        }
-                      }}
-                      onDblClick={() => {
-                        if (!isMobile()) {
-                          props.onReplayHistoryEntry?.(entry());
-                        }
-                      }}
+                      {...tapOrDblClick(() => props.onReplayHistoryEntry?.(entry()))}
                       title={
                         isRadio()
                           ? isMobile()

@@ -188,3 +188,24 @@ export function matchRoute(path: string): RouteKey | null {
 
   return null;
 }
+
+/**
+ * true when `path` is route `key`'s own list/grid view - not a nested
+ * detail page that `matchRoute()` deliberately maps to the same key
+ * (e.g. /albums/123 resolves to "albums" too, but isn't the list view).
+ * use this to gate anything that only makes sense against a route's own
+ * list content (top-nav search's "press return to filter X" behavior,
+ * for one) - never on a detail page nested under it.
+ */
+export function isListRoute(path: string): boolean {
+  const key = matchRoute(path);
+  if (!key) return false;
+  const pathname = path.split("?")[0].replace(/\/+$/, "");
+  // "series" isn't a `routes` entry (matchRoute() matches it via regex,
+  // not the VIEW_KEYS loop below) - its own list path is /video/series.
+  if (key === "series") {
+    return pathname === buildRoute("/video/series").replace(/\/+$/, "");
+  }
+  const routePath = routes[key]().replace(/\/+$/, "");
+  return pathname === routePath;
+}

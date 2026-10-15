@@ -426,6 +426,18 @@ async function setCroppedSquareThumbnails(enabled: boolean): Promise<void> {
   await updateAppState({ cropped_square_thumbnails: enabled });
 }
 
+// set background-images-enabled display preference (full-page backdrop on
+// playlist/album/artist/video-series detail views)
+async function setBackgroundImagesEnabled(enabled: boolean): Promise<void> {
+  await updateAppState({ background_images_enabled: enabled });
+}
+
+// set edge-swipe-navigation preference (edge-started drag navigates
+// browser history back/forward - see useEdgeSwipeNavigation.ts)
+async function setEdgeSwipeNavigationEnabled(enabled: boolean): Promise<void> {
+  await updateAppState({ edge_swipe_navigation_enabled: enabled });
+}
+
 // get sync queue to local setting (default: true)
 function getSyncQueueToLocal(): boolean {
   return appState()?.sync_queue_to_local ?? true;
@@ -722,6 +734,8 @@ export {
   setAutoDownloadEnabled,
   setCurrentSong,
   setCroppedSquareThumbnails,
+  setBackgroundImagesEnabled,
+  setEdgeSwipeNavigationEnabled,
   setQueue,
   setQueueOpen,
   setSyncQueueToLocal,

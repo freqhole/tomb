@@ -159,12 +159,15 @@ import {
   setSyncQueueToLocal,
 } from "./services/storage/db";
 import { setDisableBackdropBlur } from "./services/backdropBlur";
+import { setDesktopBackgroundImagesEnabled } from "./services/desktopBackgroundImages";
+import { setDesktopEdgeSwipeNavigationEnabled } from "./services/desktopEdgeSwipeNavigation";
 import { recordSharedItemFromToken } from "./services/storage/sharedItems";
 import { isP2PRemote } from "./services/storage/types";
 import { checkPendingKnocks, showKnockCreatedToast } from "./services/toastNotices";
 import { useFetchPrecheckEnabledQuery } from "../music/hooks/useFetchPrecheckEnabled";
 import { useFetchVideoEnabledQuery } from "../music/hooks/useFetchVideoEnabled";
 import { useImportReview } from "../music/hooks/useImportReview";
+import { useEdgeSwipeNavigation } from "./hooks/useEdgeSwipeNavigation";
 import {
   dispatchImportSession,
   importSessionState,
@@ -300,6 +303,10 @@ export function App() {
   // track current hash reactively (allows settings + radio in empty state)
   const [currentHash, setCurrentHash] = createSignal(window.location.hash);
   const isSettingsRoute = () => currentHash().startsWith("#/settings");
+
+  // edge-swipe-to-navigate - global, gated on its own setting (see the
+  // hook's doc comment). no-op whenever that setting is off.
+  useEdgeSwipeNavigation();
 
   // query whether the add-media target remote has url precheck (yt-dlp)
   // configured - keyed to the switcher's effective target, not whatever's
@@ -663,7 +670,9 @@ export function App() {
         break;
 
       case "scan-progress":
-        // invalidate queries to refresh music data as songs are added
+        // invalidate queries to refresh music data as songs are added.
+        // refetchType: "all" (not just "active") - see onRemoteJobComplete's
+        // comment above for why songs/albums need this specifically.
         queryClient.invalidateQueries({
           predicate: (query) => {
             const key = query.queryKey[0];
@@ -675,6 +684,7 @@ export function App() {
               key === "feed"
             );
           },
+          refetchType: "all",
         });
         break;
 
@@ -691,6 +701,7 @@ export function App() {
               key === "feed"
             );
           },
+          refetchType: "all",
         });
         // show toast notification
         {
@@ -943,6 +954,26 @@ export function App() {
     const targetOs = await getTargetOs();
     if (targetOs !== "android" && targetOs !== "ios") {
       await setSyncQueueToLocal(config.sync_queue_to_local ?? true);
+      // desktop-only, same reasoning as sync_queue_to_local above - the
+      // wizard's settings view is the one source of truth for this on
+      // desktop (see desktopBackgroundImages.ts's doc comment), mobile/web
+      // use spume's own AppState.background_images_enabled instead.
+      try {
+        // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
+        const { invoke } = await import("@tauri-apps/api/core");
+        setDesktopBackgroundImagesEnabled(await invoke<boolean>("get_background_images_enabled"));
+      } catch (e) {
+        debug("app", `failed to read background_images_enabled: ${String(e)}`);
+      }
+      try {
+        // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
+        const { invoke } = await import("@tauri-apps/api/core");
+        setDesktopEdgeSwipeNavigationEnabled(
+          await invoke<boolean>("get_edge_swipe_navigation_enabled")
+        );
+      } catch (e) {
+        debug("app", `failed to read edge_swipe_navigation_enabled: ${String(e)}`);
+      }
     }
 
     setDisableBackdropBlur(config.disable_backdrop_blur ?? false);
@@ -974,6 +1005,28 @@ export function App() {
         // no-op when the chosen kind hasn't changed; option (b)
         // "stop + swap" otherwise.
         await swapPlayerBackend();
+        // desktop-only, same gate as the initial load above - re-read in
+        // case the wizard's settings view just flipped it.
+        if (targetOs !== "android" && targetOs !== "ios") {
+          try {
+            // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
+            const { invoke } = await import("@tauri-apps/api/core");
+            setDesktopBackgroundImagesEnabled(
+              await invoke<boolean>("get_background_images_enabled")
+            );
+          } catch (e) {
+            debug("app", `failed to re-read background_images_enabled: ${String(e)}`);
+          }
+          try {
+            // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
+            const { invoke } = await import("@tauri-apps/api/core");
+            setDesktopEdgeSwipeNavigationEnabled(
+              await invoke<boolean>("get_edge_swipe_navigation_enabled")
+            );
+          } catch (e) {
+            debug("app", `failed to re-read edge_swipe_navigation_enabled: ${String(e)}`);
+          }
+        }
         const newConfig = await getConfig();
         if (newConfig) {
           const updatedRemote = await upsertTauriRemote({
@@ -1463,6 +1516,15 @@ export function App() {
           key === "genre"
         );
       },
+      // refetch even queries with no active observer right now (e.g.
+      // songs/albums views aren't mounted at the moment the import
+      // finishes) - a plain "active"-only refetch would just mark them
+      // stale and rely on refetchOnMount, but useSongsInfiniteQuery/
+      // useAlbumsQuery set refetchOnMount: false (to preserve accumulated
+      // pages/scroll position on casual navigation), so the table/grid
+      // would keep showing the pre-import list until a full reload - see
+      // onRemoteVideoJobComplete below, which already has this fix.
+      refetchType: "all",
     });
   };
 
@@ -1523,6 +1585,11 @@ export function App() {
               key === "feed"
             );
           },
+          // see onRemoteJobComplete's comment above - songs/albums set
+          // refetchOnMount: false, so an "active"-only refetch here would
+          // leave them stale until a full reload if neither view happens
+          // to be mounted right now.
+          refetchType: "all",
         });
       }
     } catch (error) {

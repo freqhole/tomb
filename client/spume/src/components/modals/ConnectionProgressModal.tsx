@@ -1,8 +1,9 @@
 // modal that appears when connecting to a remote server takes more than 1 second
 // shows a spinner and connection info, with option to cancel
 
-import { createEffect, Show } from "solid-js";
+import { createEffect, onMount, Show } from "solid-js";
 import { Icon } from "../icons";
+import { DIALOG_RESET_STYLE, registerDialogPolyfill } from "../overlays/dialogSupport";
 
 export interface ConnectionProgressState {
   isConnecting: boolean;
@@ -18,6 +19,12 @@ export interface ConnectionProgressModalProps {
 
 export function ConnectionProgressModal(props: ConnectionProgressModalProps) {
   let dialogRef: HTMLDialogElement | undefined;
+
+  // same requirement as Modal.tsx's own <dialog> - must run before the
+  // first showModal() call below.
+  onMount(() => {
+    registerDialogPolyfill(dialogRef);
+  });
 
   // sync with dialog state
   createEffect(() => {
@@ -41,7 +48,8 @@ export function ConnectionProgressModal(props: ConnectionProgressModalProps) {
     <dialog
       ref={dialogRef}
       onCancel={handleCancel}
-      class="bg-transparent p-0 max-w-none max-h-none m-auto backdrop:bg-black/60"
+      style={DIALOG_RESET_STYLE}
+      class="backdrop:bg-black/60"
     >
       <div
         class="

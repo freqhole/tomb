@@ -8,6 +8,7 @@ import { ContextMenu, type MenuAction } from "../overlays/ContextMenu";
 import { FavoriteHeart } from "../ratings/FavoriteHeart";
 import { Rating } from "../ratings/Rating";
 import { MarqueeText } from "../text/MarqueeText";
+import { tapOrDblClick } from "../../utils/tapOrDblClick";
 import type { ImageMetadata } from "../../music/services/storage/types";
 
 export interface SongRowProps {
@@ -62,8 +63,7 @@ export interface SongRowProps {
 export function SongRow(props: SongRowProps): JSX.Element {
   const rowContent = (
     <div
-      onClick={() => props.onClick?.()}
-      onDblClick={() => props.onDoubleClick?.()}
+      {...tapOrDblClick(() => props.onDoubleClick?.())}
       class={`flex items-center gap-3 p-2 rounded transition-colors cursor-pointer group ${
         props.isHighlighted
           ? "bg-[var(--color-accent-primary)]/15 ring-1 ring-[var(--color-accent-primary)]/30"

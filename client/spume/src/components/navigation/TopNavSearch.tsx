@@ -5,7 +5,7 @@ import { getCurrentRemote, getDataSource } from "../../music/data";
 import { isP2PTransportType } from "../../app/api/client";
 import type { SearchSuggestion as APISuggestion } from "../../music/data/types";
 import { addToQueue, playQueue } from "../../music/services/queue/queue";
-import { routes, matchRoute, buildRoute } from "../../music/utils/routing";
+import { routes, matchRoute, buildRoute, isListRoute } from "../../music/utils/routing";
 import { valueNodeId, type RelationKind } from "../graph/data/nodeIds";
 import { setHighlightedSongId } from "../../music/state/highlightedSong";
 import { Icon } from "../icons/registry";
@@ -120,8 +120,16 @@ export function TopNavSearch(props: TopNavSearchProps) {
 
   const shouldStayOpen = () => searchValue().length > 0 || isFocused() || isLocked();
 
-  // which filterable view are we on (if any)?
-  const currentRouteKey = createMemo(() => matchRoute(props.currentPath || ""));
+  // which filterable view are we on (if any)? null on a detail page
+  // nested under a filterable route too (e.g. /albums/123) - matchRoute()
+  // deliberately maps those to the same key as their list view for other
+  // purposes, but there's nothing to filter on a detail page, so
+  // `isListRoute()` excludes them here.
+  const currentRouteKey = createMemo(() => {
+    const path = props.currentPath || "";
+    const key = matchRoute(path);
+    return key && isListRoute(path) ? key : null;
+  });
   const filterableView = createMemo(() => {
     const key = currentRouteKey();
     return isFilterableRoute(key) ? key : null;
@@ -341,7 +349,7 @@ export function TopNavSearch(props: TopNavSearchProps) {
     const fullPath = props.currentPath || "";
     const pathname = fullPath.split("?")[0];
     const key = matchRoute(fullPath);
-    if (fullPath.includes("?") && isFilterableRoute(key)) {
+    if (fullPath.includes("?") && isFilterableRoute(key) && isListRoute(fullPath)) {
       props.onNavigate?.(pathname);
     }
   };
@@ -352,7 +360,7 @@ export function TopNavSearch(props: TopNavSearchProps) {
     const fullPath = props.currentPath || "";
     const pathname = fullPath.split("?")[0];
     const key = matchRoute(fullPath);
-    if (!isFilterableRoute(key)) return;
+    if (!isFilterableRoute(key) || !isListRoute(fullPath)) return;
     // empty q on filter-only routes clears the filter; otherwise require >=2 chars
     if (!q) {
       props.onNavigate?.(pathname);

@@ -27,7 +27,7 @@ import { getCurrentRemote } from "../../music/data";
 import type { CurrentRemoteInfo } from "../../music/data/currentState";
 import { getTauriManagedRemote } from "../../app/services/remotes/remoteManager";
 import { getClientForRemote } from "../../app/api/client";
-import { isCharnelMode } from "../../app/services/charnel";
+import { isCharnelMode, isAndroidTauri, isIosTauri } from "../../app/services/charnel";
 import { retryFailedAlbumSend } from "../../app/services/send/sendReviewedSessionToRemote";
 import { retryFailedVideoSend } from "../../app/services/send/sendReviewedVideoSessionToRemote";
 import { RemotePicker } from "../forms/RemotePicker";
@@ -438,6 +438,11 @@ export function AddMediaModal(props: AddMediaModalProps) {
   const precheck = useUrlPrecheck();
 
   const useNativeDialog = () => !!props.useCharnelDialog;
+  // tauri-plugin-dialog's folder picker has no iOS or android
+  // implementation at all (confirmed against its own docs) - pickDirectory
+  // already no-ops to null there, which just looked like a dead "select
+  // folder" button with no feedback; hide it on both instead.
+  const canPickFolder = () => useNativeDialog() && !isAndroidTauri() && !isIosTauri();
 
   const handleSelectFiles = async () => {
     // one unified picker showing both audio + video extensions. desktop
@@ -1064,7 +1069,7 @@ export function AddMediaModal(props: AddMediaModalProps) {
                             <Button variant="secondary" onClick={handleSelectFiles}>
                               add more files
                             </Button>
-                            <Show when={useNativeDialog()}>
+                            <Show when={canPickFolder()}>
                               <Button variant="secondary" onClick={handleSelectDirectory}>
                                 add folder
                               </Button>
@@ -1078,11 +1083,13 @@ export function AddMediaModal(props: AddMediaModalProps) {
                           </div>
                           <h3 class="heading-6 text-[var(--color-text-primary)] mb-2">add media</h3>
                           <p class="body-small text-[var(--color-text-secondary)] mb-2">
-                            {props.useCharnelDialog
+                            {canPickFolder()
                               ? "select files or an entire folder"
-                              : props.remoteName
-                                ? `files will be uploaded to ${props.remoteName}`
-                                : "drag audio or video files here or click to select"}
+                              : props.useCharnelDialog
+                                ? "select files"
+                                : props.remoteName
+                                  ? `files will be uploaded to ${props.remoteName}`
+                                  : "drag audio or video files here or click to select"}
                           </p>
                           <p class="body-xs text-[var(--color-text-tertiary)] mb-4">
                             supports mp3, flac, wav, m4a, ogg, mp4, mkv, webm, mov, avi
@@ -1091,7 +1098,7 @@ export function AddMediaModal(props: AddMediaModalProps) {
                             <Button variant="primary" onClick={handleSelectFiles}>
                               select files
                             </Button>
-                            <Show when={useNativeDialog()}>
+                            <Show when={canPickFolder()}>
                               <Button variant="secondary" onClick={handleSelectDirectory}>
                                 select folder
                               </Button>

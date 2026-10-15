@@ -12,6 +12,7 @@ import { VideoCard } from "../../video/components/VideoCard";
 import { VideoSeriesCard } from "../../video/components/VideoSeriesCard";
 import { ContextMenu, type MenuAction } from "../overlays/ContextMenu";
 import { formatDuration } from "../../utils/formatDuration";
+import { tapOrDblClick } from "../../utils/tapOrDblClick";
 import type {
   Song,
   AlbumSummary,
@@ -547,9 +548,7 @@ export function FavoritesLayout(props: FavoritesLayoutProps) {
                   const row = (
                     <div
                       class="flex items-center gap-3 p-2 rounded hover:bg-[var(--color-bg-elevated)] transition-colors cursor-pointer"
-                      onDblClick={() => {
-                        props.onSongPlay?.(song);
-                      }}
+                      {...tapOrDblClick(() => props.onSongPlay?.(song))}
                     >
                       <MediaThumbnail
                         images={song.images?.length ? song.images : song.album_images}
