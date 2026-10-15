@@ -3,6 +3,7 @@ import { MediaThumbnail } from "../media/MediaThumbnail";
 import { FavoriteHeart } from "../ratings/FavoriteHeart";
 import { getPlayingIndicatorClasses } from "../../design-system/colors";
 import { formatDuration } from "../../utils/formatDuration";
+import { isMobile } from "../../utils/isMobile";
 import type { ImageMetadata } from "../../music/services/storage/types";
 import { Icon, type IconName } from "../icons/registry";
 
@@ -31,10 +32,13 @@ export interface DraggableRowProps {
   onDrop?: (e: DragEvent) => void;
   /** callback when drag ends (for cleanup) */
   onDragEnd?: (e: DragEvent) => void;
-  /** callback when row is clicked */
+  /** callback when row is clicked (desktop only - see tapOrDblClick.ts;
+   *  fires on every click regardless of device, independent of the
+   *  tap-to-play behavior below) */
   onClick?: (e: MouseEvent) => void;
-  /** callback when row is double-clicked */
-  onDoubleClick?: (e: MouseEvent) => void;
+  /** callback when row is double-clicked (desktop) or tapped (touch) -
+   *  see tapOrDblClick.ts */
+  onDoubleClick?: () => void;
   /** callback when pointer down (for touch/pointer drag) */
   onPointerDown?: (e: PointerEvent) => void;
   /** callback when row is right-clicked */
@@ -131,8 +135,13 @@ export function DraggableRow(props: DraggableRowProps) {
       onDragLeave={(e) => local.onDragLeave?.(e)}
       onDrop={(e) => local.onDrop?.(e)}
       onDragEnd={(e) => local.onDragEnd?.(e)}
-      onClick={(e) => local.onClick?.(e)}
-      onDblClick={(e) => local.onDoubleClick?.(e)}
+      onClick={(e) => {
+        local.onClick?.(e);
+        if (isMobile()) local.onDoubleClick?.();
+      }}
+      onDblClick={() => {
+        if (!isMobile()) local.onDoubleClick?.();
+      }}
       onPointerDown={(e) => {
         // prevent pointer drag if starting from thumbnail
         const target = e.target as HTMLElement;

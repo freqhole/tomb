@@ -13,6 +13,7 @@ import { Icon } from "../icons/registry";
 import { formatDuration } from "../../utils/formatDuration";
 import { MarqueeText } from "../text/MarqueeText";
 import { isMobile } from "../../utils/isMobile";
+import { tapOrDblClick } from "../../utils/tapOrDblClick";
 import { isCharnelMode } from "../../app/services/charnel";
 import { getWaveformImage } from "../../utils/images";
 import { isRemoteBlobCachedReactive } from "../../music/services/cache/blobCache";
@@ -156,12 +157,10 @@ export function VideoQueueRow(props: VideoQueueRowProps) {
       onDragEnd={props.onDragEnd}
       onDrop={props.onDrop}
       onPointerDown={props.onPointerDown}
-      onClick={() => {
-        if (isMobile()) props.onClick();
-      }}
-      onDblClick={() => {
-        if (!isMobile()) props.onDoubleClick();
-      }}
+      {...tapOrDblClick(
+        () => props.onClick(),
+        () => props.onDoubleClick()
+      )}
       title={
         props.isCurrentlyPlaying
           ? "currently playing"

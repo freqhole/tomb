@@ -19,6 +19,7 @@ import { getSongByBlake3 } from "../../music/services/storage/db/songs";
 import { getSongDisplayImages, getWaveformImage } from "../../utils/images";
 import { formatDuration } from "../../utils/formatDuration";
 import { isMobile } from "../../utils/isMobile";
+import { tapOrDblClick } from "../../utils/tapOrDblClick";
 import { isCharnelMode } from "../../app/services/charnel";
 import { MediaThumbnail } from "../media/MediaThumbnail";
 import { MarqueeText } from "../text/MarqueeText";
@@ -136,12 +137,10 @@ export function RemoteQueueRow(props: RemoteQueueRowProps) {
       onDragEnd={props.onDragEnd}
       onDrop={props.onDrop}
       onPointerDown={props.onPointerDown}
-      onClick={() => {
-        if (isMobile()) props.onClick();
-      }}
-      onDblClick={() => {
-        if (!isMobile()) props.onDoubleClick();
-      }}
+      {...tapOrDblClick(
+        () => props.onClick(),
+        () => props.onDoubleClick()
+      )}
       title={props.isCurrentlyPlaying ? "currently playing" : undefined}
     >
       {/* progress fill background - only for the currently-playing row */}
