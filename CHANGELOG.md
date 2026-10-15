@@ -1,5 +1,14 @@
 # freqhole-release
 
+## 0.3.17
+
+### Patch Changes
+
+- 86de727: and opt-in edge swipe feature to navigate back and forward
+- d0ccf66: try to fix issue where search query gets pushed to history on views that can't be filtered (e.g. the album detail view) so after clearing, going back restores that search query
+- 933ede5: add more handlers that convert double-click handlers to single click handlers so it's more as you'd expect on mobile/touch devicez
+- 75d3d02: fix some modal bugz; fix safe area top margin on mini video player controlz; improve admin handler response causing error toastz in send-to-radio station picker; hide "select folder" button on ios (and android) in add media modal; add settings toggle to disable background images;
+
 ## 0.3.16
 
 ### Patch Changes
