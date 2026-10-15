@@ -7,6 +7,7 @@ import { ConfigChangedToast } from "../components/feedback/ConfigChangedToast";
 import { toast } from "../components/feedback/Toast";
 import { UpdateAvailableToast } from "../components/feedback/UpdateAvailableToast";
 import { TitleBarStrip } from "../components/layout/TitleBarStrip";
+import { EdgeSwipeIndicators } from "../components/layout/EdgeSwipeIndicators";
 import { AddMediaModal } from "../components/modals/AddMediaModal";
 import { AddRemoteModal } from "../components/modals/AddRemoteModal";
 import { AlbumEditorModal } from "../components/modals/AlbumEditorModal";
@@ -1843,6 +1844,7 @@ export function App() {
   return (
     <>
       <TitleBarStrip />
+      <EdgeSwipeIndicators />
       <Show
         when={!isInitializing()}
         fallback={

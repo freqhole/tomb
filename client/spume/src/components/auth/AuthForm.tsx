@@ -9,6 +9,10 @@ export type AuthMode = "login" | "register";
 export interface AuthFormProps {
   /** initial mode: login or register */
   initialMode?: AuthMode;
+  /** pre-fill the username field with a known/suggested username (e.g. the
+   * user's own locally-known username) - purely a convenience default,
+   * still fully editable. */
+  initialUsername?: string;
   /** callback when form is submitted */
   onSubmit?: (data: {
     username: string;
@@ -40,7 +44,7 @@ export interface AuthFormProps {
 // auth form component with login/register modes
 export function AuthForm(props: AuthFormProps) {
   const [mode, setMode] = createSignal<AuthMode>(props.initialMode || "login");
-  const [username, setUsername] = createSignal("");
+  const [username, setUsername] = createSignal(props.initialUsername ?? "");
   const [inviteCode, setInviteCode] = createSignal("");
 
   const showModeToggle = () => props.showModeToggle ?? true;

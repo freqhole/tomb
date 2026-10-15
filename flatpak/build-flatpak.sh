@@ -64,13 +64,33 @@ echo "building flatpak via flatpak-builder (compiles mpv+ffmpeg+libass from sour
 # to the CWD, not the (already-safe) $WORK_DIR/build below - pin it
 # explicitly so it can never accidentally land under a reserved path
 # like /app again (see Dockerfile.flatpak's WORKDIR comment).
-flatpak-builder \
-    --arch="$ARCH" \
-    --state-dir="$WORK_DIR/state" \
-    --repo="$WORK_DIR/repo" \
-    --force-clean \
-    "$WORK_DIR/build" \
-    "$SCRIPT_DIR/net.freqhole.freqhole.yml"
+#
+# retry a few times - source downloads occasionally hang/time out
+# transiently in ci (seen repeatedly against one upstream host - see
+# net.freqhole.freqhole.yml's uchardet module comment for that specific
+# case, now worked around at the source, but this guards against the
+# same class of problem hitting any other module/host in the future).
+# --force-clean only wipes the build dir, not --state-dir's own
+# downloads/module-build cache, so a retry resumes rather than
+# re-downloading/re-building modules that already succeeded.
+BUILD_ATTEMPTS=3
+for attempt in $(seq 1 "$BUILD_ATTEMPTS"); do
+    if flatpak-builder \
+        --arch="$ARCH" \
+        --state-dir="$WORK_DIR/state" \
+        --repo="$WORK_DIR/repo" \
+        --force-clean \
+        "$WORK_DIR/build" \
+        "$SCRIPT_DIR/net.freqhole.freqhole.yml"; then
+        break
+    fi
+    if [ "$attempt" -eq "$BUILD_ATTEMPTS" ]; then
+        echo "flatpak-builder failed after $BUILD_ATTEMPTS attempts"
+        exit 1
+    fi
+    echo "flatpak-builder failed (attempt $attempt/$BUILD_ATTEMPTS) - retrying in 15s..."
+    sleep 15
+done
 
 echo "creating bundle..."
 flatpak build-bundle --arch="$ARCH" "$WORK_DIR/repo" "$OUTPUT_FLATPAK" "$APP_ID"

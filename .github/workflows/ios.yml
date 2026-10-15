@@ -12,7 +12,7 @@
 # provisioning profile (Apple's backend, not something this workflow can
 # conjure up itself) - a fork/run missing these secrets gets a clear,
 # early, actionable failure instead of a silently-unsigned or skipped
-# build. see docs/ios.md phase 5 for how to generate them.
+# build.
 name: ios (build + testflight)
 
 on:
@@ -105,9 +105,9 @@ jobs:
       - uses: actions/checkout@v7
 
       # the committed project.pbxproj tracks whatever Xcode last
-      # regenerated it locally (currently 26.3 - see docs/ios.md) - its
+      # regenerated it locally (currently 26.3) - its
       # project-FILE-FORMAT version is independent of IPHONEOS_DEPLOYMENT_
-      # TARGET (project.yml's own `deploymentTarget: iOS: 15.0`, untouched
+      # TARGET (project.yml's own `deploymentTarget: iOS: 15.4`, untouched
       # by this): an old deployment target and a new Xcode aren't in
       # tension, but an old Xcode flatly can't even PARSE a project file
       # saved by a newer one ("future Xcode project file format" error).
@@ -125,32 +125,37 @@ jobs:
           sudo xcode-select -s "$XCODE_PATH"
           xcodebuild -version
 
-      # github's `macos-15` runner image bundles a separate "MetalToolchain"
-      # component alongside Xcode 26.x (added for Metal shader compilation
-      # support - see actions/runner-images#13088) whose own library
-      # search paths get preferred by the linker over Xcode's own bundled
-      # toolchain, and don't carry the legacy Swift 5.x back-deployment
-      # compatibility libraries (swiftCompatibility56 and friends) the
-      # Rust↔Swift bridge code in tauri's own ios plugins still
-      # unconditionally links against - producing "ld: symbol(s) not found
-      # for architecture arm64" / "library not found for
-      # -lswiftCompatibility56", nothing to do with our own code or
-      # signing. known, still-open upstream issue as of this writing
-      # (tauri-apps/tauri#15066, actions/runner-images#13135). a
-      # `TOOLCHAINS=com.apple.dt.toolchain.XcodeDefault` env var is also
-      # reported fixing this in that thread but confirmed NOT reliable by
-      # multiple reporters there (and didn't work for this build either -
-      # the linker still picked the MetalToolchain's search paths even
-      # with it set) - actually *deleting* the component, the thread
-      # maintainer's own final recommendation, is the dependable fix.
-      - name: delete the metal toolchain component (works around tauri-apps/tauri#15066)
-        # best-effort: has been seen failing with "Asset not downloaded for
-        # '<build>'" (exit 70) on some runner images - a github-side
-        # flake, not something this workflow can fix. don't let it take
-        # the whole build down; if the component genuinely isn't present
-        # the subsequent build step will surface that on its own.
-        continue-on-error: true
-        run: sudo xcodebuild -deleteComponent metalToolchain
+      # github's `macos-15` runner image layers in a separate, CI-only
+      # "MetalToolchain" component alongside Xcode (added for Metal shader
+      # compilation support - actions/runner-images#13088) that a normal
+      # local Xcode install doesn't have at all - confirmed empirically:
+      # local dev only has XcodeDefault.xctoolchain, which bundles
+      # libswiftCompatibility56.a directly, so this is unreproducible
+      # locally no matter what the app's own code/deployment target looks
+      # like. Xcode auto-selects MetalToolchain whenever Metal/MetalKit
+      # are linked (which this app does), and MetalToolchain doesn't carry
+      # that legacy Swift 5.x back-deployment shim - which tauri's own
+      # bundled ios Swift packages (tauri core's `ios-api` Package.swift
+      # declares `.iOS(.v11)`, tauri-plugin-dialog/opener declare
+      # `.iOS(.v13)` - all independent of OUR deployment target) still
+      # force-link unconditionally, producing "ld: symbol(s) not found for
+      # architecture arm64" / "library not found for -lswiftCompatibility56".
+      # known, still-open upstream issue (tauri-apps/tauri#15066,
+      # actions/runner-images#13135). the community-reported
+      # `TOOLCHAINS=com.apple.dt.toolchain.XcodeDefault` env var fix does
+      # NOT work here - confirmed via an actual ci run that Xcode unions
+      # it with its own auto-detected Metal requirement rather than
+      # honoring it as an override (`TOOLCHAINS` resolved to
+      # "com.apple.dt.toolchain.Metal.NNNNN com.apple.dt.toolchain.
+      # XcodeDefault", Metal still first, so `TOOLCHAIN_DIR` still pointed
+      # at the broken path). fixed instead at the one place that actually
+      # mattered: `project.yml`'s own `LIBRARY_SEARCH_PATHS` setting
+      # (tauri's ios scaffolding's existing mechanism for finding swift
+      # back-deployment libs) hardcodes a path through `$(TOOLCHAIN_DIR)`,
+      # which inherits whatever broken toolchain Xcode auto-selected -
+      # repointed it at `$(DEVELOPER_DIR)/Toolchains/XcodeDefault.
+      # xctoolchain` directly instead, sidestepping Xcode's toolchain
+      # auto-selection entirely rather than trying to out-argue it.
 
       - name: resolve version
         id: meta
@@ -162,7 +167,7 @@ jobs:
       - name: require ios signing secrets
         if: env.APPLE_API_KEY == '' || env.APPLE_API_ISSUER == '' || env.APPLE_TEAM_ID == ''
         run: |
-          echo "::error::missing one or more of APPLE_TEAM_ID/ASC_KEY_ID/ASC_ISSUER_ID secrets (also need ASC_API_KEY_P8_BASE64, checked by the next step) - see docs/ios.md phase 5/6 for how to generate an App Store Connect API key. there's no ephemeral-signing fallback for ios (unlike android's job) - this is a hard requirement for a TestFlight-ready build."
+          echo "::error::missing one or more of APPLE_TEAM_ID/ASC_KEY_ID/ASC_ISSUER_ID secrets (also need ASC_API_KEY_P8_BASE64, checked by the next step). there's no ephemeral-signing fallback for ios (unlike android's job) - this is a hard requirement for a TestFlight-ready build."
           exit 1
 
       # decode the App Store Connect API key (.p8) to a file and point
@@ -245,22 +250,6 @@ jobs:
           make build-tauri-ios \
             IOS_EXPORT_METHOD=app-store-connect \
             IOS_BUILD_NUMBER=${{ github.run_number }}
-      # tauri-cli still unconditionally patches DEVELOPMENT_TEAM (from
-      # APPLE_TEAM_ID) even on this api-key path - CODE_SIGN_STYLE/
-      # CODE_SIGN_IDENTITY/PROVISIONING_PROFILE_SPECIFIER should now stay
-      # untouched (`manual_signing` is only true when the old
-      # IOS_CERTIFICATE/IOS_MOBILE_PROVISION env vars are set, which they
-      # no longer are), left at whatever's already committed (Automatic,
-      # no CODE_SIGN_STYLE at all) - Xcode resolves signing itself via
-      # `-allowProvisioningUpdates` + the api key instead. kept as a
-      # general diagnostic for if something in this area breaks again: if
-      # the build above fails, dump whatever's actually in the file as
-      # ground truth rather than guessing from the outside.
-      - name: dump actual pbxproj signing settings (only runs if the build above failed)
-        if: failure()
-        run: |
-          grep -n -A1 "CODE_SIGN_STYLE\|DEVELOPMENT_TEAM\|CODE_SIGN_IDENTITY\|PROVISIONING_PROFILE" \
-            client/charnel/src-tauri/gen/apple/charnel.xcodeproj/project.pbxproj || echo "none of these keys are present in project.pbxproj at all"
       - name: upload ipa as a workflow artifact
         uses: actions/upload-artifact@v4
         with:
@@ -302,9 +291,16 @@ jobs:
       # print "ERROR: ..." and still exit 0 (confirmed real: this exact
       # step reported success with a green checkmark despite altool
       # itself reporting "Cannot determine the Apple ID from Bundle ID"
-      # and uploading nothing at all). check its actual output for an
-      # ERROR line too, not just the exit code, so a silent failure like
-      # that can't pass as success again.
+      # and uploading nothing at all). check its actual output, not just
+      # the exit code, so a silent failure like that can't pass as
+      # success again - but check for the positive "UPLOAD SUCCEEDED"
+      # confirmation specifically, not merely the *absence* of any ERROR
+      # line: altool can hit a transient mid-upload hiccup (seen in
+      # practice: "received status code 500; internal server error"),
+      # retry, and still genuinely succeed afterward (its own "UPLOAD
+      # SUCCEEDED"/Delivery UUID/bytes-transferred confirmation) - a bare
+      # "does the output contain ERROR anywhere" check would wrongly fail
+      # that case even though the upload truly went through.
       - name: upload to testflight
         if: inputs.upload_to_testflight
         run: |
@@ -322,7 +318,7 @@ jobs:
             --apiKey "$APPLE_API_KEY" \
             --apiIssuer "$APPLE_API_ISSUER" 2>&1 | tee "$OUTPUT_FILE"
           STATUS=${PIPESTATUS[0]}
-          if [ "$STATUS" -ne 0 ] || grep -q "ERROR" "$OUTPUT_FILE"; then
-            echo "::error::altool reported a failure (exit $STATUS and/or an ERROR line in its own output above) - nothing was actually uploaded to testflight, regardless of what altool's own exit code says."
+          if [ "$STATUS" -ne 0 ] || ! grep -q "UPLOAD SUCCEEDED" "$OUTPUT_FILE"; then
+            echo "::error::altool reported a failure (exit $STATUS, and/or no explicit \"UPLOAD SUCCEEDED\" confirmation in its own output above) - nothing was actually uploaded to testflight, regardless of what altool's own exit code says."
             exit 1
           fi

@@ -837,6 +837,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
                             <input
                               id="knock-username"
                               type="text"
+                              value={getCurrentUser()?.username ?? ""}
                               placeholder="how should we address you?"
                               class="w-full px-2 py-1.5 bg-[var(--color-bg-primary)] border border-[var(--color-border-default)] rounded text-sm text-[var(--color-text-primary)] placeholder:text-[var(--color-text-tertiary)] focus:outline-none focus:ring-1 focus:ring-[var(--color-accent-primary)]"
                             />
@@ -1171,6 +1172,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
                       <Show when={!playerOnly() || !s.serverInfo?.player_device}>
                         <AuthForm
                           initialMode={s.peerAddr ? "register" : "login"}
+                          initialUsername={getCurrentUser()?.username ?? ""}
                           onSubmit={handleAuth}
                           onPasskeyClick={handlePasskeyAuth}
                           error={s.error || undefined}

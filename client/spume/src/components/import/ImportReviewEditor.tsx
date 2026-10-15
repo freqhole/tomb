@@ -261,6 +261,7 @@ export function ImportReviewEditor(props: ImportReviewEditorProps) {
       existingArtworkBlobId={props.album.artworkBlobId ?? null}
       existingArtworkServerId={props.album.remoteServerId ?? null}
       apiClient={reviewClient()}
+      reviewRemote={props.remote}
       onArtworkFilePicked={(file) => void handleArtworkFilePicked(file)}
       onImageUpload={(file) => void handleImageUpload(file)}
       onImageDelete={(index) => void handleImageDelete(index)}

@@ -299,6 +299,27 @@ body {
   -webkit-user-select: none;
 }
 
+/* useEdgeSwipeNavigation.ts toggles this class reactively to match the
+   edge_swipe_navigation_enabled setting (default off) - these rules only
+   apply while the feature is actually turned on, so a user who never
+   enables it sees zero behavior change here. needed because horizontal
+   touch movement would otherwise be claimed by the browser's own
+   built-in horizontal pan/overscroll-navigate gesture before it ever
+   reaches our pointer handlers - a real, common conflict for any page
+   implementing this itself, both trying to own the same physical
+   gesture. `pan-y` only claims horizontal for js; vertical scrolling is
+   untouched. safe even then: the few places that need real built-in
+   horizontal dragging (DraggableRow, WalkCanvas, QueueSidebar's drag
+   handle) already set their own `touch-action: none`, which wins over
+   this for their own hit area regardless. `overscroll-behavior-x` is
+   belt-and-suspenders for chromium/firefox's separate swipe-to-navigate
+   gesture (not universally honored by safari, hence still needing
+   touch-action too). */
+body.edge-swipe-nav-enabled {
+  touch-action: pan-y;
+  overscroll-behavior-x: none;
+}
+
 /* re-enable text selection inside opt-in regions (e.g. settings views) */
 [data-allow-select],
 [data-allow-select] * {
