@@ -23,4 +23,16 @@ export interface ShareTarget {
   artistName?: string;
   /** album name — used for song shares so recipient sees the album context. */
   albumName?: string;
+  /**
+   * video `content_type` ("series" | "movie" | "clip" | "karaoke" |
+   * "music_video" - see grimoire's `Video::content_type`). only
+   * meaningful for `kind: "video"`.
+   */
+  contentType?: string;
+  /**
+   * title of the series this video belongs to, when it's attached to one.
+   * only meaningful for `kind: "video"` - a `kind: "video_series"` share
+   * already carries the series' own title via `displayTitle`.
+   */
+  seriesTitle?: string;
 }

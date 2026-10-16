@@ -253,6 +253,18 @@ export interface SharedItemEntry {
   title?: string;
   source_node_id?: string;
   source_http_origin?: string;
+  /** display name of the remote this was shared from (the sharer's own
+   *  locally-cached label for it, not a canonical name - see
+   *  buildSharePayload.ts's doc comment). */
+  source_remote_name?: string;
+  artist_name?: string;
+  album_name?: string;
+  /** video content_type ("series"|"movie"|"clip"|"karaoke"|"music_video") -
+   *  only set for `kind: "video"`. */
+  content_type?: string;
+  /** title of the series this video belongs to, when attached to one -
+   *  only set for `kind: "video"`. */
+  series_title?: string;
   first_seen_at: number;
   last_seen_at: number;
   seen_count: number;

@@ -34,6 +34,48 @@ function kindLabel(kind: SharedItemEntry["kind"]): string {
   }
 }
 
+function contentTypeLabel(contentType?: string): string | undefined {
+  switch (contentType) {
+    case "music_video":
+      return "music video";
+    case "karaoke":
+      return "karaoke video";
+    case "movie":
+      return "movie";
+    case "clip":
+      return "clip";
+    default:
+      return undefined;
+  }
+}
+
+/** secondary detail line for a shared item's kind-specific context -
+ *  artist for an album, artist/album for a song, series/content-type/
+ *  artist for a video. undefined for kinds with nothing extra to show
+ *  (playlist/artist/radio_station/video_series - those already carry
+ *  everything relevant in `title`). */
+function detailLineFor(item: SharedItemEntry): string | undefined {
+  switch (item.kind) {
+    case "album":
+      return item.artist_name ? `by ${item.artist_name}` : undefined;
+    case "song":
+      return [item.artist_name, item.album_name].filter(Boolean).join(" — ") || undefined;
+    case "video": {
+      const parts: string[] = [];
+      if (item.series_title) {
+        parts.push(`episode of ${item.series_title}`);
+      } else {
+        const ct = contentTypeLabel(item.content_type);
+        if (ct) parts.push(ct);
+      }
+      if (item.artist_name) parts.push(item.artist_name);
+      return parts.length > 0 ? parts.join(" · ") : undefined;
+    }
+    default:
+      return undefined;
+  }
+}
+
 function formatRelative(ts: number): string {
   const deltaSec = Math.max(1, Math.floor((Date.now() - ts) / 1000));
   if (deltaSec < 60) return `${deltaSec}s ago`;
@@ -151,17 +193,24 @@ export function SharedItemsView() {
       parentId: item.parent_id,
       artistName: payload.a,
       albumName: payload.al,
+      contentType: payload.ct,
+      seriesTitle: payload.st,
     };
 
     const [source, setSource] = createSignal<Remote | null | undefined>(undefined);
     showShareModal({ target, source });
 
     void (async () => {
-      const remote = payload.s.n
-        ? await getRemoteByPeerAddr(payload.s.n)
-        : payload.s.h
-          ? await getRemoteByUrl(payload.s.h)
-          : null;
+      // same local-node-id check as openRemoteItem/ResolveShareModal above -
+      // the local charnel-managed remote has no peer_addr row to match.
+      const remote =
+        payload.s.n && payload.s.n === getLocalNodeId()
+          ? await getTauriManagedRemote()
+          : payload.s.n
+            ? await getRemoteByPeerAddr(payload.s.n)
+            : payload.s.h
+              ? await getRemoteByUrl(payload.s.h)
+              : null;
       setSource(remote ?? null);
     })();
   };
@@ -208,9 +257,16 @@ export function SharedItemsView() {
                         {kindLabel(item.kind)} · seen {item.seen_count}x ·{" "}
                         {formatRelative(item.last_seen_at)}
                       </div>
-                      {/* <div class="text-xs text-[var(--color-text-tertiary)] mt-1 truncate">
-                        source {item.source_node_id || item.source_http_origin || "unknown"}
-                      </div> */}
+                      <Show when={detailLineFor(item)}>
+                        <div class="text-xs text-[var(--color-text-tertiary)] mt-0.5 truncate">
+                          {detailLineFor(item)}
+                        </div>
+                      </Show>
+                      <Show when={item.source_remote_name}>
+                        <div class="text-xs text-[var(--color-text-tertiary)] mt-0.5 truncate">
+                          from {item.source_remote_name}
+                        </div>
+                      </Show>
                     </div>
                     <div class="flex items-center gap-1 flex-shrink-0">
                       <button

@@ -30,6 +30,11 @@ describe("getShareWebHost", () => {
     expect(getShareWebHost()).toBe("https://music.example.com");
   });
 
+  it("falls back to DEFAULT_SHARE_WEB_HOST when visiting the canonical spume host directly - it has no preview subdomain of its own, unlike a self-hosted instance", () => {
+    stubOrigin("https://spume.freqhole.net");
+    expect(getShareWebHost()).toBe(DEFAULT_SHARE_WEB_HOST);
+  });
+
   it("falls back for tauri's custom-scheme origin (macos/ios/linux)", () => {
     stubOrigin("tauri://localhost");
     expect(getShareWebHost()).toBe(DEFAULT_SHARE_WEB_HOST);

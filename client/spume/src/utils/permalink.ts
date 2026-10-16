@@ -86,6 +86,26 @@ export interface SharePayloadV1 {
   a?: string;
   /** optional album name — not trusted, display only. for song shares. */
   al?: string;
+  /**
+   * display name of the remote the sharer resolved this content from -
+   * the sharer's own locally-cached label for it, not a canonical name
+   * (remote names are per-user address-book entries). shown in link
+   * previews + the "shared with you" view so a recipient has context for
+   * where something came from.
+   */
+  rn?: string;
+  /**
+   * video `content_type` ("series" | "movie" | "clip" | "karaoke" |
+   * "music_video" - see grimoire's `Video::content_type`). only set for
+   * `k: "video"`.
+   */
+  ct?: string;
+  /**
+   * title of the series a shared video belongs to, when it's attached to
+   * one. only set for `k: "video"` - a `k: "video_series"` share already
+   * carries the series' own title via `t`.
+   */
+  st?: string;
 }
 
 export interface ShareUrls {
@@ -96,15 +116,40 @@ export interface ShareUrls {
 /** query param name used inside the hash for web share urls. */
 export const SHARE_HASH_PARAM = "share";
 
-/** default web mirror host for share urls. overridable via `buildShareUrls(p, host)`. */
-export const DEFAULT_SHARE_WEB_HOST = "https://spume.freqhole.net";
+/**
+ * default web mirror host for share urls - a dedicated link-preview +
+ * redirect subdomain (see client/share-preview/functions/index.ts), not
+ * spume.freqhole.net itself. spume.freqhole.net is a large SPA with lots
+ * of static sub-resources, which makes a cloudflare pages function there
+ * awkward: `functions/` only auto-deploys when it sits at the project's
+ * configured root directory (pinned to the repo root for spume's own
+ * npm-workspace-style build command), and the alternative ("advanced
+ * mode" `_worker.js`) routes every request - including every JS/CSS/image
+ * sub-resource - through a function, with no clear way to exclude static
+ * assets from that. a dedicated subdomain with no static asset tree of
+ * consequence sidesteps the whole problem. overridable via
+ * `buildShareUrls(p, host)`.
+ */
+export const DEFAULT_SHARE_WEB_HOST = "https://share.freqhole.net";
+
+/** the canonical freqhole-hosted spume origin - NOT a self-hosted
+ *  deployment's own domain. used by `getShareWebHost()` below to tell
+ *  "this is literally spume.freqhole.net itself" apart from "this is some
+ *  self-hoster's own domain" - only the former should redirect share urls
+ *  to `DEFAULT_SHARE_WEB_HOST` instead of its own origin, since a
+ *  self-hosted instance has no `share.*` preview subdomain of its own. */
+const CANONICAL_SPUME_ORIGIN = "https://spume.freqhole.net";
 
 /**
  * returns the best available web host for share urls.
- * uses the current page origin when it's http(s) (i.e. the app is being
- * served from a real web server or a self-hosted instance). falls back to
- * the canonical spume.freqhole.net host when running inside tauri
- * (origin is `tauri://localhost` or similar) or any other non-http(s) context.
+ * uses the current page origin when it's http(s) AND isn't the canonical
+ * freqhole-hosted spume origin (i.e. a self-hosted instance, served from
+ * its own domain - there's no `share.*` preview subdomain for those, so
+ * their own origin is the best available host). falls back to
+ * `DEFAULT_SHARE_WEB_HOST` (the dedicated preview subdomain) when running
+ * inside tauri (origin is `tauri://localhost` or similar), when visiting
+ * spume.freqhole.net itself directly in a browser, or in any other
+ * non-http(s) context.
  *
  * tauri's internal webview origin isn't always non-http(s): macOS/iOS/Linux
  * use the custom `tauri://localhost` scheme (caught by the scheme check
@@ -119,6 +164,7 @@ export function getShareWebHost(): string {
   try {
     const origin = window.location.origin;
     if (isCharnelMode()) return DEFAULT_SHARE_WEB_HOST;
+    if (origin === CANONICAL_SPUME_ORIGIN) return DEFAULT_SHARE_WEB_HOST;
 
     let hostname = "";
     try {
@@ -158,6 +204,9 @@ function toEntityPayload(p: SharePayloadV1): EntitySharePayload {
     title: p.t,
     artist: p.a,
     album: p.al,
+    remoteName: p.rn,
+    contentType: p.ct,
+    seriesTitle: p.st,
   };
 }
 
@@ -171,6 +220,9 @@ function fromEntityPayload(e: EntitySharePayload): SharePayloadV1 {
     t: e.title,
     a: e.artist,
     al: e.album,
+    rn: e.remoteName,
+    ct: e.contentType,
+    st: e.seriesTitle,
   };
 }
 
@@ -209,11 +261,12 @@ export function decodeShareToken(token: string): SharePayloadV1 {
  * build share urls from a payload. the token lives in a real top-level
  * query parameter (`?share=...`), not the hash fragment - the fragment
  * portion of a url is never sent to the server at all (basic http/browser
- * behavior), so a server-side (or cloudflare pages function) can't ever
- * read it to render a nicer link preview. putting it here instead lets
- * spume.freqhole.net's `functions/_middleware.ts` see it and rewrite
- * og:title/og:description for crawlers (slack/discord/imessage/etc.)
- * before this app's own js ever runs - see that file's own doc comment.
+ * behavior), so a server-side function can't ever read it to render a
+ * nicer link preview. putting it here instead lets `share.freqhole.net`
+ * (see client/share-preview/functions/index.ts) see it and render a
+ * per-item preview for crawlers (slack/discord/imessage/etc.) - that's a
+ * dedicated subdomain, not spume.freqhole.net itself (see
+ * `DEFAULT_SHARE_WEB_HOST`'s own doc comment for why).
  *
  * `#` is appended with nothing after it so spume's own HashRouter still
  * sees a (trivially empty, same as a bare visit to the site root) hash to

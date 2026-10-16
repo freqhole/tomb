@@ -165,14 +165,21 @@ jobs:
         working-directory: client/spume
         run: npm run typecheck
 
-      # the cloudflare pages function (functions/_middleware.ts) runs on
-      # workerd, not a browser - its own tsconfig has no dom lib and needs
-      # @cloudflare/workers-types instead, so it's deliberately excluded
-      # from the main tsconfig's `include` (see functions/tsconfig.json's
-      # own comment) and checked separately here.
-      - name: typecheck (pages function)
-        working-directory: client/spume
-        run: npm run typecheck:functions
+      # share.freqhole.net - a separate, dedicated cloudflare pages
+      # project for share-link previews (see client/share-preview/
+      # functions/index.ts's doc comment for why it's a separate project
+      # from spume.freqhole.net, which has no cloudflare pages function of
+      # its own anymore). own package.json/tsconfig - its one function
+      # runs on workerd, not a browser, and needs @cloudflare/workers-types
+      # instead of a dom lib, so it's checked separately here rather than
+      # merged into the main tsconfig (see its own tsconfig.json comment).
+      - name: install share-preview deps
+        working-directory: client/share-preview
+        run: npm ci
+
+      - name: typecheck (share-preview)
+        working-directory: client/share-preview
+        run: npm run typecheck
 
       - name: unit tests
         working-directory: client/spume

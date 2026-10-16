@@ -294,6 +294,12 @@ function ShareEntityInfo(props: { payload: SharePayloadV1 }) {
           {p().a}
         </p>
       </Show>
+      <Show when={p().k === "video" && p().st}>
+        <p class="text-sm text-[var(--color-text-tertiary)]">episode of {p().st}</p>
+      </Show>
+      <Show when={p().rn}>
+        <p class="text-xs text-[var(--color-text-tertiary)]">from {p().rn}</p>
+      </Show>
     </div>
   );
 }

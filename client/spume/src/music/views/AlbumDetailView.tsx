@@ -753,6 +753,7 @@ export function AlbumDetailView() {
                       kind: "album",
                       id: albumInfo()?.album_id ?? params.id,
                       displayTitle: albumInfo()?.title ?? "",
+                      artistName: displayArtistName() || undefined,
                     }}
                     source={() => currentRemoteFull()}
                     buildSendPayload={buildSendPayload}

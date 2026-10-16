@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>freqhole</title>
+
+    <!-- static fallback only - normally every request to this project is
+         served by functions/index.ts instead (it owns the "/" route
+         outright, per cloudflare pages' file-based routing: a matched
+         function always wins over a static file at the same path). this
+         exists purely as a safety net (e.g. if the function ever throws
+         unhandled) and so the build output directory isn't empty. -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="freqhole" />
+    <meta property="og:title" content="freqhole" />
+    <meta property="og:description" content="self-hosted music + video library" />
+    <meta name="description" content="self-hosted music + video library" />
+    <meta property="og:image" content="https://share.freqhole.net/freqhole.png" />
+    <meta name="twitter:card" content="summary" />
+    <link rel="icon" type="image/png" href="/freqhole.png" />
+    <meta name="robots" content="noindex" />
+  </head>
+  <body style="font-family: system-ui, -apple-system, sans-serif; background: #0a0a0a; color: #f5f5f5; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0;">
+    <div style="text-align: center; padding: 2rem; max-width: 28rem;">
+      <img src="/freqhole.png" alt="" width="64" height="64" style="margin-bottom: 1rem; border-radius: 12px;" />
+      <h1 style="font-size: 1.1rem; margin: 0 0 0.5rem;">freqhole</h1>
+      <p style="opacity: 0.7; margin: 0 0 1.5rem;">self-hosted music + video library</p>
+      <a
+        href="https://spume.freqhole.net/"
+        style="display: inline-block; padding: 0.6rem 1.2rem; background: #d946ef; color: #fff; border-radius: 8px; text-decoration: none; font-weight: 600;"
+        >open in freqhole</a
+      >
+    </div>
+  </body>
+</html>
