@@ -24,7 +24,10 @@ pub use cleanup::{
     can_delete_media_blob, delete_media_blob_if_unused, find_media_blob_references,
     MediaBlobReferences,
 };
-pub use models::{BlobEntityMatch, BlobMetadataResponse, BlobType, CreateMediaBlobRequest, MediaBlob};
+pub use models::{
+    BlobEntityMatch, BlobMetadataResponse, BlobType, CreateMediaBlobRequest, MediaBlob,
+};
+
 // dual-write mirror into reliquary's blob store: crate-internal only, not
 // part of this module's public api. only the functions needed by sibling
 // modules (the music scanner, upload job processors, orphan cleanup) are
