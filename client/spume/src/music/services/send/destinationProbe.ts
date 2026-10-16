@@ -9,7 +9,7 @@
 // to "unknown" rather than blocking the send.
 
 import { createResource, type Accessor } from "solid-js";
-import { schema } from "@freqhole/api-client";
+import { schema, type BlobEntityMatch } from "@freqhole/api-client";
 import { getTransportForRemote } from "../../../app/api/client";
 import { findExistingSongByContentHash } from "../../services/storage/db/songs";
 import { debug } from "../../../utils/logger";
@@ -37,6 +37,11 @@ export interface BlobPresence {
   presentCount: number;
   /** the blake3s that are already there (subset of the input). */
   presentSet: Set<string>;
+  /** entity ids (song/album/video/video_series) the destination resolves
+   *  each present blake3 to - used by the permalink picker to build a
+   *  share link with the destination's *own* ids instead of the source's
+   *  (see permalinkCandidates.ts). empty for callers that don't need it. */
+  entities: BlobEntityMatch[];
   /** populated when the probe failed. counts will be zero. */
   error?: string;
 }
@@ -46,6 +51,7 @@ const EMPTY: BlobPresence = {
   totalChecked: 0,
   presentCount: 0,
   presentSet: new Set<string>(),
+  entities: [],
 };
 
 /**
@@ -97,6 +103,7 @@ export function createBlobPresenceProbe(
               totalChecked: blake3s.length,
               presentCount: set.size,
               presentSet: set,
+              entities: parsed.data.entities ?? [],
             };
           }
           debug(
@@ -169,6 +176,7 @@ export function createLocalBlobPresenceProbe(
           totalChecked: input.length,
           presentCount: present.size,
           presentSet: present,
+          entities: [],
         };
       } catch (e) {
         debug("destinationProbe", `local idb probe threw:`, e);

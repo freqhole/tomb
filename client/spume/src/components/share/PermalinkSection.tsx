@@ -40,6 +40,7 @@ function candidateOptionLabel(c: PermalinkCandidate): string {
 export const PermalinkSection: Component<PermalinkSectionProps> = (props) => {
   const { candidates, loading } = createPermalinkCandidates({
     source: () => props.source,
+    targetKind: props.target.kind,
     buildPayload: props.buildSendPayload ? () => props.buildSendPayload!() : undefined,
   });
 
@@ -72,7 +73,13 @@ export const PermalinkSection: Component<PermalinkSectionProps> = (props) => {
       const c = selected();
       if (!c) return null;
       try {
-        const payload = buildSharePayload(props.target, c.remote);
+        // non-source candidates carry this remote's own id for the shared
+        // entity (and, for songs, its own parent album id) - target.id
+        // is only ever valid on the source remote (see permalinkCandidates.ts).
+        const target = c.resolvedTarget
+          ? { ...props.target, id: c.resolvedTarget.id, parentId: c.resolvedTarget.parentId }
+          : props.target;
+        const payload = buildSharePayload(target, c.remote);
         return { ok: true, webUrl: buildShareUrls(payload, props.webHost).webUrl };
       } catch (e) {
         return { ok: false, error: e instanceof Error ? e.message : String(e) };

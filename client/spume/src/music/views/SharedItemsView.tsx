@@ -1,10 +1,20 @@
 import { useNavigate } from "@solidjs/router";
-import { createEffect, createResource, For, onMount, Show } from "solid-js";
+import { createEffect, createResource, createSignal, For, onMount, Show } from "solid-js";
 import { Icon } from "../../components/icons/registry";
-import { getAllRemotes, getRemoteByPeerAddr } from "../../app/services/remotes/remoteManager";
+import {
+  getAllRemotes,
+  getRemoteByPeerAddr,
+  getRemoteByUrl,
+  getTauriManagedRemote,
+} from "../../app/services/remotes/remoteManager";
 import { getDefaultRoute } from "../utils/routing";
 import { setHighlightedSongId } from "../state/highlightedSong";
 import { startSharedRadioStation } from "../../components/share/startSharedRadioStation";
+import { getLocalNodeId } from "../../app/services/charnel";
+import { showShareModal } from "../hooks/modals";
+import { decodeShareToken } from "../../utils/permalink";
+import type { ShareTarget } from "../../components/share/types";
+import type { Remote } from "../../app/services/storage/schemas/remote";
 import {
   clearSharedItems,
   deleteSharedItem,
@@ -82,7 +92,16 @@ export function SharedItemsView() {
       return;
     }
 
-    const remote = await getRemoteByPeerAddr(item.source_node_id);
+    // the share might point at our OWN local node (e.g. you shared
+    // something from your own local library) - the local charnel-managed
+    // remote has no peer_addr row to match against (it's not a "remote"
+    // from its own point of view), so getRemoteByPeerAddr can never find
+    // it. check that case first instead of falling through to the
+    // "unresolved" openShare path (same fix as ResolveShareModal.tsx).
+    const remote =
+      item.source_node_id === getLocalNodeId()
+        ? await getTauriManagedRemote()
+        : await getRemoteByPeerAddr(item.source_node_id);
     if (!remote) {
       openShare(item.token);
       return;
@@ -102,6 +121,49 @@ export function SharedItemsView() {
       // no toast for copy failures/successes here - copy actions stay silent
       console.error("copy share url to clipboard failed:", e);
     }
+  };
+
+  // re-open the share modal for a received item - the stored token already
+  // IS a valid `SharePayloadV1`, so decode it straight back into a
+  // `ShareTarget` instead of re-deriving one piecemeal from the (lossier -
+  // no artist/album name) `SharedItemEntry` row fields. source resolves
+  // async (peer_addr/base_url -> a connected Remote, same lookups
+  // `openRemoteItem` already does above) - the modal renders its own
+  // "source remote unavailable" fallback while `source` is still
+  // undefined/resolves to null, same as any other ShareButton caller.
+  const openShareModalFor = (item: SharedItemEntry) => {
+    let payload: ReturnType<typeof decodeShareToken>;
+    try {
+      payload = decodeShareToken(item.token);
+    } catch (e) {
+      // a stored token should always decode (we only ever persist tokens we
+      // ourselves successfully decoded on receipt) - fall back to the old
+      // silent-copy behavior rather than doing nothing at all.
+      console.error("failed to decode stored share token:", e);
+      void copyShare(item.token);
+      return;
+    }
+
+    const target: ShareTarget = {
+      kind: item.kind,
+      id: item.entity_id,
+      displayTitle: payload.t ?? item.title ?? item.entity_id,
+      parentId: item.parent_id,
+      artistName: payload.a,
+      albumName: payload.al,
+    };
+
+    const [source, setSource] = createSignal<Remote | null | undefined>(undefined);
+    showShareModal({ target, source });
+
+    void (async () => {
+      const remote = payload.s.n
+        ? await getRemoteByPeerAddr(payload.s.n)
+        : payload.s.h
+          ? await getRemoteByUrl(payload.s.h)
+          : null;
+      setSource(remote ?? null);
+    })();
   };
 
   return (
@@ -177,9 +239,9 @@ export function SharedItemsView() {
                       <button
                         type="button"
                         class="p-2 rounded hover:bg-[var(--color-bg-hover)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
-                        onClick={() => void copyShare(item.token)}
-                        title="copy share url"
-                        aria-label="copy share url"
+                        onClick={() => openShareModalFor(item)}
+                        title="share"
+                        aria-label="share"
                       >
                         <Icon name="share" size={16} />
                       </button>

@@ -120,6 +120,30 @@ pub struct BlobMetadataResponse {
     pub blake3: Option<String>,
 }
 
+/// resolves a present blake3 hash (from `/api/blobz/has`) to the local entity
+/// ids that contain it, so a client building a cross-remote share link can
+/// learn the *target* remote's own id for an entity instead of reusing the
+/// id from wherever it's currently viewing the content (which only happens
+/// to be valid on the source remote).
+///
+/// a given blake3 matches at most one of the song/video pairs, since songs
+/// and videos are distinct content types - `album_id`/`video_series_id` are
+/// only ever populated alongside their respective `song_id`/`video_id`.
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct BlobEntityMatch {
+    pub blake3: String,
+    /// the song whose media blob has this blake3, if any.
+    pub song_id: Option<String>,
+    /// an album containing `song_id` (first match - a song could theoretically
+    /// belong to more than one album, but that's rare enough to not need
+    /// surfacing all of them here).
+    pub album_id: Option<String>,
+    /// the video whose media blob has this blake3, if any.
+    pub video_id: Option<String>,
+    /// `video_id`'s series, if it belongs to one.
+    pub video_series_id: Option<String>,
+}
+
 impl From<MediaBlob> for BlobMetadataResponse {
     fn from(blob: MediaBlob) -> Self {
         Self {

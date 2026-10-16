@@ -142,7 +142,8 @@ pub mod type_registry {
 
     // music types
     use crate::media_blobz::{
-        AtlasEntry, AtlasManifest, BlobMetadataResponse, BuildAtlasRequest, MediaBlob,
+        AtlasEntry, AtlasManifest, BlobEntityMatch, BlobMetadataResponse, BuildAtlasRequest,
+        MediaBlob,
     };
     use crate::music::crud::{
         AlbumQueryResult, AlbumStatusCounts, AlbumsQueryResult, ArtistQueryResult,
@@ -1744,6 +1745,9 @@ pub mod type_registry {
 
         gen.add_schema::<HasBlobsRequest>("HasBlobsRequest");
         registered.insert("HasBlobsRequest".to_string());
+        // BlobEntityMatch is nested inside HasBlobsResponse - must register first.
+        gen.add_schema::<BlobEntityMatch>("BlobEntityMatch");
+        registered.insert("BlobEntityMatch".to_string());
         gen.add_schema::<HasBlobsResponse>("HasBlobsResponse");
         registered.insert("HasBlobsResponse".to_string());
 

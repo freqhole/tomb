@@ -1334,6 +1334,15 @@ export type BioProposal = z.infer<typeof BioProposalSchema>;
 export const BioSourceSchema = z.union([z.literal("user"), z.literal("lastfm"), z.literal("audiodb")]);
 export type BioSource = z.infer<typeof BioSourceSchema>;
 
+export const BlobEntityMatchSchema = z.object({
+  blake3: z.string(),
+  song_id: z.string().nullish(),
+  album_id: z.string().nullish(),
+  video_id: z.string().nullish(),
+  video_series_id: z.string().nullish()
+});
+export type BlobEntityMatch = z.infer<typeof BlobEntityMatchSchema>;
+
 export const BlobMetadataResponseSchema = z.object({
   id: z.string(),
   size: z.number().nullish(),
@@ -3123,7 +3132,14 @@ export type HasBlobsRequest = z.infer<typeof HasBlobsRequestSchema>;
 
 export const HasBlobsResponseSchema = z.object({
   blake3s_present: z.array(z.string()),
-  blake3s_missing: z.array(z.string())
+  blake3s_missing: z.array(z.string()),
+  entities: z.array(z.object({
+  blake3: z.string(),
+  song_id: z.string().nullish(),
+  album_id: z.string().nullish(),
+  video_id: z.string().nullish(),
+  video_series_id: z.string().nullish()
+})).nullish()
 });
 export type HasBlobsResponse = z.infer<typeof HasBlobsResponseSchema>;
 
