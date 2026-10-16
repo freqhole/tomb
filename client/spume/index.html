@@ -19,6 +19,21 @@
 
     <title>freqhole</title>
 
+    <!-- og/twitter preview tags - static defaults. spume.freqhole.net's
+         cloudflare pages function (functions/_middleware.ts) rewrites
+         og:title/og:description/<title> for share links (?share=<token>)
+         to describe the actual shared item - og:image stays this fixed
+         logo everywhere, per-share artwork isn't embedded in share
+         tokens (see permalinkCandidates.ts's doc comment for why share
+         links avoid fetching anything at request time). -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="freqhole" />
+    <meta property="og:title" content="freqhole" />
+    <meta property="og:description" content="self-hosted music + video library" />
+    <meta name="description" content="self-hosted music + video library" />
+    <meta property="og:image" content="/freqhole.png" />
+    <meta name="twitter:card" content="summary" />
+
     <script>
       (function () {
         // a stale index.html (served from a browser/sw cache, or from a

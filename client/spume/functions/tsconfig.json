@@ -1,0 +1,24 @@
+{
+  // scoped tsconfig for cloudflare pages functions (workerd runtime, not a
+  // browser) - deliberately separate from the main ../tsconfig.json, whose
+  // `include` only covers src/**, stories/**, .storybook/** and so never
+  // picks this directory up at all. keeping it that way (rather than
+  // merging workers-types into the main config) avoids a real type
+  // conflict: workers-types' Response/Request/fetch shapes differ from
+  // dom lib's, and loading both globally in one program is not supported.
+  // checked via `npm run typecheck:functions` (see package.json), not the
+  // main `npm run typecheck`.
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ESNext"],
+    "types": ["@cloudflare/workers-types"],
+    "skipLibCheck": true,
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noEmit": true
+  },
+  "include": ["**/*.ts"]
+}

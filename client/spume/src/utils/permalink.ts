@@ -2,15 +2,29 @@
 //
 // url shape (see docs/SEND_TO_REMOTE_PLAN.md):
 //   freqhole://o/<base64url(payload)>
-//   https://<webHost>/#?share=<base64url(payload)>
+//   https://<webHost>/?share=<base64url(payload)>#
 //
-// the web form lives in the url hash because spume uses `HashRouter` —
-// putting it on the path would 404 on static hosting, and it would also
-// collide with the `/:remoteId` dynamic route (a bare `#share/<token>`
-// fragment, the shape other freqhole apps use, matches that route and
-// triggers a real "remote not found" navigation before this file's own
-// hashchange listener gets a chance to look at it). it sits as a query
-// inside the hash instead so it can overlay any existing route.
+// the web form's token lives in a real top-level query parameter, not the
+// url hash - a url's fragment is never sent to the server at all (basic
+// http/browser behavior), so nothing server-side (including a cloudflare
+// pages function) can ever read it to render a nicer link preview for
+// crawlers. the trailing bare `#` is just spume's own HashRouter getting
+// its usual (here, trivially empty) hash to parse - same as a plain visit
+// to the site root, no new route-handling needed.
+//
+// this used to put the token inside the hash instead (`#?share=...`), to
+// dodge two static-hosting-specific hazards a real path segment would hit
+// (404 on a host with no spa-fallback rewrite, and colliding with the
+// `/:remoteId` dynamic route - a bare `#share/<token>` fragment, the
+// shape other freqhole apps use, matches that route and triggers a real
+// "remote not found" navigation before this file's own hashchange
+// listener gets a chance to look at it). a real query param dodges both
+// of those the same way the hash did (it's not a path segment, and it
+// sits before any route-matching happens) while actually reaching the
+// server - so there was no real tradeoff once link-preview rendering
+// came up as a reason to want that. `extractShareTokenFromHash` still
+// decodes the old `#?share=...` shape forever, for any link already
+// shared before this change.
 //
 // the token itself is just spume's own field names (`v`/`s`/`k`/`i`/...)
 // over haruspex's shared `@freqhole/haruspex/share` codec (its legacy v1
@@ -191,22 +205,51 @@ export function decodeShareToken(token: string): SharePayloadV1 {
   return out;
 }
 
-/** build share urls from a payload. */
+/**
+ * build share urls from a payload. the token lives in a real top-level
+ * query parameter (`?share=...`), not the hash fragment - the fragment
+ * portion of a url is never sent to the server at all (basic http/browser
+ * behavior), so a server-side (or cloudflare pages function) can't ever
+ * read it to render a nicer link preview. putting it here instead lets
+ * spume.freqhole.net's `functions/_middleware.ts` see it and rewrite
+ * og:title/og:description for crawlers (slack/discord/imessage/etc.)
+ * before this app's own js ever runs - see that file's own doc comment.
+ *
+ * `#` is appended with nothing after it so spume's own HashRouter still
+ * sees a (trivially empty, same as a bare visit to the site root) hash to
+ * parse - matches this app's existing behavior for a plain root visit,
+ * no new route-handling needed. the previous `#?share=...` shape is still
+ * decoded by `extractShareTokenFromHash` for any link already shared
+ * before this change - those just never get a dynamic preview, since the
+ * fragment they're stuck with genuinely can't reach a server after the
+ * fact.
+ */
 export function buildShareUrls(p: SharePayloadV1, webHost: string = getShareWebHost()): ShareUrls {
   const token = encodeShareToken(p);
   const host = webHost.replace(/\/+$/, "");
   return {
-    webUrl: `${host}/#?${SHARE_HASH_PARAM}=${token}`,
+    webUrl: `${host}/?${SHARE_HASH_PARAM}=${token}#`,
   };
 }
 
 /**
+ * extract a share token from a real query string (e.g.
+ * `window.location.search`) - the current shape `buildShareUrls` emits
+ * (see its doc comment for why the token moved here from the hash).
+ */
+export function extractShareTokenFromSearch(search: string): string | null {
+  if (!search) return null;
+  const stripped = search.startsWith("?") ? search.slice(1) : search;
+  return new URLSearchParams(stripped).get(SHARE_HASH_PARAM);
+}
+
+/**
  * extract a share token from a hash string (e.g. `window.location.hash`).
- * accepts spume's own `#?share=...` / `#/whatever?share=...` shapes (still
- * how spume embeds its own links in a url — see `buildShareUrls`, which
- * deliberately avoids the bare `#share/<token>` fragment other freqhole
- * apps use, since that would collide with spume's `/:remoteId` hash
- * route), and falls back to haruspex's `#share/<token>`/`share/<token>`
+ * accepts spume's own legacy `#?share=...` / `#/whatever?share=...`
+ * shapes (links shared before `buildShareUrls` moved the token to a real
+ * query param - see that function's doc comment - still need to keep
+ * decoding here forever, since a link already out in the wild can't be
+ * un-shared), and falls back to haruspex's `#share/<token>`/`share/<token>`
  * fragment shape for a link generated by one of those other apps.
  */
 export function extractShareTokenFromHash(hash: string): string | null {

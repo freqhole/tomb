@@ -165,6 +165,15 @@ jobs:
         working-directory: client/spume
         run: npm run typecheck
 
+      # the cloudflare pages function (functions/_middleware.ts) runs on
+      # workerd, not a browser - its own tsconfig has no dom lib and needs
+      # @cloudflare/workers-types instead, so it's deliberately excluded
+      # from the main tsconfig's `include` (see functions/tsconfig.json's
+      # own comment) and checked separately here.
+      - name: typecheck (pages function)
+        working-directory: client/spume
+        run: npm run typecheck:functions
+
       - name: unit tests
         working-directory: client/spume
         run: npm test

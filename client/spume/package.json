@@ -10,6 +10,7 @@
     "storybook": "storybook dev -p 6006",
     "build-storybook": "storybook build",
     "typecheck": "tsc --noEmit",
+    "typecheck:functions": "tsc --noEmit -p functions/tsconfig.json",
     "test": "vitest run --project unit",
     "lint": "eslint src --ext .ts,.tsx",
     "lint:fix": "eslint src --ext .ts,.tsx --fix",
@@ -37,6 +38,7 @@
   },
   "devDependencies": {
     "@chromatic-com/storybook": "^5.0.1",
+    "@cloudflare/workers-types": "^5.20261016.1",
     "@emnapi/core": "^1.11.3",
     "@emnapi/runtime": "^1.11.3",
     "@kobalte/core": "^0.13.11",
