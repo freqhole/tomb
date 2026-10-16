@@ -75,6 +75,13 @@ export function Select(props: SelectProps) {
           `}
           disabled={local.disabled}
           {...rest}
+          // fight webkit's select styles ;(
+          style={{
+            "-webkit-appearance": "none",
+            "-moz-appearance": "none",
+            appearance: "none",
+            "background-image": "none",
+          }}
         >
           <Show when={local.placeholder}>
             <option value="" disabled selected>
