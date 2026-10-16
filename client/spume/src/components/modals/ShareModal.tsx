@@ -2,9 +2,11 @@
 //
 // composes two child sections:
 //   - <PermalinkSection /> — renders the https://spume.freqhole.net share url
-//     with a copy button. hidden for a local-library source on android/web
-//     (see `canPermalinkLocalLibrary` below) since neither platform keeps its
-//     local iroh endpoint reliably reachable for an inbound connection.
+//     with a copy button, picking (and letting the user re-pick, when more
+//     than one option exists) whichever remote's node id is actually safe
+//     to embed - see permalinkCandidates.ts's doc comment for the full
+//     local-library-reachability + other-remotes-with-the-content
+//     reasoning. renders nothing at all once that resolves to zero options.
 //   - <SendToRemoteSection /> — hidden when no eligible destinations or source
 //     is not p2p.
 //
@@ -18,20 +20,6 @@ import { SendToRemoteSection } from "../share/SendToRemoteSection";
 import type { ShareTarget } from "../share/types";
 import type { Remote } from "../../app/services/storage/schemas/remote";
 import type { SendToRemotePayload } from "../share/SendToRemoteSection";
-import { isCharnelMode, isAndroidTauri } from "../../app/services/charnel";
-import { isLocalBrowserSourceRemote } from "../../music/services/send/localBrowserSource";
-
-/** true only for desktop charnel, the one platform whose local-library
- * iroh endpoint stays reliably reachable for an inbound connection —
- * android tauri (backgrounded often) and a plain browser tab (also not
- * long-lived, see `isLocalBrowserSourceRemote`) can't honor a permalink
- * pointing at their own local library, so those get send-to-remote only -
- * this is purely a permalink-visibility gate, unrelated to whether
- * send-to-remote itself works for local content (it does, see
- * SendToRemoteSection). */
-function canPermalinkLocalLibrary(): boolean {
-  return isCharnelMode() && !isAndroidTauri();
-}
 
 export interface ShareModalProps {
   isOpen: boolean;
@@ -43,7 +31,9 @@ export interface ShareModalProps {
    * lazily build the send-to-remote payload. may return a promise so
    * context-menu shares can defer fetching the song list until the
    * modal opens. omit entirely for share targets that don't support
-   * send-to (e.g. artists) — the section will hide.
+   * send-to (e.g. artists) — the section will hide, and PermalinkSection
+   * falls back to its simpler source-only behavior (see
+   * permalinkCandidates.ts).
    */
   buildSendPayload?: () => SendToRemotePayload | Promise<SendToRemotePayload>;
   /** override the default web mirror host. */
@@ -70,14 +60,12 @@ export const ShareModal: Component<ShareModalProps> = (props) => {
         >
           {(src) => (
             <>
-              <Show
-                when={
-                  (!src().is_charnel_managed && !isLocalBrowserSourceRemote(src())) ||
-                  canPermalinkLocalLibrary()
-                }
-              >
-                <PermalinkSection target={props.target} source={src()} webHost={props.webHost} />
-              </Show>
+              <PermalinkSection
+                target={props.target}
+                source={src()}
+                buildSendPayload={props.buildSendPayload}
+                webHost={props.webHost}
+              />
               <Show when={props.buildSendPayload}>
                 <div class="border-t border-[var(--color-border-default)] pt-6">
                   <SendToRemoteSection source={src()} buildPayload={props.buildSendPayload!} />

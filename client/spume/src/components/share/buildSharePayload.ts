@@ -8,6 +8,13 @@
 //     the same charnel binary runs an iroh endpoint, so we synthesize `s.n`
 //     from the locally-cached node id (populated on app startup).
 //
+// also always embeds `rn` (the source remote's own display name, e.g.
+// "freqraid" or "local library") - this is the SHARER's own locally-cached
+// label for the remote, not a canonical/global name (two different users
+// can call the same remote something different), but it's the only name
+// available without an extra round-trip and is good enough for "shared
+// from <rn>" display purposes in link previews + the "shared with you" view.
+//
 // throws if the source has no usable identity.
 
 import type { Remote } from "../../app/services/storage/schemas/remote";
@@ -65,5 +72,11 @@ export function buildSharePayload(
     t: target.displayTitle || undefined,
     a: target.artistName || undefined,
     al: target.albumName || undefined,
+    rn: source.name || undefined,
+    // content_type/series title are only meaningful for a standalone
+    // video - a "video_series" share already carries the series' own
+    // title via `t` (target.displayTitle), and no other kind has either.
+    ct: target.kind === "video" ? target.contentType || undefined : undefined,
+    st: target.kind === "video" ? target.seriesTitle || undefined : undefined,
   };
 }

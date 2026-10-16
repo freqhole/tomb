@@ -1,0 +1,21 @@
+{
+  // scoped tsconfig for this project's one cloudflare pages function
+  // (workerd runtime, not a browser) - mirrors client/spume/functions/
+  // tsconfig.json's own setup/rationale. checked via `npm run typecheck`
+  // (see package.json) - not part of the deployed build at all (cloudflare
+  // dashboard build command is intentionally empty; its own pipeline
+  // compiles functions/*.ts independently of anything here).
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ESNext"],
+    "types": ["@cloudflare/workers-types"],
+    "skipLibCheck": true,
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noEmit": true
+  },
+  "include": ["functions/**/*.ts"]
+}

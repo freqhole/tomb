@@ -3,7 +3,7 @@
 // flex-shrink-0 box on the right, info column first/left, taxon chips,
 // and responsive action buttons.
 import { useNavigate, useParams } from "@solidjs/router";
-import { createSignal, createMemo, createEffect, For, Show } from "solid-js";
+import { createSignal, createMemo, createEffect, createResource, For, Show } from "solid-js";
 import { DetailViewWrapper } from "../../components/layout/DetailViewWrapper";
 import { MediaImage } from "../../components/media/MediaImage";
 import { Button } from "../../components/buttons/Button";
@@ -39,6 +39,7 @@ import { showStationSelector } from "../../music/hooks/stationSelectorState";
 import { canUpdateVideo } from "../data/permissions";
 import { getVideoDataSource } from "../data";
 import { getCurrentRemote } from "../../music/data";
+import { useArtistQuery, useAlbumQuery } from "../../music/queries/songs";
 import {
   formatImageCarouselTitle,
   beginImageCarouselLoading,
@@ -149,6 +150,22 @@ export function VideoDetailView() {
   const [playPending, setPlayPending] = createSignal(false);
   const [queuePending, setQueuePending] = createSignal(false);
   const currentRemoteFull = createShareSourceRemote();
+
+  // lightweight by-id display-name lookups, for the share payload only -
+  // this view otherwise only ever needs artist_id/album_id/series_id (for
+  // icon-only "view artist"/"view album"/"view series" nav buttons, no
+  // label text), so there's no reason to extend the video query's own
+  // response shape just to carry names nobody else here needs.
+  const shareRemote = () => currentRemoteFull() ?? undefined;
+  const shareArtistQuery = useArtistQuery(() => videoQuery.data?.artist_id ?? undefined, shareRemote);
+  const shareAlbumQuery = useAlbumQuery(() => videoQuery.data?.album_id ?? undefined, shareRemote);
+  const [shareSeriesTitle] = createResource(
+    () => videoQuery.data?.series_id ?? undefined,
+    async (seriesId) => {
+      const series = await getVideoDataSource().getVideoSeriesById(seriesId);
+      return series?.title;
+    }
+  );
 
   // build a SendVideoPayload for the share modal's send-to-remote section -
   // VideoSummary spreads directly into QueuedVideo (see QueuedVideo's own
@@ -416,7 +433,15 @@ export function VideoDetailView() {
                     </Show>
                     <FavoriteHeart isFavorite={isFavorite()} onToggle={handleFavoriteToggle} />
                     <ShareButton
-                      target={{ kind: "video", id: video().id, displayTitle: video().title }}
+                      target={{
+                        kind: "video",
+                        id: video().id,
+                        displayTitle: video().title,
+                        artistName: shareArtistQuery.data?.name || undefined,
+                        albumName: shareAlbumQuery.data?.title || undefined,
+                        seriesTitle: shareSeriesTitle() || undefined,
+                        contentType: video().content_type || undefined,
+                      }}
                       source={currentRemoteFull}
                       buildSendPayload={buildSendPayload}
                     />
@@ -539,7 +564,15 @@ export function VideoDetailView() {
                     </Show>
                     <FavoriteHeart isFavorite={isFavorite()} onToggle={handleFavoriteToggle} />
                     <ShareButton
-                      target={{ kind: "video", id: video().id, displayTitle: video().title }}
+                      target={{
+                        kind: "video",
+                        id: video().id,
+                        displayTitle: video().title,
+                        artistName: shareArtistQuery.data?.name || undefined,
+                        albumName: shareAlbumQuery.data?.title || undefined,
+                        seriesTitle: shareSeriesTitle() || undefined,
+                        contentType: video().content_type || undefined,
+                      }}
                       source={currentRemoteFull}
                       buildSendPayload={buildSendPayload}
                     />

@@ -6,8 +6,8 @@ use crate::api_registry::{Domain, Method, RouteAuth, RouteInfo};
 use crate::error::ErrorDetail;
 use crate::media_blobz::{
     build_blob_data_response, build_blob_path_response, build_blob_response,
-    build_blob_thumbnail_response, find_present_blake3s, get_media_blob, get_media_blob_by_blake3,
-    BlobMetadataResponse,
+    build_blob_thumbnail_response, find_blob_entities_by_blake3, find_present_blake3s,
+    get_media_blob, get_media_blob_by_blake3, BlobEntityMatch, BlobMetadataResponse,
 };
 use crate::offal::caller::Caller;
 use crate::response::GrimoireResponse;
@@ -160,10 +160,29 @@ pub struct HasBlobsRequest {
 /// response for `POST /api/blobz/has`. each input hash appears in exactly one
 /// of the two `_present` / `_missing` lists. ordering is not stable; clients
 /// should treat the lists as sets.
+///
+/// `entities` resolves each present blake3 to its containing song/album or
+/// video/video_series ids *on this database* - lets a client that found
+/// matching content on a non-home remote build a share link using that
+/// remote's own entity ids instead of reusing ids from wherever it's
+/// currently viewing the content. only present blake3s that matched a song
+/// or video appear here (e.g. image/thumbnail blobs don't).
+///
+/// `Option<Vec<_>>` (not a bare `Vec<_>`) is deliberate here, even though
+/// this server always sends `Some(...)` (possibly empty): a bare `Vec`
+/// generates a REQUIRED array in the codegen'd zod schema, which would
+/// fail `safeParse` entirely against a not-yet-upgraded remote's response
+/// (one predating this field) instead of just leaving `entities` empty -
+/// breaking the existing `blake3s_present`/`_missing` parse too, not only
+/// the new field. `Option<Vec<_>>` generates `.nullish()`, so an absent
+/// field degrades gracefully (mirrors `SearchResponse`'s same pattern for
+/// its optional list fields).
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct HasBlobsResponse {
     pub blake3s_present: Vec<String>,
     pub blake3s_missing: Vec<String>,
+    #[serde(default)]
+    pub entities: Option<Vec<BlobEntityMatch>>,
 }
 
 /// get blob metadata
@@ -228,8 +247,12 @@ pub async fn get_metadata_by_blake3(
 /// path: POST /api/blobz/has
 ///
 /// auth: any authenticated caller (admin / member / viewer). this only leaks
-/// "do you have content x?" which the caller already (presumably) sourced
-/// from a peer they're allowed to talk to. no row contents are returned.
+/// "do you have content x?" (plus, now, its song/album/video/video_series
+/// ids) which the caller already (presumably) sourced from a peer they're
+/// allowed to talk to - the same ids are already visible to any
+/// authenticated viewer via normal browsing routes (`get_albums`,
+/// `get_album`, etc. are all `RouteAuth::Authenticated` too), so this
+/// doesn't expose anything new.
 pub async fn has_blobs(_caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
     let req: HasBlobsRequest = match serde_json::from_value(body) {
         Ok(r) => r,
@@ -268,9 +291,20 @@ pub async fn has_blobs(_caller: &Caller, body: JsonValue) -> GrimoireResponse<Js
         .cloned()
         .collect();
 
+    let entities = match find_blob_entities_by_blake3(&blake3s_present).await {
+        Ok(v) => v,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "failed to resolve blob entities",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
+
     let response = HasBlobsResponse {
         blake3s_present,
         blake3s_missing,
+        entities: Some(entities),
     };
     tracing::debug!(
         "blobz/has: blake3 {}/{} present",

@@ -33,6 +33,14 @@ export default defineConfig({
 			customCss: ['./src/styles/custom.css'],
 			head: [
 				{ tag: 'link', attrs: { rel: 'icon', href: '/favicon.ico', sizes: 'any' } },
+				// static og:image default for every page - starlight already
+				// generates og:title/og:description per-page from `title`/
+				// `description` above and each page's own frontmatter, it just
+				// has no built-in option for a default image, hence adding it
+				// here instead. matches spume's own index.html (same image,
+				// same reasoning).
+				{ tag: 'meta', attrs: { property: 'og:image', content: '/freqhole.png' } },
+				{ tag: 'meta', attrs: { name: 'twitter:card', content: 'summary' } },
 			],
 			social: [{ icon: 'external', label: 'spume', href: 'https://spume.freqhole.net' }, { icon: 'github', label: 'GitHub', href: 'https://github.com/freqhole/tomb' }],
 			components: {

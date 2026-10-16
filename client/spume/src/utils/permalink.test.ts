@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   DEFAULT_SHARE_WEB_HOST,
+  buildShareUrls,
   encodeShareToken,
   extractShareTokenFromHash,
+  extractShareTokenFromSearch,
   getShareWebHost,
   type SharePayloadV1,
 } from "./permalink";
@@ -26,6 +28,11 @@ describe("getShareWebHost", () => {
   it("uses the page origin when it's a real http(s) host", () => {
     stubOrigin("https://music.example.com");
     expect(getShareWebHost()).toBe("https://music.example.com");
+  });
+
+  it("falls back to DEFAULT_SHARE_WEB_HOST when visiting the canonical spume host directly - it has no preview subdomain of its own, unlike a self-hosted instance", () => {
+    stubOrigin("https://spume.freqhole.net");
+    expect(getShareWebHost()).toBe(DEFAULT_SHARE_WEB_HOST);
   });
 
   it("falls back for tauri's custom-scheme origin (macos/ios/linux)", () => {
@@ -90,5 +97,47 @@ describe("extractShareTokenFromHash", () => {
   it("returns null for an unrelated hash with no share marker at all", () => {
     expect(extractShareTokenFromHash("#/settings")).toBeNull();
     expect(extractShareTokenFromHash("")).toBeNull();
+  });
+});
+
+describe("buildShareUrls", () => {
+  const payload: SharePayloadV1 = {
+    v: 1,
+    s: { n: "a".repeat(64) },
+    k: "radio_station",
+    i: "station-1",
+  };
+
+  it("puts the token in a real query param, not the hash", () => {
+    const token = encodeShareToken(payload);
+    const { webUrl } = buildShareUrls(payload, "https://example.com");
+    expect(webUrl).toBe(`https://example.com/?share=${token}#`);
+  });
+
+  it("round-trips through extractShareTokenFromSearch", () => {
+    const token = encodeShareToken(payload);
+    const { webUrl } = buildShareUrls(payload, "https://example.com");
+    const url = new URL(webUrl);
+    expect(extractShareTokenFromSearch(url.search)).toBe(token);
+  });
+});
+
+describe("extractShareTokenFromSearch", () => {
+  const payload: SharePayloadV1 = {
+    v: 1,
+    s: { n: "a".repeat(64) },
+    k: "radio_station",
+    i: "station-1",
+  };
+
+  it("extracts a token from a bare query string", () => {
+    const token = encodeShareToken(payload);
+    expect(extractShareTokenFromSearch(`?share=${token}`)).toBe(token);
+    expect(extractShareTokenFromSearch(`share=${token}`)).toBe(token);
+  });
+
+  it("returns null for an empty or share-less query string", () => {
+    expect(extractShareTokenFromSearch("")).toBeNull();
+    expect(extractShareTokenFromSearch("?foo=bar")).toBeNull();
   });
 });

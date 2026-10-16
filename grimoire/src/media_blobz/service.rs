@@ -1537,6 +1537,86 @@ pub async fn find_present_blake3s(blake3s: &[String]) -> GrimoireResult<Vec<Stri
     Ok(rows)
 }
 
+/// for each blake3 that matches a non-deleted song or video, resolve the
+/// containing entity ids (song/album, video/video_series) on *this* database.
+///
+/// used so a client picking a non-home remote for a share link can ask that
+/// remote "what are your own ids for this content" instead of reusing ids
+/// from wherever it's currently viewing the content (see `BlobEntityMatch`
+/// doc comment for why that's unsound across separate remotes).
+pub async fn find_blob_entities_by_blake3(
+    blake3s: &[String],
+) -> GrimoireResult<Vec<super::models::BlobEntityMatch>> {
+    use super::models::BlobEntityMatch;
+    use std::collections::HashMap;
+
+    if blake3s.is_empty() {
+        return Ok(Vec::new());
+    }
+    let pool = database::connect().await?;
+    let hashes_json = serde_json::to_string(blake3s).unwrap_or_else(|_| "[]".to_string());
+
+    let mut by_hash: HashMap<String, BlobEntityMatch> = HashMap::new();
+
+    // songs: media_blob_blake3 is denormalized directly onto songz (see
+    // 049_songz_denormalize_media_blob.sql); album_id comes from the first
+    // album_songz row for that song, if any.
+    let song_rows = sqlx::query!(
+        r#"SELECT s.media_blob_blake3 as "blake3!", s.id as "song_id!",
+                  (SELECT album_id FROM album_songz WHERE song_id = s.id LIMIT 1) as "album_id?"
+           FROM songz s
+           WHERE s.media_blob_blake3 IS NOT NULL
+             AND s.deleted_at IS NULL
+             AND s.media_blob_blake3 IN (SELECT value FROM json_each(?))"#,
+        hashes_json
+    )
+    .fetch_all(&pool)
+    .await?;
+    for row in song_rows {
+        let entry = by_hash
+            .entry(row.blake3.clone())
+            .or_insert_with(|| BlobEntityMatch {
+                blake3: row.blake3,
+                song_id: None,
+                album_id: None,
+                video_id: None,
+                video_series_id: None,
+            });
+        entry.song_id = Some(row.song_id);
+        entry.album_id = row.album_id;
+    }
+
+    // videos: media_blob_blake3 is denormalized directly onto videoz too
+    // (see 084_videoz_denormalize_media_blob_blake3.sql); series_id is a
+    // direct column on videoz, no junction table needed.
+    let video_rows = sqlx::query!(
+        r#"SELECT v.media_blob_blake3 as "blake3!", v.id as "video_id!",
+                  v.series_id as "video_series_id?"
+           FROM videoz v
+           WHERE v.media_blob_blake3 IS NOT NULL
+             AND v.deleted_at IS NULL
+             AND v.media_blob_blake3 IN (SELECT value FROM json_each(?))"#,
+        hashes_json
+    )
+    .fetch_all(&pool)
+    .await?;
+    for row in video_rows {
+        let entry = by_hash
+            .entry(row.blake3.clone())
+            .or_insert_with(|| BlobEntityMatch {
+                blake3: row.blake3,
+                song_id: None,
+                album_id: None,
+                video_id: None,
+                video_series_id: None,
+            });
+        entry.video_id = Some(row.video_id);
+        entry.video_series_id = row.video_series_id;
+    }
+
+    Ok(by_hash.into_values().collect())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

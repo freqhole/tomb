@@ -46,6 +46,26 @@ export interface EntitySharePayload {
   title?: string;
   artist?: string;
   album?: string;
+  /**
+   * display name of the remote the sharer resolved this content from -
+   * their own locally-cached label for it (not a canonical/global name,
+   * since remote names are per-user address-book entries). shown in link
+   * previews and "shared with you" lists so a recipient has context for
+   * where something came from.
+   */
+  remoteName?: string;
+  /**
+   * video `content_type` ("series" | "movie" | "clip" | "karaoke" |
+   * "music_video" - see grimoire's `Video::content_type`). only set when
+   * `entityKind === "video"`.
+   */
+  contentType?: string;
+  /**
+   * title of the series a shared video belongs to, when it's attached to
+   * one. only set when `entityKind === "video"` - a `"video_series"`
+   * share already carries the series' own title via `title`.
+   */
+  seriesTitle?: string;
 }
 
 export type ShareTokenPayload = NodeSharePayload | DocSharePayload | EntitySharePayload;
@@ -80,6 +100,9 @@ const EntityWireSchema = z.object({
   t: z.string().optional(),
   a: z.string().optional(),
   al: z.string().optional(),
+  rn: z.string().optional(),
+  ct: z.string().optional(),
+  st: z.string().optional(),
 });
 
 const WireSchema = z.discriminatedUnion("k", [NodeWireSchema, DocWireSchema, EntityWireSchema]);
@@ -137,6 +160,9 @@ function toWire(payload: ShareTokenPayload): Wire {
         t: payload.title,
         a: payload.artist,
         al: payload.album,
+        rn: payload.remoteName,
+        ct: payload.contentType,
+        st: payload.seriesTitle,
       };
   }
 }
@@ -157,6 +183,9 @@ function fromWire(wire: Wire): ShareTokenPayload {
         title: wire.t,
         artist: wire.a,
         album: wire.al,
+        remoteName: wire.rn,
+        contentType: wire.ct,
+        seriesTitle: wire.st,
       };
   }
 }

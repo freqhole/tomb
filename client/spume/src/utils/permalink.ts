@@ -2,15 +2,29 @@
 //
 // url shape (see docs/SEND_TO_REMOTE_PLAN.md):
 //   freqhole://o/<base64url(payload)>
-//   https://<webHost>/#?share=<base64url(payload)>
+//   https://<webHost>/?share=<base64url(payload)>#
 //
-// the web form lives in the url hash because spume uses `HashRouter` —
-// putting it on the path would 404 on static hosting, and it would also
-// collide with the `/:remoteId` dynamic route (a bare `#share/<token>`
-// fragment, the shape other freqhole apps use, matches that route and
-// triggers a real "remote not found" navigation before this file's own
-// hashchange listener gets a chance to look at it). it sits as a query
-// inside the hash instead so it can overlay any existing route.
+// the web form's token lives in a real top-level query parameter, not the
+// url hash - a url's fragment is never sent to the server at all (basic
+// http/browser behavior), so nothing server-side (including a cloudflare
+// pages function) can ever read it to render a nicer link preview for
+// crawlers. the trailing bare `#` is just spume's own HashRouter getting
+// its usual (here, trivially empty) hash to parse - same as a plain visit
+// to the site root, no new route-handling needed.
+//
+// this used to put the token inside the hash instead (`#?share=...`), to
+// dodge two static-hosting-specific hazards a real path segment would hit
+// (404 on a host with no spa-fallback rewrite, and colliding with the
+// `/:remoteId` dynamic route - a bare `#share/<token>` fragment, the
+// shape other freqhole apps use, matches that route and triggers a real
+// "remote not found" navigation before this file's own hashchange
+// listener gets a chance to look at it). a real query param dodges both
+// of those the same way the hash did (it's not a path segment, and it
+// sits before any route-matching happens) while actually reaching the
+// server - so there was no real tradeoff once link-preview rendering
+// came up as a reason to want that. `extractShareTokenFromHash` still
+// decodes the old `#?share=...` shape forever, for any link already
+// shared before this change.
 //
 // the token itself is just spume's own field names (`v`/`s`/`k`/`i`/...)
 // over haruspex's shared `@freqhole/haruspex/share` codec (its legacy v1
@@ -72,6 +86,26 @@ export interface SharePayloadV1 {
   a?: string;
   /** optional album name — not trusted, display only. for song shares. */
   al?: string;
+  /**
+   * display name of the remote the sharer resolved this content from -
+   * the sharer's own locally-cached label for it, not a canonical name
+   * (remote names are per-user address-book entries). shown in link
+   * previews + the "shared with you" view so a recipient has context for
+   * where something came from.
+   */
+  rn?: string;
+  /**
+   * video `content_type` ("series" | "movie" | "clip" | "karaoke" |
+   * "music_video" - see grimoire's `Video::content_type`). only set for
+   * `k: "video"`.
+   */
+  ct?: string;
+  /**
+   * title of the series a shared video belongs to, when it's attached to
+   * one. only set for `k: "video"` - a `k: "video_series"` share already
+   * carries the series' own title via `t`.
+   */
+  st?: string;
 }
 
 export interface ShareUrls {
@@ -82,15 +116,40 @@ export interface ShareUrls {
 /** query param name used inside the hash for web share urls. */
 export const SHARE_HASH_PARAM = "share";
 
-/** default web mirror host for share urls. overridable via `buildShareUrls(p, host)`. */
-export const DEFAULT_SHARE_WEB_HOST = "https://spume.freqhole.net";
+/**
+ * default web mirror host for share urls - a dedicated link-preview +
+ * redirect subdomain (see client/share-preview/functions/index.ts), not
+ * spume.freqhole.net itself. spume.freqhole.net is a large SPA with lots
+ * of static sub-resources, which makes a cloudflare pages function there
+ * awkward: `functions/` only auto-deploys when it sits at the project's
+ * configured root directory (pinned to the repo root for spume's own
+ * npm-workspace-style build command), and the alternative ("advanced
+ * mode" `_worker.js`) routes every request - including every JS/CSS/image
+ * sub-resource - through a function, with no clear way to exclude static
+ * assets from that. a dedicated subdomain with no static asset tree of
+ * consequence sidesteps the whole problem. overridable via
+ * `buildShareUrls(p, host)`.
+ */
+export const DEFAULT_SHARE_WEB_HOST = "https://share.freqhole.net";
+
+/** the canonical freqhole-hosted spume origin - NOT a self-hosted
+ *  deployment's own domain. used by `getShareWebHost()` below to tell
+ *  "this is literally spume.freqhole.net itself" apart from "this is some
+ *  self-hoster's own domain" - only the former should redirect share urls
+ *  to `DEFAULT_SHARE_WEB_HOST` instead of its own origin, since a
+ *  self-hosted instance has no `share.*` preview subdomain of its own. */
+const CANONICAL_SPUME_ORIGIN = "https://spume.freqhole.net";
 
 /**
  * returns the best available web host for share urls.
- * uses the current page origin when it's http(s) (i.e. the app is being
- * served from a real web server or a self-hosted instance). falls back to
- * the canonical spume.freqhole.net host when running inside tauri
- * (origin is `tauri://localhost` or similar) or any other non-http(s) context.
+ * uses the current page origin when it's http(s) AND isn't the canonical
+ * freqhole-hosted spume origin (i.e. a self-hosted instance, served from
+ * its own domain - there's no `share.*` preview subdomain for those, so
+ * their own origin is the best available host). falls back to
+ * `DEFAULT_SHARE_WEB_HOST` (the dedicated preview subdomain) when running
+ * inside tauri (origin is `tauri://localhost` or similar), when visiting
+ * spume.freqhole.net itself directly in a browser, or in any other
+ * non-http(s) context.
  *
  * tauri's internal webview origin isn't always non-http(s): macOS/iOS/Linux
  * use the custom `tauri://localhost` scheme (caught by the scheme check
@@ -105,6 +164,7 @@ export function getShareWebHost(): string {
   try {
     const origin = window.location.origin;
     if (isCharnelMode()) return DEFAULT_SHARE_WEB_HOST;
+    if (origin === CANONICAL_SPUME_ORIGIN) return DEFAULT_SHARE_WEB_HOST;
 
     let hostname = "";
     try {
@@ -144,6 +204,9 @@ function toEntityPayload(p: SharePayloadV1): EntitySharePayload {
     title: p.t,
     artist: p.a,
     album: p.al,
+    remoteName: p.rn,
+    contentType: p.ct,
+    seriesTitle: p.st,
   };
 }
 
@@ -157,6 +220,9 @@ function fromEntityPayload(e: EntitySharePayload): SharePayloadV1 {
     t: e.title,
     a: e.artist,
     al: e.album,
+    rn: e.remoteName,
+    ct: e.contentType,
+    st: e.seriesTitle,
   };
 }
 
@@ -191,22 +257,52 @@ export function decodeShareToken(token: string): SharePayloadV1 {
   return out;
 }
 
-/** build share urls from a payload. */
+/**
+ * build share urls from a payload. the token lives in a real top-level
+ * query parameter (`?share=...`), not the hash fragment - the fragment
+ * portion of a url is never sent to the server at all (basic http/browser
+ * behavior), so a server-side function can't ever read it to render a
+ * nicer link preview. putting it here instead lets `share.freqhole.net`
+ * (see client/share-preview/functions/index.ts) see it and render a
+ * per-item preview for crawlers (slack/discord/imessage/etc.) - that's a
+ * dedicated subdomain, not spume.freqhole.net itself (see
+ * `DEFAULT_SHARE_WEB_HOST`'s own doc comment for why).
+ *
+ * `#` is appended with nothing after it so spume's own HashRouter still
+ * sees a (trivially empty, same as a bare visit to the site root) hash to
+ * parse - matches this app's existing behavior for a plain root visit,
+ * no new route-handling needed. the previous `#?share=...` shape is still
+ * decoded by `extractShareTokenFromHash` for any link already shared
+ * before this change - those just never get a dynamic preview, since the
+ * fragment they're stuck with genuinely can't reach a server after the
+ * fact.
+ */
 export function buildShareUrls(p: SharePayloadV1, webHost: string = getShareWebHost()): ShareUrls {
   const token = encodeShareToken(p);
   const host = webHost.replace(/\/+$/, "");
   return {
-    webUrl: `${host}/#?${SHARE_HASH_PARAM}=${token}`,
+    webUrl: `${host}/?${SHARE_HASH_PARAM}=${token}#`,
   };
 }
 
 /**
+ * extract a share token from a real query string (e.g.
+ * `window.location.search`) - the current shape `buildShareUrls` emits
+ * (see its doc comment for why the token moved here from the hash).
+ */
+export function extractShareTokenFromSearch(search: string): string | null {
+  if (!search) return null;
+  const stripped = search.startsWith("?") ? search.slice(1) : search;
+  return new URLSearchParams(stripped).get(SHARE_HASH_PARAM);
+}
+
+/**
  * extract a share token from a hash string (e.g. `window.location.hash`).
- * accepts spume's own `#?share=...` / `#/whatever?share=...` shapes (still
- * how spume embeds its own links in a url — see `buildShareUrls`, which
- * deliberately avoids the bare `#share/<token>` fragment other freqhole
- * apps use, since that would collide with spume's `/:remoteId` hash
- * route), and falls back to haruspex's `#share/<token>`/`share/<token>`
+ * accepts spume's own legacy `#?share=...` / `#/whatever?share=...`
+ * shapes (links shared before `buildShareUrls` moved the token to a real
+ * query param - see that function's doc comment - still need to keep
+ * decoding here forever, since a link already out in the wild can't be
+ * un-shared), and falls back to haruspex's `#share/<token>`/`share/<token>`
  * fragment shape for a link generated by one of those other apps.
  */
 export function extractShareTokenFromHash(hash: string): string | null {

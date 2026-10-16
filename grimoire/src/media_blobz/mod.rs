@@ -24,7 +24,10 @@ pub use cleanup::{
     can_delete_media_blob, delete_media_blob_if_unused, find_media_blob_references,
     MediaBlobReferences,
 };
-pub use models::{BlobMetadataResponse, BlobType, CreateMediaBlobRequest, MediaBlob};
+pub use models::{
+    BlobEntityMatch, BlobMetadataResponse, BlobType, CreateMediaBlobRequest, MediaBlob,
+};
+
 // dual-write mirror into reliquary's blob store: crate-internal only, not
 // part of this module's public api. only the functions needed by sibling
 // modules (the music scanner, upload job processors, orphan cleanup) are
@@ -35,9 +38,9 @@ pub(crate) use reliquary_mirror::{
 };
 pub use service::{
     count_blake3_backfill_status, count_blobs_needing_blake3, create_media_blob, delete_media_blob,
-    find_present_blake3s, get_media_blob, get_media_blob_by_blake3, get_media_blob_stream_source,
-    get_media_blob_with_data, hard_delete_rendition_blob, list_blobs_needing_blake3,
-    list_media_blobs, list_renditions, repair_stale_local_paths,
+    find_blob_entities_by_blake3, find_present_blake3s, get_media_blob, get_media_blob_by_blake3,
+    get_media_blob_stream_source, get_media_blob_with_data, hard_delete_rendition_blob,
+    list_blobs_needing_blake3, list_media_blobs, list_renditions, repair_stale_local_paths,
     set_blob_local_path_or_purge_duplicate, update_blob_blake3,
     update_blob_blake3_for_content_change, update_blob_content, update_blob_local_path,
     BlobStreamSource,

@@ -1,0 +1,13 @@
+{
+  "name": "@freqhole/share-preview",
+  "version": "0.1.0",
+  "private": true,
+  "description": "share.freqhole.net - dedicated link-preview + redirect service for freqhole share links. deployed as its own cloudflare pages project (no build step - see functions/index.ts's doc comment for why it's a separate project from spume.freqhole.net). this package.json exists purely for local typechecking, not for the deploy itself.",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261016.1",
+    "typescript": "^5.9.3"
+  }
+}

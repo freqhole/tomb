@@ -107,7 +107,9 @@ async function getByPeerAddr(peerAddr: string): Promise<Remote | undefined> {
   const all = await list();
   for (const remote of all) {
     if (!isP2PRemote(remote)) continue;
-    if (remote.peer_addr === peerAddr) return remote;
+    if (remote.peer_addr === peerAddr) {
+      return remote;
+    }
     if (
       /^[a-f0-9]{64}$/i.test(peerAddr) &&
       remote.peer_addr.includes(peerAddr)

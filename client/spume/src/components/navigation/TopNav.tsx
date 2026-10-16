@@ -988,6 +988,56 @@ export function TopNav(props: TopNavProps) {
       menuTriggerEl?.removeEventListener("pointerdown", onTriggerPointerDown, { capture: true });
     });
 
+    // touch: kobalte's own trigger deliberately waits for a native `click`
+    // to open on touch (vs. opening immediately on pointerdown for mouse)
+    // - standard, correct "tap to activate" mobile ux so a touch that
+    // turns into a scroll/drag doesn't accidentally activate the button.
+    // but ios safari (and sometimes android) has a well-documented quirk:
+    // if some OTHER element (e.g. the search box) currently has focus when
+    // the user taps this button, that first tap is consumed purely to
+    // blur/dismiss the keyboard - no click is ever delivered to this
+    // button for that tap at all, so kobalte's click-driven open silently
+    // doesn't happen until a confusing, unexplained second tap.
+    //
+    // calling preventDefault() in a non-passive touchend handler reliably
+    // suppresses that browser-synthesized click on current ios/android
+    // (confirmed, not just old-version folklore), so we take over click
+    // delivery for touch entirely: manually fire a real click ourselves,
+    // every time, deterministically, instead of depending on whether the
+    // browser decides one is warranted. dispatching via .click() (not
+    // reaching into kobalte's internals at all) replays through kobalte's
+    // own existing onClick handler unchanged - by the time touchend fires,
+    // kobalte's own pointerdown handler has already stamped
+    // dataset.pointerType = "touch" (same gesture, pointerdown always
+    // precedes touchend), which is exactly what that onClick handler
+    // checks to decide whether to open/toggle. no race with a real click
+    // ever firing too (preventDefault reliably stops it), so no risk of a
+    // double-toggle open-then-close.
+    //
+    // the bounds check below replicates the "release must still be over
+    // the target to count as a tap" semantics a real click already gives
+    // us for free - without it, dragging a finger away from the button
+    // before lifting (the standard way to cancel a tap) would still
+    // force-open the menu, since touchend always fires on the original
+    // touchstart target regardless of where the finger ended up.
+    const onTriggerTouchEnd = (e: TouchEvent) => {
+      const touch = e.changedTouches[0];
+      if (!touch || !menuTriggerEl) return;
+      const rect = menuTriggerEl.getBoundingClientRect();
+      const stillOverButton =
+        touch.clientX >= rect.left &&
+        touch.clientX <= rect.right &&
+        touch.clientY >= rect.top &&
+        touch.clientY <= rect.bottom;
+      if (!stillOverButton) return;
+      e.preventDefault();
+      menuTriggerEl.click();
+    };
+    menuTriggerEl?.addEventListener("touchend", onTriggerTouchEnd, { passive: false });
+    onCleanup(() => {
+      menuTriggerEl?.removeEventListener("touchend", onTriggerTouchEnd);
+    });
+
     // publish actual nav height to `--nav-height` whenever the nav
     // resizes (e.g. when extra rows like selected-tag badges appear on
     // narrow) - `DetailViewWrapper.tsx` reserves real `padding-top: var(
@@ -1625,10 +1675,16 @@ export function TopNav(props: TopNavProps) {
                                   // touch devices have no hover, so these no-op there - the
                                   // row's long-press timer below opens it instead, and
                                   // handleRemoteFlyoutOutsideTap closes it.
+                                  //
+                                  // offline remotes don't get this flyout at all (hover or
+                                  // long-press) - there's nothing useful to navigate to on
+                                  // a remote that isn't reachable right now, and the row's
+                                  // own click handler already exists specifically to retry
+                                  // the connection instead.
                                   const viewsOpen = () => activeRemoteFlyouts().has(remote.id);
                                   const flyoutPos = () => remoteFlyoutPosById()[remote.id];
                                   const openViews = () => {
-                                    if (isTouchDevice()) return;
+                                    if (isTouchDevice() || remote.isOffline) return;
                                     openRemoteFlyout(remote.id);
                                   };
                                   const closeViewsDelayed = () => {
@@ -1652,6 +1708,7 @@ export function TopNav(props: TopNavProps) {
                                     if (e.pointerType !== "touch" && e.pointerType !== "pen") {
                                       return;
                                     }
+                                    if (remote.isOffline) return;
                                     clearPressTimer();
                                     pressTimer = setTimeout(() => {
                                       openRemoteFlyout(remote.id);
@@ -1669,7 +1726,7 @@ export function TopNav(props: TopNavProps) {
                                       onPointerMove={clearPressTimer}
                                       onPointerCancel={clearPressTimer}
                                       onContextMenu={(e) => {
-                                        if (!isTouchDevice()) return;
+                                        if (!isTouchDevice() || remote.isOffline) return;
                                         e.preventDefault();
                                         clearPressTimer();
                                         openRemoteFlyout(remote.id);

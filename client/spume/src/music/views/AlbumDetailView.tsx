@@ -244,7 +244,7 @@ export function AlbumDetailView() {
     const songsSettled =
       albumSongsQuery.status !== "pending" && albumSongsQuery.fetchStatus === "idle";
     if (albumSettled && songsSettled && !albumQuery.data && songs().length === 0) {
-      navigate("/albums", { replace: true });
+      navigate(buildRoute("/albums"), { replace: true });
     }
   });
 
@@ -753,6 +753,7 @@ export function AlbumDetailView() {
                       kind: "album",
                       id: albumInfo()?.album_id ?? params.id,
                       displayTitle: albumInfo()?.title ?? "",
+                      artistName: displayArtistName() || undefined,
                     }}
                     source={() => currentRemoteFull()}
                     buildSendPayload={buildSendPayload}

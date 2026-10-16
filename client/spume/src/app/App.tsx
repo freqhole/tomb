@@ -109,7 +109,11 @@ import { preCacheP2PBlob } from "../music/services/storage/blobResolver";
 import { recoverLegacyImages } from "../music/services/storage/legacyImageRecovery";
 import type { Song } from "../music/services/storage/types";
 import { debug } from "../utils/logger";
-import { extractShareTokenFromHash, SHARE_HASH_PARAM } from "../utils/permalink";
+import {
+  extractShareTokenFromHash,
+  extractShareTokenFromSearch,
+  SHARE_HASH_PARAM,
+} from "../utils/permalink";
 import { addRemoteRequest } from "./services/remotes/addRemoteRequest";
 import { AUDIO_EXTS, VIDEO_EXTS } from "../utils/filePicker";
 import { onMiddenReady, getClientForRemote } from "./api/client";
@@ -525,12 +529,17 @@ export function App() {
     })
   );
 
-  // check for #?share=<token> in the url hash on every load + hash change.
-  // see SEND_TO_REMOTE_PLAN step 15 — ResolveShareModal handles decode +
-  // routing; this just spots the token and forwards it.
+  // check for a share token on every load + hash change - the current
+  // shape (`?share=<token>#`, a real query param - see permalink.ts's own
+  // doc comment for why) plus the legacy `#?share=<token>` shape (links
+  // shared before that change). see SEND_TO_REMOTE_PLAN step 15 —
+  // ResolveShareModal handles decode + routing; this just spots the token
+  // and forwards it.
   onMount(() => {
     const handle = () => {
-      const token = extractShareTokenFromHash(window.location.hash);
+      const token =
+        extractShareTokenFromSearch(window.location.search) ??
+        extractShareTokenFromHash(window.location.hash);
       if (token && token !== shareToken()) {
         debug("App", `found share token: ${token.slice(0, 16)}...`);
         void recordSharedItemFromToken(token);
@@ -586,24 +595,33 @@ export function App() {
     })();
   });
 
-  // strip the share param out of `window.location.hash` once the modal closes
+  // strip the share param out of `window.location.search` (current shape)
+  // and/or `window.location.hash` (legacy shape) once the modal closes
   // (success, dismiss, or unmatched + add-remote handoff).
   const clearShareToken = () => {
     setShareToken(null);
+
+    const searchParams = new URLSearchParams(window.location.search);
+    searchParams.delete(SHARE_HASH_PARAM);
+    const newSearch = searchParams.toString();
+
     const hash = window.location.hash;
     const stripped = hash.startsWith("#") ? hash.slice(1) : hash;
     const qIdx = stripped.indexOf("?");
-    if (qIdx < 0) return;
-    const path = stripped.slice(0, qIdx);
-    const params = new URLSearchParams(stripped.slice(qIdx + 1));
-    params.delete(SHARE_HASH_PARAM);
-    const rest = params.toString();
-    const newHash = path + (rest ? `?${rest}` : "");
+    let newHash = hash;
+    if (qIdx >= 0) {
+      const path = stripped.slice(0, qIdx);
+      const hashParams = new URLSearchParams(stripped.slice(qIdx + 1));
+      hashParams.delete(SHARE_HASH_PARAM);
+      const rest = hashParams.toString();
+      newHash = path + (rest ? `?${rest}` : "");
+    }
+
     // history.replaceState avoids triggering hashchange listeners.
     history.replaceState(
       null,
       "",
-      `${window.location.pathname}${window.location.search}${newHash ? `#${newHash}` : ""}`
+      `${window.location.pathname}${newSearch ? `?${newSearch}` : ""}${newHash ? (newHash.startsWith("#") ? newHash : `#${newHash}`) : ""}`
     );
   };
 

@@ -18,10 +18,13 @@
 import { createResource, createSignal, Show, type Component } from "solid-js";
 import { Modal } from "./Modal";
 import { decodeShareToken, type SharePayloadV1 } from "../../utils/permalink";
-import { getRemoteByPeerAddr } from "../../app/services/remotes/remoteManager";
+import {
+  getRemoteByPeerAddr,
+  getTauriManagedRemote,
+} from "../../app/services/remotes/remoteManager";
 import { getDefaultRoute } from "../../music/utils/routing";
 import { setHighlightedSongId } from "../../music/state/highlightedSong";
-import { isCharnelMode } from "../../app/services/charnel";
+import { getLocalNodeId, isCharnelMode } from "../../app/services/charnel";
 import { debug } from "../../utils/logger";
 import {
   ensurePendingRemoteForNode,
@@ -62,7 +65,16 @@ export const ResolveShareModal: Component<ResolveShareModalProps> = (props) => {
       // future addition (would need to query remotes by base_url).
       const nodeId = payload.s.n;
       if (nodeId) {
-        const remote = await getRemoteByPeerAddr(nodeId);
+        // the node id in the link might be our OWN local node id (e.g. a
+        // link generated from this same device's library) - the local
+        // charnel-managed remote has no peer_addr row to match against
+        // (it's not a "remote" from its own point of view), so
+        // getRemoteByPeerAddr can never find it. check that case first
+        // instead of falling through to "unmatched".
+        const remote =
+          nodeId === getLocalNodeId()
+            ? await getTauriManagedRemote()
+            : await getRemoteByPeerAddr(nodeId);
         if (remote) {
           const targetUrl = entityRouteFor(payload, remote.remote_id);
           debug("ResolveShareModal", `matched remote ${remote.name} -> ${targetUrl}`);
@@ -281,6 +293,12 @@ function ShareEntityInfo(props: { payload: SharePayloadV1 }) {
         >
           {p().a}
         </p>
+      </Show>
+      <Show when={p().k === "video" && p().st}>
+        <p class="text-sm text-[var(--color-text-tertiary)]">episode of {p().st}</p>
+      </Show>
+      <Show when={p().rn}>
+        <p class="text-xs text-[var(--color-text-tertiary)]">from {p().rn}</p>
       </Show>
     </div>
   );
