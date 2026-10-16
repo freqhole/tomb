@@ -1625,10 +1625,16 @@ export function TopNav(props: TopNavProps) {
                                   // touch devices have no hover, so these no-op there - the
                                   // row's long-press timer below opens it instead, and
                                   // handleRemoteFlyoutOutsideTap closes it.
+                                  //
+                                  // offline remotes don't get this flyout at all (hover or
+                                  // long-press) - there's nothing useful to navigate to on
+                                  // a remote that isn't reachable right now, and the row's
+                                  // own click handler already exists specifically to retry
+                                  // the connection instead.
                                   const viewsOpen = () => activeRemoteFlyouts().has(remote.id);
                                   const flyoutPos = () => remoteFlyoutPosById()[remote.id];
                                   const openViews = () => {
-                                    if (isTouchDevice()) return;
+                                    if (isTouchDevice() || remote.isOffline) return;
                                     openRemoteFlyout(remote.id);
                                   };
                                   const closeViewsDelayed = () => {
@@ -1652,6 +1658,7 @@ export function TopNav(props: TopNavProps) {
                                     if (e.pointerType !== "touch" && e.pointerType !== "pen") {
                                       return;
                                     }
+                                    if (remote.isOffline) return;
                                     clearPressTimer();
                                     pressTimer = setTimeout(() => {
                                       openRemoteFlyout(remote.id);
@@ -1669,7 +1676,7 @@ export function TopNav(props: TopNavProps) {
                                       onPointerMove={clearPressTimer}
                                       onPointerCancel={clearPressTimer}
                                       onContextMenu={(e) => {
-                                        if (!isTouchDevice()) return;
+                                        if (!isTouchDevice() || remote.isOffline) return;
                                         e.preventDefault();
                                         clearPressTimer();
                                         openRemoteFlyout(remote.id);
