@@ -31,6 +31,12 @@
 	<string>freqhole uses the camera to scan QR codes for pairing with remote libraries.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>freqhole connects to freqhole servers on your local network to stream and sync your music library.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<!-- lan discovery over mdns/dns-sd (haruspex's augur module, via
+		     AugurBonjour.swift / NWListener+NWBrowser) -->
+		<string>_irohv1._udp</string>
+	</array>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>audio</string>

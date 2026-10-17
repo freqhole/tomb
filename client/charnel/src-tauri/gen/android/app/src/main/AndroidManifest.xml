@@ -3,6 +3,11 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
+    <!-- lan discovery over mdns/dns-sd (haruspex's augur module, via
+         NsdBridge.kt / android/src/main/java/net/freqhole/augur) -
+         NsdManager needs this alongside INTERNET to advertise/discover. -->
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+
     <!-- media playback: foreground service + lock-screen / notification controls -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />

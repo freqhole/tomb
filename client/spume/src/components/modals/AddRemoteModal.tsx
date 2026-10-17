@@ -57,6 +57,7 @@ import { Button } from "../buttons/Button";
 import { QrScanner } from "../inputs/QrScanner";
 import { MediaImage } from "../media/MediaImage";
 import { toast } from "../feedback/Toast";
+import { subscribeNearbyPeers, type NearbyPeer } from "../../app/services/remotes/nearbyPeers";
 
 export interface AddRemoteModalProps {
   isOpen: boolean;
@@ -133,6 +134,46 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
   // step's render block) so it survives state() transitions, e.g. into an
   // error state after a failed connection test.
   const [inputValue, setInputValue] = createSignal("");
+
+  // "nearby devices" (browse-for-unknown-peers) feed - only runs while
+  // this modal is open, not in the background: subscribing starts the
+  // underlying mdns/dns-sd browse session, and the cleanup below actually
+  // stops it (see `nearbyPeers.ts`'s own doc comment). a no-op outside
+  // tauri mode or if the federation endpoint isn't up yet.
+  const [nearbyPeers, setNearbyPeers] = createSignal<NearbyPeer[]>([]);
+  createEffect(
+    on(
+      () => props.isOpen,
+      (isOpen) => {
+        if (!isOpen) {
+          setNearbyPeers([]);
+          return;
+        }
+        let cancelled = false;
+        let unsubscribe: (() => void) | null = null;
+        subscribeNearbyPeers(
+          (peer) => {
+            if (cancelled) return;
+            setNearbyPeers((prev) => [...prev.filter((p) => p.nodeId !== peer.nodeId), peer]);
+          },
+          (nodeId) => {
+            if (cancelled) return;
+            setNearbyPeers((prev) => prev.filter((p) => p.nodeId !== nodeId));
+          }
+        ).then((unsub) => {
+          if (cancelled) {
+            unsub();
+          } else {
+            unsubscribe = unsub;
+          }
+        });
+        onCleanup(() => {
+          cancelled = true;
+          unsubscribe?.();
+        });
+      }
+    )
+  );
 
   // qr scanner state - gated only on actual camera API availability, not
   // platform: a webview that genuinely can't do getUserMedia (some tauri
@@ -782,6 +823,37 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
                           enter a URL for HTTP, or paste a 64-char node_id for P2P
                         </p>
                       </div>
+
+                      <Show when={nearbyPeers().length > 0 && s.subStep !== "knock_form"}>
+                        <div>
+                          <p class="mb-2 text-xs font-medium text-[var(--color-text-secondary)]">
+                            nearby devices
+                          </p>
+                          <div class="space-y-1">
+                            <For each={nearbyPeers()}>
+                              {(peer) => (
+                                <button
+                                  type="button"
+                                  onClick={() => setInputValue(peer.nodeId)}
+                                  class="w-full flex items-center gap-2 px-3 py-2 bg-[var(--color-bg-secondary)] border border-[var(--color-border-default)] rounded-md text-left text-sm hover:border-[var(--color-accent-primary)] transition-colors"
+                                >
+                                  <span class="text-[var(--color-text-tertiary)]">📡</span>
+                                  <span class="flex-1 min-w-0">
+                                    <span class="block truncate text-[var(--color-text-primary)]">
+                                      {peer.userData || `${peer.nodeId.slice(0, 16)}…`}
+                                    </span>
+                                    <Show when={peer.userData}>
+                                      <span class="block truncate font-mono text-xs text-[var(--color-text-tertiary)]">
+                                        {peer.nodeId.slice(0, 16)}…
+                                      </span>
+                                    </Show>
+                                  </span>
+                                </button>
+                              )}
+                            </For>
+                          </div>
+                        </div>
+                      </Show>
 
                       <Show when={s.error}>
                         <div class="p-3 bg-[var(--color-status-error)]/10 border border-[var(--color-status-error)] rounded-md space-y-2">

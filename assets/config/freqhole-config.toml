@@ -660,6 +660,13 @@ relay_urls = ["https://relay.freqhole.net"]
 # requires at least one valid relay_urls entry when set to "custom_only" or "prefer_custom".
 relay_mode = "default"
 
+# OPTIONAL: also resolve/advertise peers over mdns/dns-sd when they're on
+# the same lan (default: true). this is additive, not a replacement - the
+# relay/dns lookup above keeps working for peers that aren't on the same
+# lan. only reaches devices already on your local network either way, so
+# there's little reason to turn this off.
+lan_discovery = true
+
 # ============================================================================
 # OPTIONAL: remote admin over P2P
 # this entire section is optional (default: disabled)

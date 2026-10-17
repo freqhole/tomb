@@ -13,7 +13,10 @@
 //! which covers message types, codec, the transport-agnostic
 //! `FriendzService`, and gossip digest computation/merge logic - and the
 //! auth-flavored subset of the hub admin protocol (`hub_admin`) - friend
-//! crud, admin promote/demote, and profile get/set over the stores above.
+//! crud, admin promote/demote, and profile get/set over the stores above -
+//! and, feature-gated off by default like `webauthn`, lan discovery over
+//! mdns/dns-sd (`augur`) for finding/resolving nearby freqhole iroh
+//! endpoints without needing a relay hop.
 
 // async_trait's macro expansion adds a bare #[must_use] to every trait
 // method, which newer clippy flags as redundant on top of the already-
@@ -35,6 +38,12 @@ pub mod stores;
 /// see `Cargo.toml`'s `webauthn` feature.
 #[cfg(feature = "webauthn")]
 pub mod webauthn;
+
+/// lan discovery over mdns/dns-sd for freqhole's family of apps - see
+/// `augur/mod.rs`'s own doc comment. off by default, see `Cargo.toml`'s
+/// `augur` feature.
+#[cfg(feature = "augur")]
+pub mod augur;
 
 #[cfg(feature = "test-utils")]
 pub mod testing;

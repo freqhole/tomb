@@ -75,6 +75,9 @@ grimoire = { path = "../../../grimoire", default-features = false }
 server = { path = "../../../server", default-features = false }
 async-trait = "0.1"
 iroh = { workspace = true }
+# augur_commands.rs's nearby-peers subscribe/unsubscribe bridge - same
+# crate+version haruspex's own augur module already depends on.
+n0-future = "0.3"
 tauri-plugin-android-media-session = { path = "plugins/tauri-plugin-android-media-session" }
 
 # desktop-only: the cli library exposes the full `rathole` subcommand
@@ -99,6 +102,12 @@ grimoire = { path = "../../../grimoire", default-features = false, features = [
     "webauthn",
     "vendored-openssl",
     "libmpv-playback",
+    "augur",
+] }
+# direct dependency (not just transitively via grimoire) so
+# augur_commands.rs can call `haruspex::augur::subscribe()` directly.
+haruspex = { path = "../../../lib/haruspex/rust", default-features = false, features = [
+    "augur",
 ] }
 
 libmpv2 = "6"
@@ -119,6 +128,24 @@ playwire = "1.0.0"
 rustls = { version = "0.23", default-features = false, features = [
     "ring",
     "std",
+] }
+# lan discovery over mdns/dns-sd (haruspex's `augur` module via grimoire).
+# always compiled in, same as the desktop target above - whether it
+# actually runs is a runtime `[federation].lan_discovery` config choice.
+# android's backend is a real jni bridge to NsdManager (see
+# lib/haruspex/rust/src/augur/android.rs + its android/NsdBridge.kt,
+# wired into this app's own gradle project via app/build.gradle.kts's
+# `sourceSets` - not copied here, one single source of truth). ios's
+# backend is a real NWListener/NWBrowser bridge (see
+# lib/haruspex/rust/src/augur/ios.rs + its ios/AugurBonjour.swift) -
+# compiled and linked automatically by haruspex's own `build.rs`, no
+# xcode project wiring needed here at all, unlike android.
+grimoire = { path = "../../../grimoire", default-features = false, features = [
+    "augur",
+] }
+# see the desktop target's own comment above for why this is direct too.
+haruspex = { path = "../../../lib/haruspex/rust", default-features = false, features = [
+    "augur",
 ] }
 
 [target."cfg(target_os = \"macos\")".dependencies]

@@ -4,7 +4,10 @@ version.workspace = true
 edition = "2021"
 
 [features]
-default = ["webauthn"]
+# `grimoire/augur` (lan discovery over mdns/dns-sd) is always compiled in,
+# not its own toggle feature here - whether it actually runs is a runtime
+# `[federation].lan_discovery` config choice, not a build-time one.
+default = ["webauthn", "grimoire/augur"]
 webauthn = ["grimoire/webauthn"]
 
 [dependencies]
