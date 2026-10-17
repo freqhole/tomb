@@ -115,6 +115,8 @@ commands.allow = [
     "jobs_events_snapshot",
     "jobs_events_subscribe",
     "jobs_events_unsubscribe",
+    "nearby_peers_subscribe",
+    "nearby_peers_unsubscribe",
     "p2p_get_status",
     "p2p_start",
     "p2p_stop",
