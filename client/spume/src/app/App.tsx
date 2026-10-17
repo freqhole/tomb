@@ -191,6 +191,21 @@ export function App() {
   const [isAddRemoteOpen, setIsAddRemoteOpen] = createSignal(false);
   const [addRemoteInitialValue, setAddRemoteInitialValue] = createSignal<string | undefined>();
   const [addRemoteInitialIntent, setAddRemoteInitialIntent] = createSignal<"player" | undefined>();
+  // closes the add-remote modal and clears the one-shot props that seed
+  // its next open (`initialValue`/`initialIntent`) - the modal's own
+  // isOpen-reset effect clears everything else (input text, flow
+  // sub-state, etc.) on its NEXT open, so this is the one thing that
+  // needs doing right away, at close time. used by the modal's own
+  // `onClose` below AND by the "browse remote" toast actions (knock-
+  // accepted/device-linked) - clicking one navigates to the just-added
+  // remote's feed, so a still-open add-remote modal (e.g. left sitting
+  // on "access request sent!" while waiting for approval) needs to
+  // close rather than linger on top of that navigation.
+  const closeAddRemoteModal = () => {
+    setIsAddRemoteOpen(false);
+    setAddRemoteInitialValue(undefined);
+    setAddRemoteInitialIntent(undefined);
+  };
   // session id for the import review modal - set when user clicks "review now"
   const [reviewSessionId, setReviewSessionId] = createSignal<string | null>(null);
   // the remote that owns the review session - captured at start time so it stays
@@ -773,6 +788,11 @@ export function App() {
                 action: {
                   label: "browse remote",
                   onClick: () => {
+                    // the add-remote modal may have been reopened since
+                    // this toast was created (toasts persist) - close it
+                    // rather than navigate behind it, still sitting on
+                    // whatever step it was last on.
+                    closeAddRemoteModal();
                     window.location.hash = `/${existing.remote_id}/feed`;
                   },
                 },
@@ -793,6 +813,7 @@ export function App() {
                 action: {
                   label: "browse remote",
                   onClick: () => {
+                    closeAddRemoteModal();
                     window.location.hash = `/${remote.remote_id}/feed`;
                   },
                 },
@@ -835,6 +856,10 @@ export function App() {
                 action: {
                   label: "browse remote",
                   onClick: () => {
+                    // see the device-linked branch above for why this
+                    // closes the modal too (toasts persist, modal may
+                    // have been reopened since this one was created).
+                    closeAddRemoteModal();
                     window.location.hash = `/${existing.remote_id}/feed`;
                   },
                 },
@@ -853,6 +878,7 @@ export function App() {
                 action: {
                   label: "browse remote",
                   onClick: () => {
+                    closeAddRemoteModal();
                     window.location.hash = `/${remote.remote_id}/feed`;
                   },
                 },
@@ -2110,11 +2136,7 @@ export function App() {
 
       <AddRemoteModal
         isOpen={isAddRemoteOpen()}
-        onClose={() => {
-          setIsAddRemoteOpen(false);
-          setAddRemoteInitialValue(undefined);
-          setAddRemoteInitialIntent(undefined);
-        }}
+        onClose={closeAddRemoteModal}
         completePeerAddr={autoCompletePeerAddr}
         onSuccess={(remote) => {
           debug("App", "remote added successfully:", remote.name);

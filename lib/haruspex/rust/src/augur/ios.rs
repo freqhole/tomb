@@ -107,6 +107,12 @@ impl AddressLookup for BonjourAddressLookup {
             .next()
             .map(ToString::to_string)
             .unwrap_or_default();
+        tracing::info!(
+            instance_name = instance_name.as_str(),
+            service_type = SERVICE_TYPE,
+            port = addr.port(),
+            "augur: ios starting mdns advertise"
+        );
         let (Ok(instance_name), Ok(service_type), Ok(user_data), Ok(relay_url)) = (
             CString::new(instance_name),
             CString::new(SERVICE_TYPE),
@@ -137,10 +143,7 @@ impl AddressLookup for BonjourAddressLookup {
         &self,
         endpoint_id: EndpointId,
     ) -> Option<BoxStream<Result<LookupItem, LookupError>>> {
-        if let Ok(service_type) = CString::new(SERVICE_TYPE) {
-            // safety: see `publish()`'s own safety comment - same shape.
-            unsafe { augur_start_discovery(service_type.as_ptr()) };
-        }
+        start_discovery();
         let rx = ReceiverStream::new(wire::register_resolver(endpoint_id));
         Some(Box::pin(DiscoveryGuard::new(rx, stop_discovery)))
     }
@@ -151,17 +154,14 @@ impl AddressLookup for BonjourAddressLookup {
 /// `NWBrowser` discovery on first use and stops it again once the
 /// returned stream (and every other live `resolve()`/`subscribe()`
 /// stream) is dropped - this is the one apps should use for an
-/// add-remote "nearby devices" ui, rather than leaving discovery running
+/// add-remote "nearby peerz" ui, rather than leaving discovery running
 /// in the background indefinitely.
 ///
 /// `async fn` purely for signature parity with the desktop backend
 /// (which genuinely needs to await something first) - nothing here
 /// actually awaits.
 pub async fn subscribe(local_node_id: EndpointId) -> BoxStream<DiscoveredPeer> {
-    if let Ok(service_type) = CString::new(SERVICE_TYPE) {
-        // safety: see `publish()`'s own safety comment - same shape.
-        unsafe { augur_start_discovery(service_type.as_ptr()) };
-    }
+    start_discovery();
     let rx = ReceiverStream::new(wire::register_subscriber());
     Box::pin(
         DiscoveryGuard::new(rx, stop_discovery)
@@ -169,8 +169,17 @@ pub async fn subscribe(local_node_id: EndpointId) -> BoxStream<DiscoveredPeer> {
     )
 }
 
+fn start_discovery() {
+    tracing::info!(service_type = SERVICE_TYPE, "augur: ios starting mdns discovery");
+    if let Ok(service_type) = CString::new(SERVICE_TYPE) {
+        // safety: see `publish()`'s own safety comment - same shape.
+        unsafe { augur_start_discovery(service_type.as_ptr()) };
+    }
+}
+
 #[allow(dead_code)] // reachable only via a real endpoint teardown path - not yet wired to one
 fn stop_advertising() {
+    tracing::info!("augur: ios stopping mdns advertise");
     // safety: takes no arguments, nothing to uphold beyond "called from
     // any thread" (`AugurBonjour`'s own dispatch queue serializes the
     // swift-side state).
@@ -181,6 +190,7 @@ fn stop_advertising() {
 /// ref-count (see `wire::DiscoveryGuard`) drops to zero, i.e. no more
 /// live `resolve()`/`subscribe()` consumers want it running.
 fn stop_discovery() {
+    tracing::info!("augur: ios stopping mdns discovery");
     // safety: takes no arguments, same shape as `stop_advertising()`.
     unsafe { augur_stop_discovery() };
 }

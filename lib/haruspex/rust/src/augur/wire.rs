@@ -186,12 +186,33 @@ pub(super) fn deliver_resolved(
     relay_url: &str,
 ) {
     let Some(endpoint_id) = decode_instance_name(instance_name) else {
+        tracing::debug!(
+            instance_name,
+            "augur: ignoring resolved mdns instance that isn't a valid encoded node id"
+        );
         return;
     };
     let Ok(ip) = host.parse::<IpAddr>() else {
         tracing::warn!("augur: resolved peer with unparseable host {host:?}");
         return;
     };
+    // per-event, not session-level - fires on EVERY mdns resolve
+    // callback (continuously, whenever discovery is active at all, not
+    // just while the "nearby peerz" ui is open - also fires for any
+    // `resolve(endpoint_id)` call, not only `subscribe()`), so this is
+    // debug, not info - a lan with several peers advertising/
+    // re-announcing periodically would otherwise flood logz.txt. the
+    // one-shot session start/stop logs (`start_discovery`/
+    // `stop_discovery`/builder construction) are the useful at-a-glance
+    // signal; this is the detailed trace for when something's actually
+    // being debugged.
+    tracing::debug!(
+        provenance,
+        endpoint_id = %endpoint_id.fmt_short(),
+        host,
+        port,
+        "augur: resolved nearby peer over mdns"
+    );
     let mut data = EndpointData::from_iter([TransportAddr::Ip(SocketAddr::new(ip, port))]);
     if !relay_url.is_empty() {
         match relay_url.parse() {
@@ -236,6 +257,11 @@ pub(super) fn deliver_lost(instance_name: &str) {
     let Some(endpoint_id) = decode_instance_name(instance_name) else {
         return;
     };
+    // see `deliver_resolved`'s own comment on why this is debug, not info.
+    tracing::debug!(
+        endpoint_id = %endpoint_id.fmt_short(),
+        "augur: nearby peer no longer visible over mdns"
+    );
     let mut subs = subscribers().lock().unwrap();
     subs.retain(|tx| tx.try_send(DiscoveredPeer::Lost { endpoint_id }).is_ok());
 }

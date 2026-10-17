@@ -680,3 +680,7 @@ test-cli-coverage: db-prepare
 .PHONY: db-reset db-migrate db-prepare
 rathole-dev:
 	cargo run -p cli --bin rathole
+
+.PHONY: ios-dev
+ios-dev:
+	cd $(TAURI_DIR) && npm run tauri ios dev "iPhone 15"

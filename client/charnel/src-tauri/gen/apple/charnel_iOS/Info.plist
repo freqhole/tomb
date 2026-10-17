@@ -33,9 +33,7 @@
 	<string>freqhole connects to freqhole servers on your local network to stream and sync your music library.</string>
 	<key>NSBonjourServices</key>
 	<array>
-		<!-- lan discovery over mdns/dns-sd (haruspex's augur module, via
-		     AugurBonjour.swift / NWListener+NWBrowser) -->
-		<string>_irohv1._udp</string>
+		<string>_irohv1._udp.</string>
 	</array>
 	<key>UIBackgroundModes</key>
 	<array>
@@ -60,19 +58,6 @@
 		<string>UIInterfaceOrientationPortraitUpsideDown</string>
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
-	</array>
-	<key>CFBundleURLTypes</key>
-	<array>
-		<dict>
-			<key>CFBundleURLName</key>
-			<string>net.freqhole.charnel</string>
-			<key>CFBundleTypeRole</key>
-			<string>Viewer</string>
-			<key>CFBundleURLSchemes</key>
-			<array>
-				<string>freqhole</string>
-			</array>
-		</dict>
 	</array>
 </dict>
 </plist>
