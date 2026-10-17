@@ -58,6 +58,13 @@ pub(super) const SERVICE_TYPE: &str = "_irohv1._udp.";
 
 /// encodes a node id as the mdns instance name
 /// (`iroh-mdns-address-lookup`'s own `BASE32_NOPAD`, lowercased).
+///
+/// unused while ios/android's `publish()` is a deliberate no-op (see
+/// `ios.rs`/`android.rs`'s own doc comments on `publish()` for why) -
+/// kept (and still exercised by this module's own round-trip test below)
+/// for whenever mobile accept-handling is implemented and advertising is
+/// re-enabled there.
+#[allow(dead_code)]
 pub(super) fn encode_instance_name(endpoint_id: EndpointId) -> String {
     data_encoding::BASE32_NOPAD
         .encode(endpoint_id.as_bytes())

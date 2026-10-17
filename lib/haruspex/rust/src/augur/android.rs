@@ -73,26 +73,25 @@ impl AddressLookupBuilder for NsdAddressLookupBuilder {
 
 #[derive(Debug, Clone, Copy)]
 struct NsdAddressLookup {
+    // unused while `publish()` is a deliberate no-op - see its doc
+    // comment. kept for whenever mobile accept-handling is implemented
+    // and advertising (which needs this to build the mdns instance name)
+    // is re-enabled.
+    #[allow(dead_code)]
     node_id: EndpointId,
 }
 
 impl AddressLookup for NsdAddressLookup {
-    fn publish(&self, data: &EndpointData) {
-        let Some(addr) = data.ip_addrs().next() else {
-            return;
-        };
-        let instance_name = wire::encode_instance_name(self.node_id);
-        let user_data = data
-            .user_data()
-            .map(ToString::to_string)
-            .unwrap_or_default();
-        let relay_url = data
-            .relay_urls()
-            .next()
-            .map(ToString::to_string)
-            .unwrap_or_default();
-        start_advertising(&instance_name, addr.port(), &user_data, &relay_url);
-    }
+    /// deliberately a no-op: android can't currently accept inbound
+    /// federation connections (no accept-handling/library-serving flow
+    /// implemented yet for a mobile device acting as a p2p source - see
+    /// this module's own doc comment). advertising anyway would just
+    /// make this device show up as an always-unconnectable entry in
+    /// every other nearby peer's "nearby peerz" discovery list.
+    /// `resolve()`/`subscribe()` below (pure discovery, never
+    /// advertising) are unaffected - this device can still discover and
+    /// connect OUT to other peers normally.
+    fn publish(&self, _data: &EndpointData) {}
 
     fn resolve(
         &self,
@@ -203,6 +202,10 @@ fn bridge_class<'local>(
     Ok(JClass::from(class_obj))
 }
 
+/// unused while `publish()` is a deliberate no-op - see its doc comment.
+/// kept (kotlin side is too) for whenever mobile accept-handling is
+/// implemented and advertising is re-enabled.
+#[allow(dead_code)]
 fn start_advertising(instance_name: &str, port: u16, user_data: &str, relay_url: &str) {
     tracing::info!(
         instance_name,

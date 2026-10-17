@@ -1,4 +1,4 @@
-//! ios backend: a real c-ffi bridge to `Network.framework`'s bonjour
+//! ios backend: a c-ffi bridge to `Network.framework`'s bonjour
 //! apis (`NWListener` for advertising, `NWBrowser` for discovery), via a
 //! small companion swift file - see `ios/AugurBonjour.swift` next to this
 //! file. unlike the android side, that file needs no consuming-app-side
@@ -50,6 +50,10 @@ const PROVENANCE: &str = "augur-ios";
 // implemented in `ios/AugurBonjour.swift`, compiled + linked by
 // `../build.rs`.
 unsafe extern "C" {
+    // unused while `publish()` is a deliberate no-op - see its doc
+    // comment. kept (swift side is too) for whenever mobile
+    // accept-handling is implemented and advertising is re-enabled.
+    #[allow(dead_code)]
     fn augur_start_advertising(
         instance_name: *const c_char,
         service_type: *const c_char,
@@ -89,55 +93,24 @@ impl AddressLookupBuilder for BonjourAddressLookupBuilder {
 
 #[derive(Debug, Clone, Copy)]
 struct BonjourAddressLookup {
+    // unused while `publish()` is a deliberate no-op - see its doc
+    // comment. kept for whenever mobile accept-handling is implemented
+    // and advertising (which needs this to build the mdns instance name)
+    // is re-enabled.
+    #[allow(dead_code)]
     node_id: EndpointId,
 }
 
 impl AddressLookup for BonjourAddressLookup {
-    fn publish(&self, data: &EndpointData) {
-        let Some(addr) = data.ip_addrs().next() else {
-            return;
-        };
-        let instance_name = wire::encode_instance_name(self.node_id);
-        let user_data = data
-            .user_data()
-            .map(ToString::to_string)
-            .unwrap_or_default();
-        let relay_url = data
-            .relay_urls()
-            .next()
-            .map(ToString::to_string)
-            .unwrap_or_default();
-        tracing::info!(
-            instance_name = instance_name.as_str(),
-            service_type = SERVICE_TYPE,
-            port = addr.port(),
-            "augur: ios starting mdns advertise"
-        );
-        let (Ok(instance_name), Ok(service_type), Ok(user_data), Ok(relay_url)) = (
-            CString::new(instance_name),
-            CString::new(SERVICE_TYPE),
-            CString::new(user_data),
-            CString::new(relay_url),
-        ) else {
-            // none of these can realistically contain an embedded nul
-            // byte (base32 output, a fixed literal, and a parsed
-            // url/user-data string respectively) - this is just defensive.
-            return;
-        };
-        // safety: all four pointers are valid, nul-terminated c strings
-        // for the duration of this call; `augur_start_advertising` does
-        // not retain them past it (swift copies into its own `String`s
-        // immediately via `String(cString:)`).
-        unsafe {
-            augur_start_advertising(
-                instance_name.as_ptr(),
-                service_type.as_ptr(),
-                addr.port(),
-                user_data.as_ptr(),
-                relay_url.as_ptr(),
-            );
-        }
-    }
+    /// deliberately a no-op: ios can't currently accept inbound federation
+    /// connections (no accept-handling/library-serving flow implemented
+    /// yet for a mobile device acting as a p2p source - see this module's
+    /// own doc comment). advertising anyway would just make this device
+    /// show up as an always-unconnectable entry in every other nearby
+    /// peer's "nearby peerz" discovery list. `resolve()`/`subscribe()`
+    /// below (pure discovery, never advertising) are unaffected - this
+    /// device can still discover and connect OUT to other peers normally.
+    fn publish(&self, _data: &EndpointData) {}
 
     fn resolve(
         &self,
@@ -170,7 +143,10 @@ pub async fn subscribe(local_node_id: EndpointId) -> BoxStream<DiscoveredPeer> {
 }
 
 fn start_discovery() {
-    tracing::info!(service_type = SERVICE_TYPE, "augur: ios starting mdns discovery");
+    tracing::info!(
+        service_type = SERVICE_TYPE,
+        "augur: ios starting mdns discovery"
+    );
     if let Ok(service_type) = CString::new(SERVICE_TYPE) {
         // safety: see `publish()`'s own safety comment - same shape.
         unsafe { augur_start_discovery(service_type.as_ptr()) };
