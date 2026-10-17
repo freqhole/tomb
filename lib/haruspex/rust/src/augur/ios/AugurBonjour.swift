@@ -83,8 +83,26 @@ private final class AugurBonjour {
         guard browser == nil else {
             return
         }
-        let browser = NWBrowser(for: .bonjour(type: serviceType, domain: nil), using: .udp)
-        browser.browseResultsChangedHandler = { [weak self] _, changes in
+        // includePeerToPeer opts this browse into AWDL (apple's private
+        // peer-to-peer wifi mesh) in addition to plain infrastructure
+        // wifi - off by default on `.udp`. confirmed via a real device's
+        // syslog (2026-10-17 investigation) that apple's own airplayd
+        // explicitly requests this (its browse logs show `AWDL`/
+        // `IncludeAWDL` flags) while this browser previously didn't -
+        // suspected cause of mdns discovery being unreliable on at least
+        // one real iphone even though the exact same lan's desktop peers
+        // discover each other fine.
+        let params = NWParameters.udp
+        params.includePeerToPeer = true
+        let browser = NWBrowser(for: .bonjour(type: serviceType, domain: nil), using: params)
+        // TEMP DIAGNOSTIC (2026-10-17): confirms whether the browser itself
+        // is healthy and whether results are now actually arriving -
+        // remove once ios discovery reliability is confirmed fixed.
+        browser.stateUpdateHandler = { state in
+            NSLog("%@", "[augur TEMP DIAG] NWBrowser state: \(state)")
+        }
+        browser.browseResultsChangedHandler = { [weak self] results, changes in
+            NSLog("%@", "[augur TEMP DIAG] browseResultsChanged: \(results.count) result(s)")
             for change in changes {
                 switch change {
                 case .added(let result), .changed(old: _, new: let result, flags: _):
@@ -127,8 +145,18 @@ private final class AugurBonjour {
             if case let .string(value) = txt.getEntry(for: "relay") { relayUrl = value }
         }
         let endpoint = NWEndpoint.service(name: name, type: type, domain: domain, interface: nil)
-        let connection = NWConnection(to: endpoint, using: .udp)
+        // same includePeerToPeer reasoning as startDiscovery's browser
+        // above - a peer only reachable over AWDL needs it here too, or
+        // this resolve connection would never reach .ready for it.
+        let connParams = NWParameters.udp
+        connParams.includePeerToPeer = true
+        let connection = NWConnection(to: endpoint, using: connParams)
+        // TEMP DIAGNOSTIC (2026-10-17): see startDiscovery's identical
+        // reasoning - remove once ios discovery reliability is confirmed
+        // fixed.
+        NSLog("%@", "[augur TEMP DIAG] resolve() starting NWConnection to \(endpoint)")
         connection.stateUpdateHandler = { state in
+            NSLog("%@", "[augur TEMP DIAG] resolve connection state for \(name): \(state)")
             switch state {
             case .ready:
                 defer { connection.cancel() }
