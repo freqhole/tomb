@@ -637,6 +637,19 @@ pub async fn pull_audio_blob_to_local_storage_with_progress(
         .map(PathBuf::from)
         .unwrap_or(full_path);
 
+    // proactively load this freshly-pulled file into this device's own
+    // FsStore right away, so it can re-serve the blob onward to other
+    // peers immediately instead of waiting for someone else's first
+    // on-demand ensure_blob request. non-fatal: the lazy path still
+    // covers this if it fails here.
+    if let Err(e) = crate::blobz::add_file_to_store(&result_path).await {
+        tracing::warn!(
+            "pull_audio_blob: failed to proactively add {} to FsStore: {} - will fall back to on-demand ensure_blob",
+            result_path.display(),
+            e
+        );
+    }
+
     Ok(PullAudioBlobResult {
         blob,
         local_path: result_path,

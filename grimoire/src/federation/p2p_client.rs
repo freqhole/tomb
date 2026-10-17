@@ -774,12 +774,6 @@ pub async fn compute_blake3(peer_addr: &str, blob_id: &str) -> GrimoireResult<Op
     Ok(blake3)
 }
 
-/// pause before a post-ensure retry (see fetch_blob_verified_with_ensure_progress
-/// / fetch_blob_verified_to_file_with_ensure_and_progress) - long enough to let
-/// a connection dropped by a transient blip (e.g. an idle-timeout teardown)
-/// actually re-establish, short enough not to make a real failure feel stuck.
-const RETRY_BACKOFF: std::time::Duration = std::time::Duration::from_secs(5);
-
 /// fetch a blob using verified streaming with on-demand loading
 ///
 /// tries iroh-blobs first. if blob not in FsStore, calls ensure_blob
@@ -866,11 +860,9 @@ pub async fn fetch_blob_verified_with_ensure_progress(
         }
     }
 
-    // retry verified download - a brief pause first gives a connection that
-    // just dropped (e.g. an idle-timeout teardown) a moment to actually
-    // reconnect, instead of immediately retrying against the same still-bad
-    // connection.
-    tokio::time::sleep(RETRY_BACKOFF).await;
+    // retry immediately - ensure_blob is a blocking rpc that only returns
+    // once the peer's server-side fsstore import has already finished, so
+    // there's nothing left to wait for.
     info!(
         "fetch_blob_verified_with_ensure: retrying verified download for {}",
         &blake3_hash[..16.min(blake3_hash.len())],
@@ -1017,9 +1009,8 @@ pub async fn fetch_blob_verified_to_file_with_ensure_and_progress_and_sink(
         }
     }
 
-    // retry - see fetch_blob_verified_with_ensure_progress's identical
-    // backoff reasoning.
-    tokio::time::sleep(RETRY_BACKOFF).await;
+    // retry immediately - see fetch_blob_verified_with_ensure_progress's
+    // identical reasoning for why no pause is needed here.
     info!(
         "fetch_blob_verified_to_file_with_ensure: retrying for {}",
         &blake3_hash[..16.min(blake3_hash.len())],
@@ -1121,7 +1112,8 @@ pub async fn pull_blob_to_local_store_with_ensure(
         }
     }
 
-    tokio::time::sleep(RETRY_BACKOFF).await;
+    // retry immediately - see fetch_blob_verified_with_ensure_progress's
+    // identical reasoning for why no pause is needed here.
     info!(
         "pull_blob_to_local_store: retrying for {}",
         &blake3_hash[..16.min(blake3_hash.len())],

@@ -604,6 +604,184 @@ async fn backfill_one_blob(blob: media_blobz::MediaBlob, n: i64, total: i64) -> 
     }
 }
 
+/// per-sweep totals from `backfill_fsstore_sync` / `backfill_fsstore_batch`.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct FsStoreBackfillSummary {
+    pub checked: i64,
+    pub already_present: i64,
+    pub added: i64,
+    pub local_file_missing: i64,
+}
+
+impl FsStoreBackfillSummary {
+    fn merge(&mut self, other: FsStoreBackfillSummary) {
+        self.checked += other.checked;
+        self.already_present += other.already_present;
+        self.added += other.added;
+        self.local_file_missing += other.local_file_missing;
+    }
+}
+
+/// sweep the whole library's media_blobz rows that already have a blake3
+/// hash and a local file, backfilling any that are missing from the
+/// shared FsStore.
+///
+/// this covers blobs that predate the ingestion paths proactively calling
+/// `add_file_to_store` at ingest time (see
+/// `blob_data::helpers::create_media_blob_from_file`,
+/// `offal::upload::music`/`video`, and `offal::upload::pull`), or where
+/// that eager call silently failed (e.g. a cross-device reference-mode
+/// import issue - see `log_preflight_metadata`'s doc comment). without
+/// this, those rows only ever get into FsStore lazily, the first time some
+/// remote peer's `ensure_blob` request happens to ask for them.
+///
+/// processes the whole candidate set in batches internally (same single-
+/// call contract as `maintenance::repair_library_images_sync`) and
+/// returns final totals. `dry_run` checks FsStore presence and the local
+/// file's existence without actually importing anything.
+pub async fn backfill_fsstore_sync(
+    dry_run: bool,
+    concurrency: usize,
+) -> GrimoireResult<FsStoreBackfillSummary> {
+    const BATCH_SIZE: i64 = 200;
+    let mut totals = FsStoreBackfillSummary::default();
+    let mut offset = 0i64;
+    loop {
+        let (batch, more_remaining) =
+            backfill_fsstore_batch(dry_run, BATCH_SIZE, offset, concurrency).await?;
+        totals.merge(batch);
+        if !more_remaining {
+            break;
+        }
+        // this candidate set doesn't shrink as rows get fixed (FsStore
+        // presence isn't tracked in media_blobz/sql at all, unlike
+        // backfill_blake3_hashes' `blake3 IS NULL` filter), so offset
+        // always advances regardless of dry_run.
+        offset += BATCH_SIZE;
+    }
+    Ok(totals)
+}
+
+async fn backfill_fsstore_batch(
+    dry_run: bool,
+    limit: i64,
+    offset: i64,
+    concurrency: usize,
+) -> GrimoireResult<(FsStoreBackfillSummary, bool)> {
+    let pool = crate::database::connect().await?;
+    let rows = sqlx::query!(
+        r#"
+        SELECT id as "id!", local_path as "local_path!", blake3 as "blake3!"
+        FROM media_blobz
+        WHERE deleted_at IS NULL
+          AND local_path IS NOT NULL
+          AND blake3 IS NOT NULL
+        ORDER BY id
+        LIMIT ?1 OFFSET ?2
+        "#,
+        limit,
+        offset
+    )
+    .fetch_all(&pool)
+    .await?;
+
+    let more_remaining = rows.len() as i64 == limit;
+    let total = rows.len();
+
+    let checked = Arc::new(AtomicI64::new(0));
+    let already_present = Arc::new(AtomicI64::new(0));
+    let added = Arc::new(AtomicI64::new(0));
+    let local_file_missing = Arc::new(AtomicI64::new(0));
+
+    stream::iter(rows.into_iter().enumerate())
+        .for_each_concurrent(concurrency.max(1), |(idx, row)| {
+            let checked = checked.clone();
+            let already_present = already_present.clone();
+            let added = added.clone();
+            let local_file_missing = local_file_missing.clone();
+            async move {
+                checked.fetch_add(1, Ordering::Relaxed);
+                let n = (idx as i64) + 1;
+
+                let hash: Hash = match row.blake3.parse() {
+                    Ok(h) => h,
+                    Err(_) => {
+                        tracing::warn!(
+                            "backfill_fsstore: blob {} has an unparseable blake3 '{}'",
+                            row.id,
+                            row.blake3
+                        );
+                        return;
+                    }
+                };
+
+                match has_blob(hash).await {
+                    Ok(true) => {
+                        already_present.fetch_add(1, Ordering::Relaxed);
+                        return;
+                    }
+                    Ok(false) => {}
+                    Err(e) => {
+                        tracing::warn!(
+                            "backfill_fsstore: failed to check FsStore for blob {}: {}",
+                            row.id,
+                            e
+                        );
+                        return;
+                    }
+                }
+
+                let path = Path::new(&row.local_path);
+                if !path.exists() {
+                    tracing::warn!(
+                        "backfill_fsstore: blob {} file missing: {}",
+                        row.id,
+                        row.local_path
+                    );
+                    local_file_missing.fetch_add(1, Ordering::Relaxed);
+                    return;
+                }
+
+                if dry_run {
+                    crate::progress::report(format!(
+                        "[{n}/{total}] would add {} ({})",
+                        row.id, row.local_path
+                    ));
+                    added.fetch_add(1, Ordering::Relaxed);
+                    return;
+                }
+
+                crate::progress::report(format!(
+                    "[{n}/{total}] adding {} ({})\u{2026}",
+                    row.id, row.local_path
+                ));
+                match add_file_to_store(path).await {
+                    Ok(_) => {
+                        added.fetch_add(1, Ordering::Relaxed);
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            "backfill_fsstore: failed to add blob {} to FsStore: {}",
+                            row.id,
+                            e
+                        );
+                    }
+                }
+            }
+        })
+        .await;
+
+    Ok((
+        FsStoreBackfillSummary {
+            checked: checked.load(Ordering::Relaxed),
+            already_present: already_present.load(Ordering::Relaxed),
+            added: added.load(Ordering::Relaxed),
+            local_file_missing: local_file_missing.load(Ordering::Relaxed),
+        },
+        more_remaining,
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

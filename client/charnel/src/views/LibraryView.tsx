@@ -286,6 +286,7 @@ export default function LibraryView() {
   const [maintCleanupOrphanedData, setMaintCleanupOrphanedData] = createSignal(true);
   const [maintBackfillThumbnails, setMaintBackfillThumbnails] = createSignal(true);
   const [maintBackfillBlake3, setMaintBackfillBlake3] = createSignal(false);
+  const [maintBackfillFsStore, setMaintBackfillFsStore] = createSignal(false);
   const [maintCleanupOrphanedBlobs, setMaintCleanupOrphanedBlobs] = createSignal(false);
   const [maintCleanupContentlessBlobs, setMaintCleanupContentlessBlobs] = createSignal(false);
   const [maintHardDeleteOldRecords, setMaintHardDeleteOldRecords] = createSignal(false);
@@ -294,6 +295,7 @@ export default function LibraryView() {
     maintCleanupOrphanedData() ||
     maintBackfillThumbnails() ||
     maintBackfillBlake3() ||
+    maintBackfillFsStore() ||
     maintCleanupOrphanedBlobs() ||
     maintCleanupContentlessBlobs() ||
     maintHardDeleteOldRecords() ||
@@ -1202,6 +1204,9 @@ export default function LibraryView() {
         if (maintBackfillBlake3()) {
           await run("maintenance_backfill_blake3");
         }
+        if (maintBackfillFsStore()) {
+          await run("maintenance_backfill_fsstore");
+        }
         if (maintCleanupOrphanedBlobs()) {
           await run("maintenance_cleanup_orphaned_blobs");
         }
@@ -1237,6 +1242,7 @@ export default function LibraryView() {
         cleanupOrphanedData: maintCleanupOrphanedData(),
         backfillThumbnails: maintBackfillThumbnails(),
         backfillBlake3: maintBackfillBlake3(),
+        backfillFsstore: maintBackfillFsStore(),
         cleanupOrphanedBlobs: maintCleanupOrphanedBlobs(),
         cleanupContentlessBlobs: maintCleanupContentlessBlobs(),
         hardDeleteOldRecords: maintHardDeleteOldRecords(),
@@ -1789,6 +1795,26 @@ export default function LibraryView() {
                   <Show when={maintenancePreviewText("blake3")}>
                     <span class="checkbox-count">{maintenancePreviewText("blake3")}</span>
                   </Show>
+                </span>
+              </label>
+              <label class="checkbox-toggle">
+                <input
+                  type="checkbox"
+                  checked={maintBackfillFsStore()}
+                  onChange={(e) => setMaintBackfillFsStore(e.currentTarget.checked)}
+                />
+                <span class="checkbox-box">
+                  <svg viewBox="0 0 14 14">
+                    <polyline points="2.5 7 5.5 10 11.5 4" />
+                  </svg>
+                </span>
+                <span class="checkbox-content">
+                  <span class="checkbox-label">add already-hashed media to the p2p blob store</span>
+                  <span class="checkbox-hint">
+                    off by default; backfills media missed by proactive ingest-time
+                    adds (e.g. from before this feature existed) so remote peers
+                    don't have to wait for it to be generated on demand.
+                  </span>
                 </span>
               </label>
               <label class="checkbox-toggle">
