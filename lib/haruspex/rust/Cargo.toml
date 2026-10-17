@@ -4,6 +4,9 @@ version.workspace = true
 edition.workspace = true
 description = "freqhole auth domain: identity, devices, roles/groups, acl, webauthn, knock + friendz protocols"
 repository = "https://github.com/freqhole/haruspex"
+# compiles the augur feature's ios swift shim (see `build.rs`'s own doc
+# comment) - a no-op for every other target/feature combination.
+build = "build.rs"
 
 [lib]
 name = "haruspex"
@@ -40,8 +43,11 @@ webauthn-rs = { version = "0.5.1", features = [
     "conditional-ui",
 ], optional = true }
 # the iroh feature's `FriendzProtocolHandler` (see `protocol::iroh_transport`)
-# - the ONLY place iroh types appear in this crate, per the transport-
-# agnostic design tenet. version matches skein/reliquary's pin exactly
+# - the ONLY place iroh types appear in this crate's protocol-agnostic
+# core, per the transport-agnostic design tenet. the `augur` feature below
+# is the other, deliberately separate place - lan discovery is inherently
+# iroh/transport-specific, not something a transport-agnostic protocol
+# could stay agnostic about. version matches skein/reliquary's pin exactly
 # (read-only research, not a shared dependency).
 iroh = { version = "1.3.0", optional = true }
 
@@ -52,6 +58,46 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # keygen, sha-256 hashing, and ecdsa signing - the same crate webauthn-rs
 # itself already links transitively, so this adds no new native dependency.
 openssl = "0.10"
+
+# macos/linux/windows: the augur feature's lan-discovery backend (see
+# src/augur/desktop.rs). swarm-discovery's raw multicast sockets work fine,
+# unsandboxed, on these targets. n0-future is `subscribe()`'s stream
+# plumbing - the exact same crate `iroh-mdns-address-lookup` itself
+# already depends on, just named directly since `subscribe()`'s own
+# "keep the underlying discoverer alive" wrapper needs it.
+[target.'cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))'.dependencies]
+iroh-mdns-address-lookup = { version = "0.6", optional = true }
+n0-future = { version = "0.3", optional = true }
+
+# android: the augur feature's lan-discovery backend (see
+# src/augur/android.rs), a real jni bridge to NsdManager (see that
+# module's own doc comment + the companion android/NsdBridge.kt).
+# ndk-context gives ambient access to the JavaVM/Context handle that
+# whatever runtime hosts this process already initialized - charnel's
+# own android build already relies on this working (see its
+# `tauri-runtime-wry` version pin's own comment). n0-future/tokio-stream
+# wrap the jni callback feed as the same `Stream` type the desktop
+# backend's crate already returns; data-encoding is the node-id<->mdns-
+# instance-name codec, matching `iroh-mdns-address-lookup`'s own (see
+# `wire.rs`).
+[target.'cfg(target_os = "android")'.dependencies]
+jni = { version = "0.21", optional = true }
+ndk-context = { version = "0.1", optional = true }
+n0-future = { version = "0.3", optional = true }
+tokio-stream = { version = "0.1", optional = true }
+data-encoding = { version = "2", optional = true }
+
+# ios: the augur feature's lan-discovery backend (see src/augur/ios.rs),
+# a real c-ffi bridge to Network.framework's bonjour apis, implemented in
+# the companion `ios/AugurBonjour.swift` (compiled + linked by
+# `build.rs` - no xcode project wiring needed, unlike android). no extra
+# rust-side dependency for the ffi calls themselves (plain `extern "C"`);
+# n0-future/tokio-stream/data-encoding are the exact same shared pieces
+# the android target above uses (see `wire.rs`).
+[target.'cfg(target_os = "ios")'.dependencies]
+n0-future = { version = "0.3", optional = true }
+tokio-stream = { version = "0.1", optional = true }
+data-encoding = { version = "2", optional = true }
 
 [features]
 default = []
@@ -65,6 +111,22 @@ webauthn = ["dep:webauthn-rs"]
 # without iroh at all (e.g. over an in-memory duplex pair in tests, or a
 # future http/websocket binding).
 iroh = ["dep:iroh"]
+# lan discovery via mdns/dns-sd for freqhole's family of apps - see
+# `src/augur/mod.rs` for the full design. off by default: pulls in real
+# per-platform networking (raw multicast sockets via swarm-discovery on
+# macos/linux/windows; jni + ndk-context on android; a swift bonjour
+# shim, compiled by `build.rs`, on ios). depends on `iroh` (the feature
+# above) since it's built directly on iroh's own
+# `AddressLookup`/`AddressLookupBuilder` traits.
+augur = [
+    "iroh",
+    "dep:iroh-mdns-address-lookup",
+    "dep:jni",
+    "dep:ndk-context",
+    "dep:n0-future",
+    "dep:tokio-stream",
+    "dep:data-encoding",
+]
 # in-process fixtures + fake stores for consumer test suites, exported under
 # haruspex::testing (open_in_memory, per-store constructors, knock_pair,
 # evaluator_fixture, fake_challenge_store).
@@ -93,6 +155,14 @@ required-features = ["test-utils"]
 [[test]]
 name = "friendz_send_message_addr"
 required-features = ["iroh"]
+
+[[test]]
+name = "augur_mdns_connect"
+required-features = ["augur"]
+
+[[test]]
+name = "augur_subscribe"
+required-features = ["augur"]
 
 [[test]]
 name = "webauthn_two_transports"

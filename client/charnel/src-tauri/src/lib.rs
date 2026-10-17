@@ -74,6 +74,7 @@ mod media_session {
     ) {
     }
 }
+mod augur_commands;
 #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
 mod control_socket_bridge;
 mod jobs_events_commands;
@@ -1748,6 +1749,9 @@ pub fn run() {
             jobs_events_commands::jobs_events_snapshot,
             jobs_events_commands::jobs_events_subscribe,
             jobs_events_commands::jobs_events_unsubscribe,
+            // augur "nearby devices" browse feed (add-remote flow)
+            augur_commands::nearby_peers_subscribe,
+            augur_commands::nearby_peers_unsubscribe,
             // P2P state control commands
             p2p_state::p2p_get_status,
             p2p_state::p2p_start,

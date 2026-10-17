@@ -91,6 +91,10 @@ zod_gen_derive = "1.0"
 [features]
 default = ["webauthn", "libmpv-playback"]
 webauthn = ["webauthn-rs", "haruspex/webauthn"]
+# lan discovery over mdns/dns-sd for the federation endpoint (see
+# haruspex's `augur` module). off by default, same as haruspex's own
+# augur feature - pulls in real per-platform networking deps.
+augur = ["haruspex/augur"]
 vendored-openssl = ["openssl"]
 # libmpv audio backend. disable for headless / cross-compile targets
 # without system libmpv available at link time.

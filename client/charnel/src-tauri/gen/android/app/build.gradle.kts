@@ -48,6 +48,15 @@ android {
     kotlinOptions {
         jvmTarget = "1.8"
     }
+    // lan discovery over mdns/dns-sd (haruspex's augur module) - pulls
+    // NsdBridge.kt straight from haruspex's own source tree rather than a
+    // copy here, so there's one single source of truth kept in sync with
+    // the rust jni side it talks to (see that file's own doc comment).
+    sourceSets {
+        getByName("main") {
+            kotlin.srcDir("../../../../../../lib/haruspex/rust/src/augur/android")
+        }
+    }
     buildFeatures {
         buildConfig = true
     }

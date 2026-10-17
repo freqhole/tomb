@@ -141,6 +141,24 @@ impl FederationEndpoint {
             builder = builder.relay_mode(relay_mode);
         }
 
+        // also resolve peers over mdns/dns-sd when they're on the same lan
+        // (haruspex's `augur` module), unless the user has turned it off in
+        // config. additive, not a replacement: the preset's own n0 relay +
+        // dns/pkarr lookup keeps working for peers that aren't on the same
+        // lan either way.
+        #[cfg(feature = "augur")]
+        {
+            let lan_discovery = get_config()
+                .federation
+                .as_ref()
+                .map(|f| f.lan_discovery)
+                .unwrap_or(true);
+            if lan_discovery {
+                info!("enabling lan discovery over mdns/dns-sd (augur)");
+                builder = builder.address_lookup(haruspex::augur::builder());
+            }
+        }
+
         let endpoint = if let Some(port) = bind_port {
             // bind to specific port (for users with manual router port forwarding)
             let bind_addr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, port));

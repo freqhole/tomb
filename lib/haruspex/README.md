@@ -2,8 +2,9 @@
 
 everything auth for the freqhole world of apps: webauthn passkeys, knock access requests,
 user identity with multi-device node ids, roles + groups, api keys + invite codes, an acl
-evaluator, and the friendz peer protocol (presence, gossip, friend requests). rust crate
-`haruspex` + npm package `@freqhole/haruspex`.
+evaluator, the friendz peer protocol (presence, gossip, friend requests), and lan discovery
+over mdns/dns-sd (feature: augur) for finding/resolving nearby freqhole iroh endpoints
+without a relay hop. rust crate `haruspex` + npm package `@freqhole/haruspex`.
 
 ## architecture
 
@@ -44,6 +45,8 @@ rust/               crate: haruspex
     knock/          knock lifecycle + KnockPolicy trait
     webauthn/       ceremony handlers (feature: webauthn)
     protocol/       friendz messages, codec, FriendzService, gossip; iroh shell (feature: iroh)
+    augur/          lan discovery over mdns/dns-sd (feature: augur) - see tomb's
+                    docs/lan-mdns-discovery-plan.md for the full design
     sqlite/         pool open/migrations
     testing/        fixtures + fake stores (feature: test-utils)
   examples/         runnable walkthroughs (see below)
@@ -65,8 +68,9 @@ let alice = identities.upsert_identity(/* Identity { .. } */).await?;
 identities.add_device(/* DeviceNode { node_id, .. } */).await?;
 ```
 
-features: `webauthn` (passkey ceremonies), `iroh` (friendz ProtocolHandler), `test-utils`
-(in-memory fixtures). default = none of them - the core is dependency-light.
+features: `webauthn` (passkey ceremonies), `iroh` (friendz ProtocolHandler), `augur`
+(lan discovery over mdns/dns-sd), `test-utils` (in-memory fixtures). default = none of
+them - the core is dependency-light.
 
 examples (each runnable, each a tiny tour):
 

@@ -12,7 +12,10 @@ name = "cli"
 path = "src/lib.rs"
 
 [features]
-default = ["server/webauthn"]
+# `grimoire/augur` (lan discovery over mdns/dns-sd) is always compiled in,
+# not its own toggle feature here - whether it actually runs is a runtime
+# `[federation].lan_discovery` config choice, not a build-time one.
+default = ["server/webauthn", "grimoire/augur"]
 webauthn = ["server/webauthn"]
 # opt-in: links libmpv in-process via grimoire's `libmpv-playback`
 # feature (only the `player-smoke-test` debug subcommand needs it). off by

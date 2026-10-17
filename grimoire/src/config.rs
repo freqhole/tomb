@@ -627,6 +627,13 @@ pub struct FederationConfig {
     /// `prefer_custom` uses `relay_urls` but keeps the public relay as fallback.
     #[serde(default)]
     pub relay_mode: RelayModeConfig,
+    /// resolve/advertise peers over mdns/dns-sd when they're on the same lan
+    /// (haruspex's `augur` module), alongside the public n0 relay + dns/pkarr
+    /// lookup above. default: true - lan discovery only reaches devices
+    /// already on the same local network, so there's no real cost to
+    /// leaving it on; a setup-flow toggle for this is a future addition.
+    #[serde(default = "default_true")]
+    pub lan_discovery: bool,
     /// remote admin configuration (`freqhole-admin/1` ALPN).
     /// when absent or `enabled = false`, incoming admin connections are
     /// rejected. see docs/wizard-remote-admin.md.

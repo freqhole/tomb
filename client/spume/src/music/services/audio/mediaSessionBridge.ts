@@ -242,6 +242,36 @@ export function installMediaSessionBridge(): void {
       })
     );
 
+    // one-shot position-state nudge once a track's REAL duration becomes
+    // known. FIX for a regression the per-tick/timer removal above
+    // reintroduced: `setCurrentSong()` (htmlAudio.ts's `loadAndPlay`)
+    // resets `duration` to 0 and flips `current_item_key` *before* the
+    // new audio element has actually loaded its metadata, so the
+    // metadata effect's own `pushPositionStateNow()` call (above,
+    // inside `refreshMetadata`) almost always no-ops on a plain track
+    // skip — its `duration() <= 0` guard bails immediately. nothing
+    // pushed a valid position state for the new track after that point
+    // unless/until the next play/pause toggle, which may never happen
+    // for a skip during continuous playback (`isPlaying` never flips).
+    // iOS's lock-screen "now playing" card is documented (see
+    // `loadAndPlay`'s own "iOS lock screen caches the position..."
+    // comment) to need a real position-state push to refresh at all —
+    // without one, it keeps showing the previous track indefinitely.
+    // guarded to fire at most once per `current_item_key` (not on every
+    // subsequent `duration()` write for the same track, e.g. a late
+    // correction) - this is a single nudge, not a reinstatement of the
+    // removed periodic/per-tick churn.
+    let lastDurationPushedForKey: string | null = null;
+    createEffect(
+      on(duration, (d) => {
+        const key = appState()?.current_item_key ?? null;
+        if (!key || key === lastDurationPushedForKey) return;
+        if (!Number.isFinite(d) || d <= 0) return;
+        lastDurationPushedForKey = key;
+        pushPositionStateNow(currentTime());
+      })
+    );
+
     // favorite state — reflects live in-app favorite toggles (e.g. the
     // user tapping the heart in the queue/player UI) onto the android
     // lock-screen notification without waiting for a full metadata
