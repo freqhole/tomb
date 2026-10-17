@@ -55,7 +55,9 @@ fn main() {
     };
 
     let sdk_path = run(Command::new("xcrun").args(["--sdk", sdk_name, "--show-sdk-path"]))
-        .unwrap_or_else(|err| panic!("augur: failed to locate the {sdk_name} sdk via xcrun: {err}"));
+        .unwrap_or_else(|err| {
+            panic!("augur: failed to locate the {sdk_name} sdk via xcrun: {err}")
+        });
     let sdk_path = sdk_path.trim();
 
     let status = Command::new("swiftc")

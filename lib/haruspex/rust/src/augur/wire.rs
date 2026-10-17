@@ -151,7 +151,12 @@ pub(super) fn register_resolver(
     endpoint_id: EndpointId,
 ) -> mpsc::Receiver<Result<LookupItem, LookupError>> {
     let (tx, rx) = mpsc::channel(20);
-    resolvers().lock().unwrap().entry(endpoint_id).or_default().push(tx);
+    resolvers()
+        .lock()
+        .unwrap()
+        .entry(endpoint_id)
+        .or_default()
+        .push(tx);
     rx
 }
 
@@ -247,7 +252,9 @@ mod tests {
         // matches the exact shape `iroh-mdns-address-lookup` itself
         // documents (52 lowercase base32 chars for a 32-byte key).
         assert_eq!(encoded.len(), 52);
-        assert!(encoded.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit()));
+        assert!(encoded
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit()));
         assert_eq!(decode_instance_name(&encoded), Some(id));
     }
 

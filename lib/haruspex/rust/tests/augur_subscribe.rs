@@ -31,7 +31,9 @@ async fn wait_for_found(
     tokio::time::timeout(Duration::from_secs(15), async {
         loop {
             match stream.next().await.expect("subscribe stream ended early") {
-                haruspex::augur::DiscoveredPeer::Found { endpoint_id, .. } if endpoint_id == target => {
+                haruspex::augur::DiscoveredPeer::Found { endpoint_id, .. }
+                    if endpoint_id == target =>
+                {
                     return;
                 }
                 _ => continue,

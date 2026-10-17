@@ -11,9 +11,9 @@ use iroh::EndpointId;
 use n0_future::boxed::BoxStream;
 use n0_future::Stream;
 
-pub use iroh_mdns_address_lookup::{MdnsAddressLookup, MdnsAddressLookupBuilder};
 #[allow(unused_imports)] // re-exported for callers, not used in this module itself
 pub use iroh_mdns_address_lookup::DiscoveryEvent;
+pub use iroh_mdns_address_lookup::{MdnsAddressLookup, MdnsAddressLookupBuilder};
 
 use super::DiscoveredPeer;
 

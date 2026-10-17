@@ -98,7 +98,10 @@ impl AddressLookup for BonjourAddressLookup {
             return;
         };
         let instance_name = wire::encode_instance_name(self.node_id);
-        let user_data = data.user_data().map(ToString::to_string).unwrap_or_default();
+        let user_data = data
+            .user_data()
+            .map(ToString::to_string)
+            .unwrap_or_default();
         let relay_url = data
             .relay_urls()
             .next()
@@ -130,7 +133,10 @@ impl AddressLookup for BonjourAddressLookup {
         }
     }
 
-    fn resolve(&self, endpoint_id: EndpointId) -> Option<BoxStream<Result<LookupItem, LookupError>>> {
+    fn resolve(
+        &self,
+        endpoint_id: EndpointId,
+    ) -> Option<BoxStream<Result<LookupItem, LookupError>>> {
         if let Ok(service_type) = CString::new(SERVICE_TYPE) {
             // safety: see `publish()`'s own safety comment - same shape.
             unsafe { augur_start_discovery(service_type.as_ptr()) };
@@ -191,7 +197,10 @@ unsafe fn decode_c_str(ptr: *const c_char) -> Option<String> {
     if ptr.is_null() {
         return None;
     }
-    unsafe { CStr::from_ptr(ptr) }.to_str().ok().map(str::to_owned)
+    unsafe { CStr::from_ptr(ptr) }
+        .to_str()
+        .ok()
+        .map(str::to_owned)
 }
 
 /// called by `AugurBonjour.resolve(_:)` once a nearby instance's
@@ -227,7 +236,14 @@ pub extern "C" fn augur_ios_on_resolved(
         tracing::warn!("augur: failed to decode resolved ios mdns peer");
         return;
     };
-    wire::deliver_resolved(PROVENANCE, &instance_name, &host, port, &user_data, &relay_url);
+    wire::deliver_resolved(
+        PROVENANCE,
+        &instance_name,
+        &host,
+        port,
+        &user_data,
+        &relay_url,
+    );
 }
 
 /// called by `AugurBonjour` once a previously-resolved instance

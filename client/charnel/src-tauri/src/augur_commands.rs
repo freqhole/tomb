@@ -81,7 +81,8 @@ fn drop_session(session_id: &str) {
 /// browse from).
 #[tauri::command]
 pub async fn nearby_peers_subscribe(events: Channel<NearbyPeerFrame>) -> Result<String, String> {
-    let endpoint = grimoire::federation::p2p_client::get_endpoint_arc().map_err(|e| e.to_string())?;
+    let endpoint =
+        grimoire::federation::p2p_client::get_endpoint_arc().map_err(|e| e.to_string())?;
     let local_node_id = endpoint.id();
     let session_id = next_session_id();
 

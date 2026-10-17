@@ -74,9 +74,9 @@ mod media_session {
     ) {
     }
 }
+mod augur_commands;
 #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
 mod control_socket_bridge;
-mod augur_commands;
 mod jobs_events_commands;
 #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
 mod control_socket_bridge {

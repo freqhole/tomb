@@ -81,7 +81,10 @@ impl AddressLookup for NsdAddressLookup {
             return;
         };
         let instance_name = wire::encode_instance_name(self.node_id);
-        let user_data = data.user_data().map(ToString::to_string).unwrap_or_default();
+        let user_data = data
+            .user_data()
+            .map(ToString::to_string)
+            .unwrap_or_default();
         let relay_url = data
             .relay_urls()
             .next()
@@ -90,7 +93,10 @@ impl AddressLookup for NsdAddressLookup {
         start_advertising(&instance_name, addr.port(), &user_data, &relay_url);
     }
 
-    fn resolve(&self, endpoint_id: EndpointId) -> Option<BoxStream<Result<LookupItem, LookupError>>> {
+    fn resolve(
+        &self,
+        endpoint_id: EndpointId,
+    ) -> Option<BoxStream<Result<LookupItem, LookupError>>> {
         start_discovery();
         let rx = ReceiverStream::new(wire::register_resolver(endpoint_id));
         Some(Box::pin(DiscoveryGuard::new(rx, stop_discovery)))
