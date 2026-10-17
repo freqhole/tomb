@@ -44,6 +44,25 @@ private final class AugurBonjour {
     private var listener: NWListener?
     private var browser: NWBrowser?
 
+    /// `SERVICE_TYPE` (shared with the rust side, `wire.rs`) is written
+    /// with a trailing dot (`"_irohv1._udp."`) for consistency with
+    /// Info.plist's `NSBonjourServices` entry and the desktop/android
+    /// backends' own conventions - but apple's own documented contract
+    /// for both `NWBrowser.Descriptor.bonjour(type:domain:)` and
+    /// `NWListener.Service(name:type:)`'s `type` parameter explicitly
+    /// forbids a trailing dot there (only the separate `domain` parameter
+    /// uses one, e.g. `"local."`). confirmed (2026-10-17 investigation)
+    /// as the actual root cause of ios discovery silently finding
+    /// nothing: `NWBrowser` still reaches `.ready` with a dotted type (no
+    /// error surfaces anywhere), but the resulting query never matches
+    /// real advertisements, which explains why this is ios-specific (the
+    /// only backend going through this exact swift api) and why
+    /// advertising (seemingly more lenient here) looked like it worked
+    /// while browsing never did.
+    private func stripTrailingDot(_ serviceType: String) -> String {
+        serviceType.hasSuffix(".") ? String(serviceType.dropLast()) : serviceType
+    }
+
     func startAdvertising(
         instanceName: String, serviceType: String, port: UInt16, userData: String, relayUrl: String
     ) {
@@ -56,7 +75,8 @@ private final class AugurBonjour {
         if !relayUrl.isEmpty { txt["relay"] = relayUrl }
         do {
             let listener = try NWListener(using: .udp, on: nwPort)
-            listener.service = NWListener.Service(name: instanceName, type: serviceType, txtRecord: txt)
+            listener.service = NWListener.Service(
+                name: instanceName, type: stripTrailingDot(serviceType), txtRecord: txt)
             // this listener exists purely for its mdns advertisement side
             // effect (matching how the desktop backend's swarm-discovery
             // and the android backend's `NsdManager.registerService` both
@@ -94,7 +114,8 @@ private final class AugurBonjour {
         // discover each other fine.
         let params = NWParameters.udp
         params.includePeerToPeer = true
-        let browser = NWBrowser(for: .bonjour(type: serviceType, domain: nil), using: params)
+        let browser = NWBrowser(
+            for: .bonjour(type: stripTrailingDot(serviceType), domain: nil), using: params)
         // TEMP DIAGNOSTIC (2026-10-17): confirms whether the browser itself
         // is healthy and whether results are now actually arriving -
         // remove once ios discovery reliability is confirmed fixed.
