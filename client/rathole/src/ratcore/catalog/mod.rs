@@ -132,6 +132,7 @@ fn rich_commands() -> Vec<AdminCommand> {
         builders::maintenance::cleanup_contentless_blobs(),
         builders::maintenance::cleanup_all(),
         builders::maintenance::backfill_blake3(),
+        builders::maintenance::backfill_fsstore(),
         builders::maintenance::backfill_thumbnails(),
         builders::maintenance::cleanup_orphaned_blobs(),
         builders::maintenance::hard_delete_old_records(),

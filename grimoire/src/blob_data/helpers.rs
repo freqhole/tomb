@@ -148,7 +148,22 @@ pub async fn create_media_blob_from_file(
     };
 
     match media_blobz::create_media_blob(request).await {
-        Ok(blob) => GrimoireResponse::success("Media blob created from file", blob.id),
+        Ok(blob) => {
+            // proactively load this new file into the shared FsStore right
+            // at ingest time (covers both directory-scan rediscovery and
+            // yt-dlp fetch downloads, which both funnel through this same
+            // function) instead of leaving it to the first remote peer's
+            // on-demand `ensure_blob_by_blake3` request to populate it.
+            // non-fatal: the lazy path still covers this if it fails here.
+            if let Err(e) = crate::blobz::add_file_to_store(Path::new(file_path)).await {
+                tracing::warn!(
+                    "create_media_blob_from_file: failed to proactively add {} to FsStore: {} - will fall back to on-demand ensure_blob",
+                    file_path,
+                    e
+                );
+            }
+            GrimoireResponse::success("media blob created from file", blob.id)
+        }
         Err(e) => {
             GrimoireResponse::failure("Failed to create media blob from file", vec![e.into()])
         }

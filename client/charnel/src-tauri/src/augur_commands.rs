@@ -1,4 +1,4 @@
-//! charnel-side ipc bridge for augur's "nearby devices" browse feed - see
+//! charnel-side ipc bridge for augur's "nearby peerz" browse feed - see
 //! `haruspex::augur::subscribe()`'s own doc comment for the underlying
 //! mechanism (lan discovery over mdns/dns-sd).
 //!
@@ -70,7 +70,7 @@ fn drop_session(session_id: &str) {
     }
 }
 
-/// opens a "browse nearby devices" subscription for the add-remote ui.
+/// opens a "browse nearby peerz" subscription for the add-remote ui.
 /// returns an opaque `session_id` the caller passes to
 /// `nearby_peers_unsubscribe` once done (e.g. the modal closing) - this
 /// is the one thing that actually stops the underlying mdns browse

@@ -15,9 +15,9 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>0.3.17</string>
+	<string>0.3.18</string>
 	<key>CFBundleVersion</key>
-	<string>0.3.17</string>
+	<string>0.3.18</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>ITSAppUsesNonExemptEncryption</key>
@@ -33,9 +33,7 @@
 	<string>freqhole connects to freqhole servers on your local network to stream and sync your music library.</string>
 	<key>NSBonjourServices</key>
 	<array>
-		<!-- lan discovery over mdns/dns-sd (haruspex's augur module, via
-		     AugurBonjour.swift / NWListener+NWBrowser) -->
-		<string>_irohv1._udp</string>
+		<string>_irohv1._udp.</string>
 	</array>
 	<key>UIBackgroundModes</key>
 	<array>

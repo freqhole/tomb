@@ -127,6 +127,40 @@ pub(in crate::ratcore::catalog) fn backfill_blake3() -> AdminCommand {
     }
 }
 
+/// sweeps the whole library's already-hashed media_blobz rows, backfilling
+/// the shared FsStore for any that are missing - a separate pass from
+/// `backfill_blake3` above, which only ever touches rows with a NULL
+/// blake3 column and so can never reach a row that already has one but
+/// never made it into FsStore (e.g. ingested before this device started
+/// proactively adding new media to FsStore at ingest time).
+pub(in crate::ratcore::catalog) fn backfill_fsstore() -> AdminCommand {
+    use crate::ratcore::app::{ArgKind, ArgSpec};
+    AdminCommand {
+        name: "maintenance_backfill_fsstore".to_string(),
+        request_type: "MaintenanceBackfillFsStoreRequest".to_string(),
+        response_type: "serde_json::Value".to_string(),
+        auth: "Admin".to_string(),
+        kind: CommandKind::Admin,
+        args: vec![
+            dry_run_arg(),
+            ArgSpec {
+                name: "concurrency".to_string(),
+                kind: ArgKind::Number {
+                    placeholder: "(blank = 16) parallel checks/imports".to_string(),
+                    signed: false,
+                    min: Some(1),
+                    max: None,
+                },
+                required: false,
+                help: Some(
+                    "how many blobs to check/import in parallel while sweeping the library."
+                        .to_string(),
+                ),
+            },
+        ],
+    }
+}
+
 pub(in crate::ratcore::catalog) fn cleanup_orphaned_blobs() -> AdminCommand {
     use crate::ratcore::app::{ArgKind, ArgSpec};
     AdminCommand {

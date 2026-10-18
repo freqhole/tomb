@@ -30,9 +30,10 @@ use iroh::address_lookup::{
     Error as LookupError, Item as LookupItem,
 };
 use iroh::{Endpoint, EndpointId};
-use jni::objects::{JClass, JObject, JString, JValue};
+use jni::objects::{GlobalRef, JClass, JObject, JString, JValue};
 use jni::sys::jint;
 use jni::{JNIEnv, JavaVM};
+use std::sync::OnceLock;
 use n0_future::boxed::BoxStream;
 use n0_future::StreamExt;
 use tokio_stream::wrappers::ReceiverStream;
@@ -72,26 +73,25 @@ impl AddressLookupBuilder for NsdAddressLookupBuilder {
 
 #[derive(Debug, Clone, Copy)]
 struct NsdAddressLookup {
+    // unused while `publish()` is a deliberate no-op - see its doc
+    // comment. kept for whenever mobile accept-handling is implemented
+    // and advertising (which needs this to build the mdns instance name)
+    // is re-enabled.
+    #[allow(dead_code)]
     node_id: EndpointId,
 }
 
 impl AddressLookup for NsdAddressLookup {
-    fn publish(&self, data: &EndpointData) {
-        let Some(addr) = data.ip_addrs().next() else {
-            return;
-        };
-        let instance_name = wire::encode_instance_name(self.node_id);
-        let user_data = data
-            .user_data()
-            .map(ToString::to_string)
-            .unwrap_or_default();
-        let relay_url = data
-            .relay_urls()
-            .next()
-            .map(ToString::to_string)
-            .unwrap_or_default();
-        start_advertising(&instance_name, addr.port(), &user_data, &relay_url);
-    }
+    /// deliberately a no-op: android can't currently accept inbound
+    /// federation connections (no accept-handling/library-serving flow
+    /// implemented yet for a mobile device acting as a p2p source - see
+    /// this module's own doc comment). advertising anyway would just
+    /// make this device show up as an always-unconnectable entry in
+    /// every other nearby peer's "nearby peerz" discovery list.
+    /// `resolve()`/`subscribe()` below (pure discovery, never
+    /// advertising) are unaffected - this device can still discover and
+    /// connect OUT to other peers normally.
+    fn publish(&self, _data: &EndpointData) {}
 
     fn resolve(
         &self,
@@ -108,7 +108,7 @@ impl AddressLookup for NsdAddressLookup {
 /// `NsdManager` discovery on first use and stops it again once the
 /// returned stream (and every other live `resolve()`/`subscribe()`
 /// stream) is dropped - this is the one apps should use for an
-/// add-remote "nearby devices" ui, rather than leaving discovery running
+/// add-remote "nearby peerz" ui, rather than leaving discovery running
 /// in the background indefinitely.
 ///
 /// `async fn` purely for signature parity with the desktop backend
@@ -146,9 +146,75 @@ fn with_jni<R>(f: impl FnOnce(&mut JNIEnv, &JObject) -> jni::errors::Result<R>) 
     }
 }
 
+/// the app's real `ClassLoader` (not the bootstrap one) - resolved once,
+/// lazily, and cached as a `GlobalRef` since it's a plain java object
+/// reference, safe to reuse from any later-attached thread regardless of
+/// which thread first resolved it.
+static CLASS_LOADER: OnceLock<GlobalRef> = OnceLock::new();
+
+/// resolves [`BRIDGE_CLASS`] correctly from ANY thread - not just one the
+/// app's own classloader is already associated with (the main/activity
+/// thread). plain `JNIEnv::find_class` only works reliably there: a
+/// background thread freshly attached via `attach_current_thread()`
+/// (exactly what [`with_jni`] does, since every caller in this file runs
+/// on a tokio worker thread, not the activity thread) has no app
+/// classloader context of its own, so `find_class` silently falls back
+/// to the system/bootstrap classloader - which can never see an
+/// app-defined class like this one. confirmed via a real device crash,
+/// not guessed: `ClassNotFoundException` with `DexPathList[[directory
+/// "."]]` in the trace - that's the bootstrap classloader's own telltale
+/// signature, not a real app dex path (the class was independently
+/// confirmed present in the built apk's dex at the time).
+///
+/// the fix: resolve the app's REAL `ClassLoader` once, from the ambient
+/// `Context` (itself always tied to the real classloader regardless of
+/// which thread asks for it), cache it, and call its own `loadClass()`
+/// method explicitly instead of `find_class()`.
+fn bridge_class<'local>(
+    env: &mut JNIEnv<'local>,
+    context: &JObject,
+) -> jni::errors::Result<JClass<'local>> {
+    let class_loader = if let Some(cached) = CLASS_LOADER.get() {
+        cached.clone()
+    } else {
+        let class_obj = env
+            .call_method(context, "getClass", "()Ljava/lang/Class;", &[])?
+            .l()?;
+        let loader_obj = env
+            .call_method(&class_obj, "getClassLoader", "()Ljava/lang/ClassLoader;", &[])?
+            .l()?;
+        let global = env.new_global_ref(loader_obj)?;
+        // another thread may have raced us here and already set it -
+        // either value is the same real app classloader, so whichever
+        // one "wins" doesn't matter.
+        let _ = CLASS_LOADER.set(global.clone());
+        global
+    };
+    let name = env.new_string(BRIDGE_CLASS.replace('/', "."))?;
+    let class_obj = env
+        .call_method(
+            &class_loader,
+            "loadClass",
+            "(Ljava/lang/String;)Ljava/lang/Class;",
+            &[JValue::Object(&name)],
+        )?
+        .l()?;
+    Ok(JClass::from(class_obj))
+}
+
+/// unused while `publish()` is a deliberate no-op - see its doc comment.
+/// kept (kotlin side is too) for whenever mobile accept-handling is
+/// implemented and advertising is re-enabled.
+#[allow(dead_code)]
 fn start_advertising(instance_name: &str, port: u16, user_data: &str, relay_url: &str) {
-    with_jni(|env, context| {
-        let class = env.find_class(BRIDGE_CLASS)?;
+    tracing::info!(
+        instance_name,
+        service_type = SERVICE_TYPE,
+        port,
+        "augur: android starting mdns advertise"
+    );
+    let result = with_jni(|env, context| {
+        let class = bridge_class(env, context)?;
         let instance_name = env.new_string(instance_name)?;
         let service_type = env.new_string(SERVICE_TYPE)?;
         let user_data = env.new_string(user_data)?;
@@ -168,11 +234,15 @@ fn start_advertising(instance_name: &str, port: u16, user_data: &str, relay_url:
         )?;
         Ok(())
     });
+    if result.is_none() {
+        tracing::warn!("augur: android mdns advertise jni call did not complete - see above");
+    }
 }
 
 fn start_discovery() {
-    with_jni(|env, context| {
-        let class = env.find_class(BRIDGE_CLASS)?;
+    tracing::info!(service_type = SERVICE_TYPE, "augur: android starting mdns discovery");
+    let result = with_jni(|env, context| {
+        let class = bridge_class(env, context)?;
         let service_type = env.new_string(SERVICE_TYPE)?;
         env.call_static_method(
             class,
@@ -182,14 +252,18 @@ fn start_discovery() {
         )?;
         Ok(())
     });
+    if result.is_none() {
+        tracing::warn!("augur: android mdns discovery jni call did not complete - see above");
+    }
 }
 
 /// stops `NsdManager` discovery - called once augur's shared discovery
 /// ref-count (see `wire::DiscoveryGuard`) drops to zero, i.e. no more
 /// live `resolve()`/`subscribe()` consumers want it running.
 fn stop_discovery() {
-    with_jni(|env, _context| {
-        let class = env.find_class(BRIDGE_CLASS)?;
+    tracing::info!("augur: android stopping mdns discovery");
+    with_jni(|env, context| {
+        let class = bridge_class(env, context)?;
         env.call_static_method(class, "stopDiscovery", "()V", &[])?;
         Ok(())
     });

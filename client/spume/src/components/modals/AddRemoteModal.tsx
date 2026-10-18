@@ -57,7 +57,14 @@ import { Button } from "../buttons/Button";
 import { QrScanner } from "../inputs/QrScanner";
 import { MediaImage } from "../media/MediaImage";
 import { toast } from "../feedback/Toast";
-import { subscribeNearbyPeers, type NearbyPeer } from "../../app/services/remotes/nearbyPeers";
+import {
+  subscribeNearbyPeers,
+  peekNearbyPeerDetails,
+  releaseNearbyPeerDetails,
+  clearNearbyPeerDetails,
+  type NearbyPeer,
+  type NearbyPeerDetails,
+} from "../../app/services/remotes/nearbyPeers";
 
 export interface AddRemoteModalProps {
   isOpen: boolean;
@@ -135,41 +142,98 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
   // error state after a failed connection test.
   const [inputValue, setInputValue] = createSignal("");
 
-  // "nearby devices" (browse-for-unknown-peers) feed - only runs while
+  // "nearby peerz" (browse-for-unknown-peers) feed - only runs while
   // this modal is open, not in the background: subscribing starts the
   // underlying mdns/dns-sd browse session, and the cleanup below actually
   // stops it (see `nearbyPeers.ts`'s own doc comment). a no-op outside
   // tauri mode or if the federation endpoint isn't up yet.
   const [nearbyPeers, setNearbyPeers] = createSignal<NearbyPeer[]>([]);
+  // enriched name/image per discovered node id - mdns itself only ever
+  // carries a node id (see `nearbyPeers.ts`'s own doc comment on why),
+  // so this asks each peer directly over p2p once it's found.
+  // best-effort: an entry just stays absent (falls back to the raw node
+  // id in the render below) if the peek fails or hasn't resolved yet.
+  const [nearbyPeerDetails, setNearbyPeerDetails] = createSignal<
+    Record<string, NearbyPeerDetails>
+  >({});
   createEffect(
     on(
       () => props.isOpen,
       (isOpen) => {
         if (!isOpen) {
           setNearbyPeers([]);
+          setNearbyPeerDetails({});
+          clearNearbyPeerDetails();
           return;
         }
         let cancelled = false;
         let unsubscribe: (() => void) | null = null;
-        subscribeNearbyPeers(
-          (peer) => {
-            if (cancelled) return;
-            setNearbyPeers((prev) => [...prev.filter((p) => p.nodeId !== peer.nodeId), peer]);
-          },
-          (nodeId) => {
-            if (cancelled) return;
-            setNearbyPeers((prev) => prev.filter((p) => p.nodeId !== nodeId));
-          }
-        ).then((unsub) => {
+        // snapshot of already-added remotes' node ids, fetched once per
+        // modal-open (and awaited BEFORE subscribing starts) - no point
+        // surfacing a peer in "nearby peerz" the user has already
+        // added as a remote. a snapshot (not a live-refreshed set) is a
+        // deliberate, small simplification: the only way it goes stale
+        // mid-session is the user adding the exact peer mdns is
+        // simultaneously showing them in this same modal session, which
+        // the "url" step's own existing-remote handling already covers
+        // regardless.
+        void (async () => {
+          const remotes = await getAllRemotes();
+          if (cancelled) return;
+          const knownPeerAddrs = new Set(
+            remotes.map((r) => r.peer_addr).filter((addr): addr is string => !!addr)
+          );
+          const unsub = await subscribeNearbyPeers(
+            (peer) => {
+              if (cancelled) return;
+              if (knownPeerAddrs.has(peer.nodeId)) return;
+              // mdns re-announces/re-resolves a peer periodically (ttl
+              // refresh, txt record changes, etc.) - each one arrives
+              // as another "found" event for the SAME node id. update
+              // it in place rather than remove+re-append, or the row
+              // order reshuffles every time any peer gets re-announced
+              // (the two-peer case makes this maximally visible:
+              // they'd keep swapping positions back and forth).
+              setNearbyPeers((prev) => {
+                const idx = prev.findIndex((p) => p.nodeId === peer.nodeId);
+                if (idx === -1) return [...prev, peer];
+                const next = [...prev];
+                next[idx] = peer;
+                return next;
+              });
+              peekNearbyPeerDetails(peer.nodeId)
+                .then((details) => {
+                  if (cancelled) return;
+                  setNearbyPeerDetails((prev) => ({ ...prev, [peer.nodeId]: details }));
+                })
+                .catch(() => {
+                  // peekNearbyPeerDetails itself is best-effort and
+                  // shouldn't throw - this is just an extra safety net.
+                });
+            },
+            (nodeId) => {
+              if (cancelled) return;
+              setNearbyPeers((prev) => prev.filter((p) => p.nodeId !== nodeId));
+              setNearbyPeerDetails((prev) => {
+                if (!(nodeId in prev)) return prev;
+                const next = { ...prev };
+                delete next[nodeId];
+                return next;
+              });
+              releaseNearbyPeerDetails(nodeId);
+            }
+          );
           if (cancelled) {
             unsub();
           } else {
             unsubscribe = unsub;
           }
-        });
+        })();
         onCleanup(() => {
           cancelled = true;
           unsubscribe?.();
+          setNearbyPeerDetails({});
+          clearNearbyPeerDetails();
         });
       }
     )
@@ -218,6 +282,12 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
         setLocalUserRole("viewer");
         setRoleLoaded(false);
         setScannedPlayerQr(false);
+        // clear any node id/url left over from a previous session (e.g.
+        // closed via a "browse remote" toast action while still showing
+        // one, see `App.tsx`'s `closeAddRemoteModal()`) - a fresh open
+        // should always start from an empty "url" step input, not
+        // whatever was last typed/selected.
+        setInputValue("");
       }
     )
   );
@@ -827,29 +897,37 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
                       <Show when={nearbyPeers().length > 0 && s.subStep !== "knock_form"}>
                         <div>
                           <p class="mb-2 text-xs font-medium text-[var(--color-text-secondary)]">
-                            nearby devices
+                            nearby peerz
                           </p>
                           <div class="space-y-1">
                             <For each={nearbyPeers()}>
-                              {(peer) => (
-                                <button
-                                  type="button"
-                                  onClick={() => setInputValue(peer.nodeId)}
-                                  class="w-full flex items-center gap-2 px-3 py-2 bg-[var(--color-bg-secondary)] border border-[var(--color-border-default)] rounded-md text-left text-sm hover:border-[var(--color-accent-primary)] transition-colors"
-                                >
-                                  <span class="text-[var(--color-text-tertiary)]">📡</span>
-                                  <span class="flex-1 min-w-0">
-                                    <span class="block truncate text-[var(--color-text-primary)]">
-                                      {peer.userData || `${peer.nodeId.slice(0, 16)}…`}
-                                    </span>
-                                    <Show when={peer.userData}>
-                                      <span class="block truncate font-mono text-xs text-[var(--color-text-tertiary)]">
-                                        {peer.nodeId.slice(0, 16)}…
+                              {(peer) => {
+                                const details = () => nearbyPeerDetails()[peer.nodeId];
+                                return (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleTestConnection(peer.nodeId)}
+                                    class="w-full flex items-center gap-2 px-3 py-2 bg-[var(--color-bg-secondary)] border border-[var(--color-border-default)] rounded-md text-left text-sm hover:border-[var(--color-accent-primary)] transition-colors"
+                                  >
+                                    <MediaImage
+                                      imageUrl={details()?.imageUrl}
+                                      alt=""
+                                      size="xs"
+                                      class="rounded flex-shrink-0"
+                                    />
+                                    <span class="flex-1 min-w-0">
+                                      <span class="block truncate text-[var(--color-text-primary)]">
+                                        {details()?.name || peer.userData || `${peer.nodeId.slice(0, 16)}…`}
                                       </span>
-                                    </Show>
-                                  </span>
-                                </button>
-                              )}
+                                      <Show when={details()?.name || peer.userData}>
+                                        <span class="block truncate font-mono text-xs text-[var(--color-text-tertiary)]">
+                                          {peer.nodeId.slice(0, 16)}…
+                                        </span>
+                                      </Show>
+                                    </span>
+                                  </button>
+                                );
+                              }}
                             </For>
                           </div>
                         </div>

@@ -371,6 +371,48 @@ pub(in crate::admin_dispatch) async fn backfill_blake3(
     }
 }
 
+/// backfill the shared FsStore for existing media_blobz rows that already
+/// have a blake3 hash and a local file but aren't in FsStore yet - see
+/// `blobz::backfill_fsstore_sync`'s doc comment for why this is a
+/// separate sweep from `backfill_blake3` (that one only ever touches rows
+/// with a NULL blake3 column, so it can never reach a row that already
+/// has one, even if that row never made it into FsStore).
+/// args: `{ dry_run?: bool (default false), concurrency?: i64 (default 16) }`
+/// returns `{ checked, already_present, added, local_file_missing }` totals.
+pub(in crate::admin_dispatch) async fn backfill_fsstore(
+    args: JsonValue,
+) -> GrimoireResponse<JsonValue> {
+    let dry_run = opt_bool(&args, "dry_run").unwrap_or(false);
+    let concurrency = opt_i64(&args, "concurrency", 16).max(1) as usize;
+    match crate::blobz::backfill_fsstore_sync(dry_run, concurrency).await {
+        Ok(summary) => {
+            let msg = if dry_run {
+                format!(
+                    "dry run: {} checked, {} already in FsStore, {} would be added, {} missing their local file",
+                    summary.checked, summary.already_present, summary.added, summary.local_file_missing
+                )
+            } else {
+                format!(
+                    "{} checked, {} already in FsStore, {} added, {} missing their local file",
+                    summary.checked, summary.already_present, summary.added, summary.local_file_missing
+                )
+            };
+            GrimoireResponse::success(
+                &msg,
+                json!({
+                    "dry_run": dry_run,
+                    "concurrency": concurrency,
+                    "checked": summary.checked,
+                    "already_present": summary.already_present,
+                    "added": summary.added,
+                    "local_file_missing": summary.local_file_missing,
+                }),
+            )
+        }
+        Err(e) => GrimoireResponse::failure("fsstore backfill failed", vec![e.into()]),
+    }
+}
+
 pub(in crate::admin_dispatch) async fn backfill_thumbnails(
     args: JsonValue,
     caller: &Caller,

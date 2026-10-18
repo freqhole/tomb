@@ -524,6 +524,10 @@ pub const GROUPS: &[(&str, &[(&str, &str)])] = &[
             ),
             ("cleanup-all", "cleanup-tags + cleanup-genres [dry-run]"),
             ("backfill-blake3", "hash missing blake3 [batch_size]"),
+            (
+                "backfill-fsstore",
+                "add already-hashed blobs to FsStore [concurrency] [dry-run]",
+            ),
             ("backfill-thumbs", "backfill thumbnails [limit] [dry-run]"),
             (
                 "hard-delete",
@@ -1727,7 +1731,7 @@ fn parse_maintenance_sub(arg: Option<&str>) -> SlashAction {
     };
     match sub.as_str() {
         "" | "help" | "list" => bad(
-            "usage: /maintenance <cleanup-tags|cleanup-genres|cleanup-artists|cleanup-albums|cleanup-video-series|cleanup-taxons|cleanup-contentless-blobs|cleanup-blobs|cleanup-all|backfill-blake3|backfill-thumbs|hard-delete|run-full|repair-library|repair-waveforms|repair-thumbnails|repair-video-thumbnails|reorganize-library|reorganize-library-plan|update-image|update-spume> [args]",
+            "usage: /maintenance <cleanup-tags|cleanup-genres|cleanup-artists|cleanup-albums|cleanup-video-series|cleanup-taxons|cleanup-contentless-blobs|cleanup-blobs|cleanup-all|backfill-blake3|backfill-fsstore|backfill-thumbs|hard-delete|run-full|repair-library|repair-waveforms|repair-thumbnails|repair-video-thumbnails|reorganize-library|reorganize-library-plan|update-image|update-spume> [args]",
         ),
         "cleanup-tags" | "cleanup_tags" => SlashAction::AdminDispatch {
             name: "maintenance_cleanup_orphaned_tags",
@@ -1785,6 +1789,23 @@ fn parse_maintenance_sub(arg: Option<&str>) -> SlashAction {
             SlashAction::AdminDispatch {
                 name: "maintenance_backfill_blake3",
                 body: serde_json::json!({ "batch_size": batch_size }),
+            }
+        }
+        "backfill-fsstore" | "backfill_fsstore" | "fsstore" => {
+            let concurrency = first_positional
+                .and_then(|t| t.parse::<i64>().ok())
+                .unwrap_or(16);
+            if concurrency <= 0 {
+                return bad(
+                    "usage: /maintenance backfill-fsstore [concurrency > 0, default 16] [dry-run]",
+                );
+            }
+            SlashAction::AdminDispatch {
+                name: "maintenance_backfill_fsstore",
+                body: serde_json::json!({
+                    "concurrency": concurrency,
+                    "dry_run": has_flag("dry-run"),
+                }),
             }
         }
         "backfill-thumbs" | "backfill_thumbs" | "backfill-thumbnails" | "thumbs" => {
@@ -1946,7 +1967,7 @@ fn parse_maintenance_sub(arg: Option<&str>) -> SlashAction {
             }
         }
         _ => bad(
-            "usage: /maintenance <cleanup-tags|cleanup-genres|cleanup-artists|cleanup-albums|cleanup-video-series|cleanup-taxons|cleanup-contentless-blobs|cleanup-blobs|cleanup-all|backfill-blake3|backfill-thumbs|hard-delete|hard-delete-videos|run-full|repair-library [no-embedded-art] [no-directory-art] [remove-overapplied] [no-video-thumbnails]|repair-waveforms|repair-thumbnails [no-embedded-art] [no-directory-art] [remove-overapplied]|repair-video-thumbnails|reorganize-library <target_directory> [domain=music|video|both] [dry-run] [no-embed-tags]|reorganize-library-plan <target_directory> [domain=music|video|both]|update-image|update-spume> [args]",
+            "usage: /maintenance <cleanup-tags|cleanup-genres|cleanup-artists|cleanup-albums|cleanup-video-series|cleanup-taxons|cleanup-contentless-blobs|cleanup-blobs|cleanup-all|backfill-blake3|backfill-fsstore|backfill-thumbs|hard-delete|hard-delete-videos|run-full|repair-library [no-embedded-art] [no-directory-art] [remove-overapplied] [no-video-thumbnails]|repair-waveforms|repair-thumbnails [no-embedded-art] [no-directory-art] [remove-overapplied]|repair-video-thumbnails|reorganize-library <target_directory> [domain=music|video|both] [dry-run] [no-embed-tags]|reorganize-library-plan <target_directory> [domain=music|video|both]|update-image|update-spume> [args]",
         ),
     }
 }
