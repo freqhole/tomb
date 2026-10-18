@@ -6,7 +6,18 @@
 // tauri-only (same as `charnelRadioAdapter.ts`'s channel pattern this
 // mirrors) - lan discovery over mdns/dns-sd has no web-browser
 // equivalent at all, so `isCharnelMode()` gates every call here.
+//
+// mdns itself only ever carries a node id (plus whatever free-form
+// `user_data` string the peer chose to publish - nothing does yet, see
+// `haruspex::augur`'s own doc comment) - it has no concept of "server
+// name" or "server image". getting those for display here means asking
+// the peer directly, over the same p2p transport used everywhere else:
+// `client.app.serverInfo()` (name) and `client.transport.fetchHelloImage()`
+// (image, same public/no-auth call `LinkDeviceView.tsx` already uses for
+// this exact purpose) - both already p2p-capable with just a node id, no
+// persisted remote/pending-remote row needed first.
 
+import { getClientForRemote } from "../../api/client";
 import { isCharnelMode } from "../charnel";
 
 export interface NearbyPeer {
@@ -99,4 +110,94 @@ export async function subscribeNearbyPeers(
     );
     retainedEvents = null;
   };
+}
+
+export interface NearbyPeerDetails {
+  name: string | null;
+  /** an object URL for the peer's hello image, if it has one. caller
+   *  owns revoking it (via `releaseNearbyPeerDetails`/`clearNearbyPeerDetails`
+   *  below) - this module doesn't do so on its own. */
+  imageUrl: string | null;
+}
+
+const detailsCache = new Map<string, Promise<NearbyPeerDetails>>();
+const objectUrls = new Map<string, string>();
+
+/**
+ * asks a nearby peer (by node id alone - no saved/pending remote row
+ * needed) for its display name + hello image, for the "nearby peerz"
+ * list to show something more useful than a bare node id. cached per
+ * node id for the lifetime of the browse session (callers re-render
+ * the same list repeatedly; this avoids re-probing on every render) -
+ * call `clearNearbyPeerDetails()` when the add-remote modal closes to
+ * release both the cache and any object URLs it created.
+ *
+ * best-effort: a peer that's offline, slow, or doesn't implement the
+ * public hello route resolves to `{ name: null, imageUrl: null }`
+ * rather than throwing - the caller already has the raw node id as a
+ * fallback display value.
+ */
+export async function peekNearbyPeerDetails(nodeId: string): Promise<NearbyPeerDetails> {
+  const cached = detailsCache.get(nodeId);
+  if (cached) return cached;
+
+  const promise = (async (): Promise<NearbyPeerDetails> => {
+    let client: Awaited<ReturnType<typeof getClientForRemote>>;
+    try {
+      client = await getClientForRemote({
+        transport: isCharnelMode() ? "app" : "wasm",
+        peer_addr: nodeId,
+      });
+    } catch (e) {
+      console.warn("[nearby-peers] failed to build client for", nodeId.slice(0, 8), e);
+      return { name: null, imageUrl: null };
+    }
+
+    let name: string | null = null;
+    try {
+      const info = await client.app.serverInfo();
+      if (info.success && info.data) name = info.data.name;
+    } catch (e) {
+      console.warn("[nearby-peers] serverInfo failed for", nodeId.slice(0, 8), e);
+    }
+
+    let imageUrl: string | null = null;
+    try {
+      const blobData = client.transport.fetchHelloImage
+        ? await client.transport.fetchHelloImage()
+        : null;
+      if (blobData && blobData.data.length > 0) {
+        const blob = new Blob([new Uint8Array(blobData.data)], { type: blobData.contentType });
+        imageUrl = URL.createObjectURL(blob);
+        objectUrls.set(nodeId, imageUrl);
+      }
+    } catch (e) {
+      console.warn("[nearby-peers] fetchHelloImage failed for", nodeId.slice(0, 8), e);
+    }
+
+    return { name, imageUrl };
+  })();
+
+  detailsCache.set(nodeId, promise);
+  return promise;
+}
+
+/** releases one peer's cached details (and object URL, if any) - call
+ *  when a peer is reported lost, so a long browse session doesn't
+ *  accumulate stale blob URLs for devices that are no longer around. */
+export function releaseNearbyPeerDetails(nodeId: string): void {
+  const url = objectUrls.get(nodeId);
+  if (url) {
+    URL.revokeObjectURL(url);
+    objectUrls.delete(nodeId);
+  }
+  detailsCache.delete(nodeId);
+}
+
+/** releases every cached peer detail + object URL - call when the
+ *  add-remote modal closes. */
+export function clearNearbyPeerDetails(): void {
+  for (const url of objectUrls.values()) URL.revokeObjectURL(url);
+  objectUrls.clear();
+  detailsCache.clear();
 }

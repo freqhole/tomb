@@ -83,7 +83,21 @@ private final class AugurBonjour {
         guard browser == nil else {
             return
         }
-        let browser = NWBrowser(for: .bonjour(type: serviceType, domain: nil), using: .udp)
+        // includePeerToPeer opts this browse into AWDL (apple's private
+        // peer-to-peer wifi mesh) in addition to plain infrastructure
+        // wifi - off by default on `.udp`. confirmed via a real device's
+        // syslog (2026-10-17 investigation) that apple's own airplayd
+        // explicitly requests this (its browse logs show `AWDL`/
+        // `IncludeAWDL` flags) while this browser previously didn't -
+        // kept on even after the real root cause (swarm-discovery's
+        // missing PTR record + TTL=0 "goodbye" packets - see
+        // lib/swarm-discovery-fork/) was found and fixed, since this is
+        // still a real, independently-correct capability match with
+        // apple's own first-party bonjour clients, not just a discarded
+        // guess.
+        let params = NWParameters.udp
+        params.includePeerToPeer = true
+        let browser = NWBrowser(for: .bonjour(type: serviceType, domain: nil), using: params)
         browser.browseResultsChangedHandler = { [weak self] _, changes in
             for change in changes {
                 switch change {
@@ -127,7 +141,12 @@ private final class AugurBonjour {
             if case let .string(value) = txt.getEntry(for: "relay") { relayUrl = value }
         }
         let endpoint = NWEndpoint.service(name: name, type: type, domain: domain, interface: nil)
-        let connection = NWConnection(to: endpoint, using: .udp)
+        // same includePeerToPeer reasoning as startDiscovery's browser
+        // above - a peer only reachable over AWDL needs it here too, or
+        // this resolve connection would never reach .ready for it.
+        let connParams = NWParameters.udp
+        connParams.includePeerToPeer = true
+        let connection = NWConnection(to: endpoint, using: connParams)
         connection.stateUpdateHandler = { state in
             switch state {
             case .ready:

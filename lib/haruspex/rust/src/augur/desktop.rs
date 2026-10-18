@@ -23,6 +23,7 @@ use super::DiscoveredPeer;
 /// for the "browse everything nearby" use case, see [`subscribe()`]
 /// instead.
 pub fn builder() -> MdnsAddressLookupBuilder {
+    tracing::info!("augur: desktop mdns address-lookup builder constructed");
     MdnsAddressLookup::builder()
 }
 
@@ -44,6 +45,10 @@ pub fn builder() -> MdnsAddressLookupBuilder {
 /// a second, parallel multicast listener in the same process is a minor,
 /// acceptable inefficiency for this, not a correctness problem.
 pub async fn subscribe(local_node_id: EndpointId) -> BoxStream<DiscoveredPeer> {
+    tracing::info!(
+        local_node_id = %local_node_id.fmt_short(),
+        "augur: desktop starting mdns browse session"
+    );
     let lookup = match MdnsAddressLookup::builder()
         .advertise(false)
         .build(local_node_id)
@@ -72,6 +77,13 @@ pub async fn subscribe(local_node_id: EndpointId) -> BoxStream<DiscoveredPeer> {
                     if endpoint_info.endpoint_id == local_node_id {
                         continue;
                     }
+                    // per-event, not session-level - see `wire.rs`'s
+                    // `deliver_resolved` doc comment for why this is
+                    // debug, not info (same reasoning applies here).
+                    tracing::debug!(
+                        endpoint_id = %endpoint_info.endpoint_id.fmt_short(),
+                        "augur: resolved nearby peer over mdns"
+                    );
                     return Poll::Ready(Some(DiscoveredPeer::Found {
                         endpoint_id: endpoint_info.endpoint_id,
                         endpoint_info,
@@ -81,6 +93,10 @@ pub async fn subscribe(local_node_id: EndpointId) -> BoxStream<DiscoveredPeer> {
                     if endpoint_id == local_node_id {
                         continue;
                     }
+                    tracing::debug!(
+                        endpoint_id = %endpoint_id.fmt_short(),
+                        "augur: nearby peer no longer visible over mdns"
+                    );
                     return Poll::Ready(Some(DiscoveredPeer::Lost { endpoint_id }));
                 }
                 // `DiscoveryEvent` is `#[non_exhaustive]` - a future

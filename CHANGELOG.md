@@ -1,5 +1,15 @@
 # freqhole-release
 
+## 0.3.18
+
+### Patch Changes
+
+- 5e7bea9: try to improve media session updates after track skips (regression from prior refactor of media session stuff)
+- 9496b04: hello augur! mdns stuff for iroh address lookup and discovery: peers on the same lan can discover eachother without knowing node ids, and if they do know node ids, address lookup doesn't require n0-computer's dns pkarr services
+- 3d27978: try to improve top nav click handler on mobile (trying to fix bug where it takes two taps to open menu)
+- b753718: generate og meta tags in cloudflare worker for better share link previewz
+- 44637f9: try to improve share links to avoid generating links for nodes that can't be accessed (e.g. ios, android, and web app libraries)
+
 ## 0.3.17
 
 ### Patch Changes

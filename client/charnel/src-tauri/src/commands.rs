@@ -2332,6 +2332,7 @@ pub async fn maintenance_run(
     cleanup_orphaned_data: bool,
     backfill_thumbnails: bool,
     backfill_blake3: bool,
+    backfill_fsstore: bool,
     cleanup_orphaned_blobs: bool,
     cleanup_contentless_blobs: bool,
     hard_delete_old_records: bool,
@@ -2372,6 +2373,9 @@ pub async fn maintenance_run(
     }
     if backfill_blake3 {
         commands.push("maintenance_backfill_blake3");
+    }
+    if backfill_fsstore {
+        commands.push("maintenance_backfill_fsstore");
     }
     if cleanup_orphaned_blobs {
         commands.push("maintenance_cleanup_orphaned_blobs");

@@ -229,6 +229,18 @@ pub async fn upload_music(caller: &Caller, body: JsonValue) -> GrimoireResponse<
         );
     }
 
+    // proactively load this newly-uploaded file into the shared FsStore
+    // right at ingest time instead of leaving it to the first remote
+    // peer's on-demand ensure_blob request. non-fatal: the lazy path
+    // still covers this if it fails here.
+    if let Err(e) = crate::blobz::add_file_to_store(&full_path).await {
+        tracing::warn!(
+            "upload_music: failed to proactively add {} to FsStore: {} - will fall back to on-demand ensure_blob",
+            full_path.display(),
+            e
+        );
+    }
+
     // create a session so this upload lands in the import review queue.
     let upload_sess_resp = create_job_session(CreateJobSessionRequest {
         job_type: JobType::ImportMusic,

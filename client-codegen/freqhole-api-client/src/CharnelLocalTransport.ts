@@ -135,9 +135,9 @@ export class CharnelLocalTransport implements Transport {
         path,
         body: jsonBody,
       })) as ApiResponse;
-      console.info(
-        `[perf] api_call ${path} took ${(performance.now() - requestStart).toFixed(1)}ms`,
-      );
+      // console.info(
+      //   `[perf] api_call ${path} took ${(performance.now() - requestStart).toFixed(1)}ms`,
+      // );
 
       // check for route_not_found - this is now a real error
       const errorType = response.errors?.[0]?.error_type;

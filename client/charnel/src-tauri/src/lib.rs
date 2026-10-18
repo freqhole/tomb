@@ -274,7 +274,15 @@ fn setup_tracing() {
 
     let filter = tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
         tracing_subscriber::EnvFilter::new(
-            "charnel=info,grimoire=info,iroh=error,iroh_relay=error,iroh_quinn=error",
+            // `haruspex=info` surfaces augur's own purposeful, low-volume
+            // signal (lan-discovery session start/stop, resolved/lost
+            // peer events) without the upstream `iroh_mdns_address_lookup`/
+            // `swarm_discovery` crates' own much chattier debug-level
+            // internals (that combination was briefly on during the
+            // initial lan-discovery investigation - confirmed working
+            // now, dialed back since it was the dominant source of log
+            // volume on every build, not just while actively debugging).
+            "charnel=info,grimoire=info,haruspex=info,iroh=error,iroh_relay=error,iroh_quinn=error",
         )
     });
 
@@ -1749,7 +1757,7 @@ pub fn run() {
             jobs_events_commands::jobs_events_snapshot,
             jobs_events_commands::jobs_events_subscribe,
             jobs_events_commands::jobs_events_unsubscribe,
-            // augur "nearby devices" browse feed (add-remote flow)
+            // augur "nearby peerz" browse feed (add-remote flow)
             augur_commands::nearby_peers_subscribe,
             augur_commands::nearby_peers_unsubscribe,
             // P2P state control commands
