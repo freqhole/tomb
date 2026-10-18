@@ -75,11 +75,6 @@ export async function subscribeNearbyPeers(
 
   const events = new Channel<NearbyPeerFrame>();
   events.onmessage = (msg) => {
-    // TEMP DIAGNOSTIC (2026-10-17): tracking down ios finding zero nearby
-    // peerz - logging every frame reaching the webview, since the rust
-    // side's own log file lives inside ios' sandboxed container and isn't
-    // reachable without developer mode. remove once resolved.
-    console.log("[nearby-peers] TEMP DIAG: frame received", msg);
     try {
       switch (msg.kind) {
         case "found":
@@ -97,7 +92,6 @@ export async function subscribeNearbyPeers(
   let sessionId: string;
   try {
     sessionId = (await invoke("nearby_peers_subscribe", { events })) as string;
-    console.log("[nearby-peers] TEMP DIAG: subscribed, session =", sessionId);
   } catch (e) {
     console.warn("[nearby-peers] subscribe failed:", e);
     return () => {};
@@ -111,7 +105,6 @@ export async function subscribeNearbyPeers(
 
   return () => {
     void retainedEvents;
-    console.log("[nearby-peers] TEMP DIAG: unsubscribing, session =", sessionId);
     invoke("nearby_peers_unsubscribe", { sessionId }).catch((e) =>
       console.warn("[nearby-peers] unsubscribe failed:", e),
     );

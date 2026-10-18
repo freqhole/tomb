@@ -16,6 +16,23 @@ use std::{collections::BTreeMap, net::IpAddr, str::FromStr, time::Duration};
 
 const RESPONSE_DELAY: Duration = Duration::from_millis(100);
 
+// a TTL of 0 is an mDNS "goodbye" packet per RFC 6762 §10.1 - it tells a
+// strictly RFC-compliant receiver (e.g. apple's mDNSResponder, which
+// backs `NWBrowser` on macOS/iOS, and android's `NsdManager`) to
+// immediately remove/flush the record, NOT that it exists. every record
+// this crate previously announced (PTR/SRV/TXT/A/AAAA) used a literal
+// `0` TTL, meaning a strict receiver was told to delete every single
+// announcement on arrival - this crate's own receiver (which just
+// matches on content, ignoring TTL semantics entirely) never noticed,
+// but it made every announcement invisible to the OS-native Bonjour
+// browse/discovery apis on macOS/iOS/android. 120 seconds is the
+// conventional Bonjour/DNS-SD default for SRV/TXT/A/PTR records, and
+// comfortably longer than this crate's own re-announce cadence (as low
+// as 700ms for `Discoverer::new_interactive`, 10s by default - see
+// `Discoverer::new`'s own `tau: Duration::from_secs(10)`), so a live
+// peer's record is always refreshed well before it would ever expire.
+const ANNOUNCE_TTL_SECS: u32 = 120;
+
 pub enum MdnsMsg {
     QueryV4,
     QueryV6,
@@ -185,7 +202,7 @@ fn make_response(discoverer: &Discoverer, service_name: &Name) -> Option<Message
         // this same crate just fine.
         msg.add_answer(Record::from_rdata(
             service_name.clone(),
-            0,
+            ANNOUNCE_TTL_SECS,
             RData::PTR(rdata::PTR(my_srv_name.clone())),
         ));
 
@@ -199,7 +216,7 @@ fn make_response(discoverer: &Discoverer, service_name: &Name) -> Option<Message
                 .expect("PeerId was checked in spawn()");
             msg.add_answer(Record::from_rdata(
                 my_srv_name.clone(),
-                0,
+                ANNOUNCE_TTL_SECS,
                 RData::SRV(rdata::SRV::new(0, 0, port, target.clone())),
             ));
             for addr in addrs {
@@ -207,14 +224,14 @@ fn make_response(discoverer: &Discoverer, service_name: &Name) -> Option<Message
                     IpAddr::V4(addr) => {
                         msg.add_additional(Record::from_rdata(
                             target.clone(),
-                            0,
+                            ANNOUNCE_TTL_SECS,
                             RData::A(rdata::A::from(addr)),
                         ));
                     }
                     IpAddr::V6(addr) => {
                         msg.add_additional(Record::from_rdata(
                             target.clone(),
-                            0,
+                            ANNOUNCE_TTL_SECS,
                             RData::AAAA(rdata::AAAA::from(addr)),
                         ));
                     }
@@ -237,7 +254,7 @@ fn make_response(discoverer: &Discoverer, service_name: &Name) -> Option<Message
                 })
                 .collect();
             let rdata = TXT::new(parts);
-            let record = Record::from_rdata(my_srv_name, 0, RData::TXT(rdata));
+            let record = Record::from_rdata(my_srv_name, ANNOUNCE_TTL_SECS, RData::TXT(rdata));
             msg.add_answer(record);
         }
         Some(msg)

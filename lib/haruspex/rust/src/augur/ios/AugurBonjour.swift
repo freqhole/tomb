@@ -44,25 +44,6 @@ private final class AugurBonjour {
     private var listener: NWListener?
     private var browser: NWBrowser?
 
-    /// `SERVICE_TYPE` (shared with the rust side, `wire.rs`) is written
-    /// with a trailing dot (`"_irohv1._udp."`) for consistency with
-    /// Info.plist's `NSBonjourServices` entry and the desktop/android
-    /// backends' own conventions - but apple's own documented contract
-    /// for both `NWBrowser.Descriptor.bonjour(type:domain:)` and
-    /// `NWListener.Service(name:type:)`'s `type` parameter explicitly
-    /// forbids a trailing dot there (only the separate `domain` parameter
-    /// uses one, e.g. `"local."`). confirmed (2026-10-17 investigation)
-    /// as the actual root cause of ios discovery silently finding
-    /// nothing: `NWBrowser` still reaches `.ready` with a dotted type (no
-    /// error surfaces anywhere), but the resulting query never matches
-    /// real advertisements, which explains why this is ios-specific (the
-    /// only backend going through this exact swift api) and why
-    /// advertising (seemingly more lenient here) looked like it worked
-    /// while browsing never did.
-    private func stripTrailingDot(_ serviceType: String) -> String {
-        serviceType.hasSuffix(".") ? String(serviceType.dropLast()) : serviceType
-    }
-
     func startAdvertising(
         instanceName: String, serviceType: String, port: UInt16, userData: String, relayUrl: String
     ) {
@@ -75,8 +56,7 @@ private final class AugurBonjour {
         if !relayUrl.isEmpty { txt["relay"] = relayUrl }
         do {
             let listener = try NWListener(using: .udp, on: nwPort)
-            listener.service = NWListener.Service(
-                name: instanceName, type: stripTrailingDot(serviceType), txtRecord: txt)
+            listener.service = NWListener.Service(name: instanceName, type: serviceType, txtRecord: txt)
             // this listener exists purely for its mdns advertisement side
             // effect (matching how the desktop backend's swarm-discovery
             // and the android backend's `NsdManager.registerService` both
@@ -109,21 +89,16 @@ private final class AugurBonjour {
         // syslog (2026-10-17 investigation) that apple's own airplayd
         // explicitly requests this (its browse logs show `AWDL`/
         // `IncludeAWDL` flags) while this browser previously didn't -
-        // suspected cause of mdns discovery being unreliable on at least
-        // one real iphone even though the exact same lan's desktop peers
-        // discover each other fine.
+        // kept on even after the real root cause (swarm-discovery's
+        // missing PTR record + TTL=0 "goodbye" packets - see
+        // lib/swarm-discovery-fork/) was found and fixed, since this is
+        // still a real, independently-correct capability match with
+        // apple's own first-party bonjour clients, not just a discarded
+        // guess.
         let params = NWParameters.udp
         params.includePeerToPeer = true
-        let browser = NWBrowser(
-            for: .bonjour(type: stripTrailingDot(serviceType), domain: nil), using: params)
-        // TEMP DIAGNOSTIC (2026-10-17): confirms whether the browser itself
-        // is healthy and whether results are now actually arriving -
-        // remove once ios discovery reliability is confirmed fixed.
-        browser.stateUpdateHandler = { state in
-            NSLog("%@", "[augur TEMP DIAG] NWBrowser state: \(state)")
-        }
-        browser.browseResultsChangedHandler = { [weak self] results, changes in
-            NSLog("%@", "[augur TEMP DIAG] browseResultsChanged: \(results.count) result(s)")
+        let browser = NWBrowser(for: .bonjour(type: serviceType, domain: nil), using: params)
+        browser.browseResultsChangedHandler = { [weak self] _, changes in
             for change in changes {
                 switch change {
                 case .added(let result), .changed(old: _, new: let result, flags: _):
@@ -172,12 +147,7 @@ private final class AugurBonjour {
         let connParams = NWParameters.udp
         connParams.includePeerToPeer = true
         let connection = NWConnection(to: endpoint, using: connParams)
-        // TEMP DIAGNOSTIC (2026-10-17): see startDiscovery's identical
-        // reasoning - remove once ios discovery reliability is confirmed
-        // fixed.
-        NSLog("%@", "[augur TEMP DIAG] resolve() starting NWConnection to \(endpoint)")
         connection.stateUpdateHandler = { state in
-            NSLog("%@", "[augur TEMP DIAG] resolve connection state for \(name): \(state)")
             switch state {
             case .ready:
                 defer { connection.cancel() }
