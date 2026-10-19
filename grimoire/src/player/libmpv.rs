@@ -247,7 +247,7 @@ fn apply_command(
             *queue = paths;
             let mut iter = queue.iter();
             if let Some(first) = iter.next() {
-                let args = loadfile_args(first, start_ms, start_paused);
+                let args = loadfile_args(first, start_ms, start_paused, loadfile_has_index_arg());
                 let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
                 mpv.command("loadfile", &arg_refs)
                     .map_err(|e| mpv_err("loadfile (replace)", e))?;
@@ -477,14 +477,29 @@ fn parse_device_entry(entry: &libmpv2_sys::mpv_node) -> Option<AudioDeviceInfo> 
 /// options are a single comma-joined string, same as mpv's per-file
 /// playlist option syntax.
 ///
+/// the `<index>` argument only exists from mpv 0.38 (client api 2.3). on
+/// older libmpv (e.g. ubuntu 24.04's 0.37) the signature is
+/// `<url> [<flags> [<options>]]`, and passing the `-1` placeholder makes
+/// the whole command fail with `MPV_ERROR_INVALID_PARAMETER` (-4) -
+/// confirmed 2026-10-19 against libmpv 0.37.0. `has_index_arg` picks the
+/// layout; see [`loadfile_has_index_arg`].
+///
 /// `pause` is ALWAYS passed explicitly, never omitted when not paused:
 /// mpv's `pause` property survives `stop` and idle, so a Pause followed
 /// by a Stop followed by a plain load left mpv loaded but silently
 /// paused (confirmed 2026-10-18 from the rust-side event trace: no
 /// `pause` property change fires since the value never changes, so the
 /// optimistic `Playing` state was never corrected).
-fn loadfile_args(path: &str, start_ms: Option<u64>, start_paused: bool) -> Vec<String> {
-    let mut args = vec![path.to_string(), "replace".to_string(), "-1".to_string()];
+fn loadfile_args(
+    path: &str,
+    start_ms: Option<u64>,
+    start_paused: bool,
+    has_index_arg: bool,
+) -> Vec<String> {
+    let mut args = vec![path.to_string(), "replace".to_string()];
+    if has_index_arg {
+        args.push("-1".to_string());
+    }
     let mut opts = Vec::new();
     if let Some(ms) = start_ms.filter(|ms| *ms > 0) {
         opts.push(format!("start={}", ms as f64 / 1000.0));
@@ -499,6 +514,15 @@ fn loadfile_args(path: &str, start_ms: Option<u64>, start_paused: bool) -> Vec<S
     );
     args.push(opts.join(","));
     args
+}
+
+/// whether the loaded libmpv's `loadfile` command takes the `<index>`
+/// argument (mpv 0.38+, client api 2.3+). checks the library that's
+/// actually loaded at runtime, not the headers we were built against.
+/// also used by charnel's video window backend.
+pub fn loadfile_has_index_arg() -> bool {
+    const MPV_CLIENT_API_2_3: std::os::raw::c_ulong = (2 << 16) | 3;
+    unsafe { libmpv2_sys::mpv_client_api_version() >= MPV_CLIENT_API_2_3 }
 }
 
 /// includes which mpv operation failed - `libmpv2::Error`'s own `Display`
@@ -797,16 +821,30 @@ mod load_pause_tests {
     #[test]
     fn loadfile_args_always_sets_pause_explicitly() {
         assert_eq!(
-            loadfile_args("a.mp3", None, false),
+            loadfile_args("a.mp3", None, false, true),
             ["a.mp3", "replace", "-1", "pause=no"]
         );
         assert_eq!(
-            loadfile_args("a.mp3", Some(0), false),
+            loadfile_args("a.mp3", Some(0), false, true),
             ["a.mp3", "replace", "-1", "pause=no"]
         );
         assert_eq!(
-            loadfile_args("a.mp3", Some(1500), true),
+            loadfile_args("a.mp3", Some(1500), true, true),
             ["a.mp3", "replace", "-1", "start=1.5,pause=yes"]
+        );
+    }
+
+    /// libmpv before 0.38 has no `<index>` argument: a `-1` placeholder
+    /// there makes the whole loadfile fail (MPV_ERROR_INVALID_PARAMETER).
+    #[test]
+    fn loadfile_args_omits_index_placeholder_on_old_libmpv() {
+        assert_eq!(
+            loadfile_args("a.mp3", None, false, false),
+            ["a.mp3", "replace", "pause=no"]
+        );
+        assert_eq!(
+            loadfile_args("a.mp3", Some(1500), true, false),
+            ["a.mp3", "replace", "start=1.5,pause=yes"]
         );
     }
 
@@ -829,7 +867,7 @@ mod load_pause_tests {
         };
         let src = "av://lavfi:sine=d=30";
 
-        let args = loadfile_args(src, None, false);
+        let args = loadfile_args(src, None, false, loadfile_has_index_arg());
         let refs: Vec<&str> = args.iter().map(String::as_str).collect();
         mpv.command("loadfile", &refs).unwrap();
         mpv.set_property("pause", true).unwrap();
