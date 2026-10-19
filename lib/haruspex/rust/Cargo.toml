@@ -157,10 +157,6 @@ name = "friendz_send_message_addr"
 required-features = ["iroh"]
 
 [[test]]
-name = "augur_mdns_connect"
-required-features = ["augur"]
-
-[[test]]
 name = "augur_subscribe"
 required-features = ["augur"]
 

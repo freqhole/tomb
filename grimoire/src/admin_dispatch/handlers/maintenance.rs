@@ -394,7 +394,10 @@ pub(in crate::admin_dispatch) async fn backfill_fsstore(
             } else {
                 format!(
                     "{} checked, {} already in FsStore, {} added, {} missing their local file",
-                    summary.checked, summary.already_present, summary.added, summary.local_file_missing
+                    summary.checked,
+                    summary.already_present,
+                    summary.added,
+                    summary.local_file_missing
                 )
             };
             GrimoireResponse::success(

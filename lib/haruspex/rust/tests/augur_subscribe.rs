@@ -1,6 +1,5 @@
 //! real localhost proof of `haruspex::augur::subscribe()` - the "browse
-//! everyone nearby" (goal #2) capability, as opposed to
-//! `augur_mdns_connect.rs`'s "resolve one already-known id" (goal #1).
+//! everyone nearby" capability.
 //!
 //! also proves the discovery-session ref-counting actually tears down
 //! and restarts correctly (not just "works the first time"): subscribes
