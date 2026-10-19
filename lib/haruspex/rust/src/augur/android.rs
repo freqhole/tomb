@@ -33,9 +33,9 @@ use iroh::{Endpoint, EndpointId};
 use jni::objects::{GlobalRef, JClass, JObject, JString, JValue};
 use jni::sys::jint;
 use jni::{JNIEnv, JavaVM};
-use std::sync::OnceLock;
 use n0_future::boxed::BoxStream;
 use n0_future::StreamExt;
+use std::sync::OnceLock;
 use tokio_stream::wrappers::ReceiverStream;
 
 use super::wire::{self, DiscoveryGuard, SERVICE_TYPE};
@@ -181,7 +181,12 @@ fn bridge_class<'local>(
             .call_method(context, "getClass", "()Ljava/lang/Class;", &[])?
             .l()?;
         let loader_obj = env
-            .call_method(&class_obj, "getClassLoader", "()Ljava/lang/ClassLoader;", &[])?
+            .call_method(
+                &class_obj,
+                "getClassLoader",
+                "()Ljava/lang/ClassLoader;",
+                &[],
+            )?
             .l()?;
         let global = env.new_global_ref(loader_obj)?;
         // another thread may have raced us here and already set it -
@@ -240,7 +245,10 @@ fn start_advertising(instance_name: &str, port: u16, user_data: &str, relay_url:
 }
 
 fn start_discovery() {
-    tracing::info!(service_type = SERVICE_TYPE, "augur: android starting mdns discovery");
+    tracing::info!(
+        service_type = SERVICE_TYPE,
+        "augur: android starting mdns discovery"
+    );
     let result = with_jni(|env, context| {
         let class = bridge_class(env, context)?;
         let service_type = env.new_string(SERVICE_TYPE)?;

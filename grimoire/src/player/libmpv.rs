@@ -8,6 +8,13 @@
 //! to recover from, so a respawn supervisor would have nothing real to
 //! do here.
 //!
+//! a "load never starts playing" stall watchdog also existed briefly and
+//! was removed: the real cause was mpv's `pause` property being sticky
+//! across `stop`/idle (a Pause followed by a Stop left mpv paused, and a
+//! plain `loadfile replace` doesn't touch it), so the watchdog's own
+//! `pause == false` precondition could never be met. `Load` now always
+//! sets `pause` explicitly (see `loadfile_args`).
+//!
 //! two threads, mirroring charnel's `video_window/libmpv_backend.rs`
 //! split: one owns an `Mpv` handle and just applies `PlayerCommand`s to
 //! mpv's own native playlist (`loadfile ... replace`/`append(-play)`,
@@ -22,7 +29,7 @@ use std::thread;
 
 use async_trait::async_trait;
 use libmpv2::events::{Event as MpvEvent, PropertyData};
-use libmpv2::{mpv_end_file_reason, Format, GetData, Mpv};
+use libmpv2::{Format, GetData, Mpv};
 use tokio::sync::{broadcast, mpsc};
 
 use crate::error::{ErrorDetail, GrimoireError, GrimoireResult};
@@ -108,50 +115,25 @@ pub fn spawn_libmpv_player() -> GrimoireResult<LibmpvController> {
     unsafe {
         libc::setlocale(libc::LC_NUMERIC, c"C".as_ptr());
     }
-    // mpv stays completely silent about *why* a file fails to play
-    // (codec missing, no audio device, decoder error, etc.) unless it's
-    // told to log that detail somewhere - without this, a stalled/failed
-    // load only ever surfaces as a bare "libmpv failed to play this
-    // file" (see the EndFile::Error arm below), with zero detail on the
-    // real cause.
-    //
-    // NOT `request_log_messages` + the `LogMessage` event (tried first,
-    // confirmed real 2026-10-07: produced zero log lines across two
-    // separate real test sessions - the event apparently never actually
-    // fires for an embedded libmpv context the way it does over the
-    // plain JSON-IPC protocol client/charnel/src-tauri/src/radio_mpv.rs
-    // uses). the approach that DID genuinely work once before (per this
-    // session's own history) was `set_option("terminal", "yes")` +
-    // `msg-level=all=v`, which makes mpv print straight to the process's
-    // OS-level stdout fd - but that's useless here since charnel.log is
-    // a structured tracing-subscriber file, not a raw stdout capture,
-    // and it was pulled out again afterward for being too noisy anyway.
-    // `log-file` sidesteps both problems: mpv writes its own diagnostic
-    // log directly to a file we name, independent of stdout/terminal
-    // semantics entirely. "warn" was tried first (matching the quiet
-    // tradeoff in client/charnel/src-tauri/src/radio_mpv.rs's
-    // `--msg-level=all=warn`) but produced zero lines for an apparently-
-    // silent playback failure (no sound, no UI progress) - "warn" can't
-    // distinguish "worked fine, nothing to complain about" from "never
-    // even got past opening the file" since routine open/demux/codec/
-    // AO/VO progress is logged below warn severity. "v" (verbose)
-    // surfaces that progress so a silent failure is actually visible.
-    let mpv_log_path = crate::config::get_config()
-        .data_dir
-        .join("libmpv-audio.log");
-    // separate from mpv_log_path above: mpv opens that file itself via a
-    // plain `fopen(path, "wb")` (confirmed in mpv's own common/msg.c)
-    // and tracks its own internal write position, oblivious to any
-    // writes we make to the same path through a separate fd - writing
-    // our own diagnostics into mpv's log-file corrupted a line in a
-    // real capture (2026-10-07: a PropertyChange line got torn mid-
-    // write). a distinct file sidesteps that entirely.
-    let rust_log_path = crate::config::get_config()
-        .data_dir
-        .join("libmpv-audio-rust.log");
+    // mpv's own verbose diagnostic log (open/demux/codec/AO progress) is
+    // only written when explicitly asked for, via debug logging for this
+    // module (e.g. `RUST_LOG=grimoire::player::libmpv=debug`): it's a
+    // large per-launch file most users never need. `log-file` is used
+    // instead of `request_log_messages` + the `LogMessage` event, which
+    // produced zero lines for an embedded libmpv context (confirmed
+    // 2026-10-07); "v" rather than "warn" because routine progress is
+    // logged below warn severity, which is what makes a silent failure
+    // visible.
+    let verbose_log_path = tracing::enabled!(tracing::Level::DEBUG).then(|| {
+        crate::config::get_config()
+            .data_dir
+            .join("libmpv-audio.log")
+    });
     let mpv = Mpv::with_initializer(|init| {
-        init.set_option("msg-level", "all=v")?;
-        init.set_option("log-file", mpv_log_path.to_string_lossy().as_ref())?;
+        if let Some(path) = &verbose_log_path {
+            init.set_option("msg-level", "all=v")?;
+            init.set_option("log-file", path.to_string_lossy().as_ref())?;
+        }
         Ok(())
     })
     .map_err(|e| GrimoireError::ProcessingFailed {
@@ -186,10 +168,9 @@ pub fn spawn_libmpv_player() -> GrimoireResult<LibmpvController> {
     let (events_tx, _) = broadcast::channel::<PlayerEvent>(EVENT_CHANNEL_CAPACITY);
 
     let events_for_commands = events_tx.clone();
-    let log_path_for_commands = rust_log_path.clone();
     let command_thread = thread::Builder::new()
         .name("freqhole-libmpv-commands".into())
-        .spawn(move || command_loop(mpv, cmd_rx, events_for_commands, log_path_for_commands))
+        .spawn(move || command_loop(mpv, cmd_rx, events_for_commands))
         .map_err(|e| GrimoireError::ProcessingFailed {
             message: format!("failed to spawn libmpv command thread: {e}"),
         })?;
@@ -197,7 +178,7 @@ pub fn spawn_libmpv_player() -> GrimoireResult<LibmpvController> {
     let events_for_reader = events_tx.clone();
     let event_thread = thread::Builder::new()
         .name("freqhole-libmpv-events".into())
-        .spawn(move || read_libmpv_events(events_client, events_for_reader, rust_log_path))
+        .spawn(move || read_libmpv_events(events_client, events_for_reader))
         .map_err(|e| GrimoireError::ProcessingFailed {
             message: format!("failed to spawn libmpv event thread: {e}"),
         })?;
@@ -226,7 +207,6 @@ fn command_loop(
     mpv: Mpv,
     mut cmd_rx: mpsc::Receiver<PlayerCommand>,
     events: broadcast::Sender<PlayerEvent>,
-    log_path: std::path::PathBuf,
 ) {
     let mut queue: Vec<String> = Vec::new();
     while let Some(cmd) = cmd_rx.blocking_recv() {
@@ -235,7 +215,7 @@ fn command_loop(
         // `PlayerCommand`'s own `Debug` derive already elides nothing
         // sensitive (paths, not credentials).
         let cmd_debug = format!("{cmd:?}");
-        if let Err(message) = apply_command(&mpv, &mut queue, cmd, &events, &log_path) {
+        if let Err(message) = apply_command(&mpv, &mut queue, cmd, &events) {
             tracing::warn!(command = %cmd_debug, error = %message, "[player] libmpv command failed");
             emit(
                 &events,
@@ -257,7 +237,6 @@ fn apply_command(
     queue: &mut Vec<String>,
     cmd: PlayerCommand,
     events: &broadcast::Sender<PlayerEvent>,
-    log_path: &std::path::Path,
 ) -> Result<(), String> {
     match cmd {
         PlayerCommand::Load {
@@ -268,18 +247,10 @@ fn apply_command(
             *queue = paths;
             let mut iter = queue.iter();
             if let Some(first) = iter.next() {
-                let args = loadfile_args(first, start_ms, start_paused);
+                let args = loadfile_args(first, start_ms, start_paused, loadfile_has_index_arg());
                 let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
-                log_to_mpv_file(
-                    log_path,
-                    &format!("issuing loadfile (replace) path={first}"),
-                );
                 mpv.command("loadfile", &arg_refs)
                     .map_err(|e| mpv_err("loadfile (replace)", e))?;
-                log_to_mpv_file(
-                    log_path,
-                    &format!("loadfile (replace) call returned path={first}"),
-                );
             }
             for path in iter {
                 mpv.command("loadfile", &[path.as_str(), "append"])
@@ -492,7 +463,7 @@ fn parse_device_entry(entry: &libmpv2_sys::mpv_node) -> Option<AudioDeviceInfo> 
 }
 
 /// build the `loadfile` command arguments for a `replace` load, folding
-/// an optional resume position and/or "start paused" into the same
+/// an optional resume position and the pause state into the same
 /// atomic mpv command instead of separate follow-up `Seek`/`Pause`
 /// commands, either of which can race mpv still opening the file -
 /// confirmed 2026-09-29: a fast Load-then-Pause-then-Seek sequence
@@ -505,20 +476,53 @@ fn parse_device_entry(entry: &libmpv2_sys::mpv_node) -> Option<AudioDeviceInfo> 
 /// index slot, or they get mis-parsed as the index itself. multiple
 /// options are a single comma-joined string, same as mpv's per-file
 /// playlist option syntax.
-fn loadfile_args(path: &str, start_ms: Option<u64>, start_paused: bool) -> Vec<String> {
+///
+/// the `<index>` argument only exists from mpv 0.38 (client api 2.3). on
+/// older libmpv (e.g. ubuntu 24.04's 0.37) the signature is
+/// `<url> [<flags> [<options>]]`, and passing the `-1` placeholder makes
+/// the whole command fail with `MPV_ERROR_INVALID_PARAMETER` (-4) -
+/// confirmed 2026-10-19 against libmpv 0.37.0. `has_index_arg` picks the
+/// layout; see [`loadfile_has_index_arg`].
+///
+/// `pause` is ALWAYS passed explicitly, never omitted when not paused:
+/// mpv's `pause` property survives `stop` and idle, so a Pause followed
+/// by a Stop followed by a plain load left mpv loaded but silently
+/// paused (confirmed 2026-10-18 from the rust-side event trace: no
+/// `pause` property change fires since the value never changes, so the
+/// optimistic `Playing` state was never corrected).
+fn loadfile_args(
+    path: &str,
+    start_ms: Option<u64>,
+    start_paused: bool,
+    has_index_arg: bool,
+) -> Vec<String> {
     let mut args = vec![path.to_string(), "replace".to_string()];
+    if has_index_arg {
+        args.push("-1".to_string());
+    }
     let mut opts = Vec::new();
     if let Some(ms) = start_ms.filter(|ms| *ms > 0) {
         opts.push(format!("start={}", ms as f64 / 1000.0));
     }
-    if start_paused {
-        opts.push("pause=yes".to_string());
-    }
-    if !opts.is_empty() {
-        args.push("-1".to_string());
-        args.push(opts.join(","));
-    }
+    opts.push(
+        if start_paused {
+            "pause=yes"
+        } else {
+            "pause=no"
+        }
+        .to_string(),
+    );
+    args.push(opts.join(","));
     args
+}
+
+/// whether the loaded libmpv's `loadfile` command takes the `<index>`
+/// argument (mpv 0.38+, client api 2.3+). checks the library that's
+/// actually loaded at runtime, not the headers we were built against.
+/// also used by charnel's video window backend.
+pub fn loadfile_has_index_arg() -> bool {
+    const MPV_CLIENT_API_2_3: std::os::raw::c_ulong = (2 << 16) | 3;
+    unsafe { libmpv2_sys::mpv_client_api_version() >= MPV_CLIENT_API_2_3 }
 }
 
 /// includes which mpv operation failed - `libmpv2::Error`'s own `Display`
@@ -528,40 +532,7 @@ fn mpv_err(operation: &str, e: libmpv2::Error) -> String {
     format!("libmpv {operation} failed: {e}")
 }
 
-/// appends a `[rust] ...` line straight into mpv's own `log-file` (not
-/// `tracing`/charnel.log) so our dispatch-side diagnostics sit next to
-/// mpv's internal log lines in the one file already being inspected for
-/// playback problems, instead of split across two files. opened fresh
-/// per call (these are low-frequency, at most ~1/sec) rather than kept
-/// open across threads - avoids needing a shared/locked file handle for
-/// what's deliberately temporary diagnostic logging.
-fn log_to_mpv_file(path: &std::path::Path, msg: &str) {
-    use std::io::Write;
-    let Ok(mut f) = std::fs::OpenOptions::new()
-        .append(true)
-        .create(true)
-        .open(path)
-    else {
-        return;
-    };
-    let _ = writeln!(f, "[{:>8.3}][rust] {msg}", mp_time_hint());
-}
-
-/// seconds since process start, formatted to roughly match mpv's own
-/// `[%8.3f]` log-file timestamp column - not the same clock/epoch as
-/// mpv's internal timer, just enough to eyeball interleaving order.
-fn mp_time_hint() -> f64 {
-    use std::sync::OnceLock;
-    use std::time::Instant;
-    static START: OnceLock<Instant> = OnceLock::new();
-    START.get_or_init(Instant::now).elapsed().as_secs_f64()
-}
-
-fn read_libmpv_events(
-    events_client: Mpv,
-    events: broadcast::Sender<PlayerEvent>,
-    log_path: std::path::PathBuf,
-) {
+fn read_libmpv_events(events_client: Mpv, events: broadcast::Sender<PlayerEvent>) {
     // mpv_observe_property delivers one notification carrying the
     // CURRENT value immediately upon starting observation, for every
     // property - a fresh Mpv (idle, nothing ever loaded) reports
@@ -574,94 +545,13 @@ fn read_libmpv_events(
     // queue item on every app boot.
     let mut ever_loaded = false;
 
-    // stall watchdog: confirmed for real (2026-10-01, a freshly-synced
-    // remote song) that mpv can report `pause=false` right after a Load
-    // (and `apply_command`'s own optimistic `Playing` emit agrees) while
-    // never actually producing audio - no error, no EndFile, nothing -
-    // because `time-pos` only sends a PropertyChange notification when
-    // the value actually changes, so a stalled decoder/AO that never
-    // advances past 0 never generates ANY event to correct the
-    // now-permanently-wrong "Playing" state. fixed by the user manually
-    // pausing then unpausing, which kicks mpv's AO into actually
-    // starting - this watchdog automates exactly that, per track, only
-    // if nothing has genuinely progressed within a grace window.
-    // up to MAX_STALL_NUDGES attempts, spaced by STALL_GRACE each -
-    // previously a single, one-shot nudge: a real report (2026-10-04)
-    // of this bug still reproducing after that fix suggests one nudge
-    // doesn't always revive a stalled AO on the first try. still bounded
-    // (not an unlimited retry loop) - if it's still stalled after
-    // MAX_STALL_NUDGES attempts, the existing EndFile/Error path is the
-    // remaining backstop for a genuinely unplayable file.
-    const STALL_GRACE: std::time::Duration = std::time::Duration::from_millis(2_500);
-    const MAX_STALL_NUDGES: u32 = 3;
-    let mut loaded_at: Option<std::time::Instant> = None;
-    let mut seen_progress = false;
-    let mut nudge_count: u32 = 0;
-
     loop {
-        let event = events_client.wait_event(1.0);
-        // temporary blanket trace: confirmed (2026-10-07) on both macOS
-        // 10.15 and 14 that NOTHING - not even the EndFile/error path -
-        // was ever observed after a loadfile, on two different real
-        // Intel Macs. `wait_event` returning `None` on every single
-        // 1-second tick (not just the arms this loop already matches
-        // on) would mean our event client itself never receives
-        // anything from mpv's core - not even the guaranteed initial
-        // property notification mpv_observe_property fires immediately
-        // on every observed property - which would point at the event
-        // client/core itself, not just a stalled decoder. logging the
-        // raw event (matched or not) distinguishes "truly nothing ever
-        // arrives" from "something arrives but isn't one of the arms
-        // below".
-        match &event {
-            Some(Ok(e)) => log_to_mpv_file(&log_path, &format!("event {e:?}")),
-            Some(Err(e)) => log_to_mpv_file(&log_path, &format!("event error {e:?}")),
-            None => {
-                log_to_mpv_file(&log_path, "wait_event timed out (no event this tick)");
-                // direct synchronous queries, not events - confirmed real
-                // 2026-10-07 that a loaded file never produces a SINGLE
-                // event afterward (not even the guaranteed initial
-                // property notifications), on two different real Intel
-                // Macs. that alone doesn't distinguish "the event
-                // mechanism itself is broken" from "the core is truly
-                // wedged and would answer a direct query just fine" -
-                // polling `get_property` (a request/reply the core must
-                // actively answer, unlike a passively-observed event)
-                // settles that: if this ALSO stops updating/responding
-                // after a load, the core itself is wedged, not just event
-                // delivery.
-                let path = events_client
-                    .get_property::<String>("path")
-                    .unwrap_or_else(|e| format!("<err: {e}>"));
-                let paused = events_client
-                    .get_property::<bool>("pause")
-                    .map(|v| v.to_string())
-                    .unwrap_or_else(|e| format!("<err: {e}>"));
-                let time_pos = events_client
-                    .get_property::<f64>("time-pos")
-                    .map(|v| v.to_string())
-                    .unwrap_or_else(|e| format!("<err: {e}>"));
-                let core_idle = events_client
-                    .get_property::<bool>("core-idle")
-                    .map(|v| v.to_string())
-                    .unwrap_or_else(|e| format!("<err: {e}>"));
-                log_to_mpv_file(
-                    &log_path,
-                    &format!(
-                        "poll path={path:?} pause={paused} time-pos={time_pos} core-idle={core_idle}"
-                    ),
-                );
-            }
-        }
-        match event {
+        match events_client.wait_event(1.0) {
             Some(Ok(MpvEvent::PropertyChange {
                 name: "time-pos",
                 change: PropertyData::Double(position),
                 ..
             })) => {
-                if position > 0.0 {
-                    seen_progress = true;
-                }
                 let total = events_client.get_property::<f64>("duration").unwrap_or(0.0);
                 emit(
                     &events,
@@ -698,9 +588,6 @@ fn read_libmpv_events(
                     .unwrap_or_default();
                 if index >= 0 && !path.is_empty() {
                     ever_loaded = true;
-                    loaded_at = Some(std::time::Instant::now());
-                    seen_progress = false;
-                    nudge_count = 0;
                     emit(
                         &events,
                         PlayerEvent::TrackChanged {
@@ -718,98 +605,30 @@ fn read_libmpv_events(
                 if !ever_loaded {
                     continue;
                 }
-                loaded_at = None;
                 emit(&events, PlayerEvent::Ended);
             }
-            Some(Ok(MpvEvent::EndFile(reason))) if reason == mpv_end_file_reason::Error => {
-                loaded_at = None;
-                emit(
-                    &events,
-                    PlayerEvent::Error {
-                        detail: ErrorDetail::new(
-                            "playback_failed",
-                            "Playback Failed",
-                            "libmpv failed to play this file",
-                        ),
-                    },
-                );
-            }
             Some(Ok(MpvEvent::Shutdown)) => return,
+            // libmpv2 reports a failed end-file (e.g. -13, loading
+            // failed) as a plain `Err` from `wait_event` instead of an
+            // `Ok(EndFile(Error))` - so this is the only place a load
+            // failure can ever be seen (confirmed 2026-10-18: an
+            // unplayable file produced just `Err(Raw(-13))`, followed by
+            // idle). property-change/command-reply errors can't occur on
+            // this client (only observed properties, no async commands).
             Some(Err(e)) => {
                 tracing::warn!(error = ?e, "[player] libmpv event error");
-            }
-            Some(Ok(_)) | None => {}
-        }
-
-        // checked every loop iteration (including the ~1s `None`
-        // timeout case, which is what actually gives this a real tick
-        // when nothing else is happening) rather than only in response
-        // to a specific event - a stall is defined by the ABSENCE of an
-        // event, so there's nothing to react to otherwise. re-arms after
-        // each nudge (via `loaded_at` reset below) so a stall that
-        // survives one nudge gets another, up to MAX_STALL_NUDGES.
-        if let Some(since) = loaded_at {
-            if !seen_progress
-                && nudge_count < MAX_STALL_NUDGES
-                && since.elapsed() >= STALL_GRACE
-                && events_client.get_property::<bool>("pause") == Ok(false)
-            {
-                nudge_count += 1;
-                loaded_at = Some(std::time::Instant::now());
-                tracing::warn!(
-                    "[player] libmpv reported playing but time-pos never advanced after {:?} - nudging via pause/unpause (attempt {}/{})",
-                    STALL_GRACE,
-                    nudge_count,
-                    MAX_STALL_NUDGES
-                );
-                let _ = events_client.set_property("pause", true);
-                let _ = events_client.set_property("pause", false);
-            } else if !seen_progress
-                && nudge_count >= MAX_STALL_NUDGES
-                && since.elapsed() >= STALL_GRACE
-                && events_client.get_property::<bool>("pause") == Ok(false)
-            {
-                // all MAX_STALL_NUDGES attempts exhausted and time-pos
-                // STILL never advanced - previously this just fell
-                // through silently forever (the comment above this
-                // function said "the existing EndFile/Error path is the
-                // remaining backstop", but that backstop only fires for
-                // a genuine mpv-reported error, which this state never
-                // produces by definition - it's not erroring, just
-                // never making progress). confirmed real: this left the
-                // frontend's "pending up next" spinner stuck
-                // indefinitely with zero signal, recoverable only by
-                // the user manually toggling play/pause (the facade's
-                // `PlayerCommand::Play` issues the exact same
-                // `set_property("pause", false)` this watchdog's own
-                // nudge does - it isn't a different, more powerful
-                // fix, it's just another attempt at the same one,
-                // landing whenever mpv happens to have unwedged itself
-                // meanwhile).
-                //
-                // give up for real: clear `loaded_at` so this branch
-                // doesn't keep re-firing every tick, and emit the same
-                // `playback_failed` error_type the `EndFile::Error` arm
-                // above already uses - the frontend's existing handler
-                // for that error_type already does the right thing
-                // (skip to the next queue item, bounded retry budget),
-                // no frontend change needed.
-                loaded_at = None;
-                tracing::warn!(
-                    "[player] libmpv stall persisted after {} nudge attempts - giving up and reporting playback_failed",
-                    MAX_STALL_NUDGES
-                );
                 emit(
                     &events,
                     PlayerEvent::Error {
                         detail: ErrorDetail::new(
                             "playback_failed",
                             "Playback Failed",
-                            "libmpv accepted the file but never started producing audio",
+                            format!("libmpv failed to play this file: {e}"),
                         ),
                     },
                 );
             }
+            Some(Ok(_)) | None => {}
         }
     }
 }
@@ -992,5 +811,75 @@ mod device_list_parsing_tests {
             format: libmpv2_sys::mpv_format_MPV_FORMAT_NODE_ARRAY,
         };
         assert!(parse_device_list_node(&array_node).is_empty());
+    }
+}
+
+#[cfg(test)]
+mod load_pause_tests {
+    use super::*;
+
+    #[test]
+    fn loadfile_args_always_sets_pause_explicitly() {
+        assert_eq!(
+            loadfile_args("a.mp3", None, false, true),
+            ["a.mp3", "replace", "-1", "pause=no"]
+        );
+        assert_eq!(
+            loadfile_args("a.mp3", Some(0), false, true),
+            ["a.mp3", "replace", "-1", "pause=no"]
+        );
+        assert_eq!(
+            loadfile_args("a.mp3", Some(1500), true, true),
+            ["a.mp3", "replace", "-1", "start=1.5,pause=yes"]
+        );
+    }
+
+    /// libmpv before 0.38 has no `<index>` argument: a `-1` placeholder
+    /// there makes the whole loadfile fail (MPV_ERROR_INVALID_PARAMETER).
+    #[test]
+    fn loadfile_args_omits_index_placeholder_on_old_libmpv() {
+        assert_eq!(
+            loadfile_args("a.mp3", None, false, false),
+            ["a.mp3", "replace", "pause=no"]
+        );
+        assert_eq!(
+            loadfile_args("a.mp3", Some(1500), true, false),
+            ["a.mp3", "replace", "start=1.5,pause=yes"]
+        );
+    }
+
+    /// regression: a Pause then Stop left mpv's `pause` property true, and
+    /// a plain load afterwards stayed silently paused.
+    #[test]
+    fn load_after_pause_and_stop_is_not_left_paused() {
+        if !is_libmpv_available() {
+            return;
+        }
+        unsafe {
+            libc::setlocale(libc::LC_NUMERIC, c"C".as_ptr());
+        }
+        let Ok(mpv) = Mpv::with_initializer(|init| {
+            init.set_option("ao", "null")?;
+            init.set_option("vo", "null")?;
+            Ok(())
+        }) else {
+            return;
+        };
+        let src = "av://lavfi:sine=d=30";
+
+        let args = loadfile_args(src, None, false, loadfile_has_index_arg());
+        let refs: Vec<&str> = args.iter().map(String::as_str).collect();
+        mpv.command("loadfile", &refs).unwrap();
+        mpv.set_property("pause", true).unwrap();
+        mpv.command("stop", &[]).unwrap();
+        assert!(
+            mpv.get_property::<bool>("pause").unwrap(),
+            "precondition: pause survives stop"
+        );
+
+        mpv.command("loadfile", &refs).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        assert!(!mpv.get_property::<bool>("pause").unwrap());
+        assert!(!mpv.get_property::<bool>("core-idle").unwrap());
     }
 }

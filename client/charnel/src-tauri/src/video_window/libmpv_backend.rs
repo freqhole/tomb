@@ -403,8 +403,13 @@ fn open_or_reuse(
     // mpv's real `loadfile` signature is <url> [<flags> [<index> [<options>]]]
     // - <index> sits before <options>, so a start= option needs the -1
     // placeholder in the index slot (same hard-won fix as mpv.rs's own
-    // loadfile call - see its doc comment for the full story).
-    let args = loadfile_args(path, start_seconds);
+    // loadfile call - see its doc comment for the full story) - but only on
+    // libmpv 0.38+, older versions have no <index> at all.
+    let args = loadfile_args(
+        path,
+        start_seconds,
+        grimoire::player::libmpv::loadfile_has_index_arg(),
+    );
     let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
     w.mpv.command("loadfile", &arg_refs).map_err(mpv_err)?;
 
@@ -765,11 +770,16 @@ fn read_libmpv_events(app: AppHandle<Wry>, events: Mpv, generation: u64) {
 /// `<options>`, so a `start=` option needs the `-1` placeholder in the
 /// index slot, or it gets mis-parsed as the index itself (same hard-won
 /// fix as `mpv.rs`'s own loadfile call - see its doc comment for the full
-/// story). pure/testable, unlike the rest of this module.
-fn loadfile_args(path: &str, start_seconds: Option<f64>) -> Vec<String> {
+/// story). libmpv before 0.38 has no `<index>` argument at all, and the
+/// placeholder makes the command fail, so `has_index_arg` (from
+/// `grimoire::player::libmpv::loadfile_has_index_arg`) drops it there.
+/// pure/testable, unlike the rest of this module.
+fn loadfile_args(path: &str, start_seconds: Option<f64>, has_index_arg: bool) -> Vec<String> {
     let mut args = vec![path.to_string(), "replace".to_string()];
     if let Some(seconds) = start_seconds.filter(|s| *s > 0.0) {
-        args.push("-1".to_string());
+        if has_index_arg {
+            args.push("-1".to_string());
+        }
         args.push(format!("start={seconds}"));
     }
     args
@@ -830,7 +840,7 @@ mod tests {
     #[test]
     fn loadfile_without_start_omits_index_and_options() {
         assert_eq!(
-            loadfile_args("/tmp/a.mp4", None),
+            loadfile_args("/tmp/a.mp4", None, true),
             vec!["/tmp/a.mp4", "replace"]
         );
     }
@@ -838,11 +848,11 @@ mod tests {
     #[test]
     fn loadfile_ignores_a_non_positive_start() {
         assert_eq!(
-            loadfile_args("/tmp/a.mp4", Some(0.0)),
+            loadfile_args("/tmp/a.mp4", Some(0.0), true),
             vec!["/tmp/a.mp4", "replace"]
         );
         assert_eq!(
-            loadfile_args("/tmp/a.mp4", Some(-5.0)),
+            loadfile_args("/tmp/a.mp4", Some(-5.0), true),
             vec!["/tmp/a.mp4", "replace"]
         );
     }
@@ -853,8 +863,18 @@ mod tests {
         // a regression here previously mis-parsed the start option as the
         // playlist index (mpv.rs's own hard-won fix).
         assert_eq!(
-            loadfile_args("/tmp/a.mp4", Some(12.5)),
+            loadfile_args("/tmp/a.mp4", Some(12.5), true),
             vec!["/tmp/a.mp4", "replace", "-1", "start=12.5"]
+        );
+    }
+
+    #[test]
+    fn loadfile_with_start_omits_the_index_placeholder_on_old_libmpv() {
+        // libmpv before 0.38 has no <index> argument; the placeholder makes
+        // the whole command fail with MPV_ERROR_INVALID_PARAMETER.
+        assert_eq!(
+            loadfile_args("/tmp/a.mp4", Some(12.5), false),
+            vec!["/tmp/a.mp4", "replace", "start=12.5"]
         );
     }
 }
