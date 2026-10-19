@@ -894,45 +894,6 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
                         </p>
                       </div>
 
-                      <Show when={nearbyPeers().length > 0 && s.subStep !== "knock_form"}>
-                        <div>
-                          <p class="mb-2 text-xs font-medium text-[var(--color-text-secondary)]">
-                            nearby peerz
-                          </p>
-                          <div class="space-y-1">
-                            <For each={nearbyPeers()}>
-                              {(peer) => {
-                                const details = () => nearbyPeerDetails()[peer.nodeId];
-                                return (
-                                  <button
-                                    type="button"
-                                    onClick={() => handleTestConnection(peer.nodeId)}
-                                    class="w-full flex items-center gap-2 px-3 py-2 bg-[var(--color-bg-secondary)] border border-[var(--color-border-default)] rounded-md text-left text-sm hover:border-[var(--color-accent-primary)] transition-colors"
-                                  >
-                                    <MediaImage
-                                      imageUrl={details()?.imageUrl}
-                                      alt=""
-                                      size="xs"
-                                      class="rounded flex-shrink-0"
-                                    />
-                                    <span class="flex-1 min-w-0">
-                                      <span class="block truncate text-[var(--color-text-primary)]">
-                                        {details()?.name || peer.userData || `${peer.nodeId.slice(0, 16)}…`}
-                                      </span>
-                                      <Show when={details()?.name || peer.userData}>
-                                        <span class="block truncate font-mono text-xs text-[var(--color-text-tertiary)]">
-                                          {peer.nodeId.slice(0, 16)}…
-                                        </span>
-                                      </Show>
-                                    </span>
-                                  </button>
-                                );
-                              }}
-                            </For>
-                          </div>
-                        </div>
-                      </Show>
-
                       <Show when={s.error}>
                         <div class="p-3 bg-[var(--color-status-error)]/10 border border-[var(--color-status-error)] rounded-md space-y-2">
                           <p class="text-sm text-[var(--color-status-error)]">{s.error}</p>
@@ -1013,6 +974,50 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
                         <Button type="submit" variant="primary" class="w-full">
                           test connection
                         </Button>
+                      </Show>
+
+                      {/* below the button (not above it) so the primary action
+                          stays right under the input and any error. hidden in the
+                          knock form, where there's no address field to fill in. */}
+                      <Show when={nearbyPeers().length > 0 && s.subStep !== "knock_form"}>
+                        <div>
+                          <p class="mb-2 text-xs font-medium text-[var(--color-text-secondary)]">
+                            nearby peerz
+                          </p>
+                          <div class="space-y-1">
+                            <For each={nearbyPeers()}>
+                              {(peer) => {
+                                const details = () => nearbyPeerDetails()[peer.nodeId];
+                                return (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleTestConnection(peer.nodeId)}
+                                    class="w-full flex items-center gap-2 px-3 py-2 bg-[var(--color-bg-secondary)] border border-[var(--color-border-default)] rounded-md text-left text-sm hover:border-[var(--color-accent-primary)] transition-colors"
+                                  >
+                                    <MediaImage
+                                      imageUrl={details()?.imageUrl}
+                                      alt=""
+                                      size="xs"
+                                      class="rounded flex-shrink-0"
+                                    />
+                                    <span class="flex-1 min-w-0">
+                                      <span class="block truncate text-[var(--color-text-primary)]">
+                                        {details()?.name ||
+                                          peer.userData ||
+                                          `${peer.nodeId.slice(0, 16)}…`}
+                                      </span>
+                                      <Show when={details()?.name || peer.userData}>
+                                        <span class="block truncate font-mono text-xs text-[var(--color-text-tertiary)]">
+                                          {peer.nodeId.slice(0, 16)}…
+                                        </span>
+                                      </Show>
+                                    </span>
+                                  </button>
+                                );
+                              }}
+                            </For>
+                          </div>
+                        </div>
                       </Show>
                       <Show when={s.subStep === "knock_form"}>
                         <div class="flex gap-2">
