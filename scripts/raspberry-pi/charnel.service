@@ -1,0 +1,14 @@
+[Unit]
+# managed by freqhole-pi setup
+Description=charnel in the desktop session
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+Environment=WEBKIT_DISABLE_COMPOSITING_MODE=1
+Environment=WEBKIT_DISABLE_DMABUF_RENDERER=1
+WorkingDirectory=%h
+ExecStartPre=/usr/bin/python3 %h/.local/share/freqhole-pi/charnel.py launch
+ExecStart=/usr/bin/charnel
+Restart=no
+TimeoutStopSec=30

@@ -20,6 +20,34 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  raspberry-pi-check:
+    name: raspberry pi (shellcheck + setup tests)
+    if: github.head_ref != 'changeset-release/main'
+    runs-on: ${{ vars.LINUX_X86_64_RUNNER || 'ubuntu-24.04' }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: install test dependencies
+        run: |
+          sudo apt-get update
+          sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y python3 shellcheck jq tmux systemd kbd
+
+      - name: lint shell scripts
+        run: |
+          shellcheck scripts/raspberry-pi/setup.sh \
+            scripts/raspberry-pi/freqhole-pi \
+            scripts/raspberry-pi/freqhole-pi-control \
+            scripts/raspberry-pi/freqhole-pi-wifi-recover \
+            scripts/raspberry-pi/charnel-session
+
+      - name: run setup tests
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: python3 -m unittest discover -v -s scripts/raspberry-pi -p test_setup.py
+
   rust-lint:
     name: rust (fmt + clippy + check)
     # skip on the changesets "Version Packages" PR: it only bumps versions +

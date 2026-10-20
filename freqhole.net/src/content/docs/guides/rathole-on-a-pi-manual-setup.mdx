@@ -1,0 +1,498 @@
+---
+title: raspberry pi manual setup
+description: command-by-command charnel/rathole installation, services, OLED, Wi-Fi, splash and recovery without setup.sh
+---
+
+for the interactive installer, use [rathole on a pi](/guides/rathole-on-a-pi/).
+these steps use the same helpers/templates but do **not** run `setup.sh`.
+run as your app account; use sudo only where shown. commands assume Bash,
+Raspberry Pi OS Bookworm/Trixie, and a home path without spaces/metacharacters.
+
+## system packages
+
+```sh
+dpkg --print-architecture    # arm64: either app; armhf: rathole only
+sudo apt-get update
+sudo apt-get upgrade         # optional; before the remaining apt commands
+sudo apt-get install -y git curl ca-certificates jq python3 util-linux lsof alsa-utils
+```
+
+## obtain helpers
+
+review the checkout before executing its helpers. keep this shell open; subsequent
+sections reuse these variables and the rendering function.
+
+```sh
+git clone https://github.com/freqhole/tomb.git ~/freqhole-src
+src="$HOME/freqhole-src/scripts/raspberry-pi"
+root="$HOME/.local/share/freqhole-pi"
+config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
+data_home="${XDG_DATA_HOME:-$HOME/.local/share}"
+user="$(id -un)"
+uid="$(id -u)"
+install -d -m 700 "$root"
+mkdir -p "$HOME/.local/bin"
+for file in menu.py configure.py packages.py charnel.py requirements.txt; do
+    install -m 644 "$src/$file" "$root/$file"
+done
+install -m 755 "$src/freqhole-pi" "$HOME/.local/bin/freqhole-pi"
+install -m 755 "$src/freqhole-wifi" "$HOME/.local/bin/freqhole-wifi"
+render() {
+    sed -e "s|@USER@|$user|g" -e "s|@UID@|$uid|g" \
+        -e "s|@HOME@|$HOME|g" -e "s|@ROOT@|$root|g" "$1"
+}
+```
+
+## PATH
+
+add the guarded PATH block to the Bash login file actually used, plus interactive
+startup. the helper preserves contents and creates a `.before-freqhole-pi` backup.
+
+```sh
+profile="$HOME/.profile"
+if [ -f "$HOME/.bash_profile" ]; then
+    profile="$HOME/.bash_profile"
+elif [ -f "$HOME/.bash_login" ]; then
+    profile="$HOME/.bash_login"
+fi
+python3 "$root/configure.py" path "$profile"
+python3 "$root/configure.py" path "$HOME/.bashrc"
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+## installation settings
+
+choose `rathole` or `charnel`; set hardware true only if installing the OLED section.
+this file records helper paths, **not** the library's data-directory choice.
+
+```sh
+player=rathole
+hardware=false
+jq -n --arg player "$player" --argjson hardware "$hardware" \
+    --arg data "$data_home/net.freqhole.charnel" \
+    --arg config "$config_home/net.freqhole.charnel" \
+    '{menu_player:$player, hardware:$hardware, charnel_data:$data, charnel_config:$config}' \
+    > "$root/installation.json"
+chmod 600 "$root/installation.json"
+python3 "$root/configure.py" menu "$root/menu.json" \
+    --player "$player" --socket-path "$root/$player-control.sock"
+```
+
+on an existing managed install, preserve its recorded charnel/XDG paths and hardware
+choice. `menu.json` updates preserve wheel direction.
+
+## limited sudo actions
+
+never grant blanket passwordless sudo. the root-owned helpers accept fixed service
+actions and verified official package operations only.
+
+```sh
+sudo install -d -m 755 /usr/local/libexec
+sudo install -o root -g root -m 755 "$src/freqhole-pi-control" /usr/local/libexec/freqhole-pi-control
+sudo install -o root -g root -m 755 "$src/packages.py" /usr/local/libexec/freqhole-pi-packages
+policy="$(mktemp)"
+for action in start stop restart poweroff wifi-start wifi-stop \
+    enable-rathole disable-rathole enable-menu disable-menu disable-wifi; do
+    printf '%s ALL=(root) NOPASSWD: /usr/local/libexec/freqhole-pi-control %s\n' \
+        "$user" "$action" >> "$policy"
+done
+printf '%s ALL=(root) NOPASSWD: /usr/local/libexec/freqhole-pi-packages charnel-prepare, /usr/local/libexec/freqhole-pi-packages charnel-install *, /usr/local/libexec/freqhole-pi-packages charnel-rollback *\n' \
+    "$user" >> "$policy"
+sudo visudo -cf "$policy" &&
+    sudo install -o root -g root -m 440 "$policy" "/etc/sudoers.d/freqhole-pi-$user"
+rm -- "$policy"
+```
+
+omit the package-helper rule on a rathole-only device if charnel updates aren't needed.
+
+## install rathole
+
+```sh
+sudo apt-get install -y mpv ffmpeg
+sudo usermod -aG audio "$user"
+freqhole-pi install
+```
+
+the updater selects arm64/armv7, verifies the release's SHA-256 digest and runtime
+dependencies, and records the installed version/hash. unmanaged or modified binaries
+are refused. `mpv` is a runtime dependency; `libmpv-dev` isn't needed here.
+
+### first-run wizard and data directory
+
+```sh
+cd "$root"
+rathole
+```
+
+with no config, the TUI wizard chooses the data directory and creates the config,
+database and root user. don't copy a stock config over it: an existing config skips
+the automatic wizard. quit normally before installing/starting a service.
+
+the config stays at `~/.local/share/freqhole-pi/freqhole-config.toml`.
+`data_dir` can point elsewhere; relative paths resolve from the process cwd.
+both service modes below use the config directory as cwd.
+
+## rathole: choose one service mode
+
+both modes install the same `rathole.service`; do not run both templates.
+stop an existing service before changing modes. don't overwrite an unmanaged unit.
+
+### SSH / tmux
+
+```sh
+sudo apt-get install -y tmux
+render "$src/tmux.conf" > "$root/tmux.conf"
+chmod 600 "$root/tmux.conf"
+render "$src/rathole-tmux.service" | sudo tee /etc/systemd/system/rathole.service >/dev/null
+sudo systemctl daemon-reload
+sudo systemctl enable rathole       # optional boot startup
+freqhole-pi attach
+```
+
+attach offers to start the service if stopped. **Ctrl+B, then D** detaches without
+stopping playback. **Ctrl+B, [** enters scrollback; **Q** leaves it.
+the help prompt's **n** saves dismissal; reset with:
+
+```sh
+rm -- "$root/tmux-tips-dismissed"
+```
+
+### dedicated tty1 (no x-windows)
+
+```sh
+sudo apt-get install -y console-setup console-data kbd
+test -f /usr/share/consolefonts/Uni2-VGA14.psf.gz
+sudo python3 "$root/configure.py" console /etc/default/console-setup
+sudo usermod -aG video "$user"
+getent group render && sudo usermod -aG render "$user"
+render "$src/rathole.service" | sudo tee /etc/systemd/system/rathole.service >/dev/null
+sudo systemctl daemon-reload
+sudo systemctl enable rathole       # optional boot startup
+sudo systemctl start rathole
+```
+
+uses `FONT="Uni2-VGA14.psf.gz"` for the required block/QR glyphs.
+the service switches to tty1, conflicts with its login prompt, starts `--player`,
+and switches to tty2 on exit. SSH terminals use their own fonts.
+reboot to apply console/group changes; don't start this mode from a desktop you need
+to keep visible.
+
+## install charnel
+
+arm64 with an existing desktop session only; this does not install a kiosk.
+the verified `.deb` supplies its desktop runtime dependencies.
+
+```sh
+sudo python3 "$src/packages.py" charnel
+mkdir -p "$config_home/systemd/user" "$config_home/autostart"
+{
+    cat "$src/charnel.service"
+    printf '\n[Service]\nEnvironment=XDG_DATA_HOME=%s\nEnvironment=XDG_CONFIG_HOME=%s\n' \
+        "$data_home" "$config_home"
+} > "$config_home/systemd/user/charnel.service"
+chmod 644 "$config_home/systemd/user/charnel.service"
+install -m 755 "$src/charnel-session" "$HOME/.local/bin/charnel-session"
+systemctl --user daemon-reload
+```
+
+### desktop-login autostart
+
+```sh
+printf '[Desktop Entry]\n# managed by freqhole-pi setup\nType=Application\nName=charnel\nExec=%s/.local/bin/charnel-session\nTerminal=false\n' \
+    "$HOME" > "$config_home/autostart/freqhole-pi-charnel.desktop"
+```
+
+the launcher imports the real desktop environment into the user service.
+from a **Pi desktop terminal**, run:
+
+```sh
+charnel-session
+```
+
+complete the GUI wizard to choose storage and initialize the library.
+desktop autologin and taskbar autohide remain manual desktop/`raspi-config` choices.
+
+### player-first / window state
+
+quit charnel before editing. choose fullscreen **or** maximized; skip either command
+to keep the existing preference.
+
+```sh
+python3 "$root/configure.py" player "$data_home/net.freqhole.charnel/charnel-config.toml"
+python3 "$root/configure.py" fullscreen "$config_home/net.freqhole.charnel/.window-state.json"
+# alternative:
+# python3 "$root/configure.py" maximized "$config_home/net.freqhole.charnel/.window-state.json"
+```
+
+### WebKit graphics
+
+the supplied user unit sets both:
+
+```ini
+[Service]
+Environment=WEBKIT_DISABLE_COMPOSITING_MODE=1
+Environment=WEBKIT_DISABLE_DMABUF_RENDERER=1
+```
+
+custom drop-ins must include their own `[Service]` heading. reload and restart after
+changes; an already running process won't pick up new environment variables.
+
+```sh
+systemctl --user daemon-reload
+systemctl --user restart charnel
+systemctl --user show charnel -p Environment -p MainPID
+```
+
+### system output volume
+
+run as the desktop account, not root. use the first command supported by the active
+audio stack; this doesn't change charnel's application volume.
+
+```sh
+wpctl set-volume @DEFAULT_AUDIO_SINK@ 1.0
+# PulseAudio alternative:
+pactl set-sink-volume @DEFAULT_SINK@ 100%
+# ALSA alternative:
+amixer sset Master 100%
+```
+
+the charnel player hides its cursor after five seconds of pointer inactivity.
+
+## optional OLED + rotary encoder
+
+128x32 SSD1306 at `0x3c`; Adafruit seesaw qt encoder product 4991 at `0x36`.
+set `hardware=true` in the installation settings first.
+
+### dependencies and i2c
+
+```sh
+sudo apt-get install -y python3-venv python3-pip python3-dev build-essential swig \
+    python3-lgpio liblgpio-dev python3-libgpiod libgpiod-dev i2c-tools iproute2 iw
+sudo raspi-config nonint do_i2c 0
+boot_config=/boot/firmware/config.txt
+if [ ! -f "$boot_config" ]; then boot_config=/boot/config.txt; fi
+sudo python3 "$root/configure.py" i2c "$boot_config"
+sudo usermod -aG i2c,gpio,audio "$user"
+/usr/bin/python3 -m venv --system-site-packages "$root/.venv"
+"$root/.venv/bin/python3" -m pip install -r "$root/requirements.txt"
+```
+
+the config helper sets `dtparam=i2c_arm=on,i2c_arm_baudrate=400000` under `[all]`,
+removes competing baudrate values, and preserves a backup.
+
+### font asset
+
+```sh
+font_ref=6f6c89891de7d96c43028c4fdff5765763dffe16
+font_base="https://raw.githubusercontent.com/adafruit/Adafruit_CircuitPython_framebuf/$font_ref"
+curl -fsSL "$font_base/examples/font5x8.bin" -o "$root/font5x8.bin"
+curl -fsSL "$font_base/LICENSE" -o "$root/font-LICENSE"
+printf '%s  %s\n' 256f8db12c0d562a03490865479dddc4d6931b5774be1eaee416a1064ef6bdcf \
+    "$root/font5x8.bin" | sha256sum -c -
+```
+
+### control socket and menu service
+
+after completing the app wizard:
+
+```sh
+python3 "$root/charnel.py" socket
+render "$src/rathole-ctrl.service" | sudo tee /etc/systemd/system/rathole-ctrl.service >/dev/null
+sudo systemctl daemon-reload
+sudo systemctl enable rathole-ctrl     # optional
+```
+
+reboot for i2c/groups, then start/restart the selected app and menu:
+
+```sh
+# rathole:
+sudo systemctl restart rathole
+# or charnel, from the desktop:
+# systemctl --user restart charnel
+sudo systemctl start rathole-ctrl
+```
+
+custom socket paths are preserved; defaults are separate `charnel-control.sock` /
+`rathole-control.sock` files under the helper directory. the menu reads the saved
+socket path dynamically. it sets the ALSA Master mixer to 100% on startup.
+
+menu actions include playback/volume, player view, member/admin invites,
+app-specific start/stop/restart, network status, updates and shutdown.
+**reverse wheel** changes direction immediately and saves it in `menu.json`;
+no source edits/reboot. **new admin pairing** shows the invite in the app, not OLED.
+
+## optional Wi-Fi Connect
+
+requires active NetworkManager and an AP-capable Wi-Fi interface. this doesn't
+replace your networking stack. setup can disconnect Wi-Fi/SSH; use local access
+when testing.
+
+```sh
+sudo apt-get install -y dnsmasq-base
+systemctl is-active NetworkManager
+nmcli --fields DEVICE,TYPE,STATE device
+interface=wlan0
+nmcli -g GENERAL.TYPE,WIFI-PROPERTIES.AP device show "$interface"
+```
+
+expect `wifi` and `yes`. generate credentials once; don't regenerate over existing
+Wi-Fi settings:
+
+```sh
+sudo python3 "$root/configure.py" wifi /etc/freqhole-pi --interface "$interface" > "$root/wifi.json"
+chmod 600 "$root/wifi.json"
+sudo python3 "$src/packages.py" wifi
+sudo install -o root -g root -m 755 "$src/freqhole-pi-wifi-recover" /usr/local/libexec/freqhole-pi-wifi-recover
+sudo install -o root -g root -m 644 "$src/freqhole-wifi.service" /etc/systemd/system/freqhole-wifi.service
+sudo systemctl daemon-reload
+freqhole-wifi info
+freqhole-wifi start
+```
+
+join the displayed WPA2 network and open its displayed portal URL.
+manual start only; the service stops after ten minutes. OLED credentials appear
+after confirmation. provisioning output isn't journaled to avoid leaking credentials.
+the recovery helper attempts normal reconnection, but without a saved network the
+Pi may stay offline after cancellation.
+
+```sh
+freqhole-wifi status
+freqhole-wifi stop
+journalctl -u NetworkManager -b
+```
+
+## optional Plymouth splash
+
+existing active `pix`/`pixflat` theme and initramfs only. no firmware rainbow removal,
+theme switch, kernel-command-line changes or Plymouth installation.
+
+```sh
+sudo python3 "$src/splash.py" "$HOME/freqhole-src/assets/splash.png"
+```
+
+backs up `splash.png` once as `splash.png.before-freqhole-pi`, replaces it atomically,
+then runs `update-initramfs -u -k all`. reboot to see it. distro theme updates may
+replace the image; reapply if needed.
+
+undo (use `pixflat` instead of `pix` if that's the active theme):
+
+```sh
+sudo cp /usr/share/plymouth/themes/pix/splash.png.before-freqhole-pi \
+    /usr/share/plymouth/themes/pix/splash.png
+sudo update-initramfs -u -k all
+```
+
+## updates and recovery
+
+```sh
+freqhole-pi check
+freqhole-pi status                  # JSON
+freqhole-pi update
+freqhole-pi check charnel
+freqhole-pi status charnel
+freqhole-pi update charnel
+freqhole-pi recover charnel         # unfinished/failed transaction only
+```
+
+the OLED checks at startup and every 24 hours, retrying failures after five minutes.
+its single **check update / install update** action refreshes status and asks before
+installation; installation resolves the latest release again. the sleep animation
+shows **UPDATE AVAILABLE!** when known.
+
+rathole keeps its previous binary/install record; it does not automatically roll
+back databases. charnel stages verified new/old packages and dependencies, stops
+its managed app, snapshots configured data/config, installs and validates migrations.
+only a previously running service is restarted.
+
+charnel needs room for a full snapshot. broad backup roots, symlinks and mountpoints
+are refused; use a dedicated subdirectory on a mounted disk. stop other
+freqhole-family writers and don't start them during updates. unresolved transactions
+block managed startup; recovery restores package/data and keeps failed data as
+`.failed-*` siblings. unrelated apt dependency changes aren't rolled back.
+
+| files | location |
+| --- | --- |
+| helper settings / rathole config | `~/.local/share/freqhole-pi/` |
+| charnel app data / saved server-config path | `$XDG_DATA_HOME/net.freqhole.charnel/` (default `~/.local/share/`) |
+| charnel window state / user unit | `$XDG_CONFIG_HOME/` (default `~/.config/`) |
+| library databases / media | the app wizard's configured `data_dir` |
+| charnel snapshots / migration logs | `~/.local/share/freqhole-pi/backups/` |
+| verified charnel packages | `/var/cache/freqhole-pi/charnel/` |
+
+## service startup
+
+```sh
+freqhole-pi disable       # picker: stop + disable
+freqhole-pi enable        # picker: restore startup; don't launch
+freqhole-pi start         # rathole
+freqhole-pi stop
+freqhole-pi restart
+systemctl --user start charnel
+systemctl --user stop charnel
+sudo systemctl restart rathole-ctrl
+```
+
+Enter selects all; `1 3` selects a subset; `q` cancels.
+only managed units are included. charnel uses a desktop-autostart entry rather than
+system boot enablement; Wi-Fi remains manual-only.
+
+before rerunning the interactive installer, quit charnel, stop rathole/OLED and any
+active Wi-Fi portal, and recover unfinished charnel updates. unmanaged units/binaries
+aren't overwritten.
+
+## troubleshooting
+
+run each command separately:
+
+```sh
+systemctl status rathole --no-pager -l
+journalctl -u rathole -b -n 60 --no-pager
+journalctl -u rathole-ctrl -b -n 60 --no-pager
+systemctl --user status charnel --no-pager -l
+journalctl --user -u charnel -b -n 60 --no-pager
+```
+
+### tmux immediately exits
+
+stop the service and run directly from the config directory to expose startup errors:
+
+```sh
+sudo systemctl stop rathole
+cd "$root"
+rathole
+```
+
+don't pass a positional config path: the CLI treats it as a subcommand.
+an explicit alternative is `rathole --config /absolute/path/freqhole-config.toml`.
+`[exited]` means the tmux session ended, not necessarily a tmux bug. late terminal
+query responses can appear as gibberish afterward; `stty sane` restores terminal modes.
+
+### database missing after setup
+
+check the config's `data_dir` and `[database] filename`. `./data` resolves relative
+to the service's cwd, not your SSH home directory. find existing installs before
+creating another database:
+
+```sh
+find "$HOME" -type f \( -name freqhole-config.toml -o -name grimoire.db \) -print 2>/dev/null
+```
+
+an older installer may have copied a stock config without initializing a database.
+preserve it and any existing data; don't delete databases or rerun setup with
+`--force` to hide the error. if this is genuinely a fresh install, stop the service,
+move the unused config to a uniquely named backup, then run `rathole` from the
+config directory to open its first-run wizard.
+
+the application log is `rathole.log` under the configured `data_dir`; early
+config/database errors can occur before file logging starts.
+
+## development checks
+
+from the repository root:
+
+```sh
+python3 -m unittest discover -s scripts/raspberry-pi -p test_setup.py
+```
+
+the PR check runs shellcheck plus the Linux suite, including tmux/systemd validation.
+real Pi audio, display, encoder, reboot and AP behavior still need hardware testing.

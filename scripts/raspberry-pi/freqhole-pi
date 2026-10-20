@@ -1,0 +1,308 @@
+#!/bin/bash
+# rathole release management/session access; run as the installation owner.
+set -euo pipefail
+
+usage() {
+    cat <<'EOF'
+usage: freqhole-pi <command> [charnel]
+
+rathole:
+  check             check for a newer stable release without installing
+  status            report installed/available versions and update status as JSON
+  install           install the latest stable release (used by setup)
+  update            install a newer release; restart only if already running
+  attach            connect to tmux; offer to start if stopped; Ctrl+B, D detaches
+  start             start the configured rathole service
+  stop              stop the rathole service
+  restart           restart the rathole service
+
+system controls:
+  enable            pick startup entries to enable (Enter: all); does not start
+  disable           pick startup entries to disable and stop (Enter: all)
+  poweroff          shut down the Pi
+  wifi-start        start the optional Wi-Fi setup portal (may interrupt SSH)
+  wifi-stop         stop the Wi-Fi setup portal
+
+charnel:
+  check charnel     check for a newer stable release without installing
+  status charnel    report installed/available versions and update status as JSON
+  update charnel    back up, update and migrate; restart only if already running
+  recover charnel   restore the previous package/data after an unfinished update
+
+setup hooks (normally called automatically):
+  launch charnel    validate managed startup and configure the control socket
+  socket charnel    configure the selected app's control socket
+
+  help, -h, --help   show this help (also shown with no arguments)
+EOF
+}
+
+if [ "$#" -eq 0 ]; then usage; exit 0; fi
+case "$1" in
+    help|-h|--help)
+        [ "$#" -eq 1 ] || { usage >&2; exit 2; }
+        usage
+        exit 0
+        ;;
+esac
+if [ "${2:-}" = charnel ]; then
+    [ "$#" -eq 2 ] || { echo "usage: freqhole-pi check|status|update|recover charnel" >&2; exit 2; }
+    exec python3 "$HOME/.local/share/freqhole-pi/charnel.py" "$1"
+fi
+[ "$#" -le 1 ] || { usage >&2; exit 2; }
+
+die() { echo "$*" >&2; exit 1; }
+
+manage_startup() {
+    local operation="$1" unit path state selection index entry config_home autostart
+    local -a entries=() labels=() selected=()
+    for entry in rathole menu wifi; do
+        case "$entry" in
+            rathole) unit=rathole.service ;;
+            menu) unit=rathole-ctrl.service ;;
+            wifi)
+                [ "$operation" = disable ] || continue
+                unit=freqhole-wifi.service
+                ;;
+        esac
+        path="/etc/systemd/system/$unit"
+        if [ -f "$path" ] && grep -qx '# managed by freqhole-pi setup' "$path"; then
+            state="$(systemctl show "$unit" -p UnitFileState --value)" || die "could not inspect $unit"
+            entries+=("$entry")
+            labels+=("$unit ($state)")
+        fi
+    done
+    config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
+    if [ -f "$HOME/.local/share/freqhole-pi/installation.json" ]; then
+        config_home="$(python3 -c 'import json, pathlib; print(pathlib.Path(json.loads(pathlib.Path.home().joinpath(".local/share/freqhole-pi/installation.json").read_text())["charnel_config"]).parent)')"
+    fi
+    path="$config_home/systemd/user/charnel.service"
+    autostart="$config_home/autostart/freqhole-pi-charnel.desktop"
+    if [ -f "$path" ] && grep -qx '# managed by freqhole-pi setup' "$path"; then
+        state=disabled
+        if [ -f "$autostart" ]; then
+            grep -qx '# managed by freqhole-pi setup' "$autostart" \
+                || die "charnel desktop autostart is unmanaged; refusing to overwrite it."
+            state=enabled
+        fi
+        entries+=(charnel)
+        labels+=("charnel desktop login ($state)")
+    fi
+    echo "Wi-Fi provisioning stays manual-only; enable never adds it to boot."
+    [ "${#entries[@]}" -gt 0 ] || { echo "no managed entries available."; return; }
+    for index in "${!entries[@]}"; do printf '%s) %s\n' "$((index + 1))" "${labels[$index]}"; done
+    read -r -p "$operation: Enter for all, numbers separated by spaces, or q to cancel: " selection || return 0
+    [ "$selection" != q ] || return 0
+    if [ -z "$selection" ]; then
+        selected=("${entries[@]}")
+    else
+        local -a choices
+        read -r -a choices <<< "$selection"
+        [ "${#choices[@]}" -gt 0 ] || die "select at least one entry."
+        for index in "${choices[@]}"; do
+            [[ "$index" =~ ^[1-9][0-9]?$ ]] && [ "$index" -le "${#entries[@]}" ] \
+                || die "invalid selection: $index; nothing changed."
+            selected+=("${entries[$((index - 1))]}")
+        done
+    fi
+    for entry in "${selected[@]}"; do
+        if [ "$entry" = charnel ]; then
+            if [ "$operation" = disable ]; then
+                systemctl --user stop charnel.service
+                if [ -f "$autostart" ]; then rm -- "$autostart"; fi
+            else
+                mkdir -p "$(dirname "$autostart")"
+                printf '[Desktop Entry]\n# managed by freqhole-pi setup\nType=Application\nName=charnel\nExec=%s/.local/bin/charnel-session\nTerminal=false\n' \
+                    "$HOME" > "$autostart"
+                chmod 644 "$autostart"
+            fi
+        else
+            sudo -n /usr/local/libexec/freqhole-pi-control "$operation-$entry"
+        fi
+        echo "$entry: $operation complete."
+    done
+}
+
+if [ "$(id -u)" -eq 0 ]; then
+    die "run freqhole-pi as your regular user, without sudo."
+fi
+action="$1"
+case "$action" in
+    enable|disable)
+        manage_startup "$action"
+        exit 0
+        ;;
+    start|stop|restart|poweroff|wifi-start|wifi-stop)
+        exec sudo -n /usr/local/libexec/freqhole-pi-control "$action"
+        ;;
+    attach)
+        command -v tmux >/dev/null || die "tmux is not installed; choose SSH/tmux in setup.sh first."
+        tips_dismissed="$HOME/.local/share/freqhole-pi/tmux-tips-dismissed"
+        if [ ! -f "$tips_dismissed" ]; then
+            cat <<'EOF'
+tmux quick help (release Ctrl+B before pressing the next key):
+  Ctrl+B, D     detach; rathole keeps running
+  Ctrl+B, [     scrollback mode; arrow/Page Up keys scroll, Q exits
+  Ctrl+B, ?     list tmux shortcuts; Q exits
+reconnect later with: freqhole-pi attach
+EOF
+            if ! read -r -n 1 -p "press enter to continue, n to never see this message again; any other key to exit. " answer; then
+                echo
+                exit 0
+            fi
+            echo
+            case "$answer" in
+                "") ;;
+                n|N)
+                    mkdir -p "$(dirname "$tips_dismissed")"
+                    (umask 077; touch "$tips_dismissed") \
+                        || die "could not save the tmux help preference."
+                    ;;
+                *) exit 0 ;;
+            esac
+        fi
+        socket="$HOME/.local/share/freqhole-pi/tmux.sock"
+        if ! tmux -S "$socket" has-session -t '=rathole' 2>/dev/null; then
+            echo "no managed rathole tmux session."
+            service_command="$(systemctl show rathole.service --property=ExecStart --value)" \
+                || die "could not inspect rathole.service."
+            [[ "$service_command" == *"/usr/bin/tmux -D -S $socket -f $HOME/.local/share/freqhole-pi/tmux.conf"* ]] \
+                || die "rathole is not configured for SSH/tmux; rerun setup.sh and select that mode."
+            if ! read -r -n 1 -p "press enter to start; any other key to exit. " answer; then
+                echo
+                exit 0
+            fi
+            echo
+            [ -z "$answer" ] || exit 0
+            sudo -n /usr/local/libexec/freqhole-pi-control start
+            ready=false
+            for ((attempt = 0; attempt < 50; attempt++)); do
+                if tmux -S "$socket" has-session -t '=rathole' 2>/dev/null; then
+                    ready=true
+                    break
+                fi
+                sleep 0.1
+            done
+            "$ready" || die "rathole tmux session did not start; inspect journalctl -u rathole."
+        fi
+        exec tmux -S "$socket" attach-session -t '=rathole'
+        ;;
+    check|status|install|update) ;;
+    *) usage >&2; exit 2 ;;
+esac
+[ "$#" -le 1 ] || die "unexpected arguments"
+for tool in curl jq dpkg sha256sum flock ldd; do
+    command -v "$tool" >/dev/null || die "missing $tool; run setup.sh first."
+done
+
+root="$HOME/.local/share/freqhole-pi"
+binary="$HOME/.local/bin/rathole"
+mkdir -p "$root" "$(dirname "$binary")"
+exec 9>"$root/update.lock"
+flock -n 9 || die "another setup/update is running."
+case "$(dpkg --print-architecture)" in
+    arm64) arch=aarch64 ;;
+    armhf) arch=armv7 ;;
+    *) die "supported architectures: arm64 and armhf." ;;
+esac
+
+work="$(mktemp -d "$root/download.XXXXXX")"
+staged=""
+stopped=false
+cleanup() {
+    if [ -n "$staged" ]; then rm -f -- "$staged"; fi
+    rm -f -- "$work/release.json" "$work/rathole" "$work/installed.json" "$work/ldd.txt"
+    rmdir -- "$work"
+    if "$stopped"; then
+        echo "update did not finish restarting rathole; check journalctl -u rathole before retrying." >&2
+    fi
+}
+trap cleanup EXIT
+curl -fsSL --retry 1 --connect-timeout 5 --max-time 15 \
+    https://api.github.com/repos/freqhole/tomb/releases/latest -o "$work/release.json"
+tag="$(jq -er '.tag_name' "$work/release.json")" || die "release response has no tag."
+version="${tag#v}"
+[[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "unexpected stable release version: $tag"
+name="rathole_${version}_linux-${arch}"
+asset="$(jq -ce --arg name "$name" '.assets | map(select(.name == $name)) |
+    if length == 1 then .[0] else error("release has no unique asset for this architecture") end' \
+    "$work/release.json")"
+url="$(jq -er '.browser_download_url' <<< "$asset")" || die "release asset has no download URL."
+digest="$(jq -er '.digest' <<< "$asset")" || die "release asset has no SHA-256 digest."
+[[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || die "release is missing a SHA-256 digest."
+[ "$url" = "https://github.com/freqhole/tomb/releases/download/$tag/$name" ] \
+    || die "unexpected release download URL."
+
+installed=none
+if [ -f "$binary" ]; then
+    [ -f "$root/installed.json" ] || die "existing rathole is unmanaged; move it aside or use its original updater."
+    installed="$(jq -er '.version' "$root/installed.json")" || die "install record has no version."
+    [[ "$installed" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] \
+        || die "could not read the installed rathole version."
+    expected="$(jq -er '.sha256' "$root/installed.json")" || die "install record has no binary hash."
+    actual="$(sha256sum "$binary" | awk '{print $1}')"
+    [ "$actual" = "$expected" ] || die "rathole differs from its install record; refusing to overwrite it."
+fi
+newer=true
+if [ "$installed" != none ]; then
+    if dpkg --compare-versions "$installed" ge "$version"; then
+        newer=false
+    fi
+fi
+if [ "$action" = status ]; then
+    jq -n --arg installed "$installed" --arg available "$version" --argjson newer "$newer" \
+        '{installed: $installed, available: $available, update_available: $newer}'
+    exit 0
+fi
+echo "rathole: installed $installed; available $version"
+if ! "$newer"; then echo "no newer stable release."; exit 0; fi
+if [ "$action" = check ]; then
+    echo "update available; run: freqhole-pi update"
+    exit 0
+fi
+
+curl -fsSL --retry 2 --connect-timeout 15 --max-time 900 "$url" -o "$work/rathole"
+printf '%s  %s\n' "${digest#sha256:}" "$work/rathole" | sha256sum -c -
+chmod 755 "$work/rathole"
+if ! ldd "$work/rathole" > "$work/ldd.txt" 2>&1 || grep -q 'not found' "$work/ldd.txt"; then
+    cat "$work/ldd.txt" >&2
+    die "release runtime dependencies are incompatible or missing; existing rathole was not stopped."
+fi
+jq -n --arg version "$version" --arg sha256 "${digest#sha256:}" \
+    '{version: $version, sha256: $sha256}' > "$work/installed.json"
+
+running=false
+if ! unit_state="$(systemctl show rathole.service --property=ActiveState --value)"; then
+    # an absent unit can report inactive with a nonzero status on first install.
+    [ "$unit_state" = inactive ] || die "could not inspect rathole.service; existing binary was not replaced."
+fi
+case "$unit_state" in
+    active) running=true ;;
+    inactive|failed) ;;
+    *) die "rathole service is $unit_state; retry when it has stopped transitioning." ;;
+esac
+if [ -f "$binary" ]; then
+    cp -p "$binary" "$root/rathole.previous"
+    cp -p "$root/installed.json" "$root/installed.previous.json"
+fi
+# stage beside the destination so the final replacement is a single rename.
+staged="$(mktemp "$HOME/.local/bin/.rathole.XXXXXX")"
+install -m 755 "$work/rathole" "$staged"
+if "$running"; then
+    sudo -n /usr/local/libexec/freqhole-pi-control stop
+    stopped=true
+fi
+mv -f "$staged" "$binary"
+staged=""
+mv -f "$work/installed.json" "$root/installed.json"
+if "$running"; then
+    if ! sudo -n /usr/local/libexec/freqhole-pi-control start; then
+        die "restart failed; previous binary: $root/rathole.previous. check journalctl -u rathole."
+    fi
+    sleep 2
+    if ! systemctl is-active --quiet rathole.service; then
+        die "rathole exited after restart; previous binary: $root/rathole.previous. check journalctl -u rathole."
+    fi
+    stopped=false
+fi
+echo "installed rathole $version; existing configuration/data were retained."

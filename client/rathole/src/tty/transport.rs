@@ -19,7 +19,7 @@ pub struct LocalTransport {
 
 impl LocalTransport {
     /// build a `LocalTransport` using the first root user as caller.
-    /// fails if no root user exists (the setup wizard, m0+, will
+    /// fails if no root user exists (the setup wizard will
     /// handle that case before we get here).
     pub async fn from_first_root() -> color_eyre::Result<Self> {
         let service = UserService::new();
@@ -29,7 +29,7 @@ impl LocalTransport {
                 caller: Caller::new(&user.id, &user.username, user.role),
             }),
             None => Err(color_eyre::eyre::eyre!(
-                "no root user in freqhole — run `freqhole setup` (or the rathole setup wizard, m0+) first"
+                "no root user in freqhole — run `freqhole setup` (or the rathole setup wizard) first"
             )),
         }
     }

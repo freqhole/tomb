@@ -1,112 +1,98 @@
 ---
 title: rathole on a pi
-description: running rathole headless on a raspberry pi, as a systemd service, with optional physical button control
+description: install rathole or charnel on Raspberry Pi OS, with optional OLED controls, updates and Wi-Fi setup
 ---
 
-[`rathole`](https://github.com/freqhole/tomb) is freqhole's terminal (ratatui) client — a full music + video player you can ssh into, or run directly on a pi's console as a dedicated player. `--player` starts it straight in a QR/pin pairing screen, so it can be paired with and controlled from spume/cenotaph on your phone (see [cenotaph](/guides/cenotaph/) for the full pairing/player picture). grab an arm64/armv7 binary from the [download page](/getting-started/download/).
+## install
 
-## terminal fonts
+Raspberry Pi OS Bookworm/Trixie. arm64 supports **charnel** (desktop GUI) or
+**rathole** (terminal); armhf supports rathole. charnel requires an existing desktop,
+not Lite.
 
-the best font i found to work well is `Uni2-VGA14` so this should be located at `/usr/share/consolefonts/Uni2-VGA14.psf.gz` (so the qr code, big tui text, and some other stuff use utf8 block chars and not all of the kernel fonts support all the glyphs!)
-
-if you don't have this try installing like:
-
-```sh
-sudo apt install unifont
-sudo apt install psf-unifont
-```
-
-then edit the config file like:
+run as your regular account, **without sudo**:
 
 ```sh
-sudo vim /etc/default/console-setup
+curl -fsSL https://raw.githubusercontent.com/freqhole/tomb/main/scripts/raspberry-pi/setup.sh -o freqhole-setup.sh && bash freqhole-setup.sh
 ```
 
-add a new line to set `FONT` or if it's already there comment out or change it (note `FONT` will override any `FONTFACE=` or `FONTSIZE=` config) like:
+the download replaces `freqhole-setup.sh` in the current directory. review it before
+running if preferred. don't pipe it into Bash: setup needs interactive input.
+
+## choose your setup
+
+- **charnel:** desktop-login autostart, optional player-first view and fullscreen/maximized window.
+- **rathole tty1:** dedicated local player, no x-windows; replaces the tty1 login while running.
+- **rathole SSH/tmux:** detached terminal session without taking over the local console.
+- optional OLED + rotary encoder, manual Wi-Fi portal, and Plymouth splash image.
+
+setup runs `apt-get update`, offers a system upgrade, then installs dependencies.
+choose one app per run; rerun to add the other without removing its installation
+or startup setting. desktop autologin/taskbar settings remain manual.
+
+at the end: **Enter** starts the selected app, **r** reboots, any other key exits.
+reboot for hardware/group/console changes.
+
+## first launch
+
+complete rathole's TUI or charnel's GUI wizard to choose the data directory and
+create the database/root user. the installer does not choose that storage location.
+with OLED controls, restart the app after the wizard to enable its control socket.
+
+commands are installed in `~/.local/bin`. open a new Bash terminal, or update this one:
 
 ```sh
-FONT="Uni2-VGA14.psf.gz"
+export PATH="$HOME/.local/bin:$PATH"
 ```
 
-then reload:
+SSH/tmux:
 
 ```sh
-sudo setupcon
+freqhole-pi attach
 ```
 
-## system volume
-
-if the volume is too low, you can use run either `alsamixer` to turn the volume up, or run a one-show `amixer sset Master 100%` command to set volume; you might want to run this with any systemd or autostart scripts you have.
-
-## running as a systemd service
-
-running `rathole` as a service means it starts automatically on boot and takes over the console (tty1) as a dedicated player, instead of a login prompt.
-
-1. [download](/download) + copy the `rathole` binary somewhere, e.g. `/home/pi/rathole/rathole`
-2. create and save a service file below as `/etc/systemd/system/rathole.service`
-3. `sudo systemctl daemon-reload`
-4. `sudo systemctl enable --now rathole`
-5. check on it: `sudo systemctl status rathole` / `journalctl -u rathole -f`
-
-```ini
-[Unit]
-Description=rathole on tty1
-Wants=network-online.target
-After=network-online.target systemd-user-sessions.service
-Conflicts=getty@tty1.service
-After=getty@tty1.service
-
-[Service]
-Type=simple
-User=pi
-WorkingDirectory=/home/pi/rathole
-PAMName=login
-Environment=TERM=linux
-
-# switch to the real console before launching.
-# the + runs only this command with elevated privileges.
-ExecStartPre=+chvt 1
-ExecStart=/home/pi/rathole/rathole --player
-
-StandardInput=tty
-StandardOutput=tty
-StandardError=journal
-TTYPath=/dev/tty1
-TTYReset=yes
-TTYVHangup=yes
-TTYVTDisallocate=yes
-
-Restart=no
-
-# return to the maintenance console when rathole stops or exits.
-ExecStopPost=+chvt 2
-
-[Install]
-WantedBy=multi-user.target
-```
-
-this conflicts with `getty@tty1` (the normal login prompt) so rathole owns tty1 directly; `tty2` is still free for a regular login if you need one.
-
----
-
-## physical buttons (unix control socket)
-
-rathole can listen on a local unix domain socket for simple media-control commands — handy for physical buttons wired to a pi's GPIO, forwarded by a small script that writes a line to the socket. off by default, no network exposure (unix sockets are local-machine + filesystem-permission-gated only).
-
-enable it in `freqhole-config.toml`:
-
-```toml
-[control_socket]
-enabled = true
-# socket_path = "/custom/path.sock"   # optional, defaults to ~/rathole-control.sock
-```
-
-one newline-delimited command per connection, e.g.:
+detach with **Ctrl+B, then D**; playback continues. attach shows shortcut help and
+offers to start a stopped session. from a Pi desktop terminal, launch charnel with:
 
 ```sh
-echo play_pause | nc -U ~/rathole-control.sock
+charnel-session
 ```
 
-a few of the available commands: `play_pause`, `next`, `previous`, `volume_up`, `volume_down`, `stop`, and `get_state` (replies with a JSON now-playing snapshot).
+pair a phone/controller using the [player pairing flow](/guides/cenotaph/).
+the OLED's **new admin pairing** creates a single-use admin invite and shows it in
+the app's pairing view; **rotate pairing pin** creates a member invite.
 
-full command reference, wire protocol, and config details: [`docs/rathole-control-socket.md`](https://github.com/freqhole/tomb/blob/main/docs/rathole-control-socket.md).
+## manage
+
+```sh
+freqhole-pi                  # complete command help
+freqhole-pi check
+freqhole-pi update
+freqhole-pi check charnel
+freqhole-pi update charnel
+freqhole-pi start            # rathole; also stop/restart
+freqhole-pi disable          # stop and disable selected startup entries
+freqhole-pi enable           # restore startup without launching
+freqhole-pi poweroff
+```
+
+enable/disable: Enter selects all, numbers such as `1 3` select a subset, `q` cancels.
+includes rathole, OLED and charnel desktop login; Wi-Fi stays manual-only.
+
+the OLED checks releases at startup and daily. **check update** becomes
+**install update** when a newer version is known; selecting it refreshes release
+info and asks before installing. **reverse wheel** saves direction immediately.
+
+optional Wi-Fi provisioning:
+
+```sh
+freqhole-wifi info
+freqhole-wifi start          # may disconnect Wi-Fi/SSH; maximum ten minutes
+freqhole-wifi status
+freqhole-wifi stop
+```
+
+## advanced / DIY
+
+[manual setup and troubleshooting](/guides/rathole-on-a-pi-manual-setup/) covers
+dependencies, verified packages, service templates, config paths, hardware, Wi-Fi,
+splash, update recovery and logs without running the interactive installer.

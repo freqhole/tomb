@@ -1,0 +1,19 @@
+[Unit]
+# managed by freqhole-pi setup
+Description=freqhole manual Wi-Fi setup (ten minutes maximum)
+Requires=NetworkManager.service
+After=NetworkManager.service
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/freqhole-pi/wifi.env
+ExecStartPre=/usr/bin/nmcli general status
+ExecStart=/usr/local/bin/wifi-connect
+ExecStopPost=/usr/local/libexec/freqhole-pi-wifi-recover
+RuntimeMaxSec=600
+TimeoutStopSec=20
+KillMode=mixed
+Restart=no
+# upstream may print connection details; do not journal provisioning credentials.
+StandardOutput=null
+StandardError=null
