@@ -359,6 +359,9 @@ export default function SetupView() {
   }
 
   async function finishSetup() {
+    if (loading()) return;
+    setLoading(true);
+    setError("");
     try {
       // generate remote slug from server name (matches spume's remoteManager.ts generateSlug)
       const remoteSlug = serverName()
@@ -367,7 +370,7 @@ export default function SetupView() {
         .replace(/-+/g, "-")
         .replace(/^-|-$/g, "");
 
-      // close wizard and open main window at /{remoteSlug}/songs route
+      // open the main window before closing the wizard
       const configPath = `${dataDir()}/freqhole-config.toml`;
       await invoke("close_setup_wizard", {
         configPath,
@@ -375,6 +378,9 @@ export default function SetupView() {
       });
     } catch (e) {
       console.error("finish error:", e);
+      setError(String(e));
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -1031,10 +1037,13 @@ export default function SetupView() {
           </Show>
 
           <div class="button-row" style={{ "justify-content": "center" }}>
-            <button class="primary" onClick={finishSetup}>
-              launch freqhole
+            <button class="primary" onClick={finishSetup} disabled={loading()}>
+              {loading() ? "launching..." : "launch freqhole"}
             </button>
           </div>
+          <Show when={error()}>
+            <p class="error">{error()}</p>
+          </Show>
         </div>
       </Show>
     </div>
