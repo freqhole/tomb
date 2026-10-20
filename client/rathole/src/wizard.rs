@@ -45,6 +45,7 @@ enum FieldId {
     EnableRemoteAdmin,
     EnableRadio,
     EnableFetchMusic,
+    EnableControlSocket,
 }
 
 const FIELDS: &[FieldId] = &[
@@ -59,6 +60,7 @@ const FIELDS: &[FieldId] = &[
     FieldId::EnableRemoteAdmin,
     FieldId::EnableRadio,
     FieldId::EnableFetchMusic,
+    FieldId::EnableControlSocket,
 ];
 
 impl FieldId {
@@ -75,6 +77,7 @@ impl FieldId {
                 | FieldId::EnableRemoteAdmin
                 | FieldId::EnableRadio
                 | FieldId::EnableFetchMusic
+                | FieldId::EnableControlSocket
         )
     }
 
@@ -91,6 +94,7 @@ impl FieldId {
             FieldId::EnableRemoteAdmin => "remote admin   ",
             FieldId::EnableRadio => "radio          ",
             FieldId::EnableFetchMusic => "fetch media    ",
+            FieldId::EnableControlSocket => "control socket ",
         }
     }
 }
@@ -225,6 +229,7 @@ struct WizardApp {
     /// enable server.fetch_music and server.fetch_video routes (one toggle
     /// controls both - see grimoire::config::generate_config_template).
     enable_fetch_music: bool,
+    enable_control_socket: bool,
     selected: usize,
     status: Status,
     cancelled: bool,
@@ -250,6 +255,7 @@ impl WizardApp {
             enable_remote_admin: false,
             enable_radio: false,
             enable_fetch_music: true,
+            enable_control_socket: false,
             selected: 0,
             status: Status::Editing,
             cancelled: false,
@@ -278,6 +284,7 @@ impl WizardApp {
             | FieldId::EnableKnocking
             | FieldId::EnableRemoteAdmin
             | FieldId::EnableRadio
+            | FieldId::EnableControlSocket
             | FieldId::EnableFetchMusic => {
                 unreachable!("current_buf_mut called on bool field")
             }
@@ -294,6 +301,9 @@ impl WizardApp {
             FieldId::EnableRemoteAdmin => self.enable_remote_admin = !self.enable_remote_admin,
             FieldId::EnableRadio => self.enable_radio = !self.enable_radio,
             FieldId::EnableFetchMusic => self.enable_fetch_music = !self.enable_fetch_music,
+            FieldId::EnableControlSocket => {
+                self.enable_control_socket = !self.enable_control_socket
+            }
             _ => {}
         }
     }
@@ -345,6 +355,7 @@ impl WizardApp {
             }
         };
         Ok(SetupConfig {
+            control_socket_enabled: self.enable_control_socket,
             config_path: self.config_path.clone(),
             data_dir,
             // port left at template/grimoire default
@@ -1381,6 +1392,13 @@ fn draw_form(f: &mut Frame, area: Rect, app: &WizardApp) {
                     "[ ] disabled".to_string()
                 }
             }
+            FieldId::EnableControlSocket => {
+                if app.enable_control_socket {
+                    "[x] enabled (local OLED/buttons)".to_string()
+                } else {
+                    "[ ] disabled".to_string()
+                }
+            }
         };
         let is_sel = i == app.selected;
         let label_style = if is_sel {
@@ -1411,8 +1429,12 @@ fn draw_form(f: &mut Frame, area: Rect, app: &WizardApp) {
         ]));
         lines.push(Line::from(""));
     }
+    let visible_rows = chunks[0].height.saturating_sub(2) as usize;
+    let scroll = (app.selected * 2 + 1).saturating_sub(visible_rows);
     f.render_widget(
-        Paragraph::new(lines).block(Block::default().borders(Borders::ALL).title(" fields ")),
+        Paragraph::new(lines)
+            .scroll((scroll as u16, 0))
+            .block(Block::default().borders(Borders::ALL).title(" fields ")),
         chunks[0],
     );
 
@@ -1787,4 +1809,43 @@ fn draw_help(f: &mut Frame, area: Rect, app: &WizardApp) {
         Phase::Done => " any key: launch rathole ",
     };
     f.render_widget(Paragraph::new(Line::from(text.dim())), area);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ratatui::{backend::TestBackend, Terminal};
+
+    #[test]
+    fn control_socket_is_opt_in() {
+        let mut app = WizardApp::new(PathBuf::from("freqhole-config.toml"));
+        assert!(!app.build_setup_config().unwrap().control_socket_enabled);
+        app.selected = FIELDS
+            .iter()
+            .position(|field| matches!(field, FieldId::EnableControlSocket))
+            .unwrap();
+        app.toggle_current_bool();
+        assert!(app.build_setup_config().unwrap().control_socket_enabled);
+        app.toggle_current_bool();
+        assert!(!app.build_setup_config().unwrap().control_socket_enabled);
+    }
+
+    #[test]
+    fn selected_control_socket_is_visible_on_short_terminal() {
+        let mut app = WizardApp::new(PathBuf::from("freqhole-config.toml"));
+        app.selected = FIELDS.len() - 1;
+        let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+        terminal
+            .draw(|frame| draw_form(frame, frame.area(), &app))
+            .unwrap();
+        let rendered = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>();
+        assert!(rendered.contains("control socket"));
+        assert!(rendered.contains("[ ] disabled"));
+    }
 }

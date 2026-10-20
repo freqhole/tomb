@@ -293,7 +293,7 @@ printf '%s  %s\n' 256f8db12c0d562a03490865479dddc4d6931b5774be1eaee416a1064ef6bd
 
 ### control socket and menu service
 
-after completing the app wizard:
+select **enable control socket** in the app wizard (off by default), then:
 
 ```sh
 python3 "$root/charnel.py" socket
@@ -312,9 +312,16 @@ sudo systemctl restart rathole
 sudo systemctl start rathole-ctrl
 ```
 
-custom socket paths are preserved; defaults are separate `charnel-control.sock` /
-`rathole-control.sock` files under the helper directory. the menu reads the saved
-socket path dynamically. it sets the ALSA Master mixer to 100% on startup.
+custom socket paths are preserved; the app default is `~/rathole-control.sock`.
+set distinct `[control_socket].socket_path` values if running both apps.
+the menu reads the saved
+socket path dynamically. it runs `wpctl set-volume @DEFAULT_AUDIO_SINK@ 1.0` on
+startup as the app account; PipeWire and that user's audio session must be available.
+failures are reported in the menu journal. this sets system output volume, while
+the menu's volume screen controls the app through its unix socket.
+startup helpers respect the wizard's enabled/disabled choice; they do not enable
+a socket you left off. older published apps without the wizard checkbox need
+`[control_socket] enabled = true` set in their config, followed by an app restart.
 
 menu actions include playback/volume, player view, member/admin invites,
 app-specific start/stop/restart, network status, updates and shutdown.

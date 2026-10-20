@@ -56,7 +56,7 @@ import configure
 
 # best effort only: missing mixer/tools, permission errors, and timeouts are nonfatal.
 # set to None to leave the system mixer unchanged, or edit for your sound device.
-SYSTEM_VOLUME_COMMAND = ("amixer", "sset", "Master", "100%")
+SYSTEM_VOLUME_COMMAND = ("wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", "1.0")
 
 SETTINGS_PATH = Path(__file__).resolve().with_name("menu.json")
 SETTINGS = json.loads(SETTINGS_PATH.read_text()) if SETTINGS_PATH.exists() else {"player": "rathole"}
@@ -230,6 +230,13 @@ def current_socket_path():
 
 
 def send_socket_command(command):
+    if command == "get_state":
+        try:
+            print(json.dumps(read_state()))
+        except (OSError, ValueError) as error:
+            print(f"state request failed: {error}", file=sys.stderr, flush=True)
+            return 1
+        return 0
     path = current_socket_path()
     try:
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
@@ -1006,6 +1013,17 @@ class Menu:
             self.lights_off(fade=True)
 
 
+def set_system_volume():
+    if SYSTEM_VOLUME_COMMAND is not None:
+        print(f"setting system mixer: {SYSTEM_VOLUME_COMMAND}", flush=True)
+        try:
+            subprocess.run(
+                SYSTEM_VOLUME_COMMAND, check=True, stdin=subprocess.DEVNULL, timeout=5,
+            )
+        except (OSError, subprocess.SubprocessError) as error:
+            print(f"could not set system mixer; continuing: {error}", file=sys.stderr, flush=True)
+
+
 def main():
     # keep hardware imports out of the socket-only client path.
     import board
@@ -1015,14 +1033,7 @@ def main():
     # normal termination should run the same fade/cleanup as ctrl-c.
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
 
-    if SYSTEM_VOLUME_COMMAND is not None:
-        print(f"setting system mixer: {SYSTEM_VOLUME_COMMAND}", flush=True)
-        try:
-            subprocess.run(
-                SYSTEM_VOLUME_COMMAND, check=True, stdin=subprocess.DEVNULL, timeout=5,
-            )
-        except (OSError, subprocess.SubprocessError) as error:
-            print(f"could not set system mixer; continuing: {error}", file=sys.stderr, flush=True)
+    set_system_volume()
 
     i2c = board.I2C()
     oled = pixel = menu = None
@@ -1069,7 +1080,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--send",
         choices=[action for _, action, _ in COMMANDS if isinstance(action, str)]
-                + ["volume_up", "volume_down"],
+                + ["volume_up", "volume_down", "get_state"],
         help="send one socket command without starting the hardware ui",
     )
     args = parser.parse_args()

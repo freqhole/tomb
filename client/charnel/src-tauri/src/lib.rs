@@ -354,6 +354,7 @@ async fn mobile_auto_init(
 
     // run the same setup service the desktop wizard uses
     let setup_config = grimoire::setup::SetupConfig {
+        control_socket_enabled: false,
         config_path: config_path.clone(),
         data_dir: data_dir.clone(),
         // mobile (android) headless setup: charnel manages this remote

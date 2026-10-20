@@ -71,6 +71,7 @@ export default function SetupView() {
   const [serverName, setServerName] = createSignal("my music server");
   const [serverImage, setServerImage] = createSignal<string | null>(null);
   const [username, setUsername] = createSignal("");
+  const [controlSocketEnabled, setControlSocketEnabled] = createSignal(false);
   // setup results
   const [error, setError] = createSignal("");
   const [loading, setLoading] = createSignal(false);
@@ -254,6 +255,7 @@ export default function SetupView() {
         remoteAdminEnabled: remoteAdminEnabled(),
         radioEnabled: radioEnabled(),
         fetchMusicEnabled: fetchMusicEnabled(),
+        controlSocketEnabled: controlSocketEnabled(),
       });
 
       if (result.success) {
@@ -738,6 +740,28 @@ export default function SetupView() {
                 <span class="checkbox-label">enable fetch (music + video)</span>
                 <span class="checkbox-hint">
                   controls [server.fetch_music] and [server.fetch_video].enabled in config.
+                </span>
+              </span>
+            </label>
+          </div>
+
+          <div class="form-group">
+            <label class="checkbox-toggle">
+              <input
+                type="checkbox"
+                checked={controlSocketEnabled()}
+                onChange={(e) => setControlSocketEnabled(e.currentTarget.checked)}
+              />
+              <span class="checkbox-box">
+                <svg viewBox="0 0 14 14">
+                  <polyline points="2.5 7 5.5 10 11.5 4" />
+                </svg>
+              </span>
+              <span class="checkbox-content">
+                <span class="checkbox-label">enable control socket</span>
+                <span class="checkbox-hint">
+                  allow local OLED/buttons and scripts to control playback through a unix socket.
+                  no network access; leave off if not needed.
                 </span>
               </span>
             </label>

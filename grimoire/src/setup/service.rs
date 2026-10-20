@@ -69,6 +69,8 @@ pub struct SetupConfig {
     pub radio_enabled: Option<bool>,
     /// enable server.fetch_music routes (default: false)
     pub fetch_music_enabled: Option<bool>,
+    /// enable local unix socket controls (default: false)
+    pub control_socket_enabled: bool,
 }
 
 /// a directory to scan with optional tags
@@ -271,7 +273,7 @@ impl SetupService {
             .clone()
             .unwrap_or_else(|| config.data_dir.join("fetch"));
 
-        create_config_full(
+        let path = create_config_full(
             Some(config.config_path.clone()),
             Some(config.data_dir.clone()),
             false, // don't auto-run migrations, we do it explicitly
@@ -291,7 +293,11 @@ impl SetupService {
             config.remote_admin_enabled,
             config.radio_enabled,
             config.fetch_music_enabled,
-        )
+        )?;
+        if config.control_socket_enabled {
+            crate::config::set_control_socket_enabled(&path, true)?;
+        }
+        Ok(path)
     }
 
     /// step 3: initialize config and database
@@ -518,5 +524,54 @@ impl SetupService {
 impl Default for SetupService {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn new_config_persists_control_socket_choice_and_preserves_existing_config() {
+        for enabled in [false, true] {
+            let directory = tempfile::tempdir().unwrap();
+            let config = SetupConfig {
+                config_path: directory.path().join("freqhole-config.toml"),
+                data_dir: directory.path().join("data"),
+                server_name: "test".into(),
+                server_port: 8081,
+                description: None,
+                image_path: None,
+                admin_username: None,
+                generate_api_key: false,
+                generate_invite_code: false,
+                ytdlp_available: false,
+                fetch_music_dir: None,
+                initial_scan_dirs: vec![],
+                allowed_origins: None,
+                ffmpeg_path: None,
+                ffprobe_path: None,
+                ytdlp_path: None,
+                server_enabled: None,
+                federation_enabled: None,
+                knocking_enabled: None,
+                remote_admin_enabled: None,
+                radio_enabled: None,
+                fetch_music_enabled: None,
+                control_socket_enabled: enabled,
+            };
+            let service = SetupService::new();
+            service.create_config_file_if_missing(&config).unwrap();
+            let text = std::fs::read_to_string(&config.config_path).unwrap();
+            let parsed: toml::Value = toml::from_str(&text).unwrap();
+            assert_eq!(parsed["control_socket"]["enabled"].as_bool(), Some(enabled));
+            let mut opposite = config;
+            opposite.control_socket_enabled = !enabled;
+            service.create_config_file_if_missing(&opposite).unwrap();
+            assert_eq!(
+                std::fs::read_to_string(&opposite.config_path).unwrap(),
+                text
+            );
+        }
     }
 }

@@ -26,7 +26,7 @@ print_banner() {
      ███████████          █     █  █  █     █  █  █   █ █   █ █     █
       ████████            █     █   █ █████  ██ █ █   █  ███  █████ █████
        █████
-        ██
+        ██                ███████████████████████████████████████████████
 
 EOF
     if "$color"; then printf '\033[0m'; fi
@@ -139,6 +139,7 @@ menu_player=rathole
 if "$charnel"; then menu_player=charnel; fi
 if "$hardware"; then
     echo "hardware setup enables i2c at 400 kHz and the menu sets the mixer to 100%."
+    echo "select enable control socket in the app's first-run wizard for OLED playback controls."
 fi
 echo "install location: $root; config/data are preserved on reruns."
 echo "updates are explicitly requested; desktop autologin and taskbar settings are not changed."

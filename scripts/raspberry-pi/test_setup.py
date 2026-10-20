@@ -790,7 +790,7 @@ class CharnelTests(unittest.TestCase):
         saved = self.data / "custom-server.toml"
         self.server.rename(saved)
         with saved.open("a") as output:
-            output.write('[control_socket]\nsocket_path = "custom.sock"\n')
+            output.write('[control_socket]\nenabled = true\nsocket_path = "custom.sock"\n')
         (self.data / "charnel-config.toml").write_text(f'server_config_path = "{saved}"\n')
         charnel.prepare_socket(self.installation)
         self.assertTrue(tomllib.loads(saved.read_text())["control_socket"]["enabled"])
@@ -808,13 +808,16 @@ class CharnelTests(unittest.TestCase):
         with self.assertRaises(tomllib.TOMLDecodeError):
             charnel.prepare_launch(self.installation)
 
-    def test_rathole_and_charnel_default_sockets_are_distinct(self):
+    def test_rathole_and_charnel_custom_sockets_are_preserved(self):
         self.installation["hardware"] = True
         rathole = self.root / "freqhole-config.toml"
         rathole.write_text(self.server.read_text())
         paths = []
         for player in ("rathole", "charnel"):
             self.installation["menu_player"] = player
+            path = rathole if player == "rathole" else self.server
+            with path.open("a") as output:
+                output.write(f'[control_socket]\nenabled = true\nsocket_path = "{self.root / (player + ".sock")}"\n')
             charnel.prepare_socket(self.installation)
             paths.append(json.loads((self.root / "menu.json").read_text())["socket_path"])
         self.assertNotEqual(*paths)
@@ -898,6 +901,30 @@ class CharnelTests(unittest.TestCase):
 
 
 class MenuTests(unittest.TestCase):
+    def test_socket_state_diagnostic_reads_reply_and_reports_missing_socket(self):
+        with patch.object(menu, "read_state", return_value={"volume": 0.5}), \
+             patch.object(sys, "stdout", new_callable=io.StringIO) as stdout:
+            self.assertEqual(menu.send_socket_command("get_state"), 0)
+            self.assertEqual(json.loads(stdout.getvalue()), {"volume": 0.5})
+        with patch.object(menu, "read_state", side_effect=FileNotFoundError("socket missing")), \
+             patch.object(sys, "stderr", new_callable=io.StringIO) as stderr:
+            self.assertEqual(menu.send_socket_command("get_state"), 1)
+            self.assertIn("socket missing", stderr.getvalue())
+
+    def test_system_volume_targets_pipewire_default_sink_and_reports_failure(self):
+        command = ("wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", "1.0")
+        self.assertEqual(menu.SYSTEM_VOLUME_COMMAND, command)
+        with patch.object(menu.subprocess, "run") as run:
+            menu.set_system_volume()
+            run.assert_called_once_with(command, check=True, stdin=subprocess.DEVNULL, timeout=5)
+        for error in (FileNotFoundError("wpctl missing"),
+                      subprocess.CalledProcessError(1, command)):
+            with self.subTest(error=error), \
+                 patch.object(menu.subprocess, "run", side_effect=error), \
+                 patch.object(sys, "stderr", new_callable=io.StringIO) as stderr:
+                menu.set_system_volume()
+                self.assertIn("could not set system mixer", stderr.getvalue())
+
     def test_sleep_transition_shows_update_banner_only_when_available(self):
         for status in (None, {"update_available": False}, {"update_available": True}):
             with self.subTest(status=status):
@@ -1298,14 +1325,19 @@ class SessionTests(unittest.TestCase):
             with patch.object(charnel, "ROOT", root):
                 charnel.prepare_socket(installation)
                 self.assertFalse(config.exists())
-                config.write_text('data_dir = "/custom/music-data"\n')
+                config.write_text('data_dir = "/custom/music-data"\n[control_socket]\nenabled = false\n')
+                before = config.read_text()
+                charnel.prepare_socket(installation)
+                self.assertEqual(config.read_text(), before)
+                config.write_text('data_dir = "/custom/music-data"\n[control_socket]\nenabled = true\n')
                 (root / "menu.json").write_text('{"direction": -1}')
                 charnel.prepare_socket(installation)
                 self.assertEqual(json.loads((root / "menu.json").read_text())["direction"], -1)
                 parsed = tomllib.loads(config.read_text())
                 self.assertEqual(parsed["data_dir"], "/custom/music-data")
                 self.assertTrue(parsed["control_socket"]["enabled"])
-                self.assertEqual(parsed["control_socket"]["socket_path"], str(root / "rathole-control.sock"))
+                self.assertEqual(json.loads((root / "menu.json").read_text())["socket_path"],
+                                 str(Path.home() / "rathole-control.sock"))
 
     def test_final_prompt_can_reboot_without_starting_app(self):
         script = (HERE / "setup.sh").read_text()

@@ -382,6 +382,7 @@ pub async fn run_setup_core(
     remote_admin_enabled: Option<bool>,
     radio_enabled: Option<bool>,
     fetch_music_enabled: Option<bool>,
+    control_socket_enabled: Option<bool>,
 ) -> grimoire::setup::SetupResult {
     // resolve paths to canonical form (safety net for Flatpak portal paths / symlinks)
     let data_dir = canonicalize_or_original(&data_dir);
@@ -451,6 +452,7 @@ pub async fn run_setup_core(
     };
 
     let setup_config = grimoire::setup::SetupConfig {
+        control_socket_enabled: control_socket_enabled.unwrap_or(false),
         config_path: PathBuf::from(&config_path),
         data_dir: PathBuf::from(&data_dir),
         server_name,

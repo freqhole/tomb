@@ -311,26 +311,34 @@ def prepare_socket(installation):
         try:
             path = config_path(installation)
         except ConfigNotReady as error:
-            print(f"{error}; restart charnel after the wizard to enable OLED control.", flush=True)
+            print(f"{error}; select enable control socket in the wizard for OLED control.", flush=True)
+            configure.update_menu_settings(ROOT / "menu.json", {
+                "player": player, "socket_path": str(Path.home() / "rathole-control.sock"),
+            })
             return
         cwd = Path.home()
     elif player == "rathole":
         path = ROOT / "freqhole-config.toml"
         if not path.exists():
-            print("complete rathole's first-run wizard, then restart rathole to enable OLED control.", flush=True)
+            print("select enable control socket in rathole's first-run wizard for OLED control.", flush=True)
+            configure.update_menu_settings(ROOT / "menu.json", {
+                "player": player, "socket_path": str(Path.home() / "rathole-control.sock"),
+            })
             return
         cwd = ROOT
     else:
         raise ValueError("invalid menu player")
-    updated = configure.socket_config(path.read_text(), ROOT / f"{player}-control.sock")
-    parsed = tomllib.loads(updated)
-    socket = Path(parsed["control_socket"]["socket_path"])
+    parsed = tomllib.loads(path.read_text())
+    section = parsed.get("control_socket", {})
+    if not section.get("enabled", False):
+        print(f"{player} control socket is disabled; enable it in the app for OLED control.", flush=True)
+        return
+    socket = Path(section.get("socket_path") or Path.home() / "rathole-control.sock")
     if not socket.is_absolute():
         socket = cwd / socket
     socket = socket.absolute()
     if len(os.fsencode(socket)) >= 108 or not socket.parent.is_dir():
         raise ValueError(f"socket path is too long or its parent directory does not exist: {socket}")
-    configure.edit(path, lambda text: updated)
     configure.update_menu_settings(ROOT / "menu.json", {"player": player, "socket_path": str(socket)})
 
 
