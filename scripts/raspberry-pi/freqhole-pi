@@ -100,8 +100,9 @@ manage_startup() {
         read -r -a choices <<< "$selection"
         [ "${#choices[@]}" -gt 0 ] || die "select at least one entry."
         for index in "${choices[@]}"; do
-            [[ "$index" =~ ^[1-9][0-9]?$ ]] && [ "$index" -le "${#entries[@]}" ] \
-                || die "invalid selection: $index; nothing changed."
+            if ! [[ "$index" =~ ^[1-9][0-9]?$ ]] || [ "$index" -gt "${#entries[@]}" ]; then
+                die "invalid selection: $index; nothing changed."
+            fi
             selected+=("${entries[$((index - 1))]}")
         done
     fi
