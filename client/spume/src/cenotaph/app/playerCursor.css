@@ -1,0 +1,4 @@
+.player-cursor-idle,
+.player-cursor-idle * {
+  cursor: none !important;
+}
