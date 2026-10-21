@@ -146,6 +146,7 @@ pub async fn run_ffmpeg(
 
     let mut cmd = tokio::process::Command::new(ffmpeg_path);
     cmd.arg("-hide_banner")
+        .kill_on_drop(true)
         .args(&args)
         .stdout(Stdio::null())
         .stderr(Stdio::piped());

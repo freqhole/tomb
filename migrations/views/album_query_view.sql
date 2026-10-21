@@ -5,6 +5,8 @@ DROP VIEW IF EXISTS album_query_view;
 CREATE VIEW album_query_view AS
 SELECT
     al.id as album_id,
+    EXISTS (SELECT 1 FROM library_offline_container_view o
+            WHERE o.entity_type = 'album' AND o.entity_id = al.id) as is_offline,
     al.title as album_title,
     al.album_type as album_album_type,
     -- album_release_date: first taxon under kind='release_date' linked

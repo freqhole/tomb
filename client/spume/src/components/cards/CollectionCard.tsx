@@ -4,6 +4,7 @@ import type { ImageMetadata } from "../../music/services/storage/types";
 import { MediaImage } from "../media/MediaImage";
 import { FavoriteHeart } from "../ratings/FavoriteHeart";
 import { MarqueeText } from "../text/MarqueeText";
+import { OfflineBadge } from "../badges/OfflineBadge";
 
 // unified collection types
 export interface CollectionCardData {
@@ -30,6 +31,7 @@ export interface CollectionCardData {
 
   // user context
   isFavorite?: boolean | null;
+  isOffline?: boolean;
 
   // analytics/activity
   playCount?: number | null;
@@ -73,7 +75,7 @@ export function CollectionCard(props: CollectionCardProps): JSX.Element {
 
   const handlePlay = (e: MouseEvent) => {
     e.stopPropagation();
-    if (props.onPlay && props.collection) {
+    if (props.onPlay && props.collection && !props.collection.isOffline) {
       props.onPlay(props.collection);
     }
   };
@@ -128,6 +130,7 @@ export function CollectionCard(props: CollectionCardProps): JSX.Element {
       {(collection) => (
         <div
           class={`group cursor-pointer flex flex-col ${props.class || ""}`}
+          classList={{ "opacity-60": collection().isOffline }}
           onClick={handleClick}
           onContextMenu={handleContextMenu}
           onMouseEnter={() => setIsCardHovering(true)}
@@ -173,7 +176,12 @@ export function CollectionCard(props: CollectionCardProps): JSX.Element {
               <button
                 class={`${sizeClasses().playButton} bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] text-[var(--color-text-on-accent)] flex items-center justify-center transition-colors pointer-events-auto`}
                 onClick={handlePlay}
-                title={`play ${collection().domainType}`}
+                disabled={collection().isOffline}
+                title={
+                  collection().isOffline
+                    ? "media is on offline storage"
+                    : `play ${collection().domainType}`
+                }
               >
                 <PlayIcon size={props.size === "small" ? 20 : 24} className="ml-1" />
               </button>
@@ -182,6 +190,7 @@ export function CollectionCard(props: CollectionCardProps): JSX.Element {
 
           {/* collection info */}
           <div class="space-y-0.5 min-w-0">
+            <OfflineBadge isOffline={collection().isOffline} />
             {/* title */}
             <MarqueeText
               text={collection().title}

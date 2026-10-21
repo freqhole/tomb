@@ -71,6 +71,7 @@ export default function SetupView() {
   const [serverName, setServerName] = createSignal("my music server");
   const [serverImage, setServerImage] = createSignal<string | null>(null);
   const [username, setUsername] = createSignal("");
+  const [controlSocketEnabled, setControlSocketEnabled] = createSignal(false);
   // setup results
   const [error, setError] = createSignal("");
   const [loading, setLoading] = createSignal(false);
@@ -254,6 +255,7 @@ export default function SetupView() {
         remoteAdminEnabled: remoteAdminEnabled(),
         radioEnabled: radioEnabled(),
         fetchMusicEnabled: fetchMusicEnabled(),
+        controlSocketEnabled: controlSocketEnabled(),
       });
 
       if (result.success) {
@@ -359,6 +361,9 @@ export default function SetupView() {
   }
 
   async function finishSetup() {
+    if (loading()) return;
+    setLoading(true);
+    setError("");
     try {
       // generate remote slug from server name (matches spume's remoteManager.ts generateSlug)
       const remoteSlug = serverName()
@@ -367,7 +372,7 @@ export default function SetupView() {
         .replace(/-+/g, "-")
         .replace(/^-|-$/g, "");
 
-      // close wizard and open main window at /{remoteSlug}/songs route
+      // open the main window before closing the wizard
       const configPath = `${dataDir()}/freqhole-config.toml`;
       await invoke("close_setup_wizard", {
         configPath,
@@ -375,6 +380,9 @@ export default function SetupView() {
       });
     } catch (e) {
       console.error("finish error:", e);
+      setError(String(e));
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -737,6 +745,28 @@ export default function SetupView() {
             </label>
           </div>
 
+          <div class="form-group">
+            <label class="checkbox-toggle">
+              <input
+                type="checkbox"
+                checked={controlSocketEnabled()}
+                onChange={(e) => setControlSocketEnabled(e.currentTarget.checked)}
+              />
+              <span class="checkbox-box">
+                <svg viewBox="0 0 14 14">
+                  <polyline points="2.5 7 5.5 10 11.5 4" />
+                </svg>
+              </span>
+              <span class="checkbox-content">
+                <span class="checkbox-label">enable control socket</span>
+                <span class="checkbox-hint">
+                  allow local OLED/buttons and scripts to control playback through a unix socket.
+                  no network access; leave off if not needed.
+                </span>
+              </span>
+            </label>
+          </div>
+
           {/* advanced toggle */}
           <button
             type="button"
@@ -1031,10 +1061,13 @@ export default function SetupView() {
           </Show>
 
           <div class="button-row" style={{ "justify-content": "center" }}>
-            <button class="primary" onClick={finishSetup}>
-              launch freqhole
+            <button class="primary" onClick={finishSetup} disabled={loading()}>
+              {loading() ? "launching..." : "launch freqhole"}
             </button>
           </div>
+          <Show when={error()}>
+            <p class="error">{error()}</p>
+          </Show>
         </div>
       </Show>
     </div>

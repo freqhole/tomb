@@ -8,8 +8,8 @@
 
 import "fake-indexeddb/auto";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { closeVideoDB } from "./init";
-import { addLocalVideo, getVideoByBlake3 } from "./videos";
+import { closeVideoDB, getVideoDB, STORE_VIDEOS } from "./init";
+import { addLocalVideo, getLocalVideoById, getLocalVideos, getVideoByBlake3 } from "./videos";
 
 function newVideoInput(overrides: Partial<Parameters<typeof addLocalVideo>[0]> = {}) {
   return {
@@ -57,4 +57,21 @@ describe("video blake3 identity", () => {
 
     await expect(getVideoByBlake3("b".repeat(64))).resolves.toMatchObject({ id: target.id });
   });
+
+  it.each(["legacy", "remote"] as const)(
+    "local reads do not inherit %s source-host offline state",
+    async (kind) => {
+      const video = await addLocalVideo(newVideoInput({ blake3: "c".repeat(64) }));
+      expect(video.is_offline).toBe(false);
+      const stored = { ...video, is_offline: true };
+      if (kind === "legacy") Reflect.deleteProperty(stored, "is_offline");
+      const db = await getVideoDB();
+      await db.put(STORE_VIDEOS, stored);
+      await expect(getVideoByBlake3("c".repeat(64))).resolves.toMatchObject({ is_offline: false });
+      await expect(getLocalVideoById(video.id)).resolves.toMatchObject({ is_offline: false });
+      const result = await getLocalVideos();
+      expect(result.items).toHaveLength(1);
+      expect(result.items[0].is_offline).toBe(false);
+    }
+  );
 });

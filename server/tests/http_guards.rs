@@ -81,6 +81,7 @@ async fn build_test_app() -> TestApp {
         admin_username: Some("test-admin".to_string()),
         generate_api_key: true,
         generate_invite_code: false,
+        control_socket_enabled: false,
         ytdlp_available: false,
         fetch_music_dir: None,
         initial_scan_dirs: Vec::<ScanDir>::new(),

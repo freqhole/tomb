@@ -17,6 +17,9 @@ use crate::search::models::{Suggestion, SuggestionType};
 /// video search result with ranking
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct VideoSearchResult {
+    /// confirmed offline on the source library host.
+    #[serde(default)]
+    pub is_offline: bool,
     pub id: String,
     pub title: String,
     pub series_id: Option<String>,
@@ -41,6 +44,7 @@ pub async fn search_videos(
 ) -> GrimoireResult<Vec<VideoSearchResult>> {
     #[derive(sqlx::FromRow)]
     struct VideoRow {
+        is_offline: bool,
         video_id: String,
         video_title: String,
         series_id: Option<String>,
@@ -60,6 +64,7 @@ pub async fn search_videos(
         r#"
         SELECT
             video.id as "video_id!: String",
+            EXISTS (SELECT 1 FROM library_offline_blob_view o WHERE o.blob_id = video.media_blob_id) as "is_offline!: bool",
             video.title as "video_title!: String",
             video.series_id as "series_id: String",
             (SELECT series.title
@@ -84,7 +89,7 @@ pub async fn search_videos(
         WHERE videoz_fts MATCH ?
             AND video.deleted_at IS NULL
             AND (rating.rating IS NULL OR rating.rating != 0)
-        ORDER BY fts.rank
+        ORDER BY fts.rank * CASE WHEN "is_offline!: bool" THEN 0.8 ELSE 1.0 END, "is_offline!: bool", video.id
         LIMIT ? OFFSET ?
         "#,
         user_id_param,
@@ -99,6 +104,7 @@ pub async fn search_videos(
     let results = rows
         .into_iter()
         .map(|row| VideoSearchResult {
+            is_offline: row.is_offline,
             id: row.video_id,
             title: row.video_title,
             series_id: row.series_id,
@@ -120,6 +126,8 @@ pub async fn search_videos(
 /// video series search result with ranking
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct VideoSeriesSearchResult {
+    #[serde(default)]
+    pub is_offline: bool,
     pub id: String,
     pub title: String,
     pub description: Option<String>,
@@ -139,6 +147,7 @@ pub async fn search_video_seriez(
 ) -> GrimoireResult<Vec<VideoSeriesSearchResult>> {
     #[derive(sqlx::FromRow)]
     struct SeriesRow {
+        is_offline: bool,
         series_id: String,
         series_title: String,
         description: Option<String>,
@@ -153,6 +162,7 @@ pub async fn search_video_seriez(
         r#"
         SELECT
             series.id as "series_id!: String",
+            EXISTS (SELECT 1 FROM library_offline_container_view o WHERE o.entity_type = 'video_series' AND o.entity_id = series.id) as "is_offline!: bool",
             series.title as "series_title!: String",
             series.description as "description: String",
             fts.rank as "fts_rank!: f64",
@@ -162,7 +172,7 @@ pub async fn search_video_seriez(
         JOIN video_seriez series ON fts.series_id = series.id
         WHERE video_seriez_fts MATCH ?
             AND series.deleted_at IS NULL
-        ORDER BY fts.rank
+        ORDER BY fts.rank * CASE WHEN "is_offline!: bool" THEN 0.8 ELSE 1.0 END, "is_offline!: bool", series.id
         LIMIT ? OFFSET ?
         "#,
         sanitized_query,
@@ -189,6 +199,7 @@ pub async fn search_video_seriez(
             };
 
             VideoSeriesSearchResult {
+                is_offline: row.is_offline,
                 id: row.series_id,
                 title: row.series_title,
                 description: row.description,
@@ -212,6 +223,7 @@ pub async fn get_video_suggestions(
 ) -> GrimoireResult<Vec<Suggestion>> {
     #[derive(sqlx::FromRow)]
     struct VideoSuggestionRow {
+        is_offline: bool,
         video_id: String,
         video_title: String,
         series_id: Option<String>,
@@ -230,6 +242,7 @@ pub async fn get_video_suggestions(
         r#"
         SELECT
             video.id as "video_id!: String",
+            EXISTS (SELECT 1 FROM library_offline_blob_view o WHERE o.blob_id = video.media_blob_id) as "is_offline!: bool",
             video.title as "video_title!: String",
             video.series_id as "series_id: String",
             (SELECT series.title
@@ -248,7 +261,7 @@ pub async fn get_video_suggestions(
             AND favorite.user_id = ?
         WHERE videoz_fts MATCH ?
             AND video.deleted_at IS NULL
-        ORDER BY fts.rank
+        ORDER BY fts.rank * CASE WHEN "is_offline!: bool" THEN 0.8 ELSE 1.0 END, "is_offline!: bool", video.id
         LIMIT 100
         "#,
         user_id_param,
@@ -276,6 +289,7 @@ pub async fn get_video_suggestions(
             let match_type = matched_field.as_deref().unwrap_or("title");
 
             Suggestion {
+                is_offline: row.is_offline,
                 value: row.video_title.clone(),
                 display: row.video_title.clone(),
                 highlight,
@@ -306,6 +320,7 @@ pub async fn get_video_series_suggestions(
 ) -> GrimoireResult<Vec<Suggestion>> {
     #[derive(sqlx::FromRow)]
     struct SeriesSuggestionRow {
+        is_offline: bool,
         series_id: String,
         series_title: String,
         description: Option<String>,
@@ -320,6 +335,7 @@ pub async fn get_video_series_suggestions(
         r#"
         SELECT
             series.id as "series_id!: String",
+            EXISTS (SELECT 1 FROM library_offline_container_view o WHERE o.entity_type = 'video_series' AND o.entity_id = series.id) as "is_offline!: bool",
             series.title as "series_title!: String",
             series.description as "description: String",
             fts.rank as "fts_rank!: f64",
@@ -329,7 +345,7 @@ pub async fn get_video_series_suggestions(
         JOIN video_seriez series ON fts.series_id = series.id
         WHERE video_seriez_fts MATCH ?
             AND series.deleted_at IS NULL
-        ORDER BY fts.rank
+        ORDER BY fts.rank * CASE WHEN "is_offline!: bool" THEN 0.8 ELSE 1.0 END, "is_offline!: bool", series.id
         LIMIT 100
         "#,
         match_query
@@ -356,6 +372,7 @@ pub async fn get_video_series_suggestions(
             let match_type = matched_field.as_deref().unwrap_or("title");
 
             Suggestion {
+                is_offline: row.is_offline,
                 value: row.series_title.clone(),
                 display: row.series_title.clone(),
                 highlight,

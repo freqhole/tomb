@@ -5,6 +5,7 @@ import { appState, setCurrentSong, setQueue, setQueueOpen } from "../../../app/s
 import type { QueueHistoryEntry, QueueSourceContext } from "../../../app/services/storage/types";
 import {
   mediaItemKey,
+  findAvailableMediaIndex,
   mediaItemQueueEntryId,
   songsOnly,
   songToMediaItem,
@@ -23,6 +24,7 @@ import {
   stop,
 } from "../audio/player";
 import { hasPlaybackEnded } from "./queueState";
+import { clearQueueState } from "./clearQueueState";
 import { addHistoryEntry, updateHistoryEntrySongs, unwrapSongs } from "./queueHistory";
 import { unwrapVideos } from "../../../video/services/queue/videoQueueHistory";
 import {
@@ -58,6 +60,7 @@ import { debug, error as errorLog } from "../../../utils/logger";
 import { leaveRadio } from "../../../app/services/radio/radioService";
 import { clearCurrentRadioStation } from "../../../app/services/storage/currentRadioStation";
 import { registerStopMusic } from "../../../app/services/playbackCoordinator";
+import { toast } from "../../../components/feedback/Toast";
 
 // re-export queue state so consumers can import everything from queue.ts
 export {
@@ -193,7 +196,13 @@ export async function playQueue(
   const unwrappedItems = prepareMediaItems(songs);
   assertCloneable(songsOnly(unwrappedItems), "playQueue");
 
-  let startIndex = options?.startIndex ?? 0;
+  const requestedStartIndex = options?.startIndex ?? 0;
+  let startIndex = findAvailableMediaIndex(unwrappedItems, requestedStartIndex);
+  if (startIndex < 0) {
+    toast.error("no available media at or after this position", { title: "media offline" });
+    return;
+  }
+  const skippedOfflineStart = startIndex !== requestedStartIndex;
   let finalItems = unwrappedItems;
 
   // truncate incoming items if they exceed the limit (before any queue logic)
@@ -232,6 +241,16 @@ export async function playQueue(
   // in the queue itself but aren't tracked by these yet (see phase 5 of
   // docs/playlist-unification-plan.md for full parity plans).
   const finalSongs = songsOnly(finalItems);
+  if (options?.resumeProgress && skippedOfflineStart) {
+    options = {
+      ...options,
+      resumeProgress: {
+        ...options.resumeProgress,
+        current_song_index: songsOnly(finalItems.slice(0, startIndex)).length,
+        current_song_position: 0,
+      },
+    };
+  }
 
   // sync playlist to local storage (fires in background, non-blocking)
   if (options?.source) {
@@ -461,12 +480,18 @@ export async function addToQueue(
   // unwrap SolidJS proxy objects before any IPC calls (Tauri structured clone)
   const unwrappedItems = prepareMediaItems(songs);
   assertCloneable(songsOnly(unwrappedItems), "addToQueue");
+  const availableIndex = findAvailableMediaIndex(unwrappedItems, 0);
+  if (availableIndex < 0) {
+    toast.error("all selected media is on offline storage", { title: "media offline" });
+    return;
+  }
 
   // truncate incoming items if they exceed the limit
   let finalItems = unwrappedItems;
   const queueSizeLimitForAdd = getQueueSizeLimit();
   if (unwrappedItems.length > queueSizeLimitForAdd) {
-    finalItems = unwrappedItems.slice(0, queueSizeLimitForAdd);
+    const start = availableIndex < queueSizeLimitForAdd ? 0 : availableIndex;
+    finalItems = unwrappedItems.slice(start, start + queueSizeLimitForAdd);
     debug(
       "queue",
       `addToQueue: truncated to ${finalItems.length}/${unwrappedItems.length} (limit=${queueSizeLimitForAdd})`
@@ -510,7 +535,9 @@ export async function addToQueue(
       // clear queue and add new items via playQueue (will handle empty queue path)
       await setQueue(finalItems);
       if (startPlaying || !currentId || hasPlaybackEnded()) {
-        await playMediaItem(finalItems[0], { userInitiated: true });
+        await playMediaItem(finalItems[findAvailableMediaIndex(finalItems, 0)], {
+          userInitiated: true,
+        });
       }
       if (options?.source) {
         const entryId = await addHistoryEntry(finalSongs, options.source);
@@ -532,7 +559,9 @@ export async function addToQueue(
       // fall back to clear-all behavior
       await setQueue(finalItems);
       if (startPlaying || !currentId || hasPlaybackEnded()) {
-        await playMediaItem(finalItems[0], { userInitiated: true });
+        await playMediaItem(finalItems[findAvailableMediaIndex(finalItems, 0)], {
+          userInitiated: true,
+        });
       }
       if (options?.source) {
         const entryId = await addHistoryEntry(finalSongs, options.source);
@@ -607,7 +636,7 @@ async function addToQueueInternal(
   // autoplay if: explicitly requested, nothing is currently playing, or playback ended
   const willAutoPlay = startPlaying || !currentId || hasPlaybackEnded();
   if (willAutoPlay) {
-    await playMediaItem(items[0], { userInitiated: true });
+    await playMediaItem(items[findAvailableMediaIndex(items, 0)], { userInitiated: true });
   }
 
   // pre-cache P2P songs/videos (~30 min ahead from current position)
@@ -786,7 +815,7 @@ export async function reorderQueue(fromIndex: number, toIndex: number): Promise<
 // clear the entire queue and stop playback
 // evicts all cached remote songs from the queue
 // clears any pending up-next song
-export async function clearQueue(): Promise<void> {
+export async function clearQueue(reason: "abandoned" | "completed" = "abandoned"): Promise<void> {
   const state = appState();
   debug(
     "queue",
@@ -794,21 +823,14 @@ export async function clearQueue(): Promise<void> {
   );
 
   stop();
-  mirrorClearQueue();
-  stopTracking(true); // skipQueueSave - avoids race with setQueue([])
-  clearAllQueueProgress();
-  clearPendingUpNext();
-  void stopServerSession("abandoned");
-  await setCurrentSong(null);
+  if (reason === "abandoned") mirrorClearQueue();
 
-  // stop radio if currently tuned. must be awaited before setQueue([])
-  // below — clearCurrentRadioStation reads STORE_APP_STATE directly,
-  // mutates one field, and writes back, so a fire-and-forget call
-  // would race with setQueue([]) and resurrect the queue.
+  // finish radio persistence before clearing queue state so its write
+  // cannot restore the old queue.
   leaveRadio();
   await clearCurrentRadioStation();
 
-  await setQueue([]);
+  await clearQueueState(reason);
   debug("queue", "clearQueue complete");
 }
 
@@ -819,19 +841,25 @@ export { setQueueOpen };
 export async function resumeHistoryEntry(entry: QueueHistoryEntry): Promise<void> {
   if (entry.songs.length === 0) return;
 
-  const resumeIndex = Math.min(entry.current_song_index || 0, entry.songs.length - 1);
-
-  await setQueue(entry.songs.map(songToMediaItem));
+  const requestedIndex = Math.min(entry.current_song_index || 0, entry.songs.length - 1);
+  const items = entry.songs.map(songToMediaItem);
+  const resumeIndex = findAvailableMediaIndex(items, requestedIndex);
+  if (resumeIndex < 0) {
+    toast.error("no available media at or after the saved position", { title: "media offline" });
+    return;
+  }
+  const resumePosition = resumeIndex === requestedIndex ? entry.current_song_position || 0 : 0;
+  await setQueue(items);
 
   // play the song at the resume index
   const song = entry.songs[resumeIndex];
   await playSong(song, { userInitiated: true });
 
   // seek to saved position after a brief delay (audio needs to load)
-  if (entry.current_song_position > 0) {
+  if (resumePosition > 0) {
     // wait for audio to be ready before seeking
     setTimeout(() => {
-      seek(entry.current_song_position);
+      seek(resumePosition);
     }, 200);
   }
 
@@ -840,7 +868,7 @@ export async function resumeHistoryEntry(entry: QueueHistoryEntry): Promise<void
     listened_seconds: entry.listened_seconds || 0,
     songs_completed: entry.songs_completed || 0,
     current_song_index: resumeIndex,
-    current_song_position: entry.current_song_position || 0,
+    current_song_position: resumePosition,
   });
 
   // reconnect server session if the entry has server session info

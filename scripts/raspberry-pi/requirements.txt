@@ -1,0 +1,4 @@
+# hardware libraries used by menu.py; pip resolves their supporting dependencies.
+Adafruit-Blinka
+adafruit-circuitpython-ssd1306
+adafruit-circuitpython-seesaw

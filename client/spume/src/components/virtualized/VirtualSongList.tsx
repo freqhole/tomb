@@ -12,6 +12,7 @@ import { FavoriteHeart } from "../ratings/FavoriteHeart";
 import { Rating } from "../ratings/Rating";
 import { isNarrowViewport } from "../../config/breakpoints";
 import { isMobile } from "../../utils/isMobile";
+import { OfflineBadge } from "../badges/OfflineBadge";
 
 // row heights for different layouts
 const TABLE_ROW_HEIGHT = 48;
@@ -230,7 +231,7 @@ export function VirtualSongList(props: VirtualSongListProps) {
     // direct fit for since there's no per-row onClick/onDblClick pair to
     // spread it onto).
     if (isMobile() || e.detail === 2) {
-      props.onSongDoubleClick?.(song, index);
+      if (!song.is_offline) props.onSongDoubleClick?.(song, index);
     } else if (props.onSelectionClick) {
       // if selection is enabled, single clicks go through selection handler too
       props.onSelectionClick(song, index, e);
@@ -333,6 +334,7 @@ export function VirtualSongList(props: VirtualSongListProps) {
               const compactRow = (
                 <div
                   data-row-index={virtualRow.index}
+                  classList={{ "opacity-60": song.is_offline }}
                   class={`absolute left-0 right-0 flex items-center gap-3 px-3 cursor-pointer ${
                     isSelected()
                       ? "bg-[var(--color-accent-500)]/30"
@@ -352,9 +354,11 @@ export function VirtualSongList(props: VirtualSongListProps) {
                       indexText={getTrackText(song, virtualRow.index)}
                       size={48}
                       hideIndex={isHovered()}
-                      onPlayClick={() => props.onPlayClick?.(song, virtualRow.index)}
-                      enablePlayClick={!!props.onPlayClick}
-                      showPlayIcon={true}
+                      onPlayClick={() =>
+                        !song.is_offline && props.onPlayClick?.(song, virtualRow.index)
+                      }
+                      enablePlayClick={!!props.onPlayClick && !song.is_offline}
+                      showPlayIcon={!song.is_offline}
                     />
                   </div>
 
@@ -370,6 +374,7 @@ export function VirtualSongList(props: VirtualSongListProps) {
                     </div>
                   </div>
 
+                  <OfflineBadge isOffline={song.is_offline} />
                   {/* favorite */}
                   <div class="flex-shrink-0">
                     <FavoriteHeart
@@ -428,6 +433,7 @@ export function VirtualSongList(props: VirtualSongListProps) {
                 const rowContent = (
                   <div
                     data-row-index={virtualRow.index}
+                    classList={{ "opacity-60": song.is_offline }}
                     class={`absolute left-0 right-0 flex items-center px-4 cursor-pointer ${
                       isSelected()
                         ? "bg-[var(--color-accent-500)]/30"
@@ -447,9 +453,11 @@ export function VirtualSongList(props: VirtualSongListProps) {
                         indexText={getTrackText(song, virtualRow.index)}
                         size={IMAGE_SIZE}
                         hideIndex={isHovered()}
-                        onPlayClick={() => props.onPlayClick?.(song, virtualRow.index)}
-                        enablePlayClick={!!props.onPlayClick}
-                        showPlayIcon={true}
+                        onPlayClick={() =>
+                          !song.is_offline && props.onPlayClick?.(song, virtualRow.index)
+                        }
+                        enablePlayClick={!!props.onPlayClick && !song.is_offline}
+                        showPlayIcon={!song.is_offline}
                       />
                     </div>
                     <MarqueeText
@@ -458,6 +466,7 @@ export function VirtualSongList(props: VirtualSongListProps) {
                       padClass={CELL_PAD}
                       isHovering={isHovered()}
                     />
+                    <OfflineBadge isOffline={song.is_offline} />
                     <MarqueeText
                       text={song.artist_name || "unknown artist"}
                       class={`${colWidth.artist()} shrink-0 text-sm text-[var(--color-text-secondary)]`}

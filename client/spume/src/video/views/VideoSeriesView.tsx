@@ -7,6 +7,7 @@
 import { useNavigate, useParams, useSearchParams } from "@solidjs/router";
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { setPageInfo, clearPageInfo } from "../../app/services/pageInfo";
+import { useAvailabilityFilter } from "../../utils/useAvailabilityFilter";
 import { appState } from "../../app/services/storage/db";
 import { isRadioPlayerBarActive } from "../../app/services/radio/radioService";
 import { useViewportHeight, getNavHeight } from "../../utils/viewport";
@@ -18,7 +19,7 @@ import { LoadingState, LoadingMoreIndicator } from "../../components/feedback";
 import { ContextMenu } from "../../components/overlays/ContextMenu";
 import { VideoSeriesDetailPanel } from "../components/VideoSeriesDetailPanel";
 import { VideoSeriesCard } from "../components/VideoSeriesCard";
-import { useVideoSeriesListQuery } from "../queries/series";
+import { useVideoSeriesListQuery, useVideoSeriesQuery } from "../queries/series";
 import { useVideoSeriesContextMenu } from "../hooks/contextMenu";
 import { useVideoSeriesFavoriteStatuses } from "../hooks/useVideoSeriesFavoriteStatuses";
 import { useToggleFavoriteMutation } from "../../music/queries/favorites";
@@ -113,7 +114,9 @@ export function VideoSeriesView() {
   // work once top-nav search actually writes this param for the series
   // route (see docs/video-domain-round2-plan.md's agent 2 section) -
   // this view doesn't need to know or care whether that's landed yet.
+  const availability = useAvailabilityFilter("series");
   const seriesQuery = useVideoSeriesListQuery({
+    hideOffline: availability.hideOffline,
     search: () => {
       const q = searchParams.q;
       return Array.isArray(q) ? q[0] : q;
@@ -134,14 +137,16 @@ export function VideoSeriesView() {
     return [...all].sort((a, b) => a.title.localeCompare(b.title));
   });
 
+  const selectedSeriesQuery = useVideoSeriesQuery(() => selectedSeriesId() ?? undefined);
   const selectedSeries = createMemo(() => {
     const id = selectedSeriesId();
     if (!id) return null;
-    return sortedSeries().find((s) => s.id === id) ?? null;
+    return sortedSeries().find((s) => s.id === id) ?? selectedSeriesQuery.data ?? null;
   });
 
   createEffect(() => {
     setPageInfo({
+      ...availability.pageInfo(),
       title: "series",
       count: sortedSeries().length,
       documentTitle: selectedSeries()?.title,

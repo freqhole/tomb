@@ -18,6 +18,8 @@ use crate::GrimoireResponse;
 // Playlist table identifiers for type-safe queries
 #[derive(Iden)]
 enum PlaylistView {
+    #[iden = "is_offline"]
+    IsOffline,
     #[iden = "playlist_query_view"]
     Table,
     #[iden = "playlist_id"]
@@ -87,6 +89,7 @@ enum PlaylistColumns {
 // Row structures for playlist queries
 #[derive(sqlx::FromRow)]
 pub struct PlaylistViewRow {
+    is_offline: bool,
     playlist_id: String,
     playlist_title: String,
     playlist_description: Option<String>,
@@ -156,6 +159,7 @@ impl PlaylistViewRow {
         };
 
         PlaylistQueryResult {
+            is_offline: self.is_offline,
             playlist,
             song_count: self.playlist_song_count,
             total_duration: Some(self.playlist_total_duration),
@@ -198,6 +202,7 @@ pub struct PlaylistSongViewRow {
     song_updated_by: Option<String>,
     // aggregated play count from view
     song_play_count: Option<i64>,
+    is_offline: bool,
 
     // Artist fields
     artist_id: Option<String>,
@@ -424,6 +429,7 @@ impl PlaylistSongViewRow {
         });
 
         let song_result = SongQueryResult {
+            is_offline: self.is_offline,
             song,
             artist,
             album,
@@ -520,19 +526,27 @@ fn add_playlist_filters(query: &mut SelectStatement, params: &QueryParams) {
 pub async fn query_playlists(
     params: QueryParams,
 ) -> GrimoireResponse<QueryResult<PlaylistQueryResult>> {
-    let start_time = Instant::now();
     let pool = match database::connect().await {
         Ok(p) => p,
         Err(e) => {
             return GrimoireResponse::failure("Failed to connect to database", vec![e.into()])
         }
     };
+    query_playlists_with_pool(pool, params).await
+}
+
+pub(crate) async fn query_playlists_with_pool(
+    pool: sqlx::SqlitePool,
+    params: QueryParams,
+) -> GrimoireResponse<QueryResult<PlaylistQueryResult>> {
+    let start_time = Instant::now();
     let limit = params.limit.unwrap_or(50).min(1000);
     let offset = params.offset.unwrap_or(0);
 
     let mut query = Query::select();
     query
         .column(PlaylistView::PlaylistId)
+        .column(PlaylistView::IsOffline)
         .column(PlaylistView::PlaylistTitle)
         .column(PlaylistView::PlaylistDescription)
         .column(PlaylistView::PlaylistIsPublic)

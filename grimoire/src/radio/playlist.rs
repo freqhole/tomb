@@ -100,7 +100,12 @@ struct CandidateMeta {
 /// returns `Err` when there are no playable songs.
 pub async fn pick_random_song() -> GrimoireResult<RadioTrack> {
     let pool = database::connect().await?;
+    pick_random_song_with_pool(&pool).await
+}
 
+pub(crate) async fn pick_random_song_with_pool(
+    pool: &sqlx::SqlitePool,
+) -> GrimoireResult<RadioTrack> {
     let row = sqlx::query!(
         r#"SELECT s.id          as "song_id!",
                   s.title       as "title!",
@@ -135,14 +140,16 @@ pub async fn pick_random_song() -> GrimoireResult<RadioTrack> {
                         WHERE b.local_path IS NOT NULL
                             AND s.deleted_at IS NULL
                             AND b.deleted_at IS NULL
+                            AND NOT EXISTS (SELECT 1 FROM library_offline_blob_view o WHERE o.blob_id = b.id)
                         ORDER BY RANDOM()
                         LIMIT 1"#
     )
-    .fetch_optional(&pool)
+    .fetch_optional(pool)
     .await?;
 
     let row = row.ok_or_else(|| GrimoireError::ProcessingFailed {
-        message: "radio: no playable songs in library (none have a local_path)".to_string(),
+        message: "radio: no playable songs in library (offline, deleted or no local_path)"
+            .to_string(),
     })?;
 
     let local_path = row
@@ -173,7 +180,8 @@ pub async fn pick_random_song() -> GrimoireResult<RadioTrack> {
 /// full song library.
 pub async fn pick_random_video() -> GrimoireResult<RadioTrack> {
     let pool = database::connect().await?;
-    let video_ids = stations::repository::all_playable_video_ids(&pool).await?;
+    let mut video_ids = stations::repository::all_playable_video_ids(&pool).await?;
+    retain_available_candidates(&pool, &mut Vec::new(), &mut video_ids).await?;
     let id = {
         use rand::seq::SliceRandom;
         video_ids
@@ -198,6 +206,7 @@ async fn all_playable_songs() -> GrimoireResult<Vec<String>> {
            WHERE b.local_path IS NOT NULL
              AND s.deleted_at IS NULL
              AND b.deleted_at IS NULL
+             AND NOT EXISTS (SELECT 1 FROM library_offline_blob_view o WHERE o.blob_id = b.id)
            ORDER BY s.id"#
     )
     .fetch_all(&pool)
@@ -306,7 +315,7 @@ async fn pick_for_station_after_with_options(
     } else {
         resolved.song_ids
     };
-    let video_candidates = if content_mode == "audio_only" {
+    let mut video_candidates = if content_mode == "audio_only" {
         Vec::new()
     } else {
         resolved.video_ids
@@ -349,6 +358,8 @@ async fn pick_for_station_after_with_options(
                 );
             }
 
+            let pool = database::connect().await?;
+            retain_available_candidates(&pool, &mut Vec::new(), &mut video_pool).await?;
             let chosen =
                 pick_series_mode(station_id, &video_pool, anchor_song_id, force_new_album).await?;
             return fetch_track(RadioItemKind::Video, &chosen).await;
@@ -377,6 +388,8 @@ async fn pick_for_station_after_with_options(
             );
         }
 
+        let pool = database::connect().await?;
+        retain_available_candidates(&pool, &mut song_candidates, &mut Vec::new()).await?;
         let chosen = pick_album_mode(
             station_id,
             &song_candidates,
@@ -406,6 +419,8 @@ async fn pick_for_station_after_with_options(
         }
         return pick_random_song().await;
     }
+    let pool = database::connect().await?;
+    retain_available_candidates(&pool, &mut song_candidates, &mut video_candidates).await?;
     info!(
         "[radio-picker] station {} (mode: shuffle) using {} song + {} video explicit candidates",
         station_id,
@@ -460,6 +475,43 @@ async fn pick_for_station_after_with_options(
     };
 
     fetch_track(chosen.0, &chosen.1).await
+}
+
+// filter after source fallback decisions: an offline configured playlist must
+// not become an empty "no source" pool that broadcasts unrelated library media.
+pub(crate) async fn retain_available_candidates(
+    pool: &sqlx::SqlitePool,
+    song_ids: &mut Vec<String>,
+    video_ids: &mut Vec<String>,
+) -> GrimoireResult<()> {
+    let songs = serde_json::to_string(song_ids)?;
+    let videos = serde_json::to_string(video_ids)?;
+    let offline = sqlx::query!(
+        r#"SELECT 'song' AS "kind!: String", s.id AS "id!"
+           FROM songz s JOIN json_each(?) ids ON ids.value = s.id
+           WHERE EXISTS (SELECT 1 FROM library_offline_blob_view o WHERE o.blob_id = s.media_blob_id)
+           UNION ALL
+           SELECT 'video', v.id
+           FROM videoz v JOIN json_each(?) ids ON ids.value = v.id
+           WHERE EXISTS (SELECT 1 FROM library_offline_blob_view o WHERE o.blob_id = v.media_blob_id)"#,
+        songs,
+        videos
+    )
+    .fetch_all(pool)
+    .await?;
+    let offline_songs: std::collections::HashSet<&str> = offline
+        .iter()
+        .filter(|row| row.kind == "song")
+        .map(|row| row.id.as_str())
+        .collect();
+    let offline_videos: std::collections::HashSet<&str> = offline
+        .iter()
+        .filter(|row| row.kind == "video")
+        .map(|row| row.id.as_str())
+        .collect();
+    song_ids.retain(|id| !offline_songs.contains(id.as_str()));
+    video_ids.retain(|id| !offline_videos.contains(id.as_str()));
+    Ok(())
 }
 
 async fn pick_album_mode(
@@ -901,16 +953,24 @@ async fn resolve_last_song_id(station_id: &str, anchor_song_id: Option<&str>) ->
 /// song or video query depending on `kind`. single public entry point so
 /// callers (the picker, bumper playback) don't need their own branch.
 pub async fn fetch_track(kind: RadioItemKind, item_id: &str) -> GrimoireResult<RadioTrack> {
+    let pool = database::connect().await?;
+    fetch_track_with_pool(&pool, kind, item_id).await
+}
+
+pub(crate) async fn fetch_track_with_pool(
+    pool: &sqlx::SqlitePool,
+    kind: RadioItemKind,
+    item_id: &str,
+) -> GrimoireResult<RadioTrack> {
     match kind {
-        RadioItemKind::Song => fetch_song_track(item_id).await,
-        RadioItemKind::Video => fetch_video_track(item_id).await,
+        RadioItemKind::Song => fetch_song_track(pool, item_id).await,
+        RadioItemKind::Video => fetch_video_track(pool, item_id).await,
     }
 }
 
 /// load the full RadioTrack row for a given song id. returns the same
 /// shape as `pick_random_song` minus the random ordering.
-async fn fetch_song_track(song_id: &str) -> GrimoireResult<RadioTrack> {
-    let pool = database::connect().await?;
+async fn fetch_song_track(pool: &sqlx::SqlitePool, song_id: &str) -> GrimoireResult<RadioTrack> {
     let row = sqlx::query!(
         r#"SELECT s.id          as "song_id!",
                   s.title       as "title!",
@@ -946,14 +1006,15 @@ async fn fetch_song_track(song_id: &str) -> GrimoireResult<RadioTrack> {
               AND b.local_path IS NOT NULL
               AND s.deleted_at IS NULL
               AND b.deleted_at IS NULL
+              AND NOT EXISTS (SELECT 1 FROM library_offline_blob_view o WHERE o.blob_id = b.id)
             LIMIT 1"#,
         song_id
     )
-    .fetch_optional(&pool)
+    .fetch_optional(pool)
     .await?;
 
     let row = row.ok_or_else(|| GrimoireError::ProcessingFailed {
-        message: format!("radio: song {song_id} not playable (deleted or no local_path)"),
+        message: format!("radio: song {song_id} not playable (offline, deleted or no local_path)"),
     })?;
 
     let local_path = row
@@ -980,8 +1041,7 @@ async fn fetch_song_track(song_id: &str) -> GrimoireResult<RadioTrack> {
 /// of `fetch_song_track` - no artist/album/waveform concept, art comes
 /// from the video's own poster instead of the song_imagez/album_imagez/
 /// artist_imagez fallback chain.
-async fn fetch_video_track(video_id: &str) -> GrimoireResult<RadioTrack> {
-    let pool = database::connect().await?;
+async fn fetch_video_track(pool: &sqlx::SqlitePool, video_id: &str) -> GrimoireResult<RadioTrack> {
     let row = sqlx::query!(
         r#"SELECT v.id             as "video_id!",
                   v.title          as "title!",
@@ -995,14 +1055,17 @@ async fn fetch_video_track(video_id: &str) -> GrimoireResult<RadioTrack> {
               AND b.local_path IS NOT NULL
               AND v.deleted_at IS NULL
               AND b.deleted_at IS NULL
+              AND NOT EXISTS (SELECT 1 FROM library_offline_blob_view o WHERE o.blob_id = b.id)
             LIMIT 1"#,
         video_id
     )
-    .fetch_optional(&pool)
+    .fetch_optional(pool)
     .await?;
 
     let row = row.ok_or_else(|| GrimoireError::ProcessingFailed {
-        message: format!("radio: video {video_id} not playable (deleted or no local_path)"),
+        message: format!(
+            "radio: video {video_id} not playable (offline, deleted or no local_path)"
+        ),
     })?;
 
     let local_path = row

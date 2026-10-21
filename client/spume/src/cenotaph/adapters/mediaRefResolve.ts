@@ -439,6 +439,7 @@ export async function resolveMediaRefToVideo(item: MediaRef): Promise<QueuedVide
           content_type: "movie",
           title: item.title ?? "untitled",
           media_blob_id: item.blake3_hash,
+          is_offline: false,
           duration_seconds: item.duration_ms ? item.duration_ms / 1000 : null,
           created_at: Date.now(),
           updated_at: Date.now(),

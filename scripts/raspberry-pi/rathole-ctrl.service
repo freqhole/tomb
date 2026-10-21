@@ -1,0 +1,24 @@
+[Unit]
+# managed by freqhole-pi setup
+Description=rathole OLED and rotary encoder controls
+
+[Service]
+Type=simple
+User=@USER@
+SupplementaryGroups=i2c gpio
+Environment=HOME=@HOME@
+Environment=XDG_RUNTIME_DIR=/run/user/@UID@
+Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/@UID@/bus
+WorkingDirectory=@ROOT@
+ExecStart=@ROOT@/.venv/bin/python3 -u @ROOT@/menu.py
+StandardInput=null
+StandardOutput=journal
+StandardError=journal
+Restart=on-failure
+RestartSec=5
+# use the script's Ctrl-C cleanup to clear the OLED and NeoPixel.
+KillSignal=SIGINT
+TimeoutStopSec=10
+
+[Install]
+WantedBy=multi-user.target

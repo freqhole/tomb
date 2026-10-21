@@ -428,7 +428,7 @@ impl FreqholeAppConfig {
 }
 
 /// get the path to the app config file
-fn get_config_path(app_handle: &tauri::AppHandle) -> Option<PathBuf> {
+pub(crate) fn get_config_path(app_handle: &tauri::AppHandle) -> Option<PathBuf> {
     use tauri::Manager;
     app_handle
         .path()

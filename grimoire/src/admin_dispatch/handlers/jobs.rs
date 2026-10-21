@@ -39,18 +39,7 @@ pub(in crate::admin_dispatch) async fn cancel_session(
         }
     };
 
-    let rows = match sqlx::query!(
-        r#"
-        UPDATE jobz
-        SET status = 'Cancelled', completed_at = unixepoch()
-        WHERE session_id = ? AND status IN ('Pending', 'Running')
-        RETURNING id as "id!"
-        "#,
-        session_id
-    )
-    .fetch_all(&pool)
-    .await
-    {
+    let cancelled_job_ids = match crate::jobs::cancel_session_jobs(&pool, &session_id).await {
         Ok(rs) => rs,
         Err(e) => {
             return GrimoireResponse::failure(
@@ -63,10 +52,11 @@ pub(in crate::admin_dispatch) async fn cancel_session(
             )
         }
     };
-
-    let cancelled_job_ids: Vec<String> = rows.into_iter().map(|r| r.id).collect();
     GrimoireResponse::success(
-        format!("cancelled {} jobs", cancelled_job_ids.len()),
+        format!(
+            "requested cancellation for {} jobs",
+            cancelled_job_ids.len()
+        ),
         serde_json::json!({
             "session_id": session_id,
             "cancelled_jobs": cancelled_job_ids.len(),

@@ -207,7 +207,8 @@ pub async fn create_video(req: CreateVideoRequest) -> GrimoireResponse<Video> {
             deleted_by,
             '[]' as "images: JsonVec<ImageMetadata>",
             '[]' as "renditions: JsonVec<VideoRendition>",
-            NULL as "play_count: i64""#,
+            NULL as "play_count: i64",
+            EXISTS (SELECT 1 FROM library_offline_blob_view o WHERE o.blob_id = media_blob_id) as "is_offline!: bool""#,
         req.series_id,
         req.season_id,
         req.episode_number,
@@ -295,7 +296,8 @@ pub async fn get_video(id: &str) -> GrimoireResponse<Video> {
             deleted_by,
             images as "images: JsonVec<ImageMetadata>",
             renditions as "renditions: JsonVec<VideoRendition>",
-            play_count as "play_count: i64"
+            play_count as "play_count: i64",
+            is_offline as "is_offline!: bool"
          FROM video_query_view
          WHERE id = ? AND deleted_at IS NULL"#,
         id
@@ -365,6 +367,7 @@ pub async fn get_video_with_metadata(
         images: String,
         renditions: String,
         play_count: Option<i64>,
+        is_offline: bool,
     }
 
     let result = sqlx::query_as::<_, QueryRow>(
@@ -409,7 +412,8 @@ pub async fn get_video_with_metadata(
                         'height', height))
              FROM media_blobz
              WHERE parent_blob_id = v.media_blob_id AND blob_type = 'rendition'), '[]') as renditions,
-            (SELECT COUNT(*) FROM play_eventz WHERE entity_type = 'video' AND entity_id = v.id) as play_count
+            (SELECT COUNT(*) FROM play_eventz WHERE entity_type = 'video' AND entity_id = v.id) as play_count,
+            EXISTS (SELECT 1 FROM library_offline_blob_view o WHERE o.blob_id = v.media_blob_id) as is_offline
          FROM videoz v
          LEFT JOIN media_blobz b ON v.media_blob_id = b.id
          LEFT JOIN user_accountz cu ON v.created_by = cu.id
@@ -473,6 +477,7 @@ pub async fn get_video_with_metadata(
         images: Some(JsonVec(images)),
         renditions: Some(JsonVec(renditions)),
         play_count: row.play_count,
+        is_offline: row.is_offline,
     };
 
     let video_with_metadata = crate::video::VideoWithMetadata {
@@ -530,7 +535,8 @@ pub async fn list_videos_by_series(series_id: &str) -> GrimoireResponse<Vec<Vide
             deleted_by,
             images as "images: JsonVec<ImageMetadata>",
             renditions as "renditions: JsonVec<VideoRendition>",
-            play_count as "play_count: i64"
+            play_count as "play_count: i64",
+            is_offline as "is_offline!: bool"
          FROM video_query_view
          WHERE series_id = ? AND deleted_at IS NULL
          ORDER BY
@@ -590,7 +596,8 @@ pub async fn list_videos_by_season(season_id: &str) -> GrimoireResponse<Vec<Vide
             deleted_by,
             images as "images: JsonVec<ImageMetadata>",
             renditions as "renditions: JsonVec<VideoRendition>",
-            play_count as "play_count: i64"
+            play_count as "play_count: i64",
+            is_offline as "is_offline!: bool"
          FROM video_query_view
          WHERE season_id = ? AND deleted_at IS NULL
          ORDER BY episode_number ASC, created_at ASC"#,
@@ -647,7 +654,8 @@ pub async fn list_videos_by_album(album_id: &str) -> GrimoireResponse<Vec<Video>
             deleted_by,
             images as "images: JsonVec<ImageMetadata>",
             renditions as "renditions: JsonVec<VideoRendition>",
-            play_count as "play_count: i64"
+            play_count as "play_count: i64",
+            is_offline as "is_offline!: bool"
          FROM video_query_view
          WHERE album_id = ? AND deleted_at IS NULL
          ORDER BY title COLLATE NOCASE ASC, created_at ASC"#,
@@ -706,7 +714,8 @@ pub async fn list_videos_by_artist(artist_id: &str) -> GrimoireResponse<Vec<Vide
             deleted_by,
             images as "images: JsonVec<ImageMetadata>",
             renditions as "renditions: JsonVec<VideoRendition>",
-            play_count as "play_count: i64"
+            play_count as "play_count: i64",
+            is_offline as "is_offline!: bool"
          FROM video_query_view
          WHERE deleted_at IS NULL
            AND content_type IN ('music_video', 'karaoke')
@@ -769,7 +778,8 @@ pub async fn list_video_extras(parent_video_id: &str) -> GrimoireResponse<Vec<Vi
             deleted_by,
             images as "images: JsonVec<ImageMetadata>",
             renditions as "renditions: JsonVec<VideoRendition>",
-            play_count as "play_count: i64"
+            play_count as "play_count: i64",
+            is_offline as "is_offline!: bool"
          FROM video_query_view
          WHERE parent_video_id = ? AND deleted_at IS NULL
          ORDER BY created_at ASC"#,
@@ -830,7 +840,8 @@ pub async fn list_videos_unattached(
             deleted_by,
             images as "images: JsonVec<ImageMetadata>",
             renditions as "renditions: JsonVec<VideoRendition>",
-            play_count as "play_count: i64"
+            play_count as "play_count: i64",
+            is_offline as "is_offline!: bool"
          FROM video_query_view
          WHERE series_id IS NULL AND deleted_at IS NULL
          ORDER BY created_at DESC
@@ -892,7 +903,8 @@ pub async fn list_recently_added_videos(limit: Option<u32>) -> GrimoireResponse<
             deleted_by,
             images as "images: JsonVec<ImageMetadata>",
             renditions as "renditions: JsonVec<VideoRendition>",
-            play_count as "play_count: i64"
+            play_count as "play_count: i64",
+            is_offline as "is_offline!: bool"
          FROM video_query_view
          WHERE deleted_at IS NULL
          ORDER BY created_at DESC
@@ -959,7 +971,8 @@ pub async fn list_unassigned_videos(
             deleted_by,
             images as "images: JsonVec<ImageMetadata>",
             renditions as "renditions: JsonVec<VideoRendition>",
-            play_count as "play_count: i64"
+            play_count as "play_count: i64",
+            is_offline as "is_offline!: bool"
          FROM video_query_view
          WHERE deleted_at IS NULL
            AND NOT EXISTS (
@@ -1033,7 +1046,8 @@ pub async fn list_videos_by_taxon_value(
             deleted_by,
             images as "images: JsonVec<ImageMetadata>",
             renditions as "renditions: JsonVec<VideoRendition>",
-            play_count as "play_count: i64"
+            play_count as "play_count: i64",
+            is_offline as "is_offline!: bool"
          FROM video_query_view
          WHERE deleted_at IS NULL
            AND id IN (
@@ -1195,7 +1209,8 @@ pub async fn update_video(req: UpdateVideoRequest) -> GrimoireResponse<Video> {
                  FROM media_blobz
                  WHERE parent_blob_id = videoz.media_blob_id AND blob_type = 'rendition'), '[]')
                     as "renditions: JsonVec<VideoRendition>",
-                (SELECT COUNT(*) FROM play_eventz WHERE entity_type = 'video' AND entity_id = videoz.id) as "play_count: i64""#,
+                (SELECT COUNT(*) FROM play_eventz WHERE entity_type = 'video' AND entity_id = videoz.id) as "play_count: i64",
+                EXISTS (SELECT 1 FROM library_offline_blob_view o WHERE o.blob_id = videoz.media_blob_id) as "is_offline!: bool""#,
         clear_series_flag,
         req.series_id,
         clear_season_flag,

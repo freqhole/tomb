@@ -13,6 +13,48 @@ pub mod watcher;
 
 use crate::app_config::ExternalStorageDevice;
 
+static SYNC_REGISTRATION_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+/// mirrors saved sync registrations before shared library discovery can run.
+pub async fn publish_sync_targets(
+    config: &crate::app_config::FreqholeAppConfig,
+) -> Result<(), String> {
+    let targets = config
+        .external_storage_devices
+        .iter()
+        .map(
+            |device| grimoire::external_storage::sync_priority::SyncTarget {
+                device_id: device.id.clone(),
+                volume_uuid: device.volume_uuid.clone(),
+                path: device.path.clone(),
+            },
+        )
+        .collect::<Vec<_>>();
+    grimoire::external_storage::sync_priority::mirror_targets("charnel", &targets)
+        .await
+        .map_err(|error| format!("could not publish sync disk priority: {error}"))
+}
+
+pub fn load_sync_config(
+    app: &tauri::AppHandle,
+) -> Result<crate::app_config::FreqholeAppConfig, String> {
+    let path = crate::app_config::get_config_path(app)
+        .ok_or_else(|| "could not resolve app config for sync disk priority".to_string())?;
+    match std::fs::read_to_string(&path) {
+        Ok(content) => toml::from_str(&content)
+            .map_err(|error| format!("could not read sync disk registrations: {error}")),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            Ok(crate::app_config::FreqholeAppConfig::default())
+        }
+        Err(error) => Err(format!("could not read sync disk registrations: {error}")),
+    }
+}
+
+pub async fn publish_saved_sync_targets(app: &tauri::AppHandle) -> Result<(), String> {
+    let _guard = SYNC_REGISTRATION_LOCK.lock().await;
+    publish_sync_targets(&load_sync_config(app)?).await
+}
+
 #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
 mod desktop {
     #[cfg(target_os = "windows")]
@@ -434,126 +476,8 @@ fn windows_disk_usage(path: &str) -> Option<(u64, u64)> {
     Some((total?, free?))
 }
 
-/// linux mount-table helpers, read straight from /proc - no external tools,
-/// so these keep working inside a flatpak sandbox (where util-linux and
-/// udisks are absent) and on minimal installs.
 #[cfg(target_os = "linux")]
-mod linux_mounts {
-    use std::path::PathBuf;
-
-    /// `(source_device, mount_point)` for the deepest mount point that
-    /// contains `path`.
-    pub fn mount_for_path(path: &str) -> Option<(String, PathBuf)> {
-        let target = std::fs::canonicalize(path).unwrap_or_else(|_| PathBuf::from(path));
-        let table = std::fs::read_to_string("/proc/mounts").ok()?;
-        let mut best: Option<(String, PathBuf)> = None;
-        for line in table.lines() {
-            let mut fields = line.split_whitespace();
-            let (Some(source), Some(mount_point)) = (fields.next(), fields.next()) else {
-                continue;
-            };
-            let mount_point = PathBuf::from(unescape_mount_field(mount_point));
-            if !target.starts_with(&mount_point) {
-                continue;
-            }
-            let deeper = best.as_ref().is_none_or(|(_, best_mp)| {
-                mount_point.components().count() > best_mp.components().count()
-            });
-            if deeper {
-                best = Some((unescape_mount_field(source), mount_point));
-            }
-        }
-        best
-    }
-
-    /// a path under a removable-media root (`/media`, `/run/media`, `/mnt`)
-    /// that still exists but is no longer backed by a mount - i.e. the empty
-    /// directory left behind after the drive was unmounted.
-    ///
-    /// deliberately narrow: a sync target that's just a folder on the
-    /// internal disk is not a mount point either, and must not be reported
-    /// as unmounted.
-    pub fn is_stale_media_mount_point(path: &str) -> bool {
-        let under_media_root = ["/media/", "/run/media/", "/mnt/"]
-            .iter()
-            .any(|root| path.starts_with(root));
-        if !under_media_root {
-            return false;
-        }
-        // still mounted if the deepest mount containing the path is itself
-        // one of those media directories rather than the root filesystem.
-        match mount_for_path(path) {
-            Some((_, mount_point)) => {
-                let mp = mount_point.to_string_lossy();
-                !(mp.starts_with("/media/")
-                    || mp.starts_with("/run/media/")
-                    || mp.starts_with("/mnt/"))
-            }
-            None => true,
-        }
-    }
-
-    /// find the entry in a `/dev/disk/by-*` directory whose symlink resolves
-    /// to `device`, returning the (decoded) entry name - i.e. the label or
-    /// uuid for that block device.
-    pub fn lookup_by_link(dir: &str, device: &str) -> Option<String> {
-        let device = std::fs::canonicalize(device).ok()?;
-        for entry in std::fs::read_dir(dir).ok()?.flatten() {
-            if std::fs::canonicalize(entry.path()).ok()? == device {
-                return entry.file_name().to_str().map(decode_hex_escapes);
-            }
-        }
-        None
-    }
-
-    /// /proc/mounts octal-escapes spaces, tabs, newlines and backslashes.
-    fn unescape_mount_field(raw: &str) -> String {
-        let mut out = String::with_capacity(raw.len());
-        let mut chars = raw.chars();
-        while let Some(c) = chars.next() {
-            if c != '\\' {
-                out.push(c);
-                continue;
-            }
-            let digits: String = chars.clone().take(3).collect();
-            match u8::from_str_radix(&digits, 8) {
-                Ok(byte) if digits.len() == 3 => {
-                    out.push(byte as char);
-                    for _ in 0..3 {
-                        chars.next();
-                    }
-                }
-                _ => out.push(c),
-            }
-        }
-        out
-    }
-
-    /// udev escapes non-alphanumerics in /dev/disk/by-label names as `\x20`.
-    fn decode_hex_escapes(raw: &str) -> String {
-        let mut out = String::with_capacity(raw.len());
-        let mut chars = raw.chars().peekable();
-        while let Some(c) = chars.next() {
-            if c != '\\' || chars.peek() != Some(&'x') {
-                out.push(c);
-                continue;
-            }
-            let mut lookahead = chars.clone();
-            lookahead.next(); // 'x'
-            let digits: String = lookahead.take(2).collect();
-            match u8::from_str_radix(&digits, 16) {
-                Ok(byte) if digits.len() == 2 => {
-                    out.push(byte as char);
-                    for _ in 0..3 {
-                        chars.next();
-                    }
-                }
-                _ => out.push(c),
-            }
-        }
-        out
-    }
-}
+use grimoire::external_storage::mounts as linux_mounts;
 
 /// does the configured device still look mounted/present? checked by
 /// path existence, refined by a re-check of the volume uuid when we

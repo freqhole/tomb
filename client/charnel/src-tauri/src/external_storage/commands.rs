@@ -344,6 +344,7 @@ pub async fn external_storage_command(
         }
 
         ExternalStorageAction::AddDevice { path, subpath } => {
+            let _guard = super::SYNC_REGISTRATION_LOCK.lock().await;
             let resolved_path = grimoire::paths::canonical_path_string(&path);
             let (volume_name, volume_uuid) = resolve_volume_info(&resolved_path);
             let id = volume_uuid.clone().unwrap_or_else(|| resolved_path.clone());
@@ -351,7 +352,7 @@ pub async fn external_storage_command(
                 .map(|s| path_naming::sanitize_subpath(&s))
                 .filter(|s| !s.is_empty());
 
-            let mut config = FreqholeAppConfig::load(&app_handle).unwrap_or_default();
+            let mut config = super::load_sync_config(&app_handle)?;
 
             let device = if let Some(existing) = config
                 .external_storage_devices
@@ -378,6 +379,9 @@ pub async fn external_storage_command(
             };
 
             config.active_external_storage_device_id = Some(id);
+            // reserve before saving: on a config write failure a conservative
+            // exclusion is safer than importing a sync destination as a source.
+            super::publish_sync_targets(&config).await?;
             config.save(&app_handle)?;
             // first device just got configured - safe to start the mount
             // watcher now (no-op if it's already running).
@@ -393,12 +397,14 @@ pub async fn external_storage_command(
         }
 
         ExternalStorageAction::RemoveDevice { id } => {
-            let mut config = FreqholeAppConfig::load(&app_handle).unwrap_or_default();
+            let _guard = super::SYNC_REGISTRATION_LOCK.lock().await;
+            let mut config = super::load_sync_config(&app_handle)?;
             config.external_storage_devices.retain(|d| d.id != id);
             if config.active_external_storage_device_id.as_deref() == Some(id.as_str()) {
                 config.active_external_storage_device_id = None;
             }
             config.save(&app_handle)?;
+            super::publish_sync_targets(&config).await?;
             to_value(())
         }
 

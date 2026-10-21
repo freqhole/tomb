@@ -33,13 +33,15 @@ fn main() {
         return;
     }
 
-    // create views in dependency order (artist first, then others that reference it)
+    // restore availability dependencies before query views, just like runtime startup.
     let views_dir = Path::new(&manifest_dir)
         .parent()
         .unwrap()
         .join("migrations/views");
 
     for view_file in [
+        "library_source_availability.sql",
+        "library_container_availability.sql",
         "artist_query_view.sql",
         "album_query_view.sql",
         "song_query_view.sql",
@@ -48,6 +50,7 @@ fn main() {
         "video_query_view.sql",
     ] {
         let sql_path = views_dir.join(view_file);
+        println!("cargo:rerun-if-changed={}", sql_path.display());
         let Ok(sql) = std::fs::read_to_string(&sql_path) else {
             continue;
         };

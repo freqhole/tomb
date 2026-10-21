@@ -1,6 +1,8 @@
 import { createSignal, onCleanup, createEffect, For, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 import { Icon } from "../icons/registry";
+import { currentMenuViewport, dropdownPosition } from "../overlays/dropdownPosition";
+import type { JSX } from "solid-js";
 
 /** one audio output device, as reported by whichever backend is actually
  * playing (local libmpv backend, or a paired remote player) - duck-typed
@@ -52,6 +54,29 @@ export function VolumeControl(props: VolumeControlProps) {
   // no "is this the live one" flag), so this is optimistic, not
   // authoritative. resets whenever the picker is reopened fresh.
   const [selectedDevice, setSelectedDevice] = createSignal<string | null>(null);
+  let deviceTriggerRef: HTMLButtonElement | undefined;
+  const [devicePosition, setDevicePosition] = createSignal<JSX.CSSProperties>({});
+  createEffect(() => {
+    if (!showDevices()) return;
+    const update = () => {
+      if (deviceTriggerRef) {
+        setDevicePosition(
+          dropdownPosition(deviceTriggerRef.getBoundingClientRect(), currentMenuViewport())
+        );
+      }
+    };
+    update();
+    window.addEventListener("resize", update);
+    window.addEventListener("scroll", update, true);
+    window.visualViewport?.addEventListener("resize", update);
+    window.visualViewport?.addEventListener("scroll", update);
+    onCleanup(() => {
+      window.removeEventListener("resize", update);
+      window.removeEventListener("scroll", update, true);
+      window.visualViewport?.removeEventListener("resize", update);
+      window.visualViewport?.removeEventListener("scroll", update);
+    });
+  });
   let hideTimeout: number | null = null;
   // the flyout is portaled to document.body (see the render below for why -
   // PlayerBar's own root is `position: fixed` + `z-50`, which makes it a
@@ -163,6 +188,7 @@ export function VolumeControl(props: VolumeControlProps) {
       onMouseLeave={() => closePanel()}
     >
       <button
+        ref={deviceTriggerRef}
         class="p-2 rounded-full hover:bg-[var(--color-accent-500)]/20 transition-colors"
         onClick={togglePanel}
         title={`volume: ${volumePercentage()}%`}
@@ -228,41 +254,49 @@ export function VolumeControl(props: VolumeControlProps) {
                   </button>
 
                   <Show when={showDevices()}>
-                    <div
-                      class="absolute right-0 bottom-full mb-2 min-w-[12rem] max-w-[16rem] max-h-56 overflow-y-auto rounded-lg bg-[var(--color-bg-primary)]/95 backdrop-blur-xl border border-[var(--color-accent-500)]/30 shadow-lg z-[2001] py-1"
-                      data-testid="device-picker-list"
-                    >
-                      <Show when={devicesLoading()}>
-                        <div class="px-3 py-2 text-xs text-[var(--color-text-secondary)]">
-                          loading devices…
-                        </div>
-                      </Show>
-                      <Show when={!devicesLoading() && (devices()?.length ?? 0) === 0}>
-                        <div class="px-3 py-2 text-xs text-[var(--color-text-secondary)]">
-                          no output devices available
-                        </div>
-                      </Show>
-                      <For each={devicesLoading() ? [] : (devices() ?? [])}>
-                        {(device) => (
-                          <button
-                            type="button"
-                            class="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-left hover:bg-[var(--color-accent-500)]/20 transition-colors"
-                            classList={{
-                              "text-[var(--color-accent-500)] font-medium":
-                                selectedDevice() === device.name,
-                              "text-[var(--color-text-primary)]": selectedDevice() !== device.name,
-                            }}
-                            onClick={() => pickDevice(device.name)}
-                            title={device.description}
-                          >
-                            <Show when={selectedDevice() === device.name}>
-                              <Icon name="check" size={12} color="var(--color-accent-500)" />
-                            </Show>
-                            <span class="truncate">{device.description}</span>
-                          </button>
-                        )}
-                      </For>
-                    </div>
+                    <Portal mount={document.body}>
+                      <div
+                        class="w-64 overflow-y-auto overflow-x-hidden whitespace-normal rounded-lg bg-[var(--color-bg-primary)]/95 backdrop-blur-xl border border-[var(--color-accent-500)]/30 shadow-lg z-[2001] py-1"
+                        style={devicePosition()}
+                        data-testid="device-picker-list"
+                        onMouseEnter={cancelHideTimeout}
+                        onMouseLeave={() => closePanel()}
+                      >
+                        <Show when={devicesLoading()}>
+                          <div class="px-3 py-2 text-xs text-[var(--color-text-secondary)]">
+                            loading devices…
+                          </div>
+                        </Show>
+                        <Show when={!devicesLoading() && (devices()?.length ?? 0) === 0}>
+                          <div class="px-3 py-2 text-xs text-[var(--color-text-secondary)]">
+                            no output devices available
+                          </div>
+                        </Show>
+                        <For each={devicesLoading() ? [] : (devices() ?? [])}>
+                          {(device) => (
+                            <button
+                              type="button"
+                              class="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-left hover:bg-[var(--color-accent-500)]/20 transition-colors"
+                              classList={{
+                                "text-[var(--color-accent-500)] font-medium":
+                                  selectedDevice() === device.name,
+                                "text-[var(--color-text-primary)]":
+                                  selectedDevice() !== device.name,
+                              }}
+                              onClick={() => pickDevice(device.name)}
+                              title={device.description}
+                            >
+                              <Show when={selectedDevice() === device.name}>
+                                <Icon name="check" size={12} color="var(--color-accent-500)" />
+                              </Show>
+                              <span class="min-w-0 break-words [overflow-wrap:anywhere]">
+                                {device.description}
+                              </span>
+                            </button>
+                          )}
+                        </For>
+                      </div>
+                    </Portal>
                   </Show>
                 </div>
               </Show>

@@ -121,6 +121,7 @@ enum CommonColumns {
 #[derive(sqlx::FromRow)]
 pub struct SongViewRow {
     song_id: String,
+    is_offline: bool,
     song_media_blob_id: String,
     // media blob fields for P2P verified streaming
     media_blob_blake3: Option<String>,
@@ -376,6 +377,7 @@ impl SongViewRow {
         });
 
         SongQueryResult {
+            is_offline: self.is_offline,
             song,
             artist,
             album,
@@ -401,6 +403,7 @@ impl SongViewRow {
 // Row structures for other views
 #[derive(sqlx::FromRow)]
 pub struct ArtistViewRow {
+    is_offline: bool,
     artist_id: String,
     artist_name: String,
     artist_bio: Option<String>,
@@ -472,6 +475,7 @@ impl ArtistViewRow {
         };
 
         ArtistQueryResult {
+            is_offline: self.is_offline,
             artist,
             images,
             song_count: self.song_count,
@@ -487,6 +491,7 @@ impl ArtistViewRow {
 
 #[derive(sqlx::FromRow)]
 pub struct AlbumViewRow {
+    is_offline: bool,
     album_id: String,
     album_title: String,
     album_album_type: Option<String>,
@@ -675,6 +680,7 @@ impl AlbumViewRow {
         };
 
         AlbumQueryResult {
+            is_offline: self.is_offline,
             album,
             artist,
             genre: None,
@@ -696,6 +702,12 @@ fn add_global_filters(
     artist_col: impl Iden + 'static,
     album_col: impl Iden + 'static,
 ) {
+    if params.filters.get("hide_offline").and_then(|v| v.as_bool()) == Some(true) {
+        query.and_where(Expr::cust("is_offline = 0"));
+    }
+    if params.filters.get("offline_only").and_then(|v| v.as_bool()) == Some(true) {
+        query.and_where(Expr::cust("is_offline = 1"));
+    }
     // Search across multiple fields
     if let Some(search_term) = params.q.as_ref().filter(|s| !s.trim().is_empty()) {
         let pattern = format!("%{}%", search_term);
@@ -919,13 +931,20 @@ fn add_global_filters(
 
 // Main query functions
 pub async fn query_songs(params: QueryParams) -> GrimoireResponse<QueryResult<SongQueryResult>> {
-    let start_time = Instant::now();
     let pool = match database::connect().await {
         Ok(pool) => pool,
         Err(err) => {
             return GrimoireResponse::failure("Failed to connect to database", vec![err.into()])
         }
     };
+    query_songs_with_pool(pool, params).await
+}
+
+pub(crate) async fn query_songs_with_pool(
+    pool: sqlx::SqlitePool,
+    params: QueryParams,
+) -> GrimoireResponse<QueryResult<SongQueryResult>> {
+    let start_time = Instant::now();
     let limit = params.limit.unwrap_or(50).min(1000);
     let offset = params.offset.unwrap_or(0);
 
@@ -990,7 +1009,31 @@ pub async fn query_songs(params: QueryParams) -> GrimoireResponse<QueryResult<So
         SongView::AlbumTitle,
     );
 
-    // Song-specific ordering (always preserve album grouping)
+    let mut count_query = query.clone();
+    count_query.clear_selects().expr(Expr::cust("COUNT(*)"));
+    let (count_sql, count_values) = count_query.build(SqliteQueryBuilder);
+    let mut count_sqlx = sqlx::query_scalar::<_, i64>(&count_sql);
+    for value in count_values.0 {
+        count_sqlx = match value {
+            sea_query::Value::String(Some(s)) => count_sqlx.bind(s.to_string()),
+            sea_query::Value::Int(Some(i)) => count_sqlx.bind(i),
+            sea_query::Value::BigUnsigned(Some(u)) => count_sqlx.bind(u as i64),
+            _ => {
+                return GrimoireResponse::failure(
+                    "unsupported parameter type in song count",
+                    vec![crate::error::GrimoireError::Database(sqlx::Error::Protocol(
+                        "unsupported parameter type in song count".into(),
+                    ))
+                    .into()],
+                );
+            }
+        };
+    }
+    let total_count = match count_sqlx.fetch_one(&pool).await {
+        Ok(count) => count,
+        Err(err) => return GrimoireResponse::failure("failed to count songs", vec![err.into()]),
+    };
+    // song-specific ordering preserves album grouping.
     let sort_direction = match params.sort_direction.as_deref() {
         Some("desc") => Order::Desc,
         _ => Order::Asc,
@@ -1120,8 +1163,8 @@ pub async fn query_songs(params: QueryParams) -> GrimoireResponse<QueryResult<So
         format!("Found {} song(s)", song_count),
         QueryResult {
             items: songs,
-            total_count: song_count as i64,
-            has_more: song_count == limit as usize,
+            total_count,
+            has_more: (offset as i64 + song_count as i64) < total_count,
             limit: limit as i64,
             offset: offset as i64,
             query_time_ms: Some(start_time.elapsed().as_millis() as u64),
@@ -1130,13 +1173,20 @@ pub async fn query_songs(params: QueryParams) -> GrimoireResponse<QueryResult<So
 }
 
 pub async fn query_albums(params: QueryParams) -> GrimoireResponse<QueryResult<AlbumQueryResult>> {
-    let start_time = Instant::now();
     let pool = match database::connect().await {
         Ok(pool) => pool,
         Err(err) => {
             return GrimoireResponse::failure("Failed to connect to database", vec![err.into()])
         }
     };
+    query_albums_with_pool(pool, params).await
+}
+
+pub(crate) async fn query_albums_with_pool(
+    pool: sqlx::SqlitePool,
+    params: QueryParams,
+) -> GrimoireResponse<QueryResult<AlbumQueryResult>> {
+    let start_time = Instant::now();
     let limit = params.limit.unwrap_or(50).min(1000);
     let offset = params.offset.unwrap_or(0);
 
@@ -1343,7 +1393,13 @@ pub async fn query_album_status_counts(params: QueryParams) -> GrimoireResponse<
             return GrimoireResponse::failure("Failed to connect to database", vec![err.into()])
         }
     };
+    query_album_status_counts_with_pool(pool, params).await
+}
 
+pub(crate) async fn query_album_status_counts_with_pool(
+    pool: sqlx::SqlitePool,
+    params: QueryParams,
+) -> GrimoireResponse<AlbumStatusCounts> {
     // build base WHERE (same global filters as query_albums, minus status filter)
     let mut base_q = Query::select();
     base_q
@@ -1422,19 +1478,32 @@ pub async fn query_album_status_counts(params: QueryParams) -> GrimoireResponse<
 pub async fn query_artists(
     params: QueryParams,
 ) -> GrimoireResponse<QueryResult<ArtistQueryResult>> {
-    let start_time = Instant::now();
     let pool = match database::connect().await {
         Ok(pool) => pool,
         Err(err) => {
             return GrimoireResponse::failure("Failed to connect to database", vec![err.into()])
         }
     };
+    query_artists_with_pool(pool, params).await
+}
+
+pub(crate) async fn query_artists_with_pool(
+    pool: sqlx::SqlitePool,
+    params: QueryParams,
+) -> GrimoireResponse<QueryResult<ArtistQueryResult>> {
+    let start_time = Instant::now();
     let limit = params.limit.unwrap_or(50).min(1000);
     let offset = params.offset.unwrap_or(0);
 
     // helper: apply all WHERE filters to a query (used for both count + data
     // queries to keep them in sync).
     let apply_filters = |q: &mut SelectStatement| {
+        if params.filters.get("hide_offline").and_then(|v| v.as_bool()) == Some(true) {
+            q.and_where(Expr::cust("is_offline = 0"));
+        }
+        if params.filters.get("offline_only").and_then(|v| v.as_bool()) == Some(true) {
+            q.and_where(Expr::cust("is_offline = 1"));
+        }
         if let Some(search_term) = params.q.as_ref().filter(|s| !s.trim().is_empty()) {
             let pattern = format!("%{}%", search_term);
             q.cond_where(

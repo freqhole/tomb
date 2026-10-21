@@ -8,6 +8,7 @@ import { PlayIcon } from "../../components/icons/registry";
 import { FavoriteHeart } from "../../components/ratings/FavoriteHeart";
 import { MediaImage } from "../../components/media/MediaImage";
 import { MarqueeText } from "../../components/text/MarqueeText";
+import { OfflineBadge } from "../../components/badges/OfflineBadge";
 import type { VideoSeries } from "../data/types";
 
 export interface VideoSeriesCardProps {
@@ -29,6 +30,7 @@ export function VideoSeriesCard(props: VideoSeriesCardProps) {
   return (
     <div
       class="bg-[var(--color-bg-primary)] rounded-lg p-4 hover:bg-[var(--color-bg-elevated)] transition-colors cursor-pointer group"
+      classList={{ "opacity-60": props.series.is_offline }}
       onClick={() => props.onClick?.(props.series)}
       onContextMenu={(e) => {
         // only intercept when a handler is actually wired up - otherwise
@@ -83,9 +85,10 @@ export function VideoSeriesCard(props: VideoSeriesCardProps) {
               class="w-12 h-12 bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] text-[var(--color-text-on-accent)] flex items-center justify-center rounded-full transition-colors"
               onClick={(e) => {
                 e.stopPropagation();
-                props.onPlay?.(props.series);
+                if (!props.series.is_offline) props.onPlay?.(props.series);
               }}
-              title="play series"
+              disabled={props.series.is_offline}
+              title={props.series.is_offline ? "media is on offline storage" : "play series"}
             >
               <PlayIcon size={24} className="ml-1" />
             </button>
@@ -93,6 +96,7 @@ export function VideoSeriesCard(props: VideoSeriesCardProps) {
         </Show>
       </div>
       <div class="space-y-1 min-w-0">
+        <OfflineBadge isOffline={props.series.is_offline} />
         <MarqueeText
           text={props.series.title}
           class="text-[var(--color-text-primary)] font-medium text-xs group-hover:text-[var(--color-accent-500)] transition-colors"

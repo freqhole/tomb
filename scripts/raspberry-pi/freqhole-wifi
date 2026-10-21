@@ -1,0 +1,45 @@
+#!/usr/bin/python3
+"""manual Wi-Fi provisioning controls; credentials are shown locally, not logged."""
+
+import argparse
+import json
+from pathlib import Path
+import subprocess
+
+
+def status():
+    properties = subprocess.run(
+        ["systemctl", "show", "freqhole-wifi.service", "--property=LoadState,ActiveState,Result"],
+        capture_output=True, text=True, check=True, timeout=5,
+    )
+    state = dict(line.split("=", 1) for line in properties.stdout.splitlines() if "=" in line)
+    if state.get("LoadState") != "loaded" or state.get("ActiveState") not in (
+        "active", "inactive", "failed", "activating", "deactivating",
+    ):
+        raise ValueError("Wi-Fi provisioning service is not installed")
+    return {"state": state["ActiveState"], "result": state.get("Result", "unknown")}
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("action", choices=("start", "stop", "status", "info"))
+    args = parser.parse_args()
+    try:
+        info = json.loads((Path.home() / ".local/share/freqhole-pi/wifi.json").read_text())
+        if args.action in ("start", "stop"):
+            subprocess.run(
+                ["sudo", "-n", "/usr/local/libexec/freqhole-pi-control", f"wifi-{args.action}"],
+                check=True, timeout=30,
+            )
+        if args.action == "status":
+            print(json.dumps(status()))
+        elif args.action != "stop":
+            print(f'connect to: {info["ssid"]}\npassword: {info["passphrase"]}')
+            print(f'open http://{info["gateway"]} if the portal does not appear.')
+            print("setup may disconnect Wi-Fi/SSH; maximum session: ten minutes.")
+    except (OSError, ValueError, KeyError, subprocess.SubprocessError) as error:
+        parser.exit(1, f"wifi setup failed: {error}\n")
+
+
+if __name__ == "__main__":
+    main()

@@ -63,6 +63,9 @@ pub struct SetupArgs {
     /// force setup even if config already exists
     #[arg(long)]
     pub force: bool,
+    /// enable local unix socket controls (for OLED/buttons)
+    #[arg(long)]
+    pub control_socket: bool,
 }
 
 pub async fn run(args: SetupArgs) -> Result<()> {
@@ -320,6 +323,7 @@ pub async fn run(args: SetupArgs) -> Result<()> {
 
     // use SetupService to run everything
     let setup_config = SetupConfig {
+        control_socket_enabled: args.control_socket,
         config_path: config_path.clone(),
         data_dir: data_dir.clone(),
         server_name: server_name.clone(),

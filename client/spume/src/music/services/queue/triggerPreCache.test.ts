@@ -39,6 +39,46 @@ beforeEach(() => {
 });
 
 describe("triggerPreCache", () => {
+  it("omits offline audio/video before calculating pre-cache indices without changing the queue", () => {
+    const a = songItem("a");
+    const offlineSong = songItem("offline-song").mediaItem;
+    const offlineVideo = videoItem("offline-video").mediaItem;
+    if (offlineSong.kind === "song") offlineSong.song.is_offline = true;
+    if (offlineVideo.kind === "video") offlineVideo.video.is_offline = true;
+    const v = videoItem("current-video");
+    const b = songItem("next-song");
+    const nextVideo = videoItem("next-video");
+    const queue = [
+      offlineSong,
+      a.mediaItem,
+      offlineVideo,
+      v.mediaItem,
+      b.mediaItem,
+      nextVideo.mediaItem,
+    ];
+    triggerPreCache(queue, "current-video");
+    expect(preCacheNextSongs).toHaveBeenCalledWith(
+      null,
+      [a.inner, b.inner],
+      PRE_CACHE_MINUTES_AHEAD,
+      1
+    );
+    expect(preCacheNextP2PSongs).toHaveBeenCalledWith(
+      null,
+      [a.inner, b.inner],
+      PRE_CACHE_MINUTES_AHEAD,
+      1
+    );
+    expect(preCacheNextVideos).toHaveBeenCalledWith(
+      [v.inner, nextVideo.inner],
+      PRE_CACHE_MINUTES_AHEAD,
+      1
+    );
+    expect(queue).toHaveLength(6);
+    expect(queue[0]).toBe(offlineSong);
+    expect(queue[2]).toBe(offlineVideo);
+  });
+
   it("no-ops when currentKey is falsy", () => {
     const a = songItem("a");
     const b = songItem("b");

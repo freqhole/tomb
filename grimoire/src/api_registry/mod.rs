@@ -407,6 +407,54 @@ pub mod type_registry {
     };
 
     pub fn register_all_types(gen: &mut ZodGenerator, registered: &mut HashSet<String>) {
+        gen.add_schema::<crate::offal::music::library::LibraryAvailabilityRevision>(
+            "LibraryAvailabilityRevision",
+        );
+        registered.insert("LibraryAvailabilityRevision".to_string());
+        gen.add_schema::<crate::external_storage::inventory::RemovableVolume>("RemovableVolume");
+        registered.insert("RemovableVolume".to_string());
+        gen.add_schema::<crate::external_storage::sources::SourceDomain>("SourceDomain");
+        registered.insert("SourceDomain".to_string());
+        gen.add_schema::<crate::external_storage::sources::SourceSelection>("SourceSelection");
+        registered.insert("SourceSelection".to_string());
+        gen.add_schema::<crate::external_storage::sources::LibrarySource>("LibrarySource");
+        registered.insert("LibrarySource".to_string());
+        gen.add_schema::<crate::external_storage::sources::SourceFolder>("SourceFolder");
+        registered.insert("SourceFolder".to_string());
+        gen.add_schema::<crate::external_storage::availability::SourceAvailability>(
+            "SourceAvailability",
+        );
+        registered.insert("SourceAvailability".to_string());
+        gen.add_schema::<crate::admin_dispatch::types::library::LibrarySourceByIdRequest>(
+            "LibrarySourceByIdRequest",
+        );
+        registered.insert("LibrarySourceByIdRequest".to_string());
+        gen.add_schema::<crate::admin_dispatch::types::library::LibraryRegisterSourceRequest>(
+            "LibraryRegisterSourceRequest",
+        );
+        registered.insert("LibraryRegisterSourceRequest".to_string());
+        gen.add_schema::<crate::external_storage::management::LibrarySourceSummary>(
+            "LibrarySourceSummary",
+        );
+        registered.insert("LibrarySourceSummary".to_string());
+        gen.add_schema::<crate::external_storage::management::ActiveLibraryScan>(
+            "ActiveLibraryScan",
+        );
+        registered.insert("ActiveLibraryScan".to_string());
+        gen.add_schema::<crate::external_storage::management::LibraryRenditionSettings>(
+            "LibraryRenditionSettings",
+        );
+        registered.insert("LibraryRenditionSettings".to_string());
+        gen.add_schema::<crate::admin_dispatch::types::library::LibraryScanResponse>(
+            "LibraryScanResponse",
+        );
+        registered.insert("LibraryScanResponse".to_string());
+        gen.add_schema::<crate::admin_dispatch::types::library::LibraryScanStatusRequest>(
+            "LibraryScanStatusRequest",
+        );
+        registered.insert("LibraryScanStatusRequest".to_string());
+        gen.add_schema::<crate::jobs::SessionJobCounts>("SessionJobCounts");
+        registered.insert("SessionJobCounts".to_string());
         // auth types
         gen.add_schema::<WhoAmIResponse>("WhoAmIResponse");
         registered.insert("WhoAmIResponse".to_string());

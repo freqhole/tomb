@@ -343,6 +343,21 @@ fn my_function() {
 
 the grimoire job system provides unified background task processing with retry logic and session support.
 
+the runner acquires an OS-released lock beside its database before recovering interrupted
+jobs. this runs in the background runner task, not the UI startup path; a second runner
+waits asynchronously rather than recovering another runner's work. the one-shot CLI runner
+reports a busy database instead.
+
+interrupted `ProcessDirectory`/`ProcessFile` jobs retry within their existing retry budget.
+other interrupted jobs fail with `job_interrupted`, allowing explicit review/retry rather
+than replaying old transcodes, repairs or file moves. graceful shutdown drains for up to ten
+seconds, then records unfinished workers; charnel asynchronously awaits that shutdown.
+
+session cancellation stops pending work immediately. running directory imports stop between
+files, remain busy until acknowledged, and retain already-imported media. new child jobs
+(including session-less descendants) are rejected after cancellation; late completion/error
+writes cannot overwrite it. the library scan card can cancel all sessions it is displaying.
+
 ### job types
 
 jobs are defined in `grimoire/src/jobs/models.rs`:

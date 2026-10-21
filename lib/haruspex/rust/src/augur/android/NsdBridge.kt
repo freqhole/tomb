@@ -117,8 +117,16 @@ object NsdBridge {
     // in flight (a well-known, long-standing nsdmanager quirk, not fixed
     // across all android versions this app supports) - so found services
     // are queued and resolved one at a time instead of concurrently.
-    private val pendingResolves = ArrayDeque<NsdServiceInfo>()
+    private data class ResolveRequest(
+        val info: NsdServiceInfo,
+        val generation: Long,
+        val revision: Long,
+    )
+    private val pendingResolves = ArrayDeque<ResolveRequest>()
     private var resolving = false
+    private var discoveryGeneration = 0L
+    private var serviceRevision = 0L
+    private val presentServices = mutableMapOf<String, Long>()
 
     /**
      * starts browsing for other augur endpoints under `serviceType`.
@@ -127,20 +135,36 @@ object NsdBridge {
      */
     @JvmStatic
     fun startDiscovery(context: Context, serviceType: String) {
+        synchronized(NsdBridge) { startDiscoveryLocked(context, serviceType) }
+    }
+
+    private fun startDiscoveryLocked(context: Context, serviceType: String) {
         if (discoveryListener != null) return
         val manager = nsdManagerFor(context)
+        val generation = ++discoveryGeneration
         val listener = object : NsdManager.DiscoveryListener {
             override fun onDiscoveryStarted(regType: String) {
                 Log.d(TAG, "discovery started for $regType")
             }
 
             override fun onServiceFound(info: NsdServiceInfo) {
-                synchronized(pendingResolves) { pendingResolves.addLast(info) }
-                resolveNext(manager)
+                synchronized(NsdBridge) {
+                    if (generation != discoveryGeneration || discoveryListener == null) return
+                    val revision = ++serviceRevision
+                    presentServices[info.serviceName] = revision
+                    pendingResolves.removeAll { it.info.serviceName == info.serviceName }
+                    pendingResolves.addLast(ResolveRequest(info, generation, revision))
+                    resolveNext(manager)
+                }
             }
 
             override fun onServiceLost(info: NsdServiceInfo) {
-                nativeOnLost(info.serviceName)
+                synchronized(NsdBridge) {
+                    if (generation != discoveryGeneration || discoveryListener == null) return
+                    presentServices.remove(info.serviceName)
+                    pendingResolves.removeAll { it.info.serviceName == info.serviceName }
+                    nativeOnLost(info.serviceName)
+                }
             }
 
             override fun onDiscoveryStopped(regType: String) {
@@ -149,7 +173,12 @@ object NsdBridge {
 
             override fun onStartDiscoveryFailed(regType: String, errorCode: Int) {
                 Log.w(TAG, "discovery failed to start, error $errorCode")
-                discoveryListener = null
+                synchronized(NsdBridge) {
+                    if (generation != discoveryGeneration) return
+                    discoveryListener = null
+                    pendingResolves.clear()
+                    presentServices.clear()
+                }
             }
 
             override fun onStopDiscoveryFailed(regType: String, errorCode: Int) {
@@ -168,12 +197,18 @@ object NsdBridge {
      */
     @JvmStatic
     fun stopDiscovery() {
-        val listener = discoveryListener ?: return
+        synchronized(NsdBridge) { stopDiscoveryLocked() }
+    }
+
+    private fun stopDiscoveryLocked() {
+        val listener = discoveryListener
         discoveryListener = null
-        synchronized(pendingResolves) {
-            pendingResolves.clear()
-            resolving = false
-        }
+        ++discoveryGeneration
+        pendingResolves.clear()
+        presentServices.clear()
+        // an old resolve still owns NsdManager's single resolve slot until
+        // its callback completes; reopening must not start a concurrent one.
+        if (listener == null) return
         runCatching { nsdManager?.stopServiceDiscovery(listener) }
             .onFailure { Log.w(TAG, "stopDiscovery: failed", it) }
     }
@@ -182,29 +217,33 @@ object NsdBridge {
     // deprecated in favor of api-34+ overloads (`executor` param,
     // `hostAddresses` list) - deliberately kept since minSdk here is 24.
     @Suppress("DEPRECATION")
+    @Synchronized
     private fun resolveNext(manager: NsdManager) {
-        val next = synchronized(pendingResolves) {
-            if (resolving) return
-            val candidate = pendingResolves.removeFirstOrNull() ?: return
-            resolving = true
-            candidate
-        }
-        manager.resolveService(next, object : NsdManager.ResolveListener {
+        if (resolving) return
+        val next = pendingResolves.removeFirstOrNull() ?: return
+        resolving = true
+        manager.resolveService(next.info, object : NsdManager.ResolveListener {
             override fun onResolveFailed(info: NsdServiceInfo, errorCode: Int) {
                 Log.w(TAG, "resolve failed for ${info.serviceName}, error $errorCode")
-                synchronized(pendingResolves) { resolving = false }
-                resolveNext(manager)
+                synchronized(NsdBridge) {
+                    resolving = false
+                    resolveNext(manager)
+                }
             }
 
             override fun onServiceResolved(info: NsdServiceInfo) {
-                val host = info.host?.hostAddress ?: ""
-                if (host.isNotEmpty()) {
-                    val userData = String(info.attributes["user-data"] ?: ByteArray(0))
-                    val relayUrl = String(info.attributes["relay"] ?: ByteArray(0))
-                    nativeOnResolved(info.serviceName, host, info.port, userData, relayUrl)
+                synchronized(NsdBridge) {
+                    val current = next.generation == discoveryGeneration &&
+                        presentServices[next.info.serviceName] == next.revision
+                    val host = info.host?.hostAddress ?: ""
+                    if (current && host.isNotEmpty()) {
+                        val userData = String(info.attributes["user-data"] ?: ByteArray(0))
+                        val relayUrl = String(info.attributes["relay"] ?: ByteArray(0))
+                        nativeOnResolved(info.serviceName, host, info.port, userData, relayUrl)
+                    }
+                    resolving = false
+                    resolveNext(manager)
                 }
-                synchronized(pendingResolves) { resolving = false }
-                resolveNext(manager)
             }
         })
     }

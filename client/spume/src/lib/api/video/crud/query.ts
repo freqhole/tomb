@@ -33,6 +33,7 @@ async function videoToQueryResult(
     title: video.title,
     description: video.description,
     media_blob_id: video.blake3 ?? "",
+    is_offline: false,
     poster_blob_id: null,
     duration_seconds: video.duration_seconds,
     release_date: video.release_date,

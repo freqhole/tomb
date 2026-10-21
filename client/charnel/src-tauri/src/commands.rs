@@ -382,6 +382,7 @@ pub async fn run_setup_core(
     remote_admin_enabled: Option<bool>,
     radio_enabled: Option<bool>,
     fetch_music_enabled: Option<bool>,
+    control_socket_enabled: Option<bool>,
 ) -> grimoire::setup::SetupResult {
     // resolve paths to canonical form (safety net for Flatpak portal paths / symlinks)
     let data_dir = canonicalize_or_original(&data_dir);
@@ -451,6 +452,7 @@ pub async fn run_setup_core(
     };
 
     let setup_config = grimoire::setup::SetupConfig {
+        control_socket_enabled: control_socket_enabled.unwrap_or(false),
         config_path: PathBuf::from(&config_path),
         data_dir: PathBuf::from(&data_dir),
         server_name,
@@ -1397,6 +1399,7 @@ pub fn zip_abort(temp_id: String) {
 #[derive(Debug, Serialize)]
 pub struct ScanResult {
     pub success: bool,
+    pub session_id: Option<String>,
     pub jobs_created: u32,
     pub message: String,
 }
@@ -1427,9 +1430,11 @@ pub async fn scan_directory(
             success: false,
             jobs_created: 0,
             message: format!("initialization failed: {}", e),
+            session_id: None,
         };
     }
 
+    let _source_guard = grimoire::external_storage::sources::lock_source_operations().await;
     // resolve to canonical path (safety net for Flatpak portal paths / symlinks)
     let path = canonicalize_or_original(&path);
 
@@ -1439,6 +1444,7 @@ pub async fn scan_directory(
             success: false,
             jobs_created: 0,
             message: format!("directory does not exist: {}", path),
+            session_id: None,
         };
     }
 
@@ -1451,6 +1457,7 @@ pub async fn scan_directory(
                     success: false,
                     jobs_created: 0,
                     message: e,
+                    session_id: None,
                 }
             }
         },
@@ -1480,6 +1487,7 @@ pub async fn scan_directory(
             success: false,
             jobs_created: 0,
             message: format!("failed to create job session: {}", session_response.message),
+            session_id: None,
         };
     }
     let session = session_response.data.unwrap();
@@ -1512,6 +1520,7 @@ pub async fn scan_directory(
                 success: false,
                 jobs_created: 0,
                 message: format!("failed to create scan job: {}", job_response.message),
+                session_id: None,
             };
         }
     };
@@ -1541,6 +1550,7 @@ pub async fn scan_directory(
         success: true,
         jobs_created: 1,
         message: format!("scanning {} for {} files", path, domain_label),
+        session_id: Some(session_id),
     }
 }
 
@@ -1560,6 +1570,7 @@ pub async fn rescan_directories(app_handle: tauri::AppHandle) -> ScanResult {
             success: false,
             jobs_created: 0,
             message: format!("initialization failed: {}", e),
+            session_id: None,
         };
     }
 
@@ -1581,6 +1592,7 @@ pub async fn rescan_directories(app_handle: tauri::AppHandle) -> ScanResult {
             success: false,
             jobs_created: 0,
             message: format!("failed to create rescan job: {}", response.message),
+            session_id: None,
         };
     }
 
@@ -1598,6 +1610,7 @@ pub async fn rescan_directories(app_handle: tauri::AppHandle) -> ScanResult {
         success: true,
         jobs_created: 1,
         message: format!("rescan job created: {}", job.id),
+        session_id: job.session_id,
     }
 }
 

@@ -70,7 +70,13 @@ pub async fn create_job(request: CreateJobRequest) -> GrimoireResponse<Job> {
             return GrimoireResponse::failure("Failed to connect to database", vec![e.into()])
         }
     };
+    create_job_with_pool(pool, request).await
+}
 
+async fn create_job_with_pool(
+    pool: sqlx::SqlitePool,
+    request: CreateJobRequest,
+) -> GrimoireResponse<Job> {
     let job_type_str = match serde_json::to_string(&request.job_type) {
         Ok(s) => s,
         Err(e) => return GrimoireResponse::failure("Failed to serialize job type", vec![e.into()]),
@@ -91,12 +97,16 @@ pub async fn create_job(request: CreateJobRequest) -> GrimoireResponse<Job> {
             .as_secs() as i64
     });
     let priority = request.priority.unwrap_or(0);
+    let parent_job = super::runner::CURRENT_JOB_ID.try_with(Clone::clone).ok();
 
     let job = match sqlx::query_as!(
         Job,
         r#"
         INSERT INTO jobz (session_id, job_type, status, parameters, max_retries, scheduled_at, created_by, priority)
-        VALUES (?, ?, 'Pending', ?, ?, ?, ?, ?)
+        SELECT ?, ?, 'Pending', ?, ?, ?, ?, ?
+        WHERE NOT EXISTS (SELECT 1 FROM job_sessionz WHERE id=? AND status='Cancelled')
+          AND NOT EXISTS (SELECT 1 FROM jobz j LEFT JOIN job_sessionz s ON s.id=j.session_id
+                          WHERE j.id=? AND (j.status='Cancelled' OR s.status='Cancelled'))
         RETURNING id as "id!", session_id, job_type as "job_type!", status as "status!",
                   parameters as "parameters!", result, retry_count as "retry_count!: i32",
                   max_retries as "max_retries!: i32", scheduled_at as "scheduled_at!",
@@ -108,12 +118,15 @@ pub async fn create_job(request: CreateJobRequest) -> GrimoireResponse<Job> {
         max_retries,
         scheduled_at,
         request.created_by,
-        priority
+        priority,
+        request.session_id,
+        parent_job
     )
-    .fetch_one(&pool)
+    .fetch_optional(&pool)
     .await
     {
-        Ok(j) => j,
+        Ok(Some(j)) => j,
+        Ok(None) => return GrimoireResponse::failure("job cancelled before enqueue", vec![super::JobError::Cancelled.into()]),
         Err(e) => {
             return GrimoireResponse::failure(
                 format!("Failed to create job in database: {}", e),
@@ -133,7 +146,10 @@ pub async fn get_job(job_id: &str) -> GrimoireResponse<Job> {
             return GrimoireResponse::failure("Failed to connect to database", vec![e.into()])
         }
     };
+    get_job_with_pool(pool, job_id).await
+}
 
+async fn get_job_with_pool(pool: sqlx::SqlitePool, job_id: &str) -> GrimoireResponse<Job> {
     let job = match sqlx::query_as!(
         Job,
         r#"
@@ -413,7 +429,14 @@ pub async fn mark_job_completed(job_id: &str, result: Option<Value>) -> Grimoire
             return GrimoireResponse::failure("Failed to connect to database", vec![e.into()])
         }
     };
+    mark_job_completed_with_pool(pool, job_id, result).await
+}
 
+async fn mark_job_completed_with_pool(
+    pool: sqlx::SqlitePool,
+    job_id: &str,
+    result: Option<Value>,
+) -> GrimoireResponse<Job> {
     let result_json = match result {
         Some(r) => match serde_json::to_string(&r) {
             Ok(s) => Some(s),
@@ -428,8 +451,11 @@ pub async fn mark_job_completed(job_id: &str, result: Option<Value>) -> Grimoire
         Job,
         r#"
         UPDATE jobz
-        SET status = 'Completed', completed_at = unixepoch(), result = ?
-        WHERE id = ?
+        SET status = CASE WHEN EXISTS(SELECT 1 FROM job_sessionz s
+                        WHERE s.id=jobz.session_id AND s.status='Cancelled')
+                         THEN 'Cancelled' ELSE 'Completed' END,
+            completed_at = unixepoch(), result = ?, error_message = NULL
+        WHERE id = ? AND status != 'Cancelled'
         RETURNING id as "id!", session_id, job_type as "job_type!", status as "status!",
                   parameters as "parameters!", result, retry_count as "retry_count!: i32",
                   max_retries as "max_retries!: i32", scheduled_at as "scheduled_at!",
@@ -442,6 +468,7 @@ pub async fn mark_job_completed(job_id: &str, result: Option<Value>) -> Grimoire
     .await
     {
         Ok(j) => j,
+        Err(sqlx::Error::RowNotFound) => return get_job_with_pool(pool, job_id).await,
         Err(e) => {
             return GrimoireResponse::failure("failed to mark job as completed", vec![e.into()])
         }
@@ -470,7 +497,15 @@ pub async fn mark_job_failed(
             return GrimoireResponse::failure("Failed to connect to database", vec![e.into()])
         }
     };
+    mark_job_failed_with_pool(pool, job_id, errors, retryable).await
+}
 
+async fn mark_job_failed_with_pool(
+    pool: sqlx::SqlitePool,
+    job_id: &str,
+    errors: Vec<ErrorDetail>,
+    retryable: bool,
+) -> GrimoireResponse<Job> {
     // extract error_message from first error for backward compatibility
     let error_message = errors
         .first()
@@ -484,7 +519,7 @@ pub async fn mark_job_failed(
     };
 
     // First get the current job to check retry count
-    let current_job_response = get_job(job_id).await;
+    let current_job_response = get_job_with_pool(pool.clone(), job_id).await;
     let current_job = match current_job_response.data {
         Some(j) => j,
         None => {
@@ -547,9 +582,14 @@ pub async fn mark_job_failed(
         Job,
         r#"
         UPDATE jobz
-        SET status = ?, retry_count = ?, error_message = ?, result = ?, scheduled_at = ?,
-            completed_at = CASE WHEN ? = 'Failed' THEN unixepoch() ELSE completed_at END
-        WHERE id = ?
+        SET status = CASE WHEN EXISTS(SELECT 1 FROM job_sessionz s
+                        WHERE s.id=jobz.session_id AND s.status='Cancelled')
+                         THEN 'Cancelled' ELSE ? END,
+            retry_count = ?, error_message = ?, result = ?, scheduled_at = ?,
+            completed_at = CASE WHEN ? = 'Failed' OR EXISTS(SELECT 1 FROM job_sessionz s
+                        WHERE s.id=jobz.session_id AND s.status='Cancelled')
+                         THEN unixepoch() ELSE completed_at END
+        WHERE id = ? AND status != 'Cancelled'
         RETURNING id as "id!", session_id, job_type as "job_type!", status as "status!",
                   parameters as "parameters!", result, retry_count as "retry_count!: i32",
                   max_retries as "max_retries!: i32", scheduled_at as "scheduled_at!",
@@ -567,6 +607,7 @@ pub async fn mark_job_failed(
     .await
     {
         Ok(j) => j,
+        Err(sqlx::Error::RowNotFound) => return get_job_with_pool(pool, job_id).await,
         Err(e) => return GrimoireResponse::failure("failed to mark job as failed", vec![e.into()]),
     };
 
@@ -587,7 +628,7 @@ pub async fn cancel_job(job_id: &str) -> GrimoireResponse<Job> {
         r#"
         UPDATE jobz
         SET status = 'Cancelled', completed_at = unixepoch()
-        WHERE id = ? AND status IN ('Pending', 'Running')
+        WHERE id = ? AND status IN ('Pending', 'Running', 'Cancelled')
         RETURNING id as "id!", session_id, job_type as "job_type!", status as "status!",
                   parameters as "parameters!", result, retry_count as "retry_count!: i32",
                   max_retries as "max_retries!: i32", scheduled_at as "scheduled_at!",
@@ -698,7 +739,7 @@ pub async fn complete_session(session_id: &str) -> GrimoireResponse<JobSession> 
         JobSession,
         r#"
         UPDATE job_sessionz
-        SET status = 'Completed'
+        SET status = CASE WHEN status='Cancelled' THEN status ELSE 'Completed' END
         WHERE id = ?
         RETURNING id as "id!", job_type as "job_type!", status as "status!",
                   progress as "progress!", last_checkpoint, batch_size as "batch_size!",
@@ -729,7 +770,7 @@ pub async fn fail_session(session_id: &str) -> GrimoireResponse<JobSession> {
         JobSession,
         r#"
         UPDATE job_sessionz
-        SET status = 'Failed'
+        SET status = CASE WHEN status='Cancelled' THEN status ELSE 'Failed' END
         WHERE id = ?
         RETURNING id as "id!", job_type as "job_type!", status as "status!",
                   progress as "progress!", last_checkpoint, batch_size as "batch_size!",
@@ -841,12 +882,14 @@ pub async fn list_jobs(
 }
 
 /// session job counts for progress tracking
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, zod_gen_derive::ZodSchema)]
 pub struct SessionJobCounts {
     pub pending: u32,
     pub running: u32,
     pub completed: u32,
     pub failed: u32,
+    #[serde(default)]
+    pub cancelled: Option<u32>,
     pub total: u32,
 }
 
@@ -866,6 +909,7 @@ pub async fn get_session_job_counts(session_id: &str) -> GrimoireResponse<Sessio
             COALESCE(SUM(CASE WHEN status = 'Running' THEN 1 ELSE 0 END), 0) as "running!: i64",
             COALESCE(SUM(CASE WHEN status = 'Completed' THEN 1 ELSE 0 END), 0) as "completed!: i64",
             COALESCE(SUM(CASE WHEN status = 'Failed' THEN 1 ELSE 0 END), 0) as "failed!: i64",
+            COALESCE(SUM(CASE WHEN status = 'Cancelled' THEN 1 ELSE 0 END), 0) as "cancelled!: i64",
             COUNT(*) as "total!: i64"
         FROM jobz
         WHERE session_id = ?
@@ -880,6 +924,7 @@ pub async fn get_session_job_counts(session_id: &str) -> GrimoireResponse<Sessio
             running: row.running as u32,
             completed: row.completed as u32,
             failed: row.failed as u32,
+            cancelled: Some(row.cancelled as u32),
             total: row.total as u32,
         },
         Err(e) => {
@@ -888,4 +933,117 @@ pub async fn get_session_job_counts(session_id: &str) -> GrimoireResponse<Sessio
     };
 
     GrimoireResponse::success("session job counts retrieved", counts)
+}
+
+#[cfg(test)]
+mod lifecycle_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn cancellation_prevents_reenqueue_and_late_terminal_writes() {
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        crate::database::run_schema_migrations(&pool).await.unwrap();
+        sqlx::query!("INSERT INTO job_sessionz(id,job_type) VALUES ('session','ScanDirectory')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        for (id, status) in [
+            ("pending", "Pending"),
+            ("complete", "Running"),
+            ("failed", "Running"),
+            ("orphaned", "Running"),
+        ] {
+            sqlx::query!(
+                "INSERT INTO jobz(id,session_id,job_type,status) VALUES(?,'session','ProcessDirectory',?)",
+                id, status
+            ).execute(&pool).await.unwrap();
+        }
+        let cancelled = super::super::lifecycle::cancel_session(&pool, "session")
+            .await
+            .unwrap();
+        assert_eq!(cancelled.len(), 4);
+        // running rows remain visible/busy until workers acknowledge the request.
+        assert_eq!(
+            get_job_with_pool(pool.clone(), "complete")
+                .await
+                .data
+                .unwrap()
+                .status,
+            "Running"
+        );
+        assert!(super::super::lifecycle::ensure_active(&pool, "complete")
+            .await
+            .is_err());
+        assert_eq!(
+            mark_job_completed_with_pool(pool.clone(), "complete", None)
+                .await
+                .data
+                .unwrap()
+                .status,
+            "Cancelled"
+        );
+        assert_eq!(
+            mark_job_failed_with_pool(
+                pool.clone(),
+                "failed",
+                vec![ErrorDetail::new(
+                    "test_failure",
+                    "test failure",
+                    "a late worker error",
+                )],
+                true
+            )
+            .await
+            .data
+            .unwrap()
+            .status,
+            "Cancelled"
+        );
+        assert_eq!(
+            mark_job_completed_with_pool(pool.clone(), "pending", None)
+                .await
+                .data
+                .unwrap()
+                .status,
+            "Cancelled"
+        );
+        let request = || CreateJobRequest {
+            session_id: Some("session".into()),
+            job_type: super::super::JobType::ProcessFile,
+            parameters: serde_json::json!({}),
+            max_retries: None,
+            scheduled_at: None,
+            created_by: None,
+            priority: None,
+        };
+        let response = create_job_with_pool(pool.clone(), request()).await;
+        assert!(!response.success);
+        assert_eq!(response.errors[0].error_type, "job_cancelled");
+        // even session-less descendants cannot escape their cancelled parent.
+        let mut detached = request();
+        detached.session_id = None;
+        let response = super::super::runner::CURRENT_JOB_ID
+            .scope(
+                "pending".into(),
+                create_job_with_pool(pool.clone(), detached),
+            )
+            .await;
+        assert!(!response.success);
+        assert_eq!(response.errors[0].error_type, "job_cancelled");
+        super::super::lifecycle::recover_interrupted(&pool)
+            .await
+            .unwrap();
+        assert_eq!(
+            get_job_with_pool(pool, "orphaned")
+                .await
+                .data
+                .unwrap()
+                .status,
+            "Cancelled"
+        );
+    }
 }

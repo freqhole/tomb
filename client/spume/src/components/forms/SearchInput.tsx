@@ -9,6 +9,7 @@ import { HighlightedMarqueeText } from "../text/HighlightedMarqueeText";
 import { Icon } from "../icons/registry";
 import { ContextMenu, type MenuAction } from "../overlays/ContextMenu";
 import { isNarrowViewport } from "../../config/breakpoints";
+import { OfflineBadge } from "../badges/OfflineBadge";
 
 export interface SearchSuggestion {
   id: string;
@@ -19,6 +20,7 @@ export interface SearchSuggestion {
   highlight?: string;
   images?: ImageMetadata[];
   isFavorite?: boolean;
+  isOffline?: boolean;
   /** play action for thumbnail click */
   onPlay?: () => void;
   /** original data passed through for selection */
@@ -430,6 +432,7 @@ function SuggestionRow(props: {
       </div>
 
       {/* favorite heart */}
+      <OfflineBadge isOffline={props.suggestion.isOffline} />
       <Show when={props.suggestion.isFavorite}>
         <FavoriteHeart isFavorite={true} readonly={true} size="sm" class="flex-shrink-0" />
       </Show>

@@ -57,6 +57,9 @@ import { appState, setCurrentSong, setQueue } from "../../../app/services/storag
 import { toast } from "../../../components/feedback/Toast";
 import {
   mediaItemKey,
+  findAvailableMediaIndex,
+  isMediaItemOffline,
+  mediaItemTitle,
   mediaItemQueueEntryId,
   songsOnly,
   songToMediaItem,
@@ -75,6 +78,7 @@ import { activeHistoryEntryId, stopTracking } from "../queue/listenProgress";
 import { updateHistoryEntrySongs } from "../queue/queueHistory";
 import { clearQueueItemProgress } from "../queue/queueProgress";
 import { triggerPreCache } from "../queue/triggerPreCache";
+import { clearQueueState } from "../queue/clearQueueState";
 import { mirrorRemoveFromQueue } from "../../../app/services/players/remoteQueueMirror";
 import { isActivePlayer } from "../../../cenotaph/adapters/remoteModeSettings";
 import { stopRadioForMusic } from "../../../app/services/playbackCoordinator";
@@ -283,13 +287,18 @@ function bindAutoAdvance(backend: PlayerBackend): void {
     if (event.kind === "ended") {
       debug("player", `backend "${backend.kind}" ended — advancing queue`);
       const endedKey = appState()?.current_item_key ?? null;
-      void playNext().then(() => {
-        // drop-from-queue-on-finish is cenotaph-player-only (this device
-        // being actively controlled as a /player) - regular standalone
-        // local playback keeps finished items in the queue, same as
-        // before this mechanism existed.
-        if (endedKey && isActivePlayer()) void removeEndedItemFromQueue(endedKey);
-      });
+      void playNext()
+        .then(async () => {
+          // drop-from-queue-on-finish is cenotaph-player-only (this device
+          // being actively controlled as a /player) - regular standalone
+          // local playback keeps finished items in the queue, same as
+          // before this mechanism existed.
+          if (endedKey && isActivePlayer()) await removeEndedItemFromQueue(endedKey);
+        })
+        .catch((error) => {
+          warn("player", "queue completion failed:", error);
+          toast.error("could not finish updating the queue", { title: "playback error" });
+        });
       return;
     }
     if (event.kind === "error") {
@@ -400,7 +409,7 @@ async function removeEndedItemFromQueue(endedKey: string): Promise<void> {
     if (entryId) void updateHistoryEntrySongs(entryId, songsOnly(newQueue));
     void updateServerSessionItems(newQueue);
   } else {
-    stopTracking();
+    stopTracking(true);
     // no-ops if playNext() already closed the session as "completed" -
     // stopServerSession/stopAllServerSessions clear their session map on
     // the first call and early-return on any call after that.
@@ -533,7 +542,6 @@ export async function playSong(
 ): Promise<void> {
   const userInitiated = !!options?.userInitiated;
   const song = await resolveSongOrId(songOrId);
-  const loadGeneration = beginMediaLoad(songIdentityKey(song));
 
   // a remote target (paired freqhole-player) owns playback instead of
   // this device - playSong is queue/state-driven and gets called from
@@ -543,6 +551,8 @@ export async function playSong(
     debug("player", `skipping local playback for "${song.title}" - remote target is active`);
     return;
   }
+  assertMediaAvailable(songToMediaItem(song), userInitiated);
+  const loadGeneration = beginMediaLoad(songIdentityKey(song));
 
   // user-initiated playback wins over any active radio session.
   // centralized here so every backend gets the same coexistence
@@ -643,7 +653,6 @@ export async function playVideo(
   }
 ): Promise<void> {
   const userInitiated = !!options?.userInitiated;
-  const loadGeneration = beginMediaLoad(video.id);
 
   // see playSong's identical guard - no video-over-freqhole-player support
   // exists anyway (phase 6), so a remote target should never play locally.
@@ -651,6 +660,8 @@ export async function playVideo(
     debug("player", `skipping local playback for "${video.title}" - remote target is active`);
     return;
   }
+  assertMediaAvailable(videoToMediaItem(video), userInitiated);
+  const loadGeneration = beginMediaLoad(video.id);
 
   if (userInitiated) {
     await stopRadioForMusic();
@@ -670,6 +681,14 @@ export async function playVideo(
     setPendingUpNextItemKey(null);
     throw err;
   }
+}
+
+function assertMediaAvailable(item: MediaItem, userInitiated: boolean): void {
+  if (!isMediaItemOffline(item)) return;
+  const message = `"${mediaItemTitle(item)}" is on offline storage`;
+  warn("player", message);
+  if (userInitiated) toast.error(message, { title: "media offline" });
+  throw new BackendPlaybackError(activeBackend.kind, "media_offline", message);
 }
 
 /** unified entry point for queue-index-driven playback — dispatches to
@@ -735,10 +754,16 @@ async function loadCurrentQueueItemAndPlay(caller: string): Promise<void> {
   if (currentItemKey) {
     const currentItem = queue.find((i) => mediaItemKey(i) === currentItemKey);
     if (currentItem) {
-      await playMediaItem(currentItem, {
+      const startIndex = queue.indexOf(currentItem);
+      const availableIndex = findAvailableMediaIndex(queue, startIndex);
+      if (availableIndex < 0) {
+        assertMediaAvailable(currentItem, true);
+        return;
+      }
+      await playMediaItem(queue[availableIndex], {
         userInitiated: true,
-        initialPosition,
-        initialDuration,
+        initialPosition: availableIndex === startIndex ? initialPosition : undefined,
+        initialDuration: availableIndex === startIndex ? initialDuration : undefined,
       });
       return;
     }
@@ -752,7 +777,8 @@ async function loadCurrentQueueItemAndPlay(caller: string): Promise<void> {
     return;
   }
   if (queue.length) {
-    await playMediaItem(queue[0], { userInitiated: true });
+    const index = findAvailableMediaIndex(queue, 0);
+    await playMediaItem(queue[index < 0 ? 0 : index], { userInitiated: true });
     return;
   }
   warn("player", `${caller}: nothing to play (queue empty)`);
@@ -769,20 +795,15 @@ export async function togglePlayback(source: "ui" | "mediaSession" = "ui"): Prom
     return;
   }
 
-  // play path: silence radio + clear gate up-front so any pending
-  // up-next loads honor the user's intent. `stopRadioForMusic()` is a
-  // no-op when radio isn't active (see leaveRadio's guard) - it used to
-  // unconditionally rewrite appState on every resume even when radio was
-  // never involved.
-  await stopRadioForMusic();
-  userExplicitlyPaused = false;
-
   const snap = activeBackend.snapshot();
 
   // a track is loaded and paused — bare play resumes it. backends
   // handle their own quirks (the html backend re-creates iOS-revoked
   // blob URLs inside its play() handler before throwing).
   if (decidePlayAction(snap.state) === "resume") {
+    assertCurrentMediaAvailable();
+    await stopRadioForMusic();
+    userExplicitlyPaused = false;
     try {
       await activeBackend.send({ kind: "play" });
       return;
@@ -817,11 +838,6 @@ export function stop(): void {
 }
 
 export async function play(): Promise<void> {
-  // user explicitly wants to play — silence radio first regardless
-  // of which backend is active.
-  await stopRadioForMusic();
-  userExplicitlyPaused = false;
-
   // playback already ran the queue out (canGoNext() was false last
   // time playNext() checked) - the backend has nothing valid loaded
   // anymore, so blindly resending `play` would call the underlying
@@ -829,10 +845,10 @@ export async function play(): Promise<void> {
   // it from 0 instead of doing nothing. restart from the queue head
   // instead, same fallback `togglePlayback()` uses.
   if (hasPlaybackEnded()) {
-    resetPlaybackEnded();
     const state = appState();
     if (state?.queue.length) {
-      await playMediaItem(state.queue[0], { userInitiated: true });
+      const index = findAvailableMediaIndex(state.queue, 0);
+      await playMediaItem(state.queue[index < 0 ? 0 : index], { userInitiated: true });
     }
     return;
   }
@@ -857,7 +873,16 @@ export async function play(): Promise<void> {
       break;
   }
 
+  assertCurrentMediaAvailable();
+  await stopRadioForMusic();
+  userExplicitlyPaused = false;
   await activeBackend.send({ kind: "play" });
+}
+
+function assertCurrentMediaAvailable(): void {
+  const state = appState();
+  const current = state?.queue.find((item) => mediaItemKey(item) === state.current_item_key);
+  if (current) assertMediaAvailable(current, true);
 }
 
 // resume already-loaded audio without stopping radio. used by
@@ -940,6 +965,16 @@ export function setOutputDevice(name: string): void {
   void activeBackend.send({ kind: "set_output_device", name });
 }
 
+async function finishQueue(): Promise<void> {
+  markPlaybackEnded();
+  void activeBackend.send({ kind: "stop" });
+  if (isActivePlayer()) {
+    await clearQueueState("completed");
+  } else {
+    void stopServerSession("completed");
+  }
+}
+
 // unified queue traversal. both backends emit `kind: "ended"` when a
 // song finishes; the facade reacts once via `bindAutoAdvance`. each
 // attempt is bounded so a hung load can't wedge the queue.
@@ -954,12 +989,7 @@ export async function playNext(): Promise<void> {
   );
   if (!canGoNext()) {
     debug("player", "playNext: queue empty — marking playback ended");
-    markPlaybackEnded();
-    // nothing left to advance to - tell the backend to actually stop
-    // (for the video window backends this tears the window down, rather
-    // than leaving it sitting open/idle indefinitely).
-    void activeBackend.send({ kind: "stop" });
-    void stopServerSession("completed");
+    await finishQueue();
     return;
   }
   const state = appState();
@@ -969,7 +999,11 @@ export async function playNext(): Promise<void> {
 
   let attempts = 0;
   while (currentIdx < queue.length - 1 && attempts < PLAY_NEXT_MAX_ATTEMPTS) {
-    const nextIdx = currentIdx + 1;
+    const nextIdx = findAvailableMediaIndex(queue, currentIdx + 1);
+    if (nextIdx < 0) {
+      await finishQueue();
+      return;
+    }
     const nextItem = queue[nextIdx];
     attempts++;
     const nextTitle = nextItem?.kind === "song" ? nextItem.song.title : nextItem?.video.title;
@@ -1011,9 +1045,7 @@ export async function playNext(): Promise<void> {
     currentIdx = nextIdx;
     if (nextIdx >= queue.length - 1) {
       warn("player", "playNext: end of queue, no playable songs found");
-      markPlaybackEnded();
-      void activeBackend.send({ kind: "stop" });
-      void stopServerSession("completed");
+      await finishQueue();
       return;
     }
   }
@@ -1021,6 +1053,7 @@ export async function playNext(): Promise<void> {
     "player",
     `playNext: exceeded retry budget (${PLAY_NEXT_MAX_ATTEMPTS}) — no playable song found`
   );
+  await finishQueue();
 }
 
 export async function playPrevious(): Promise<void> {
@@ -1030,7 +1063,7 @@ export async function playPrevious(): Promise<void> {
   const currentIdx = currentItemKey
     ? queue.findIndex((i) => mediaItemKey(i) === currentItemKey)
     : -1;
-  const prevIdx = currentIdx - 1;
+  const prevIdx = findAvailableMediaIndex(queue, currentIdx - 1, -1);
   if (prevIdx >= 0) {
     await playMediaItem(queue[prevIdx], { userInitiated: true });
   }

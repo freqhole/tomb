@@ -12,6 +12,8 @@
 //! - upload_processors: user upload handling (WebP conversion, music import)
 
 pub mod job_events;
+mod lifecycle;
+pub(crate) use lifecycle::cancel_session as cancel_session_jobs;
 mod models;
 mod music;
 pub mod rate_limit;

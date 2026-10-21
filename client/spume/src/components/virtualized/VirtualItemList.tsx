@@ -4,10 +4,12 @@ import { useScrollRestore } from "../../utils/scrollRestore";
 import { getBackgroundConfig } from "../../app/services/backgroundImage";
 import { ContextMenu, type MenuAction } from "../overlays/ContextMenu";
 import { MarqueeText } from "../text/MarqueeText";
+import { OfflineBadge } from "../badges/OfflineBadge";
 import { MediaImage } from "../media/MediaImage";
 import type { ImageMetadata } from "../../music/services/storage/types";
 
 export interface ListItem {
+  isOffline?: boolean;
   id: string;
   title: string;
   subtitle?: string;
@@ -259,8 +261,11 @@ export function VirtualItemList(props: VirtualItemListProps): JSX.Element {
                 </div>
               </Show>
               <div class="flex-1 min-w-0">
-                <div class="font-medium text-base">
-                  <MarqueeText text={item.title} hoverOnly={true} />
+                <div class="flex items-center gap-2 font-medium text-base">
+                  <div class="min-w-0 flex-1">
+                    <MarqueeText text={item.title} hoverOnly={true} />
+                  </div>
+                  <OfflineBadge isOffline={item.isOffline} />
                 </div>
                 {item.subtitle && (
                   <div class="text-xs text-[var(--color-text-tertiary)] line-clamp-2">

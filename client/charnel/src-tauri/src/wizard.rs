@@ -178,10 +178,14 @@ pub async fn close_setup_wizard(
             return Err(format!("failed to run migrations: {}", e));
         }
 
+        crate::external_storage::publish_saved_sync_targets(&app).await?;
+
         // start job runner (same as lib.rs)
         let job_runner_token = app.state::<ShutdownToken>().inner().clone();
+        let runner_guard = crate::job_runner_guard(&app);
         tracing::info!("starting job runner...");
         tauri::async_runtime::spawn(async move {
+            let _guard = runner_guard;
             let result =
                 grimoire::jobs::run_job_processor_with_token(job_runner_token.0.as_ref().clone())
                     .await;
@@ -318,24 +322,6 @@ pub async fn close_setup_wizard(
         }
     }
 
-    // close wizard window
-    //
-    // confirmed real crash 2026-10-07: closing this window can segfault
-    // (EXC_BAD_ACCESS in initializeNonMetaClass, inside WebKit::
-    // WebURLSchemeHandlerCocoa::platformStopTask) - an acknowledged-but-
-    // unresolved race in wry's own wkwebview/class/url_scheme_handler.rs
-    // (its own FIXME: "though we give it a static lifetime, it's not
-    // guaranteed to be valid"). tried hiding first + deferring the real
-    // close() by 500ms (hoping in-flight custom-protocol tasks would
-    // finish first) - confirmed NOT to fix it, still segfaults the same
-    // way. reverted to a plain close() rather than keep unverified
-    // mitigations around; needs a different approach (or an upstream wry
-    // fix) if this keeps recurring.
-    if let Some(wizard) = app.get_webview_window("setup-wizard") {
-        #[cfg(desktop)]
-        wizard.close().map_err(|e| e.to_string())?;
-    }
-
     // default to /songs route for post-setup (first-time experience)
     let target_route = route.unwrap_or_else(|| "/songs".to_string());
 
@@ -425,6 +411,24 @@ pub async fn close_setup_wizard(
                 let bg_color = NSColor::colorWithRed_green_blue_alpha_(nil, 0.0, 0.0, 0.0, 1.0);
                 ns_window.setBackgroundColor_(bg_color);
             }
+        }
+    }
+
+    #[cfg(desktop)]
+    {
+        let main = app
+            .get_webview_window("main")
+            .ok_or_else(|| "main window was not created".to_string())?;
+        main.show().map_err(|e| e.to_string())?;
+        main.unminimize().map_err(|e| e.to_string())?;
+        main.set_focus().map_err(|e| e.to_string())?;
+
+        // keep a visible main window before closing the wizard: closing the last
+        // window can request app exit on Linux, even while this command is running.
+        if let Some(wizard) = app.get_webview_window("setup-wizard") {
+            // macOS also has a separate upstream wry custom-protocol teardown
+            // crash; changing the handoff order does not address that race.
+            wizard.close().map_err(|e| e.to_string())?;
         }
     }
 

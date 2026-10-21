@@ -1,0 +1,13 @@
+#!/bin/bash
+# invoked by desktop autostart; no GUI is created by the user service itself.
+set -euo pipefail
+if [ -z "${DISPLAY:-}" ] && [ -z "${WAYLAND_DISPLAY:-}" ]; then
+    echo "charnel requires an existing graphical desktop session." >&2
+    exit 1
+fi
+variables=()
+for variable in DISPLAY WAYLAND_DISPLAY XAUTHORITY XDG_CURRENT_DESKTOP XDG_SESSION_TYPE XDG_RUNTIME_DIR XDG_DATA_HOME XDG_CONFIG_HOME; do
+    if printenv "$variable" >/dev/null; then variables+=("$variable"); fi
+done
+systemctl --user import-environment "${variables[@]}"
+exec systemctl --user start charnel.service

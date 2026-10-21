@@ -41,6 +41,11 @@ pub async fn process_directory_job(job: &Job) -> Result<Option<Value>, JobError>
         }
     };
 
+    // queued work can outlive a mount: recheck identity before opening files
+    // from an old path that another disk may now occupy.
+    let pool = crate::database::connect().await?;
+    crate::external_storage::sources::validate_scan_path(&pool, &params.directory_path).await?;
+
     let dir_start = std::time::Instant::now();
     let total = params.files.len() as u64;
     info!(
@@ -57,6 +62,7 @@ pub async fn process_directory_job(job: &Job) -> Result<Option<Value>, JobError>
     let mut song_id: Option<String> = None;
 
     for (idx, entry) in params.files.iter().enumerate() {
+        crate::jobs::lifecycle::ensure_active(&pool, &job.id).await?;
         let file_params = ProcessFileParams {
             file_path: entry.file_path.clone(),
             extract_metadata: true,

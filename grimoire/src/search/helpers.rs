@@ -247,6 +247,7 @@ mod tests {
     #[test]
     fn test_should_include_suggestion() {
         let mut suggestion = Suggestion {
+            is_offline: false,
             value: "test".to_string(),
             display: "test".to_string(),
             highlight: "test".to_string(),

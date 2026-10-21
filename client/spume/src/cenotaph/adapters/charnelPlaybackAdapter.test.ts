@@ -71,6 +71,8 @@ vi.mock("../../music/services/audio/playerState", () => ({
 vi.mock("../../app/services/radio/radioService", () => ({
   leaveRadio: vi.fn(),
   tuneIntoRadio: vi.fn(async () => {}),
+  radioCurrentPeerAddr: () => null,
+  radioStatus: () => "idle",
 }));
 
 // mediaRefResolve.ts's own network/db boundary - same mocks
@@ -182,6 +184,38 @@ beforeEach(() => {
     const count = (songCallsByHash.get(blake3) ?? 0) + 1;
     songCallsByHash.set(blake3, count);
     return count === 1 ? null : { sha256: `local-${blake3}`, blake3, title: "a song" };
+  });
+});
+
+describe("charnelPlaybackAdapter.currentStatus", () => {
+  it("reports an empty stopped queue to controllers after the player's queue is cleared", () => {
+    stateHolder.current = {
+      queue: [
+        {
+          kind: "video",
+          video: {
+            id: "last",
+            blake3: "last-hash",
+            title: "last",
+            source_type: "remote",
+            content_type: "movie",
+            media_blob_id: "blob",
+            is_offline: false,
+            created_at: 0,
+            updated_at: 0,
+          },
+        },
+      ],
+      current_item_key: "last",
+    };
+    expect(charnelPlaybackAdapter.currentStatus().queue).toHaveLength(1);
+    stateHolder.current = { queue: [], current_item_key: null };
+    expect(charnelPlaybackAdapter.currentStatus()).toMatchObject({
+      type: "status",
+      state: "stopped",
+      queue: [],
+    });
+    expect(charnelPlaybackAdapter.currentStatus()).not.toHaveProperty("item");
   });
 });
 

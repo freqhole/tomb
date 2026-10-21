@@ -109,6 +109,7 @@ import { preCacheP2PBlob } from "../music/services/storage/blobResolver";
 import { recoverLegacyImages } from "../music/services/storage/legacyImageRecovery";
 import type { Song } from "../music/services/storage/types";
 import { debug } from "../utils/logger";
+import { useLibraryAvailability } from "../utils/useLibraryAvailability";
 import {
   extractShareTokenFromHash,
   extractShareTokenFromSearch,
@@ -187,6 +188,7 @@ import { ImportVideoReviewEditor } from "../components/import/ImportVideoReviewE
 
 export function App() {
   const queryClient = useQueryClient();
+  useLibraryAvailability();
   const isAddMediaOpen = useAddMediaState();
   const [isAddRemoteOpen, setIsAddRemoteOpen] = createSignal(false);
   const [addRemoteInitialValue, setAddRemoteInitialValue] = createSignal<string | undefined>();

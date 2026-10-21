@@ -8,10 +8,12 @@ import { ContextMenu, type MenuAction } from "../overlays/ContextMenu";
 import { FavoriteHeart } from "../ratings/FavoriteHeart";
 import { Rating } from "../ratings/Rating";
 import { MarqueeText } from "../text/MarqueeText";
+import { OfflineBadge } from "../badges/OfflineBadge";
 import { tapOrDblClick } from "../../utils/tapOrDblClick";
 import type { ImageMetadata } from "../../music/services/storage/types";
 
 export interface SongRowProps {
+  isOffline?: boolean;
   /** song title */
   title: string;
   /** track number (can include disc like "2-5") */
@@ -121,6 +123,8 @@ export function SongRow(props: SongRowProps): JSX.Element {
           />
         </Show>
       </div>
+
+      <OfflineBadge isOffline={props.isOffline} />
 
       {/* play count (before action buttons) */}
       <Show when={props.playCount != null && props.playCount > 0}>

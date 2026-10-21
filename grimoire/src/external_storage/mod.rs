@@ -6,11 +6,26 @@
 //! docs/removable-storage-sync-plan.md (tomb repo) phase 6 for the full
 //! design and the rationale for moving this off a per-device json file
 //! and out of charnel's local toml config.
+//!
+//! [`inventory`] separately lists removable library volumes on Linux, macOS and
+//! Windows (not sync destinations). OS tooling/permission failures are explicit
+//! errors, never an empty device list.
 
+pub mod availability;
+pub mod events;
 pub mod file_ops;
+pub mod inventory;
+pub mod management;
+pub mod media_availability;
 pub mod models;
+pub(crate) mod monitor;
+pub mod mounts;
 pub mod path_naming;
 pub mod repository;
+pub mod sources;
+pub mod sync_priority;
+#[cfg(target_os = "windows")]
+mod windows;
 
 pub use models::{FilterSet, FilterSetFilter, FilterSetGroup, SyncManifest, SyncedSong};
 pub use repository::{

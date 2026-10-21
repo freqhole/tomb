@@ -19,6 +19,8 @@
 //! backend's known output devices). `set_audio_device <name>` takes
 //! the device name (the rest of the line after the first space) and
 //! is fire-and-forget, same as the other action commands.
+//! `library_storage <JSON>` replies with a restricted storage-admin envelope;
+//! its `watch` operation waits for the shared OS notifications.
 //!
 //! unknown lines are logged and ignored rather than closing the
 //! connection - a stray/malformed write from a flaky button script
@@ -26,6 +28,10 @@
 
 use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
+
+#[cfg(unix)]
+#[path = "control_socket/storage.rs"]
+mod storage;
 
 /// the fixed vocabulary of media-control commands the unix control
 /// socket accepts, one per newline-delimited line (see this module's
@@ -153,7 +159,7 @@ async fn run(
     path: std::path::PathBuf,
     request_tx: mpsc::UnboundedSender<ControlSocketRequest>,
 ) -> std::io::Result<()> {
-    use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+    use std::os::unix::fs::PermissionsExt;
     use tokio::net::UnixListener;
     if let Some(parent) = path.parent() {
         tokio::fs::create_dir_all(parent).await?;
@@ -162,67 +168,106 @@ async fn run(
     // exited run - bind fails with "address in use" otherwise.
     let _ = tokio::fs::remove_file(&path).await;
     let listener = UnixListener::bind(&path)?;
+    tokio::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).await?;
     tracing::info!(target: "grimoire::control_socket", path = %path.display(), "control socket listening");
+    let connections = CancellationToken::new();
+    let _stop_connections = connections.clone().drop_guard();
     loop {
         let (stream, _addr) = listener.accept().await?;
+        // storage selection is local administration, not a network-facing API.
+        match stream.peer_cred() {
+            Ok(credentials) if credentials.uid() == unsafe { libc::geteuid() } => {}
+            Ok(_) => {
+                tracing::warn!("control socket rejected a different OS user");
+                continue;
+            }
+            Err(error) => {
+                tracing::warn!(%error, "control socket could not authenticate OS user");
+                continue;
+            }
+        }
         let request_tx = request_tx.clone();
+        let connections = connections.clone();
         tokio::spawn(async move {
-            let (read_half, mut write_half) = stream.into_split();
-            let mut lines = tokio::io::BufReader::new(read_half).lines();
-            loop {
-                match lines.next_line().await {
-                    Ok(Some(line)) => {
-                        let line = line.trim();
-                        if line.is_empty() {
-                            continue;
-                        }
-                        match parse_command(line) {
-                            Some(command) => {
-                                let needs_reply = matches!(
+            tokio::select! {
+                _ = connections.cancelled() => {}
+                _ = handle_connection(stream, request_tx) => {}
+            }
+        });
+    }
+}
+
+#[cfg(unix)]
+async fn handle_connection(
+    stream: tokio::net::UnixStream,
+    request_tx: mpsc::UnboundedSender<ControlSocketRequest>,
+) {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+
+    let (read_half, mut write_half) = stream.into_split();
+    let mut lines = tokio::io::BufReader::new(read_half).lines();
+    loop {
+        match lines.next_line().await {
+            Ok(Some(line)) => {
+                let line = line.trim();
+                if line.is_empty() {
+                    continue;
+                }
+                if let Some(payload) = line.strip_prefix("library_storage ") {
+                    let response = storage::handle(payload).await;
+                    if write_half
+                        .write_all(format!("{response}\n").as_bytes())
+                        .await
+                        .is_err()
+                    {
+                        break;
+                    }
+                    continue;
+                }
+                match parse_command(line) {
+                    Some(command) => {
+                        let needs_reply = matches!(
+                            command,
+                            ControlSocketCommand::GetState | ControlSocketCommand::ListAudioDevices
+                        );
+                        if needs_reply {
+                            let (reply_tx, reply_rx) = oneshot::channel();
+                            if request_tx
+                                .send(ControlSocketRequest {
                                     command,
-                                    ControlSocketCommand::GetState
-                                        | ControlSocketCommand::ListAudioDevices
-                                );
-                                if needs_reply {
-                                    let (reply_tx, reply_rx) = oneshot::channel();
-                                    if request_tx
-                                        .send(ControlSocketRequest {
-                                            command,
-                                            reply: Some(reply_tx),
-                                        })
-                                        .is_err()
-                                    {
-                                        break;
-                                    }
-                                    if let Ok(json) = reply_rx.await {
-                                        if write_half
-                                            .write_all(format!("{json}\n").as_bytes())
-                                            .await
-                                            .is_err()
-                                        {
-                                            break;
-                                        }
-                                    }
-                                } else {
-                                    let _ = request_tx.send(ControlSocketRequest {
-                                        command,
-                                        reply: None,
-                                    });
+                                    reply: Some(reply_tx),
+                                })
+                                .is_err()
+                            {
+                                break;
+                            }
+                            if let Ok(json) = reply_rx.await {
+                                if write_half
+                                    .write_all(format!("{json}\n").as_bytes())
+                                    .await
+                                    .is_err()
+                                {
+                                    break;
                                 }
                             }
-                            None => {
-                                tracing::warn!(target: "grimoire::control_socket", line, "unrecognized control socket command");
-                            }
+                        } else {
+                            let _ = request_tx.send(ControlSocketRequest {
+                                command,
+                                reply: None,
+                            });
                         }
                     }
-                    Ok(None) => break,
-                    Err(e) => {
-                        tracing::warn!(target: "grimoire::control_socket", error = %e, "control socket read error");
-                        break;
+                    None => {
+                        tracing::warn!(target: "grimoire::control_socket", line, "unrecognized control socket command");
                     }
                 }
             }
-        });
+            Ok(None) => break,
+            Err(e) => {
+                tracing::warn!(target: "grimoire::control_socket", error = %e, "control socket read error");
+                break;
+            }
+        }
     }
 }
 
@@ -254,6 +299,76 @@ fn parse_command(line: &str) -> Option<ControlSocketCommand> {
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn same_user_storage_queries_preserve_playback_and_stop_with_listener() {
+        use std::os::unix::fs::PermissionsExt;
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+        use tokio::net::UnixStream;
+        use tokio::time::{timeout, Duration};
+
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("control.sock");
+        let (sender, mut requests) = mpsc::unbounded_channel();
+        let server = tokio::spawn(run(path.clone(), sender));
+        let stream = timeout(Duration::from_secs(2), async {
+            loop {
+                match UnixStream::connect(&path).await {
+                    Ok(stream) => break stream,
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                        tokio::time::sleep(Duration::from_millis(1)).await;
+                    }
+                    Err(error) => panic!("socket connect failed: {error}"),
+                }
+            }
+        })
+        .await
+        .unwrap();
+        let (reader, mut writer) = stream.into_split();
+        let mut lines = BufReader::new(reader).lines();
+        writer
+            .write_all(b"library_storage {\"command\":\"users_delete\"}\nplay_pause\nget_state\n")
+            .await
+            .unwrap();
+        let line = timeout(Duration::from_secs(2), lines.next_line())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        let response: serde_json::Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(response["success"], false);
+        assert_eq!(
+            response["errors"][0]["error_type"],
+            "invalid_storage_command"
+        );
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        assert_eq!(
+            requests.recv().await.unwrap().command,
+            ControlSocketCommand::PlayPause
+        );
+        let state = requests.recv().await.unwrap();
+        assert_eq!(state.command, ControlSocketCommand::GetState);
+        state
+            .reply
+            .unwrap()
+            .send(r#"{"kind":"idle"}"#.into())
+            .unwrap();
+        assert_eq!(
+            lines.next_line().await.unwrap().unwrap(),
+            r#"{"kind":"idle"}"#
+        );
+
+        server.abort();
+        assert!(server.await.unwrap_err().is_cancelled());
+        assert!(timeout(Duration::from_secs(2), lines.next_line())
+            .await
+            .unwrap()
+            .unwrap()
+            .is_none());
+    }
 
     #[test]
     fn parses_known_commands() {

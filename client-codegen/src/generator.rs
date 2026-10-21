@@ -35,7 +35,11 @@ fn generate_schema_file(routes: &[RouteInfo]) -> Result<String, Box<dyn std::err
         );
     }
 
-    Ok(generator.generate())
+    // older peers omit availability annotations; match Rust's serde default.
+    Ok(generator.generate().replace(
+        "is_offline: z.boolean()",
+        "is_offline: z.boolean().default(false)",
+    ))
 }
 
 fn extract_type(rust_type: &str) -> Option<String> {
@@ -421,4 +425,14 @@ fn regex_replace_disc_union(input: &str) -> String {
     }
     out.push_str(rest);
     out
+}
+
+#[cfg(test)]
+mod availability_tests {
+    #[test]
+    fn generated_availability_annotations_default_for_older_peers() {
+        let schema = super::generate_schema_file(&grimoire::offal::all_routes()).unwrap();
+        assert!(schema.contains("is_offline: z.boolean().default(false)"));
+        assert!(!schema.contains("is_offline: z.boolean(),"));
+    }
 }

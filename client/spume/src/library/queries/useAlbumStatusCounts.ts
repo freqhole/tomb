@@ -38,6 +38,7 @@ const EMPTY: AlbumStatusCountsResult = {
 };
 
 export interface AlbumStatusCountsOptions {
+  hideOffline?: Accessor<boolean>;
   remote: Accessor<Remote | undefined>;
   search?: Accessor<string | undefined>;
 }
@@ -48,6 +49,7 @@ export function useAlbumStatusCounts(opts: AlbumStatusCountsOptions) {
       "album-status-counts",
       opts.remote()?.remote_id ?? null,
       opts.search?.() ?? null,
+      opts.hideOffline?.() ?? false,
     ],
     enabled: !!opts.remote(),
     staleTime: 30 * 1000,
@@ -60,7 +62,7 @@ export function useAlbumStatusCounts(opts: AlbumStatusCountsOptions) {
       const result = await client.music.queryAlbumStatusCounts({
         q: opts.search?.() ?? null,
         search_fields: null,
-        filters: {},
+        filters: { hide_offline: opts.hideOffline?.() ?? false },
         sort_by: null,
         sort_direction: null,
         limit: null,

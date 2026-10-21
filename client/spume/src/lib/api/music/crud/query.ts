@@ -27,6 +27,7 @@ export async function songToQueryResult(song: Song): Promise<SongQueryResult> {
   ]);
 
   return {
+    is_offline: false,
     song: {
       id: song.id,
       media_blob_id: blobIdFor(song),

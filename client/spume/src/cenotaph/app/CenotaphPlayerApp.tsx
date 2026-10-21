@@ -56,6 +56,8 @@ import {
 } from "../adapters/remoteModeSettings";
 import { PlayerDebugOverlay } from "./PlayerDebugOverlay";
 import { PlayerSettingsPanel } from "./PlayerSettingsPanel";
+import { usePlayerPointerActivity } from "./playerPointerActivity";
+import "./playerCursor.css";
 import { renderPlayerQr } from "./renderPairingQr";
 import { isCharnelMode } from "../../app/services/charnel/mode";
 import { useChromeSuppression } from "../../app/shell/chromeSuppression";
@@ -136,25 +138,8 @@ export function CenotaphPlayerApp() {
   // activity anywhere in this view, revealing it again on any mouse
   // movement/click/hover - mirrors common video-player control-auto-hide
   // ux. stays visible whenever the settings panel itself is open.
-  const POINTER_IDLE_HIDE_MS = 3000;
-  const [pointerActive, setPointerActive] = createSignal(true);
-  let pointerIdleTimer: ReturnType<typeof setTimeout> | undefined;
-  const markPointerActive = () => {
-    setPointerActive(true);
-    clearTimeout(pointerIdleTimer);
-    pointerIdleTimer = setTimeout(() => setPointerActive(false), POINTER_IDLE_HIDE_MS);
-  };
+  const { pointerActive, cursorHidden } = usePlayerPointerActivity();
   const settingsButtonVisible = () => pointerActive() || settingsOpen();
-  onMount(() => {
-    markPointerActive();
-    window.addEventListener("pointermove", markPointerActive);
-    window.addEventListener("pointerdown", markPointerActive);
-  });
-  onCleanup(() => {
-    clearTimeout(pointerIdleTimer);
-    window.removeEventListener("pointermove", markPointerActive);
-    window.removeEventListener("pointerdown", markPointerActive);
-  });
   // the qr overlay's spinning logo - speed is driven via this element's
   // live Animation.playbackRate (see the effect below), not via inline
   // `animation-duration` (see that effect's own doc comment for why).
@@ -484,7 +469,11 @@ export function CenotaphPlayerApp() {
   return (
     <div
       class="flex h-screen flex-col items-center gap-6 overflow-y-auto bg-black px-6 pb-6 text-center text-white"
-      classList={{ "justify-center": !hasQueueRest(), "justify-start": hasQueueRest() }}
+      classList={{
+        "justify-center": !hasQueueRest(),
+        "justify-start": hasQueueRest(),
+        "player-cursor-idle": cursorHidden(),
+      }}
       // adds var(--chrome-top-inset) (the chromeless title-bar strip's
       // height, 0 when it's not active) and var(--safe-area-top) (android/
       // ios status bar inset, 0 on desktop - see index.tsx's bootstrap)

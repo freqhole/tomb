@@ -81,7 +81,7 @@ libmpv2-sys = { version = "4.0.1", optional = true }
 # setlocale(LC_ALL, "") during window init can leave it as whatever the
 # user's locale is, so we reset it ourselves right before creating an
 # Mpv instance.
-libc = { version = "0.2", optional = true }
+libc = "0.2"
 
 # api codegen support
 zod_gen = "1.0"
@@ -98,7 +98,25 @@ augur = ["haruspex/augur"]
 vendored-openssl = ["openssl"]
 # libmpv audio backend. disable for headless / cross-compile targets
 # without system libmpv available at link time.
-libmpv-playback = ["dep:libmpv2", "dep:libmpv2-sys", "dep:libc"]
+libmpv-playback = ["dep:libmpv2", "dep:libmpv2-sys"]
+
+[target.'cfg(target_os = "linux")'.dependencies]
+udev = "0.9.3"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+plist = "1.10"
+objc2-core-foundation = "0.3.2"
+objc2-disk-arbitration = "0.3.2"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-sys = { version = "0.59", features = [
+    "Win32_Storage_FileSystem",
+    "Win32_System_LibraryLoader",
+    "Win32_System_SystemServices",
+    "Win32_System_Ioctl",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_Graphics_Gdi",
+] }
 
 # libmpv2-sys ships one pregenerated bindings.rs (no per-arch variants),
 # whose bindgen-emitted static layout assertions (`size_of::<T>() -
@@ -121,6 +139,7 @@ optional = true
 
 [dev-dependencies]
 tempfile = "3"
+tokio = { workspace = true, features = ["test-util"] }
 # webauthn credential-compatibility test's minimal software authenticator:
 # real p-256 keygen, sha-256 hashing, and ecdsa signing - the same crate
 # webauthn-rs itself already links transitively, so this adds no new

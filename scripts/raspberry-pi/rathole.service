@@ -1,0 +1,36 @@
+[Unit]
+# managed by freqhole-pi setup
+Description=rathole on tty1
+Wants=network-online.target
+After=network-online.target systemd-user-sessions.service
+Conflicts=getty@tty1.service
+After=getty@tty1.service
+
+[Service]
+Type=simple
+User=@USER@
+WorkingDirectory=@ROOT@
+PAMName=login
+Environment=TERM=linux
+Environment=HOME=@HOME@
+
+# only console switching runs with elevated privileges.
+ExecStartPre=+/usr/bin/chvt 1
+ExecStartPre=/usr/bin/python3 @ROOT@/charnel.py rathole-launch
+ExecStart=@HOME@/.local/bin/rathole --player
+
+StandardInput=tty
+StandardOutput=tty
+StandardError=journal
+TTYPath=/dev/tty1
+TTYReset=yes
+TTYVHangup=yes
+TTYVTDisallocate=yes
+
+Restart=no
+
+# return to the maintenance console when rathole stops or exits.
+ExecStopPost=+/usr/bin/chvt 2
+
+[Install]
+WantedBy=multi-user.target

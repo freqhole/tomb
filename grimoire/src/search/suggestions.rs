@@ -20,6 +20,7 @@ pub async fn get_song_suggestions(
 
     #[derive(sqlx::FromRow)]
     struct SongSuggestionRow {
+        is_offline: bool,
         song_id: String,
         song_title: String,
         images: Option<String>, // JSON array
@@ -41,6 +42,7 @@ pub async fn get_song_suggestions(
         r#"
         SELECT
             song.id as "song_id!: String",
+            EXISTS (SELECT 1 FROM library_offline_blob_view o WHERE o.blob_id = song.media_blob_id) as "is_offline!: bool",
             song.title as "song_title!: String",
             (SELECT json_group_array(json_object('media_blob_id', si.media_blob_id, 'is_primary', si.is_primary, 'blob_type', mb.blob_type))
              FROM song_imagez si
@@ -74,7 +76,7 @@ pub async fn get_song_suggestions(
         WHERE songz_fts MATCH ?
             AND song.deleted_at IS NULL
             AND (rating.rating IS NULL OR rating.rating != 0)
-        ORDER BY fts.rank
+        ORDER BY fts.rank * CASE WHEN "is_offline!: bool" THEN 0.8 ELSE 1.0 END, "is_offline!: bool", song.id
         LIMIT 100
         "#,
         user_id_param,
@@ -136,6 +138,7 @@ pub async fn get_song_suggestions(
             let match_type = matched_field.as_deref().unwrap_or("title");
 
             Suggestion {
+                is_offline: row.is_offline,
                 value: row.song_title.clone(),
                 display: row.song_title.clone(),
                 highlight,
@@ -173,6 +176,7 @@ pub async fn get_artist_suggestions(
 
     #[derive(sqlx::FromRow)]
     struct ArtistSuggestionRow {
+        is_offline: bool,
         artist_id: String,
         artist_name: String,
         images: Option<String>, // JSON array
@@ -190,6 +194,7 @@ pub async fn get_artist_suggestions(
         r#"
         SELECT
             artist.id as "artist_id!: String",
+            EXISTS (SELECT 1 FROM library_offline_container_view o WHERE o.entity_type = 'artist' AND o.entity_id = artist.id) as "is_offline!: bool",
             artist.name as "artist_name!: String",
             (SELECT json_group_array(json_object('media_blob_id', ai.media_blob_id, 'is_primary', ai.is_primary, 'blob_type', mb.blob_type))
              FROM artist_imagez ai
@@ -214,7 +219,7 @@ pub async fn get_artist_suggestions(
             AND artist.deleted_at IS NULL
             AND (rating.rating IS NULL OR rating.rating != 0)
         GROUP BY artist.id, artist.name, fts.rank, rating.rating, favorite.id
-        ORDER BY fts.rank
+        ORDER BY fts.rank * CASE WHEN "is_offline!: bool" THEN 0.8 ELSE 1.0 END, "is_offline!: bool", artist.id
         LIMIT 100
         "#,
         user_id_param,
@@ -237,6 +242,7 @@ pub async fn get_artist_suggestions(
             let highlight = generate_highlight(&row.artist_name, partial);
 
             Suggestion {
+                is_offline: row.is_offline,
                 value: row.artist_name.clone(),
                 display: row.artist_name.clone(),
                 highlight,
@@ -269,6 +275,7 @@ pub async fn get_album_suggestions(
 
     #[derive(sqlx::FromRow)]
     struct AlbumSuggestionRow {
+        is_offline: bool,
         album_id: String,
         album_title: String,
         images: Option<String>,       // JSON array
@@ -288,6 +295,7 @@ pub async fn get_album_suggestions(
         r#"
         SELECT
             album.id as "album_id!: String",
+            EXISTS (SELECT 1 FROM library_offline_container_view o WHERE o.entity_type = 'album' AND o.entity_id = album.id) as "is_offline!: bool",
             album.title as "album_title!: String",
             (SELECT json_group_array(json_object('media_blob_id', ai.media_blob_id, 'is_primary', ai.is_primary, 'blob_type', mb.blob_type))
              FROM album_imagez ai
@@ -320,7 +328,7 @@ pub async fn get_album_suggestions(
             AND album.deleted_at IS NULL
             AND (rating.rating IS NULL OR rating.rating != 0)
         GROUP BY album.id, album.title, fts.rank, rating.rating, favorite.id
-        ORDER BY fts.rank
+        ORDER BY fts.rank * CASE WHEN "is_offline!: bool" THEN 0.8 ELSE 1.0 END, "is_offline!: bool", album.id
         LIMIT 100
         "#,
         user_id_param,
@@ -357,6 +365,7 @@ pub async fn get_album_suggestions(
             let match_type = matched_field.as_deref().unwrap_or("title");
 
             Suggestion {
+                is_offline: row.is_offline,
                 value: row.album_title.clone(),
                 display: row.album_title.clone(),
                 highlight,
@@ -426,6 +435,7 @@ pub async fn get_taxon_suggestions(
             let highlight = generate_highlight(&row.taxon_label, partial);
 
             Suggestion {
+                is_offline: false,
                 value: row.taxon_label.clone(),
                 display: row.taxon_label.clone(),
                 highlight,
@@ -468,6 +478,7 @@ pub async fn get_playlist_suggestions(
         r#"
         SELECT
             playlist.id as "playlist_id!: String",
+            EXISTS (SELECT 1 FROM library_offline_container_view o WHERE o.entity_type = 'playlist' AND o.entity_id = playlist.id) as "is_offline!: bool",
             playlist.title as "playlist_title!: String",
             (SELECT json_group_array(json_object('media_blob_id', pi.media_blob_id, 'is_primary', pi.is_primary, 'blob_type', mb.blob_type))
              FROM playlist_imagez pi
@@ -490,7 +501,7 @@ pub async fn get_playlist_suggestions(
             AND playlist.deleted_at IS NULL
             AND (playlist.private = 0 OR playlist.created_by_id = ?)
         GROUP BY playlist.id, playlist.title, playlist.is_public, playlist.created_by, fts.rank, favorite.id
-        ORDER BY fts.rank
+        ORDER BY fts.rank * CASE WHEN "is_offline!: bool" THEN 0.8 ELSE 1.0 END, "is_offline!: bool", playlist.id
         LIMIT 100
         "#,
         user_id_param,
@@ -525,6 +536,7 @@ pub async fn get_playlist_suggestions(
             let match_type = matched_field.as_deref().unwrap_or("title");
 
             Suggestion {
+                is_offline: row.is_offline,
                 value: row.playlist_title.clone(),
                 display: row.playlist_title.clone(),
                 highlight,

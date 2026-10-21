@@ -1,8 +1,9 @@
-import { createSignal, createEffect, on, onMount, onCleanup, For, Show } from "solid-js";
+import { createSignal, createEffect, on, onMount, onCleanup, For, Show, type JSX } from "solid-js";
 import { open } from "@tauri-apps/plugin-dialog";
 import { invoke, Channel } from "@tauri-apps/api/core";
 import { resolvePath, directoryDisplayName, isDocumentPortalPath } from "../util/resolvePath";
 import { useAdminTransport } from "../admin/context";
+import LibraryDiskPicker, { type DiskFolderSelection } from "../components/LibraryDiskPicker";
 
 interface ScannedDir {
   id: string;
@@ -12,8 +13,57 @@ interface ScannedDir {
   tags: string[];
 }
 
+interface LibrarySource {
+  id: string;
+  label: string | null;
+  last_known_path: string;
+  domain: "both" | "music" | "video";
+}
+
+interface SourceAvailability {
+  source_id: string;
+  status: string;
+}
+
+interface SourceSummary {
+  source_id: string;
+  music_count: number;
+  video_count: number;
+  tags: string[];
+  generate_renditions: boolean;
+}
+interface ActiveScan {
+  session_id: string;
+  path: string;
+}
+interface RenditionSettings {
+  enabled: boolean;
+  directory: string;
+}
+
+function ProgressStack(props: { children: JSX.Element; onHeight: (height: number) => void }) {
+  let element!: HTMLDivElement;
+  onMount(() => {
+    const measure = () => props.onHeight(element.getBoundingClientRect().height);
+    measure();
+    const observer =
+      typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(measure);
+    observer?.observe(element);
+    onCleanup(() => {
+      observer?.disconnect();
+      props.onHeight(0);
+    });
+  });
+  return (
+    <div class="sticky-progress-stack" ref={element}>
+      {props.children}
+    </div>
+  );
+}
+
 interface ScanResult {
   success: boolean;
+  session_id?: string;
   jobs_created: number;
   message: string;
 }
@@ -168,10 +218,26 @@ interface JobSessionCompletePayload {
 export default function LibraryView() {
   const admin = useAdminTransport();
   const [directories, setDirectories] = createSignal<ScannedDir[]>([]);
+  const [librarySources, setLibrarySources] = createSignal<LibrarySource[]>([]);
+  const [sourceStates, setSourceStates] = createSignal<SourceAvailability[]>([]);
+  const [sourceSummaries, setSourceSummaries] = createSignal<SourceSummary[]>([]);
+  const [renditionSettings, setRenditionSettings] = createSignal<RenditionSettings>();
+  const [generateRenditions, setGenerateRenditions] = createSignal(true);
+  const [confirmRemoveSource, setConfirmRemoveSource] = createSignal<LibrarySource>();
+  const [removingSource, setRemovingSource] = createSignal(false);
+  const [removeSourceError, setRemoveSourceError] = createSignal("");
+  const [refreshingSources, setRefreshingSources] = createSignal(false);
+  const [progressHeight, setProgressHeight] = createSignal(0);
+  let libraryLoadGeneration = 0;
   const [loading, setLoading] = createSignal(true);
   const [showAddModal, setShowAddModal] = createSignal(false);
+  const [addingRemovableDisk, setAddingRemovableDisk] = createSignal(false);
   const [pendingPath, setPendingPath] = createSignal("");
   const [pendingTags, setPendingTags] = createSignal("");
+  const [pendingDiskFolder, setPendingDiskFolder] = createSignal<DiskFolderSelection>();
+  const [diskPickerBusy, setDiskPickerBusy] = createSignal(false);
+  const [addingDirectory, setAddingDirectory] = createSignal(false);
+  const [addDirectoryError, setAddDirectoryError] = createSignal("");
   const [pendingDomain, setPendingDomain] = createSignal<"music" | "video" | "both">("both");
   const [pathValidating, setPathValidating] = createSignal(false);
   const [pathValidation, setPathValidation] = createSignal<ValidatePathResult | null>(null);
@@ -183,6 +249,21 @@ export default function LibraryView() {
   // charnel's grimoire event subscription (no polling required).
   const [scanProgress, setScanProgress] = createSignal<JobProgressPayload | null>(null);
   const [scanSummary, setScanSummary] = createSignal<JobSessionCompletePayload | null>(null);
+  const [directoryScanSession, setDirectoryScanSession] = createSignal<string | null>(null);
+  const [directoryScans, setDirectoryScans] = createSignal<ActiveScan[]>([]);
+  const [cancellingScan, setCancellingScan] = createSignal(false);
+  let directoryScanTimer: ReturnType<typeof setTimeout> | undefined;
+  let directoryScanGeneration = 0;
+
+  function stopDirectoryScanProgress() {
+    directoryScanGeneration++;
+    clearTimeout(directoryScanTimer);
+    directoryScanTimer = undefined;
+    setDirectoryScanSession(null);
+    setDirectoryScans([]);
+    setCancellingScan(false);
+  }
+  onCleanup(stopDirectoryScanProgress);
   // most recent `JobEvent::Stage` message for the active repair-library
   // session - real, live detail (which directory is being scanned, which
   // phase/batch is running, running totals so far) straight from the
@@ -372,6 +453,7 @@ export default function LibraryView() {
     }
 
     await loadDirectories();
+    if (!activeLibrarySession()) await resumeDirectoryScans();
     try {
       const dirs = await admin.dispatchOrThrow<{
         source_music_directory: string;
@@ -484,6 +566,7 @@ export default function LibraryView() {
   });
 
   onCleanup(() => {
+    libraryLoadGeneration++;
     if (unlistenScan) unlistenScan();
   });
 
@@ -492,27 +575,84 @@ export default function LibraryView() {
     on(
       () => admin.current(),
       () => {
+        cancelAddDirectory();
+        setLibrarySources([]);
+        setSourceStates([]);
+        setSourceSummaries([]);
+        setRenditionSettings(undefined);
+        setConfirmRemoveSource(undefined);
+        setDirectories([]);
+        stopDirectoryScanProgress();
+        setScanning(null);
+        setScanProgress(null);
+        setScanStageMessage(null);
         setLastResult("");
         setConfirmRemove(null);
         loadDirectories();
+        void resumeDirectoryScans();
       },
       { defer: true },
     ),
   );
 
   async function loadDirectories() {
+    const generation = ++libraryLoadGeneration;
     setLoading(true);
     try {
-      const dirs = await admin.dispatchOrThrow<ScannedDir[]>("library_list_directories", {});
+      const [dirs, sources, states, summaries, settings] = await Promise.all([
+        admin.dispatchOrThrow<ScannedDir[]>("library_list_directories", {}),
+        admin.dispatchOrThrow<LibrarySource[]>("library_list_sources", {}),
+        admin.dispatchOrThrow<SourceAvailability[]>("library_source_availability", {}),
+        admin.dispatchOrThrow<SourceSummary[]>("library_source_summaries", {}),
+        admin.dispatchOrThrow<RenditionSettings>("library_rendition_settings", {}),
+      ]);
+      if (generation !== libraryLoadGeneration) return;
       setDirectories(dirs);
+      setLibrarySources(sources);
+      setSourceStates(states);
+      setSourceSummaries(summaries);
+      setRenditionSettings(settings);
     } catch (e) {
+      if (generation !== libraryLoadGeneration) return;
+      setLastError(`could not load library directories and disks: ${e}`);
       console.error("failed to load directories:", e);
     } finally {
-      setLoading(false);
+      if (generation === libraryLoadGeneration) setLoading(false);
     }
   }
 
-  async function browseDirectory() {
+  async function refreshSources() {
+    const target = admin.current();
+    setRefreshingSources(true);
+    try {
+      await admin.dispatchOrThrow("library_refresh_source_availability", {});
+      if (admin.current() === target) await loadDirectories();
+    } catch (e) {
+      if (admin.current() === target) setLastError(`could not refresh disk availability: ${e}`);
+    } finally {
+      setRefreshingSources(false);
+    }
+  }
+
+  async function removeRemovableSource() {
+    const source = confirmRemoveSource();
+    if (!source || removingSource()) return;
+    const target = admin.current();
+    setRemovingSource(true);
+    setRemoveSourceError("");
+    try {
+      await admin.dispatchOrThrow("library_remove_source", { id: source.id });
+      if (admin.current() !== target) return;
+      setConfirmRemoveSource(undefined);
+      await loadDirectories();
+    } catch (e) {
+      if (admin.current() === target) setRemoveSourceError(String(e));
+    } finally {
+      setRemovingSource(false);
+    }
+  }
+
+  function browseDirectory(removable = false) {
     // open the add-directory section with an editable text input;
     // the user can either type a path or click "browse..." inside
     // the modal (local mode only) to fill it from the os file picker.
@@ -521,6 +661,8 @@ export default function LibraryView() {
     setPendingTags("");
     setPendingDomain("both");
     setPathValidation(null);
+    setAddingRemovableDisk(removable);
+    setGenerateRenditions(renditionSettings()?.enabled ?? false);
     setShowAddModal(true);
   }
 
@@ -591,6 +733,39 @@ export default function LibraryView() {
   }
 
   async function confirmAddDirectory() {
+    if (addingDirectory() || diskPickerBusy()) return;
+    const selected = pendingDiskFolder();
+    if (selected) {
+      const target = admin.current();
+      const tags = pendingTags()
+        .split(",")
+        .map((tag) => tag.trim())
+        .filter(Boolean);
+      const domain = pendingDomain();
+      setAddingDirectory(true);
+      setAddDirectoryError("");
+      try {
+        const source = await admin.dispatchOrThrow<LibrarySource>("library_register_source", {
+          ...selected,
+          domain,
+          generate_renditions: renditionSettings()?.enabled ? generateRenditions() : undefined,
+        });
+        if (admin.current() !== target || !showAddModal()) return;
+        if (!source?.last_known_path) throw new Error("library registration returned no path");
+        setLibrarySources((sources) => [
+          ...sources.filter((item) => item.id !== source.id),
+          source,
+        ]);
+        cancelAddDirectory();
+        void loadDirectories();
+        await scanDirectory(source.last_known_path, tags, domain);
+      } catch (e) {
+        if (admin.current() === target && showAddModal()) setAddDirectoryError(String(e));
+      } finally {
+        setAddingDirectory(false);
+      }
+      return;
+    }
     const path = pendingPath().trim();
     if (!path) return;
 
@@ -636,6 +811,9 @@ export default function LibraryView() {
     setPendingTags("");
     setPendingDomain("both");
     setPathValidation(null);
+    setPendingDiskFolder(undefined);
+    setDiskPickerBusy(false);
+    setAddDirectoryError("");
   }
 
   async function removeDirectory(path: string) {
@@ -764,6 +942,9 @@ export default function LibraryView() {
   }
 
   async function scanDirectory(path: string, tags: string[], domain?: "music" | "video" | "both") {
+    stopDirectoryScanProgress();
+    const generation = directoryScanGeneration;
+    const target = admin.current();
     setScanning(path);
     setLastResult("");
     setLastError("");
@@ -778,6 +959,7 @@ export default function LibraryView() {
         const v = await admin.dispatchOrThrow<ValidatePathResult>("library_validate_path", {
           path,
         });
+        if (generation !== directoryScanGeneration || admin.current() !== target) return;
         if (!v.exists || !v.is_dir || !v.is_readable) {
           setLastError(
             !v.exists
@@ -796,6 +978,7 @@ export default function LibraryView() {
       }
     }
 
+    if (generation !== directoryScanGeneration || admin.current() !== target) return;
     try {
       const result = admin.isRemote()
         ? await admin.dispatchOrThrow<ScanResult>("library_scan", {
@@ -805,13 +988,133 @@ export default function LibraryView() {
             recursive: true,
           })
         : await invoke<ScanResult>("scan_directory", { path, tags, domain });
+      if (generation !== directoryScanGeneration || admin.current() !== target) return;
+      if (!result.success) throw new Error(result.message);
       setLastResult(result.message);
+      if (result.session_id) {
+        setDirectoryScanSession(result.session_id);
+        setScanProgress({
+          session_id: result.session_id,
+          directory: path,
+          jobs_pending: 1,
+          jobs_total: 1,
+        });
+        setScanStageMessage("scanning for files and importing media...");
+        void pollDirectoryScan(result.session_id, path, generation);
+      }
       // reload directories to show updated file count
       await loadDirectories();
     } catch (e) {
-      setLastError(`scan failed: ${e}`);
+      if (generation === directoryScanGeneration) setLastError(`scan failed: ${e}`);
     } finally {
+      if (generation === directoryScanGeneration && !directoryScanSession()) setScanning(null);
+    }
+  }
+
+  async function resumeDirectoryScans() {
+    if (directoryScanSession()) return;
+    const generation = directoryScanGeneration;
+    const target = admin.current();
+    try {
+      const scans = await admin.dispatchOrThrow<ActiveScan[]>("library_active_scans", {});
+      if (generation !== directoryScanGeneration || admin.current() !== target || directoryScanSession() || !scans.length)
+        return;
+      setDirectoryScanSession(scans[0].session_id);
+      setScanning(scans[0].path || "__scans__");
+      setScanProgress({ session_id: scans[0].session_id, jobs_pending: 1, jobs_total: 1 });
+      void pollDirectoryScan(scans[0].session_id, scans[0].path, generation, scans);
+    } catch (e) {
+      if (generation === directoryScanGeneration && admin.current() === target)
+        setLastError(`could not reconnect to scan progress: ${e}`);
+    }
+  }
+
+  async function pollDirectoryScan(
+    sessionId: string,
+    path: string,
+    generation: number,
+    scans: ActiveScan[] = [{ session_id: sessionId, path }],
+  ) {
+    if (generation !== directoryScanGeneration) return;
+    setDirectoryScans(scans);
+    try {
+      const results = await Promise.all(
+        scans.map((scan) =>
+          admin.dispatchOrThrow<{
+            pending: number;
+            running: number;
+            completed: number;
+            failed: number;
+            cancelled?: number;
+            total: number;
+          }>("library_scan_status", { session_id: scan.session_id }),
+        ),
+      );
+      const counts = results.reduce(
+        (sum, value) => ({
+          pending: sum.pending + value.pending,
+          running: sum.running + value.running,
+          completed: sum.completed + value.completed,
+          failed: sum.failed + value.failed,
+          cancelled: (sum.cancelled ?? 0) + (value.cancelled ?? 0),
+          total: sum.total + value.total,
+        }),
+        { pending: 0, running: 0, completed: 0, failed: 0, cancelled: 0, total: 0 },
+      );
+      if (generation !== directoryScanGeneration) return;
+      if (counts.pending || counts.running) {
+        setScanProgress({
+          session_id: sessionId,
+          directory: path,
+          jobs_pending: counts.pending + counts.running,
+          jobs_total: counts.total,
+        });
+        setScanStageMessage(
+          `${counts.completed} completed · ${counts.running} running · ${counts.pending} pending · ${counts.failed} failed${counts.cancelled ? ` · ${counts.cancelled} cancelled` : ""}`,
+        );
+        directoryScanTimer = setTimeout(
+          () => void pollDirectoryScan(sessionId, path, generation, scans),
+          2000,
+        );
+      } else {
+        stopDirectoryScanProgress();
+        setScanning(null);
+        setScanProgress(null);
+        setScanStageMessage(null);
+        setLastResult(
+          `scan ${counts.cancelled ? "cancelled" : "complete"}: ${counts.completed} jobs completed · ${counts.failed} failed${counts.cancelled ? ` · ${counts.cancelled} cancelled` : ""}`,
+        );
+        if (counts.failed) setLastError("scan finished with failed jobs; check the job logs");
+        await loadDirectories();
+      }
+    } catch (e) {
+      if (generation !== directoryScanGeneration) return;
+      stopDirectoryScanProgress();
       setScanning(null);
+      setScanProgress(null);
+      setScanStageMessage(null);
+      setLastError(`could not read scan progress: ${e}; the scan may still be running`);
+    }
+  }
+
+  async function cancelDirectoryScans() {
+    if (cancellingScan()) return;
+    const generation = directoryScanGeneration;
+    const target = admin.current();
+    setCancellingScan(true);
+    try {
+      for (const scan of directoryScans()) {
+        if (generation !== directoryScanGeneration || admin.current() !== target) return;
+        await admin.dispatchOrThrow("jobs_cancel_session", { session_id: scan.session_id });
+      }
+      if (generation !== directoryScanGeneration || admin.current() !== target) return;
+      setScanStageMessage("cancellation requested; the current file may finish importing");
+    } catch (error) {
+      if (generation === directoryScanGeneration && admin.current() === target)
+        setLastError(`could not cancel scan: ${error}`);
+    } finally {
+      if (generation === directoryScanGeneration && admin.current() === target)
+        setCancellingScan(false);
     }
   }
 
@@ -1483,7 +1786,15 @@ export default function LibraryView() {
   }
 
   return (
-    <div class="view-content">
+    <div
+      class="view-content library-view"
+      style={{
+        "padding-bottom":
+          scanProgress() || maintenanceProgress()
+            ? `${Math.max(progressHeight() + 48, (Number(!!scanProgress()) + Number(!!maintenanceProgress())) * 192)}px`
+            : "3rem",
+      }}
+    >
       <div class="view-header">
         <h1>music library</h1>
       </div>
@@ -1498,10 +1809,14 @@ export default function LibraryView() {
 
         <Show when={!loading()}>
           <div class="directory-list">
-            <Show when={directories().length === 0}>
+            <Show when={directories().length === 0 && librarySources().length === 0}>
               <p class="empty">no directories added yet</p>
             </Show>
-            <For each={directories()}>
+            <For
+              each={directories().filter(
+                (dir) => !librarySources().some((source) => source.last_known_path === dir.path),
+              )}
+            >
               {(dir) => (
                 <div class="directory-item">
                   <div class="directory-info">
@@ -1560,9 +1875,93 @@ export default function LibraryView() {
           </Show>
         </Show>
 
-        <div class="button-row">
-          <button class="secondary" onClick={browseDirectory}>
+        <Show when={librarySources().length}>
+          <h2>removable disks</h2>
+          <div class="directory-list">
+            <For each={librarySources()}>
+              {(source) => (
+                <div class="directory-item">
+                  <div class="directory-info">
+                    <span class="directory-name">
+                      {source.label || directoryDisplayName(source.last_known_path)}
+                    </span>
+                    <span class="directory-path" title={source.last_known_path}>
+                      {source.last_known_path}
+                    </span>
+                    <span class="directory-meta">
+                      {source.domain} ·{" "}
+                      {sourceStates().find((state) => state.source_id === source.id)?.status ||
+                        "unknown"}
+                      <Show
+                        when={sourceSummaries().find((summary) => summary.source_id === source.id)}
+                      >
+                        {(summary) => (
+                          <span>
+                            {summary().music_count} music · {summary().video_count} video
+                            <span class="directory-tags">
+                              {summary()
+                                .tags.map((tag) => `#${tag}`)
+                                .join(" ")}
+                            </span>
+                          </span>
+                        )}
+                      </Show>
+                    </span>
+                  </div>
+                  <div class="directory-actions">
+                    <button
+                      class="secondary small"
+                      disabled={
+                        scanning() !== null ||
+                        sourceStates().some(
+                          (state) => state.source_id === source.id && state.status === "offline",
+                        )
+                      }
+                      onClick={() =>
+                        void scanDirectory(
+                          source.last_known_path,
+                          directories().find((dir) => dir.path === source.last_known_path)?.tags ??
+                            [],
+                          source.domain,
+                        )
+                      }
+                    >
+                      {scanning() === source.last_known_path ? "scanning..." : "scan"}
+                    </button>
+                    <button
+                      class="secondary small"
+                      disabled={removingSource()}
+                      onClick={() => {
+                        setRemoveSourceError("");
+                        setConfirmRemoveSource(source);
+                      }}
+                    >
+                      remove from library
+                    </button>
+                  </div>
+                </div>
+              )}
+            </For>
+          </div>
+          <button
+            class="secondary small"
+            disabled={refreshingSources()}
+            onClick={() => void refreshSources()}
+          >
+            {refreshingSources() ? "checking disks..." : "refresh disk availability"}
+          </button>
+        </Show>
+
+        <div class="button-row library-add-actions">
+          <button class="secondary" onClick={() => browseDirectory()}>
             add directory
+          </button>
+          <button
+            class="secondary"
+            disabled={loading() || !renditionSettings()}
+            onClick={() => browseDirectory(true)}
+          >
+            add removable disk
           </button>
         </div>
 
@@ -2148,7 +2547,7 @@ export default function LibraryView() {
             and maintenance-tasks progress can't overlap if both happen to
             be running at once. */}
         <Show when={scanProgress() || maintenanceProgress()}>
-          <div class="sticky-progress-stack">
+          <ProgressStack onHeight={setProgressHeight}>
             <Show when={scanProgress()}>
               {(p) => {
                 const total = () => p().jobs_total || 0;
@@ -2161,7 +2560,11 @@ export default function LibraryView() {
                 // but this is enough to tell the two apart without any
                 // new backend plumbing.
                 const phaseLabel = () =>
-                  done() < 1 ? "scanning for new files..." : "backfilling missing images...";
+                  directoryScanSession()
+                    ? "scanning and importing media..."
+                    : done() < 1
+                      ? "scanning for new files..."
+                      : "backfilling missing images...";
                 return (
                   <div class="scan-progress-card scan-progress-card--sticky">
                     <div class="scan-progress-header">
@@ -2178,6 +2581,15 @@ export default function LibraryView() {
                       {scanStageMessage() ??
                         "starting up - waiting for the first batch to report in..."}
                     </div>
+                    <Show when={directoryScanSession()}>
+                      <button
+                        class="secondary"
+                        disabled={cancellingScan()}
+                        onClick={() => void cancelDirectoryScans()}
+                      >
+                        {cancellingScan() ? "cancelling..." : "cancel scan"}
+                      </button>
+                    </Show>
                   </div>
                 );
               }}
@@ -2208,7 +2620,7 @@ export default function LibraryView() {
                 );
               }}
             </Show>
-          </div>
+          </ProgressStack>
         </Show>
 
         {/* completion summary */}
@@ -2241,152 +2653,249 @@ export default function LibraryView() {
 
       {/* add directory modal */}
       <Show when={showAddModal()}>
-        <div class="modal-overlay" onClick={cancelAddDirectory}>
-          <div class="modal" onClick={(e) => e.stopPropagation()}>
-            <h2>add scan directory</h2>
-            <div class="form-group">
-              <label>path</label>
-              {/* always show an editable text input. local mode also
+        <div
+          class="modal-overlay"
+          onClick={() => {
+            if (!addingDirectory()) cancelAddDirectory();
+          }}
+        >
+          <div class="modal add-directory-modal" onClick={(e) => e.stopPropagation()}>
+            <h2>{addingRemovableDisk() ? "add removable disk" : "add scan directory"}</h2>
+            <Show when={addingRemovableDisk()}>
+              <LibraryDiskPicker
+                disabled={addingDirectory()}
+                onSelectionChange={(selection) => {
+                  setPendingDiskFolder(selection);
+                  setAddDirectoryError("");
+                }}
+                onBusyChange={setDiskPickerBusy}
+              />
+            </Show>
+            <Show when={!addingRemovableDisk()}>
+              <div class="form-group">
+                <label>path</label>
+                {/* always show an editable text input. local mode also
                   exposes a "browse..." button that fills the input via
                   the os file picker; user still has to press confirm.
                   remote mode exposes a "validate" button + onBlur
                   validation against the server. */}
-              <input
-                type="text"
-                value={pendingPath()}
-                placeholder={
-                  admin.isRemote()
-                    ? "/absolute/path/on/remote"
-                    : "/absolute/path/to/music or ~/Music"
-                }
-                onInput={(e) => {
-                  setPendingPath(e.currentTarget.value);
-                  setPathValidation(null);
-                }}
-                onBlur={validatePendingPath}
-              />
-              <Show when={admin.isRemote()}>
-                <p class="hint">
-                  enter a path that exists on the remote server. press tab or click "validate" to
-                  check.
-                </p>
-              </Show>
-              <Show when={!admin.isRemote()}>
-                <p class="hint">
-                  type a path (supports `~/...`) or click "browse..." to pick one. press tab or
-                  "validate" to check.
-                </p>
-              </Show>
-              <div class="button-row">
-                <button
-                  class="secondary small"
-                  onClick={validatePendingPath}
-                  disabled={pathValidating() || !pendingPath().trim()}
-                >
-                  {pathValidating() ? "validating..." : "validate"}
-                </button>
+                <input
+                  type="text"
+                  value={pendingPath()}
+                  placeholder={
+                    admin.isRemote()
+                      ? "/absolute/path/on/remote"
+                      : "/absolute/path/to/music or ~/Music"
+                  }
+                  onInput={(e) => {
+                    setPendingPath(e.currentTarget.value);
+                    setPathValidation(null);
+                  }}
+                  onBlur={validatePendingPath}
+                />
+                <Show when={admin.isRemote()}>
+                  <p class="hint">
+                    enter a path that exists on the remote server. press tab or click "validate" to
+                    check.
+                  </p>
+                </Show>
                 <Show when={!admin.isRemote()}>
-                  <button class="secondary small" onClick={browseAndFillPath}>
-                    browse...
+                  <p class="hint">
+                    type a path (supports `~/...`) or click "browse..." to pick one. press tab or
+                    "validate" to check.
+                  </p>
+                </Show>
+                <div class="button-row">
+                  <button
+                    class="secondary small"
+                    onClick={validatePendingPath}
+                    disabled={pathValidating() || !pendingPath().trim()}
+                  >
+                    {pathValidating() ? "validating..." : "validate"}
                   </button>
+                  <Show when={!admin.isRemote()}>
+                    <button class="secondary small" onClick={browseAndFillPath}>
+                      browse...
+                    </button>
+                  </Show>
+                </div>
+                <Show when={pathValidation()}>
+                  {(v) => {
+                    const ok = () => v().exists && v().is_dir && v().is_readable;
+                    return (
+                      <p class={ok() ? "scan-progress" : "scan-progress error"}>
+                        {ok()
+                          ? `✓ readable directory (${v().path})`
+                          : !v().exists
+                            ? `path does not exist: ${v().path}`
+                            : !v().is_dir
+                              ? "path is not a directory"
+                              : "path is not readable"}
+                      </p>
+                    );
+                  }}
                 </Show>
               </div>
-              <Show when={pathValidation()}>
-                {(v) => {
-                  const ok = () => v().exists && v().is_dir && v().is_readable;
-                  return (
-                    <p class={ok() ? "scan-progress" : "scan-progress error"}>
-                      {ok()
-                        ? `✓ readable directory (${v().path})`
-                        : !v().exists
-                          ? `path does not exist: ${v().path}`
-                          : !v().is_dir
-                            ? "path is not a directory"
-                            : "path is not readable"}
+            </Show>
+            <Show when={!addingRemovableDisk() || pendingDiskFolder()}>
+              <fieldset disabled={addingDirectory()}>
+                <div class="form-group">
+                  <label>media type</label>
+                  <div class="radio-toggle-group">
+                    <label class="radio-toggle">
+                      <input
+                        type="radio"
+                        name="pending-domain"
+                        checked={pendingDomain() === "music"}
+                        onChange={() => setPendingDomain("music")}
+                      />
+                      <span class="radio-dot" />
+                      <span class="radio-label">music</span>
+                    </label>
+                    <label class="radio-toggle">
+                      <input
+                        type="radio"
+                        name="pending-domain"
+                        checked={pendingDomain() === "video"}
+                        onChange={() => setPendingDomain("video")}
+                      />
+                      <span class="radio-dot" />
+                      <span class="radio-label">video</span>
+                    </label>
+                    <label class="radio-toggle">
+                      <input
+                        type="radio"
+                        name="pending-domain"
+                        checked={pendingDomain() === "both"}
+                        onChange={() => setPendingDomain("both")}
+                      />
+                      <span class="radio-dot" />
+                      <span class="radio-label">both</span>
+                    </label>
+                  </div>
+                </div>
+                <Show
+                  when={
+                    addingRemovableDisk() &&
+                    pendingDomain() !== "music" &&
+                    renditionSettings()?.enabled
+                  }
+                >
+                  <div class="form-group">
+                    <label>
+                      <input
+                        type="checkbox"
+                        checked={generateRenditions()}
+                        onChange={(event) => setGenerateRenditions(event.currentTarget.checked)}
+                      />
+                      generate video renditions
+                    </label>
+                    <p class="hint">
+                      renditions stay in {renditionSettings()?.directory}. videos are unavailable
+                      while the original disk is offline, even if renditions remain here. queued
+                      transcodes are skipped when the source is absent.
                     </p>
-                  );
-                }}
-              </Show>
-            </div>
-            <div class="form-group">
-              <label>media type</label>
-              <div class="radio-toggle-group">
-                <label class="radio-toggle">
+                  </div>
+                </Show>
+                <div class="form-group">
+                  <label>tags (optional)</label>
                   <input
-                    type="radio"
-                    name="pending-domain"
-                    checked={pendingDomain() === "music"}
-                    onChange={() => setPendingDomain("music")}
+                    type="text"
+                    value={pendingTags()}
+                    onInput={(e) => setPendingTags(e.currentTarget.value)}
+                    placeholder="rock, jazz, 90s"
                   />
-                  <span class="radio-dot" />
-                  <span class="radio-label">music</span>
-                </label>
-                <label class="radio-toggle">
-                  <input
-                    type="radio"
-                    name="pending-domain"
-                    checked={pendingDomain() === "video"}
-                    onChange={() => setPendingDomain("video")}
-                  />
-                  <span class="radio-dot" />
-                  <span class="radio-label">video</span>
-                </label>
-                <label class="radio-toggle">
-                  <input
-                    type="radio"
-                    name="pending-domain"
-                    checked={pendingDomain() === "both"}
-                    onChange={() => setPendingDomain("both")}
-                  />
-                  <span class="radio-dot" />
-                  <span class="radio-label">both</span>
-                </label>
-              </div>
-            </div>
-            <div class="form-group">
-              <label>tags (optional)</label>
-              <input
-                type="text"
-                value={pendingTags()}
-                onInput={(e) => setPendingTags(e.currentTarget.value)}
-                placeholder="rock, jazz, 90s"
-              />
-              <p class="hint">comma-separated tags to apply to all songs from this directory</p>
-            </div>
+                  <p class="hint">comma-separated tags to apply to all songs from this directory</p>
+                </div>
+              </fieldset>
+            </Show>
+            <Show when={addDirectoryError()}>
+              <p class="scan-progress error" role="alert">
+                {addDirectoryError()}
+              </p>
+            </Show>
             <div class="button-row">
-              <button class="secondary" onClick={cancelAddDirectory}>
+              <button class="secondary" disabled={addingDirectory()} onClick={cancelAddDirectory}>
                 cancel
               </button>
-              <button
-                class="primary"
-                onClick={confirmAddDirectory}
-                disabled={
-                  admin.isRemote()
-                    ? !pathValidation() ||
-                      !pathValidation()!.exists ||
-                      !pathValidation()!.is_dir ||
-                      !pathValidation()!.is_readable
-                    : // a successful server-side validation always unlocks this,
-                      // even for path shapes isPathPlausible's regexes don't
-                      // recognize (e.g. windows' "\\?\" extended-length prefix) -
-                      // the heuristic only exists to light the button up before
-                      // the user has pressed "validate".
-                      !isPathPlausible(pendingPath()) &&
-                      !(
-                        pathValidation()?.exists &&
-                        pathValidation()?.is_dir &&
-                        pathValidation()?.is_readable
-                      )
-                }
-              >
-                add & scan
-              </button>
+              <Show when={!addingRemovableDisk() || pendingDiskFolder()}>
+                <button
+                  class="primary"
+                  onClick={confirmAddDirectory}
+                  disabled={
+                    addingDirectory() ||
+                    diskPickerBusy() ||
+                    (addingRemovableDisk() && !pendingDiskFolder()) ||
+                    (!pendingDiskFolder() &&
+                      (admin.isRemote()
+                        ? !pathValidation() ||
+                          !pathValidation()!.exists ||
+                          !pathValidation()!.is_dir ||
+                          !pathValidation()!.is_readable
+                        : // a successful server-side validation always unlocks this,
+                          // even for path shapes isPathPlausible's regexes don't
+                          // recognize (e.g. windows' "\\?\" extended-length prefix) -
+                          // the heuristic only exists to light the button up before
+                          // the user has pressed "validate".
+                          !isPathPlausible(pendingPath()) &&
+                          !(
+                            pathValidation()?.exists &&
+                            pathValidation()?.is_dir &&
+                            pathValidation()?.is_readable
+                          )))
+                  }
+                >
+                  {addingDirectory() ? "adding..." : "add & scan"}
+                </button>
+              </Show>
             </div>
           </div>
         </div>
       </Show>
 
       {/* move directory modal */}
+      <Show when={confirmRemoveSource()}>
+        {(source) => (
+          <div
+            class="modal-overlay"
+            onClick={() => {
+              if (!removingSource()) setConfirmRemoveSource(undefined);
+            }}
+          >
+            <div class="modal add-directory-modal" onClick={(event) => event.stopPropagation()}>
+              <h2>remove disk from library?</h2>
+              <p>{source().last_known_path}</p>
+              <p>
+                remove this registration and its music/video entries from the library. entries
+                backed by another registered source are kept. no files are deleted, including
+                originals and renditions. library jobs must finish first.
+              </p>
+              <Show when={removeSourceError()}>
+                <p role="alert" class="scan-progress error">
+                  {removeSourceError()}
+                </p>
+              </Show>
+              <div class="button-row">
+                <button
+                  class="secondary"
+                  disabled={removingSource()}
+                  onClick={() => setConfirmRemoveSource(undefined)}
+                >
+                  cancel
+                </button>
+                <button
+                  class="danger"
+                  disabled={removingSource()}
+                  onClick={() => void removeRemovableSource()}
+                >
+                  {removingSource() ? "removing..." : "confirm remove"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </Show>
+
       <Show when={showMoveModal()}>
         <div class="modal-overlay" onClick={closeMoveModal}>
           <div class="modal" onClick={(e) => e.stopPropagation()}>

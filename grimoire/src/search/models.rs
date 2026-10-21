@@ -110,6 +110,9 @@ pub struct SuggestionsRequest {
 /// suggestion result with confidence score
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct Suggestion {
+    /// confirmed offline on the source library host.
+    #[serde(default)]
+    pub is_offline: bool,
     pub value: String,
     pub display: String,
     pub highlight: String, // markdown bold **match**
@@ -191,6 +194,9 @@ pub struct SearchResponse {
 /// song search result with ranking
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct SongSearchResult {
+    /// confirmed offline on the source library host.
+    #[serde(default)]
+    pub is_offline: bool,
     pub id: String,
     pub title: String,
     pub artist_names: Vec<String>,
@@ -208,6 +214,8 @@ pub struct SongSearchResult {
 /// artist search result with aggregates
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct ArtistSearchResult {
+    #[serde(default)]
+    pub is_offline: bool,
     pub id: String,
     pub name: String,
     pub song_count: i64,
@@ -222,6 +230,8 @@ pub struct ArtistSearchResult {
 /// album search result with details
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct AlbumSearchResult {
+    #[serde(default)]
+    pub is_offline: bool,
     pub id: String,
     pub title: String,
     pub artist_names: Vec<String>,
@@ -253,6 +263,8 @@ pub struct GenreSearchResult {
 /// playlist search result
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct PlaylistSearchResult {
+    #[serde(default)]
+    pub is_offline: bool,
     pub id: String,
     pub title: String,
     pub description: Option<String>,

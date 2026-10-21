@@ -26,7 +26,7 @@ pub struct DirectoryScanOutcome {
     pub file_count: usize,
     /// files queued into a ProcessDirectory job (not skipped)
     pub files_queued: usize,
-    /// files skipped because they're unchanged since the last import
+    /// files skipped because they're unchanged or intentionally deleted on a source
     pub files_skipped: usize,
     /// number of ProcessDirectory jobs actually created
     pub jobs_created: usize,
@@ -144,6 +144,10 @@ pub async fn scan_directory_and_create_jobs(
     file_extensions: Option<Vec<String>>,
     skip_tracked_subdirs: bool,
 ) -> GrimoireResult<DirectoryScanOutcome> {
+    let pool = database::connect().await?;
+    crate::external_storage::sources::validate_scan_path(&pool, path).await?;
+    let deleted_source_paths =
+        crate::external_storage::sources::deleted_source_paths(&pool).await?;
     // Get audio extensions from config if not provided
     let audio_extensions = match file_extensions {
         Some(exts) => exts,
@@ -249,14 +253,6 @@ pub async fn scan_directory_and_create_jobs(
         file_count, walk_root
     );
 
-    // Connect to database to check for existing files
-    let pool =
-        database::connect()
-            .await
-            .map_err(|e| crate::error::GrimoireError::ProcessingFailed {
-                message: format!("Failed to connect to database: {}", e),
-            })?;
-
     // get root user ID for job attribution (scanner runs as root user)
     let root_user_id = get_root_user_id().await;
 
@@ -270,6 +266,11 @@ pub async fn scan_directory_and_create_jobs(
     let mut files_to_process = 0usize;
 
     for file_path in audio_files {
+        if deleted_source_paths.contains(&file_path) {
+            debug!("skipping intentionally deleted source file: {file_path}");
+            files_skipped += 1;
+            continue;
+        }
         // when an existing blob is found, decide between cheap-skip and rescan-update
         let existing_blob_id_for_update =
             match check_existing_blob_for_path(&pool, &file_path).await {
@@ -305,7 +306,7 @@ pub async fn scan_directory_and_create_jobs(
     }
 
     info!(
-        "scan_directory_and_create_jobs: bucketed {} file(s) into {} directory group(s) ({} skipped as unchanged)",
+        "scan_directory_and_create_jobs: bucketed {} file(s) into {} directory group(s) ({} skipped as unchanged or intentionally deleted)",
         files_to_process, by_dir.len(), files_skipped
     );
 

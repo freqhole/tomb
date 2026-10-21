@@ -7,6 +7,7 @@ import { LoadingState, LoadingMoreIndicator } from "../../components/feedback";
 import { appState } from "../../app/services/storage/db";
 import { isRadioPlayerBarActive } from "../../app/services/radio/radioService";
 import { setPageInfo, clearPageInfo } from "../../app/services/pageInfo";
+import { useAvailabilityFilter } from "../../utils/useAvailabilityFilter";
 import { useHistoryState } from "../../utils/historyState";
 import { useViewportHeight, getNavHeight } from "../../utils/viewport";
 import { ArtistDetailPanel } from "../../components/artists/ArtistDetailPanel";
@@ -155,7 +156,9 @@ export function ArtistsView(props: ArtistsViewProps) {
     if (isNarrow() && showingDetailOnNarrow()) return false;
     return true;
   });
+  const availability = useAvailabilityFilter("artists");
   const artistsQuery = useArtistsQuery({
+    hideOffline: availability.hideOffline,
     pageSize: 100,
     query: () => {
       const q = searchParams.q;
@@ -258,6 +261,7 @@ export function ArtistsView(props: ArtistsViewProps) {
   createEffect(() => {
     const count = sortedArtists().length;
     setPageInfo({
+      ...availability.pageInfo(),
       title: "artists",
       count,
       documentTitle: selectedArtist()?.name,
@@ -277,6 +281,7 @@ export function ArtistsView(props: ArtistsViewProps) {
   const artistListItems = createMemo((): ListItem[] => {
     return sortedArtists().map((artist) => ({
       id: artist.artist_id,
+      isOffline: artist.is_offline,
       title: artist.name,
       subtitle: `${formatNumber(artist.song_count)} songs · ${artist.album_count} albums`,
       images: artist.images,

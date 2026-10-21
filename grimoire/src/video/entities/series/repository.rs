@@ -29,6 +29,8 @@ pub async fn create_video_series(req: CreateVideoSeriesRequest) -> GrimoireRespo
          VALUES (?, ?, ?, ?, ?)
          RETURNING
             id as "id!",
+            EXISTS (SELECT 1 FROM library_offline_container_view o
+                    WHERE o.entity_type = 'video_series' AND o.entity_id = video_seriez.id) as "is_offline!: bool",
             title as "title!",
             description,
             poster_blob_id,
@@ -77,6 +79,8 @@ pub async fn find_video_series_by_title(title: &str) -> GrimoireResponse<Option<
         VideoSeries,
         r#"SELECT
             id as "id!",
+            EXISTS (SELECT 1 FROM library_offline_container_view o
+                    WHERE o.entity_type = 'video_series' AND o.entity_id = video_seriez.id) as "is_offline!: bool",
             title as "title!",
             description,
             poster_blob_id,
@@ -154,6 +158,8 @@ pub async fn get_video_series(id: &str) -> GrimoireResponse<VideoSeries> {
         VideoSeries,
         r#"SELECT
             id as "id!",
+            EXISTS (SELECT 1 FROM library_offline_container_view o
+                    WHERE o.entity_type = 'video_series' AND o.entity_id = video_seriez.id) as "is_offline!: bool",
             title as "title!",
             description,
             poster_blob_id,
@@ -209,6 +215,8 @@ pub async fn list_video_seriez(
         VideoSeries,
         r#"SELECT
             id as "id!",
+            EXISTS (SELECT 1 FROM library_offline_container_view o
+                    WHERE o.entity_type = 'video_series' AND o.entity_id = video_seriez.id) as "is_offline!: bool",
             title as "title!",
             description,
             poster_blob_id,
@@ -263,6 +271,8 @@ pub async fn update_video_series(req: UpdateVideoSeriesRequest) -> GrimoireRespo
             WHERE id = ? AND deleted_at IS NULL
             RETURNING
                 id as "id!",
+                EXISTS (SELECT 1 FROM library_offline_container_view o
+                        WHERE o.entity_type = 'video_series' AND o.entity_id = video_seriez.id) as "is_offline!: bool",
                 title as "title!",
                 description,
                 poster_blob_id,

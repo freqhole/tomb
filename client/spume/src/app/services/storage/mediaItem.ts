@@ -69,6 +69,22 @@ export function isVideoItem(item: MediaItem): item is { kind: "video"; video: Qu
   return item.kind === "video";
 }
 
+export function isMediaItemOffline(item: MediaItem): boolean {
+  return (item.kind === "song" ? item.song.is_offline : item.video.is_offline) === true;
+}
+
+// retain queue/playlist positions; only traversal skips confirmed offline media.
+export function findAvailableMediaIndex(
+  items: MediaItem[],
+  startIndex: number,
+  direction: 1 | -1 = 1
+): number {
+  for (let index = startIndex; index >= 0 && index < items.length; index += direction) {
+    if (!isMediaItemOffline(items[index])) return index;
+  }
+  return -1;
+}
+
 /** extract just the songs from a mixed-media list, in order. */
 export function songsOnly(items: MediaItem[]): Song[] {
   return items.filter(isSongItem).map((i) => i.song);

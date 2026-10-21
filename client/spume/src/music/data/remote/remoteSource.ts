@@ -198,6 +198,8 @@ export class RemoteMusicDataSource implements MusicDataSource {
   // helper to convert our QueryParams to API QueryParams
   private buildApiParams(params?: QueryParams): ApiQueryParams {
     const filters: Record<string, any> = {};
+    if (params?.hide_offline !== undefined) filters.hide_offline = params.hide_offline;
+    if (params?.offline_only !== undefined) filters.offline_only = params.offline_only;
 
     // map our individual filter fields to the filters object
     if (params?.artist_id) filters.artist_id = params.artist_id;
@@ -353,6 +355,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
       items: result.data.items.map((item) => {
         return {
           album_id: item.album.id,
+          is_offline: item.is_offline,
           title: item.album.title,
           artist_id: item.artist?.id || "",
           artist_name: item.artist?.name || "unknown artist",
@@ -435,6 +438,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
       items: result.data.items.map((item) => {
         return {
           artist_id: item.artist.id,
+          is_offline: item.is_offline,
           name: item.artist.name,
           bio: item.artist.bio,
           album_count: item.album_count,

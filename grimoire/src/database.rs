@@ -2,8 +2,8 @@
 //! consumers use grimoire apis that handle connections internally
 //!
 //! startup flow:
-//! 1. server/cli main calls `initialize()` once
-//! 2. initialize() runs migrations + creates views
+//! 1. server/cli main calls `initialize()` once to open the pool
+//! 2. `run_migrations()` applies migrations + recreates views
 //! 3. all other code calls `connect()` which returns the singleton pool
 //!
 //! IMPORTANT: pools are singletons - created once, reused for all requests.
@@ -31,13 +31,19 @@ static TRANSFER_REGISTRY: OnceCell<std::sync::Arc<reliquary::gate::TransferRegis
     OnceCell::const_new();
 
 // view SQL files embedded at compile time, in dependency order
-// (drop runs in reverse, create runs forward).
+// availability dependencies must exist before query views are recreated.
 mod views {
     pub struct View {
         pub sql: &'static str,
     }
 
     pub const ALL: &[View] = &[
+        View {
+            sql: include_str!("../../migrations/views/library_source_availability.sql"),
+        },
+        View {
+            sql: include_str!("../../migrations/views/library_container_availability.sql"),
+        },
         View {
             sql: include_str!("../../migrations/views/artist_query_view.sql"),
         },
@@ -74,8 +80,29 @@ pub async fn run_migrations() -> GrimoireResult<()> {
     run_migrations_internal(&pool).await
 }
 
-/// internal migration runner - shared by initialize() and run_migrations()
+/// apply the main schema before initializing blob storage.
 async fn run_migrations_internal(pool: &SqlitePool) -> GrimoireResult<()> {
+    run_schema_migrations(pool).await?;
+
+    // create freqhole-blobz directory for iroh-blobs FsStore
+    let config = get_config();
+    let blobz_path = config.freqhole_blobz_path();
+    if !blobz_path.exists() {
+        std::fs::create_dir_all(&blobz_path).map_err(|e| GrimoireError::ProcessingFailed {
+            message: format!("failed to create freqhole-blobz directory: {}", e),
+        })?;
+        tracing::info!("created freqhole-blobz directory: {}", blobz_path.display());
+    }
+
+    // eagerly migrate blob storage alongside the main database.
+    let step_start = std::time::Instant::now();
+    let _reliquary_pool = connect_reliquary().await?;
+    tracing::info!(elapsed_ms = %step_start.elapsed().as_millis(), "boot: reliquary db connected + migrated");
+
+    Ok(())
+}
+
+pub(crate) async fn run_schema_migrations(pool: &SqlitePool) -> GrimoireResult<()> {
     // temporary boot-timing instrumentation (see slow-tauri-boot investigation) —
     // logs elapsed ms per step so a slow boot can be narrowed down without guessing.
     let step_start = std::time::Instant::now();
@@ -94,8 +121,9 @@ async fn run_migrations_internal(pool: &SqlitePool) -> GrimoireResult<()> {
     // we query sqlite_schema instead of only dropping views::ALL so legacy
     // views (for example old taxonomy views like `genre_query_view`) cannot
     // block table rebuild migrations.
-    let existing_views: Vec<String> = sqlx::query_scalar(
-        "SELECT name FROM sqlite_schema WHERE type = 'view' AND name NOT LIKE 'sqlite_%'",
+    let existing_views = sqlx::query_scalar!(
+        r#"SELECT name AS "name!" FROM sqlite_schema
+           WHERE type = 'view' AND name NOT LIKE 'sqlite_%'"#,
     )
     .fetch_all(pool)
     .await?;
@@ -120,24 +148,6 @@ async fn run_migrations_internal(pool: &SqlitePool) -> GrimoireResult<()> {
         pool.execute(view.sql).await?;
     }
     tracing::info!(elapsed_ms = %step_start.elapsed().as_millis(), "boot: recreated views");
-
-    // create freqhole-blobz directory for iroh-blobs FsStore
-    let config = get_config();
-    let blobz_path = config.freqhole_blobz_path();
-    if !blobz_path.exists() {
-        std::fs::create_dir_all(&blobz_path).map_err(|e| GrimoireError::ProcessingFailed {
-            message: format!("failed to create freqhole-blobz directory: {}", e),
-        })?;
-        tracing::info!("created freqhole-blobz directory: {}", blobz_path.display());
-    }
-
-    // eagerly open + migrate reliquary's own database (media blob storage
-    // domain library) so its schema is ready at boot, alongside the other
-    // pools. grimoire's music-domain blob code reads and writes through it
-    // already (the reliquary mirror + read-path fallback in media_blobz).
-    let step_start = std::time::Instant::now();
-    let _reliquary_pool = connect_reliquary().await?;
-    tracing::info!(elapsed_ms = %step_start.elapsed().as_millis(), "boot: reliquary db connected + migrated");
 
     Ok(())
 }
@@ -352,4 +362,62 @@ pub(crate) async fn transfer_registry() -> std::sync::Arc<reliquary::gate::Trans
         .get_or_init(|| async { reliquary::gate::TransferRegistry::new() })
         .await
         .clone()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn startup_restores_all_views_idempotently() {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        // views live in migrations/views/, never in numbered migrations
+        sqlx::migrate!("../migrations").run(&pool).await.unwrap();
+        let from_migrations = sqlx::query_scalar!(
+            r#"SELECT COUNT(*) AS "count!: i64" FROM sqlite_schema WHERE type = 'view'"#
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(from_migrations, 0);
+
+        run_schema_migrations(&pool).await.unwrap();
+        let original = sqlx::query!(
+            r#"SELECT name AS "name!", sql AS "sql!" FROM sqlite_schema
+               WHERE type = 'view' ORDER BY name"#
+        )
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        for _ in 0..3 {
+            run_schema_migrations(&pool).await.unwrap();
+            for view in &original {
+                let restored = sqlx::query_scalar!(
+                    r#"SELECT sql AS "sql!" FROM sqlite_schema WHERE type = 'view' AND name = ?"#,
+                    view.name
+                )
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+                assert_eq!(restored, view.sql, "{}", view.name);
+            }
+            let names = sqlx::query_scalar!(
+                r#"SELECT name AS "name!" FROM sqlite_schema WHERE type = 'view' ORDER BY name"#
+            )
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+            assert_eq!(names.len(), 11);
+            for name in names {
+                let escaped = name.replace('"', "\"\"");
+                pool.execute(format!("SELECT * FROM \"{escaped}\" LIMIT 0").as_str())
+                    .await
+                    .unwrap();
+            }
+        }
+    }
 }

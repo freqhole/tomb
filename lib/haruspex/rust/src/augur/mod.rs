@@ -1,3 +1,9 @@
+//!
+//! mobile browsers and known-peer resolvers share one active browse session.
+//! new consumers receive its current peer snapshot before live changes; slow
+//! consumers reconcile against the latest snapshot instead of losing their
+//! subscription. the last consumer stops browsing and clears the snapshot.
+//! reopening the add-remote modal needs no separate refresh button.
 //! augur - lan discovery for freqhole's family of apps, over mdns/dns-sd.
 //! gated behind the `augur` feature (see `Cargo.toml`) - off by default,
 //! same as this crate's other optional, heavier-dependency modules
@@ -93,7 +99,9 @@ mod desktop;
 #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
 pub use desktop::{builder, subscribe};
 
-#[cfg(any(target_os = "android", target_os = "ios"))]
+// exercise the shared mobile registry on desktop CI too.
+#[cfg(any(target_os = "android", target_os = "ios", test))]
+#[cfg_attr(not(any(target_os = "android", target_os = "ios")), allow(dead_code))]
 mod wire;
 
 #[cfg(target_os = "android")]

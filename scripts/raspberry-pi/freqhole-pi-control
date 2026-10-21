@@ -1,0 +1,26 @@
+#!/bin/sh
+# installed root-owned; sudoers grants only these exact invocations.
+set -eu
+[ "$#" -eq 1 ] || { echo "expected one action" >&2; exit 1; }
+case "$1" in
+    start) exec /usr/bin/systemctl start rathole.service ;;
+    stop) exec /usr/bin/systemctl stop rathole.service ;;
+    restart) exec /usr/bin/systemctl restart rathole.service ;;
+    poweroff) exec /usr/bin/systemctl poweroff ;;
+    wifi-start) exec /usr/bin/systemctl start freqhole-wifi.service ;;
+    wifi-stop) exec /usr/bin/systemctl stop freqhole-wifi.service ;;
+    enable-rathole|disable-rathole|enable-menu|disable-menu|disable-wifi)
+        case "$1" in
+            *-rathole) unit=rathole.service ;;
+            *-menu) unit=rathole-ctrl.service ;;
+            *-wifi) unit=freqhole-wifi.service ;;
+        esac
+        /usr/bin/grep -qx '# managed by freqhole-pi setup' "/etc/systemd/system/$unit" \
+            || { echo "refusing to change an unmanaged service" >&2; exit 1; }
+        case "$1" in
+            enable-*) exec /usr/bin/systemctl enable "$unit" ;;
+            disable-*) exec /usr/bin/systemctl disable --now "$unit" ;;
+        esac
+        ;;
+    *) echo "unknown action" >&2; exit 1 ;;
+esac

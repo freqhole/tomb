@@ -2,6 +2,7 @@
 import { useNavigate, useSearchParams } from "@solidjs/router";
 import { createEffect, createMemo, createSignal, on, onCleanup, onMount, Show } from "solid-js";
 import { setPageInfo, clearPageInfo } from "../../app/services/pageInfo";
+import { useAvailabilityFilter } from "../../utils/useAvailabilityFilter";
 import { useHistoryState } from "../../utils/historyState";
 import { useViewportHeight, getNavHeight } from "../../utils/viewport";
 import { isNarrowViewport, getPlayerBarHeightPx } from "../../config/breakpoints";
@@ -105,7 +106,9 @@ export function AlbumsView(props: AlbumsViewProps) {
   };
 
   // fetch albums using query hook with sorting
+  const availability = useAvailabilityFilter("albums");
   const albumsQuery = useAlbumsQuery({
+    hideOffline: availability.hideOffline,
     pageSize: 250,
     query: searchQuery,
     tagFilters: () => tagFilters(),
@@ -116,7 +119,7 @@ export function AlbumsView(props: AlbumsViewProps) {
   // reset virtual grid when query param or tag filters change
   createEffect(
     on(
-      () => [searchQuery(), tagFilters(), sortField(), sortDirection()] as const,
+      () => [searchQuery(), tagFilters(), sortField(), sortDirection(), availability.hideOffline()] as const,
       () => {
         setIsResetting(true);
         setTimeout(() => setIsResetting(false), 0);
@@ -168,6 +171,7 @@ export function AlbumsView(props: AlbumsViewProps) {
         imageUrl: undefined,
         images: album.images,
         isFavorite: album.is_favorite ?? false,
+        isOffline: album.is_offline,
         genres: genreText,
         tags: album.tags,
       };
@@ -183,6 +187,7 @@ export function AlbumsView(props: AlbumsViewProps) {
     if (viewMode() === "table") return;
     const count = albums().length;
     setPageInfo({
+      ...availability.pageInfo(),
       title: "albums",
       count,
       sortFields: albumSortFields,

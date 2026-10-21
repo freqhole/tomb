@@ -2,7 +2,7 @@
 Name={{name}}
 GenericName=Music Library
 Comment={{comment}}
-Exec=env WEBKIT_DISABLE_COMPOSITING_MODE=1 {{exec}} %u
+Exec=env WEBKIT_DISABLE_COMPOSITING_MODE=1 WEBKIT_DISABLE_DMABUF_RENDERER=1 {{exec}} %u
 Icon={{icon}}
 Terminal=false
 Type=Application
