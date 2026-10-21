@@ -12,8 +12,7 @@ export function useAvailabilityFilter(
     getCurrentRemote() ?? undefined
 ) {
   useLibraryAvailability(remote);
-  const [hideOffline, setHideOffline] = useHistoryState(`${view}.hideOffline`, true);
-  const [selected, setSelected] = useHistoryState(`${view}.availabilitySelected`, true);
+  const [showOffline, setShowOffline] = useHistoryState(`${view}.showOffline`, false);
   const knownOffline = createQuery(() => ({
     queryKey: ["known-offline-media", remote()?.remote_id, view],
     enabled: !!remote(),
@@ -44,19 +43,12 @@ export function useAvailabilityFilter(
       error("availability", "failed to check offline media", knownOffline.error);
   });
   return {
-    hideOffline,
+    hideOffline: () => !showOffline(),
     pageInfo: () => ({
-      hideOffline: hideOffline(),
-      availabilityFilterSelected: selected(),
-      onHideOfflineChange: knownOffline.data === true ? setHideOffline : undefined,
-      onAddAvailabilityFilter: () => {
-        setSelected(true);
-        setHideOffline(true);
-      },
-      onRemoveAvailabilityFilter: () => {
-        setSelected(false);
-        setHideOffline(false);
-      },
+      availabilityFilterSelected: showOffline(),
+      availabilityFilterAvailable: knownOffline.data === true,
+      onAddAvailabilityFilter: () => setShowOffline(true),
+      onRemoveAvailabilityFilter: () => setShowOffline(false),
     }),
   };
 }

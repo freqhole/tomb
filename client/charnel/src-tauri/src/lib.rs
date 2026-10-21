@@ -168,6 +168,32 @@ impl PendingDeepLinks {
 #[derive(Clone)]
 pub struct ShutdownToken(pub Arc<CancellationToken>);
 
+#[derive(Default)]
+struct JobRunnerShutdown {
+    active: Arc<std::sync::atomic::AtomicUsize>,
+    stopped: Arc<tokio::sync::Notify>,
+    requested: std::sync::atomic::AtomicBool,
+    ready: std::sync::atomic::AtomicBool,
+}
+
+pub(crate) struct JobRunnerGuard {
+    active: Arc<std::sync::atomic::AtomicUsize>,
+    stopped: Arc<tokio::sync::Notify>,
+}
+
+pub(crate) fn job_runner_guard(app: &tauri::AppHandle) -> JobRunnerGuard {
+    let state = app.state::<JobRunnerShutdown>();
+    state.active.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    JobRunnerGuard { active: state.active.clone(), stopped: state.stopped.clone() }
+}
+
+impl Drop for JobRunnerGuard {
+    fn drop(&mut self) {
+        self.active.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+        self.stopped.notify_one();
+    }
+}
+
 impl Default for ShutdownToken {
     fn default() -> Self {
         Self::new()
@@ -913,7 +939,9 @@ async fn mobile_finish_boot(
     // - onto `mobile_runtime()`, not tauri's shared runtime, see that fn's
     // doc comment for why this matters (this is a forever-running loop).
     let job_runner_token = app_handle.state::<ShutdownToken>().inner().clone();
+    let runner_guard = job_runner_guard(&app_handle);
     mobile_runtime().spawn(async move {
+        let _guard = runner_guard;
         tracing::info!("starting job runner...");
         let result =
             grimoire::jobs::run_job_processor_with_token(job_runner_token.0.as_ref().clone()).await;
@@ -1107,6 +1135,7 @@ pub fn run() {
 
     let builder = tauri::Builder::default()
         .manage(ShutdownToken::new())
+        .manage(JobRunnerShutdown::default())
         .manage(p2p_state.clone())
         .manage(PendingDeepLinks::default())
         .register_uri_scheme_protocol(media_protocol::SCHEME, media_protocol::handler);
@@ -1421,7 +1450,9 @@ pub fn run() {
                 // spawn job runner in tauri process for tauri-local transport (api_call)
                 // SQLite handles concurrent access safely.
                 let job_runner_token = app.state::<ShutdownToken>().inner().clone();
+                let runner_guard = job_runner_guard(app.handle());
                 tauri::async_runtime::spawn(async move {
+                    let _guard = runner_guard;
                     tracing::info!("starting job runner...");
                     let result = grimoire::jobs::run_job_processor_with_token(
                         job_runner_token.0.as_ref().clone(),
@@ -1825,6 +1856,29 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app, event| {
+            if let RunEvent::ExitRequested { api, .. } = &event {
+                let state = app.state::<JobRunnerShutdown>();
+                if !state.ready.load(std::sync::atomic::Ordering::SeqCst) {
+                    api.prevent_exit();
+                    if !state.requested.swap(true, std::sync::atomic::Ordering::SeqCst) {
+                        app.state::<ShutdownToken>().cancel();
+                        let handle = app.clone();
+                        tauri::async_runtime::spawn(async move {
+                            let state = handle.state::<JobRunnerShutdown>();
+                            let drain = async {
+                                while state.active.load(std::sync::atomic::Ordering::SeqCst) != 0 {
+                                    state.stopped.notified().await;
+                                }
+                            };
+                            if tokio::time::timeout(std::time::Duration::from_secs(15), drain).await.is_err() {
+                                tracing::error!("job runner did not stop within the shutdown budget; startup recovery will reconcile interrupted jobs");
+                            }
+                            state.ready.store(true, std::sync::atomic::Ordering::SeqCst);
+                            handle.exit(0);
+                        });
+                    }
+                }
+            }
             if let RunEvent::Exit = event {
                 tracing::info!("shutdown: RunEvent::Exit received");
 

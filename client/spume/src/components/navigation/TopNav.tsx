@@ -911,8 +911,7 @@ export function TopNav(props: TopNavProps) {
     return i.sortBy !== i.defaultSortBy || i.sortDirection !== i.defaultSortDirection;
   };
   const hasActiveTags = () => (info().selectedTagFilters?.length || 0) > 0;
-  const hasAvailabilityChip = () =>
-    !!info().onHideOfflineChange && info().availabilityFilterSelected;
+  const hasAvailabilityChip = () => !!info().availabilityFilterSelected;
   const clearTagFilters = () => {
     info().onClearAllTags?.();
     if (hasAvailabilityChip() && !info().statusFilterOptions?.length) {
@@ -2169,7 +2168,8 @@ export function TopNav(props: TopNavProps) {
                   info().availableTags?.length ||
                   info().feedTypeOptions?.length ||
                   info().statusFilterOptions?.length ||
-                  info().onHideOfflineChange)
+                  info().availabilityFilterAvailable ||
+                  hasAvailabilityChip())
               }
             >
               <div
@@ -2289,7 +2289,11 @@ export function TopNav(props: TopNavProps) {
                         </For>
                       </div>
                     </Show>
-                    <Show when={info().onHideOfflineChange && !info().availabilityFilterSelected}>
+                    <Show
+                      when={
+                        info().availabilityFilterAvailable && !info().availabilityFilterSelected
+                      }
+                    >
                       <AvailabilityFilter
                         onSelect={() => info().onAddAvailabilityFilter?.()}
                       />
@@ -2409,7 +2413,8 @@ export function TopNav(props: TopNavProps) {
               when={
                 !isRadioRoute() &&
                 (info().availableTags?.length ||
-                  (info().onHideOfflineChange && !info().statusFilterOptions?.length)) &&
+                  ((info().availabilityFilterAvailable || hasAvailabilityChip()) &&
+                    !info().statusFilterOptions?.length)) &&
                 !compactTools() &&
                 (!isNarrow() || !searchExpanded())
               }
@@ -2454,7 +2459,11 @@ export function TopNav(props: TopNavProps) {
                       setDesktopFlyoutLockedFor("tag");
                     }
                   }}
-                  title={info().onHideOfflineChange ? "filters" : "tag filters"}
+                  title={
+                    info().availabilityFilterAvailable || hasAvailabilityChip()
+                      ? "filters"
+                      : "tag filters"
+                  }
                 >
                   <Icon name={info().availableTags?.length ? "tag" : "filter"} size={iconBtnSize()} />
                 </button>
@@ -2463,7 +2472,7 @@ export function TopNav(props: TopNavProps) {
                     <div class="p-2">
                       <Show
                         when={
-                          info().onHideOfflineChange &&
+                          info().availabilityFilterAvailable &&
                           !info().availabilityFilterSelected &&
                           !info().statusFilterOptions?.length
                         }
@@ -2675,7 +2684,11 @@ export function TopNav(props: TopNavProps) {
                 <Show when={isDesktopFlyoutOpen("status")}>
                   <div class="absolute top-full right-0 mt-1 bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded-lg shadow-xl z-[1001] min-w-[200px] max-w-[320px]">
                     <div class="p-2">
-                      <Show when={info().onHideOfflineChange && !info().availabilityFilterSelected}>
+                      <Show
+                        when={
+                          info().availabilityFilterAvailable && !info().availabilityFilterSelected
+                        }
+                      >
                         <AvailabilityFilter
                           onSelect={() => info().onAddAvailabilityFilter?.()}
                         />
@@ -2769,8 +2782,6 @@ export function TopNav(props: TopNavProps) {
           <div class="flex gap-1.5 flex-wrap mt-1.5 px-1">
             <Show when={hasAvailabilityChip()}>
               <AvailabilityFilterChip
-                hideOffline={info().hideOffline ?? true}
-                onChange={(hide) => info().onHideOfflineChange?.(hide)}
                 onRemove={() => info().onRemoveAvailabilityFilter?.()}
               />
             </Show>

@@ -182,8 +182,10 @@ pub async fn close_setup_wizard(
 
         // start job runner (same as lib.rs)
         let job_runner_token = app.state::<ShutdownToken>().inner().clone();
+        let runner_guard = crate::job_runner_guard(&app);
         tracing::info!("starting job runner...");
         tauri::async_runtime::spawn(async move {
+            let _guard = runner_guard;
             let result =
                 grimoire::jobs::run_job_processor_with_token(job_runner_token.0.as_ref().clone())
                     .await;

@@ -87,8 +87,7 @@ export interface PageInfo {
   onToggleStatusFilterMode?: (value: string) => void;
   onClearStatusFilters?: () => void;
 
-  hideOffline?: boolean;
-  onHideOfflineChange?: (hide: boolean) => void;
+  availabilityFilterAvailable?: boolean;
   availabilityFilterSelected?: boolean;
   onAddAvailabilityFilter?: () => void;
   onRemoveAvailabilityFilter?: () => void;

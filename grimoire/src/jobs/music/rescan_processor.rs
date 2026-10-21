@@ -518,7 +518,7 @@ mod removable_source_tests {
             .connect("sqlite::memory:")
             .await
             .unwrap();
-        sqlx::migrate!("../migrations").run(&pool).await.unwrap();
+        crate::database::run_schema_migrations(&pool).await.unwrap();
         sqlx::query!(
             "INSERT INTO library_sourcez (id, volume_key, relative_path, last_known_path)
                VALUES ('source', 'uuid', '', '/unused')"

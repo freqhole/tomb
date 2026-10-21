@@ -288,6 +288,50 @@ describe("unified add-directory modal", () => {
     expect(transport.invoke).toHaveBeenCalledTimes(count);
   });
 
+  it("cancels every resumed scan and reports cancelled work without claiming completion", async () => {
+    vi.useFakeTimers();
+    let cancelled = false;
+    mount({ kind: "remote", label: "Pi", peerAddr: "peer" }, true, (command) => {
+      if (command === "library_active_scans")
+        return [{ session_id: "scan-one", path: "/disk" }, { session_id: "scan-two", path: "/other" }];
+      if (command === "jobs_cancel_session") {
+        cancelled = true;
+        return { cancelled_jobs: 1 };
+      }
+      if (command === "library_scan_status")
+        return cancelled
+          ? { pending: 0, running: 0, completed: 1, failed: 0, cancelled: 2, total: 3 }
+          : { pending: 1, running: 1, completed: 1, failed: 0, cancelled: 0, total: 3 };
+      return [];
+    });
+    await settle();
+    click("cancel scan");
+    await settle();
+    const requests = transport.invoke.mock.calls.filter(([, p]) => p?.command === "jobs_cancel_session");
+    expect(requests.map(([, p]) => p.args.session_id)).toEqual(["scan-one", "scan-two"]);
+    expect(host.textContent).toContain("the current file may finish importing");
+    await vi.advanceTimersByTimeAsync(2000);
+    await settle();
+    expect(host.querySelector(".scan-progress-card")).toBeNull();
+    expect(host.textContent).toContain("scan cancelled: 2 jobs completed · 0 failed · 4 cancelled");
+  });
+
+  it("keeps scan progress visible and reports a cancellation failure", async () => {
+    vi.useFakeTimers();
+    mount({ kind: "remote", label: "Pi", peerAddr: "peer" }, true, (command) => {
+      if (command === "library_active_scans") return [{ session_id: "scan-one", path: "/disk" }];
+      if (command === "library_scan_status")
+        return { pending: 1, running: 1, completed: 0, failed: 0, total: 2 };
+      if (command === "jobs_cancel_session") throw new Error("connection lost");
+      return [];
+    });
+    await settle();
+    click("cancel scan");
+    await settle();
+    expect(host.textContent).toContain("could not cancel scan: Error: connection lost");
+    expect(host.querySelector(".scan-progress-card")).not.toBeNull();
+  });
+
   it("shows the registered disk before the scan request finishes", async () => {
     mount({ kind: "remote", label: "Pi", peerAddr: "peer" }, true);
     await settle();

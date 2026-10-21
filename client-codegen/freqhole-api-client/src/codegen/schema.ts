@@ -6669,6 +6669,7 @@ export const SessionJobCountsSchema = z.object({
   running: z.number(),
   completed: z.number(),
   failed: z.number(),
+  cancelled: z.number().nullish(),
   total: z.number()
 });
 export type SessionJobCounts = z.infer<typeof SessionJobCountsSchema>;

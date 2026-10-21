@@ -22,6 +22,7 @@ use super::video::{
 use crate::error::ErrorDetail;
 use crate::jobs::job_events::{self, JobEvent, JobStatusWire};
 use crate::response::GrimoireResponse;
+use futures_util::FutureExt;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::{Arc, Mutex as StdMutex};
@@ -30,6 +31,10 @@ use tokio::sync::{Mutex, Semaphore};
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
+
+tokio::task_local! {
+    pub(super) static CURRENT_JOB_ID: String;
+}
 
 /// concurrency class for a job type.
 /// used to cap the number of concurrent enrichment workers per source
@@ -122,34 +127,51 @@ pub async fn process_job(job: Job) -> GrimoireResponse<JobResult> {
     // get job type
     let job_type = match job.job_type() {
         Ok(jt) => jt,
-        Err(e) => return GrimoireResponse::failure("failed to parse job type", vec![e.into()]),
+        Err(error) => {
+            let detail: ErrorDetail = error.into();
+            let response = mark_job_failed(&job.id, vec![detail.clone()], false).await;
+            if !response.success {
+                tracing::error!(job_id=%job.id, error=%response.message, "could not record invalid job type");
+            }
+            return GrimoireResponse::failure("failed to parse job type", vec![detail]);
+        }
     };
 
     // dispatch to appropriate processor based on job type
-    let result = match job_type {
-        JobType::ScanDirectory => process_scan_directory_job(&job).await,
-        JobType::RescanDirectories => process_rescan_directories_job(&job).await,
-        JobType::ProcessFile => process_file_job(&job).await,
-        JobType::ProcessDirectory => process_directory_job(&job).await,
-        JobType::FetchMedia => process_fetch_media_job(&job).await,
-        JobType::PreCheckFetch => process_precheck_fetch_job(&job).await,
-        JobType::ConvertWebp => process_convert_webp_job(&job).await,
-        JobType::ImportMusic => process_import_music_job(&job).await,
-        JobType::MbAlbumSearch => process_mb_album_search_job(&job).await,
-        JobType::MbAlbumDetail => process_mb_album_detail_job(&job).await,
-        JobType::LastFmAlbumDetail => process_lastfm_album_detail_job(&job).await,
-        JobType::LastFmArtistDetail => process_lastfm_artist_detail_job(&job).await,
-        JobType::AudioDbAlbumDetail => process_audiodb_album_detail_job(&job).await,
-        JobType::AudioDbArtistDetail => process_audiodb_artist_detail_job(&job).await,
-        JobType::AlbumEnrichmentPipeline => process_album_enrichment_pipeline_job(&job).await,
-        JobType::AutoApplyAlbumEnrichment => process_auto_apply_album_enrichment_job(&job).await,
-        JobType::ImportVideo => process_import_video_job(&job).await,
-        JobType::TranscodeVideo => process_transcode_video_job(&job).await,
-        JobType::SyncSongByBlake3 => process_sync_song_by_blake3_job(&job).await,
-        JobType::SyncVideoByBlake3 => process_sync_video_by_blake3_job(&job).await,
-        JobType::RepairLibraryImages => process_repair_library_images_job(&job).await,
-        JobType::ReorganizeLibraryFiles => process_reorganize_library_files_job(&job).await,
-    };
+    let result = CURRENT_JOB_ID
+        .scope(job.id.clone(), async {
+            let pool = crate::database::connect().await?;
+            super::lifecycle::ensure_active(&pool, &job.id).await?;
+            match job_type {
+                JobType::ScanDirectory => process_scan_directory_job(&job).await,
+                JobType::RescanDirectories => process_rescan_directories_job(&job).await,
+                JobType::ProcessFile => process_file_job(&job).await,
+                JobType::ProcessDirectory => process_directory_job(&job).await,
+                JobType::FetchMedia => process_fetch_media_job(&job).await,
+                JobType::PreCheckFetch => process_precheck_fetch_job(&job).await,
+                JobType::ConvertWebp => process_convert_webp_job(&job).await,
+                JobType::ImportMusic => process_import_music_job(&job).await,
+                JobType::MbAlbumSearch => process_mb_album_search_job(&job).await,
+                JobType::MbAlbumDetail => process_mb_album_detail_job(&job).await,
+                JobType::LastFmAlbumDetail => process_lastfm_album_detail_job(&job).await,
+                JobType::LastFmArtistDetail => process_lastfm_artist_detail_job(&job).await,
+                JobType::AudioDbAlbumDetail => process_audiodb_album_detail_job(&job).await,
+                JobType::AudioDbArtistDetail => process_audiodb_artist_detail_job(&job).await,
+                JobType::AlbumEnrichmentPipeline => {
+                    process_album_enrichment_pipeline_job(&job).await
+                }
+                JobType::AutoApplyAlbumEnrichment => {
+                    process_auto_apply_album_enrichment_job(&job).await
+                }
+                JobType::ImportVideo => process_import_video_job(&job).await,
+                JobType::TranscodeVideo => process_transcode_video_job(&job).await,
+                JobType::SyncSongByBlake3 => process_sync_song_by_blake3_job(&job).await,
+                JobType::SyncVideoByBlake3 => process_sync_video_by_blake3_job(&job).await,
+                JobType::RepairLibraryImages => process_repair_library_images_job(&job).await,
+                JobType::ReorganizeLibraryFiles => process_reorganize_library_files_job(&job).await,
+            }
+        })
+        .await;
 
     let processing_time = start_time.elapsed().as_millis() as u64;
 
@@ -165,6 +187,17 @@ pub async fn process_job(job: Job) -> GrimoireResponse<JobResult> {
                     )
                 }
             };
+            if completed_job.status == "Cancelled" {
+                super::lifecycle::emit_cancelled(&completed_job, JobStatusWire::Running);
+                return GrimoireResponse::success(
+                    "job cancelled",
+                    JobResult {
+                        job: completed_job,
+                        output: None,
+                        processing_time_ms: processing_time,
+                    },
+                );
+            }
 
             // clean up completed ProcessFile / ProcessDirectory jobs to
             // avoid bloating the jobz table (scans can produce 1000s)
@@ -336,6 +369,23 @@ pub async fn process_job(job: Job) -> GrimoireResponse<JobResult> {
             GrimoireResponse::success("job processed successfully", job_result)
         }
         Err(error) => {
+            if matches!(error, super::JobError::Cancelled) {
+                let cancelled = super::service::cancel_job(&job.id).await;
+                return match cancelled.data {
+                    Some(job) => {
+                        super::lifecycle::emit_cancelled(&job, JobStatusWire::Running);
+                        GrimoireResponse::success(
+                            "job cancelled",
+                            JobResult {
+                                job,
+                                output: None,
+                                processing_time_ms: processing_time,
+                            },
+                        )
+                    }
+                    None => GrimoireResponse::failure("could not cancel job", cancelled.errors),
+                };
+            }
             // check if error should trigger retry before converting to ErrorDetail
             let is_retryable = error.is_retryable();
             info!(
@@ -346,6 +396,21 @@ pub async fn process_job(job: Job) -> GrimoireResponse<JobResult> {
             let error_detail: ErrorDetail = error.into();
             let failed_job_response =
                 mark_job_failed(&job.id, vec![error_detail.clone()], is_retryable).await;
+            if let Some(cancelled) = failed_job_response
+                .data
+                .as_ref()
+                .filter(|job| job.status == "Cancelled")
+            {
+                super::lifecycle::emit_cancelled(cancelled, JobStatusWire::Running);
+                return GrimoireResponse::success(
+                    "job cancelled",
+                    JobResult {
+                        job: cancelled.clone(),
+                        output: None,
+                        processing_time_ms: processing_time,
+                    },
+                );
+            }
 
             // `is_retryable` reflects the error TYPE in isolation (e.g. the
             // generic `ProcessingFailed` always reports `true`), but
@@ -502,6 +567,30 @@ pub async fn process_job(job: Job) -> GrimoireResponse<JobResult> {
     }
 }
 
+async fn process_job_safely(job: Job) -> GrimoireResponse<JobResult> {
+    let job_id = job.id.clone();
+    match std::panic::AssertUnwindSafe(process_job(job))
+        .catch_unwind()
+        .await
+    {
+        Ok(response) => response,
+        Err(_) => {
+            tracing::error!(%job_id, "job worker panicked");
+            let detail = ErrorDetail::new(
+                "job_worker_panicked",
+                "job worker panicked",
+                "the worker stopped unexpectedly; retry this job explicitly",
+            );
+            let response = mark_job_failed(&job_id, vec![detail.clone()], false).await;
+            if !response.success {
+                tracing::error!(%job_id, error=%response.message, "could not record worker panic");
+                return GrimoireResponse::failure("could not record worker panic", response.errors);
+            }
+            GrimoireResponse::failure("job worker panicked", vec![detail])
+        }
+    }
+}
+
 /// Job processor that runs continuously with signal handling for graceful shutdown
 /// Processes jobs one at a time, checking for SIGTERM/SIGINT to stop gracefully
 ///
@@ -554,6 +643,33 @@ pub async fn run_job_processor_with_token(
     cancellation_token: CancellationToken,
 ) -> GrimoireResponse<()> {
     info!("job processor started (with external cancellation token)");
+    let _owner = match acquire_runner(&cancellation_token, false).await {
+        Ok(Some(owner)) => owner,
+        Ok(None) => {
+            return GrimoireResponse::success("job runner stopped before acquiring ownership", ())
+        }
+        Err(error) => {
+            return GrimoireResponse::failure(
+                "could not acquire job runner ownership",
+                vec![error.into()],
+            )
+        }
+    };
+    let pool = match crate::database::connect().await {
+        Ok(pool) => pool,
+        Err(error) => {
+            return GrimoireResponse::failure("could not connect job runner", vec![error.into()])
+        }
+    };
+    match super::lifecycle::recover_interrupted(&pool).await {
+        Ok(count) => info!(count, "reconciled interrupted jobs"),
+        Err(error) => {
+            return GrimoireResponse::failure(
+                "could not recover interrupted jobs",
+                vec![error.into()],
+            )
+        }
+    }
     let monitor_token = cancellation_token.child_token();
     let (response, ()) = tokio::join!(
         async {
@@ -564,6 +680,38 @@ pub async fn run_job_processor_with_token(
         crate::external_storage::monitor::run(monitor_token.clone())
     );
     response
+}
+
+async fn acquire_runner(
+    cancellation: &CancellationToken,
+    once: bool,
+) -> crate::error::GrimoireResult<Option<std::fs::File>> {
+    let database = crate::config::get_config().database_path();
+    loop {
+        if cancellation.is_cancelled() {
+            return Ok(None);
+        }
+        let path = database.clone();
+        let owner = tokio::task::spawn_blocking(move || {
+            super::lifecycle::try_runner_lock(&path.canonicalize()?)
+        })
+        .await
+        .map_err(|error| std::io::Error::other(error.to_string()))??;
+        if owner.is_some() {
+            return Ok(owner);
+        }
+        if once {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::WouldBlock,
+                "another job runner owns this database",
+            )
+            .into());
+        }
+        tokio::select! {
+            _ = cancellation.cancelled() => return Ok(None),
+            _ = tokio::time::sleep(Duration::from_secs(2)) => {}
+        }
+    }
 }
 
 /// Internal job processing loop shared by both entry points.
@@ -657,7 +805,7 @@ async fn run_job_processor_loop(cancellation_token: CancellationToken) -> Grimoi
 
         workers.spawn(async move {
             let job_id = job.id.clone();
-            let result = process_job(job).await;
+            let result = process_job_safely(job).await;
             if result.success {
                 info!("job completed successfully: {}", job_id);
             } else {
@@ -708,6 +856,25 @@ async fn run_job_processor_loop(cancellation_token: CancellationToken) -> Grimoi
         }
     }
 
+    // all worker futures have stopped; only this runner can own Running rows.
+    let pool = match crate::database::connect().await {
+        Ok(pool) => pool,
+        Err(error) => {
+            return GrimoireResponse::failure(
+                "could not connect job runner during shutdown",
+                vec![error.into()],
+            )
+        }
+    };
+    match super::lifecycle::recover_interrupted(&pool).await {
+        Ok(count) => info!(count, "recorded interrupted workers during shutdown"),
+        Err(error) => {
+            return GrimoireResponse::failure(
+                "could not record interrupted workers",
+                vec![error.into()],
+            )
+        }
+    }
     GrimoireResponse::success("job processor stopped gracefully", ())
 }
 
@@ -871,6 +1038,25 @@ async fn claim_next_unblocked_job(
 
 /// run the job processor once - process all pending jobs and then exit
 pub async fn run_job_processor_once(max_jobs: u32) -> GrimoireResponse<()> {
+    let _owner = match acquire_runner(&CancellationToken::new(), true).await {
+        Ok(Some(owner)) => owner,
+        Ok(None) => return GrimoireResponse::success("job runner stopped", ()),
+        Err(error) => {
+            return GrimoireResponse::failure(
+                "could not acquire job runner ownership",
+                vec![error.into()],
+            )
+        }
+    };
+    let pool = match crate::database::connect().await {
+        Ok(pool) => pool,
+        Err(error) => {
+            return GrimoireResponse::failure("could not connect job runner", vec![error.into()])
+        }
+    };
+    if let Err(error) = super::lifecycle::recover_interrupted(&pool).await {
+        return GrimoireResponse::failure("could not recover interrupted jobs", vec![error.into()]);
+    }
     let mut processed_count = 0;
 
     loop {
@@ -896,7 +1082,7 @@ pub async fn run_job_processor_once(max_jobs: u32) -> GrimoireResponse<()> {
         match next_job {
             Some(job) => {
                 debug!("processing job: {}", job.id);
-                let process_response = process_job(job).await;
+                let process_response = process_job_safely(job).await;
                 if process_response.success {
                     if let Some(_result) = process_response.data {
                         processed_count += 1;

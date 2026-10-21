@@ -250,6 +250,8 @@ export default function LibraryView() {
   const [scanProgress, setScanProgress] = createSignal<JobProgressPayload | null>(null);
   const [scanSummary, setScanSummary] = createSignal<JobSessionCompletePayload | null>(null);
   const [directoryScanSession, setDirectoryScanSession] = createSignal<string | null>(null);
+  const [directoryScans, setDirectoryScans] = createSignal<ActiveScan[]>([]);
+  const [cancellingScan, setCancellingScan] = createSignal(false);
   let directoryScanTimer: ReturnType<typeof setTimeout> | undefined;
   let directoryScanGeneration = 0;
 
@@ -258,6 +260,8 @@ export default function LibraryView() {
     clearTimeout(directoryScanTimer);
     directoryScanTimer = undefined;
     setDirectoryScanSession(null);
+    setDirectoryScans([]);
+    setCancellingScan(false);
   }
   onCleanup(stopDirectoryScanProgress);
   // most recent `JobEvent::Stage` message for the active repair-library
@@ -1031,6 +1035,8 @@ export default function LibraryView() {
     generation: number,
     scans: ActiveScan[] = [{ session_id: sessionId, path }],
   ) {
+    if (generation !== directoryScanGeneration) return;
+    setDirectoryScans(scans);
     try {
       const results = await Promise.all(
         scans.map((scan) =>
@@ -1039,6 +1045,7 @@ export default function LibraryView() {
             running: number;
             completed: number;
             failed: number;
+            cancelled?: number;
             total: number;
           }>("library_scan_status", { session_id: scan.session_id }),
         ),
@@ -1049,9 +1056,10 @@ export default function LibraryView() {
           running: sum.running + value.running,
           completed: sum.completed + value.completed,
           failed: sum.failed + value.failed,
+          cancelled: (sum.cancelled ?? 0) + (value.cancelled ?? 0),
           total: sum.total + value.total,
         }),
-        { pending: 0, running: 0, completed: 0, failed: 0, total: 0 },
+        { pending: 0, running: 0, completed: 0, failed: 0, cancelled: 0, total: 0 },
       );
       if (generation !== directoryScanGeneration) return;
       if (counts.pending || counts.running) {
@@ -1062,7 +1070,7 @@ export default function LibraryView() {
           jobs_total: counts.total,
         });
         setScanStageMessage(
-          `${counts.completed} completed · ${counts.running} running · ${counts.pending} pending · ${counts.failed} failed`,
+          `${counts.completed} completed · ${counts.running} running · ${counts.pending} pending · ${counts.failed} failed${counts.cancelled ? ` · ${counts.cancelled} cancelled` : ""}`,
         );
         directoryScanTimer = setTimeout(
           () => void pollDirectoryScan(sessionId, path, generation, scans),
@@ -1074,7 +1082,7 @@ export default function LibraryView() {
         setScanProgress(null);
         setScanStageMessage(null);
         setLastResult(
-          `scan complete: ${counts.completed} jobs completed · ${counts.failed} failed`,
+          `scan ${counts.cancelled ? "cancelled" : "complete"}: ${counts.completed} jobs completed · ${counts.failed} failed${counts.cancelled ? ` · ${counts.cancelled} cancelled` : ""}`,
         );
         if (counts.failed) setLastError("scan finished with failed jobs; check the job logs");
         await loadDirectories();
@@ -1086,6 +1094,27 @@ export default function LibraryView() {
       setScanProgress(null);
       setScanStageMessage(null);
       setLastError(`could not read scan progress: ${e}; the scan may still be running`);
+    }
+  }
+
+  async function cancelDirectoryScans() {
+    if (cancellingScan()) return;
+    const generation = directoryScanGeneration;
+    const target = admin.current();
+    setCancellingScan(true);
+    try {
+      for (const scan of directoryScans()) {
+        if (generation !== directoryScanGeneration || admin.current() !== target) return;
+        await admin.dispatchOrThrow("jobs_cancel_session", { session_id: scan.session_id });
+      }
+      if (generation !== directoryScanGeneration || admin.current() !== target) return;
+      setScanStageMessage("cancellation requested; the current file may finish importing");
+    } catch (error) {
+      if (generation === directoryScanGeneration && admin.current() === target)
+        setLastError(`could not cancel scan: ${error}`);
+    } finally {
+      if (generation === directoryScanGeneration && admin.current() === target)
+        setCancellingScan(false);
     }
   }
 
@@ -2552,6 +2581,15 @@ export default function LibraryView() {
                       {scanStageMessage() ??
                         "starting up - waiting for the first batch to report in..."}
                     </div>
+                    <Show when={directoryScanSession()}>
+                      <button
+                        class="secondary"
+                        disabled={cancellingScan()}
+                        onClick={() => void cancelDirectoryScans()}
+                      >
+                        {cancellingScan() ? "cancelling..." : "cancel scan"}
+                      </button>
+                    </Show>
                   </div>
                 );
               }}

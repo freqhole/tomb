@@ -55,6 +55,16 @@ describe("removable library admin contracts", () => {
       .toMatchObject({ pending: 2, total: 8 });
     expect(send).toHaveBeenCalledWith("library_scan_status", { session_id: "scan-one" });
   });
+  it("preserves cancelled counts without requiring them from older hosts", async () => {
+    const client = new AdminClient({
+      send: async () => ({
+        success: true, message: "ok",
+        data: { pending: 0, running: 0, completed: 1, failed: 0, cancelled: 2, total: 3 },
+      }),
+    });
+    expect(await client.dispatchOrThrow("library_scan_status", { session_id: "scan-one" }))
+      .toMatchObject({ completed: 1, cancelled: 2, total: 3 });
+  });
   it("validates volume observations, including unmounted read-only disks", async () => {
     const disk = {
       device_path: "/dev/sda1",
