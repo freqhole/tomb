@@ -429,13 +429,21 @@ pub mod type_registry {
             "LibrarySourceByIdRequest",
         );
         registered.insert("LibrarySourceByIdRequest".to_string());
-        gen.add_schema::<crate::admin_dispatch::types::library::LibraryRegisterSourceRequest>("LibraryRegisterSourceRequest");
+        gen.add_schema::<crate::admin_dispatch::types::library::LibraryRegisterSourceRequest>(
+            "LibraryRegisterSourceRequest",
+        );
         registered.insert("LibraryRegisterSourceRequest".to_string());
-        gen.add_schema::<crate::external_storage::management::LibrarySourceSummary>("LibrarySourceSummary");
+        gen.add_schema::<crate::external_storage::management::LibrarySourceSummary>(
+            "LibrarySourceSummary",
+        );
         registered.insert("LibrarySourceSummary".to_string());
-        gen.add_schema::<crate::external_storage::management::ActiveLibraryScan>("ActiveLibraryScan");
+        gen.add_schema::<crate::external_storage::management::ActiveLibraryScan>(
+            "ActiveLibraryScan",
+        );
         registered.insert("ActiveLibraryScan".to_string());
-        gen.add_schema::<crate::external_storage::management::LibraryRenditionSettings>("LibraryRenditionSettings");
+        gen.add_schema::<crate::external_storage::management::LibraryRenditionSettings>(
+            "LibraryRenditionSettings",
+        );
         registered.insert("LibraryRenditionSettings".to_string());
         gen.add_schema::<crate::admin_dispatch::types::library::LibraryScanResponse>(
             "LibraryScanResponse",

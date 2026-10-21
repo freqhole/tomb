@@ -109,8 +109,10 @@ pub async fn handle(
         "library_validate_path" => handlers::library::validate_path(args).await,
         "library_list_removable_volumes" => handlers::library::list_removable_volumes().await,
         "library_list_sources" => handlers::library::list_sources().await,
-        "library_source_summaries" | "library_active_scans" | "library_rendition_settings" | "library_remove_source" =>
-            handlers::library::manage_sources(command, args).await,
+        "library_source_summaries"
+        | "library_active_scans"
+        | "library_rendition_settings"
+        | "library_remove_source" => handlers::library::manage_sources(command, args).await,
         "library_source_availability" => handlers::library::source_availability(false).await,
         "library_refresh_source_availability" => handlers::library::source_availability(true).await,
         "library_register_source" => handlers::library::register_source(args).await,

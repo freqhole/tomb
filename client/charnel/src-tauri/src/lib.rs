@@ -183,13 +183,19 @@ pub(crate) struct JobRunnerGuard {
 
 pub(crate) fn job_runner_guard(app: &tauri::AppHandle) -> JobRunnerGuard {
     let state = app.state::<JobRunnerShutdown>();
-    state.active.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-    JobRunnerGuard { active: state.active.clone(), stopped: state.stopped.clone() }
+    state
+        .active
+        .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    JobRunnerGuard {
+        active: state.active.clone(),
+        stopped: state.stopped.clone(),
+    }
 }
 
 impl Drop for JobRunnerGuard {
     fn drop(&mut self) {
-        self.active.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+        self.active
+            .fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
         self.stopped.notify_one();
     }
 }
