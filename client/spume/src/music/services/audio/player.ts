@@ -78,7 +78,7 @@ import { activeHistoryEntryId, stopTracking } from "../queue/listenProgress";
 import { updateHistoryEntrySongs } from "../queue/queueHistory";
 import { clearQueueItemProgress } from "../queue/queueProgress";
 import { triggerPreCache } from "../queue/triggerPreCache";
-import { clearQueue } from "../queue/queue";
+import { clearQueueState } from "../queue/clearQueueState";
 import { mirrorRemoveFromQueue } from "../../../app/services/players/remoteQueueMirror";
 import { isActivePlayer } from "../../../cenotaph/adapters/remoteModeSettings";
 import { stopRadioForMusic } from "../../../app/services/playbackCoordinator";
@@ -967,10 +967,10 @@ export function setOutputDevice(name: string): void {
 
 async function finishQueue(): Promise<void> {
   markPlaybackEnded();
+  void activeBackend.send({ kind: "stop" });
   if (isActivePlayer()) {
-    await clearQueue("completed");
+    await clearQueueState("completed");
   } else {
-    void activeBackend.send({ kind: "stop" });
     void stopServerSession("completed");
   }
 }

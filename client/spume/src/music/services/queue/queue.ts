@@ -24,6 +24,7 @@ import {
   stop,
 } from "../audio/player";
 import { hasPlaybackEnded } from "./queueState";
+import { clearQueueState } from "./clearQueueState";
 import { addHistoryEntry, updateHistoryEntrySongs, unwrapSongs } from "./queueHistory";
 import { unwrapVideos } from "../../../video/services/queue/videoQueueHistory";
 import {
@@ -823,21 +824,13 @@ export async function clearQueue(reason: "abandoned" | "completed" = "abandoned"
 
   stop();
   if (reason === "abandoned") mirrorClearQueue();
-  stopTracking(true); // skipQueueSave - avoids race with setQueue([])
-  stopVideoTracking(true);
-  clearAllQueueProgress();
-  clearPendingUpNext();
-  void stopServerSession(reason);
-  await setCurrentSong(null);
 
-  // stop radio if currently tuned. must be awaited before setQueue([])
-  // below — clearCurrentRadioStation reads STORE_APP_STATE directly,
-  // mutates one field, and writes back, so a fire-and-forget call
-  // would race with setQueue([]) and resurrect the queue.
+  // finish radio persistence before clearing queue state so its write
+  // cannot restore the old queue.
   leaveRadio();
   await clearCurrentRadioStation();
 
-  await setQueue([]);
+  await clearQueueState(reason);
   debug("queue", "clearQueue complete");
 }
 
