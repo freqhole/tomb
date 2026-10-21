@@ -1,5 +1,16 @@
 # freqhole-release
 
+## 0.3.19
+
+### Patch Changes
+
+- 4fc1118: try to improve cursor hide logic for cenotaph player view
+- 59c8779: removable storage disk mount + add to library helperz; watch for mounted disks, interactive ui for adding stuff from mounted disk, and handle marking media offline after disk is unmounted
+- a855614: add some setup scriptz to make a one-shot command for all the thingz needed to setup a raspberry pi
+- da7cf10: try to fix issue where setup wizard never opens spume window when complete
+- d5c2716: bunch of issues: fix remote audio device picker overlfowing window; fix remote "listen on" comet tail animation; marquee oled currently playing song + artist; fix explore panel getting placed under playerbar; update iroh and yank swarm discovery fork since my pr merged;
+- bbabe5e: be more explicit about pause state when starting experimental libmpv playback so lingering paused items don't cause playback to stall
+
 ## 0.3.18
 
 ### Patch Changes
