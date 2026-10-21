@@ -49,7 +49,7 @@ webauthn-rs = { version = "0.5.1", features = [
 # iroh/transport-specific, not something a transport-agnostic protocol
 # could stay agnostic about. version matches skein/reliquary's pin exactly
 # (read-only research, not a shared dependency).
-iroh = { version = "1.3.0", optional = true }
+iroh = { version = "1.4.1", optional = true }
 
 [dev-dependencies]
 tempfile = "3"
@@ -66,7 +66,7 @@ openssl = "0.10"
 # already depends on, just named directly since `subscribe()`'s own
 # "keep the underlying discoverer alive" wrapper needs it.
 [target.'cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))'.dependencies]
-iroh-mdns-address-lookup = { version = "0.6", optional = true }
+iroh-mdns-address-lookup = { version = "0.6.1", optional = true }
 n0-future = { version = "0.3", optional = true }
 
 # android: the augur feature's lan-discovery backend (see

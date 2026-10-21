@@ -11,6 +11,7 @@ import {
 } from "solid-js";
 import { Portal } from "solid-js/web";
 import { Icon, type IconName } from "../icons/registry";
+import { currentMenuViewport, dropdownPosition } from "./dropdownPosition";
 
 export type MenuAction =
   | {
@@ -250,38 +251,13 @@ export function DropdownMenu(props: DropdownMenuProps) {
 export function ClickDropdownMenu(props: DropdownMenuProps) {
   const [local] = splitProps(props, ["trigger", "actions", "header", "onOpen", "align", "zIndex"]);
 
-  type MenuPos = {
-    top?: number;
-    bottom?: number;
-    left?: number;
-    right?: number;
-    maxHeight: number;
-  };
   const [open, setOpen] = createSignal(false);
-  const [menuPos, setMenuPos] = createSignal<MenuPos | null>(null);
+  const [menuPos, setMenuPos] = createSignal<JSX.CSSProperties>({});
   let triggerRef: HTMLDivElement | undefined;
   let menuRef: HTMLDivElement | undefined;
 
-  const computePos = (): MenuPos => {
-    const rect = triggerRef!.getBoundingClientRect();
-    const gutter = 4;
-    const pad = 8;
-    const horizontal =
-      local.align === "left"
-        ? { left: Math.max(pad, rect.left) }
-        : { right: Math.max(pad, window.innerWidth - rect.right) };
-    const spaceBelow = window.innerHeight - rect.bottom - pad;
-    const spaceAbove = rect.top - pad;
-    if (spaceBelow >= spaceAbove) {
-      return { top: rect.bottom + gutter, ...horizontal, maxHeight: spaceBelow - gutter };
-    } else {
-      return {
-        bottom: window.innerHeight - rect.top + gutter,
-        ...horizontal,
-        maxHeight: spaceAbove - gutter,
-      };
-    }
-  };
+  const computePos = () =>
+    dropdownPosition(triggerRef!.getBoundingClientRect(), currentMenuViewport(), local.align);
 
   const openMenu = (e: MouseEvent) => {
     e.stopPropagation();
@@ -309,26 +285,27 @@ export function ClickDropdownMenu(props: DropdownMenuProps) {
       };
       document.addEventListener("pointerdown", onPointerDown);
       document.addEventListener("keydown", onKeyDown);
+      const reposition = () => setMenuPos(computePos());
+      window.addEventListener("resize", reposition);
+      window.addEventListener("scroll", reposition, true);
+      window.visualViewport?.addEventListener("resize", reposition);
+      window.visualViewport?.addEventListener("scroll", reposition);
       onCleanup(() => {
         document.removeEventListener("pointerdown", onPointerDown);
         document.removeEventListener("keydown", onKeyDown);
+        window.removeEventListener("resize", reposition);
+        window.removeEventListener("scroll", reposition, true);
+        window.visualViewport?.removeEventListener("resize", reposition);
+        window.visualViewport?.removeEventListener("scroll", reposition);
       });
     }
   });
 
   const menuStyle = (): JSX.CSSProperties => {
-    const p = menuPos();
-    if (!p) return {};
-    const s: JSX.CSSProperties = {
-      position: "fixed",
-      "max-height": `${p.maxHeight}px`,
+    return {
+      ...menuPos(),
       "z-index": `${local.zIndex ?? 1200}`,
     };
-    if (p.left !== undefined) s.left = `${p.left}px`;
-    if (p.right !== undefined) s.right = `${p.right}px`;
-    if (p.top !== undefined) s.top = `${p.top}px`;
-    if (p.bottom !== undefined) s.bottom = `${p.bottom}px`;
-    return s;
   };
 
   const itemClass = (action: Exclude<MenuAction, { type: "separator" }>) =>
@@ -352,7 +329,7 @@ export function ClickDropdownMenu(props: DropdownMenuProps) {
             ref={(el) => (menuRef = el)}
             role="menu"
             style={menuStyle()}
-            class="min-w-48 bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded-lg shadow-2xl overflow-y-auto animate-[fade-in_0.15s_ease-out]"
+            class="bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded-lg shadow-2xl overflow-y-auto overflow-x-hidden animate-[fade-in_0.15s_ease-out]"
           >
             <Show when={local.header}>
               <div class="p-2 border-b border-[var(--color-border-default)]">{local.header}</div>
@@ -381,7 +358,9 @@ export function ClickDropdownMenu(props: DropdownMenuProps) {
                       <Show when={action.icon}>
                         <Icon name={action.icon!} size={16} color="currentColor" />
                       </Show>
-                      <span class="truncate">{action.label}</span>
+                      <span class="min-w-0 whitespace-normal break-words [overflow-wrap:anywhere]">
+                        {action.label}
+                      </span>
                       <Show when={action.badge}>
                         <span class="shrink-0 rounded-full bg-[var(--color-bg-hover)] px-2 py-0.5 text-xs text-[var(--color-text-secondary)]">
                           {action.badge}

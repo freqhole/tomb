@@ -16,26 +16,20 @@
 // wrapper markup/padding.
 import { createSignal, For, onCleanup, onMount, Show, type JSX } from "solid-js";
 
-// trail length as a fraction of the pill's long axis (the dimension it
-// spans across), so it scales correctly for buttons of any size instead
-// of being tuned to one fixed pixel/pathLength-percentage value.
-const TAIL_LENGTH_RATIO = 0.9;
+// the entire trail, not each band, occupies this fraction of the long axis.
+const TAIL_LENGTH_RATIO = 0.3;
 
-// comet-trail bands, head to tail - overlapping dashes at increasing
-// positive animation-delay so later bands lag *behind* the head (a
-// negative delay would put them ahead of it instead), fading in
-// color/opacity to read as one long, gradually-vanishing trailing tail.
 const COMET_BANDS = [
-  { color: "#ec4899", opacity: 1, delay: "0s" },
-  { color: "#ec4899", opacity: 0.85, delay: "0.045s" },
-  { color: "#ec4899", opacity: 0.7, delay: "0.09s" },
-  { color: "#c026d3", opacity: 0.58, delay: "0.135s" },
-  { color: "#c026d3", opacity: 0.46, delay: "0.18s" },
-  { color: "#c026d3", opacity: 0.34, delay: "0.225s" },
-  { color: "#a855f7", opacity: 0.24, delay: "0.27s" },
-  { color: "#a855f7", opacity: 0.16, delay: "0.315s" },
-  { color: "#a855f7", opacity: 0.09, delay: "0.36s" },
-  { color: "#a855f7", opacity: 0.04, delay: "0.405s" },
+  { color: "#ec4899", opacity: 1 },
+  { color: "#ec4899", opacity: 0.85 },
+  { color: "#ec4899", opacity: 0.7 },
+  { color: "#c026d3", opacity: 0.58 },
+  { color: "#c026d3", opacity: 0.46 },
+  { color: "#c026d3", opacity: 0.34 },
+  { color: "#a855f7", opacity: 0.24 },
+  { color: "#a855f7", opacity: 0.16 },
+  { color: "#a855f7", opacity: 0.09 },
+  { color: "#a855f7", opacity: 0.04 },
 ];
 
 export interface CometBorderRingProps {
@@ -73,8 +67,9 @@ export function CometBorderRing(props: CometBorderRingProps) {
     const r = radius();
     return 2 * (size().width - 2 * r) + 2 * (size().height - 2 * r) + 2 * Math.PI * r;
   };
-  const dashLength = () =>
+  const tailLength = () =>
     perimeter() > 0 ? (TAIL_LENGTH_RATIO * diameter() * 100) / perimeter() : 0;
+  const bandLength = () => tailLength() / COMET_BANDS.length;
 
   return (
     <div class={`relative inline-flex ${props.class ?? ""}`}>
@@ -86,7 +81,7 @@ export function CometBorderRing(props: CometBorderRingProps) {
           height={size().height}
         >
           <For each={COMET_BANDS}>
-            {(band) => (
+            {(band, index) => (
               <rect
                 x="0"
                 y="0"
@@ -100,10 +95,10 @@ export function CometBorderRing(props: CometBorderRingProps) {
                 stroke-linecap="round"
                 pathLength="100"
                 style={{
-                  "stroke-dasharray": `${dashLength()} ${100 - dashLength()}`,
+                  "stroke-dasharray": `${bandLength()} ${100 - bandLength()}`,
                   opacity: String(band.opacity),
                   animation: "comet-dash 1.5s linear infinite",
-                  "animation-delay": band.delay,
+                  "animation-delay": `${-1.5 + (index() * bandLength() * 1.5) / 100}s`,
                 }}
               />
             )}

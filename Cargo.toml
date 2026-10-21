@@ -11,35 +11,12 @@ members = [
 ]
 exclude = [
     "lib/midden", # WASM package, built separately with wasm-pack
-    # vendored fork of swarm-discovery (see its own Cargo.toml for why) -
-    # has its own independent version/edition/Cargo.lock, not meant to
-    # participate in this workspace's own lint/feature unification; only
-    # ever consumed via the [patch.crates-io] entry below.
-    "lib/swarm-discovery-fork",
 ]
 resolver = "2"
 
 [workspace.package]
 version = "0.3.18"
 edition = "2021"
-
-# TEMPORARY (2026-10-17): vendored fork of swarm-discovery 0.6.4 adding a
-# missing PTR answer record to its mdns announce response - without it,
-# OS-level Bonjour/mDNS-SD browse apis that strictly follow RFC 6763
-# (apple's NWBrowser on macOS/iOS, android's NsdManager) can never
-# enumerate ANY peer announced by this crate, even though its own
-# receiver (used by this workspace's own desktop augur backend, see
-# lib/haruspex/rust/src/augur/desktop.rs) matches SRV/TXT records
-# directly and so discovers these same peers just fine - confirmed via a
-# real packet capture + direct reading of swarm-discovery's own
-# `make_response()` (lib/swarm-discovery-fork/src/sender.rs), not
-# guessed. upstream pr pending (not yet opened) at
-# https://github.com/rkuhn/swarm-discovery - remove this patch (and the
-# vendored lib/swarm-discovery-fork directory + the exclude entry above)
-# once a release containing the fix is published and bumped in
-# lib/haruspex/rust/Cargo.toml's own transitive dependency tree.
-[patch.crates-io]
-swarm-discovery = { path = "lib/swarm-discovery-fork" }
 
 [workspace.dependencies]
 anyhow = "1.0"
@@ -114,7 +91,7 @@ walkdir = "2.4"
 inquire = "0.7"
 bigdecimal = { version = "0.4", features = ["serde"] }
 image = "0.24"
-iroh = "1.3.0"
+iroh = "1.4.1"
 iroh-blobs = "0.103.1"
 irpc = "0.17"
 blake3 = "1.5"

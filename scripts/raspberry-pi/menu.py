@@ -300,6 +300,23 @@ def now_playing_lines(state):
     return tuple(lines)
 
 
+def marquee_line(text, columns, elapsed):
+    overflow = len(text) - columns
+    if overflow <= 0:
+        return text
+    travel = overflow * 0.3
+    phase = max(0, elapsed) % (4 + 2 * travel)
+    if phase < 2:
+        offset = 0
+    elif phase < 2 + travel:
+        offset = min(overflow, int((phase - 2) / 0.3))
+    elif phase < 4 + travel:
+        offset = overflow
+    else:
+        offset = max(0, overflow - int((phase - 4 - travel) / 0.3))
+    return text[offset:offset + columns]
+
+
 def read_network():
     """read local link/address information without probing the internet."""
     deadline = time.monotonic() + NETWORK_TIMEOUT_SECONDS
@@ -430,6 +447,8 @@ class Menu:
         self.volume_error = False
         self.volume_pending = deque()
         self.now_playing = ()
+        self.metadata_started = now
+        self.metadata_frame = 0
         self.state_future = None
         self.state_next_refresh = 0
         self.state_worker = ThreadPoolExecutor(max_workers=1)
@@ -474,7 +493,11 @@ class Menu:
             ]
             if self.now_playing:
                 # include metadata in the viewport, but keep selection indexed by action.
-                rows = [*self.now_playing, *items]
+                metadata = [
+                    marquee_line(line, self.oled.width // 6, self.metadata_frame * 0.3)
+                    for line in self.now_playing
+                ]
+                rows = [*metadata, *items]
                 start = max(0, len(self.now_playing) + self.selected - 3)
                 lines = rows[start:start + 4]
             else:
@@ -720,6 +743,9 @@ class Menu:
                 self.volume_pending.clear()
             self.state_future = None
             self.state_next_refresh = now + STATE_REFRESH_SECONDS
+            if self.now_playing != previous_lines:
+                self.metadata_started = now
+                self.metadata_frame = 0
             if self.screen == "volume" or (self.screen == "menu" and self.now_playing != previous_lines):
                 self.dirty = True
 
@@ -980,6 +1006,13 @@ class Menu:
 
         if self.screen == "storage" and self.storage.mode != "known":
             self.last_activity = now
+        if self.screen == "menu" and any(
+            len(line) > self.oled.width // 6 for line in self.now_playing
+        ):
+            frame = int((now - self.metadata_started) / 0.3)
+            if frame != self.metadata_frame:
+                self.metadata_frame = frame
+                self.dirty = True
         if now - self.last_activity >= IDLE_SECONDS:
             self.volume_pending.clear()
             self.wake_started = None

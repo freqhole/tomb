@@ -31,6 +31,7 @@ import { isMobile } from "../../utils/isMobile";
 import { Icon } from "../icons/registry";
 import { ClickDropdownMenu, type MenuAction } from "../overlays/ContextMenu";
 import { CometBorderRing } from "../feedback";
+import { MarqueeText } from "../text/MarqueeText";
 
 export function QueuePlayerTargetRow() {
   const [pairedPlayers] = createResource(currentPlayersVersion, listCurrentPlayers);
@@ -149,7 +150,11 @@ export function QueuePlayerTargetRow() {
                 class="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-full bg-[var(--color-accent-500)]/10 text-[var(--color-text-secondary)] hover:bg-[var(--color-accent-500)]/20 transition-colors focus:outline-none border"
                 data-testid="queue-target-picker"
               >
-                <span class="truncate max-w-[10rem]">{currentLabel()}</span>
+                <MarqueeText
+                  text={currentLabel()}
+                  class="min-w-0 max-w-[10rem]"
+                  hoverOnly={false}
+                />
                 <Icon name="remotePlayer" size={16} />
               </button>
             }

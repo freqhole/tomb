@@ -51,6 +51,7 @@ remotely too; both screens show import-job progress.
 OLED **library disks** does the same via the selected player's socket (same OS
 user; updated player required). mount notices offer whole disk/folder/not now;
 registration lets the player's job runner auto-scan music + video.
+long playing-song titles and artists scroll automatically on the OLED.
 
 automatic hooks: `freqhole-pi launch charnel` validates startup;
 `freqhole-pi socket charnel` configures the selected app's OLED socket.

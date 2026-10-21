@@ -276,6 +276,11 @@ function sameVideoForDisplay(a: QueuedVideo, b: QueuedVideo): boolean {
 }
 
 export function AppLayout(props: AppLayoutProps) {
+  const playerBarVisible = () =>
+    (appState()?.queue.length || 0) > 0 ||
+    radioStatus() !== "idle" ||
+    !!currentRadioStation() ||
+    isRemoteTargetActive();
   const navigate = useNavigate();
   const location = useLocation();
   const queryClient = useQueryClient();
@@ -1520,12 +1525,7 @@ export function AppLayout(props: AppLayoutProps) {
           // mode (a separate, confirmed webkit bug makes `100dvh` report
           // the wrong value on cold launch specifically there).
           height: "var(--app-shell-height, 100dvh)",
-          "--player-bar-height":
-            (appState()?.queue.length || 0) > 0 ||
-            radioStatus() !== "idle" ||
-            !!currentRadioStation()
-              ? "var(--player-height)"
-              : "0px",
+          "--player-bar-height": playerBarVisible() ? "var(--player-height)" : "0px",
         }}
       >
         {/* full-page background image (when set by a view) */}
@@ -1858,14 +1858,7 @@ export function AppLayout(props: AppLayoutProps) {
         {/* unified player bar — handles both music (queue) and radio modes.
           radio audio element lives here so playback survives navigation;
           `setRadioAudioSink` is called once on mount. */}
-        <Show
-          when={
-            (appState()?.queue.length || 0) > 0 ||
-            radioStatus() !== "idle" ||
-            !!currentRadioStation() ||
-            isRemoteTargetActive()
-          }
-        >
+        <Show when={playerBarVisible()}>
           {/* children is an un-invoked function (not an eagerly-called IIFE)
             so Solid's <Show> treats it as the "resolved-when callback" form
             and wraps the call in untrack() - keeping every reactive read in

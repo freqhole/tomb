@@ -41,6 +41,22 @@ wifi_control = load_module("freqhole-wifi")
 splash = load_module("splash")
 
 
+class MetadataMarqueeTests(unittest.TestCase):
+    def test_short_metadata_is_stationary(self):
+        for elapsed in (0, 3, 10, 20):
+            self.assertEqual(menu.marquee_line("short artist", 21, elapsed), "short artist")
+
+    def test_long_metadata_pauses_scrolls_to_the_end_and_returns(self):
+        text = "abcdefghijklmnopqrstuvwxyz"
+        self.assertEqual(menu.marquee_line(text, 21, 0), text[:21])
+        self.assertEqual(menu.marquee_line(text, 21, 1.9), text[:21])
+        self.assertEqual(menu.marquee_line(text, 21, 2.4), text[1:22])
+        self.assertEqual(menu.marquee_line(text, 21, 3.6), text[5:])
+        self.assertEqual(menu.marquee_line(text, 21, 5.4), text[5:])
+        self.assertEqual(menu.marquee_line(text, 21, 6.2), text[3:24])
+        self.assertEqual(menu.marquee_line(text, 21, 7), text[:21])
+
+
 class SplashTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
