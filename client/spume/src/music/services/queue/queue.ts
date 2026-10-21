@@ -814,7 +814,7 @@ export async function reorderQueue(fromIndex: number, toIndex: number): Promise<
 // clear the entire queue and stop playback
 // evicts all cached remote songs from the queue
 // clears any pending up-next song
-export async function clearQueue(): Promise<void> {
+export async function clearQueue(reason: "abandoned" | "completed" = "abandoned"): Promise<void> {
   const state = appState();
   debug(
     "queue",
@@ -822,11 +822,12 @@ export async function clearQueue(): Promise<void> {
   );
 
   stop();
-  mirrorClearQueue();
+  if (reason === "abandoned") mirrorClearQueue();
   stopTracking(true); // skipQueueSave - avoids race with setQueue([])
+  stopVideoTracking(true);
   clearAllQueueProgress();
   clearPendingUpNext();
-  void stopServerSession("abandoned");
+  void stopServerSession(reason);
   await setCurrentSong(null);
 
   // stop radio if currently tuned. must be awaited before setQueue([])

@@ -78,6 +78,7 @@ import { activeHistoryEntryId, stopTracking } from "../queue/listenProgress";
 import { updateHistoryEntrySongs } from "../queue/queueHistory";
 import { clearQueueItemProgress } from "../queue/queueProgress";
 import { triggerPreCache } from "../queue/triggerPreCache";
+import { clearQueue } from "../queue/queue";
 import { mirrorRemoveFromQueue } from "../../../app/services/players/remoteQueueMirror";
 import { isActivePlayer } from "../../../cenotaph/adapters/remoteModeSettings";
 import { stopRadioForMusic } from "../../../app/services/playbackCoordinator";
@@ -286,13 +287,18 @@ function bindAutoAdvance(backend: PlayerBackend): void {
     if (event.kind === "ended") {
       debug("player", `backend "${backend.kind}" ended — advancing queue`);
       const endedKey = appState()?.current_item_key ?? null;
-      void playNext().then(() => {
-        // drop-from-queue-on-finish is cenotaph-player-only (this device
-        // being actively controlled as a /player) - regular standalone
-        // local playback keeps finished items in the queue, same as
-        // before this mechanism existed.
-        if (endedKey && isActivePlayer()) void removeEndedItemFromQueue(endedKey);
-      });
+      void playNext()
+        .then(async () => {
+          // drop-from-queue-on-finish is cenotaph-player-only (this device
+          // being actively controlled as a /player) - regular standalone
+          // local playback keeps finished items in the queue, same as
+          // before this mechanism existed.
+          if (endedKey && isActivePlayer()) await removeEndedItemFromQueue(endedKey);
+        })
+        .catch((error) => {
+          warn("player", "queue completion failed:", error);
+          toast.error("could not finish updating the queue", { title: "playback error" });
+        });
       return;
     }
     if (event.kind === "error") {
@@ -403,7 +409,7 @@ async function removeEndedItemFromQueue(endedKey: string): Promise<void> {
     if (entryId) void updateHistoryEntrySongs(entryId, songsOnly(newQueue));
     void updateServerSessionItems(newQueue);
   } else {
-    stopTracking();
+    stopTracking(true);
     // no-ops if playNext() already closed the session as "completed" -
     // stopServerSession/stopAllServerSessions clear their session map on
     // the first call and early-return on any call after that.
@@ -959,6 +965,16 @@ export function setOutputDevice(name: string): void {
   void activeBackend.send({ kind: "set_output_device", name });
 }
 
+async function finishQueue(): Promise<void> {
+  markPlaybackEnded();
+  if (isActivePlayer()) {
+    await clearQueue("completed");
+  } else {
+    void activeBackend.send({ kind: "stop" });
+    void stopServerSession("completed");
+  }
+}
+
 // unified queue traversal. both backends emit `kind: "ended"` when a
 // song finishes; the facade reacts once via `bindAutoAdvance`. each
 // attempt is bounded so a hung load can't wedge the queue.
@@ -973,12 +989,7 @@ export async function playNext(): Promise<void> {
   );
   if (!canGoNext()) {
     debug("player", "playNext: queue empty — marking playback ended");
-    markPlaybackEnded();
-    // nothing left to advance to - tell the backend to actually stop
-    // (for the video window backends this tears the window down, rather
-    // than leaving it sitting open/idle indefinitely).
-    void activeBackend.send({ kind: "stop" });
-    void stopServerSession("completed");
+    await finishQueue();
     return;
   }
   const state = appState();
@@ -990,9 +1001,7 @@ export async function playNext(): Promise<void> {
   while (currentIdx < queue.length - 1 && attempts < PLAY_NEXT_MAX_ATTEMPTS) {
     const nextIdx = findAvailableMediaIndex(queue, currentIdx + 1);
     if (nextIdx < 0) {
-      markPlaybackEnded();
-      void activeBackend.send({ kind: "stop" });
-      void stopServerSession("completed");
+      await finishQueue();
       return;
     }
     const nextItem = queue[nextIdx];
@@ -1036,9 +1045,7 @@ export async function playNext(): Promise<void> {
     currentIdx = nextIdx;
     if (nextIdx >= queue.length - 1) {
       warn("player", "playNext: end of queue, no playable songs found");
-      markPlaybackEnded();
-      void activeBackend.send({ kind: "stop" });
-      void stopServerSession("completed");
+      await finishQueue();
       return;
     }
   }
@@ -1046,6 +1053,7 @@ export async function playNext(): Promise<void> {
     "player",
     `playNext: exceeded retry budget (${PLAY_NEXT_MAX_ATTEMPTS}) — no playable song found`
   );
+  await finishQueue();
 }
 
 export async function playPrevious(): Promise<void> {

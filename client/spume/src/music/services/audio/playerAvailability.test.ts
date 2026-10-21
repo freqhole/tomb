@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { MediaItem, QueuedVideo } from "../../../app/services/storage/mediaItem";
 import type { Song } from "../storage/types";
+import type { PlayerEventListener } from "./backend";
 
 const mocks = vi.hoisted(() => ({
   state: { queue: [] as MediaItem[], current_item_key: null as string | null },
@@ -20,13 +21,23 @@ const mocks = vi.hoisted(() => ({
   resumeTracking: vi.fn(),
   resumeVideoTracking: vi.fn(),
   addHistory: vi.fn(),
+  activePlayer: false,
+  listeners: new Map<string, PlayerEventListener>(),
+  setCurrentSong: vi.fn(),
+  stopTracking: vi.fn(),
+  stopVideoTracking: vi.fn(),
+  stopSession: vi.fn(),
+  mirrorClear: vi.fn(),
 }));
 vi.mock("./backends/htmlAudio", () => ({
   HtmlAudioBackend: class {
     kind = "html_audio";
     loadAndPlay = mocks.load;
     send = mocks.send;
-    subscribe = () => () => {};
+    subscribe = (listener: PlayerEventListener) => {
+      mocks.listeners.set("song", listener);
+      return () => mocks.listeners.delete("song");
+    };
     snapshot = () => ({ state: mocks.playbackState });
   },
 }));
@@ -35,7 +46,10 @@ vi.mock("../../../video/services/videoBackend", () => ({
     kind = "video";
     loadAndPlay = mocks.load;
     send = mocks.send;
-    subscribe = () => () => {};
+    subscribe = (listener: PlayerEventListener) => {
+      mocks.listeners.set("video", listener);
+      return () => mocks.listeners.delete("video");
+    };
     snapshot = () => ({ state: mocks.playbackState });
   },
 }));
@@ -54,7 +68,7 @@ vi.mock("./mediaSessionArtwork", () => ({ getMediaSessionArtwork: vi.fn() }));
 vi.mock("../queue/preCacheScheduler", () => ({ installPreCacheScheduler: vi.fn() }));
 vi.mock("../queue/triggerPreCache", () => ({ triggerPreCache: mocks.preCache }));
 vi.mock("../queue/serverSession", () => ({
-  stopServerSession: vi.fn(),
+  stopServerSession: mocks.stopSession,
   updateServerSessionItems: vi.fn(),
   createServerSession: vi.fn(),
   activeServerSessionId: () => null,
@@ -65,7 +79,7 @@ vi.mock("../queue/serverSession", () => ({
 }));
 vi.mock("../queue/listenProgress", () => ({
   activeHistoryEntryId: () => null,
-  stopTracking: vi.fn(),
+  stopTracking: mocks.stopTracking,
   startTracking: vi.fn(),
   resumeTracking: mocks.resumeTracking,
 }));
@@ -87,7 +101,7 @@ vi.mock("../../../app/services/players/remoteQueueMirror", () => ({
   mirrorRemoveFromQueue: vi.fn(),
   mirrorAppendToQueue: mocks.mirrorAppend,
   mirrorReplaceQueue: mocks.mirrorReplace,
-  mirrorClearQueue: vi.fn(),
+  mirrorClearQueue: mocks.mirrorClear,
   mirrorReorderQueue: vi.fn(),
   optimisticRemoteQueue: () => [],
   mirrorReplaceVideosToQueue: mocks.mirrorReplace,
@@ -95,14 +109,16 @@ vi.mock("../../../app/services/players/remoteQueueMirror", () => ({
 vi.mock("../../../app/services/players/activeTarget", () => ({
   isRemoteTargetActive: () => mocks.remote,
 }));
-vi.mock("../../../cenotaph/adapters/remoteModeSettings", () => ({ isActivePlayer: () => false }));
+vi.mock("../../../cenotaph/adapters/remoteModeSettings", () => ({
+  isActivePlayer: () => mocks.activePlayer,
+}));
 vi.mock("../../../app/services/playbackCoordinator", () => ({
   registerStopMusic: vi.fn(),
   stopRadioForMusic: mocks.stopRadio,
 }));
 vi.mock("../../../app/services/storage/db", () => ({
   appState: () => mocks.state,
-  setCurrentSong: vi.fn(),
+  setCurrentSong: mocks.setCurrentSong,
   setQueue: mocks.persistQueue,
   setQueueOpen: vi.fn(),
 }));
@@ -113,7 +129,7 @@ vi.mock("../../../utils/logger", () => ({ debug: vi.fn(), warn: vi.fn() }));
 vi.mock("../queue/purgeDepartedMedia", () => ({ initQueueDeparturePurge: vi.fn() }));
 vi.mock("../../../app/services/media/queueDeparture", () => ({ registerQueueDeparture: vi.fn() }));
 vi.mock("../../../video/services/queue/videoListenProgress", () => ({
-  stopVideoTracking: vi.fn(),
+  stopVideoTracking: mocks.stopVideoTracking,
   startVideoTracking: vi.fn(),
   resumeVideoTracking: mocks.resumeVideoTracking,
 }));
@@ -148,7 +164,7 @@ import {
   resetPlaybackEnded,
   markPlaybackEnded,
 } from "../queue/queueState";
-import { addToQueue, playQueue, resumeHistoryEntry } from "../queue/queue";
+import { addToQueue, clearQueue, playQueue, resumeHistoryEntry } from "../queue/queue";
 import {
   playVideoQueue,
   resumeVideoHistoryEntry,
@@ -209,6 +225,7 @@ beforeEach(() => {
   mocks.load.mockResolvedValue(undefined);
   mocks.send.mockResolvedValue(undefined);
   mocks.remote = false;
+  mocks.activePlayer = false;
   mocks.queueLimit = 1000;
   mocks.playbackState = "stopped";
   mocks.state.queue = [];
@@ -217,6 +234,9 @@ beforeEach(() => {
   mocks.persistQueue.mockImplementation(async (items: MediaItem[]) => {
     mocks.state.queue = items;
   });
+  mocks.setCurrentSong.mockImplementation(async (key: string | null) => {
+    mocks.state.current_item_key = key;
+  });
 });
 afterEach(() => {
   vi.clearAllTimers();
@@ -224,6 +244,104 @@ afterEach(() => {
 });
 
 describe("shared player availability", () => {
+  it.each(["song", "video"] as const)(
+    "finishing a cenotaph %s queue clears persisted items and current item",
+    async (kind) => {
+      mocks.activePlayer = true;
+      const current = item("last", false, kind);
+      mocks.state.queue = [current];
+      mocks.state.current_item_key = "last";
+      await playMediaItem(current);
+      const listener = mocks.listeners.get(kind);
+      expect(listener).toBeDefined();
+      listener?.({ kind: "ended" });
+      await vi.waitFor(() => expect(mocks.state.queue).toEqual([]));
+      expect(mocks.state.current_item_key).toBeNull();
+      expect(mocks.stopTracking).toHaveBeenCalledWith(true);
+      expect(mocks.stopTracking.mock.invocationCallOrder[0]).toBeLessThan(
+        mocks.persistQueue.mock.invocationCallOrder[0]
+      );
+      expect(mocks.stopVideoTracking).toHaveBeenCalledWith(true);
+      expect(mocks.stopSession).toHaveBeenCalledWith("completed");
+      expect(mocks.mirrorClear).not.toHaveBeenCalled();
+      await play();
+      expect(mocks.load).toHaveBeenCalledTimes(1);
+    }
+  );
+
+  it("remote next at the end clears the player's whole queue, including offline rows", async () => {
+    mocks.activePlayer = true;
+    mocks.state.queue = [item("previous"), item("last"), item("offline", true)];
+    mocks.state.current_item_key = "last";
+    await playNext();
+    expect(mocks.state.queue).toEqual([]);
+    expect(mocks.state.current_item_key).toBeNull();
+    expect(mocks.stopSession).toHaveBeenCalledWith("completed");
+  });
+
+  it("standalone completion preserves the queue for replay", async () => {
+    mocks.state.queue = [item("last")];
+    mocks.state.current_item_key = "last";
+    await playNext();
+    expect(mocks.state.queue).toEqual([item("last")]);
+    expect(mocks.state.current_item_key).toBe("last");
+    expect(mocks.persistQueue).not.toHaveBeenCalled();
+  });
+
+  it("mid-queue completion removes the finished song without clearing the next one", async () => {
+    mocks.activePlayer = true;
+    const first = item("first");
+    const second = item("second");
+    mocks.state.queue = [first, second];
+    mocks.state.current_item_key = "first";
+    await playMediaItem(first);
+    mocks.load.mockImplementationOnce(async () => {
+      mocks.state.current_item_key = "second";
+    });
+    mocks.listeners.get("song")?.({ kind: "ended" });
+    await vi.waitFor(() => expect(mocks.state.queue).toEqual([second]));
+    expect(mocks.state.current_item_key).toBe("second");
+    expect(mocks.stopSession).not.toHaveBeenCalled();
+    expect(mocks.stopTracking).not.toHaveBeenCalled();
+  });
+
+  it("clears a cenotaph queue when subsequent tracks exhaust the playback retry budget", async () => {
+    mocks.activePlayer = true;
+    mocks.state.queue = [item("current"), ...Array.from({ length: 6 }, (_, i) => item(`bad${i}`))];
+    mocks.state.current_item_key = "current";
+    mocks.load.mockRejectedValue(new Error("track unavailable"));
+    const completion = playNext();
+    await vi.runAllTimersAsync();
+    await completion;
+    expect(mocks.load).toHaveBeenCalledTimes(10);
+    expect(mocks.state.queue).toEqual([]);
+    expect(mocks.state.current_item_key).toBeNull();
+  });
+
+  it("reports persistence failures during automatic completion", async () => {
+    mocks.activePlayer = true;
+    mocks.state.queue = [item("last")];
+    mocks.state.current_item_key = "last";
+    await playMediaItem(item("last"));
+    mocks.persistQueue.mockRejectedValueOnce(new Error("write failed"));
+    mocks.listeners.get("song")?.({ kind: "ended" });
+    await vi.waitFor(() =>
+      expect(mocks.toast).toHaveBeenCalledWith("could not finish updating the queue", {
+        title: "playback error",
+      })
+    );
+  });
+
+  it("explicit queue clearing still mirrors the controller's stop and abandons the session", async () => {
+    mocks.state.queue = [item("current")];
+    mocks.state.current_item_key = "current";
+    await clearQueue();
+    expect(mocks.mirrorClear).toHaveBeenCalledOnce();
+    expect(mocks.stopSession).toHaveBeenCalledWith("abandoned");
+    expect(mocks.state.queue).toEqual([]);
+    expect(mocks.state.current_item_key).toBeNull();
+  });
+
   it("rejects direct song/video loads before radio takeover, backend loading or pre-cache", async () => {
     await expect(
       playSong({ ...song, is_offline: true }, { userInitiated: true })
