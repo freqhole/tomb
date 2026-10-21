@@ -52,6 +52,7 @@ webauthn-rs = { version = "0.5.1", features = [
 iroh = { version = "1.4.1", optional = true }
 
 [dev-dependencies]
+data-encoding = "2"
 tempfile = "3"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # webauthn_two_transports.rs's minimal software authenticator: real p-256

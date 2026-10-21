@@ -43,6 +43,7 @@ private final class AugurBonjour {
     private let queue = DispatchQueue(label: "net.freqhole.augur")
     private var listener: NWListener?
     private var browser: NWBrowser?
+    private var resolutions: [NWEndpoint: NWConnection] = [:]
 
     func startAdvertising(
         instanceName: String, serviceType: String, port: UInt16, userData: String, relayUrl: String
@@ -80,6 +81,10 @@ private final class AugurBonjour {
     }
 
     func startDiscovery(serviceType: String) {
+        queue.sync { startDiscoveryOnQueue(serviceType: serviceType) }
+    }
+
+    private func startDiscoveryOnQueue(serviceType: String) {
         guard browser == nil else {
             return
         }
@@ -90,20 +95,22 @@ private final class AugurBonjour {
         // explicitly requests this (its browse logs show `AWDL`/
         // `IncludeAWDL` flags) while this browser previously didn't -
         // kept on even after the real root cause (swarm-discovery's
-        // missing PTR record + TTL=0 "goodbye" packets - see
-        // lib/swarm-discovery-fork/) was found and fixed, since this is
+        // missing PTR record + TTL=0 "goodbye" packets, fixed in
+        // swarm-discovery 0.6.5) was found and fixed, since this is
         // still a real, independently-correct capability match with
         // apple's own first-party bonjour clients, not just a discarded
         // guess.
         let params = NWParameters.udp
         params.includePeerToPeer = true
         let browser = NWBrowser(for: .bonjour(type: serviceType, domain: nil), using: params)
-        browser.browseResultsChangedHandler = { [weak self] _, changes in
+        browser.browseResultsChangedHandler = { [weak self, weak browser] _, changes in
+            guard let self, let browser, self.browser === browser else { return }
             for change in changes {
                 switch change {
                 case .added(let result), .changed(old: _, new: let result, flags: _):
-                    self?.resolve(result)
+                    self.resolve(result, browser: browser)
                 case .removed(let result):
+                    self.resolutions.removeValue(forKey: result.endpoint)?.cancel()
                     if case let .service(name, _, _, _) = result.endpoint {
                         name.withCString { augurIosOnLost($0) }
                     }
@@ -112,8 +119,8 @@ private final class AugurBonjour {
                 }
             }
         }
-        browser.start(queue: queue)
         self.browser = browser
+        browser.start(queue: queue)
     }
 
     /// stops browsing - called once the rust side's shared discovery
@@ -121,8 +128,12 @@ private final class AugurBonjour {
     /// consumers), so this doesn't run forever in the background once
     /// first triggered.
     func stopDiscovery() {
-        browser?.cancel()
-        browser = nil
+        queue.sync {
+            browser?.cancel()
+            browser = nil
+            for connection in resolutions.values { connection.cancel() }
+            resolutions.removeAll()
+        }
     }
 
     /// `NWBrowser` finds instances but doesn't resolve their host/port/txt
@@ -130,7 +141,7 @@ private final class AugurBonjour {
     /// real `NWConnection` to the bonjour endpoint is the standard way to
     /// force that resolution, same as the android backend's dedicated
     /// `resolveService` call.
-    private func resolve(_ result: NWBrowser.Result) {
+    private func resolve(_ result: NWBrowser.Result, browser: NWBrowser) {
         guard case let .service(name, type, domain, _) = result.endpoint else {
             return
         }
@@ -147,10 +158,19 @@ private final class AugurBonjour {
         let connParams = NWParameters.udp
         connParams.includePeerToPeer = true
         let connection = NWConnection(to: endpoint, using: connParams)
-        connection.stateUpdateHandler = { state in
+        resolutions.removeValue(forKey: result.endpoint)?.cancel()
+        resolutions[result.endpoint] = connection
+        connection.stateUpdateHandler = { [weak self, weak browser, weak connection] state in
+            guard let self, let browser, let connection,
+                self.browser === browser,
+                self.resolutions[result.endpoint] === connection
+            else { return }
             switch state {
             case .ready:
-                defer { connection.cancel() }
+                defer {
+                    self.resolutions.removeValue(forKey: result.endpoint)
+                    connection.cancel()
+                }
                 guard case let .hostPort(host, port) = connection.currentPath?.remoteEndpoint else {
                     return
                 }
@@ -165,7 +185,8 @@ private final class AugurBonjour {
                     }
                 }
             case .failed, .cancelled:
-                break
+                self.resolutions.removeValue(forKey: result.endpoint)
+                connection.cancel()
             default:
                 break
             }

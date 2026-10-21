@@ -32,6 +32,8 @@
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
 
+use super::wire::{self, SERVICE_TYPE};
+use super::DiscoveredPeer;
 use iroh::address_lookup::{
     AddressLookup, AddressLookupBuilder, AddressLookupBuilderError, EndpointData,
     Error as LookupError, Item as LookupItem,
@@ -39,10 +41,6 @@ use iroh::address_lookup::{
 use iroh::{Endpoint, EndpointId};
 use n0_future::boxed::BoxStream;
 use n0_future::StreamExt;
-use tokio_stream::wrappers::ReceiverStream;
-
-use super::wire::{self, DiscoveryGuard, SERVICE_TYPE};
-use super::DiscoveredPeer;
 
 /// identifies this backend's items in [`LookupItem::provenance`].
 const PROVENANCE: &str = "augur-ios";
@@ -116,9 +114,12 @@ impl AddressLookup for BonjourAddressLookup {
         &self,
         endpoint_id: EndpointId,
     ) -> Option<BoxStream<Result<LookupItem, LookupError>>> {
-        start_discovery();
-        let rx = ReceiverStream::new(wire::register_resolver(endpoint_id));
-        Some(Box::pin(DiscoveryGuard::new(rx, stop_discovery)))
+        Some(wire::register_resolver(
+            endpoint_id,
+            PROVENANCE,
+            start_discovery,
+            stop_discovery,
+        ))
     }
 }
 
@@ -134,10 +135,8 @@ impl AddressLookup for BonjourAddressLookup {
 /// (which genuinely needs to await something first) - nothing here
 /// actually awaits.
 pub async fn subscribe(local_node_id: EndpointId) -> BoxStream<DiscoveredPeer> {
-    start_discovery();
-    let rx = ReceiverStream::new(wire::register_subscriber());
     Box::pin(
-        DiscoveryGuard::new(rx, stop_discovery)
+        wire::register_subscriber(start_discovery, stop_discovery)
             .filter(move |peer| peer.endpoint_id() != local_node_id),
     )
 }

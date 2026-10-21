@@ -28,17 +28,16 @@
 //! long as the endpoint itself is alive, not something that needs the
 //! same "stop when nobody's asking" treatment as active browsing.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, VecDeque};
 use std::net::{IpAddr, SocketAddr};
 use std::pin::Pin;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::task::{Context, Poll};
 
 use iroh::address_lookup::{EndpointData, EndpointInfo, Error as LookupError, Item as LookupItem};
 use iroh::{EndpointId, TransportAddr};
-use n0_future::Stream;
-use tokio::sync::mpsc;
+use n0_future::{boxed::BoxStream, Stream, StreamExt};
+use tokio::sync::watch;
 
 use super::DiscoveredPeer;
 
@@ -82,29 +81,129 @@ pub(super) fn decode_instance_name(instance_name: &str) -> Option<EndpointId> {
     EndpointId::from_bytes(&bytes).ok()
 }
 
-type ResolveSender = mpsc::Sender<Result<LookupItem, LookupError>>;
+type PeerSnapshot = Arc<BTreeMap<EndpointId, EndpointInfo>>;
 
-/// subscribers waiting on a `resolve(endpoint_id)` call, filled in by
-/// [`deliver_resolved`] whenever a matching mdns instance is
-/// (re-)discovered.
-static RESOLVERS: OnceLock<Mutex<HashMap<EndpointId, Vec<ResolveSender>>>> = OnceLock::new();
-
-/// `subscribe()`'s "browse everyone nearby" subscribers.
-static SUBSCRIBERS: OnceLock<Mutex<Vec<mpsc::Sender<DiscoveredPeer>>>> = OnceLock::new();
-
-fn resolvers() -> &'static Mutex<HashMap<EndpointId, Vec<ResolveSender>>> {
-    RESOLVERS.get_or_init(|| Mutex::new(HashMap::new()))
+struct DiscoveryRegistry {
+    consumers: Mutex<usize>,
+    peers: Mutex<Option<BTreeMap<EndpointId, EndpointInfo>>>,
+    snapshots: watch::Sender<PeerSnapshot>,
 }
 
-fn subscribers() -> &'static Mutex<Vec<mpsc::Sender<DiscoveredPeer>>> {
-    SUBSCRIBERS.get_or_init(|| Mutex::new(Vec::new()))
+impl DiscoveryRegistry {
+    fn new() -> Arc<Self> {
+        Arc::new(Self {
+            consumers: Mutex::new(0),
+            peers: Mutex::new(None),
+            snapshots: watch::channel(Arc::new(BTreeMap::new())).0,
+        })
+    }
+
+    fn subscribe(
+        self: &Arc<Self>,
+        start: impl FnOnce(),
+        stop: impl FnOnce() + Send + Unpin + 'static,
+    ) -> BoxStream<DiscoveredPeer> {
+        // hold the lifecycle lock through start/stop, but never the peer
+        // lock: platform callbacks may deliver results synchronously.
+        let mut consumers = self.consumers.lock().unwrap();
+        if *consumers == 0 {
+            *self.peers.lock().unwrap() = Some(BTreeMap::new());
+        }
+        let receiver = self.snapshots.subscribe();
+        *consumers += 1;
+        let stream = DiscoveryGuard {
+            inner: snapshot_events(receiver),
+            registry: self.clone(),
+            on_last_drop: Some(stop),
+        };
+        if *consumers == 1 {
+            start();
+        }
+        Box::pin(stream)
+    }
+
+    fn found(&self, endpoint_info: EndpointInfo) {
+        let mut peers = self.peers.lock().unwrap();
+        let Some(peers) = peers.as_mut() else {
+            return; // a callback finishing after browsing stopped
+        };
+        if peers.get(&endpoint_info.endpoint_id) == Some(&endpoint_info) {
+            return;
+        }
+        peers.insert(endpoint_info.endpoint_id, endpoint_info);
+        self.snapshots.send_replace(Arc::new(peers.clone()));
+    }
+
+    fn lost(&self, endpoint_id: EndpointId) {
+        let mut peers = self.peers.lock().unwrap();
+        if let Some(peers) = peers.as_mut() {
+            if peers.remove(&endpoint_id).is_some() {
+                self.snapshots.send_replace(Arc::new(peers.clone()));
+            }
+        }
+    }
+
+    fn resolve(
+        self: &Arc<Self>,
+        endpoint_id: EndpointId,
+        provenance: &'static str,
+        start: impl FnOnce(),
+        stop: impl FnOnce() + Send + Unpin + 'static,
+    ) -> BoxStream<Result<LookupItem, LookupError>> {
+        Box::pin(
+            self.subscribe(start, stop)
+                .filter_map(move |event| match event {
+                    DiscoveredPeer::Found {
+                        endpoint_id: id,
+                        endpoint_info,
+                    } if id == endpoint_id => {
+                        Some(Ok(LookupItem::new(endpoint_info, provenance, None)))
+                    }
+                    _ => None,
+                }),
+        )
+    }
 }
 
-/// how many live `resolve()`/`subscribe()` consumers currently want the
-/// native browse session running. both platforms' `start_discovery()` is
-/// idempotent (safe to call repeatedly), but only actually needs to run
-/// at all while this is non-zero - see [`DiscoveryGuard`].
-static DISCOVERY_REFCOUNT: AtomicUsize = AtomicUsize::new(0);
+fn registry() -> &'static Arc<DiscoveryRegistry> {
+    static REGISTRY: OnceLock<Arc<DiscoveryRegistry>> = OnceLock::new();
+    REGISTRY.get_or_init(DiscoveryRegistry::new)
+}
+
+fn snapshot_events(receiver: watch::Receiver<PeerSnapshot>) -> BoxStream<DiscoveredPeer> {
+    let state = (receiver, Arc::new(BTreeMap::new()), VecDeque::new(), true);
+    Box::pin(n0_future::stream::unfold(
+        state,
+        |(mut receiver, mut known, mut pending, mut initial)| async move {
+            loop {
+                if let Some(event) = pending.pop_front() {
+                    return Some((event, (receiver, known, pending, initial)));
+                }
+                if !initial && receiver.changed().await.is_err() {
+                    return None;
+                }
+                initial = false;
+                let snapshot = receiver.borrow_and_update().clone();
+                for endpoint_id in known.keys() {
+                    if !snapshot.contains_key(endpoint_id) {
+                        pending.push_back(DiscoveredPeer::Lost {
+                            endpoint_id: *endpoint_id,
+                        });
+                    }
+                }
+                for (endpoint_id, endpoint_info) in snapshot.iter() {
+                    if known.get(endpoint_id) != Some(endpoint_info) {
+                        pending.push_back(DiscoveredPeer::Found {
+                            endpoint_id: *endpoint_id,
+                            endpoint_info: endpoint_info.clone(),
+                        });
+                    }
+                }
+                known = snapshot;
+            }
+        },
+    ))
+}
 
 /// wraps a stream, keeping augur's shared discovery session alive for as
 /// long as it's being polled and tearing it down (via `on_last_drop`) the
@@ -114,17 +213,8 @@ static DISCOVERY_REFCOUNT: AtomicUsize = AtomicUsize::new(0);
 /// multicast queries even when nothing's listening anymore.
 pub(super) struct DiscoveryGuard<S, F: FnOnce()> {
     inner: S,
+    registry: Arc<DiscoveryRegistry>,
     on_last_drop: Option<F>,
-}
-
-impl<S, F: FnOnce()> DiscoveryGuard<S, F> {
-    pub(super) fn new(inner: S, on_last_drop: F) -> Self {
-        DISCOVERY_REFCOUNT.fetch_add(1, Ordering::SeqCst);
-        Self {
-            inner,
-            on_last_drop: Some(on_last_drop),
-        }
-    }
 }
 
 impl<S: Stream + Unpin, F: FnOnce() + Unpin> Stream for DiscoveryGuard<S, F> {
@@ -141,7 +231,13 @@ impl<S: Stream + Unpin, F: FnOnce() + Unpin> Stream for DiscoveryGuard<S, F> {
 
 impl<S, F: FnOnce()> Drop for DiscoveryGuard<S, F> {
     fn drop(&mut self) {
-        if DISCOVERY_REFCOUNT.fetch_sub(1, Ordering::SeqCst) == 1 {
+        let mut consumers = self.registry.consumers.lock().unwrap();
+        *consumers -= 1;
+        if *consumers == 0 {
+            *self.registry.peers.lock().unwrap() = None;
+            self.registry
+                .snapshots
+                .send_replace(Arc::new(BTreeMap::new()));
             if let Some(on_last_drop) = self.on_last_drop.take() {
                 on_last_drop();
             }
@@ -149,30 +245,19 @@ impl<S, F: FnOnce()> Drop for DiscoveryGuard<S, F> {
     }
 }
 
-/// registers a new `resolve(endpoint_id)` subscriber, returning the
-/// receiving half of its channel (wrap in `tokio_stream::wrappers::ReceiverStream`,
-/// then [`DiscoveryGuard`], to satisfy `AddressLookup::resolve`'s return
-/// type while also participating in the shared discovery-session
-/// ref-count).
+/// a resolver sees the same initial snapshot and updates as a browser.
 pub(super) fn register_resolver(
     endpoint_id: EndpointId,
-) -> mpsc::Receiver<Result<LookupItem, LookupError>> {
-    let (tx, rx) = mpsc::channel(20);
-    resolvers()
-        .lock()
-        .unwrap()
-        .entry(endpoint_id)
-        .or_default()
-        .push(tx);
-    rx
+    provenance: &'static str,
+    start: fn(),
+    stop: fn(),
+) -> BoxStream<Result<LookupItem, LookupError>> {
+    registry().resolve(endpoint_id, provenance, start, stop)
 }
 
-/// registers a new `subscribe()` ("browse everyone nearby") subscriber -
-/// same shape as [`register_resolver`], just not filtered to one id.
-pub(super) fn register_subscriber() -> mpsc::Receiver<DiscoveredPeer> {
-    let (tx, rx) = mpsc::channel(20);
-    subscribers().lock().unwrap().push(tx);
-    rx
+/// subscribe before starting the platform browser, replaying current peers.
+pub(super) fn register_subscriber(start: fn(), stop: fn()) -> BoxStream<DiscoveredPeer> {
+    registry().subscribe(start, stop)
 }
 
 /// called by each platform's native callback once a matching mdns
@@ -234,25 +319,7 @@ pub(super) fn deliver_resolved(
         }
     }
     let endpoint_info = EndpointInfo::from_parts(endpoint_id, data);
-    let item = LookupItem::new(endpoint_info.clone(), provenance, None);
-
-    let mut map = resolvers().lock().unwrap();
-    if let Some(senders) = map.get_mut(&endpoint_id) {
-        // drop any subscriber whose stream was already dropped by its
-        // caller - mirrors the desktop backend's own cleanup-on-send
-        // pattern rather than leaking dead senders forever.
-        senders.retain(|tx| tx.try_send(Ok(item.clone())).is_ok());
-    }
-    drop(map);
-
-    let mut subs = subscribers().lock().unwrap();
-    subs.retain(|tx| {
-        tx.try_send(DiscoveredPeer::Found {
-            endpoint_id,
-            endpoint_info: endpoint_info.clone(),
-        })
-        .is_ok()
-    });
+    registry().found(endpoint_info);
 }
 
 /// called by each platform's native callback once a previously-resolved
@@ -269,14 +336,236 @@ pub(super) fn deliver_lost(instance_name: &str) {
         endpoint_id = %endpoint_id.fmt_short(),
         "augur: nearby peer no longer visible over mdns"
     );
-    let mut subs = subscribers().lock().unwrap();
-    subs.retain(|tx| tx.try_send(DiscoveredPeer::Lost { endpoint_id }).is_ok());
+    registry().lost(endpoint_id);
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use iroh::SecretKey;
+    use std::time::Duration;
+
+    fn peer() -> EndpointInfo {
+        EndpointInfo::from_parts(
+            SecretKey::generate().public(),
+            EndpointData::from_iter([TransportAddr::Ip("127.0.0.1:1234".parse().unwrap())]),
+        )
+    }
+
+    async fn next(stream: &mut BoxStream<DiscoveredPeer>) -> DiscoveredPeer {
+        tokio::time::timeout(Duration::from_secs(1), stream.next())
+            .await
+            .unwrap()
+            .unwrap()
+    }
+
+    async fn assert_pending(stream: &mut BoxStream<DiscoveredPeer>) {
+        assert!(
+            tokio::time::timeout(Duration::from_millis(10), stream.next())
+                .await
+                .is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn registers_before_synchronous_start_callbacks() {
+        let registry = DiscoveryRegistry::new();
+        let info = peer();
+        let mut stream = registry.subscribe(|| registry.found(info.clone()), || {});
+        assert!(
+            matches!(next(&mut stream).await, DiscoveredPeer::Found { endpoint_id, .. }
+            if endpoint_id == info.endpoint_id)
+        );
+    }
+
+    #[tokio::test]
+    async fn late_subscribers_replay_snapshot_then_receive_changes_and_losses() {
+        let registry = DiscoveryRegistry::new();
+        let _first = registry.subscribe(|| {}, || {});
+        let mut info = peer();
+        registry.found(info.clone());
+        let mut second = registry.subscribe(|| panic!("browser already running"), || {});
+        assert!(
+            matches!(next(&mut second).await, DiscoveredPeer::Found { endpoint_info, .. }
+            if endpoint_info == info)
+        );
+        info.data = EndpointData::from_iter([TransportAddr::Ip("127.0.0.1:5678".parse().unwrap())]);
+        registry.found(info.clone());
+        assert!(
+            matches!(next(&mut second).await, DiscoveredPeer::Found { endpoint_info, .. }
+            if endpoint_info == info)
+        );
+        registry.lost(info.endpoint_id);
+        assert!(
+            matches!(next(&mut second).await, DiscoveredPeer::Lost { endpoint_id }
+            if endpoint_id == info.endpoint_id)
+        );
+        let mut third = registry.subscribe(|| panic!("browser already running"), || {});
+        assert_pending(&mut third).await;
+    }
+
+    #[tokio::test]
+    async fn duplicate_announcements_do_not_repeat_found_events() {
+        let registry = DiscoveryRegistry::new();
+        let mut stream = registry.subscribe(|| {}, || {});
+        let info = peer();
+        registry.found(info.clone());
+        next(&mut stream).await;
+        registry.found(info);
+        assert_pending(&mut stream).await;
+    }
+
+    #[tokio::test]
+    async fn slow_subscribers_resync_after_more_than_twenty_events() {
+        let registry = DiscoveryRegistry::new();
+        let mut stream = registry.subscribe(|| {}, || {});
+        let original = peer();
+        registry.found(original.clone());
+        next(&mut stream).await;
+        let peers: Vec<_> = (0..100).map(|_| peer()).collect();
+        for info in &peers {
+            registry.found(info.clone());
+        }
+        registry.lost(original.endpoint_id);
+        let mut found = BTreeMap::new();
+        let mut lost = Vec::new();
+        for _ in 0..101 {
+            match next(&mut stream).await {
+                DiscoveredPeer::Found {
+                    endpoint_id,
+                    endpoint_info,
+                } => {
+                    found.insert(endpoint_id, endpoint_info);
+                }
+                DiscoveredPeer::Lost { endpoint_id } => lost.push(endpoint_id),
+            }
+        }
+        assert_eq!(found.len(), 100);
+        assert_eq!(lost, vec![original.endpoint_id]);
+        let mut reopened = registry.subscribe(|| panic!("browser already running"), || {});
+        for _ in 0..100 {
+            assert!(
+                matches!(next(&mut reopened).await, DiscoveredPeer::Found { endpoint_id, .. }
+                if found.contains_key(&endpoint_id))
+            );
+        }
+        let final_peer = peer();
+        registry.found(final_peer.clone());
+        assert_eq!(
+            next(&mut stream).await.endpoint_id(),
+            final_peer.endpoint_id
+        );
+        assert_eq!(
+            next(&mut reopened).await.endpoint_id(),
+            final_peer.endpoint_id
+        );
+    }
+
+    #[tokio::test]
+    async fn cached_peer_is_immediately_available_to_a_new_resolver() {
+        let registry = DiscoveryRegistry::new();
+        let _browser = registry.subscribe(|| {}, || {});
+        let info = peer();
+        registry.found(info.clone());
+        let mut resolver = registry.resolve(
+            info.endpoint_id,
+            "test",
+            || panic!("browser already running"),
+            || {},
+        );
+        let item = tokio::time::timeout(Duration::from_secs(1), resolver.next())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert_eq!(item.endpoint_info(), &info);
+    }
+
+    #[tokio::test]
+    async fn a_resolver_keeps_discovery_alive_while_the_modal_is_closed() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let registry = DiscoveryRegistry::new();
+        let browser = registry.subscribe(|| {}, || panic!("resolver still active"));
+        let info = peer();
+        registry.found(info.clone());
+        let stops = Arc::new(AtomicUsize::new(0));
+        let stopped = stops.clone();
+        let resolver = registry.resolve(
+            info.endpoint_id,
+            "test",
+            || panic!("browser already running"),
+            move || {
+                stopped.fetch_add(1, Ordering::SeqCst);
+            },
+        );
+        drop(browser);
+        let mut reopened = registry.subscribe(|| panic!("resolver still active"), || {});
+        assert_eq!(next(&mut reopened).await.endpoint_id(), info.endpoint_id);
+        drop(reopened);
+        assert_eq!(stops.load(Ordering::SeqCst), 0);
+        drop(resolver);
+        assert_eq!(stops.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn last_drop_clears_snapshot_and_reopening_starts_fresh() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let registry = DiscoveryRegistry::new();
+        let stops = Arc::new(AtomicUsize::new(0));
+        let stopped = stops.clone();
+        let first = registry.subscribe(
+            || {},
+            move || {
+                stopped.fetch_add(1, Ordering::SeqCst);
+            },
+        );
+        let second = registry.subscribe(|| panic!("browser already running"), || {});
+        registry.found(peer());
+        drop(second);
+        assert_eq!(stops.load(Ordering::SeqCst), 0);
+        drop(first);
+        assert_eq!(stops.load(Ordering::SeqCst), 1);
+        registry.found(peer());
+        let mut reopened = registry.subscribe(|| {}, || {});
+        assert_pending(&mut reopened).await;
+        let info = peer();
+        registry.found(info.clone());
+        assert_eq!(next(&mut reopened).await.endpoint_id(), info.endpoint_id);
+    }
+
+    #[test]
+    fn a_new_start_cannot_overtake_the_last_consumers_stop() {
+        use std::sync::mpsc;
+        let registry = DiscoveryRegistry::new();
+        let (stopping, wait_stopping) = mpsc::channel();
+        let (release, wait_release) = mpsc::channel();
+        let stream = registry.subscribe(
+            || {},
+            move || {
+                stopping.send(()).unwrap();
+                wait_release.recv_timeout(Duration::from_secs(5)).unwrap();
+            },
+        );
+        std::thread::scope(|scope| {
+            scope.spawn(move || drop(stream));
+            wait_stopping.recv_timeout(Duration::from_secs(1)).unwrap();
+            let (started, wait_started) = mpsc::channel();
+            let registry = registry.clone();
+            scope.spawn(move || {
+                let _stream = registry.subscribe(
+                    || {
+                        started.send(()).unwrap();
+                    },
+                    || {},
+                );
+            });
+            assert!(wait_started
+                .recv_timeout(Duration::from_millis(20))
+                .is_err());
+            release.send(()).unwrap();
+            wait_started.recv_timeout(Duration::from_secs(1)).unwrap();
+        });
+    }
 
     #[test]
     fn instance_name_round_trips() {
