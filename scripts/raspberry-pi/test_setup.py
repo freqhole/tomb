@@ -1170,12 +1170,16 @@ class MenuTests(unittest.TestCase):
         screen.process = Mock()
         screen.process.poll.return_value = 0
         screen.running_label = "set up wifi"
+        screen.wifi_future = Mock()
+        old_status = screen.wifi_future
         info = {"ssid": "private-ssid", "passphrase": "secret123456", "gateway": "192.168.42.1"}
         with patch.object(menu, "WIFI_INFO", info), patch("sys.stdout", new_callable=io.StringIO) as output:
             screen.poll_command()
         self.assertEqual(screen.screen, "wifi")
         self.assertIn("pw: secret123456", screen.network_rows)
         self.assertNotIn("secret123456", output.getvalue())
+        old_status.cancel.assert_called_once()
+        self.assertIsNone(screen.wifi_future)
         screen.activate()
         self.assertEqual(screen.screen, "menu")
 

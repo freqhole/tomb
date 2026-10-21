@@ -694,6 +694,9 @@ class Menu:
             return
         self.process = None
         if self.running_label == "set up wifi" and result == 0:
+            if self.wifi_future is not None:
+                self.wifi_future.cancel()
+                self.wifi_future = None
             self.screen = "wifi"
             self.network_rows = (
                 "starting wifi setup", WIFI_INFO["ssid"], f'pw: {WIFI_INFO["passphrase"]}',
