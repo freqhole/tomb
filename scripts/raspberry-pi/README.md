@@ -43,6 +43,9 @@ freqhole-wifi stop
 ```
 
 tmux detach: **Ctrl+B, then D**. Wi-Fi setup is always manual-only.
+new Wi-Fi passwords use two lowercase words + four digits (existing credentials stay).
+during setup, the OLED stays awake for 10 minutes; on timeout, turn the knob
+to see restart/exit options.
 
 in spume: remote admin → **library storage** browses the Pi's mounted disks;
 add a whole disk or folder, then scan music/video in place. the OS handles mounting.

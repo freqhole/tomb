@@ -133,6 +133,7 @@ SHUTDOWN_COMMAND = ("sudo", "-n", PI_CONTROL, "poweroff")
 SHUTDOWN_COLOR = (255, 0, 0)
 CANCEL_COLOR = (0, 230, 255)
 IDLE_SECONDS = 30.0
+WIFI_IDLE_SECONDS = 600.0
 SLEEP_ANIMATION_SECONDS = 10.0
 SLEEP_FADE_SECONDS = 3.0  # a long fade makes the low 8-bit brightness steps linger.
 SLEEP_FPS = 10
@@ -466,6 +467,7 @@ class Menu:
         self.update_requested = False
         self.wifi_future = None
         self.wifi_next_refresh = 0
+        self.wifi_monitoring = False
         self.storage = StorageMenu(current_socket_path)
         self.dirty = True
         # apply brightness in write_pixel so each channel is rounded only once.
@@ -539,6 +541,12 @@ class Menu:
             lines = ["wifi may drop SSH", "portal: max 10 min"] + [
                 ("> " if index == self.confirm_selected else "  ") + label
                 for index, label in enumerate(("start wifi setup", "cancel"))
+            ]
+            color = (255, 160, 0)
+        elif self.screen == "wifi-ended":
+            lines = [self.message[0], "portal is off"] + [
+                ("> " if index == self.confirm_selected else "  ") + label
+                for index, label in enumerate(("restart wifi setup", "exit"))
             ]
             color = (255, 160, 0)
         elif self.screen == "running":
@@ -694,6 +702,8 @@ class Menu:
             self.network_offset = 1
             self.network_error = False
             self.wifi_next_refresh = 0
+            self.wifi_monitoring = True
+            self.last_activity = time.monotonic()
             self.dirty = True
             return
         if self.running_label in ("install update", "recover failed update"):
@@ -789,6 +799,7 @@ class Menu:
 
     def poll_wifi(self, now):
         if self.wifi_future is not None and self.wifi_future.done():
+            status = None
             try:
                 status = self.wifi_future.result()
                 label = f'wifi {status["state"]}'
@@ -801,12 +812,25 @@ class Menu:
                 label = "wifi status error"
                 self.network_error = True
             self.wifi_future = None
+            if status and status["state"] in ("inactive", "failed"):
+                self.wifi_monitoring = False
+                self.screen = "wifi-ended"
+                self.message = (
+                    "wifi setup timed out" if status["result"] == "timeout" else
+                    "wifi setup failed" if status["state"] == "failed" else "wifi setup finished",
+                )
+                self.confirm_selected = 1
+                self.dirty = True
+                if status["result"] == "timeout":
+                    self.sleep_started = None
+                    self.asleep = True
+                    self.lights_off()
             if self.screen == "wifi":
                 self.network_rows = (label, *self.network_rows[1:])
                 self.dirty = True
             self.wifi_next_refresh = now + 2
         if (
-            self.screen == "wifi" and not self.asleep and self.sleep_started is None
+            self.wifi_monitoring
             and self.wifi_future is None and now >= self.wifi_next_refresh
         ):
             self.wifi_future = self.network_worker.submit(read_wifi_status)
@@ -906,6 +930,12 @@ class Menu:
                 self.start_command("set up wifi", ("sudo", "-n", PI_CONTROL, "wifi-start"))
             else:
                 self.screen = "menu"
+        elif self.screen == "wifi-ended":
+            if self.confirm_selected == 0:
+                self.screen = "wifi-confirm"
+                self.confirm_selected = 1
+            else:
+                self.screen = "menu"
         elif self.screen == "volume":
             self.volume_pending.clear()
             self.screen = "menu"
@@ -996,7 +1026,7 @@ class Menu:
                 self.network_offset = max(0, min(max(0, len(self.network_rows) - 2), self.network_offset + delta))
             elif self.screen == "menu":
                 self.selected = max(0, min(len(COMMANDS), self.selected + delta))
-            elif self.screen in ("confirm", "wifi-confirm"):
+            elif self.screen in ("confirm", "wifi-confirm", "wifi-ended"):
                 self.confirm_selected = max(0, min(1, self.confirm_selected + delta))
             elif self.screen in ("success", "error"):
                 self.screen = "menu"
@@ -1013,7 +1043,8 @@ class Menu:
             if frame != self.metadata_frame:
                 self.metadata_frame = frame
                 self.dirty = True
-        if now - self.last_activity >= IDLE_SECONDS:
+        idle_seconds = WIFI_IDLE_SECONDS if self.wifi_monitoring else IDLE_SECONDS
+        if now - self.last_activity >= idle_seconds:
             self.volume_pending.clear()
             self.wake_started = None
             self.wake_encoder_delta = 0

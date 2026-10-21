@@ -15,6 +15,15 @@ I2C_BLOCK = (
     "dtparam=i2c_arm=on,i2c_arm_baudrate=400000\n# freqhole-pi i2c end\n"
 )
 
+WIFI_WORDS = (
+    "apple berry bird bloom boat bread brook cloud coral creek deer dove "
+    "dream duck fern field flame fox frog frost grass grove gull hill "
+    "honey horse lake leaf lemon light lily lime maple mint moon moss "
+    "mouse ocean otter owl peach pear pine plum pond poppy rain reed "
+    "river robin rock rose sand shell sky snow star stone sun tiger "
+    "tree tulip wave wind"
+).split()
+
 
 def i2c_config(text):
     text = re.sub(
@@ -126,7 +135,7 @@ def wifi_config(directory, interface):
         raise ValueError("Wi-Fi setup already exists; keep it or explicitly remove it before reconfiguration")
     info = {
         "ssid": "freqhole-setup-" + secrets.token_hex(2),
-        "passphrase": secrets.token_hex(6),
+        "passphrase": f"{secrets.choice(WIFI_WORDS)}-{secrets.choice(WIFI_WORDS)}-{secrets.randbelow(10000):04}",
         "interface": interface,
         "gateway": "192.168.42.1",
     }

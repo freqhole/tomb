@@ -207,7 +207,11 @@ class ConfigTests(unittest.TestCase):
             with patch("sys.stdout", new_callable=io.StringIO) as output:
                 configure.wifi_config(root, "wlan0")
             info = json.loads(output.getvalue())
-            self.assertRegex(info["passphrase"], r"^[a-f0-9]{12}$")
+            self.assertRegex(info["passphrase"], r"^[a-z]+-[a-z]+-[0-9]{4}$")
+            first, second, _ = info["passphrase"].split("-")
+            self.assertIn(first, configure.WIFI_WORDS)
+            self.assertIn(second, configure.WIFI_WORDS)
+            self.assertLessEqual(len("pw: " + info["passphrase"]), 128 // 6)
             self.assertRegex(info["ssid"], r"^freqhole-setup-[a-f0-9]{4}$")
             environment = (root / "wifi.env").read_text()
             self.assertIn("ACTIVITY_TIMEOUT=600", environment)
@@ -1175,20 +1179,88 @@ class MenuTests(unittest.TestCase):
         screen.activate()
         self.assertEqual(screen.screen, "menu")
 
-    def test_wifi_status_failure_is_visible(self):
+    def wifi_screen(self):
+        with patch.object(menu, "StorageMenu") as storage:
+            storage.return_value.tick.return_value = False
+            screen = menu.Menu(Mock(width=128), Mock(), 0)
+        self.addCleanup(screen.close)
+        screen.poll_state = Mock()
+        screen.poll_network = Mock()
+        screen.poll_updates = Mock()
+        screen.wifi_monitoring = True
+        screen.wifi_next_refresh = float("inf")
+        screen.screen = "wifi"
+        screen.network_rows = ("starting", "ssid", "pw: secret")
+        return screen
+
+    def test_wifi_timeout_turns_lights_off_and_keeps_restart_screen_on_wake(self):
         from concurrent.futures import Future
 
-        screen = menu.Menu.__new__(menu.Menu)
-        screen.screen = "wifi"
-        screen.asleep = False
-        screen.sleep_started = None
-        screen.network_rows = ("starting", "ssid", "pw: secret")
+        screen = self.wifi_screen()
         screen.wifi_future = Future()
         screen.wifi_future.set_result({"state": "failed", "result": "timeout"})
-        screen.poll_wifi(1)
+        screen.tick(600, 0, False)
         self.assertTrue(screen.network_error)
-        self.assertEqual(screen.network_rows[0], "wifi: timeout")
-        self.assertEqual(screen.network_rows[2], "pw: secret")
+        self.assertEqual(screen.screen, "wifi-ended")
+        self.assertEqual(screen.message, ("wifi setup timed out",))
+        self.assertTrue(screen.asleep)
+        screen.oled.poweroff.assert_called_once()
+        screen.pixel.fill.assert_called_with((0, 0, 0))
+        screen.tick(601, menu.WAKE_ENCODER_CLICKS, False)
+        self.assertFalse(screen.asleep)
+        self.assertEqual(screen.screen, "wifi-ended")
+        self.assertEqual(screen.confirm_selected, 1)
+        screen.confirm_selected = 0
+        screen.activate()
+        self.assertEqual(screen.screen, "wifi-confirm")
+        self.assertEqual(screen.confirm_selected, 1)
+        screen.screen = "wifi-ended"
+        screen.activate()
+        self.assertEqual(screen.screen, "menu")
+
+    def test_wifi_uses_ten_minute_idle_and_polls_even_while_asleep_or_in_menu(self):
+        screen = self.wifi_screen()
+        screen.tick(31, 0, False)
+        self.assertIsNone(screen.sleep_started)
+        screen.tick(599, 0, False)
+        self.assertIsNone(screen.sleep_started)
+        screen.tick(600, 0, False)
+        self.assertEqual(screen.sleep_started, 600)
+        screen.tick(600 + menu.SLEEP_ANIMATION_SECONDS, 0, False)
+        self.assertTrue(screen.asleep)
+        with patch.object(screen.network_worker, "submit") as submit:
+            screen.wifi_next_refresh = 0
+            screen.poll_wifi(620)
+            submit.assert_called_once_with(menu.read_wifi_status)
+            screen.wifi_future = None
+            screen.screen = "menu"
+            screen.poll_wifi(621)
+            self.assertEqual(submit.call_count, 2)
+
+    def test_wifi_normal_completion_does_not_report_timeout_and_returns_to_normal_idle(self):
+        from concurrent.futures import Future
+
+        screen = self.wifi_screen()
+        screen.wifi_future = Future()
+        screen.wifi_future.set_result({"state": "inactive", "result": "success"})
+        screen.poll_wifi(10)
+        self.assertFalse(screen.wifi_monitoring)
+        self.assertFalse(screen.asleep)
+        self.assertEqual(screen.message, ("wifi setup finished",))
+        screen.tick(31, 0, False)
+        self.assertEqual(screen.sleep_started, 31)
+
+    def test_wifi_status_error_is_visible_and_monitoring_continues(self):
+        from concurrent.futures import Future
+
+        screen = self.wifi_screen()
+        screen.wifi_future = Future()
+        screen.wifi_future.set_exception(OSError("status unavailable"))
+        with patch("sys.stderr", new_callable=io.StringIO) as error:
+            screen.poll_wifi(10)
+        self.assertIn("status unavailable", error.getvalue())
+        self.assertTrue(screen.wifi_monitoring)
+        self.assertEqual(screen.network_rows[0], "wifi status error")
 
 
 class SessionTests(unittest.TestCase):
