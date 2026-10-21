@@ -3,10 +3,10 @@
 import { createSignal } from "solid-js";
 import { render } from "solid-js/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { AdminTargetInfo } from "../../../../charnel/src/admin/context";
-import LibraryDiskPicker from "../../../../charnel/src/components/LibraryDiskPicker";
-import LibraryView from "../../../../charnel/src/views/LibraryView";
-import { dispatchOrThrow } from "../../../../charnel/src/admin/transport";
+import type { AdminTargetInfo } from "../admin/context";
+import LibraryDiskPicker from "./LibraryDiskPicker";
+import LibraryView from "../views/LibraryView";
+import { dispatchOrThrow } from "../admin/transport";
 
 const transport = vi.hoisted(() => ({
   invoke: vi.fn(),
@@ -15,7 +15,7 @@ const transport = vi.hoisted(() => ({
   busy: vi.fn(),
 }));
 const scope = vi.hoisted(() => ({ current: undefined as undefined | (() => AdminTargetInfo) }));
-vi.mock("../../../../charnel/src/admin/context", () => ({
+vi.mock("../admin/context", () => ({
   useAdminTransport: () => ({
     current: () => scope.current!(),
     isRemote: () => scope.current!().kind === "remote",
@@ -105,7 +105,7 @@ function mount(target: AdminTargetInfo, view = false, respond?: (command: string
       ) : (
         <LibraryDiskPicker onSelectionChange={transport.selection} onBusyChange={transport.busy} />
       ),
-    host
+    host,
   );
   return setCurrent;
 }
@@ -128,8 +128,8 @@ describe("wizard disk location selection", () => {
     });
     expect(
       transport.invoke.mock.calls.every(
-        ([bridge, args]) => bridge === "admin_dispatch_remote" && args.peerAddr === "peer"
-      )
+        ([bridge, args]) => bridge === "admin_dispatch_remote" && args.peerAddr === "peer",
+      ),
     ).toBe(true);
     click("change disk");
     await settle();
@@ -154,14 +154,14 @@ describe("wizard disk location selection", () => {
     click("browse folder...");
     await settle();
     expect(transport.selection).toHaveBeenLastCalledWith(
-      expect.objectContaining({ relative_path: "films" })
+      expect.objectContaining({ relative_path: "films" }),
     );
     transport.dialog.mockResolvedValue(null);
     click("browse folder...");
     await settle();
     expect(host.textContent).toContain("/media/library / films");
     expect(transport.invoke.mock.calls.some(([, p]) => p.command === "library_browse_volume")).toBe(
-      false
+      false,
     );
   });
 
@@ -172,7 +172,7 @@ describe("wizard disk location selection", () => {
       () =>
         new Promise<string>((resolve) => {
           finish = resolve;
-        })
+        }),
     );
     await settle();
     click("select /media/library");
@@ -198,7 +198,7 @@ describe("wizard disk location selection", () => {
     click("browse folder...");
     await settle();
     expect(transport.selection).toHaveBeenLastCalledWith(
-      expect.objectContaining({ relative_path: "Films/Drama" })
+      expect.objectContaining({ relative_path: "Films/Drama" }),
     );
   });
 
@@ -221,7 +221,7 @@ describe("unified add-directory modal", () => {
             ? savedSource
             : command === "library_scan"
               ? { success: true, message: "queued" }
-              : []
+              : [],
     );
     await settle();
     click("add removable disk");
@@ -229,7 +229,7 @@ describe("unified add-directory modal", () => {
     click("browse /media/library");
     await settle();
     const checkbox = host.querySelector<HTMLInputElement>(
-      '.add-directory-modal input[type="checkbox"]'
+      '.add-directory-modal input[type="checkbox"]',
     )!;
     expect(checkbox.checked).toBe(true);
     expect(host.textContent).toContain("/data/renditions");
@@ -238,20 +238,20 @@ describe("unified add-directory modal", () => {
     await settle();
     expect(
       transport.invoke.mock.calls.some(
-        ([, p]) => p?.command === "library_register_source" && p.args.generate_renditions === false
-      )
+        ([, p]) => p?.command === "library_register_source" && p.args.generate_renditions === false,
+      ),
     ).toBe(true);
   });
 
   it("requires confirmation to remove a source and displays busy errors", async () => {
     mount({ kind: "remote", label: "Pi", peerAddr: "peer" }, true, (command) =>
-      command === "library_list_sources" ? [savedSource] : []
+      command === "library_list_sources" ? [savedSource] : [],
     );
     await settle();
     click("remove from library");
     expect(host.textContent).toContain("no files are deleted");
     expect(
-      transport.invoke.mock.calls.some(([, p]) => p?.command === "library_remove_source")
+      transport.invoke.mock.calls.some(([, p]) => p?.command === "library_remove_source"),
     ).toBe(false);
     const invoke = transport.invoke.getMockImplementation()!;
     transport.invoke.mockImplementation((bridge, payload) => {
@@ -273,13 +273,13 @@ describe("unified add-directory modal", () => {
           ]
         : command === "library_scan_status"
           ? { pending: 2, running: 1, completed: 3, failed: 0, total: 6 }
-          : []
+          : [],
     );
     await settle();
     expect(host.querySelector(".scan-progress-card")).not.toBeNull();
     expect(host.textContent).toContain("6 / 12 jobs");
     expect(
-      transport.invoke.mock.calls.filter(([, p]) => p?.command === "library_scan_status")
+      transport.invoke.mock.calls.filter(([, p]) => p?.command === "library_scan_status"),
     ).toHaveLength(2);
     dispose!();
     dispose = undefined;
@@ -293,7 +293,10 @@ describe("unified add-directory modal", () => {
     let cancelled = false;
     mount({ kind: "remote", label: "Pi", peerAddr: "peer" }, true, (command) => {
       if (command === "library_active_scans")
-        return [{ session_id: "scan-one", path: "/disk" }, { session_id: "scan-two", path: "/other" }];
+        return [
+          { session_id: "scan-one", path: "/disk" },
+          { session_id: "scan-two", path: "/other" },
+        ];
       if (command === "jobs_cancel_session") {
         cancelled = true;
         return { cancelled_jobs: 1 };
@@ -307,7 +310,9 @@ describe("unified add-directory modal", () => {
     await settle();
     click("cancel scan");
     await settle();
-    const requests = transport.invoke.mock.calls.filter(([, p]) => p?.command === "jobs_cancel_session");
+    const requests = transport.invoke.mock.calls.filter(
+      ([, p]) => p?.command === "jobs_cancel_session",
+    );
     expect(requests.map(([, p]) => p.args.session_id)).toEqual(["scan-one", "scan-two"]);
     expect(host.textContent).toContain("the current file may finish importing");
     await vi.advanceTimersByTimeAsync(2000);
@@ -376,11 +381,11 @@ describe("unified add-directory modal", () => {
               ]
             : command === "maintenance_reorganize_library_source_dirs"
               ? { source_music_directory: "", source_video_directory: "" }
-              : []
+              : [],
     );
     await settle();
     const row = [...host.querySelectorAll(".directory-item")].find((item) =>
-      item.textContent?.includes(savedSource.last_known_path)
+      item.textContent?.includes(savedSource.last_known_path),
     )!;
     expect(row.textContent).toContain("offline");
     expect(row.textContent).toContain("12 music · 3 video");
@@ -391,8 +396,8 @@ describe("unified add-directory modal", () => {
     await settle();
     expect(
       transport.invoke.mock.calls.some(
-        ([, p]) => p?.command === "library_refresh_source_availability"
-      )
+        ([, p]) => p?.command === "library_refresh_source_availability",
+      ),
     ).toBe(true);
   });
 
@@ -407,11 +412,11 @@ describe("unified add-directory modal", () => {
     click("add directory");
     await settle();
     expect(
-      host.querySelector('.add-directory-modal input[placeholder="/absolute/path/on/remote"]')
+      host.querySelector('.add-directory-modal input[placeholder="/absolute/path/on/remote"]'),
     ).not.toBeNull();
     expect(host.textContent).not.toContain("refresh disks");
     expect(
-      transport.invoke.mock.calls.some(([, p]) => p?.command === "library_list_removable_volumes")
+      transport.invoke.mock.calls.some(([, p]) => p?.command === "library_list_removable_volumes"),
     ).toBe(false);
     [...host.querySelectorAll<HTMLButtonElement>(".add-directory-modal button")]
       .find((button) => button.textContent?.trim() === "cancel")!
@@ -420,12 +425,12 @@ describe("unified add-directory modal", () => {
     click("add removable disk");
     await settle();
     expect(
-      host.querySelector('.add-directory-modal input[placeholder="/absolute/path/on/remote"]')
+      host.querySelector('.add-directory-modal input[placeholder="/absolute/path/on/remote"]'),
     ).toBeNull();
     expect(host.textContent).toContain("browse /media/library");
     expect(host.querySelector(".add-directory-modal fieldset")).toBeNull();
     expect(
-      [...host.querySelectorAll("button")].some((b) => b.textContent?.trim() === "add & scan")
+      [...host.querySelectorAll("button")].some((b) => b.textContent?.trim() === "add & scan"),
     ).toBe(false);
     click("browse /media/library");
     await settle();
@@ -447,11 +452,11 @@ describe("unified add-directory modal", () => {
             this.measure();
           }
           disconnect = disconnect;
-        }
+        },
       );
       mount(
         kind === "local" ? { kind, label: "local" } : { kind, label: "Pi", peerAddr: "peer" },
-        true
+        true,
       );
       await settle();
       const invoke = transport.invoke.getMockImplementation()!;
@@ -564,8 +569,8 @@ describe("unified add-directory modal", () => {
     expect(
       transport.invoke.mock.calls.some(
         ([bridge, p]) =>
-          bridge === "scan_directory" && p.tags[0] === "fatty" && p.domain === "music"
-      )
+          bridge === "scan_directory" && p.tags[0] === "fatty" && p.domain === "music",
+      ),
     ).toBe(true);
   });
 
@@ -586,11 +591,11 @@ describe("unified add-directory modal", () => {
     expect(host.querySelector('[role="alert"]')!.textContent).toContain("disk disconnected");
     expect(transport.invoke.mock.calls.some(([, p]) => p?.command === "library_scan")).toBe(false);
     expect(
-      host.querySelector<HTMLInputElement>('input[placeholder="rock, jazz, 90s"]')
+      host.querySelector<HTMLInputElement>('input[placeholder="rock, jazz, 90s"]'),
     ).not.toBeNull();
     expect(
       [...host.querySelectorAll("button")].find((b) => b.textContent?.trim() === "add & scan")!
-        .disabled
+        .disabled,
     ).toBe(false);
   });
 
@@ -634,7 +639,7 @@ describe("unified add-directory modal", () => {
     expect(modal.querySelector("select")).toBeNull();
     expect(modal.querySelector('input[placeholder="/absolute/path/on/remote"]')).toBeNull();
     expect(
-      [...modal.querySelectorAll("button")].filter((b) => b.textContent?.trim() === "add & scan")
+      [...modal.querySelectorAll("button")].filter((b) => b.textContent?.trim() === "add & scan"),
     ).toHaveLength(1);
     const radios = modal.querySelectorAll<HTMLInputElement>('input[name="pending-domain"]');
     radios[1].click();
@@ -648,8 +653,8 @@ describe("unified add-directory modal", () => {
         ([, p]) =>
           p.command === "library_register_source" &&
           p.args.relative_path === "films" &&
-          p.args.domain === "video"
-      )
+          p.args.domain === "video",
+      ),
     ).toBe(true);
     expect(
       transport.invoke.mock.calls.some(
@@ -657,8 +662,8 @@ describe("unified add-directory modal", () => {
           p.command === "library_scan" &&
           p.args.path === "/media/library/films" &&
           p.args.domain === "video" &&
-          JSON.stringify(p.args.tags) === '["fatty","films"]'
-      )
+          JSON.stringify(p.args.tags) === '["fatty","films"]',
+      ),
     ).toBe(true);
     expect(host.querySelector(".add-directory-modal")).toBeNull();
   });

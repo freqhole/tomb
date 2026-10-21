@@ -217,6 +217,30 @@ jobs:
         working-directory: client/spume
         run: npm run lint:circular
 
+  charnel-web-check:
+    name: charnel (typecheck + vitest)
+    if: github.head_ref != 'changeset-release/main'
+    runs-on: ${{ vars.LINUX_X86_64_RUNNER || 'ubuntu-24.04' }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: setup node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: install deps
+        working-directory: client/charnel
+        run: npm ci
+
+      - name: typecheck
+        working-directory: client/charnel
+        run: npm run typecheck
+
+      - name: unit tests
+        working-directory: client/charnel
+        run: npm test
+
   haruspex-ts-check:
     name: haruspex (typecheck + vitest)
     if: github.head_ref != 'changeset-release/main'

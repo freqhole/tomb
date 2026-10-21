@@ -369,13 +369,23 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn startup_restores_all_views_without_changing_migration_definitions() {
+    async fn startup_restores_all_views_idempotently() {
         let pool = SqlitePoolOptions::new()
             .max_connections(1)
             .connect("sqlite::memory:")
             .await
             .unwrap();
+        // views live in migrations/views/, never in numbered migrations
         sqlx::migrate!("../migrations").run(&pool).await.unwrap();
+        let from_migrations = sqlx::query_scalar!(
+            r#"SELECT COUNT(*) AS "count!: i64" FROM sqlite_schema WHERE type = 'view'"#
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(from_migrations, 0);
+
+        run_schema_migrations(&pool).await.unwrap();
         let original = sqlx::query!(
             r#"SELECT name AS "name!", sql AS "sql!" FROM sqlite_schema
                WHERE type = 'view' ORDER BY name"#
@@ -383,7 +393,6 @@ mod tests {
         .fetch_all(&pool)
         .await
         .unwrap();
-        assert_eq!(original.len(), 3);
         for _ in 0..3 {
             run_schema_migrations(&pool).await.unwrap();
             for view in &original {
