@@ -20,6 +20,7 @@ SELECT
     v.title as title,
     v.description as description,
     v.media_blob_id as media_blob_id,
+    EXISTS (SELECT 1 FROM library_offline_blob_view o WHERE o.blob_id = v.media_blob_id) as is_offline,
     v.media_blob_blake3 as media_blob_blake3,
     v.parent_video_id as parent_video_id,
     v.artist_id as artist_id,

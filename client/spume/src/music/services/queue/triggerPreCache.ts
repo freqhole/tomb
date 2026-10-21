@@ -30,6 +30,7 @@ import {
   songStartIndexAfter,
   videoStartIndexAfter,
   mediaItemKey,
+  isMediaItemOffline,
   type MediaItem,
 } from "../../../app/services/storage/mediaItem";
 import { preCacheNextSongs } from "../cache/blobCache";
@@ -48,6 +49,7 @@ export function triggerPreCache(
   currentKey: string | null | undefined
 ): void {
   if (!currentKey) return;
+  mixedItems = mixedItems.filter((item) => !isMediaItemOffline(item));
   const songs = songsOnly(mixedItems);
   const videos = videosOnly(mixedItems);
   const songStart = songStartIndexAfter(mixedItems, currentKey);

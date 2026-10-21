@@ -1,10 +1,166 @@
 //! library / scan handlers (validate_path, scan, scan_status, image_upload,
 //! list/remove directories, rescan_all).
 
-use crate::admin_dispatch::helpers::{opt_bool, opt_str, require_str, to_value};
+use crate::admin_dispatch::helpers::{decode, opt_bool, opt_str, require_str, to_value};
+use crate::external_storage::{
+    availability,
+    sources::{self, SourceSelection},
+    sync_priority,
+};
 use crate::offal::Caller;
 use crate::response::GrimoireResponse;
 use serde_json::{json, Value as JsonValue};
+
+pub(in crate::admin_dispatch) async fn list_sources() -> GrimoireResponse<JsonValue> {
+    let result = async {
+        let pool = crate::database::connect().await?;
+        let targets = sync_priority::list_targets(&pool).await?;
+        Ok(sources::list_sources(&pool)
+            .await?
+            .into_iter()
+            .filter(|source| !sync_priority::is_sync_source(&targets, source))
+            .collect::<Vec<_>>())
+    }
+    .await;
+    source_response("library sources listed", result)
+}
+
+pub(in crate::admin_dispatch) async fn source_availability(
+    refresh: bool,
+) -> GrimoireResponse<JsonValue> {
+    let result = async {
+        let pool = crate::database::connect().await?;
+        if refresh {
+            availability::refresh_availability(&pool).await
+        } else {
+            availability::list_availability(&pool).await
+        }
+    }
+    .await;
+    source_response("source availability listed", result)
+}
+
+pub(in crate::admin_dispatch) async fn register_source(
+    args: JsonValue,
+) -> GrimoireResponse<JsonValue> {
+    let request: crate::admin_dispatch::types::library::LibraryRegisterSourceRequest =
+        match decode(args) {
+            Ok(selection) => selection,
+            Err(error) => return error,
+        };
+    let selection = SourceSelection {
+        device_path: request.device_path,
+        mount_path: request.mount_path,
+        relative_path: request.relative_path,
+        domain: request.domain,
+    };
+    let result = async {
+        let pool = crate::database::connect().await?;
+        let source = sources::register_source_with_renditions(
+            &pool,
+            &selection,
+            request.generate_renditions,
+        )
+        .await?;
+        Ok(source)
+    }
+    .await;
+    source_response(
+        "library source registered; scan now or wait for the source monitor",
+        result,
+    )
+}
+
+pub(in crate::admin_dispatch) async fn manage_sources(
+    command: &str,
+    args: JsonValue,
+) -> GrimoireResponse<JsonValue> {
+    use crate::external_storage::management;
+    let result: crate::GrimoireResult<JsonValue> = async {
+        let pool = crate::database::connect().await?;
+        Ok(match command {
+            "library_source_summaries" => {
+                serde_json::to_value(management::summaries(&pool).await?)?
+            }
+            "library_active_scans" => serde_json::to_value(management::active_scans(&pool).await?)?,
+            "library_rendition_settings" => serde_json::to_value(management::rendition_settings())?,
+            "library_remove_source" => {
+                let request: crate::admin_dispatch::types::library::LibrarySourceByIdRequest =
+                    serde_json::from_value(args)?;
+                management::remove_source(&pool, &request.id).await?;
+                json!(true)
+            }
+            _ => unreachable!("source management command is dispatched explicitly"),
+        })
+    }
+    .await;
+    source_response("library source operation complete", result)
+}
+
+pub(in crate::admin_dispatch) async fn browse_volume(
+    args: JsonValue,
+) -> GrimoireResponse<JsonValue> {
+    let selection: SourceSelection = match decode(args) {
+        Ok(selection) => selection,
+        Err(error) => return error,
+    };
+    source_response(
+        "volume folders listed",
+        sources::browse_folders(&selection).await,
+    )
+}
+
+fn source_response<T: serde::Serialize>(
+    message: &str,
+    result: crate::GrimoireResult<T>,
+) -> GrimoireResponse<JsonValue> {
+    match result {
+        Ok(value) => to_value(GrimoireResponse::success(message, value)),
+        Err(error) => {
+            tracing::warn!("library source operation failed: {error}");
+            GrimoireResponse::failure(
+                "library source operation failed",
+                vec![crate::ErrorDetail::from(&error)],
+            )
+        }
+    }
+}
+
+pub(in crate::admin_dispatch) async fn scan_source(
+    args: JsonValue,
+    caller: &Caller,
+) -> GrimoireResponse<JsonValue> {
+    let _guard = sources::lock_source_operations().await;
+    let request: crate::admin_dispatch::types::library::LibrarySourceByIdRequest =
+        match decode(args) {
+            Ok(request) => request,
+            Err(error) => return error,
+        };
+    let result = async {
+        let pool = crate::database::connect().await?;
+        let source = sources::get_source(&pool, &request.id).await?;
+        if sync_priority::is_sync_source(&sync_priority::list_targets(&pool).await?, &source) {
+            return Err(crate::GrimoireError::Validation {
+                field: "id".into(),
+                message: "source is reserved for removable storage sync".into(),
+            });
+        }
+        Ok(source)
+    }
+    .await;
+    match result {
+        Ok(source) => {
+            scan_inner(
+                json!({
+                    "path": source.last_known_path, "domain": source.domain, "recursive": true,
+                }),
+                caller,
+            )
+            .await
+        }
+        Err(error) => source_response::<()>("source loaded", Err(error)),
+    }
+}
 
 fn expand_tilde(path: &str) -> String {
     if let Some(rest) = path.strip_prefix("~/") {
@@ -13,6 +169,84 @@ fn expand_tilde(path: &str) -> String {
         }
     }
     path.to_string()
+}
+
+pub(in crate::admin_dispatch) async fn list_removable_volumes() -> GrimoireResponse<JsonValue> {
+    let result: std::io::Result<_> = async {
+        let volumes = crate::external_storage::inventory::list_removable_volumes().await?;
+        let pool = crate::database::connect()
+            .await
+            .map_err(std::io::Error::other)?;
+        let targets = sync_priority::list_targets(&pool)
+            .await
+            .map_err(std::io::Error::other)?;
+        Ok(volumes
+            .into_iter()
+            .filter(|volume| !sync_priority::is_sync_volume(&targets, volume))
+            .collect::<Vec<_>>())
+    }
+    .await;
+    match result {
+        Ok(volumes) => to_value(GrimoireResponse::success(
+            "removable volumes listed",
+            volumes,
+        )),
+        Err(error) => {
+            tracing::warn!("removable volume inventory failed: {error}");
+            let error_type = if error.kind() == std::io::ErrorKind::Unsupported {
+                "storage_inventory_unsupported"
+            } else {
+                "storage_inventory_failed"
+            };
+            GrimoireResponse::failure(
+                "could not list removable volumes",
+                vec![crate::ErrorDetail::new(
+                    error_type,
+                    "removable volume inventory failed",
+                    error.to_string(),
+                )],
+            )
+        }
+    }
+}
+
+#[cfg(test)]
+mod removable_inventory_tests {
+    use crate::{admin_dispatch, offal::Caller, users::UserRole};
+    use serde_json::json;
+
+    #[tokio::test]
+    async fn removable_volume_inventory_requires_admin() {
+        let caller = Caller::new("test", "member", UserRole::Member);
+        for command in [
+            "library_list_removable_volumes",
+            "library_list_sources",
+            "library_source_availability",
+            "library_refresh_source_availability",
+            "library_register_source",
+            "library_browse_volume",
+            "library_scan_source",
+        ] {
+            let response = admin_dispatch::handle(command, json!({}), &caller).await;
+            assert!(!response.success);
+            assert!(response.data.is_none());
+            assert_eq!(response.errors[0].error_type, "forbidden");
+        }
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    #[tokio::test]
+    async fn unsupported_inventory_has_a_structured_error() {
+        let caller = Caller::new("test", "admin", UserRole::Admin);
+        let response =
+            admin_dispatch::handle("library_list_removable_volumes", json!({}), &caller).await;
+        assert!(!response.success);
+        assert!(response.data.is_none());
+        assert_eq!(
+            response.errors[0].error_type,
+            "storage_inventory_unsupported"
+        );
+    }
 }
 
 pub(in crate::admin_dispatch) async fn validate_path(
@@ -52,6 +286,11 @@ pub(in crate::admin_dispatch) async fn scan(
     args: JsonValue,
     caller: &Caller,
 ) -> GrimoireResponse<JsonValue> {
+    let _guard = sources::lock_source_operations().await;
+    scan_inner(args, caller).await
+}
+
+async fn scan_inner(args: JsonValue, caller: &Caller) -> GrimoireResponse<JsonValue> {
     let raw_path = match require_str(&args, "path") {
         Ok(v) => v,
         Err(r) => return r,
@@ -169,7 +408,7 @@ pub(in crate::admin_dispatch) async fn scan(
                     };
                     GrimoireResponse::success(
                         format!(
-                            "scanned directory: {} file(s) found, {} queued for import, {} already in library, {} job(s) created",
+                            "scanned directory: {} file(s) found, {} queued for import, {} unchanged or intentionally deleted, {} job(s) created",
                             merged.file_count, merged.files_queued, merged.files_skipped, merged.jobs_created
                         ),
                         merged,
@@ -219,22 +458,22 @@ pub(in crate::admin_dispatch) async fn scan(
     if resp.success {
         let message = if outcome.jobs_created == 0 && outcome.files_skipped > 0 {
             format!(
-                "nothing new to import: {} file(s) already in your library",
+                "nothing new to import: {} file(s) unchanged or intentionally deleted",
                 outcome.files_skipped
             )
         } else {
             format!("created {} import job(s)", outcome.jobs_created)
         };
-        GrimoireResponse::success(
+        to_value(GrimoireResponse::success(
             message.clone(),
-            json!({
-                "session_id": session_id,
-                "files_discovered": outcome.file_count,
-                "jobs_created": outcome.jobs_created,
-                "success": true,
-                "message": message,
-            }),
-        )
+            crate::admin_dispatch::types::library::LibraryScanResponse {
+                session_id,
+                files_discovered: outcome.file_count as u64,
+                jobs_created: outcome.jobs_created as u64,
+                success: true,
+                message,
+            },
+        ))
     } else {
         GrimoireResponse::failure(resp.message, resp.errors)
     }

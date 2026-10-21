@@ -2,6 +2,7 @@ import { Show, createSignal } from "solid-js";
 import { PlayIcon } from "../icons/registry";
 import { FavoriteHeart } from "../ratings/FavoriteHeart";
 import { MarqueeText } from "../text/MarqueeText";
+import { OfflineBadge } from "../badges/OfflineBadge";
 import { MediaImage } from "../media/MediaImage";
 import type { ArtistSummary, GenreRef } from "../../music/data/types";
 export interface ArtistCardProps {
@@ -71,6 +72,11 @@ export function ArtistCard(props: ArtistCardProps) {
         </div>
       </div>
       <div class="space-y-1 text-center min-w-0">
+        <Show when={props.artist.is_offline}>
+          <div class="flex justify-center">
+            <OfflineBadge isOffline={props.artist.is_offline} />
+          </div>
+        </Show>
         <MarqueeText
           text={props.artist.name}
           class="text-[var(--color-text-primary)] font-medium text-xs group-hover:text-[var(--color-accent-500)] transition-colors"

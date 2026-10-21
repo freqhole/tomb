@@ -14,6 +14,7 @@ import { getCurrentRemote } from "../../music/data";
 import { getClientForRemote } from "../../app/api/client";
 
 interface UseVideosQueryOptions {
+  hideOffline?: () => boolean;
   search?: () => string | undefined;
   tagFilters?: () => TagFilter[];
   sortField?: () => VideoQueryParams["sort_by"];
@@ -31,7 +32,7 @@ export function useVideosQuery(options?: UseVideosQueryOptions) {
   const contentTypes = options?.contentTypes;
 
   return createInfiniteQuery(() => ({
-    queryKey: videoQueryKeys.videos.list(
+    queryKey: [...videoQueryKeys.videos.list(
       search?.(),
       tagFilters?.(),
       sortField(),
@@ -39,7 +40,7 @@ export function useVideosQuery(options?: UseVideosQueryOptions) {
       undefined,
       undefined,
       contentTypes?.()
-    ),
+    ), options?.hideOffline?.() ?? false],
     queryFn: async ({ pageParam }: { pageParam: number }) => {
       const dataSource = getVideoDataSource();
       const currentTagFilters = tagFilters?.();
@@ -47,6 +48,7 @@ export function useVideosQuery(options?: UseVideosQueryOptions) {
       const excludeTags = currentTagFilters?.filter((f) => f.mode === "exclude").map((f) => f.tag);
       const currentContentTypes = contentTypes?.();
       return dataSource.getVideos({
+        hide_offline: options?.hideOffline?.(),
         offset: pageParam,
         limit: pageSize,
         search: search?.(),

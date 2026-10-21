@@ -39,7 +39,7 @@ export interface PlaylistSongRowProps {
 export function PlaylistSongRow(props: PlaylistSongRowProps) {
   const song = props.item.song;
   const contextMenuActions = useSongContextMenu(song, {
-    showPlayActions: true,
+    showPlayActions: !song.is_offline,
     showRemoveFromPlaylist: true,
     playlistId: props.playlistId,
     isFavorite: song.is_favorite ?? false,
@@ -52,6 +52,7 @@ export function PlaylistSongRow(props: PlaylistSongRowProps) {
       isDragging={props.isDragging}
       isDropTarget={props.isDropTarget}
       isPlaying={appState()?.current_item_key === songIdentityKey(song)}
+      isOffline={song.is_offline}
       onDragStart={props.onDragStart}
       onDragOver={props.onDragOver}
       onDragLeave={props.onDragLeave}

@@ -6,6 +6,7 @@ import { appState } from "../../app/services/storage/db";
 import { isRadioPlayerBarActive } from "../../app/services/radio/radioService";
 import { setPageInfo, clearPageInfo } from "../../app/services/pageInfo";
 import { useHistoryState } from "../../utils/historyState";
+import { useAvailabilityFilter } from "../../utils/useAvailabilityFilter";
 import { useViewportHeight, getNavHeight } from "../../utils/viewport";
 import { Button } from "../../components/buttons/Button";
 import { LoadingState, LoadingMoreIndicator } from "../../components/feedback";
@@ -63,6 +64,7 @@ export interface SongsViewProps {
 }
 
 export function SongsView(props: SongsViewProps) {
+  const availability = useAvailabilityFilter("songs");
   const [searchParams] = useSearchParams();
 
   // clear selection when navigating away
@@ -129,6 +131,7 @@ export function SongsView(props: SongsViewProps) {
 
   // infinite query
   const songsQuery = useSongsInfiniteQuery({
+    hideOffline: availability.hideOffline,
     sortField: () => sortField(),
     sortDirection: () => sortDirection(),
     pageSize: 250,
@@ -139,7 +142,7 @@ export function SongsView(props: SongsViewProps) {
   // reset virtual list when query param or tag filters change
   createEffect(
     on(
-      () => [searchQuery(), tagFilters()] as const,
+      () => [searchQuery(), tagFilters(), availability.hideOffline()] as const,
       () => {
         setIsResetting(true);
         setTimeout(() => setIsResetting(false), 0);
@@ -164,6 +167,7 @@ export function SongsView(props: SongsViewProps) {
   createEffect(() => {
     const count = allSongs().length;
     setPageInfo({
+      ...availability.pageInfo(),
       title: "songs",
       count,
       sortFields: songSortFields,

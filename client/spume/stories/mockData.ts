@@ -735,6 +735,7 @@ export function generateBulkVideos(count: number): VideoSummary[] {
         ? `${series.description} episode ${episodeNumber}.`
         : "a freqhole demo video.",
       media_blob_id: "",
+      is_offline: false,
       poster_blob_id: null,
       duration_seconds: 600 + Math.floor(seededRand(i * 43) * 3000),
       release_date: null,
@@ -770,6 +771,7 @@ import type { VideoSeries } from "../src/video/data/types";
 function toWireVideoSeries(series: MockVideoSeries): VideoSeries {
   const now = Math.floor(Date.now() / 1000);
   return {
+    is_offline: false,
     id: series.id,
     title: series.title,
     description: series.description,

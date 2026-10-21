@@ -177,13 +177,7 @@ pub async fn get_suggestions(
     // apply confidence filtering per field type
     suggestions.retain(should_include_suggestion);
 
-    // sort by confidence and count
-    suggestions.sort_by(|a, b| {
-        b.confidence
-            .partial_cmp(&a.confidence)
-            .unwrap_or(std::cmp::Ordering::Equal)
-            .then_with(|| b.count.cmp(&a.count))
-    });
+    sort_suggestions(&mut suggestions);
 
     // paginate
     let page = req.page.unwrap_or(1);
@@ -212,6 +206,63 @@ pub async fn get_suggestions(
             has_prev: page > 1,
         },
     )
+}
+
+fn sort_suggestions(suggestions: &mut [Suggestion]) {
+    // SQL scales negative FTS ranks by 0.8; apply the same penalty to positive
+    // confidence here without lowering confidence-filter eligibility.
+    let score = |s: &Suggestion| s.confidence * if s.is_offline { 0.8 } else { 1.0 };
+    suggestions.sort_by(|a, b| {
+        score(b)
+            .partial_cmp(&score(a))
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.is_offline.cmp(&b.is_offline))
+            .then_with(|| b.count.cmp(&a.count))
+    });
+}
+
+#[cfg(test)]
+mod availability_tests {
+    use super::*;
+
+    #[test]
+    fn merged_suggestions_penalize_offline_without_burying_strong_matches() {
+        let suggestion = |id: &str, is_offline, confidence, count| Suggestion {
+            value: id.into(),
+            display: id.into(),
+            highlight: id.into(),
+            count,
+            suggestion_type: SuggestionType::Song,
+            confidence,
+            metadata: None,
+            entity_id: id.into(),
+            is_favorite: false,
+            is_offline,
+            matched_field: None,
+            match_snippet: None,
+        };
+        let mut rows = vec![
+            suggestion("offline", true, 1.0, 10),
+            suggestion("available-low", false, 0.5, 1),
+            suggestion("available-high", false, 0.9, 1),
+            suggestion("available-high-count", false, 0.9, 3),
+            suggestion("available-equal", false, 1.0, 1),
+        ];
+        sort_suggestions(&mut rows);
+        assert_eq!(
+            rows.iter()
+                .map(|row| row.entity_id.as_str())
+                .collect::<Vec<_>>(),
+            [
+                "available-equal",
+                "available-high-count",
+                "available-high",
+                "offline",
+                "available-low"
+            ]
+        );
+        assert_eq!(rows.len(), 5);
+    }
 }
 
 /// full search with user preferences and global context

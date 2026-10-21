@@ -7,6 +7,8 @@ use zod_gen_derive::ZodSchema;
 /// video series model (~ artistz for the video domain)
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema, PartialEq, FromRow)]
 pub struct VideoSeries {
+    #[serde(default)]
+    pub is_offline: bool,
     pub id: String,
     pub title: String,
     pub description: Option<String>,

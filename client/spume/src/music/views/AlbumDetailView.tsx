@@ -2,6 +2,7 @@
 import { useNavigate, useParams, useSearchParams } from "@solidjs/router";
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { useQueryClient } from "@tanstack/solid-query";
+import { OfflineBadge } from "../../components/badges/OfflineBadge";
 import { appState } from "../../app/services/storage/db";
 import { useBackgroundImageFromImages } from "../../app/hooks/useBackgroundImageSource";
 import { hasBackgroundImage } from "../../app/services/backgroundImage";
@@ -516,6 +517,7 @@ export function AlbumDetailView() {
                           <MarqueeText text={displayArtistName() || "unknown artist"} />
                         </button>
                         <div class="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+                          <OfflineBadge isOffline={albumQuery.data?.is_offline} />
                           {info().year && <span>{info().year}</span>}
                           <Show when={songs().length > 0}>
                             <span>•</span>
@@ -797,6 +799,7 @@ export function AlbumDetailView() {
                         <div ref={rowEl}>
                           <SongRow
                             title={song.title}
+                            isOffline={song.is_offline}
                             artist={
                               song.album_type === "compilation" && song.track_artist?.trim()
                                 ? song.track_artist

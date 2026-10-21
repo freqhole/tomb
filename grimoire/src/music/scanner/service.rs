@@ -51,7 +51,7 @@ pub async fn scan_directory(
     {
         Ok(outcome) => GrimoireResponse::success(
             format!(
-                "scanned directory: {} file(s) found, {} queued for import, {} already in library, {} job(s) created",
+                "scanned directory: {} file(s) found, {} queued for import, {} unchanged or intentionally deleted, {} job(s) created",
                 outcome.file_count, outcome.files_queued, outcome.files_skipped, outcome.jobs_created
             ),
             outcome,

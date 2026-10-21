@@ -48,6 +48,7 @@ const altRockGenre = mockGenres.find((g) => g.name === "alternative rock");
 
 const mixedSuggestions: SearchSuggestion[] = [
   { id: "1", text: "radio", category: "word" },
+  { id: "offline-song", text: "radio archive", category: "song", isOffline: true },
   ...(radioheadArtist
     ? [
         {

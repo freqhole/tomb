@@ -13,6 +13,7 @@ pub mod favorites;
 pub mod import_review;
 pub mod job_events;
 pub mod jobs;
+pub mod library;
 pub mod playlists;
 pub mod radio;
 pub mod related_artists;
@@ -38,6 +39,7 @@ pub fn routes() -> Vec<RouteInfo> {
     all.extend_from_slice(favorites::ROUTES);
     all.extend_from_slice(job_events::ROUTES);
     all.extend_from_slice(jobs::ROUTES);
+    all.extend_from_slice(library::ROUTES);
     all.extend_from_slice(playlists::ROUTES);
     all.extend_from_slice(radio::ROUTES);
     all.extend_from_slice(related_artists::ROUTES);
@@ -60,6 +62,7 @@ pub async fn dispatch(
     _method: Option<Method>,
 ) -> Option<GrimoireResponse<JsonValue>> {
     match path {
+        "/api/library/availability-revision" => Some(library::availability_revision().await),
         // playlists
         "/api/music/playlists/list" => Some(playlists::list(caller, body.clone()).await),
         "/api/music/playlists" => Some(playlists::create(caller, body.clone()).await),

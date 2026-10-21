@@ -52,7 +52,7 @@ export function PlaylistVideoRow(props: PlaylistVideoRowProps) {
   );
 
   const contextMenuActions = useVideoContextMenu(videoItem.video, {
-    showPlayActions: true,
+    showPlayActions: !videoItem.video.is_offline,
     showRemoveFromPlaylist: true,
     playlistId: props.playlistId,
     isFavorite: isFavorite(),
@@ -89,6 +89,7 @@ export function PlaylistVideoRow(props: PlaylistVideoRowProps) {
       isDragging={props.isDragging}
       isDropTarget={props.isDropTarget}
       isPlaying={appState()?.current_item_key === videoItem.video.id}
+      isOffline={videoItem.video.is_offline}
       onDragStart={props.onDragStart}
       onDragOver={props.onDragOver}
       onDragLeave={props.onDragLeave}

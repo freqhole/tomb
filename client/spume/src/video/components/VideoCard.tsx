@@ -15,6 +15,7 @@ import { PlayIcon } from "../../components/icons/registry";
 import { MediaImage } from "../../components/media/MediaImage";
 import { MarqueeText } from "../../components/text/MarqueeText";
 import { TaxonChipList } from "../../components/badges/TaxonChips";
+import { OfflineBadge } from "../../components/badges/OfflineBadge";
 import { FavoriteHeart } from "../../components/ratings/FavoriteHeart";
 import { formatDuration } from "../../utils/formatDuration";
 import { appState } from "../../app/services/storage/db";
@@ -144,12 +145,13 @@ export function VideoCard(props: VideoCardProps): JSX.Element {
   const handleClick = () => props.onClick?.(props.video);
   const handlePlay = (e: MouseEvent) => {
     e.stopPropagation();
-    props.onPlay?.(props.video);
+    if (!props.video.is_offline) props.onPlay?.(props.video);
   };
 
   return (
     <div
       class={`bg-[var(--color-bg-primary)] rounded-lg p-4 hover:bg-[var(--color-bg-elevated)] transition-colors cursor-pointer group flex flex-col ${props.class || ""}`}
+      classList={{ "opacity-60": props.video.is_offline }}
       onClick={handleClick}
       onContextMenu={(e) => {
         if (!props.onContextMenu) return;
@@ -226,7 +228,8 @@ export function VideoCard(props: VideoCardProps): JSX.Element {
           <button
             class="w-12 h-12 rounded-full bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] text-[var(--color-text-on-accent)] flex items-center justify-center transition-colors pointer-events-auto"
             onClick={handlePlay}
-            title="play video"
+            disabled={props.video.is_offline}
+            title={props.video.is_offline ? "media is on offline storage" : "play video"}
           >
             <PlayIcon size={24} className="ml-1" />
           </button>
@@ -235,6 +238,7 @@ export function VideoCard(props: VideoCardProps): JSX.Element {
 
       {/* title + subtitle + metadata + taxons + tags */}
       <div class="space-y-0.5 min-w-0">
+        <OfflineBadge isOffline={props.video.is_offline} />
         <MarqueeText
           text={props.video.title}
           class={`text-[var(--color-text-primary)] ${titleClass()} group-hover:text-[var(--color-accent-500)] transition-colors`}

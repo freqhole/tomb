@@ -44,6 +44,14 @@ freqhole-wifi stop
 
 tmux detach: **Ctrl+B, then D**. Wi-Fi setup is always manual-only.
 
+in spume: remote admin → **library storage** browses the Pi's mounted disks;
+add a whole disk or folder, then scan music/video in place. the OS handles mounting.
+charnel's wizard → **add scan directory → browse host disks** works locally or
+remotely too; both screens show import-job progress.
+OLED **library disks** does the same via the selected player's socket (same OS
+user; updated player required). mount notices offer whole disk/folder/not now;
+registration lets the player's job runner auto-scan music + video.
+
 automatic hooks: `freqhole-pi launch charnel` validates startup;
 `freqhole-pi socket charnel` configures the selected app's OLED socket.
 

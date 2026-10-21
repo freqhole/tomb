@@ -66,6 +66,7 @@ export async function addLocalVideo(input: {
     // no server blob for a local/opfs-backed video; "" (not null) keeps
     // this field's type identical to QueuedVideo's required `string`.
     media_blob_id: "",
+    is_offline: false,
     poster_blob_id: input.poster_blob_id ?? null,
     duration_seconds: input.duration_seconds ?? null,
     release_date: null,
@@ -114,7 +115,7 @@ export async function getVideoByBlake3(blake3: string): Promise<LocalVideoRow | 
     "getVideoByBlake3",
     `${blake3.slice(0, 8)}...: ${video ? `found video id ${video.id}` : "not found"}`
   );
-  return video;
+  return video ? { ...video, is_offline: false } : undefined;
 }
 
 export async function getLocalVideos(params?: VideoQueryParams): Promise<PaginatedVideos> {
@@ -125,6 +126,7 @@ export async function getLocalVideos(params?: VideoQueryParams): Promise<Paginat
 
   const db = await getVideoDB();
   let items = (await db.getAll(STORE_VIDEOS)) as VideoSummary[];
+  items = items.map((video) => ({ ...video, is_offline: false }));
 
   if (params?.search) {
     const searchLower = params.search.toLowerCase();
@@ -267,7 +269,7 @@ export async function getLocalVideos(params?: VideoQueryParams): Promise<Paginat
 export async function getLocalVideoById(id: string): Promise<VideoSummary | null> {
   const db = await getVideoDB();
   const row = (await db.get(STORE_VIDEOS, id)) as VideoSummary | undefined;
-  return row ?? null;
+  return row ? { ...row, is_offline: false } : null;
 }
 
 export async function updateLocalVideo(

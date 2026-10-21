@@ -15,6 +15,7 @@ import type { MbLookupStatus } from "../data/albumMetadata";
 import { isInFlight } from "../data/mbStatusGroups";
 
 export interface LibraryAlbumsQueryOptions {
+  hideOffline?: Accessor<boolean>;
   remote: Accessor<Remote | undefined>;
   search?: Accessor<string | undefined>;
   /** static page size; ignored if `pageSizeFn` is supplied. */
@@ -49,6 +50,7 @@ export function useLibraryAlbumsQuery(opts: LibraryAlbumsQueryOptions) {
       opts.sortBy?.() ?? null,
       opts.sortDirection?.() ?? null,
       opts.pendingReview?.() ?? null,
+      opts.hideOffline?.() ?? false,
     ],
     enabled: !!opts.remote(),
     queryFn: async ({ pageParam }: { pageParam: number }): Promise<PaginatedResponse<AlbumSummary>> => {
@@ -61,7 +63,7 @@ export function useLibraryAlbumsQuery(opts: LibraryAlbumsQueryOptions) {
       const result = await client.music.queryAlbums({
         q: opts.search?.() ?? null,
         search_fields: null,
-        filters: {},
+        filters: { hide_offline: opts.hideOffline?.() ?? false },
         sort_by: opts.sortBy?.() ?? null,
         sort_direction: opts.sortDirection?.() ?? null,
         limit: pageSize,
@@ -81,6 +83,7 @@ export function useLibraryAlbumsQuery(opts: LibraryAlbumsQueryOptions) {
       return {
         items: result.data.items.map((item): AlbumSummary => ({
           album_id: item.album.id,
+          is_offline: item.is_offline,
           title: item.album.title,
           artist_id: item.artist?.id ?? "",
           artist_name: item.artist?.name ?? "unknown artist",

@@ -11,9 +11,8 @@
 //! generator. unknown type names will fail codegen with a clear message,
 //! mirroring how `RouteInfo` validation already works.
 //!
-//! `library_*`, `config_*`, and `server_*` commands are intentionally
-//! omitted in the first slice; they remain reachable as untyped passthrough
-//! through `admin_dispatch::handle()` until they get typed in a follow-up.
+//! remaining library/config/server commands are untyped passthrough until
+//! their contracts are registered here.
 
 /// authorization required to invoke an admin command.
 ///
@@ -49,6 +48,73 @@ pub struct AdminCommandInfo {
 
 /// every admin command currently typed for codegen.
 pub const ADMIN_COMMANDS: &[AdminCommandInfo] = &[
+    // -- removable library sources --
+    AdminCommandInfo {
+        name: "library_list_removable_volumes",
+        request_type: "EmptyRequest",
+        response_type: "Vec<RemovableVolume>",
+        auth: AdminAuth::Admin,
+    },
+    AdminCommandInfo {
+        name: "library_list_sources",
+        request_type: "EmptyRequest",
+        response_type: "Vec<LibrarySource>",
+        auth: AdminAuth::Admin,
+    },
+    AdminCommandInfo {
+        name: "library_source_availability",
+        request_type: "EmptyRequest",
+        response_type: "Vec<SourceAvailability>",
+        auth: AdminAuth::Admin,
+    },
+    AdminCommandInfo {
+        name: "library_browse_volume",
+        request_type: "SourceSelection",
+        response_type: "Vec<SourceFolder>",
+        auth: AdminAuth::Admin,
+    },
+    AdminCommandInfo {
+        name: "library_register_source",
+        request_type: "LibraryRegisterSourceRequest",
+        response_type: "LibrarySource",
+        auth: AdminAuth::Admin,
+    },
+    AdminCommandInfo {
+        name: "library_source_summaries",
+        request_type: "EmptyRequest",
+        response_type: "Vec<LibrarySourceSummary>",
+        auth: AdminAuth::Admin,
+    },
+    AdminCommandInfo {
+        name: "library_active_scans",
+        request_type: "EmptyRequest",
+        response_type: "Vec<ActiveLibraryScan>",
+        auth: AdminAuth::Admin,
+    },
+    AdminCommandInfo {
+        name: "library_rendition_settings",
+        request_type: "EmptyRequest",
+        response_type: "LibraryRenditionSettings",
+        auth: AdminAuth::Admin,
+    },
+    AdminCommandInfo {
+        name: "library_remove_source",
+        request_type: "LibrarySourceByIdRequest",
+        response_type: "bool",
+        auth: AdminAuth::Admin,
+    },
+    AdminCommandInfo {
+        name: "library_scan_source",
+        request_type: "LibrarySourceByIdRequest",
+        response_type: "LibraryScanResponse",
+        auth: AdminAuth::Admin,
+    },
+    AdminCommandInfo {
+        name: "library_scan_status",
+        request_type: "LibraryScanStatusRequest",
+        response_type: "SessionJobCounts",
+        auth: AdminAuth::Admin,
+    },
     // -- knocks --
     AdminCommandInfo {
         name: "knocks_list",

@@ -34,6 +34,7 @@ export type SongSortField =
 export type SongSortDirection = "asc" | "desc";
 
 interface UseSongsInfiniteQueryOptions {
+  hideOffline?: Accessor<boolean>;
   sortField?: Accessor<SongSortField>;
   sortDirection?: Accessor<SongSortDirection>;
   pageSize?: number;
@@ -53,14 +54,14 @@ export function useSongsInfiniteQuery(options?: UseSongsInfiniteQueryOptions) {
   const tagFilters = options?.tagFilters;
 
   return createInfiniteQuery(() => ({
-    queryKey: queryKeys.songs.infinite({
+    queryKey: [...queryKeys.songs.infinite({
       sortField: sortField(),
       sortDirection: sortDirection(),
       artistId: artistId?.(),
       albumId: albumId?.(),
       search: query?.(),
       tagFilters: tagFilters?.(),
-    }),
+    }), options?.hideOffline?.() ?? false],
     queryFn: async ({ pageParam }: { pageParam: number }) => {
       debug("songsQuery", "fetching songs page:", {
         pageParam,
@@ -79,6 +80,7 @@ export function useSongsInfiniteQuery(options?: UseSongsInfiniteQueryOptions) {
         .map((f) => f.tag);
 
       const response = await dataSource.getSongs({
+        hide_offline: options?.hideOffline?.(),
         offset: pageParam,
         limit: pageSize,
         sort_by: sortField(),
@@ -139,6 +141,7 @@ export function useSongQuery(
 export type AlbumSortField = "title" | "artist" | "year" | "song_count" | "added_at";
 
 interface UseAlbumsQueryOptions {
+  hideOffline?: Accessor<boolean>;
   query?: Accessor<string | undefined>;
   pageSize?: number;
   tagFilters?: Accessor<TagFilter[]>;
@@ -154,7 +157,7 @@ export function useAlbumsQuery(options?: UseAlbumsQueryOptions) {
   const sortDirection = options?.sortDirection || (() => "desc" as const);
 
   return createInfiniteQuery(() => ({
-    queryKey: queryKeys.albums.list(query?.(), tagFilters?.(), sortField?.(), sortDirection?.()),
+    queryKey: [...queryKeys.albums.list(query?.(), tagFilters?.(), sortField?.(), sortDirection?.()), options?.hideOffline?.() ?? false],
     queryFn: async ({ pageParam }: { pageParam: number }) => {
       const dataSource = getDataSource();
       if (!dataSource.getAlbums) {
@@ -177,6 +180,7 @@ export function useAlbumsQuery(options?: UseAlbumsQueryOptions) {
         .map((f) => f.tag);
 
       return dataSource.getAlbums({
+        hide_offline: options?.hideOffline?.(),
         offset: pageParam,
         limit: pageSize,
         search: query?.(),
@@ -251,6 +255,7 @@ export function useAlbumSongsQuery(
 // artists query hooks
 
 interface UseArtistsQueryOptions {
+  hideOffline?: Accessor<boolean>;
   query?: Accessor<string | undefined>;
   pageSize?: number;
   /** reactive enabled flag — defaults to always enabled. used to skip
@@ -265,7 +270,7 @@ export function useArtistsQuery(options?: UseArtistsQueryOptions) {
   const enabled = options?.enabled;
 
   return createInfiniteQuery(() => ({
-    queryKey: queryKeys.artists.list(query?.()),
+    queryKey: [...queryKeys.artists.list(query?.()), options?.hideOffline?.() ?? false],
     queryFn: async ({ pageParam }: { pageParam: number }) => {
       const dataSource = getDataSource();
       if (!dataSource.getArtists) {
@@ -279,6 +284,7 @@ export function useArtistsQuery(options?: UseArtistsQueryOptions) {
         };
       }
       const result = await dataSource.getArtists({
+        hide_offline: options?.hideOffline?.(),
         offset: pageParam,
         limit: pageSize,
         search: query?.(),

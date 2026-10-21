@@ -32,6 +32,7 @@ import { formatDate } from "../../utils/dateTime";
 import { truncateMiddle } from "../../utils/truncate";
 import { UserAutocomplete, type UserSelection } from "./UserAutocomplete";
 import { KnocksSection } from "./knocks/KnocksSection";
+import { LibraryStorageSection } from "./LibraryStorageSection";
 
 export function RemoteAdminView() {
   const params = useParams<{ remoteId: string }>();
@@ -88,7 +89,7 @@ export function RemoteAdminView() {
             admin: {remote()?.name ?? params.remoteId}
           </h1>
           <p class="text-sm text-[var(--color-text-muted)]">
-            manage users, invites, knock requests, and peers
+            manage library storage, users, invites, knock requests, and peers
           </p>
         </div>
         <div class="flex items-center gap-2">
@@ -117,6 +118,7 @@ export function RemoteAdminView() {
       <Show when={!loading() && !error() && adminClient() && remote()}>
         <div class="flex flex-col gap-8">
           <NodeIdSection remote={remote()!} />
+          <LibraryStorageSection client={adminClient()!} />
           <KnocksSection client={adminClient()!} remote={remote()!} />
           <UsersSection client={adminClient()!} remote={remote()!} />
           <InvitesSection client={adminClient()!} />

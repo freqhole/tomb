@@ -5,6 +5,7 @@ import { Icon } from "../../../components/icons/registry";
 import MediaImage from "../../../components/media/MediaImage";
 import type { MenuAction } from "../../../components/overlays/ContextMenu";
 import { MarqueeText } from "../../../components/text/MarqueeText";
+import { OfflineBadge } from "../../../components/badges/OfflineBadge";
 import {
   mbLookupStatusLabel,
   mbSearchStageLabel,
@@ -178,7 +179,12 @@ export function AlbumRow(props: {
             </div>
           </td>
           <td class="px-2 py-1 text-[var(--color-text-primary)] max-w-[260px]">
-            <MarqueeText text={props.album.title} />
+            <div class="flex items-center gap-2">
+              <div class="min-w-0 flex-1">
+                <MarqueeText text={props.album.title} />
+              </div>
+              <OfflineBadge isOffline={props.album.is_offline} />
+            </div>
           </td>
           <td class="px-2 py-1 text-[var(--color-text-secondary)] max-w-[200px]">
             <MarqueeText text={props.album.artist_name} />

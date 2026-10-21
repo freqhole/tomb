@@ -24,6 +24,8 @@ export interface QueryParams {
   sort_direction?: "asc" | "desc";
 
   // filtering
+  hide_offline?: boolean;
+  offline_only?: boolean;
   search?: string;
   artist_id?: string;
   album_id?: string;
@@ -69,6 +71,7 @@ export interface EntityUrl {
 
 // album summary data for grids
 export interface AlbumSummary {
+  is_offline?: boolean;
   album_id: string;
   title: string;
   artist_id: string;
@@ -103,6 +106,7 @@ export interface AlbumSummary {
 
 // artist summary data for lists
 export interface ArtistSummary {
+  is_offline?: boolean;
   artist_id: string;
   name: string;
   bio?: string | null;
@@ -172,6 +176,7 @@ export type SuggestionType =
   "artist" | "album" | "song" | "taxon" | "genre" | "playlist" | "video" | "video_series";
 
 export interface SearchSuggestion {
+  is_offline?: boolean;
   value: string;
   display: string;
   highlight: string;

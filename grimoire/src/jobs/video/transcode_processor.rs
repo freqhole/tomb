@@ -97,6 +97,39 @@ pub async fn process_transcode_video_job(job: &Job) -> Result<Option<serde_json:
             ),
         })?;
 
+    let pool = crate::database::connect()
+        .await
+        .map_err(|e| JobError::ProcessingFailed {
+            reason: e.to_string(),
+        })?;
+    if !crate::external_storage::management::transcode_allowed(&pool, &params.media_blob_id)
+        .await
+        .map_err(|e| JobError::ProcessingFailed {
+            reason: e.to_string(),
+        })?
+    {
+        info!(video_id = %params.video_id, "skipping rendition generation: source disabled or offline");
+        return Ok(Some(serde_json::json!({
+            "video_id": params.video_id, "rendition_blob_ids": [],
+            "partial_failures": [], "skipped": true,
+        })));
+    }
+    match tokio::fs::metadata(&input_path).await {
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            info!(video_id = %params.video_id, "skipping rendition generation: source file absent");
+            return Ok(Some(serde_json::json!({
+                "video_id": params.video_id, "rendition_blob_ids": [],
+                "partial_failures": [], "skipped": true,
+            })));
+        }
+        Err(error) => {
+            return Err(JobError::ProcessingFailed {
+                reason: format!("could not inspect transcode source: {error}"),
+            })
+        }
+    }
+
     // known up front (not per-rendition) purely so the progress callback
     // below can show a "12s / 3m24s (6%)" style estimate instead of just
     // a bare elapsed-time counter - best-effort, missing/zero duration
@@ -126,6 +159,16 @@ pub async fn process_transcode_video_job(job: &Job) -> Result<Option<serde_json:
         .collect();
     let total = renditions.len();
     for (i, rendition) in renditions.iter().enumerate() {
+        if !crate::external_storage::management::transcode_allowed(&pool, &params.media_blob_id)
+            .await
+            .map_err(|e| JobError::ProcessingFailed {
+                reason: e.to_string(),
+            })?
+            || matches!(tokio::fs::metadata(&input_path).await, Err(error) if error.kind() == std::io::ErrorKind::NotFound)
+        {
+            info!(video_id = %params.video_id, "skipping remaining renditions: source disabled or absent");
+            break;
+        }
         job_events::emit_stage_from_job(
             job,
             "transcoding",

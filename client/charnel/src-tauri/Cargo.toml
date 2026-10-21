@@ -150,12 +150,9 @@ haruspex = { path = "../../../lib/haruspex/rust", default-features = false, feat
 
 [target."cfg(target_os = \"macos\")".dependencies]
 cocoa = "0.26"
-objc2-core-foundation = "0.3.2"
-objc2-disk-arbitration = "0.3.2"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 libc = "0.2.189"
-udev = "0.9.3"
 
 # libmpv-2.dll is bundled via `bundle.resources` (see tauri.conf.json) since
 # mpv-libre-runtime's windows archive ships no import lib we can bake an

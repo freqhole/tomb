@@ -20,6 +20,7 @@ pub async fn search_songs(
 
     #[derive(sqlx::FromRow)]
     struct SongRow {
+        is_offline: bool,
         song_id: String,
         song_title: String,
         duration: Option<i64>,
@@ -56,6 +57,7 @@ pub async fn search_songs(
         r#"
         SELECT
             song.id as "song_id!: String",
+            EXISTS (SELECT 1 FROM library_offline_blob_view o WHERE o.blob_id = song.media_blob_id) as "is_offline!: bool",
             song.title as "song_title!: String",
             song.duration as "duration: i64",
             fts.rank as "fts_rank!: f64",
@@ -106,7 +108,7 @@ pub async fn search_songs(
                 WHERE asong_filter.song_id = song.id
                 AND atag.tag_id IN (SELECT value FROM json_each(?))
             ))
-        ORDER BY fts.rank
+        ORDER BY fts.rank * CASE WHEN "is_offline!: bool" THEN 0.8 ELSE 1.0 END, "is_offline!: bool", song.id
         LIMIT ? OFFSET ?
         "#,
         user_id_param,
@@ -135,6 +137,7 @@ pub async fn search_songs(
                 .unwrap_or_else(Vec::new);
 
             SongSearchResult {
+                is_offline: row.is_offline,
                 id: row.song_id,
                 title: row.song_title,
                 artist_names,
@@ -168,6 +171,7 @@ pub async fn search_artists(
 
     #[derive(sqlx::FromRow)]
     struct ArtistRow {
+        is_offline: bool,
         artist_id: String,
         artist_name: String,
         fts_rank: f64,
@@ -203,6 +207,7 @@ pub async fn search_artists(
         r#"
         SELECT
             artist.id as "artist_id!: String",
+            EXISTS (SELECT 1 FROM library_offline_container_view o WHERE o.entity_type = 'artist' AND o.entity_id = artist.id) as "is_offline!: bool",
             artist.name as "artist_name!: String",
             fts.rank as "fts_rank!: f64",
             (SELECT COUNT(DISTINCT asong2.song_id) FROM artist_songz asong2 WHERE asong2.artist_id = artist.id) as "song_count!: i64",
@@ -253,7 +258,7 @@ pub async fn search_artists(
                 AND atag.tag_id IN (SELECT value FROM json_each(?))
             ))
         GROUP BY artist.id, artist.name, fts.rank, rating.rating, favorite.id
-        ORDER BY fts.rank
+        ORDER BY fts.rank * CASE WHEN "is_offline!: bool" THEN 0.8 ELSE 1.0 END, "is_offline!: bool", artist.id
         LIMIT ? OFFSET ?
         "#,
         user_id_param,
@@ -282,6 +287,7 @@ pub async fn search_artists(
                 .unwrap_or_else(Vec::new);
 
             ArtistSearchResult {
+                is_offline: row.is_offline,
                 id: row.artist_id,
                 name: row.artist_name,
                 song_count: row.song_count,
@@ -311,6 +317,7 @@ pub async fn search_albums(
 
     #[derive(sqlx::FromRow)]
     struct AlbumRow {
+        is_offline: bool,
         album_id: String,
         album_title: String,
         fts_rank: f64,
@@ -347,6 +354,7 @@ pub async fn search_albums(
         r#"
         SELECT
             album.id as "album_id!: String",
+            EXISTS (SELECT 1 FROM library_offline_container_view o WHERE o.entity_type = 'album' AND o.entity_id = album.id) as "is_offline!: bool",
             album.title as "album_title!: String",
             fts.rank as "fts_rank!: f64",
             (SELECT COUNT(DISTINCT asong2.song_id) FROM album_songz asong2 WHERE asong2.album_id = album.id) as "song_count!: i64",
@@ -393,7 +401,7 @@ pub async fn search_albums(
                 WHERE atag.album_id = album.id
                 AND atag.tag_id IN (SELECT value FROM json_each(?))
             ))
-        ORDER BY fts.rank
+        ORDER BY fts.rank * CASE WHEN "is_offline!: bool" THEN 0.8 ELSE 1.0 END, "is_offline!: bool", album.id
         LIMIT ? OFFSET ?
         "#,
         user_id_param,
@@ -431,6 +439,7 @@ pub async fn search_albums(
                 .unwrap_or_else(Vec::new);
 
             AlbumSearchResult {
+                is_offline: row.is_offline,
                 id: row.album_id,
                 title: row.album_title,
                 artist_names,
@@ -580,6 +589,7 @@ pub async fn search_playlists(
 
     #[derive(sqlx::FromRow)]
     struct PlaylistRow {
+        is_offline: bool,
         playlist_id: String,
         playlist_title: String,
         playlist_description: Option<String>,
@@ -614,6 +624,7 @@ pub async fn search_playlists(
         r#"
         SELECT
             playlist.id as "playlist_id!: String",
+            EXISTS (SELECT 1 FROM library_offline_container_view o WHERE o.entity_type = 'playlist' AND o.entity_id = playlist.id) as "is_offline!: bool",
             playlist.title as "playlist_title!: String",
             playlist.description as "playlist_description: String",
             playlist.is_public as "is_public!: i64",
@@ -643,7 +654,7 @@ pub async fn search_playlists(
                 AND atag.tag_id IN (SELECT value FROM json_each(?))
             ))
         GROUP BY playlist.id, playlist.title, playlist.description, playlist.is_public, playlist.created_by, fts.rank
-        ORDER BY fts.rank
+        ORDER BY fts.rank * CASE WHEN "is_offline!: bool" THEN 0.8 ELSE 1.0 END, "is_offline!: bool", playlist.id
         LIMIT ? OFFSET ?
         "#,
         sanitized_query,
@@ -661,6 +672,7 @@ pub async fn search_playlists(
     let results = rows
         .into_iter()
         .map(|row| PlaylistSearchResult {
+            is_offline: row.is_offline,
             id: row.playlist_id,
             title: row.playlist_title,
             description: row.playlist_description,

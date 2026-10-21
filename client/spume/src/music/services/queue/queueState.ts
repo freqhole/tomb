@@ -1,7 +1,7 @@
 // shared queue state used by both queue.ts and player.ts
 // lives in its own module to avoid circular imports
 import { appState } from "../../../app/services/storage/db";
-import { mediaItemKey } from "../../../app/services/storage/mediaItem";
+import { findAvailableMediaIndex, mediaItemKey } from "../../../app/services/storage/mediaItem";
 
 // track if playback has ended (all songs in queue finished)
 let playbackEnded = false;
@@ -28,7 +28,7 @@ export function canGoNext(): boolean {
   const currentIdx = currentItemKey
     ? queue.findIndex((i) => mediaItemKey(i) === currentItemKey)
     : -1;
-  return currentIdx >= 0 && currentIdx < queue.length - 1;
+  return currentIdx >= 0 && findAvailableMediaIndex(queue, currentIdx + 1) >= 0;
 }
 
 export function canGoPrevious(): boolean {
@@ -39,5 +39,5 @@ export function canGoPrevious(): boolean {
   const currentIdx = currentItemKey
     ? queue.findIndex((i) => mediaItemKey(i) === currentItemKey)
     : -1;
-  return currentIdx > 0;
+  return currentIdx > 0 && findAvailableMediaIndex(queue, currentIdx - 1, -1) >= 0;
 }

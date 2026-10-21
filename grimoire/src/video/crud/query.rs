@@ -167,7 +167,6 @@ pub struct VideosQueryResult {
 
 /// query video series with search/sort/pagination
 pub async fn query_video_seriez(params: QueryParams) -> GrimoireResponse<SeriesQueryResult> {
-    let start_time = Instant::now();
     let pool = match database::connect().await {
         Ok(p) => p,
         Err(e) => {
@@ -177,10 +176,24 @@ pub async fn query_video_seriez(params: QueryParams) -> GrimoireResponse<SeriesQ
             )
         }
     };
+    query_video_seriez_with_pool(pool, params).await
+}
+
+pub(crate) async fn query_video_seriez_with_pool(
+    pool: sqlx::SqlitePool,
+    params: QueryParams,
+) -> GrimoireResponse<SeriesQueryResult> {
+    let start_time = Instant::now();
     let limit = params.limit.unwrap_or(50).min(1000);
     let offset = params.offset.unwrap_or(0);
 
     let apply_filters = |q: &mut sea_query::SelectStatement| {
+        if params.filters.get("offline_only").and_then(|v| v.as_bool()) == Some(true) {
+            q.and_where(Expr::cust("EXISTS (SELECT 1 FROM library_offline_container_view o WHERE o.entity_type = 'video_series' AND o.entity_id = video_seriez.id)"));
+        }
+        if params.filters.get("hide_offline").and_then(|v| v.as_bool()) == Some(true) {
+            q.and_where(Expr::cust("NOT EXISTS (SELECT 1 FROM library_offline_container_view o WHERE o.entity_type = 'video_series' AND o.entity_id = video_seriez.id)"));
+        }
         q.and_where(Expr::col(VideoSeriezCol::DeletedAt).is_null());
         if let Some(search) = params.q.as_ref().filter(|s| !s.trim().is_empty()) {
             let pattern = format!("%{}%", search);
@@ -207,6 +220,10 @@ pub async fn query_video_seriez(params: QueryParams) -> GrimoireResponse<SeriesQ
     let mut query = Query::select();
     query
         .column(sea_query::Asterisk)
+        .expr_as(
+            Expr::cust("EXISTS (SELECT 1 FROM library_offline_container_view o WHERE o.entity_type = 'video_series' AND o.entity_id = video_seriez.id)"),
+            sea_query::Alias::new("is_offline"),
+        )
         .from(VideoSeriezCol::Table);
     apply_filters(&mut query);
 
@@ -245,7 +262,7 @@ pub async fn query_video_seriez(params: QueryParams) -> GrimoireResponse<SeriesQ
     GrimoireResponse::success(
         format!("Found {} video series", total_count),
         SeriesQueryResult {
-            has_more: items.len() == limit as usize,
+            has_more: (offset as i64 + items.len() as i64) < total_count,
             items,
             total_count,
             limit: limit as i64,
@@ -264,7 +281,6 @@ pub async fn query_videos(
     season_id: Option<String>,
     unassigned: bool,
 ) -> GrimoireResponse<VideosQueryResult> {
-    let start_time = Instant::now();
     let pool = match database::connect().await {
         Ok(p) => p,
         Err(e) => {
@@ -274,10 +290,27 @@ pub async fn query_videos(
             )
         }
     };
+    query_videos_with_pool(pool, params, series_id, season_id, unassigned).await
+}
+
+pub(crate) async fn query_videos_with_pool(
+    pool: sqlx::SqlitePool,
+    params: QueryParams,
+    series_id: Option<String>,
+    season_id: Option<String>,
+    unassigned: bool,
+) -> GrimoireResponse<VideosQueryResult> {
+    let start_time = Instant::now();
     let limit = params.limit.unwrap_or(50).min(1000);
     let offset = params.offset.unwrap_or(0);
 
     let apply_filters = |q: &mut sea_query::SelectStatement| {
+        if params.filters.get("offline_only").and_then(|v| v.as_bool()) == Some(true) {
+            q.and_where(Expr::cust("EXISTS (SELECT 1 FROM library_offline_blob_view o WHERE o.blob_id = videoz.media_blob_id)"));
+        }
+        if params.filters.get("hide_offline").and_then(|v| v.as_bool()) == Some(true) {
+            q.and_where(Expr::cust("NOT EXISTS (SELECT 1 FROM library_offline_blob_view o WHERE o.blob_id = videoz.media_blob_id)"));
+        }
         q.and_where(Expr::col(VideozCol::DeletedAt).is_null());
         if let Some(search) = params.q.as_ref().filter(|s| !s.trim().is_empty()) {
             let pattern = format!("%{}%", search);
@@ -451,6 +484,10 @@ pub async fn query_videos(
         Alias::new("play_count"),
     );
     query.expr_as(Expr::cust("media_blob_blake3"), Alias::new("blake3"));
+    query.expr_as(
+        Expr::cust("EXISTS (SELECT 1 FROM library_offline_blob_view o WHERE o.blob_id = videoz.media_blob_id)"),
+        Alias::new("is_offline"),
+    );
     apply_filters(&mut query);
 
     let sort_direction = match params.sort_direction.as_deref() {
@@ -541,7 +578,7 @@ pub async fn query_videos(
     GrimoireResponse::success(
         format!("Found {} video(s)", total_count),
         VideosQueryResult {
-            has_more: items.len() == limit as usize,
+            has_more: (offset as i64 + items.len() as i64) < total_count,
             items,
             total_count,
             limit: limit as i64,

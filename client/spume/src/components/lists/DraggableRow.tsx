@@ -6,6 +6,7 @@ import { formatDuration } from "../../utils/formatDuration";
 import { isMobile } from "../../utils/isMobile";
 import type { ImageMetadata } from "../../music/services/storage/types";
 import { Icon, type IconName } from "../icons/registry";
+import { OfflineBadge } from "../badges/OfflineBadge";
 
 export interface DraggableRowProps {
   /** unique identifier for the row */
@@ -20,6 +21,7 @@ export interface DraggableRowProps {
   isSelected?: boolean;
   /** whether this row is currently playing */
   isPlaying?: boolean;
+  isOffline?: boolean;
   /** whether dragging is disabled */
   disabled?: boolean;
   /** callback when drag starts */
@@ -73,6 +75,7 @@ export function DraggableRow(props: DraggableRowProps) {
     "isDropTarget",
     "isSelected",
     "isPlaying",
+    "isOffline",
     "disabled",
     "onDragStart",
     "onDragOver",
@@ -121,6 +124,7 @@ export function DraggableRow(props: DraggableRowProps) {
   return (
     <div
       class={rowClasses()}
+      classList={{ "opacity-60": local.isOffline }}
       draggable={!local.disabled}
       onDragStart={(e) => {
         // prevent drag if starting from thumbnail
@@ -137,10 +141,10 @@ export function DraggableRow(props: DraggableRowProps) {
       onDragEnd={(e) => local.onDragEnd?.(e)}
       onClick={(e) => {
         local.onClick?.(e);
-        if (isMobile()) local.onDoubleClick?.();
+        if (isMobile() && !local.isOffline) local.onDoubleClick?.();
       }}
       onDblClick={() => {
-        if (!isMobile()) local.onDoubleClick?.();
+        if (!isMobile() && !local.isOffline) local.onDoubleClick?.();
       }}
       onPointerDown={(e) => {
         // prevent pointer drag if starting from thumbnail
@@ -174,13 +178,17 @@ export function DraggableRow(props: DraggableRowProps) {
         cornerBadgeIcon={local.cornerBadgeIcon}
         index={local.index}
         hideIndex={isHovered()}
-        onPlayClick={local.onPlayClick}
-        enablePlayClick={true}
+        onPlayClick={() => {
+          if (!local.isOffline) local.onPlayClick?.();
+        }}
+        enablePlayClick={!local.isOffline}
+        showPlayIcon={!local.isOffline}
         size={48}
       />
 
       {/* content */}
       <div class="flex-1 min-w-0">{local.children}</div>
+      <OfflineBadge isOffline={local.isOffline} />
     </div>
   );
 }

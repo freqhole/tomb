@@ -10,6 +10,7 @@
 
 pub mod invites;
 pub mod knocks;
+pub mod library;
 pub mod peers;
 pub mod radio;
 pub mod users;

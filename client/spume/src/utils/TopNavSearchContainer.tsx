@@ -47,6 +47,7 @@ export const TopNavSearchContainer: Component<TopNavSearchContainerProps> = (pro
         highlight: s.highlight,
         images: parseMetadataImages(s.metadata, baseUrl, remoteId),
         isFavorite: s.is_favorite,
+        isOffline: s.is_offline,
         data: s,
       };
     });

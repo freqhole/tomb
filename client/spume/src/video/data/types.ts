@@ -55,6 +55,8 @@ export interface PaginatedVideoSeries {
 }
 
 export interface VideoQueryParams {
+  offline_only?: boolean;
+  hide_offline?: boolean;
   offset?: number;
   limit?: number;
   search?: string;
@@ -73,6 +75,8 @@ export interface VideoDataSource {
   getVideoById(id: string): Promise<VideoSummary | null>;
   getVideoWithMetadata?(id: string): Promise<VideoWithMetadata | null>;
   getVideoSeriesList(params?: {
+    offline_only?: boolean;
+    hide_offline?: boolean;
     offset?: number;
     limit?: number;
     search?: string;

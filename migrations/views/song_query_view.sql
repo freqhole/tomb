@@ -7,6 +7,7 @@ SELECT
     -- song fields
     s.id as song_id,
     s.media_blob_id as song_media_blob_id,
+    EXISTS (SELECT 1 FROM library_offline_blob_view o WHERE o.blob_id = s.media_blob_id) as is_offline,
     COALESCE(
         (SELECT media_blob_id FROM song_imagez WHERE song_id = s.id AND is_primary = 1 LIMIT 1),
         (SELECT media_blob_id FROM album_imagez WHERE album_id = al.id AND is_primary = 1 LIMIT 1),

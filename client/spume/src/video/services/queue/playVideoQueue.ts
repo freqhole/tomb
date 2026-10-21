@@ -12,6 +12,7 @@ import { playMediaItem } from "../../../music/services/audio/player";
 import {
   videoToMediaItem,
   videosOnly,
+  findAvailableMediaIndex,
   type QueuedVideo,
 } from "../../../app/services/storage/mediaItem";
 import type {
@@ -22,7 +23,7 @@ import { addVideoHistoryEntry, updateVideoHistoryServerSession } from "./videoQu
 import { resumeVideoTracking, startVideoTracking } from "./videoListenProgress";
 import { startVideoRemoteSync } from "./videoServerProgressSync";
 import { mirrorReplaceVideosToQueue } from "../../../app/services/players/remoteQueueMirror";
-import { preCacheNextVideos } from "../videoPreCache";
+import { triggerPreCache } from "../../../music/services/queue/triggerPreCache";
 import type { VideoSummary } from "../../data/types";
 import {
   createServerSessions,
@@ -38,6 +39,11 @@ export async function playVideoQueue(
 ): Promise<void> {
   if (videos.length === 0) return;
   const items = videos.map((v) => videoToMediaItem({ ...v, queue_entry_id: undefined }));
+  startIndex = findAvailableMediaIndex(items, startIndex);
+  if (startIndex < 0) {
+    toast.error("no available videos at or after this position", { title: "media offline" });
+    return;
+  }
   // playVideoQueue always fully replaces the local queue (no insert-after-
   // current merge logic like queue.ts's playQueue) - mirror that as a
   // replace on the remote target too, same as queue.ts's mirrorReplaceQueue.
@@ -54,7 +60,7 @@ export async function playVideoQueue(
     });
     return;
   }
-  void preCacheNextVideos(videosOnly(items), 30, startIndex + 1);
+  triggerPreCache(items, videos[startIndex].id);
 
   if (source) {
     const entryId = await addVideoHistoryEntry(videosOnly(items), source);
@@ -83,23 +89,29 @@ export async function playVideoQueue(
 export async function resumeVideoHistoryEntry(entry: VideoQueueHistoryEntry): Promise<void> {
   if (entry.videos.length === 0) return;
 
-  const resumeIndex = Math.min(entry.current_video_index || 0, entry.videos.length - 1);
+  const requestedIndex = Math.min(entry.current_video_index || 0, entry.videos.length - 1);
   const items = entry.videos.map(videoToMediaItem);
+  const resumeIndex = findAvailableMediaIndex(items, requestedIndex);
+  if (resumeIndex < 0) {
+    toast.error("no available videos at or after the saved position", { title: "media offline" });
+    return;
+  }
+  const resumePosition = resumeIndex === requestedIndex ? entry.current_video_position || 0 : 0;
 
   await setQueue(items);
   // video's playMediaItem supports seeking to an initial position directly
   // (unlike the song player, which needs a post-load setTimeout+seek).
   await playMediaItem(items[resumeIndex], {
     userInitiated: true,
-    initialPosition: entry.current_video_position || 0,
+    initialPosition: resumePosition,
   });
-  void preCacheNextVideos(videosOnly(items), 30, resumeIndex + 1);
+  triggerPreCache(items, entry.videos[resumeIndex].id);
 
   resumeVideoTracking(entry.id, {
     watched_seconds: entry.watched_seconds || 0,
     videos_completed: entry.videos_completed || 0,
     current_video_index: resumeIndex,
-    current_video_position: entry.current_video_position || 0,
+    current_video_position: resumePosition,
   });
   startVideoRemoteSync();
 

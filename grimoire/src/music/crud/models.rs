@@ -172,6 +172,8 @@ pub struct QueryParams {
     pub search_fields: Option<Vec<String>>,
 
     /// Flexible filters as JSON (not exposed as CLI arg - use specific filters instead)
+    /// `hide_offline: true` opts song/album/artist/video/series browsing into
+    /// confirmed-offline filtering; omission preserves detail and background reads.
     #[arg(skip)]
     #[serde(default)]
     pub filters: std::collections::HashMap<String, serde_json::Value>,
@@ -305,6 +307,9 @@ impl<T> QueryResult<T> {
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct SongQueryResult {
     pub song: Song,
+    /// confirmed offline on this library host, not a guarantee of local playability.
+    #[serde(default)]
+    pub is_offline: bool,
     pub artist: Option<Artist>,
     pub album: Option<Album>,
     pub genre: Option<Genre>,
@@ -327,6 +332,8 @@ pub struct SongQueryResult {
 /// artist with aggregated metadata for query results
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct ArtistQueryResult {
+    #[serde(default)]
+    pub is_offline: bool,
     pub artist: Artist,
     pub images: Option<Vec<ImageMetadata>>, // all images from artist_imagez with primary indicator
     pub song_count: i64,
@@ -341,6 +348,8 @@ pub struct ArtistQueryResult {
 /// album with aggregated metadata for query results
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct AlbumQueryResult {
+    #[serde(default)]
+    pub is_offline: bool,
     pub album: Album,
     pub artist: Option<Artist>,
     pub genre: Option<Genre>,
@@ -355,6 +364,8 @@ pub struct AlbumQueryResult {
 /// playlist with optional aggregated metadata for query results
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct PlaylistQueryResult {
+    #[serde(default)]
+    pub is_offline: bool,
     pub playlist: crate::music::Playlist,
     pub song_count: i64,
     pub total_duration: Option<i64>,

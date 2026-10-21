@@ -53,6 +53,7 @@ import subprocess
 import sys
 import time
 import configure
+from storage_menu import StorageMenu
 
 # best effort only: missing mixer/tools, permission errors, and timeouts are nonfatal.
 # set to None to leave the system mixer unchanged, or edit for your sound device.
@@ -85,6 +86,7 @@ VOLUME_MAX_STEPS = round(VOLUME_MAX / VOLUME_STEP)
 NETWORK_REFRESH_SECONDS = 5.0
 NETWORK_TIMEOUT_SECONDS = 4.0
 NETWORK_SCREEN = object()
+STORAGE_SCREEN = object()
 WIFI_SCREEN = object()
 WIFI_CONFIG = Path.home() / ".local/share/freqhole-pi/wifi.json"
 WIFI_TOOL = Path.home() / ".local/bin/freqhole-wifi"
@@ -101,6 +103,7 @@ COMMANDS = (
     ("rotate pairing pin", "rotate_pin", (0, 255, 210)),
     ("new admin pairing", "show_admin_pin", (50, 200, 165)),
     ("network status", NETWORK_SCREEN, (40, 255, 100)),
+    ("library disks", STORAGE_SCREEN, (80, 160, 255)),
     ("reverse wheel", REVERSE_WHEEL, (80, 160, 255)),
 )
 if PLAYER == "charnel":
@@ -444,6 +447,7 @@ class Menu:
         self.update_requested = False
         self.wifi_future = None
         self.wifi_next_refresh = 0
+        self.storage = StorageMenu(current_socket_path)
         self.dirty = True
         # apply brightness in write_pixel so each channel is rounded only once.
         self.pixel.brightness = 1.0
@@ -477,6 +481,9 @@ class Menu:
                 start = max(0, self.selected - 2)
                 lines = [f"{PLAYER} {self.selected + 1}/{len(labels)}", *items[start:start + 3]]
             color = SHUTDOWN_COLOR if self.selected == len(COMMANDS) else COMMANDS[self.selected][2]
+        elif self.screen == "storage":
+            lines = self.storage.lines()
+            color = (255, 0, 0) if self.storage.error else (80, 160, 255)
         elif self.screen == "volume":
             title = "volume --" if self.volume is None else f"volume {self.volume:.0%}"
             detail = "unavailable: see logs" if self.volume_error else "reading..."
@@ -845,6 +852,9 @@ class Menu:
                     self.network_offset = 0
                     self.network_error = False
                     self.network_next_refresh = 0
+                elif command is STORAGE_SCREEN:
+                    self.storage.open()
+                    self.screen = "storage"
                 elif command is WIFI_SCREEN:
                     self.screen = "wifi-confirm"
                     self.confirm_selected = 1
@@ -859,6 +869,10 @@ class Menu:
                     self.confirm_recovery = True
                 else:
                     self.start_command(label, command)
+        elif self.screen == "storage":
+            self.storage.press()
+            if not self.storage.active:
+                self.screen = "menu"
         elif self.screen in ("network", "wifi"):
             self.screen = "menu"
         elif self.screen == "wifi-confirm":
@@ -890,6 +904,19 @@ class Menu:
         self.poll_network(now)
         self.poll_wifi(now)
         self.poll_updates(now)
+        if not self.shutdown_requested and not self.running_shutdown:
+            wake = self.storage.tick(now, self.screen == "menu")
+            if wake:
+                self.wake_lights(now)
+                self.last_activity = now
+                self.ignore_press = raw_pressed or self.button.pressed
+                self.screen = "storage"
+            if self.screen == "storage":
+                if not self.storage.active:
+                    self.screen = "menu"
+                if self.storage.dirty:
+                    self.dirty = True
+                    self.storage.dirty = False
         if self.shutdown_requested or (self.running_shutdown and self.process is not None):
             return
 
@@ -935,7 +962,9 @@ class Menu:
         if self.screen in ("volume", "network", "wifi") and edge is True:
             self.activate()
         elif delta:
-            if self.screen == "volume":
+            if self.screen == "storage":
+                self.storage.turn(delta)
+            elif self.screen == "volume":
                 self.queue_volume(delta)
             elif self.screen in ("network", "wifi"):
                 self.network_offset = max(0, min(max(0, len(self.network_rows) - 2), self.network_offset + delta))
@@ -949,6 +978,8 @@ class Menu:
         elif edge is True:
             self.activate()
 
+        if self.screen == "storage" and self.storage.mode != "known":
+            self.last_activity = now
         if now - self.last_activity >= IDLE_SECONDS:
             self.volume_pending.clear()
             self.wake_started = None
@@ -1010,6 +1041,7 @@ class Menu:
             if self.update_future is not None:
                 self.update_future.cancel()
             self.update_worker.shutdown(wait=False)
+            self.storage.close()
             self.lights_off(fade=True)
 
 

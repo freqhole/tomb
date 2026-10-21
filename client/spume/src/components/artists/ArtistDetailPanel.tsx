@@ -21,6 +21,7 @@ import { useBackgroundImageFromImages } from "../../app/hooks/useBackgroundImage
 import { hasBackgroundImage } from "../../app/services/backgroundImage";
 import { EntityLinks } from "../media/EntityLinks";
 import { TaxonChipList } from "../badges/TaxonChips";
+import { OfflineBadge } from "../badges/OfflineBadge";
 import { canUpdateArtist } from "../../music/data/permissions";
 import { formatTaxonLabel } from "../../music/utils/format";
 import type { EntityUrl } from "../../music/data/types";
@@ -86,6 +87,7 @@ function ArtistBio(props: { bio: string; class?: string }): JSX.Element {
 }
 
 export interface ArtistDetailPanelArtist {
+  is_offline?: boolean;
   artist_id: string;
   name: string;
   bio?: string | null;
@@ -419,6 +421,11 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
                 <h1 class="text-3xl font-bold text-[var(--color-text-primary)]">
                   <MarqueeText text={props.artist.name} hoverOnly={true} />
                 </h1>
+                <Show when={props.artist.is_offline}>
+                  <div class="flex">
+                    <OfflineBadge isOffline={props.artist.is_offline} />
+                  </div>
+                </Show>
 
                 {/* bio (truncated with see-more, renders html so links
                     + lightweight markup from upstream sources show up) */}
@@ -681,6 +688,11 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
               <h1 class="text-2xl font-bold text-[var(--color-text-primary)]">
                 <MarqueeText text={props.artist.name} hoverOnly={true} />
               </h1>
+              <Show when={props.artist.is_offline}>
+                <div class="flex justify-center">
+                  <OfflineBadge isOffline={props.artist.is_offline} />
+                </div>
+              </Show>
 
               {/* bio */}
               <Show when={props.artist.bio}>

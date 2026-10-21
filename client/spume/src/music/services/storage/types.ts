@@ -68,6 +68,7 @@ export interface TaxonRef {
 
 // ===== SONGS TABLE =====
 export interface Song {
+  is_offline?: boolean;
   /** local database primary key (auto-increment converted to string) */
   id: string;
   /** content hash of audio file - 64 hex chars, or `""` for a local-only

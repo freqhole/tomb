@@ -107,6 +107,15 @@ pub async fn handle(
 
         // -- library --
         "library_validate_path" => handlers::library::validate_path(args).await,
+        "library_list_removable_volumes" => handlers::library::list_removable_volumes().await,
+        "library_list_sources" => handlers::library::list_sources().await,
+        "library_source_summaries" | "library_active_scans" | "library_rendition_settings" | "library_remove_source" =>
+            handlers::library::manage_sources(command, args).await,
+        "library_source_availability" => handlers::library::source_availability(false).await,
+        "library_refresh_source_availability" => handlers::library::source_availability(true).await,
+        "library_register_source" => handlers::library::register_source(args).await,
+        "library_browse_volume" => handlers::library::browse_volume(args).await,
+        "library_scan_source" => handlers::library::scan_source(args, caller).await,
         "library_scan" => handlers::library::scan(args, caller).await,
         "library_scan_status" => handlers::library::scan_status(args).await,
         "library_image_upload" => handlers::library::image_upload(args, caller).await,

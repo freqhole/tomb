@@ -328,6 +328,7 @@ export function AlbumSection(props: AlbumSectionProps): JSX.Element {
             return (
               <SongRow
                 title={song.title}
+                isOffline={song.is_offline}
                 trackNumber={trackDisplay}
                 duration={formatDuration(song.duration_seconds)}
                 isPlaying={props.playingSongId === song.id}

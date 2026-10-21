@@ -6,6 +6,7 @@
 import { useNavigate, useSearchParams } from "@solidjs/router";
 import { createEffect, createMemo, createSignal, on, onCleanup, onMount, Show } from "solid-js";
 import { setPageInfo, clearPageInfo } from "../../app/services/pageInfo";
+import { useAvailabilityFilter } from "../../utils/useAvailabilityFilter";
 import type { StatusFilter } from "../../app/services/pageInfo";
 import { useHistoryState } from "../../utils/historyState";
 import { isNarrowViewport, getPlayerBarHeightPx } from "../../config/breakpoints";
@@ -116,7 +117,9 @@ export function VideosView(props: VideosViewProps) {
     return base.filter((t) => !excluded.has(t));
   });
 
+  const availability = useAvailabilityFilter("videos");
   const videosQuery = useVideosQuery({
+    hideOffline: availability.hideOffline,
     search: searchQuery,
     tagFilters: () => tagFilters(),
     sortField: () => sortField(),
@@ -174,7 +177,7 @@ export function VideosView(props: VideosViewProps) {
   createEffect(
     on(
       () =>
-        [searchQuery(), tagFilters(), sortField(), sortDirection(), contentTypeFilters()] as const,
+        [searchQuery(), tagFilters(), sortField(), sortDirection(), contentTypeFilters(), availability.hideOffline()] as const,
       () => {
         setIsResetting(true);
         setTimeout(() => setIsResetting(false), 0);
@@ -245,6 +248,7 @@ export function VideosView(props: VideosViewProps) {
   // update page info for TopNav
   createEffect(() => {
     setPageInfo({
+      ...availability.pageInfo(),
       title: "videos",
       count: videos().length,
       sortFields: videoSortFields,

@@ -13,10 +13,17 @@ export interface LocalVideoSeriesRow extends VideoSeries {
   images?: ImageMetadata[];
 }
 
+export async function getLocalVideoSeriesById(id: string): Promise<VideoSeries | null> {
+  const db = await getVideoDB();
+  const series = await db.get(STORE_VIDEO_SERIES, id);
+  return series ? { ...series, is_offline: false } : null;
+}
+
 export async function findLocalVideoSeriesByTitle(title: string): Promise<VideoSeries | undefined> {
   const db = await getVideoDB();
   const index = db.transaction(STORE_VIDEO_SERIES).store.index("by_title");
-  return index.get(title);
+  const series = await index.get(title);
+  return series ? { ...series, is_offline: false } : undefined;
 }
 
 export async function createLocalVideoSeries(input: {
@@ -26,6 +33,7 @@ export async function createLocalVideoSeries(input: {
   const db = await getVideoDB();
   const now = Date.now();
   const series: LocalVideoSeriesRow = {
+    is_offline: false,
     id: crypto.randomUUID(),
     title: input.title,
     description: input.description ?? null,
@@ -64,7 +72,12 @@ export async function updateLocalVideoSeries(
   if (!existing) {
     throw new Error(`video series not found: ${seriesId}`);
   }
-  const updated: LocalVideoSeriesRow = { ...existing, ...updates, updated_at: Date.now() };
+  const updated: LocalVideoSeriesRow = {
+    ...existing,
+    ...updates,
+    is_offline: false,
+    updated_at: Date.now(),
+  };
   await db.put(STORE_VIDEO_SERIES, updated);
 }
 
@@ -97,7 +110,7 @@ export async function getLocalVideoSeriesList(params?: {
   const paged = items.slice(offset, offset + limit);
 
   return {
-    items: paged,
+    items: paged.map((series) => ({ ...series, is_offline: false })),
     total_count,
     has_more: offset + limit < total_count,
     offset,

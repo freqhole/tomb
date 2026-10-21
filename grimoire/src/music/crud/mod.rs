@@ -6,8 +6,15 @@ mod deduplication;
 pub mod delete;
 mod models;
 mod query;
+#[cfg(test)]
+pub(crate) use query::{
+    query_album_status_counts_with_pool, query_albums_with_pool, query_artists_with_pool,
+    query_songs_with_pool,
+};
 mod query_favorites;
 mod query_playlists;
+#[cfg(test)]
+pub(crate) use query_playlists::query_playlists_with_pool;
 mod update;
 mod user_prefs;
 pub(crate) mod usernames;

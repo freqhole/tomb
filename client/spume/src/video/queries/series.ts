@@ -11,6 +11,7 @@ import type { VideoSeason, VideoSeries, VideoSummary } from "../data/types";
 import { videoQueryKeys } from "./queryKeys";
 
 interface UseVideoSeriesListQueryOptions {
+  hideOffline?: () => boolean;
   search?: () => string | undefined;
   pageSize?: number;
   // "autocomplete" isolates this query's cache key from the master
@@ -25,13 +26,17 @@ export function useVideoSeriesListQuery(options?: UseVideoSeriesListQueryOptions
   const keyScope = options?.keyScope ?? "list";
 
   return createInfiniteQuery(() => ({
-    queryKey:
+    queryKey: [
+      ...(
       keyScope === "autocomplete"
         ? videoQueryKeys.series.autocomplete(search?.())
-        : videoQueryKeys.series.list(search?.()),
+        : videoQueryKeys.series.list(search?.())),
+      options?.hideOffline?.() ?? false,
+    ],
     queryFn: async ({ pageParam }: { pageParam: number }) => {
       const dataSource = getVideoDataSource();
       const result = await dataSource.getVideoSeriesList({
+        hide_offline: options?.hideOffline?.(),
         offset: pageParam,
         limit: pageSize,
         search: search?.(),
@@ -59,6 +64,17 @@ export interface VideoSeriesDetail {
    * the old query only ever walked `seasons`, never the series' own
    * season-less videos. */
   unassignedVideos: VideoSummary[];
+}
+
+export function useVideoSeriesQuery(seriesId: () => string | undefined) {
+  return createQuery(() => ({
+    queryKey: [...videoQueryKeys.series.detail(seriesId() || ""), "series"],
+    queryFn: async () => {
+      const id = seriesId();
+      return id ? getVideoDataSource().getVideoSeriesById(id) : null;
+    },
+    enabled: !!seriesId(),
+  }));
 }
 
 export function useVideoSeriesDetailQuery(seriesId: () => string | undefined) {

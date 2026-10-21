@@ -13,6 +13,7 @@ import { isCharnelMode } from "../../app/services/charnel";
 import { Icon } from "../icons/registry";
 import { MediaThumbnail } from "../media/MediaThumbnail";
 import { MarqueeText } from "../text/MarqueeText";
+import { OfflineBadge } from "../badges/OfflineBadge";
 import { isRemoteBlobCachedReactive } from "../../music/services/cache/blobCache";
 import {
   isSongOnDiskEphemeral,
@@ -196,13 +197,16 @@ export function QueueSongRow(props: QueueSongRowProps) {
       {/* song info */}
       <div class="flex-1 min-w-0 relative z-10">
         <h4
-          class={`text-sm font-medium m-0 text-shadow-glow ${
+          class={`flex items-center gap-2 text-sm font-medium m-0 text-shadow-glow ${
             props.isCurrentlyPlaying
               ? "text-[var(--color-accent-500)] font-semibold"
               : "text-[var(--color-text-primary)]"
           }`}
         >
-          <MarqueeText text={props.song.title || ""} isHovering={isRowHovered} />
+          <div class="min-w-0 flex-1">
+            <MarqueeText text={props.song.title || ""} isHovering={isRowHovered} />
+          </div>
+          <OfflineBadge isOffline={props.song.is_offline} />
         </h4>
         <p
           class={`text-xs m-0 text-shadow-glow ${

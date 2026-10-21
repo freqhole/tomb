@@ -87,6 +87,12 @@ export interface PageInfo {
   onToggleStatusFilterMode?: (value: string) => void;
   onClearStatusFilters?: () => void;
 
+  hideOffline?: boolean;
+  onHideOfflineChange?: (hide: boolean) => void;
+  availabilityFilterSelected?: boolean;
+  onAddAvailabilityFilter?: () => void;
+  onRemoveAvailabilityFilter?: () => void;
+
   // back-to-top control (optional - views with long scroll)
   showBackToTop?: boolean;
   onBackToTop?: () => void;

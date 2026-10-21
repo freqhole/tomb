@@ -14,6 +14,7 @@ use tracing::{info, warn};
 
 use super::scanned_directories::{get_deduplicated_directories, record_scanned_directory};
 use crate::database;
+use crate::external_storage::sources;
 use crate::media_blobz::MediaBlob;
 use crate::response::GrimoireResponse;
 
@@ -34,6 +35,9 @@ use crate::response::GrimoireResponse;
 /// 1. scan all tracked directories (deduplicated)
 /// 2. restore pass (opt-out): undelete blobs whose local_path now exists, cascade to songs
 /// 3. orphan detection: check all live blobs, soft delete if file missing
+///
+/// registered removable sources (including their historical paths) are excluded
+/// from this legacy music-only scan/cleanup. use the source scan command instead.
 pub async fn process_rescan_directories_job(job: &Job) -> Result<Option<Value>, JobError> {
     info!("processing RescanDirectories job: {}", job.id);
 
@@ -44,6 +48,17 @@ pub async fn process_rescan_directories_job(job: &Job) -> Result<Option<Value>, 
     let specific_dir_id = params["directory_id"].as_str();
     let purge_missing_scan_dirs = params["purge_missing_scan_dirs"].as_bool().unwrap_or(true);
     let restore_reappeared = params["restore_reappeared"].as_bool().unwrap_or(true);
+    let pool = database::connect()
+        .await
+        .map_err(|e| JobError::ProcessingFailed {
+            reason: format!("database connection failed: {e}"),
+        })?;
+    let source_roots =
+        sources::protected_roots(&pool)
+            .await
+            .map_err(|e| JobError::ProcessingFailed {
+                reason: format!("could not load removable source protection: {e}"),
+            })?;
 
     // phase 0: purge scanned_directories rows whose path no longer exists on disk
     let mut purged_scan_dirs = 0usize;
@@ -73,12 +88,28 @@ pub async fn process_rescan_directories_job(job: &Job) -> Result<Option<Value>, 
         });
     }
 
-    let directories = directories_response.data.unwrap_or_default();
+    // registered sources need their own domain-aware rescan/reconciliation flow.
+    // never let legacy music-only rescan walk a stale removable mount directory.
+    let all_directories = directories_response.data.unwrap_or_default();
+    let directory_count = all_directories.len();
+    let directories: Vec<_> = all_directories
+        .into_iter()
+        .filter(|dir| {
+            !source_roots
+                .iter()
+                .any(|root| Path::new(&dir.path).starts_with(root) || root.starts_with(&dir.path))
+        })
+        .collect();
+    let source_directories_skipped = directory_count - directories.len();
+    if source_directories_skipped > 0 {
+        info!("skipping {source_directories_skipped} directories overlapping registered removable sources; use library_scan_source");
+    }
 
     if directories.is_empty() {
         info!("no directories tracked for rescanning");
         return Ok(Some(json!({
-            "message": "no directories to rescan",
+            "message": "no legacy directories to rescan; registered removable sources use library_scan_source",
+            "source_directories_skipped": source_directories_skipped,
             "scanned_count": 0,
             "found_count": 0,
             "deleted_count": 0,
@@ -214,6 +245,9 @@ pub async fn process_rescan_directories_job(job: &Job) -> Result<Option<Value>, 
         })?
     {
         if let Some(local_path) = &blob.local_path {
+            if sources::contains_path(&source_roots, local_path) {
+                continue;
+            }
             if crate::paths::path_definitely_missing(local_path) {
                 // file is missing, soft delete blob and cascade to songs
                 match soft_delete_blob_and_songs(&blob.id).await {
@@ -255,6 +289,7 @@ pub async fn process_rescan_directories_job(job: &Job) -> Result<Option<Value>, 
 
     Ok(Some(json!({
         "scanned_directories": directories.len(),
+        "source_directories_skipped": source_directories_skipped,
         "files_found": total_found,
         "blobs_checked": checked,
         "blobs_deleted": deleted,
@@ -271,17 +306,29 @@ pub async fn purge_missing_scanned_directories() -> Result<usize, String> {
     let pool = database::connect()
         .await
         .map_err(|e| format!("database connection failed: {}", e))?;
+    purge_missing_scanned_directories_with_pool(&pool).await
+}
+
+async fn purge_missing_scanned_directories_with_pool(
+    pool: &sqlx::SqlitePool,
+) -> Result<usize, String> {
+    let source_roots = sources::protected_roots(&pool)
+        .await
+        .map_err(|e| format!("could not load removable source protection: {e}"))?;
 
     let rows = sqlx::query!(r#"SELECT id as "id!", path FROM scanned_directories"#)
-        .fetch_all(&pool)
+        .fetch_all(pool)
         .await
         .map_err(|e| format!("failed to list scanned_directories: {}", e))?;
 
     let mut purged = 0usize;
     for r in rows {
+        if sources::contains_path(&source_roots, &r.path) {
+            continue;
+        }
         if crate::paths::path_definitely_missing(&r.path) {
             match sqlx::query!("DELETE FROM scanned_directories WHERE id = ?", r.id)
-                .execute(&pool)
+                .execute(pool)
                 .await
             {
                 Ok(_) => {
@@ -310,10 +357,18 @@ pub async fn purge_missing_scanned_directories() -> Result<usize, String> {
 ///    the blob (eg. by a half-applied dedup / scan-conflict path).
 ///
 /// returns `(blobs_restored, songs_restored)`.
+/// registered removable sources are excluded so reconnect cannot undo deletion.
 pub async fn restore_reappeared_blobs_and_songs() -> Result<(usize, usize), String> {
     let pool = database::connect()
         .await
         .map_err(|e| format!("database connection failed: {}", e))?;
+    restore_reappeared_with_pool(&pool).await
+}
+
+async fn restore_reappeared_with_pool(pool: &sqlx::SqlitePool) -> Result<(usize, usize), String> {
+    let source_roots = sources::protected_roots(&pool)
+        .await
+        .map_err(|e| format!("could not load removable source protection: {e}"))?;
 
     // ---- pass 1: blob-driven ----
     let rows = sqlx::query!(
@@ -324,7 +379,7 @@ pub async fn restore_reappeared_blobs_and_songs() -> Result<(usize, usize), Stri
           AND local_path IS NOT NULL
         "#
     )
-    .fetch_all(&pool)
+    .fetch_all(pool)
     .await
     .map_err(|e| format!("failed to list soft-deleted blobs: {}", e))?;
 
@@ -336,7 +391,7 @@ pub async fn restore_reappeared_blobs_and_songs() -> Result<(usize, usize), Stri
             Some(p) => p,
             None => continue,
         };
-        if !Path::new(&lp).exists() {
+        if sources::contains_path(&source_roots, &lp) || !Path::new(&lp).exists() {
             continue;
         }
 
@@ -348,7 +403,7 @@ pub async fn restore_reappeared_blobs_and_songs() -> Result<(usize, usize), Stri
             "#,
             r.id
         )
-        .execute(&pool)
+        .execute(pool)
         .await;
 
         match blob_res {
@@ -371,7 +426,7 @@ pub async fn restore_reappeared_blobs_and_songs() -> Result<(usize, usize), Stri
             "#,
             r.id
         )
-        .execute(&pool)
+        .execute(pool)
         .await;
 
         match song_res {
@@ -391,7 +446,7 @@ pub async fn restore_reappeared_blobs_and_songs() -> Result<(usize, usize), Stri
           AND mb.local_path IS NOT NULL
         "#
     )
-    .fetch_all(&pool)
+    .fetch_all(pool)
     .await
     .map_err(|e| format!("failed to list orphan-deleted songs: {}", e))?;
 
@@ -400,7 +455,7 @@ pub async fn restore_reappeared_blobs_and_songs() -> Result<(usize, usize), Stri
             Some(p) => p,
             None => continue,
         };
-        if !Path::new(&lp).exists() {
+        if sources::contains_path(&source_roots, &lp) || !Path::new(&lp).exists() {
             continue;
         }
 
@@ -412,7 +467,7 @@ pub async fn restore_reappeared_blobs_and_songs() -> Result<(usize, usize), Stri
             "#,
             r.id
         )
-        .execute(&pool)
+        .execute(pool)
         .await;
 
         match res {
@@ -451,6 +506,143 @@ pub async fn repair_library_orphans() -> GrimoireResponse<Value> {
             "restored_songs": songs,
         }),
     )
+}
+
+#[cfg(test)]
+mod removable_source_tests {
+    use super::*;
+
+    async fn test_pool() -> sqlx::SqlitePool {
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        sqlx::migrate!("../migrations").run(&pool).await.unwrap();
+        sqlx::query!(
+            "INSERT INTO library_sourcez (id, volume_key, relative_path, last_known_path)
+               VALUES ('source', 'uuid', '', '/unused')"
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        pool
+    }
+
+    async fn protect(pool: &sqlx::SqlitePool, path: &Path) {
+        let path = path.to_str().unwrap();
+        sqlx::query!(
+            "INSERT INTO library_source_pathz(source_id, path) VALUES ('source', ?)",
+            path
+        )
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn removable_source_missing_scan_roots_are_retained() {
+        let pool = test_pool().await;
+        let temp = tempfile::tempdir().unwrap();
+        let source = temp.path().join("disk");
+        protect(&pool, &source).await;
+        for (id, path) in [
+            ("source01", source.join("music")),
+            ("ordinary", temp.path().join("disk-other")),
+        ] {
+            let path = path.to_str().unwrap();
+            sqlx::query!(
+                "INSERT INTO scanned_directories (id, path, last_scanned_at) VALUES (?, ?, 0)",
+                id,
+                path
+            )
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+        assert_eq!(
+            purge_missing_scanned_directories_with_pool(&pool)
+                .await
+                .unwrap(),
+            1
+        );
+        let ids = sqlx::query_scalar!(r#"SELECT id AS "id!" FROM scanned_directories"#)
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+        assert_eq!(ids, vec!["source01"]);
+    }
+
+    #[tokio::test]
+    async fn removable_source_reconnect_does_not_restore_intentionally_deleted_media() {
+        let pool = test_pool().await;
+        let temp = tempfile::tempdir().unwrap();
+        let source = temp.path().join("disk");
+        std::fs::create_dir(&source).unwrap();
+        protect(&pool, &source).await;
+        for (id, path, deleted_at) in [
+            ("deleted-blob", source.join("deleted.flac"), Some(1)),
+            ("deleted-song", source.join("live-blob.flac"), None),
+            ("ordinary", temp.path().join("ordinary.flac"), Some(1)),
+        ] {
+            std::fs::write(&path, "").unwrap();
+            let path = path.to_str().unwrap();
+            sqlx::query!(
+                "INSERT INTO media_blobz (id, local_path, deleted_at) VALUES (?, ?, ?)",
+                id,
+                path,
+                deleted_at
+            )
+            .execute(&pool)
+            .await
+            .unwrap();
+            sqlx::query!(
+                "INSERT INTO songz (id, media_blob_id, title, deleted_at) VALUES (?, ?, 'song', 1)",
+                id,
+                id
+            )
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+        assert_eq!(restore_reappeared_with_pool(&pool).await.unwrap(), (1, 1));
+        let deleted = sqlx::query_scalar!(
+            r#"SELECT id AS "id!" FROM songz WHERE deleted_at IS NOT NULL ORDER BY id"#
+        )
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        assert_eq!(deleted, vec!["deleted-blob", "deleted-song"]);
+        let still_deleted: i64 = sqlx::query_scalar!(
+            r#"SELECT deleted_at AS "deleted_at!" FROM media_blobz WHERE id = 'deleted-blob'"#
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(still_deleted, 1);
+    }
+
+    #[tokio::test]
+    async fn removable_source_protection_load_failure_aborts_cleanup() {
+        let pool = test_pool().await;
+        sqlx::raw_sql("DROP TABLE library_source_pathz")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query!("INSERT INTO scanned_directories (id, path, last_scanned_at) VALUES ('keep0001', '/missing/keep', 0)")
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert!(purge_missing_scanned_directories_with_pool(&pool)
+            .await
+            .is_err());
+        assert!(restore_reappeared_with_pool(&pool).await.is_err());
+        let count = sqlx::query_scalar!("SELECT COUNT(*) FROM scanned_directories")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(count, 1);
+    }
 }
 
 /// soft delete a blob and cascade to associated songs

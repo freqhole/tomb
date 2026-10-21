@@ -27,6 +27,7 @@ import { isTouchDevice } from "../../utils/isMobile";
 import { DEFAULT_SHARE_WEB_HOST } from "../../utils/permalink";
 import { TopNavSearchContainer } from "../../utils/TopNavSearchContainer";
 import { Badge } from "../badges/Badge";
+import { AvailabilityFilter, AvailabilityFilterChip } from "../forms/AvailabilityFilter";
 import { ConfirmDialog } from "../dialogs/ConfirmDialog";
 import { toast } from "../feedback/Toast";
 import { Icon } from "../icons/registry";
@@ -910,6 +911,18 @@ export function TopNav(props: TopNavProps) {
     return i.sortBy !== i.defaultSortBy || i.sortDirection !== i.defaultSortDirection;
   };
   const hasActiveTags = () => (info().selectedTagFilters?.length || 0) > 0;
+  const hasAvailabilityChip = () =>
+    !!info().onHideOfflineChange && info().availabilityFilterSelected;
+  const clearTagFilters = () => {
+    info().onClearAllTags?.();
+    if (hasAvailabilityChip() && !info().statusFilterOptions?.length) {
+      info().onRemoveAvailabilityFilter?.();
+    }
+  };
+  const clearStatusFilters = () => {
+    info().onClearStatusFilters?.();
+    if (hasAvailabilityChip()) info().onRemoveAvailabilityFilter?.();
+  };
   const hasActiveFeedFilters = () =>
     (info().selectedFeedTypes?.length || 0) > 0 || info().myItemsOnly;
   const hasActiveStatusFilters = () => (info().selectedStatusFilters?.length || 0) > 0;
@@ -2155,7 +2168,8 @@ export function TopNav(props: TopNavProps) {
                 (info().sortFields?.length ||
                   info().availableTags?.length ||
                   info().feedTypeOptions?.length ||
-                  info().statusFilterOptions?.length)
+                  info().statusFilterOptions?.length ||
+                  info().onHideOfflineChange)
               }
             >
               <div
@@ -2177,13 +2191,15 @@ export function TopNav(props: TopNavProps) {
                       isNonDefaultSort() ||
                       hasActiveTags() ||
                       hasActiveFeedFilters() ||
-                      hasActiveStatusFilters(),
+                      hasActiveStatusFilters() ||
+                      hasAvailabilityChip(),
                     "text-white/60 hover:text-white":
                       !toolsOpen() &&
                       !isNonDefaultSort() &&
                       !hasActiveTags() &&
                       !hasActiveFeedFilters() &&
-                      !hasActiveStatusFilters(),
+                      !hasActiveStatusFilters() &&
+                      !hasAvailabilityChip(),
                   }}
                   onClick={() => {
                     // Match sort/tag: clicking a hover-open menu locks it in
@@ -2272,6 +2288,11 @@ export function TopNav(props: TopNavProps) {
                           )}
                         </For>
                       </div>
+                    </Show>
+                    <Show when={info().onHideOfflineChange && !info().availabilityFilterSelected}>
+                      <AvailabilityFilter
+                        onSelect={() => info().onAddAvailabilityFilter?.()}
+                      />
                     </Show>
                     <Show when={info().statusFilterOptions?.length}>
                       <div class="space-y-1">
@@ -2387,7 +2408,8 @@ export function TopNav(props: TopNavProps) {
             <Show
               when={
                 !isRadioRoute() &&
-                info().availableTags?.length &&
+                (info().availableTags?.length ||
+                  (info().onHideOfflineChange && !info().statusFilterOptions?.length)) &&
                 !compactTools() &&
                 (!isNarrow() || !searchExpanded())
               }
@@ -2411,9 +2433,14 @@ export function TopNav(props: TopNavProps) {
                 <button
                   class={`${iconBtnPad()} rounded transition-colors border-none bg-transparent cursor-pointer`}
                   classList={{
-                    "text-[var(--color-accent-500)]": hasActiveTags() || isDesktopFlyoutOpen("tag"),
+                    "text-[var(--color-accent-500)]":
+                      hasActiveTags() ||
+                      (!info().statusFilterOptions?.length && hasAvailabilityChip()) ||
+                      isDesktopFlyoutOpen("tag"),
                     "text-white/60 hover:text-white":
-                      !hasActiveTags() && !isDesktopFlyoutOpen("tag"),
+                      !hasActiveTags() &&
+                      (!!info().statusFilterOptions?.length || !hasAvailabilityChip()) &&
+                      !isDesktopFlyoutOpen("tag"),
                   }}
                   onClick={(event) => {
                     event.stopPropagation();
@@ -2427,19 +2454,31 @@ export function TopNav(props: TopNavProps) {
                       setDesktopFlyoutLockedFor("tag");
                     }
                   }}
-                  title="tag filters"
+                  title={info().onHideOfflineChange ? "filters" : "tag filters"}
                 >
-                  <Icon name="tag" size={iconBtnSize()} />
+                  <Icon name={info().availableTags?.length ? "tag" : "filter"} size={iconBtnSize()} />
                 </button>
                 <Show when={isDesktopFlyoutOpen("tag")}>
                   <div class="absolute top-full right-0 mt-1 bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded-lg shadow-xl z-[1001] min-w-[200px] max-w-[320px]">
                     <div class="p-2">
-                      <Show when={hasActiveTags()}>
+                      <Show
+                        when={
+                          info().onHideOfflineChange &&
+                          !info().availabilityFilterSelected &&
+                          !info().statusFilterOptions?.length
+                        }
+                      >
+                        <AvailabilityFilter onSelect={() => info().onAddAvailabilityFilter?.()} />
+                      </Show>
+                      <Show
+                        when={
+                          hasActiveTags() ||
+                          (!info().statusFilterOptions?.length && hasAvailabilityChip())
+                        }
+                      >
                         <div class="border-b border-[var(--color-border-subtle)] pb-2 mb-2">
                           <button
-                            onClick={() => {
-                              info().onClearAllTags?.();
-                            }}
+                            onClick={clearTagFilters}
                             class="w-full text-left px-2 py-1.5 text-xs hover:bg-[var(--color-bg-hover)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] rounded transition-colors"
                           >
                             clear all
@@ -2451,7 +2490,11 @@ export function TopNav(props: TopNavProps) {
                           loading tags...
                         </div>
                       </Show>
-                      <Show when={!info().tagsLoading && unselectedTags().length === 0}>
+                      <Show
+                        when={
+                          !info().tagsLoading && unselectedTags().length === 0 && info().onAddTag
+                        }
+                      >
                         <div class="text-xs text-[var(--color-text-tertiary)] py-2 px-2">
                           {(info().availableTags?.length || 0) === 0
                             ? "no tags available"
@@ -2602,9 +2645,13 @@ export function TopNav(props: TopNavProps) {
                   class={`${iconBtnPad()} rounded transition-colors border-none bg-transparent cursor-pointer`}
                   classList={{
                     "text-[var(--color-accent-500)]":
-                      hasActiveStatusFilters() || isDesktopFlyoutOpen("status"),
+                      hasActiveStatusFilters() ||
+                      hasAvailabilityChip() ||
+                      isDesktopFlyoutOpen("status"),
                     "text-white/60 hover:text-white":
-                      !hasActiveStatusFilters() && !isDesktopFlyoutOpen("status"),
+                      !hasActiveStatusFilters() &&
+                      !hasAvailabilityChip() &&
+                      !isDesktopFlyoutOpen("status"),
                   }}
                   onClick={(event) => {
                     event.stopPropagation();
@@ -2628,10 +2675,15 @@ export function TopNav(props: TopNavProps) {
                 <Show when={isDesktopFlyoutOpen("status")}>
                   <div class="absolute top-full right-0 mt-1 bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded-lg shadow-xl z-[1001] min-w-[200px] max-w-[320px]">
                     <div class="p-2">
-                      <Show when={hasActiveStatusFilters()}>
+                      <Show when={info().onHideOfflineChange && !info().availabilityFilterSelected}>
+                        <AvailabilityFilter
+                          onSelect={() => info().onAddAvailabilityFilter?.()}
+                        />
+                      </Show>
+                      <Show when={hasActiveStatusFilters() || hasAvailabilityChip()}>
                         <div class="border-b border-[var(--color-border-subtle)] pb-2 mb-2">
                           <button
-                            onClick={() => info().onClearStatusFilters?.()}
+                            onClick={clearStatusFilters}
                             class="w-full text-left px-2 py-1.5 text-xs hover:bg-[var(--color-bg-hover)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] rounded transition-colors"
                           >
                             clear all
@@ -2713,8 +2765,15 @@ export function TopNav(props: TopNavProps) {
         {/* selected tag badges - below nav bar (shown on narrow too,
             in their own wrapping row, so mobile users can still see
             and remove active filters). */}
-        <Show when={hasActiveTags()}>
+        <Show when={hasActiveTags() || hasAvailabilityChip()}>
           <div class="flex gap-1.5 flex-wrap mt-1.5 px-1">
+            <Show when={hasAvailabilityChip()}>
+              <AvailabilityFilterChip
+                hideOffline={info().hideOffline ?? true}
+                onChange={(hide) => info().onHideOfflineChange?.(hide)}
+                onRemove={() => info().onRemoveAvailabilityFilter?.()}
+              />
+            </Show>
             <For each={info().selectedTagFilters}>
               {(filter) => (
                 <button

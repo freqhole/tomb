@@ -56,6 +56,11 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
+  // live availability tokens must reach the host, never the asset cache.
+  if (url.pathname === "/api/library/availability-revision") {
+    return;
+  }
+
   // skip non-GET requests
   if (event.request.method !== "GET") {
     return;

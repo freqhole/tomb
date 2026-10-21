@@ -210,7 +210,7 @@ fi
 mkdir -p "$root" "$HOME/.local/bin"
 chmod 700 "$root"
 work="$(mktemp -d "$root/setup.XXXXXX")"
-files=(menu.py requirements.txt configure.py packages.py charnel.py splash.py freqhole-pi freqhole-pi-control
+files=(menu.py storage_menu.py requirements.txt configure.py packages.py charnel.py splash.py freqhole-pi freqhole-pi-control
     rathole.service rathole-tmux.service rathole-ctrl.service tmux.conf
     freqhole-wifi freqhole-wifi.service freqhole-pi-wifi-recover charnel.service charnel-session)
 cleanup() {
@@ -249,7 +249,7 @@ if "$splash"; then
     [ -f "$image" ] || die "missing splash image: $image"
     sudo python3 "$source_dir/splash.py" "$image"
 fi
-for file in menu.py requirements.txt configure.py packages.py charnel.py; do
+for file in menu.py storage_menu.py requirements.txt configure.py packages.py charnel.py; do
     install -m 644 "$source_dir/$file" "$root/$file"
 done
 python3 "$root/configure.py" menu "$root/menu.json" \

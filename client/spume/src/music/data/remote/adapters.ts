@@ -27,7 +27,7 @@ export type RemoteSong = Required<Pick<Song,
   | 'remote_server_id' | 'remote_song_id' | 'blake3' | 'added_at'
 >> & Pick<Song,
   // optional numeric ratings (undefined = not rated)
-  | 'user_rating' | 'album_rating'
+  | 'user_rating' | 'album_rating' | 'is_offline'
 >;
 
 // API image structure (from API: is_primary is number 0|1, blob_type is string)
@@ -47,6 +47,7 @@ export interface ApiUrl {
 // API response structure - defines adapter's contract with API client
 // nullable arrays/fields accept null or undefined to match codegen nullish output
 export interface ApiSongQueryItem {
+  is_offline?: boolean;
   song: {
     id: string;
     title: string;
@@ -131,6 +132,7 @@ export function adaptSongFromAPI(item: ApiSongQueryItem, baseUrl: string, remote
   const sha256 = blob?.blake3 || song.media_blob_id;
 
   const result = {
+    is_offline: item.is_offline ?? false,
     id: song.id,
     sha256,
     media_blob_id: song.media_blob_id, // short blob ID for analytics FK

@@ -542,7 +542,7 @@ pub async fn run_job_processor() -> GrimoireResponse<()> {
         cancellation_token_clone.cancel();
     });
 
-    run_job_processor_loop(cancellation_token).await
+    run_job_processor_with_token(cancellation_token).await
 }
 
 /// Job processor that runs with an externally-provided cancellation token
@@ -554,7 +554,16 @@ pub async fn run_job_processor_with_token(
     cancellation_token: CancellationToken,
 ) -> GrimoireResponse<()> {
     info!("job processor started (with external cancellation token)");
-    run_job_processor_loop(cancellation_token).await
+    let monitor_token = cancellation_token.child_token();
+    let (response, ()) = tokio::join!(
+        async {
+            let response = run_job_processor_loop(cancellation_token).await;
+            monitor_token.cancel();
+            response
+        },
+        crate::external_storage::monitor::run(monitor_token.clone())
+    );
+    response
 }
 
 /// Internal job processing loop shared by both entry points.

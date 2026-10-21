@@ -88,6 +88,8 @@ export class RemoteVideoDataSource implements VideoDataSource {
 
   private buildQueryVideosParams(params?: VideoQueryParams) {
     const filters: Record<string, unknown> = {};
+    if (params?.hide_offline !== undefined) filters.hide_offline = params.hide_offline;
+    if (params?.offline_only !== undefined) filters.offline_only = params.offline_only;
     if (params?.include_tags && params.include_tags.length > 0) {
       filters.include_tags = params.include_tags;
     }
@@ -153,6 +155,8 @@ export class RemoteVideoDataSource implements VideoDataSource {
   }
 
   async getVideoSeriesList(params?: {
+    offline_only?: boolean;
+    hide_offline?: boolean;
     offset?: number;
     limit?: number;
     search?: string;
@@ -161,7 +165,7 @@ export class RemoteVideoDataSource implements VideoDataSource {
     const result = await client.video.queryVideoSeries({
       q: params?.search ?? null,
       search_fields: null,
-      filters: {},
+      filters: { hide_offline: params?.hide_offline ?? false, offline_only: params?.offline_only ?? false },
       sort_by: null,
       sort_direction: null,
       limit: params?.limit ?? null,

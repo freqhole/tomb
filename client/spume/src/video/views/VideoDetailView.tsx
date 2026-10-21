@@ -5,6 +5,7 @@
 import { useNavigate, useParams } from "@solidjs/router";
 import { createSignal, createMemo, createEffect, createResource, For, Show } from "solid-js";
 import { DetailViewWrapper } from "../../components/layout/DetailViewWrapper";
+import { OfflineBadge } from "../../components/badges/OfflineBadge";
 import { MediaImage } from "../../components/media/MediaImage";
 import { Button } from "../../components/buttons/Button";
 import { LoadingState } from "../../components/feedback";
@@ -336,6 +337,7 @@ export function VideoDetailView() {
                   </h1>
 
                   <div class="mt-1 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-xs text-[var(--color-text-secondary)]">
+                    <OfflineBadge isOffline={video().is_offline} />
                     <Show when={releaseYear()}>{(year) => <span>{year()}</span>}</Show>
                     <Show when={video().episode_number != null}>
                       <span>episode {video().episode_number}</span>
@@ -472,6 +474,7 @@ export function VideoDetailView() {
                   </h1>
 
                   <div class="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-[var(--color-text-secondary)]">
+                    <OfflineBadge isOffline={video().is_offline} />
                     <Show when={releaseYear()}>{(year) => <span>{year()}</span>}</Show>
                     <Show when={video().episode_number != null}>
                       <span>episode {video().episode_number}</span>

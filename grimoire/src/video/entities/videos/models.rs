@@ -65,6 +65,9 @@ pub struct Video {
     pub title: String,
     pub description: Option<String>,
     pub media_blob_id: String,
+    /// confirmed offline on this library host, not a guarantee of local playability.
+    #[serde(default)]
+    pub is_offline: bool,
     /// denormalized content hash of `media_blob_id`'s blob (mirrors
     /// `Song::media_blob_blake3` in spirit, field just named `blake3` here) -
     /// `#[sqlx(default)]` so a query that doesn't select it falls back to

@@ -356,6 +356,32 @@ async function setQueue(items: MediaItem[]): Promise<void> {
   notifyQueueDepartures(previous, withIds);
 }
 
+async function updateQueueAvailability(
+  remoteId: string,
+  statuses: ReadonlyMap<string, boolean>,
+  signal?: AbortSignal
+): Promise<void> {
+  const db = await initAppDB();
+  signal?.throwIfAborted();
+  // read after asynchronous probes/DB initialization, never restore a queue
+  // snapshot that the user may have replaced or reordered in the meantime.
+  const current = appState();
+  if (!current) return;
+  const queue = current.queue.map((item): MediaItem => {
+    const media = item.kind === "song" ? item.song : item.video;
+    if (media.source_type !== "remote" || media.remote_server_id !== remoteId) return item;
+    const offline = statuses.get(`${item.kind}:${media.id}`);
+    if (offline === undefined || media.is_offline === offline) return item;
+    return item.kind === "song"
+      ? { kind: "song", song: { ...item.song, is_offline: offline } }
+      : { kind: "video", video: { ...item.video, is_offline: offline } };
+  });
+  if (queue.every((item, index) => item === current.queue[index])) return;
+  const updated = { ...current, queue, last_updated: Date.now() };
+  setAppState(updated);
+  await db.put(STORE_APP_STATE, { ...updated, queue: toPlainQueueItems(queue) });
+}
+
 // update a specific song in the queue (for metadata changes like favorites, ratings)
 // no-ops for video queue items (identified by songId/sha256 not matching).
 async function updateSongInQueue(
@@ -743,5 +769,6 @@ export {
   updateAppState,
   updatePendingRemote,
   updateSongInQueue,
+  updateQueueAvailability,
   updateVideoRenditionsInQueue,
 };

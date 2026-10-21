@@ -25,6 +25,12 @@ export const AcceptedProposalSchema = z.object({
 });
 export type AcceptedProposal = z.infer<typeof AcceptedProposalSchema>;
 
+export const ActiveLibraryScanSchema = z.object({
+  session_id: z.string(),
+  path: z.string()
+});
+export type ActiveLibraryScan = z.infer<typeof ActiveLibraryScanSchema>;
+
 export const AddAlbumTaxonRequestSchema = z.object({
   album_id: z.string(),
   taxon_id: z.string(),
@@ -577,6 +583,7 @@ export const AlbumPendingResponseSchema = z.object({
 export type AlbumPendingResponse = z.infer<typeof AlbumPendingResponseSchema>;
 
 export const AlbumQueryResultSchema = z.object({
+  is_offline: z.boolean().default(false),
   album: z.object({
   id: z.string(),
   title: z.string(),
@@ -657,6 +664,7 @@ export const AlbumQueryResultSchema = z.object({
 export type AlbumQueryResult = z.infer<typeof AlbumQueryResultSchema>;
 
 export const AlbumSearchResultSchema = z.object({
+  is_offline: z.boolean().default(false),
   id: z.string(),
   title: z.string(),
   artist_names: z.array(z.string()),
@@ -707,6 +715,7 @@ export const AlbumsByValueResponseSchema = z.object({
   kind: z.string(),
   value_norm: z.string(),
   albums: z.array(z.object({
+  is_offline: z.boolean().default(false),
   album: z.object({
   id: z.string(),
   title: z.string(),
@@ -790,6 +799,7 @@ export type AlbumsByValueResponse = z.infer<typeof AlbumsByValueResponseSchema>;
 
 export const AlbumsQueryResultSchema = z.object({
   items: z.array(z.object({
+  is_offline: z.boolean().default(false),
   album: z.object({
   id: z.string(),
   title: z.string(),
@@ -1139,6 +1149,7 @@ export const ArtistMetadataSchema = z.object({
 export type ArtistMetadata = z.infer<typeof ArtistMetadataSchema>;
 
 export const ArtistQueryResultSchema = z.object({
+  is_offline: z.boolean().default(false),
   artist: z.object({
   id: z.string(),
   name: z.string(),
@@ -1176,6 +1187,7 @@ export const ArtistQueryResultSchema = z.object({
 export type ArtistQueryResult = z.infer<typeof ArtistQueryResultSchema>;
 
 export const ArtistSearchResultSchema = z.object({
+  is_offline: z.boolean().default(false),
   id: z.string(),
   name: z.string(),
   song_count: z.number(),
@@ -1190,6 +1202,7 @@ export type ArtistSearchResult = z.infer<typeof ArtistSearchResultSchema>;
 
 export const ArtistsQueryResultSchema = z.object({
   items: z.array(z.object({
+  is_offline: z.boolean().default(false),
   artist: z.object({
   id: z.string(),
   name: z.string(),
@@ -1839,6 +1852,7 @@ export const EraAlbumsResponseSchema = z.object({
   min_year: z.number(),
   max_year: z.number(),
   albums: z.array(z.object({
+  is_offline: z.boolean().default(false),
   album: z.object({
   id: z.string(),
   title: z.string(),
@@ -1994,6 +2008,7 @@ export type ExternalUrlProposal = z.infer<typeof ExternalUrlProposalSchema>;
 export const FavoriteAlbumResultSchema = z.object({
   favorited_at: z.number(),
   album: z.object({
+  is_offline: z.boolean().default(false),
   album: z.object({
   id: z.string(),
   title: z.string(),
@@ -2077,6 +2092,7 @@ export type FavoriteAlbumResult = z.infer<typeof FavoriteAlbumResultSchema>;
 export const FavoriteArtistResultSchema = z.object({
   favorited_at: z.number(),
   artist: z.object({
+  is_offline: z.boolean().default(false),
   artist: z.object({
   id: z.string(),
   name: z.string(),
@@ -2150,6 +2166,7 @@ export const FavoriteItemSchema = z.union([z.intersection(z.object({
   updated_by_username: z.string().nullish(),
   play_count: z.number().nullish()
 }),
+  is_offline: z.boolean().default(false),
   artist: z.object({
   id: z.string(),
   name: z.string(),
@@ -2258,6 +2275,7 @@ export const FavoriteItemSchema = z.union([z.intersection(z.object({
 }), z.object({
   favorited_at: z.number(),
   album: z.object({
+  is_offline: z.boolean().default(false),
   album: z.object({
   id: z.string(),
   title: z.string(),
@@ -2340,6 +2358,7 @@ export const FavoriteItemSchema = z.union([z.intersection(z.object({
 }), z.object({
   favorited_at: z.number(),
   artist: z.object({
+  is_offline: z.boolean().default(false),
   artist: z.object({
   id: z.string(),
   name: z.string(),
@@ -2379,6 +2398,7 @@ export const FavoriteItemSchema = z.union([z.intersection(z.object({
 }), z.object({
   favorited_at: z.number(),
   playlist: z.object({
+  is_offline: z.boolean().default(false),
   playlist: z.object({
   id: z.string(),
   title: z.string(),
@@ -2424,6 +2444,7 @@ export const FavoriteItemSchema = z.union([z.intersection(z.object({
   title: z.string(),
   description: z.string().nullish(),
   media_blob_id: z.string(),
+  is_offline: z.boolean().default(false),
   blake3: z.string().nullish(),
   parent_video_id: z.string().nullish(),
   artist_id: z.string().nullish(),
@@ -2457,6 +2478,7 @@ export const FavoriteItemSchema = z.union([z.intersection(z.object({
 }), z.object({
   favorited_at: z.number(),
   series: z.object({
+  is_offline: z.boolean().default(false),
   id: z.string(),
   title: z.string(),
   description: z.string().nullish(),
@@ -2474,6 +2496,7 @@ export type FavoriteItem = z.infer<typeof FavoriteItemSchema>;
 export const FavoritePlaylistResultSchema = z.object({
   favorited_at: z.number(),
   playlist: z.object({
+  is_offline: z.boolean().default(false),
   playlist: z.object({
   id: z.string(),
   title: z.string(),
@@ -2543,6 +2566,7 @@ export const FavoriteSongResultSchema = z.object({
   updated_by_username: z.string().nullish(),
   play_count: z.number().nullish()
 }),
+  is_offline: z.boolean().default(false),
   artist: z.object({
   id: z.string(),
   name: z.string(),
@@ -3410,6 +3434,67 @@ export const LastFmAlbumDetailResultSchema = z.object({
 });
 export type LastFmAlbumDetailResult = z.infer<typeof LastFmAlbumDetailResultSchema>;
 
+export const LibraryAvailabilityRevisionSchema = z.object({
+  revision: z.string()
+});
+export type LibraryAvailabilityRevision = z.infer<typeof LibraryAvailabilityRevisionSchema>;
+
+export const LibraryRegisterSourceRequestSchema = z.object({
+  device_path: z.string(),
+  mount_path: z.string(),
+  relative_path: z.string(),
+  domain: z.union([z.literal("both"), z.literal("music"), z.literal("video")]),
+  generate_renditions: z.boolean().nullish()
+});
+export type LibraryRegisterSourceRequest = z.infer<typeof LibraryRegisterSourceRequestSchema>;
+
+export const LibraryRenditionSettingsSchema = z.object({
+  enabled: z.boolean(),
+  directory: z.string()
+});
+export type LibraryRenditionSettings = z.infer<typeof LibraryRenditionSettingsSchema>;
+
+export const LibraryScanResponseSchema = z.object({
+  session_id: z.string(),
+  files_discovered: z.number(),
+  jobs_created: z.number(),
+  success: z.boolean(),
+  message: z.string()
+});
+export type LibraryScanResponse = z.infer<typeof LibraryScanResponseSchema>;
+
+export const LibraryScanStatusRequestSchema = z.object({
+  session_id: z.string()
+});
+export type LibraryScanStatusRequest = z.infer<typeof LibraryScanStatusRequestSchema>;
+
+export const LibrarySourceSchema = z.object({
+  id: z.string(),
+  volume_key: z.string(),
+  volume_uuid: z.string().nullish(),
+  partition_uuid: z.string().nullish(),
+  label: z.string().nullish(),
+  relative_path: z.string(),
+  last_known_path: z.string(),
+  domain: z.string(),
+  created_at: z.number()
+});
+export type LibrarySource = z.infer<typeof LibrarySourceSchema>;
+
+export const LibrarySourceByIdRequestSchema = z.object({
+  id: z.string()
+});
+export type LibrarySourceByIdRequest = z.infer<typeof LibrarySourceByIdRequestSchema>;
+
+export const LibrarySourceSummarySchema = z.object({
+  source_id: z.string(),
+  music_count: z.number(),
+  video_count: z.number(),
+  tags: z.array(z.string()),
+  generate_renditions: z.boolean()
+});
+export type LibrarySourceSummary = z.infer<typeof LibrarySourceSummarySchema>;
+
 export const LinkNodeRequestSchema = z.object({
   node_id: z.string()
 });
@@ -3477,6 +3562,7 @@ export const ListFavoritesResponseSchema = z.object({
   updated_by_username: z.string().nullish(),
   play_count: z.number().nullish()
 }),
+  is_offline: z.boolean().default(false),
   artist: z.object({
   id: z.string(),
   name: z.string(),
@@ -3585,6 +3671,7 @@ export const ListFavoritesResponseSchema = z.object({
 }), z.object({
   favorited_at: z.number(),
   album: z.object({
+  is_offline: z.boolean().default(false),
   album: z.object({
   id: z.string(),
   title: z.string(),
@@ -3667,6 +3754,7 @@ export const ListFavoritesResponseSchema = z.object({
 }), z.object({
   favorited_at: z.number(),
   artist: z.object({
+  is_offline: z.boolean().default(false),
   artist: z.object({
   id: z.string(),
   name: z.string(),
@@ -3706,6 +3794,7 @@ export const ListFavoritesResponseSchema = z.object({
 }), z.object({
   favorited_at: z.number(),
   playlist: z.object({
+  is_offline: z.boolean().default(false),
   playlist: z.object({
   id: z.string(),
   title: z.string(),
@@ -3751,6 +3840,7 @@ export const ListFavoritesResponseSchema = z.object({
   title: z.string(),
   description: z.string().nullish(),
   media_blob_id: z.string(),
+  is_offline: z.boolean().default(false),
   blake3: z.string().nullish(),
   parent_video_id: z.string().nullish(),
   artist_id: z.string().nullish(),
@@ -3784,6 +3874,7 @@ export const ListFavoritesResponseSchema = z.object({
 }), z.object({
   favorited_at: z.number(),
   series: z.object({
+  is_offline: z.boolean().default(false),
   id: z.string(),
   title: z.string(),
   description: z.string().nullish(),
@@ -4809,6 +4900,7 @@ export const PlaylistItemRefSchema = z.object({
 export type PlaylistItemRef = z.infer<typeof PlaylistItemRefSchema>;
 
 export const PlaylistQueryResultSchema = z.object({
+  is_offline: z.boolean().default(false),
   playlist: z.object({
   id: z.string(),
   title: z.string(),
@@ -4844,6 +4936,7 @@ export const PlaylistQueryResultSchema = z.object({
 export type PlaylistQueryResult = z.infer<typeof PlaylistQueryResultSchema>;
 
 export const PlaylistSearchResultSchema = z.object({
+  is_offline: z.boolean().default(false),
   id: z.string(),
   title: z.string(),
   description: z.string().nullish(),
@@ -4889,6 +4982,7 @@ export const PlaylistSongResultSchema = z.object({
   updated_by_username: z.string().nullish(),
   play_count: z.number().nullish()
 }),
+  is_offline: z.boolean().default(false),
   artist: z.object({
   id: z.string(),
   name: z.string(),
@@ -5031,6 +5125,7 @@ export const PlaylistSongsQueryResultSchema = z.object({
   updated_by_username: z.string().nullish(),
   play_count: z.number().nullish()
 }),
+  is_offline: z.boolean().default(false),
   artist: z.object({
   id: z.string(),
   name: z.string(),
@@ -5147,6 +5242,7 @@ export type PlaylistSongsQueryResult = z.infer<typeof PlaylistSongsQueryResultSc
 
 export const PlaylistsQueryResultSchema = z.object({
   items: z.array(z.object({
+  is_offline: z.boolean().default(false),
   playlist: z.object({
   id: z.string(),
   title: z.string(),
@@ -5733,6 +5829,7 @@ export type RecentlyAddedAlbumsRequest = z.infer<typeof RecentlyAddedAlbumsReque
 
 export const RecentlyAddedAlbumsResponseSchema = z.object({
   albums: z.array(z.object({
+  is_offline: z.boolean().default(false),
   album: z.object({
   id: z.string(),
   title: z.string(),
@@ -5829,6 +5926,7 @@ export const RecentlyAddedVideosResponseSchema = z.object({
   title: z.string(),
   description: z.string().nullish(),
   media_blob_id: z.string(),
+  is_offline: z.boolean().default(false),
   blake3: z.string().nullish(),
   parent_video_id: z.string().nullish(),
   artist_id: z.string().nullish(),
@@ -5995,6 +6093,18 @@ export const RelatedArtistsBatchEntrySchema = z.object({
 }))
 });
 export type RelatedArtistsBatchEntry = z.infer<typeof RelatedArtistsBatchEntrySchema>;
+
+export const RemovableVolumeSchema = z.object({
+  device_path: z.string(),
+  uuid: z.string().nullish(),
+  partition_uuid: z.string().nullish(),
+  label: z.string().nullish(),
+  filesystem: z.string(),
+  mount_points: z.array(z.string()),
+  read_only: z.boolean(),
+  size_bytes: z.number()
+});
+export type RemovableVolume = z.infer<typeof RemovableVolumeSchema>;
 
 export const RemoveAlbumTaxonRequestSchema = z.object({
   album_id: z.string(),
@@ -6245,6 +6355,7 @@ export type SearchRequest = z.infer<typeof SearchRequestSchema>;
 
 export const SearchResponseSchema = z.object({
   songs: z.array(z.object({
+  is_offline: z.boolean().default(false),
   id: z.string(),
   title: z.string(),
   artist_names: z.array(z.string()),
@@ -6259,6 +6370,7 @@ export const SearchResponseSchema = z.object({
   highlight: z.string().nullish()
 })),
   artists: z.array(z.object({
+  is_offline: z.boolean().default(false),
   id: z.string(),
   name: z.string(),
   song_count: z.number(),
@@ -6270,6 +6382,7 @@ export const SearchResponseSchema = z.object({
   highlight: z.string().nullish()
 })).nullish(),
   albums: z.array(z.object({
+  is_offline: z.boolean().default(false),
   id: z.string(),
   title: z.string(),
   artist_names: z.array(z.string()),
@@ -6292,6 +6405,7 @@ export const SearchResponseSchema = z.object({
   search_rank: z.number()
 })).nullish(),
   playlists: z.array(z.object({
+  is_offline: z.boolean().default(false),
   id: z.string(),
   title: z.string(),
   description: z.string().nullish(),
@@ -6303,6 +6417,7 @@ export const SearchResponseSchema = z.object({
   highlight: z.string().nullish()
 })).nullish(),
   videos: z.array(z.object({
+  is_offline: z.boolean().default(false),
   id: z.string(),
   title: z.string(),
   series_id: z.string().nullish(),
@@ -6317,6 +6432,7 @@ export const SearchResponseSchema = z.object({
   highlight: z.string().nullish()
 })).nullish(),
   video_series: z.array(z.object({
+  is_offline: z.boolean().default(false),
   id: z.string(),
   title: z.string(),
   description: z.string().nullish(),
@@ -6359,6 +6475,7 @@ export const SeasonWithVideosSchema = z.object({
   title: z.string(),
   description: z.string().nullish(),
   media_blob_id: z.string(),
+  is_offline: z.boolean().default(false),
   blake3: z.string().nullish(),
   parent_video_id: z.string().nullish(),
   artist_id: z.string().nullish(),
@@ -6398,6 +6515,7 @@ export type SelfAccountLinkResponse = z.infer<typeof SelfAccountLinkResponseSche
 
 export const SeriesDetailSchema = z.object({
   series: z.object({
+  is_offline: z.boolean().default(false),
   id: z.string(),
   title: z.string(),
   description: z.string().nullish(),
@@ -6430,6 +6548,7 @@ export const SeriesDetailSchema = z.object({
   title: z.string(),
   description: z.string().nullish(),
   media_blob_id: z.string(),
+  is_offline: z.boolean().default(false),
   blake3: z.string().nullish(),
   parent_video_id: z.string().nullish(),
   artist_id: z.string().nullish(),
@@ -6468,6 +6587,7 @@ export const SeriesDetailSchema = z.object({
   title: z.string(),
   description: z.string().nullish(),
   media_blob_id: z.string(),
+  is_offline: z.boolean().default(false),
   blake3: z.string().nullish(),
   parent_video_id: z.string().nullish(),
   artist_id: z.string().nullish(),
@@ -6501,6 +6621,7 @@ export type SeriesDetail = z.infer<typeof SeriesDetailSchema>;
 
 export const SeriesQueryResultSchema = z.object({
   items: z.array(z.object({
+  is_offline: z.boolean().default(false),
   id: z.string(),
   title: z.string(),
   description: z.string().nullish(),
@@ -6542,6 +6663,15 @@ export const SessionItemSchema = z.object({
   entity_id: z.string()
 });
 export type SessionItem = z.infer<typeof SessionItemSchema>;
+
+export const SessionJobCountsSchema = z.object({
+  pending: z.number(),
+  running: z.number(),
+  completed: z.number(),
+  failed: z.number(),
+  total: z.number()
+});
+export type SessionJobCounts = z.infer<typeof SessionJobCountsSchema>;
 
 export const SessionSongSchema = z.object({
   song_id: z.string(),
@@ -6744,6 +6874,7 @@ export const SongQueryResultSchema = z.object({
   updated_by_username: z.string().nullish(),
   play_count: z.number().nullish()
 }),
+  is_offline: z.boolean().default(false),
   artist: z.object({
   id: z.string(),
   name: z.string(),
@@ -6859,6 +6990,7 @@ export const SongReviewPatchSchema = z.object({
 export type SongReviewPatch = z.infer<typeof SongReviewPatchSchema>;
 
 export const SongSearchResultSchema = z.object({
+  is_offline: z.boolean().default(false),
   id: z.string(),
   title: z.string(),
   artist_names: z.array(z.string()),
@@ -6913,6 +7045,7 @@ export const SongsQueryResultSchema = z.object({
   updated_by_username: z.string().nullish(),
   play_count: z.number().nullish()
 }),
+  is_offline: z.boolean().default(false),
   artist: z.object({
   id: z.string(),
   name: z.string(),
@@ -7024,6 +7157,32 @@ export const SongsQueryResultSchema = z.object({
 });
 export type SongsQueryResult = z.infer<typeof SongsQueryResultSchema>;
 
+export const SourceAvailabilitySchema = z.object({
+  source_id: z.string(),
+  status: z.string(),
+  missing_since: z.number().nullish(),
+  checked_at: z.number().nullish(),
+  changed_at: z.number().nullish()
+});
+export type SourceAvailability = z.infer<typeof SourceAvailabilitySchema>;
+
+export const SourceDomainSchema = z.union([z.literal("both"), z.literal("music"), z.literal("video")]);
+export type SourceDomain = z.infer<typeof SourceDomainSchema>;
+
+export const SourceFolderSchema = z.object({
+  name: z.string(),
+  relative_path: z.string()
+});
+export type SourceFolder = z.infer<typeof SourceFolderSchema>;
+
+export const SourceSelectionSchema = z.object({
+  device_path: z.string(),
+  mount_path: z.string(),
+  relative_path: z.string(),
+  domain: z.union([z.literal("both"), z.literal("music"), z.literal("video")])
+});
+export type SourceSelection = z.infer<typeof SourceSelectionSchema>;
+
 export const StartLoginRequestSchema = z.object({
   username: z.string().nullish(),
   origin: z.string().nullish()
@@ -7049,6 +7208,7 @@ export const SubmitRadioRequestRequestSchema = z.object({
 export type SubmitRadioRequestRequest = z.infer<typeof SubmitRadioRequestRequestSchema>;
 
 export const SuggestionSchema = z.object({
+  is_offline: z.boolean().default(false),
   value: z.string(),
   display: z.string(),
   highlight: z.string(),
@@ -7085,6 +7245,7 @@ export type SuggestionsRequest = z.infer<typeof SuggestionsRequestSchema>;
 
 export const SuggestionsResponseSchema = z.object({
   suggestions: z.array(z.object({
+  is_offline: z.boolean().default(false),
   value: z.string(),
   display: z.string(),
   highlight: z.string(),
@@ -7466,6 +7627,7 @@ export type UnassignedAlbumsRequest = z.infer<typeof UnassignedAlbumsRequestSche
 
 export const UnassignedAlbumsResponseSchema = z.object({
   albums: z.array(z.object({
+  is_offline: z.boolean().default(false),
   album: z.object({
   id: z.string(),
   title: z.string(),
@@ -7563,6 +7725,7 @@ export const UnassignedVideosResponseSchema = z.object({
   title: z.string(),
   description: z.string().nullish(),
   media_blob_id: z.string(),
+  is_offline: z.boolean().default(false),
   blake3: z.string().nullish(),
   parent_video_id: z.string().nullish(),
   artist_id: z.string().nullish(),
@@ -8052,6 +8215,7 @@ export const VideoSchema = z.object({
   title: z.string(),
   description: z.string().nullish(),
   media_blob_id: z.string(),
+  is_offline: z.boolean().default(false),
   blake3: z.string().nullish(),
   parent_video_id: z.string().nullish(),
   artist_id: z.string().nullish(),
@@ -8158,6 +8322,7 @@ export const VideoReviewPatchSchema = z.object({
 export type VideoReviewPatch = z.infer<typeof VideoReviewPatchSchema>;
 
 export const VideoSearchResultSchema = z.object({
+  is_offline: z.boolean().default(false),
   id: z.string(),
   title: z.string(),
   series_id: z.string().nullish(),
@@ -8187,6 +8352,7 @@ export const VideoSeasonSchema = z.object({
 export type VideoSeason = z.infer<typeof VideoSeasonSchema>;
 
 export const VideoSeriesSchema = z.object({
+  is_offline: z.boolean().default(false),
   id: z.string(),
   title: z.string(),
   description: z.string().nullish(),
@@ -8201,6 +8367,7 @@ export const VideoSeriesSchema = z.object({
 export type VideoSeries = z.infer<typeof VideoSeriesSchema>;
 
 export const VideoSeriesSearchResultSchema = z.object({
+  is_offline: z.boolean().default(false),
   id: z.string(),
   title: z.string(),
   description: z.string().nullish(),
@@ -8240,6 +8407,7 @@ export const VideoWithMetadataSchema = z.object({
   title: z.string(),
   description: z.string().nullish(),
   media_blob_id: z.string(),
+  is_offline: z.boolean().default(false),
   blake3: z.string().nullish(),
   parent_video_id: z.string().nullish(),
   artist_id: z.string().nullish(),
@@ -8300,6 +8468,7 @@ export const VideosByValueResponseSchema = z.object({
   title: z.string(),
   description: z.string().nullish(),
   media_blob_id: z.string(),
+  is_offline: z.boolean().default(false),
   blake3: z.string().nullish(),
   parent_video_id: z.string().nullish(),
   artist_id: z.string().nullish(),
@@ -8342,6 +8511,7 @@ export const VideosQueryResultSchema = z.object({
   title: z.string(),
   description: z.string().nullish(),
   media_blob_id: z.string(),
+  is_offline: z.boolean().default(false),
   blake3: z.string().nullish(),
   parent_video_id: z.string().nullish(),
   artist_id: z.string().nullish(),

@@ -33,6 +33,7 @@ import { updateAlbumIdList, updateAlbumMbLookupStatusMap } from "../hooks/albumS
 import { getClientForRemote } from "../../app/api/client";
 import { queryClient } from "../../queryClient";
 import { setPageInfo, clearPageInfo } from "../../app/services/pageInfo";
+import { useAvailabilityFilter } from "../../utils/useAvailabilityFilter";
 import type { StatusFilter } from "../../app/services/pageInfo";
 import type { AlbumSummary } from "../../music/data/types";
 import { Icon } from "../../components/icons/registry";
@@ -126,7 +127,9 @@ export function AlbumsTable(props: AlbumsTableProps) {
   const remoteAccessor = () => props.remote;
   const sortByAccessor = () => sortField() as string;
 
+  const availability = useAvailabilityFilter("library.albums", remoteAccessor);
   const albumsQuery = useLibraryAlbumsQuery({
+    hideOffline: availability.hideOffline,
     remote: remoteAccessor,
     search: debouncedSearch,
     sortBy: sortByAccessor,
@@ -135,6 +138,7 @@ export function AlbumsTable(props: AlbumsTableProps) {
   });
 
   const statusCountsQuery = useAlbumStatusCounts({
+    hideOffline: availability.hideOffline,
     remote: remoteAccessor,
     search: debouncedSearch,
   });
@@ -260,6 +264,7 @@ export function AlbumsTable(props: AlbumsTableProps) {
   });
   createEffect(() => {
     setPageInfo({
+      ...availability.pageInfo(),
       // title matches the "albums" view-selector option so the topnav
       // flyout highlights the right entry while we're in table mode.
       title: "albums",

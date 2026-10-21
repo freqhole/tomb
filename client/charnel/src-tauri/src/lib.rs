@@ -675,6 +675,7 @@ async fn ensure_mobile_db_ready_once(
     grimoire::database::run_migrations()
         .await
         .map_err(|e| format!("migration failed: {e}"))?;
+    external_storage::publish_saved_sync_targets(app_handle).await?;
     tracing::info!(elapsed_ms = %boot_start.elapsed().as_millis(), "boot: migrations done");
 
     // only reachable once the db is actually open (needs a real
@@ -1406,10 +1407,10 @@ pub fn run() {
                 let control_socket_token = app.state::<ShutdownToken>().inner().0.as_ref().clone();
                 control_socket_bridge::init(app.handle().clone(), control_socket_token);
                 tauri::async_runtime::block_on(async {
-                    if let Err(e) = grimoire::database::run_migrations().await {
-                        tracing::warn!(error = %e, "migration warning");
-                    }
-                });
+                    grimoire::database::run_migrations().await
+                        .map_err(|error| format!("migration failed: {error}"))?;
+                    external_storage::publish_saved_sync_targets(app.handle()).await
+                })?;
                 tracing::info!(elapsed_ms = %boot_start.elapsed().as_millis(), "boot: migrations done");
 
                 // (the embedded http loopback media server used to be

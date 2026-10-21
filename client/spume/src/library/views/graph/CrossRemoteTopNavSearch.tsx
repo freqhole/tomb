@@ -379,6 +379,10 @@ export function CrossRemoteTopNavSearch(props: CrossRemoteTopNavSearchProps) {
           if (!existing.contributors.has(t.id)) {
             existing.contributors.set(t.id, s);
           }
+          if (existing.primary.is_offline === true && s.is_offline !== true) {
+            existing.primary = s;
+            existing.primaryRemoteId = t.id;
+          }
         } else {
           const agg: AggSuggestion = {
             key,
@@ -417,15 +421,20 @@ export function CrossRemoteTopNavSearch(props: CrossRemoteTopNavSearchProps) {
       const aExact = (a.primary.display ?? "").trim().toLowerCase() === q;
       const bExact = (b.primary.display ?? "").trim().toLowerCase() === q;
       if (aExact !== bExact) return aExact ? -1 : 1;
+      const aOffline = [...a.contributors.values()].every((s) => s.is_offline === true);
+      const bOffline = [...b.contributors.values()].every((s) => s.is_offline === true);
       if (aExact && bExact) {
+        if (aOffline !== bOffline) return aOffline ? 1 : -1;
         const aLocal = a.primaryRemoteId === LOCAL_REMOTE_ID;
         const bLocal = b.primaryRemoteId === LOCAL_REMOTE_ID;
         if (aLocal !== bLocal) return aLocal ? -1 : 1;
       }
       const aNorm =
-        (a.primary.confidence ?? 0) / (maxConfidenceByTarget.get(a.primaryRemoteId) ?? 1);
+        ((a.primary.confidence ?? 0) / (maxConfidenceByTarget.get(a.primaryRemoteId) ?? 1)) *
+        (aOffline ? 0.8 : 1);
       const bNorm =
-        (b.primary.confidence ?? 0) / (maxConfidenceByTarget.get(b.primaryRemoteId) ?? 1);
+        ((b.primary.confidence ?? 0) / (maxConfidenceByTarget.get(b.primaryRemoteId) ?? 1)) *
+        (bOffline ? 0.8 : 1);
       return bNorm - aNorm;
     });
     return ordered;
@@ -453,6 +462,7 @@ export function CrossRemoteTopNavSearch(props: CrossRemoteTopNavSearchProps) {
         highlight: agg.primary.highlight,
         images: parseMetadataImages(agg.primary.metadata, baseUrl, agg.primaryRemoteId),
         isFavorite: agg.primary.is_favorite,
+        isOffline: [...agg.contributors.values()].every((s) => s.is_offline === true),
         data: agg.primary,
       };
     });
@@ -545,12 +555,13 @@ export function CrossRemoteTopNavSearch(props: CrossRemoteTopNavSearchProps) {
    *  the remote it lives on. used by Enter-with-no-highlight to do
    *  something useful instead of nothing. */
   const topSuggestion = (): { s: APISuggestion; remoteId: string } | null => {
+    const score = (s: APISuggestion) => s.confidence * (s.is_offline ? 0.8 : 1);
     let best: { s: APISuggestion; remoteId: string } | null = null;
     for (const t of searchTargets()) {
       const list = resultsByRemote().get(t.id);
       if (!list) continue;
       for (const s of list) {
-        if (!best || s.confidence > best.s.confidence) {
+        if (!best || score(s) > score(best.s)) {
           best = { s, remoteId: t.id };
         }
       }

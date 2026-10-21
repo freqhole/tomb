@@ -841,7 +841,7 @@ pub async fn list_jobs(
 }
 
 /// session job counts for progress tracking
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, zod_gen_derive::ZodSchema)]
 pub struct SessionJobCounts {
     pub pending: u32,
     pub running: u32,

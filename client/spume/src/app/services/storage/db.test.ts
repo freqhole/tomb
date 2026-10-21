@@ -9,9 +9,18 @@
 import "fake-indexeddb/auto";
 import { IDBFactory } from "fake-indexeddb";
 import { openDB } from "idb";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { closeAppDB, loadAppState, migrateLegacyCurrentItemKey } from "./db";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { appState, closeAppDB, loadAppState, migrateLegacyCurrentItemKey, updateQueueAvailability } from "./db";
 import { APP_DB_NAME, STORE_APP_STATE, type AppState } from "./types";
+import { refreshQueuedAvailability } from "../../../music/services/queue/refreshAvailability";
+
+const api = vi.hoisted(() => ({ songs: vi.fn(), video: vi.fn() }));
+vi.mock("../../api/client", () => ({
+  getClientForRemote: async () => ({
+    music: { querySongs: api.songs },
+    video: { getVideo: api.video },
+  }),
+}));
 
 function baseState(overrides: Partial<AppState> = {}): AppState {
   return {
@@ -64,6 +73,7 @@ describe("migrateLegacyCurrentItemKey", () => {
 // it at all for an existing user's data.
 describe("app_state upgrade-time migration (v13 -> v14)", () => {
   beforeEach(() => {
+    vi.clearAllMocks();
     closeAppDB();
     indexedDB = new IDBFactory();
   });
@@ -114,5 +124,71 @@ describe("app_state upgrade-time migration (v13 -> v14)", () => {
     const state = await loadAppState();
     expect(state.current_item_key).toBeNull();
     expect(state.queue).toEqual([]);
+  });
+
+  it("persists availability without removing/reordering rows or changing local copies and other remotes", async () => {
+    const media = (id: string, remote: string, source_type = "remote") => ({
+      id, title: id, queue_entry_id: id, source_type, remote_server_id: remote, is_offline: false,
+    });
+    await seedPreMigrationDb({
+      ...baseState(),
+      current_item_key: "first",
+      queue: [
+        { kind: "song", song: media("first", "one") },
+        { kind: "video", video: media("film", "one") },
+        { kind: "song", song: media("local", "one", "downloaded") },
+        { kind: "song", song: media("first", "two") },
+      ],
+    });
+    const original = await loadAppState();
+    await updateQueueAvailability("one", new Map([
+      ["song:first", true], ["video:film", true], ["song:local", true],
+    ]));
+    const updated = appState()!;
+    expect(updated.current_item_key).toBe("first");
+    expect(updated.queue).toHaveLength(4);
+    expect(updated.queue[0]).toMatchObject({ song: { id: "first", is_offline: true } });
+    expect(updated.queue[1]).toMatchObject({ video: { id: "film", is_offline: true } });
+    expect(updated.queue[2]).toBe(original.queue[2]);
+    expect(updated.queue[3]).toBe(original.queue[3]);
+    expect((await loadAppState()).queue).toEqual(updated.queue);
+    await updateQueueAvailability("one", new Map([["song:first", false], ["video:film", false]]));
+    expect(appState()?.queue[0]).toMatchObject({ song: { id: "first", is_offline: false } });
+  });
+
+  it("refreshes persisted mixed queues with batched songs and rejects probe failures without hiding media", async () => {
+    const media = { id: "item", source_type: "remote", remote_server_id: "one", is_offline: false };
+    await seedPreMigrationDb({
+      ...baseState(),
+      queue: [
+        { kind: "song", song: media }, { kind: "song", song: media },
+        { kind: "video", video: media },
+      ],
+    });
+    await loadAppState();
+    api.songs.mockResolvedValue({
+      success: true, data: { items: [{ song: { id: "item" }, is_offline: true }] },
+    });
+    api.video.mockResolvedValue({ success: true, data: { is_offline: true } });
+    await refreshQueuedAvailability({ remote_id: "one" });
+    expect(api.songs).toHaveBeenCalledWith({
+      filters: { song_ids: ["item"] }, limit: 1, offset: 0,
+    });
+    expect(api.video).toHaveBeenCalledWith({ id: "item" });
+    expect(appState()?.queue[0]).toMatchObject({ song: { is_offline: true } });
+    expect(appState()?.queue[2]).toMatchObject({ video: { is_offline: true } });
+    const current = appState();
+    api.songs.mockResolvedValue({ success: false, error: new Error("probe failed") });
+    await expect(refreshQueuedAvailability({ remote_id: "one" })).rejects.toThrow("probe failed");
+    expect(appState()).toBe(current);
+    const cancelled = new AbortController();
+    api.songs.mockImplementationOnce(async () => {
+      cancelled.abort();
+      return { success: true, data: { items: [{ song: { id: "item" }, is_offline: false }] } };
+    });
+    await expect(
+      refreshQueuedAvailability({ remote_id: "one" }, cancelled.signal)
+    ).rejects.toThrow();
+    expect(appState()).toBe(current);
   });
 });
