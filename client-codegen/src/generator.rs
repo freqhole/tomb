@@ -74,16 +74,6 @@ fn extract_type(rust_type: &str) -> Option<String> {
     )
 }
 
-#[cfg(test)]
-mod availability_tests {
-    #[test]
-    fn generated_availability_annotations_default_for_older_peers() {
-        let schema = super::generate_schema_file(&grimoire::offal::all_routes()).unwrap();
-        assert!(schema.contains("is_offline: z.boolean().default(false)"));
-        assert!(!schema.contains("is_offline: z.boolean(),"));
-    }
-}
-
 /// format RouteAuth enum as TypeScript object literal
 fn auth_to_ts(auth: &RouteAuth) -> String {
     match auth {
@@ -435,4 +425,14 @@ fn regex_replace_disc_union(input: &str) -> String {
     }
     out.push_str(rest);
     out
+}
+
+#[cfg(test)]
+mod availability_tests {
+    #[test]
+    fn generated_availability_annotations_default_for_older_peers() {
+        let schema = super::generate_schema_file(&grimoire::offal::all_routes()).unwrap();
+        assert!(schema.contains("is_offline: z.boolean().default(false)"));
+        assert!(!schema.contains("is_offline: z.boolean(),"));
+    }
 }

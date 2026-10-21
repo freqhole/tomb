@@ -103,12 +103,14 @@ mod tests {
         tokio::task::yield_now().await;
     }
 
+    type Calls = Arc<Mutex<Vec<(bool, Instant)>>>;
+
     fn start(
         failures: usize,
     ) -> (
         watch::Sender<u64>,
         CancellationToken,
-        Arc<Mutex<Vec<(bool, Instant)>>>,
+        Calls,
         tokio::task::JoinHandle<()>,
     ) {
         let (sender, events) = watch::channel(0);

@@ -221,50 +221,6 @@ fn sort_suggestions(suggestions: &mut [Suggestion]) {
     });
 }
 
-#[cfg(test)]
-mod availability_tests {
-    use super::*;
-
-    #[test]
-    fn merged_suggestions_penalize_offline_without_burying_strong_matches() {
-        let suggestion = |id: &str, is_offline, confidence, count| Suggestion {
-            value: id.into(),
-            display: id.into(),
-            highlight: id.into(),
-            count,
-            suggestion_type: SuggestionType::Song,
-            confidence,
-            metadata: None,
-            entity_id: id.into(),
-            is_favorite: false,
-            is_offline,
-            matched_field: None,
-            match_snippet: None,
-        };
-        let mut rows = vec![
-            suggestion("offline", true, 1.0, 10),
-            suggestion("available-low", false, 0.5, 1),
-            suggestion("available-high", false, 0.9, 1),
-            suggestion("available-high-count", false, 0.9, 3),
-            suggestion("available-equal", false, 1.0, 1),
-        ];
-        sort_suggestions(&mut rows);
-        assert_eq!(
-            rows.iter()
-                .map(|row| row.entity_id.as_str())
-                .collect::<Vec<_>>(),
-            [
-                "available-equal",
-                "available-high-count",
-                "available-high",
-                "offline",
-                "available-low"
-            ]
-        );
-        assert_eq!(rows.len(), 5);
-    }
-}
-
 /// full search with user preferences and global context
 pub async fn search(req: SearchRequest, user_id: Option<&str>) -> GrimoireResponse<SearchResponse> {
     let start = std::time::Instant::now();
@@ -490,4 +446,48 @@ pub async fn search(req: SearchRequest, user_id: Option<&str>) -> GrimoireRespon
         format!("found {} result(s)", response.total_count),
         response,
     )
+}
+
+#[cfg(test)]
+mod availability_tests {
+    use super::*;
+
+    #[test]
+    fn merged_suggestions_penalize_offline_without_burying_strong_matches() {
+        let suggestion = |id: &str, is_offline, confidence, count| Suggestion {
+            value: id.into(),
+            display: id.into(),
+            highlight: id.into(),
+            count,
+            suggestion_type: SuggestionType::Song,
+            confidence,
+            metadata: None,
+            entity_id: id.into(),
+            is_favorite: false,
+            is_offline,
+            matched_field: None,
+            match_snippet: None,
+        };
+        let mut rows = vec![
+            suggestion("offline", true, 1.0, 10),
+            suggestion("available-low", false, 0.5, 1),
+            suggestion("available-high", false, 0.9, 1),
+            suggestion("available-high-count", false, 0.9, 3),
+            suggestion("available-equal", false, 1.0, 1),
+        ];
+        sort_suggestions(&mut rows);
+        assert_eq!(
+            rows.iter()
+                .map(|row| row.entity_id.as_str())
+                .collect::<Vec<_>>(),
+            [
+                "available-equal",
+                "available-high-count",
+                "available-high",
+                "offline",
+                "available-low"
+            ]
+        );
+        assert_eq!(rows.len(), 5);
+    }
 }

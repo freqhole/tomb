@@ -28,22 +28,17 @@ pub struct RemovableVolume {
 /// UUIDs are observations, not unique keys: cloned disks can share them.
 pub async fn list_removable_volumes() -> io::Result<Vec<RemovableVolume>> {
     #[cfg(target_os = "macos")]
-    {
-        return macos::list().await;
-    }
+    let volumes = macos::list().await;
     #[cfg(target_os = "windows")]
-    {
-        return windows::list().await;
-    }
-    #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
-    {
-        return Err(io::Error::new(
-            io::ErrorKind::Unsupported,
-            "removable volume inventory requires Linux, macOS or Windows",
-        ));
-    }
+    let volumes = windows::list().await;
     #[cfg(target_os = "linux")]
-    list_linux().await
+    let volumes = list_linux().await;
+    #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+    let volumes = Err(io::Error::new(
+        io::ErrorKind::Unsupported,
+        "removable volume inventory requires Linux, macOS or Windows",
+    ));
+    volumes
 }
 
 #[cfg(target_os = "linux")]

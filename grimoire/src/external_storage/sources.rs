@@ -312,10 +312,10 @@ fn browse_root(
             continue;
         }
         let path = std::fs::canonicalize(entry.path())?;
-        if !path.starts_with(&mount_path) {
+        if !path.starts_with(mount_path) {
             continue;
         }
-        if !mounts::deepest_mount(mounts, &path).is_some_and(|mount| mount.path == mount_path) {
+        if mounts::deepest_mount(mounts, &path).is_none_or(|mount| mount.path != mount_path) {
             continue;
         }
         let name = entry
@@ -325,7 +325,7 @@ fn browse_root(
         folders.push(SourceFolder {
             name,
             relative_path: relative_wire_path(
-                path.strip_prefix(&mount_path)
+                path.strip_prefix(mount_path)
                     .map_err(|_| invalid("path", "folder is outside volume"))?,
             )?,
         });
@@ -739,15 +739,15 @@ mod tests {
         let mut relocated = source.clone();
         relocated.last_known_path = "/previous/location/music".into();
         assert_eq!(
-            mounted_source_root(&relocated, &[volume.clone()], &mounts).unwrap(),
+            mounted_source_root(&relocated, std::slice::from_ref(&volume), &mounts).unwrap(),
             Some(root.join("music"))
         );
-        assert!(source_is_mounted(&source, &[volume.clone()], &mounts).unwrap());
+        assert!(source_is_mounted(&source, std::slice::from_ref(&volume), &mounts).unwrap());
         assert!(!source_is_mounted(&source, &[], &mounts).unwrap());
         let mut unmounted = volume.clone();
         unmounted.mount_points.clear();
         assert!(!source_is_mounted(&source, &[unmounted], &mounts).unwrap());
-        assert!(source_is_mounted(&source, &[volume.clone()], &[]).is_err());
+        assert!(source_is_mounted(&source, std::slice::from_ref(&volume), &[]).is_err());
         assert!(source_is_mounted(&source, &[volume.clone(), volume.clone()], &mounts).is_err());
         let mut moved = volume.clone();
         moved.mount_points = vec!["/elsewhere".into()];
@@ -780,21 +780,21 @@ mod tests {
             device: utf8_path(&device).unwrap(),
             path: mount.clone(),
         }];
-        assert!(selected_root(&selection, &[volume.clone()], &mounted).is_ok());
-        assert!(selected_root(&selection, &[volume.clone()], &[]).is_err());
+        assert!(selected_root(&selection, std::slice::from_ref(&volume), &mounted).is_ok());
+        assert!(selected_root(&selection, std::slice::from_ref(&volume), &[]).is_err());
         let wrong = mount.join("other-device");
         std::fs::write(&wrong, "").unwrap();
         let swapped = vec![Mount {
             device: utf8_path(&wrong).unwrap(),
             path: mount.clone(),
         }];
-        assert!(selected_root(&selection, &[volume.clone()], &swapped).is_err());
+        assert!(selected_root(&selection, std::slice::from_ref(&volume), &swapped).is_err());
         let mut nested = mounted.clone();
         nested.push(Mount {
             device: utf8_path(&wrong).unwrap(),
             path: folder.clone(),
         });
-        assert!(selected_root(&selection, &[volume.clone()], &nested).is_err());
+        assert!(selected_root(&selection, std::slice::from_ref(&volume), &nested).is_err());
         #[cfg(unix)]
         {
             let outside = tempfile::tempdir().unwrap();

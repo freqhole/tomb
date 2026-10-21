@@ -210,45 +210,6 @@ pub(in crate::admin_dispatch) async fn list_removable_volumes() -> GrimoireRespo
     }
 }
 
-#[cfg(test)]
-mod removable_inventory_tests {
-    use crate::{admin_dispatch, offal::Caller, users::UserRole};
-    use serde_json::json;
-
-    #[tokio::test]
-    async fn removable_volume_inventory_requires_admin() {
-        let caller = Caller::new("test", "member", UserRole::Member);
-        for command in [
-            "library_list_removable_volumes",
-            "library_list_sources",
-            "library_source_availability",
-            "library_refresh_source_availability",
-            "library_register_source",
-            "library_browse_volume",
-            "library_scan_source",
-        ] {
-            let response = admin_dispatch::handle(command, json!({}), &caller).await;
-            assert!(!response.success);
-            assert!(response.data.is_none());
-            assert_eq!(response.errors[0].error_type, "forbidden");
-        }
-    }
-
-    #[cfg(not(target_os = "linux"))]
-    #[tokio::test]
-    async fn unsupported_inventory_has_a_structured_error() {
-        let caller = Caller::new("test", "admin", UserRole::Admin);
-        let response =
-            admin_dispatch::handle("library_list_removable_volumes", json!({}), &caller).await;
-        assert!(!response.success);
-        assert!(response.data.is_none());
-        assert_eq!(
-            response.errors[0].error_type,
-            "storage_inventory_unsupported"
-        );
-    }
-}
-
 pub(in crate::admin_dispatch) async fn validate_path(
     args: JsonValue,
 ) -> GrimoireResponse<JsonValue> {
@@ -722,5 +683,44 @@ pub(in crate::admin_dispatch) async fn fetch(
         )
     } else {
         GrimoireResponse::failure(resp.message, resp.errors)
+    }
+}
+
+#[cfg(test)]
+mod removable_inventory_tests {
+    use crate::{admin_dispatch, offal::Caller, users::UserRole};
+    use serde_json::json;
+
+    #[tokio::test]
+    async fn removable_volume_inventory_requires_admin() {
+        let caller = Caller::new("test", "member", UserRole::Member);
+        for command in [
+            "library_list_removable_volumes",
+            "library_list_sources",
+            "library_source_availability",
+            "library_refresh_source_availability",
+            "library_register_source",
+            "library_browse_volume",
+            "library_scan_source",
+        ] {
+            let response = admin_dispatch::handle(command, json!({}), &caller).await;
+            assert!(!response.success);
+            assert!(response.data.is_none());
+            assert_eq!(response.errors[0].error_type, "forbidden");
+        }
+    }
+
+    #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+    #[tokio::test]
+    async fn unsupported_inventory_has_a_structured_error() {
+        let caller = Caller::new("test", "admin", UserRole::Admin);
+        let response =
+            admin_dispatch::handle("library_list_removable_volumes", json!({}), &caller).await;
+        assert!(!response.success);
+        assert!(response.data.is_none());
+        assert_eq!(
+            response.errors[0].error_type,
+            "storage_inventory_unsupported"
+        );
     }
 }

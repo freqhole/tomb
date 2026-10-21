@@ -312,7 +312,7 @@ pub async fn purge_missing_scanned_directories() -> Result<usize, String> {
 async fn purge_missing_scanned_directories_with_pool(
     pool: &sqlx::SqlitePool,
 ) -> Result<usize, String> {
-    let source_roots = sources::protected_roots(&pool)
+    let source_roots = sources::protected_roots(pool)
         .await
         .map_err(|e| format!("could not load removable source protection: {e}"))?;
 
@@ -366,7 +366,7 @@ pub async fn restore_reappeared_blobs_and_songs() -> Result<(usize, usize), Stri
 }
 
 async fn restore_reappeared_with_pool(pool: &sqlx::SqlitePool) -> Result<(usize, usize), String> {
-    let source_roots = sources::protected_roots(&pool)
+    let source_roots = sources::protected_roots(pool)
         .await
         .map_err(|e| format!("could not load removable source protection: {e}"))?;
 
@@ -508,6 +508,40 @@ pub async fn repair_library_orphans() -> GrimoireResponse<Value> {
     )
 }
 
+/// soft delete a blob and cascade to associated songs
+async fn soft_delete_blob_and_songs(blob_id: &str) -> Result<(), String> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => return Err(format!("database connection failed: {}", e)),
+    };
+
+    // soft delete the blob
+    let blob_result = sqlx::query!(
+        "UPDATE media_blobz SET deleted_at = unixepoch() WHERE id = ? AND deleted_at IS NULL",
+        blob_id
+    )
+    .execute(&pool)
+    .await;
+
+    if let Err(e) = blob_result {
+        return Err(format!("failed to delete blob: {}", e));
+    }
+
+    // cascade: soft delete songs that use this blob
+    let songs_result = sqlx::query!(
+        "UPDATE songz SET deleted_at = unixepoch() WHERE media_blob_id = ? AND deleted_at IS NULL",
+        blob_id
+    )
+    .execute(&pool)
+    .await;
+
+    if let Err(e) = songs_result {
+        return Err(format!("failed to delete songs: {}", e));
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod removable_source_tests {
     use super::*;
@@ -643,38 +677,4 @@ mod removable_source_tests {
             .unwrap();
         assert_eq!(count, 1);
     }
-}
-
-/// soft delete a blob and cascade to associated songs
-async fn soft_delete_blob_and_songs(blob_id: &str) -> Result<(), String> {
-    let pool = match database::connect().await {
-        Ok(p) => p,
-        Err(e) => return Err(format!("database connection failed: {}", e)),
-    };
-
-    // soft delete the blob
-    let blob_result = sqlx::query!(
-        "UPDATE media_blobz SET deleted_at = unixepoch() WHERE id = ? AND deleted_at IS NULL",
-        blob_id
-    )
-    .execute(&pool)
-    .await;
-
-    if let Err(e) = blob_result {
-        return Err(format!("failed to delete blob: {}", e));
-    }
-
-    // cascade: soft delete songs that use this blob
-    let songs_result = sqlx::query!(
-        "UPDATE songz SET deleted_at = unixepoch() WHERE media_blob_id = ? AND deleted_at IS NULL",
-        blob_id
-    )
-    .execute(&pool)
-    .await;
-
-    if let Err(e) = songs_result {
-        return Err(format!("failed to delete songs: {}", e));
-    }
-
-    Ok(())
 }
