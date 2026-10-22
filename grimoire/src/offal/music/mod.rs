@@ -63,6 +63,7 @@ pub async fn dispatch(
 ) -> Option<GrimoireResponse<JsonValue>> {
     match path {
         "/api/library/availability-revision" => Some(library::availability_revision().await),
+        "/api/library/offline-media" => Some(library::offline_media().await),
         // playlists
         "/api/music/playlists/list" => Some(playlists::list(caller, body.clone()).await),
         "/api/music/playlists" => Some(playlists::create(caller, body.clone()).await),

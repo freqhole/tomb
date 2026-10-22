@@ -7,7 +7,10 @@ import { AvailabilityFilter, AvailabilityFilterChip } from "./AvailabilityFilter
 import { useAvailabilityFilter } from "../../utils/useAvailabilityFilter";
 
 const { probe } = vi.hoisted(() => ({ probe: { data: true as boolean | undefined } }));
-vi.mock("@tanstack/solid-query", () => ({ createQuery: () => probe }));
+vi.mock("@tanstack/solid-query", () => ({
+  createQuery: () => probe,
+  useQueryClient: () => ({ fetchQuery: vi.fn() }),
+}));
 vi.mock("../../utils/useLibraryAvailability", () => ({ useLibraryAvailability: vi.fn() }));
 vi.mock("../../music/data/currentState", () => ({ getCurrentRemote: () => undefined }));
 vi.mock("../../app/api/client", () => ({ getClientForRemote: vi.fn() }));

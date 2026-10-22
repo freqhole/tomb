@@ -11,6 +11,7 @@ const MEDIA_QUERY_ROOTS = new Set([
   "songs", "albums", "album", "artists", "artist", "playlists",
   "videos", "video-series", "playlist-video-items", "search", "favorites",
   "library-albums", "album-status-counts", "known-offline-media",
+  "offline-media-summary",
 ]);
 
 function unsupported(cause: unknown): boolean {

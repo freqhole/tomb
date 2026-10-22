@@ -61,6 +61,7 @@ describe("library availability invalidation", () => {
       for (const key of [
         ["songs", "one"], ["library-albums", "one"], ["album-status-counts", "one"],
         ["known-offline-media", "one", "songs"], ["video-series", "one"],
+        ["offline-media-summary", "one"],
         ["playlists", "playlist-id", "songs"],
       ]) expect(predicate({ queryKey: key })).toBe(true);
       expect(predicate({ queryKey: ["library-availability-revision", "one"] })).toBe(false);
@@ -92,7 +93,9 @@ describe("library availability invalidation", () => {
       await options.queryFn();
       const { predicate } = mocks.invalidate.mock.calls[0][0];
       expect(predicate({ queryKey: ["songs", "one"] })).toBe(false);
+      expect(predicate({ queryKey: ["offline-media-summary", "one"] })).toBe(false);
       expect(predicate({ queryKey: ["songs", "two"] })).toBe(true);
+      expect(predicate({ queryKey: ["offline-media-summary", "two"] })).toBe(true);
     } finally { dispose(); }
   });
 

@@ -23,6 +23,18 @@ const UpdateAlbumRequestPartialSchema = UpdateAlbumRequestSchema.partial().requi
 
 export function createMusicMethods(call: CallFn) {
   return {
+    libraryOfflineMedia: () => {
+      const route = routes.music.library_offline_media;
+      return call(
+        "music",
+        "library_offline_media",
+        route.resp,
+        route.req,
+        route.method,
+        route.path,
+      );
+    },
+
     libraryAvailabilityRevision: () => {
       const route = routes.music.library_availability_revision;
       return call(

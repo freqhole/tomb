@@ -1,4 +1,5 @@
--- artist_query_view - MUST BE FIRST (referenced by song views)
+-- keep this projection flattenable: song queries join it for artist stats.
+-- grouping here materializes every artist, including offline checks, for one album.
 -- fixed: removed user_favoritez/user_ratingz joins that caused duplicates
 
 DROP VIEW IF EXISTS artist_query_view;
@@ -37,8 +38,8 @@ SELECT
         '[]'
     ) as artist_urls,
 
-    -- aggregated stats (only non-deleted songs)
-    COUNT(DISTINCT ars.song_id) as song_count,
+    -- counts retain memberships; durations exclude deleted songs.
+    (SELECT COUNT(*) FROM artist_songz ars WHERE ars.artist_id = ar.id) as song_count,
     (SELECT COUNT(DISTINCT aa2.album_id)
      FROM artist_albumz aa2
      JOIN albumz al ON aa2.album_id = al.id
@@ -46,7 +47,10 @@ SELECT
        AND (al.song_count > 0 OR EXISTS (
            SELECT 1 FROM videoz vz WHERE vz.album_id = al.id AND vz.deleted_at IS NULL
        ))) as album_count,
-    COALESCE(SUM(s.duration), 0) as total_duration,
+    (SELECT COALESCE(SUM(s.duration), 0)
+     FROM artist_songz ars
+     JOIN songz s ON s.id = ars.song_id AND s.deleted_at IS NULL
+     WHERE ars.artist_id = ar.id) as total_duration,
 
     -- user favorites and ratings - now NULL (populated via cache layer)
     NULL as favorite_id,
@@ -57,13 +61,8 @@ SELECT
     NULL as rating_created_at
 
 FROM artistz ar
-LEFT JOIN artist_songz ars ON ar.id = ars.artist_id
-LEFT JOIN songz s ON ars.song_id = s.id AND s.deleted_at IS NULL
 WHERE ar.deleted_at IS NULL
-GROUP BY ar.id, ar.name, ar.bio, ar.created_at, ar.updated_at, ar.deleted_at,
-         ar.deleted_by, ar.created_by, ar.updated_by,
-         ar.metadata, ar.lastfm_lookup_status, ar.audiodb_lookup_status
 -- an artist with no songs still surfaces when it has live music/karaoke
 -- videos attached (see migration 096).
-HAVING COUNT(DISTINCT ars.song_id) > 0
-    OR EXISTS (SELECT 1 FROM videoz vz WHERE vz.artist_id = ar.id AND vz.deleted_at IS NULL);
+AND (EXISTS (SELECT 1 FROM artist_songz ars WHERE ars.artist_id = ar.id)
+     OR EXISTS (SELECT 1 FROM videoz vz WHERE vz.artist_id = ar.id AND vz.deleted_at IS NULL));

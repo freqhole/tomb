@@ -14,10 +14,23 @@ import {
   VideoSeriesSearchResultSchema,
   VideoSeriesSchema,
   LibraryAvailabilityRevisionSchema,
+  OfflineMediaSummarySchema,
 } from "./codegen/schema";
 import { routes } from "./codegen/routes";
 
 describe("source availability annotations", () => {
+  it("exposes a bodyless offline existence summary without browse rows or counts", () => {
+    expect(routes.music.library_offline_media).toMatchObject({
+      method: "GET",
+      path: "/api/library/offline-media",
+      req: null,
+      auth: { type: "authenticated" },
+    });
+    const summary = { songs: true, albums: false, artists: true, videos: false, series: true };
+    expect(OfflineMediaSummarySchema.parse(summary)).toEqual(summary);
+    expect(OfflineMediaSummarySchema.safeParse({ songs: true }).success).toBe(false);
+    expect(OfflineMediaSummarySchema.safeParse({ ...summary, songs: "true" }).success).toBe(false);
+  });
   it("exposes a bodyless authenticated revision route with a validated opaque token", () => {
     expect(routes.music.library_availability_revision).toMatchObject({
       method: "GET",

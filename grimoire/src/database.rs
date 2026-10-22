@@ -106,6 +106,7 @@ pub(crate) async fn run_schema_migrations(pool: &SqlitePool) -> GrimoireResult<(
     // temporary boot-timing instrumentation (see slow-tauri-boot investigation) —
     // logs elapsed ms per step so a slow boot can be narrowed down without guessing.
     let step_start = std::time::Instant::now();
+    let mut transaction = pool.begin_with("BEGIN IMMEDIATE").await?;
 
     // drop all views BEFORE running migrations.
     //
@@ -115,8 +116,8 @@ pub(crate) async fn run_schema_migrations(pool: &SqlitePool) -> GrimoireResult<(
     // the views up front removes the dependency; they are recreated below
     // from the embedded view scripts after migrations finish.
     //
-    // safe to drop unconditionally: views are pure projections and contain no
-    // persistent data.
+    // keep drops, migrations and recreation in one transaction: validation
+    // failures must preserve existing views, and readers must not see the gap.
     //
     // we query sqlite_schema instead of only dropping views::ALL so legacy
     // views (for example old taxonomy views like `genre_query_view`) cannot
@@ -125,19 +126,22 @@ pub(crate) async fn run_schema_migrations(pool: &SqlitePool) -> GrimoireResult<(
         r#"SELECT name AS "name!" FROM sqlite_schema
            WHERE type = 'view' AND name NOT LIKE 'sqlite_%'"#,
     )
-    .fetch_all(pool)
+    .fetch_all(&mut *transaction)
     .await?;
 
     for view_name in existing_views {
         let escaped = view_name.replace('"', "\"\"");
-        pool.execute(format!("DROP VIEW IF EXISTS \"{}\";", escaped).as_str())
+        transaction
+            .execute(format!("DROP VIEW IF EXISTS \"{}\";", escaped).as_str())
             .await?;
     }
     tracing::info!(elapsed_ms = %step_start.elapsed().as_millis(), "boot: dropped existing views");
 
     // run migrations
     let step_start = std::time::Instant::now();
-    sqlx::migrate!("../migrations").run(pool).await?;
+    sqlx::migrate!("../migrations")
+        .run_direct(&mut *transaction)
+        .await?;
     tracing::info!(elapsed_ms = %step_start.elapsed().as_millis(), "boot: sqlx migrate! done");
 
     // recreate views in dependency order. each .sql has DROP IF EXISTS +
@@ -145,8 +149,9 @@ pub(crate) async fn run_schema_migrations(pool: &SqlitePool) -> GrimoireResult<(
     // statements in the script (sqlx::query() only runs the first).
     let step_start = std::time::Instant::now();
     for view in views::ALL {
-        pool.execute(view.sql).await?;
+        transaction.execute(view.sql).await?;
     }
+    transaction.commit().await?;
     tracing::info!(elapsed_ms = %step_start.elapsed().as_millis(), "boot: recreated views");
 
     Ok(())
@@ -367,6 +372,140 @@ pub(crate) async fn transfer_registry() -> std::sync::Arc<reliquary::gate::Trans
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sqlx::sqlite::SqliteJournalMode;
+
+    #[tokio::test]
+    async fn schema_migration_future_is_send() {
+        fn assert_send(_: impl Send) {}
+        let pool = SqlitePoolOptions::new()
+            .connect_lazy("sqlite::memory:")
+            .unwrap();
+        assert_send(run_schema_migrations(&pool));
+    }
+
+    #[tokio::test]
+    async fn startup_applies_pending_migrations_with_existing_data_and_views() {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        let mut previous = sqlx::migrate!("../migrations");
+        previous.migrations = std::borrow::Cow::Owned(
+            previous
+                .iter()
+                .filter(|migration| migration.version < 98)
+                .cloned()
+                .collect(),
+        );
+        previous.run(&pool).await.unwrap();
+        sqlx::query!("INSERT INTO media_blobz (id) VALUES ('blob0001')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query!(
+            "INSERT INTO songz (id, media_blob_id, title) VALUES ('song0001', 'blob0001', 'retained')"
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        pool.execute("CREATE VIEW legacy_song_view AS SELECT id FROM songz")
+            .await
+            .unwrap();
+        run_schema_migrations(&pool).await.unwrap();
+        assert_eq!(
+            sqlx::query_scalar!(
+                r#"SELECT song_title AS "title!" FROM song_query_view WHERE song_id = 'song0001'"#
+            )
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+            "retained"
+        );
+        assert_eq!(
+            sqlx::query_scalar!("SELECT COUNT(*) FROM library_sourcez")
+                .fetch_one(&pool)
+                .await
+                .unwrap(),
+            0
+        );
+    }
+
+    #[tokio::test]
+    async fn concurrent_readers_keep_views_during_startup() {
+        let directory = tempfile::tempdir().unwrap();
+        let pool = SqlitePoolOptions::new()
+            .max_connections(2)
+            .connect_with(
+                SqliteConnectOptions::new()
+                    .filename(directory.path().join("schema.db"))
+                    .create_if_missing(true)
+                    .journal_mode(SqliteJournalMode::Wal),
+            )
+            .await
+            .unwrap();
+        run_schema_migrations(&pool).await.unwrap();
+        let names = sqlx::query_scalar!(
+            r#"SELECT name AS "name!" FROM sqlite_schema WHERE type = 'view' ORDER BY name"#
+        )
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        tokio::join!(
+            async {
+                for _ in 0..5 {
+                    run_schema_migrations(&pool).await.unwrap();
+                }
+            },
+            async {
+                for _ in 0..100 {
+                    for name in &names {
+                        let escaped = name.replace('"', "\"\"");
+                        pool.execute(format!("SELECT * FROM \"{escaped}\" LIMIT 0").as_str())
+                            .await
+                            .unwrap();
+                    }
+                }
+            }
+        );
+        pool.close().await;
+    }
+
+    #[tokio::test]
+    async fn failed_migration_validation_preserves_existing_views() {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        run_schema_migrations(&pool).await.unwrap();
+        let original = sqlx::query!(
+            r#"SELECT name AS "name!", sql AS "sql!" FROM sqlite_schema
+               WHERE type = 'view' ORDER BY name"#
+        )
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        sqlx::query!("UPDATE _sqlx_migrations SET checksum = X'00' WHERE version = 98")
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert!(run_schema_migrations(&pool).await.is_err());
+        for view in original {
+            let restored = sqlx::query_scalar!(
+                r#"SELECT sql AS "sql!" FROM sqlite_schema WHERE type = 'view' AND name = ?"#,
+                view.name
+            )
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+            assert_eq!(restored, view.sql);
+            let name = view.name.replace('"', "\"\"");
+            pool.execute(format!("SELECT * FROM \"{name}\" LIMIT 0").as_str())
+                .await
+                .unwrap();
+        }
+    }
 
     #[tokio::test]
     async fn startup_restores_all_views_idempotently() {
@@ -411,7 +550,7 @@ mod tests {
             .fetch_all(&pool)
             .await
             .unwrap();
-            assert_eq!(names.len(), 11);
+            assert_eq!(names.len(), 10);
             for name in names {
                 let escaped = name.replace('"', "\"\"");
                 pool.execute(format!("SELECT * FROM \"{escaped}\" LIMIT 0").as_str())
