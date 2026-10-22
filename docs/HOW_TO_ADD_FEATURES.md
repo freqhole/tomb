@@ -295,6 +295,14 @@ this must be done before `cargo check` will succeed (sqlx validates queries at c
 
 ## sqlx query macros
 
+for offline container checks, use the entity-specific `library_offline_album_view`,
+`library_offline_artist_view`, `library_offline_series_view`, or
+`library_offline_playlist_view`. reserve `library_offline_container_view` for
+mixed-entity queries: SQLx's SQLite type/nullability analysis explores unrelated
+UNION branches even when a query filters by entity type, which can exhaust CI
+memory. these replaceable views live in `migrations/views/` and are rebuilt at
+startup; do not edit numbered migrations to update them.
+
 always use sqlx macros (`query!` or `query_as!`) for compile-time validation:
 
 ```rust

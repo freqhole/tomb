@@ -550,7 +550,7 @@ mod tests {
             .fetch_all(&pool)
             .await
             .unwrap();
-            assert_eq!(names.len(), 10);
+            assert_eq!(names.len(), 14);
             for name in names {
                 let escaped = name.replace('"', "\"\"");
                 pool.execute(format!("SELECT * FROM \"{escaped}\" LIMIT 0").as_str())

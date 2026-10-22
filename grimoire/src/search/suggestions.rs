@@ -194,7 +194,7 @@ pub async fn get_artist_suggestions(
         r#"
         SELECT
             artist.id as "artist_id!: String",
-            EXISTS (SELECT 1 FROM library_offline_container_view o WHERE o.entity_type = 'artist' AND o.entity_id = artist.id) as "is_offline!: bool",
+            EXISTS (SELECT 1 FROM library_offline_artist_view o WHERE o.entity_type = 'artist' AND o.entity_id = artist.id) as "is_offline!: bool",
             artist.name as "artist_name!: String",
             (SELECT json_group_array(json_object('media_blob_id', ai.media_blob_id, 'is_primary', ai.is_primary, 'blob_type', mb.blob_type))
              FROM artist_imagez ai
@@ -295,7 +295,7 @@ pub async fn get_album_suggestions(
         r#"
         SELECT
             album.id as "album_id!: String",
-            EXISTS (SELECT 1 FROM library_offline_container_view o WHERE o.entity_type = 'album' AND o.entity_id = album.id) as "is_offline!: bool",
+            EXISTS (SELECT 1 FROM library_offline_album_view o WHERE o.entity_type = 'album' AND o.entity_id = album.id) as "is_offline!: bool",
             album.title as "album_title!: String",
             (SELECT json_group_array(json_object('media_blob_id', ai.media_blob_id, 'is_primary', ai.is_primary, 'blob_type', mb.blob_type))
              FROM album_imagez ai
@@ -478,7 +478,7 @@ pub async fn get_playlist_suggestions(
         r#"
         SELECT
             playlist.id as "playlist_id!: String",
-            EXISTS (SELECT 1 FROM library_offline_container_view o WHERE o.entity_type = 'playlist' AND o.entity_id = playlist.id) as "is_offline!: bool",
+            EXISTS (SELECT 1 FROM library_offline_playlist_view o WHERE o.entity_type = 'playlist' AND o.entity_id = playlist.id) as "is_offline!: bool",
             playlist.title as "playlist_title!: String",
             (SELECT json_group_array(json_object('media_blob_id', pi.media_blob_id, 'is_primary', pi.is_primary, 'blob_type', mb.blob_type))
              FROM playlist_imagez pi

@@ -49,7 +49,7 @@ pub async fn offline_media_summary(pool: &SqlitePool) -> GrimoireResult<OfflineM
               AND EXISTS (SELECT 1 FROM library_offline_blob_view o WHERE o.blob_id = v.media_blob_id)
           ) ELSE 0 END AS "videos!: bool",
           CASE WHEN present THEN EXISTS (
-            SELECT 1 FROM library_offline_container_view WHERE entity_type = 'video_series'
+            SELECT 1 FROM library_offline_series_view WHERE entity_type = 'video_series'
           ) ELSE 0 END AS "series!: bool"
         FROM offline_sources"#
     )
@@ -1004,7 +1004,7 @@ mod tests {
                 r#"SELECT id AS "id!", title AS "title!", description, poster_blob_id,
                    created_at AS "created_at!", updated_at AS "updated_at!",
                    deleted_at, deleted_by, created_by, updated_by,
-                   EXISTS (SELECT 1 FROM library_offline_container_view o
+                   EXISTS (SELECT 1 FROM library_offline_series_view o
                            WHERE o.entity_type = 'video_series' AND o.entity_id = video_seriez.id)
                            AS "is_offline!: bool"
                    FROM video_seriez ORDER BY id"#
@@ -1023,7 +1023,7 @@ mod tests {
         status(&pool, "disk", "offline").await;
         assert!(sqlx::query_scalar!(
             r#"UPDATE video_seriez SET title = 'edited' WHERE id = 'offline1'
-               RETURNING EXISTS (SELECT 1 FROM library_offline_container_view o
+               RETURNING EXISTS (SELECT 1 FROM library_offline_series_view o
                    WHERE o.entity_type = 'video_series' AND o.entity_id = video_seriez.id)
                    AS "is_offline!: bool""#
         )
@@ -1032,7 +1032,7 @@ mod tests {
         .unwrap());
         assert!(!sqlx::query_scalar!(
             r#"INSERT INTO video_seriez (id, title) VALUES ('created1', 'new')
-               RETURNING EXISTS (SELECT 1 FROM library_offline_container_view o
+               RETURNING EXISTS (SELECT 1 FROM library_offline_series_view o
                    WHERE o.entity_type = 'video_series' AND o.entity_id = video_seriez.id)
                    AS "is_offline!: bool""#
         )
@@ -1374,7 +1374,7 @@ mod tests {
     async fn container_lookup_uses_member_indexes_instead_of_full_library_scans() {
         let pool = fixture().await;
         let plan = sqlx::query!(
-            "EXPLAIN QUERY PLAN SELECT EXISTS (SELECT 1 FROM library_offline_container_view
+            "EXPLAIN QUERY PLAN SELECT EXISTS (SELECT 1 FROM library_offline_album_view
              WHERE entity_type = 'album' AND entity_id = 'album001')"
         )
         .fetch_all(&pool)
@@ -1401,6 +1401,58 @@ mod tests {
                     !["albumz", "songz", "videoz", "a", "s", "v", "p"].contains(&words[1]),
                     "{details}"
                 );
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn entity_availability_lookups_do_not_expand_unrelated_union_branches() {
+        let pool = fixture().await;
+        source(&pool, "disk", "/mnt/disk", "").await;
+        container(&pool, "offline1", "offline").await;
+        blob(&pool, "blob0001", Some("/mnt/disk/media")).await;
+        sqlx::query(
+            "INSERT INTO songz (id, title, media_blob_id) VALUES ('song0001', 'song', 'blob0001')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query("INSERT INTO videoz (id, title, media_blob_id) VALUES ('video001', 'video', 'blob0001')")
+            .execute(&pool).await.unwrap();
+        attach(&pool, "offline1", "song0001", "video001").await;
+
+        for state in ["offline", "online", "unknown"] {
+            status(&pool, "disk", state).await;
+            for (entity, view) in [
+                ("album", "library_offline_album_view"),
+                ("artist", "library_offline_artist_view"),
+                ("video_series", "library_offline_series_view"),
+                ("playlist", "library_offline_playlist_view"),
+            ] {
+                let sql = format!("SELECT entity_id FROM {view} ORDER BY entity_id");
+                let ids = sqlx::query_scalar::<_, String>(&sql)
+                    .fetch_all(&pool)
+                    .await
+                    .unwrap();
+                let combined = sqlx::query_scalar::<_, String>(
+                    "SELECT entity_id FROM library_offline_container_view WHERE entity_type = ? ORDER BY entity_id")
+                    .bind(entity).fetch_all(&pool).await.unwrap();
+                assert_eq!(ids, combined, "{state}: {entity}");
+                assert_eq!(
+                    ids.len(),
+                    usize::from(state == "offline"),
+                    "{state}: {entity}"
+                );
+
+                let plan = sqlx::query(&format!(
+                    "EXPLAIN QUERY PLAN SELECT EXISTS (SELECT 1 FROM {view} WHERE entity_id = 'offline1')"))
+                    .fetch_all(&pool).await.unwrap();
+                use sqlx::Row;
+                for row in plan {
+                    let detail: String = row.get("detail");
+                    assert!(!detail.contains("UNION"), "{entity}: {detail}");
+                    assert!(!detail.contains("MATERIALIZE"), "{entity}: {detail}");
+                }
             }
         }
     }

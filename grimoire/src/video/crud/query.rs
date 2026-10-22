@@ -189,10 +189,10 @@ pub(crate) async fn query_video_seriez_with_pool(
 
     let apply_filters = |q: &mut sea_query::SelectStatement| {
         if params.filters.get("offline_only").and_then(|v| v.as_bool()) == Some(true) {
-            q.and_where(Expr::cust("EXISTS (SELECT 1 FROM library_offline_container_view o WHERE o.entity_type = 'video_series' AND o.entity_id = video_seriez.id)"));
+            q.and_where(Expr::cust("EXISTS (SELECT 1 FROM library_offline_series_view o WHERE o.entity_type = 'video_series' AND o.entity_id = video_seriez.id)"));
         }
         if params.filters.get("hide_offline").and_then(|v| v.as_bool()) == Some(true) {
-            q.and_where(Expr::cust("NOT EXISTS (SELECT 1 FROM library_offline_container_view o WHERE o.entity_type = 'video_series' AND o.entity_id = video_seriez.id)"));
+            q.and_where(Expr::cust("NOT EXISTS (SELECT 1 FROM library_offline_series_view o WHERE o.entity_type = 'video_series' AND o.entity_id = video_seriez.id)"));
         }
         q.and_where(Expr::col(VideoSeriezCol::DeletedAt).is_null());
         if let Some(search) = params.q.as_ref().filter(|s| !s.trim().is_empty()) {
@@ -221,7 +221,7 @@ pub(crate) async fn query_video_seriez_with_pool(
     query
         .column(sea_query::Asterisk)
         .expr_as(
-            Expr::cust("EXISTS (SELECT 1 FROM library_offline_container_view o WHERE o.entity_type = 'video_series' AND o.entity_id = video_seriez.id)"),
+            Expr::cust("EXISTS (SELECT 1 FROM library_offline_series_view o WHERE o.entity_type = 'video_series' AND o.entity_id = video_seriez.id)"),
             sea_query::Alias::new("is_offline"),
         )
         .from(VideoSeriezCol::Table);

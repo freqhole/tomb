@@ -162,7 +162,7 @@ pub async fn search_video_seriez(
         r#"
         SELECT
             series.id as "series_id!: String",
-            EXISTS (SELECT 1 FROM library_offline_container_view o WHERE o.entity_type = 'video_series' AND o.entity_id = series.id) as "is_offline!: bool",
+            EXISTS (SELECT 1 FROM library_offline_series_view o WHERE o.entity_type = 'video_series' AND o.entity_id = series.id) as "is_offline!: bool",
             series.title as "series_title!: String",
             series.description as "description: String",
             fts.rank as "fts_rank!: f64",
@@ -335,7 +335,7 @@ pub async fn get_video_series_suggestions(
         r#"
         SELECT
             series.id as "series_id!: String",
-            EXISTS (SELECT 1 FROM library_offline_container_view o WHERE o.entity_type = 'video_series' AND o.entity_id = series.id) as "is_offline!: bool",
+            EXISTS (SELECT 1 FROM library_offline_series_view o WHERE o.entity_type = 'video_series' AND o.entity_id = series.id) as "is_offline!: bool",
             series.title as "series_title!: String",
             series.description as "description: String",
             fts.rank as "fts_rank!: f64",

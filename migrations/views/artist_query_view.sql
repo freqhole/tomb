@@ -6,7 +6,7 @@ DROP VIEW IF EXISTS artist_query_view;
 CREATE VIEW artist_query_view AS
 SELECT
     ar.id as artist_id,
-    EXISTS (SELECT 1 FROM library_offline_container_view o
+    EXISTS (SELECT 1 FROM library_offline_artist_view o
             WHERE o.entity_type = 'artist' AND o.entity_id = ar.id) as is_offline,
     ar.name as artist_name,
     ar.bio as artist_bio,

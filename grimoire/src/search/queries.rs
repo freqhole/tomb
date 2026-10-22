@@ -207,7 +207,7 @@ pub async fn search_artists(
         r#"
         SELECT
             artist.id as "artist_id!: String",
-            EXISTS (SELECT 1 FROM library_offline_container_view o WHERE o.entity_type = 'artist' AND o.entity_id = artist.id) as "is_offline!: bool",
+            EXISTS (SELECT 1 FROM library_offline_artist_view o WHERE o.entity_type = 'artist' AND o.entity_id = artist.id) as "is_offline!: bool",
             artist.name as "artist_name!: String",
             fts.rank as "fts_rank!: f64",
             (SELECT COUNT(DISTINCT asong2.song_id) FROM artist_songz asong2 WHERE asong2.artist_id = artist.id) as "song_count!: i64",
@@ -354,7 +354,7 @@ pub async fn search_albums(
         r#"
         SELECT
             album.id as "album_id!: String",
-            EXISTS (SELECT 1 FROM library_offline_container_view o WHERE o.entity_type = 'album' AND o.entity_id = album.id) as "is_offline!: bool",
+            EXISTS (SELECT 1 FROM library_offline_album_view o WHERE o.entity_type = 'album' AND o.entity_id = album.id) as "is_offline!: bool",
             album.title as "album_title!: String",
             fts.rank as "fts_rank!: f64",
             (SELECT COUNT(DISTINCT asong2.song_id) FROM album_songz asong2 WHERE asong2.album_id = album.id) as "song_count!: i64",
@@ -624,7 +624,7 @@ pub async fn search_playlists(
         r#"
         SELECT
             playlist.id as "playlist_id!: String",
-            EXISTS (SELECT 1 FROM library_offline_container_view o WHERE o.entity_type = 'playlist' AND o.entity_id = playlist.id) as "is_offline!: bool",
+            EXISTS (SELECT 1 FROM library_offline_playlist_view o WHERE o.entity_type = 'playlist' AND o.entity_id = playlist.id) as "is_offline!: bool",
             playlist.title as "playlist_title!: String",
             playlist.description as "playlist_description: String",
             playlist.is_public as "is_public!: i64",

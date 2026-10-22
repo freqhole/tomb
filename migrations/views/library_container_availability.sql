@@ -1,8 +1,13 @@
 -- keep member checks correlated to indexed relations, not a nested UNION view.
 DROP VIEW IF EXISTS library_offline_container_view;
 DROP VIEW IF EXISTS library_container_media_view;
+DROP VIEW IF EXISTS library_offline_album_view;
+DROP VIEW IF EXISTS library_offline_artist_view;
+DROP VIEW IF EXISTS library_offline_series_view;
+DROP VIEW IF EXISTS library_offline_playlist_view;
 
-CREATE VIEW library_offline_container_view AS
+-- typed callers avoid making SQLx analyze unrelated UNION branches.
+CREATE VIEW library_offline_album_view AS
 SELECT 'album' AS entity_type, c.id AS entity_id FROM albumz c
 WHERE c.deleted_at IS NULL
 AND (
@@ -18,9 +23,10 @@ AND NOT EXISTS (
 AND NOT EXISTS (
     SELECT 1 FROM videoz v WHERE v.album_id = c.id AND v.deleted_at IS NULL
       AND NOT EXISTS (SELECT 1 FROM library_offline_blob_view o WHERE o.blob_id = v.media_blob_id)
-)
-UNION ALL
-SELECT 'artist', c.id FROM artistz c
+);
+
+CREATE VIEW library_offline_artist_view AS
+SELECT 'artist' AS entity_type, c.id AS entity_id FROM artistz c
 WHERE c.deleted_at IS NULL
 AND (
     EXISTS (SELECT 1 FROM artist_songz a JOIN songz s ON s.id = a.song_id
@@ -63,17 +69,19 @@ AND NOT EXISTS (
     JOIN videoz v ON v.album_id = al.id AND v.deleted_at IS NULL
     WHERE a.artist_id = c.id
       AND NOT EXISTS (SELECT 1 FROM library_offline_blob_view o WHERE o.blob_id = v.media_blob_id)
-)
-UNION ALL
-SELECT 'video_series', c.id FROM video_seriez c
+);
+
+CREATE VIEW library_offline_series_view AS
+SELECT 'video_series' AS entity_type, c.id AS entity_id FROM video_seriez c
 WHERE c.deleted_at IS NULL
 AND EXISTS (SELECT 1 FROM videoz v WHERE v.series_id = c.id AND v.deleted_at IS NULL)
 AND NOT EXISTS (
     SELECT 1 FROM videoz v WHERE v.series_id = c.id AND v.deleted_at IS NULL
       AND NOT EXISTS (SELECT 1 FROM library_offline_blob_view o WHERE o.blob_id = v.media_blob_id)
-)
-UNION ALL
-SELECT 'playlist', c.id FROM playlistz c
+);
+
+CREATE VIEW library_offline_playlist_view AS
+SELECT 'playlist' AS entity_type, c.id AS entity_id FROM playlistz c
 WHERE c.deleted_at IS NULL
 AND (
     EXISTS (
@@ -100,3 +108,12 @@ AND NOT EXISTS (
     SELECT 1 FROM playlist_itemz p
     WHERE p.playlist_id = c.id AND p.entity_type NOT IN ('song', 'video')
 );
+
+CREATE VIEW library_offline_container_view AS
+SELECT entity_type, entity_id FROM library_offline_album_view
+UNION ALL
+SELECT entity_type, entity_id FROM library_offline_artist_view
+UNION ALL
+SELECT entity_type, entity_id FROM library_offline_series_view
+UNION ALL
+SELECT entity_type, entity_id FROM library_offline_playlist_view;
