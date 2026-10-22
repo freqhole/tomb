@@ -820,6 +820,12 @@ pub fn get_default_data_dir(app_handle: tauri::AppHandle) -> Option<String> {
         .map(|p: PathBuf| p.display().to_string())
 }
 
+/// suggest the system hostname for a new server
+#[tauri::command]
+pub fn get_default_server_name() -> String {
+    grimoire::setup::default_server_name()
+}
+
 /// get the OS username for default user creation
 #[tauri::command]
 pub fn get_os_username() -> String {

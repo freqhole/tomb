@@ -68,7 +68,8 @@ export default function SetupView() {
   // fetchMusicDir backs both fetch_music and fetch_video's output_dir -
   // where fetched/uploaded music AND video filez are stored
   const [fetchMusicDir, setFetchMusicDir] = createSignal("");
-  const [serverName, setServerName] = createSignal("my music server");
+  const [serverName, setServerName] = createSignal("freqhole");
+  let serverNameEdited = false;
   const [serverImage, setServerImage] = createSignal<string | null>(null);
   const [username, setUsername] = createSignal("");
   const [controlSocketEnabled, setControlSocketEnabled] = createSignal(false);
@@ -87,10 +88,10 @@ export default function SetupView() {
   const [depCheck, setDepCheck] = createSignal<DependencyCheckResult | null>(null);
   const [depCheckLoading, setDepCheckLoading] = createSignal(true);
   // federation options
-  const [federationEnabled, setFederationEnabled] = createSignal(false);
+  const [federationEnabled, setFederationEnabled] = createSignal(true);
   const [knockingEnabled, setKnockingEnabled] = createSignal(true);
-  const [remoteAdminEnabled, setRemoteAdminEnabled] = createSignal(false);
-  const [radioEnabled, setRadioEnabled] = createSignal(false);
+  const [remoteAdminEnabled, setRemoteAdminEnabled] = createSignal(true);
+  const [radioEnabled, setRadioEnabled] = createSignal(true);
   const [fetchMusicEnabled, setFetchMusicEnabled] = createSignal(true);
   // job progress state for done step
   const [jobProgress, setJobProgress] = createSignal<{
@@ -105,6 +106,13 @@ export default function SetupView() {
   let unlistenProgress: (() => void) | null = null;
 
   onMount(async () => {
+    void invoke<string>("get_default_server_name")
+      .then((name) => {
+        if (!serverNameEdited) setServerName(name);
+      })
+      .catch((cause) => {
+        console.error("could not get the default server name:", cause);
+      });
     try {
       // check external dependencies (ffmpeg, yt-dlp)
       const deps = await invoke<DependencyCheckResult>("check_dependencies");
@@ -583,8 +591,11 @@ export default function SetupView() {
               type="text"
               id="server-name"
               value={serverName()}
-              onInput={(e) => setServerName(e.currentTarget.value)}
-              placeholder="my music server"
+              onInput={(e) => {
+                serverNameEdited = true;
+                setServerName(e.currentTarget.value);
+              }}
+              placeholder="server name"
             />
             <p class="hint">a friendly name for your server.</p>
           </div>

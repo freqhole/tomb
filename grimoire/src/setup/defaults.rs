@@ -3,6 +3,27 @@
 use serde::Serialize;
 use std::path::PathBuf;
 
+/// suggest the system hostname for new installations without changing saved names.
+pub fn default_server_name() -> String {
+    server_name_from_hostname(&gethostname::gethostname())
+}
+
+fn server_name_from_hostname(hostname: &std::ffi::OsStr) -> String {
+    match hostname
+        .to_str()
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+    {
+        Some(name) => name.to_string(),
+        None => {
+            tracing::warn!(
+                "system hostname is empty or invalid; using freqhole as the setup default"
+            );
+            "freqhole".to_string()
+        }
+    }
+}
+
 /// default values for setup wizard
 #[derive(Debug, Clone, Serialize)]
 pub struct SetupDefaults {
@@ -39,7 +60,7 @@ pub fn get_defaults() -> SetupDefaults {
     SetupDefaults {
         data_dir,
         music_dir,
-        server_name: "freqhole".to_string(),
+        server_name: default_server_name(),
         server_port: 8080,
         username,
     }
@@ -60,7 +81,7 @@ pub fn get_local_defaults() -> SetupDefaults {
     SetupDefaults {
         data_dir,
         music_dir,
-        server_name: "freqhole".to_string(),
+        server_name: default_server_name(),
         server_port: 8080,
         username,
     }
@@ -69,6 +90,19 @@ pub fn get_local_defaults() -> SetupDefaults {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn server_name_uses_system_hostname() {
+        let expected = server_name_from_hostname(&gethostname::gethostname());
+        assert_eq!(get_defaults().server_name, expected);
+        assert_eq!(get_local_defaults().server_name, expected);
+        assert_eq!(server_name_from_hostname("music-pi".as_ref()), "music-pi");
+        assert_eq!(
+            server_name_from_hostname("  music-pi  ".as_ref()),
+            "music-pi"
+        );
+        assert_eq!(server_name_from_hostname(" ".as_ref()), "freqhole");
+    }
 
     #[test]
     fn test_get_defaults() {

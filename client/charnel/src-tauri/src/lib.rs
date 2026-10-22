@@ -1702,6 +1702,7 @@ pub fn run() {
             commands::get_default_data_dir,
             commands::resolve_path,
             commands::get_os_username,
+            commands::get_default_server_name,
             commands::get_app_version,
             commands::get_build_info,
             commands::take_pending_deep_links,
