@@ -4601,6 +4601,15 @@ export const MusicUploadResponseSchema = z.object({
 });
 export type MusicUploadResponse = z.infer<typeof MusicUploadResponseSchema>;
 
+export const OfflineMediaSummarySchema = z.object({
+  songs: z.boolean(),
+  albums: z.boolean(),
+  artists: z.boolean(),
+  videos: z.boolean(),
+  series: z.boolean()
+});
+export type OfflineMediaSummary = z.infer<typeof OfflineMediaSummarySchema>;
+
 export const OverviewStatsSchema = z.object({
   total_songs: z.number(),
   total_albums: z.number(),

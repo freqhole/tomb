@@ -27,6 +27,7 @@ commands.allow = [
     "run_setup_core",
     "create_admin_user",
     "get_default_data_dir",
+    "get_default_server_name",
     "resolve_path",
     "get_os_username",
     "get_app_version",

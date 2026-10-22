@@ -5,6 +5,8 @@
 //! `library_offline_blob_view`, not filesystem probes or scans of media paths.
 //! query builders can correlate that view by `blob_id` before LIMIT/count,
 //! or use it to annotate/order results without dropping search/playlist rows.
+//! containers use direct indexed membership checks; existence polling uses
+//! [`offline_media_summary`] instead of full browse projections and counts.
 //! unknown and untracked blobs are not confirmed offline; this is not a
 //! guarantee that a file is locally playable. deleted flags are independent.
 //!
@@ -14,6 +16,46 @@
 
 use crate::GrimoireResult;
 use sqlx::SqlitePool;
+
+#[derive(Debug, serde::Serialize, zod_gen_derive::ZodSchema)]
+pub struct OfflineMediaSummary {
+    pub songs: bool,
+    pub albums: bool,
+    pub artists: bool,
+    pub videos: bool,
+    pub series: bool,
+}
+
+/// existence probes avoid browse counts, ordering, metadata and user preferences.
+pub async fn offline_media_summary(pool: &SqlitePool) -> GrimoireResult<OfflineMediaSummary> {
+    Ok(sqlx::query_as!(
+        OfflineMediaSummary,
+        r#"WITH offline_sources AS (
+            SELECT EXISTS (SELECT 1 FROM library_source_statez WHERE status = 'offline') AS present
+        )
+        SELECT
+          CASE WHEN present THEN EXISTS (
+            SELECT 1 FROM songz s WHERE s.deleted_at IS NULL
+              AND EXISTS (SELECT 1 FROM library_offline_blob_view o WHERE o.blob_id = s.media_blob_id)
+          ) ELSE 0 END AS "songs!: bool",
+          CASE WHEN present THEN EXISTS (
+            SELECT 1 FROM album_query_view WHERE is_offline = 1
+          ) ELSE 0 END AS "albums!: bool",
+          CASE WHEN present THEN EXISTS (
+            SELECT 1 FROM artist_query_view WHERE is_offline = 1
+          ) ELSE 0 END AS "artists!: bool",
+          CASE WHEN present THEN EXISTS (
+            SELECT 1 FROM videoz v WHERE v.deleted_at IS NULL
+              AND EXISTS (SELECT 1 FROM library_offline_blob_view o WHERE o.blob_id = v.media_blob_id)
+          ) ELSE 0 END AS "videos!: bool",
+          CASE WHEN present THEN EXISTS (
+            SELECT 1 FROM library_offline_series_view WHERE entity_type = 'video_series'
+          ) ELSE 0 END AS "series!: bool"
+        FROM offline_sources"#
+    )
+    .fetch_one(pool)
+    .await?)
+}
 
 pub async fn is_blob_offline(pool: &SqlitePool, blob_id: &str) -> GrimoireResult<bool> {
     Ok(sqlx::query_scalar!(
@@ -36,6 +78,78 @@ mod tests {
             .unwrap();
         crate::database::run_schema_migrations(&pool).await.unwrap();
         pool
+    }
+
+    #[tokio::test]
+    async fn album_song_count_does_not_materialize_artist_availability() {
+        let pool = fixture().await;
+        let plan = sqlx::query!(
+            "EXPLAIN QUERY PLAN SELECT COUNT(*) FROM song_query_view WHERE album_id = 'album001'"
+        )
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        let details = plan
+            .iter()
+            .filter_map(|row| row.detail.as_deref())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(!details.contains("MATERIALIZE"), "{details}");
+        assert!(
+            !details.contains("library_container_media_view"),
+            "{details}"
+        );
+        assert!(!details.contains("GROUP BY"), "{details}");
+        assert!(details.contains("(album_id=?)"), "{details}");
+    }
+
+    #[tokio::test]
+    async fn artist_stats_preserve_deleted_song_and_video_only_behavior() {
+        let pool = fixture().await;
+        for id in ["artist01", "artist02", "artist03"] {
+            container(&pool, id, "artist").await;
+        }
+        blob(&pool, "blob0001", None).await;
+        blob(&pool, "blob0002", None).await;
+        sqlx::query!(
+            "INSERT INTO songz (id, media_blob_id, title, duration, deleted_at) VALUES
+             ('song0001', 'blob0001', 'live', 10, NULL),
+             ('song0002', 'blob0002', 'deleted', 20, 1)"
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query!(
+            "INSERT INTO artist_songz (artist_id, song_id) VALUES
+             ('artist01', 'song0001'), ('artist01', 'song0002')"
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query!(
+            "INSERT INTO videoz (id, media_blob_id, title, artist_id) VALUES
+             ('video001', 'blob0001', 'video', 'artist02')"
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        let artists = sqlx::query!(
+            r#"SELECT artist_id AS "artist_id!", song_count AS "song_count!: i64",
+                      album_count AS "album_count!: i64", total_duration AS "duration!: f64"
+               FROM artist_query_view ORDER BY artist_id"#
+        )
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        assert_eq!(artists.len(), 2);
+        assert_eq!(artists[0].artist_id, "artist01");
+        // preserve legacy counts of memberships, but durations of live songs only.
+        assert_eq!(artists[0].song_count, 2);
+        assert_eq!(artists[0].duration, 10.0);
+        assert_eq!(artists[1].artist_id, "artist02");
+        assert_eq!(artists[1].song_count, 0);
+        assert_eq!(artists[1].album_count, 0);
+        assert_eq!(artists[1].duration, 0.0);
     }
 
     async fn source(pool: &SqlitePool, id: &str, root: &str, relative: &str) {
@@ -804,7 +918,6 @@ mod tests {
         // reproduce an already-migrated database damaged by the old startup path.
         sqlx::raw_sql(
             "DROP VIEW library_offline_container_view;
-             DROP VIEW library_container_media_view;
              DROP VIEW library_offline_blob_view;
              DROP VIEW library_sync_source_view;
              DROP VIEW library_source_blob_path_view;",
@@ -891,7 +1004,7 @@ mod tests {
                 r#"SELECT id AS "id!", title AS "title!", description, poster_blob_id,
                    created_at AS "created_at!", updated_at AS "updated_at!",
                    deleted_at, deleted_by, created_by, updated_by,
-                   EXISTS (SELECT 1 FROM library_offline_container_view o
+                   EXISTS (SELECT 1 FROM library_offline_series_view o
                            WHERE o.entity_type = 'video_series' AND o.entity_id = video_seriez.id)
                            AS "is_offline!: bool"
                    FROM video_seriez ORDER BY id"#
@@ -910,7 +1023,7 @@ mod tests {
         status(&pool, "disk", "offline").await;
         assert!(sqlx::query_scalar!(
             r#"UPDATE video_seriez SET title = 'edited' WHERE id = 'offline1'
-               RETURNING EXISTS (SELECT 1 FROM library_offline_container_view o
+               RETURNING EXISTS (SELECT 1 FROM library_offline_series_view o
                    WHERE o.entity_type = 'video_series' AND o.entity_id = video_seriez.id)
                    AS "is_offline!: bool""#
         )
@@ -919,7 +1032,7 @@ mod tests {
         .unwrap());
         assert!(!sqlx::query_scalar!(
             r#"INSERT INTO video_seriez (id, title) VALUES ('created1', 'new')
-               RETURNING EXISTS (SELECT 1 FROM library_offline_container_view o
+               RETURNING EXISTS (SELECT 1 FROM library_offline_series_view o
                    WHERE o.entity_type = 'video_series' AND o.entity_id = video_seriez.id)
                    AS "is_offline!: bool""#
         )
@@ -1213,6 +1326,18 @@ mod tests {
                 .data
                 .unwrap();
             let expected = usize::from(state == "offline");
+            let summary = offline_media_summary(&pool).await.unwrap();
+            assert_eq!(
+                [
+                    summary.songs,
+                    summary.albums,
+                    summary.artists,
+                    summary.videos,
+                    summary.series
+                ],
+                [state == "offline"; 5],
+                "{state}"
+            );
             for size in [
                 songs.items.len(),
                 albums.items.len(),
@@ -1223,13 +1348,33 @@ mod tests {
                 assert_eq!(size, expected, "{state}");
             }
         }
+        status(&pool, "disk", "offline").await;
+        sqlx::query!("UPDATE songz SET deleted_at = 1")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query!("UPDATE videoz SET deleted_at = 1")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let summary = offline_media_summary(&pool).await.unwrap();
+        assert_eq!(
+            [
+                summary.songs,
+                summary.albums,
+                summary.artists,
+                summary.videos,
+                summary.series
+            ],
+            [false; 5]
+        );
     }
 
     #[tokio::test]
     async fn container_lookup_uses_member_indexes_instead_of_full_library_scans() {
         let pool = fixture().await;
         let plan = sqlx::query!(
-            "EXPLAIN QUERY PLAN SELECT EXISTS (SELECT 1 FROM library_offline_container_view
+            "EXPLAIN QUERY PLAN SELECT EXISTS (SELECT 1 FROM library_offline_album_view
              WHERE entity_type = 'album' AND entity_id = 'album001')"
         )
         .fetch_all(&pool)
@@ -1242,6 +1387,8 @@ mod tests {
             .join("\n");
         assert!(details.contains("(album_id=?)"), "{details}");
         assert!(details.contains("idx_videoz_album_id"), "{details}");
+        assert!(!details.contains("CO-ROUTINE"), "{details}");
+        assert!(!details.contains("MATERIALIZE"), "{details}");
         for row in &plan {
             let words = row
                 .detail
@@ -1254,6 +1401,58 @@ mod tests {
                     !["albumz", "songz", "videoz", "a", "s", "v", "p"].contains(&words[1]),
                     "{details}"
                 );
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn entity_availability_lookups_do_not_expand_unrelated_union_branches() {
+        let pool = fixture().await;
+        source(&pool, "disk", "/mnt/disk", "").await;
+        container(&pool, "offline1", "offline").await;
+        blob(&pool, "blob0001", Some("/mnt/disk/media")).await;
+        sqlx::query(
+            "INSERT INTO songz (id, title, media_blob_id) VALUES ('song0001', 'song', 'blob0001')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query("INSERT INTO videoz (id, title, media_blob_id) VALUES ('video001', 'video', 'blob0001')")
+            .execute(&pool).await.unwrap();
+        attach(&pool, "offline1", "song0001", "video001").await;
+
+        for state in ["offline", "online", "unknown"] {
+            status(&pool, "disk", state).await;
+            for (entity, view) in [
+                ("album", "library_offline_album_view"),
+                ("artist", "library_offline_artist_view"),
+                ("video_series", "library_offline_series_view"),
+                ("playlist", "library_offline_playlist_view"),
+            ] {
+                let sql = format!("SELECT entity_id FROM {view} ORDER BY entity_id");
+                let ids = sqlx::query_scalar::<_, String>(&sql)
+                    .fetch_all(&pool)
+                    .await
+                    .unwrap();
+                let combined = sqlx::query_scalar::<_, String>(
+                    "SELECT entity_id FROM library_offline_container_view WHERE entity_type = ? ORDER BY entity_id")
+                    .bind(entity).fetch_all(&pool).await.unwrap();
+                assert_eq!(ids, combined, "{state}: {entity}");
+                assert_eq!(
+                    ids.len(),
+                    usize::from(state == "offline"),
+                    "{state}: {entity}"
+                );
+
+                let plan = sqlx::query(&format!(
+                    "EXPLAIN QUERY PLAN SELECT EXISTS (SELECT 1 FROM {view} WHERE entity_id = 'offline1')"))
+                    .fetch_all(&pool).await.unwrap();
+                use sqlx::Row;
+                for row in plan {
+                    let detail: String = row.get("detail");
+                    assert!(!detail.contains("UNION"), "{entity}: {detail}");
+                    assert!(!detail.contains("MATERIALIZE"), "{entity}: {detail}");
+                }
             }
         }
     }

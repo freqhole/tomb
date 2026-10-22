@@ -411,6 +411,10 @@ pub mod type_registry {
             "LibraryAvailabilityRevision",
         );
         registered.insert("LibraryAvailabilityRevision".to_string());
+        gen.add_schema::<crate::external_storage::media_availability::OfflineMediaSummary>(
+            "OfflineMediaSummary",
+        );
+        registered.insert("OfflineMediaSummary".to_string());
         gen.add_schema::<crate::external_storage::inventory::RemovableVolume>("RemovableVolume");
         registered.insert("RemovableVolume".to_string());
         gen.add_schema::<crate::external_storage::sources::SourceDomain>("SourceDomain");

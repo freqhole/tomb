@@ -180,6 +180,9 @@ pub async fn close_setup_wizard(
 
         crate::external_storage::publish_saved_sync_targets(&app).await?;
 
+        let control_socket_token = app.state::<ShutdownToken>().inner().0.as_ref().clone();
+        crate::control_socket_bridge::init(app.clone(), control_socket_token);
+
         // start job runner (same as lib.rs)
         let job_runner_token = app.state::<ShutdownToken>().inner().clone();
         let runner_guard = crate::job_runner_guard(&app);

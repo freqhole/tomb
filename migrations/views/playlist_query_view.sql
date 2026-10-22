@@ -5,7 +5,7 @@ DROP VIEW IF EXISTS playlist_query_view;
 CREATE VIEW playlist_query_view AS
 SELECT
     pl.id as playlist_id,
-    EXISTS (SELECT 1 FROM library_offline_container_view o
+    EXISTS (SELECT 1 FROM library_offline_playlist_view o
             WHERE o.entity_type = 'playlist' AND o.entity_id = pl.id) as is_offline,
     pl.title as playlist_title,
     pl.description as playlist_description,

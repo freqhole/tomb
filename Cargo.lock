@@ -3598,6 +3598,7 @@ dependencies = [
  "dialoguer",
  "dirs 5.0.1",
  "futures-util",
+ "gethostname",
  "getrandom 0.2.17",
  "haruspex",
  "hex",

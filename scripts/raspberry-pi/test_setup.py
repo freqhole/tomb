@@ -41,6 +41,101 @@ wifi_control = load_module("freqhole-wifi")
 splash = load_module("splash")
 
 
+class SetupServiceStopTests(unittest.TestCase):
+    def run_setup_stop(self, units, answer="yes", failure="", ending=""):
+        script = (HERE / "setup.sh").read_text()
+        ownership = script.split("for unit in rathole rathole-ctrl; do", 1)[1]
+        ownership = "for unit in rathole rathole-ctrl; do" + ownership.split('if "$charnel"', 1)[0]
+        stopping = script.split("stopped_units=()", 1)[1].split("sudo apt-get update", 1)[0]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for name, content in units.items():
+                (root / f"{name}.service").write_text(content)
+            prefix = r'''
+set -euo pipefail
+user=pi
+die() { echo "$*" >&2; exit 1; }
+ask() { echo "$*"; [ "$ANSWER" = yes ]; }
+systemctl() {
+    if [ "$1" = is-active ]; then
+        [ -f "$UNITS/$3" ] && [ ! -f "$UNITS/$3.stopped" ]
+    else
+        echo "unexpected systemctl action" >&2; exit 1
+    fi
+}
+sudo() {
+    echo "$*"
+    [ "$3" != "$FAILURE" ] || return 1
+    [ "$FAILURE" != still-running ] || return 0
+    touch "$UNITS/$3.stopped"
+}
+'''
+            environment = dict(os.environ, UNITS=directory, ANSWER=answer, FAILURE=failure)
+            return subprocess.run(
+                ["bash", "-c", prefix + ownership.replace("/etc/systemd/system", directory)
+                 + "stopped_units=()" + stopping.replace("/etc/systemd/system", directory)
+                 + '\necho installing\n' + ending],
+                env=environment, text=True, capture_output=True,
+            )
+
+    def test_stops_oled_before_player_after_confirmation(self):
+        managed = "# managed by freqhole-pi setup\nUser=pi\n"
+        result = self.run_setup_stop({"rathole": managed, "rathole-ctrl": managed})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertLess(result.stdout.index("stop rathole-ctrl.service"),
+                        result.stdout.index("stop rathole.service"))
+        self.assertLess(result.stdout.index("stop rathole.service"),
+                        result.stdout.index("installing"))
+        self.assertEqual(result.stderr, "")
+
+    def test_declining_does_not_stop_or_install(self):
+        result = self.run_setup_stop({"rathole": "# managed by freqhole-pi setup\nUser=pi\n"}, answer="no")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("systemctl stop", result.stdout)
+        self.assertNotIn("installing", result.stdout)
+
+    def test_unmanaged_and_other_account_services_are_not_stopped(self):
+        for content in ["User=pi\n", "# managed by freqhole-pi setup\nUser=other\n"]:
+            with self.subTest(content=content):
+                result = self.run_setup_stop({"rathole": content})
+                self.assertNotEqual(result.returncode, 0)
+                self.assertNotIn("systemctl stop", result.stdout)
+                self.assertNotIn("installing", result.stdout)
+
+    def test_fresh_install_needs_no_stop_prompt(self):
+        result = self.run_setup_stop({})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "installing\n")
+
+    def test_stop_failure_aborts_before_installing(self):
+        result = self.run_setup_stop(
+            {"rathole": "# managed by freqhole-pi setup\nUser=pi\n"},
+            failure="rathole.service",
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn("installing", result.stdout)
+        self.assertIn("could not stop", result.stderr)
+        self.assertIn("not automatically restarted", result.stderr)
+
+    def test_service_still_running_aborts_before_installing(self):
+        result = self.run_setup_stop(
+            {"rathole": "# managed by freqhole-pi setup\nUser=pi\n"},
+            failure="still-running",
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn("installing", result.stdout)
+        self.assertIn("still running", result.stderr)
+
+    def test_failed_install_reports_restart_commands_but_success_does_not(self):
+        managed = {"rathole": "# managed by freqhole-pi setup\nUser=pi\n"}
+        failed = self.run_setup_stop(managed, ending="false")
+        self.assertNotEqual(failed.returncode, 0)
+        self.assertIn("sudo systemctl start rathole.service", failed.stderr)
+        completed = self.run_setup_stop(managed, ending="setup_complete=true\nfalse")
+        self.assertNotEqual(completed.returncode, 0)
+        self.assertEqual(completed.stderr, "")
+
+
 class MetadataMarqueeTests(unittest.TestCase):
     def test_short_metadata_is_stationary(self):
         for elapsed in (0, 3, 10, 20):
