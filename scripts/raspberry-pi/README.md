@@ -8,6 +8,8 @@ curl -fsSL https://raw.githubusercontent.com/freqhole/tomb/main/scripts/raspberr
 ```
 
 choose one app per run, optional OLED/Wi-Fi/splash, and autostart.
+reruns preserve config/data and prompt to stop running managed rathole/OLED services.
+after setup, choose start/reboot/exit; failed setup leaves stopped services stopped.
 complete the app's first-run wizard to choose its data directory.
 select **enable control socket** for OLED playback controls (off by default).
 reopen your terminal afterward, or run `export PATH="$HOME/.local/bin:$PATH"`.

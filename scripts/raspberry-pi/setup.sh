@@ -126,13 +126,13 @@ autostart=false
 if [ "$mode" != 3 ] && ask "start rathole automatically at boot?"; then autostart=true; fi
 charnel_boot=false
 player=false
-window=keep
+window=fullscreen
 if "$charnel"; then
     if ask "start charnel at desktop login (requires desktop/autologin)?"; then charnel_boot=true; fi
     if ask "make player the initial charnel view?"; then player=true; fi
     echo
-    read -r -p "charnel window: fullscreen / maximized / keep [keep]: " window
-    window="${window:-keep}"
+    read -r -p "charnel window: fullscreen / maximized / keep [fullscreen]: " window
+    window="${window:-fullscreen}"
     case "$window" in fullscreen|maximized|keep) ;; *) die "invalid charnel window mode." ;; esac
 fi
 menu_player=rathole
@@ -155,9 +155,6 @@ for unit in rathole rathole-ctrl; do
         die "existing $unit.service belongs to another account; setup cancelled."
     fi
 done
-if systemctl is-active --quiet rathole.service || systemctl is-active --quiet rathole-ctrl.service; then
-    die "stop the existing rathole and rathole-ctrl services before rerunning setup."
-fi
 if "$charnel" && pgrep -u "$(id -u)" -x charnel >/dev/null; then
     die "quit charnel before changing its startup/configuration."
 fi
@@ -180,6 +177,36 @@ for path in "$charnel_unit" "$charnel_autostart"; do
 done
 
 sudo -v
+stopped_units=()
+setup_complete=false
+report_exit() {
+    if [ "$1" -ne 0 ] && ! "$setup_complete" && [ "${#stopped_units[@]}" -gt 0 ]; then
+        echo "setup did not complete; services stopped for setup were not automatically restarted." >&2
+        echo "after resolving the error, rerun setup or start them manually:" >&2
+        printf '  sudo systemctl start %s\n' "${stopped_units[@]}" >&2
+    fi
+}
+trap 'report_exit $?' EXIT
+running_units=()
+for unit in rathole-ctrl rathole; do
+    if systemctl is-active --quiet "$unit.service"; then
+        [ -f "/etc/systemd/system/$unit.service" ] \
+            || die "running $unit.service is not managed by this installer; setup cancelled."
+        running_units+=("$unit.service")
+    fi
+done
+if [ "${#running_units[@]}" -gt 0 ]; then
+    ask "rathole/OLED services are running. stop them to continue setup? playback will stop." || exit 0
+    for unit in "${running_units[@]}"; do
+        stopped_units+=("$unit")
+        sudo systemctl stop "$unit" || die "could not stop $unit; setup cancelled."
+    done
+    for unit in "${running_units[@]}"; do
+        if systemctl is-active --quiet "$unit"; then
+            die "$unit is still running; setup cancelled."
+        fi
+    done
+fi
 sudo apt-get update
 if ask "upgrade installed system packages before setup?"; then
     sudo apt-get upgrade -y
@@ -221,7 +248,13 @@ cleanup() {
     done
     rmdir -- "$work"
 }
-trap cleanup EXIT
+finish_setup() {
+    local status=$?
+    cleanup || echo "warning: could not remove setup staging files." >&2
+    report_exit "$status"
+    exit "$status"
+}
+trap finish_setup EXIT
 if [ ! -f "$source_dir/configure.py" ]; then
     ref="${FREQHOLE_PI_REF:-main}"
     [[ "$ref" =~ ^[a-zA-Z0-9._-]+$ ]] || die "invalid FREQHOLE_PI_REF."
@@ -391,6 +424,7 @@ if "$hardware" && ask "start the OLED menu automatically at boot?"; then
 elif [ -f /etc/systemd/system/rathole-ctrl.service ]; then
     sudo systemctl disable rathole-ctrl.service
 fi
+setup_complete=true
 echo "setup complete;"
 printf '\n\n'
 cat <<'EOF'
