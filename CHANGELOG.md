@@ -1,5 +1,13 @@
 # freqhole-release
 
+## 0.3.20
+
+### Patch Changes
+
+- a78b50b: improve raspi setup scriptz for handling existing installz
+- 139427f: try to use system's hostname for default server name in setup flow; "enable p2p federation", "allow remote admin over p2p", and "enable radio", all default on/enabled in the setup flow
+- 508cb4d: try to improve slow queryz related to offline media; also fix availability filter route;
+
 ## 0.3.19
 
 ### Patch Changes
