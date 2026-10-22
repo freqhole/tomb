@@ -330,8 +330,8 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 24
-      - name: install host deps (sqlite + alsa for db-prepare)
-        run: sudo apt-get update || true; sudo apt-get install -y sqlite3 libasound2-dev
+      - name: install host deps (sqlite + alsa + udev for database checks)
+        run: sudo apt-get update || true; sudo apt-get install -y sqlite3 libasound2-dev libudev-dev
       - name: install sqlx-cli
         run: cargo install sqlx-cli --no-default-features --features sqlite,rustls --locked
       # the docker build COPYs the workspace (incl. client/spume/dist) into the
@@ -370,8 +370,8 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 24
-      - name: install host deps (sqlite + alsa for db-prepare)
-        run: sudo apt-get update || true; sudo apt-get install -y sqlite3 libasound2-dev
+      - name: install host deps (sqlite + alsa + udev for database checks)
+        run: sudo apt-get update || true; sudo apt-get install -y sqlite3 libasound2-dev libudev-dev
       - name: install sqlx-cli
         run: cargo install sqlx-cli --no-default-features --features sqlite,rustls --locked
       # the docker build COPYs the workspace (incl. client/spume/dist) into the
@@ -496,8 +496,8 @@ jobs:
         run: sdkmanager "ndk;26.3.11579264" "build-tools;${ANDROID_BUILD_TOOLS_VERSION}"
       - name: export ndk path
         run: echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/26.3.11579264" >> "$GITHUB_ENV"
-      - name: install host deps (sqlite + alsa for db-prepare)
-        run: sudo apt-get update || true; sudo apt-get install -y sqlite3 libasound2-dev
+      - name: install host deps (sqlite + alsa + udev for database checks)
+        run: sudo apt-get update || true; sudo apt-get install -y sqlite3 libasound2-dev libudev-dev
       - name: install sqlx-cli
         run: cargo install sqlx-cli --no-default-features --features sqlite,rustls --locked
       - name: set up database
@@ -589,8 +589,8 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 24
-      - name: install host deps (sqlite + alsa for db-prepare)
-        run: sudo apt-get update || true; sudo apt-get install -y sqlite3 libasound2-dev
+      - name: install host deps (sqlite + alsa + udev for database checks)
+        run: sudo apt-get update || true; sudo apt-get install -y sqlite3 libasound2-dev libudev-dev
       - name: install sqlx-cli
         run: cargo install sqlx-cli --no-default-features --features sqlite,rustls --locked
       # the docker build COPYs the workspace (incl. client/spume/dist) into the
