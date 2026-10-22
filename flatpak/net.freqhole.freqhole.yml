@@ -159,6 +159,8 @@ modules:
         sources:
           - type: archive
             url: https://lib.openmpt.org/files/libopenmpt/src/libopenmpt-0.8.9+release.autotools.tar.gz
+            mirror-urls:
+              - https://distfiles.macports.org/libopenmpt/libopenmpt-0.8.9+release.autotools.tar.gz
             sha256: d7ce84fd05d686c4bcf66af40eae857afa371442db60eeda3f874bd6cf6fc318
 
       - name: ffmpeg
