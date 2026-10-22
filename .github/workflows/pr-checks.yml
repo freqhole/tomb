@@ -98,8 +98,7 @@ jobs:
         run: cargo fmt --all --check
 
       - name: cargo clippy
-        # temporary diagnostics; leave Cargo parallelism unchanged.
-        run: bash scripts/ci-rust-diagnostics.sh cargo clippy --workspace --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets -- -D warnings
 
   rust-test:
     name: rust (unit tests)
@@ -148,7 +147,7 @@ jobs:
       - name: cargo unit tests
         # lib + bin unit tests only. the cli integration suite (make test-cli)
         # is slower + fixture-driven and runs outside the fast PR path.
-        run: bash scripts/ci-rust-diagnostics.sh cargo test --workspace --lib --bins
+        run: cargo test --workspace --lib --bins
 
   web-check:
     name: web (typecheck + vitest + circular deps)
