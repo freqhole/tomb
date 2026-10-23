@@ -15,6 +15,10 @@ import { MarqueeText } from "../../components/text/MarqueeText";
 import { TagChips } from "../../components/badges/TagChips";
 import { TaxonChips } from "../../components/badges/TaxonChips";
 import { ShareButton } from "../../components/buttons/ShareButton";
+import {
+  ResponsiveActionBar,
+  type ActionBarItem,
+} from "../../components/overlays/ResponsiveActionBar";
 import type { SendVideoPayload } from "../services/send/sendVideoToRemote";
 import type { QueuedVideo } from "../../app/services/storage/mediaItem";
 import { FavoriteHeart } from "../../components/ratings/FavoriteHeart";
@@ -38,6 +42,7 @@ import { playVideoQueue } from "../services/queue/playVideoQueue";
 import { addVideosToQueue, shuffleVideos } from "../services/videoQueueActions";
 import { VideoListRow } from "./VideoListRow";
 import { showEditVideoSeries } from "../hooks/modals";
+import { showShareModal } from "../../music/hooks/modals";
 import { showStationSelector } from "../../music/hooks/stationSelectorState";
 import { useVideoSeriesContextMenu } from "../hooks/contextMenu";
 import { canUpdateVideo } from "../data/permissions";
@@ -370,6 +375,125 @@ export function VideoSeriesDetailPanel(props: VideoSeriesDetailPanelProps) {
     }
   };
 
+  // secondary actions for the narrow/mobile layout's responsive action
+  // bar - ordered by priority (first collapses last, into the "..."
+  // overflow menu, as the container runs out of horizontal room). the
+  // primary play/continue button and favorite toggle stay pinned (never
+  // collapse) - see the narrow layout's own JSX below.
+  const narrowActionItems = createMemo((): ActionBarItem[] => {
+    const series = detailQuery.data?.series;
+    if (!series) return [];
+    const items: ActionBarItem[] = [];
+
+    items.push({
+      key: "queue",
+      render: () => (
+        <Button
+          variant="ghost"
+          loading={seriesActionPending() === "queue"}
+          disabled={seriesActionPending() !== null || allVideos().length === 0}
+          onClick={handleAddAllToQueue}
+          title="add all episodes to queue"
+          aria-label="add all episodes to queue"
+        >
+          <Icon name={IconNames.queue} />
+        </Button>
+      ),
+      action: {
+        label: "add all episodes to queue",
+        icon: "queue",
+        onClick: () => void handleAddAllToQueue(),
+        disabled: seriesActionPending() !== null || allVideos().length === 0,
+      },
+    });
+
+    if (canUpdateVideo()) {
+      items.push({
+        key: "edit",
+        render: () => (
+          <button
+            onClick={() =>
+              showEditVideoSeries({
+                seriesId: series.id,
+                onDeleted: props.onDeleted,
+              })
+            }
+            class="p-2 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded transition-colors"
+            title="edit series info"
+            aria-label="edit series info"
+          >
+            <Icon name={IconNames.edit} />
+          </button>
+        ),
+        action: {
+          label: "edit series info",
+          icon: "edit",
+          onClick: () =>
+            showEditVideoSeries({
+              seriesId: series.id,
+              onDeleted: props.onDeleted,
+            }),
+        },
+      });
+    }
+
+    const shareTarget = {
+      kind: "video_series" as const,
+      id: series.id,
+      displayTitle: series.title,
+    };
+    items.push({
+      key: "share",
+      render: () => (
+        <ShareButton
+          target={shareTarget}
+          source={currentRemoteFull}
+          buildSendPayload={buildSeriesSendPayload}
+        />
+      ),
+      action: {
+        label: "share",
+        icon: "share",
+        onClick: () =>
+          showShareModal({
+            target: shareTarget,
+            source: currentRemoteFull,
+            buildSendPayload: buildSeriesSendPayload,
+          }),
+      },
+    });
+
+    items.push({
+      key: "station",
+      render: () => (
+        <button
+          onClick={() =>
+            void showStationSelector(
+              { kind: "video_series", seriesId: series.id, seriesTitle: series.title },
+              series.remote_server_id ?? undefined
+            )
+          }
+          class="p-2 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded transition-colors"
+          title="add to station..."
+          aria-label="add to station..."
+        >
+          <Icon name={IconNames.headphones} />
+        </button>
+      ),
+      action: {
+        label: "add to station...",
+        icon: "headphones",
+        onClick: () =>
+          void showStationSelector(
+            { kind: "video_series", seriesId: series.id, seriesTitle: series.title },
+            series.remote_server_id ?? undefined
+          ),
+      },
+    });
+
+    return items;
+  });
+
   // per-season play/queue/shuffle pending state, keyed by season id so
   // multiple seasons' buttons don't share a single loading flag.
   const [seasonActionPending, setSeasonActionPending] = createSignal<{
@@ -549,69 +673,29 @@ export function VideoSeriesDetailPanel(props: VideoSeriesDetailPanelProps) {
 
                       <TagChips tags={aggregateTagsQuery.data} class="mt-2 justify-center" />
 
-                      <div class="mt-3 flex items-center justify-center flex-wrap gap-2">
-                        <Button
-                          variant="primary"
-                          size="sm"
-                          loading={seriesActionPending() === "play"}
-                          disabled={seriesActionPending() !== null || allVideos().length === 0}
-                          onClick={handlePlayOrContinue}
-                        >
-                          {continueTarget()?.label ?? "play"}
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          loading={seriesActionPending() === "queue"}
-                          disabled={seriesActionPending() !== null || allVideos().length === 0}
-                          onClick={handleAddAllToQueue}
-                          title="add all episodes to queue"
-                          aria-label="add all episodes to queue"
-                        >
-                          <Icon name={IconNames.queue} />
-                        </Button>
-                        <Show when={canUpdateVideo()}>
-                          <button
-                            onClick={() =>
-                              showEditVideoSeries({
-                                seriesId: data().series.id,
-                                onDeleted: props.onDeleted,
-                              })
-                            }
-                            class="p-2 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded transition-colors"
-                            title="edit series info"
-                            aria-label="edit series info"
-                          >
-                            <Icon name={IconNames.edit} />
-                          </button>
-                        </Show>
-                        <FavoriteHeart isFavorite={isFavorite()} onToggle={handleFavoriteToggle} />
-                        <ShareButton
-                          target={{
-                            kind: "video_series",
-                            id: data().series.id,
-                            displayTitle: data().series.title,
-                          }}
-                          source={currentRemoteFull}
-                          buildSendPayload={buildSeriesSendPayload}
+                      <div class="mt-3 flex items-center justify-center">
+                        <ResponsiveActionBar
+                          class="justify-center"
+                          items={narrowActionItems()}
+                          pinnedStart={() => (
+                            <>
+                              <Button
+                                variant="primary"
+                                loading={seriesActionPending() === "play"}
+                                disabled={
+                                  seriesActionPending() !== null || allVideos().length === 0
+                                }
+                                onClick={handlePlayOrContinue}
+                              >
+                                {continueTarget()?.label ?? "play"}
+                              </Button>
+                              <FavoriteHeart
+                                isFavorite={isFavorite()}
+                                onToggle={handleFavoriteToggle}
+                              />
+                            </>
+                          )}
                         />
-                        <button
-                          onClick={() =>
-                            void showStationSelector(
-                              {
-                                kind: "video_series",
-                                seriesId: data().series.id,
-                                seriesTitle: data().series.title,
-                              },
-                              data().series.remote_server_id ?? undefined
-                            )
-                          }
-                          class="p-2 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded transition-colors"
-                          title="add to station..."
-                          aria-label="add to station..."
-                        >
-                          <Icon name={IconNames.headphones} />
-                        </button>
                       </div>
                     </div>
                   </div>

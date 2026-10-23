@@ -27,11 +27,15 @@ import { formatTaxonLabel } from "../../music/utils/format";
 import type { EntityUrl } from "../../music/data/types";
 import { isCharnelMode } from "../../app/services/charnel";
 import { showStationSelector } from "../../music/hooks/stationSelectorState";
-import { useImageCarouselLoading } from "../../music/hooks/modals";
+import { useImageCarouselLoading, showShareModal } from "../../music/hooks/modals";
 import { getCurrentRemote } from "../../music/data";
 import { useVideosByArtistQuery } from "../../video/queries/videos";
 import { VideoListSection } from "../../video/components/VideoListSection";
 import { ShareButton } from "../buttons/ShareButton";
+import {
+  ResponsiveActionBar,
+  type ActionBarItem,
+} from "../overlays/ResponsiveActionBar";
 import type { Remote } from "../../app/services/storage/schemas/remote";
 import type { Accessor } from "solid-js";
 
@@ -315,6 +319,151 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
   const handleShuffle = () => void runPendingAction("shuffle", props.onShuffle);
   const handleAddToQueue = () => void runPendingAction("queue", props.onAddToQueue);
 
+  // secondary actions for the responsive action bar (used by both the
+  // desktop and mobile layouts below) - ordered by priority (first
+  // collapses last, into the "..." overflow menu, as the container runs
+  // out of horizontal room). "play all" and the favorite toggle stay
+  // pinned (never collapse) - see each layout's own JSX further down.
+  const secondaryActionItems = createMemo((): ActionBarItem[] => {
+    const items: ActionBarItem[] = [];
+
+    if (showSongControls()) {
+      items.push({
+        key: "shuffle",
+        render: () => (
+          <Button
+            variant="secondary"
+            loading={pendingAction() === "shuffle"}
+            disabled={pendingAction() !== null}
+            onClick={handleShuffle}
+            title="shuffle"
+            aria-label="shuffle"
+          >
+            shuffle
+          </Button>
+        ),
+        action: {
+          label: "shuffle",
+          icon: "shuffle",
+          onClick: handleShuffle,
+          disabled: pendingAction() !== null,
+        },
+      });
+      items.push({
+        key: "queue",
+        render: () => (
+          <Button
+            variant="ghost"
+            loading={pendingAction() === "queue"}
+            disabled={pendingAction() !== null}
+            onClick={handleAddToQueue}
+            title="add to queue"
+            aria-label="add to queue"
+          >
+            +queue
+          </Button>
+        ),
+        action: {
+          label: "add to queue",
+          icon: "queue",
+          onClick: handleAddToQueue,
+          disabled: pendingAction() !== null,
+        },
+      });
+    }
+
+    if (isCharnelMode() || !!getCurrentRemote()) {
+      items.push({
+        key: "radio",
+        render: () => (
+          <Button
+            variant="ghost"
+            onClick={() =>
+              void showStationSelector(
+                { kind: "artist", artistId: props.artist.artist_id, artistName: props.artist.name },
+                getCurrentRemote()?.remote_id
+              )
+            }
+            title="start radio from artist"
+            aria-label="start radio from artist"
+          >
+            +radio
+          </Button>
+        ),
+        action: {
+          label: "start radio from artist",
+          icon: "radioTower",
+          onClick: () =>
+            void showStationSelector(
+              { kind: "artist", artistId: props.artist.artist_id, artistName: props.artist.name },
+              getCurrentRemote()?.remote_id
+            ),
+        },
+      });
+    }
+
+    if (props.onEditArtist && canUpdateArtist()) {
+      items.push({
+        key: "edit",
+        render: () => (
+          <button
+            onClick={props.onEditArtist}
+            class="p-2 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded transition-colors"
+            title="edit artist info"
+            aria-label="edit artist info"
+          >
+            <Icon name={IconNames.edit} size={20} />
+          </button>
+        ),
+        action: {
+          label: "edit artist info",
+          icon: "edit",
+          onClick: () => props.onEditArtist?.(),
+        },
+      });
+    }
+
+    if (props.remote) {
+      const shareTarget = {
+        kind: "artist" as const,
+        id: props.artist.artist_id,
+        displayTitle: props.artist.name,
+      };
+      items.push({
+        key: "share",
+        render: () => <ShareButton target={shareTarget} source={() => props.remote!()} />,
+        action: {
+          label: "share",
+          icon: "share",
+          onClick: () => showShareModal({ target: shareTarget, source: () => props.remote!() }),
+        },
+      });
+    }
+
+    if (props.onExplore) {
+      items.push({
+        key: "explore",
+        render: () => (
+          <Button
+            variant="ghost"
+            onClick={props.onExplore}
+            title="explore artist in graph"
+            aria-label="explore artist in graph"
+          >
+            explore
+          </Button>
+        ),
+        action: {
+          label: "explore artist in graph",
+          icon: "library",
+          onClick: () => props.onExplore?.(),
+        },
+      });
+    }
+
+    return items;
+  });
+
   // create artist abbreviation (up to 3 letters from first words)
   const artistAbbreviation = createMemo(() => getArtistAbbreviation(props.artist.name));
 
@@ -499,97 +648,39 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
                 </Show>
 
                 {/* artist actions: edit, play controls, favorite, rating.
-                    flex-wrap so this doesn't overflow when the available
-                    width shrinks (e.g. the queue panel open alongside a
-                    narrower main content column) even though the viewport
-                    itself is at the "wide" breakpoint. */}
-                <div class={`flex items-center flex-wrap gap-2 w-fit ${actionBarBlur()}`}>
-                  <Show when={props.onEditArtist && canUpdateArtist()}>
-                    <button
-                      onClick={props.onEditArtist}
-                      class="p-2 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded transition-colors"
-                      title="edit artist info"
-                      aria-label="edit artist info"
-                    >
-                      <Icon name={IconNames.edit} size={20} />
-                    </button>
-                  </Show>
-                  <Show when={showSongControls()}>
-                    <Button
-                      variant="primary"
-                      size="sm"
-                      loading={pendingAction() === "play"}
-                      disabled={pendingAction() !== null}
-                      onClick={handlePlayAll}
-                    >
-                      play all
-                    </Button>
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      loading={pendingAction() === "shuffle"}
-                      disabled={pendingAction() !== null}
-                      onClick={handleShuffle}
-                    >
-                      shuffle
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      loading={pendingAction() === "queue"}
-                      disabled={pendingAction() !== null}
-                      onClick={handleAddToQueue}
-                    >
-                      +queue
-                    </Button>
-                  </Show>
-                  <Show when={isCharnelMode() || !!getCurrentRemote()}>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() =>
-                        void showStationSelector(
-                          {
-                            kind: "artist",
-                            artistId: props.artist.artist_id,
-                            artistName: props.artist.name,
-                          },
-                          getCurrentRemote()?.remote_id
-                        )
-                      }
-                    >
-                      +radio
-                    </Button>
-                  </Show>
-                  <Show when={props.onExplore}>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={props.onExplore}
-                      title="explore artist in graph"
-                      aria-label="explore artist in graph"
-                    >
-                      explore
-                    </Button>
-                  </Show>
-                  <FavoriteHeart
-                    isFavorite={props.artist.is_favorite ?? false}
-                    onToggle={props.onFavoriteToggle}
-                  />
-                  <Show when={props.remote}>
-                    <ShareButton
-                      target={{
-                        kind: "artist",
-                        id: props.artist.artist_id,
-                        displayTitle: props.artist.name,
-                      }}
-                      source={() => props.remote!()}
-                    />
-                  </Show>
-                  <Rating
-                    rating={props.artist.user_rating ?? 0}
-                    size="md"
-                    onRatingChange={props.onRatingChange}
+                    responsive - collapses lower-priority actions into a
+                    "..." overflow menu as room runs out (e.g. the queue
+                    panel open alongside a narrower main content column)
+                    rather than wrapping to a second line or shrinking
+                    every button down to an uncomfortable tap target. */}
+                <div class={actionBarBlur()}>
+                  <ResponsiveActionBar
+                    items={secondaryActionItems()}
+                    pinnedStart={() => (
+                      <Show when={showSongControls()}>
+                        <Button
+                          variant="primary"
+                          loading={pendingAction() === "play"}
+                          disabled={pendingAction() !== null}
+                          onClick={handlePlayAll}
+                        >
+                          play all
+                        </Button>
+                      </Show>
+                    )}
+                    pinnedEnd={() => (
+                      <>
+                        <FavoriteHeart
+                          isFavorite={props.artist.is_favorite ?? false}
+                          onToggle={props.onFavoriteToggle}
+                        />
+                        <Rating
+                          rating={props.artist.user_rating ?? 0}
+                          size="md"
+                          onRatingChange={props.onRatingChange}
+                        />
+                      </>
+                    )}
                   />
                 </div>
               </div>
@@ -735,116 +826,38 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
               <EntityLinks urls={props.artist.urls} class="justify-center" collapsible />
 
               {/* artist actions: edit, play controls, favorite, rating.
-                  flex-wrap so this doesn't overflow at narrow widths —
-                  the icon-only buttons above buy some room but can't
-                  guarantee everything fits on one line in every case. */}
-              <div
-                class={`mt-2 flex items-center justify-center flex-wrap gap-2 w-fit mx-auto ${actionBarBlur()}`}
-              >
-                <Show when={props.onEditArtist && canUpdateArtist()}>
-                  <button
-                    onClick={props.onEditArtist}
-                    class="p-2 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded transition-colors"
-                    title="edit artist info"
-                    aria-label="edit artist info"
-                  >
-                    <Icon name={IconNames.edit} size={20} />
-                  </button>
-                </Show>
-                <Show when={showSongControls()}>
-                  <Button
-                    variant="primary"
-                    size="sm"
-                    loading={pendingAction() === "play"}
-                    disabled={pendingAction() !== null}
-                    onClick={handlePlayAll}
-                  >
-                    play
-                  </Button>
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    loading={pendingAction() === "shuffle"}
-                    disabled={pendingAction() !== null}
-                    onClick={handleShuffle}
-                    title="shuffle"
-                    aria-label="shuffle"
-                  >
-                    <span class="hidden wide:inline">shuffle</span>
-                    <span class="wide:hidden inline-flex items-center">
-                      <Icon name={IconNames.shuffle} />
-                    </span>
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    loading={pendingAction() === "queue"}
-                    disabled={pendingAction() !== null}
-                    onClick={handleAddToQueue}
-                    title="add to queue"
-                    aria-label="add to queue"
-                  >
-                    <span class="hidden wide:inline">+queue</span>
-                    <span class="wide:hidden inline-flex items-center">
-                      <Icon name={IconNames.queue} />
-                    </span>
-                  </Button>
-                </Show>
-                <Show when={isCharnelMode() || !!getCurrentRemote()}>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() =>
-                      void showStationSelector(
-                        {
-                          kind: "artist",
-                          artistId: props.artist.artist_id,
-                          artistName: props.artist.name,
-                        },
-                        getCurrentRemote()?.remote_id
-                      )
-                    }
-                    title="start radio from artist"
-                    aria-label="start radio from artist"
-                  >
-                    <span class="hidden wide:inline">+radio</span>
-                    <span class="wide:hidden inline-flex items-center">
-                      <Icon name={IconNames.radioTower} />
-                    </span>
-                  </Button>
-                </Show>
-                <Show when={props.onExplore}>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={props.onExplore}
-                    title="explore artist in graph"
-                    aria-label="explore artist in graph"
-                  >
-                    <span class="hidden wide:inline">explore</span>
-                    <span class="wide:hidden inline-flex items-center">
-                      <Icon name={IconNames.library} />
-                    </span>
-                  </Button>
-                </Show>
-                <FavoriteHeart
-                  isFavorite={props.artist.is_favorite ?? false}
-                  onToggle={props.onFavoriteToggle}
-                />
-                <Show when={props.remote}>
-                  <ShareButton
-                    target={{
-                      kind: "artist",
-                      id: props.artist.artist_id,
-                      displayTitle: props.artist.name,
-                    }}
-                    source={() => props.remote!()}
-                  />
-                </Show>
-                <Rating
-                  rating={props.artist.user_rating ?? 0}
-                  size="md"
-                  onRatingChange={props.onRatingChange}
+                  responsive - collapses lower-priority actions into a
+                  "..." overflow menu as room runs out, so every visible
+                  button stays a comfortable tap target. */}
+              <div class={`mt-2 ${actionBarBlur()}`}>
+                <ResponsiveActionBar
+                  class="justify-center"
+                  items={secondaryActionItems()}
+                  pinnedStart={() => (
+                    <Show when={showSongControls()}>
+                      <Button
+                        variant="primary"
+                        loading={pendingAction() === "play"}
+                        disabled={pendingAction() !== null}
+                        onClick={handlePlayAll}
+                      >
+                        play
+                      </Button>
+                    </Show>
+                  )}
+                  pinnedEnd={() => (
+                    <>
+                      <FavoriteHeart
+                        isFavorite={props.artist.is_favorite ?? false}
+                        onToggle={props.onFavoriteToggle}
+                      />
+                      <Rating
+                        rating={props.artist.user_rating ?? 0}
+                        size="md"
+                        onRatingChange={props.onRatingChange}
+                      />
+                    </>
+                  )}
                 />
               </div>
             </div>

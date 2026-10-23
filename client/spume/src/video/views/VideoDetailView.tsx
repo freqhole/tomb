@@ -14,6 +14,10 @@ import { Icon, IconNames } from "../../components/icons/registry";
 import { FavoriteHeart } from "../../components/ratings/FavoriteHeart";
 import { Rating } from "../../components/ratings/Rating";
 import { ShareButton } from "../../components/buttons/ShareButton";
+import {
+  ResponsiveActionBar,
+  type ActionBarItem,
+} from "../../components/overlays/ResponsiveActionBar";
 import type { SendVideoPayload } from "../services/send/sendVideoToRemote";
 import type { QueuedVideo } from "../../app/services/storage/mediaItem";
 import { createShareSourceRemote } from "../../app/services/remotes/shareSource";
@@ -37,6 +41,7 @@ import { useVideoFavoriteStatuses } from "../hooks/useVideoFavoriteStatuses";
 import { useVideoRatingStatuses } from "../hooks/useVideoRatingStatuses";
 import { useVideoContextMenu } from "../hooks/contextMenu";
 import { showEditVideo } from "../hooks/modals";
+import { showShareModal } from "../../music/hooks/modals";
 import { showStationSelector } from "../../music/hooks/stationSelectorState";
 import { canUpdateVideo } from "../data/permissions";
 import { getVideoDataSource } from "../data";
@@ -289,6 +294,193 @@ export function VideoDetailView() {
     }
   };
 
+  // secondary actions for the narrow/mobile layout's responsive action
+  // bar - ordered by priority (first collapses last, into the "..."
+  // overflow menu, as the container runs out of horizontal room). the
+  // primary play/resume button and favorite toggle stay pinned (never
+  // collapse) - see the narrow layout's own JSX below.
+  const narrowActionItems = createMemo((): ActionBarItem[] => {
+    const video = videoQuery.data;
+    if (!video) return [];
+    const items: ActionBarItem[] = [];
+
+    items.push({
+      key: "queue",
+      render: () => (
+        <Button
+          variant="ghost"
+          loading={queuePending()}
+          onClick={() => void handleAddToQueue()}
+          title="add video to queue"
+          aria-label="add video to queue"
+        >
+          <Icon name={IconNames.queue} />
+        </Button>
+      ),
+      action: {
+        label: "add to queue",
+        icon: "queue",
+        onClick: () => void handleAddToQueue(),
+      },
+    });
+
+    if (video.series_id) {
+      const seriesId = video.series_id;
+      items.push({
+        key: "view-series",
+        render: () => (
+          <Button
+            variant="ghost"
+            onClick={() => navigate(buildRoute(`/video/series/${seriesId}`))}
+            title="view series"
+            aria-label="view series"
+          >
+            <Icon name={IconNames.video} />
+          </Button>
+        ),
+        action: {
+          label: "view series",
+          icon: "video",
+          onClick: () => navigate(buildRoute(`/video/series/${seriesId}`)),
+        },
+      });
+    }
+
+    if (video.artist_id) {
+      const artistId = video.artist_id;
+      items.push({
+        key: "view-artist",
+        render: () => (
+          <Button
+            variant="ghost"
+            onClick={() => navigate(buildRoute(`/artists/${artistId}`))}
+            title="view artist"
+            aria-label="view artist"
+          >
+            <Icon name={IconNames.artist} />
+          </Button>
+        ),
+        action: {
+          label: "view artist",
+          icon: "artist",
+          onClick: () => navigate(buildRoute(`/artists/${artistId}`)),
+        },
+      });
+    }
+
+    if (video.album_id) {
+      const albumId = video.album_id;
+      items.push({
+        key: "view-album",
+        render: () => (
+          <Button
+            variant="ghost"
+            onClick={() => navigate(buildRoute(`/albums/${albumId}`))}
+            title="view album"
+            aria-label="view album"
+          >
+            <Icon name={IconNames.album} />
+          </Button>
+        ),
+        action: {
+          label: "view album",
+          icon: "album",
+          onClick: () => navigate(buildRoute(`/albums/${albumId}`)),
+        },
+      });
+    }
+
+    if (canUpdateVideo()) {
+      items.push({
+        key: "edit",
+        render: () => (
+          <button
+            onClick={() =>
+              showEditVideo({
+                videoId: video.id,
+                onDeleted: () => navigate(buildRoute("/video")),
+              })
+            }
+            class="p-2 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded transition-colors"
+            title="edit video info"
+            aria-label="edit video info"
+          >
+            <Icon name={IconNames.edit} />
+          </button>
+        ),
+        action: {
+          label: "edit video info",
+          icon: "edit",
+          onClick: () =>
+            showEditVideo({
+              videoId: video.id,
+              onDeleted: () => navigate(buildRoute("/video")),
+            }),
+        },
+      });
+    }
+
+    const shareTarget = {
+      kind: "video" as const,
+      id: video.id,
+      displayTitle: video.title,
+      artistName: shareArtistQuery.data?.name || undefined,
+      albumName: shareAlbumQuery.data?.title || undefined,
+      seriesTitle: shareSeriesTitle() || undefined,
+      contentType: video.content_type || undefined,
+    };
+    items.push({
+      key: "share",
+      render: () => (
+        <ShareButton
+          target={shareTarget}
+          source={currentRemoteFull}
+          buildSendPayload={buildSendPayload}
+        />
+      ),
+      action: {
+        label: "share",
+        icon: "share",
+        onClick: () =>
+          showShareModal({
+            target: shareTarget,
+            source: currentRemoteFull,
+            buildSendPayload,
+          }),
+      },
+    });
+
+    items.push({
+      key: "station",
+      render: () => (
+        <button
+          onClick={() =>
+            void showStationSelector(
+              { kind: "video", videoId: video.id, videoTitle: video.title },
+              video.remote_server_id ?? undefined
+            )
+          }
+          class="p-2 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded transition-colors"
+          title="add to station..."
+          aria-label="add to station..."
+        >
+          <Icon name={IconNames.headphones} />
+        </button>
+      ),
+      action: {
+        label: "add to station...",
+        icon: "headphones",
+        onClick: () =>
+          void showStationSelector(
+            { kind: "video", videoId: video.id, videoTitle: video.title },
+            video.remote_server_id ?? undefined
+          ),
+      },
+    });
+
+    return items;
+  });
+
   // context menu for the poster (play/queue/favorite/edit/delete parity
   // with the grid/table context menus elsewhere in the video domain)
   const videoContextMenuActions = createMemo(() => {
@@ -390,101 +582,26 @@ export function VideoDetailView() {
                     </p>
                   </Show>
 
-                  <div class="mt-3 flex items-center justify-center flex-wrap gap-2">
-                    <Button
-                      variant="primary"
-                      size="sm"
-                      loading={playPending()}
-                      onClick={() => void handlePlay()}
-                    >
-                      {resumePosition() != null ? "resume" : "play"}
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      loading={queuePending()}
-                      onClick={() => void handleAddToQueue()}
-                      title="add video to queue"
-                      aria-label="add video to queue"
-                    >
-                      <Icon name={IconNames.queue} />
-                    </Button>
-                    <Show when={video().series_id}>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => navigate(buildRoute(`/video/series/${video().series_id}`))}
-                        title="view series"
-                        aria-label="view series"
-                      >
-                        <Icon name={IconNames.video} />
-                      </Button>
-                    </Show>
-                    <Show when={video().artist_id}>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => navigate(buildRoute(`/artists/${video().artist_id}`))}
-                        title="view artist"
-                        aria-label="view artist"
-                      >
-                        <Icon name={IconNames.artist} />
-                      </Button>
-                    </Show>
-                    <Show when={video().album_id}>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => navigate(buildRoute(`/albums/${video().album_id}`))}
-                        title="view album"
-                        aria-label="view album"
-                      >
-                        <Icon name={IconNames.album} />
-                      </Button>
-                    </Show>
-                    <Show when={canUpdateVideo()}>
-                      <button
-                        onClick={() =>
-                          showEditVideo({
-                            videoId: video().id,
-                            onDeleted: () => navigate(buildRoute("/video")),
-                          })
-                        }
-                        class="p-2 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded transition-colors"
-                        title="edit video info"
-                        aria-label="edit video info"
-                      >
-                        <Icon name={IconNames.edit} />
-                      </button>
-                    </Show>
-                    <FavoriteHeart isFavorite={isFavorite()} onToggle={handleFavoriteToggle} />
-                    <ShareButton
-                      target={{
-                        kind: "video",
-                        id: video().id,
-                        displayTitle: video().title,
-                        artistName: shareArtistQuery.data?.name || undefined,
-                        albumName: shareAlbumQuery.data?.title || undefined,
-                        seriesTitle: shareSeriesTitle() || undefined,
-                        contentType: video().content_type || undefined,
-                      }}
-                      source={currentRemoteFull}
-                      buildSendPayload={buildSendPayload}
+                  <div class="mt-3 flex items-center justify-center">
+                    <ResponsiveActionBar
+                      class="justify-center"
+                      items={narrowActionItems()}
+                      pinnedStart={() => (
+                        <>
+                          <Button
+                            variant="primary"
+                            loading={playPending()}
+                            onClick={() => void handlePlay()}
+                          >
+                            {resumePosition() != null ? "resume" : "play"}
+                          </Button>
+                          <FavoriteHeart isFavorite={isFavorite()} onToggle={handleFavoriteToggle} />
+                        </>
+                      )}
+                      pinnedEnd={() => (
+                        <Rating rating={userRating()} size="md" onRatingChange={handleRatingChange} />
+                      )}
                     />
-                    <button
-                      onClick={() =>
-                        void showStationSelector(
-                          { kind: "video", videoId: video().id, videoTitle: video().title },
-                          video().remote_server_id ?? undefined
-                        )
-                      }
-                      class="p-2 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded transition-colors"
-                      title="add to station..."
-                      aria-label="add to station..."
-                    >
-                      <Icon name={IconNames.headphones} />
-                    </button>
-                    <Rating rating={userRating()} size="md" onRatingChange={handleRatingChange} />
                   </div>
                 </div>
               </div>
