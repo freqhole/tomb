@@ -23,6 +23,12 @@ import { createShareSourceRemote } from "../../app/services/remotes/shareSource"
 import { useVideoSeriesDetailQuery } from "../queries/series";
 import { useVideoSeriesAggregateTagsQuery } from "../queries/tags";
 import { useVideoSeriesAggregateTaxonsQuery } from "../queries/taxons";
+import {
+  pickResumeTarget,
+  resumePositionFor,
+  useVideoProgressQuery,
+  type ResumeTarget,
+} from "../queries/progress";
 import { videoQueryKeys } from "../queries/queryKeys";
 import { useVideoSeriesFavoriteStatuses } from "../hooks/useVideoSeriesFavoriteStatuses";
 import { hasBackgroundImage } from "../../app/services/backgroundImage";
@@ -52,6 +58,13 @@ import {
 import { getBlobObjectURL } from "../../music/services/storage/blobs";
 import type { ImageMetadata } from "../../music/services/storage/types";
 import type { VideoSeason, VideoSummary } from "../data/types";
+
+/** the episode a series' header "continue $season-episode" action
+ *  should resume into - see VideoSeriesDetailPanel's `continueTarget`
+ *  memo. */
+interface ContinueTarget extends ResumeTarget {
+  label: string;
+}
 
 export interface VideoSeriesDetailPanelProps {
   seriesId: string;
@@ -224,6 +237,37 @@ export function VideoSeriesDetailPanel(props: VideoSeriesDetailPanelProps) {
     allVideoIds
   );
 
+  // playback progress for every episode in this series - drives each
+  // episode row's progress-fill background (VideoListRow's `progress`
+  // prop) and the header's "continue $season-episode" action below.
+  const progressQuery = useVideoProgressQuery(() => props.seriesId, allVideos);
+  const episodeProgress = (videoId: string): number | undefined =>
+    progressQuery.data?.get(videoId)?.position_fraction;
+
+  // the episode to resume into: whichever of this series' episodes has
+  // the most recently updated progress row (or the next one, if that
+  // episode is already finished) - see pickResumeTarget's doc comment.
+  // falls back to a plain "play all" header action when there's nothing
+  // to continue into.
+  const continueTarget = createMemo((): ContinueTarget | null => {
+    const videos = allVideos();
+    const target = pickResumeTarget(videos, progressQuery.data ?? new Map());
+    if (!target) return null;
+
+    const targetVideo = videos[target.index];
+    const season = targetVideo.season_id
+      ? seasons().find((s) => s.id === targetVideo.season_id)
+      : undefined;
+    const label =
+      season && targetVideo.episode_number != null
+        ? `continue s${season.season_number}e${targetVideo.episode_number}`
+        : targetVideo.episode_number != null
+          ? `continue episode ${targetVideo.episode_number}`
+          : "continue";
+
+    return { ...target, label };
+  });
+
   // seasons expanded/collapsed by id - all seasons expanded by default.
   // reset whenever the selected series changes so a stale season id from
   // the previous series doesn't linger in the expanded set.
@@ -263,39 +307,47 @@ export function VideoSeriesDetailPanel(props: VideoSeriesDetailPanelProps) {
     // tracking starts (without it, position never resumes on reload).
     // just this one video — queuing the whole season here was
     // surprising when a user clicked a single episode's play button.
-    await playVideoQueue([video], 0, {
-      type: "video",
-      label: video.title,
-      entity_id: video.id,
-    });
+    await playVideoQueue(
+      [video],
+      0,
+      { type: "video", label: video.title, entity_id: video.id },
+      resumePositionFor(video.id, progressQuery.data ?? new Map())
+    );
   };
 
   const handleUnassignedClick = async (index: number) => {
     const video = unassignedVideos()[index];
     if (!video) return;
-    await playVideoQueue([video], 0, {
-      type: "video",
-      label: video.title,
-      entity_id: video.id,
-    });
+    await playVideoQueue(
+      [video],
+      0,
+      { type: "video", label: video.title, entity_id: video.id },
+      resumePositionFor(video.id, progressQuery.data ?? new Map())
+    );
   };
 
   // tracks which of play-all/add-all-to-queue is currently fetching +
   // queueing videos, mirrors AlbumDetailView's albumActionPending pattern.
   const [seriesActionPending, setSeriesActionPending] = createSignal<"play" | "queue" | null>(null);
 
-  const handlePlayAll = async () => {
+  const handlePlayOrContinue = async () => {
     if (seriesActionPending()) return;
     const videos = allVideos();
     if (videos.length === 0) return;
     setSeriesActionPending("play");
     try {
       const series = detailQuery.data?.series;
-      await playVideoQueue(videos, 0, {
-        type: "series",
-        label: series?.title ?? "series",
-        entity_id: series?.id,
-      });
+      const target = continueTarget();
+      await playVideoQueue(
+        videos,
+        target?.index ?? 0,
+        {
+          type: "series",
+          label: series?.title ?? "series",
+          entity_id: series?.id,
+        },
+        target?.positionSeconds
+      );
     } finally {
       setSeriesActionPending(null);
     }
@@ -329,11 +381,17 @@ export function VideoSeriesDetailPanel(props: VideoSeriesDetailPanelProps) {
     if (seasonActionPending() || season.videos.length === 0) return;
     setSeasonActionPending({ seasonId: season.id, action: "play" });
     try {
-      await playVideoQueue(season.videos, 0, {
-        type: "season",
-        label: seasonLabel(season),
-        entity_id: season.id,
-      });
+      const target = pickResumeTarget(season.videos, progressQuery.data ?? new Map());
+      await playVideoQueue(
+        season.videos,
+        target?.index ?? 0,
+        {
+          type: "season",
+          label: seasonLabel(season),
+          entity_id: season.id,
+        },
+        target?.positionSeconds
+      );
     } finally {
       setSeasonActionPending(null);
     }
@@ -497,9 +555,9 @@ export function VideoSeriesDetailPanel(props: VideoSeriesDetailPanelProps) {
                           size="sm"
                           loading={seriesActionPending() === "play"}
                           disabled={seriesActionPending() !== null || allVideos().length === 0}
-                          onClick={handlePlayAll}
+                          onClick={handlePlayOrContinue}
                         >
-                          play
+                          {continueTarget()?.label ?? "play"}
                         </Button>
                         <Button
                           variant="ghost"
@@ -622,9 +680,9 @@ export function VideoSeriesDetailPanel(props: VideoSeriesDetailPanelProps) {
                           variant="primary"
                           loading={seriesActionPending() === "play"}
                           disabled={seriesActionPending() !== null || allVideos().length === 0}
-                          onClick={handlePlayAll}
+                          onClick={handlePlayOrContinue}
                         >
-                          play all
+                          {continueTarget()?.label ?? "play all"}
                         </Button>
                         <Button
                           variant="ghost"
@@ -787,6 +845,7 @@ export function VideoSeriesDetailPanel(props: VideoSeriesDetailPanelProps) {
                                       index={index()}
                                       onPlay={() => handleEpisodeClick(season, index())}
                                       onTagsSaved={handleTagsSaved}
+                                      progress={episodeProgress(video.id)}
                                     />
                                   )}
                                 </For>
@@ -818,6 +877,7 @@ export function VideoSeriesDetailPanel(props: VideoSeriesDetailPanelProps) {
                                 index={index()}
                                 onPlay={() => handleUnassignedClick(index())}
                                 onTagsSaved={handleTagsSaved}
+                                progress={episodeProgress(video.id)}
                               />
                             )}
                           </For>

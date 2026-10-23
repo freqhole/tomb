@@ -353,13 +353,14 @@ pub mod type_registry {
 
     // video domain types (phase 1)
     use crate::music::crud::{EntityUrl, ImageMetadata};
+    use crate::playback_progress::PlaybackProgress;
     use crate::playlists::PlaylistItem;
     use crate::video::{
         BulkDeleteVideosResponse, CreateVideoRequest, CreateVideoSeasonRequest,
         CreateVideoSeriesRequest, EntityTagCount, EntityTaxonLink, ListPendingVideoReviewRequest,
         MarkVideoGroupReviewedRequest, MoveVideoReviewRequest, PatchVideoGroupReviewRequest,
         PendingReviewVideoSummary, PendingVideoReviewGroup, PendingVideoReviewSession,
-        PlaybackProgress, ReprocessVideoResult, SeasonWithVideos, SeriesDetail, SeriesQueryResult,
+        ReprocessVideoResult, SeasonWithVideos, SeriesDetail, SeriesQueryResult,
         UpdateVideoRequest, UpdateVideoSeasonRequest, UpdateVideoSeriesRequest,
         UpdateVideosRequest, UpdateVideosResult, Video, VideoImportReviewOk, VideoPendingRequest,
         VideoPendingResponse, VideoRendition, VideoReviewPatch, VideoSearchResult, VideoSeason,
@@ -370,6 +371,9 @@ pub mod type_registry {
     // video domain offal request/response types (phase 2-3)
     use crate::offal::entities::favorites::{FavoriteStatusItem, GetFavoriteStatusBulkRequest};
     use crate::offal::entities::image_links::GetEntityImagesRequest;
+    use crate::offal::entities::playback_progress::{
+        GetPlaybackProgressRequest, ListPlaybackProgressRequest, UpsertPlaybackProgressRequest,
+    };
     use crate::offal::entities::playlist_items::{
         AddPlaylistItemRequest, AddPlaylistItemsRequest, ListPlaylistItemsRequest, PlaylistItemRef,
         RemovePlaylistItemRequest, RemovePlaylistItemsRequest, ReorderPlaylistItemsRequest,
@@ -384,9 +388,6 @@ pub mod type_registry {
     };
     use crate::offal::entities::url_links::{
         AddEntityUrlRequest, GetEntityUrlsRequest, RemoveEntityUrlRequest,
-    };
-    use crate::offal::video::progress::{
-        GetPlaybackProgressRequest, ListPlaybackProgressRequest, UpsertPlaybackProgressRequest,
     };
     use crate::offal::video::relations::{
         RecentlyAddedVideosRequest, RecentlyAddedVideosResponse, UnassignedVideosRequest,

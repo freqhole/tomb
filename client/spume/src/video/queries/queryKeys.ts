@@ -70,6 +70,18 @@ export const videoQueryKeys = {
     taxons: (id: string) => [...videoQueryKeys.series.all(), "taxons", id] as const,
   },
 
+  /** playback progress for a group of videos (a series' episodes, or a
+   *  movie + its extras) - see queries/progress.ts's useVideoProgressQuery.
+   *  keyed by the caller's own group id only (not the member video ids
+   *  themselves): that set rarely changes mid-session, and keying on it
+   *  would just add churn to the cache key on every render. not nested
+   *  under `series` - a movie's own detail page uses this too, scoped by
+   *  its own video id rather than a series id. */
+  progress: {
+    all: () => ["video-progress", getDataSourceKey()] as const,
+    forGroup: (groupId: string) => [...videoQueryKeys.progress.all(), groupId] as const,
+  },
+
   // video-typed items inside a (possibly mixed audio+video) playlist —
   // see queries/playlistItems.ts. songs inside the same playlist are
   // still keyed under music/queries/queryKeys.ts's `playlists.songs()`.

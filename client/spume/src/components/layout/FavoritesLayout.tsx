@@ -83,7 +83,6 @@ export interface FavoritesLayoutProps {
   getVideoImageUrl?: (video: VideoSummary) => string | undefined;
   /** video series card callbacks */
   onSeriesClick?: (series: VideoSeries) => void;
-  onSeriesPlay?: (series: VideoSeries) => void;
   getSeriesContextMenuActions?: (series: VideoSeries) => MenuAction[];
   onSeriesFavoriteToggle?: (seriesId: string, isFavorite: boolean) => void;
   /** fallback image url resolver - see VideoSeriesCard's `imageUrl` prop */
@@ -416,7 +415,6 @@ export function FavoritesLayout(props: FavoritesLayoutProps) {
             series={series}
             isFavorite={true}
             onClick={props.onSeriesClick}
-            onPlay={props.onSeriesPlay}
             imageUrl={props.getSeriesImageUrl?.(series)}
             onFavoriteToggle={props.onSeriesFavoriteToggle}
           />

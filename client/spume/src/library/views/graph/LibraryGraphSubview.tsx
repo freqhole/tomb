@@ -105,6 +105,11 @@ import {
   videoSeriesFavoriteStatusQueryKey,
 } from "../../../video/hooks/useVideoSeriesFavoriteStatuses";
 import { playVideoQueue } from "../../../video/services/queue/playVideoQueue";
+import {
+  fetchVideoProgressForVideos,
+  pickResumeTarget,
+  resumePositionFor,
+} from "../../../video/queries/progress";
 import { addVideosToQueue } from "../../../video/services/videoQueueActions";
 import { getArtistAbbreviation } from "../../../music/utils/format";
 import type { ImageMetadata } from "../../../music/services/storage/types";
@@ -4185,11 +4190,13 @@ function Inner(props: {
         toast.error("video not found");
         return;
       }
-      await playVideoQueue([full], 0, {
-        type: "video",
-        label: video.title,
-        entity_id: video.videoId,
-      });
+      const progress = await fetchVideoProgressForVideos([full]);
+      await playVideoQueue(
+        [full],
+        0,
+        { type: "video", label: video.title, entity_id: video.videoId },
+        resumePositionFor(full.id, progress)
+      );
     } catch (err) {
       toast.error(`failed to play video: ${(err as Error).message}`);
     } finally {
@@ -4235,11 +4242,14 @@ function Inner(props: {
         toast.error("no videos found in this series");
         return;
       }
-      await playVideoQueue(videos, 0, {
-        type: "series",
-        label: series.title,
-        entity_id: series.seriesId,
-      });
+      const progress = await fetchVideoProgressForVideos(videos);
+      const target = pickResumeTarget(videos, progress);
+      await playVideoQueue(
+        videos,
+        target?.index ?? 0,
+        { type: "series", label: series.title, entity_id: series.seriesId },
+        target?.positionSeconds
+      );
     } catch (err) {
       toast.error(`failed to play series: ${(err as Error).message}`);
     } finally {
@@ -4308,11 +4318,14 @@ function Inner(props: {
         toast.error("no videos found in this season");
         return;
       }
-      await playVideoQueue(videos, 0, {
-        type: "season",
-        label: season.title,
-        entity_id: season.seasonId,
-      });
+      const progress = await fetchVideoProgressForVideos(videos);
+      const target = pickResumeTarget(videos, progress);
+      await playVideoQueue(
+        videos,
+        target?.index ?? 0,
+        { type: "season", label: season.title, entity_id: season.seasonId },
+        target?.positionSeconds
+      );
     } catch (err) {
       toast.error(`failed to play season: ${(err as Error).message}`);
     } finally {

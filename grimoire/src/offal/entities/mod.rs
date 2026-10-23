@@ -1,22 +1,24 @@
 //! generic, domain-agnostic entity routes
 //!
-//! covers `entity_taxonz` and `playlist_itemz`, both polymorphic tables
-//! any domain (music, video, and future ones) can write rows into -
-//! genuinely cross-domain, so they don't belong under `offal::music` or
-//! `offal::video`. `entity_taxonz`/`entity_tagz`/`entity_urlz`/`entity_imagez`
-//! are still only wired up for the video domain today, so their handlers
-//! validate the incoming `entity_type` string against the shared
-//! `crate::entities::TaggableEntity` allowlist first (rejecting anything
-//! not a recognized entity type at all), then narrow to
-//! `crate::video::VideoEntityType` for the actual database call (rejecting
-//! recognized-but-not-yet-wired-up types like `song`/`album`). `playlist_itemz`
-//! is different: it's genuinely cross-domain (songs and video entities both
-//! use it), so `playlist_items.rs` uses `resolve_playlist_entity_type`
-//! instead, which accepts `TaggableEntity::Song` alongside the video entity
-//! types.
+//! covers `entity_taxonz`, `playlist_itemz`, and `playback_progressz`, all
+//! polymorphic tables any domain (music, video, and future ones) can
+//! write rows into - genuinely cross-domain, so they don't belong under
+//! `offal::music` or `offal::video`. `entity_taxonz`/`entity_tagz`/
+//! `entity_urlz`/`entity_imagez` are still only wired up for the video
+//! domain today, so their handlers validate the incoming `entity_type`
+//! string against the shared `crate::entities::TaggableEntity` allowlist
+//! first (rejecting anything not a recognized entity type at all), then
+//! narrow to `crate::video::VideoEntityType` for the actual database call
+//! (rejecting recognized-but-not-yet-wired-up types like `song`/`album`).
+//! `playlist_itemz`/`playback_progressz` are different: both are
+//! genuinely cross-domain (songs and video entities both use them), so
+//! `playlist_items.rs`/`playback_progress.rs` use
+//! `resolve_playlist_entity_type`/`resolve_progress_entity_type` instead,
+//! which accept `TaggableEntity::Song` alongside the video entity types.
 
 pub mod favorites;
 pub mod image_links;
+pub mod playback_progress;
 pub mod playlist_items;
 pub mod ratings;
 pub mod tag_links;
@@ -39,6 +41,7 @@ pub fn routes() -> Vec<RouteInfo> {
     all.extend_from_slice(playlist_items::ROUTES);
     all.extend_from_slice(favorites::ROUTES);
     all.extend_from_slice(ratings::ROUTES);
+    all.extend_from_slice(playback_progress::ROUTES);
     all
 }
 
@@ -98,6 +101,14 @@ pub async fn dispatch(
         "/api/entities/ratings/stats" => Some(ratings::stats(caller, body.clone()).await),
         "/api/entities/ratings/status-bulk" => {
             Some(ratings::get_status_bulk(caller, body.clone()).await)
+        }
+
+        "/api/entities/progress/upsert" => {
+            Some(playback_progress::upsert(caller, body.clone()).await)
+        }
+        "/api/entities/progress/get" => Some(playback_progress::get(caller, body.clone()).await),
+        "/api/entities/progress/list" => {
+            Some(playback_progress::list(caller, body.clone()).await)
         }
 
         _ => None,
@@ -164,6 +175,43 @@ pub(super) fn resolve_playlist_entity_type(
             let err = GrimoireError::InvalidEntityType {
                 entity_type: format!(
                     "{other} (a recognized entity type, but not a valid playlist item type)"
+                ),
+            };
+            Err(GrimoireResponse::failure(
+                "unsupported entity type",
+                vec![ErrorDetail::from(&err)],
+            ))
+        }
+    }
+}
+
+/// resolve an `entity_type` wire string for playback/resume progress -
+/// genuinely cross-domain like `playlist_itemz` (a video or a song can
+/// both have resume progress tracked), plus the two video-only aggregate
+/// types for a season/series-level marker. kept as its own resolver
+/// (rather than reusing `resolve_playlist_entity_type`, even though the
+/// allowed set happens to be identical today) so the two concerns don't
+/// silently couple if one of them ever needs a different allowed set
+/// later (e.g. albums/playlists becoming playlist-item-eligible without
+/// also gaining their own playback position).
+pub(super) fn resolve_progress_entity_type(
+    entity_type: &str,
+) -> Result<crate::entities::TaggableEntity, GrimoireResponse<JsonValue>> {
+    use crate::entities::TaggableEntity;
+
+    let taggable = TaggableEntity::parse(entity_type).map_err(|e| {
+        GrimoireResponse::failure("invalid entity type", vec![ErrorDetail::from(&e)])
+    })?;
+
+    match taggable {
+        TaggableEntity::Song
+        | TaggableEntity::Video
+        | TaggableEntity::VideoSeries
+        | TaggableEntity::VideoSeason => Ok(taggable),
+        other => {
+            let err = GrimoireError::InvalidEntityType {
+                entity_type: format!(
+                    "{other} (a recognized entity type, but not a valid playback-progress entity type)"
                 ),
             };
             Err(GrimoireResponse::failure(

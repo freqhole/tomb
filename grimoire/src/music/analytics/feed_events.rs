@@ -1336,10 +1336,16 @@ pub async fn upsert_video_feed_event(
 /// `idx_feed_eventz_video_watch` unique index, so rewatching the same video
 /// just bumps `updated_at` (moves it back to the top of the feed) instead of
 /// creating duplicate rows.
+///
+/// unlike the other `create_*_feed_event` functions in this file, there's
+/// no `Caller` on hand at this call site (triggered from
+/// `playback_progress::upsert_playback_progress`'s background task, not
+/// an authenticated offal handler, so no `caller.username` to pass in for
+/// free) - this resolves its own username from `user_id` instead of
+/// taking one as a parameter.
 pub async fn create_video_watch_feed_event(
     video_id: &str,
     user_id: &str,
-    username: &str,
 ) -> GrimoireResponse<FeedEventResult> {
     if should_skip_feed_event(user_id).await {
         return GrimoireResponse::success(
@@ -1353,6 +1359,27 @@ pub async fn create_video_watch_feed_event(
         Err(e) => {
             return GrimoireResponse::failure("failed to connect to database", vec![e.into()])
         }
+    };
+
+    // should_skip_feed_event above already confirmed this user exists (and
+    // isn't the freqroot service account) - only reachable here on a
+    // genuine race (user deleted between the two queries) or a query
+    // error, same as any other best-effort lookup in this file.
+    let username = match sqlx::query_scalar!(
+        "SELECT username FROM user_accountz WHERE id = ?",
+        user_id
+    )
+    .fetch_optional(&pool)
+    .await
+    {
+        Ok(Some(u)) => u,
+        Ok(None) => {
+            return GrimoireResponse::success(
+                "skipped feed event - user not found",
+                FeedEventResult::Skipped,
+            )
+        }
+        Err(e) => return GrimoireResponse::failure("failed to resolve username", vec![e.into()]),
     };
 
     let row = sqlx::query!(

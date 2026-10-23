@@ -1,10 +1,9 @@
 // video series card — mirrors PlaylistCard.tsx's shape/simplicity (poster
-// thumbnail, title, description, favorite toggle, play button) since
-// VideoSeries carries no aggregate season/episode counts on its own (unlike
+// thumbnail, title, description, favorite toggle) since VideoSeries
+// carries no aggregate season/episode counts on its own (unlike
 // VideoSeriesDetailPanel's stats row, which computes those from a full
 // series-detail fetch this card doesn't have).
 import { Show, createSignal } from "solid-js";
-import { PlayIcon } from "../../components/icons/registry";
 import { FavoriteHeart } from "../../components/ratings/FavoriteHeart";
 import { MediaImage } from "../../components/media/MediaImage";
 import { MarqueeText } from "../../components/text/MarqueeText";
@@ -14,7 +13,6 @@ import type { VideoSeries } from "../data/types";
 export interface VideoSeriesCardProps {
   series: VideoSeries;
   onClick?: (series: VideoSeries) => void;
-  onPlay?: (series: VideoSeries) => void;
   onContextMenu?: (e: MouseEvent, series: VideoSeries) => void;
   /** whether this series is favorited (omit to hide the heart entirely) */
   isFavorite?: boolean;
@@ -77,21 +75,6 @@ export function VideoSeriesCard(props: VideoSeriesCardProps) {
               size="sm"
               class="bg-black/30 backdrop-blur-sm rounded-full hover:bg-black/50 transition-colors"
             />
-          </div>
-        </Show>
-        <Show when={props.onPlay}>
-          <div class="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-            <button
-              class="w-12 h-12 bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] text-[var(--color-text-on-accent)] flex items-center justify-center rounded-full transition-colors"
-              onClick={(e) => {
-                e.stopPropagation();
-                if (!props.series.is_offline) props.onPlay?.(props.series);
-              }}
-              disabled={props.series.is_offline}
-              title={props.series.is_offline ? "media is on offline storage" : "play series"}
-            >
-              <PlayIcon size={24} className="ml-1" />
-            </button>
           </div>
         </Show>
       </div>

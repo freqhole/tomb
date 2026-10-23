@@ -21,6 +21,11 @@ import { canUpdateVideo } from "../data/permissions";
 import { getVideoDataSource } from "../data";
 import { playVideoQueue } from "../services/queue/playVideoQueue";
 import {
+  fetchVideoProgressForVideos,
+  pickResumeTarget,
+  resumePositionFor,
+} from "../queries/progress";
+import {
   addVideoToQueue,
   addVideosToQueue,
   playVideoNext,
@@ -116,11 +121,13 @@ export function useVideoContextMenu(
       onClick: async () => {
         // source is required so a history entry is created and watch-progress
         // tracking starts (without it, position never resumes on reload).
-        await playVideoQueue([video], 0, {
-          type: "video",
-          label: video.title,
-          entity_id: video.id,
-        });
+        const progress = await fetchVideoProgressForVideos([video]);
+        await playVideoQueue(
+          [video],
+          0,
+          { type: "video", label: video.title, entity_id: video.id },
+          resumePositionFor(video.id, progress)
+        );
       },
     });
 
@@ -320,11 +327,14 @@ export function useVideoSeriesContextMenu(
     onClick: async () => {
       const videos = await resolveSeriesVideos(series, allVideos);
       if (videos.length === 0) return;
-      await playVideoQueue(videos, 0, {
-        type: "series",
-        label: series.title,
-        entity_id: series.id,
-      });
+      const progress = await fetchVideoProgressForVideos(videos);
+      const target = pickResumeTarget(videos, progress);
+      await playVideoQueue(
+        videos,
+        target?.index ?? 0,
+        { type: "series", label: series.title, entity_id: series.id },
+        target?.positionSeconds
+      );
     },
   });
 

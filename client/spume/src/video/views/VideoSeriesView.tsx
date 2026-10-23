@@ -23,8 +23,6 @@ import { useVideoSeriesListQuery, useVideoSeriesQuery } from "../queries/series"
 import { useVideoSeriesContextMenu } from "../hooks/contextMenu";
 import { useVideoSeriesFavoriteStatuses } from "../hooks/useVideoSeriesFavoriteStatuses";
 import { useToggleFavoriteMutation } from "../../music/queries/favorites";
-import { playVideoQueue } from "../services/queue/playVideoQueue";
-import { getVideoDataSource } from "../data";
 import { buildRoute } from "../../music/utils/routing";
 import type { VideoSeries } from "../data/types";
 
@@ -225,26 +223,6 @@ export function VideoSeriesView() {
     });
   };
 
-  const handleSeriesPlay = async (series: VideoSeries) => {
-    try {
-      const dataSource = getVideoDataSource();
-      const detail = await dataSource.getVideoSeriesDetail(series.id);
-      if (!detail) return;
-      const videos = [
-        ...detail.seasons.flatMap((season) => season.videos),
-        ...detail.unassignedVideos,
-      ];
-      if (videos.length === 0) return;
-      await playVideoQueue(videos, 0, {
-        type: "series",
-        label: series.title,
-        entity_id: series.id,
-      });
-    } catch (err) {
-      console.error("failed to play series:", err);
-    }
-  };
-
   // handle back navigation on narrow
   const handleBack = () => {
     setShowingDetailOnNarrow(false);
@@ -363,7 +341,6 @@ export function VideoSeriesView() {
                       <VideoSeriesCard
                         series={series}
                         onClick={handleSelectSeries}
-                        onPlay={handleSeriesPlay}
                         isFavorite={favoriteStatusesQuery.data?.has(series.id) ?? false}
                         onFavoriteToggle={handleSeriesFavoriteToggle}
                       />

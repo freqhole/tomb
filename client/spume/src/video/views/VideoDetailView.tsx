@@ -22,6 +22,7 @@ import { buildRoute } from "../../music/utils/routing";
 import { TaxonChips } from "../../components/badges/TaxonChips";
 import { TagChips } from "../../components/badges/TagChips";
 import { useVideoQuery, useVideoExtrasQuery } from "../queries/videos";
+import { resumePositionFor, useVideoProgressQuery } from "../queries/progress";
 import { useVideoTaxonsQuery } from "../queries/taxons";
 import { useVideoEntityTagsQuery } from "../queries/tags";
 import { videoQueryKeys } from "../queries/queryKeys";
@@ -241,6 +242,24 @@ export function VideoDetailView() {
     return Number.isNaN(year) ? null : year;
   };
 
+  // playback progress for this one video - drives the "resume" button
+  // label + seek-on-play below. `groupId` just scopes the query cache
+  // entry (see queries/progress.ts's doc comment) - a single movie has
+  // no series to group by, so its own id is as good a scope as any.
+  const progressVideos = createMemo(() => (videoQuery.data ? [videoQuery.data] : []));
+  const progressQuery = useVideoProgressQuery(() => videoQuery.data?.id, progressVideos);
+
+  // seconds to resume at, or `undefined` when there's nothing worth
+  // resuming (no progress yet, or already watched past
+  // COMPLETED_PROGRESS_THRESHOLD - a finished movie just plays from the
+  // start, same as before this existed, rather than seeking to near the
+  // end).
+  const resumePosition = createMemo((): number | undefined => {
+    const video = videoQuery.data;
+    if (!video) return undefined;
+    return resumePositionFor(video.id, progressQuery.data ?? new Map());
+  });
+
   const handlePlay = async () => {
     const video = videoQuery.data;
     if (!video || playPending()) return;
@@ -248,7 +267,12 @@ export function VideoDetailView() {
     try {
       // source is required so a history entry is created and watch-progress
       // tracking starts (without it, position never resumes on reload).
-      await playVideoQueue([video], 0, { type: "video", label: video.title, entity_id: video.id });
+      await playVideoQueue(
+        [video],
+        0,
+        { type: "video", label: video.title, entity_id: video.id },
+        resumePosition()
+      );
     } finally {
       setPlayPending(false);
     }
@@ -373,7 +397,7 @@ export function VideoDetailView() {
                       loading={playPending()}
                       onClick={() => void handlePlay()}
                     >
-                      play
+                      {resumePosition() != null ? "resume" : "play"}
                     </Button>
                     <Button
                       variant="ghost"
@@ -509,7 +533,7 @@ export function VideoDetailView() {
                       loading={playPending()}
                       onClick={() => void handlePlay()}
                     >
-                      play video
+                      {resumePosition() != null ? "resume video" : "play video"}
                     </Button>
                     <Button
                       variant="ghost"
@@ -672,12 +696,22 @@ function VideoExtrasSection(props: { movieId: string }) {
       remote_server_id: getCurrentRemote()?.remote_id,
       added_at: 0,
     }));
+  // own group id, distinct from the parent movie's own single-video
+  // progress query (`${props.movieId}` alone) - two observers sharing one
+  // query key but fetching different video sets would otherwise race and
+  // overwrite each other's cached data (see queryKeys.ts's autocomplete
+  // doc comment for the same failure mode elsewhere in this codebase).
+  const progressQuery = useVideoProgressQuery(
+    () => `${props.movieId}-extras`,
+    extrasAsSummaries
+  );
   const handlePlayExtra = async (extra: VideoSummary) => {
-    await playVideoQueue([extra], 0, {
-      type: "video",
-      label: extra.title,
-      entity_id: extra.id,
-    });
+    await playVideoQueue(
+      [extra],
+      0,
+      { type: "video", label: extra.title, entity_id: extra.id },
+      resumePositionFor(extra.id, progressQuery.data ?? new Map())
+    );
   };
   return (
     <Show when={extrasQuery.data && extrasQuery.data.length > 0}>
@@ -692,6 +726,7 @@ function VideoExtrasSection(props: { movieId: string }) {
                 onTagsSaved={() => {
                   void queryClient.invalidateQueries({ queryKey: videoQueryKeys.tags.all() });
                 }}
+                progress={progressQuery.data?.get(extra.id)?.position_fraction}
               />
             )}
           </For>

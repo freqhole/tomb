@@ -35,7 +35,12 @@ import { toast } from "../../../components/feedback/Toast";
 export async function playVideoQueue(
   videos: (VideoSummary | QueuedVideo)[],
   startIndex = 0,
-  source?: VideoQueueSourceContext
+  source?: VideoQueueSourceContext,
+  /** seek here once the start-index video loads - used by a "continue
+   *  $season-episode" action to resume mid-episode (mirrors
+   *  resumeVideoHistoryEntry's identical use of playMediaItem's
+   *  initialPosition). omit/0 for a plain from-the-start play. */
+  startPositionSeconds?: number
 ): Promise<void> {
   if (videos.length === 0) return;
   const items = videos.map((v) => videoToMediaItem({ ...v, queue_entry_id: undefined }));
@@ -52,7 +57,10 @@ export async function playVideoQueue(
   mirrorReplaceVideosToQueue(videosOnly(items));
   await setQueue(items);
   try {
-    await playMediaItem(items[startIndex], { userInitiated: true });
+    await playMediaItem(items[startIndex], {
+      userInitiated: true,
+      initialPosition: startPositionSeconds || undefined,
+    });
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
     toast.error(`couldn't play "${videos[startIndex].title}": ${detail}`, {

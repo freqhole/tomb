@@ -3913,7 +3913,8 @@ export const ListPendingVideoReviewRequestSchema = z.object({
 export type ListPendingVideoReviewRequest = z.infer<typeof ListPendingVideoReviewRequestSchema>;
 
 export const ListPlaybackProgressRequestSchema = z.object({
-  limit: z.number().nullish()
+  limit: z.number().nullish(),
+  blake3_in: z.array(z.string()).nullish()
 });
 export type ListPlaybackProgressRequest = z.infer<typeof ListPlaybackProgressRequestSchema>;
 
@@ -4787,7 +4788,8 @@ export const PlaybackProgressSchema = z.object({
   duration_seconds: z.number().nullish(),
   position_locator: z.string().nullish(),
   completed_at: z.number().nullish(),
-  updated_at: z.number()
+  updated_at: z.number(),
+  blake3: z.string().nullish()
 });
 export type PlaybackProgress = z.infer<typeof PlaybackProgressSchema>;
 

@@ -1,10 +1,11 @@
 //! video domain module
 //!
-//! provides the video entity hierarchy (series/season/video) plus the
-//! generalized cross-domain tables (`entity_taxonz`, `playlist_itemz`,
-//! `playback_progressz`) as they apply to video. mirrors the structure of
-//! `crate::music` - business logic lives here, callers (server/cli) are
-//! thin wrappers.
+//! provides the video entity hierarchy (series/season/video) plus
+//! `entity_taxonz` as it applies to video (the other generalized
+//! cross-domain tables, `playlist_itemz`/`playback_progressz`, now live
+//! in their own domain-neutral modules - see `crate::playlists`/
+//! `crate::playback_progress`). mirrors the structure of `crate::music` -
+//! business logic lives here, callers (server/cli) are thin wrappers.
 
 pub mod crud;
 pub mod entities;
@@ -55,7 +56,7 @@ pub use crud::query::{
     SeriesQueryResult, VideosQueryResult,
 };
 
-// generalized entity_taxonz / playlist_itemz / playback_progressz, as used by video
+// generalized entity_taxonz/entity_tagz/entity_urlz/entity_imagez, as used by video
 pub use crud::entity_imagez::{
     add_entity_image, list_entity_images, remove_entity_image, set_primary_entity_image,
 };
@@ -68,12 +69,9 @@ pub use crud::entity_taxonz::{
     add_entity_taxon, list_entity_taxons, remove_entity_taxon, EntityTaxonLink, VideoEntityType,
 };
 pub use crud::entity_urlz::{add_entity_url, list_entity_urls, remove_entity_url};
-pub use crud::playback_progressz::{
-    get_playback_progress, list_playback_progress_for_user, upsert_playback_progress,
-    PlaybackProgress,
-};
-// generalized playlist items now live in `crate::playlists` (domain-neutral,
-// since songs can be playlist members too, not just video entities).
+// generalized playlist items now live in `crate::playlists`, and
+// generalized playback progress in `crate::playback_progress` (domain-
+// neutral, since songs need both too, not just video entities).
 
 // best-guess classification/artist extraction from a title string
 pub use title_guess::{guess_video_title, is_karaoke_title, VideoTitleGuess};

@@ -1799,7 +1799,6 @@ export function FullAppDemoBody() {
           navigateTo("series");
           console.log("series click:", series.title);
         }}
-        onSeriesPlay={(series) => console.log("series play:", series.title)}
         getSeriesImageUrl={(series) => placeholderSvg(series.id, series.title)}
         onSeriesFavoriteToggle={(seriesId, isFavorite) => {
           if (!isFavorite) {
