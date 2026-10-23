@@ -12,6 +12,7 @@ import { ContextMenu } from "../../components/overlays/ContextMenu";
 import { PlayIcon } from "../../components/icons/registry";
 import { Rating } from "../../components/ratings/Rating";
 import { FavoriteHeart } from "../../components/ratings/FavoriteHeart";
+import { MarqueeText } from "../../components/text/MarqueeText";
 import { formatDuration } from "../../utils/formatDuration";
 import { buildRoute } from "../../music/utils/routing";
 import { useVideoContextMenu } from "../hooks/contextMenu";
@@ -111,9 +112,11 @@ export function VideoListRow(props: VideoListRowProps) {
             </button>
           </div>
         </div>
-        <span class="flex-1 min-w-0 truncate text-sm text-[var(--color-text-primary)] group-hover:text-[var(--color-accent-500)] transition-colors">
-          {props.video.title}
-        </span>
+        <MarqueeText
+          text={props.video.title}
+          hoverOnly={true}
+          class="flex-1 min-w-0 text-sm text-[var(--color-text-primary)] group-hover:text-[var(--color-accent-500)] transition-colors"
+        />
         <Show when={props.showContentType && props.video.content_type}>
           <span class="text-xs text-[var(--color-text-tertiary)] flex-shrink-0">
             {contentTypeLabel(props.video.content_type)}
