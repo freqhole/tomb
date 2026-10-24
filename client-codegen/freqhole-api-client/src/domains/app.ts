@@ -70,6 +70,7 @@ export function createAppMethods(call: CallFn) {
       station_id: string;
       kind: "song" | "video";
       item_id: string;
+      start_position_seconds?: number | null;
     }) => {
       return call(
         "app",

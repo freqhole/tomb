@@ -36,6 +36,12 @@ vi.mock("../../video/queries/series", () => ({
   useVideoSeasonsQuery: () => ({ data: [] }),
 }));
 vi.mock("../forms/VideoSeasonAutocomplete", () => ({ formatSeasonLabel: vi.fn() }));
+vi.mock("../../video/hooks/useVideoStreamContextMenuActions", () => ({
+  useVideoStreamContextMenuActions: () => ({
+    showCaret: () => false,
+    menuActions: () => [],
+  }),
+}));
 
 const video: VideoSummary = {
   id: "video",

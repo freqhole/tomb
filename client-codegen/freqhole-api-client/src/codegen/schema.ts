@@ -5410,6 +5410,7 @@ export const PublicStationSchema = z.object({
   is_public: z.boolean(),
   is_running: z.boolean(),
   accepts_requests: z.boolean(),
+  content_mode: z.string(),
   now_playing: z.object({
   kind: z.string(),
   song_id: z.string(),
@@ -5660,6 +5661,7 @@ export const RadioInfoResponseSchema = z.object({
   is_public: z.boolean(),
   is_running: z.boolean(),
   accepts_requests: z.boolean(),
+  content_mode: z.string(),
   now_playing: z.object({
   kind: z.string(),
   song_id: z.string(),
@@ -5778,6 +5780,7 @@ export const RadioStationsResponseSchema = z.object({
   is_public: z.boolean(),
   is_running: z.boolean(),
   accepts_requests: z.boolean(),
+  content_mode: z.string(),
   now_playing: z.object({
   kind: z.string(),
   song_id: z.string(),
@@ -7215,7 +7218,8 @@ export type StationFilter = z.infer<typeof StationFilterSchema>;
 export const SubmitRadioRequestRequestSchema = z.object({
   station_id: z.string(),
   kind: z.string(),
-  item_id: z.string()
+  item_id: z.string(),
+  start_position_seconds: z.number().nullish()
 });
 export type SubmitRadioRequestRequest = z.infer<typeof SubmitRadioRequestRequestSchema>;
 

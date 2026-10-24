@@ -993,7 +993,11 @@ impl Broadcaster {
             let effective_args = synthesized_args
                 .as_deref()
                 .or(station_encode_args.as_deref());
-            BufferedEncoder::start(&track.local_path, effective_args)?
+            BufferedEncoder::start(
+                &track.local_path,
+                effective_args,
+                track.start_position_seconds,
+            )?
         };
         let skip_generation = self.skip_request_generation.load(Ordering::Relaxed);
 

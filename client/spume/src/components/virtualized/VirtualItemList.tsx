@@ -1,5 +1,5 @@
 import { createVirtualizer } from "@tanstack/solid-virtual";
-import { createMemo, createSignal, JSX, onMount, onCleanup, Show } from "solid-js";
+import { createMemo, createSignal, JSX, onMount, onCleanup, Show, type Accessor } from "solid-js";
 import { useScrollRestore } from "../../utils/scrollRestore";
 import { getBackgroundConfig } from "../../app/services/backgroundImage";
 import { ContextMenu, type MenuAction } from "../overlays/ContextMenu";
@@ -31,6 +31,17 @@ export interface ListItem {
   fallbackText?: string;
 }
 
+/** unwraps `getContextMenuActions`'s result - most callers return a plain
+ *  array, video callers return an Accessor (see the prop's own doc
+ *  comment). called inline from JSX (not hoisted to a local const) so
+ *  reading the accessor here still participates in that JSX attribute's
+ *  own reactive tracking. */
+function normalizeContextMenuActions(
+  result: MenuAction[] | Accessor<MenuAction[]>
+): MenuAction[] {
+  return typeof result === "function" ? result() : result;
+}
+
 export interface VirtualItemListProps {
   /** array of items to display */
   items: ListItem[];
@@ -42,8 +53,12 @@ export interface VirtualItemListProps {
   onEndReached?: () => void;
   /** callback when virtualizer is ready, provides scrollToIndex function */
   onVirtualizerReady?: (scrollToIndex: (index: number) => void) => void;
-  /** callback to get context menu actions for an item */
-  getContextMenuActions?: (item: ListItem, index: number) => MenuAction[];
+  /** callback to get context menu actions for an item - most callers
+   *  return a plain array; video callers return an Accessor instead (so
+   *  a "stream on X" entry spliced in after an async station lookup
+   *  resolves can propagate - see useVideoStreamContextMenuActions.ts),
+   *  normalized at the render site below. */
+  getContextMenuActions?: (item: ListItem, index: number) => MenuAction[] | Accessor<MenuAction[]>;
   /** height of the container in pixels (defaults to 100% of parent) */
   height?: number;
   /** top padding inside the scroll container (px) - content scrolls under this space */
@@ -297,7 +312,9 @@ export function VirtualItemList(props: VirtualItemListProps): JSX.Element {
                 // without it rows collapse to their content height (rows
                 // with a subtitle came out taller than title-only rows).
                 <ContextMenu
-                  actions={props.getContextMenuActions(item, virtualRow.index)}
+                  actions={normalizeContextMenuActions(
+                    props.getContextMenuActions(item, virtualRow.index)
+                  )}
                   triggerClass="h-full"
                 >
                   {itemButton}

@@ -11,6 +11,7 @@ import {
   onCleanup,
   onMount,
   Show,
+  type Accessor,
   type JSX,
 } from "solid-js";
 import { Portal } from "solid-js/web";
@@ -129,6 +130,11 @@ import {
 } from "../music/services/queue/queue";
 import { useSongContextMenu } from "../music/hooks/contextMenu";
 import { useVideoContextMenu } from "../video/hooks/contextMenu";
+import { useStreamFlyoutActions } from "../components/radio/useStreamFlyoutActions";
+import type { RequestQueueItem } from "../components/radio/requestStation";
+import { spliceStreamMenuActions } from "../video/hooks/useVideoStreamContextMenuActions";
+import { createShareSourceRemote } from "./services/remotes/shareSource";
+import { isVideoAlreadyLocal } from "../video/services/syncState";
 import {
   getAllRemotes,
   getRemoteById,
@@ -1333,8 +1339,17 @@ export function AppLayout(props: AppLayoutProps) {
     },
   ];
 
-  // build context menu actions for a history entry
-  const getHistoryContextMenuActions = (entry: HistoryDisplayEntry): MenuAction[] => {
+  // same remote accessor every history-entry row's stream flyout shares -
+  // one `createShareSourceRemote()` call for the whole history panel,
+  // not per-row (cheap to call per-row too, but no need to).
+  const historyStreamRemote = createShareSourceRemote();
+
+  // build context menu actions for a history entry - an Accessor (not a
+  // plain array) for video entries, so a "stream on X" entry (spliced in
+  // once its async station lookup resolves) can propagate - see
+  // useVideoStreamContextMenuActions.ts. song entries have no such entry
+  // (yet), so they're just wrapped in a static `() => actions`.
+  const getHistoryContextMenuActions = (entry: HistoryDisplayEntry): Accessor<MenuAction[]> => {
     if (entry.kind === "video") {
       // video history entries get a simpler menu - no album/artist/
       // playlist navigation (doesn't map onto video's entity types the
@@ -1366,7 +1381,31 @@ export function AppLayout(props: AppLayoutProps) {
         destructive: true,
         onClick: () => void removeVideoHistoryEntry(entry.id),
       });
-      return actions;
+      // "stream on X" mirrors whichever of resume/play-again this entry
+      // is currently offering: resumes from the saved position when
+      // there's progress, otherwise starts from the top - same video(s),
+      // same resume position, just requested to a station instead of
+      // played from local/remote storage.
+      const resumeIndex = hasProgress
+        ? Math.min(entry.current_video_index || 0, entry.videos.length - 1)
+        : 0;
+      const streamFlyout = useStreamFlyoutActions({
+        remote: historyStreamRemote,
+        resolveStreamItems: async (): Promise<RequestQueueItem[] | null> => {
+          if (entry.videos.length === 0) return null;
+          return entry.videos.slice(resumeIndex).map((v, i) => ({
+            kind: "video" as const,
+            itemId: v.id,
+            startPositionSeconds: i === 0 && hasProgress ? entry.current_video_position : undefined,
+          }));
+        },
+        streamLabel: () => `video "${entry.label}"`,
+        alreadyLocal: () => {
+          const video = entry.videos[resumeIndex];
+          return !!video && isVideoAlreadyLocal(video);
+        },
+      });
+      return () => spliceStreamMenuActions(actions, streamFlyout.menuActions());
     }
 
     const actions: MenuAction[] = [];
@@ -1482,7 +1521,7 @@ export function AppLayout(props: AppLayoutProps) {
       },
     });
 
-    return actions;
+    return () => actions;
   };
 
   // build view options for the TopNav view selector

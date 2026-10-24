@@ -13,6 +13,7 @@ import { createSignal } from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
 import { debug, warn } from "../../utils/logger";
 import { getLocalVideos } from "./storage/db/videos";
+import { isLocalOrCharnelManagedVideoSource } from "../data";
 
 const [syncedVideoIds, setSyncedVideoIds] = createStore<Record<string, boolean>>({});
 
@@ -25,6 +26,41 @@ export function isVideoSyncedLocally(id: string | null | undefined): boolean {
   if (!id) return false;
   syncedVersion();
   return syncedVideoIds[id] ?? false;
+}
+
+/** the single "is this video already available without needing a radio
+ *  station" check every stream-flyout/stream-menu-entry gate uses - two
+ *  cases, cheapest first:
+ *  1. the active remote needs no real network round-trip to reach at
+ *     all - no remote (pure local-library browsing) or a charnel-
+ *     managed remote (tauri's own locally-launched server: still a
+ *     "remote" at the data-source-selection level, since it's fetched
+ *     over HTTP like any other remote, but running on this same
+ *     machine with effectively zero latency - there's no access problem
+ *     for streaming to solve). a synchronous signal read
+ *     (`isLocalOrCharnelManagedVideoSource`) that doesn't even need to
+ *     look at the video object itself - this is also what makes
+ *     "browsing the local library" cheap: every video shown in that
+ *     context is covered by this same check, by definition, regardless
+ *     of what its own `source_type` field happens to say.
+ *  2. a remote video (on a genuine, non-charnel-managed remote) that's
+ *     been synced down already - `source_type` is `"local"` for
+ *     anything actually read back from local storage (both genuinely-
+ *     imported videos and synced-from-remote copies share the same
+ *     table/field - see this file's header comment), so a defensive
+ *     fallback to `isVideoSyncedLocally` catches a `remote` snapshot
+ *     that just hasn't been re-fetched since syncing. both reactive,
+ *     both resolve without blocking the caller's own render -
+ *     `isLocalOrCharnelManagedVideoSource` is a plain synchronous
+ *     signal read, and `isVideoSyncedLocally` is backed by a signal
+ *     seeded in the background at app startup (see
+ *     `initVideoSyncState`), never awaited inline here. */
+export function isVideoAlreadyLocal(video: { source_type: string; id: string }): boolean {
+  return (
+    isLocalOrCharnelManagedVideoSource() ||
+    video.source_type === "local" ||
+    isVideoSyncedLocally(video.id)
+  );
 }
 
 /** mark a video as synced locally (called after a successful sync) */

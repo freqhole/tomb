@@ -31,6 +31,12 @@ import {
   usePlaylistContextMenu,
 } from "../hooks/contextMenu";
 import { useVideoContextMenu, useVideoSeriesContextMenu } from "../../video/hooks/contextMenu";
+import {
+  useVideoStreamContextMenuActions,
+  useSeriesStreamContextMenuActions,
+  withStreamMenuActions,
+} from "../../video/hooks/useVideoStreamContextMenuActions";
+import { createShareSourceRemote } from "../../app/services/remotes/shareSource";
 import { routes, buildRoute } from "../utils/routing";
 import { useViewportHeight, getNavHeight } from "../../utils/viewport";
 
@@ -320,6 +326,7 @@ export function FavoritesView(props: FavoritesViewProps) {
   };
 
   // video handlers
+  const streamRemote = createShareSourceRemote();
   const handleVideoClick = (video: VideoSummary) => {
     navigate(buildRoute(`/video/${video.id}`));
   };
@@ -335,10 +342,12 @@ export function FavoritesView(props: FavoritesViewProps) {
   };
 
   const getVideoContextMenuActions = (video: VideoSummary) => {
-    return useVideoContextMenu(video, {
+    const base = useVideoContextMenu(video, {
       showPlayActions: true,
       isFavorite: true,
     });
+    const { menuActions } = useVideoStreamContextMenuActions(video, streamRemote);
+    return withStreamMenuActions(base, menuActions);
   };
 
   const handleVideoFavoriteToggle = (videoId: string, isFavorite: boolean) => {
@@ -367,8 +376,11 @@ export function FavoritesView(props: FavoritesViewProps) {
   // to queue" are omitted - the context menu's own "play all" (which
   // fetches the series' videos on demand and resumes where applicable)
   // is this list's only series-wide play action.
-  const getSeriesContextMenuActions = (series: VideoSeries) =>
-    useVideoSeriesContextMenu(series, [], { isFavorite: true });
+  const getSeriesContextMenuActions = (series: VideoSeries) => {
+    const base = useVideoSeriesContextMenu(series, [], { isFavorite: true });
+    const { menuActions } = useSeriesStreamContextMenuActions(series, [], streamRemote);
+    return withStreamMenuActions(base, menuActions);
+  };
 
   // navigation handlers
   const handleArtistNavigate = (artistId: string) => {

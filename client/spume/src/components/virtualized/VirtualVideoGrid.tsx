@@ -12,6 +12,7 @@ import {
   onCleanup,
   onMount,
   Show,
+  type Accessor,
 } from "solid-js";
 import { useScrollRestore } from "../../utils/scrollRestore";
 import { VideoCard } from "../../video/components/VideoCard";
@@ -28,7 +29,7 @@ export interface VirtualVideoGridProps {
   /** callback when play button is clicked */
   onVideoPlay?: (video: VideoSummary) => void;
   /** callback to get context menu actions for a video */
-  getContextMenuActions?: (video: VideoSummary) => MenuAction[];
+  getContextMenuActions?: (video: VideoSummary) => Accessor<MenuAction[]>;
   /** ids of favorited videos (omit to hide favorite hearts entirely) */
   favoriteVideoIds?: Set<string>;
   /** callback when a video's favorite heart is toggled */
@@ -226,7 +227,7 @@ export function VirtualVideoGrid(props: VirtualVideoGridProps): JSX.Element {
                               );
 
                               return props.getContextMenuActions ? (
-                                <ContextMenu actions={props.getContextMenuActions(v)}>
+                                <ContextMenu actions={props.getContextMenuActions(v)()}>
                                   {card}
                                 </ContextMenu>
                               ) : (

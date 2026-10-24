@@ -8,7 +8,7 @@ import { createMemo, Show } from "solid-js";
 import { useNavigate } from "@solidjs/router";
 import { MediaImage } from "../../components/media/MediaImage";
 import { hasBackgroundImage } from "../../app/services/backgroundImage";
-import { ContextMenu } from "../../components/overlays/ContextMenu";
+import { ContextMenu, ClickDropdownMenu } from "../../components/overlays/ContextMenu";
 import { PlayIcon } from "../../components/icons/registry";
 import { Rating } from "../../components/ratings/Rating";
 import { FavoriteHeart } from "../../components/ratings/FavoriteHeart";
@@ -16,6 +16,11 @@ import { MarqueeText } from "../../components/text/MarqueeText";
 import { formatDuration } from "../../utils/formatDuration";
 import { buildRoute } from "../../music/utils/routing";
 import { useVideoContextMenu } from "../hooks/contextMenu";
+import {
+  useVideoStreamContextMenuActions,
+  spliceStreamMenuActions,
+} from "../hooks/useVideoStreamContextMenuActions";
+import { createShareSourceRemote } from "../../app/services/remotes/shareSource";
 import { useLocalVideoPosterUrl } from "./VideoCard";
 import { contentTypeLabel } from "../utils/contentType";
 import { getWaveformImage } from "../../utils/images";
@@ -50,8 +55,16 @@ export interface VideoListRowProps {
 
 export function VideoListRow(props: VideoListRowProps) {
   const navigate = useNavigate();
+  const streamRemote = createShareSourceRemote();
+  // shared by both the context menu's "stream on X" entry and the hover
+  // play button's own flyout trigger below - one station lookup serves
+  // both surfaces.
+  const playFlyout = useVideoStreamContextMenuActions(props.video, streamRemote);
   const contextMenuActions = createMemo(() =>
-    useVideoContextMenu(props.video, { showPlayActions: true, onSave: props.onTagsSaved })
+    spliceStreamMenuActions(
+      useVideoContextMenu(props.video, { showPlayActions: true, onSave: props.onTagsSaved }),
+      playFlyout.menuActions()
+    )
   );
   // mirrors VideoCard.tsx's local-poster handling: a local video's
   // auto-imported poster lives in OPFS (poster_opfs_path), not the
@@ -178,17 +191,41 @@ export function VideoListRow(props: VideoListRowProps) {
               />
             </Show>
             <div class="absolute inset-0 z-40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/40">
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  props.onPlay();
-                }}
-                class="w-6 h-6 rounded-full bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] text-[var(--color-text-on-accent)] flex items-center justify-center transition-colors"
-                title="play"
-                aria-label="play"
+              <Show
+                when={playFlyout.showCaret()}
+                fallback={
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      props.onPlay();
+                    }}
+                    class="w-6 h-6 rounded-full bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] text-[var(--color-text-on-accent)] flex items-center justify-center transition-colors"
+                    title="play"
+                    aria-label="play"
+                  >
+                    <PlayIcon size={12} className="ml-0.5" />
+                  </button>
+                }
               >
-                <PlayIcon size={12} className="ml-0.5" />
-              </button>
+                <div onClick={(e) => e.stopPropagation()}>
+                  <ClickDropdownMenu
+                    align="left"
+                    trigger={
+                      <button
+                        class="w-6 h-6 rounded-full bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] text-[var(--color-text-on-accent)] flex items-center justify-center transition-colors"
+                        title="play"
+                        aria-label="play"
+                      >
+                        <PlayIcon size={12} className="ml-0.5" />
+                      </button>
+                    }
+                    actions={[
+                      { label: "play", icon: "play", onClick: props.onPlay },
+                      ...playFlyout.menuActions(),
+                    ]}
+                  />
+                </div>
+              </Show>
             </div>
           </div>
           <MarqueeText

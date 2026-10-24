@@ -17,6 +17,7 @@ import {
   onCleanup,
   onMount,
   Show,
+  type Accessor,
 } from "solid-js";
 import { ContextMenu as KobalteContextMenu } from "@kobalte/core/context-menu";
 import { useQueryClient } from "@tanstack/solid-query";
@@ -50,7 +51,7 @@ export interface VideosTableProps {
   videos: VideoSummary[];
   onVideoPlay?: (video: VideoSummary) => void;
   /** callback to get context menu actions for a video */
-  getContextMenuActions?: (video: VideoSummary) => MenuAction[];
+  getContextMenuActions?: (video: VideoSummary) => Accessor<MenuAction[]>;
   /** ids of favorited videos (omit to hide the favorite column) */
   favoriteVideoIds?: Set<string>;
   onVideoFavoriteToggle?: (videoId: string, isFavorite: boolean) => void;
@@ -64,7 +65,7 @@ function VideoRow(props: {
   video: VideoSummary;
   index: number;
   onVideoPlay?: (video: VideoSummary) => void;
-  getContextMenuActions?: (video: VideoSummary) => MenuAction[];
+  getContextMenuActions?: (video: VideoSummary) => Accessor<MenuAction[]>;
   favoriteVideoIds?: Set<string>;
   onVideoFavoriteToggle?: (videoId: string, isFavorite: boolean) => void;
   videoRatings?: Map<string, number>;
@@ -97,7 +98,7 @@ function VideoRow(props: {
     return formatRelativeTime(ts * 1000);
   };
 
-  const menuActions = () => props.getContextMenuActions?.(props.video) ?? [];
+  const menuActions = () => props.getContextMenuActions?.(props.video)() ?? [];
 
   const rowContent = (
     <>

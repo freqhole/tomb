@@ -8,6 +8,9 @@ import { DetailViewWrapper } from "../../components/layout/DetailViewWrapper";
 import { OfflineBadge } from "../../components/badges/OfflineBadge";
 import { MediaImage } from "../../components/media/MediaImage";
 import { Button } from "../../components/buttons/Button";
+import { PlayWithStreamButton } from "../../components/buttons/PlayWithStreamButton";
+import type { RequestQueueItem } from "../../components/radio/requestStation";
+import { isVideoAlreadyLocal } from "../services/syncState";
 import { LoadingState } from "../../components/feedback";
 import { ContextMenu } from "../../components/overlays/ContextMenu";
 import { Icon, IconNames } from "../../components/icons/registry";
@@ -40,6 +43,8 @@ import { useSetRatingMutation } from "../../music/queries/ratings";
 import { useVideoFavoriteStatuses } from "../hooks/useVideoFavoriteStatuses";
 import { useVideoRatingStatuses } from "../hooks/useVideoRatingStatuses";
 import { useVideoContextMenu } from "../hooks/contextMenu";
+import { spliceStreamMenuActions } from "../hooks/useVideoStreamContextMenuActions";
+import { useStreamFlyoutActions } from "../../components/radio/useStreamFlyoutActions";
 import { showEditVideo } from "../hooks/modals";
 import { showShareModal } from "../../music/hooks/modals";
 import { showStationSelector } from "../../music/hooks/stationSelectorState";
@@ -294,6 +299,23 @@ export function VideoDetailView() {
     }
   };
 
+  // item resolver for the play button's stream caret (see
+  // PlayWithStreamButton.tsx) - single video, resume-aware (same source
+  // handlePlay's own playVideoQueue call already uses).
+  const resolveStreamItems = async (): Promise<RequestQueueItem[] | null> => {
+    const video = videoQuery.data;
+    if (!video) return null;
+    return [{ kind: "video", itemId: video.id, startPositionSeconds: resumePosition() }];
+  };
+  // no file-access problem to solve once the video's already available
+  // locally (a genuine local import, or a remote video already synced
+  // down, or we're not even connected to a remote at all) - hides the
+  // whole caret (see isVideoAlreadyLocal's doc comment).
+  const isAlreadyLocal = () => {
+    const video = videoQuery.data;
+    return !!video && isVideoAlreadyLocal(video);
+  };
+
   // secondary actions for the narrow/mobile layout's responsive action
   // bar - ordered by priority (first collapses last, into the "..."
   // overflow menu, as the container runs out of horizontal room). the
@@ -482,11 +504,19 @@ export function VideoDetailView() {
   });
 
   // context menu for the poster (play/queue/favorite/edit/delete parity
-  // with the grid/table context menus elsewhere in the video domain)
+  // with the grid/table context menus elsewhere in the video domain) -
+  // shares the play button's own resolveStreamItems/isAlreadyLocal, so
+  // its "stream on X" entry always agrees with the play button's caret.
+  const posterStreamFlyout = useStreamFlyoutActions({
+    remote: currentRemoteFull,
+    resolveStreamItems,
+    streamLabel: () => `video "${videoQuery.data?.title ?? ""}"`,
+    alreadyLocal: isAlreadyLocal,
+  });
   const videoContextMenuActions = createMemo(() => {
     const video = videoQuery.data;
     if (!video) return [];
-    return useVideoContextMenu(video, {
+    const base = useVideoContextMenu(video, {
       isFavorite: isFavorite(),
       showPlayActions: true,
       onDeleted: () => navigate(buildRoute("/video")),
@@ -494,6 +524,7 @@ export function VideoDetailView() {
         void queryClient.invalidateQueries({ queryKey: videoQueryKeys.tags.all() });
       },
     });
+    return spliceStreamMenuActions(base, posterStreamFlyout.menuActions());
   });
 
   return (
@@ -588,13 +619,15 @@ export function VideoDetailView() {
                       items={narrowActionItems()}
                       pinnedStart={() => (
                         <>
-                          <Button
-                            variant="primary"
+                          <PlayWithStreamButton
+                            label={resumePosition() != null ? "resume" : "play"}
                             loading={playPending()}
                             onClick={() => void handlePlay()}
-                          >
-                            {resumePosition() != null ? "resume" : "play"}
-                          </Button>
+                            remote={currentRemoteFull}
+                            resolveStreamItems={resolveStreamItems}
+                            streamLabel={`video "${video().title}"`}
+                            alreadyLocal={isAlreadyLocal}
+                          />
                           <FavoriteHeart isFavorite={isFavorite()} onToggle={handleFavoriteToggle} />
                         </>
                       )}
@@ -645,13 +678,15 @@ export function VideoDetailView() {
                   </Show>
 
                   <div class="mt-3 flex items-center gap-2">
-                    <Button
-                      variant="primary"
+                    <PlayWithStreamButton
+                      label={resumePosition() != null ? "resume video" : "play video"}
                       loading={playPending()}
                       onClick={() => void handlePlay()}
-                    >
-                      {resumePosition() != null ? "resume video" : "play video"}
-                    </Button>
+                      remote={currentRemoteFull}
+                      resolveStreamItems={resolveStreamItems}
+                      streamLabel={`video "${video().title}"`}
+                      alreadyLocal={isAlreadyLocal}
+                    />
                     <Button
                       variant="ghost"
                       loading={queuePending()}

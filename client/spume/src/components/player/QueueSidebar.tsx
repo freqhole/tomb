@@ -8,6 +8,7 @@ import {
   onCleanup,
   onMount,
   Show,
+  type Accessor,
 } from "solid-js";
 import type { MediaItem } from "../../app/services/storage/mediaItem";
 import { mediaItemKey } from "../../app/services/storage/mediaItem";
@@ -169,8 +170,11 @@ export interface QueueSidebarProps {
   onRadioQueueEntryClick?: (station: RadioStationRef) => void;
   /** callback to get context menu actions for the radio queue entry */
   getRadioQueueContextMenuActions?: (station: RadioStationRef) => MenuAction[];
-  /** callback to get context menu actions for a history entry */
-  getHistoryContextMenuActions?: (entry: HistoryDisplayEntry) => MenuAction[];
+  /** callback to get context menu actions for a history entry - an
+   *  Accessor (not a plain array), since a video entry's "stream on X"
+   *  entry is spliced in reactively once its async station lookup
+   *  resolves (see useVideoStreamContextMenuActions.ts). */
+  getHistoryContextMenuActions?: (entry: HistoryDisplayEntry) => Accessor<MenuAction[]>;
   /** additional classes */
   class?: string;
   /** current playback time in seconds (for progress fill) */
@@ -1183,7 +1187,7 @@ export function QueueSidebar(props: QueueSidebarProps) {
                   );
 
                   return props.getHistoryContextMenuActions && entry() ? (
-                    <ContextMenu actions={props.getHistoryContextMenuActions(entry()!)}>
+                    <ContextMenu actions={props.getHistoryContextMenuActions(entry()!)()}>
                       {historyRow}
                     </ContextMenu>
                   ) : (

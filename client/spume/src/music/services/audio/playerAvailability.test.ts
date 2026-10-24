@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { MediaItem, QueuedVideo } from "../../../app/services/storage/mediaItem";
+import { mediaItemKey } from "../../../app/services/storage/mediaItem";
 import type { Song } from "../storage/types";
 import type { PlayerEventListener } from "./backend";
 
@@ -316,6 +317,72 @@ describe("shared player availability", () => {
     expect(mocks.load).toHaveBeenCalledTimes(10);
     expect(mocks.state.queue).toEqual([]);
     expect(mocks.state.current_item_key).toBeNull();
+  });
+
+  // regression test: a user removing a flaky/slow item from the queue
+  // while playNext() is sleeping between its two retry attempts must
+  // stop that item from starting to play once the delay elapses - see
+  // player.ts's `isStillQueued` doc comment for the full writeup of why
+  // the load-guard generation counters alone don't cover this case.
+  it("does not retry-play an item that left the queue during playNext's own retry delay", async () => {
+    mocks.activePlayer = true;
+    const next = item("next");
+    mocks.state.queue = [item("current"), next];
+    mocks.state.current_item_key = "current";
+    // first attempt fails - and, as a side effect (mirrors the user
+    // removing the item right around when the failure happens, well
+    // before the retry's own NETWORK_RETRY_DELAY_MS delay elapses),
+    // the item leaves the queue.
+    mocks.load.mockImplementationOnce(async () => {
+      mocks.state.queue = mocks.state.queue.filter(
+        (i) => mediaItemKey(i) !== mediaItemKey(next)
+      );
+      throw new Error("track unavailable");
+    });
+    const completion = playNext();
+    await vi.runAllTimersAsync();
+    await completion;
+    // exactly one attempt - the retry must have been skipped, not just
+    // slow to arrive.
+    expect(mocks.load).toHaveBeenCalledTimes(1);
+    expect(mocks.state.current_item_key).toBeNull();
+  });
+
+  // regression test for the sibling retry path - bindAutoAdvance's
+  // one-shot network-element-error retry (a `video_element_error_network`/
+  // `audio_element_error_network` event from the backend, not a thrown
+  // rejection). same bug, same fix: the item is captured once when the
+  // error fires, then replayed after NETWORK_RETRY_DELAY_MS - removing it
+  // from the queue during that wait must cancel the retry, not just
+  // delay it.
+  it("does not retry-play an item that left the queue during the network-error retry delay", async () => {
+    mocks.activePlayer = true;
+    const current = item("flaky", false, "video");
+    mocks.state.queue = [current];
+    mocks.state.current_item_key = "flaky";
+    await playMediaItem(current);
+    expect(mocks.load).toHaveBeenCalledTimes(1);
+
+    const listener = mocks.listeners.get("video");
+    expect(listener).toBeDefined();
+    listener?.({
+      kind: "error",
+      detail: {
+        error_type: "video_element_error_network",
+        title: "network error",
+        detail: "network error",
+      },
+    });
+    // the item leaves the queue AFTER the error fires (so it's correctly
+    // captured for the retry) but BEFORE the retry's own delay elapses -
+    // this is the actual race: removal happening during the wait, not
+    // before the item was ever captured.
+    mocks.state.queue = [];
+    await vi.runAllTimersAsync();
+
+    // still just the one (pre-error) load call - the retry must have
+    // been skipped.
+    expect(mocks.load).toHaveBeenCalledTimes(1);
   });
 
   it("reports persistence failures during automatic completion", async () => {

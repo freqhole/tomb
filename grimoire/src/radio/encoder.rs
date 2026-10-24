@@ -70,6 +70,119 @@ impl StderrTail {
     }
 }
 
+/// parses `encode_args` (shell-words style), substitutes `{input}`, and -
+/// when `start_position_seconds` is a positive value - inserts a fast
+/// input-level `-ss <seconds>` immediately before the `-i`-style flag
+/// that precedes the `{input}` token (i.e. two tokens before `{input}`
+/// itself: `-i`, then the path). pulled out of `Encoder::start` as a pure
+/// function so the `-ss` placement logic can be unit-tested without
+/// actually spawning ffmpeg.
+fn build_ffmpeg_args(
+    encode_args: &str,
+    input_path: &str,
+    start_position_seconds: Option<f64>,
+) -> GrimoireResult<Vec<String>> {
+    // parse args FIRST (so quoted strings stay intact), then substitute
+    // {input}. mirrors the pattern used by extract_album_art_args /
+    // generate_waveform_args in MediaConfig.
+    let mut args =
+        shell_words::split(encode_args).map_err(|e| GrimoireError::ProcessingFailed {
+            message: format!("radio: failed to parse encode_args: {e}"),
+        })?;
+    // the `{input}` token's own index - `-ss` needs to land one token
+    // EARLIER than this (before the `-i` flag immediately preceding the
+    // input path, not before the path itself) for ffmpeg to treat it as a
+    // fast input-level seek rather than a no-op output-level one.
+    let input_flag_index = args
+        .iter()
+        .position(|a| a.contains("{input}"))
+        .filter(|&idx| idx > 0)
+        .map(|idx| idx - 1);
+    for arg in args.iter_mut() {
+        if arg.contains("{input}") {
+            *arg = arg.replace("{input}", input_path);
+        }
+    }
+    if let (Some(pos), Some(idx)) = (start_position_seconds, input_flag_index) {
+        if pos > 0.0 {
+            args.insert(idx, pos.to_string());
+            args.insert(idx, "-ss".to_string());
+        }
+    }
+    Ok(args)
+}
+
+#[cfg(test)]
+mod build_ffmpeg_args_tests {
+    use super::*;
+
+    #[test]
+    fn substitutes_input_with_no_start_position() {
+        let args = build_ffmpeg_args("-i {input} -c:a aac", "/tmp/song.mp3", None).unwrap();
+        assert_eq!(args, vec!["-i", "/tmp/song.mp3", "-c:a", "aac"]);
+    }
+
+    #[test]
+    fn inserts_fast_seek_before_the_input_flag_when_a_start_position_is_set() {
+        let args =
+            build_ffmpeg_args("-i {input} -c:a aac", "/tmp/song.mp3", Some(42.5)).unwrap();
+        assert_eq!(
+            args,
+            vec!["-ss", "42.5", "-i", "/tmp/song.mp3", "-c:a", "aac"]
+        );
+    }
+
+    #[test]
+    fn zero_start_position_is_treated_as_no_seek() {
+        // a position of exactly 0.0 means "start from the top" - identical
+        // to no position at all, so no -ss should be inserted.
+        let args = build_ffmpeg_args("-i {input} -c:a aac", "/tmp/song.mp3", Some(0.0)).unwrap();
+        assert_eq!(args, vec!["-i", "/tmp/song.mp3", "-c:a", "aac"]);
+    }
+
+    #[test]
+    fn negative_start_position_is_treated_as_no_seek() {
+        let args = build_ffmpeg_args("-i {input} -c:a aac", "/tmp/song.mp3", Some(-5.0)).unwrap();
+        assert_eq!(args, vec!["-i", "/tmp/song.mp3", "-c:a", "aac"]);
+    }
+
+    #[test]
+    fn respects_a_differently_ordered_station_template() {
+        // the seek must land right before whichever token has {input},
+        // regardless of what else precedes it in the station's own
+        // configured args.
+        let args = build_ffmpeg_args(
+            "-hide_banner -loglevel error -i {input} -map 0:v:0",
+            "/videos/clip.mp4",
+            Some(10.0),
+        )
+        .unwrap();
+        assert_eq!(
+            args,
+            vec![
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-ss",
+                "10",
+                "-i",
+                "/videos/clip.mp4",
+                "-map",
+                "0:v:0"
+            ]
+        );
+    }
+
+    #[test]
+    fn no_input_token_leaves_args_unchanged_even_with_a_start_position() {
+        // defensive: a malformed/empty template with no {input} token at
+        // all has nowhere sensible to insert -ss - don't guess, just
+        // leave it alone (same as the None case).
+        let args = build_ffmpeg_args("-f mp4 pipe:1", "/tmp/song.mp3", Some(30.0)).unwrap();
+        assert_eq!(args, vec!["-f", "mp4", "pipe:1"]);
+    }
+}
+
 impl Encoder {
     /// spawn ffmpeg for the given input path. ffmpeg runs in the background;
     /// chunks are pulled lazily via [`Encoder::next_chunk`].
@@ -77,23 +190,25 @@ impl Encoder {
     /// `encode_args_override` is a station's own `encode_args` column (see
     /// `RadioStation`) - `None` falls back to the node-wide `[radio]` toml
     /// default, same as before this param existed.
-    pub fn start(input_path: &str, encode_args_override: Option<&str>) -> GrimoireResult<Self> {
+    ///
+    /// `start_position_seconds` - "resume where a previous listener left
+    /// off" (see `playlist::RadioTrack::start_position_seconds`). inserted
+    /// as `-ss <seconds>` immediately before whichever arg token
+    /// references `{input}` - ffmpeg treats `-ss` placed *before* `-i` as
+    /// a fast, keyframe-granularity input seek (no full decode from the
+    /// start of the file), vs. the slow, frame-accurate seek it does when
+    /// `-ss` comes after `-i`. frame accuracy doesn't matter for a live
+    /// broadcast resume - fast matters a lot (this runs on every request
+    /// pickup, not just an admin action).
+    pub fn start(
+        input_path: &str,
+        encode_args_override: Option<&str>,
+        start_position_seconds: Option<f64>,
+    ) -> GrimoireResult<Self> {
         let ffmpeg = get_config().media.ffmpeg_path.clone();
         let cfg = radio_cfg();
         let encode_args = encode_args_override.unwrap_or(&cfg.encode_args);
-
-        // parse args FIRST (so quoted strings stay intact), then substitute
-        // {input}. mirrors the pattern used by extract_album_art_args /
-        // generate_waveform_args in MediaConfig.
-        let mut args =
-            shell_words::split(encode_args).map_err(|e| GrimoireError::ProcessingFailed {
-                message: format!("radio: failed to parse encode_args: {e}"),
-            })?;
-        for arg in args.iter_mut() {
-            if arg.contains("{input}") {
-                *arg = arg.replace("{input}", input_path);
-            }
-        }
+        let args = build_ffmpeg_args(encode_args, input_path, start_position_seconds)?;
 
         debug!("[radio-encoder] spawning ffmpeg for {input_path}");
 
@@ -301,11 +416,16 @@ pub struct BufferedEncoder {
 impl BufferedEncoder {
     /// spawn ffmpeg + the feeder task. the channel capacity is derived
     /// from the radio config (`buffer_seconds / frag_seconds`).
-    pub fn start(input_path: &str, encode_args_override: Option<&str>) -> GrimoireResult<Self> {
+    pub fn start(
+        input_path: &str,
+        encode_args_override: Option<&str>,
+        start_position_seconds: Option<f64>,
+    ) -> GrimoireResult<Self> {
         Self::start_with_capacity(
             input_path,
             encode_args_override,
             crate::radio::config::ring_capacity(&radio_cfg()),
+            start_position_seconds,
         )
     }
 
@@ -315,6 +435,7 @@ impl BufferedEncoder {
         input_path: &str,
         encode_args_override: Option<&str>,
         capacity: usize,
+        start_position_seconds: Option<f64>,
     ) -> GrimoireResult<Self> {
         let cfg = radio_cfg();
         let attempts = cfg.encoder_restart_attempts.max(1);
@@ -323,7 +444,7 @@ impl BufferedEncoder {
         let mut last_err: Option<GrimoireError> = None;
         let mut encoder: Option<Encoder> = None;
         for attempt in 1..=attempts {
-            match Encoder::start(input_path, encode_args_override) {
+            match Encoder::start(input_path, encode_args_override, start_position_seconds) {
                 Ok(enc) => {
                     if attempt > 1 {
                         info!(

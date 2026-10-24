@@ -86,6 +86,15 @@ pub struct RadioTrack {
     /// fallback chain: song_imagez → album_imagez → artist_imagez.
     /// used by public timeline manifests to populate art URLs.
     pub art_blob_id: Option<String>,
+    /// "resume where a previous listener left off" - when set, the
+    /// broadcaster seeks the encoder's input this far into the file
+    /// before streaming (see `encoder::Encoder::start`'s `-ss` handling).
+    /// only ever populated by the member-request branch of
+    /// `pick_for_station_after_with_options` (from
+    /// `requests::QueuedRequest::start_position_seconds`) - `None` for
+    /// every other picker path (random/shuffle/album modes have no
+    /// per-listener position to resume).
+    pub start_position_seconds: Option<f64>,
 }
 
 #[derive(Debug, Clone, FromRow)]
@@ -169,6 +178,7 @@ pub(crate) async fn pick_random_song_with_pool(
         duration_ms: row.duration,
         waveform_blob_id: row.waveform_blob_id,
         art_blob_id: row.art_blob_id,
+        start_position_seconds: None,
     })
 }
 
@@ -295,7 +305,10 @@ async fn pick_for_station_after_with_options(
                 continue;
             }
             match fetch_track(req.kind, &req.item_id).await {
-                Ok(track) => return Ok(track),
+                Ok(mut track) => {
+                    track.start_position_seconds = req.start_position_seconds;
+                    return Ok(track);
+                }
                 Err(e) => {
                     tracing::warn!(
                         "[radio-picker] station {station_id} dropped a queued request for {:?} \
@@ -1034,6 +1047,7 @@ async fn fetch_song_track(pool: &sqlx::SqlitePool, song_id: &str) -> GrimoireRes
         duration_ms: row.duration,
         waveform_blob_id: row.waveform_blob_id,
         art_blob_id: row.art_blob_id,
+        start_position_seconds: None,
     })
 }
 
@@ -1089,6 +1103,7 @@ async fn fetch_video_track(pool: &sqlx::SqlitePool, video_id: &str) -> GrimoireR
         duration_ms,
         waveform_blob_id: None,
         art_blob_id: row.art_blob_id,
+        start_position_seconds: None,
     })
 }
 

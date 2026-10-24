@@ -21,6 +21,11 @@ import { VideoSeriesDetailPanel } from "../components/VideoSeriesDetailPanel";
 import { VideoSeriesCard } from "../components/VideoSeriesCard";
 import { useVideoSeriesListQuery, useVideoSeriesQuery } from "../queries/series";
 import { useVideoSeriesContextMenu } from "../hooks/contextMenu";
+import {
+  useSeriesStreamContextMenuActions,
+  withStreamMenuActions,
+} from "../hooks/useVideoStreamContextMenuActions";
+import { createShareSourceRemote } from "../../app/services/remotes/shareSource";
 import { useVideoSeriesFavoriteStatuses } from "../hooks/useVideoSeriesFavoriteStatuses";
 import { useToggleFavoriteMutation } from "../../music/queries/favorites";
 import { buildRoute } from "../../music/utils/routing";
@@ -223,6 +228,8 @@ export function VideoSeriesView() {
     });
   };
 
+  const streamRemote = createShareSourceRemote();
+
   // handle back navigation on narrow
   const handleBack = () => {
     setShowingDetailOnNarrow(false);
@@ -233,11 +240,14 @@ export function VideoSeriesView() {
   // context menu for the left-column series list rows - mirrors the
   // "all series" grid's ContextMenu usage below, just fed through
   // VirtualItemList's getContextMenuActions instead of wrapping each card.
+  // no preloaded video list here (bare series row only), so the "stream
+  // on X" entry falls back to the "is episode 1 already local" proxy -
+  // see useSeriesStreamContextMenuActions's own doc comment.
   const getContextMenuActions = (item: ListItem) => {
     const series = sortedSeries().find((s) => s.id === item.id);
-    if (!series) return [];
+    if (!series) return () => [];
 
-    return useVideoSeriesContextMenu(series, [], {
+    const base = useVideoSeriesContextMenu(series, [], {
       isFavorite: favoriteStatusesQuery.data?.has(series.id) ?? false,
       // only deselect/navigate away if the deleted row was the one open
       // in the right column - deleting an unrelated row must not disturb it.
@@ -245,6 +255,8 @@ export function VideoSeriesView() {
         if (selectedSeriesId() === series.id) handleBack();
       },
     });
+    const { menuActions } = useSeriesStreamContextMenuActions(series, [], streamRemote);
+    return withStreamMenuActions(base, menuActions);
   };
 
   // left column - series list
@@ -334,9 +346,12 @@ export function VideoSeriesView() {
                 <For each={sortedSeries()}>
                   {(series) => (
                     <ContextMenu
-                      actions={useVideoSeriesContextMenu(series, [], {
-                        isFavorite: favoriteStatusesQuery.data?.has(series.id) ?? false,
-                      })}
+                      actions={withStreamMenuActions(
+                        useVideoSeriesContextMenu(series, [], {
+                          isFavorite: favoriteStatusesQuery.data?.has(series.id) ?? false,
+                        }),
+                        useSeriesStreamContextMenuActions(series, [], streamRemote).menuActions
+                      )()}
                     >
                       <VideoSeriesCard
                         series={series}

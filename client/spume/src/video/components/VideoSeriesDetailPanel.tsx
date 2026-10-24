@@ -7,8 +7,12 @@ import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 import { useQueryClient } from "@tanstack/solid-query";
 import { LoadingState } from "../../components/feedback";
 import { MediaImage } from "../../components/media/MediaImage";
-import { ContextMenu } from "../../components/overlays/ContextMenu";
+import { ContextMenu, ClickDropdownMenu } from "../../components/overlays/ContextMenu";
 import { Button } from "../../components/buttons/Button";
+import { PlayWithStreamButton } from "../../components/buttons/PlayWithStreamButton";
+import type { RequestQueueItem } from "../../components/radio/requestStation";
+import { useStreamFlyoutActions } from "../../components/radio/useStreamFlyoutActions";
+import { isVideoAlreadyLocal } from "../services/syncState";
 import { Icon, IconNames } from "../../components/icons/registry";
 import { HeadingSection } from "../../components/layout/HeadingSection";
 import { MarqueeText } from "../../components/text/MarqueeText";
@@ -45,6 +49,7 @@ import { showEditVideoSeries } from "../hooks/modals";
 import { showShareModal } from "../../music/hooks/modals";
 import { showStationSelector } from "../../music/hooks/stationSelectorState";
 import { useVideoSeriesContextMenu } from "../hooks/contextMenu";
+import { spliceStreamMenuActions } from "../hooks/useVideoStreamContextMenuActions";
 import { canUpdateVideo } from "../data/permissions";
 import { getVideoDataSource } from "../data";
 import {
@@ -358,6 +363,35 @@ export function VideoSeriesDetailPanel(props: VideoSeriesDetailPanelProps) {
     }
   };
 
+  // item resolver for the series header's play/continue button's stream
+  // caret (see PlayWithStreamButton.tsx) - the full remaining episode
+  // list from wherever `continueTarget` would resume into, same ordering
+  // + resume-position source handlePlayOrContinue's own playVideoQueue
+  // call already uses (no second fetch needed - progressQuery is already
+  // a live reactive query by this point).
+  const resolveSeriesStreamItems = async (): Promise<RequestQueueItem[] | null> => {
+    const videos = allVideos();
+    if (videos.length === 0) return null;
+    const target = pickResumeTarget(videos, progressQuery.data ?? new Map());
+    const startIndex = target?.index ?? 0;
+    return videos.slice(startIndex).map((v, i) => ({
+      kind: "video" as const,
+      itemId: v.id,
+      startPositionSeconds: i === 0 ? target?.positionSeconds : undefined,
+    }));
+  };
+  // no file-access problem to solve once whichever episode would
+  // actually start playing (continueTarget's pick, or episode 1) is
+  // already available locally, or we're not even connected to a remote
+  // at all - hides the whole flyout, not just "download" (see
+  // isVideoAlreadyLocal's doc comment).
+  const isSeriesAlreadyLocal = () => {
+    const videos = allVideos();
+    if (videos.length === 0) return false;
+    const video = videos[continueTarget()?.index ?? 0];
+    return isVideoAlreadyLocal(video);
+  };
+
   const handleAddAllToQueue = async () => {
     if (seriesActionPending()) return;
     const videos = allVideos();
@@ -549,13 +583,26 @@ export function VideoSeriesDetailPanel(props: VideoSeriesDetailPanelProps) {
     }
   };
 
+  // same stream flyout config as the header's own PlayWithStreamButton
+  // above (resolveSeriesStreamItems/isSeriesAlreadyLocal) - reused here
+  // (rather than useSeriesStreamContextMenuActions, which is for callers
+  // without an already-loaded video list/progress) so the context menu's
+  // "stream on X" entry doesn't pay for a second progress fetch.
+  const seriesStreamFlyout = useStreamFlyoutActions({
+    remote: currentRemoteFull,
+    resolveStreamItems: resolveSeriesStreamItems,
+    streamLabel: () => `series "${detailQuery.data?.series.title ?? ""}"`,
+    alreadyLocal: isSeriesAlreadyLocal,
+  });
+
   const seriesContextMenuActions = createMemo(() => {
     const series = detailQuery.data?.series;
     if (!series) return [];
-    return useVideoSeriesContextMenu(series, allVideos(), {
+    const base = useVideoSeriesContextMenu(series, allVideos(), {
       isFavorite: isFavorite(),
       onDeleted: props.onDeleted,
     });
+    return spliceStreamMenuActions(base, seriesStreamFlyout.menuActions());
   });
 
   const seasonLabel = (season: VideoSeason) => season.title || `season ${season.season_number}`;
@@ -679,16 +726,18 @@ export function VideoSeriesDetailPanel(props: VideoSeriesDetailPanelProps) {
                           items={narrowActionItems()}
                           pinnedStart={() => (
                             <>
-                              <Button
-                                variant="primary"
+                              <PlayWithStreamButton
+                                label={continueTarget()?.label ?? "play"}
                                 loading={seriesActionPending() === "play"}
                                 disabled={
                                   seriesActionPending() !== null || allVideos().length === 0
                                 }
                                 onClick={handlePlayOrContinue}
-                              >
-                                {continueTarget()?.label ?? "play"}
-                              </Button>
+                                remote={currentRemoteFull}
+                                resolveStreamItems={resolveSeriesStreamItems}
+                                streamLabel={`series "${detailQuery.data?.series.title ?? ""}"`}
+                                alreadyLocal={isSeriesAlreadyLocal}
+                              />
                               <FavoriteHeart
                                 isFavorite={isFavorite()}
                                 onToggle={handleFavoriteToggle}
@@ -760,14 +809,16 @@ export function VideoSeriesDetailPanel(props: VideoSeriesDetailPanelProps) {
                       <TagChips tags={aggregateTagsQuery.data} class="mt-2" />
 
                       <div class="mt-3 flex items-center gap-2">
-                        <Button
-                          variant="primary"
+                        <PlayWithStreamButton
+                          label={continueTarget()?.label ?? "play all"}
                           loading={seriesActionPending() === "play"}
                           disabled={seriesActionPending() !== null || allVideos().length === 0}
                           onClick={handlePlayOrContinue}
-                        >
-                          {continueTarget()?.label ?? "play all"}
-                        </Button>
+                          remote={currentRemoteFull}
+                          resolveStreamItems={resolveSeriesStreamItems}
+                          streamLabel={`series "${detailQuery.data?.series.title ?? ""}"`}
+                          alreadyLocal={isSeriesAlreadyLocal}
+                        />
                         <Button
                           variant="ghost"
                           loading={seriesActionPending() === "queue"}
@@ -836,6 +887,32 @@ export function VideoSeriesDetailPanel(props: VideoSeriesDetailPanelProps) {
                         const isPending = (action: "play" | "queue" | "shuffle") =>
                           seasonActionPending()?.seasonId === season.id &&
                           seasonActionPending()?.action === action;
+                        // this season's own stream/save-to-local flyout -
+                        // same logic PlayWithStreamButton uses for the
+                        // header, just with this row's own compact icon-
+                        // button styling instead of a merged split button
+                        // (see useStreamFlyoutActions.ts).
+                        const seasonResumeTarget = () =>
+                          pickResumeTarget(season.videos, progressQuery.data ?? new Map());
+                        const seasonStream = useStreamFlyoutActions({
+                          remote: currentRemoteFull,
+                          resolveStreamItems: async () => {
+                            if (season.videos.length === 0) return null;
+                            const target = seasonResumeTarget();
+                            const startIndex = target?.index ?? 0;
+                            return season.videos.slice(startIndex).map((v, i) => ({
+                              kind: "video" as const,
+                              itemId: v.id,
+                              startPositionSeconds: i === 0 ? target?.positionSeconds : undefined,
+                            }));
+                          },
+                          streamLabel: () => `season "${seasonLabel(season)}"`,
+                          alreadyLocal: () => {
+                            if (season.videos.length === 0) return false;
+                            const video = season.videos[seasonResumeTarget()?.index ?? 0];
+                            return isVideoAlreadyLocal(video);
+                          },
+                        });
                         return (
                           <div>
                             <div
@@ -871,18 +948,46 @@ export function VideoSeriesDetailPanel(props: VideoSeriesDetailPanelProps) {
                                 {seasonLabel(season)}
                               </span>
                               <Show when={season.videos.length > 0}>
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    void handleSeasonPlay(season);
-                                  }}
-                                  disabled={isPending("play")}
-                                  class="p-1.5 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded transition-colors flex-shrink-0"
-                                  title="play season"
-                                  aria-label="play season"
+                                <Show
+                                  when={seasonStream.showCaret()}
+                                  fallback={
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        void handleSeasonPlay(season);
+                                      }}
+                                      disabled={isPending("play")}
+                                      class="p-1.5 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded transition-colors flex-shrink-0"
+                                      title="play season"
+                                      aria-label="play season"
+                                    >
+                                      <Icon name={IconNames.play} size={14} />
+                                    </button>
+                                  }
                                 >
-                                  <Icon name={IconNames.play} size={14} />
-                                </button>
+                                  <ClickDropdownMenu
+                                    align="left"
+                                    trigger={
+                                      <button
+                                        disabled={isPending("play")}
+                                        class="p-1.5 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded transition-colors flex-shrink-0"
+                                        title="play season"
+                                        aria-label="play season"
+                                      >
+                                        <Icon name={IconNames.play} size={14} />
+                                      </button>
+                                    }
+                                    actions={[
+                                      {
+                                        label: "play season",
+                                        icon: "play",
+                                        onClick: () => void handleSeasonPlay(season),
+                                        disabled: isPending("play"),
+                                      },
+                                      ...seasonStream.menuActions(),
+                                    ]}
+                                  />
+                                </Show>
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation();

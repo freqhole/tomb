@@ -32,20 +32,38 @@ pub struct QueuedRequest {
     pub kind: RadioItemKind,
     pub item_id: String,
     pub requested_by: String,
-    /// forward-compatible placeholder for a future "resume where a
-    /// previous listener left off" feature - deliberately not populated
-    /// or read anywhere yet, just reserved so the struct doesn't need
-    /// reshaping later.
-    #[allow(dead_code)]
+    /// "resume where a previous listener left off" - when set, the
+    /// broadcaster seeks the encoder to this position before streaming
+    /// this item (see `playlist.rs`'s request-branch of
+    /// `pick_for_station_after_with_options`, which copies this onto the
+    /// `RadioTrack` it returns).
     pub start_position_seconds: Option<f64>,
+    /// when this request was submitted - used by `sweep_unheard` below
+    /// for a station that's never had a listener since its queue was
+    /// created (see `StationQueue::has_ever_had_listener`'s doc comment
+    /// for why this needs its own expiry path, separate from
+    /// `idle_since`).
+    submitted_at: Instant,
 }
 
 struct StationQueue {
     items: VecDeque<QueuedRequest>,
     /// `Some(t)` since the station's listener count last dropped to zero;
     /// `None` while at least one listener is tuned in. checked lazily
-    /// (no background sweep task) whenever the queue is touched.
+    /// (no background sweep task) whenever the queue is touched. only
+    /// meaningful once `has_ever_had_listener` is true - see that field's
+    /// doc comment.
     idle_since: Option<Instant>,
+    /// true once this station has had at least one real listener (via
+    /// `mark_active`) since its queue was created. `idle_since` only ever
+    /// starts counting down on a 1→0 listener transition
+    /// (`Broadcaster::leave()` → `mark_idle`) - a station that's *never*
+    /// had a single listener never makes that transition, so `idle_since`
+    /// would stay `None` forever and a request submitted to it would sit
+    /// unheard indefinitely. while this is false, `sweep_unheard` below
+    /// expires individual requests directly off their own
+    /// `submitted_at` instead.
+    has_ever_had_listener: bool,
 }
 
 impl StationQueue {
@@ -53,11 +71,25 @@ impl StationQueue {
         Self {
             items: VecDeque::new(),
             idle_since: None,
+            has_ever_had_listener: false,
         }
     }
 
     fn is_idle_expired(&self) -> bool {
         self.idle_since.is_some_and(|t| t.elapsed() >= IDLE_GRACE)
+    }
+
+    /// drops any requests that have sat unheard for `IDLE_GRACE` while
+    /// this station has never had a single listener - see
+    /// `has_ever_had_listener`'s doc comment. a no-op once the station
+    /// has had a listener (that case uses the coarser whole-queue
+    /// `is_idle_expired` drop instead, unchanged from before).
+    fn sweep_unheard(&mut self) {
+        if self.has_ever_had_listener {
+            return;
+        }
+        self.items
+            .retain(|r| r.submitted_at.elapsed() < IDLE_GRACE);
     }
 }
 
@@ -69,12 +101,15 @@ fn registry() -> &'static Registry {
 }
 
 /// call when a station's listener count transitions from 0 to 1 (i.e.
-/// from `Broadcaster::join()`) - cancels any pending idle-drop. a no-op
-/// if the station has no queue yet (nothing to cancel).
+/// from `Broadcaster::join()`) - cancels any pending idle-drop and marks
+/// the station as having had a real listener (see
+/// `StationQueue::has_ever_had_listener`). a no-op if the station has no
+/// queue yet (nothing to cancel).
 pub async fn mark_active(station_id: &str) {
     let mut reg = registry().write().await;
     if let Some(q) = reg.get_mut(station_id) {
         q.idle_since = None;
+        q.has_ever_had_listener = true;
     }
 }
 
@@ -99,6 +134,7 @@ pub async fn submit(
     kind: RadioItemKind,
     item_id: String,
     requested_by: String,
+    start_position_seconds: Option<f64>,
 ) -> String {
     let mut reg = registry().write().await;
     let q = reg
@@ -106,7 +142,9 @@ pub async fn submit(
         .or_insert_with(StationQueue::new);
     // a fresh request is itself a sign of real activity - don't let a
     // request submitted right as the grace period was about to expire
-    // get raced by the next `pop_next` sweep.
+    // get raced by the next `pop_next` sweep. only meaningful once this
+    // station has had a listener (see `is_idle_expired`); harmless no-op
+    // otherwise.
     q.idle_since = None;
     let id = uuid::Uuid::new_v4().to_string();
     q.items.push_back(QueuedRequest {
@@ -114,44 +152,45 @@ pub async fn submit(
         kind,
         item_id,
         requested_by,
-        start_position_seconds: None,
+        start_position_seconds,
+        submitted_at: Instant::now(),
     });
     id
 }
 
 /// pop the next queued request for a station, if any. also lazily sweeps
-/// an idle-expired queue (dropping it entirely) so a long-idle station
-/// doesn't resume playing a stale backlog once someone re-tunes. called
-/// from `playlist::pick_for_station_after_with_options` before it falls
-/// through to filter-based picking.
+/// a stale queue first: a whole-queue drop if the station has had
+/// listeners before and is now past the idle grace, or a per-request drop
+/// of anything that's sat unheard past the grace period if the station
+/// has never had a listener at all (see `StationQueue::has_ever_had_listener`).
+/// called from `playlist::pick_for_station_after_with_options` before it
+/// falls through to filter-based picking.
 pub async fn pop_next(station_id: &str) -> Option<QueuedRequest> {
     let mut reg = registry().write().await;
-    let idle_expired = reg
-        .get(station_id)
-        .map(|q| q.is_idle_expired())
-        .unwrap_or(false);
-    if idle_expired {
+    let q = reg.get_mut(station_id)?;
+    if q.has_ever_had_listener && q.is_idle_expired() {
         reg.remove(station_id);
         return None;
     }
-    reg.get_mut(station_id)?.items.pop_front()
+    q.sweep_unheard();
+    q.items.pop_front()
 }
 
 /// list every currently-queued request for a station, in submission
 /// order, without removing any of them. used by the `radio_list_requests`
 /// route to back the client's "queue" tab. applies the same lazy
-/// idle-expiry sweep as `pop_next` so a stale, long-idle backlog isn't
-/// shown as if it were still live.
+/// staleness sweep as `pop_next` so a stale, long-idle (or never-heard)
+/// backlog isn't shown as if it were still live.
 pub async fn list(station_id: &str) -> Vec<QueuedRequest> {
     let mut reg = registry().write().await;
-    let idle_expired = reg
-        .get(station_id)
-        .map(|q| q.is_idle_expired())
-        .unwrap_or(false);
-    if idle_expired {
+    let Some(q) = reg.get_mut(station_id) else {
+        return Vec::new();
+    };
+    if q.has_ever_had_listener && q.is_idle_expired() {
         reg.remove(station_id);
         return Vec::new();
     }
+    q.sweep_unheard();
     reg.get(station_id)
         .map(|q| q.items.iter().cloned().collect())
         .unwrap_or_default()
@@ -194,6 +233,7 @@ mod tests {
             RadioItemKind::Song,
             "song-1".to_string(),
             "user-a".to_string(),
+            None,
         )
         .await;
         submit(
@@ -201,6 +241,7 @@ mod tests {
             RadioItemKind::Video,
             "video-1".to_string(),
             "user-b".to_string(),
+            None,
         )
         .await;
 
@@ -216,6 +257,22 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn submit_preserves_a_start_position() {
+        let station_id = "station-start-position-test";
+        submit(
+            station_id,
+            RadioItemKind::Video,
+            "video-1".to_string(),
+            "user-a".to_string(),
+            Some(123.5),
+        )
+        .await;
+
+        let popped = pop_next(station_id).await.expect("request");
+        assert_eq!(popped.start_position_seconds, Some(123.5));
+    }
+
+    #[tokio::test]
     async fn idle_grace_period_drops_the_queue_only_after_expiry() {
         let station_id = "station-idle-test";
         submit(
@@ -223,15 +280,22 @@ mod tests {
             RadioItemKind::Song,
             "song-1".to_string(),
             "user-a".to_string(),
+            None,
         )
         .await;
 
-        // simulate "listener left" by directly manipulating idle_since
-        // to a time already past the grace period - avoids an actual
-        // 5-minute sleep in a test.
+        // simulate "had a listener, then they left" by directly setting
+        // has_ever_had_listener + an idle_since already past the grace
+        // period - avoids an actual 5-minute sleep in a test. the
+        // whole-queue idle-drop path only applies once a station has
+        // ever had a listener (see `has_ever_had_listener`'s doc comment);
+        // a station that never did uses the separate per-request
+        // `sweep_unheard` path instead - see
+        // `never_had_a_listener_expires_each_request_individually` below.
         {
             let mut reg = registry().write().await;
             let q = reg.get_mut(station_id).expect("queue exists");
+            q.has_ever_had_listener = true;
             q.idle_since = Some(Instant::now() - IDLE_GRACE - Duration::from_secs(1));
         }
 
@@ -246,10 +310,56 @@ mod tests {
             RadioItemKind::Song,
             "song-2".to_string(),
             "user-a".to_string(),
+            None,
         )
         .await;
         let next = pop_next(station_id).await.expect("new queue after drop");
         assert_eq!(next.item_id, "song-2");
+    }
+
+    #[tokio::test]
+    async fn never_had_a_listener_expires_each_request_individually() {
+        // the actual bug this fix addresses: a station that's never had a
+        // single listener never transitions through mark_idle (only
+        // Broadcaster::leave() calls that, and leave implies a prior
+        // join), so idle_since would stay None forever and the
+        // idle_since-based whole-queue drop above would never fire - a
+        // request sitting in a never-tuned-into station's queue would
+        // otherwise sit there indefinitely.
+        let station_id = "station-never-heard-test";
+        submit(
+            station_id,
+            RadioItemKind::Song,
+            "song-old".to_string(),
+            "user-a".to_string(),
+            None,
+        )
+        .await;
+
+        // backdate just this one request's submitted_at past the grace
+        // period, without ever touching idle_since/has_ever_had_listener -
+        // no listener has ever joined this station.
+        {
+            let mut reg = registry().write().await;
+            let q = reg.get_mut(station_id).expect("queue exists");
+            assert!(!q.has_ever_had_listener);
+            q.items[0].submitted_at = Instant::now() - IDLE_GRACE - Duration::from_secs(1);
+        }
+
+        // a second, fresh request submitted after the first - must
+        // survive the sweep even though the first one expires.
+        submit(
+            station_id,
+            RadioItemKind::Song,
+            "song-new".to_string(),
+            "user-a".to_string(),
+            None,
+        )
+        .await;
+
+        let listed = list(station_id).await;
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].item_id, "song-new");
     }
 
     #[tokio::test]
@@ -260,8 +370,15 @@ mod tests {
             RadioItemKind::Song,
             "song-1".to_string(),
             "user-a".to_string(),
+            None,
         )
         .await;
+        // establish "this station has had a listener before" (a real
+        // mark_idle is always preceded by an earlier mark_active/join in
+        // practice) so the idle_since-based drop path below is actually
+        // the one under test, not sweep_unheard's never-had-a-listener
+        // path.
+        mark_active(station_id).await;
         mark_idle(station_id).await;
         // still within the grace period, but let's confirm mark_active
         // clears idle_since regardless of how much time has passed.
@@ -286,6 +403,7 @@ mod tests {
             RadioItemKind::Song,
             "song-1".to_string(),
             "user-a".to_string(),
+            None,
         )
         .await;
         submit(
@@ -293,6 +411,7 @@ mod tests {
             RadioItemKind::Video,
             "video-1".to_string(),
             "user-b".to_string(),
+            None,
         )
         .await;
 
@@ -319,6 +438,7 @@ mod tests {
             RadioItemKind::Song,
             "song-1".to_string(),
             "user-a".to_string(),
+            None,
         )
         .await;
         submit(
@@ -326,6 +446,7 @@ mod tests {
             RadioItemKind::Song,
             "song-2".to_string(),
             "user-a".to_string(),
+            None,
         )
         .await;
         submit(
@@ -333,6 +454,7 @@ mod tests {
             RadioItemKind::Song,
             "song-3".to_string(),
             "user-a".to_string(),
+            None,
         )
         .await;
 
@@ -354,6 +476,7 @@ mod tests {
             RadioItemKind::Song,
             "song-1".to_string(),
             "user-a".to_string(),
+            None,
         )
         .await;
         assert!(!remove(station_id, "not-a-real-id").await);
@@ -370,6 +493,7 @@ mod tests {
             RadioItemKind::Song,
             "song-1".to_string(),
             "user-a".to_string(),
+            None,
         )
         .await;
         submit(
@@ -377,6 +501,7 @@ mod tests {
             RadioItemKind::Video,
             "video-1".to_string(),
             "user-b".to_string(),
+            None,
         )
         .await;
 

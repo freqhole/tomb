@@ -25,56 +25,23 @@ import { getClientForRemote } from "../../app/api/client";
 import { getCurrentRemote, getDataSource } from "../../music/data";
 import { RemoteMusicDataSource } from "../../music/data/remote/remoteSource";
 import { getRemoteById } from "../../app/services/remotes/remoteManager";
-import { tuneIntoRadio } from "../../app/services/radio/radioService";
 import type { RemoteRef } from "../../app/services/storage/types";
 import { getVideoDataSource } from "../../video/data";
-import { toast, type ToastAction } from "../feedback/Toast";
+import { toast } from "../feedback/Toast";
 import {
   closeStationSelector,
   stationSelectorState,
   type StationSelectorTarget,
 } from "../../music/hooks/stationSelectorState";
-
-interface TuneTarget {
-  peerAddr: string;
-  isLocal: boolean;
-}
-
-// derives tuneIntoRadio's (peerAddr, isLocal) from anything shaped like a
-// Remote/CurrentRemoteInfo - both share these same optional field names,
-// so no type-guard narrowing is needed. mirrors RadioView.tsx's handleTune
-// peer-resolution logic for a `self` source.
-function tuneTargetFor(remote: {
-  is_charnel_managed?: boolean;
-  peer_addr?: string;
-  base_url?: string;
-}): TuneTarget | null {
-  if (remote.is_charnel_managed) return { peerAddr: "self", isLocal: true };
-  if (remote.peer_addr) return { peerAddr: remote.peer_addr, isLocal: false };
-  if (remote.base_url) return { peerAddr: remote.base_url, isLocal: false };
-  return null;
-}
-
-// "listen" toast action for a just-added/created/requested station -
-// undefined (no action button) when the tune target couldn't be resolved,
-// rather than wiring a button that would silently no-op.
-function listenAction(
-  target: TuneTarget | null,
-  stationId: string,
-  stationName: string
-): ToastAction | undefined {
-  if (!target) return undefined;
-  return {
-    label: "listen",
-    onClick: () => {
-      void tuneIntoRadio(target.peerAddr, {
-        stationId,
-        stationName,
-        isLocal: target.isLocal,
-      });
-    },
-  };
-}
+import { isStationContentCompatible, targetMediaKind } from "./stationCompat";
+import {
+  listenAction,
+  submitRequestAndOfferListen,
+  tuneTargetFor,
+  type RequestQueueItem,
+  type TuneTarget,
+} from "./requestStation";
+import { fetchVideoProgressForVideos, pickResumeTarget } from "../../video/queries/progress";
 
 // dispatch the add operation for a given target. every clause is now a
 // real filter row keyed by FK id (track / artist / album / taxon / video
@@ -199,12 +166,16 @@ function canRequest(target: StationSelectorTarget): boolean {
 /** resolves `target` down to the ordered list of song/video ids a
  * request actually queues - only called for a target `canRequest()`
  * already approved. an album/playlist resolves to every one of its
- * songs, in track/playlist order, so they queue and play back-to-back
- * in the right order; every other kind resolves to exactly one item. */
+ * songs, in track/playlist order; a video series resolves to its full
+ * resume-aware episode list (same ordering + resume-position logic
+ * `pickResumeTarget` already provides for a normal "play series" click -
+ * starts from wherever the user left off, not always episode 1, and
+ * carries a `startPositionSeconds` on the first item when there's a
+ * resume target); every other kind resolves to exactly one item. */
 async function resolveRequestItems(
   target: StationSelectorTarget,
   remote: RemoteRef | null
-): Promise<{ kind: "song" | "video"; itemId: string }[] | null> {
+): Promise<RequestQueueItem[] | null> {
   if (target.kind === "songs") {
     return target.songIds[0] ? [{ kind: "song", itemId: target.songIds[0] }] : null;
   }
@@ -237,10 +208,20 @@ async function resolveRequestItems(
     try {
       const detail = await getVideoDataSource().getVideoSeriesDetail(target.seriesId);
       if (!detail) return null;
-      const first = [...detail.seasons.flatMap((s) => s.videos), ...detail.unassignedVideos][0];
-      return first ? [{ kind: "video", itemId: first.id }] : null;
+      const allVideos = [...detail.seasons.flatMap((s) => s.videos), ...detail.unassignedVideos];
+      if (allVideos.length === 0) return null;
+
+      const progress = await fetchVideoProgressForVideos(allVideos);
+      const resumeTarget = pickResumeTarget(allVideos, progress);
+      const startIndex = resumeTarget?.index ?? 0;
+
+      return allVideos.slice(startIndex).map((v, i) => ({
+        kind: "video" as const,
+        itemId: v.id,
+        startPositionSeconds: i === 0 ? resumeTarget?.positionSeconds : undefined,
+      }));
     } catch (err) {
-      console.error("failed to resolve series' first episode for a request:", err);
+      console.error("failed to resolve series episodes for a request:", err);
       return null;
     }
   }
@@ -309,7 +290,12 @@ export function AddToStationModal() {
           const regularClient = await getClientForRemote(requestRemote);
           const result = await regularClient.app.radioStationsFull();
           if (result.success) {
-            setRequestStations(result.data.stations.filter((s) => s.accepts_requests));
+            const kind = targetMediaKind(target);
+            setRequestStations(
+              result.data.stations.filter(
+                (s) => s.accepts_requests && isStationContentCompatible(s.content_mode, kind)
+              )
+            );
           }
         } catch (err) {
           // non-fatal: request-taking stations are a bonus section, and
@@ -427,40 +413,8 @@ export function AddToStationModal() {
 
     setBusy(true);
     try {
-      const client = await getClientForRemote(remote);
-      let submitted = 0;
-      for (const item of items) {
-        // awaited one at a time (not Promise.all) so multi-item targets
-        // (an album) land in the station's FIFO queue in track order.
-        const result = await client.app.radioSubmitRequest({
-          station_id: station.station_id,
-          kind: item.kind,
-          item_id: item.itemId,
-        });
-        if (result.success) {
-          submitted += 1;
-        } else if (items.length === 1) {
-          const msg = result.error.issues[0]?.message || "failed to submit request";
-          toast.error(msg);
-          return;
-        }
-        // for a multi-item (album) request, one failed song shouldn't
-        // abort the rest - just tally it and keep going.
-      }
-      if (submitted === 0) {
-        toast.error("failed to submit request");
-        return;
-      }
-      const label =
-        items.length > 1
-          ? `${submitted}/${items.length} songs from ` + targetLabel(target)
-          : targetLabel(target);
-      toast.success(`requested ${label} on "${station.name}"`, {
-        action: listenAction(tuneTargetFor(remote), station.station_id, station.name),
-      });
-      closeStationSelector();
-    } catch (e) {
-      toast.error(`failed to submit request: ${e instanceof Error ? e.message : String(e)}`);
+      const ok = await submitRequestAndOfferListen(station, items, remote, targetLabel(target));
+      if (ok) closeStationSelector();
     } finally {
       setBusy(false);
     }

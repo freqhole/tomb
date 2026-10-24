@@ -23,6 +23,11 @@ pub struct SubmitRadioRequestRequest {
     /// `"song"` | `"video"`
     pub kind: String,
     pub item_id: String,
+    /// resume where a previous listener left off - when set, the
+    /// broadcaster seeks the encoder to this position before streaming
+    /// this item (see `radio::requests::QueuedRequest::start_position_seconds`).
+    #[serde(default)]
+    pub start_position_seconds: Option<f64>,
 }
 
 /// request for `radio_list_requests`/`radio_clear_requests`.
@@ -200,8 +205,14 @@ pub async fn submit_request(caller: &Caller, body: JsonValue) -> GrimoireRespons
         );
     }
 
-    crate::radio::requests::submit(&req.station_id, kind, req.item_id, caller.user_id.clone())
-        .await;
+    crate::radio::requests::submit(
+        &req.station_id,
+        kind,
+        req.item_id,
+        caller.user_id.clone(),
+        req.start_position_seconds,
+    )
+    .await;
 
     GrimoireResponse::success("request submitted", JsonValue::Null)
 }
